@@ -11649,30 +11649,24 @@ class TerminalController {
         let url: URL?
         if let urlStr {
             let trimmedURLStr = urlStr.trimmingCharacters(in: .whitespacesAndNewlines)
-            // Preserve schemes the app handles internally but resolveBrowserNavigableURL
-            // (http/https/file only) rejects, so the search fallback doesn't turn them into
-            // a query:
-            //   - about:blank: an explicit "open a blank surface" request the rest of the
-            //     browser code treats as a valid blank page.
-            //   - cmux-diff-viewer://<token>/...: the trusted internal diff viewer; turning it
-            //     into a search would also bypass v2RegisterDiffViewerURLIfNeeded below.
-            if trimmedURLStr.caseInsensitiveCompare("about:blank") == .orderedSame,
-               let blank = URL(string: "about:blank") {
-                url = blank
-            } else if let parsed = URL(string: trimmedURLStr),
-                      parsed.scheme?.lowercased() == CmuxDiffViewerURLSchemeHandler.scheme {
+            if let navigable = resolveBrowserNavigableURL(urlStr) {
+                // http/https/file plus host-like inputs (example.com, localhost:3000).
+                url = navigable
+            } else if let parsed = URL(string: trimmedURLStr), parsed.scheme != nil {
+                // Preserve any real-scheme URL the navigable resolver rejects: about:blank,
+                // the trusted cmux-diff-viewer:// scheme, and external app/deep-link schemes
+                // (mailto:, xcode://, ...). The downstream browser-disabled, external-open, and
+                // diff-viewer-registration paths act on the original URL; only scheme-less,
+                // non-navigable input should fall through to a search query.
                 url = parsed
+            } else if let search = BrowserSearchSettings.currentConfiguration().searchURL(query: urlStr) {
+                url = search
             } else {
-                let resolved = resolveBrowserNavigableURL(urlStr)
-                    ?? BrowserSearchSettings.currentConfiguration().searchURL(query: urlStr)
-                guard let resolved else {
-                    return .err(
-                        code: "invalid_params",
-                        message: "Could not resolve URL or search query",
-                        data: ["url": urlStr]
-                    )
-                }
-                url = resolved
+                return .err(
+                    code: "invalid_params",
+                    message: "Could not resolve URL or search query",
+                    data: ["url": urlStr]
+                )
             }
         } else {
             url = nil
