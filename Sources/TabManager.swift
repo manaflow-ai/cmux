@@ -1276,6 +1276,7 @@ class TabManager: ObservableObject {
     // Runs external commands (currently the `gh auth token` probe). Injected so
     // tests can supply a fake without spawning a real process.
     private let commandRunner: any CommandRunning
+    let browserFaviconStore: BrowserFaviconStore
 
     // Reads on-disk git metadata (branch, dirty state, watched paths, remote
     // slugs) off the main actor. Stateless; the reads are pure functions of the
@@ -1298,11 +1299,13 @@ class TabManager: ObservableObject {
         initialTerminalInput: String? = nil,
         autoWelcomeIfNeeded: Bool = true,
         commandRunner: any CommandRunning = CommandRunner(),
+        browserFaviconStore: BrowserFaviconStore = BrowserFaviconStore(),
         gitMetadataService: GitMetadataService = GitMetadataService(),
         workspaceGitMetadataReader: (any WorkspaceGitMetadataReading)? = nil,
         gitPollClock: any GitPollClock = SystemGitPollClock()
     ) {
         self.commandRunner = commandRunner
+        self.browserFaviconStore = browserFaviconStore
         self.gitMetadataService = gitMetadataService
         self.workspaceGitMetadataReader = workspaceGitMetadataReader ?? gitMetadataService
         self.gitPollClock = gitPollClock
@@ -2532,7 +2535,8 @@ class TabManager: ObservableObject {
             configTemplate: configTemplate,
             initialTerminalCommand: initialTerminalCommand,
             initialTerminalInput: initialTerminalInput,
-            initialTerminalEnvironment: initialTerminalEnvironment
+            initialTerminalEnvironment: initialTerminalEnvironment,
+            browserFaviconStore: browserFaviconStore
         )
     }
 
@@ -9765,7 +9769,8 @@ extension TabManager {
             let workspace = Workspace(
                 title: workspaceSnapshot.processTitle,
                 workingDirectory: workspaceSnapshot.currentDirectory,
-                portOrdinal: ordinal
+                portOrdinal: ordinal,
+                browserFaviconStore: browserFaviconStore
             )
             workspace.owningTabManager = self
             let restoredPanelIds = workspace.restoreSessionSnapshot(workspaceSnapshot)
@@ -9778,7 +9783,11 @@ extension TabManager {
         if newTabs.isEmpty {
             let ordinal = Self.nextPortOrdinal
             Self.nextPortOrdinal += 1
-            let fallback = Workspace(title: "Terminal 1", portOrdinal: ordinal)
+            let fallback = Workspace(
+                title: "Terminal 1",
+                portOrdinal: ordinal,
+                browserFaviconStore: browserFaviconStore
+            )
             fallback.owningTabManager = self
             wireClosedBrowserTracking(for: fallback)
             newTabs.append(fallback)
