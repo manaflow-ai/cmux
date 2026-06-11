@@ -17,10 +17,6 @@
 		D36A00030000000000000001 /* AgentHibernationLifecycleState.swift in Sources */ = {isa = PBXBuildFile; fileRef = D36A00030000000000000002 /* AgentHibernationLifecycleState.swift */; };
 		D36A00030000000000000003 /* AgentHibernationLifecycleState.swift in Sources */ = {isa = PBXBuildFile; fileRef = D36A00030000000000000002 /* AgentHibernationLifecycleState.swift */; };
 		D36A00020000000000000001 /* AgentHibernationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D36A00020000000000000002 /* AgentHibernationTests.swift */; };
-		D4331A040000000000000001 /* AgentLaunchEnvironmentPolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = D4331B040000000000000001 /* AgentLaunchEnvironmentPolicy.swift */; };
-		D4331A010000000000000001 /* AgentLaunchSanitizer.swift in Sources */ = {isa = PBXBuildFile; fileRef = D4331B010000000000000001 /* AgentLaunchSanitizer.swift */; };
-		D4331A030000000000000001 /* AgentLaunchSanitizerAdditionalPolicies.swift in Sources */ = {isa = PBXBuildFile; fileRef = D4331B030000000000000001 /* AgentLaunchSanitizerAdditionalPolicies.swift */; };
-		D4331A020000000000000001 /* AgentLaunchSanitizerPrimaryPolicies.swift in Sources */ = {isa = PBXBuildFile; fileRef = D4331B020000000000000001 /* AgentLaunchSanitizerPrimaryPolicies.swift */; };
 		D3610B010000000000000001 /* AgentSessionAutoResumeSettingsTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D3610B010000000000000002 /* AgentSessionAutoResumeSettingsTests.swift */; };
 		A9E020000000000000000008 /* AgentSessionBridge.swift in Sources */ = {isa = PBXBuildFile; fileRef = A9E010000000000000000008 /* AgentSessionBridge.swift */; };
 		A9F20000000000000000000B /* AgentSessionBridgeError.swift in Sources */ = {isa = PBXBuildFile; fileRef = A9F10000000000000000000B /* AgentSessionBridgeError.swift */; };
@@ -385,7 +381,6 @@
 		C1ADE10002A1B2C3D4E5F719 /* grok in Copy CLI */ = {isa = PBXBuildFile; fileRef = C1ADE10001A1B2C3D4E5F719 /* grok */; };
 		C0DE34020000000000000005 /* HelpMenuUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE34020000000000000006 /* HelpMenuUITests.swift */; };
 		CAFEC0DE0000000000000000 /* HermesAgentCodexEnvironment.swift in Sources */ = {isa = PBXBuildFile; fileRef = CAFEC0DE0000000000000001 /* HermesAgentCodexEnvironment.swift */; };
-		D4331A060000000000000001 /* HermesAgentHookConfig.swift in Sources */ = {isa = PBXBuildFile; fileRef = D4331B060000000000000001 /* HermesAgentHookConfig.swift */; };
 		F5320000A1B2C3D4E5F60718 /* HermesAgentIndex.swift in Sources */ = {isa = PBXBuildFile; fileRef = F5320001A1B2C3D4E5F60718 /* HermesAgentIndex.swift */; };
 		CAFE5E550000000000000000 /* HermesAgentSessionResolver.swift in Sources */ = {isa = PBXBuildFile; fileRef = CAFE5E550000000000000001 /* HermesAgentSessionResolver.swift */; };
 		CD0CFE6000000000CD0CFE60 /* HostAccountFlow.swift in Sources */ = {isa = PBXBuildFile; fileRef = CD0CFE6100000000CD0CFE61 /* HostAccountFlow.swift */; };
@@ -521,11 +516,9 @@
 		FE0031A3 /* RightSidebarToolPanel.swift in Sources */ = {isa = PBXBuildFile; fileRef = FE0030A3 /* RightSidebarToolPanel.swift */; };
 		C46790000000000000000005 /* RosettaNativeRelaunch.swift in Sources */ = {isa = PBXBuildFile; fileRef = C46790000000000000000006 /* RosettaNativeRelaunch.swift */; };
 		C46790000000000000000007 /* RosettaNativeRelaunchTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C46790000000000000000008 /* RosettaNativeRelaunchTests.swift */; };
-		D4331A050000000000000001 /* RovoDevHookConfig.swift in Sources */ = {isa = PBXBuildFile; fileRef = D4331B050000000000000001 /* RovoDevHookConfig.swift */; };
 		F5310000A1B2C3D4E5F60718 /* RovoDevHookConfigTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F5310001A1B2C3D4E5F60718 /* RovoDevHookConfigTests.swift */; };
 		FE003105 /* RovoDevIndex.swift in Sources */ = {isa = PBXBuildFile; fileRef = FE003005 /* RovoDevIndex.swift */; };
 		F5300000A1B2C3D4E5F60718 /* RovoDevSessionIndexTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F5300001A1B2C3D4E5F60718 /* RovoDevSessionIndexTests.swift */; };
-		D4331A070000000000000001 /* RovoDevSessionResolver.swift in Sources */ = {isa = PBXBuildFile; fileRef = D4331B070000000000000001 /* RovoDevSessionResolver.swift */; };
 		FE003107 /* RovoDevTranscriptPreview.swift in Sources */ = {isa = PBXBuildFile; fileRef = FE003007 /* RovoDevTranscriptPreview.swift */; };
 		F5300002A1B2C3D4E5F60718 /* RovoDevTranscriptPreviewTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F5300003A1B2C3D4E5F60718 /* RovoDevTranscriptPreviewTests.swift */; };
 		E8BA79E246754A8B99A0B823 /* ScreenIdentity.swift in Sources */ = {isa = PBXBuildFile; fileRef = 47D5AA7D29C94F5CA865B2BF /* ScreenIdentity.swift */; };
@@ -838,10 +831,6 @@
 		D36A00010000000000000002 /* AgentHibernationController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/AgentHibernationController.swift; sourceTree = "<group>"; };
 		D36A00030000000000000002 /* AgentHibernationLifecycleState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentHibernation/AgentHibernationLifecycleState.swift; sourceTree = "<group>"; };
 		D36A00020000000000000002 /* AgentHibernationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentHibernationTests.swift; sourceTree = "<group>"; };
-		D4331B040000000000000001 /* AgentLaunchEnvironmentPolicy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Packages/CMUXAgentLaunch/Sources/CMUXAgentLaunch/AgentLaunchEnvironmentPolicy.swift; sourceTree = SOURCE_ROOT; };
-		D4331B010000000000000001 /* AgentLaunchSanitizer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Packages/CMUXAgentLaunch/Sources/CMUXAgentLaunch/AgentLaunchSanitizer.swift; sourceTree = SOURCE_ROOT; };
-		D4331B030000000000000001 /* AgentLaunchSanitizerAdditionalPolicies.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Packages/CMUXAgentLaunch/Sources/CMUXAgentLaunch/AgentLaunchSanitizerAdditionalPolicies.swift; sourceTree = SOURCE_ROOT; };
-		D4331B020000000000000001 /* AgentLaunchSanitizerPrimaryPolicies.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Packages/CMUXAgentLaunch/Sources/CMUXAgentLaunch/AgentLaunchSanitizerPrimaryPolicies.swift; sourceTree = SOURCE_ROOT; };
 		D3610B010000000000000002 /* AgentSessionAutoResumeSettingsTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentSessionAutoResumeSettingsTests.swift; sourceTree = "<group>"; };
 		A9E010000000000000000008 /* AgentSessionBridge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/AgentSessionBridge.swift; sourceTree = "<group>"; };
 		A9F10000000000000000000B /* AgentSessionBridgeError.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/AgentSessionBridgeError.swift; sourceTree = "<group>"; };
@@ -1171,7 +1160,6 @@
 		C1ADE10001A1B2C3D4E5F719 /* grok */ = {isa = PBXFileReference; lastKnownFileType = text.script.sh; path = Resources/bin/grok; sourceTree = SOURCE_ROOT; };
 		C0DE34020000000000000006 /* HelpMenuUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HelpMenuUITests.swift; sourceTree = "<group>"; };
 		CAFEC0DE0000000000000001 /* HermesAgentCodexEnvironment.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Packages/CMUXAgentLaunch/Sources/CMUXAgentLaunch/HermesAgentCodexEnvironment.swift; sourceTree = SOURCE_ROOT; };
-		D4331B060000000000000001 /* HermesAgentHookConfig.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Packages/CMUXAgentLaunch/Sources/CMUXAgentLaunch/HermesAgentHookConfig.swift; sourceTree = SOURCE_ROOT; };
 		F5320001A1B2C3D4E5F60718 /* HermesAgentIndex.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HermesAgentIndex.swift; sourceTree = "<group>"; };
 		CAFE5E550000000000000001 /* HermesAgentSessionResolver.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Packages/CMUXAgentLaunch/Sources/CMUXAgentLaunch/HermesAgentSessionResolver.swift; sourceTree = SOURCE_ROOT; };
 		C10D51800000000000000001 /* HistoryPanelView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HistoryPanelView.swift; sourceTree = "<group>"; };
@@ -1302,11 +1290,9 @@
 		FE0030A3 /* RightSidebarToolPanel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RightSidebarToolPanel.swift; sourceTree = "<group>"; };
 		C46790000000000000000006 /* RosettaNativeRelaunch.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/RosettaNativeRelaunch.swift; sourceTree = "<group>"; };
 		C46790000000000000000008 /* RosettaNativeRelaunchTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RosettaNativeRelaunchTests.swift; sourceTree = "<group>"; };
-		D4331B050000000000000001 /* RovoDevHookConfig.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Packages/CMUXAgentLaunch/Sources/CMUXAgentLaunch/RovoDevHookConfig.swift; sourceTree = SOURCE_ROOT; };
 		F5310001A1B2C3D4E5F60718 /* RovoDevHookConfigTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RovoDevHookConfigTests.swift; sourceTree = "<group>"; };
 		FE003005 /* RovoDevIndex.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RovoDevIndex.swift; sourceTree = "<group>"; };
 		F5300001A1B2C3D4E5F60718 /* RovoDevSessionIndexTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RovoDevSessionIndexTests.swift; sourceTree = "<group>"; };
-		D4331B070000000000000001 /* RovoDevSessionResolver.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Packages/CMUXAgentLaunch/Sources/CMUXAgentLaunch/RovoDevSessionResolver.swift; sourceTree = SOURCE_ROOT; };
 		FE003007 /* RovoDevTranscriptPreview.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RovoDevTranscriptPreview.swift; sourceTree = "<group>"; };
 		F5300003A1B2C3D4E5F60718 /* RovoDevTranscriptPreviewTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RovoDevTranscriptPreviewTests.swift; sourceTree = "<group>"; };
 		47D5AA7D29C94F5CA865B2BF /* ScreenIdentity.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/ScreenIdentity.swift; sourceTree = "<group>"; };
@@ -2191,15 +2177,8 @@
 				B9000073A1B2C3D4E5F60719 /* CMUXCLI+OmpExtension.swift */,
 				B9000070A1B2C3D4E5F60719 /* CMUXCLI+Memory.swift */,
 				B9000031A1B2C3D4E5F60719 /* CMUXCLI+DocsSettings.swift */,
-				D4331B010000000000000001 /* AgentLaunchSanitizer.swift */,
-				D4331B020000000000000001 /* AgentLaunchSanitizerPrimaryPolicies.swift */,
-				D4331B030000000000000001 /* AgentLaunchSanitizerAdditionalPolicies.swift */,
-				D4331B040000000000000001 /* AgentLaunchEnvironmentPolicy.swift */,
-				D4331B050000000000000001 /* RovoDevHookConfig.swift */,
-				D4331B060000000000000001 /* HermesAgentHookConfig.swift */,
 				CAFEC0DE0000000000000001 /* HermesAgentCodexEnvironment.swift */,
 				CAFE5E550000000000000001 /* HermesAgentSessionResolver.swift */,
-				D4331B070000000000000001 /* RovoDevSessionResolver.swift */,
 				B900002DA1B2C3D4E5F60719 /* CMUXCLI+ThemeSupport.swift */,
 				B900002CA1B2C3D4E5F60719 /* CMUXCLI+Themes.swift */,
 				B9000032A1B2C3D4E5F60719 /* CMUXCLI+TopRendering.swift */,
@@ -3237,10 +3216,6 @@
 			buildActionMask = 2147483647;
 			files = (
 				D36A00030000000000000003 /* AgentHibernationLifecycleState.swift in Sources */,
-					D4331A040000000000000001 /* AgentLaunchEnvironmentPolicy.swift in Sources */,
-					D4331A010000000000000001 /* AgentLaunchSanitizer.swift in Sources */,
-					D4331A030000000000000001 /* AgentLaunchSanitizerAdditionalPolicies.swift in Sources */,
-					D4331A020000000000000001 /* AgentLaunchSanitizerPrimaryPolicies.swift in Sources */,
 				B900004AA1B2C3D4E5F60719 /* CLISocketPathResolver.swift in Sources */,
 				B9000002A1B2C3D4E5F60719 /* cmux.swift in Sources */,
 				B9000034A1B2C3D4E5F60719 /* cmux_open.swift in Sources */,
@@ -3266,14 +3241,11 @@
 				C0DECAFE0000000000000001 /* CodexTeamsApprovalBridge.swift in Sources */,
 					FEEDC1A50000000000000001 /* FeedEventClassifier.swift in Sources */,
 					CAFEC0DE0000000000000000 /* HermesAgentCodexEnvironment.swift in Sources */,
-					D4331A060000000000000001 /* HermesAgentHookConfig.swift in Sources */,
 					CAFE5E550000000000000000 /* HermesAgentSessionResolver.swift in Sources */,
 				C0DEF0B10000000000000003 /* JSONCParser.swift in Sources */,
 				C47110020000000000000003 /* ProcessPipeReader.swift in Sources */,
 				B9000028A1B2C3D4E5F60719 /* RemoteInteractiveShellBootstrapBuilder.swift in Sources */,
 				B9000027A1B2C3D4E5F60719 /* RemoteRelayZshBootstrap.swift in Sources */,
-					D4331A050000000000000001 /* RovoDevHookConfig.swift in Sources */,
-					D4331A070000000000000001 /* RovoDevSessionResolver.swift in Sources */,
 				5E2701020000000000000003 /* SentryEventScrubber.swift in Sources */,
 				C510C1E00000000000000002 /* SocketOperationTelemetry.swift in Sources */,
 			);
