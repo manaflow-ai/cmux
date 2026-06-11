@@ -68,6 +68,16 @@ enum AgentHibernationLifecycleState: String, Codable, Sendable, Equatable, CaseI
     /// recorded idle completion notification as `idle`. This lets plugin/no-emit
     /// agents (e.g. opencode) become hibernation-eligible like codex when they
     /// finish, instead of being stuck at `unknown`.
+    ///
+    /// Safety note: both the explicit `agentLifecycle == .idle` path and the
+    /// `lastNotificationStatus == "idle"` fallback can return stale data after an
+    /// app restart — the persisted idle was from a previous completed turn, but the
+    /// agent may have started a new turn before the restart. Callers MUST guard the
+    /// returned `.idle` value with a durable `hasUnconfirmedTerminalInput` check
+    /// that merges the persisted terminal-input timestamp against the persisted hook
+    /// store update time (`max(durableTerminalInputAt, inMemoryInputAt) >
+    /// max(indexActivity, inMemoryLifecycleChangeAt)`), so that input typed before
+    /// the restart is not silently dropped when both in-memory counters reset to zero.
     static func effective(
         agentLifecycle: AgentHibernationLifecycleState?,
         lastNotificationStatus: String?

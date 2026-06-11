@@ -83,6 +83,18 @@ final class AgentHibernationController {
     private var lifecycleChangeByPanel: [AgentHibernationPanelKey: TimeInterval] = [:]
     private var confirmations: [AgentHibernationPanelKey: Confirmation] = [:]
     private var tailFingerprintSamples: [AgentHibernationPanelKey: TailFingerprintSample] = [:]
+    // Terminal input timestamps keyed by panelId only, loaded from disk so they survive
+    // app restarts. Without this, after a crash/restart the in-memory terminalInputByPanel
+    // resets to 0, making hasUnconfirmedTerminalInput always false for post-restart inputs,
+    // which can let a no-emit agent's stale .idle lifecycle trigger false hibernation.
+    private var durableTerminalInputByPanelId: [UUID: TimeInterval] = [:]
+    private var durableInputWritePending = false
+
+    private static let durableInputStoreURL: URL = {
+        URL(fileURLWithPath: NSHomeDirectory(), isDirectory: true)
+            .appendingPathComponent(".cmuxterm", isDirectory: true)
+            .appendingPathComponent("agent-panel-input-times.json", isDirectory: false)
+    }()
 
     private init() {}
 
@@ -91,6 +103,7 @@ final class AgentHibernationController {
             updateTimerForCurrentSettings()
             return
         }
+        durableTerminalInputByPanelId = Self.loadDurableInputStore()
         settingsObserver = NotificationCenter.default.addObserver(
             forName: AgentHibernationSettings.didChangeNotification,
             object: nil,
@@ -101,6 +114,35 @@ final class AgentHibernationController {
             }
         }
         updateTimerForCurrentSettings()
+    }
+
+    private static func loadDurableInputStore() -> [UUID: TimeInterval] {
+        guard let data = try? Data(contentsOf: durableInputStoreURL),
+              let stored = try? JSONDecoder().decode([String: TimeInterval].self, from: data) else {
+            return [:]
+        }
+        return Dictionary(uniqueKeysWithValues: stored.compactMap { key, value in
+            UUID(uuidString: key).map { ($0, value) }
+        })
+    }
+
+    private func scheduleDurableInputWrite() {
+        guard !durableInputWritePending else { return }
+        durableInputWritePending = true
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1) { [weak self] in
+            self?.flushDurableInputStore()
+        }
+    }
+
+    private func flushDurableInputStore() {
+        durableInputWritePending = false
+        let snapshot = Dictionary(
+            uniqueKeysWithValues: durableTerminalInputByPanelId.map { ($0.key.uuidString, $0.value) }
+        )
+        timerQueue.async {
+            guard let data = try? JSONEncoder().encode(snapshot) else { return }
+            try? data.write(to: Self.durableInputStoreURL, options: .atomic)
+        }
     }
 
     func stop() {
@@ -118,7 +160,12 @@ final class AgentHibernationController {
         guard AgentHibernationTrackingGate.isEnabled() else { return }
         let recordedAt = recordedAt ?? Date()
         let key = recordActivity(workspaceId: workspaceId, panelId: panelId, recordedAt: recordedAt)
-        terminalInputByPanel[key] = recordedAt.timeIntervalSince1970
+        let timestamp = recordedAt.timeIntervalSince1970
+        terminalInputByPanel[key] = timestamp
+        // Persist so that after a restart the planner can still detect new input that
+        // arrived after the agent's last idle signal, preventing stale-idle hibernation.
+        durableTerminalInputByPanelId[panelId] = max(durableTerminalInputByPanelId[panelId] ?? 0, timestamp)
+        scheduleDurableInputWrite()
     }
 
     func recordTerminalFocus(workspaceId: UUID, panelId: UUID, recordedAt: Date? = nil) {
@@ -185,7 +232,8 @@ final class AgentHibernationController {
             index: index,
             activityByPanel: activityByPanel,
             terminalInputByPanel: terminalInputByPanel,
-            lifecycleChangeByPanel: lifecycleChangeByPanel
+            lifecycleChangeByPanel: lifecycleChangeByPanel,
+            durableTerminalInputByPanelId: durableTerminalInputByPanelId
         )
         let nowTime = now.timeIntervalSince1970
         let isLiveByKey = Dictionary(uniqueKeysWithValues: records.map { record in
@@ -394,6 +442,8 @@ final class AgentHibernationController {
         lifecycleChangeByPanel.removeAll(keepingCapacity: false)
         confirmations.removeAll(keepingCapacity: false)
         tailFingerprintSamples.removeAll(keepingCapacity: false)
+        // durableTerminalInputByPanelId is intentionally NOT cleared: it persists across
+        // settings-disabled / re-enabled cycles so input history is not lost mid-session.
     }
 
     private func pruneTrackingState(
@@ -407,6 +457,12 @@ final class AgentHibernationController {
             currentKeys.contains(key) && selectedKeys.contains(key)
         }
         tailFingerprintSamples = tailFingerprintSamples.filter { currentKeys.contains($0.key) }
+        let currentPanelIds = Set(currentKeys.map(\.panelId))
+        let pruned = durableTerminalInputByPanelId.filter { currentPanelIds.contains($0.key) }
+        if pruned.count != durableTerminalInputByPanelId.count {
+            durableTerminalInputByPanelId = pruned
+            scheduleDurableInputWrite()
+        }
     }
 }
 
@@ -416,7 +472,8 @@ extension AppDelegate {
         index: RestorableAgentSessionIndex,
         activityByPanel: [AgentHibernationPanelKey: TimeInterval],
         terminalInputByPanel: [AgentHibernationPanelKey: TimeInterval],
-        lifecycleChangeByPanel: [AgentHibernationPanelKey: TimeInterval]
+        lifecycleChangeByPanel: [AgentHibernationPanelKey: TimeInterval],
+        durableTerminalInputByPanelId: [UUID: TimeInterval] = [:]
     ) -> [AgentHibernationRecord] {
         var records: [AgentHibernationRecord] = []
         var seenManagers: Set<ObjectIdentifier> = []
@@ -437,8 +494,19 @@ extension AppDelegate {
                     let key = AgentHibernationPanelKey(workspaceId: workspace.id, panelId: panelId)
                     let indexActivity = index.updatedAt(workspaceId: workspace.id, panelId: panelId) ?? 0
                     let localActivity = activityByPanel[key] ?? 0
-                    let terminalInputAt = terminalInputByPanel[key] ?? 0
+                    // Merge in-memory and durable terminal-input timestamps so that input
+                    // recorded before an app restart is not lost (in-memory resets to 0 on restart).
+                    let terminalInputAt = max(
+                        terminalInputByPanel[key] ?? 0,
+                        durableTerminalInputByPanelId[panelId] ?? 0
+                    )
                     let lifecycleChangeAt = lifecycleChangeByPanel[key] ?? 0
+                    // Use indexActivity (persisted hook-store update time) as the durable
+                    // lifecycle-change baseline. Without this, lifecycleChangeAt resets to 0
+                    // on restart, making every terminal input appear "after" the last lifecycle
+                    // change and permanently blocking hibernation for agents that completed their
+                    // last turn before the restart.
+                    let durableLifecycleChangeAt = max(indexActivity, lifecycleChangeAt)
                     let createdAt = terminalPanel.surface.debugRuntimeSurfaceCreatedAt()?.timeIntervalSince1970
                         ?? terminalPanel.surface.debugCreatedAt().timeIntervalSince1970
                     let lifecycle = workspace.agentHibernationLifecycleState(
@@ -452,7 +520,7 @@ extension AppDelegate {
                             terminalPanel: terminalPanel,
                             agent: agent,
                             lifecycle: lifecycle,
-                            hasUnconfirmedTerminalInput: terminalInputAt > lifecycleChangeAt,
+                            hasUnconfirmedTerminalInput: terminalInputAt > durableLifecycleChangeAt,
                             lastActivityAt: max(indexActivity, localActivity, createdAt),
                             isProtected: workspaceIsVisible && visiblePanelIds.contains(panelId),
                             hasLiveProcess: index.hasLiveProcess(workspaceId: workspace.id, panelId: panelId),

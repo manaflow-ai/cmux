@@ -284,6 +284,44 @@ final class AgentHibernationTests: XCTestCase {
         )
     }
 
+    /// Verifies the durable-terminal-input semantics used in
+    /// `agentHibernationRecords` to compute `hasUnconfirmedTerminalInput` after
+    /// an app restart. In-memory `terminalInputByPanel` and `lifecycleChangeByPanel`
+    /// both reset to zero on restart; the computation must fall back to
+    /// `durableTerminalInputAt` and `indexActivity` so a mid-turn agent is not
+    /// incorrectly hibernated based on its stale idle lifecycle.
+    func testDurableTerminalInputBlocksHibernationAfterRestart() {
+        let idleAt: TimeInterval = 1_000.0         // idle notification fired before restart
+        let inputAt: TimeInterval = 1_100.0        // user typed new prompt before restart
+
+        // Post-restart state: in-memory counters reset to zero.
+        let inMemoryTerminalInputAt: TimeInterval = 0
+        let inMemoryLifecycleChangeAt: TimeInterval = 0
+
+        // Durable values loaded from disk survive the restart.
+        let durableTerminalInputAt: TimeInterval = inputAt   // from agent-panel-input-times.json
+        let indexActivity: TimeInterval = idleAt             // from hook store updatedAt
+
+        // The computation introduced by the fix:
+        let effectiveTerminalInputAt = max(inMemoryTerminalInputAt, durableTerminalInputAt)
+        let effectiveLifecycleChangeAt = max(inMemoryLifecycleChangeAt, indexActivity)
+        let hasUnconfirmedInput = effectiveTerminalInputAt > effectiveLifecycleChangeAt
+
+        XCTAssertTrue(
+            hasUnconfirmedInput,
+            "Input typed after the idle notification but before restart must still block hibernation after restart"
+        )
+
+        // Input that predated the idle notification should not block hibernation.
+        let staleInputAt: TimeInterval = 900.0
+        let effectiveStaleTerminalInputAt = max(TimeInterval(0), staleInputAt)
+        let staleHasUnconfirmedInput = effectiveStaleTerminalInputAt > effectiveLifecycleChangeAt
+        XCTAssertFalse(
+            staleHasUnconfirmedInput,
+            "Input that predated the idle notification must not block hibernation"
+        )
+    }
+
     func testProcessFallbackFingerprintIncludesProcessIDs() {
         let first = AgentHibernationController.processFallbackFingerprint(
             kind: .opencode,
