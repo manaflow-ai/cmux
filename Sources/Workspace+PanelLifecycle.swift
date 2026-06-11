@@ -110,6 +110,20 @@ extension Workspace {
         return didClearOtherStructuredAgentRuntime
     }
 
+    /// Records an agent PID that is coupled to a visible sidebar status entry
+    /// (the `set_status --pid` path, which inserts the status first and records
+    /// the PID afterward). If the status entry did not survive the status cap —
+    /// e.g. a flood of low-priority keys that each self-evict on insert while the
+    /// workspace is already at cap with higher-priority entries — the PID is not
+    /// retained, so the coupled `agentPIDs` / ownership / port-scan state stays
+    /// bounded too (#5845). `set_agent_pid`, which intentionally tracks a PID
+    /// without any status entry, must keep using `recordAgentPID` directly.
+    @discardableResult
+    func recordAgentPIDForSurvivingStatusKey(_ key: String, pid: pid_t, panelId: UUID?) -> Bool {
+        guard statusEntries[key] != nil else { return false }
+        return recordAgentPID(key: key, pid: pid, panelId: panelId)
+    }
+
     func suppressesRawTerminalNotification(panelId: UUID?) -> Bool {
         guard let panelId else {
             return false
