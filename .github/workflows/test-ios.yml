@@ -13,6 +13,7 @@ on:
       - "vendor/stack-auth-swift-sdk-prerelease/**"
       - "scripts/lint-ios-package-conventions.sh"
       - "Native/cmux-iroh/**"
+      - "Packages/CmuxIrohFFI/**"
       - "scripts/ensure-cmux-iroh.sh"
       - "scripts/install-rust-ci.sh"
       - ".github/workflows/test-ios.yml"
@@ -67,7 +68,7 @@ jobs:
           fi
           BASE_MERGE_BASE="$(git merge-base "$BASE_SHA" "$HEAD_SHA")"
           git diff --name-only "$BASE_MERGE_BASE" "$HEAD_SHA" > /tmp/changed-files.txt
-          if grep -Eq '^(ios/|Packages/CMUXAuthCore/|Packages/CMUXMobileCore/|Packages/CmuxAuthRuntime/|Packages/CmuxMobile[^/]*/|Packages/CMUXMobile[^/]*/|Sources/Mobile/|vendor/stack-auth-swift-sdk-prerelease/|scripts/lint-ios-package-conventions\.sh$|Native/cmux-iroh/|scripts/ensure-cmux-iroh\.sh$)' /tmp/changed-files.txt; then
+          if grep -Eq '^(ios/|Packages/CMUXAuthCore/|Packages/CMUXMobileCore/|Packages/CmuxAuthRuntime/|Packages/CmuxMobile[^/]*/|Packages/CMUXMobile[^/]*/|Sources/Mobile/|vendor/stack-auth-swift-sdk-prerelease/|scripts/lint-ios-package-conventions\.sh$|Native/cmux-iroh/|Packages/CmuxIrohFFI/|scripts/ensure-cmux-iroh\.sh$)' /tmp/changed-files.txt; then
             echo "should_run=true" >> "$GITHUB_OUTPUT"
           else
             echo "No iOS-owned files changed; skipping iOS tests."
