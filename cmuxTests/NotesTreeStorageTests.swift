@@ -457,6 +457,36 @@ import Testing
         #expect(try CmuxNoteStore.list(projectRoot: projectRoot).first { $0.slug == "tracked" } == nil)
     }
 
+    /// A committed symlink AT `.cmux/notes` (or `.cmux`) re-roots the entire
+    /// containment boundary; both the flat store and the tree must refuse to
+    /// operate instead of trusting the link target as the notes root.
+    @Test func symlinkedNotesDirectoryDisablesNoteStorage() throws {
+        let outside = (projectRoot as NSString).appendingPathComponent("elsewhere")
+        try fm.createDirectory(atPath: outside, withIntermediateDirectories: true)
+        let cmuxDir = (projectRoot as NSString).appendingPathComponent(".cmux")
+        try fm.createDirectory(atPath: cmuxDir, withIntermediateDirectories: true)
+        try fm.createSymbolicLink(
+            atPath: (cmuxDir as NSString).appendingPathComponent("notes"),
+            withDestinationPath: outside
+        )
+
+        #expect(throws: CmuxNoteStoreError.self) {
+            _ = try CmuxNoteStore.createOrOpen(
+                slug: "escape", projectRoot: projectRoot, createIfMissing: true
+            )
+        }
+        #expect(throws: CmuxNoteStoreError.self) {
+            _ = try CmuxNoteStore.list(projectRoot: projectRoot)
+        }
+        #expect(throws: NotesTreeStorageError.self) {
+            try NotesTreeStorage.ensureWorkspaceRoot(
+                projectRoot: projectRoot, cwd: "/work", title: "WS", anchorId: "anchor-evil"
+            )
+        }
+        // Nothing was created through the link.
+        #expect((try? fm.contentsOfDirectory(atPath: outside))?.isEmpty == true)
+    }
+
     /// The index-path confinement fallback must never return a path whose
     /// final component is a committed symlink — that is the same link that
     /// caused the escape, and note read/write/append would follow it out.

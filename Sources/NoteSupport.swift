@@ -94,6 +94,24 @@ enum NoteSupport {
             .appendingPathComponent("notes")
     }
 
+    /// `.cmux` and `.cmux/notes` must be real directories (when present): a
+    /// repository committing either as a symlink would re-root the notes
+    /// containment boundary wherever the link points, and note IO could then
+    /// read or overwrite files outside the project's notes directory.
+    /// Ancestor symlinks (e.g. `/tmp -> /private/tmp`) stay legal — only the
+    /// two project-controlled components are checked.
+    static func projectNotesDirectoryIsTrusted(projectRoot root: String) -> Bool {
+        let fm = FileManager.default
+        let cmuxDir = (root as NSString).appendingPathComponent(".cmux")
+        let notesDir = (cmuxDir as NSString).appendingPathComponent("notes")
+        for path in [cmuxDir, notesDir] {
+            if ((try? fm.attributesOfItem(atPath: path))?[.type] as? FileAttributeType) == .typeSymbolicLink {
+                return false
+            }
+        }
+        return true
+    }
+
     /// Absolute path to `<root>/.cmux/notes/<slug>.md` (does not create).
     static func notePath(forSlug slug: String, projectRoot: String) -> String {
         (notesDirectory(forProjectRoot: projectRoot) as NSString)

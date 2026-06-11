@@ -508,6 +508,12 @@ enum CmuxNoteStore {
     }
 
     private static func loadIndex(projectRoot: String) throws -> IndexFile {
+        // Every store operation reads the index first (and writes through
+        // writeIndex), so gating both here keeps all note IO behind the
+        // symlinked-`.cmux/notes` trust check.
+        guard NoteSupport.projectNotesDirectoryIsTrusted(projectRoot: projectRoot) else {
+            throw CmuxNoteStoreError.untrustedNotesDirectory
+        }
         let path = indexPath(forProjectRoot: projectRoot)
         let fs = FileManager.default
         let legacy = legacyNotes(projectRoot: projectRoot)
@@ -525,6 +531,9 @@ enum CmuxNoteStore {
     }
 
     private static func writeIndex(_ index: IndexFile, projectRoot: String) throws {
+        guard NoteSupport.projectNotesDirectoryIsTrusted(projectRoot: projectRoot) else {
+            throw CmuxNoteStoreError.untrustedNotesDirectory
+        }
         let dir = NoteSupport.notesDirectory(forProjectRoot: projectRoot)
         let fs = FileManager.default
         try fs.createDirectory(atPath: dir, withIntermediateDirectories: true, attributes: nil)

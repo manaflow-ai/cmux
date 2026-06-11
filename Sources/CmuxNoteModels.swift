@@ -154,6 +154,7 @@ struct CmuxNoteWriteResult: Equatable, Sendable {
 enum CmuxNoteStoreError: Error, LocalizedError {
     case noteNotFound(slug: String)
     case corruptIndex(String)
+    case untrustedNotesDirectory
 
     var errorDescription: String? {
         switch self {
@@ -168,6 +169,11 @@ enum CmuxNoteStoreError: Error, LocalizedError {
                 format: String(localized: "note.error.corruptIndex", defaultValue: "Note index is invalid: %@"),
                 locale: .current,
                 detail
+            )
+        case .untrustedNotesDirectory:
+            return String(
+                localized: "note.error.untrustedNotesDirectory",
+                defaultValue: "Notes are disabled for this project: .cmux/notes is a symlink."
             )
         }
     }

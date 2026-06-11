@@ -232,6 +232,11 @@ enum NotesTreeStorage {
     static func ensureWorkspaceRoot(
         projectRoot: String, cwd: String, title: String, anchorId: String? = nil
     ) throws -> String {
+        // A symlinked `.cmux`/`.cmux/notes` would make createDirectory and
+        // every tree operation land wherever the link points.
+        guard NoteSupport.projectNotesDirectoryIsTrusted(projectRoot: projectRoot) else {
+            throw NotesTreeStorageError.untrustedNotesDirectory
+        }
         let normalizedCwd = (cwd as NSString).standardizingPath
         let root = resolveWorkspaceRoot(projectRoot: projectRoot, cwd: normalizedCwd, anchorId: anchorId)
         try FileManager.default.createDirectory(atPath: root, withIntermediateDirectories: true)
@@ -805,9 +810,15 @@ enum NotesTreeStorageError: Error, LocalizedError {
     case invalidMove
     case invalidName
     case writeFailed(String)
+    case untrustedNotesDirectory
 
     var errorDescription: String? {
         switch self {
+        case .untrustedNotesDirectory:
+            return String(
+                localized: "note.error.untrustedNotesDirectory",
+                defaultValue: "Notes are disabled for this project: .cmux/notes is a symlink."
+            )
         case .sourceMissing(let path):
             return String(
                 format: String(localized: "notes.error.sourceMissing", defaultValue: "Note no longer exists: %@"),

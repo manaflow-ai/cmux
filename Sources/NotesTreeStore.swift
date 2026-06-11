@@ -193,6 +193,13 @@ final class NotesTreeStore: ObservableObject {
     /// notes whose pane maps to a recorded session nest under that session's
     /// row.
     func reload() {
+        // A symlinked `.cmux`/`.cmux/notes` re-roots every path below it;
+        // refuse to render (or later mutate) such a tree at all.
+        if let projectRoot, !NoteSupport.projectNotesDirectoryIsTrusted(projectRoot: projectRoot) {
+            rootNodes = []
+            contentRevision &+= 1
+            return
+        }
         guard let root = resolvedRootPath else {
             rootNodes = []
             contentRevision &+= 1
@@ -636,6 +643,9 @@ final class NotesTreeStore: ObservableObject {
     /// A path the tree may rename/delete: inside `.cmux/notes`, but never the
     /// notes directory itself nor the workspace's own root folder.
     private func isMutablePath(_ path: String) -> Bool {
+        if let projectRoot, !NoteSupport.projectNotesDirectoryIsTrusted(projectRoot: projectRoot) {
+            return false
+        }
         guard let notesDir = notesDirPath,
               NotesTreeStorage.isWithin(child: path, orEqualTo: notesDir) else { return false }
         let standardized = (path as NSString).standardizingPath
