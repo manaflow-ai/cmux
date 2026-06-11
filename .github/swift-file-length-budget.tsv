@@ -95,10 +95,10 @@
 905	Sources/CmuxSSHURLRequest.swift
 878	Sources/WorkspaceContentView.swift
 877	Sources/CommandPalette/CommandPaletteSettingsToggle.swift
+869	Sources/NotesTreeStorage.swift
 868	Sources/Panels/BrowserScreenshotSnapshotter.swift
 864	Sources/Panels/TerminalPanel.swift
 856	Packages/CmuxSettingsUI/Sources/CmuxSettingsUI/Sections/AppSection.swift
-856	Sources/NotesTreeStorage.swift
 852	Sources/TerminalController+Notes.swift
 846	cmuxTests/AgentSessionAutoResumeSettingsTests.swift
 845	cmuxTests/SSHStartupSignalLifecycleTests.swift

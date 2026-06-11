@@ -670,13 +670,26 @@ enum NotesTreeStorage {
     /// Every session folder anywhere under `root`, with its current marker.
     /// Depth-capped like the tree build so a pathological hierarchy can't hang
     /// the refresh walk.
-    static func collectSessionFolders(inRoot root: String, maxDepth: Int = 12) -> [NotesSessionFolderRef] {
+    /// Walk budget for the live-refresh session scan. This runs on the
+    /// visible-sidebar refresh cadence, so the traversal is bounded the same
+    /// way the tree build is — a huge or imported notes tree costs at most
+    /// `directoryBudget` directory listings and `maxSessions` collected
+    /// markers per pass instead of unbounded recursion.
+    static func collectSessionFolders(
+        inRoot root: String,
+        maxDepth: Int = 12,
+        directoryBudget: Int = 2000,
+        maxSessions: Int = 200
+    ) -> [NotesSessionFolderRef] {
         var found: [NotesSessionFolderRef] = []
+        var remainingDirectories = directoryBudget
         func walk(_ directory: String, depth: Int) {
-            guard depth < maxDepth else { return }
+            guard depth < maxDepth, remainingDirectories > 0, found.count < maxSessions else { return }
+            remainingDirectories -= 1
             for entry in listEntries(inDirectory: directory) where entry.kind.isDirectory {
                 if let marker = entry.kind.sessionMarker {
                     found.append(NotesSessionFolderRef(directory: entry.path, marker: marker))
+                    if found.count >= maxSessions { return }
                 }
                 walk(entry.path, depth: depth + 1)
             }
