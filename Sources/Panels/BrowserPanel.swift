@@ -1,4 +1,5 @@
 import Foundation
+import CmuxCore
 import Combine
 import WebKit
 import AppKit
@@ -53,11 +54,6 @@ private struct BrowserFocusModePlainEscapeEventFingerprint: Equatable {
             .subtracting([.numericPad, .function, .capsLock])
             .rawValue
     }
-}
-
-struct BrowserProxyEndpoint: Equatable {
-    let host: String
-    let port: Int
 }
 
 struct BrowserRemoteWorkspaceStatus: Equatable {

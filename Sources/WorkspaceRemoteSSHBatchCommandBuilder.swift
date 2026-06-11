@@ -1,4 +1,5 @@
 import Foundation
+import CmuxCore
 
 enum WorkspaceRemoteSSHBatchCommandBuilder {
     private static let batchSSHControlOptionKeys: Set<String> = [

@@ -1,4 +1,5 @@
 import AppKit
+import CmuxCore
 import CmuxAuthRuntime
 import CmuxControlSocket
 import CmuxSettings

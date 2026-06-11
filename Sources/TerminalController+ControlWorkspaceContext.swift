@@ -1,4 +1,5 @@
 import CmuxControlSocket
+import CmuxCore
 import Foundation
 
 /// The workspace-domain witnesses for the stage-3c ``ControlCommandCoordinator``:

@@ -1,4 +1,5 @@
 import Foundation
+import CmuxCore
 import SwiftUI
 import AppKit
 import Bonsplit
@@ -90,56 +91,6 @@ private struct SessionPaneRestoreEntry {
     let snapshot: SessionPaneLayoutSnapshot
 }
 
-private enum RemoteDropUploadError: LocalizedError {
-    case unavailable
-    case invalidFileURL
-    case uploadFailed(String)
-
-    var errorDescription: String? {
-        switch self {
-        case .unavailable:
-            String(
-                localized: "error.remoteDrop.unavailable",
-                defaultValue: "Remote drop is unavailable."
-            )
-        case .invalidFileURL:
-            String(
-                localized: "error.remoteDrop.invalidFileURL",
-                defaultValue: "Dropped item is not a file URL."
-            )
-        case .uploadFailed(let detail):
-            String.localizedStringWithFormat(
-                String(
-                    localized: "error.remoteDrop.uploadFailed",
-                    defaultValue: "Failed to upload dropped file: %@"
-                ),
-                detail
-            )
-        }
-    }
-}
-
-struct WorkspaceRemoteDaemonManifest: Decodable, Equatable {
-    struct Entry: Decodable, Equatable {
-        let goOS: String
-        let goArch: String
-        let assetName: String
-        let downloadURL: String
-        let sha256: String
-    }
-
-    let schemaVersion: Int
-    let appVersion: String
-    let releaseTag: String
-    let releaseURL: String
-    let checksumsAssetName: String
-    let checksumsURL: String
-    let entries: [Entry]
-
-    func entry(goOS: String, goArch: String) -> Entry? {
-        entries.first { $0.goOS == goOS && $0.goArch == goArch }
-    }
-}
 
 extension Workspace {
     nonisolated static let remoteDaemonManifestInfoKey = WorkspaceRemoteSessionController.remoteDaemonManifestInfoKey
