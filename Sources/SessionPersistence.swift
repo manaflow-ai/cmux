@@ -2005,13 +2005,15 @@ enum SessionScrollbackReplayStore {
         // (issue #5165). Strip them before replay.
         let themePortable = strippingTerminalColorOSCSequences(scrollback)
         guard let truncated = SessionPersistencePolicy.truncatedScrollback(themePortable) else { return nil }
-        let safe = ansiSafeReplayText(truncated)
         // The captured scrollback ends at the prompt line where the cursor sat,
-        // which has no trailing newline. A bare replay (`cat`) would then glue the
-        // freshly-restored live prompt onto the end of that old prompt line
-        // ("…$ …$"). Guarantee a trailing newline so the live shell's first prompt
-        // starts on its own line (https://github.com/manaflow-ai/cmux/issues/2823).
-        return safe.hasSuffix("\n") ? safe : safe + "\n"
+        // which has no trailing newline; a bare replay would glue the freshly-
+        // restored live prompt onto that line ("…$ …$"). Add the newline BEFORE
+        // ansiSafeReplayText so the (cursor-neutral) ANSI reset wraps the content
+        // and we never emit two newlines. Appending it AFTER would let the trailing
+        // reset defeat a hasSuffix("\n") check and insert a blank line when the
+        // captured buffer already ended in a newline (issue #2823, PR #5853).
+        let withTrailingNewline = truncated.hasSuffix("\n") ? truncated : truncated + "\n"
+        return ansiSafeReplayText(withTrailingNewline)
     }
 
     /// Preserve ANSI color state safely across replay boundaries.
