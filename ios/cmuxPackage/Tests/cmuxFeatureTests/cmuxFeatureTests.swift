@@ -1395,6 +1395,55 @@ final class TerminalOutputCollector {
 }
 
 @MainActor
+@Test func minimalPairingCodePersistsPairedMacWithoutServerPushEvents() async throws {
+    // Identity recovery for an anonymous v2 ticket must not be coupled to
+    // the push-event listener: on a runtime without server-push events the
+    // listener (whose status probe normally performs the recovery) never
+    // starts, and before the connect-seam scheduling a QR pair connected
+    // fine but the Mac was never persisted (no reconnect-on-launch, no host
+    // switcher entry).
+    let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
+    try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+    defer { try? FileManager.default.removeItem(at: directory) }
+    let pairedMacStore = try MobilePairedMacStore(databaseURL: directory.appendingPathComponent("paired-macs.sqlite3"))
+    let responses = ScriptedTransportResponses([
+        try rpcWorkspaceListFrame(workspaceID: "qr-workspace", title: "QR Workspace"),
+        try rpcHostStatusFrame(
+            renderGrid: false,
+            macDeviceID: "status-reported-mac",
+            macDisplayName: "Status Mac"
+        ),
+    ])
+    let runtime = testRuntime(
+        supportedRouteKinds: [.tailscale],
+        transportFactory: ScriptedTransportFactory(responses: responses),
+        supportsServerPushEvents: false
+    )
+    let store = CMUXMobileShellStore(
+        runtime: runtime,
+        workspaces: PreviewMobileHost.workspaces,
+        pairedMacStore: pairedMacStore
+    )
+
+    store.signIn()
+    await store.connectPairingURL("cmux-ios://attach?v=2&r=100.71.210.41:\(CmxMobileDefaults.defaultHostPort)")
+
+    #expect(store.connectionState == .connected)
+    // The recovery request runs on its own task; poll briefly for the
+    // adopted identity instead of racing it.
+    for _ in 0..<400 {
+        if store.activeTicket?.macDeviceID == "status-reported-mac" { break }
+        try await Task.sleep(nanoseconds: 5_000_000)
+    }
+    #expect(store.activeTicket?.macDeviceID == "status-reported-mac")
+    #expect(store.connectedHostName == "Status Mac")
+    let savedMac = try #require(try await pairedMacStore.activeMac())
+    #expect(savedMac.macDeviceID == "status-reported-mac")
+    #expect(savedMac.displayName == "Status Mac")
+    #expect(store.hasKnownPairedMac)
+}
+
+@MainActor
 @Test func scannedLoopbackPairingCodeIsRejectedWithGuidance() async throws {
     // "QR shouldn't work for localhost": a scanned/pasted v2 code whose
     // routes point at the phone itself fails closed with copy that names the

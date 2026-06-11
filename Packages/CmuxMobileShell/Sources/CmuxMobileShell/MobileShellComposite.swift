@@ -2746,6 +2746,18 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                     guard generation == connectionGeneration, isSignedIn else { return nil }
                     replaceRemoteClient(with: client)
                     startTerminalRefreshPolling()
+                    // The connect seam guarantees identity recovery for an
+                    // anonymous (v2 QR) ticket on every supported runtime, not
+                    // just push-event ones: when the event-listener task starts,
+                    // its status probe performs the recovery (one shared status
+                    // request); when the runtime has no server-push events that
+                    // task never runs, so recovery is scheduled directly here.
+                    // Without this, pairing succeeded but the Mac was never
+                    // persisted (no reconnect-on-launch, no host switcher entry).
+                    // The schedule is a no-op for tickets that carry a device id.
+                    if !(runtime.supportsServerPushEvents) {
+                        scheduleHostIdentityAdoptionIfNeeded(client: client)
+                    }
                     clearPairingError()
                     await persistPairedMacFromTicket(ticket)
                     applyRemoteWorkspaceList(response, preferActiveTicketTarget: workspaceListRequest.preferActiveTicketTarget)
