@@ -3,8 +3,10 @@ name: cmux-notes
 description: >-
   Create, read, edit, find, and organize project notes in the cmux per-workspace
   Notes tree (real Markdown files under .cmux/notes). Use whenever the user asks
-  to take/save/jot/update/find notes, keep a running log, or file notes under a
-  Claude session. Notes written here show up live in cmux's Notes sidebar tab.
+  to take/save/jot/update/find notes, keep a running log, or file notes under an
+  agent session. Read notes starting from your own session's folder, then the
+  workspace, then project-wide. Notes written here show up live in cmux's Notes
+  sidebar tab.
 ---
 
 # cmux Notes
@@ -41,23 +43,50 @@ mkdir -p "$CMUX_WORKSPACE_NOTES_DIR"
 ```
 $CMUX_WORKSPACE_NOTES_DIR/
   _workspace.json          # cmux marker — DO NOT edit or delete
-  todo.md                  # a top-level ("global") note
+  todo.md                  # a workspace-root note
   research/                # an ordinary folder you can make
     links.md
-  auth-refactor-9c2f/      # a Claude session folder (has _session.json)
+  auth-refactor-9c2f/      # an agent session folder (has _session.json)
     _session.json          # cmux marker — DO NOT edit or delete
     plan.md                # a note filed under that session
 ```
 
 - **Notes are `.md` files.** Use clear, kebab-case filenames (`api-design.md`).
-- **Folders** group notes; nesting is allowed. "Global" just means a note at the
-  workspace root rather than inside a folder.
-- **Session folders** are directories containing a `_session.json` marker. File a
-  note "under a session" by creating/moving it **inside** that folder.
+- **Folders** group notes; nesting is allowed.
+- **Session folders** are directories containing a `_session.json` marker
+  (`{agent, sessionId, cwd, title, modified}`). File a note "under a session" by
+  creating/moving it **inside** that folder.
 - **Never create, edit, move, or delete `_workspace.json` or `_session.json`**, and
   ignore dotfiles. They are cmux-managed; touching them breaks the sidebar binding.
+  If your session has no folder yet, don't fabricate one — write at the workspace
+  root instead (cmux materializes session folders itself).
 
-## 3. Operations
+## 3. Scopes — read narrow to wide
+
+Notes exist at three widening scopes. When the user asks you to consult notes
+("check my notes", "what did we decide about X"), **start narrow and widen** until
+you find what they mean — unless they name a scope ("all project notes"), then go
+straight there.
+
+1. **Your session's folder** — notes filed under the cmux session you are running
+   in: the session folder whose `_session.json` carries your session id (compare
+   `$CLAUDE_SESSION_ID` when set, or your harness's session id). To inspect them:
+   ```bash
+   for f in "$CMUX_WORKSPACE_NOTES_DIR"/*/_session.json; do echo "== $f"; cat "$f"; done
+   ```
+   If you can't match an id, take the folder for your agent with the newest
+   `modified`. No session folder existing is normal — move on to the workspace.
+2. **The workspace** — everything under `$CMUX_WORKSPACE_NOTES_DIR`, including
+   other sessions' folders and root-level notes.
+3. **Project-wide ("global")** — the parent `…/.cmux/notes/` directory: flat
+   `cmux note` notes (see §5) plus sibling workspace folders belonging to the
+   project's other cmux workspaces.
+
+When **writing**: default new notes to the workspace root; use your own session
+folder when the note is specifically about this session's work; write into another
+workspace's folder only when the user explicitly asks.
+
+## 4. Operations
 
 Use your normal tools (Read, Write, Edit, Glob) and these shell commands. Always
 quote paths — they can contain spaces.
@@ -86,30 +115,55 @@ printf '\n- new bullet\n' >> "$CMUX_WORKSPACE_NOTES_DIR/todo.md"
 mkdir -p "$CMUX_WORKSPACE_NOTES_DIR/meeting-notes"
 ```
 
-**Move / rename** (this is how you nest or "globalize" a note):
+**Rename** (keep the `.md` extension):
+```bash
+mv "$CMUX_WORKSPACE_NOTES_DIR/todo.md" "$CMUX_WORKSPACE_NOTES_DIR/roadmap.md"
+```
+
+**Move** a note or folder (this is how you nest or un-nest):
 ```bash
 mv "$CMUX_WORKSPACE_NOTES_DIR/todo.md" "$CMUX_WORKSPACE_NOTES_DIR/research/"
 ```
 
-**File a note under a Claude session**: find the session folder (a directory with
-a `_session.json`) and create/move the note inside it.
+**File a note under an agent session**: find the session folder (a directory with
+a `_session.json`, see §3) and create/move the note inside it.
+
+## 5. Flat `cmux note` notes (index-owned) — CLI only
+
+cmux also has a flat, index-managed note system: notes created from pane tab bars
+or `cmux note new` live under `…/.cmux/notes/` tracked by an `index.json` (their
+body files may have UUID names). Manage these with the `cmux` CLI, never with raw
+file moves:
+
 ```bash
-# discover session folders and the session they point to
-for d in "$CMUX_WORKSPACE_NOTES_DIR"/*/ ; do
-  [ -f "$d/_session.json" ] && echo "$d -> $(cat "$d/_session.json")"
-done
+cmux note list                       # slugs, titles, attachment links
+cmux note here                       # the note for the current pane/workspace
+cmux note read <slug>
+cmux note append <slug> "more text"  # also: write, path, open, new, rm
 ```
 
-## 4. Retrieval
+- **Never `mv` or rename their body files** — `index.json` pins the body path, and
+  a raw move orphans the record (the note vanishes from `cmux note` and panes).
+  Renaming them is done in the cmux Notes sidebar (it retitles the index record).
+- Unsure whether a file is index-owned? Check before moving it:
+  ```bash
+  grep -F "$(basename "$note_file")" "<project>/.cmux/notes/index.json"
+  ```
+  No match → it's a plain tree note; move/rename freely.
+- Reading a body directly is fine (`cmux note path <slug>` prints its path).
 
-To answer "what did I note about X", search the tree:
+## 6. Retrieval
+
+To answer "what did I note about X", search narrow → wide (§3):
 ```bash
-grep -ril --include='*.md' "search terms" "$CMUX_WORKSPACE_NOTES_DIR"
+grep -ril --include='*.md' "search terms" "$CMUX_WORKSPACE_NOTES_DIR"              # workspace
+grep -ril --include='*.md' "search terms" "$(dirname "$CMUX_WORKSPACE_NOTES_DIR")" # project-wide
 ```
 Then Read the matches and summarize. Prefer the most-recently-modified file when
-several match (`ls -t`).
+several match (`ls -t`). Include `cmux note list` titles when the question spans
+the whole project.
 
-## 5. Good habits
+## 7. Good habits
 
 - Confirm the resolved root once, then keep paths relative to it.
 - Keep one topic per note; link related notes by relative path.
