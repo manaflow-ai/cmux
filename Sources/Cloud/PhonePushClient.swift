@@ -55,8 +55,6 @@ final class PhonePushClient {
     private static let minInterval: TimeInterval = 1.0
     /// Presence source for the "only when away" mode. Injectable for tests.
     var presenceMonitor: MacPresenceMonitor = .live()
-    /// Bounds live presence sampling to once per second under bursts.
-    private var presenceCache = MacPresenceDecisionCache()
 
     private init() {}
 
@@ -98,14 +96,18 @@ final class PhonePushClient {
         let now = Date()
         if let last = lastSentAt[key], now.timeIntervalSince(last) < Self.minInterval { return }
 
-        // Presence gate, evaluated per notification at delivery time so the
-        // phone never receives a suppressed push. `.always` skips presence
-        // sampling entirely (`shouldForward` is constant true there). Active
-        // (suppressing) decisions are additionally coalesced by the cache, so
-        // suppressed bursts (which never consume a throttle slot) stay cheap.
+        // Presence gate, evaluated FRESH per notification at delivery time:
+        // the phone never receives a suppressed push, and lock/user-return
+        // transitions take effect on the very next notification (no cached
+        // decision can go stale on either side of a transition). `.always`
+        // skips sampling entirely (`shouldForward` is constant true there).
+        // Cost: sampling is a handful of WindowServer/HID reads, orders of
+        // magnitude cheaper than the network send the throttle above exists
+        // for, and upstream notification cooldowns already bound how often
+        // this method runs.
         let mode = PhoneForwardingMode.fromDefaults()
         if mode != .always {
-            let presence = presenceCache.decision(from: presenceMonitor)
+            let presence = presenceMonitor.evaluate()
             guard Self.shouldForward(mode: mode, presence: presence) else {
 #if DEBUG
                 cmuxDebugLog("phonepush.suppressed reason=macActive verdict=\(presence.verdict)")
@@ -116,11 +118,7 @@ final class PhonePushClient {
 
         // The throttle slot is consumed only after the gate passes, so a
         // suppressed notification does not block a forwardable one moments
-        // later. Suppressed bursts therefore re-enter this method per
-        // notification, but each suppressed pass is O(1) cheap work (defaults
-        // read + cache hit): live WindowServer/HID sampling stays bounded to
-        // once per cache TTL globally, which is stricter than the per-key
-        // bound this throttle provides for sends.
+        // later.
         lastSentAt[key] = now
 
         let hideContent = UserDefaults.standard.bool(forKey: PhonePushSettings.hideContentKey)

@@ -92,36 +92,6 @@ struct MacPresenceMonitor {
     }
 }
 
-/// Coalesces presence evaluations under notification bursts. Only ACTIVE
-/// (suppressing) decisions are reused, for up to ``ttl``: bursts while the
-/// user is at the Mac are the case where live signal sampling (WindowServer
-/// session dictionary, display state, running apps, HID timestamps) would
-/// otherwise hammer the main actor. AWAY decisions are never reused, so the
-/// user-return transition is detected on the very next notification and a
-/// stale away answer can never forward terminal content while the user is
-/// back at the Mac. The asymmetry is deliberate: a stale active answer can
-/// only suppress a push within 1 s of the user leaving (marginal by design;
-/// suppressed pushes are never retroactively sent), while a stale away
-/// answer would violate the gate's whole point.
-struct MacPresenceDecisionCache {
-    static let ttl: TimeInterval = 1.0
-
-    private var last: MacPresenceMonitor.Decision?
-
-    mutating func decision(from monitor: MacPresenceMonitor) -> MacPresenceMonitor.Decision {
-        let now = monitor.now()
-        if let last,
-           last.isActive,
-           now >= last.evaluatedAt,
-           now.timeIntervalSince(last.evaluatedAt) < Self.ttl {
-            return last
-        }
-        let fresh = monitor.evaluate()
-        last = fresh
-        return fresh
-    }
-}
-
 /// There is no public synchronous "is the screen locked" query on macOS. Two
 /// de-facto sources exist: the `CGSSessionScreenIsLocked` key in
 /// `CGSessionCopyCurrentDictionary()` and the `com.apple.screenIsLocked` /
