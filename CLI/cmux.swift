@@ -21972,7 +21972,12 @@ struct CMUXCLI {
                         localized: "cli.claude-hook.notification.title",
                         defaultValue: "Claude Code"
                     )
-                    let payload = notificationPayload(title: title, subtitle: completion.subtitle, body: completion.body)
+                    let payload = notificationPayload(
+                        title: title,
+                        subtitle: completion.subtitle,
+                        body: completion.body,
+                        structuredAgentStatusKey: Self.claudeCodeStatusKey
+                    )
                     _ = try? sendV1Command("notify_target_async \(workspaceId) \(surfaceId) \(payload)", client: client)
                 }
                 print("OK")
@@ -22117,7 +22122,12 @@ struct CMUXCLI {
                 localized: "cli.claude-hook.notification.title",
                 defaultValue: "Claude Code"
             )
-            let payload = notificationPayload(title: title, subtitle: summary.subtitle, body: summary.body)
+            let payload = notificationPayload(
+                title: title,
+                subtitle: summary.subtitle,
+                body: summary.body,
+                structuredAgentStatusKey: Self.claudeCodeStatusKey
+            )
 
             if let sessionId = parsedInput.sessionId {
                 try? sessionStore.upsert(
@@ -24991,8 +25001,17 @@ struct CMUXCLI {
             .replacingOccurrences(of: "|", with: "¦")
     }
 
-    private func notificationPayload(title: String, subtitle: String, body: String) -> String {
-        "\(sanitizeNotificationField(title))|\(sanitizeNotificationField(subtitle))|\(sanitizeNotificationField(body))"
+    private func notificationPayload(
+        title: String,
+        subtitle: String,
+        body: String,
+        structuredAgentStatusKey: String? = nil
+    ) -> String {
+        let payload = "\(sanitizeNotificationField(title))|\(sanitizeNotificationField(subtitle))|\(sanitizeNotificationField(body))"
+        guard let structuredAgentStatusKey else { return payload }
+        let trimmedKey = structuredAgentStatusKey.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedKey.isEmpty else { return payload }
+        return "--agent-status-key=\(trimmedKey) \(payload)"
     }
 
     private func redactClaudeSensitiveSpans(_ value: String) -> String {

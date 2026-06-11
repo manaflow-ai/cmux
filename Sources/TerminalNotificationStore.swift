@@ -775,6 +775,7 @@ struct TerminalNotification: Identifiable, Hashable {
     let tabId: UUID
     let surfaceId: UUID?
     let panelId: UUID?
+    let structuredAgentStatusKey: String?
     let title: String
     let subtitle: String
     let body: String
@@ -788,6 +789,7 @@ struct TerminalNotification: Identifiable, Hashable {
         tabId: UUID,
         surfaceId: UUID?,
         panelId: UUID? = nil,
+        structuredAgentStatusKey: String? = nil,
         title: String,
         subtitle: String,
         body: String,
@@ -800,6 +802,8 @@ struct TerminalNotification: Identifiable, Hashable {
         self.tabId = tabId
         self.surfaceId = surfaceId
         self.panelId = panelId
+        self.structuredAgentStatusKey = AgentHibernationLifecycleStatusKeys
+            .normalizedAllowedStatusKey(structuredAgentStatusKey)
         self.title = title
         self.subtitle = subtitle
         self.body = body
@@ -901,6 +905,7 @@ final class TerminalNotificationStore: ObservableObject {
         effects in
         store.playSuppressedNotificationFeedback(for: notification, effects: effects)
     }
+    private var pendingPolicyStructuredAgentInputCounts: [StructuredAgentInputNotificationKey: Int] = [:]
     private struct NotificationHookFailureThrottleKey: Hashable {
         let hookId: String
         let sourcePath: String?
@@ -1238,6 +1243,7 @@ final class TerminalNotificationStore: ObservableObject {
         title: String,
         subtitle: String,
         body: String,
+        structuredAgentStatusKey: String? = nil,
         cooldownKey: String? = nil,
         cooldownInterval: TimeInterval? = nil,
         clickAction: TerminalNotificationClickAction? = nil
@@ -1278,11 +1284,13 @@ final class TerminalNotificationStore: ObservableObject {
             surfaceId: surfaceId,
             title: title,
             subtitle: subtitle,
-            body: body
+            body: body,
+            structuredAgentStatusKey: structuredAgentStatusKey
         )
         guard !policyContext.hooks.isEmpty else {
             applyNotification(
                 request: policyContext.request,
+                structuredAgentStatusKey: policyContext.structuredAgentStatusKey,
                 effects: TerminalNotificationPolicyEffects(),
                 now: now,
                 cooldownReservation: cooldownReservation,
@@ -1291,8 +1299,12 @@ final class TerminalNotificationStore: ObservableObject {
             return
         }
 
+        let pendingPolicyStructuredAgentInputKey = beginPendingPolicyStructuredAgentInput(policyContext)
         Task { @MainActor [weak self] in
             guard let self else { return }
+            defer {
+                self.finishPendingPolicyStructuredAgentInput(pendingPolicyStructuredAgentInputKey)
+            }
             let authorizedHooks = await NotificationPolicyHookAuthorizer.authorize(
                 policyContext.hooks,
                 globalConfigPath: policyContext.globalConfigPath
@@ -1300,6 +1312,7 @@ final class TerminalNotificationStore: ObservableObject {
             guard !authorizedHooks.isEmpty else {
                 self.applyNotification(
                     request: policyContext.request,
+                    structuredAgentStatusKey: policyContext.structuredAgentStatusKey,
                     effects: TerminalNotificationPolicyEffects(),
                     now: Date(),
                     cooldownReservation: cooldownReservation,
@@ -1317,6 +1330,7 @@ final class TerminalNotificationStore: ObservableObject {
                 self.applyNotification(
                     request: policyContext.request,
                     envelope: envelope,
+                    structuredAgentStatusKey: policyContext.structuredAgentStatusKey,
                     now: Date(),
                     cooldownReservation: cooldownReservation,
                     clickAction: clickAction
@@ -1324,6 +1338,7 @@ final class TerminalNotificationStore: ObservableObject {
             case .failure(let failure):
                 self.applyNotification(
                     request: policyContext.request,
+                    structuredAgentStatusKey: policyContext.structuredAgentStatusKey,
                     effects: TerminalNotificationPolicyEffects(),
                     now: Date(),
                     cooldownReservation: cooldownReservation,
@@ -1341,8 +1356,36 @@ final class TerminalNotificationStore: ObservableObject {
 
     private struct NotificationPolicyContext: Sendable {
         let request: TerminalNotificationPolicyRequest
+        let structuredAgentStatusKey: String?
         let hooks: [CmuxResolvedNotificationHook]
         let globalConfigPath: String?
+    }
+
+    private func beginPendingPolicyStructuredAgentInput(
+        _ context: NotificationPolicyContext
+    ) -> StructuredAgentInputNotificationKey? {
+        guard let statusKey = Self.structuredAgentStatusKey(
+            explicitStatusKey: context.structuredAgentStatusKey,
+            title: context.request.title
+        ) else {
+            return nil
+        }
+        let key = StructuredAgentInputNotificationKey(
+            tabId: context.request.tabId,
+            statusKey: statusKey
+        )
+        pendingPolicyStructuredAgentInputCounts[key, default: 0] += 1
+        return key
+    }
+
+    private func finishPendingPolicyStructuredAgentInput(_ key: StructuredAgentInputNotificationKey?) {
+        guard let key else { return }
+        let remainingCount = (pendingPolicyStructuredAgentInputCounts[key] ?? 0) - 1
+        if remainingCount > 0 {
+            pendingPolicyStructuredAgentInputCounts[key] = remainingCount
+        } else {
+            pendingPolicyStructuredAgentInputCounts.removeValue(forKey: key)
+        }
     }
 
     private func makeCooldownReservation(
@@ -1378,7 +1421,8 @@ final class TerminalNotificationStore: ObservableObject {
         surfaceId: UUID?,
         title: String,
         subtitle: String,
-        body: String
+        body: String,
+        structuredAgentStatusKey: String?
     ) -> NotificationPolicyContext {
         let appDelegate = AppDelegate.shared
         let context = appDelegate?.contextContainingTabId(tabId)
@@ -1412,6 +1456,8 @@ final class TerminalNotificationStore: ObservableObject {
                 isAppFocused: isAppFocused,
                 isFocusedPanel: isFocusedPanel
             ),
+            structuredAgentStatusKey: AgentHibernationLifecycleStatusKeys
+                .normalizedAllowedStatusKey(structuredAgentStatusKey),
             hooks: cmuxConfigStore?.notificationHooks(startingFrom: cwd) ?? [],
             globalConfigPath: cmuxConfigStore?.globalConfigPath
         )
@@ -1420,6 +1466,7 @@ final class TerminalNotificationStore: ObservableObject {
     private func applyNotification(
         request: TerminalNotificationPolicyRequest,
         envelope: TerminalNotificationPolicyEnvelope,
+        structuredAgentStatusKey: String?,
         now: Date,
         cooldownReservation: NotificationCooldownReservation?,
         clickAction: TerminalNotificationClickAction?
@@ -1437,6 +1484,7 @@ final class TerminalNotificationStore: ObservableObject {
                 isAppFocused: request.isAppFocused,
                 isFocusedPanel: request.isFocusedPanel
             ),
+            structuredAgentStatusKey: structuredAgentStatusKey,
             effects: envelope.effects,
             now: now,
             cooldownReservation: cooldownReservation,
@@ -1446,6 +1494,7 @@ final class TerminalNotificationStore: ObservableObject {
 
     private func applyNotification(
         request: TerminalNotificationPolicyRequest,
+        structuredAgentStatusKey: String?,
         effects: TerminalNotificationPolicyEffects,
         now: Date,
         cooldownReservation: NotificationCooldownReservation?,
@@ -1460,6 +1509,7 @@ final class TerminalNotificationStore: ObservableObject {
             tabId: request.tabId,
             surfaceId: request.surfaceId,
             panelId: request.panelId,
+            structuredAgentStatusKey: structuredAgentStatusKey,
             title: request.title,
             subtitle: request.subtitle,
             body: request.body,
@@ -1640,12 +1690,143 @@ final class TerminalNotificationStore: ObservableObject {
         }
     }
 
+    private static func structuredAgentStatusKey(
+        explicitStatusKey: String?,
+        title: String
+    ) -> String? {
+        AgentHibernationLifecycleStatusKeys.normalizedAllowedStatusKey(explicitStatusKey)
+            ?? AgentHibernationLifecycleStatusKeys.statusKey(forNotificationTitle: title)
+    }
+
+    private static func structuredAgentStatusKey(for notification: TerminalNotification) -> String? {
+        structuredAgentStatusKey(
+            explicitStatusKey: notification.structuredAgentStatusKey,
+            title: notification.title
+        )
+    }
+
+    private func acknowledgeStructuredAgentInputStatuses(for notificationsToAcknowledge: [TerminalNotification]) {
+        let remainingWorkspaceInputs = remainingUnreadStructuredAgentInputKeys()
+        let remainingPanelInputs = remainingUnreadStructuredAgentInputPanelKeys()
+        // Queued and policy-hook deliveries can't be panel-scoped cheaply, but
+        // they resolve within a drain tick, so block lifecycle demotion across
+        // the whole workspace while one is in flight — the safe direction (an
+        // agent still awaiting input must never become hibernatable).
+        let transientWorkspaceInputs = transientWorkspaceStructuredAgentInputKeys()
+        for notification in notificationsToAcknowledge {
+            let acknowledgementPanelId = notification.panelId ?? notification.surfaceId
+            guard let statusKey = Self.structuredAgentStatusKey(for: notification),
+                  let workspace = workspaceForStructuredAgentInputAcknowledgement(
+                      tabId: notification.tabId,
+                      panelId: acknowledgementPanelId
+                  ) else {
+                continue
+            }
+            // The shared sidebar badge is workspace-level: keep it while any
+            // panel (store, queued, policy, or feed-routed) still needs input
+            // for this status key.
+            let demoteWorkspaceBadge = !remainingWorkspaceInputs.contains(
+                StructuredAgentInputNotificationKey(tabId: notification.tabId, statusKey: statusKey)
+            )
+            // The per-panel lifecycle that gates hibernation is owned by the
+            // acknowledged panel, so demote it as soon as that panel has no
+            // remaining unread input — even if a sibling panel still does.
+            let demotePanelLifecycle: Bool
+            if let acknowledgementPanelId {
+                let panelHasRemainingInput = remainingPanelInputs.contains(
+                    StructuredAgentInputPanelKey(
+                        tabId: notification.tabId,
+                        panelId: acknowledgementPanelId,
+                        statusKey: statusKey
+                    )
+                )
+                let workspaceHasTransientInput = transientWorkspaceInputs.contains(
+                    StructuredAgentInputNotificationKey(tabId: notification.tabId, statusKey: statusKey)
+                )
+                demotePanelLifecycle = !panelHasRemainingInput && !workspaceHasTransientInput
+            } else {
+                demotePanelLifecycle = demoteWorkspaceBadge
+            }
+            guard demoteWorkspaceBadge || demotePanelLifecycle else { continue }
+            workspace.acknowledgeStructuredAgentInputStatus(
+                statusKeys: [statusKey],
+                panelId: acknowledgementPanelId,
+                notificationCreatedAt: notification.createdAt,
+                demoteWorkspaceBadge: demoteWorkspaceBadge,
+                demotePanelLifecycle: demotePanelLifecycle
+            )
+        }
+    }
+
+    private func remainingUnreadStructuredAgentInputKeys() -> Set<StructuredAgentInputNotificationKey> {
+        var keys = Set<StructuredAgentInputNotificationKey>()
+        keys.reserveCapacity(notifications.count)
+        for notification in notifications {
+            guard !notification.isRead,
+                  let statusKey = Self.structuredAgentStatusKey(for: notification) else {
+                continue
+            }
+            keys.insert(StructuredAgentInputNotificationKey(tabId: notification.tabId, statusKey: statusKey))
+        }
+        keys.formUnion(transientWorkspaceStructuredAgentInputKeys())
+        keys.formUnion(FeedCoordinator.shared.pendingStructuredAgentInputWorkspaceKeys())
+        return keys
+    }
+
+    /// Workspace-level keys for structured-agent inputs that are pending in a
+    /// transient (sub-drain-tick) delivery stage — the queue and policy-hook
+    /// evaluation. These can't be cheaply panel-scoped, so the per-panel
+    /// lifecycle gate treats them conservatively at workspace granularity.
+    private func transientWorkspaceStructuredAgentInputKeys() -> Set<StructuredAgentInputNotificationKey> {
+        var keys = TerminalMutationBus.shared.pendingStructuredAgentInputNotificationKeys()
+        keys.formUnion(pendingPolicyStructuredAgentInputCounts.keys)
+        return keys
+    }
+
+    private func remainingUnreadStructuredAgentInputPanelKeys() -> Set<StructuredAgentInputPanelKey> {
+        var keys = Set<StructuredAgentInputPanelKey>()
+        keys.reserveCapacity(notifications.count)
+        for notification in notifications {
+            guard !notification.isRead,
+                  let panelId = notification.panelId ?? notification.surfaceId,
+                  let statusKey = Self.structuredAgentStatusKey(for: notification) else {
+                continue
+            }
+            keys.insert(
+                StructuredAgentInputPanelKey(tabId: notification.tabId, panelId: panelId, statusKey: statusKey)
+            )
+        }
+        // Feed prompts persist until resolved, so they must be panel-scoped here
+        // rather than lumped into the transient workspace set.
+        keys.formUnion(FeedCoordinator.shared.pendingStructuredAgentInputPanelKeys())
+        return keys
+    }
+
+    private func workspaceForStructuredAgentInputAcknowledgement(
+        tabId: UUID,
+        panelId: UUID?
+    ) -> Workspace? {
+        guard let appDelegate = AppDelegate.shared else { return nil }
+        if let panelId,
+           let located = appDelegate.workspaceContainingPanel(
+               panelId: panelId,
+               preferredWorkspaceId: tabId
+           ) {
+            return located.workspace
+        }
+
+        let tabManager = appDelegate.tabManagerFor(tabId: tabId) ?? appDelegate.tabManager
+        return tabManager?.tabs.first(where: { $0.id == tabId })
+    }
+
     func markRead(id: UUID) {
         var updated = notifications
         guard let index = updated.firstIndex(where: { $0.id == id }) else { return }
         guard !updated[index].isRead else { return }
+        let notification = updated[index]
         updated[index].isRead = true
         notifications = updated
+        acknowledgeStructuredAgentInputStatuses(for: [notification])
         center.removeDeliveredNotificationsOffMain(withIdentifiers: [id.uuidString])
     }
 
@@ -1668,8 +1849,10 @@ final class TerminalNotificationStore: ObservableObject {
     func markRead(forTabId tabId: UUID) {
         var updated = notifications
         var idsToClear: [String] = []
+        var notificationsToAcknowledge: [TerminalNotification] = []
         for index in updated.indices {
             if updated[index].tabId == tabId && !updated[index].isRead {
+                notificationsToAcknowledge.append(updated[index])
                 updated[index].isRead = true
                 idsToClear.append(updated[index].id.uuidString)
             }
@@ -1682,6 +1865,7 @@ final class TerminalNotificationStore: ObservableObject {
         clearWorkspacePanelUnread(forTabId: tabId)
         setPanelDerivedWorkspaceUnread(false, forTabId: tabId)
         setWorkspaceRestoredUnread(false, forTabId: tabId)
+        acknowledgeStructuredAgentInputStatuses(for: notificationsToAcknowledge)
         if !idsToClear.isEmpty {
             center.removeDeliveredNotificationsOffMain(withIdentifiers: idsToClear)
         }
@@ -1690,9 +1874,11 @@ final class TerminalNotificationStore: ObservableObject {
     func markRead(forTabId tabId: UUID, surfaceId: UUID?) {
         var updated = notifications
         var idsToClear: [String] = []
+        var notificationsToAcknowledge: [TerminalNotification] = []
         for index in updated.indices {
             if updated[index].matches(tabId: tabId, surfaceId: surfaceId),
                !updated[index].isRead {
+                notificationsToAcknowledge.append(updated[index])
                 updated[index].isRead = true
                 idsToClear.append(updated[index].id.uuidString)
             }
@@ -1706,6 +1892,7 @@ final class TerminalNotificationStore: ObservableObject {
             setPanelDerivedWorkspaceUnread(false, forTabId: tabId)
             setWorkspaceRestoredUnread(false, forTabId: tabId)
         }
+        acknowledgeStructuredAgentInputStatuses(for: notificationsToAcknowledge)
         if !idsToClear.isEmpty {
             center.removeDeliveredNotificationsOffMain(withIdentifiers: idsToClear)
             center.removePendingNotificationRequestsOffMain(withIdentifiers: idsToClear)
@@ -1769,8 +1956,10 @@ final class TerminalNotificationStore: ObservableObject {
         var updated = notifications
         var idsToClear: [String] = []
         var tabIdsToClearPanelUnread = panelDerivedUnreadWorkspaceIds
+        var notificationsToAcknowledge: [TerminalNotification] = []
         for index in updated.indices {
             if !updated[index].isRead {
+                notificationsToAcknowledge.append(updated[index])
                 tabIdsToClearPanelUnread.insert(updated[index].tabId)
                 updated[index].isRead = true
                 idsToClear.append(updated[index].id.uuidString)
@@ -1783,6 +1972,7 @@ final class TerminalNotificationStore: ObservableObject {
         clearAllWorkspacePanelUnread(forTabIds: tabIdsToClearPanelUnread)
         clearPanelDerivedWorkspaceUnread()
         clearWorkspaceRestoredUnread()
+        acknowledgeStructuredAgentInputStatuses(for: notificationsToAcknowledge)
         if !idsToClear.isEmpty {
             center.removeDeliveredNotificationsOffMain(withIdentifiers: idsToClear)
             center.removePendingNotificationRequestsOffMain(withIdentifiers: idsToClear)
@@ -1798,6 +1988,7 @@ final class TerminalNotificationStore: ObservableObject {
         notifications = updated
         if let removed {
             clearFocusedReadIndicator(forTabId: removed.tabId, surfaceId: removed.surfaceId)
+            acknowledgeStructuredAgentInputStatuses(for: [removed])
         }
         center.removeDeliveredNotificationsOffMain(withIdentifiers: [id.uuidString])
     }
@@ -1846,6 +2037,7 @@ final class TerminalNotificationStore: ObservableObject {
             tabId: notification.tabId,
             surfaceId: notification.surfaceId,
             panelId: notification.panelId,
+            structuredAgentStatusKey: notification.structuredAgentStatusKey,
             title: notification.title,
             subtitle: notification.subtitle,
             body: notification.body,
@@ -1860,6 +2052,7 @@ final class TerminalNotificationStore: ObservableObject {
 
     func clearAll(discardQueuedNotifications: Bool = true) {
         if discardQueuedNotifications { TerminalMutationBus.shared.discardPendingNotifications() }
+        let notificationsToAcknowledge = notifications
         guard !notifications.isEmpty ||
             !focusedReadIndicatorByTabId.isEmpty ||
             !manualUnreadWorkspaceIds.isEmpty ||
@@ -1873,6 +2066,7 @@ final class TerminalNotificationStore: ObservableObject {
         clearPanelDerivedWorkspaceUnread()
         clearWorkspaceRestoredUnread()
         focusedReadIndicatorByTabId.removeAll()
+        acknowledgeStructuredAgentInputStatuses(for: notificationsToAcknowledge)
         CmuxEventBus.shared.publishNotificationCleared(ids: ids, workspaceId: nil, surfaceId: nil)
         center.removeDeliveredNotificationsOffMain(withIdentifiers: ids)
         center.removePendingNotificationRequestsOffMain(withIdentifiers: ids)
@@ -1889,8 +2083,10 @@ final class TerminalNotificationStore: ObservableObject {
         var updated: [TerminalNotification] = []
         updated.reserveCapacity(notifications.count)
         var idsToClear: [String] = []
+        var notificationsToAcknowledge: [TerminalNotification] = []
         for notification in notifications {
             if notification.matches(tabId: tabId, surfaceId: surfaceId) {
+                notificationsToAcknowledge.append(notification)
                 idsToClear.append(notification.id.uuidString)
             } else {
                 updated.append(notification)
@@ -1903,6 +2099,7 @@ final class TerminalNotificationStore: ObservableObject {
         if surfaceId == nil {
             setWorkspaceRestoredUnread(false, forTabId: tabId)
         }
+        acknowledgeStructuredAgentInputStatuses(for: notificationsToAcknowledge)
         clearFocusedReadIndicator(forTabId: tabId, surfaceId: surfaceId)
         if !idsToClear.isEmpty {
             CmuxEventBus.shared.publishNotificationCleared(ids: idsToClear, workspaceId: tabId, surfaceId: surfaceId)
@@ -1926,6 +2123,7 @@ final class TerminalNotificationStore: ObservableObject {
                 tabId: destinationTabId,
                 surfaceId: notification.surfaceId,
                 panelId: notification.panelId,
+                structuredAgentStatusKey: notification.structuredAgentStatusKey,
                 title: notification.title,
                 subtitle: notification.subtitle,
                 body: notification.body,
@@ -1953,8 +2151,10 @@ final class TerminalNotificationStore: ObservableObject {
         var updated: [TerminalNotification] = []
         updated.reserveCapacity(notifications.count)
         var idsToClear: [String] = []
+        var notificationsToAcknowledge: [TerminalNotification] = []
         for notification in notifications {
             if notification.tabId == tabId {
+                notificationsToAcknowledge.append(notification)
                 idsToClear.append(notification.id.uuidString)
             } else {
                 updated.append(notification)
@@ -1968,6 +2168,7 @@ final class TerminalNotificationStore: ObservableObject {
         if !idsToClear.isEmpty {
             replaceNotificationsForClear(updated)
         }
+        acknowledgeStructuredAgentInputStatuses(for: notificationsToAcknowledge)
         clearFocusedReadIndicator(forTabId: tabId)
         if !idsToClear.isEmpty {
             CmuxEventBus.shared.publishNotificationCleared(ids: idsToClear, workspaceId: tabId, surfaceId: nil)
@@ -2364,6 +2565,7 @@ final class TerminalNotificationStore: ObservableObject {
         clearPanelDerivedWorkspaceUnread()
         clearWorkspaceRestoredUnread()
         focusedReadIndicatorByTabId.removeAll()
+        pendingPolicyStructuredAgentInputCounts.removeAll()
     }
 #endif
 

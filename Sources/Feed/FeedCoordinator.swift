@@ -435,8 +435,97 @@ extension FeedCoordinator {
             return
         }
         pendingAttentionStates.removeValue(forKey: target)
-        let tab = attentionState.workspace
+        clearResolvedBlockingDecisionOverlay(target, tab: attentionState.workspace)
+    }
 
+    /// Acknowledges any feed-routed "Needs input" attention pending for a panel
+    /// the user just focused or interacted with, dropping the sidebar badge and
+    /// per-panel needsInput lifecycle.
+    ///
+    /// This is the feed-path analogue of
+    /// ``TerminalNotificationStore``'s notification acknowledgement: a
+    /// feed-routed blocking decision (PATH B) surfaces "Needs input" without
+    /// creating a store notification, so the notification-store mark-read path
+    /// can never reach it. Focusing the workspace is an explicit "I see it", so
+    /// the attention badge is collapsed here even though the underlying decision
+    /// card stays for allow/deny. The decision's later
+    /// ``concludeBlockingDecisionAttention(_:)`` becomes a safe no-op because
+    /// the target is already cleared.
+    ///
+    /// Targets are force-concluded regardless of refcount (the user has seen the
+    /// panel). When `panelId` is `nil`, every pending decision in the workspace
+    /// is acknowledged; otherwise only decisions on that panel are, so sibling
+    /// panels keep their "Needs input" badge.
+    ///
+    /// - Returns: `true` if any pending attention was cleared.
+    @MainActor
+    @discardableResult
+    func acknowledgeBlockingDecisionAttention(workspaceId: UUID, panelId: UUID?) -> Bool {
+        let targets = pendingAttentionStates.keys.filter { target in
+            guard target.workspaceId == workspaceId else { return false }
+            guard let panelId else { return true }
+            return target.panelId == panelId
+        }
+        guard !targets.isEmpty else { return false }
+        for target in targets {
+            guard let attentionState = pendingAttentionStates.removeValue(forKey: target) else { continue }
+            clearResolvedBlockingDecisionOverlay(target, tab: attentionState.workspace)
+        }
+        return true
+    }
+
+    /// Workspace-scoped keys for every feed-routed blocking decision still
+    /// awaiting a reply.
+    ///
+    /// Feed-routed "Needs input" sets the shared sidebar status entry without
+    /// creating a store notification, so the notification store cannot see it.
+    /// Exposing the pending set lets the store keep the workspace badge lit when
+    /// a sibling panel still has an active feed prompt, even as another panel's
+    /// store notification is acknowledged.
+    @MainActor
+    func pendingStructuredAgentInputWorkspaceKeys() -> Set<StructuredAgentInputNotificationKey> {
+        var keys = Set<StructuredAgentInputNotificationKey>()
+        for target in pendingAttentionStates.keys {
+            keys.insert(
+                StructuredAgentInputNotificationKey(tabId: target.workspaceId, statusKey: target.statusKey)
+            )
+        }
+        return keys
+    }
+
+    /// Panel-scoped keys for every feed-routed blocking decision still awaiting
+    /// a reply.
+    ///
+    /// Unlike a queued/policy notification (which delivers within a drain tick),
+    /// a feed prompt persists until the user resolves the decision, so the
+    /// per-panel lifecycle gate must account for it precisely: an acknowledged
+    /// panel that still has an active feed prompt must not have its hibernation
+    /// lifecycle demoted, while a sibling panel's feed prompt must not block it.
+    @MainActor
+    func pendingStructuredAgentInputPanelKeys() -> Set<StructuredAgentInputPanelKey> {
+        var keys = Set<StructuredAgentInputPanelKey>()
+        for target in pendingAttentionStates.keys {
+            guard let panelId = target.panelId else { continue }
+            keys.insert(
+                StructuredAgentInputPanelKey(
+                    tabId: target.workspaceId,
+                    panelId: panelId,
+                    statusKey: target.statusKey
+                )
+            )
+        }
+        return keys
+    }
+
+    /// Clears the sidebar overlay for a blocking decision whose attention has
+    /// just been removed from ``pendingAttentionStates``. Restores only the
+    /// parts the feed still owns: the per-panel lifecycle drops to `.running`
+    /// only if it's still `.needsInput`, and the workspace-level status entry is
+    /// removed only if no other panel in the workspace still has a pending
+    /// decision under the same key and the entry still holds our "Needs input"
+    /// value. Anything an agent hook replaced in the meantime is left untouched.
+    @MainActor
+    private func clearResolvedBlockingDecisionOverlay(_ target: AttentionTarget, tab: Workspace) {
         // Lifecycle is per-panel, so clearing this panel's needs-input is
         // safe even if another panel still needs input.
         if let panelId = target.panelId,

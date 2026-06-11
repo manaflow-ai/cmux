@@ -253,7 +253,7 @@ def main() -> int:
             return 1
 
         notify = notify_commands[-1]
-        expected_payload = f"notify_target_async {workspace_id} {surface_id} Claude Code|Completed in fun|2"
+        expected_payload = f"notify_target_async {workspace_id} {surface_id} --agent-status-key=claude_code Claude Code|Completed in fun|2"
         if notify != expected_payload:
             print("FAIL: expected stop notification to use final assistant text")
             print(f"expected={expected_payload!r}")

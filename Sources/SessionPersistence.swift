@@ -1640,6 +1640,7 @@ struct SessionNotificationSnapshot: Codable, Sendable {
     var title: String
     var subtitle: String
     var body: String
+    var structuredAgentStatusKey: String?
     var createdAt: TimeInterval
     var isRead: Bool
     var paneFlash: Bool?
@@ -1650,6 +1651,7 @@ struct SessionNotificationSnapshot: Codable, Sendable {
         title: String,
         subtitle: String,
         body: String,
+        structuredAgentStatusKey: String? = nil,
         createdAt: TimeInterval,
         isRead: Bool,
         paneFlash: Bool? = nil,
@@ -1659,6 +1661,8 @@ struct SessionNotificationSnapshot: Codable, Sendable {
         self.title = title
         self.subtitle = subtitle
         self.body = body
+        self.structuredAgentStatusKey = AgentHibernationLifecycleStatusKeys
+            .normalizedAllowedStatusKey(structuredAgentStatusKey)
         self.createdAt = createdAt
         self.isRead = isRead
         self.paneFlash = paneFlash
@@ -1671,6 +1675,7 @@ struct SessionNotificationSnapshot: Codable, Sendable {
             title: notification.title,
             subtitle: notification.subtitle,
             body: notification.body,
+            structuredAgentStatusKey: notification.structuredAgentStatusKey,
             createdAt: notification.createdAt.timeIntervalSince1970,
             isRead: notification.isRead,
             paneFlash: notification.paneFlash,
@@ -1684,6 +1689,7 @@ struct SessionNotificationSnapshot: Codable, Sendable {
             tabId: tabId,
             surfaceId: surfaceId,
             panelId: panelId,
+            structuredAgentStatusKey: structuredAgentStatusKey,
             title: title,
             subtitle: subtitle,
             body: body,

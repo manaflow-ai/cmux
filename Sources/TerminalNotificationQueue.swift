@@ -10,6 +10,7 @@ fileprivate struct QueuedTerminalNotification: Sendable {
     let title: String
     let subtitle: String
     let body: String
+    let structuredAgentStatusKey: String?
 }
 
 fileprivate enum TerminalSocketMutation {
@@ -37,6 +38,7 @@ final class TerminalMutationBus: @unchecked Sendable {
 
     private let lock = NSLock()
     private var pending: [TerminalSocketMutationEntry] = []
+    private var inFlightNotificationDeliveries: [UInt64: QueuedTerminalNotification] = [:]
     private var drainScheduled = false
     private var nextSequence: UInt64 = 0
     private var currentNotificationGeneration: UInt64 = 0
@@ -51,13 +53,15 @@ final class TerminalMutationBus: @unchecked Sendable {
         title: String,
         subtitle: String,
         body: String,
+        structuredAgentStatusKey: String? = nil,
         coalesces: Bool = true
     ) {
         enqueueNotification(QueuedTerminalNotification(
             key: QueuedTerminalNotificationKey(tabId: tabId, surfaceId: surfaceId),
             title: title,
             subtitle: subtitle,
-            body: body
+            body: body,
+            structuredAgentStatusKey: structuredAgentStatusKey
         ), coalesces: coalesces)
     }
 
@@ -117,6 +121,23 @@ final class TerminalMutationBus: @unchecked Sendable {
         discardPendingNotifications { notification, _ in
             notification.key.tabId == tabId && notification.key.surfaceId == surfaceId
         }
+    }
+
+    nonisolated func pendingStructuredAgentInputNotificationKeys() -> Set<StructuredAgentInputNotificationKey> {
+        lock.lock()
+        var keys = Set<StructuredAgentInputNotificationKey>()
+        keys.reserveCapacity(pending.count + inFlightNotificationDeliveries.count)
+        for entry in pending {
+            guard case .deliverNotification(let notification) = entry.mutation else {
+                continue
+            }
+            insertStructuredAgentInputNotificationKey(for: notification, into: &keys)
+        }
+        for notification in inFlightNotificationDeliveries.values {
+            insertStructuredAgentInputNotificationKey(for: notification, into: &keys)
+        }
+        lock.unlock()
+        return keys
     }
 
     private func enqueueNotification(_ notification: QueuedTerminalNotification, coalesces: Bool) {
@@ -232,6 +253,20 @@ final class TerminalMutationBus: @unchecked Sendable {
         lock.unlock()
     }
 
+    private func insertStructuredAgentInputNotificationKey(
+        for notification: QueuedTerminalNotification,
+        into keys: inout Set<StructuredAgentInputNotificationKey>
+    ) {
+        let statusKey = AgentHibernationLifecycleStatusKeys
+            .normalizedAllowedStatusKey(notification.structuredAgentStatusKey)
+            ?? AgentHibernationLifecycleStatusKeys.statusKey(forNotificationTitle: notification.title)
+        guard let statusKey else { return }
+        keys.insert(StructuredAgentInputNotificationKey(
+            tabId: notification.key.tabId,
+            statusKey: statusKey
+        ))
+    }
+
     private func scheduleDrain() {
 #if DEBUG
         lock.lock()
@@ -311,6 +346,29 @@ final class TerminalMutationBus: @unchecked Sendable {
         return batch
     }
 
+    private func beginPerformingNotificationDeliveries(in batch: [TerminalSocketMutationEntry]) {
+        lock.lock()
+        for entry in batch {
+            guard case .deliverNotification(let notification) = entry.mutation else { continue }
+            inFlightNotificationDeliveries[entry.sequence] = notification
+        }
+        lock.unlock()
+    }
+
+    private func finishPerformingNotificationDelivery(sequence: UInt64) {
+        lock.lock()
+        inFlightNotificationDeliveries.removeValue(forKey: sequence)
+        lock.unlock()
+    }
+
+    private func finishPerformingNotificationDeliveries(in batch: [TerminalSocketMutationEntry]) {
+        lock.lock()
+        for entry in batch {
+            inFlightNotificationDeliveries.removeValue(forKey: entry.sequence)
+        }
+        lock.unlock()
+    }
+
     private func markDrainCompleteIfEmpty() {
         lock.lock()
         if pending.isEmpty {
@@ -325,6 +383,8 @@ final class TerminalMutationBus: @unchecked Sendable {
 
     @MainActor
     private func perform(_ batch: [TerminalSocketMutationEntry]) {
+        beginPerformingNotificationDeliveries(in: batch)
+        defer { finishPerformingNotificationDeliveries(in: batch) }
         for entry in batch {
             switch entry.mutation {
             case .deliverNotification(let notification):
@@ -334,6 +394,7 @@ final class TerminalMutationBus: @unchecked Sendable {
                 )
 #endif
                 TerminalNotificationStore.shared.deliverQueuedNotification(notification)
+                finishPerformingNotificationDelivery(sequence: entry.sequence)
             case .clearAllNotifications:
                 TerminalNotificationStore.shared.clearAll(discardQueuedNotifications: false)
             case .clearNotificationsForTab(let tabId):
@@ -360,7 +421,8 @@ extension TerminalController {
         surfaceId: UUID?,
         title: String,
         subtitle: String,
-        body: String
+        body: String,
+        structuredAgentStatusKey: String? = nil
     ) {
         TerminalMutationBus.shared.discardPendingNotifications(forTabId: tabId, surfaceId: surfaceId)
 #if DEBUG
@@ -373,7 +435,8 @@ extension TerminalController {
             surfaceId: surfaceId,
             title: title,
             subtitle: subtitle,
-            body: body
+            body: body,
+            structuredAgentStatusKey: structuredAgentStatusKey
         )
     }
 }
@@ -398,7 +461,8 @@ extension TerminalNotificationStore {
             surfaceId: notification.key.surfaceId,
             title: notification.title,
             subtitle: notification.subtitle,
-            body: notification.body
+            body: notification.body,
+            structuredAgentStatusKey: notification.structuredAgentStatusKey
         )
     }
 
