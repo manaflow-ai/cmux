@@ -10780,7 +10780,7 @@ final class Workspace: Identifiable, ObservableObject {
         didSet { trimSidebarStatusEntriesIfNeeded(previousKeys: Set(oldValue.keys)) }
     }
     @Published var metadataBlocks: [String: SidebarMetadataBlock] = [:] {
-        didSet { trimSidebarMetadataBlocksIfNeeded(previousKeys: Set(oldValue.keys)) }
+        didSet { trimSidebarMetadataBlocksIfNeeded() }
     }
     @Published private(set) var latestConversationMessage: String?
     @Published private(set) var latestSubmittedMessage: String?
@@ -14536,18 +14536,17 @@ final class Workspace: Identifiable, ObservableObject {
     }
 
     /// Mirror of `trimSidebarStatusEntriesIfNeeded()` for metadata blocks,
-    /// matching `sidebarMetadataBlocksInDisplayOrder()` retention, with the same
-    /// just-inserted grace tier. Ranking and keep-set are keyed by the
-    /// dictionary's storage key.
-    private func trimSidebarMetadataBlocksIfNeeded(previousKeys: Set<String>) {
+    /// retaining strictly by `sidebarMetadataBlocksInDisplayOrder()` priority then
+    /// timestamp. Unlike status entries, metadata blocks have no follow-up
+    /// PID/lifecycle coupling that must survive its own trim, so there is no
+    /// just-inserted grace tier here — priority is the sole retention signal and a
+    /// new low-priority block must not displace an existing high-priority one.
+    /// Ranking and keep-set are keyed by the dictionary's storage key.
+    private func trimSidebarMetadataBlocksIfNeeded() {
         guard metadataBlocks.count > Self.maxSidebarMetadataBlocks else { return }
-        let justInsertedKeys = Set(metadataBlocks.keys).subtracting(previousKeys)
         let kept = Set(
             metadataBlocks
                 .sorted { lhs, rhs in
-                    let lhsFresh = justInsertedKeys.contains(lhs.key)
-                    let rhsFresh = justInsertedKeys.contains(rhs.key)
-                    if lhsFresh != rhsFresh { return lhsFresh }
                     if lhs.value.priority != rhs.value.priority { return lhs.value.priority > rhs.value.priority }
                     if lhs.value.timestamp != rhs.value.timestamp { return lhs.value.timestamp > rhs.value.timestamp }
                     return lhs.key < rhs.key
