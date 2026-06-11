@@ -506,6 +506,59 @@ import Testing
         #expect(await client.accessToken() != nil)
         #expect(await client.refreshToken() != nil)
     }
+
+    @Test func staleAutoLoginCancellationDoesNotWipeANewerSession() async throws {
+        // A launch/dev auto-login is a sign-in flow like any other: sign-out
+        // cancels its parked credential exchange. But the auto-login wraps
+        // the flow in its own failure handler, and treating that cancellation
+        // as a generic failure runs the handler's clear. When the user has
+        // already completed a fresh manual sign-in by the time the stale
+        // auto-login resumes, that clear wipes the NEWER session: published
+        // state, caches, and the fresh tokens. A cancelled auto-login means a
+        // competing session transition won; it must touch nothing.
+        let user = CMUXAuthUser(id: "u1", primaryEmail: "a@b.com", displayName: "A")
+        let client = GateableValidationAuthClient(user: user)
+        let store = FakeKeyValueStore()
+        let coordinator = AuthCoordinator(
+            client: client,
+            sessionCache: CMUXAuthSessionCache(keyValueStore: store, key: "has_tokens"),
+            userCache: CMUXAuthIdentityStore(keyValueStore: store, key: "cached_user"),
+            teamSelection: CMUXAuthTeamSelectionStore(keyValueStore: store, key: "selected_team"),
+            anchor: FakeAnchor(),
+            config: .test,
+            launch: AuthLaunchOptions(
+                clearAuthRequested: false,
+                mockDataEnabled: false,
+                environment: [
+                    "CMUX_UITEST_STACK_EMAIL": "auto@b.com",
+                    "CMUX_UITEST_STACK_PASSWORD": "pw",
+                ],
+                includesDevAuth: false
+            )
+        )
+
+        // The auto-login parks inside its credential exchange.
+        await client.armCredentialGate()
+        let restore = Task { await coordinator.revalidateSession() }
+        await client.credentialDidPark()
+
+        // The user signs out (cancelling the parked exchange) and completes a
+        // fresh manual sign-in before the stale auto-login resumes.
+        await coordinator.signOut()
+        try await coordinator.signInWithPassword(email: "a@b.com", password: "pw")
+        #expect(coordinator.isAuthenticated)
+
+        // The stale auto-login resumes and fails with the cancellation.
+        await client.releaseParkedCredential()
+        await restore.value
+
+        // The fresh session survives intact.
+        #expect(coordinator.isAuthenticated)
+        #expect(coordinator.currentUser == user)
+        #expect(store.bool(forKey: "has_tokens"))
+        #expect(await client.accessToken() != nil)
+        #expect(await client.refreshToken() != nil)
+    }
 }
 
 /// Mutable connectivity flag for scripting `isOnline` mid-test.
