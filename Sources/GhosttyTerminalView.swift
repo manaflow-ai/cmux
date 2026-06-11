@@ -1141,9 +1141,12 @@ private actor TerminalSurfaceRuntimeTeardownCoordinator {
         )
 #endif
         request.freeSurface(request.surface)
-        if let callbackContext = request.callbackContext {
+        if request.callbackContext != nil {
+            // The request is the @unchecked Sendable transport for the
+            // Unmanaged context; release through the request so the @Sendable
+            // closure never captures the non-Sendable Unmanaged directly.
             await MainActor.run {
-                callbackContext.release()
+                request.callbackContext?.release()
             }
         }
 #if DEBUG
