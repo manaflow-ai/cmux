@@ -4,7 +4,7 @@
 32966	CLI/cmux.swift
 22840	Sources/TerminalController.swift
 19955	Sources/Workspace.swift
-19248	Sources/ContentView.swift
+19256	Sources/ContentView.swift
 18057	Sources/AppDelegate.swift
 16539	Sources/GhosttyTerminalView.swift
 13608	Sources/Panels/BrowserPanel.swift
@@ -127,7 +127,7 @@
 683	Sources/Panels/CodexAppServerSession.swift
 681	Sources/Panels/AgentSessionProcessStore.swift
 680	Sources/FileExplorerSearchController.swift
-669	Packages/CmuxSwiftRender/Sources/CmuxSwiftRender/SwiftViewInterpreter.swift
+683	Packages/CmuxSwiftRender/Sources/CmuxSwiftRender/SwiftViewInterpreter.swift
 668	cmuxTests/FeedCoordinatorTests.swift
 668	cmuxTests/KeyboardShortcutContextTests.swift
 654	Packages/CmuxSettingsUI/Sources/CmuxSettingsUI/Sections/KeyboardShortcutsSection.swift
@@ -146,7 +146,7 @@
 596	cmuxTests/CmuxEventBusTests.swift
 594	Sources/SessionIndexModels.swift
 594	cmuxTests/PortalTabDragRoutingTests.swift
-589	Sources/SettingsNavigation.swift
+599	Sources/SettingsNavigation.swift
 588	cmuxTests/CommandPaletteShortcutCustomizationTests.swift
 586	Sources/JSONCParser.swift
 585	Sources/Cloud/VMClient.swift
@@ -170,7 +170,7 @@
 528	cmuxTests/CLINotifyProcessTestSupport.swift
 528	cmuxUITests/AutomationSocketUITests.swift
 527	CLI/CLISocketPathResolver.swift
-523	Packages/CmuxSettingsUI/Sources/CmuxSettingsUI/Scene/SettingsWindowScene.swift
+531	Packages/CmuxSettingsUI/Sources/CmuxSettingsUI/Scene/SettingsWindowScene.swift
 522	Packages/CmuxMobileTerminal/Sources/CmuxMobileTerminal/GhosttyRuntime.swift
 520	CLI/CMUXCLI+AmpExtension.swift
 520	cmuxTests/MainWindowVisibilityControllerTests.swift
