@@ -91,12 +91,18 @@ final class PhonePushClient {
     func forward(_ notification: TerminalNotification) {
         guard Self.isForwardingEnabled else { return }
 
+        // Read-only burst-throttle check FIRST: a dictionary lookup that
+        // bounds everything downstream (presence sampling and sends) to one
+        // per key per second under notification storms.
+        let key = "\(notification.tabId.uuidString):\(notification.surfaceId?.uuidString ?? "")"
+        let now = Date()
+        if let last = lastSentAt[key], now.timeIntervalSince(last) < Self.minInterval { return }
+
         // Presence gate, evaluated per notification at delivery time so the
-        // phone never receives a suppressed push. Checked before the send
-        // throttle so a suppressed notification does not consume the throttle
-        // slot. `.always` skips presence sampling entirely (`shouldForward`
-        // is constant true there), and the cache bounds live WindowServer/HID
-        // sampling to once per `MacPresenceDecisionCache.ttl` under bursts.
+        // phone never receives a suppressed push. `.always` skips presence
+        // sampling entirely (`shouldForward` is constant true there). Active
+        // (suppressing) decisions are additionally coalesced by the cache, so
+        // suppressed bursts (which never consume a throttle slot) stay cheap.
         let mode = PhoneForwardingMode.fromDefaults()
         if mode != .always {
             let presence = presenceCache.decision(from: presenceMonitor)
@@ -108,9 +114,9 @@ final class PhonePushClient {
             }
         }
 
-        let key = "\(notification.tabId.uuidString):\(notification.surfaceId?.uuidString ?? "")"
-        let now = Date()
-        if let last = lastSentAt[key], now.timeIntervalSince(last) < Self.minInterval { return }
+        // The throttle slot is consumed only after the gate passes, so a
+        // suppressed notification does not block a forwardable one moments
+        // later.
         lastSentAt[key] = now
 
         let hideContent = UserDefaults.standard.bool(forKey: PhonePushSettings.hideContentKey)
