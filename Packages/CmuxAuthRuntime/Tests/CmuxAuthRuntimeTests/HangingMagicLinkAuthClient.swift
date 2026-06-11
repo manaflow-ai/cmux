@@ -35,6 +35,7 @@ actor HangingMagicLinkAuthClient: AuthClient {
     func signInWithOAuth(provider: String, anchor: any AuthPresentationAnchoring) async throws {}
     func storedAccessToken() async -> String? { nil }
     func clearLocalSession() async {}
+    func clearLocalSession(ifRefreshTokenMatches refreshToken: String) async {}
     func revokeSession(accessToken: String?, refreshToken: String?) async throws {}
     func freshAccessToken(accessToken: String?, refreshToken: String) async -> String? { accessToken }
 }

@@ -73,6 +73,14 @@ public protocol AuthClient: Sendable {
     /// The device is signed out once this returns, regardless of connectivity.
     func clearLocalSession() async
 
+    /// Clear the locally persisted session only while the stored refresh
+    /// token still equals `refreshToken`: an atomic compare-and-clear at the
+    /// token store. For stale-session cleanup that can race a fresh sign-in's
+    /// store write; a store that changed owners after the cleanup decision is
+    /// left alone. User-intent sign-out keeps using the unconditional
+    /// ``clearLocalSession()``.
+    func clearLocalSession(ifRefreshTokenMatches refreshToken: String) async
+
     /// Revoke the server-side session the captured token pair authenticates,
     /// without touching local token storage (the local session is typically
     /// already cleared by ``clearLocalSession()`` when this runs).

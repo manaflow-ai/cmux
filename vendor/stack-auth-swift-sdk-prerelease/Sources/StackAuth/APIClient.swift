@@ -385,9 +385,20 @@ actor APIClient {
     func clearTokens() async {
         await tokenStore.clearTokens()
     }
-    
+
     func clearTokens(tokenStoreOverride: any TokenStoreProtocol) async {
         await tokenStoreOverride.clearTokens()
+    }
+
+    /// Compare-and-clear: clears the stored tokens only while the stored
+    /// refresh token still equals `refreshToken`, atomically at the token
+    /// store (`TokenStoreProtocol.compareAndSet`).
+    func clearTokens(ifRefreshTokenEquals refreshToken: String) async {
+        await tokenStore.compareAndSet(
+            compareRefreshToken: refreshToken,
+            newRefreshToken: nil,
+            newAccessToken: nil
+        )
     }
     
     /// Gets tokens, refreshing if needed. See spec for algorithm.

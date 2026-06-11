@@ -394,7 +394,14 @@ public final class AuthCoordinator {
                 return
             }
             authLog.error("Auto-login failed: \(error.localizedDescription, privacy: .private)")
-            await clearStaleSessionState(generation: generation, storeWriteHighWater: storeWriteHighWater)
+            // No expected refresh token: auto-login only starts against an
+            // empty token store, so there is no dead session's token to
+            // compare against; the staleness guards inside cover the rest.
+            await clearStaleSessionState(
+                generation: generation,
+                storeWriteHighWater: storeWriteHighWater,
+                expectedRefreshToken: nil
+            )
         }
     }
 
@@ -413,7 +420,15 @@ public final class AuthCoordinator {
                 return
             }
             authLog.info("Cached session validation returned no current user")
-            await clearStaleSessionState(generation: generation, storeWriteHighWater: storeWriteHighWater)
+            // Snapshot the dead session's refresh token right before the
+            // clear so the clear can be compare-and-clear at the token store.
+            let expectedRefreshToken = await client.refreshToken()
+            guard generation == sessionGeneration else { return }
+            await clearStaleSessionState(
+                generation: generation,
+                storeWriteHighWater: storeWriteHighWater,
+                expectedRefreshToken: expectedRefreshToken
+            )
         } catch {
             // Same staleness rule for the failure paths: a stale clear here
             // could wipe a session established after this flow began.
@@ -430,13 +445,17 @@ public final class AuthCoordinator {
             // time with a confusing host-side message. The live token store is the
             // ground truth: if no refresh token survives, the session is genuinely
             // gone and the user must see the sign-in page.
-            let refreshTokenSurvives = await client.refreshToken() != nil
+            let survivingRefreshToken = await client.refreshToken()
             guard generation == sessionGeneration else { return }
-            if !refreshTokenSurvives {
+            if survivingRefreshToken == nil {
                 authLog.error(
                     "Session validation failed and no refresh token survives; routing to login error=\(error.localizedDescription, privacy: .private)"
                 )
-                await clearStaleSessionState(generation: generation, storeWriteHighWater: storeWriteHighWater)
+                await clearStaleSessionState(
+                    generation: generation,
+                    storeWriteHighWater: storeWriteHighWater,
+                    expectedRefreshToken: nil
+                )
                 return
             }
             let action = AuthError(displaySafe: error)?.cachedSessionValidationFailureAction
@@ -446,7 +465,11 @@ public final class AuthCoordinator {
             )
             switch action {
             case .clearSession:
-                await clearStaleSessionState(generation: generation, storeWriteHighWater: storeWriteHighWater)
+                await clearStaleSessionState(
+                    generation: generation,
+                    storeWriteHighWater: storeWriteHighWater,
+                    expectedRefreshToken: survivingRefreshToken
+                )
             case .preserveCachedSession:
                 preserveCachedSessionAfterValidationFailure()
             }
@@ -465,13 +488,30 @@ public final class AuthCoordinator {
     /// while leaving its tokens orphaned for the next launch restore. The
     /// published-state clear also re-checks both markers after the awaited
     /// store clear, so a session transition landing inside that suspension
-    /// is not unpublished by the stale failure. Residual: a store clear
-    /// already executing when a faster sign-in writes cannot be unwound from
-    /// here; that would need a compare-and-clear inside the token store
-    /// itself, and the exposure is a single keychain write.
-    private func clearStaleSessionState(generation: UInt64, storeWriteHighWater: UInt64) async {
+    /// is not unpublished by the stale failure.
+    ///
+    /// The store clear itself is a compare-and-clear against
+    /// `expectedRefreshToken` (the dead session's refresh token, snapshotted
+    /// by the caller right before this call), atomic at the token store: the
+    /// high-water check above can only see writes that have already advanced
+    /// the mark, so a fresh sign-in writing while this clear is suspended
+    /// in flight would otherwise be wiped underneath its own publish. With
+    /// the compare, a store that changed owners after the cleanup decision
+    /// is left alone. `nil` means the dead session had no refresh token to
+    /// compare against; the clear falls back to unconditional, where the
+    /// only exposure is a refresh-less store racing a sign-in's write
+    /// (anomalous: the SDK always persists a refresh token with a session).
+    private func clearStaleSessionState(
+        generation: UInt64,
+        storeWriteHighWater: UInt64,
+        expectedRefreshToken: String?
+    ) async {
         guard tokenStoreWriteHighWater == storeWriteHighWater else { return }
-        await clearPersistedStackSession()
+        if let expectedRefreshToken {
+            await client.clearLocalSession(ifRefreshTokenMatches: expectedRefreshToken)
+        } else {
+            await clearPersistedStackSession()
+        }
         guard generation == sessionGeneration,
               tokenStoreWriteHighWater == storeWriteHighWater else { return }
         clearAuthState()

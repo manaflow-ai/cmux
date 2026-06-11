@@ -103,6 +103,13 @@ actor FakeAuthClient: AuthClient {
         refresh = nil
     }
 
+    func clearLocalSession(ifRefreshTokenMatches refreshToken: String) async {
+        guard refresh == refreshToken else { return }
+        clearLocalSessionCount += 1
+        access = nil
+        refresh = nil
+    }
+
     func revokeSession(accessToken: String?, refreshToken: String?) async throws {
         revokeCount += 1
         lastRevokedAccessToken = accessToken

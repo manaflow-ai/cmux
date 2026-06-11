@@ -1000,6 +1000,19 @@ public actor StackClientApp {
         }
     }
 
+    /// Clear the stored tokens only while the stored refresh token still
+    /// equals `refreshToken`.
+    ///
+    /// The compare-and-clear runs atomically at the token store
+    /// (`TokenStoreProtocol.compareAndSet`), so a clear that was decided
+    /// against a snapshot of the session cannot wipe tokens a concurrent
+    /// sign-in wrote after that snapshot. For stale-session cleanup paths
+    /// that can race fresh sign-ins; unconditional local clears keep using
+    /// ``clearStoredTokens(tokenStore:)``.
+    public func clearStoredTokens(ifRefreshTokenEquals refreshToken: String) async {
+        await client.clearTokens(ifRefreshTokenEquals: refreshToken)
+    }
+
     /// Resolve a likely-valid access token for an explicit token pair,
     /// touching no persistent token store.
     ///

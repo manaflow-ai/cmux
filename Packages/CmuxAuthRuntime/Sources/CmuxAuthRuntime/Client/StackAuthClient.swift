@@ -89,6 +89,10 @@ public struct StackAuthClient: AuthClient {
         await stack.clearStoredTokens()
     }
 
+    public func clearLocalSession(ifRefreshTokenMatches refreshToken: String) async {
+        await stack.clearStoredTokens(ifRefreshTokenEquals: refreshToken)
+    }
+
     public func revokeSession(accessToken: String?, refreshToken: String?) async throws {
         // Nothing to authenticate the DELETE with; skip the round trip.
         guard accessToken != nil || refreshToken != nil else { return }

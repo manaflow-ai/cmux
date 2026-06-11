@@ -137,6 +137,16 @@ actor GateableValidationAuthClient: AuthClient {
         refresh = nil
     }
 
+    func clearLocalSession(ifRefreshTokenMatches refreshToken: String) async {
+        await parkIfArmed(clearGate)
+        // The compare runs at execution time, like the token store's atomic
+        // compareAndSet: a store that changed owners while this clear was
+        // parked is left alone.
+        guard refresh == refreshToken else { return }
+        access = nil
+        refresh = nil
+    }
+
     func revokeSession(accessToken: String?, refreshToken: String?) async throws {}
 
     func freshAccessToken(accessToken: String?, refreshToken: String) async -> String? { accessToken }

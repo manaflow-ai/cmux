@@ -462,6 +462,14 @@ private actor FlowFakeAuthClient: AuthClient {
         await store.clearTokens()
     }
 
+    func clearLocalSession(ifRefreshTokenMatches refreshToken: String) async {
+        await store.compareAndSet(
+            compareRefreshToken: refreshToken,
+            newRefreshToken: nil,
+            newAccessToken: nil
+        )
+    }
+
     func revokeSession(accessToken: String?, refreshToken: String?) async throws {
         revokedCredentials.append((access: accessToken, refresh: refreshToken))
     }

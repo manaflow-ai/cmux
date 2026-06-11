@@ -74,5 +74,12 @@ actor HangingSignOutAuthClient: AuthClient {
         localSessionCleared = true
     }
 
+    func clearLocalSession(ifRefreshTokenMatches refreshToken: String) async {
+        guard refresh == refreshToken else { return }
+        access = nil
+        refresh = nil
+        localSessionCleared = true
+    }
+
     func freshAccessToken(accessToken: String?, refreshToken: String) async -> String? { accessToken }
 }

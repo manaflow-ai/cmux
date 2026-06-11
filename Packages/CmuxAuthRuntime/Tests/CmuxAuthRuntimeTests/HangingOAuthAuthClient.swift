@@ -38,6 +38,7 @@ actor HangingOAuthAuthClient: AuthClient {
 
     func storedAccessToken() async -> String? { nil }
     func clearLocalSession() async {}
+    func clearLocalSession(ifRefreshTokenMatches refreshToken: String) async {}
     func revokeSession(accessToken: String?, refreshToken: String?) async throws {}
     func freshAccessToken(accessToken: String?, refreshToken: String) async -> String? { accessToken }
 }

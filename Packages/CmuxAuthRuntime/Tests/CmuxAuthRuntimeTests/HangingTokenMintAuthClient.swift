@@ -51,6 +51,12 @@ actor HangingTokenMintAuthClient: AuthClient {
         refresh = nil
     }
 
+    func clearLocalSession(ifRefreshTokenMatches refreshToken: String) async {
+        guard refresh == refreshToken else { return }
+        access = nil
+        refresh = nil
+    }
+
     func freshAccessToken(accessToken: String?, refreshToken: String) async -> String? {
         mintStarted = true
         for waiter in mintStartWaiters { waiter.resume() }
