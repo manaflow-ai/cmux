@@ -5,7 +5,7 @@
 538	Packages/CmuxRemoteWorkspace/Sources/CmuxRemoteWorkspace/PTYBridge/RemotePTYBridgeSession.swift
 518	Packages/CmuxControlSocket/Sources/CmuxControlSocket/Coordinator/Surface/ControlCommandCoordinator+Surface.swift
 18034	Sources/TerminalController.swift
-16800	Sources/Workspace.swift
+16292	Sources/Workspace.swift
 19246	Sources/ContentView.swift
 18044	Sources/AppDelegate.swift
 16539	Sources/GhosttyTerminalView.swift
