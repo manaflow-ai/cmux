@@ -90,6 +90,15 @@ final class MobileWorkspaceListObserver {
         // Marking a notification read also flows through `$notifications` (the
         // mutated element re-publishes the array), which the unread flag in the
         // per-workspace signature turns into a hash change.
+        //
+        // Ordering invariant: `@Published` emits from `willSet`, but every sink
+        // here reads the store's post-`didSet` state (latestNotification /
+        // unread indexes) rather than the emitted value. That is safe because
+        // `throttle(for:scheduler: RunLoop.main)` always hops through the run
+        // loop, so delivery happens after the assignment (and its `didSet`
+        // index rebuild) completes; it never fires synchronously from
+        // `willSet`. The pre-existing `$tabs` / `$selectedTabId` sinks rely on
+        // the same property.
         notificationsCancellable = notificationStore?.$notifications
             .throttle(for: .milliseconds(throttleMilliseconds), scheduler: RunLoop.main, latest: true)
             .sink { [weak self] _ in
