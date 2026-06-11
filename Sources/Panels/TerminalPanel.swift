@@ -622,10 +622,14 @@ final class TerminalPanel: Panel, ObservableObject {
         // The shell integration deletes the replay file after a restore; a
         // panel closed while hibernated never restores, so clean up the
         // one-shot artifact here to keep abandoned hibernations from
-        // accumulating temp files.
+        // accumulating temp files. Once a restore begins, ownership of the
+        // path moves from the hibernation state into the surface's staged
+        // environment until the relaunched shell consumes it, so a close in
+        // that window must clean up the staged copy too.
         if let replayFilePath = surfaceHibernationState?.replayFilePath {
             try? FileManager.default.removeItem(atPath: replayFilePath)
         }
+        surface.discardStagedHibernationReplayFile()
         discardTextBoxContentForClose()
         // The surface will be cleaned up by its deinit
         // Detach from the window portal on real close so stale hosted views

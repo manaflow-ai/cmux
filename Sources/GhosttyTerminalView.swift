@@ -6866,7 +6866,14 @@ final class TerminalSurface: Identifiable, ObservableObject {
 
         // Session scrollback replay must be one-shot. Reusing it on a later runtime
         // surface recreation would inject stale restored output into a live shell.
-        additionalEnvironment.removeValue(forKey: SessionScrollbackReplayStore.environmentKey)
+        // When this launch installed no replay hook (integration toggled off
+        // between staging and creation), nothing will consume the file — delete
+        // it instead of leaving it for the next-launch purge.
+        if let stagedReplayPath = additionalEnvironment.removeValue(
+            forKey: SessionScrollbackReplayStore.environmentKey
+        ), !runtimeSupportsScrollbackReplay, !stagedReplayPath.isEmpty {
+            try? FileManager.default.removeItem(atPath: stagedReplayPath)
+        }
 
         // For vsync-driven rendering, Ghostty needs to know which display we're on so it can
         // start a CVDisplayLink with the right refresh rate. If we don't set this early, the
@@ -7268,6 +7275,16 @@ final class TerminalSurface: Identifiable, ObservableObject {
     func prepareHibernationResume(initialInput: String?) {
         runtimeSurfaceSuspendedForHibernation = false
         prepareNextRuntimeInitialInput(initialInput)
+    }
+
+    /// Drop a staged-but-unconsumed scrollback replay file. Ownership of the
+    /// path moves here when a restore begins, so a panel closed before the
+    /// relaunched shell consumes the file must clean it up through this.
+    @MainActor
+    func discardStagedHibernationReplayFile() {
+        guard let path = additionalEnvironment.removeValue(forKey: SessionScrollbackReplayStore.environmentKey),
+              !path.isEmpty else { return }
+        try? FileManager.default.removeItem(atPath: path)
     }
 
     /// Stage scrollback replay and a working-directory override for the next
