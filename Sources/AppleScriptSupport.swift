@@ -470,7 +470,14 @@ final class ScriptTab: NSObject {
         }
 
         if state.tabManager.tabs.count > 1 {
-            state.tabManager.closeWorkspace(workspace)
+            guard state.tabManager.closeWorkspace(workspace) else {
+                command.scriptErrorNumber = errAEEventFailed
+                command.scriptErrorString = String(
+                    localized: "error.ephemeralWorktree.dirtyRequiresConfirmation",
+                    defaultValue: "This worktree cleanup policy requires confirmation before removal."
+                )
+                return nil
+            }
             return nil
         }
 
@@ -621,7 +628,14 @@ final class ScriptTerminal: NSObject {
 
         if workspace.panels.count == 1 {
             if state.tabManager.tabs.count > 1 {
-                state.tabManager.closeWorkspace(workspace)
+                guard state.tabManager.closeWorkspace(workspace) else {
+                    command.scriptErrorNumber = errAEEventFailed
+                    command.scriptErrorString = String(
+                        localized: "error.ephemeralWorktree.dirtyRequiresConfirmation",
+                        defaultValue: "This worktree cleanup policy requires confirmation before removal."
+                    )
+                    return nil
+                }
                 return nil
             }
 

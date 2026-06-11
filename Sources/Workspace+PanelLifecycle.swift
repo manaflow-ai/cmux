@@ -293,7 +293,8 @@ extension Workspace {
         publishSurfaceClosedEvent: Bool,
         clearSurfaceNotifications: Bool,
         requestTransferredRemoteCleanup: Bool,
-        cleanupControllerSurfaceState: Bool = false
+        cleanupControllerSurfaceState: Bool = false,
+        ephemeralWorktreeCleanupAuthorized: Bool = false
     ) -> WorkspaceRemoteConfiguration? {
         if publishSurfaceClosedEvent {
             publishCmuxSurfaceClosed(panelId, paneId: paneId, panel: panel, origin: origin)
@@ -355,6 +356,17 @@ extension Workspace {
 
         if requestTransferredRemoteCleanup, let transferredRemoteCleanupConfiguration {
             Self.requestSSHControlMasterCleanupIfNeeded(configuration: transferredRemoteCleanupConfiguration)
+        }
+        // Only forget the worktree record when the panel is actually closing.
+        // The terminal-respawn path calls this with `closePanel: false` and then
+        // recreates the panel under the same id, so the record must survive to
+        // keep the worktree tracked for later block-policy prompts and cleanup.
+        if closePanel,
+           let ephemeralWorktree = ephemeralWorktreesByPanelId.removeValue(forKey: panelId) {
+            EphemeralWorktreeRegistry.shared.cleanupInBackground(
+                ephemeralWorktree,
+                userConfirmed: ephemeralWorktreeCleanupAuthorized
+            )
         }
         return transferredRemoteCleanupConfiguration
     }

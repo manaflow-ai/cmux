@@ -859,6 +859,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private var reloadConfigurationMenuItemRefreshScheduled = false
     private var splitButtonTooltipRefreshScheduled = false
     private var didScheduleGhosttyCrashBreadcrumbCheck = false
+    private var didScheduleEphemeralWorktreeStartupReconciliation = false
     private var ghosttyCrashBreadcrumbTask: Task<Void, Never>?
     private struct PendingConfiguredShortcutChord {
         let firstStroke: ShortcutStroke
@@ -1054,6 +1055,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private var didPrepareStartupSessionSnapshot = false
     var didAttemptStartupSessionRestore = false
     private var isApplyingSessionRestore = false
+    private var didFinishStartupSessionRestoreAttempt = false
     private var sessionAutosaveTimer: DispatchSourceTimer?
     private var sessionAutosaveTickInFlight = false
     private var sessionAutosaveDeferredRetryPending = false
@@ -3166,8 +3168,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private func attemptStartupSessionRestoreIfNeeded(primaryWindow: NSWindow) -> Bool {
         guard !didAttemptStartupSessionRestore else { return false }
         didAttemptStartupSessionRestore = true
-        guard !didHandleExplicitOpenIntentAtStartup else { return false }
-        guard let primaryContext = contextForMainTerminalWindow(primaryWindow) else { return false }
+        guard !didHandleExplicitOpenIntentAtStartup else {
+            finishStartupSessionRestoreAttemptIfNeeded(reason: "startupRestoreSkippedForOpenIntent")
+            return false
+        }
+        guard let primaryContext = contextForMainTerminalWindow(primaryWindow) else {
+            finishStartupSessionRestoreAttemptIfNeeded(reason: "startupRestoreSkippedMissingWindow")
+            return false
+        }
 
         let startupSnapshot = startupSessionSnapshot
         let primaryWindowSnapshot = startupSnapshot?.windows.first
@@ -3199,7 +3207,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             }
         }
 
-        guard let startupSnapshot else { return false }
+        guard let startupSnapshot else {
+            finishStartupSessionRestoreAttemptIfNeeded(reason: "startupRestoreSkippedNoSnapshot")
+            return false
+        }
 
         let additionalWindows = Array(startupSnapshot
             .windows
@@ -3236,6 +3247,27 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             // restored process-detected bindings until a later live scan.
             _ = saveSessionSnapshot(includeScrollback: false)
         }
+        finishStartupSessionRestoreAttemptIfNeeded(reason: "sessionRestoreComplete")
+    }
+
+    private func finishStartupSessionRestoreAttemptIfNeeded(reason: String) {
+        guard !didFinishStartupSessionRestoreAttempt else { return }
+        didFinishStartupSessionRestoreAttempt = true
+        scheduleEphemeralWorktreeStartupReconciliation(reason: reason)
+    }
+
+    private func scheduleEphemeralWorktreeStartupReconciliation(reason: String) {
+        guard !didScheduleEphemeralWorktreeStartupReconciliation else { return }
+        didScheduleEphemeralWorktreeStartupReconciliation = true
+        let activeSessionIds = mainWindowContexts.values.reduce(into: Set<String>()) { result, context in
+            result.formUnion(context.tabManager.activeEphemeralWorktreeSessionIds())
+        }
+#if DEBUG
+        cmuxDebugLog(
+            "worktree.reconcile.startup reason=\(reason) active=\(activeSessionIds.count)"
+        )
+#endif
+        EphemeralWorktreeRegistry.shared.reconcileOrphansInBackground(activeSessionIds: activeSessionIds)
     }
 
     nonisolated static func shouldSaveSessionSnapshotOnRestoreCompletion(
@@ -5638,6 +5670,39 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
 
         return alert.runModal() == .alertFirstButtonReturn
+    }
+
+    private func unauthorizedBlockPolicyEphemeralWorktreePanelIdsByWorkspace(
+        in tabManager: TabManager
+    ) -> [(workspace: Workspace, panelIds: Set<UUID>)] {
+        tabManager.tabs.compactMap { workspace -> (workspace: Workspace, panelIds: Set<UUID>)? in
+            let blockPolicyPanelIds = Set(workspace.ephemeralWorktreesByPanelId.compactMap { panelId, record -> UUID? in
+                record.cleanupPolicy == .block ? panelId : nil
+            })
+            let unauthorizedPanelIds = workspace.unauthorizedEphemeralWorktreeCleanupPanelIdsForWindowClose(
+                panelIds: blockPolicyPanelIds
+            )
+            guard !unauthorizedPanelIds.isEmpty else { return nil }
+            return (workspace, unauthorizedPanelIds)
+        }
+    }
+
+    private func confirmAndAuthorizeEphemeralWorktreeCleanupForWindow(tabManager: TabManager) -> Bool {
+        let unauthorizedPanelIdsByWorkspace = unauthorizedBlockPolicyEphemeralWorktreePanelIdsByWorkspace(
+            in: tabManager
+        )
+        let affectedCount = unauthorizedPanelIdsByWorkspace.reduce(0) { $0 + $1.panelIds.count }
+        guard affectedCount > 0 else { return true }
+
+        let copy = WorkspaceEphemeralWorktreeManager.closeConfirmationCopy(affectedCount: affectedCount)
+        guard tabManager.confirmClose(title: copy.title, message: copy.message, acceptCmdD: false) else {
+            return false
+        }
+
+        for (workspace, panelIds) in unauthorizedPanelIdsByWorkspace {
+            workspace.authorizeEphemeralWorktreeCleanupForWindowClose(panelIds: panelIds)
+        }
+        return true
     }
 
     @discardableResult
@@ -8217,9 +8282,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             self.mainWindowControllers.removeAll(where: { $0 === controller })
         }
         controller.shouldClose = { [weak self] in
-            let shouldClose = self?.handleMainTerminalWindowShouldClose() ?? true
+            let shouldClose = self?.handleMainTerminalWindowShouldClose(windowId: windowId) ?? true
             if !shouldClose {
                 self?.closedWindowHistorySuppressedWindowIds.remove(windowId)
+                tabManager.cancelEphemeralWorktreeCleanupForAbortedWindowClose()
             }
             return shouldClose
         }
@@ -16081,10 +16147,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 #endif
     }
 
-    private func handleMainTerminalWindowShouldClose() -> Bool {
+    private func handleMainTerminalWindowShouldClose(windowId: UUID) -> Bool {
         // XCTest has no UI for the warn-before-quit dialog and would either block
         // on runModal or have NSApp.terminate kill the test process.
         if ProcessInfo.processInfo.environment["XCTestConfigurationFilePath"] != nil { return true }
+        if let tabManager = tabManagerFor(windowId: windowId),
+           !confirmAndAuthorizeEphemeralWorktreeCleanupForWindow(tabManager: tabManager) {
+            return false
+        }
         guard !isTerminatingApp, mainWindowContexts.count <= 1 else { return true }
         _ = handleQuitShortcutWarning()
         return false

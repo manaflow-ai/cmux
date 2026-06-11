@@ -1385,6 +1385,7 @@ struct SessionTerminalPanelSnapshot: Codable, Sendable {
     var scrollback: String?
     var agent: SessionRestorableAgentSnapshot?
     var tmuxStartCommand: String?
+    var ephemeralWorktree: EphemeralWorktreeRecord?
     var hibernation: SessionAgentHibernationSnapshot?
     var resumeBinding: SurfaceResumeBindingSnapshot?
     var textBoxDraft: SessionTextBoxInputDraftSnapshot?
@@ -1399,6 +1400,7 @@ struct SessionTerminalPanelSnapshot: Codable, Sendable {
         scrollback: String? = nil,
         agent: SessionRestorableAgentSnapshot? = nil,
         tmuxStartCommand: String? = nil,
+        ephemeralWorktree: EphemeralWorktreeRecord? = nil,
         hibernation: SessionAgentHibernationSnapshot? = nil,
         resumeBinding: SurfaceResumeBindingSnapshot? = nil,
         textBoxDraft: SessionTextBoxInputDraftSnapshot? = nil,
@@ -1410,6 +1412,7 @@ struct SessionTerminalPanelSnapshot: Codable, Sendable {
         self.scrollback = scrollback
         self.agent = agent
         self.tmuxStartCommand = tmuxStartCommand
+        self.ephemeralWorktree = ephemeralWorktree
         self.hibernation = hibernation
         self.resumeBinding = resumeBinding
         self.textBoxDraft = textBoxDraft

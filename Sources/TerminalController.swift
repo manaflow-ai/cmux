@@ -87,6 +87,7 @@ nonisolated private func v2RemotePTYUserFacingErrorMessage(_ message: String) ->
 @MainActor
 class TerminalController {
     static let shared = TerminalController()
+    private nonisolated static let socketWorkerV2WorktreeResponseTimeoutSeconds: TimeInterval = 150
 
     private nonisolated let remotePTYControllerAvailabilityCondition = NSCondition()
     private nonisolated(unsafe) var remotePTYControllerAvailabilityGeneration: UInt64 = 0
@@ -886,6 +887,13 @@ class TerminalController {
     private nonisolated static let v2Parser = ControlRequestParser()
     private nonisolated static let v2Encoder = ControlResponseEncoder()
 
+    private nonisolated static let worktreeCreatingV2Methods: Set<String> = [
+        "workspace.create",
+        "surface.split",
+        "surface.create",
+        "pane.create",
+    ]
+
     private nonisolated static func executionPolicy(forV2Method method: String) -> ControlCommandExecutionPolicy {
         ControlCommandExecutionPolicy(forMethod: method)
     }
@@ -947,6 +955,31 @@ class TerminalController {
             return nil
         }
         return seconds
+    }
+
+    private nonisolated func socketWorkerV2WorktreeRequestIfNeeded(for command: String) -> V2SocketRequest? {
+        guard let request = parseV2SocketRequest(command),
+              Self.worktreeCreatingV2Methods.contains(request.method),
+              Self.socketWorkerWorktreeRequested(request.params) else {
+            return nil
+        }
+
+        return request
+    }
+
+    private nonisolated static func socketWorkerWorktreeRequested(_ params: [String: Any]) -> Bool {
+        guard let raw = params["worktree"] else { return false }
+        if let value = raw as? Bool { return value }
+        if let value = raw as? NSNumber { return value.boolValue }
+        if let value = raw as? String {
+            switch value.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() {
+            case "1", "true", "yes", "on":
+                return true
+            default:
+                return false
+            }
+        }
+        return false
     }
 
     private nonisolated func socketWorkerV2Response(_ request: V2SocketRequest) -> String {
@@ -1067,6 +1100,196 @@ class TerminalController {
         }
     }
 
+    private nonisolated func handOffSocketWorkerV2WorktreeResponse(
+        command: String,
+        socket: Int32,
+        pending: String,
+        authenticated: Bool
+    ) {
+        handleSocketWorkerV2WorktreeClient(
+            initialCommand: command,
+            socket: socket,
+            pending: pending,
+            authenticated: authenticated
+        )
+    }
+
+    private nonisolated func handleSocketWorkerV2WorktreeClient(
+        initialCommand: String,
+        socket: Int32,
+        pending initialPending: String,
+        authenticated initialAuthenticated: Bool
+    ) {
+        defer { close(socket) }
+
+        var pending = initialPending
+        var authenticated = initialAuthenticated
+        guard writeSocketWorkerV2WorktreeResponse(command: initialCommand, to: socket) else {
+            return
+        }
+
+        var buffer = [UInt8](repeating: 0, count: 4096)
+        while socketServer.isRunning {
+            if pending.contains("\n") {
+                guard drainSocketClientPendingLines(
+                    &pending,
+                    authenticated: &authenticated,
+                    socket: socket
+                ) else {
+                    return
+                }
+                continue
+            }
+
+            let bytesRead = read(socket, &buffer, buffer.count - 1)
+            guard bytesRead > 0 else { return }
+
+            let chunk = String(bytes: buffer[0..<bytesRead], encoding: .utf8) ?? ""
+            pending.append(chunk)
+        }
+    }
+
+    private nonisolated func drainSocketClientPendingLines(
+        _ pending: inout String,
+        authenticated: inout Bool,
+        socket: Int32
+    ) -> Bool {
+        while let newlineIndex = pending.firstIndex(of: "\n") {
+            let line = String(pending[..<newlineIndex])
+            pending = String(pending[pending.index(after: newlineIndex)...])
+            let trimmed = line.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !trimmed.isEmpty else { continue }
+
+            if isEventsStreamRequest(trimmed) {
+                if let response = authResponseIfNeeded(for: trimmed, authenticated: &authenticated) {
+                    guard writeSocketResponse(response, to: socket) else {
+                        return false
+                    }
+                    continue
+                }
+                handleEventsStreamRequest(trimmed, socket: socket)
+                return false
+            }
+
+            var nextAuthenticated = authenticated
+            if let response = authResponseIfNeeded(for: trimmed, authenticated: &nextAuthenticated) {
+                authenticated = nextAuthenticated
+                let didWriteResponse = writeSocketResponse(response, to: socket)
+                publishSocketEvents(command: trimmed, response: response)
+                guard didWriteResponse else {
+                    return false
+                }
+                continue
+            }
+            authenticated = nextAuthenticated
+
+            if socketWorkerV2WorktreeRequestIfNeeded(for: trimmed) != nil {
+                guard writeSocketWorkerV2WorktreeResponse(command: trimmed, to: socket) else {
+                    return false
+                }
+                continue
+            }
+
+            let result = processSocketLine(trimmed, authenticated: authenticated)
+            authenticated = result.authenticated
+            if let response = result.response {
+                let didWriteResponse = writeSocketResponse(response, to: socket)
+                publishSocketEvents(command: trimmed, response: response)
+                guard didWriteResponse else {
+                    return false
+                }
+            }
+        }
+
+        return true
+    }
+
+    private nonisolated func writeSocketWorkerV2WorktreeResponse(
+        command: String,
+        to socket: Int32
+    ) -> Bool {
+        let response = blockingSocketWorkerV2WorktreeResponse(command: command)
+        let didWriteResponse = writeSocketResponse(response, to: socket)
+        publishSocketEvents(command: command, response: response)
+        return didWriteResponse
+    }
+
+    private nonisolated func blockingSocketWorkerV2WorktreeResponse(command: String) -> String {
+        // Called from a dedicated socket client thread, so this blocks no actor
+        // executor or listener event queue while async worktree setup hops through
+        // MainActor and other services.
+        let semaphore = DispatchSemaphore(value: 0)
+        nonisolated(unsafe) var response = v2Error(
+            id: nil,
+            code: "internal_error",
+            message: String(
+                localized: "error.socket.invalidWorktreeRequest",
+                defaultValue: "Invalid worktree request"
+            )
+        )
+        let task = Task {
+            response = await self.socketWorkerV2WorktreeResponse(command: command)
+            semaphore.signal()
+        }
+        if semaphore.wait(timeout: .now() + Self.socketWorkerV2WorktreeResponseTimeoutSeconds) == .timedOut {
+            task.cancel()
+            return v2Error(
+                id: nil,
+                code: "timeout",
+                message: String(
+                    localized: "error.socket.worktreeRequestTimedOut",
+                    defaultValue: "worktree request timed out"
+                )
+            )
+        }
+        return response
+    }
+
+    private func socketWorkerV2WorktreeResponse(command: String) async -> String {
+        guard let request = socketWorkerV2WorktreeRequestIfNeeded(for: command) else {
+            return v2Error(
+                id: nil,
+                code: "invalid_dispatch",
+                message: String(
+                    localized: "error.socket.invalidWorktreeRequest",
+                    defaultValue: "Invalid worktree request"
+                )
+            )
+        }
+
+        let result: V2CallResult
+        let allowsFocusMutation = Self.socketCommandAllowsInAppFocusMutations(
+            commandKey: request.method,
+            isV2: true,
+            params: request.params
+        )
+        switch request.method {
+        case "workspace.create":
+            result = await v2WorkspaceCreateWithAsyncWorktree(
+                params: request.params,
+                allowsFocusMutation: allowsFocusMutation
+            )
+        case "surface.split":
+            result = await v2SurfaceSplitWithAsyncWorktree(
+                params: request.params,
+                allowsFocusMutation: allowsFocusMutation
+            )
+        case "surface.create":
+            result = await v2SurfaceCreateWithAsyncWorktree(
+                params: request.params,
+                allowsFocusMutation: allowsFocusMutation
+            )
+        case "pane.create":
+            result = await v2PaneCreateWithAsyncWorktree(
+                params: request.params,
+                allowsFocusMutation: allowsFocusMutation
+            )
+        default:
+            result = .err(code: "method_not_found", message: "Unknown method", data: nil)
+        }
+        return v2Result(id: request.id, result)
+    }
+
     private nonisolated func spawnClientHandler(socket clientSocket: Int32, peerPid: pid_t?) {
         Thread.detachNewThread { [weak self] in
             guard let self else {
@@ -1110,7 +1333,12 @@ class TerminalController {
     }
 
     private nonisolated func handleClient(_ socket: Int32, peerPid: pid_t? = nil) {
-        defer { close(socket) }
+        var handlerOwnsSocket = true
+        defer {
+            if handlerOwnsSocket {
+                close(socket)
+            }
+        }
 
         // In cmuxOnly mode, verify the connecting process is a descendant of cmux.
         // In allowAll mode (env-var only), skip the ancestry check.
@@ -1153,6 +1381,7 @@ class TerminalController {
             guard !trimmed.isEmpty else { continue }
 
             var shouldCloseSocket = false
+            var didHandOffSocket = false
             autoreleasepool {
                 if isEventsStreamRequest(trimmed) {
                     if let response = authResponseIfNeeded(for: trimmed, authenticated: &authenticated) {
@@ -1166,6 +1395,21 @@ class TerminalController {
                     return
                 }
 
+                if socketWorkerV2WorktreeRequestIfNeeded(for: trimmed) != nil {
+                    // Hand the connection off to the dedicated worktree worker,
+                    // seeding it with whatever the line reader has already
+                    // buffered past this command so no client input is lost.
+                    handlerOwnsSocket = false
+                    handOffSocketWorkerV2WorktreeResponse(
+                        command: trimmed,
+                        socket: socket,
+                        pending: lineReader.bufferedRemainder,
+                        authenticated: authenticated
+                    )
+                    didHandOffSocket = true
+                    return
+                }
+
                 let result = processSocketLine(trimmed, authenticated: authenticated)
                 authenticated = result.authenticated
                 if let response = result.response {
@@ -1175,6 +1419,9 @@ class TerminalController {
                         shouldCloseSocket = true
                     }
                 }
+            }
+            if didHandOffSocket {
+                return
             }
             if shouldCloseSocket {
                 return
@@ -1450,6 +1697,17 @@ class TerminalController {
                 return nil
             }
             return response
+        }
+
+        if let request = socketWorkerV2WorktreeRequestIfNeeded(for: command) {
+            return v2Error(
+                id: request.id,
+                code: "invalid_dispatch",
+                message: String(
+                    localized: "error.socket.worktreeRequiresAsyncSocket",
+                    defaultValue: "worktree creation must run through the async socket responder"
+                )
+            )
         }
 
         if command.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() == "ping" {
@@ -4084,7 +4342,22 @@ class TerminalController {
         guard let windowId = v2UUID(params, "window_id") else {
             return .err(code: "invalid_params", message: "Missing or invalid window_id", data: nil)
         }
-        let ok = v2MainSync { AppDelegate.shared?.closeMainWindow(windowId: windowId) ?? false }
+        var blockedWorktreeError: V2CallResult?
+        let ok = v2MainSync {
+            guard let app = AppDelegate.shared,
+                  app.windowForMainWindowId(windowId) != nil else { return false }
+            if let tabManager = app.tabManagerFor(windowId: windowId),
+               let worktreeError = v2BlockedEphemeralWorktreeError(
+                   for: v2EphemeralWorktreeRecords(in: tabManager)
+               ) {
+                blockedWorktreeError = worktreeError
+                return false
+            }
+            return app.closeMainWindow(windowId: windowId)
+        }
+        if let blockedWorktreeError {
+            return blockedWorktreeError
+        }
         return ok
             ? .ok([
                 "window_id": windowId.uuidString,
@@ -4418,6 +4691,134 @@ class TerminalController {
         return trimmed.isEmpty ? nil : trimmed
     }
 
+    func v2EphemeralWorktreeOptions(
+        params: [String: Any],
+        panelType: PanelType
+    ) -> (enabled: Bool, policy: EphemeralWorktreeCleanupPolicy, error: V2CallResult?) {
+        if v2HasNonNullParam(params, "worktree"), v2Bool(params, "worktree") == nil {
+            return (
+                false,
+                .defaultPolicy,
+                .err(
+                    code: "invalid_params",
+                    message: String(
+                        localized: "error.ephemeralWorktree.worktreeBoolean",
+                        defaultValue: "worktree must be a boolean."
+                    ),
+                    data: nil
+                )
+            )
+        }
+
+        let cleanupKey = ["worktree_cleanup", "worktree_cleanup_policy"]
+            .first { v2HasNonNullParam(params, $0) }
+        let rawPolicy: String?
+        if let cleanupKey {
+            guard let raw = v2RawString(params, cleanupKey) else {
+                return (
+                    false,
+                    .defaultPolicy,
+                    .err(
+                        code: "invalid_params",
+                        message: EphemeralWorktreeLifecycleError.invalidCleanupPolicy("").localizedDescription,
+                        data: nil
+                    )
+                )
+            }
+            rawPolicy = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        } else {
+            rawPolicy = nil
+        }
+
+        let enabled = v2Bool(params, "worktree") ?? false
+        guard enabled else {
+            if cleanupKey != nil {
+                return (
+                    false,
+                    .defaultPolicy,
+                    .err(
+                        code: "invalid_params",
+                        message: String(
+                            localized: "error.ephemeralWorktree.cleanupRequiresWorktree",
+                            defaultValue: "worktree_cleanup requires worktree: true."
+                        ),
+                        data: nil
+                    )
+                )
+            }
+            return (false, .defaultPolicy, nil)
+        }
+        guard panelType == .terminal else {
+            return (
+                false,
+                .defaultPolicy,
+                .err(
+                    code: "invalid_params",
+                    message: String(
+                        localized: "error.ephemeralWorktree.terminalOnly",
+                        defaultValue: "worktree mode is only supported for terminal panes."
+                    ),
+                    data: nil
+                )
+            )
+        }
+
+        guard let policy = EphemeralWorktreeCleanupPolicy(userValue: rawPolicy) else {
+            return (
+                false,
+                .defaultPolicy,
+                .err(
+                    code: "invalid_params",
+                    message: EphemeralWorktreeLifecycleError.invalidCleanupPolicy(rawPolicy ?? "").localizedDescription,
+                    data: nil
+                )
+            )
+        }
+        return (true, policy, nil)
+    }
+
+    func v2EphemeralWorktreePayload(_ record: EphemeralWorktreeRecord?) -> [String: Any] {
+        guard let record else { return [:] }
+        return [
+            "worktree": true,
+            "worktree_session_id": record.sessionId,
+            "worktree_path": record.worktreePath,
+            "worktree_branch": record.branchName,
+            "worktree_cleanup": record.cleanupPolicy.rawValue,
+        ]
+    }
+
+    func v2InvalidExplicitUUIDParamError(_ params: [String: Any], key: String) -> V2CallResult? {
+        guard v2HasNonNullParam(params, key),
+              v2UUID(params, key) == nil else { return nil }
+        return .err(
+            code: "invalid_params",
+            message: String(
+                localized: "error.socket.invalidIdentifier",
+                defaultValue: "Invalid identifier"
+            ),
+            data: [key: String(describing: params[key] ?? "")]
+        )
+    }
+
+    private func v2BlockedEphemeralWorktreeError(
+        for records: [EphemeralWorktreeRecord]
+    ) -> V2CallResult? {
+        guard records.contains(where: { $0.cleanupPolicy == .block }) else { return nil }
+        return .err(
+            code: "worktree_confirmation_required",
+            message: String(
+                localized: "error.ephemeralWorktree.dirtyRequiresConfirmation",
+                defaultValue: "This worktree cleanup policy requires confirmation before removal."
+            ),
+            data: nil
+        )
+    }
+
+    private func v2EphemeralWorktreeRecords(in tabManager: TabManager) -> [EphemeralWorktreeRecord] {
+        tabManager.tabs.flatMap { Array($0.ephemeralWorktreesByPanelId.values) }
+    }
+
     private func v2WorkspaceCreate(
         params: [String: Any],
         tabManager resolvedTabManager: TabManager? = nil
@@ -4578,6 +4979,7 @@ class TerminalController {
 
         var found = false
         var protected = false
+        var blockedWorktreeError: V2CallResult?
         v2MainSync {
             if let ws = tabManager.tabs.first(where: { $0.id == wsId }) {
                 guard tabManager.canCloseWorkspace(ws) else {
@@ -4585,8 +4987,15 @@ class TerminalController {
                     found = true
                     return
                 }
-                tabManager.closeWorkspace(ws)
+                if let worktreeError = v2BlockedEphemeralWorktreeError(
+                    for: Array(ws.ephemeralWorktreesByPanelId.values)
+                ) {
+                    blockedWorktreeError = worktreeError
+                    found = true
+                    return
+                }
                 found = true
+                _ = tabManager.closeWorkspace(ws)
             }
         }
 
@@ -4599,6 +5008,9 @@ class TerminalController {
                 "workspace_ref": v2Ref(kind: .workspace, uuid: wsId),
                 "pinned": true
             ])
+        }
+        if let blockedWorktreeError {
+            return blockedWorktreeError
         }
         return found
             ? .ok([
@@ -5161,11 +5573,22 @@ class TerminalController {
         }
         var found = false
         var closedCount = 0
+        var blockedWorktreeError: V2CallResult?
         v2MainSync {
             found = tabManager.workspaceGroups.contains(where: { $0.id == gid })
             if found {
+                let records = tabManager.tabs
+                    .filter { $0.groupId == gid }
+                    .flatMap { Array($0.ephemeralWorktreesByPanelId.values) }
+                if let worktreeError = v2BlockedEphemeralWorktreeError(for: records) {
+                    blockedWorktreeError = worktreeError
+                    return
+                }
                 closedCount = tabManager.deleteWorkspaceGroup(groupId: gid)
             }
+        }
+        if let blockedWorktreeError {
+            return blockedWorktreeError
         }
         guard found else {
             return .err(code: "not_found", message: "Group not found", data: [
@@ -6966,11 +7389,20 @@ class TerminalController {
             let windowId = v2ResolveWindowId(tabManager: tabManager)
 
             @MainActor
-            func closeWorkspaces(_ workspaces: [Workspace]) -> Int {
+            func closeWorkspaces(_ workspaces: [Workspace]) -> Int? {
+                let candidates = workspaces.filter { candidate in
+                    candidate.id != workspace.id
+                        && tabManager.tabs.contains(where: { $0.id == candidate.id })
+                }
+                if let worktreeError = v2BlockedEphemeralWorktreeError(
+                    for: candidates.flatMap { Array($0.ephemeralWorktreesByPanelId.values) }
+                ) {
+                    result = worktreeError
+                    return nil
+                }
+
                 var closed = 0
-                for candidate in workspaces where candidate.id != workspace.id {
-                    let existedBefore = tabManager.tabs.contains(where: { $0.id == candidate.id })
-                    guard existedBefore else { continue }
+                for candidate in candidates {
                     tabManager.closeWorkspace(candidate)
                     if !tabManager.tabs.contains(where: { $0.id == candidate.id }) {
                         closed += 1
@@ -7052,7 +7484,7 @@ class TerminalController {
 
             case "close_others":
                 let candidates = tabManager.tabs.filter { $0.id != workspace.id && !$0.isPinned }
-                let closed = closeWorkspaces(candidates)
+                guard let closed = closeWorkspaces(candidates) else { return }
                 finish(["closed": closed])
 
             case "close_above":
@@ -7061,7 +7493,7 @@ class TerminalController {
                     return
                 }
                 let candidates = Array(tabManager.tabs.prefix(index)).filter { !$0.isPinned }
-                let closed = closeWorkspaces(candidates)
+                guard let closed = closeWorkspaces(candidates) else { return }
                 finish(["closed": closed])
 
             case "close_below":
@@ -7075,7 +7507,7 @@ class TerminalController {
                 } else {
                     candidates = []
                 }
-                let closed = closeWorkspaces(candidates)
+                guard let closed = closeWorkspaces(candidates) else { return }
                 finish(["closed": closed])
 
             case "mark_read":
@@ -7212,7 +7644,19 @@ class TerminalController {
             }
 
             @MainActor
-            func closeTabs(_ tabIds: [TabID]) -> (closed: Int, skippedPinned: Int) {
+            func closeTabs(_ tabIds: [TabID]) -> (closed: Int, skippedPinned: Int)? {
+                let targetPanelIds = tabIds.compactMap { tabId -> UUID? in
+                    guard let panelId = workspace.panelIdFromSurfaceId(tabId),
+                          !workspace.isPanelPinned(panelId) else { return nil }
+                    return panelId
+                }
+                if let worktreeError = v2BlockedEphemeralWorktreeError(
+                    for: targetPanelIds.compactMap { workspace.ephemeralWorktreesByPanelId[$0] }
+                ) {
+                    result = worktreeError
+                    return nil
+                }
+
                 var closed = 0
                 var skippedPinned = 0
                 for tabId in tabIds {
@@ -7368,7 +7812,7 @@ class TerminalController {
                     return
                 }
                 let targetIds = Array(tabs.prefix(index).map(\.id))
-                let closeResult = closeTabs(targetIds)
+                guard let closeResult = closeTabs(targetIds) else { return }
                 finish(["closed": closeResult.closed, "skipped_pinned": closeResult.skippedPinned])
 
             case "close_right", "close_to_right":
@@ -7383,7 +7827,7 @@ class TerminalController {
                     return
                 }
                 let targetIds = (index + 1 < tabs.count) ? Array(tabs.suffix(from: index + 1).map(\.id)) : []
-                let closeResult = closeTabs(targetIds)
+                guard let closeResult = closeTabs(targetIds) else { return }
                 finish(["closed": closeResult.closed, "skipped_pinned": closeResult.skippedPinned])
 
             case "close_others", "close_other_tabs":
@@ -7395,7 +7839,7 @@ class TerminalController {
                 let targetIds = workspace.bonsplitController.tabs(inPane: paneId)
                     .map(\.id)
                     .filter { $0 != anchorTabId }
-                let closeResult = closeTabs(targetIds)
+                guard let closeResult = closeTabs(targetIds) else { return }
                 finish(["closed": closeResult.closed, "skipped_pinned": closeResult.skippedPinned])
 
             default:
@@ -8303,6 +8747,12 @@ class TerminalController {
 
             if ws.panels.count <= 1 {
                 result = .err(code: "invalid_state", message: "Cannot close the last surface", data: nil)
+                return
+            }
+
+            if let record = ws.ephemeralWorktreesByPanelId[surfaceId],
+               let worktreeError = v2BlockedEphemeralWorktreeError(for: [record]) {
+                result = worktreeError
                 return
             }
 
@@ -17606,7 +18056,24 @@ class TerminalController {
     private func closeWindow(_ arg: String) -> String {
         let trimmed = arg.trimmingCharacters(in: .whitespacesAndNewlines)
         guard let windowId = UUID(uuidString: trimmed) else { return "ERROR: Invalid window id" }
-        let ok = v2MainSync { AppDelegate.shared?.closeMainWindow(windowId: windowId) ?? false }
+        var requiresWorktreeConfirmation = false
+        let ok = v2MainSync {
+            guard let app = AppDelegate.shared,
+                  app.windowForMainWindowId(windowId) != nil else { return false }
+            if let tabManager = app.tabManagerFor(windowId: windowId),
+               v2BlockedEphemeralWorktreeError(for: v2EphemeralWorktreeRecords(in: tabManager)) != nil {
+                requiresWorktreeConfirmation = true
+                return false
+            }
+            return app.closeMainWindow(windowId: windowId)
+        }
+        if requiresWorktreeConfirmation {
+            let message = String(
+                localized: "error.ephemeralWorktree.dirtyRequiresConfirmation",
+                defaultValue: "This worktree cleanup policy requires confirmation before removal."
+            )
+            return "ERROR: \(message)"
+        }
         return ok ? "OK" : "ERROR: Window not found"
     }
 
@@ -18687,8 +19154,15 @@ class TerminalController {
                     result = "ERROR: \(workspaceCloseProtectedMessage())"
                     return
                 }
-                tabManager.closeTab(tab)
-                result = "OK"
+                if !tabManager.unauthorizedBlockPolicyEphemeralWorktreePanelIds(in: tab).isEmpty {
+                    let message = String(
+                        localized: "error.ephemeralWorktree.dirtyRequiresConfirmation",
+                        defaultValue: "This worktree cleanup policy requires confirmation before removal."
+                    )
+                    result = "ERROR: \(message)"
+                    return
+                }
+                result = tabManager.closeTab(tab) ? "OK" : "ERROR: Tab not found"
             }
         }
         return result
@@ -19318,8 +19792,8 @@ class TerminalController {
         return result
     }
 
-	    private func focusSurfaceByPanel(_ args: String) -> String {
-	        guard let tabManager = tabManager else { return "ERROR: TabManager not available" }
+    private func focusSurfaceByPanel(_ args: String) -> String {
+        guard let tabManager = tabManager else { return "ERROR: TabManager not available" }
 
         let tabArg = args.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !tabArg.isEmpty else { return "ERROR: Usage: focus_surface_by_panel <panel_id>" }
@@ -19340,24 +19814,24 @@ class TerminalController {
                 result = "OK"
             }
         }
-	        return result
-	    }
-	
-	    private func dragSurfaceToSplit(_ args: String) -> String {
-	        guard let tabManager = tabManager else { return "ERROR: TabManager not available" }
-	
-	        let trimmed = args.trimmingCharacters(in: .whitespacesAndNewlines)
-	        let parts = trimmed.split(separator: " ").map(String.init)
-	        guard parts.count >= 2 else { return "ERROR: Usage: drag_surface_to_split <id|idx> <left|right|up|down>" }
-	
-	        let surfaceArg = parts[0]
-	        let directionArg = parts[1]
-	        guard let direction = parseSplitDirection(directionArg) else {
-	            return "ERROR: Invalid direction. Use left, right, up, or down."
-	        }
-	
-	        let orientation: SplitOrientation = direction.isHorizontal ? .horizontal : .vertical
-	        let insertFirst = (direction == .left || direction == .up)
+        return result
+    }
+
+    private func dragSurfaceToSplit(_ args: String) -> String {
+        guard let tabManager = tabManager else { return "ERROR: TabManager not available" }
+
+        let trimmed = args.trimmingCharacters(in: .whitespacesAndNewlines)
+        let parts = trimmed.split(separator: " ").map(String.init)
+        guard parts.count >= 2 else { return "ERROR: Usage: drag_surface_to_split <id|idx> <left|right|up|down>" }
+
+        let surfaceArg = parts[0]
+        let directionArg = parts[1]
+        guard let direction = parseSplitDirection(directionArg) else {
+            return "ERROR: Invalid direction. Use left, right, up, or down."
+        }
+
+        let orientation: SplitOrientation = direction.isHorizontal ? .horizontal : .vertical
+        let insertFirst = (direction == .left || direction == .up)
 
 	        v2MainSync { self.v2RefreshKnownRefs() }
 	        if let stableSurfaceId = v2UUID(["surface_id": surfaceArg], "surface_id") {
@@ -19374,35 +19848,34 @@ class TerminalController {
 	                return "ERROR: \(message)"
 	            }
 	        }
-	
-	        var result = "ERROR: Failed to move surface"
-	        v2MainSync {
-	            guard let tabId = tabManager.selectedTabId,
-	                  let tab = tabManager.tabs.first(where: { $0.id == tabId }) else {
-	                result = "ERROR: No tab selected"
-	                return
-	            }
-	
-	            guard let panelId = resolveSurfaceId(from: surfaceArg, tab: tab),
-	                  let bonsplitTabId = tab.surfaceIdFromPanelId(panelId) else {
-	                result = "ERROR: Surface not found"
-	                return
-	            }
-	
-	            guard let newPaneId = tab.bonsplitController.splitPane(
-	                orientation: orientation,
-	                movingTab: bonsplitTabId,
-	                insertFirst: insertFirst
-	            ) else {
-	                result = "ERROR: Failed to split pane"
-	                return
-	            }
-	
-	            result = "OK \(newPaneId.id.uuidString)"
-	        }
-	        return result
-	    }
-	
+        var result = "ERROR: Failed to move surface"
+        v2MainSync {
+            guard let tabId = tabManager.selectedTabId,
+                  let tab = tabManager.tabs.first(where: { $0.id == tabId }) else {
+                result = "ERROR: No tab selected"
+                return
+            }
+
+            guard let panelId = resolveSurfaceId(from: surfaceArg, tab: tab),
+                  let bonsplitTabId = tab.surfaceIdFromPanelId(panelId) else {
+                result = "ERROR: Surface not found"
+                return
+            }
+
+            guard let newPaneId = tab.bonsplitController.splitPane(
+                orientation: orientation,
+                movingTab: bonsplitTabId,
+                insertFirst: insertFirst
+            ) else {
+                result = "ERROR: Failed to split pane"
+                return
+            }
+
+            result = "OK \(newPaneId.id.uuidString)"
+        }
+        return result
+    }
+
     private func newPane(_ args: String) -> String {
         guard let tabManager = tabManager else { return "ERROR: TabManager not available" }
 

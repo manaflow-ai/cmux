@@ -1093,6 +1093,123 @@ final class TabManagerPullRequestProbeTests: XCTestCase {
 
 @MainActor
 final class TabManagerCloseWorkspacesWithConfirmationTests: XCTestCase {
+    func testCloseWorkspaceWithBlockPolicyWorktreeStillPromptsForRunningProcess() {
+        let defaults = UserDefaults.standard
+        let originalWarnBeforeClosingTab = defaults.object(forKey: CloseTabWarningSettings.warnBeforeClosingTabKey)
+        defaults.set(true, forKey: CloseTabWarningSettings.warnBeforeClosingTabKey)
+        defer {
+            if let originalWarnBeforeClosingTab {
+                defaults.set(originalWarnBeforeClosingTab, forKey: CloseTabWarningSettings.warnBeforeClosingTabKey)
+            } else {
+                defaults.removeObject(forKey: CloseTabWarningSettings.warnBeforeClosingTabKey)
+            }
+        }
+
+        let manager = TabManager()
+        let remainingWorkspace = manager.addWorkspace()
+        let closingWorkspace = manager.tabs[0]
+        manager.selectWorkspace(closingWorkspace)
+
+        guard let panelId = closingWorkspace.focusedPanelId,
+              let terminalPanel = closingWorkspace.terminalPanel(for: panelId) else {
+            XCTFail("Expected focused terminal panel")
+            return
+        }
+        terminalPanel.surface.setNeedsConfirmCloseOverrideForTesting(true)
+        closingWorkspace.ephemeralWorktreesByPanelId[panelId] = Self.blockPolicyWorktreeRecord()
+
+        var prompts: [(title: String, message: String, acceptCmdD: Bool)] = []
+        manager.confirmCloseHandler = { title, message, acceptCmdD in
+            prompts.append((title, message, acceptCmdD))
+            return prompts.count == 1
+        }
+
+        manager.closeCurrentWorkspaceWithConfirmation()
+
+        XCTAssertEqual(prompts.count, 2)
+        XCTAssertEqual(
+            prompts[0].title,
+            String(localized: "dialog.ephemeralWorktree.close.title.one", defaultValue: "Close isolated worktree session?")
+        )
+        XCTAssertEqual(
+            prompts[1].title,
+            String(localized: "dialog.closeWorkspace.title", defaultValue: "Close workspace?")
+        )
+        XCTAssertEqual(manager.tabs.map(\.id), [closingWorkspace.id, remainingWorkspace.id])
+    }
+
+    func testCloseOtherTabsWithBlockPolicyWorktreeStillPromptsForCloseOtherTabs() {
+        let defaults = UserDefaults.standard
+        let originalWarnBeforeClosingTab = defaults.object(forKey: CloseTabWarningSettings.warnBeforeClosingTabKey)
+        defaults.set(true, forKey: CloseTabWarningSettings.warnBeforeClosingTabKey)
+        defer {
+            if let originalWarnBeforeClosingTab {
+                defaults.set(originalWarnBeforeClosingTab, forKey: CloseTabWarningSettings.warnBeforeClosingTabKey)
+            } else {
+                defaults.removeObject(forKey: CloseTabWarningSettings.warnBeforeClosingTabKey)
+            }
+        }
+
+        let manager = TabManager()
+        guard let workspace = manager.selectedWorkspace,
+              let paneId = workspace.bonsplitController.focusedPaneId,
+              let secondPanel = workspace.newTerminalSurface(inPane: paneId, focus: false) else {
+            XCTFail("Expected workspace with two terminal surfaces")
+            return
+        }
+        workspace.ephemeralWorktreesByPanelId[secondPanel.id] = Self.blockPolicyWorktreeRecord(sessionId: "block-close-other")
+
+        var prompts: [(title: String, message: String, acceptCmdD: Bool)] = []
+        manager.confirmCloseHandler = { title, message, acceptCmdD in
+            prompts.append((title, message, acceptCmdD))
+            return prompts.count == 1
+        }
+
+        manager.closeOtherTabsInFocusedPaneWithConfirmation()
+
+        XCTAssertEqual(prompts.count, 2)
+        XCTAssertEqual(
+            prompts[0].title,
+            String(localized: "dialog.ephemeralWorktree.close.title.one", defaultValue: "Close isolated worktree session?")
+        )
+        XCTAssertEqual(prompts[1].title, CloseOtherTabsConfirmationPrompt(titles: [secondPanel.displayTitle]).title)
+        XCTAssertNotNil(workspace.panels[secondPanel.id])
+    }
+
+    func testBlockPolicyWorktreeAuthorizationUsesPreConfirmationSnapshot() throws {
+        let manager = TabManager()
+        guard let workspace = manager.selectedWorkspace,
+              let firstPanelId = workspace.focusedPanelId,
+              let paneId = workspace.bonsplitController.focusedPaneId else {
+            XCTFail("Expected focused workspace and panel")
+            return
+        }
+        workspace.ephemeralWorktreesByPanelId[firstPanelId] = Self.blockPolicyWorktreeRecord(
+            sessionId: "block-before-confirm"
+        )
+
+        var panelAddedDuringConfirmation: UUID?
+        manager.confirmCloseHandler = { _, _, _ in
+            guard let panel = workspace.newTerminalSurface(inPane: paneId, focus: false) else {
+                XCTFail("Expected to add a panel during confirmation")
+                return true
+            }
+            panelAddedDuringConfirmation = panel.id
+            workspace.ephemeralWorktreesByPanelId[panel.id] = Self.blockPolicyWorktreeRecord(
+                sessionId: "block-during-confirm"
+            )
+            return true
+        }
+
+        let authorizedPanelIds = try XCTUnwrap(
+            manager.confirmBlockPolicyEphemeralWorktreeCleanupIfNeeded(in: workspace)
+        )
+        let addedPanelId = try XCTUnwrap(panelAddedDuringConfirmation)
+
+        XCTAssertEqual(authorizedPanelIds, Set([firstPanelId]))
+        XCTAssertFalse(authorizedPanelIds.contains(addedPanelId))
+    }
+
     func testCloseWorkspacesWithConfirmationPromptsOnceAndClosesAcceptedWorkspaces() {
         let manager = TabManager()
         let second = manager.addWorkspace()
@@ -1227,6 +1344,17 @@ final class TabManagerCloseWorkspacesWithConfirmationTests: XCTestCase {
         XCTAssertEqual(prompts.first?.message, expectedMessage)
         XCTAssertEqual(prompts.first?.acceptCmdD, false)
         XCTAssertEqual(manager.tabs.map(\.title), ["Alpha", "Beta", "Gamma"])
+    }
+
+    private static func blockPolicyWorktreeRecord(sessionId: String = "block-worktree") -> EphemeralWorktreeRecord {
+        EphemeralWorktreeRecord(
+            sessionId: sessionId,
+            sourceRepositoryPath: "/tmp/cmux-worktree-source-\(sessionId)",
+            worktreePath: "/tmp/cmux-worktree-\(sessionId)",
+            branchName: "cmux/session-\(sessionId)",
+            cleanupPolicy: .block,
+            createdAt: .now
+        )
     }
 }
 

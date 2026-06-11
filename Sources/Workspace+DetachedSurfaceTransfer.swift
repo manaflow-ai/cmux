@@ -21,6 +21,7 @@ extension Workspace {
         let isPinned: Bool
         let directory: String?
         let ttyName: String?
+        let ephemeralWorktree: EphemeralWorktreeRecord?
         let cachedTitle: String?
         let customTitle: String?
         let manuallyUnread: Bool
@@ -47,6 +48,7 @@ extension Workspace {
                 isPinned: isPinned,
                 directory: directory,
                 ttyName: ttyName,
+                ephemeralWorktree: ephemeralWorktree,
                 cachedTitle: cachedTitle,
                 customTitle: customTitle,
                 manuallyUnread: manuallyUnread,

@@ -601,6 +601,7 @@ extension Workspace {
                 scrollback: resolvedScrollback,
                 agent: effectiveRestorableAgent,
                 tmuxStartCommand: restorableTmuxStartCommand,
+                ephemeralWorktree: ephemeralWorktreesByPanelId[panelId],
                 hibernation: hibernationState.map {
                     SessionAgentHibernationSnapshot(
                         hibernatedAt: $0.hibernatedAt.timeIntervalSince1970,
@@ -1676,13 +1677,28 @@ extension Workspace {
                 ?? snapshot.directory
             let workingDirectory = savedWorkingDirectory
                 ?? currentDirectory
+            let snapshotEphemeralWorktree = snapshot.terminal?.ephemeralWorktree
+            let restoredEphemeralWorktree = ephemeralWorktreeManager.isRestoredWorktreeAvailable(snapshotEphemeralWorktree)
+                ? snapshotEphemeralWorktree
+                : nil
+            let restoredWorkingDirectory = if restoredEphemeralWorktree != nil {
+                ephemeralWorktreeManager.resolvedRestoredWorkingDirectory(
+                    savedWorkingDirectory: workingDirectory,
+                    worktree: restoredEphemeralWorktree
+                )
+            } else {
+                ephemeralWorktreeManager.restoredSourceWorkingDirectory(
+                    savedWorkingDirectory: workingDirectory,
+                    worktree: snapshotEphemeralWorktree
+                )
+            }
             let restorableTmuxStartCommand = restorableAgent == nil && restoredBindingLaunch == nil
                 ? Self.restorableTmuxStartCommand(snapshot.terminal?.tmuxStartCommand)
                 : nil
             let restoredTmuxStartupScript = restorableTmuxStartCommand.flatMap {
                 SessionRestoredTerminalCommandStore.writeLauncherScript(
                     command: $0,
-                    workingDirectory: workingDirectory
+                    workingDirectory: restoredWorkingDirectory
                 )
             }
             let restoredTmuxStartCommand = restoredTmuxStartupScript == nil ? nil : restorableTmuxStartCommand
@@ -1747,7 +1763,7 @@ extension Workspace {
                 restoredRemotePTYAttachCommand == nil &&
                 !restoresRemoteWorkspaceTerminalSnapshot &&
                 !startupHandlesWorkingDirectory
-                ? (suppressWorkspaceRemoteStartupCommand ? savedWorkingDirectory : workingDirectory)
+                ? (suppressWorkspaceRemoteStartupCommand ? savedWorkingDirectory : restoredWorkingDirectory)
                 : nil
             let restoredAgentWillRunStartupCommand = restorableAgent != nil && (
                 restoredAgentResumeLaunch?.initialCommand != nil ||
@@ -1791,10 +1807,12 @@ extension Workspace {
                 initialInput: restoredStartupInput,
                 startupEnvironment: replayEnvironment,
                 remotePTYSessionID: restoredRemotePTYSessionID,
-                suppressWorkspaceRemoteStartupCommand: suppressWorkspaceRemoteStartupCommand
+                suppressWorkspaceRemoteStartupCommand: suppressWorkspaceRemoteStartupCommand,
+                ephemeralWorktree: restoredEphemeralWorktree
             ) else {
                 return nil
             }
+            persistRestoredEphemeralWorktree(restoredEphemeralWorktree)
             if let restoredRemotePTYSessionID {
                 registerRemoteRelayIDAliases(
                     remotePTYSessionID: restoredRemotePTYSessionID,
@@ -1925,6 +1943,16 @@ extension Workspace {
         case .extensionBrowser:
             return nil
         }
+    }
+
+    private func persistRestoredEphemeralWorktree(
+        _ record: EphemeralWorktreeRecord?
+    ) {
+        guard let record else { return }
+        // Surface creation can fail, so restored records are persisted only after the
+        // terminal exists. Once the shell has launched in the worktree, falling back
+        // to the source cwd would desynchronize panel metadata and cleanup state.
+        EphemeralWorktreeRegistry.shared.registerInBackground(record, reason: "restore")
     }
 
     private func applySessionPanelMetadata(_ snapshot: SessionPanelSnapshot, toPanelId panelId: UUID) {
@@ -10477,7 +10505,6 @@ final class Workspace: Identifiable, ObservableObject {
     static let terminalScrollBarHiddenDidChangeNotification = Notification.Name(
         "cmux.workspaceTerminalScrollBarHiddenDidChange"
     )
-
     let id: UUID
     @Published var title: String
     @Published var customTitle: String?
@@ -10657,6 +10684,11 @@ final class Workspace: Identifiable, ObservableObject {
 
     /// Published directory for each panel
     @Published var panelDirectories: [UUID: String] = [:]
+    private let ephemeralWorktreeManager = WorkspaceEphemeralWorktreeManager()
+    var ephemeralWorktreesByPanelId: [UUID: EphemeralWorktreeRecord] {
+        get { ephemeralWorktreeManager.recordsByPanelId }
+        set { ephemeralWorktreeManager.recordsByPanelId = newValue }
+    }
     @Published var panelTitles: [UUID: String] = [:]
     @Published var panelCustomTitles: [UUID: String] = [:]
     @Published var pinnedPanelIds: Set<UUID> = []
@@ -11161,7 +11193,9 @@ final class Workspace: Identifiable, ObservableObject {
         configTemplate: CmuxSurfaceConfigTemplate? = nil,
         initialTerminalCommand: String? = nil,
         initialTerminalInput: String? = nil,
-        initialTerminalEnvironment: [String: String] = [:], initialDetachedSurface: DetachedSurfaceTransfer? = nil
+        initialTerminalEnvironment: [String: String] = [:],
+        initialDetachedSurface: DetachedSurfaceTransfer? = nil,
+        initialEphemeralWorktree: EphemeralWorktreeRecord? = nil
     ) {
         self.id = UUID()
         self.portOrdinal = portOrdinal
@@ -11240,6 +11274,9 @@ final class Workspace: Identifiable, ObservableObject {
             )
             configureNewTerminalPanel(terminalPanel)
             panels[terminalPanel.id] = terminalPanel
+            if let initialEphemeralWorktree {
+                ephemeralWorktreesByPanelId[terminalPanel.id] = initialEphemeralWorktree
+            }
             panelTitles[terminalPanel.id] = terminalPanel.displayTitle
             seedTerminalInheritanceFontPoints(panelId: terminalPanel.id, configTemplate: configTemplate)
 
@@ -12928,6 +12965,7 @@ final class Workspace: Identifiable, ObservableObject {
             removePendingTerminalInputObservers(forPanelId: panelId)
         }
         panelDirectories = panelDirectories.filter { validSurfaceIds.contains($0.key) }
+        ephemeralWorktreeManager.prune(validPanelIds: validSurfaceIds)
         panelTitles = panelTitles.filter { validSurfaceIds.contains($0.key) }
         panelCustomTitles = panelCustomTitles.filter { validSurfaceIds.contains($0.key) }
         pinnedPanelIds = pinnedPanelIds.filter { validSurfaceIds.contains($0) }
@@ -14493,6 +14531,60 @@ final class Workspace: Identifiable, ObservableObject {
         return nil
     }
 
+    func resolvedWorkingDirectoryForNewTerminalSplit(
+        from panelId: UUID,
+        workingDirectory: String? = nil,
+        ephemeralWorktree: EphemeralWorktreeRecord? = nil
+    ) -> String? {
+        ephemeralWorktreeManager.resolvedWorkingDirectory(
+            explicitWorkingDirectory: workingDirectory,
+            worktree: ephemeralWorktree ?? ephemeralWorktreesByPanelId[panelId],
+            panelDirectory: panelDirectories[panelId],
+            requestedWorkingDirectory: terminalPanel(for: panelId)?.requestedWorkingDirectory,
+            workspaceDirectory: currentDirectory
+        )
+    }
+
+    func resolvedWorkingDirectoryForNewTerminalSurface(
+        inPane paneId: PaneID,
+        workingDirectory: String? = nil,
+        ephemeralWorktree: EphemeralWorktreeRecord? = nil
+    ) -> String? {
+        if let selectedTabId = bonsplitController.selectedTab(inPane: paneId)?.id,
+           let selectedPanelId = panelIdFromSurfaceId(selectedTabId) {
+            return ephemeralWorktreeManager.resolvedWorkingDirectory(
+                explicitWorkingDirectory: workingDirectory,
+                worktree: ephemeralWorktree ?? ephemeralWorktreesByPanelId[selectedPanelId],
+                panelDirectory: panelDirectories[selectedPanelId],
+                requestedWorkingDirectory: terminalPanel(for: selectedPanelId)?.requestedWorkingDirectory,
+                workspaceDirectory: currentDirectory
+            )
+        }
+        return ephemeralWorktreeManager.resolvedWorkingDirectory(
+            explicitWorkingDirectory: workingDirectory,
+            worktree: ephemeralWorktree,
+            panelDirectory: nil,
+            requestedWorkingDirectory: nil,
+            workspaceDirectory: currentDirectory
+        )
+    }
+
+    func activeEphemeralWorktreeSessionIds() -> Set<String> {
+        ephemeralWorktreeManager.activeSessionIds()
+    }
+
+    func authorizeEphemeralWorktreeCleanupForWindowClose(panelIds: Set<UUID>) {
+        ephemeralWorktreeManager.authorizeWindowClose(panelIds: panelIds)
+    }
+
+    func cancelEphemeralWorktreeCleanupForWindowClose(panelIds: Set<UUID>) {
+        ephemeralWorktreeManager.cancelWindowClose(panelIds: panelIds)
+    }
+
+    func unauthorizedEphemeralWorktreeCleanupPanelIdsForWindowClose(panelIds: Set<UUID>) -> Set<UUID> {
+        ephemeralWorktreeManager.unauthorizedWindowClosePanelIds(panelIds: panelIds)
+    }
+
     /// Create a new split with a terminal panel
     @discardableResult
     func newTerminalSplit(
@@ -14505,7 +14597,8 @@ final class Workspace: Identifiable, ObservableObject {
         tmuxStartCommand: String? = nil,
         startupEnvironment: [String: String] = [:],
         initialDividerPosition: CGFloat? = nil,
-        remotePTYSessionID: String? = nil
+        remotePTYSessionID: String? = nil,
+        ephemeralWorktree: EphemeralWorktreeRecord? = nil
     ) -> TerminalPanel? {
 #if DEBUG
         let splitTimingStart = ProcessInfo.processInfo.systemUptime
@@ -14558,24 +14651,11 @@ final class Workspace: Identifiable, ObservableObject {
         // Inherit working directory: prefer the source panel's reported cwd,
         // then its requested startup cwd if shell integration has not reported
         // back yet, and finally fall back to the workspace's current directory.
-        let splitWorkingDirectory: String? = {
-            if let workingDirectory = workingDirectory?.trimmingCharacters(in: .whitespacesAndNewlines),
-               !workingDirectory.isEmpty {
-                return workingDirectory
-            }
-            if let panelDirectory = panelDirectories[panelId]?.trimmingCharacters(in: .whitespacesAndNewlines),
-               !panelDirectory.isEmpty {
-                return panelDirectory
-            }
-            if let requestedWorkingDirectory = terminalPanel(for: panelId)?
-                .requestedWorkingDirectory?
-                .trimmingCharacters(in: .whitespacesAndNewlines),
-               !requestedWorkingDirectory.isEmpty {
-                return requestedWorkingDirectory
-            }
-            let workspaceDirectory = currentDirectory.trimmingCharacters(in: .whitespacesAndNewlines)
-            return workspaceDirectory.isEmpty ? nil : workspaceDirectory
-        }()
+        let splitWorkingDirectory = resolvedWorkingDirectoryForNewTerminalSplit(
+            from: panelId,
+            workingDirectory: workingDirectory,
+            ephemeralWorktree: ephemeralWorktree
+        )
 #if DEBUG
         cmuxDebugLog(
             "split.cwd panelId=\(panelId.uuidString.prefix(5)) panelDir=\(panelDirectories[panelId] ?? "nil") requestedDir=\(terminalPanel(for: panelId)?.requestedWorkingDirectory ?? "nil") currentDir=\(currentDirectory) resolved=\(splitWorkingDirectory ?? "nil")"
@@ -14595,6 +14675,9 @@ final class Workspace: Identifiable, ObservableObject {
         )
         configureNewTerminalPanel(newPanel)
         panels[newPanel.id] = newPanel
+        if let ephemeralWorktree {
+            ephemeralWorktreesByPanelId[newPanel.id] = ephemeralWorktree
+        }
         panelTitles[newPanel.id] = newPanel.displayTitle
         let normalizedRemotePTYSessionID = normalizedRemotePTYSessionID(remotePTYSessionID)
         let tracksRemoteTerminalSurface = remoteTerminalStartupCommand != nil || normalizedRemotePTYSessionID != nil
@@ -14635,6 +14718,7 @@ final class Workspace: Identifiable, ObservableObject {
         defer { isProgrammaticSplit = false }
         guard let newPaneId = bonsplitController.splitPane(paneId, orientation: orientation, withTab: newTab, insertFirst: insertFirst) else {
             panels.removeValue(forKey: newPanel.id)
+            ephemeralWorktreesByPanelId.removeValue(forKey: newPanel.id)
             panelTitles.removeValue(forKey: newPanel.id)
             remotePTYSessionIDsByPanelId.removeValue(forKey: newPanel.id)
             removeRemoteRelaySurfaceAliases(targeting: newPanel.id)
@@ -14706,13 +14790,19 @@ final class Workspace: Identifiable, ObservableObject {
         autoRefreshMetadata: Bool = true,
         preserveFocusWhenUnfocused: Bool = true,
         remotePTYSessionID: String? = nil,
-        suppressWorkspaceRemoteStartupCommand: Bool = false
+        suppressWorkspaceRemoteStartupCommand: Bool = false,
+        ephemeralWorktree: EphemeralWorktreeRecord? = nil
     ) -> TerminalPanel? {
         let shouldFocusNewTab = focus ?? (bonsplitController.focusedPaneId == paneId)
         let previousFocusedPanelId = focusedPanelId
         let previousHostedView = focusedTerminalPanel?.hostedView
 
         var inheritedConfig = inheritedTerminalConfig(inPane: paneId)
+        let surfaceWorkingDirectory = resolvedWorkingDirectoryForNewTerminalSurface(
+            inPane: paneId,
+            workingDirectory: workingDirectory,
+            ephemeralWorktree: ephemeralWorktree
+        )
         let requestedInitialCommand = initialCommand?.trimmingCharacters(in: .whitespacesAndNewlines)
         let explicitInitialCommand = (requestedInitialCommand?.isEmpty == false) ? requestedInitialCommand : nil
         let remoteTerminalStartupCommand = suppressWorkspaceRemoteStartupCommand ? nil : remoteTerminalStartupCommand()
@@ -14736,7 +14826,7 @@ final class Workspace: Identifiable, ObservableObject {
             workspaceId: id,
             context: GHOSTTY_SURFACE_CONTEXT_SPLIT,
             configTemplate: inheritedConfig,
-            workingDirectory: workingDirectory,
+            workingDirectory: surfaceWorkingDirectory,
             portOrdinal: portOrdinal,
             initialCommand: startupCommand,
             tmuxStartCommand: tmuxStartCommand,
@@ -14745,6 +14835,9 @@ final class Workspace: Identifiable, ObservableObject {
         )
         configureNewTerminalPanel(newPanel)
         panels[newPanel.id] = newPanel
+        if let ephemeralWorktree {
+            ephemeralWorktreesByPanelId[newPanel.id] = ephemeralWorktree
+        }
         panelTitles[newPanel.id] = newPanel.displayTitle
         let normalizedRemotePTYSessionID = normalizedRemotePTYSessionID(remotePTYSessionID)
         let tracksRemoteTerminalSurface = remoteTerminalStartupCommand != nil || normalizedRemotePTYSessionID != nil
@@ -14767,6 +14860,7 @@ final class Workspace: Identifiable, ObservableObject {
             inPane: paneId
         ) else {
             panels.removeValue(forKey: newPanel.id)
+            ephemeralWorktreesByPanelId.removeValue(forKey: newPanel.id)
             panelTitles.removeValue(forKey: newPanel.id)
             remotePTYSessionIDsByPanelId.removeValue(forKey: newPanel.id)
             removeRemoteRelaySurfaceAliases(targeting: newPanel.id)
@@ -15742,7 +15836,10 @@ final class Workspace: Identifiable, ObservableObject {
 
     /// Tear down all panels in this workspace, freeing their Ghostty surfaces.
     /// Called before TabManager removes the workspace so child processes receive SIGHUP even if ARC deallocation is delayed.
-    func teardownAllPanels() {
+    func teardownAllPanels(ephemeralWorktreeCleanupAuthorizedPanelIds: Set<UUID> = []) {
+        let authorizedPanelIds = ephemeralWorktreeManager.consumeWindowCloseAuthorizedPanelIds(
+            additionalPanelIds: ephemeralWorktreeCleanupAuthorizedPanelIds
+        )
         portalRenderingEnabled = false
         clearLayoutFollowUp()
         hideAllTerminalPortalViews()
@@ -15759,7 +15856,8 @@ final class Workspace: Identifiable, ObservableObject {
                 publishSurfaceClosedEvent: true,
                 clearSurfaceNotifications: true,
                 requestTransferredRemoteCleanup: true,
-                cleanupControllerSurfaceState: true
+                cleanupControllerSurfaceState: true,
+                ephemeralWorktreeCleanupAuthorized: authorizedPanelIds.contains(panelId)
             )
         }
         pruneSurfaceMetadata(validSurfaceIds: [])
@@ -15779,10 +15877,18 @@ final class Workspace: Identifiable, ObservableObject {
 
     /// Close a panel.
     /// Returns true when a bonsplit tab close request was issued.
-    func closePanel(_ panelId: UUID, force: Bool = false) -> Bool {
+    func closePanel(
+        _ panelId: UUID,
+        force: Bool = false,
+        ephemeralWorktreeCleanupAuthorized: Bool = false
+    ) -> Bool {
         if let tabId = surfaceIdFromPanelId(panelId) {
             // Close the tab in bonsplit (this triggers delegate callback)
-            return requestCloseTab(tabId, force: force)
+            return requestCloseTab(
+                tabId,
+                force: force,
+                ephemeralWorktreeCleanupAuthorized: ephemeralWorktreeCleanupAuthorized
+            )
         }
 
         // Mapping can transiently drift during split-tree mutations. If the target panel is
@@ -15806,7 +15912,11 @@ final class Workspace: Identifiable, ObservableObject {
             return false
         }
 
-        let closed = requestCloseTab(selected.id, force: force)
+        let closed = requestCloseTab(
+            selected.id,
+            force: force,
+            ephemeralWorktreeCleanupAuthorized: ephemeralWorktreeCleanupAuthorized
+        )
 #if DEBUG
         cmuxDebugLog(
             "surface.close.fallback panel=\(panelId.uuidString.prefix(5)) " +
@@ -15817,9 +15927,22 @@ final class Workspace: Identifiable, ObservableObject {
         return closed
     }
 
-    func requestCloseTab(_ tabId: TabID, force: Bool) -> Bool {
+    func requestCloseTab(
+        _ tabId: TabID,
+        force: Bool,
+        ephemeralWorktreeCleanupAuthorized: Bool = false
+    ) -> Bool {
         if force { forceCloseTabIds.insert(tabId) }
-        let closed = bonsplitController.closeTab(tabId); if force && !closed { forceCloseTabIds.remove(tabId) }
+        if ephemeralWorktreeCleanupAuthorized {
+            ephemeralWorktreeManager.authorizeTabCleanup(tabId)
+        }
+        let closed = bonsplitController.closeTab(tabId)
+        if !closed {
+            if force { forceCloseTabIds.remove(tabId) }
+            if ephemeralWorktreeCleanupAuthorized {
+                ephemeralWorktreeManager.cancelTabCleanup(tabId)
+            }
+        }
         return closed
     }
 
@@ -16223,10 +16346,14 @@ final class Workspace: Identifiable, ObservableObject {
 #endif
 
         detachingTabIds.insert(tabId)
-        forceCloseTabIds.insert(tabId)
         activeDetachCloseTransactions += 1
         defer { activeDetachCloseTransactions = max(0, activeDetachCloseTransactions - 1) }
-        guard bonsplitController.closeTab(tabId) else {
+        let authorizesEphemeralWorktreeTransfer = shouldConfirmEphemeralWorktreeClose(panelId: panelId)
+        guard requestCloseTab(
+            tabId,
+            force: true,
+            ephemeralWorktreeCleanupAuthorized: authorizesEphemeralWorktreeTransfer
+        ) else {
             detachingTabIds.remove(tabId)
             pendingDetachedSurfaces.removeValue(forKey: tabId)
             forceCloseTabIds.remove(tabId)
@@ -16294,6 +16421,11 @@ final class Workspace: Identifiable, ObservableObject {
         if let directory = detached.directory {
             panelDirectories[detached.panelId] = directory
         }
+        if let ephemeralWorktree = detached.ephemeralWorktree {
+            ephemeralWorktreesByPanelId[detached.panelId] = ephemeralWorktree
+        } else {
+            ephemeralWorktreesByPanelId.removeValue(forKey: detached.panelId)
+        }
         if let ttyName = detached.ttyName?.trimmingCharacters(in: .whitespacesAndNewlines), !ttyName.isEmpty {
             surfaceTTYNames[detached.panelId] = ttyName
         } else {
@@ -16340,6 +16472,7 @@ final class Workspace: Identifiable, ObservableObject {
             removeBrowserOpenTabSuggestionIfNeeded(panel: detached.panel, panelId: detached.panelId)
             panels.removeValue(forKey: detached.panelId)
             panelDirectories.removeValue(forKey: detached.panelId)
+            ephemeralWorktreesByPanelId.removeValue(forKey: detached.panelId)
             surfaceTTYNames.removeValue(forKey: detached.panelId)
             surfaceResumeBindingsByPanelId.removeValue(forKey: detached.panelId)
             syncRemotePortScanTTYs()
@@ -18408,6 +18541,58 @@ extension Workspace: BonsplitDelegate {
         return true
     }
 
+    private func shouldConfirmEphemeralWorktreeClose(panelId: UUID) -> Bool {
+        ephemeralWorktreeManager.shouldConfirmClose(panelId: panelId)
+    }
+
+    @MainActor
+    private func confirmCloseEphemeralWorktreePanel(
+        for tabId: TabID,
+        affectedCount: Int = 1
+    ) async -> Bool {
+        let copy = WorkspaceEphemeralWorktreeManager.closeConfirmationCopy(affectedCount: affectedCount)
+
+        if let confirmCloseHandler = (
+            owningTabManager
+            ?? AppDelegate.shared?.tabManagerFor(tabId: id)
+            ?? AppDelegate.shared?.tabManager
+        )?.confirmCloseHandler {
+            return confirmCloseHandler(copy.title, copy.message, false)
+        }
+
+        let alert = NSAlert()
+        alert.messageText = copy.title
+        alert.informativeText = copy.message
+        alert.alertStyle = .warning
+        alert.addButton(
+            withTitle: String(
+                localized: "dialog.ephemeralWorktree.close.preserve",
+                defaultValue: "Close and Preserve Changes"
+            )
+        )
+        alert.addButton(withTitle: String(localized: "dialog.closeTab.cancel", defaultValue: "Cancel"))
+
+        if let closeButton = alert.buttons.first {
+            closeButton.keyEquivalent = "\r"
+            closeButton.keyEquivalentModifierMask = []
+            alert.window.defaultButtonCell = closeButton.cell as? NSButtonCell
+            alert.window.initialFirstResponder = closeButton
+        }
+        if let cancelButton = alert.buttons.dropFirst().first {
+            cancelButton.keyEquivalent = "\u{1b}"
+        }
+
+        if let window = NSApp.keyWindow ?? NSApp.mainWindow {
+            return await withCheckedContinuation { continuation in
+                alert.beginSheetModal(for: window) { response in
+                    continuation.resume(returning: response == .alertFirstButtonReturn)
+                }
+            }
+        }
+
+        return alert.runModal() == .alertFirstButtonReturn
+    }
+
     @MainActor
     private func confirmClosePanel(for tabId: TabID) async -> Bool {
         let title = String(localized: "dialog.closeTab.title", defaultValue: "Close tab?")
@@ -18884,7 +19069,18 @@ extension Workspace: BonsplitDelegate {
         let tabCloseButtonClose = tabCloseButtonCloseTabIds.remove(tab.id) != nil
         let explicitUserClose = explicitUserCloseTabIds.remove(tab.id) != nil || tabCloseButtonClose
 
-        if forceCloseTabIds.contains(tab.id) {
+        let forceCloseRequested = forceCloseTabIds.contains(tab.id)
+        let forceCloseHasUnauthorizedBlockWorktree: Bool = {
+            guard forceCloseRequested,
+                  let panelId = panelIdFromSurfaceId(tab.id),
+                  shouldConfirmEphemeralWorktreeClose(panelId: panelId) else {
+                return false
+            }
+            return !ephemeralWorktreeManager.isTabCleanupAuthorized(tab.id)
+        }()
+        if forceCloseRequested && forceCloseHasUnauthorizedBlockWorktree {
+            forceCloseTabIds.remove(tab.id)
+        } else if forceCloseRequested {
             if !pushClosedPanelHistoryIfEligible(for: tab, inPane: pane) {
                 stageClosedBrowserRestoreSnapshotIfNeeded(for: tab, inPane: pane)
             } else {
@@ -18932,10 +19128,52 @@ extension Workspace: BonsplitDelegate {
             return true
         }
 
+        let confirmationSource: CloseTabConfirmationPolicy.Source = tabCloseButtonClose ? .tabCloseButton : .shortcut
+        if shouldConfirmEphemeralWorktreeClose(panelId: panelId) {
+            clearStagedClosedBrowserRestoreSnapshot(for: tab.id)
+            if ephemeralWorktreeManager.isTabConfirmationPending(tab.id) {
+                return false
+            }
+
+            let confirmationManager = owningTabManager ?? AppDelegate.shared?.tabManagerFor(tabId: id) ?? AppDelegate.shared?.tabManager
+            if let confirmationManager, !confirmationManager.beginCloseConfirmationSession() {
+                return false
+            }
+
+            ephemeralWorktreeManager.beginTabConfirmation(tab.id)
+            let tabId = tab.id
+            Task { @MainActor in
+                defer {
+                    self.ephemeralWorktreeManager.endTabConfirmation(tabId)
+                    confirmationManager?.endCloseConfirmationSession()
+                }
+
+                guard let panelId = self.panelIdFromSurfaceId(tabId) else { return }
+
+                let confirmed = await self.confirmCloseEphemeralWorktreePanel(for: tabId)
+                guard confirmed else { return }
+
+                if CloseTabConfirmationPolicy.shouldConfirm(
+                    requiresConfirmation: self.panelNeedsConfirmClose(panelId: panelId),
+                    source: confirmationSource
+                ) {
+                    let closeConfirmed = await self.confirmClosePanel(for: tabId)
+                    guard closeConfirmed else { return }
+                }
+
+                _ = self.requestCloseTab(
+                    tabId,
+                    force: true,
+                    ephemeralWorktreeCleanupAuthorized: true
+                )
+            }
+
+            return false
+        }
+
         // If confirmation is required, Bonsplit will call into this delegate and we must return false.
         // Show an app-level confirmation, then re-attempt the close with forceCloseTabIds to bypass
         // this gating on the second pass.
-        let confirmationSource: CloseTabConfirmationPolicy.Source = tabCloseButtonClose ? .tabCloseButton : .shortcut
         if CloseTabConfirmationPolicy.shouldConfirm(
             requiresConfirmation: panelNeedsConfirmClose(panelId: panelId),
             source: confirmationSource
@@ -18972,8 +19210,7 @@ extension Workspace: BonsplitDelegate {
                         return
                     }
 
-                    self.forceCloseTabIds.insert(tabId)
-                    self.bonsplitController.closeTab(tabId)
+                    _ = self.requestCloseTab(tabId, force: true)
                 }
             }
 
@@ -18991,6 +19228,7 @@ extension Workspace: BonsplitDelegate {
 
     func splitTabBar(_ controller: BonsplitController, didCloseTab tabId: TabID, fromPane pane: PaneID) {
         forceCloseTabIds.remove(tabId)
+        let ephemeralWorktreeCleanupAuthorized = ephemeralWorktreeManager.consumeTabCleanupAuthorization(tabId)
         tabCloseButtonCloseTabIds.remove(tabId)
         let selectTabId = postCloseSelectTabId.removeValue(forKey: tabId)
         let shouldClearSplitZoom = postCloseClearSplitZoomTabIds.remove(tabId) != nil
@@ -19044,6 +19282,7 @@ extension Workspace: BonsplitDelegate {
                 isPinned: pinnedPanelIds.contains(panelId),
                 directory: panelDirectories[panelId],
                 ttyName: surfaceTTYNames[panelId],
+                ephemeralWorktree: ephemeralWorktreesByPanelId[panelId],
                 cachedTitle: cachedTitle,
                 customTitle: panelCustomTitles[panelId],
                 manuallyUnread: manualUnreadPanelIds.contains(panelId),
@@ -19075,7 +19314,8 @@ extension Workspace: BonsplitDelegate {
             publishSurfaceClosedEvent: !isDetaching,
             clearSurfaceNotifications: !preservesSurfaceForDetach,
             requestTransferredRemoteCleanup: false,
-            cleanupControllerSurfaceState: !isDetaching
+            cleanupControllerSurfaceState: !isDetaching,
+            ephemeralWorktreeCleanupAuthorized: ephemeralWorktreeCleanupAuthorized
         )
         if !isDetaching {
             owningTabManager?.invalidateFocusHistoryTarget(workspaceId: id, panelId: panelId)
@@ -19221,6 +19461,7 @@ extension Workspace: BonsplitDelegate {
 
     func splitTabBar(_ controller: BonsplitController, didClosePane paneId: PaneID) {
         let closedPanelIds = pendingPaneClosePanelIds.removeValue(forKey: paneId.id) ?? []
+        let ephemeralWorktreeCleanupAuthorized = ephemeralWorktreeManager.consumePaneCleanupAuthorization(paneId)
         let closedHistoryEntries = pendingPaneCloseHistoryEntries.removeValue(forKey: paneId.id) ?? []
         let shouldScheduleFocusReconcile = !isDetachingCloseTransaction
 
@@ -19244,7 +19485,8 @@ extension Workspace: BonsplitDelegate {
                     publishSurfaceClosedEvent: true,
                     clearSurfaceNotifications: true,
                     requestTransferredRemoteCleanup: true,
-                    cleanupControllerSurfaceState: !isDetachingCloseTransaction
+                    cleanupControllerSurfaceState: !isDetachingCloseTransaction,
+                    ephemeralWorktreeCleanupAuthorized: ephemeralWorktreeCleanupAuthorized
                 )
                 if !isDetachingCloseTransaction {
                     owningTabManager?.invalidateFocusHistoryTarget(workspaceId: id, panelId: panelId)
@@ -19274,6 +19516,68 @@ extension Workspace: BonsplitDelegate {
         let tabs = controller.tabs(inPane: pane)
         for tab in tabs {
             if forceCloseTabIds.contains(tab.id) { continue }
+            if let panelId = panelIdFromSurfaceId(tab.id),
+               shouldConfirmEphemeralWorktreeClose(panelId: panelId) {
+                pendingPaneClosePanelIds.removeValue(forKey: pane.id)
+                if ephemeralWorktreeManager.isPaneConfirmationPending(pane) {
+                    return false
+                }
+
+                let confirmationManager = owningTabManager ?? AppDelegate.shared?.tabManagerFor(tabId: id) ?? AppDelegate.shared?.tabManager
+                if let confirmationManager, !confirmationManager.beginCloseConfirmationSession() {
+                    return false
+                }
+
+                ephemeralWorktreeManager.beginPaneConfirmation(pane)
+                let paneId = pane
+                let tabId = tab.id
+                Task { @MainActor in
+                    defer {
+                        self.ephemeralWorktreeManager.endPaneConfirmation(paneId)
+                        confirmationManager?.endCloseConfirmationSession()
+                    }
+
+                    guard self.panelIdFromSurfaceId(tabId) != nil else { return }
+
+                    let affectedCount = self.bonsplitController.tabs(inPane: paneId).reduce(0) { count, tab in
+                        guard let panelId = self.panelIdFromSurfaceId(tab.id),
+                              self.shouldConfirmEphemeralWorktreeClose(panelId: panelId) else {
+                            return count
+                        }
+                        return count + 1
+                    }
+                    let confirmed = await self.confirmCloseEphemeralWorktreePanel(
+                        for: tabId,
+                        affectedCount: max(affectedCount, 1)
+                    )
+                    guard confirmed else { return }
+
+                    let forcedTabIds = self.bonsplitController.tabs(inPane: paneId).map(\.id)
+                    if let needsCloseConfirmationTabId = forcedTabIds.first(where: { tabId in
+                        guard let panelId = self.panelIdFromSurfaceId(tabId) else { return false }
+                        return CloseTabConfirmationPolicy.shouldConfirm(
+                            requiresConfirmation: self.panelNeedsConfirmClose(panelId: panelId),
+                            source: .shortcut
+                        )
+                    }) {
+                        let closeConfirmed = await self.confirmClosePanel(for: needsCloseConfirmationTabId)
+                        guard closeConfirmed else { return }
+                    }
+
+                    self.ephemeralWorktreeManager.authorizePaneCleanup(paneId)
+                    for tabId in forcedTabIds {
+                        self.forceCloseTabIds.insert(tabId)
+                    }
+                    let closed = self.bonsplitController.closePane(paneId)
+                    for tabId in forcedTabIds {
+                        self.forceCloseTabIds.remove(tabId)
+                    }
+                    if !closed {
+                        self.ephemeralWorktreeManager.cancelPaneCleanup(paneId)
+                    }
+                }
+                return false
+            }
             if let panelId = panelIdFromSurfaceId(tab.id),
                CloseTabConfirmationPolicy.shouldConfirm(
                    requiresConfirmation: panelNeedsConfirmClose(panelId: panelId),

@@ -2523,7 +2523,8 @@ class TabManager: ObservableObject {
         configTemplate: CmuxSurfaceConfigTemplate?,
         initialTerminalCommand: String?,
         initialTerminalInput: String? = nil,
-        initialTerminalEnvironment: [String: String]
+        initialTerminalEnvironment: [String: String],
+        initialEphemeralWorktree: EphemeralWorktreeRecord? = nil
     ) -> Workspace {
         Workspace(
             title: title,
@@ -2532,7 +2533,8 @@ class TabManager: ObservableObject {
             configTemplate: configTemplate,
             initialTerminalCommand: initialTerminalCommand,
             initialTerminalInput: initialTerminalInput,
-            initialTerminalEnvironment: initialTerminalEnvironment
+            initialTerminalEnvironment: initialTerminalEnvironment,
+            initialEphemeralWorktree: initialEphemeralWorktree
         )
     }
 
@@ -2565,6 +2567,23 @@ class TabManager: ObservableObject {
 
     /// Test seam for mutating live workspace state after the creation snapshot is captured.
     func didCaptureWorkspaceCreationSnapshot() {}
+
+    func resolvedWorkingDirectoryForNewWorkspace(
+        override overrideWorkingDirectory: String?,
+        inheritWorkingDirectory: Bool = true
+    ) -> String? {
+        if let explicitWorkingDirectory = normalizedWorkingDirectory(overrideWorkingDirectory) {
+            return explicitWorkingDirectory
+        }
+        guard inheritWorkingDirectory else { return nil }
+        return implicitWorkingDirectoryForNewWorkspace(from: selectedWorkspace)
+    }
+
+    func activeEphemeralWorktreeSessionIds() -> Set<String> {
+        tabs.reduce(into: Set<String>()) { result, workspace in
+            result.formUnion(workspace.activeEphemeralWorktreeSessionIds())
+        }
+    }
 
 #if DEBUG
     /// Test seam: invoked when an initial workspace git-metadata refresh is
@@ -2613,6 +2632,7 @@ class TabManager: ObservableObject {
         eagerLoadTerminal: Bool = false,
         placementOverride: NewWorkspacePlacement? = nil,
         autoWelcomeIfNeeded: Bool = true,
+        initialEphemeralWorktree: EphemeralWorktreeRecord? = nil,
         autoRefreshMetadata: Bool = true,
         normalizeWorkspaceGroupsAfterInsert: Bool = true
     ) -> Workspace {
@@ -2660,7 +2680,8 @@ class TabManager: ObservableObject {
                 configTemplate: inheritedConfig,
                 initialTerminalCommand: initialTerminalCommand,
                 initialTerminalInput: initialTerminalInput,
-                initialTerminalEnvironment: initialTerminalEnvironment
+                initialTerminalEnvironment: initialTerminalEnvironment,
+                initialEphemeralWorktree: initialEphemeralWorktree
             )
             applyCreationChromeInheritance(
                 to: newWorkspace,
@@ -4444,12 +4465,23 @@ class TabManager: ObservableObject {
     /// members). This is the destructive sibling of
     /// `ungroupWorkspaceGroup`: ungroup keeps the workspaces, delete throws
     /// them away. Callers that need confirmation must prompt before calling
-    /// this; the method itself is unconditional so socket/CLI paths can opt
-    /// out of the prompt cleanly.
+    /// this; block-policy worktrees still require explicit authorization.
     @discardableResult
-    func deleteWorkspaceGroup(groupId: UUID, recordHistory: Bool = true) -> Int {
+    func deleteWorkspaceGroup(
+        groupId: UUID,
+        recordHistory: Bool = true,
+        ephemeralWorktreeCleanupAuthorizedPanelIdsByWorkspace: [UUID: Set<UUID>] = [:]
+    ) -> Int {
         guard workspaceGroups.contains(where: { $0.id == groupId }) else { return 0 }
         let members = tabs.filter { $0.groupId == groupId }
+        let hasUnauthorizedBlockPolicyWorktree = members.contains { workspace in
+            !unauthorizedBlockPolicyEphemeralWorktreePanelIds(
+                in: workspace,
+                authorizedPanelIds: ephemeralWorktreeCleanupAuthorizedPanelIdsByWorkspace[workspace.id] ?? []
+            ).isEmpty
+        }
+        guard !hasUnauthorizedBlockPolicyWorktree else { return 0 }
+
         var closed = 0
         for tab in members {
             // closeWorkspace short-circuits when tabs.count <= 1, so the last
@@ -4462,9 +4494,13 @@ class TabManager: ObservableObject {
                 assignGroup(workspaceId: tab.id, groupId: nil)
                 continue
             }
-            let countBefore = tabs.count
-            closeWorkspace(tab, recordHistory: recordHistory)
-            if tabs.count < countBefore { closed += 1 }
+            if closeWorkspace(
+                tab,
+                recordHistory: recordHistory,
+                ephemeralWorktreeCleanupAuthorizedPanelIds: ephemeralWorktreeCleanupAuthorizedPanelIdsByWorkspace[tab.id] ?? []
+            ) {
+                closed += 1
+            }
         }
         // closeWorkspace's dissolveGroupsAnchoredBy already removes the group
         // when the anchor is among the closed members, but if every member
@@ -5289,8 +5325,18 @@ class TabManager: ObservableObject {
         return trimmed
     }
 
-    func closeWorkspace(_ workspace: Workspace, recordHistory: Bool = true) {
-        guard tabs.count > 1 else { return }
+    @discardableResult
+    func closeWorkspace(
+        _ workspace: Workspace,
+        recordHistory: Bool = true,
+        ephemeralWorktreeCleanupAuthorizedPanelIds: Set<UUID> = []
+    ) -> Bool {
+        guard tabs.count > 1 else { return false }
+        guard unauthorizedBlockPolicyEphemeralWorktreePanelIds(
+            in: workspace,
+            authorizedPanelIds: ephemeralWorktreeCleanupAuthorizedPanelIds
+        ).isEmpty else { return false }
+
         sentryBreadcrumb("workspace.close", data: ["tabCount": tabs.count - 1])
         if recordHistory,
            workspace.isRestorableInSessionSnapshot,
@@ -5318,7 +5364,9 @@ class TabManager: ObservableObject {
 
         AppDelegate.shared?.notificationStore?.clearNotifications(forTabId: workspace.id)
         workspace.withClosedPanelHistorySuppressed {
-            workspace.teardownAllPanels()
+            workspace.teardownAllPanels(
+                ephemeralWorktreeCleanupAuthorizedPanelIds: ephemeralWorktreeCleanupAuthorizedPanelIds
+            )
         }
         workspace.teardownRemoteConnection()
         unwireClosedBrowserTracking(for: workspace)
@@ -5343,6 +5391,7 @@ class TabManager: ObservableObject {
             }
         }
         publishCmuxWorkspaceClosed(workspace)
+        return true
     }
 
     /// If `closedWorkspaceId` was the anchor of any group, dissolve that group:
@@ -5426,7 +5475,8 @@ class TabManager: ObservableObject {
     }
 
     // Keep closeTab as convenience alias
-    func closeTab(_ tab: Workspace) { closeWorkspace(tab) }
+    @discardableResult
+    func closeTab(_ tab: Workspace) -> Bool { closeWorkspace(tab) }
     func closeCurrentTabWithConfirmation() { closeCurrentWorkspaceWithConfirmation() }
 
     func closeCurrentWorkspace() {
@@ -5463,10 +5513,18 @@ class TabManager: ObservableObject {
                 acceptCmdD: false
             ) else { return }
         }
+        guard let blockPolicyPanelIds = confirmBlockPolicyEphemeralWorktreeCleanupIfNeeded(
+            in: plan.workspace,
+            panelIds: plan.panelIds
+        ) else { return }
 
         for panelId in plan.panelIds {
             plan.workspace.markCloseHistoryEligible(panelId: panelId)
-            _ = plan.workspace.closePanel(panelId, force: true)
+            _ = plan.workspace.closePanel(
+                panelId,
+                force: true,
+                ephemeralWorktreeCleanupAuthorized: blockPolicyPanelIds.contains(panelId)
+            )
         }
     }
 
@@ -5542,6 +5600,7 @@ class TabManager: ObservableObject {
         }
 
         let plan = closeWorkspacesPlan(for: workspaces)
+        let intendedToCloseWindow = plan.workspaces.count == tabs.count
         if shouldConfirmClose(requiresConfirmation: true, source: .tabClose) {
             guard confirmClose(
                 title: plan.title,
@@ -5550,8 +5609,20 @@ class TabManager: ObservableObject {
             ) else { return }
         }
 
-        if plan.workspaces.count == tabs.count,
-           let firstWorkspace = plan.workspaces.first {
+        let plannedWorkspaceIds = Set(plan.workspaces.map(\.id))
+        if intendedToCloseWindow,
+           !tabs.isEmpty,
+           Set(tabs.map(\.id)).isSubset(of: plannedWorkspaceIds),
+           let firstWorkspace = tabs.first {
+            guard let blockPolicyPanelIdsByWorkspace = confirmBlockPolicyEphemeralWorktreeCleanupIfNeeded(
+                for: tabs
+            ) else { return }
+            for workspace in tabs {
+                let panelIds = blockPolicyPanelIdsByWorkspace[workspace.id] ?? []
+                if !panelIds.isEmpty {
+                    workspace.authorizeEphemeralWorktreeCleanupForWindowClose(panelIds: panelIds)
+                }
+            }
             if let window {
                 window.performClose(nil)
                 return
@@ -5578,16 +5649,25 @@ class TabManager: ObservableObject {
                 if !confirmAnchorWorkspaceClose(groupName: group.name, otherMemberCount: otherMemberCount) {
                     return
                 }
+                guard let blockPolicyPanelIds = confirmBlockPolicyEphemeralWorktreeCleanupIfNeeded(
+                    in: workspace
+                ) else { return }
                 // Anchor confirmed (or suppressed); skip the inner re-prompt
                 // by closing without going through closeWorkspaceIfRunningProcess.
                 if tabs.count <= 1 {
+                    if !blockPolicyPanelIds.isEmpty {
+                        workspace.authorizeEphemeralWorktreeCleanupForWindowClose(panelIds: blockPolicyPanelIds)
+                    }
                     if let window {
                         window.performClose(nil)
                     } else {
                         AppDelegate.shared?.closeMainWindowContainingTabId(workspace.id)
                     }
                 } else {
-                    closeWorkspace(workspace)
+                    closeWorkspace(
+                        workspace,
+                        ephemeralWorktreeCleanupAuthorizedPanelIds: blockPolicyPanelIds
+                    )
                 }
                 continue
             }
@@ -5614,9 +5694,7 @@ class TabManager: ObservableObject {
     }
 
     func endCloseConfirmationSession() {
-        DispatchQueue.main.async { [weak self] in
-            self?.closeConfirmationInFlight = false
-        }
+        closeConfirmationInFlight = false
     }
 
     func confirmClose(title: String, message: String, acceptCmdD: Bool) -> Bool {
@@ -5825,16 +5903,116 @@ class TabManager: ObservableObject {
            ) {
             return
         }
+        guard let blockPolicyPanelIds = confirmBlockPolicyEphemeralWorktreeCleanupIfNeeded(
+            in: workspace
+        ) else { return }
         if tabs.count <= 1 {
             // Last workspace in this window: match Close Workspace shortcut behavior.
+            if !blockPolicyPanelIds.isEmpty {
+                workspace.authorizeEphemeralWorktreeCleanupForWindowClose(panelIds: blockPolicyPanelIds)
+            }
             if let window {
                 window.performClose(nil)
             } else {
                 AppDelegate.shared?.closeMainWindowContainingTabId(workspace.id)
             }
         } else {
-            closeWorkspace(workspace)
+            closeWorkspace(
+                workspace,
+                ephemeralWorktreeCleanupAuthorizedPanelIds: blockPolicyPanelIds
+            )
         }
+    }
+
+    func blockPolicyEphemeralWorktreePanelIds(
+        in workspace: Workspace,
+        panelIds candidatePanelIds: [UUID]? = nil
+    ) -> [UUID] {
+        let candidatePanelIdSet = candidatePanelIds.map { Set($0) }
+        return workspace.ephemeralWorktreesByPanelId.compactMap { panelId, record -> UUID? in
+            if let candidatePanelIdSet, !candidatePanelIdSet.contains(panelId) { return nil }
+            return record.cleanupPolicy == .block ? panelId : nil
+        }
+    }
+
+    func blockPolicyEphemeralWorktreePanelIdsByWorkspace(
+        for workspaces: [Workspace]
+    ) -> [UUID: Set<UUID>] {
+        Dictionary(
+            uniqueKeysWithValues: workspaces.compactMap { workspace in
+                let panelIds = Set(blockPolicyEphemeralWorktreePanelIds(in: workspace))
+                return panelIds.isEmpty ? nil : (workspace.id, panelIds)
+            }
+        )
+    }
+
+    func blockPolicyEphemeralWorktreePanelIdsByWorkspace(inGroup groupId: UUID) -> [UUID: Set<UUID>] {
+        blockPolicyEphemeralWorktreePanelIdsByWorkspace(
+            for: tabs.filter { $0.groupId == groupId }
+        )
+    }
+
+    func unauthorizedBlockPolicyEphemeralWorktreePanelIds(
+        in workspace: Workspace,
+        authorizedPanelIds: Set<UUID> = []
+    ) -> Set<UUID> {
+        Set(blockPolicyEphemeralWorktreePanelIds(in: workspace)).subtracting(authorizedPanelIds)
+    }
+
+    func confirmBlockPolicyEphemeralWorktreeCleanupIfNeeded(
+        in workspace: Workspace,
+        panelIds candidatePanelIds: [UUID]? = nil
+    ) -> Set<UUID>? {
+        let panelIds = Set(blockPolicyEphemeralWorktreePanelIds(
+            in: workspace,
+            panelIds: candidatePanelIds
+        ))
+        let affectedCount = panelIds.count
+        guard confirmBlockPolicyEphemeralWorktreeCleanupIfNeeded(affectedCount: affectedCount) else {
+            return nil
+        }
+        return panelIds
+    }
+
+    func confirmBlockPolicyEphemeralWorktreeCleanupIfNeeded(
+        for workspaces: [Workspace]
+    ) -> [UUID: Set<UUID>]? {
+        let panelIdsByWorkspace = blockPolicyEphemeralWorktreePanelIdsByWorkspace(for: workspaces)
+        let affectedCount = panelIdsByWorkspace.values.reduce(0) { $0 + $1.count }
+        guard confirmBlockPolicyEphemeralWorktreeCleanupIfNeeded(affectedCount: affectedCount) else {
+            return nil
+        }
+        return panelIdsByWorkspace
+    }
+
+    func confirmBlockPolicyEphemeralWorktreeCleanupIfNeeded(
+        inGroup groupId: UUID
+    ) -> [UUID: Set<UUID>]? {
+        confirmBlockPolicyEphemeralWorktreeCleanupIfNeeded(
+            for: tabs.filter { $0.groupId == groupId }
+        )
+    }
+
+    func cancelEphemeralWorktreeCleanupForAbortedWindowClose() {
+        for workspace in tabs {
+            let panelIds = Set(workspace.ephemeralWorktreesByPanelId.keys)
+            if !panelIds.isEmpty {
+                workspace.cancelEphemeralWorktreeCleanupForWindowClose(panelIds: panelIds)
+            }
+        }
+    }
+
+    private func confirmEphemeralWorktreeClose(affectedCount: Int) -> Bool {
+        let copy = WorkspaceEphemeralWorktreeManager.closeConfirmationCopy(affectedCount: affectedCount)
+        return confirmClose(
+            title: copy.title,
+            message: copy.message,
+            acceptCmdD: false
+        )
+    }
+
+    private func confirmBlockPolicyEphemeralWorktreeCleanupIfNeeded(affectedCount: Int) -> Bool {
+        affectedCount == 0 || confirmEphemeralWorktreeClose(affectedCount: affectedCount)
     }
 
     private func shouldConfirmClose(requiresConfirmation: Bool, source: CloseConfirmationSource) -> Bool {
@@ -5863,11 +6041,8 @@ class TabManager: ObservableObject {
         }
         // Do NOT acquire beginCloseConfirmationSession here. The standard
         // close confirmation path that runs immediately after (confirmClose())
-        // gates itself with the same flag, and endCloseConfirmationSession
-        // releases the flag asynchronously on the next main-queue turn — so
-        // wrapping this dialog with begin/end would leave the flag set when
-        // the inner confirmClose runs, causing it to return false and silently
-        // refuse the close even after the user accepted both prompts.
+        // gates itself with the same flag; wrapping this dialog would make the
+        // inner confirmation look like a duplicate close request.
         let title = String(
             localized: "dialog.closeAnchor.title",
             defaultValue: "Close this workspace?"
@@ -7539,7 +7714,8 @@ class TabManager: ObservableObject {
         tmuxStartCommand: String? = nil,
         startupEnvironment: [String: String] = [:],
         initialDividerPosition: CGFloat? = nil,
-        remotePTYSessionID: String? = nil
+        remotePTYSessionID: String? = nil,
+        ephemeralWorktree: EphemeralWorktreeRecord? = nil
     ) -> UUID? {
         guard let tab = tabs.first(where: { $0.id == tabId }) else { return nil }
         return tab.newTerminalSplit(
@@ -7552,7 +7728,8 @@ class TabManager: ObservableObject {
             tmuxStartCommand: tmuxStartCommand,
             startupEnvironment: startupEnvironment,
             initialDividerPosition: initialDividerPosition,
-            remotePTYSessionID: remotePTYSessionID
+            remotePTYSessionID: remotePTYSessionID,
+            ephemeralWorktree: ephemeralWorktree
         )?.id
     }
 
@@ -7680,7 +7857,7 @@ class TabManager: ObservableObject {
         // A stale callback must never affect unrelated panels/workspaces.
         guard tab.panels[surfaceId] != nil,
               tab.surfaceIdFromPanelId(surfaceId) != nil else { return false }
-        tab.closePanel(surfaceId)
+        _ = tab.closePanel(surfaceId)
         AppDelegate.shared?.notificationStore?.clearNotifications(forTabId: tabId, surfaceId: surfaceId)
         return true
     }
@@ -8421,9 +8598,9 @@ class TabManager: ObservableObject {
 
                 // Close the two right panes via the same path as the Close Tab shortcut.
                 tab.focusPanel(topRight.id)
-                tab.closePanel(topRight.id, force: true)
+                _ = tab.closePanel(topRight.id, force: true)
                 tab.focusPanel(bottomRight.id)
-                tab.closePanel(bottomRight.id, force: true)
+                _ = tab.closePanel(bottomRight.id, force: true)
 
 
                 // Capture final state after Bonsplit/AppKit/Ghostty geometry reconciliation.
@@ -8548,7 +8725,7 @@ class TabManager: ObservableObject {
             tab.focusPanel(topLeftPanelId)
             let toClose = Array(tab.panels.keys).filter { $0 != topLeftPanelId }
             for pid in toClose {
-                tab.closePanel(pid, force: true)
+                _ = tab.closePanel(pid, force: true)
             }
 
             // Create the repro layout. Most patterns use a 2x2 grid, but keep a single-split
@@ -8630,7 +8807,7 @@ class TabManager: ObservableObject {
                     return [
                         (frame: closeFrame, action: {
                             tab.focusPanel(topRight.id)
-                            tab.closePanel(topRight.id, force: true)
+                            _ = tab.closePanel(topRight.id, force: true)
                         }),
                     ]
                 case "close_bottom":
@@ -8639,11 +8816,11 @@ class TabManager: ObservableObject {
                     return [
                         (frame: closeFrame, action: {
                             tab.focusPanel(bottomRight.id)
-                            tab.closePanel(bottomRight.id, force: true)
+                            _ = tab.closePanel(bottomRight.id, force: true)
                         }),
                         (frame: secondCloseFrame, action: {
                             tab.focusPanel(bottomLeft.id)
-                            tab.closePanel(bottomLeft.id, force: true)
+                            _ = tab.closePanel(bottomLeft.id, force: true)
                         }),
                     ]
                 case "close_right_lrtd_bottom_first", "close_right_bottom_first":
@@ -8652,11 +8829,11 @@ class TabManager: ObservableObject {
                     return [
                         (frame: closeFrame, action: {
                             tab.focusPanel(bottomRight.id)
-                            tab.closePanel(bottomRight.id, force: true)
+                            _ = tab.closePanel(bottomRight.id, force: true)
                         }),
                         (frame: secondCloseFrame, action: {
                             tab.focusPanel(topRight.id)
-                            tab.closePanel(topRight.id, force: true)
+                            _ = tab.closePanel(topRight.id, force: true)
                         }),
                     ]
                 case "close_right_lrtd_unfocused":
@@ -8664,10 +8841,10 @@ class TabManager: ObservableObject {
                     closeOrder = "TR_THEN_BR_UNFOCUSED"
                     return [
                         (frame: closeFrame, action: {
-                            tab.closePanel(topRight.id, force: true)
+                            _ = tab.closePanel(topRight.id, force: true)
                         }),
                         (frame: secondCloseFrame, action: {
-                            tab.closePanel(bottomRight.id, force: true)
+                            _ = tab.closePanel(bottomRight.id, force: true)
                         }),
                     ]
                 default:
@@ -8676,11 +8853,11 @@ class TabManager: ObservableObject {
                     return [
                         (frame: closeFrame, action: {
                             tab.focusPanel(topRight.id)
-                            tab.closePanel(topRight.id, force: true)
+                            _ = tab.closePanel(topRight.id, force: true)
                         }),
                         (frame: secondCloseFrame, action: {
                             tab.focusPanel(bottomRight.id)
-                            tab.closePanel(bottomRight.id, force: true)
+                            _ = tab.closePanel(bottomRight.id, force: true)
                         }),
                     ]
                 }
@@ -8886,7 +9063,7 @@ class TabManager: ObservableObject {
                 // Start each iteration from a deterministic 1x1 workspace.
                 if tab.panels.count > 1 {
                     for panelId in tab.panels.keys where panelId != leftPanelId {
-                        tab.closePanel(panelId, force: true)
+                        _ = tab.closePanel(panelId, force: true)
                     }
                     let collapsed = await self.waitForWorkspacePanelsCondition(
                         tab: tab,
@@ -9061,9 +9238,9 @@ class TabManager: ObservableObject {
                 // Repro flow: with a 2x2 (left/right then top/down), close both right panes,
                 // then trigger Ctrl+D in top-left.
                 tab.focusPanel(rightPanel.id)
-                tab.closePanel(rightPanel.id, force: true)
+                _ = tab.closePanel(rightPanel.id, force: true)
                 tab.focusPanel(bottomRight.id)
-                tab.closePanel(bottomRight.id, force: true)
+                _ = tab.closePanel(bottomRight.id, force: true)
                 exitPanelId = leftPanelId
 
                 let collapsed = await self.waitForWorkspacePanelsCondition(
@@ -9104,7 +9281,7 @@ class TabManager: ObservableObject {
                 let keepPanels: Set<UUID> = [leftPanelId, topRight.id]
                 for panelId in Array(tab.panels.keys) where !keepPanels.contains(panelId) {
                     tab.focusPanel(panelId)
-                    tab.closePanel(panelId, force: true)
+                    _ = tab.closePanel(panelId, force: true)
                     let closed = await self.waitForWorkspacePanelsCondition(
                         tab: tab,
                         timeoutSeconds: 1.0
@@ -9707,8 +9884,9 @@ extension TabManager {
         // Session restore replaces the bootstrap workspace objects with freshly
         // restored ones. Tear the old graph down after the atomic swap so late
         // panel/socket callbacks cannot keep mutating hidden pre-restore state.
+        let cleanupAuthorizedPanelIds = Set(blockPolicyEphemeralWorktreePanelIds(in: workspace))
         AppDelegate.shared?.notificationStore?.clearNotifications(forTabId: workspace.id)
-        workspace.teardownAllPanels()
+        workspace.teardownAllPanels(ephemeralWorktreeCleanupAuthorizedPanelIds: cleanupAuthorizedPanelIds)
         workspace.teardownRemoteConnection()
         workspace.owningTabManager = nil
     }
