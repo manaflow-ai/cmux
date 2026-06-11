@@ -19,7 +19,9 @@ struct AgentHibernationRecord {
     let hasUnconfirmedTerminalInput: Bool
     let lastActivityAt: TimeInterval
     let isProtected: Bool
-    let isBusy: Bool
+    /// Mutable so the bounded foreground-verification pass can mark
+    /// candidates after the census (see agentHibernationRecords).
+    var isBusy: Bool
     let canRestartShell: Bool
     let workspaceUnmountedAt: TimeInterval?
     let runtimeSurfaceCreatedAt: TimeInterval
@@ -650,6 +652,8 @@ extension AppDelegate {
         let shellRestartCandidateIdleGate =
             min(surfaceSettings.idleSeconds, surfaceSettings.unmountedIdleSeconds)
 
+        var foregroundVerificationCandidates: [(recordIndex: Int, lastActivityAt: TimeInterval)] = []
+
         func visit(tabManager manager: TabManager, visibleWorkspaceId: UUID?) {
             let managerId = ObjectIdentifier(manager)
             guard seenManagers.insert(managerId).inserted else { return }
@@ -704,13 +708,19 @@ extension AppDelegate {
                     // candidates — the foreground process is not a bare,
                     // childless shell (background jobs and attached tmux
                     // clients produce no prompt or output signal of their own).
-                    let isBusy = workspace.panelNeedsConfirmClose(
+                    // The foreground verification syscalls are deferred to a
+                    // bounded LRU pass after the census below.
+                    let isCheaplyBusy = workspace.panelNeedsConfirmClose(
                         panelId: panelId,
                         fallbackNeedsConfirmClose: terminalPanel.needsConfirmClose()
                     ) ||
                         (isShellRestartCandidate &&
-                            (!(workspace.surfaceListeningPorts[panelId] ?? []).isEmpty ||
-                                !terminalPanel.surface.foregroundProcessAllowsShellRestart()))
+                            !(workspace.surfaceListeningPorts[panelId] ?? []).isEmpty)
+                    if isShellRestartCandidate, !isCheaplyBusy {
+                        foregroundVerificationCandidates.append(
+                            (recordIndex: records.count, lastActivityAt: lastActivityAt)
+                        )
+                    }
                     records.append(
                         AgentHibernationRecord(
                             key: key,
@@ -724,7 +734,7 @@ extension AppDelegate {
                             hasUnconfirmedTerminalInput: agent != nil && terminalInputAt > lifecycleChangeAt,
                             lastActivityAt: lastActivityAt,
                             isProtected: isProtected,
-                            isBusy: isBusy,
+                            isBusy: isCheaplyBusy,
                             canRestartShell: canRestartShell,
                             workspaceUnmountedAt: workspaceUnmountedAt,
                             runtimeSurfaceCreatedAt: createdAt,
@@ -742,6 +752,28 @@ extension AppDelegate {
         }
         if let tabManager {
             visit(tabManager: tabManager, visibleWorkspaceId: nil)
+        }
+
+        // Foreground verification (child scan + argv read) costs syscalls per
+        // panel, so it stays bounded regardless of how many hidden shells
+        // crossed the idle gate: verify only the panels the planner could
+        // actually drain soonest — oldest first, matching its eviction order —
+        // and leave the rest conservatively busy until a later tick. Should
+        // the whole verified window be genuinely busy (dozens of attached
+        // tmux clients older than everything else), reclamation degrades to a
+        // no-op rather than freeing an unverified PTY.
+        foregroundVerificationCandidates.sort { lhs, rhs in
+            lhs.lastActivityAt < rhs.lastActivityAt
+        }
+        let verificationBudget = SurfaceHibernationPlanner.maxForegroundVerificationsPerEvaluation
+        for (offset, candidate) in foregroundVerificationCandidates.enumerated() {
+            if offset < verificationBudget {
+                if !records[candidate.recordIndex].terminalPanel.surface.foregroundProcessAllowsShellRestart() {
+                    records[candidate.recordIndex].isBusy = true
+                }
+            } else {
+                records[candidate.recordIndex].isBusy = true
+            }
         }
 
         return records

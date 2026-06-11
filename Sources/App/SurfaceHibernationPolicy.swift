@@ -168,6 +168,14 @@ enum SurfaceHibernationPlanner {
     /// batch. Successive 30s ticks converge on the target.
     static let maxSelectionsPerEvaluation = 4
 
+    /// Per-tick cap on foreground-process verifications (child scan + argv
+    /// read syscalls) in the record builder. Verification runs oldest-first —
+    /// the planner's eviction order — so the bound caps main-actor syscall
+    /// fan-out at any panel count while still covering several times more
+    /// candidates than one evaluation can drain, leaving headroom for
+    /// verified-busy panels at the LRU front.
+    static let maxForegroundVerificationsPerEvaluation = maxSelectionsPerEvaluation * 8
+
     /// Surfaces whose workspace has been unmounted — and which have been quiet
     /// — for at least `unmountedIdleSeconds`, regardless of cap pressure.
     /// Oldest first, bounded per evaluation.
