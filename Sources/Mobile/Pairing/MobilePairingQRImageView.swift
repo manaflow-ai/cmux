@@ -12,6 +12,11 @@ struct MobilePairingQRImageView: View {
     let payload: String
     /// The rendered side length, in points.
     let dimension: CGFloat
+    /// The backing-store scale of the hosting screen. The bitmap is generated
+    /// at device pixels (`dimension * displayScale`) so a Retina screen shows
+    /// the generator's output directly instead of a 2x nearest-neighbor
+    /// upscale of a point-sized bitmap.
+    @Environment(\.displayScale) private var displayScale
 
     var body: some View {
         Group {
@@ -58,8 +63,11 @@ struct MobilePairingQRImageView: View {
         guard let output = filter.outputImage, output.extent.width > 0 else {
             return nil
         }
-        let scale = dimension / output.extent.width
-        let scaled = output.transformed(by: CGAffineTransform(scaleX: scale, y: scale))
+        // samplingNearest keeps module edges hard through the scale below;
+        // Core Image's default linear sampling would feather them.
+        let scale = dimension * max(1, displayScale) / output.extent.width
+        let scaled = output.samplingNearest()
+            .transformed(by: CGAffineTransform(scaleX: scale, y: scale))
         let context = CIContext()
         guard let cgImage = context.createCGImage(scaled, from: scaled.extent) else {
             return nil

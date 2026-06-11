@@ -75,6 +75,16 @@ public final class QRCodeCaptureController: UIViewController {
         }
         captureSession.addInput(videoInput)
 
+        // Pairing codes are scanned off a Mac screen at arm's length, so
+        // restrict autofocus to the near range: the lens stops hunting
+        // through far focus and locks onto the code sooner. Best-effort;
+        // scanning still works without the restriction.
+        if videoDevice.isAutoFocusRangeRestrictionSupported,
+           (try? videoDevice.lockForConfiguration()) != nil {
+            videoDevice.autoFocusRangeRestriction = .near
+            videoDevice.unlockForConfiguration()
+        }
+
         let metadataOutput = AVCaptureMetadataOutput()
         guard captureSession.canAddOutput(metadataOutput) else {
             showUnavailable()

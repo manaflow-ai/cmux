@@ -216,7 +216,10 @@ struct MobilePairingView: View {
     @ViewBuilder
     private func readyContent(_ ready: MobilePairingModel.Ready) -> some View {
         VStack(alignment: .center, spacing: 14) {
-            MobilePairingQRImageView(payload: ready.attachURL, dimension: 220)
+            // Sized to nearly fill the window's 412pt content width: a larger
+            // physical code means larger modules on screen, so the phone can
+            // lock on from farther away and faster.
+            MobilePairingQRImageView(payload: ready.attachURL, dimension: 340)
                 .padding(12)
                 .background(.white, in: RoundedRectangle(cornerRadius: 16))
                 .overlay(

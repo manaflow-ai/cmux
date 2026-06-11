@@ -41,7 +41,7 @@ final class MobilePairingWindowController {
         window.identifier = NSUserInterfaceItemIdentifier(Self.windowIdentifier)
         window.styleMask = [.titled, .closable, .miniaturizable]
         window.isReleasedWhenClosed = false
-        window.setContentSize(NSSize(width: 460, height: 640))
+        window.setContentSize(NSSize(width: 460, height: 760))
         window.center()
         self.window = window
         window.makeKeyAndOrderFront(nil)
