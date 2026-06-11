@@ -58,6 +58,8 @@ struct SidebarWorkspaceGroupHeaderView: View, Equatable {
     let onToggleCollapsed: () -> Void
     let onFocusAnchor: () -> Void
     let onTapPlus: () -> Void
+    let onNewWorkspaceAbove: () -> Void
+    let onNewWorkspaceBelow: () -> Void
     let onRunResolvedItem: (CmuxResolvedConfigMenuAction) -> Void
     let onRename: () -> Void
     let onTogglePinned: () -> Void
@@ -241,6 +243,21 @@ struct SidebarWorkspaceGroupHeaderView: View, Equatable {
             isHovered = hovering
         }
         .contextMenu {
+            Button(
+                String(
+                    localized: "contextMenu.newWorkspaceAbove",
+                    defaultValue: "New Workspace Above"
+                ),
+                action: onNewWorkspaceAbove
+            )
+            Button(
+                String(
+                    localized: "contextMenu.newWorkspaceBelow",
+                    defaultValue: "New Workspace Below"
+                ),
+                action: onNewWorkspaceBelow
+            )
+            Divider()
             Button(
                 String(
                     localized: "workspaceGroup.contextMenu.rename",

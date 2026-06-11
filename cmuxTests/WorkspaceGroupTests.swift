@@ -8,7 +8,7 @@ import Testing
 #endif
 
 @MainActor
-@Suite("Workspace group model")
+@Suite("Workspace group model", .serialized)
 struct WorkspaceGroupTests {
 
     private func makeTabManager() -> TabManager {
@@ -633,6 +633,127 @@ struct WorkspaceGroupTests {
             inserted.id,
             originalIds[1],
             originalIds[2],
+        ])
+    }
+
+    @Test func createWorkspaceAdjacentPlacesUngroupedWorkspaceAboveAndBelowReference() throws {
+        let manager = makeTabManager()
+        manager.addWorkspace(autoWelcomeIfNeeded: false)
+        let originalIds = manager.tabs.map(\.id)
+
+        let insertedAbove = try #require(manager.createWorkspaceAdjacent(
+            to: originalIds[1],
+            position: .above,
+            select: false
+        ))
+
+        #expect(manager.tabs.map(\.id) == [
+            originalIds[0],
+            insertedAbove.id,
+            originalIds[1],
+            originalIds[2],
+            originalIds[3],
+        ])
+
+        let insertedBelow = try #require(manager.createWorkspaceAdjacent(
+            to: originalIds[2],
+            position: .below,
+            select: false
+        ))
+
+        #expect(manager.tabs.map(\.id) == [
+            originalIds[0],
+            insertedAbove.id,
+            originalIds[1],
+            originalIds[2],
+            insertedBelow.id,
+            originalIds[3],
+        ])
+    }
+
+    @Test func createWorkspaceAdjacentPlacesGroupedMemberAboveAndBelowReferenceInsideGroup() throws {
+        let manager = makeTabManager()
+        manager.addWorkspace(autoWelcomeIfNeeded: false)
+        let originalIds = manager.tabs.map(\.id)
+
+        let groupId = try #require(manager.createWorkspaceGroup(name: "G", childWorkspaceIds: [
+            originalIds[1],
+            originalIds[2],
+        ]))
+        let group = try #require(manager.workspaceGroups.first { $0.id == groupId })
+
+        let insertedAbove = try #require(manager.createWorkspaceAdjacent(
+            to: originalIds[2],
+            position: .above,
+            select: false
+        ))
+
+        #expect(insertedAbove.groupId == groupId)
+        #expect(manager.tabs.filter { $0.groupId == groupId }.map(\.id) == [
+            group.anchorWorkspaceId,
+            originalIds[1],
+            insertedAbove.id,
+            originalIds[2],
+        ])
+
+        let insertedBelow = try #require(manager.createWorkspaceAdjacent(
+            to: originalIds[1],
+            position: .below,
+            select: false
+        ))
+
+        #expect(insertedBelow.groupId == groupId)
+        #expect(manager.tabs.filter { $0.groupId == groupId }.map(\.id) == [
+            group.anchorWorkspaceId,
+            originalIds[1],
+            insertedBelow.id,
+            insertedAbove.id,
+            originalIds[2],
+        ])
+    }
+
+    @Test func createWorkspaceAdjacentToGroupHeaderPlacesOutsideWholeGroup() throws {
+        let manager = makeTabManager()
+        manager.addWorkspace(autoWelcomeIfNeeded: false)
+        let originalIds = manager.tabs.map(\.id)
+
+        let groupId = try #require(manager.createWorkspaceGroup(name: "G", childWorkspaceIds: [
+            originalIds[1],
+            originalIds[2],
+        ]))
+        let group = try #require(manager.workspaceGroups.first { $0.id == groupId })
+
+        let insertedAbove = try #require(manager.createWorkspaceAdjacent(
+            to: group.anchorWorkspaceId,
+            position: .above,
+            select: false
+        ))
+
+        #expect(insertedAbove.groupId == nil)
+        #expect(manager.tabs.map(\.id) == [
+            originalIds[0],
+            insertedAbove.id,
+            group.anchorWorkspaceId,
+            originalIds[1],
+            originalIds[2],
+            originalIds[3],
+        ])
+
+        let insertedBelow = try #require(manager.createWorkspaceAdjacent(
+            to: group.anchorWorkspaceId,
+            position: .below,
+            select: false
+        ))
+
+        #expect(insertedBelow.groupId == nil)
+        #expect(manager.tabs.map(\.id) == [
+            originalIds[0],
+            insertedAbove.id,
+            group.anchorWorkspaceId,
+            originalIds[1],
+            originalIds[2],
+            insertedBelow.id,
+            originalIds[3],
         ])
     }
 
