@@ -420,6 +420,8 @@ jobs:
           PACKAGES=(
             CMUXAuthCore
             CmuxCore
+            CmuxRemoteDaemon
+            CmuxRemoteWorkspace
             CmuxAuthRuntime
             CmuxControlSocket
             CmuxFileWatch

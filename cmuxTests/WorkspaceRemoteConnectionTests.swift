@@ -1,5 +1,7 @@
 import XCTest
 import CmuxCore
+import CmuxRemoteDaemon
+import CmuxRemoteWorkspace
 
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
@@ -909,7 +911,7 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
     }
 
     func testRemoteDaemonCapabilityErrorsUseUserFacingMessage() {
-        let message = remoteDaemonMissingRequiredCapabilitiesMessage([
+        let message = RemoteDaemonStrings.appLocalized.missingRequiredCapabilitiesMessage([
             "pty.session",
             "pty.session.token",
         ])
@@ -920,7 +922,7 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
         )
         XCTAssertFalse(message.contains("pty.session"))
 
-        let notificationMessage = remoteDaemonMissingRequiredCapabilitiesMessage([
+        let notificationMessage = RemoteDaemonStrings.appLocalized.missingRequiredCapabilitiesMessage([
             "pty.write.notification",
         ])
         XCTAssertEqual(notificationMessage, message)
@@ -3247,7 +3249,7 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
         let requireExisting: Bool
     }
 
-    private final class ImmediateExitPTYBridgeRPC: WorkspaceRemotePTYBridgeRPCClient {
+    private final class ImmediateExitPTYBridgeRPC: RemotePTYBridgeRPCClient, @unchecked Sendable {
         private let lock = NSLock()
         private var recordedAttachCalls: [PTYAttachCall] = []
 
@@ -3265,8 +3267,8 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
             command: String?,
             requireExisting: Bool,
             queue: DispatchQueue,
-            onEvent: @escaping (WorkspaceRemotePTYBridgeEvent) -> Void
-        ) throws -> WorkspaceRemotePTYBridgeAttachment {
+            onEvent: @escaping (RemotePTYBridgeEvent) -> Void
+        ) throws -> RemotePTYBridgeAttachment {
             lock.lock()
             recordedAttachCalls.append(PTYAttachCall(
                 sessionID: sessionID,
@@ -3278,7 +3280,7 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
             queue.async {
                 onEvent(.exit)
             }
-            return WorkspaceRemotePTYBridgeAttachment(attachmentID: attachmentID, token: "immediate-token")
+            return RemotePTYBridgeAttachment(attachmentID: attachmentID, token: "immediate-token")
         }
 
         func writePTY(
@@ -3293,7 +3295,7 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
         func detachPTY(sessionID: String, attachmentID: String, attachmentToken: String) {}
     }
 
-    private final class ImmediateOutputThenExitPTYBridgeRPC: WorkspaceRemotePTYBridgeRPCClient {
+    private final class ImmediateOutputThenExitPTYBridgeRPC: RemotePTYBridgeRPCClient, @unchecked Sendable {
         func attachBridgePTY(
             sessionID: String,
             attachmentID: String,
@@ -3302,13 +3304,13 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
             command: String?,
             requireExisting: Bool,
             queue: DispatchQueue,
-            onEvent: @escaping (WorkspaceRemotePTYBridgeEvent) -> Void
-        ) throws -> WorkspaceRemotePTYBridgeAttachment {
+            onEvent: @escaping (RemotePTYBridgeEvent) -> Void
+        ) throws -> RemotePTYBridgeAttachment {
             queue.async {
                 onEvent(.data(Data("early-output".utf8)))
                 onEvent(.exit)
             }
-            return WorkspaceRemotePTYBridgeAttachment(attachmentID: attachmentID, token: "immediate-output-token")
+            return RemotePTYBridgeAttachment(attachmentID: attachmentID, token: "immediate-output-token")
         }
 
         func writePTY(
@@ -3323,7 +3325,7 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
         func detachPTY(sessionID: String, attachmentID: String, attachmentToken: String) {}
     }
 
-    private final class FloodPTYBridgeRPC: WorkspaceRemotePTYBridgeRPCClient {
+    private final class FloodPTYBridgeRPC: RemotePTYBridgeRPCClient, @unchecked Sendable {
         let detachSemaphore = DispatchSemaphore(value: 0)
 
         func attachBridgePTY(
@@ -3334,15 +3336,15 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
             command: String?,
             requireExisting: Bool,
             queue: DispatchQueue,
-            onEvent: @escaping (WorkspaceRemotePTYBridgeEvent) -> Void
-        ) throws -> WorkspaceRemotePTYBridgeAttachment {
+            onEvent: @escaping (RemotePTYBridgeEvent) -> Void
+        ) throws -> RemotePTYBridgeAttachment {
             queue.async {
                 let chunk = Data(repeating: 0x78, count: 64 * 1024)
                 for _ in 0..<512 {
                     onEvent(.data(chunk))
                 }
             }
-            return WorkspaceRemotePTYBridgeAttachment(attachmentID: attachmentID, token: "flood-token")
+            return RemotePTYBridgeAttachment(attachmentID: attachmentID, token: "flood-token")
         }
 
         func writePTY(
@@ -3360,14 +3362,14 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
         }
     }
 
-    private final class DelayedOutputPTYBridgeRPC: WorkspaceRemotePTYBridgeRPCClient {
+    private final class DelayedOutputPTYBridgeRPC: RemotePTYBridgeRPCClient, @unchecked Sendable {
         let detachSemaphore = DispatchSemaphore(value: 0)
 
         private let attachStarted: DispatchSemaphore?
         private let attachGate: DispatchSemaphore?
         private let lock = NSLock()
         private var queue: DispatchQueue?
-        private var onEvent: ((WorkspaceRemotePTYBridgeEvent) -> Void)?
+        private var onEvent: ((RemotePTYBridgeEvent) -> Void)?
         private var didEmit = false
 
         init(attachStarted: DispatchSemaphore? = nil, attachGate: DispatchSemaphore? = nil) {
@@ -3383,8 +3385,8 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
             command: String?,
             requireExisting: Bool,
             queue: DispatchQueue,
-            onEvent: @escaping (WorkspaceRemotePTYBridgeEvent) -> Void
-        ) throws -> WorkspaceRemotePTYBridgeAttachment {
+            onEvent: @escaping (RemotePTYBridgeEvent) -> Void
+        ) throws -> RemotePTYBridgeAttachment {
             attachStarted?.signal()
             if let attachGate {
                 _ = attachGate.wait(timeout: .now() + 2)
@@ -3393,7 +3395,7 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
             self.queue = queue
             self.onEvent = onEvent
             lock.unlock()
-            return WorkspaceRemotePTYBridgeAttachment(attachmentID: attachmentID, token: "delayed-token")
+            return RemotePTYBridgeAttachment(attachmentID: attachmentID, token: "delayed-token")
         }
 
         func writePTY(
@@ -3409,7 +3411,7 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
             }
 
             let emitQueue: DispatchQueue?
-            let emitEvent: ((WorkspaceRemotePTYBridgeEvent) -> Void)?
+            let emitEvent: ((RemotePTYBridgeEvent) -> Void)?
             lock.lock()
             if didEmit {
                 emitQueue = nil
@@ -3433,7 +3435,7 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
         }
     }
 
-    private final class DeferredWriteCompletionPTYBridgeRPC: WorkspaceRemotePTYBridgeRPCClient {
+    private final class DeferredWriteCompletionPTYBridgeRPC: RemotePTYBridgeRPCClient, @unchecked Sendable {
         private let lock = NSLock()
         private var completions: [(Error?) -> Void] = []
 
@@ -3448,9 +3450,9 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
             command: String?,
             requireExisting: Bool,
             queue: DispatchQueue,
-            onEvent: @escaping (WorkspaceRemotePTYBridgeEvent) -> Void
-        ) throws -> WorkspaceRemotePTYBridgeAttachment {
-            return WorkspaceRemotePTYBridgeAttachment(attachmentID: attachmentID, token: "deferred-token")
+            onEvent: @escaping (RemotePTYBridgeEvent) -> Void
+        ) throws -> RemotePTYBridgeAttachment {
+            return RemotePTYBridgeAttachment(attachmentID: attachmentID, token: "deferred-token")
         }
 
         func writePTY(
@@ -5292,12 +5294,13 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
     func testPTYBridgeFlushesReadyBeforeImmediateExit() throws {
         let rpcClient = ImmediateExitPTYBridgeRPC()
         let stopped = DispatchSemaphore(value: 0)
-        let server = WorkspaceRemotePTYBridgeServer(
+        let server = RemotePTYBridgeServer(
             rpcClient: rpcClient,
             sessionID: "session-short-lived",
             attachmentID: "attachment-short-lived",
             command: "printf done",
-            requireExisting: true
+            requireExisting: true,
+            strings: AppRemotePTYBridgeStrings()
         ) {
             stopped.signal()
         }
@@ -5338,12 +5341,13 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
     func testPTYBridgeBuffersOutputUntilReadyFrame() throws {
         let rpcClient = ImmediateOutputThenExitPTYBridgeRPC()
         let stopped = DispatchSemaphore(value: 0)
-        let server = WorkspaceRemotePTYBridgeServer(
+        let server = RemotePTYBridgeServer(
             rpcClient: rpcClient,
             sessionID: "session-early-output",
             attachmentID: "attachment-early-output",
             command: nil,
-            requireExisting: true
+            requireExisting: true,
+            strings: AppRemotePTYBridgeStrings()
         ) {
             stopped.signal()
         }
@@ -5378,12 +5382,13 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
 
     func testPTYBridgeForwardsInputWithoutWaitingForWriteCompletion() throws {
         let rpcClient = DeferredWriteCompletionPTYBridgeRPC()
-        let server = WorkspaceRemotePTYBridgeServer(
+        let server = RemotePTYBridgeServer(
             rpcClient: rpcClient,
             sessionID: "session-input-completion",
             attachmentID: "attachment-input-completion",
             command: nil,
-            requireExisting: false
+            requireExisting: false,
+            strings: AppRemotePTYBridgeStrings()
         ) {}
         let endpoint = try server.start()
         let fd = try connectLoopbackTCP(port: endpoint.port)
@@ -5420,12 +5425,13 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
     func testPTYBridgeStopRetainsServerUntilCleanupRuns() throws {
         let rpcClient = ImmediateExitPTYBridgeRPC()
         let stopped = DispatchSemaphore(value: 0)
-        var server: WorkspaceRemotePTYBridgeServer? = WorkspaceRemotePTYBridgeServer(
+        var server: RemotePTYBridgeServer? = RemotePTYBridgeServer(
             rpcClient: rpcClient,
             sessionID: "session-stop-retain",
             attachmentID: "attachment-stop-retain",
             command: nil,
-            requireExisting: false
+            requireExisting: false,
+            strings: AppRemotePTYBridgeStrings()
         ) {
             stopped.signal()
         }
@@ -5443,12 +5449,13 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
     func testPTYBridgeKeepsOutputOpenAfterClientHalfClose() throws {
         let rpcClient = DelayedOutputPTYBridgeRPC()
         let stopped = DispatchSemaphore(value: 0)
-        let server = WorkspaceRemotePTYBridgeServer(
+        let server = RemotePTYBridgeServer(
             rpcClient: rpcClient,
             sessionID: "session-half-close",
             attachmentID: "attachment-half-close",
             command: nil,
-            requireExisting: false
+            requireExisting: false,
+            strings: AppRemotePTYBridgeStrings()
         ) {
             stopped.signal()
         }
@@ -5481,12 +5488,13 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
     func testPTYBridgeKeepsOutputOpenAfterClientHalfCloseWithoutPID() throws {
         let rpcClient = DelayedOutputPTYBridgeRPC()
         let stopped = DispatchSemaphore(value: 0)
-        let server = WorkspaceRemotePTYBridgeServer(
+        let server = RemotePTYBridgeServer(
             rpcClient: rpcClient,
             sessionID: "session-half-close-no-pid",
             attachmentID: "attachment-half-close-no-pid",
             command: nil,
-            requireExisting: false
+            requireExisting: false,
+            strings: AppRemotePTYBridgeStrings()
         ) {
             stopped.signal()
         }
@@ -5521,12 +5529,13 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
         let attachGate = DispatchSemaphore(value: 0)
         let rpcClient = DelayedOutputPTYBridgeRPC(attachStarted: attachStarted, attachGate: attachGate)
         let stopped = DispatchSemaphore(value: 0)
-        let server = WorkspaceRemotePTYBridgeServer(
+        let server = RemotePTYBridgeServer(
             rpcClient: rpcClient,
             sessionID: "session-half-close-before-attach",
             attachmentID: "attachment-half-close-before-attach",
             command: nil,
-            requireExisting: false
+            requireExisting: false,
+            strings: AppRemotePTYBridgeStrings()
         ) {
             stopped.signal()
         }
@@ -5563,12 +5572,13 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
     func testPTYBridgeDetachesWhenClientSocketClosesAfterAttach() throws {
         let rpcClient = DelayedOutputPTYBridgeRPC()
         let stopped = DispatchSemaphore(value: 0)
-        let server = WorkspaceRemotePTYBridgeServer(
+        let server = RemotePTYBridgeServer(
             rpcClient: rpcClient,
             sessionID: "session-client-close",
             attachmentID: "attachment-client-close",
             command: nil,
-            requireExisting: false
+            requireExisting: false,
+            strings: AppRemotePTYBridgeStrings()
         ) {
             stopped.signal()
         }
@@ -5600,12 +5610,13 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
     func testPTYBridgeClosesBackpressuredOutput() throws {
         let rpcClient = FloodPTYBridgeRPC()
         let stopped = DispatchSemaphore(value: 0)
-        let server = WorkspaceRemotePTYBridgeServer(
+        let server = RemotePTYBridgeServer(
             rpcClient: rpcClient,
             sessionID: "session-output-flood",
             attachmentID: "attachment-output-flood",
             command: nil,
-            requireExisting: false
+            requireExisting: false,
+            strings: AppRemotePTYBridgeStrings()
         ) {
             stopped.signal()
         }

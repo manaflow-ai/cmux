@@ -7,8 +7,10 @@ public import Foundation
 /// `onEvent` and `completion` are invoked on the queue the caller supplies
 /// (attach) or the client's internal queue (write); they are deliberately not
 /// `@Sendable`-annotated so conformers and callers keep the legacy
-/// queue-confinement contract unchanged.
-public protocol RemotePTYBridgeRPCClient: AnyObject {
+/// queue-confinement contract unchanged. The protocol itself is `Sendable`
+/// because clients cross queue boundaries by contract (the bridge server
+/// calls it from its own rpc queue).
+public protocol RemotePTYBridgeRPCClient: AnyObject, Sendable {
     /// Attaches to (or creates) a remote PTY session and starts streaming
     /// events to `onEvent` on `queue`. Throws when the attach handshake fails.
     func attachBridgePTY(

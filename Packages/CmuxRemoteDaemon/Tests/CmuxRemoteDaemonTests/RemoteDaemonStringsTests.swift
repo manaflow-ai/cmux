@@ -1,5 +1,5 @@
 import Testing
-@testable import CmuxRemoteDaemonCore
+@testable import CmuxRemoteDaemon
 
 @Suite("RemoteDaemonCapability wire strings")
 struct RemoteDaemonCapabilityTests {
