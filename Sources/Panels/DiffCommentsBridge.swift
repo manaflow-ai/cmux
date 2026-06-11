@@ -53,8 +53,10 @@ final class DiffCommentsBridge: NSObject, WKScriptMessageHandlerWithReply {
 
     private let store: DiffCommentStore
 
-    init(store: DiffCommentStore = .shared) {
-        self.store = store
+    init(store: DiffCommentStore? = nil) {
+        // Default resolved in the MainActor body: a `.shared` default argument
+        // would evaluate in the caller's nonisolated context and warn.
+        self.store = store ?? DiffCommentStore.shared
     }
 
     /// Adds the reply handler to a user content controller exactly once.
