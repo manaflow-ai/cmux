@@ -2,7 +2,7 @@
 /// pathological or malicious authored source degrades to a truncated render
 /// instead of overflowing the stack and crashing the host.
 ///
-/// One instance is created at the root ``Environment`` and shared with every
+/// One instance is created at the root ``EvalEnvironment`` and shared with every
 /// child scope. Recursive evaluation entry points call ``enter()`` on the way
 /// in (always paired with ``leave()`` via `defer`) and bail when ``exceeded``.
 final class RecursionBudget {

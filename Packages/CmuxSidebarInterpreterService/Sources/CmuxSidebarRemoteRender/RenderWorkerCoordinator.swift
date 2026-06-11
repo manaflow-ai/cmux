@@ -181,10 +181,11 @@ final class RenderWorkerCoordinator {
         // Republish the root view so SwiftUI re-evaluates the tree at the new
         // size inside THIS pump. Resizing the hosting view alone only marks
         // AppKit layout dirty; SwiftUI's own render update would otherwise
-        // wait for work no display cycle ever runs in the never-ordered
-        // window, leaving the repaint to the host's next 1 s scene tick.
-        // Reuses the cached interpretation (`swiftRender`); no re-interpret.
-        hosting.rootView = currentContent()
+        // wait for a display cycle the never-ordered window never runs,
+        // leaving the repaint to the host's next 1 s scene tick. Reuses the
+        // cached interpretation and the displayed (possibly last-good) state;
+        // nothing is re-interpreted here.
+        hosting.rootView = currentContent(state: displayedState)
         debugLog("geometry applied \(Int(geometry.width))x\(Int(geometry.height))@\(geometry.scale) rootView republished")
         pump(reason: "geometry")
     }
