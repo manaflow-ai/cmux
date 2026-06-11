@@ -11,7 +11,7 @@ extension UIView {
     /// searched to find a nested first responder (e.g. a `UITextField` deep inside a
     /// hosting controller's view). This drives the composer's open/close-vs-refocus
     /// decision on the terminal surface, so unlike the DEBUG-only
-    /// ``CurrentResponderProbe`` it must be available in release and must not depend on
+    /// ``currentFirstResponderForDiagnostics()`` it must be available in release and must not depend on
     /// a `sendAction(to: nil)` round-trip.
     ///
     /// The walk is depth-first and short-circuits on the first match. It runs on the

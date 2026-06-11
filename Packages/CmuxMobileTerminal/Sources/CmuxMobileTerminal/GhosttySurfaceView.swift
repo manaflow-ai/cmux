@@ -81,7 +81,9 @@ public extension GhosttySurfaceViewDelegate {
     func ghosttySurfaceView(_ surfaceView: GhosttySurfaceView, didTapAtCol col: Int, row: Int) {}
     func ghosttySurfaceViewDidRequestToolbarSettings(_ surfaceView: GhosttySurfaceView) {}
     func ghosttySurfaceView(_ surfaceView: GhosttySurfaceView, didPasteImage data: Data, format: String) {}
+    /// Default no-op so hosts without a composer can ignore the toggle request.
     func ghosttySurfaceViewDidRequestComposerToggle(_ surfaceView: GhosttySurfaceView) {}
+    /// Default no-op so hosts without a composer can ignore the focus request.
     func ghosttySurfaceViewDidRequestComposerFocus(_ surfaceView: GhosttySurfaceView) {}
 }
 
@@ -284,8 +286,10 @@ public enum TerminalInputAccessoryAction: Int, CaseIterable, Sendable {
     /// path. Unlike the other actions it carries no fixed byte ``output``; the
     /// host reads the pasteboard when it is tapped.
     case paste
-    // Appended at the end so existing persisted raw values (user accessory bar
-    // order/enabled set) are preserved.
+    /// Toggle the iMessage-style composer band above the terminal.
+    ///
+    /// Appended at the end so existing persisted raw values (user accessory bar
+    /// order/enabled set) are preserved.
     case composer
     var title: String {
         title(isMacRemote: false)
@@ -762,7 +766,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     /// ``ComposerDockProbeView`` on every accessibility query. `fieldFocused` is the
     /// SAME ``composerFieldIsFirstResponder`` walk the reducer reads, so the probe and
     /// the real decision can never disagree.
-    fileprivate var composerDockProbeValue: String {
+    var composerDockProbeValue: String {
         let intent: String
         switch lastComposerDockIntent {
         case .openComposer: intent = "open"
@@ -957,7 +961,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
             // dismisses the composer here (the composer survives a keyboard-down), so
             // this is now purely diagnostic.
             if self.composerActive {
-                let frOwner = TerminalInputTextView.responderIdentity(of: CurrentResponderProbe.current())
+                let frOwner = TerminalInputTextView.responderIdentity(of: currentFirstResponderForDiagnostics())
                 self.diagnosticLog?.record(DiagnosticEvent(
                     .composerKeyboardToggleWhilePresented,
                     ms: UInt32(max(0, self.keyboardHeight)),
@@ -1232,7 +1236,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         // is complete no matter how the keyboard went down. Pure diagnostics; the hide
         // behavior below is unchanged.
         if composerActive {
-            let frOwner = TerminalInputTextView.responderIdentity(of: CurrentResponderProbe.current())
+            let frOwner = TerminalInputTextView.responderIdentity(of: currentFirstResponderForDiagnostics())
             MobileDebugLog.anchormux(
                 "composer.keyboardHideWhilePresented prevKeyboardHeight=\(Int(keyboardHeight)) frOwner=\(frOwner.rawValue) proxyIsFR=\(inputProxy.isFirstResponder ? 1 : 0)"
             )
@@ -1495,7 +1499,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         // same sink the round-4 composer flag/appear/focus events use. With these,
         // a captured trace shows whether the composer ever ends up active with the
         // FR owned by no terminal/composer responder and keyboardHeight 0.
-        let frOwner = TerminalInputTextView.responderIdentity(of: CurrentResponderProbe.current())
+        let frOwner = TerminalInputTextView.responderIdentity(of: currentFirstResponderForDiagnostics())
         diagnosticLog?.record(DiagnosticEvent(
             .composerActiveTransition,
             ms: UInt32(max(0, keyboardHeight)),
@@ -2073,13 +2077,16 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         syncSurfaceVisibility()
     }
 
+    /// Re-seats the bottom dock and grid reservation when the safe-area inset
+    /// changes.
+    ///
+    /// The always-visible toolbar rides the bottom safe area while the keyboard
+    /// is down (Round 8). The inset can arrive after the first layout (it is 0
+    /// before window attach), so re-seat the dock and re-reserve the grid when it
+    /// changes; otherwise the toolbar would sit on the home indicator until the
+    /// next unrelated relayout.
     public override func safeAreaInsetsDidChange() {
         super.safeAreaInsetsDidChange()
-        // The always-visible toolbar rides the bottom safe area while the keyboard
-        // is down (Round 8). The inset can arrive after the first layout (it is 0
-        // before window attach), so re-seat the dock and re-reserve the grid when it
-        // changes; otherwise the toolbar would sit on the home indicator until the
-        // next unrelated relayout.
         layoutBottomDock()
         setNeedsGeometrySync()
     }
@@ -3643,21 +3650,5 @@ final class TerminalArrowNubView: UIView {
     }
 }
 
-#if DEBUG
-/// Off-screen accessibility carrier that reports ``GhosttySurfaceView``'s live
-/// bottom-dock state to UI tests. Computes ``accessibilityValue`` on every read
-/// (delegating to ``GhosttySurfaceView/composerDockProbeValue``) so an XCUITest
-/// predicate-wait converges on the SETTLED post-transition state even though
-/// `fieldFocused`/`proxyFirstResponder` flip a runloop after the synchronous
-/// transition. DEBUG-only; never compiled into a shipping build.
-final class ComposerDockProbeView: UIView {
-    weak var surface: GhosttySurfaceView?
-
-    override var accessibilityValue: String? {
-        get { surface?.composerDockProbeValue }
-        set { /* read-only live probe; ignore writes */ }
-    }
-}
-#endif
 
 #endif

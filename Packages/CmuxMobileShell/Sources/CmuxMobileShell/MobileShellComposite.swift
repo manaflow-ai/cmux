@@ -189,6 +189,12 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// route falls back to email rather than failing with `method_not_found`
     /// under client/server version skew.
     public private(set) var supportsDogfoodFeedback: Bool = false
+    /// The composer's live draft for the currently selected terminal.
+    ///
+    /// Edits are persisted per-terminal through the FIFO draft pipeline on every
+    /// change (see `didSet`), so the draft survives terminal switches; loads set
+    /// `isLoadingDraft` so the restore is not re-saved under the wrong terminal
+    /// key.
     public var terminalInputText: String {
         didSet {
             #if DEBUG
@@ -275,6 +281,11 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             syncSelectedTerminalForWorkspace()
         }
     }
+    /// The terminal whose surface (and composer draft) is currently shown.
+    ///
+    /// Changing it swaps the composer draft: `willSet` captures the outgoing
+    /// terminal's draft before the id lands, `didSet` persists it under the old
+    /// key and loads the incoming terminal's saved draft.
     public var selectedTerminalID: MobileTerminalPreview.ID? {
         willSet {
             // Capture the draft of the terminal we are leaving BEFORE the new id

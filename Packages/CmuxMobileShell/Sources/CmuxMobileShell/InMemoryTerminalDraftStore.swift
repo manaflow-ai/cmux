@@ -18,10 +18,13 @@ public actor InMemoryTerminalDraftStore: TerminalDraftStoring {
     /// Creates an empty store.
     public init() {}
 
+    /// Returns the saved draft for `terminalID`, or `nil` when none is stored.
     public func draft(forTerminalID terminalID: String) async -> String? {
         drafts[terminalID]
     }
 
+    /// Saves `draft` under `terminalID`. A whitespace-only draft deletes the
+    /// entry instead, so abandoned blank edits never resurface on a switch back.
     public func saveDraft(_ draft: String, forTerminalID terminalID: String) async {
         if draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             drafts[terminalID] = nil
@@ -30,10 +33,12 @@ public actor InMemoryTerminalDraftStore: TerminalDraftStoring {
         }
     }
 
+    /// Removes the draft stored under `terminalID` (after a successful send).
     public func clearDraft(forTerminalID terminalID: String) async {
         drafts[terminalID] = nil
     }
 
+    /// Removes every stored draft (the sign-out wipe).
     public func clearAllDrafts() async {
         drafts.removeAll()
     }
