@@ -253,7 +253,11 @@ extension TerminalController: ControlSystemContext {
                 if let targetWindow {
                     _ = AppDelegate.shared?.focusWindowForAppActivation(targetWindow, reason: .feedback)
                 } else {
-                    NSRunningApplication.current.activate(options: [.activateAllWindows, .activateIgnoringOtherApps])
+                    // The legacy body also passed .activateIgnoringOtherApps; the
+                    // option is deprecated and documented as a no-op on macOS 14+
+                    // (this target's minimum), so dropping it is behavior-neutral
+                    // and keeps this file deprecation-warning-free.
+                    NSRunningApplication.current.activate(options: [.activateAllWindows])
                 }
             }
 
@@ -268,7 +272,8 @@ extension TerminalController: ControlSystemContext {
             return nil
         }
 
-        let sequence = max(0, CmuxEventBus.shared.latestSequence)
+        // Int64 → Int is lossless on 64-bit macOS.
+        let sequence = Int(max(0, CmuxEventBus.shared.latestSequence))
         let selectedWorkspaceId = tabManager.selectedTabId
         let workspaces = tabManager.tabs.enumerated().map { index, workspace in
             extensionSidebarWorkspaceRow(

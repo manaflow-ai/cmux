@@ -1,3 +1,4 @@
+import CmuxControlSocket
 import Foundation
 
 /// Shared resolution/scheduling twins for the `ControlSidebarContext`

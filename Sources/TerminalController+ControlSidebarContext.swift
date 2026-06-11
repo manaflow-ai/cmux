@@ -1,3 +1,4 @@
+import CmuxControlSocket
 import Foundation
 
 /// The live-app half of the v1 sidebar metadata commands (`set_status` /
