@@ -2,10 +2,11 @@ import AppKit
 import Foundation
 import OSLog
 
-enum PreferredEditorSettings {
-    static let key = "preferredEditorCommand"
+nonisolated private let preferredEditorLogger = Logger(subsystem: "com.cmuxterm.app", category: "PreferredEditor")
 
-    private static let logger = Logger(subsystem: "com.cmuxterm.app", category: "PreferredEditor")
+enum PreferredEditorSettings {
+    /// UserDefaults key backing Settings → App → "Open Files With".
+    static let key = "preferredEditorCommand"
 
     /// Returns the configured editor command, or nil to use system default.
     static func resolvedCommand(defaults: UserDefaults = .standard) -> String? {
@@ -29,7 +30,7 @@ enum PreferredEditorSettings {
             NSWorkspace.shared.open(url)
             return
         }
-        let path = url.path
+        let path = url.path(percentEncoded: false)
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/bin/sh")
         process.arguments = ["-c", "\(command) \(shellQuote(path))"]
@@ -43,14 +44,14 @@ enum PreferredEditorSettings {
             DispatchQueue.global(qos: .userInitiated).async {
                 process.waitUntilExit()
                 if process.terminationStatus != 0 {
-                    logger.error(
-                        "preferred editor command \(command, privacy: .public) exited \(process.terminationStatus, privacy: .public) for \(url.path, privacy: .private); falling back to the OS default handler"
+                    preferredEditorLogger.error(
+                        "preferred editor command \(command, privacy: .public) exited \(process.terminationStatus, privacy: .public) for \(path, privacy: .private); falling back to the OS default handler"
                     )
                     DispatchQueue.main.async { NSWorkspace.shared.open(url) }
                 }
             }
         } catch {
-            logger.error(
+            preferredEditorLogger.error(
                 "failed to launch preferred editor command \(command, privacy: .public): \(error.localizedDescription, privacy: .public); falling back to the OS default handler"
             )
             NSWorkspace.shared.open(url)
@@ -82,6 +83,7 @@ enum PreferredEditorSettings {
         return environment
     }
 
+    /// Wraps a path in single quotes for safe interpolation into `/bin/sh -c`.
     private static func shellQuote(_ s: String) -> String {
         "'" + s.replacingOccurrences(of: "'", with: "'\\''") + "'"
     }
