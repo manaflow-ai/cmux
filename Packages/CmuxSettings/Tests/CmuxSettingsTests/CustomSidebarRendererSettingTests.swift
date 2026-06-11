@@ -4,8 +4,8 @@ import Testing
 
 /// Behavior of the `customSidebars.renderer` setting through the real JSON
 /// store: the on-disk strings users put in `~/.config/cmux/cmux.json` must
-/// decode to the right renderer, and anything else must fall back to the safe
-/// default (the crash-isolated remote worker).
+/// decode to the right renderer, and anything else must fall back to the
+/// default (native in-process rendering).
 @Suite("customSidebars.renderer")
 struct CustomSidebarRendererSettingTests {
     private func makeStore() -> (JSONConfigStore, URL) {
@@ -16,37 +16,37 @@ struct CustomSidebarRendererSettingTests {
         return (JSONConfigStore(fileURL: fileURL), fileURL)
     }
 
-    @Test func defaultsToRemoteWhenUnset() async {
+    @Test func defaultsToInProcessWhenUnset() async {
         let (store, _) = makeStore()
-        let value = await store.value(for: SettingCatalog().customSidebars.renderer)
-        #expect(value == .remote)
-    }
-
-    @Test func readsInProcessFromHandEditedConfigFile() async throws {
-        let (store, fileURL) = makeStore()
-        try #"{ "customSidebars": { "renderer": "inProcess" } }"#
-            .write(to: fileURL, atomically: true, encoding: .utf8)
         let value = await store.value(for: SettingCatalog().customSidebars.renderer)
         #expect(value == .inProcess)
     }
 
-    @Test func unknownRawValueFallsBackToTheSafeDefault() async throws {
+    @Test func readsRemoteFromHandEditedConfigFile() async throws {
+        let (store, fileURL) = makeStore()
+        try #"{ "customSidebars": { "renderer": "remote" } }"#
+            .write(to: fileURL, atomically: true, encoding: .utf8)
+        let value = await store.value(for: SettingCatalog().customSidebars.renderer)
+        #expect(value == .remote)
+    }
+
+    @Test func unknownRawValueFallsBackToTheDefault() async throws {
         let (store, fileURL) = makeStore()
         try #"{ "customSidebars": { "renderer": "yolo" } }"#
             .write(to: fileURL, atomically: true, encoding: .utf8)
         let value = await store.value(for: SettingCatalog().customSidebars.renderer)
-        #expect(value == .remote)
+        #expect(value == .inProcess)
     }
 
     @Test func roundTripsThroughTheStore() async throws {
         let (store, fileURL) = makeStore()
-        try await store.set(.inProcess, for: SettingCatalog().customSidebars.renderer)
+        try await store.set(.remote, for: SettingCatalog().customSidebars.renderer)
         let value = await store.value(for: SettingCatalog().customSidebars.renderer)
-        #expect(value == .inProcess)
+        #expect(value == .remote)
 
         // The on-disk representation is the raw string, hand-editable.
         let parsed = try JSONSerialization.jsonObject(with: Data(contentsOf: fileURL)) as? [String: Any]
         let section = parsed?["customSidebars"] as? [String: Any]
-        #expect(section?["renderer"] as? String == "inProcess")
+        #expect(section?["renderer"] as? String == "remote")
     }
 }
