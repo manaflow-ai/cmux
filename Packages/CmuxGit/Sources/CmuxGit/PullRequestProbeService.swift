@@ -26,6 +26,14 @@ public struct PullRequestProbeService: Sendable {
     /// Runs `gh auth token --hostname <host>` for API auth headers.
     let commandRunner: any CommandRunning
 
+    /// The environment used for token resolution.
+    ///
+    /// Carries `GH_TOKEN`/`GITHUB_TOKEN` (consulted only for `github.com`) and
+    /// the ambient `GH_ENTERPRISE_TOKEN`/`GITHUB_ENTERPRISE_TOKEN`, which are
+    /// rejected for enterprise hosts (see ``authToken(for:)``). Injected so tests
+    /// stay off `ProcessInfo.processInfo.environment`.
+    let environment: [String: String]
+
     /// Debug-log sink for probe diagnostics (the app injects its debug logger
     /// in DEBUG builds; defaults to a no-op).
     let debugLog: @Sendable (String) -> Void
@@ -34,12 +42,16 @@ public struct PullRequestProbeService: Sendable {
     ///
     /// - Parameters:
     ///   - commandRunner: Runs `gh auth token --hostname <host>`; tests pass a fake.
+    ///   - environment: The environment read for tokens; defaults to the process
+    ///     environment.
     ///   - debugLog: Optional diagnostics sink; defaults to a no-op.
     public init(
         commandRunner: any CommandRunning = CommandRunner(),
+        environment: [String: String] = ProcessInfo.processInfo.environment,
         debugLog: @escaping @Sendable (String) -> Void = { _ in }
     ) {
         self.commandRunner = commandRunner
+        self.environment = environment
         self.debugLog = debugLog
     }
 

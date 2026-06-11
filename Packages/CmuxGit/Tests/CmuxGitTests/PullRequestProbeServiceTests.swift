@@ -168,7 +168,7 @@ import CmuxProcess
 
     @Test func enterpriseAuthTokenLookupPassesHostnameToGh() async {
         let recorder = CommandRunnerRecorder(stdout: "ghs_enterprise\n")
-        let service = PullRequestProbeService(commandRunner: recorder)
+        let service = PullRequestProbeService(commandRunner: recorder, environment: [:])
 
         let token = await service.authToken(for: GitHubHost(hostname: "ghe.example.com"))
 
@@ -176,6 +176,35 @@ import CmuxProcess
         #expect(await recorder.invocations.map(\.arguments) == [
             ["auth", "token", "--hostname", "ghe.example.com"],
         ])
+    }
+
+    @Test func authTokenRefusesAmbientEnterpriseTokenForUnverifiedHost() async {
+        // `gh auth token --hostname <anything>` returns GH_ENTERPRISE_TOKEN for
+        // any non-github.com host, so a remote pointing at an attacker host must
+        // not be sent the ambient enterprise credential.
+        let recorder = CommandRunnerRecorder(stdout: "ambient-secret\n")
+        let service = PullRequestProbeService(
+            commandRunner: recorder,
+            environment: ["GH_ENTERPRISE_TOKEN": "ambient-secret"]
+        )
+
+        let token = await service.authToken(for: GitHubHost(hostname: "evil.example.com"))
+
+        #expect(token == nil)
+    }
+
+    @Test func authTokenTrustsPerHostStoredEnterpriseToken() async {
+        // A per-host credential from `gh auth login --hostname` differs from the
+        // ambient enterprise env token, so it is trusted and used.
+        let recorder = CommandRunnerRecorder(stdout: "stored-host-token\n")
+        let service = PullRequestProbeService(
+            commandRunner: recorder,
+            environment: ["GH_ENTERPRISE_TOKEN": "ambient-secret"]
+        )
+
+        let token = await service.authToken(for: GitHubHost(hostname: "ghe.example.com"))
+
+        #expect(token == "stored-host-token")
     }
 
     @Test func hostPollabilityGatesEnterpriseWithoutToken() {
