@@ -1218,6 +1218,9 @@ private final class ClaudeHookSessionStore {
                 guard let normalizedSurfaceId = normalizeOptional(surfaceId),
                       let activeRecord = state.sessions[active.sessionId],
                       let activeSurfaceId = normalizeOptional(activeRecord.surfaceId) else {
+                    // Cross-surface protection needs both surfaces; when the caller
+                    // omits surfaceId or the active session's record is gone/surface-
+                    // less, fall back to the stricter workspace-scoped staleness.
                     return false
                 }
                 return activeSurfaceId != normalizedSurfaceId
