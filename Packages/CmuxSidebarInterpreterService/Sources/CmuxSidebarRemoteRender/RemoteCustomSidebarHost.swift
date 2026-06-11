@@ -58,16 +58,17 @@ public struct RemoteCustomSidebarHost: View {
         }
         .task {
             if client == nil {
-                client = RenderWorkerClient.reexecingCurrentBinary()
+                client = RenderWorkerClientPool.shared.acquire()
             }
         }
         .onDisappear {
             // The branch unmounted (provider switch or sidebar hidden); the
-            // discarded @State client would orphan its worker until window
-            // close, so reap it here. Re-entering custom sidebars respawns
-            // within a scene tick.
+            // discarded @State would orphan the worker, so park the warm
+            // client instead of shutting it down. The next mount reclaims it
+            // and adopts the cached remote context synchronously, skipping
+            // the spawn + first-render blank.
             if let client {
-                Task { await client.shutdown() }
+                RenderWorkerClientPool.shared.park(client)
             }
         }
     }

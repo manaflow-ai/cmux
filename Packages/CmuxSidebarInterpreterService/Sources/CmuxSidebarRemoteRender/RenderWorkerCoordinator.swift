@@ -155,6 +155,12 @@ final class RenderWorkerCoordinator {
         let size = NSSize(width: geometry.width, height: geometry.height)
         window.setContentSize(size)
         hosting.frame = NSRect(origin: .zero, size: size)
+        // Republish the root view: with no display link in the never-ordered
+        // window, a frame change alone does not re-render the SwiftUI
+        // content, so resizes showed stretched stale pixels until the next
+        // scene tick repainted (~1s). Reuses the cached render; nothing is
+        // re-interpreted here.
+        hosting.rootView = currentContent()
         pump()
     }
 
