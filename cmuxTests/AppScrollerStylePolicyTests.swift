@@ -10,119 +10,90 @@ import Testing
 @MainActor
 @Suite("App scroller style policy")
 struct AppScrollerStylePolicyTests {
-    /// In-memory `UserDefaults` that models two layers of the search list: the
-    /// app's own persistent domain (what `persistentDomain(forName:)` returns
-    /// and what `set(_:forKey:)` writes) and a simulated `NSGlobalDomain` value
-    /// that is only visible through cross-domain `string(forKey:)` resolution.
-    ///
-    /// The split lets the tests prove the policy decides from the *app domain
-    /// specifically*: a global `WhenScrolling` must not suppress the app-domain
-    /// write. `setCount` guards the no-redundant-write contract — a same-value
+    /// In-memory `UserDefaults` that records writes. A same-value or redundant
     /// write to `AppleShowScrollBars` posts `UserDefaults.didChangeNotification`
-    /// and can prompt AppKit to re-evaluate the scroller style mid-fade.
+    /// and can prompt AppKit to re-evaluate the scroller style mid-fade, so the
+    /// policy must write the override only when it actually needs to — this
+    /// counter guards that contract. The decision input (the app-domain value)
+    /// is injected separately, so this fake only models the write side.
     private final class RecordingDefaults: UserDefaults {
-        private var appDomain: [String: Any] = [:]
-        private var globalValue: String?
+        private var store: [String: Any] = [:]
         var setCount = 0
 
-        // `init()` returns an instance backed by the standard search list, but
-        // every primitive accessor below is overridden to use the in-memory
-        // layers, so the real on-disk domains are never touched.
-        convenience init(appDomain: [String: Any] = [:], global: String? = nil) {
-            self.init()
-            self.appDomain = appDomain
-            self.globalValue = global
-        }
-
-        override func persistentDomain(forName domainName: String) -> [String: Any]? { appDomain }
-
-        override func object(forKey defaultName: String) -> Any? {
-            if let value = appDomain[defaultName] { return value }
-            return defaultName == AppScrollerStylePolicy.scrollBarsDefaultsKey ? globalValue : nil
-        }
+        override func object(forKey defaultName: String) -> Any? { store[defaultName] }
 
         override func string(forKey defaultName: String) -> String? {
-            object(forKey: defaultName) as? String
+            store[defaultName] as? String
         }
 
         override func set(_ value: Any?, forKey defaultName: String) {
             setCount += 1
-            appDomain[defaultName] = value
+            store[defaultName] = value
         }
     }
 
-    @Test func applyForcesOverlayWhenUnset() {
+    private let key = AppScrollerStylePolicy.scrollBarsDefaultsKey
+    private let overlay = AppScrollerStylePolicy.overlayValue
+
+    @Test func forcesOverlayWhenAppDomainUnset() {
+        // The app domain has no value of its own — true for a fresh install
+        // regardless of the system-wide setting (Always, Automatic with a mouse,
+        // or even a global WhenScrolling). Because the decision reads cmux's app
+        // domain *only*, the override is written deterministically in every one
+        // of those #3241 environments.
         let defaults = RecordingDefaults()
 
-        AppScrollerStylePolicy.applyAtLaunch(defaults: defaults)
+        AppScrollerStylePolicy.applyAtLaunch(
+            defaults: defaults,
+            bundleIdentifier: "com.cmux.test",
+            appDomainValue: { _, _ in nil }
+        )
 
-        #expect(defaults.string(forKey: AppScrollerStylePolicy.scrollBarsDefaultsKey)
-            == AppScrollerStylePolicy.overlayValue)
+        #expect(defaults.string(forKey: key) == overlay)
         #expect(defaults.setCount == 1)
     }
 
-    @Test func applyOverridesLegacyAlwaysPreference() {
-        // System-wide "Show scroll bars: Always" (legacy), app domain empty —
-        // the #3241 reproduction environment.
-        let defaults = RecordingDefaults(global: "Always")
+    @Test func passesScrollBarsKeyAndBundleToAppDomainLookup() {
+        // The decision must query the AppleShowScrollBars key in cmux's own
+        // bundle domain, not some other key/domain.
+        let defaults = RecordingDefaults()
+        var queried: (key: String, bundle: String)?
 
-        AppScrollerStylePolicy.applyAtLaunch(defaults: defaults)
+        AppScrollerStylePolicy.applyAtLaunch(
+            defaults: defaults,
+            bundleIdentifier: "com.cmux.test",
+            appDomainValue: { k, b in queried = (k, b); return nil }
+        )
 
-        #expect(defaults.string(forKey: AppScrollerStylePolicy.scrollBarsDefaultsKey)
-            == AppScrollerStylePolicy.overlayValue)
-        #expect(defaults.setCount == 1)
-    }
-
-    @Test func applyOverridesAutomaticPreference() {
-        // The "Automatic" setting with a mouse connected — the other #3241
-        // reproduction path. AppKit draws legacy scrollers whenever the
-        // input-device heuristic fires; forcing WhenScrolling removes that.
-        let defaults = RecordingDefaults(global: "Automatic")
-
-        AppScrollerStylePolicy.applyAtLaunch(defaults: defaults)
-
-        #expect(defaults.string(forKey: AppScrollerStylePolicy.scrollBarsDefaultsKey)
-            == AppScrollerStylePolicy.overlayValue)
-        #expect(defaults.setCount == 1)
-    }
-
-    @Test func persistsOverrideEvenWhenGlobalAlreadyResolvesWhenScrolling() {
-        // Regression guard: the global preference already resolves WhenScrolling,
-        // but the app domain is empty. A cross-domain check would skip the write
-        // and leave cmux with no app-domain override — so a later switch to
-        // "Always" would revert cmux to legacy scrollers mid-session. The policy
-        // must still persist the override to the app domain.
-        let defaults = RecordingDefaults(global: AppScrollerStylePolicy.overlayValue)
-
-        AppScrollerStylePolicy.applyAtLaunch(defaults: defaults)
-
-        #expect(defaults.persistentDomain(forName: "any")?[AppScrollerStylePolicy.scrollBarsDefaultsKey] as? String
-            == AppScrollerStylePolicy.overlayValue)
-        #expect(defaults.setCount == 1)
+        #expect(queried?.key == key)
+        #expect(queried?.bundle == "com.cmux.test")
     }
 
     @Test func honorsExplicitPerAppOptOut() {
         // A user who deliberately sets a per-app value in cmux's own domain
         // (`defaults write <cmux-bundle-id> AppleShowScrollBars Always`) keeps
         // it — the override only writes when the app domain has no value.
-        let defaults = RecordingDefaults(appDomain: [
-            AppScrollerStylePolicy.scrollBarsDefaultsKey: "Always"
-        ])
+        let defaults = RecordingDefaults()
 
-        AppScrollerStylePolicy.applyAtLaunch(defaults: defaults)
+        AppScrollerStylePolicy.applyAtLaunch(
+            defaults: defaults,
+            bundleIdentifier: "com.cmux.test",
+            appDomainValue: { _, _ in "Always" }
+        )
 
-        #expect(defaults.string(forKey: AppScrollerStylePolicy.scrollBarsDefaultsKey) == "Always")
         #expect(defaults.setCount == 0)
     }
 
-    @Test func reapplyWritesNothing() {
-        // Launch runs this once per process; a re-run (or any later launch with
-        // the app-domain override already in place) must not re-write the key.
+    @Test func reapplyIsNoOpWhenOverrideAlreadyPresent() {
+        // A later launch (or re-run) where cmux's app domain already holds the
+        // override must not re-write the key.
         let defaults = RecordingDefaults()
-        AppScrollerStylePolicy.applyAtLaunch(defaults: defaults)
 
-        defaults.setCount = 0
-        AppScrollerStylePolicy.applyAtLaunch(defaults: defaults)
+        AppScrollerStylePolicy.applyAtLaunch(
+            defaults: defaults,
+            bundleIdentifier: "com.cmux.test",
+            appDomainValue: { _, _ in overlay }
+        )
 
         #expect(defaults.setCount == 0)
     }

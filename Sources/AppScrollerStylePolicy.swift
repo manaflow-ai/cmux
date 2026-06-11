@@ -68,16 +68,16 @@ enum AppScrollerStylePolicy {
     /// the ordering of unrelated `init` steps.
     static func applyAtLaunch(
         defaults: UserDefaults = .standard,
-        bundleIdentifier: String = Bundle.main.bundleIdentifier ?? ""
+        bundleIdentifier: String = Bundle.main.bundleIdentifier ?? "",
+        appDomainValue: (_ key: String, _ bundleIdentifier: String) -> Any? = AppScrollerStylePolicy.copyAppDomainValue
     ) {
         // Decide by inspecting cmux's *application domain specifically*, not the
-        // cross-domain `string(forKey:)` resolution. If the user's global
-        // preference already resolves to `WhenScrolling`, a cross-domain check
-        // would skip the write and leave cmux with no app-domain override — and
-        // a later system switch to "Always" (which posts the distributed
-        // settings-changed notification) would then re-resolve AppKit to legacy
-        // scrollers for the rest of the session, reintroducing #3241 until the
-        // next launch.
+        // cross-domain resolution. If the user's global preference already
+        // resolves to `WhenScrolling`, a cross-domain check would skip the write
+        // and leave cmux with no app-domain override — and a later system switch
+        // to "Always" (which posts the distributed settings-changed
+        // notification) would then re-resolve AppKit to legacy scrollers for the
+        // rest of the session, reintroducing #3241 until the next launch.
         //
         // Write only when the app domain has *no* explicit value. A fresh
         // install gets the deterministic override and the mid-session gap stays
@@ -85,9 +85,28 @@ enum AppScrollerStylePolicy {
         // launches: `defaults write <cmux-bundle-id> AppleShowScrollBars Always`
         // (or `Automatic`) survives because the key is then present and we leave
         // it untouched. This also avoids redundant writes on later launches.
-        let appDomainValue = defaults.persistentDomain(forName: bundleIdentifier)?[scrollBarsDefaultsKey]
-        if appDomainValue == nil {
+        if appDomainValue(scrollBarsDefaultsKey, bundleIdentifier) == nil {
             defaults.set(overlayValue, forKey: scrollBarsDefaultsKey)
         }
+    }
+
+    /// Reads one key from an application's *own* defaults domain only.
+    ///
+    /// `CFPreferencesCopyValue` with an explicit `(key, appID, currentUser,
+    /// anyHost)` reads exactly the named domain — it does **not** merge
+    /// `NSGlobalDomain`. `UserDefaults.persistentDomain(forName:)` returns
+    /// app-domain-only keys on current Darwin, but Apple *documents* it as the
+    /// merged search list (FB8742683); relying on that undocumented behavior
+    /// would silently no-op this fix for exactly the #3241 population if
+    /// Foundation ever matched its docs — and this repo has direct precedent for
+    /// such silent Foundation shifts across macOS majors (issue #4529). Reading
+    /// the named domain contractually removes that fragility.
+    static func copyAppDomainValue(_ key: String, _ bundleIdentifier: String) -> Any? {
+        CFPreferencesCopyValue(
+            key as CFString,
+            bundleIdentifier as CFString,
+            kCFPreferencesCurrentUser,
+            kCFPreferencesAnyHost
+        )
     }
 }
