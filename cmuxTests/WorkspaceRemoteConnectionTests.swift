@@ -751,8 +751,7 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
             skipDaemonBootstrap: true
         )
 
-        let arguments = WorkspaceRemoteSSHBatchCommandBuilder.daemonSocketForwardArguments(
-            configuration: configuration,
+        let arguments = configuration.daemonSocketForwardArguments(
             localPort: 64123,
             remoteSocketPath: "/run/cmuxd-remote.sock"
         )
@@ -2957,8 +2956,7 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
             terminalStartupCommand: "ssh cmux-macmini"
         )
 
-        let arguments = WorkspaceRemoteSSHBatchCommandBuilder.daemonTransportArguments(
-            configuration: configuration,
+        let arguments = configuration.daemonTransportArguments(
             remotePath: "/remote/cmuxd-remote"
         )
 
@@ -2988,8 +2986,7 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
             terminalStartupCommand: "ssh cmux-macmini"
         )
 
-        let arguments = WorkspaceRemoteSSHBatchCommandBuilder.daemonTransportArguments(
-            configuration: configuration,
+        let arguments = configuration.daemonTransportArguments(
             remotePath: "/remote/cmuxd-remote"
         )
 
@@ -3018,8 +3015,7 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
         )
 
         let arguments = try XCTUnwrap(
-            WorkspaceRemoteSSHBatchCommandBuilder.reverseRelayControlMasterArguments(
-                configuration: configuration,
+            configuration.reverseRelayControlMasterArguments(
                 controlCommand: "forward",
                 forwardSpec: "127.0.0.1:64007:127.0.0.1:54321"
             )
@@ -3055,8 +3051,7 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
         )
 
         let arguments = try XCTUnwrap(
-            WorkspaceRemoteSSHBatchCommandBuilder.reverseRelayControlMasterCancelArguments(
-                configuration: configuration,
+            configuration.reverseRelayControlMasterCancelArguments(
                 relayPort: 64007
             )
         )
@@ -3092,8 +3087,7 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
         )
 
         let arguments = try XCTUnwrap(
-            WorkspaceRemoteSSHBatchCommandBuilder.reverseRelayControlMasterArguments(
-                configuration: configuration,
+            configuration.reverseRelayControlMasterArguments(
                 controlCommand: "forward",
                 forwardSpec: "127.0.0.1:64033:127.0.0.1:54321"
             )

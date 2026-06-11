@@ -419,6 +419,7 @@ jobs:
           # is confirmed to resolve standalone.
           PACKAGES=(
             CMUXAuthCore
+            CmuxCore
             CmuxAuthRuntime
             CmuxControlSocket
             CmuxFileWatch

@@ -4,7 +4,7 @@
 32873	CLI/cmux.swift
 518	Packages/CmuxControlSocket/Sources/CmuxControlSocket/Coordinator/Surface/ControlCommandCoordinator+Surface.swift
 18034	Sources/TerminalController.swift
-19907	Sources/Workspace.swift
+19860	Sources/Workspace.swift
 19246	Sources/ContentView.swift
 18044	Sources/AppDelegate.swift
 16539	Sources/GhosttyTerminalView.swift
@@ -88,7 +88,7 @@
 947	Sources/TerminalNotificationPolicy.swift
 945	Sources/SessionIndexRegisteredAgents.swift
 944	Sources/App/ShortcutRoutingSupport.swift
-940	Sources/App/TerminalDirectoryOpenSupport.swift
+941	Sources/App/TerminalDirectoryOpenSupport.swift
 937	Sources/TextBoxMentionIndexStore.swift
 937	cmuxTests/RestorableAgentSessionIndexTests.swift
 924	Sources/DockPanelView.swift

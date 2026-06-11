@@ -3549,10 +3549,7 @@ private final class WorkspaceRemoteDaemonRPCClient {
     }
 
     private static func daemonArguments(configuration: WorkspaceRemoteConfiguration, remotePath: String) -> [String] {
-        WorkspaceRemoteSSHBatchCommandBuilder.daemonTransportArguments(
-            configuration: configuration,
-            remotePath: remotePath
-        )
+        configuration.daemonTransportArguments(remotePath: remotePath)
     }
 
     private static func daemonSocketForwardArguments(
@@ -3560,8 +3557,7 @@ private final class WorkspaceRemoteDaemonRPCClient {
         localPort: Int,
         remoteSocketPath: String
     ) -> [String] {
-        WorkspaceRemoteSSHBatchCommandBuilder.daemonSocketForwardArguments(
-            configuration: configuration,
+        configuration.daemonSocketForwardArguments(
             localPort: localPort,
             remoteSocketPath: remoteSocketPath
         )
@@ -7487,8 +7483,7 @@ final class WorkspaceRemoteSessionController {
     }
 
     private func startReverseRelayViaControlMasterLocked(forwardSpec: String, relayPort: Int) -> Bool {
-        guard let arguments = WorkspaceRemoteSSHBatchCommandBuilder.reverseRelayControlMasterArguments(
-            configuration: configuration,
+        guard let arguments = configuration.reverseRelayControlMasterArguments(
             controlCommand: "forward",
             forwardSpec: forwardSpec
         ) else {
@@ -7525,10 +7520,7 @@ final class WorkspaceRemoteSessionController {
     }
 
     private func cancelStaleReverseRelayViaControlMasterLocked(relayPort: Int) {
-        guard let arguments = WorkspaceRemoteSSHBatchCommandBuilder.reverseRelayControlMasterCancelArguments(
-            configuration: configuration,
-            relayPort: relayPort
-        ) else {
+        guard let arguments = configuration.reverseRelayControlMasterCancelArguments(relayPort: relayPort) else {
             return
         }
         do {
@@ -7586,8 +7578,7 @@ final class WorkspaceRemoteSessionController {
     private func stopReverseRelayViaControlMasterLocked() {
         guard let forwardSpec = reverseRelayControlMasterForwardSpec else { return }
         reverseRelayControlMasterForwardSpec = nil
-        guard let arguments = WorkspaceRemoteSSHBatchCommandBuilder.reverseRelayControlMasterArguments(
-            configuration: configuration,
+        guard let arguments = configuration.reverseRelayControlMasterArguments(
             controlCommand: "cancel",
             forwardSpec: forwardSpec
         ) else {
@@ -9839,44 +9830,6 @@ struct SidebarProgressState: Equatable {
 struct SidebarGitBranchState: Equatable {
     let branch: String
     let isDirty: Bool
-}
-
-enum WorkspaceRemoteConnectionState: String, Equatable {
-    case disconnected
-    case connecting
-    case reconnecting
-    case connected
-    case error
-    /// Automatic reconnect halted because the host stayed unreachable; the
-    /// user reconnects manually (sidebar Reconnect, context menu, CLI).
-    case suspended
-}
-
-enum WorkspaceRemoteDaemonState: String {
-    case unavailable
-    case bootstrapping
-    case ready
-    case error
-}
-
-struct WorkspaceRemoteDaemonStatus: Equatable {
-    var state: WorkspaceRemoteDaemonState = .unavailable
-    var detail: String?
-    var version: String?
-    var name: String?
-    var capabilities: [String] = []
-    var remotePath: String?
-
-    func payload() -> [String: Any] {
-        [
-            "state": state.rawValue,
-            "detail": detail ?? NSNull(),
-            "version": version ?? NSNull(),
-            "name": name ?? NSNull(),
-            "capabilities": capabilities,
-            "remote_path": remotePath ?? NSNull(),
-        ]
-    }
 }
 
 enum SidebarPullRequestStatus: String {

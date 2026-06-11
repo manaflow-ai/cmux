@@ -1,4 +1,5 @@
 import CmuxFoundation
+import CmuxCore
 import AppKit
 import Darwin
 import Foundation
