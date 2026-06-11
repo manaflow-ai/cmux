@@ -185,18 +185,16 @@ export default function CustomCommandsPage() {
         })}
       </p>
 
-      <DocsHeading level={3} id="surface-tab-bar-buttons">Surface tab bar buttons and More menu</DocsHeading>
+      <DocsHeading level={3} id="surface-tab-bar-buttons">{t("tabBarButtonsTitle")}</DocsHeading>
       <p>
-        <code>ui.surfaceTabBar.buttons</code> controls the buttons at the end of each pane tab
-        bar. Put it in <code>~/.config/cmux/cmux.json</code> for a global default, or in a
-        project <code>.cmux/cmux.json</code> to override the buttons for workspaces whose
-        current directory is inside that project. The project file wins for the button list, while
-        actions and commands can still fall back to global definitions.
+        {t.rich("tabBarButtonsDesc", {
+          code: (chunks) => <code>{chunks}</code>,
+        })}
       </p>
       <p>
-        cmux always appends the built-in More button unless <code>hideMoreButton</code> is true.
-        A configured More menu should contain pane-relevant actions, for example opening Vault,
-        Files, Find, Diffs, Finder, or this customization documentation.
+        {t.rich("tabBarMoreMenuDesc", {
+          code: (chunks) => <code>{chunks}</code>,
+        })}
       </p>
       <CodeBlock title=".cmux/cmux.json" lang="json">{`{
   "ui": {
