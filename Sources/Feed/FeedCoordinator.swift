@@ -493,6 +493,30 @@ extension FeedCoordinator {
         return keys
     }
 
+    /// Panel-scoped keys for every feed-routed blocking decision still awaiting
+    /// a reply.
+    ///
+    /// Unlike a queued/policy notification (which delivers within a drain tick),
+    /// a feed prompt persists until the user resolves the decision, so the
+    /// per-panel lifecycle gate must account for it precisely: an acknowledged
+    /// panel that still has an active feed prompt must not have its hibernation
+    /// lifecycle demoted, while a sibling panel's feed prompt must not block it.
+    @MainActor
+    func pendingStructuredAgentInputPanelKeys() -> Set<StructuredAgentInputPanelKey> {
+        var keys = Set<StructuredAgentInputPanelKey>()
+        for target in pendingAttentionStates.keys {
+            guard let panelId = target.panelId else { continue }
+            keys.insert(
+                StructuredAgentInputPanelKey(
+                    tabId: target.workspaceId,
+                    panelId: panelId,
+                    statusKey: target.statusKey
+                )
+            )
+        }
+        return keys
+    }
+
     /// Clears the sidebar overlay for a blocking decision whose attention has
     /// just been removed from ``pendingAttentionStates``. Restores only the
     /// parts the feed still owns: the per-panel lifecycle drops to `.running`

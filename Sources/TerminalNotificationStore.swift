@@ -1708,6 +1708,11 @@ final class TerminalNotificationStore: ObservableObject {
     private func acknowledgeStructuredAgentInputStatuses(for notificationsToAcknowledge: [TerminalNotification]) {
         let remainingWorkspaceInputs = remainingUnreadStructuredAgentInputKeys()
         let remainingPanelInputs = remainingUnreadStructuredAgentInputPanelKeys()
+        // Queued and policy-hook deliveries can't be panel-scoped cheaply, but
+        // they resolve within a drain tick, so block lifecycle demotion across
+        // the whole workspace while one is in flight — the safe direction (an
+        // agent still awaiting input must never become hibernatable).
+        let transientWorkspaceInputs = transientWorkspaceStructuredAgentInputKeys()
         for notification in notificationsToAcknowledge {
             let acknowledgementPanelId = notification.panelId ?? notification.surfaceId
             guard let statusKey = Self.structuredAgentStatusKey(for: notification),
@@ -1728,13 +1733,17 @@ final class TerminalNotificationStore: ObservableObject {
             // remaining unread input — even if a sibling panel still does.
             let demotePanelLifecycle: Bool
             if let acknowledgementPanelId {
-                demotePanelLifecycle = !remainingPanelInputs.contains(
+                let panelHasRemainingInput = remainingPanelInputs.contains(
                     StructuredAgentInputPanelKey(
                         tabId: notification.tabId,
                         panelId: acknowledgementPanelId,
                         statusKey: statusKey
                     )
                 )
+                let workspaceHasTransientInput = transientWorkspaceInputs.contains(
+                    StructuredAgentInputNotificationKey(tabId: notification.tabId, statusKey: statusKey)
+                )
+                demotePanelLifecycle = !panelHasRemainingInput && !workspaceHasTransientInput
             } else {
                 demotePanelLifecycle = demoteWorkspaceBadge
             }
@@ -1759,9 +1768,18 @@ final class TerminalNotificationStore: ObservableObject {
             }
             keys.insert(StructuredAgentInputNotificationKey(tabId: notification.tabId, statusKey: statusKey))
         }
-        keys.formUnion(TerminalMutationBus.shared.pendingStructuredAgentInputNotificationKeys())
-        keys.formUnion(pendingPolicyStructuredAgentInputCounts.keys)
+        keys.formUnion(transientWorkspaceStructuredAgentInputKeys())
         keys.formUnion(FeedCoordinator.shared.pendingStructuredAgentInputWorkspaceKeys())
+        return keys
+    }
+
+    /// Workspace-level keys for structured-agent inputs that are pending in a
+    /// transient (sub-drain-tick) delivery stage — the queue and policy-hook
+    /// evaluation. These can't be cheaply panel-scoped, so the per-panel
+    /// lifecycle gate treats them conservatively at workspace granularity.
+    private func transientWorkspaceStructuredAgentInputKeys() -> Set<StructuredAgentInputNotificationKey> {
+        var keys = TerminalMutationBus.shared.pendingStructuredAgentInputNotificationKeys()
+        keys.formUnion(pendingPolicyStructuredAgentInputCounts.keys)
         return keys
     }
 
@@ -1778,6 +1796,9 @@ final class TerminalNotificationStore: ObservableObject {
                 StructuredAgentInputPanelKey(tabId: notification.tabId, panelId: panelId, statusKey: statusKey)
             )
         }
+        // Feed prompts persist until resolved, so they must be panel-scoped here
+        // rather than lumped into the transient workspace set.
+        keys.formUnion(FeedCoordinator.shared.pendingStructuredAgentInputPanelKeys())
         return keys
     }
 
