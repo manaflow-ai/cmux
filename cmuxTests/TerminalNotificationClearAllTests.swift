@@ -350,6 +350,86 @@ final class TerminalNotificationClearAllTests: XCTestCase {
         )
     }
 
+    func testAcknowledgingStoreNotificationKeepsLifecycleWhileFeedPromptPendingOnSamePanel() throws {
+        let store = TerminalNotificationStore.shared
+        let appDelegate = AppDelegate.shared ?? AppDelegate()
+        let manager = appDelegate.tabManager ?? TabManager()
+
+        let originalTabManager = appDelegate.tabManager
+        let originalNotificationStore = appDelegate.notificationStore
+        let originalAppFocusOverride = AppFocusState.overrideIsFocused
+
+        store.replaceNotificationsForTesting([])
+        store.configureNotificationDeliveryHandlerForTesting { _, _ in }
+        appDelegate.tabManager = manager
+        appDelegate.notificationStore = store
+        AppFocusState.overrideIsFocused = false
+        FeedCoordinatorTestHooks.attentionSurfaceObserver = nil
+
+        let workspace = manager.addWorkspace(select: true)
+        let feedTarget: FeedCoordinator.AttentionTarget?
+        defer {
+            if let feedTarget {
+                FeedCoordinator.shared.concludeBlockingDecisionAttention(feedTarget)
+            }
+            if manager.tabs.contains(where: { $0.id == workspace.id }) {
+                manager.closeWorkspace(workspace)
+            }
+            store.replaceNotificationsForTesting([])
+            store.resetNotificationDeliveryHandlerForTesting()
+            appDelegate.tabManager = originalTabManager
+            appDelegate.notificationStore = originalNotificationStore
+            AppFocusState.overrideIsFocused = originalAppFocusOverride
+            FeedCoordinatorTestHooks.attentionSurfaceObserver = nil
+        }
+
+        let panelId = try XCTUnwrap(workspace.focusedPanelId)
+        workspace.recordAgentPID(
+            key: "claude_code.session-feed-vs-store",
+            pid: pid_t(54321),
+            panelId: panelId,
+            refreshPorts: false
+        )
+
+        // A live feed-routed blocking decision on this panel (sets lifecycle
+        // needsInput + sidebar status + pendingAttentionStates, no store notif).
+        let event = WorkstreamEvent(
+            sessionId: "claude-feed-vs-store",
+            hookEventName: .permissionRequest,
+            source: "claude",
+            cwd: "/tmp",
+            toolName: "Bash",
+            toolInputJSON: #"{"command":"true"}"#,
+            requestId: "feed-vs-store-request"
+        )
+        feedTarget = try XCTUnwrap(
+            FeedCoordinator.shared.surfaceBlockingDecisionAttention(
+                event: event,
+                resolved: (workspaceId: workspace.id, surfaceId: panelId)
+            )
+        )
+        // A separate store notification arrives on the same panel/key.
+        store.addNotification(
+            tabId: workspace.id,
+            surfaceId: panelId,
+            title: "Claude Code",
+            subtitle: "Waiting",
+            body: "Needs input",
+            structuredAgentStatusKey: "claude_code"
+        )
+
+        store.markRead(forTabId: workspace.id, surfaceId: panelId)
+
+        // The store notification is acknowledged, but the feed prompt is still
+        // outstanding on this panel, so neither the badge nor the per-panel
+        // lifecycle may clear — the agent is still waiting for input.
+        XCTAssertEqual(workspace.statusEntries["claude_code"]?.value, "Needs input")
+        XCTAssertEqual(
+            workspace.agentLifecycleStatesByPanelId[panelId]?["claude_code"],
+            .needsInput
+        )
+    }
+
     func testRemovingClaudeNeedsInputNotificationDemotesSidebarStatusToIdle() throws {
         let store = TerminalNotificationStore.shared
         let appDelegate = AppDelegate.shared ?? AppDelegate()
