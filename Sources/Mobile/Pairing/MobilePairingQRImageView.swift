@@ -7,7 +7,7 @@ import SwiftUI
 ///
 /// The view is flexible: it fills whatever width the layout offers (keeping a
 /// 1:1 aspect), so the pairing window can show the code as large as possible.
-/// ``CmxPairingQRBitmap`` supplies the bitmap at one pixel per module — pure
+/// ``CmxPairingQRBitmap`` supplies the bitmap at one pixel per module, pure
 /// black on pure white, ECC M, with the full 4-module quiet zone baked in so
 /// the white margin scales with the code and cannot be cropped by layout.
 /// SwiftUI upscales it with interpolation disabled, so every module stays a

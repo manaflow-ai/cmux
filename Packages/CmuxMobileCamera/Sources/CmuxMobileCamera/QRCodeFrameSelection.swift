@@ -1,19 +1,3 @@
-/// One machine-readable code detected in a capture frame, reduced to the two
-/// facts selection needs. Mirrors `AVMetadataMachineReadableCodeObject`
-/// without the AVFoundation type so the selection rule runs under
-/// `swift test` off-device.
-public struct QRCodeFrameCandidate: Sendable, Equatable {
-    /// Whether the detection is a QR code (as opposed to another symbology).
-    public let isQRCode: Bool
-    /// The decoded payload, when the detector could read one.
-    public let stringValue: String?
-
-    public init(isQRCode: Bool, stringValue: String?) {
-        self.isQRCode = isQRCode
-        self.stringValue = stringValue
-    }
-}
-
 /// Picks the pairing payload out of one frame's detections.
 public struct QRCodeFrameSelection: Sendable {
     /// Creates the selector. It is stateless: construct one inline at the
