@@ -223,6 +223,55 @@ check_tmux_terminal_nightly_isolation() {
   echo "PASS: tmux corpus terminal-nightly uses isolated DerivedData, noninteractive xcodebuild, and expected-failure handling"
 }
 
+check_unit_tests_do_not_mask_xctest_assertion_failures() {
+  local file
+  for file in "$CI_FILE" "$COMPAT_FILE" "$ROOT_DIR/.github/workflows/test-depot.yml"; do
+    if ! grep -Fq "scripts/ci/run-unit-tests-with-failure-gate.sh" "$file"; then
+      echo "FAIL: $(basename "$file") must run unit tests through the shared failure gate"
+      exit 1
+    fi
+
+    if grep -Fq "All failures are expected, treating as pass" "$file"; then
+      echo "FAIL: $(basename "$file") must not treat XCTest assertion failures as a passing unit-test run"
+      exit 1
+    fi
+
+    if grep -Fq "(0 unexpected)" "$file"; then
+      echo "FAIL: $(basename "$file") must not use XCTest '(0 unexpected)' summaries as a unit-test pass condition"
+      exit 1
+    fi
+  done
+
+  echo "PASS: unit-test workflows fail on XCTest assertion failures"
+}
+
+check_unit_test_failure_gate_behavior() {
+  local temp_dir output_file log_file status
+  temp_dir="$(mktemp -d)"
+  output_file="$temp_dir/test-output.txt"
+  log_file="$temp_dir/gate.log"
+  set +e
+  CMUX_UNIT_TEST_OUTPUT_FILE="$output_file" \
+    CMUX_UNIT_TEST_FAKE_COMMAND='printf "%s\n" "Test Suite '\''cmuxTests.xctest'\'' failed" "** TEST FAILED **"; exit 65' \
+    "$ROOT_DIR/scripts/ci/run-unit-tests-with-failure-gate.sh" >"$log_file" 2>&1
+  status=$?
+  set -e
+  if [ "$status" -ne 65 ]; then
+    echo "FAIL: unit-test failure gate must preserve nonzero XCTest exit status, got $status"
+    cat "$log_file"
+    rm -rf "$temp_dir"
+    exit 1
+  fi
+  if ! grep -Fq "Unit tests failed" "$log_file"; then
+    echo "FAIL: unit-test failure gate must report nonzero XCTest failures"
+    cat "$log_file"
+    rm -rf "$temp_dir"
+    exit 1
+  fi
+  rm -rf "$temp_dir"
+  echo "PASS: unit-test failure gate preserves XCTest failure exit status"
+}
+
 # ci.yml jobs
 check_macos_runner "$CI_FILE" "tests"
 check_macos_runner "$CI_FILE" "tests-build-and-lag"
@@ -247,3 +296,5 @@ check_no_ci_xctest_skips
 check_no_ci_swift_package_skips
 check_web_db_behavior_tests
 check_tmux_terminal_nightly_isolation
+check_unit_tests_do_not_mask_xctest_assertion_failures
+check_unit_test_failure_gate_behavior
