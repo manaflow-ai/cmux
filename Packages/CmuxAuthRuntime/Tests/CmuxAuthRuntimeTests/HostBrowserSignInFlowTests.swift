@@ -21,7 +21,13 @@ import Testing
         browserAttemptTimeout: TimeInterval = 5 * 60
     ) -> Harness {
         let store = FakeKeyValueStore()
-        let client = FlowFakeAuthClient(user: user)
+        // The fake client reads and clears the SAME token store the flow
+        // seeds, like production (StackAuthClient wraps the StackClientApp
+        // built over the store the callback seeds into). Split stores would
+        // hide races between the flow's seed handling and the coordinator's
+        // capture/clear sequence.
+        let tokenStore = FlowInMemoryTokenStore()
+        let client = FlowFakeAuthClient(user: user, store: tokenStore)
         let coordinator = AuthCoordinator(
             client: client,
             sessionCache: CMUXAuthSessionCache(keyValueStore: store, key: "has_tokens"),
@@ -31,7 +37,6 @@ import Testing
             config: .test,
             launch: .plain()
         )
-        let tokenStore = FlowInMemoryTokenStore()
         let factory = FakeBrowserAuthSessionFactory()
         let flow = HostBrowserSignInFlow(
             coordinator: coordinator,
@@ -328,20 +333,74 @@ import Testing
         #expect(await harness.tokenStore.getStoredRefreshToken() == nil)
         #expect(await harness.tokenStore.getStoredAccessToken() == nil)
     }
+
+    @Test func signOutDuringCallbackValidationStillRevokesWithCapturedCredentials() async {
+        // flow.signOut() advances the flow's sign-out generation BEFORE the
+        // coordinator captures the teardown credentials with raw store reads.
+        // If the parked callback validation resumes inside that capture
+        // window, a flow-side seed clear runs first, the capture reads an
+        // empty store, and the best-effort server teardown (push unregister,
+        // session revocation) silently loses its credentials even though the
+        // device is online. The coordinator owns the local clear AFTER the
+        // capture; the flow must not clear the shared store underneath it.
+        let user = CMUXAuthUser(id: "u1", primaryEmail: "a@b.com", displayName: "A")
+        let harness = makeHarness(user: user)
+        await harness.client.closeUserGate()
+
+        let attempt = Task { await harness.flow.signIn(timeout: 60) }
+        await waitForSession(harness.factory)
+        harness.factory.sessions[0].deliver(callbackURL(state: callbackState(harness.factory.sessions[0])))
+        while await harness.client.pendingUserRequests == 0 {
+            await Task.yield()
+        }
+
+        // Sign-out parks inside its credential capture, before its local
+        // clear.
+        await harness.client.armStoredAccessTokenGate()
+        let signOut = Task { await harness.flow.signOut() }
+        await harness.client.storedAccessTokenDidPark()
+
+        // The parked validation resumes and fails as cancelled while
+        // sign-out is still inside the capture window.
+        await harness.client.openUserGate()
+        #expect(await attempt.value == false)
+
+        // Sign-out proceeds: capture, local-first clear, bounded revocation.
+        await harness.client.releaseStoredAccessTokenGate()
+        await signOut.value
+
+        #expect(harness.coordinator.isAuthenticated == false)
+        #expect(await harness.tokenStore.getStoredRefreshToken() == nil)
+        #expect(await harness.tokenStore.getStoredAccessToken() == nil)
+        // The teardown must authenticate as the signed-out session.
+        let revoked = await harness.client.revokedCredentials
+        #expect(revoked.count == 1)
+        #expect(revoked.first?.access == "access-1")
+        #expect(revoked.first?.refresh == "refresh-1")
+    }
 }
 
 // MARK: - Fakes
 
-/// Scriptable ``AuthClient`` with a gate on `currentUser` so tests can hold the
-/// callback-completion round trip open while a sign-out races it.
+/// Scriptable ``AuthClient`` backed by the same token store the flow seeds
+/// (like production), with a gate on `currentUser` so tests can hold the
+/// callback-completion round trip open while a sign-out races it, and a gate
+/// on `storedAccessToken` so tests can park sign-out inside its credential
+/// capture window.
 private actor FlowFakeAuthClient: AuthClient {
     private var user: CMUXAuthUser?
+    private let store: FlowInMemoryTokenStore
     private(set) var pendingUserRequests = 0
     private var userGateClosed = false
     private var userGateWaiters: [CheckedContinuation<Void, Never>] = []
+    private var storedAccessGateArmed = false
+    private var storedAccessParked: [CheckedContinuation<Void, Never>] = []
+    private var storedAccessParkWaiters: [CheckedContinuation<Void, Never>] = []
+    private(set) var revokedCredentials: [(access: String?, refresh: String?)] = []
 
-    init(user: CMUXAuthUser?) {
+    init(user: CMUXAuthUser?, store: FlowInMemoryTokenStore) {
         self.user = user
+        self.store = store
     }
 
     func closeUserGate() { userGateClosed = true }
@@ -353,9 +412,23 @@ private actor FlowFakeAuthClient: AuthClient {
         for waiter in waiters { waiter.resume() }
     }
 
-    func accessToken() async -> String? { nil }
-    func refreshToken() async -> String? { nil }
-    func forceRefreshAccessToken() async -> String? { nil }
+    func armStoredAccessTokenGate() { storedAccessGateArmed = true }
+
+    /// Suspends until a `storedAccessToken` read is parked on the armed gate.
+    func storedAccessTokenDidPark() async {
+        if !storedAccessParked.isEmpty { return }
+        await withCheckedContinuation { storedAccessParkWaiters.append($0) }
+    }
+
+    func releaseStoredAccessTokenGate() {
+        let parked = storedAccessParked
+        storedAccessParked = []
+        for continuation in parked { continuation.resume() }
+    }
+
+    func accessToken() async -> String? { await store.getStoredAccessToken() }
+    func refreshToken() async -> String? { await store.getStoredRefreshToken() }
+    func forceRefreshAccessToken() async -> String? { await store.getStoredAccessToken() }
 
     func currentUser(throwOnMissing: Bool) async throws -> CMUXAuthUser? {
         if userGateClosed {
@@ -371,9 +444,28 @@ private actor FlowFakeAuthClient: AuthClient {
     func signInWithMagicLink(code: String) async throws {}
     func signInWithCredential(email: String, password: String) async throws {}
     func signInWithOAuth(provider: String, anchor: any AuthPresentationAnchoring) async throws {}
-    func storedAccessToken() async -> String? { nil }
-    func clearLocalSession() async {}
-    func revokeSession(accessToken: String?, refreshToken: String?) async throws {}
+
+    func storedAccessToken() async -> String? {
+        if storedAccessGateArmed {
+            storedAccessGateArmed = false
+            await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+                storedAccessParked.append(continuation)
+                let waiters = storedAccessParkWaiters
+                storedAccessParkWaiters = []
+                for waiter in waiters { waiter.resume() }
+            }
+        }
+        return await store.getStoredAccessToken()
+    }
+
+    func clearLocalSession() async {
+        await store.clearTokens()
+    }
+
+    func revokeSession(accessToken: String?, refreshToken: String?) async throws {
+        revokedCredentials.append((access: accessToken, refresh: refreshToken))
+    }
+
     func freshAccessToken(accessToken: String?, refreshToken: String) async -> String? { accessToken }
 }
 
