@@ -324,4 +324,38 @@ final class WorkspaceSidebarObservationTests: XCTestCase {
             )
         }
     }
+
+    // When more distinct lifecycle-backed status keys than the cap are inserted,
+    // the evicted ones must also have their lifecycle state cleared — otherwise
+    // agentLifecycleStatesByPanelId grows unbounded and is re-traversed on every
+    // trim, reintroducing the memory/CPU growth class (#5845).
+    func testStatusCapClearsLifecycleStateForEvictedKeys() {
+        let workspace = Workspace()
+        let cap = 200
+        let panelId = UUID()
+
+        // Mirror FeedCoordinator: lifecycle recorded before the status entry.
+        for index in 0..<(cap * 2) {
+            let key = "lc_\(index)"
+            workspace.agentLifecycleStatesByPanelId[panelId, default: [:]][key] = .needsInput
+            workspace.statusEntries[key] = SidebarStatusEntry(
+                key: key,
+                value: "value_\(index)",
+                timestamp: Date(timeIntervalSince1970: TimeInterval(index))
+            )
+        }
+
+        XCTAssertLessThanOrEqual(workspace.statusEntries.count, cap)
+        let retainedLifecycleKeys = workspace.agentLifecycleStatesByPanelId.values
+            .reduce(0) { $0 + $1.count }
+        XCTAssertLessThanOrEqual(
+            retainedLifecycleKeys,
+            cap,
+            "Lifecycle state for evicted status keys must be cleared so it stays bounded"
+        )
+        XCTAssertNil(
+            workspace.agentLifecycleStatesByPanelId[panelId]?["lc_0"],
+            "The oldest evicted lifecycle-backed status must have its lifecycle state cleared"
+        )
+    }
 }

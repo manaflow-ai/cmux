@@ -283,27 +283,35 @@ extension Workspace {
         return keys
     }
 
-    /// Clears the agent PID runtime state coupled to status keys that the sidebar
-    /// status cap is about to evict. `set_status --pid` records PIDs under keys
-    /// derived from the status key (`agentStatusKey(forAgentPIDKey:)`), so evicting
-    /// a status entry without this cleanup would orphan its `agentPIDs` /
-    /// ownership-map records and the port-scan tags keyed off them, reintroducing
-    /// unbounded growth for the same workload the cap is meant to contain (#5845).
+    /// Clears the agent runtime state coupled to status keys that the sidebar
+    /// status cap is about to evict, so that coupled state stays bounded too
+    /// (#5845). Two couplings exist:
+    ///  - `set_status --pid` records PIDs under keys derived from the status key
+    ///    (`agentStatusKey(forAgentPIDKey:)`); leaving them orphans the
+    ///    `agentPIDs` / ownership maps and the port-scan tags keyed off them.
+    ///  - lifecycle-backed statuses (e.g. FeedCoordinator `needsInput`) record
+    ///    `agentLifecycleStatesByPanelId[panelId][statusKey]` with no PID;
+    ///    leaving them orphans that dictionary, which `statusKeysWithCoupledAgentRuntime()`
+    ///    re-materializes on every later trim.
     /// Must run while the evicted entries are still present in `statusEntries` so
     /// `agentStatusKey(forAgentPIDKey:)` resolves dotted status keys correctly.
     func purgeAgentRuntimeState(forEvictedStatusKeys evictedStatusKeys: Set<String>) {
         guard !evictedStatusKeys.isEmpty else { return }
+        var didChange = false
         let pidKeysToClear = Set(agentPIDs.keys)
             .union(agentPIDPanelIdsByKey.keys)
             .filter { evictedStatusKeys.contains(agentStatusKey(forAgentPIDKey: $0)) }
-        guard !pidKeysToClear.isEmpty else { return }
-        var didChange = false
         for pidKey in pidKeysToClear {
             // clearStatus: false — the cap removes the status entries itself; this
             // only tears down the coupled PID/ownership/lifecycle records.
             if clearAgentPID(key: pidKey, panelId: nil, clearStatus: false, refreshPorts: false) {
                 didChange = true
             }
+        }
+        // Clear lifecycle-only state (no PID) for evicted keys. Idempotent for
+        // keys whose lifecycle `clearAgentPID` already cleared above.
+        for statusKey in evictedStatusKeys where clearAgentLifecycle(key: statusKey) {
+            didChange = true
         }
         if didChange {
             refreshTrackedAgentPorts()
