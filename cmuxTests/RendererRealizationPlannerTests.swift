@@ -1,5 +1,5 @@
 import Foundation
-import XCTest
+import Testing
 
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
@@ -10,7 +10,7 @@ import XCTest
 /// Pure-policy tests for `RendererRealizationPlanner`, the decision for which
 /// offscreen terminal surfaces release their GPU renderer (Metal swap chain /
 /// IOSurface) while keeping their PTY alive.
-final class RendererRealizationPlannerTests: XCTestCase {
+struct RendererRealizationPlannerTests {
     private func input(
         _ id: UUID,
         visible: Bool = false,
@@ -33,16 +33,16 @@ final class RendererRealizationPlannerTests: XCTestCase {
         .init(enabled: enabled, idleSeconds: idle, maxWarmRenderers: warm)
     }
 
-    func testDisabledSelectsNothing() {
+    @Test func disabledSelectsNothing() {
         let now: TimeInterval = 1000
         let inputs = [input(UUID(), lastVisibleAt: 0)]
         let selected = RendererRealizationPlanner.selectedSurfaceIds(
             inputs: inputs, settings: settings(enabled: false), now: now
         )
-        XCTAssertTrue(selected.isEmpty)
+        #expect(selected.isEmpty)
     }
 
-    func testNeverSelectsVisibleSurface() {
+    @Test func neverSelectsVisibleSurface() {
         let now: TimeInterval = 1000
         let visible = UUID()
         // Visible and very idle and warm cap 0: must still never be selected.
@@ -50,10 +50,10 @@ final class RendererRealizationPlannerTests: XCTestCase {
         let selected = RendererRealizationPlanner.selectedSurfaceIds(
             inputs: inputs, settings: settings(idle: 5, warm: 0), now: now
         )
-        XCTAssertFalse(selected.contains(visible))
+        #expect(!selected.contains(visible))
     }
 
-    func testRespectsIdleThreshold() {
+    @Test func respectsIdleThreshold() {
         let now: TimeInterval = 1000
         let recent = UUID() // idle 2s < 5s
         let old = UUID()    // idle 100s
@@ -64,11 +64,11 @@ final class RendererRealizationPlannerTests: XCTestCase {
         let selected = RendererRealizationPlanner.selectedSurfaceIds(
             inputs: inputs, settings: settings(idle: 5, warm: 0), now: now
         )
-        XCTAssertFalse(selected.contains(recent))
-        XCTAssertTrue(selected.contains(old))
+        #expect(!selected.contains(recent))
+        #expect(selected.contains(old))
     }
 
-    func testKeepsWarmCapMostRecent() {
+    @Test func keepsWarmCapMostRecent() {
         let now: TimeInterval = 1000
         var ids: [UUID] = []
         var inputs: [RendererRealizationPlannerInput] = []
@@ -81,24 +81,24 @@ final class RendererRealizationPlannerTests: XCTestCase {
         let selected = RendererRealizationPlanner.selectedSurfaceIds(
             inputs: inputs, settings: settings(idle: 5, warm: 2), now: now
         )
-        XCTAssertEqual(selected.count, 3)
-        XCTAssertFalse(selected.contains(ids[0])) // 2 most-recent kept warm
-        XCTAssertFalse(selected.contains(ids[1]))
-        XCTAssertTrue(selected.contains(ids[2]))
-        XCTAssertTrue(selected.contains(ids[4])) // oldest released
+        #expect(selected.count == 3)
+        #expect(!selected.contains(ids[0])) // 2 most-recent kept warm
+        #expect(!selected.contains(ids[1]))
+        #expect(selected.contains(ids[2]))
+        #expect(selected.contains(ids[4])) // oldest released
     }
 
-    func testOnlyRealizedSurfacesAreConsidered() {
+    @Test func onlyRealizedSurfacesAreConsidered() {
         let now: TimeInterval = 1000
         let unrealized = UUID()
         let inputs = [input(unrealized, realized: false, lastVisibleAt: 0)]
         let selected = RendererRealizationPlanner.selectedSurfaceIds(
             inputs: inputs, settings: settings(idle: 5, warm: 0), now: now
         )
-        XCTAssertTrue(selected.isEmpty)
+        #expect(selected.isEmpty)
     }
 
-    func testVisibleSurfaceOccupiesWarmSlotButIsNeverSelected() {
+    @Test func visibleSurfaceOccupiesWarmSlotButIsNeverSelected() {
         let now: TimeInterval = 1000
         let visible = UUID()
         let off1 = UUID()
@@ -113,13 +113,13 @@ final class RendererRealizationPlannerTests: XCTestCase {
         let selected = RendererRealizationPlanner.selectedSurfaceIds(
             inputs: inputs, settings: settings(idle: 5, warm: 2), now: now
         )
-        XCTAssertFalse(selected.contains(visible))
-        XCTAssertFalse(selected.contains(off1))
-        XCTAssertTrue(selected.contains(off2))
-        XCTAssertTrue(selected.contains(off3))
+        #expect(!selected.contains(visible))
+        #expect(!selected.contains(off1))
+        #expect(selected.contains(off2))
+        #expect(selected.contains(off3))
     }
 
-    func testDeterministicTieBreakById() {
+    @Test func deterministicTieBreakById() {
         let now: TimeInterval = 1000
         // Two surfaces with identical timestamps, warm cap 1: the tie-break
         // sorts by ascending uuidString, so the lower id is kept warm and the
@@ -133,10 +133,8 @@ final class RendererRealizationPlannerTests: XCTestCase {
         let selected = RendererRealizationPlanner.selectedSurfaceIds(
             inputs: inputs, settings: settings(idle: 5, warm: 1), now: now
         )
-        // Sort is by uuidString ascending for the tie, then we keep the first
-        // (warm) and release the rest, so exactly one is selected.
-        XCTAssertEqual(selected.count, 1)
-        XCTAssertTrue(selected.contains(b))
-        XCTAssertFalse(selected.contains(a))
+        #expect(selected.count == 1)
+        #expect(selected.contains(b))
+        #expect(!selected.contains(a))
     }
 }
