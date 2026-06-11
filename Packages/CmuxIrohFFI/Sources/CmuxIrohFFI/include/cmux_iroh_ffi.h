@@ -98,25 +98,36 @@ CmuxIrohConnection *cmux_iroh_endpoint_connect(
     size_t err_cap);
 
 // Receives up to cap bytes. Returns bytes read (>0), 0 on clean end of
-// stream, or -1 on error.
+// stream, or -1 on error. timeout_ms == 0 blocks indefinitely; a nonzero
+// timeout reports CMUX_IROH_ERROR_TIMEOUT on expiry and loses no data (the
+// read is cancel-safe), so the caller can retry.
 intptr_t cmux_iroh_connection_recv(
     CmuxIrohConnection *connection,
     uint8_t *buf,
     size_t cap,
+    uint64_t timeout_ms,
     int32_t *err_kind,
     char *err_buf,
     size_t err_cap);
 
-// Sends len bytes. Returns 0 on success, -1 on error.
+// Sends len bytes. Returns 0 on success, -1 on error. timeout_ms == 0 blocks
+// until QUIC flow control accepts the bytes; a nonzero timeout reports
+// CMUX_IROH_ERROR_TIMEOUT on expiry. After a send timeout an unknown prefix
+// of the bytes is in flight, so the only safe continuation is
+// cmux_iroh_connection_close.
 int cmux_iroh_connection_send(
     CmuxIrohConnection *connection,
     const uint8_t *bytes,
     size_t len,
+    uint64_t timeout_ms,
     int32_t *err_kind,
     char *err_buf,
     size_t err_cap);
 
-// Closes the connection and frees its handle. Null is a no-op.
+// Closes the connection and frees its handle. Null is a no-op. Bounded even
+// when a send is stalled on flow control (the graceful drain is skipped and
+// the QUIC close forces the stalled write to return). No other call may be
+// in flight on this handle when close runs.
 void cmux_iroh_connection_close(CmuxIrohConnection *connection);
 
 // Closes the endpoint and frees its handle. Null is a no-op.

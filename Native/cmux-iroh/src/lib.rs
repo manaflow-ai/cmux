@@ -608,6 +608,11 @@ unsafe fn connect_impl(
 /// Receives up to `cap` bytes. Returns bytes read (>0), 0 on clean end of
 /// stream, or -1 on error.
 ///
+/// `timeout_ms == 0` blocks until data, end of stream, or a connection error.
+/// A nonzero timeout bounds the wait and reports `Timeout` on expiry; no data
+/// is lost (the QUIC read is cancel-safe), so the caller can retry. Bounded
+/// receives are how a caller regains control to cancel or close.
+///
 /// # Safety
 ///
 /// - `connection`, when non-null, must be a live pointer returned by
@@ -620,6 +625,7 @@ pub unsafe extern "C" fn cmux_iroh_connection_recv(
     connection: *mut CmuxIrohConnection,
     buf: *mut u8,
     cap: usize,
+    timeout_ms: u64,
     err_kind: *mut i32,
     err_buf: *mut c_char,
     err_cap: usize,
@@ -649,7 +655,7 @@ pub unsafe extern "C" fn cmux_iroh_connection_recv(
     }
     // SAFETY: `buf` is non-null and the caller guarantees `cap` writable bytes.
     let slice = unsafe { std::slice::from_raw_parts_mut(buf, cap) };
-    match recv_impl(connection, slice) {
+    match recv_impl(connection, slice, timeout_ms) {
         Ok(read) => isize::try_from(read).unwrap_or(isize::MAX),
         Err(error) => {
             report_error(err_kind, err_buf, err_cap, &error);
@@ -658,11 +664,23 @@ pub unsafe extern "C" fn cmux_iroh_connection_recv(
     }
 }
 
-fn recv_impl(connection: &CmuxIrohConnection, buf: &mut [u8]) -> Result<usize, FfiError> {
+fn recv_impl(
+    connection: &CmuxIrohConnection,
+    buf: &mut [u8],
+    timeout_ms: u64,
+) -> Result<usize, FfiError> {
     let result = runtime()?.block_on(async {
         let mut recv = connection.recv.lock().await;
-        recv.read(buf).await
-    });
+        // RecvStream::read is cancel-safe: dropping the future on timeout
+        // consumes no data, so a bounded receive can simply be retried.
+        if timeout_ms == 0 {
+            Ok(recv.read(buf).await)
+        } else {
+            tokio::time::timeout(Duration::from_millis(timeout_ms), recv.read(buf))
+                .await
+                .map_err(|_| FfiError::new(CmuxIrohErrorKind::Timeout, "recv timed out"))
+        }
+    })?;
     match result {
         Ok(Some(read)) => Ok(read),
         Ok(None) => Ok(0),
@@ -686,6 +704,12 @@ fn recv_impl(connection: &CmuxIrohConnection, buf: &mut [u8]) -> Result<usize, F
 
 /// Sends `len` bytes. Returns 0 on success, -1 on error.
 ///
+/// `timeout_ms == 0` blocks until the bytes are accepted by QUIC flow control.
+/// A nonzero timeout bounds the wait (a peer that stops reading stalls flow
+/// control indefinitely otherwise) and reports `Timeout` on expiry. A timed
+/// out send leaves the stream with an unknown number of bytes written, so the
+/// only safe continuation is `cmux_iroh_connection_close`.
+///
 /// # Safety
 ///
 /// - `connection`, when non-null, must be live (see
@@ -697,6 +721,7 @@ pub unsafe extern "C" fn cmux_iroh_connection_send(
     connection: *mut CmuxIrohConnection,
     bytes: *const u8,
     len: usize,
+    timeout_ms: u64,
     err_kind: *mut i32,
     err_buf: *mut c_char,
     err_cap: usize,
@@ -727,7 +752,7 @@ pub unsafe extern "C" fn cmux_iroh_connection_send(
     // SAFETY: `bytes` is non-null and the caller guarantees `len` readable
     // bytes.
     let slice = unsafe { std::slice::from_raw_parts(bytes, len) };
-    match send_impl(connection, slice) {
+    match send_impl(connection, slice, timeout_ms) {
         Ok(()) => 0,
         Err(error) => {
             report_error(err_kind, err_buf, err_cap, &error);
@@ -736,11 +761,24 @@ pub unsafe extern "C" fn cmux_iroh_connection_send(
     }
 }
 
-fn send_impl(connection: &CmuxIrohConnection, bytes: &[u8]) -> Result<(), FfiError> {
+fn send_impl(
+    connection: &CmuxIrohConnection,
+    bytes: &[u8],
+    timeout_ms: u64,
+) -> Result<(), FfiError> {
     let result = runtime()?.block_on(async {
         let mut send = connection.send.lock().await;
-        send.write_all(bytes).await
-    });
+        if timeout_ms == 0 {
+            Ok(send.write_all(bytes).await)
+        } else {
+            // write_all is NOT cancel-safe: on timeout an unknown prefix of
+            // `bytes` is in flight. The doc comment requires callers to close
+            // the connection after a send timeout.
+            tokio::time::timeout(Duration::from_millis(timeout_ms), send.write_all(bytes))
+                .await
+                .map_err(|_| FfiError::new(CmuxIrohErrorKind::Timeout, "send timed out"))
+        }
+    })?;
     result.map_err(|error| match error {
         WriteError::ConnectionLost(_) => FfiError::new(
             CmuxIrohErrorKind::ConnectionLost,
@@ -762,10 +800,18 @@ fn send_impl(connection: &CmuxIrohConnection, bytes: &[u8]) -> Result<(), FfiErr
 /// acknowledges receipt of all finished stream data, so wait for it (bounded,
 /// so a vanished peer cannot wedge close) before closing the connection.
 ///
+/// Close is itself bounded: acquiring the send stream waits at most 5s, so a
+/// send stalled on flow control (only possible when the caller passed
+/// `timeout_ms == 0`) cannot wedge close. In that case the graceful drain is
+/// skipped and `Connection::close` fires immediately, which also forces the
+/// stalled `write_all` to return `ConnectionLost`.
+///
 /// # Safety
 ///
 /// `connection`, when non-null, must be a live pointer returned by this
-/// library; it must not be used after this call.
+/// library; it must not be used after this call, and no other call may be in
+/// flight on this handle when close runs (use bounded recv/send timeouts to
+/// regain control first).
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn cmux_iroh_connection_close(connection: *mut CmuxIrohConnection) {
     if connection.is_null() {
@@ -777,11 +823,12 @@ pub unsafe extern "C" fn cmux_iroh_connection_close(connection: *mut CmuxIrohCon
         return;
     };
     runtime.block_on(async {
-        let mut send = connection.send.lock().await;
-        if send.finish().is_ok() {
+        if let Ok(mut send) =
+            tokio::time::timeout(Duration::from_secs(5), connection.send.lock()).await
+            && send.finish().is_ok()
+        {
             let _ = tokio::time::timeout(Duration::from_secs(5), send.stopped()).await;
         }
-        drop(send);
         connection.connection.close(0u32.into(), b"close");
     });
 }
@@ -1089,6 +1136,7 @@ mod ffi_seam_tests {
                     connection,
                     buf.as_mut_ptr(),
                     buf.len(),
+                    30_000,
                     &raw mut err.kind,
                     err.buf.as_mut_ptr(),
                     ERR_CAP,
@@ -1102,6 +1150,7 @@ mod ffi_seam_tests {
                     connection,
                     buf.as_ptr(),
                     read,
+                    30_000,
                     &raw mut err.kind,
                     err.buf.as_mut_ptr(),
                     ERR_CAP,
@@ -1117,6 +1166,7 @@ mod ffi_seam_tests {
                     connection,
                     buf.as_mut_ptr(),
                     buf.len(),
+                    30_000,
                     &raw mut err.kind,
                     err.buf.as_mut_ptr(),
                     ERR_CAP,
@@ -1169,6 +1219,7 @@ mod ffi_seam_tests {
                 connection,
                 payload.as_ptr(),
                 payload.len(),
+                30_000,
                 &raw mut err.kind,
                 err.buf.as_mut_ptr(),
                 ERR_CAP,
@@ -1185,6 +1236,7 @@ mod ffi_seam_tests {
                     connection,
                     buf.as_mut_ptr(),
                     buf.len(),
+                    30_000,
                     &raw mut err.kind,
                     err.buf.as_mut_ptr(),
                     ERR_CAP,
@@ -1217,6 +1269,7 @@ mod ffi_seam_tests {
                 ptr::null_mut(),
                 buf.as_mut_ptr(),
                 buf.len(),
+                0,
                 &raw mut err.kind,
                 err.buf.as_mut_ptr(),
                 ERR_CAP,
@@ -1231,6 +1284,7 @@ mod ffi_seam_tests {
                 ptr::null_mut(),
                 buf.as_ptr(),
                 buf.len(),
+                0,
                 &raw mut err.kind,
                 err.buf.as_mut_ptr(),
                 ERR_CAP,
@@ -1238,6 +1292,138 @@ mod ffi_seam_tests {
         };
         assert_eq!(rc, -1);
         assert_eq!(err.kind(), CmuxIrohErrorKind::InvalidArgument as i32);
+    }
+
+    #[test]
+    #[allow(
+        clippy::too_many_lines,
+        reason = "one deliberate scenario: silent peer, bounded recv times out twice, clean close"
+    )]
+    fn recv_with_timeout_reports_timeout_kind_and_is_retryable() {
+        let listener_key = generate_key();
+        let dialer_key = generate_key();
+        let listener = bind(&listener_key, true);
+        let dialer = bind(&dialer_key, false);
+
+        let listener_id = take_string(unsafe { cmux_iroh_endpoint_id(listener) });
+        let route = take_string(unsafe { cmux_iroh_endpoint_route_json(listener) });
+        let parsed: serde_json::Value = serde_json::from_str(&route).expect("route JSON parses");
+        let direct_addrs: Vec<String> = parsed["endpoint"]["direct_addrs"]
+            .as_array()
+            .expect("direct_addrs is an array")
+            .iter()
+            .map(|value| value.as_str().expect("addr is a string").to_owned())
+            .collect();
+
+        let listener_ptr = ListenerPtr(listener);
+        let accept_thread = std::thread::spawn(move || {
+            let listener = listener_ptr;
+            let mut err = ErrOut::new();
+            let connection = unsafe {
+                cmux_iroh_endpoint_accept(
+                    listener.0,
+                    30_000,
+                    &raw mut err.kind,
+                    err.buf.as_mut_ptr(),
+                    ERR_CAP,
+                )
+            };
+            assert!(!connection.is_null(), "accept: {}", err.message());
+            // Read the opener byte, then send nothing: the dialer's bounded
+            // recv must time out. Wait for the dialer's close (EOF) before
+            // closing so the timing is deterministic.
+            let mut buf = [0u8; 8];
+            let mut err = ErrOut::new();
+            let read = unsafe {
+                cmux_iroh_connection_recv(
+                    connection,
+                    buf.as_mut_ptr(),
+                    buf.len(),
+                    30_000,
+                    &raw mut err.kind,
+                    err.buf.as_mut_ptr(),
+                    ERR_CAP,
+                )
+            };
+            assert_eq!(read, 1, "listener reads the opener byte");
+            let mut err = ErrOut::new();
+            let read = unsafe {
+                cmux_iroh_connection_recv(
+                    connection,
+                    buf.as_mut_ptr(),
+                    buf.len(),
+                    30_000,
+                    &raw mut err.kind,
+                    err.buf.as_mut_ptr(),
+                    ERR_CAP,
+                )
+            };
+            assert_eq!(read, 0, "dialer close reads as EOF");
+            unsafe { cmux_iroh_connection_close(connection) };
+        });
+
+        let id_cstr = CString::new(listener_id).expect("cstring");
+        let addr_cstrs: Vec<CString> = direct_addrs
+            .iter()
+            .map(|addr| CString::new(addr.as_str()).expect("cstring"))
+            .collect();
+        let addr_ptrs: Vec<*const c_char> = addr_cstrs.iter().map(|addr| addr.as_ptr()).collect();
+        let mut err = ErrOut::new();
+        let connection = unsafe {
+            cmux_iroh_endpoint_connect(
+                dialer,
+                id_cstr.as_ptr(),
+                ptr::null(),
+                addr_ptrs.as_ptr(),
+                addr_ptrs.len(),
+                30_000,
+                &raw mut err.kind,
+                err.buf.as_mut_ptr(),
+                ERR_CAP,
+            )
+        };
+        assert!(!connection.is_null(), "connect: {}", err.message());
+
+        // Open the stream so the listener's accept_bi resolves.
+        let opener = [0x42u8; 1];
+        let mut err = ErrOut::new();
+        let rc = unsafe {
+            cmux_iroh_connection_send(
+                connection,
+                opener.as_ptr(),
+                opener.len(),
+                30_000,
+                &raw mut err.kind,
+                err.buf.as_mut_ptr(),
+                ERR_CAP,
+            )
+        };
+        assert_eq!(rc, 0, "opener send: {}", err.message());
+
+        // The listener sends nothing, so a bounded recv must report Timeout
+        // (not EOF, not a stream error) and stay retryable.
+        for _ in 0..2 {
+            let mut buf = [0u8; 8];
+            let mut err = ErrOut::new();
+            let read = unsafe {
+                cmux_iroh_connection_recv(
+                    connection,
+                    buf.as_mut_ptr(),
+                    buf.len(),
+                    150,
+                    &raw mut err.kind,
+                    err.buf.as_mut_ptr(),
+                    ERR_CAP,
+                )
+            };
+            assert_eq!(read, -1, "bounded recv with silent peer fails");
+            assert_eq!(err.kind(), CmuxIrohErrorKind::Timeout as i32);
+        }
+
+        unsafe { cmux_iroh_connection_close(connection) };
+        accept_thread.join().expect("accept thread joins cleanly");
+        unsafe { cmux_iroh_endpoint_close(dialer) };
+        unsafe { cmux_iroh_endpoint_close(listener) };
     }
 
     /// Raw endpoint pointer that may cross threads: the underlying iroh endpoint
