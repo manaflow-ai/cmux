@@ -167,4 +167,4 @@ Browser relay behavior:
 Workspace group relay behavior:
 
 1. `cmux workspace group <sub>` (and the `cmux workspace-group <sub>` alias) maps to the `workspace.group.*` v2 methods, with the same subcommands and flags as the macOS CLI: `list`, `create`, `ungroup`, `delete`, `rename`, `collapse`, `expand`, `pin`, `unpin`, `add`, `remove`, `set-anchor`, `new-workspace`, `set-color`, `set-icon`, `move`, and `focus`.
-2. The group id comes from `--group <id>` or the first positional argument and accepts UUIDs or refs such as `workspace_group:1`.
+2. The group id comes from `--group <id>` or the first positional argument and accepts UUIDs or refs such as `workspace_group:1`. Like the macOS CLI, `add` and `set-anchor` require explicit `--group <id> --workspace <id>`.
