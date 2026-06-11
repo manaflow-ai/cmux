@@ -154,7 +154,7 @@ struct TerminalComposerView: View {
     private var composerBar: some View {
         HStack(alignment: .bottom, spacing: 8) {
             Button {
-                store.toggleComposer()
+                store.toggleComposer(forTerminalID: terminalID)
             } label: {
                 Image(systemName: "chevron.down")
                     .font(.system(size: 15, weight: .semibold))

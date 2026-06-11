@@ -2175,12 +2175,19 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// the user explicitly dismissed it on this terminal and tapped compose again
     /// — an unambiguous "I want to compose" intent, so it also requests field
     /// focus (the default-open presentation deliberately does not).
-    public func toggleComposer() {
+    /// - Parameter terminalID: The terminal whose composer the caller is acting
+    ///   on (the surface's own id). The focus handshake is keyed to it so the
+    ///   composer view serving that terminal — and only it — consumes the
+    ///   request. `nil` falls back to the selected terminal; the rendered
+    ///   terminal can diverge from the selection (the detail view falls back to
+    ///   the workspace's first terminal), so callers that know their surface
+    ///   should always pass it.
+    public func toggleComposer(forTerminalID terminalID: String? = nil) {
         if isComposerPresented {
             setComposerPresented(false)
         } else {
             setComposerPresented(true)
-            requestComposerFieldFocus()
+            requestComposerFieldFocus(forTerminalID: terminalID)
         }
     }
 
@@ -2193,9 +2200,13 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// ever raised here (never dismissed), so a still-presented composer and its
     /// draft are preserved; the focus token is always bumped so the field re-focuses
     /// even when the presented flag did not change.
-    public func presentAndFocusComposer() {
+    /// - Parameter terminalID: The terminal whose composer should take focus
+    ///   (the requesting surface's own id); `nil` falls back to the selected
+    ///   terminal. See ``toggleComposer(forTerminalID:)`` for why the explicit
+    ///   id matters.
+    public func presentAndFocusComposer(forTerminalID terminalID: String? = nil) {
         setComposerPresented(true)
-        requestComposerFieldFocus()
+        requestComposerFieldFocus(forTerminalID: terminalID)
     }
 
     /// Explicitly dismiss the iMessage-style composer for the selected terminal,
@@ -2239,11 +2250,14 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
 
     /// Ask the composer field to take focus: bump the token the mounted view
     /// observes and arm the pending flag a not-yet-mounted view consumes on
-    /// appear, keyed to the currently selected terminal.
-    private func requestComposerFieldFocus() {
+    /// appear, keyed to `terminalID` (`nil` = the currently selected terminal).
+    /// Callers acting on a concrete surface pass that surface's id so the
+    /// request always matches the composer view that will consume it, even
+    /// when the rendered terminal and the store selection diverge.
+    private func requestComposerFieldFocus(forTerminalID terminalID: String? = nil) {
         composerFocusRequest &+= 1
         composerFocusRequestPending = true
-        composerFocusRequestTerminalID = selectedTerminalID?.rawValue
+        composerFocusRequestTerminalID = terminalID ?? selectedTerminalID?.rawValue
     }
 
     /// Single mutation path for the per-terminal presented state (the dismissed

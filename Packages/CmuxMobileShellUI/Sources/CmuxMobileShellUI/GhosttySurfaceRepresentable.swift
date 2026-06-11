@@ -319,8 +319,8 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
             // presents/dismisses the iMessage-style composer. The reveal-and-focus
             // case routes through `...DidRequestComposerFocus` instead, so this never
             // closes a still-presented-but-suppressed composer.
-            Task { @MainActor [weak store] in
-                store?.toggleComposer()
+            Task { @MainActor [weak store, surfaceID] in
+                store?.toggleComposer(forTerminalID: surfaceID)
             }
         }
 
@@ -329,8 +329,8 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
             // re-focused, without dismissing it — the reveal-after-hide and
             // present-while-suppressed paths. Ensure-present + bump the focus token the
             // composer view observes, so the draft and its focus return together.
-            Task { @MainActor [weak store] in
-                store?.presentAndFocusComposer()
+            Task { @MainActor [weak store, surfaceID] in
+                store?.presentAndFocusComposer(forTerminalID: surfaceID)
             }
         }
 

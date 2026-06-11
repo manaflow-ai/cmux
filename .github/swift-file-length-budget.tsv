@@ -23,7 +23,7 @@
 5448	Sources/cmuxApp.swift
 4460	Sources/Panels/FilePreviewPanel.swift
 4400	cmuxTests/BrowserPanelTests.swift
-4274	Packages/CmuxMobileShell/Sources/CmuxMobileShell/MobileShellComposite.swift
+4288	Packages/CmuxMobileShell/Sources/CmuxMobileShell/MobileShellComposite.swift
 4227	Sources/BrowserWindowPortal.swift
 4009	cmuxTests/WindowAndDragTests.swift
 3937	Sources/Feed/FeedPanelView.swift
