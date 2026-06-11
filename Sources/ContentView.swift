@@ -18007,6 +18007,18 @@ struct SidebarTabDropDelegate: DropDelegate {
             let didMove = performCrossWindowDrop(draggedTabId: draggedTabId)
             return didMove ? true : abortDrop()
         }
+        // Same rule as the live-reorder hover path: a nil indicator over a row
+        // means the planner resolved "the dragged row already sits at the
+        // pointer's insertion point", i.e. the live reorder has already
+        // produced the final order. Recomputing targetIndex below would fall
+        // back to preferredEdge and move the row back across the target at
+        // drop time. Commit as a no-op instead.
+        if targetTabId != nil, dragState.dropIndicator == nil {
+#if DEBUG
+            cmuxDebugLog("sidebar.drop.noop reason=nilIndicatorAlreadyPlaced")
+#endif
+            return true
+        }
         let usesTopLevelRows = tabManager.sidebarReorderUsesTopLevelRows(
             forDraggedWorkspaceId: draggedTabId,
             targetWorkspaceId: targetTabId
