@@ -116,6 +116,11 @@ done
 
 [[ "$LANE" == "beta" ]] || die "only the beta lane is supported"
 [[ "$TAG" =~ ^[A-Za-z0-9._-]+$ ]] || die "invalid tag: $TAG"
+# Validate the override eagerly: a malformed value (or a flag swallowed by
+# `--marketing-version --external`) must fail here, not as a silent no-op or
+# a rejected archive 25 minutes into a fleet build.
+[[ -z "$MARKETING_VERSION_OVERRIDE" || "$MARKETING_VERSION_OVERRIDE" =~ ^[0-9]+(\.[0-9]+){1,2}$ ]] \
+  || die "invalid --marketing-version (want X.Y or X.Y.Z): $MARKETING_VERSION_OVERRIDE"
 [[ -d "$IOS_DIR/cmux.xcworkspace" ]] || die "run from a cmux checkout containing ios/cmux.xcworkspace"
 
 # --- locate the hq cloud build script (mirrors ios/scripts/reload-cloud.sh) ---
@@ -149,7 +154,14 @@ build_archive_cloud() {
   log="$(mktemp "${TMPDIR:-/tmp}/cloud-testflight-cloud.XXXXXX")"
   err "building UNSIGNED Release beta archive on the fleet via $hq_cloud"
   local args=( --mode beta-archive --tag "$TAG" --keep-artifacts --beta-bundle-id "$BETA_BUNDLE_ID" )
-  [[ -n "$MARKETING_VERSION_OVERRIDE" ]] && export BETA_MARKETING_VERSION="$MARKETING_VERSION_OVERRIDE"
+  # Pin BETA_MARKETING_VERSION to exactly the requested override; explicitly
+  # unset otherwise so a stray value already in the caller's environment can
+  # not leak into the cloud build and desync it from a local cut.
+  if [[ -n "$MARKETING_VERSION_OVERRIDE" ]]; then
+    export BETA_MARKETING_VERSION="$MARKETING_VERSION_OVERRIDE"
+  else
+    unset BETA_MARKETING_VERSION
+  fi
   [[ -n "$HOST_FILTER" ]] && args+=( --host "$HOST_FILTER" )
   [[ "$WAIT_SECONDS" =~ ^[0-9]+$ && "$WAIT_SECONDS" -gt 0 ]] && args+=( --wait "$WAIT_SECONDS" )
   # Run from the repo root so the hq script's "run from a cmux checkout" check and
