@@ -3492,13 +3492,22 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     ///   mounted surface or the read fails.
     public static func copyableTerminalText(surfaceID: String) async -> String? {
         registeredSurfaceViews = registeredSurfaceViews.filter { $0.value.value != nil }
-        // Scoped pick: only views stamped with the requested id qualify. If
-        // the same terminal is mounted in several scenes the contents are
-        // identical, so the lowest-keyed match keeps the pick deterministic.
+        // Scoped pick: only views stamped with the requested id qualify, and
+        // only while actually on screen (same visibility filter as
+        // `visibleTerminalSnapshot()`). A dismantling view can linger in the
+        // registry with a non-nil surface until its queued dispose runs, and
+        // its content stops at whenever its byte stream detached — prefer the
+        // sheet's honest empty state over silently copying that stale text.
+        // If the same terminal is mounted in several scenes the contents are
+        // identical, so the lowest-keyed visible match keeps the pick
+        // deterministic.
         let matchingView = registeredSurfaceViews
             .sorted { $0.key < $1.key }
             .compactMap(\.value.value)
-            .first { $0.hostSurfaceID == surfaceID && $0.surface != nil }
+            .first {
+                $0.hostSurfaceID == surfaceID && $0.surface != nil
+                    && $0.window != nil && !$0.isHidden && $0.alpha > 0.01
+            }
         guard let surface = matchingView?.surface else { return nil }
         let handle = CopyableTextSurfaceHandle(surface: surface)
         return await withCheckedContinuation { continuation in
