@@ -79,6 +79,11 @@ export function EditorApp({
       tokenization?.forceTokenization?.(Math.min(model.getLineCount(), 2000));
       editor.render(true);
       node.dataset.cmuxEditorReady = "true";
+      // Autofocus so the user can type immediately on open without a click.
+      // Focusing Monaco inside a non-key webview does not steal OS focus, so
+      // when the tab becomes key the editor already holds the caret. Deferred
+      // one frame so focus lands after the initial layout/paint.
+      requestAnimationFrame(() => editor.focus());
 
       let contentListener: monaco.IDisposable | null = null;
       let removeSaveShortcut: (() => void) | null = null;
