@@ -21,7 +21,7 @@ import CmuxGit
         return service
     }
 
-    private func badge(number: Int, status: PullRequestStatus, branch: String? = "main") -> SidebarPullRequestBadge {
+    private func badge(number: Int, status: PullRequestStatus, branch: String? = "feature/x") -> SidebarPullRequestBadge {
         SidebarPullRequestBadge(
             number: number,
             label: "PR",
@@ -38,7 +38,7 @@ import CmuxGit
         let host = RecordingSidebarGitHost()
         host.pollingEnabled = true
         let (workspaceId, panelId) = host.addWorkspace(panelDirectory: nil)
-        host.workspaces[0].state.panels[panelId]?.branch = SidebarPanelGitBranch(branch: "main", isDirty: false)
+        host.workspaces[0].state.panels[panelId]?.branch = SidebarPanelGitBranch(branch: "feature/x", isDirty: false)
         host.workspaces[0].state.panels[panelId]?.badge = badge(number: 7, status: .open)
         let clock = ManualGitPollClock()
         let service = makeService(host: host, clock: clock)
