@@ -701,6 +701,23 @@ final class TerminalPanel: Panel, ObservableObject {
         return surface.performBindingAction(action)
     }
 
+    /// Returns the next terminal output row to use when reopening future notifications.
+    ///
+    /// - Returns: A notification open anchor for this terminal, if Ghostty has reported scroll state.
+    func notificationOpenAnchor() -> TerminalNotificationOpenAnchor? {
+        hostedView.notificationOpenAnchor()
+    }
+
+    /// Scrolls the terminal back to a prompt-submit turn-start anchor after notification focus.
+    ///
+    /// - Parameter anchor: The absolute turn-start anchor captured when the prompt was submitted.
+    /// - Returns: `true` if the scroll action was sent to Ghostty.
+    @discardableResult
+    func scrollToNotificationOpenAnchor(_ anchor: TerminalNotificationOpenAnchor) -> Bool {
+        guard !isAgentHibernated else { return false }
+        return hostedView.scrollToNotificationOpenAnchor(anchor)
+    }
+
     private func resumeForExplicitInputIfNeeded() {
         guard isAgentHibernated else { return }
         _ = requestAgentHibernationResume(focus: false)

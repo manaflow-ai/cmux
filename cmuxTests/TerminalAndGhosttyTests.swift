@@ -3961,6 +3961,21 @@ final class GhosttySurfaceOverlayTests: XCTestCase {
         }
     }
 
+    private final class BindingActionProbeSurfaceView: GhosttyNSView {
+        private(set) var performedBindingActions: [String] = []
+        var bindingActionResults: [Bool] = []
+
+        /// Records Ghostty binding actions without sending them to a real surface.
+        ///
+        /// - Parameter action: Ghostty binding action requested by the scroll view.
+        /// - Returns: The next configured result, or `true` when no result is configured.
+        override func performBindingAction(_ action: String) -> Bool {
+            performedBindingActions.append(action)
+            guard !bindingActionResults.isEmpty else { return true }
+            return bindingActionResults.removeFirst()
+        }
+    }
+
     private final class KeyStatusTestWindow: NSWindow {
         override var isKeyWindow: Bool { true }
     }
@@ -3973,6 +3988,117 @@ final class GhosttySurfaceOverlayTests: XCTestCase {
                 len: len
             )
         )
+    }
+
+    /// Verifies prompt-submit anchors point at the next terminal output row.
+    func testNotificationOpenAnchorCapturesTurnStartInsteadOfViewportTop() {
+        let surfaceView = BindingActionProbeSurfaceView(frame: NSRect(x: 0, y: 0, width: 160, height: 120))
+        surfaceView.scrollbar = makeScrollbar(total: 240, offset: 64, len: 20)
+        let hostedView = GhosttySurfaceScrollView(surfaceView: surfaceView)
+
+        XCTAssertEqual(hostedView.notificationOpenAnchor()?.scrollbarOffset, 240)
+    }
+
+    func testNotificationOpenAnchorConvertsAbsoluteScrollOffsetToGhosttyRow() {
+        let anchor = TerminalNotificationOpenAnchor(scrollbarOffset: 80)
+        let scrollbar = makeScrollbar(total: 150, offset: 130, len: 20)
+
+        XCTAssertEqual(
+            GhosttySurfaceScrollView.notificationOpenScrollRow(
+                for: anchor,
+                scrollbar: scrollbar
+            ),
+            50
+        )
+    }
+
+    func testNotificationOpenAnchorClampsPastBottomToBottomRow() {
+        let anchor = TerminalNotificationOpenAnchor(scrollbarOffset: 140)
+        let scrollbar = makeScrollbar(total: 150, offset: 130, len: 20)
+
+        XCTAssertEqual(
+            GhosttySurfaceScrollView.notificationOpenScrollRow(
+                for: anchor,
+                scrollbar: scrollbar
+            ),
+            0
+        )
+    }
+
+    /// Verifies notification reopen scrolling is queued until Ghostty publishes scrollbar state.
+    func testNotificationOpenAnchorWaitsForScrollbarBeforeScrolling() {
+        let surfaceView = BindingActionProbeSurfaceView(frame: NSRect(x: 0, y: 0, width: 160, height: 120))
+        let hostedView = GhosttySurfaceScrollView(surfaceView: surfaceView)
+        let anchor = TerminalNotificationOpenAnchor(scrollbarOffset: 80)
+
+        XCTAssertTrue(hostedView.scrollToNotificationOpenAnchor(anchor))
+        XCTAssertTrue(surfaceView.performedBindingActions.isEmpty)
+
+        NotificationCenter.default.post(
+            name: .ghosttyDidUpdateScrollbar,
+            object: surfaceView,
+            userInfo: [GhosttyNotificationKey.scrollbar: makeScrollbar(total: 150, offset: 130, len: 20)]
+        )
+        RunLoop.current.run(until: Date().addingTimeInterval(0.01))
+
+        XCTAssertEqual(surfaceView.performedBindingActions, ["scroll_to_row:50"])
+    }
+
+    /// Verifies failed notification-open dispatch does not suppress a later live-scroll dispatch.
+    func testNotificationOpenAnchorFailureDoesNotMarkRowAsSent() {
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 360, height: 240),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        defer { window.orderOut(nil) }
+
+        guard let contentView = window.contentView else {
+            XCTFail("Expected content view")
+            return
+        }
+
+        let surfaceView = BindingActionProbeSurfaceView(frame: NSRect(x: 0, y: 0, width: 160, height: 120))
+        surfaceView.cellSize = CGSize(width: 10, height: 10)
+        surfaceView.bindingActionResults = [false, true]
+        let hostedView = GhosttySurfaceScrollView(surfaceView: surfaceView)
+        hostedView.frame = contentView.bounds
+        hostedView.autoresizingMask = [.width, .height]
+        contentView.addSubview(hostedView)
+
+        window.makeKeyAndOrderFront(nil)
+        window.displayIfNeeded()
+        contentView.layoutSubtreeIfNeeded()
+        hostedView.layoutSubtreeIfNeeded()
+        RunLoop.current.run(until: Date().addingTimeInterval(0.05))
+
+        guard let scrollView = hostedView.subviews.first(where: { $0 is NSScrollView }) as? NSScrollView else {
+            XCTFail("Expected hosted terminal scroll view")
+            return
+        }
+
+        NotificationCenter.default.post(
+            name: .ghosttyDidUpdateScrollbar,
+            object: surfaceView,
+            userInfo: [GhosttyNotificationKey.scrollbar: makeScrollbar(total: 100, offset: 90, len: 10)]
+        )
+        RunLoop.current.run(until: Date().addingTimeInterval(0.01))
+
+        let anchor = TerminalNotificationOpenAnchor(scrollbarOffset: 40)
+        XCTAssertFalse(hostedView.scrollToNotificationOpenAnchor(anchor))
+        XCTAssertEqual(surfaceView.performedBindingActions, ["scroll_to_row:50"])
+
+        let row = 50
+        let documentHeight = scrollView.documentView?.frame.height ?? scrollView.contentSize.height
+        let visibleHeight = scrollView.contentView.bounds.height
+        let targetY = documentHeight - (CGFloat(row) * surfaceView.cellSize.height) - visibleHeight
+        scrollView.contentView.scroll(to: CGPoint(x: 0, y: max(0, targetY)))
+        scrollView.reflectScrolledClipView(scrollView.contentView)
+        NotificationCenter.default.post(name: NSScrollView.didLiveScrollNotification, object: scrollView)
+        RunLoop.current.run(until: Date().addingTimeInterval(0.01))
+
+        XCTAssertEqual(surfaceView.performedBindingActions, ["scroll_to_row:50", "scroll_to_row:50"])
     }
 
     override func tearDown() {

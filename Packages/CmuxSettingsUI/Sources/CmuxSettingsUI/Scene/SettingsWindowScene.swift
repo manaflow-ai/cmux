@@ -70,6 +70,13 @@ public struct SettingsWindowRoot: View {
     // and re-checked inside the scheduled `Task { @MainActor in ... }`,
     // so only the most recent request actually scrolls.
     @State private var settingsNavigationGeneration: Int = 0
+    // Prevents the reverse "visible section -> sidebar selection" sync from
+    // racing the restored or clicked navigation target while `scrollTo` is
+    // still settling. It starts true so first-layout frame reports cannot
+    // overwrite the SceneStorage-restored section before `onAppear` scrolls
+    // there.
+    @State private var visibleSectionSyncSuppressed: Bool = true
+    @State private var latestSectionFrames: [SettingsSectionID: CGRect] = [:]
     // Drives the "flash the navigated-to row" affordance the legacy
     // settings window had. When the user clicks a search hit, the target
     // row pulses an accent border for a few seconds so the eye can find
@@ -146,6 +153,7 @@ public struct SettingsWindowRoot: View {
             // selected.
             guard newValue.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
             selectedSidebarEntryID = sectionEntryID(for: selectedSection)
+            syncSidebarSelectionToVisibleSection(latestSectionFrames)
         }
     }
 
@@ -187,9 +195,11 @@ public struct SettingsWindowRoot: View {
             } else {
                 ForEach(matches) { entry in
                     SettingsSidebarEntryRow(
+                        id: entry.id,
                         title: entry.title,
                         symbolName: entry.symbolName,
-                        subtitle: subtitle(for: entry)
+                        subtitle: subtitle(for: entry),
+                        isSelected: selectedSidebarEntryID == entry.id
                     )
                     .tag(entry.id)
                 }
@@ -341,7 +351,13 @@ public struct SettingsWindowRoot: View {
                     .padding(.top, 20)
                     .padding(.bottom, 20)
                 }
+                .coordinateSpace(name: SettingsSectionVisibilityCoordinateSpace.name)
+                .accessibilityIdentifier("SettingsDetailScrollView")
                 .toggleStyle(.switch)
+                .onPreferenceChange(SettingsSectionFramePreferenceKey.self) { frames in
+                    latestSectionFrames = frames
+                    syncSidebarSelectionToVisibleSection(frames)
+                }
                 .onAppear {
                     // Legacy SettingsView.onAppear scrolls to the restored
                     // section so reopening the Settings window lands on
@@ -392,6 +408,7 @@ public struct SettingsWindowRoot: View {
         let sectionID = self.anchorID(for: target)
         settingsNavigationGeneration += 1
         let navigationGeneration = settingsNavigationGeneration
+        visibleSectionSyncSuppressed = true
         // Arm (or clear) the highlight before the scroll so the pulse is
         // already live when the target lands in view. A section hit
         // (anchorID == sectionID) highlights the section header; a row
@@ -422,6 +439,30 @@ public struct SettingsWindowRoot: View {
         Task { @MainActor in
             guard navigationGeneration == settingsNavigationGeneration else { return }
             proxy.scrollTo(anchorID, anchor: anchor)
+            await Task.yield()
+            guard navigationGeneration == settingsNavigationGeneration else { return }
+            visibleSectionSyncSuppressed = false
+        }
+    }
+
+    /// Syncs the sidebar's selected row to the currently visible detail section.
+    ///
+    /// - Parameter frames: Section frames reported in the settings detail scroll
+    ///   coordinate space.
+    private func syncSidebarSelectionToVisibleSection(_ frames: [SettingsSectionID: CGRect]) {
+        guard !visibleSectionSyncSuppressed else { return }
+        // Search results can select a specific setting row, not just a section.
+        // Keep that deep selection stable until the search query is cleared.
+        guard !isSearching else { return }
+        guard let visibleSection = SettingsVisibleSectionResolver.visibleSection(in: frames) else { return }
+
+        if selectedSectionRaw != visibleSection.rawValue {
+            selectedSectionRaw = visibleSection.rawValue
+        }
+
+        let sidebarEntryID = sectionEntryID(for: visibleSection)
+        if selectedSidebarEntryID != sidebarEntryID {
+            selectedSidebarEntryID = sidebarEntryID
         }
     }
 
@@ -436,6 +477,7 @@ public struct SettingsWindowRoot: View {
             catalog: catalog,
             accountFlow: accountFlow
         )
+        .settingsSectionVisibility(.account)
         .id(anchorID(for: .account))
 
         AppSection(
@@ -443,6 +485,7 @@ public struct SettingsWindowRoot: View {
             catalog: catalog,
             hostActions: hostActions
         )
+        .settingsSectionVisibility(.app)
         .id(anchorID(for: .app))
 
         TerminalSection(
@@ -451,18 +494,23 @@ public struct SettingsWindowRoot: View {
             catalog: catalog,
             hostActions: hostActions
         )
+        .settingsSectionVisibility(.terminal)
         .id(anchorID(for: .terminal))
 
         TextBoxSection(defaultsStore: defaultsStore, catalog: catalog)
+            .settingsSectionVisibility(.textBox)
             .id(anchorID(for: .textBox))
 
         MobileSection(defaultsStore: defaultsStore, catalog: catalog, hostActions: hostActions)
+            .settingsSectionVisibility(.mobile)
             .id(anchorID(for: .mobile))
 
         SidebarSection(defaultsStore: defaultsStore, catalog: catalog, hostActions: hostActions)
+            .settingsSectionVisibility(.sidebarAppearance)
             .id(anchorID(for: .sidebarAppearance))
 
         BetaFeaturesSection(defaultsStore: defaultsStore, catalog: catalog)
+            .settingsSectionVisibility(.betaFeatures)
             .id(anchorID(for: .betaFeatures))
 
         AutomationSection(
@@ -472,6 +520,7 @@ public struct SettingsWindowRoot: View {
             catalog: catalog,
             errorLog: runtime.errorLog
         )
+        .settingsSectionVisibility(.automation)
         .id(anchorID(for: .automation))
 
         BrowserSection(
@@ -480,6 +529,7 @@ public struct SettingsWindowRoot: View {
             hostActions: hostActions,
             importAnchorID: anchorID(for: .browserImport)
         )
+        .settingsSectionVisibility(.browser)
         .id(anchorID(for: .browser))
 
         GlobalHotkeySection(
@@ -488,6 +538,7 @@ public struct SettingsWindowRoot: View {
             catalog: catalog,
             errorLog: runtime.errorLog
         )
+        .settingsSectionVisibility(.globalHotkey)
         .id(anchorID(for: .globalHotkey))
 
         KeyboardShortcutsSection(
@@ -496,6 +547,7 @@ public struct SettingsWindowRoot: View {
             errorLog: runtime.errorLog,
             hostActions: hostActions
         )
+        .settingsSectionVisibility(.keyboardShortcuts)
         .id(anchorID(for: .keyboardShortcuts))
 
         WorkspaceColorsSection(
@@ -504,9 +556,11 @@ public struct SettingsWindowRoot: View {
             catalog: catalog,
             errorLog: runtime.errorLog
         )
+        .settingsSectionVisibility(.workspaceColors)
         .id(anchorID(for: .workspaceColors))
 
         SettingsJSONSection(jsonStore: jsonStore, hostActions: hostActions)
+            .settingsSectionVisibility(.settingsJSON)
             .id(anchorID(for: .settingsJSON))
 
         ResetSection(
@@ -514,6 +568,7 @@ public struct SettingsWindowRoot: View {
             jsonStore: jsonStore,
             catalog: catalog
         )
+        .settingsSectionVisibility(.reset)
         .id(anchorID(for: .reset))
     }
 

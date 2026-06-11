@@ -12432,6 +12432,7 @@ final class GhosttySurfaceScrollView: NSView {
     private var userScrolledAwayFromBottom = false
     private var pendingExplicitWheelScroll = false
     private var allowExplicitScrollbarSync = false
+    private var pendingNotificationOpenAnchor: TerminalNotificationOpenAnchor?
     /// Threshold in points from bottom to consider "at bottom" (allows for minor float drift)
     private static let scrollToBottomThreshold: CGFloat = 5.0
     private var isActive = true
@@ -15379,6 +15380,74 @@ final class GhosttySurfaceScrollView: NSView {
         layer.path = CGPath(roundedRect: rect, cornerWidth: radius, cornerHeight: radius, transform: nil)
     }
 
+    /// Returns the next terminal output row for later notification reopening.
+    ///
+    /// - Returns: A notification open anchor, or `nil` until Ghostty reports scrollbar state.
+    func notificationOpenAnchor() -> TerminalNotificationOpenAnchor? {
+        guard let scrollbar = surfaceView.scrollbar else { return nil }
+        return TerminalNotificationOpenAnchor(scrollbarOffset: scrollbar.total)
+    }
+
+    /// Converts a saved absolute turn-start row into Ghostty's bottom-relative scroll row.
+    ///
+    /// - Parameters:
+    ///   - anchor: Prompt-submit anchor containing the absolute turn-start row.
+    ///   - scrollbar: Current Ghostty scrollbar state.
+    /// - Returns: Bottom-relative row count suitable for `scroll_to_row:<row>`.
+    static func notificationOpenScrollRow(
+        for anchor: TerminalNotificationOpenAnchor,
+        scrollbar: GhosttyScrollbar
+    ) -> Int {
+        guard scrollbar.total > scrollbar.len else { return 0 }
+        let bottomTopOffset = scrollbar.total - scrollbar.len
+        guard anchor.scrollbarOffset < bottomTopOffset else { return 0 }
+        let row = bottomTopOffset - anchor.scrollbarOffset
+        return row > UInt64(Int.max) ? Int.max : Int(row)
+    }
+
+    /// Scrolls Ghostty back to the prompt-submit turn-start anchor for a reopened notification.
+    ///
+    /// - Parameter anchor: The absolute turn-start anchor captured when the prompt was submitted.
+    /// - Returns: `true` if the scroll action was sent to Ghostty or queued for the next scrollbar update.
+    @discardableResult
+    func scrollToNotificationOpenAnchor(_ anchor: TerminalNotificationOpenAnchor) -> Bool {
+        guard let scrollbar = surfaceView.scrollbar else {
+            pendingNotificationOpenAnchor = anchor
+            return true
+        }
+        pendingNotificationOpenAnchor = nil
+        return applyNotificationOpenAnchor(anchor, scrollbar: scrollbar)
+    }
+
+    /// Applies a notification open anchor using a known Ghostty scrollbar state.
+    ///
+    /// - Parameters:
+    ///   - anchor: The absolute turn-start anchor captured when the prompt was submitted.
+    ///   - scrollbar: Current Ghostty scrollbar state used for row conversion.
+    /// - Returns: `true` if Ghostty accepted the scroll binding action.
+    @discardableResult
+    private func applyNotificationOpenAnchor(
+        _ anchor: TerminalNotificationOpenAnchor,
+        scrollbar: GhosttyScrollbar
+    ) -> Bool {
+        let row = Self.notificationOpenScrollRow(for: anchor, scrollbar: scrollbar)
+        guard surfaceView.performBindingAction("scroll_to_row:\(row)") else { return false }
+        userScrolledAwayFromBottom = row > 0
+        allowExplicitScrollbarSync = true
+        lastSentRow = row
+        return true
+    }
+
+    /// Applies a queued notification open anchor once Ghostty reports scrollbar readiness.
+    ///
+    /// - Parameter scrollbar: Current Ghostty scrollbar state from the readiness notification.
+    private func applyPendingNotificationOpenAnchorIfPossible(scrollbar: GhosttyScrollbar) {
+        guard let pendingNotificationOpenAnchor else { return }
+        if applyNotificationOpenAnchor(pendingNotificationOpenAnchor, scrollbar: scrollbar) {
+            self.pendingNotificationOpenAnchor = nil
+        }
+    }
+
     private func synchronizeScrollView() {
         var didChangeGeometry = false
         let targetDocumentHeight = documentHeight()
@@ -15466,9 +15535,11 @@ final class GhosttySurfaceScrollView: NSView {
         let isVisible = shouldShowTerminalScrollBar()
         if wasVisible != isVisible {
             _ = synchronizeGeometryAndContent()
+            applyPendingNotificationOpenAnchorIfPossible(scrollbar: scrollbar)
             return
         }
         synchronizeScrollView()
+        applyPendingNotificationOpenAnchorIfPossible(scrollbar: scrollbar)
     }
 
     @discardableResult

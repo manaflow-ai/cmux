@@ -1,4 +1,5 @@
 import CMUXWorkstream
+import Bonsplit
 import Foundation
 
 enum IMessageModeSettings {
@@ -146,6 +147,7 @@ extension TabManager {
     func handlePromptSubmit(
         workspaceId: UUID,
         message: String?,
+        surfaceId: UUID? = nil,
         iMessageModeEnabled: Bool = IMessageModeSettings.isEnabled()
     ) -> (messageRecorded: Bool, reordered: Bool, index: Int)? {
         handleConversationMessage(
@@ -153,7 +155,8 @@ extension TabManager {
             message: message,
             iMessageModeEnabled: iMessageModeEnabled,
             kind: .promptSubmission,
-            reorderWithoutMessage: true
+            reorderWithoutMessage: true,
+            surfaceId: surfaceId
         )
     }
 
@@ -168,7 +171,8 @@ extension TabManager {
             message: message,
             iMessageModeEnabled: iMessageModeEnabled,
             kind: .assistantFinal,
-            reorderWithoutMessage: false
+            reorderWithoutMessage: false,
+            surfaceId: nil
         )
     }
 
@@ -177,13 +181,17 @@ extension TabManager {
         message: String?,
         iMessageModeEnabled: Bool,
         kind: ConversationMessageKind,
-        reorderWithoutMessage: Bool
+        reorderWithoutMessage: Bool,
+        surfaceId: UUID?
     ) -> (messageRecorded: Bool, reordered: Bool, index: Int)? {
         guard let originalIndex = tabs.firstIndex(where: { $0.id == workspaceId }) else {
             return nil
         }
 
         let workspace = tabs[originalIndex]
+        if case .promptSubmission = kind {
+            recordPromptSubmitOpenAnchors(in: workspace, surfaceId: surfaceId)
+        }
         let hasMessage = Workspace.conversationMessagePreview(from: message) != nil
         let messageRecorded: Bool
         switch kind {
@@ -211,6 +219,39 @@ extension TabManager {
         moveTabToTop(workspaceId)
         let newIndex = tabs.firstIndex(where: { $0.id == workspaceId }) ?? originalIndex
         return (messageRecorded, newIndex != originalIndex, newIndex)
+    }
+
+    /// Records prompt-submit notification anchors for the affected terminal panel(s).
+    ///
+    /// - Parameters:
+    ///   - workspace: Workspace that received a prompt submit event.
+    ///   - surfaceId: Optional panel or surface identifier supplied by the caller.
+    private func recordPromptSubmitOpenAnchors(in workspace: Workspace, surfaceId: UUID?) {
+        let store = AppDelegate.shared?.notificationStore ?? TerminalNotificationStore.shared
+        let panelIds: [UUID]
+        if let surfaceId {
+            if workspace.panels[surfaceId] != nil {
+                panelIds = [surfaceId]
+            } else if let panelId = workspace.panelIdFromSurfaceId(TabID(uuid: surfaceId)) {
+                panelIds = [panelId]
+            } else {
+                panelIds = []
+            }
+        } else {
+            panelIds = Array(workspace.panels.keys)
+        }
+
+        for panelId in panelIds {
+            guard let terminalPanel = workspace.terminalPanel(for: panelId),
+                  let anchor = terminalPanel.notificationOpenAnchor() else { continue }
+            store.recordPromptSubmitOpenAnchor(anchor, forTabId: workspace.id, surfaceId: panelId)
+            if surfaceId != nil || panelId == workspace.focusedPanelId {
+                store.recordPromptSubmitOpenAnchor(anchor, forTabId: workspace.id, surfaceId: nil)
+            }
+            if let bonsplitTabId = workspace.surfaceIdFromPanelId(panelId)?.uuid {
+                store.recordPromptSubmitOpenAnchor(anchor, forTabId: workspace.id, surfaceId: bonsplitTabId)
+            }
+        }
     }
 }
 

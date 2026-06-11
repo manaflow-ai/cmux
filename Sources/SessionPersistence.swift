@@ -1644,6 +1644,7 @@ struct SessionNotificationSnapshot: Codable, Sendable {
     var isRead: Bool
     var paneFlash: Bool?
     var clickAction: TerminalNotificationClickAction?
+    var openAnchor: TerminalNotificationOpenAnchor?
 
     init(
         id: UUID,
@@ -1653,7 +1654,8 @@ struct SessionNotificationSnapshot: Codable, Sendable {
         createdAt: TimeInterval,
         isRead: Bool,
         paneFlash: Bool? = nil,
-        clickAction: TerminalNotificationClickAction? = nil
+        clickAction: TerminalNotificationClickAction? = nil,
+        openAnchor: TerminalNotificationOpenAnchor? = nil
     ) {
         self.id = id
         self.title = title
@@ -1663,6 +1665,7 @@ struct SessionNotificationSnapshot: Codable, Sendable {
         self.isRead = isRead
         self.paneFlash = paneFlash
         self.clickAction = clickAction
+        self.openAnchor = openAnchor
     }
 
     init(notification: TerminalNotification) {
@@ -1674,7 +1677,8 @@ struct SessionNotificationSnapshot: Codable, Sendable {
             createdAt: notification.createdAt.timeIntervalSince1970,
             isRead: notification.isRead,
             paneFlash: notification.paneFlash,
-            clickAction: notification.clickAction
+            clickAction: notification.clickAction,
+            openAnchor: notification.openAnchor
         )
     }
 
@@ -1690,7 +1694,8 @@ struct SessionNotificationSnapshot: Codable, Sendable {
             createdAt: Date(timeIntervalSince1970: createdAt),
             isRead: isRead,
             paneFlash: paneFlash ?? true,
-            clickAction: clickAction
+            clickAction: clickAction,
+            openAnchor: openAnchor
         )
     }
 }

@@ -163,6 +163,64 @@ final class TerminalNotificationSocketActionTests: XCTestCase {
         XCTAssertEqual(fixture.notification(notification.id)?.isRead, true)
     }
 
+    func testNotificationOpenPayloadIncludesTurnStartAnchor() async throws {
+        let fixture = try makeSocketFixture(name: "notif-open-anchor", includeWindow: true)
+        defer { fixture.cleanup() }
+
+        let targetWorkspace = fixture.manager.addWorkspace(title: "Open Anchor Target", select: false)
+        let targetSurfaceId = try XCTUnwrap(targetWorkspace.focusedPanelId)
+        let anchor = TerminalNotificationOpenAnchor(scrollbarOffset: 123)
+        let notification = makeNotification(
+            tabId: targetWorkspace.id,
+            surfaceId: targetSurfaceId,
+            title: "Open Anchor",
+            openAnchor: anchor
+        )
+        fixture.store.replaceNotificationsForTesting([notification])
+        fixture.manager.selectTab(fixture.workspace)
+
+        let response = try await sendV2RequestAsync(
+            method: "notification.open",
+            params: ["id": notification.id.uuidString],
+            to: fixture.socketPath
+        )
+
+        XCTAssertEqual(response["ok"] as? Bool, true, "\(response)")
+        let result = try XCTUnwrap(response["result"] as? [String: Any])
+        let openAnchor = try XCTUnwrap(result["open_anchor"] as? [String: Any])
+        XCTAssertEqual(openAnchor["scrollbar_offset"] as? UInt64, anchor.scrollbarOffset)
+    }
+
+    /// Verifies prompt-submit requests without a surface id record the agent turn-start anchor.
+    func testPromptSubmitWithoutSurfaceIdRecordsAnchorForFocusedTerminalNotification() async throws {
+        let fixture = try makeSocketFixture(name: "prompt-submit-anchor")
+        defer { fixture.cleanup() }
+
+        let scrollbar = makeScrollbar(total: 240, offset: 64, len: 20)
+        try setScrollbar(scrollbar, forPanelId: fixture.surfaceId, in: fixture.workspace)
+
+        let response = try await sendV2RequestAsync(
+            method: "workspace.prompt_submit",
+            params: [
+                "workspace_id": fixture.workspace.id.uuidString,
+                "tab_id": fixture.workspace.id.uuidString,
+                "message": "run the task"
+            ],
+            to: fixture.socketPath
+        )
+
+        XCTAssertEqual(response["ok"] as? Bool, true, "\(response)")
+        fixture.store.addNotification(
+            tabId: fixture.workspace.id,
+            surfaceId: fixture.surfaceId,
+            title: "Agent finished",
+            subtitle: "codex",
+            body: "Done"
+        )
+        let notification = try XCTUnwrap(fixture.store.notifications.first)
+        XCTAssertEqual(notification.openAnchor?.scrollbarOffset, scrollbar.total)
+    }
+
     func testNotificationJumpToUnreadOpensLatestUnreadAndNoOpsWhenNoneRemain() async throws {
         let fixture = try makeSocketFixture(name: "notif-jump", includeWindow: true)
         defer { fixture.cleanup() }
@@ -341,7 +399,8 @@ final class TerminalNotificationSocketActionTests: XCTestCase {
         tabId: UUID,
         surfaceId: UUID?,
         title: String,
-        isRead: Bool = false
+        isRead: Bool = false,
+        openAnchor: TerminalNotificationOpenAnchor? = nil
     ) -> TerminalNotification {
         TerminalNotification(
             id: UUID(),
@@ -351,8 +410,59 @@ final class TerminalNotificationSocketActionTests: XCTestCase {
             subtitle: "socket-test",
             body: "body",
             createdAt: Date(timeIntervalSince1970: 1_778_888_888),
-            isRead: isRead
+            isRead: isRead,
+            openAnchor: openAnchor
         )
+    }
+
+    /// Builds a Ghostty scrollbar value for notification anchor tests.
+    ///
+    /// - Parameters:
+    ///   - total: Total scrollback rows reported by Ghostty.
+    ///   - offset: Current absolute scrollbar offset reported by Ghostty.
+    ///   - len: Visible scrollbar length reported by Ghostty.
+    /// - Returns: A `GhosttyScrollbar` initialized with the requested state.
+    private func makeScrollbar(total: UInt64, offset: UInt64, len: UInt64) -> GhosttyScrollbar {
+        GhosttyScrollbar(
+            c: ghostty_action_scrollbar_s(
+                total: total,
+                offset: offset,
+                len: len
+            )
+        )
+    }
+
+    /// Installs a scrollbar state on the Ghostty surface hosted by a workspace panel.
+    ///
+    /// - Parameters:
+    ///   - scrollbar: Scrollbar state to install on the surface.
+    ///   - panelId: Workspace panel whose hosted Ghostty surface should be updated.
+    ///   - workspace: Workspace containing the target panel.
+    /// - Throws: XCTest unwrap failures when the panel or surface cannot be found.
+    private func setScrollbar(
+        _ scrollbar: GhosttyScrollbar,
+        forPanelId panelId: UUID,
+        in workspace: Workspace
+    ) throws {
+        let panel = try XCTUnwrap(workspace.terminalPanel(for: panelId))
+        let surfaceView = try XCTUnwrap(findGhosttySurfaceView(in: panel.hostedView))
+        surfaceView.scrollbar = scrollbar
+    }
+
+    /// Recursively finds the first Ghostty surface in an AppKit view hierarchy.
+    ///
+    /// - Parameter view: Root view to inspect.
+    /// - Returns: The first `GhosttyNSView` found, or `nil` when none exists.
+    private func findGhosttySurfaceView(in view: NSView) -> GhosttyNSView? {
+        if let surfaceView = view as? GhosttyNSView {
+            return surfaceView
+        }
+        for subview in view.subviews {
+            if let surfaceView = findGhosttySurfaceView(in: subview) {
+                return surfaceView
+            }
+        }
+        return nil
     }
 
     private func makeSocketPath(_ name: String) -> String {

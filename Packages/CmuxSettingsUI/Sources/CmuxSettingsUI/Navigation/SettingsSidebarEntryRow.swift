@@ -9,9 +9,11 @@ import SwiftUI
 /// than wrap and inflate row height.
 @MainActor
 struct SettingsSidebarEntryRow: View {
+    let id: String
     let title: String
     let symbolName: String
     let subtitle: String?
+    let isSelected: Bool
 
     var body: some View {
         HStack(spacing: 10) {
@@ -32,5 +34,7 @@ struct SettingsSidebarEntryRow: View {
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
+        .accessibilityIdentifier("SettingsSidebarEntry.\(id)")
+        .accessibilityAddTraits(isSelected ? .isSelected : [])
     }
 }

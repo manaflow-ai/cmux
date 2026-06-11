@@ -15794,6 +15794,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
         switch response.actionIdentifier {
         case UNNotificationDefaultActionIdentifier, TerminalNotificationStore.actionShowIdentifier:
+            let openAnchor = TerminalNotificationOpenAnchor(
+                userInfo: response.notification.request.content.userInfo
+            )
             let notificationId: UUID? = {
                 if let id = UUID(uuidString: response.notification.request.identifier) {
                     return id
@@ -15814,7 +15817,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 return
             }
             DispatchQueue.main.async {
-                _ = self.openNotification(tabId: tabId, surfaceId: surfaceId, notificationId: notificationId)
+                _ = self.openNotification(
+                    tabId: tabId,
+                    surfaceId: surfaceId,
+                    notificationId: notificationId,
+                    openAnchor: openAnchor
+                )
             }
         case UNNotificationDismissActionIdentifier:
             DispatchQueue.main.async {
@@ -16235,8 +16243,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
         return openNotification(
             tabId: notification.tabId,
-            surfaceId: notification.surfaceId,
-            notificationId: notification.id
+            surfaceId: notification.panelId ?? notification.surfaceId,
+            notificationId: notification.id,
+            openAnchor: notification.openAnchor
         )
     }
 
@@ -16270,7 +16279,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
     @discardableResult
-    func openNotification(tabId: UUID, surfaceId: UUID?, notificationId: UUID?) -> Bool {
+    func openNotification(
+        tabId: UUID,
+        surfaceId: UUID?,
+        notificationId: UUID?,
+        openAnchor: TerminalNotificationOpenAnchor? = nil
+    ) -> Bool {
+        let resolvedOpenAnchor = openAnchor ?? notificationId.flatMap { id in
+            notificationStore?.notifications.first(where: { $0.id == id })?.openAnchor
+        }
 #if DEBUG
         let isJumpUnreadUITest = ProcessInfo.processInfo.environment["CMUX_UI_TEST_JUMP_UNREAD_SETUP"] == "1"
         if isJumpUnreadUITest {
@@ -16295,7 +16312,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 writeJumpUnreadTestData(["jumpUnreadOpenContextFound": "0", "jumpUnreadOpenUsedFallback": "1"])
             }
 #endif
-            let ok = openNotificationFallback(tabId: tabId, surfaceId: surfaceId, notificationId: notificationId)
+            let ok = openNotificationFallback(
+                tabId: tabId,
+                surfaceId: surfaceId,
+                notificationId: notificationId,
+                openAnchor: resolvedOpenAnchor
+            )
 #if DEBUG
             if isJumpUnreadUITest {
                 writeJumpUnreadTestData(["jumpUnreadOpenResult": ok ? "1" : "0"])
@@ -16308,10 +16330,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             writeJumpUnreadTestData(["jumpUnreadOpenContextFound": "1", "jumpUnreadOpenUsedFallback": "0"])
         }
 #endif
-        return openNotificationInContext(context, tabId: tabId, surfaceId: surfaceId, notificationId: notificationId)
+        return openNotificationInContext(
+            context,
+            tabId: tabId,
+            surfaceId: surfaceId,
+            notificationId: notificationId,
+            openAnchor: resolvedOpenAnchor
+        )
     }
 
-    private func openNotificationInContext(_ context: MainWindowContext, tabId: UUID, surfaceId: UUID?, notificationId: UUID?) -> Bool {
+    private func openNotificationInContext(
+        _ context: MainWindowContext,
+        tabId: UUID,
+        surfaceId: UUID?,
+        notificationId: UUID?,
+        openAnchor: TerminalNotificationOpenAnchor? = nil
+    ) -> Bool {
         let expectedIdentifier = "cmux.main.\(context.windowId.uuidString)"
         let window: NSWindow? = context.window ?? NSApp.windows.first(where: { $0.identifier?.rawValue == expectedIdentifier })
         guard let window else {
@@ -16342,6 +16376,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 #endif
             return false
         }
+        _ = scrollToNotificationOpenAnchor(openAnchor, tabId: tabId, surfaceId: surfaceId, tabManager: context.tabManager)
 
 #if DEBUG
         // UI test support: Jump-to-unread asserts that the correct workspace/panel is focused.
@@ -16371,7 +16406,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         return true
     }
 
-    private func openNotificationFallback(tabId: UUID, surfaceId: UUID?, notificationId: UUID?) -> Bool {
+    private func openNotificationFallback(
+        tabId: UUID,
+        surfaceId: UUID?,
+        notificationId: UUID?,
+        openAnchor: TerminalNotificationOpenAnchor? = nil
+    ) -> Bool {
         // If the owning window context hasn't been registered yet, fall back to the "active" window.
         guard let tabManager else {
 #if DEBUG
@@ -16411,6 +16451,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 #endif
             return false
         }
+        _ = scrollToNotificationOpenAnchor(openAnchor, tabId: tabId, surfaceId: surfaceId, tabManager: tabManager)
 
 #if DEBUG
         recordJumpUnreadFocusFromModelIfNeeded(
@@ -16429,6 +16470,41 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
 #endif
         return true
+    }
+
+    /// Scrolls a focused notification target back to its captured prompt-submit turn-start anchor.
+    ///
+    /// - Parameters:
+    ///   - openAnchor: Optional turn-start anchor stored on the notification.
+    ///   - tabId: Workspace identifier for the notification target.
+    ///   - surfaceId: Optional panel or surface identifier focused for the notification.
+    ///   - tabManager: Tab manager that owns the focused workspace.
+    /// - Returns: `true` if a terminal panel accepted the scroll request.
+    @discardableResult
+    private func scrollToNotificationOpenAnchor(
+        _ openAnchor: TerminalNotificationOpenAnchor?,
+        tabId: UUID,
+        surfaceId: UUID?,
+        tabManager: TabManager
+    ) -> Bool {
+        guard let openAnchor,
+              let workspace = tabManager.tabs.first(where: { $0.id == tabId }) else {
+            return false
+        }
+
+        let panelId: UUID?
+        if let surfaceId, workspace.panels[surfaceId] != nil {
+            panelId = surfaceId
+        } else if let surfaceId {
+            panelId = workspace.panelIdFromSurfaceId(TabID(uuid: surfaceId))
+        } else {
+            panelId = workspace.focusedPanelId
+        }
+        guard let panelId,
+              let terminalPanel = workspace.terminalPanel(for: panelId) else {
+            return false
+        }
+        return terminalPanel.scrollToNotificationOpenAnchor(openAnchor)
     }
 
 #if DEBUG

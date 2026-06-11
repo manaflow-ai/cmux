@@ -99,13 +99,15 @@ final class SessionPersistenceTests: XCTestCase {
             body: "Tests passed",
             createdAt: Date(timeIntervalSince1970: 1_700_000_000),
             isRead: false,
-            paneFlash: true
+            paneFlash: true,
+            openAnchor: TerminalNotificationOpenAnchor(scrollbarOffset: 64)
         )
         store.replaceNotificationsForTesting([notification])
 
         let snapshot = workspace.sessionSnapshot(includeScrollback: false)
         let panelSnapshot = try XCTUnwrap(snapshot.panels.first { $0.id == panelId })
         XCTAssertEqual(panelSnapshot.notifications?.first?.body, "Tests passed")
+        XCTAssertEqual(panelSnapshot.notifications?.first?.openAnchor?.scrollbarOffset, 64)
 
         store.replaceNotificationsForTesting([])
         let restored = Workspace()
@@ -117,6 +119,7 @@ final class SessionPersistenceTests: XCTestCase {
         XCTAssertEqual(restoredNotification.panelId, restoredPanelId)
         XCTAssertEqual(restoredNotification.title, "Agent finished")
         XCTAssertEqual(restoredNotification.body, "Tests passed")
+        XCTAssertEqual(restoredNotification.openAnchor?.scrollbarOffset, 64)
         XCTAssertFalse(restoredNotification.isRead)
         XCTAssertTrue(store.hasUnreadNotification(forTabId: restored.id, surfaceId: restoredPanelId))
         let restoredSurfaceId = try XCTUnwrap(restored.surfaceIdFromPanelId(restoredPanelId))
