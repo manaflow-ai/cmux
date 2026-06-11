@@ -396,6 +396,9 @@ final class CmuxWebView: WKWebView {
     private var pointerFocusAllowanceDepth: Int = 0
     private var pasteAsPlainTextTargetAvailable = false
     private var lastPasteAsPlainTextPerformKeyEventTimestamp: TimeInterval?
+#if DEBUG
+    static var keyDownSuperDispatchForTesting: ((CmuxWebView, NSEvent) -> Void)?
+#endif
     var allowsFirstResponderAcquisitionEffective: Bool {
         allowsFirstResponderAcquisition || pointerFocusAllowanceDepth > 0
     }
@@ -516,6 +519,16 @@ final class CmuxWebView: WKWebView {
         typealias PasteAsPlainTextFn = @convention(c) (AnyObject, Selector, Any?) -> Void
         let implementation = method_getImplementation(method)
         unsafeBitCast(implementation, to: PasteAsPlainTextFn.self)(self, selector, sender)
+    }
+
+    private func forwardKeyDownToWebKit(_ event: NSEvent) {
+#if DEBUG
+        if let keyDownSuperDispatchForTesting = Self.keyDownSuperDispatchForTesting {
+            keyDownSuperDispatchForTesting(self, event)
+            return
+        }
+#endif
+        super.keyDown(with: event)
     }
 
     // Key-equivalent handling is synchronous, so this bounded preflight pumps the main run loop.
@@ -651,7 +664,7 @@ final class CmuxWebView: WKWebView {
                 let isReturnKey = event.keyCode == 36 || event.keyCode == 76
                 if (normalizedFlags.isEmpty && event.keyCode == 53) ||
                     (isReturnKey && !normalizedFlags.contains(.command)) {
-                    super.keyDown(with: event)
+                    forwardKeyDownToWebKit(event)
                     return finish(true)
                 }
                 let result = super.performKeyEquivalent(with: event)
@@ -764,7 +777,7 @@ final class CmuxWebView: WKWebView {
 #if DEBUG
                 route = "focusModeWebView"
 #endif
-                super.keyDown(with: event)
+                forwardKeyDownToWebKit(event)
                 return
             case .consume:
 #if DEBUG
@@ -797,7 +810,7 @@ final class CmuxWebView: WKWebView {
 #if DEBUG
             route = "inlineVSCode"
 #endif
-            super.keyDown(with: event)
+            forwardKeyDownToWebKit(event)
             return
         }
 
@@ -811,7 +824,7 @@ final class CmuxWebView: WKWebView {
             return
         }
 
-        super.keyDown(with: event)
+        forwardKeyDownToWebKit(event)
     }
 
     // MARK: - Focus on click

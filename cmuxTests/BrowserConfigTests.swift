@@ -361,6 +361,40 @@ final class CmuxWebViewKeyEquivalentTests: XCTestCase {
         XCTAssertTrue(spy.invoked)
     }
 
+    @MainActor
+    func testKeyDownSuppressesRecursiveWebKitSuperDispatch() {
+        let webView = CmuxWebView(frame: .zero, configuration: WKWebViewConfiguration())
+        guard let event = makeKeyDownEvent(key: "a", modifiers: [], keyCode: 0) else {
+            XCTFail("Failed to construct A key event")
+            return
+        }
+
+        var superDispatchCount = 0
+        var reenteredSuperDispatch = false
+        CmuxWebView.keyDownSuperDispatchForTesting = { currentWebView, event in
+            guard currentWebView === webView else { return }
+            superDispatchCount += 1
+            if superDispatchCount == 1 {
+                currentWebView.keyDown(with: event)
+            } else {
+                reenteredSuperDispatch = true
+            }
+        }
+        defer { CmuxWebView.keyDownSuperDispatchForTesting = nil }
+
+        webView.keyDown(with: event)
+
+        XCTAssertEqual(
+            superDispatchCount,
+            1,
+            "Re-entering CmuxWebView.keyDown while WebKit super dispatch is active must not dispatch back into WebKit again"
+        )
+        XCTAssertFalse(
+            reenteredSuperDispatch,
+            "A recursive WebKit keyDown bounce should stop before the second super dispatch"
+        )
+    }
+
     func testCmdCCopyPreflightsIntoWebContentBeforeMainMenu() {
         installCmuxUnitTestWKWebViewPerformKeyEquivalentOverride()
 
