@@ -271,6 +271,85 @@ final class TerminalNotificationClearAllTests: XCTestCase {
         )
     }
 
+    func testAcknowledgingOnePanelDemotesItsLifecycleButKeepsBadgeForSiblingPanel() throws {
+        let store = TerminalNotificationStore.shared
+        let appDelegate = AppDelegate.shared ?? AppDelegate()
+        let manager = TabManager()
+
+        let originalTabManager = appDelegate.tabManager
+        let originalNotificationStore = appDelegate.notificationStore
+        let originalAppFocusOverride = AppFocusState.overrideIsFocused
+
+        store.replaceNotificationsForTesting([])
+        store.configureNotificationDeliveryHandlerForTesting { _, _ in }
+        appDelegate.tabManager = manager
+        appDelegate.notificationStore = store
+        AppFocusState.overrideIsFocused = false
+
+        let workspace = manager.addWorkspace(select: true)
+        defer {
+            if manager.tabs.contains(where: { $0.id == workspace.id }) {
+                manager.closeWorkspace(workspace)
+            }
+            store.replaceNotificationsForTesting([])
+            store.resetNotificationDeliveryHandlerForTesting()
+            appDelegate.tabManager = originalTabManager
+            appDelegate.notificationStore = originalNotificationStore
+            AppFocusState.overrideIsFocused = originalAppFocusOverride
+        }
+
+        let firstPanelId = try XCTUnwrap(workspace.focusedPanelId)
+        let secondPanel = try XCTUnwrap(
+            workspace.newTerminalSplit(from: firstPanelId, orientation: .horizontal)
+        )
+        // Two Claude panels in one workspace, both stuck on needs-input.
+        for (panelId, suffix) in [(firstPanelId, "a"), (secondPanel.id, "b")] {
+            workspace.recordAgentPID(
+                key: "claude_code.session-\(suffix)",
+                pid: pid_t(suffix == "a" ? 111 : 222),
+                panelId: panelId,
+                refreshPorts: false
+            )
+            workspace.setAgentLifecycle(key: "claude_code", panelId: panelId, lifecycle: .needsInput)
+        }
+        workspace.statusEntries["claude_code"] = SidebarStatusEntry(
+            key: "claude_code",
+            value: "Needs input",
+            icon: "bell.fill",
+            color: "#4C8DFF",
+            priority: 100
+        )
+        store.addNotification(
+            tabId: workspace.id,
+            surfaceId: firstPanelId,
+            title: "Claude Code",
+            subtitle: "Waiting",
+            body: "First panel needs input"
+        )
+        store.addNotification(
+            tabId: workspace.id,
+            surfaceId: secondPanel.id,
+            title: "Claude Code",
+            subtitle: "Waiting",
+            body: "Second panel needs input"
+        )
+
+        store.markRead(forTabId: workspace.id, surfaceId: firstPanelId)
+
+        // Badge stays lit because the sibling panel still needs input...
+        XCTAssertEqual(workspace.statusEntries["claude_code"]?.value, "Needs input")
+        XCTAssertEqual(workspace.statusEntries["claude_code"]?.icon, "bell.fill")
+        // ...but the acknowledged panel's lifecycle is demoted so it can hibernate.
+        XCTAssertNotEqual(
+            workspace.agentLifecycleStatesByPanelId[firstPanelId]?["claude_code"],
+            .needsInput
+        )
+        XCTAssertEqual(
+            workspace.agentLifecycleStatesByPanelId[secondPanel.id]?["claude_code"],
+            .needsInput
+        )
+    }
+
     func testRemovingClaudeNeedsInputNotificationDemotesSidebarStatusToIdle() throws {
         let store = TerminalNotificationStore.shared
         let appDelegate = AppDelegate.shared ?? AppDelegate()
