@@ -39,10 +39,11 @@ extension CmuxWebView {
     private static let contextMenuLinkCaptureBootstrapScriptSource = """
     (() => {
       try {
-        const post = (href) => {
+        const post = (href, trusted) => {
           try {
             window.webkit.messageHandlers["\(contextMenuLinkCaptureMessageHandlerName)"].postMessage({
-              href: typeof href === "string" ? href : ""
+              href: typeof href === "string" ? href : "",
+              trusted: trusted === true
             });
           } catch (_) {}
         };
@@ -63,7 +64,7 @@ extension CmuxWebView {
           return "";
         };
         window.addEventListener("contextmenu", (event) => {
-          post(linkForEvent(event));
+          post(linkForEvent(event), event.isTrusted);
         }, true);
       } catch (_) {}
     })();
@@ -72,7 +73,9 @@ extension CmuxWebView {
     private static let sharedContextMenuLinkCaptureMessageHandler = ContextMenuLinkCaptureMessageHandler()
 
     /// How far apart the DOM contextmenu capture and the AppKit menu open may
-    /// be while still describing the same right-click.
+    /// be while still describing the same right-click. `rightMouseDown` /
+    /// ctrl-`mouseDown` clear the previous capture, so this only bounds menus
+    /// opened through paths that never saw a mouse event.
     private static let contextMenuLinkCaptureMaxAge: TimeInterval = 2.0
 
     func installContextMenuLinkCapture() {
@@ -148,13 +151,18 @@ extension CmuxWebView {
         _ = NSWorkspace.shared.open(url)
     }
 
-    /// Converts a view-local AppKit point (bottom-left origin) to the CSS
-    /// viewport coordinates `document.elementFromPoint` expects. `pageZoom`
-    /// scales CSS pixels relative to view points, so on a zoomed page the
-    /// division is required or the hit test lands on the wrong element.
+    /// Converts a view-local AppKit point to the CSS viewport coordinates
+    /// `document.elementFromPoint` expects: top-left origin, CSS pixels.
+    /// WKWebView is a flipped view on macOS, so view-local points are already
+    /// top-left-origin and must not be flipped again (re-flipping mirrored the
+    /// hit test vertically, which is how the fallback used to resolve a link
+    /// on the opposite side of the page). `pageZoom` scales CSS pixels
+    /// relative to view points, so on a zoomed page the division is required
+    /// or the hit test lands on the wrong element.
     func cssViewportPoint(for point: NSPoint) -> CGPoint {
         let zoom = pageZoom > 0 ? pageZoom : 1
-        return CGPoint(x: point.x / zoom, y: (bounds.height - point.y) / zoom)
+        let topLeftY = isFlipped ? point.y : bounds.height - point.y
+        return CGPoint(x: point.x / zoom, y: topLeftY / zoom)
     }
 
     /// Finds the nearest anchor element at a given view-local point.
@@ -268,9 +276,17 @@ private final class ContextMenuLinkCaptureMessageHandler: NSObject, WKScriptMess
         didReceive message: WKScriptMessage
     ) {
         guard let webView = message.webView as? CmuxWebView else { return }
-        let href = (message.body as? [String: Any])?["href"] as? String ?? ""
+        let body = message.body as? [String: Any]
+        let trusted = body?["trusted"] as? Bool ?? false
+        let href = body?["href"] as? String ?? ""
         let url = href.isEmpty ? nil : URL(string: href)
         Task { @MainActor [weak webView] in
+            // Synthetic contextmenu events dispatched by page JavaScript carry
+            // isTrusted == false; recording them would let a page substitute a
+            // decoy link for the one the user right-clicked.
+            guard trusted || CmuxWebView.contextMenuLinkCaptureAcceptsUntrustedEventsForTesting else {
+                return
+            }
             webView?.noteContextMenuCapturedLink(url)
         }
     }

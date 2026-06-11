@@ -832,9 +832,24 @@ final class CmuxWebView: WKWebView {
             "pointerDepth=\(pointerFocusAllowanceDepth) win=\(windowNumber) fr=\(firstResponderType)"
         )
 #endif
+        // Ctrl-click opens the context menu like a right-click; scope the
+        // captured link to this click so a previous click's link can't pair
+        // with the menu this click opens.
+        if event.modifierFlags.contains(.control) {
+            contextMenuCapturedLink = nil
+        }
         performBrowserClickFocusHandoff {
             super.mouseDown(with: event)
         }
+    }
+
+    // Each physical right-click starts a fresh capture lifecycle: WebKit
+    // dispatches the DOM contextmenu event (which refills the capture) after
+    // this and before willOpenMenu, so clearing here guarantees the menu can
+    // only ever pair with a link captured by this exact click.
+    override func rightMouseDown(with event: NSEvent) {
+        contextMenuCapturedLink = nil
+        super.rightMouseDown(with: event)
     }
 
     private func performBrowserClickFocusHandoff(_ action: () -> Void) {
