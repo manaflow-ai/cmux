@@ -128,13 +128,20 @@ enum WindowGlassEffect {
             currentTintColor = tintColor
             effectView.layer?.cornerRadius = cornerRadius ?? 0
             if usesNativeGlass {
+                // macOS 27 composites an NSGlassEffectView tint color far more
+                // opaquely than macOS 26: tinting the glass with the (near-opaque)
+                // terminal background color turns it into a solid dark fill — the
+                // "black layer behind the terminal" — instead of translucent glass.
+                // Suppress the cmux tint on macOS 27+ so the native glass renders
+                // its material; keep the prior tinted behavior on macOS 26.
+                let glassTint = WindowGlassEffect.suppressesNativeGlassTint ? nil : tintColor
                 updateNativeGlassConfiguration(
                     on: effectView,
-                    color: tintColor,
+                    color: glassTint,
                     style: style,
                     cornerRadius: cornerRadius
                 )
-                updateInactiveTintOverlay(tintColor: tintColor, isKeyWindow: isKeyWindow)
+                updateInactiveTintOverlay(tintColor: glassTint, isKeyWindow: isKeyWindow)
             } else if let tintColor {
                 effectView.layer?.masksToBounds = cornerRadius != nil
                 let fallbackTint = tintColor.withAlphaComponent(min(tintColor.alphaComponent, 0.45))
@@ -291,6 +298,15 @@ enum WindowGlassEffect {
     static var isAvailable: Bool {
         NSClassFromString("NSGlassEffectView") != nil
     }
+
+    /// macOS 27 changed `NSGlassEffectView` tint compositing so a near-opaque
+    /// tint renders the glass as a solid dark fill rather than a translucent
+    /// material. On macOS 27+ we skip cmux's terminal-derived tint and let the
+    /// native glass render unmodified; macOS 26 keeps the original tinted look.
+    static let suppressesNativeGlassTint: Bool =
+        ProcessInfo.processInfo.isOperatingSystemAtLeast(
+            OperatingSystemVersion(majorVersion: 27, minorVersion: 0, patchVersion: 0)
+        )
 
     @discardableResult
     static func apply(to window: NSWindow, tintColor: NSColor? = nil, style: Style? = nil) -> Bool {
