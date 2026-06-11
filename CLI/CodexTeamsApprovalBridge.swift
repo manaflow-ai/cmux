@@ -243,6 +243,21 @@ enum CodexTeamsApprovalBridge {
         return nil
     }
 
+    static func spawnReceiverThreadIds(fromAppServerMessage message: [String: Any]) -> [String] {
+        guard message["method"] as? String == "item/completed",
+              let params = message["params"] as? [String: Any],
+              let item = params["item"] as? [String: Any],
+              normalizedItemValue(item["type"]) == "collabagenttoolcall",
+              normalizedItemValue(item["tool"]) == "spawnagent" else {
+            return []
+        }
+        return stringList(
+            in: item,
+            arrayKeys: ["receiverThreadIds", "receiver_thread_ids"],
+            scalarKeys: ["receiverThreadId", "receiver_thread_id"]
+        )
+    }
+
     private static func commandApprovalDecision(params: [String: Any], mode: String) -> Any {
         if mode == "deny" { return rejectApprovalDecision(params: params) }
         if mode == "all" || mode == "bypass",
@@ -535,5 +550,40 @@ enum CodexTeamsApprovalBridge {
 
     private static func codexDecisionAvailableOrUnspecified(_ decision: String, decisions: Set<String>?) -> Bool {
         decisions?.contains(decision) ?? true
+    }
+
+    private static func normalizedItemValue(_ value: Any?) -> String? {
+        guard let text = value as? String else { return nil }
+        let normalized = text
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .replacingOccurrences(of: "_", with: "")
+            .replacingOccurrences(of: "-", with: "")
+            .lowercased()
+        return normalized.isEmpty ? nil : normalized
+    }
+
+    private static func stringList(
+        in object: [String: Any],
+        arrayKeys: [String],
+        scalarKeys: [String]
+    ) -> [String] {
+        var output: [String] = []
+        var seen = Set<String>()
+        func append(_ value: Any?) {
+            guard let text = value as? String else { return }
+            let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !trimmed.isEmpty, seen.insert(trimmed).inserted else { return }
+            output.append(trimmed)
+        }
+        for key in arrayKeys {
+            guard let values = object[key] as? [Any] else { continue }
+            for value in values {
+                append(value)
+            }
+        }
+        for key in scalarKeys {
+            append(object[key])
+        }
+        return output
     }
 }

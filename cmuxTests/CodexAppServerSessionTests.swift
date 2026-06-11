@@ -1035,6 +1035,141 @@ struct CodexAppServerSessionTests {
     }
 
     @Test
+    func testCodexTeamsSpawnAgentCompletionExposesReceiverThreadIds() {
+        let message: [String: Any] = [
+            "method": "item/completed",
+            "params": [
+                "item": [
+                    "id": "spawn-1",
+                    "type": "collabAgentToolCall",
+                    "tool": "spawnAgent",
+                    "receiverThreadIds": [
+                        "019eb13e-74c0-72f3-a78b-0535f8eabac8",
+                        "019eb140-0e19-7bd0-b950-e2af12345678",
+                    ],
+                ],
+            ],
+        ]
+
+        expectEqual(
+            CodexTeamsApprovalBridge.spawnReceiverThreadIds(fromAppServerMessage: message),
+            [
+                "019eb13e-74c0-72f3-a78b-0535f8eabac8",
+                "019eb140-0e19-7bd0-b950-e2af12345678",
+            ]
+        )
+    }
+
+    @Test
+    func testCodexTeamsSpawnAgentCompletionExposesSnakeCaseReceiverThreadIds() {
+        let message: [String: Any] = [
+            "method": "item/completed",
+            "params": [
+                "item": [
+                    "id": "spawn-1",
+                    "type": "collab_agent_tool_call",
+                    "tool": "spawn_agent",
+                    "receiver_thread_ids": [
+                        "019eb13e-74c0-72f3-a78b-0535f8eabac8",
+                        "019eb13e-74c0-72f3-a78b-0535f8eabac8",
+                        "019eb140-0e19-7bd0-b950-e2af12345678",
+                    ],
+                ],
+            ],
+        ]
+
+        expectEqual(
+            CodexTeamsApprovalBridge.spawnReceiverThreadIds(fromAppServerMessage: message),
+            [
+                "019eb13e-74c0-72f3-a78b-0535f8eabac8",
+                "019eb140-0e19-7bd0-b950-e2af12345678",
+            ]
+        )
+    }
+
+    @Test
+    func testCodexTeamsSpawnAgentCompletionExposesScalarReceiverThreadIds() {
+        let camelCaseMessage: [String: Any] = [
+            "method": "item/completed",
+            "params": [
+                "item": [
+                    "id": "spawn-1",
+                    "type": "collabAgentToolCall",
+                    "tool": "spawnAgent",
+                    "receiverThreadId": "019eb13e-74c0-72f3-a78b-0535f8eabac8",
+                ],
+            ],
+        ]
+        let snakeCaseMessage: [String: Any] = [
+            "method": "item/completed",
+            "params": [
+                "item": [
+                    "id": "spawn-2",
+                    "type": "collabAgentToolCall",
+                    "tool": "spawnAgent",
+                    "receiver_thread_id": "019eb140-0e19-7bd0-b950-e2af12345678",
+                ],
+            ],
+        ]
+
+        expectEqual(
+            CodexTeamsApprovalBridge.spawnReceiverThreadIds(fromAppServerMessage: camelCaseMessage),
+            ["019eb13e-74c0-72f3-a78b-0535f8eabac8"]
+        )
+        expectEqual(
+            CodexTeamsApprovalBridge.spawnReceiverThreadIds(fromAppServerMessage: snakeCaseMessage),
+            ["019eb140-0e19-7bd0-b950-e2af12345678"]
+        )
+    }
+
+    @Test
+    func testCodexTeamsSpawnAgentCompletionIgnoresNonSpawnMessages() {
+        let wrongMethod: [String: Any] = [
+            "method": "item/updated",
+            "params": [
+                "item": [
+                    "type": "collabAgentToolCall",
+                    "tool": "spawnAgent",
+                    "receiverThreadId": "019eb13e-74c0-72f3-a78b-0535f8eabac8",
+                ],
+            ],
+        ]
+        let wrongType: [String: Any] = [
+            "method": "item/completed",
+            "params": [
+                "item": [
+                    "type": "commandExecution",
+                    "tool": "spawnAgent",
+                    "receiverThreadId": "019eb13e-74c0-72f3-a78b-0535f8eabac8",
+                ],
+            ],
+        ]
+        let wrongTool: [String: Any] = [
+            "method": "item/completed",
+            "params": [
+                "item": [
+                    "type": "collabAgentToolCall",
+                    "tool": "sendMessage",
+                    "receiverThreadId": "019eb13e-74c0-72f3-a78b-0535f8eabac8",
+                ],
+            ],
+        ]
+
+        expectEqual(
+            CodexTeamsApprovalBridge.spawnReceiverThreadIds(fromAppServerMessage: wrongMethod),
+            []
+        )
+        expectEqual(
+            CodexTeamsApprovalBridge.spawnReceiverThreadIds(fromAppServerMessage: wrongType),
+            []
+        )
+        expectEqual(
+            CodexTeamsApprovalBridge.spawnReceiverThreadIds(fromAppServerMessage: wrongTool),
+            []
+        )
+    }
+
+    @Test
     func testCodexTurnCompletionNotificationMarksAssistantTurnComplete() {
         var completions = 0
         let session = CodexAppServerSession(
