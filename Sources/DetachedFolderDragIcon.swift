@@ -1,5 +1,6 @@
 import AppKit
 import SwiftUI
+import UniformTypeIdentifiers
 
 struct DetachedFolderDragIcon: NSViewRepresentable {
     let directory: String
@@ -68,14 +69,42 @@ final class DraggableFolderNSView: NSView, NSDraggingSource {
         updateIcon()
     }
 
+    /// Per-path icons already resolved this session. `NSWorkspace.icon(forFile:)`
+    /// stats the path, and `directory` can be a REMOTE working directory
+    /// (remote tmux) where that stat blocks on the autofs automounter for
+    /// hundreds of ms — never pay it twice, and never pay it on the main thread.
+    private static var resolvedIconsByPath: [String: NSImage] = [:]
+
+    /// Returns the cached icon for `path`, or the generic folder icon
+    /// (UTType-based — no filesystem access) while resolving the real one
+    /// off-main. `onResolved` runs on the main thread once a fresh icon is
+    /// fetched and cached; it is not called on a cache hit.
+    private static func icon(forPath path: String, onResolved: @escaping (NSImage) -> Void) -> NSImage {
+        if let cached = resolvedIconsByPath[path] { return cached }
+        DispatchQueue.global(qos: .userInitiated).async {
+            let icon = NSWorkspace.shared.icon(forFile: path)
+            DispatchQueue.main.async {
+                icon.size = NSSize(width: 16, height: 16)
+                if resolvedIconsByPath.count > 256 { resolvedIconsByPath.removeAll() }
+                resolvedIconsByPath[path] = icon
+                onResolved(icon)
+            }
+        }
+        let generic = NSWorkspace.shared.icon(for: .folder)
+        generic.size = NSSize(width: 16, height: 16)
+        return generic
+    }
+
     func updateIcon() {
         #if DEBUG
         dispatchPrecondition(condition: .onQueue(.main))
         #endif
 
-        let icon = NSWorkspace.shared.icon(forFile: directory)
-        icon.size = NSSize(width: 16, height: 16)
-        imageView.image = icon
+        let target = directory
+        imageView.image = Self.icon(forPath: target) { [weak self] icon in
+            guard let self, self.directory == target else { return }
+            self.imageView.image = icon
+        }
     }
 
     func draggingSession(_ session: NSDraggingSession, sourceOperationMaskFor context: NSDraggingContext) -> NSDragOperation {
@@ -154,7 +183,9 @@ final class DraggableFolderNSView: NSView, NSDraggingSource {
         let fileURL = URL(fileURLWithPath: directory)
         let draggingItem = NSDraggingItem(pasteboardWriter: fileURL as NSURL)
 
-        let iconImage = NSWorkspace.shared.icon(forFile: directory)
+        // Cosmetic drag image: use the already-resolved icon (or the generic
+        // folder) rather than re-statting `directory` — see updateIcon().
+        let iconImage = (Self.resolvedIconsByPath[directory] ?? NSWorkspace.shared.icon(for: .folder)).copy() as! NSImage
         iconImage.size = NSSize(width: 32, height: 32)
         draggingItem.setDraggingFrame(bounds, contents: iconImage)
 
@@ -192,25 +223,35 @@ final class DraggableFolderNSView: NSView, NSDraggingSource {
 
         // Add path components (current dir at top, root at bottom - matches native macOS)
         for pathURL in pathComponents {
-            let icon = NSWorkspace.shared.icon(forFile: pathURL.path)
-            icon.size = NSSize(width: 16, height: 16)
-
+            let path = pathURL.path
             let displayName: String
-            if pathURL.path == "/" {
-                // Use the volume name for root
+            if path == "/" {
+                // Use the volume name for root ("/" is always local — safe to stat)
                 if let volumeName = try? URL(fileURLWithPath: "/").resourceValues(forKeys: [.volumeNameKey]).volumeName {
                     displayName = volumeName
                 } else {
                     displayName = String(localized: "sidebar.pathMenu.macintoshHD", defaultValue: "Macintosh HD")
                 }
             } else {
-                displayName = FileManager.default.displayName(atPath: pathURL.path)
+                // Placeholder; the localized display name comes from a stat'ing
+                // API and is refined off-main below, like the icons.
+                displayName = (path as NSString).lastPathComponent
             }
 
             let item = NSMenuItem(title: displayName, action: #selector(openPathComponent(_:)), keyEquivalent: "")
             item.target = self
-            item.image = icon
+            item.image = Self.icon(forPath: path) { [weak item] icon in
+                item?.image = icon
+            }
             item.representedObject = pathURL
+            if path != "/" {
+                DispatchQueue.global(qos: .userInitiated).async {
+                    let localizedName = FileManager.default.displayName(atPath: path)
+                    DispatchQueue.main.async { [weak item] in
+                        item?.title = localizedName
+                    }
+                }
+            }
             menu.addItem(item)
         }
 
