@@ -20,6 +20,7 @@ NEW_PANE_ID = "44444444-4444-4444-8444-444444444444"
 NEW_SURFACE_ID = "55555555-5555-4555-8555-555555555555"
 WINDOW_ID = "66666666-6666-4666-8666-666666666666"
 WINDOW_REF = "window:7"
+GROUP_REF = "workspace_group:2"
 
 
 class FakeCmuxState:
@@ -184,6 +185,13 @@ def main() -> int:
         try:
             run_cli(cli, socket_path, ["new-workspace", "--name", "agent"])
             assert_last_call(state, "workspace.create", {"title": "agent", "focus": False})
+
+            run_cli(cli, socket_path, ["workspace", "create", "--name", "agent-in-group", "--group", GROUP_REF])
+            assert_last_call(
+                state,
+                "workspace.create",
+                {"title": "agent-in-group", "group_id": GROUP_REF, "focus": False},
+            )
 
             run_cli(
                 cli,

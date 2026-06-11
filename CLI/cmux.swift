@@ -6980,10 +6980,11 @@ struct CMUXCLI {
         let (nameOpt, rem2) = parseOption(rem1, name: "--name")
         let (descriptionOpt, rem3) = parseOption(rem2, name: "--description")
         let (layoutOpt, rem4) = parseOption(rem3, name: "--layout")
-        let (windowOpt, rem5) = parseOption(rem4, name: "--window")
-        let (focusOpt, remaining) = parseOption(rem5, name: "--focus")
+        let (groupOpt, rem5) = parseOption(rem4, name: "--group")
+        let (windowOpt, rem6) = parseOption(rem5, name: "--window")
+        let (focusOpt, remaining) = parseOption(rem6, name: "--focus")
         if let unknown = remaining.first(where: { $0.hasPrefix("--") }) {
-            throw CLIError(message: "\(commandName): unknown flag '\(unknown)'. Known flags: --name <title>, --description <text>, --command <text>, --cwd <path>, --layout <json>, --window <id|ref|index>, --focus <true|false>")
+            throw CLIError(message: "\(commandName): unknown flag '\(unknown)'. Known flags: --name <title>, --description <text>, --command <text>, --cwd <path>, --layout <json>, --group <id|ref>, --window <id|ref|index>, --focus <true|false>")
         }
         var params: [String: Any] = [:]
         try applyWindowOrCallerContext(to: &params, client: client, windowRaw: windowOpt ?? windowOverride)
@@ -6992,6 +6993,7 @@ struct CMUXCLI {
         }
         if let nameOpt { params["title"] = nameOpt }
         if let descriptionOpt { params["description"] = descriptionOpt }
+        if let groupOpt { params["group_id"] = groupOpt }
         if let layoutOpt {
             guard let layoutData = layoutOpt.data(using: .utf8),
                   let layoutObj = try? JSONSerialization.jsonObject(with: layoutData) as? [String: Any] else {
@@ -13852,7 +13854,7 @@ struct CMUXCLI {
             """
         case "new-workspace":
             return """
-            Usage: cmux new-workspace [--name <title>] [--description <text>] [--cwd <path>] [--command <text>] [--layout <json>] [--window <id|ref|index>] [--focus <true|false>]
+            Usage: cmux new-workspace [--name <title>] [--description <text>] [--cwd <path>] [--command <text>] [--layout <json>] [--group <id|ref>] [--window <id|ref|index>] [--focus <true|false>]
 
             Create a new workspace in the caller's window.
 
@@ -13864,6 +13866,7 @@ struct CMUXCLI {
               --layout <json>      Create workspace with a predefined split layout (inline JSON).
                                    Uses the same schema as cmux.json layout definitions.
                                    When provided, --command is ignored (layout surfaces define their own commands).
+              --group <id|ref>     Add the workspace to an existing group
               --window <id|ref|index>
                                    Target window (default: caller's window from $CMUX_WORKSPACE_ID/$CMUX_SURFACE_ID)
               --focus <true|false> Focus the new workspace (default: false)

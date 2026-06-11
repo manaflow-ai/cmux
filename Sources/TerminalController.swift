@@ -4122,6 +4122,8 @@ class TerminalController {
             "description": v2OrNull(workspace.customDescription),
             "selected": selected,
             "pinned": workspace.isPinned,
+            "group_id": v2OrNull(workspace.groupId?.uuidString),
+            "group_ref": v2Ref(kind: .workspaceGroup, uuid: workspace.groupId),
             "listening_ports": workspace.listeningPorts,
             "remote": workspace.remoteStatusPayload(),
             "current_directory": v2OrNull(workspace.currentDirectory),
@@ -4362,6 +4364,15 @@ class TerminalController {
         params: [String: Any],
         tabManager resolvedTabManager: TabManager? = nil
     ) -> V2CallResult {
+        let requestedGroupId: UUID?
+        if v2HasNonNullParam(params, "group_id") {
+            guard let groupId = v2UUID(params, "group_id") else {
+                return .err(code: "invalid_params", message: "Missing or invalid group_id", data: nil)
+            }
+            requestedGroupId = groupId
+        } else {
+            requestedGroupId = nil
+        }
         guard let tabManager = resolvedTabManager ?? v2ResolveTabManager(params: params) else {
             return .err(code: "unavailable", message: "TabManager not available", data: nil)
         }
@@ -4411,10 +4422,17 @@ class TerminalController {
 
         var newId: UUID?
         var initialSurfaceId: UUID?
+        var assignedGroupId: UUID?
+        var groupWasMissing = false
         let shouldFocus = v2FocusAllowed(requested: v2Bool(params, "focus") ?? false)
         let shouldEagerLoadTerminal = v2Bool(params, "eager_load_terminal") ?? !shouldFocus
         let shouldAutoRefreshMetadata = v2Bool(params, "auto_refresh_metadata") ?? true
         v2MainSync {
+            if let requestedGroupId,
+               !tabManager.workspaceGroups.contains(where: { $0.id == requestedGroupId }) {
+                groupWasMissing = true
+                return
+            }
             let ws = tabManager.addWorkspace(
                 title: title,
                 workingDirectory: cwd,
@@ -4428,8 +4446,32 @@ class TerminalController {
             if let layoutNode {
                 ws.applyCustomLayout(layoutNode, baseCwd: cwd ?? ws.currentDirectory)
             }
+            if let requestedGroupId {
+                let group = tabManager.workspaceGroups.first { $0.id == requestedGroupId }
+                let anchorCwd = group.flatMap { group in
+                    tabManager.tabs.first(where: { $0.id == group.anchorWorkspaceId })?.currentDirectory
+                }
+                let configStore = AppDelegate.shared?.mainWindowContexts.values.first {
+                    $0.tabManager === tabManager
+                }?.cmuxConfigStore
+                let placement = configStore?.resolveWorkspaceGroupConfig(forCwd: anchorCwd)?.newWorkspacePlacement
+                    ?? WorkspaceGroupNewWorkspacePlacementSettings.resolved()
+                tabManager.addWorkspaceToGroup(
+                    workspaceId: ws.id,
+                    groupId: requestedGroupId,
+                    placement: placement
+                )
+            }
             newId = ws.id
             initialSurfaceId = ws.focusedPanelId
+            assignedGroupId = ws.groupId
+        }
+
+        if groupWasMissing, let requestedGroupId {
+            return .err(code: "not_found", message: "Group not found", data: [
+                "group_id": requestedGroupId.uuidString,
+                "group_ref": v2Ref(kind: .workspaceGroup, uuid: requestedGroupId)
+            ])
         }
 
         guard let newId else {
@@ -4441,6 +4483,8 @@ class TerminalController {
             "window_ref": v2Ref(kind: .window, uuid: windowId),
             "workspace_id": newId.uuidString,
             "workspace_ref": v2Ref(kind: .workspace, uuid: newId),
+            "group_id": v2OrNull(assignedGroupId?.uuidString),
+            "group_ref": v2Ref(kind: .workspaceGroup, uuid: assignedGroupId),
             "surface_id": v2OrNull(initialSurfaceId?.uuidString),
             "surface_ref": v2Ref(kind: .surface, uuid: initialSurfaceId)
         ])
