@@ -24,7 +24,7 @@ enum PhonePushSettings {
 /// Two push kinds share the transport: the visible banner mirror
 /// (``forward(_:badgeCount:)``) and the silent dismiss/badge push
 /// (``forwardDismissed(ids:badgeCount:)``), the cold lane of Mac→iOS
-/// dismiss-sync used when no phone is live-attached.
+/// dismiss-sync that reaches every registered device, attached or not.
 @MainActor
 final class PhonePushClient {
     static let shared = PhonePushClient()
@@ -138,9 +138,12 @@ final class PhonePushClient {
         Task { await send(payload) }
     }
 
-    /// The cold lane of Mac→iOS dismiss-sync: the user handled notifications on
-    /// the Mac while no phone was live-attached, so mirror the dismiss through a
-    /// silent APNs push (`content-available` + `aps.badge` + the dismissed ids).
+    /// The cold lane of Mac→iOS dismiss-sync: mirror a Mac-side dismiss through
+    /// a silent APNs push (`content-available` + `aps.badge` + the dismissed
+    /// ids). Sent unconditionally — the push route fans out to every registered
+    /// device token, so a live-attached phone (which already handled the peer
+    /// event; the push is an idempotent no-op there) must not starve an offline
+    /// second device.
     /// The system applies the badge immediately; banner removal happens when iOS
     /// grants the (strictly budgeted) background wake, and the app-foreground
     /// reconcile sweep heals anything iOS deferred. Carries only opaque UUIDs.

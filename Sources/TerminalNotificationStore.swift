@@ -910,9 +910,17 @@ final class TerminalNotificationStore: ObservableObject {
     /// that should persist.
     ///
     /// Two lanes share this chokepoint: the instant peer event for a
-    /// live-attached phone, and — only when no phone is live-subscribed — a
-    /// silent APNs badge push (the cold lane), so a pocketed phone still drops
-    /// the banner and badge. Both carry the authoritative unread count.
+    /// live-attached phone, and a silent APNs badge push (the cold lane) so a
+    /// pocketed phone still drops the banner and badge. Both carry the
+    /// authoritative unread count.
+    ///
+    /// The cold lane is sent UNCONDITIONALLY (never gated on live subscribers):
+    /// the push route fans out to every iOS device token registered for the
+    /// user, so one live-attached phone must not starve an offline second
+    /// device of its dismiss. The push is idempotent on a device that already
+    /// handled the live event — removing an already-removed banner is a no-op
+    /// and the badge is an absolute SET — and bursts coalesce in
+    /// ``PhonePushClient/forwardDismissed(ids:badgeCount:)``.
     private func emitNotificationsDismissed(ids: [String]) {
         guard !ids.isEmpty else { return }
         recordDismissTombstones(ids: ids.compactMap { UUID(uuidString: $0) })
@@ -923,11 +931,9 @@ final class TerminalNotificationStore: ObservableObject {
             topic: Self.dismissedEventTopic,
             payload: ["ids": ids, "unread_count": unreadCount]
         )
-        // Cold lane: nobody is attached to receive the event, so mirror the
-        // dismiss through APNs instead (no-op unless phone forwarding is on).
-        if !MobileHostService.hasEventSubscribers(topic: Self.dismissedEventTopic) {
-            PhonePushClient.shared.forwardDismissed(ids: ids, badgeCount: unreadCount)
-        }
+        // Cold lane: mirror the dismiss through APNs for every registered
+        // device, attached or not (no-op unless phone forwarding is on).
+        PhonePushClient.shared.forwardDismissed(ids: ids, badgeCount: unreadCount)
     }
 
     /// The last unread count pushed over ``badgeEventTopic``, so the chokepoint

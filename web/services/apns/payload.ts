@@ -17,7 +17,7 @@ export interface ApnsNotificationInput {
   /**
    * `notify` (default) is the visible terminal-banner mirror; `dismiss` is the
    * banner-less Mac→iOS dismiss-sync push (`content-available` + badge +
-   * `cmux.dismissedIds`) sent when no phone is live-attached.
+   * `cmux.dismissedIds`) fanned out to every registered device.
    */
   readonly kind?: "notify" | "dismiss";
   readonly title: string;

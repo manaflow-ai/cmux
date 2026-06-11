@@ -19,8 +19,8 @@ export type ApnsBundlePolicy = {
  * What a push request asks APNs to do. `notify` is the visible terminal-banner
  * mirror (the default; older Macs never send `kind`). `dismiss` is the cold
  * lane of Mac→iOS dismiss-sync: a banner-less `content-available` push carrying
- * the dismissed ids plus the authoritative badge, sent when no phone is
- * live-attached to receive the instant `notification.dismissed` event.
+ * the dismissed ids plus the authoritative badge, fanned out to every
+ * registered device (idempotent on devices that got the live event).
  */
 export type PushKind = "notify" | "dismiss";
 
