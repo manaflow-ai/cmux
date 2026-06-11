@@ -864,11 +864,29 @@ final class TerminalNotificationStore: ObservableObject {
     /// here" even after the entry left the store entirely (remove / clear-all
     /// paths). Bounded ring: oldest evicted past ``dismissedTombstoneCapacity``.
     /// Holds opaque UUIDs only, never content.
+    ///
+    /// Write-through persisted to `UserDefaults` (lazy-loaded on first use) so
+    /// the reconcile lane survives a Mac relaunch: session restore keeps
+    /// notification ids stable, so a phone that reconnects after this app
+    /// restarted must still learn that a banner it holds was dismissed here
+    /// even when the silent dismiss push never reached it.
     private var dismissedTombstoneIDs = Set<UUID>()
     private var dismissedTombstoneOrder: [UUID] = []
+    private var dismissedTombstonesLoaded = false
     private static let dismissedTombstoneCapacity = 512
+    static let dismissedTombstoneDefaultsKey = "cmux.notifications.dismissedTombstoneIds"
+
+    private func loadDismissedTombstonesIfNeeded() {
+        guard !dismissedTombstonesLoaded else { return }
+        dismissedTombstonesLoaded = true
+        let stored = UserDefaults.standard.stringArray(forKey: Self.dismissedTombstoneDefaultsKey) ?? []
+        for id in stored.compactMap(UUID.init) where dismissedTombstoneIDs.insert(id).inserted {
+            dismissedTombstoneOrder.append(id)
+        }
+    }
 
     private func recordDismissTombstones(ids: [UUID]) {
+        loadDismissedTombstonesIfNeeded()
         for id in ids where dismissedTombstoneIDs.insert(id).inserted {
             dismissedTombstoneOrder.append(id)
         }
@@ -879,6 +897,18 @@ final class TerminalNotificationStore: ObservableObject {
             }
             dismissedTombstoneOrder.removeFirst(overflow)
         }
+        UserDefaults.standard.set(
+            dismissedTombstoneOrder.map(\.uuidString),
+            forKey: Self.dismissedTombstoneDefaultsKey
+        )
+    }
+
+    /// Drop the in-memory tombstone copy so the next use re-reads the persisted
+    /// ring — the behavior-test analogue of a process restart.
+    func reloadDismissedTombstonesForTesting() {
+        dismissedTombstoneIDs.removeAll()
+        dismissedTombstoneOrder.removeAll()
+        dismissedTombstonesLoaded = false
     }
 
     /// Classify which of the phone's delivered banner ids have been handled on
@@ -889,6 +919,7 @@ final class TerminalNotificationStore: ObservableObject {
     /// exists (markUnread after a dismiss resurrects it).
     func reconcileHandledNotificationIDs(deliveredIDs: [UUID]) -> [String] {
         guard !deliveredIDs.isEmpty else { return [] }
+        loadDismissedTombstonesIfNeeded()
         var readIDs = Set<UUID>()
         var knownIDs = Set<UUID>()
         for notification in notifications {

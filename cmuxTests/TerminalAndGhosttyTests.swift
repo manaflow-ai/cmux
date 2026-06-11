@@ -1753,6 +1753,44 @@ final class TerminalOffscreenStartupTests: XCTestCase {
         XCTAssertEqual(store.notifications.first(where: { $0.id == second.id })?.isRead, true)
     }
 
+    /// A duplicated id in one request (retry artifacts, outbox replay) must
+    /// count one dismissal, not double-count or run the markRead path twice.
+    func testMobileNotificationDismissDedupesDuplicateIds() async throws {
+        let store = TerminalNotificationStore.shared
+        let previousNotifications = store.notifications
+        defer { store.replaceNotificationsForTesting(previousNotifications) }
+
+        let target = TerminalNotification(
+            id: UUID(), tabId: UUID(), surfaceId: UUID(),
+            title: "Dismiss once", subtitle: "", body: "body",
+            createdAt: Date(timeIntervalSince1970: 1_778_000_000), isRead: false
+        )
+        store.replaceNotificationsForTesting([target])
+
+        let response = await TerminalController.shared.mobileHostHandleRPC(
+            MobileHostRPCRequest(
+                id: "dismiss-dup",
+                method: "notification.dismiss",
+                params: [
+                    "notification_ids": [
+                        target.id.uuidString,
+                        target.id.uuidString,
+                        target.id.uuidString,
+                    ]
+                ],
+                auth: nil
+            )
+        )
+
+        guard case let .ok(rawPayload) = response,
+              let payload = rawPayload as? [String: Any] else {
+            XCTFail("Expected duplicated notification.dismiss to succeed, got \(response)")
+            return
+        }
+        XCTAssertEqual(payload["dismissed"] as? Int, 1)
+        XCTAssertEqual(store.notifications.first(where: { $0.id == target.id })?.isRead, true)
+    }
+
     /// A request with no usable id is a client bug, not a silent no-op.
     func testMobileNotificationDismissRejectsMissingId() async throws {
         let response = await TerminalController.shared.mobileHostHandleRPC(
@@ -1888,6 +1926,44 @@ final class TerminalOffscreenStartupTests: XCTestCase {
         store.markUnread(id: notification.id)
 
         XCTAssertEqual(store.reconcileHandledNotificationIDs(deliveredIDs: [notification.id]), [])
+    }
+
+    /// Dismiss tombstones are write-through persisted: a notification dismissed
+    /// and fully removed before a Mac relaunch must still reconcile as handled
+    /// afterwards, or a phone whose silent dismiss push was dropped would keep
+    /// the stale banner forever.
+    func testDismissTombstonesSurviveStoreReload() throws {
+        let store = TerminalNotificationStore.shared
+        let previousNotifications = store.notifications
+        let tombstoneKey = TerminalNotificationStore.dismissedTombstoneDefaultsKey
+        let previousTombstones = UserDefaults.standard.stringArray(forKey: tombstoneKey)
+        defer {
+            store.replaceNotificationsForTesting(previousNotifications)
+            if let previousTombstones {
+                UserDefaults.standard.set(previousTombstones, forKey: tombstoneKey)
+            } else {
+                UserDefaults.standard.removeObject(forKey: tombstoneKey)
+            }
+            store.reloadDismissedTombstonesForTesting()
+        }
+
+        let notification = TerminalNotification(
+            id: UUID(), tabId: UUID(), surfaceId: UUID(),
+            title: "Cleared before relaunch", subtitle: "", body: "body",
+            createdAt: Date(timeIntervalSince1970: 1_778_000_000), isRead: false
+        )
+        store.replaceNotificationsForTesting([notification])
+        store.markRead(id: notification.id) // records a persisted tombstone
+        store.replaceNotificationsForTesting([]) // the entry leaves the store entirely
+
+        // The behavior-test analogue of a Mac relaunch: drop the in-memory ring
+        // so the next reconcile must re-read the persisted copy.
+        store.reloadDismissedTombstonesForTesting()
+
+        XCTAssertEqual(
+            store.reconcileHandledNotificationIDs(deliveredIDs: [notification.id]),
+            [notification.id.uuidString]
+        )
     }
 
     /// The phone badge counts unread notification entries only. Workspace-level
