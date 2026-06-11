@@ -92,9 +92,15 @@ final class AgentHibernationController {
     private var durableWriteTimer: DispatchSourceTimer?
 
     private static let durableInputStoreURL: URL = {
-        URL(fileURLWithPath: NSHomeDirectory(), isDirectory: true)
+        // Bundle-ID-scoped so concurrent cmux instances (release, staging, tagged debug)
+        // each own their file — no cross-instance last-writer-wins data loss and no need
+        // for inter-process locking. Pruning inside each instance removes only that
+        // instance's stale entries without affecting other instances' files.
+        let dir = URL(fileURLWithPath: NSHomeDirectory(), isDirectory: true)
             .appendingPathComponent(".cmuxterm", isDirectory: true)
-            .appendingPathComponent("agent-panel-input-times.json", isDirectory: false)
+        let scope = (Bundle.main.bundleIdentifier ?? "app")
+            .replacingOccurrences(of: "/", with: "-")
+        return dir.appendingPathComponent("agent-panel-input-times.\(scope).json", isDirectory: false)
     }()
 
     private init() {}
@@ -144,21 +150,11 @@ final class AgentHibernationController {
         durableWriteTimer?.cancel()
         durableWriteTimer = nil
         durableInputWritePending = false
-        let snapshot = durableTerminalInputByPanelId
+        let snapshot = Dictionary(
+            uniqueKeysWithValues: durableTerminalInputByPanelId.map { ($0.key.uuidString, $0.value) }
+        )
         timerQueue.async {
-            // Read-merge-write: preserve entries owned by other concurrently-running
-            // cmux instances (release, staging, tagged debug builds all share this file).
-            // Without this, a debug-build write would prune the release app's entries,
-            // clearing its hasUnconfirmedTerminalInput guard and allowing premature hibernation.
-            var merged: [String: TimeInterval] = [:]
-            if let data = try? Data(contentsOf: Self.durableInputStoreURL),
-               let existing = try? JSONDecoder().decode([String: TimeInterval].self, from: data) {
-                merged = existing
-            }
-            for (key, value) in snapshot {
-                merged[key.uuidString] = value
-            }
-            guard let data = try? JSONEncoder().encode(merged) else { return }
+            guard let data = try? JSONEncoder().encode(snapshot) else { return }
             try? data.write(to: Self.durableInputStoreURL, options: .atomic)
         }
     }
