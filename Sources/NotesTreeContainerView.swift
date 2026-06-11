@@ -295,7 +295,10 @@ final class NotesTreeOutlineView: NSOutlineView {
     // MARK: Keyboard
 
     override func keyDown(with event: NSEvent) {
-        if let mode = RightSidebarMode.modeShortcut(for: event) {
+        // Route through the AppDelegate helper (like the Files tree) so the
+        // user's configured `shortcuts.when` clauses gate mode switches here
+        // too, instead of the default always-allowed matcher.
+        if let mode = AppDelegate.shared?.rightSidebarModeShortcut(for: event) {
             _ = AppDelegate.shared?.focusRightSidebarInActiveMainWindow(
                 mode: mode,
                 focusFirstItem: true,
