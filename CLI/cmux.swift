@@ -22415,6 +22415,24 @@ struct CMUXCLI {
 
         case "session-end":
             telemetry.breadcrumb("claude-hook.session-end")
+            // A fork launch that exits before its first prompt fires SessionEnd
+            // with the PARENT session id (the forked id is only minted at the
+            // first UserPromptSubmit). Consuming it would delete the parent
+            // pane's restore record and clear its resume binding even though
+            // that pane still owns the conversation. Post-prompt fork exits
+            // report the forked id and consume normally.
+            // https://github.com/manaflow-ai/cmux/issues/5908
+            if let reportedSessionId = parsedInput.sessionId?.trimmingCharacters(in: .whitespacesAndNewlines),
+               !reportedSessionId.isEmpty,
+               let forkParentSessionId = claudeForkSessionParentId(
+                   env: ProcessInfo.processInfo.environment,
+                   fallbackPID: claudeAgentPID(from: ProcessInfo.processInfo.environment)
+               ),
+               reportedSessionId == forkParentSessionId {
+                telemetry.breadcrumb("claude-hook.session-end.fork-parent-skipped")
+                print("OK")
+                return
+            }
             // Final cleanup when Claude process exits.
             // Only clear when we are the primary cleanup path (Stop didn't fire first).
             // If Stop already consumed the session, consumedSession is nil and we skip
@@ -25620,9 +25638,36 @@ struct CMUXCLI {
     /// pane. Reads the raw launch argv — the sanitized launch-command record
     /// strips `--fork-session`. https://github.com/manaflow-ai/cmux/issues/5908
     private func isClaudeForkSessionLaunch(env: [String: String], fallbackPID: Int?) -> Bool {
-        let arguments = decodeNULSeparatedBase64(env["CMUX_AGENT_LAUNCH_ARGV_B64"])
+        claudeRawLaunchArguments(env: env, fallbackPID: fallbackPID)?
+            .contains("--fork-session") == true
+    }
+
+    /// The parent session id a `--resume <parent> --fork-session` launch was
+    /// forked from, or nil when this hook's process is not a fork launch. Hook
+    /// payloads carrying this id (SessionStart before the forked id is minted,
+    /// and SessionEnd when the fork exits before its first prompt) describe a
+    /// conversation another pane still owns and must not mutate or consume its
+    /// record. https://github.com/manaflow-ai/cmux/issues/5908
+    private func claudeForkSessionParentId(env: [String: String], fallbackPID: Int?) -> String? {
+        guard let arguments = claudeRawLaunchArguments(env: env, fallbackPID: fallbackPID),
+              arguments.contains("--fork-session") else {
+            return nil
+        }
+        for (index, argument) in arguments.enumerated() {
+            if argument == "--resume" || argument == "-r" {
+                guard index + 1 < arguments.count else { return nil }
+                return normalizedHookValue(arguments[index + 1])
+            }
+            if argument.hasPrefix("--resume=") {
+                return normalizedHookValue(String(argument.dropFirst("--resume=".count)))
+            }
+        }
+        return nil
+    }
+
+    private func claudeRawLaunchArguments(env: [String: String], fallbackPID: Int?) -> [String]? {
+        decodeNULSeparatedBase64(env["CMUX_AGENT_LAUNCH_ARGV_B64"])
             ?? fallbackPID.flatMap { self.processArguments(for: pid_t($0)) }
-        return arguments?.contains("--fork-session") == true
     }
 
     private func agentLaunchCommandFromEnvironment(
