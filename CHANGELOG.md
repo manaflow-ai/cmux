@@ -2,6 +2,11 @@
 
 All notable changes to cmux are documented here.
 
+## [Unreleased]
+
+### Fixed
+- Fix the sidebar PR badge not appearing (or going stale on branch switch) in repos using git's reftable ref backend or whose `origin` is not a github.com remote ([#5702](https://github.com/manaflow-ai/cmux/pull/5702))
+
 ## [0.64.14] - 2026-06-06
 
 ### Added
