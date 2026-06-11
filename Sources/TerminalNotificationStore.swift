@@ -919,7 +919,7 @@ final class TerminalNotificationStore: ObservableObject {
         guard !dismissedTombstonesLoaded else { return }
         dismissedTombstonesLoaded = true
         let stored = UserDefaults.standard.stringArray(forKey: Self.dismissedTombstoneDefaultsKey) ?? []
-        for id in stored.compactMap(UUID.init) where dismissedTombstoneIDs.insert(id).inserted {
+        for id in stored.compactMap({ UUID(uuidString: $0) }) where dismissedTombstoneIDs.insert(id).inserted {
             dismissedTombstoneOrder.append(id)
         }
     }
