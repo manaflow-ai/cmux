@@ -57,23 +57,6 @@ enum BrowserFocusModeKeyDecision: Equatable {
     case consume
 }
 
-private var cmuxBrowserWebKitKeyDownDispatchDepth = 0
-
-func cmuxBrowserWebKitKeyDownDispatchIsActive() -> Bool {
-    cmuxBrowserWebKitKeyDownDispatchDepth > 0
-}
-
-func cmuxWithBrowserWebKitKeyDownDispatch<T>(_ body: () -> T) -> T {
-    cmuxBrowserWebKitKeyDownDispatchDepth += 1
-    defer {
-        cmuxBrowserWebKitKeyDownDispatchDepth = max(
-            0,
-            cmuxBrowserWebKitKeyDownDispatchDepth - 1
-        )
-    }
-    return body()
-}
-
 enum BrowserImageCopyPasteboardBuilder {
     private static let pngPasteboardType = NSPasteboard.PasteboardType(UTType.png.identifier)
     private static let tiffPasteboardType = NSPasteboard.PasteboardType(UTType.tiff.identifier)
@@ -829,12 +812,6 @@ final class CmuxWebView: WKWebView {
         }
 
         forwardKeyDownToWebKit(event)
-    }
-
-    private func forwardKeyDownToWebKit(_ event: NSEvent) {
-        cmuxWithBrowserWebKitKeyDownDispatch {
-            super.keyDown(with: event)
-        }
     }
 
     // MARK: - Focus on click

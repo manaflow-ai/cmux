@@ -17244,13 +17244,8 @@ private extension NSWindow {
         if ShortcutRecorderEventRouter.dispatchActiveRecordingEvent(event, preferredWindow: self) {
             return true
         }
-        if shortcutRoutingShouldBypassForPrintableOptionText(event: event) {
-            if firstResponderWebView != nil, cmuxBrowserWebKitKeyDownDispatchIsActive() {
-#if DEBUG
-                cmuxDebugLog("  → printable Option text reentry during WebKit keyDown; leaving unhandled")
-#endif
-                return false
-            }
+        if firstResponderWebView != nil, cmuxBrowserWebKitKeyDownDispatchIsActive() { return false }
+        if shortcutRoutingShouldBypassForPrintableOptionText(event: event), !cmuxBrowserWebKitKeyDownDispatchIsActive() {
             let textInputTarget: NSResponder? = firstResponderGhosttyView
                 ?? firstResponderWebView
                 ?? self.firstResponder
@@ -17448,20 +17443,13 @@ private extension NSWindow {
         // NSWindow.performKeyEquivalent consumes Enter first, submission never reaches
         // WebKit. Route Return/Enter directly to the current first responder and
         // mark handled to avoid the AppKit alert sound path.
-        if shouldDispatchBrowserReturnViaFirstResponderKeyDown(
+        if !cmuxBrowserWebKitKeyDownDispatchIsActive(), shouldDispatchBrowserReturnViaFirstResponderKeyDown(
             keyCode: event.keyCode,
             firstResponderIsBrowser: firstResponderWebView != nil,
             firstResponderHasMarkedText: firstResponderHasMarkedText,
             flags: event.modifierFlags
         ) {
-            if cmuxBrowserWebKitKeyDownDispatchIsActive() {
-#if DEBUG
-                cmuxDebugLog("  → browser Return/Enter reentry during WebKit keyDown; leaving unhandled")
-#endif
-                return false
-            }
             // Forwarding keyDown can re-enter performKeyEquivalent in WebKit/AppKit internals.
-            // On re-entry, fall back to normal dispatch to avoid an infinite loop.
             if cmuxBrowserReturnForwardingDepth > 0 {
 #if DEBUG
                 cmuxDebugLog("  → browser Return/Enter reentry; using normal dispatch")
@@ -17480,18 +17468,12 @@ private extension NSWindow {
         // Some browser content (notably Google Docs) loses plain arrows when
         // NSWindow.performKeyEquivalent claims the arrow before WebKit sees
         // keyDown. Route those arrows directly to the first responder instead.
-        if shouldDispatchBrowserArrowViaFirstResponderKeyDown(
+        if !cmuxBrowserWebKitKeyDownDispatchIsActive(), shouldDispatchBrowserArrowViaFirstResponderKeyDown(
             keyCode: event.keyCode,
             firstResponderIsBrowser: firstResponderWebView != nil,
             firstResponderHasMarkedText: firstResponderHasMarkedText,
             flags: event.modifierFlags
         ) {
-            if cmuxBrowserWebKitKeyDownDispatchIsActive() {
-#if DEBUG
-                cmuxDebugLog("  → browser arrow reentry during WebKit keyDown; leaving unhandled")
-#endif
-                return false
-            }
             if let focusedOmnibarField = AppDelegate.shared?.focusedBrowserOmnibarField(for: event, in: self),
                browserOmnibarPanelId(for: self.firstResponder) == nil,
                focusedOmnibarField.window === self {
