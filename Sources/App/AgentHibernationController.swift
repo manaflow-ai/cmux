@@ -144,11 +144,21 @@ final class AgentHibernationController {
         durableWriteTimer?.cancel()
         durableWriteTimer = nil
         durableInputWritePending = false
-        let snapshot = Dictionary(
-            uniqueKeysWithValues: durableTerminalInputByPanelId.map { ($0.key.uuidString, $0.value) }
-        )
+        let snapshot = durableTerminalInputByPanelId
         timerQueue.async {
-            guard let data = try? JSONEncoder().encode(snapshot) else { return }
+            // Read-merge-write: preserve entries owned by other concurrently-running
+            // cmux instances (release, staging, tagged debug builds all share this file).
+            // Without this, a debug-build write would prune the release app's entries,
+            // clearing its hasUnconfirmedTerminalInput guard and allowing premature hibernation.
+            var merged: [String: TimeInterval] = [:]
+            if let data = try? Data(contentsOf: Self.durableInputStoreURL),
+               let existing = try? JSONDecoder().decode([String: TimeInterval].self, from: data) {
+                merged = existing
+            }
+            for (key, value) in snapshot {
+                merged[key.uuidString] = value
+            }
+            guard let data = try? JSONEncoder().encode(merged) else { return }
             try? data.write(to: Self.durableInputStoreURL, options: .atomic)
         }
     }

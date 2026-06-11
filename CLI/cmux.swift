@@ -1088,6 +1088,14 @@ private final class ClaudeHookSessionStore {
         }
         if updateLastNotificationStatus {
             record.lastNotificationStatus = lastNotificationStatus
+            // A notification with idle status is a lifecycle event for agents that
+            // do not emit set_agent_lifecycle (e.g., opencode). Advance lifecycleUpdatedAt
+            // so the durable hasUnconfirmedTerminalInput guard has a valid baseline after
+            // restart; without this, lifecycleUpdatedAt stays nil and any persisted
+            // terminal-input timestamp permanently blocks hibernation for those agents.
+            if lastNotificationStatus == .idle {
+                record.lifecycleUpdatedAt = now
+            }
         }
         if updateRuntimeStatus {
             record.runtimeStatus = runtimeStatus
