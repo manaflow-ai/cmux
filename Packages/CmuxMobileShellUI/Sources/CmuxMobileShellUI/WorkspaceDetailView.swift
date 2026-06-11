@@ -14,7 +14,6 @@ import AppKit
 
 struct WorkspaceDetailView: View {
     let host: String
-    let connectionStatus: MobileMacConnectionStatus
     let workspace: MobileWorkspacePreview
     @Bindable var store: CMUXMobileShellStore
     let createWorkspace: () -> Void
@@ -122,11 +121,6 @@ struct WorkspaceDetailView: View {
             #endif
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-        .overlay(alignment: .topLeading) {
-            MobileMacConnectionStatusPill(host: host, status: connectionStatus)
-                .padding(.top, 10)
-                .padding(.leading, 10)
-        }
         #if os(iOS)
         .mobileTerminalSafeAreaExpansion(
             context: safeAreaContext,
