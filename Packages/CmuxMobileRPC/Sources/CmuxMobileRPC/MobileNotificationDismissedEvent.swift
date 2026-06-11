@@ -9,10 +9,9 @@ public import Foundation
 /// terminal content, so dismiss-sync is safe even when phone-forward
 /// hideContent is enabled.
 public struct MobileNotificationDismissedEvent: Decodable, Sendable {
-    /// The stable notification ids the Mac dismissed. These match the
-    /// `apns-collapse-id` of the corresponding delivered remote notifications, so
-    /// the phone can target them with
-    /// `removeDeliveredNotifications(withIdentifiers:)`.
+    /// The stable notification ids the Mac dismissed. The phone maps them to
+    /// delivered banners via the `cmux.notificationId` payload key each
+    /// forwarded push carries.
     public let ids: [String]
 
     /// The Mac's authoritative unread-notification count after the dismiss, when
@@ -26,6 +25,9 @@ public struct MobileNotificationDismissedEvent: Decodable, Sendable {
         case unreadCount = "unread_count"
     }
 
+    /// Decodes the payload, trimming and dropping blank ids and tolerating an
+    /// absent count.
+    /// - Parameter decoder: The JSON decoder for the event payload.
     public init(from decoder: any Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         let rawIDs = try container.decodeIfPresent([String].self, forKey: .ids) ?? []
