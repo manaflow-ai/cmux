@@ -3951,6 +3951,65 @@ class TabManager: ObservableObject {
         return .success(plan)
     }
 
+    /// Sidebar order and group membership captured when a sidebar drag begins,
+    /// so an uncommitted drag can be rolled back. The live drag-reorder mutates
+    /// the model on every hover — `reorderSidebarWorkspace(isDragOperation:)`
+    /// moves rows in `tabs[]` AND can rewrite `Workspace.groupId` when a row is
+    /// dragged into or out of an expanded group — so restoring the id order
+    /// alone is not enough.
+    struct SidebarDragRestoreSnapshot {
+        let orderedWorkspaceIds: [UUID]
+        let groupIdByWorkspaceId: [UUID: UUID?]
+    }
+
+    func captureSidebarDragRestoreSnapshot() -> SidebarDragRestoreSnapshot {
+        SidebarDragRestoreSnapshot(
+            orderedWorkspaceIds: tabs.map(\.id),
+            groupIdByWorkspaceId: Dictionary(
+                uniqueKeysWithValues: tabs.map { ($0.id, $0.groupId) }
+            )
+        )
+    }
+
+    /// Roll back everything a cancelled or uncommitted sidebar drag changed:
+    /// group membership first, then row order. Workspaces created or closed
+    /// after the capture are left where they are — the restore only covers
+    /// workspaces present both at capture time and now.
+    @discardableResult
+    func restoreSidebarDragSnapshot(_ snapshot: SidebarDragRestoreSnapshot) -> Bool {
+        let liveGroupIds = Set(workspaceGroups.map(\.id))
+        var membershipChangedIds: [UUID] = []
+        for tab in tabs {
+            guard let capturedGroupId = snapshot.groupIdByWorkspaceId[tab.id],
+                  tab.groupId != capturedGroupId else { continue }
+            // A group deleted mid-drag must not have its dead id restored
+            // onto former members.
+            if let restoredGroupId = capturedGroupId,
+               !liveGroupIds.contains(restoredGroupId) { continue }
+            tab.groupId = capturedGroupId
+            membershipChangedIds.append(tab.id)
+        }
+        let liveIds = Set(tabs.map(\.id))
+        let restoredOrder = snapshot.orderedWorkspaceIds.filter { liveIds.contains($0) }
+        if restoredOrder != tabs.map(\.id) {
+            // Renormalizes group contiguity and resyncs `workspaceGroups`
+            // order from the restored anchor positions, and posts the
+            // order-change event.
+            _ = reorderWorkspaces(orderedWorkspaceIds: restoredOrder)
+            return true
+        }
+        guard !membershipChangedIds.isEmpty else { return false }
+        // Order already matches but a membership flip was rolled back:
+        // re-establish the group invariants and notify, the same way
+        // `reorderWorkspaces` would have.
+        if !workspaceGroups.isEmpty {
+            syncWorkspaceGroupsOrderToAnchorOrder()
+            normalizeWorkspaceGroupContiguity()
+        }
+        postWorkspaceOrderDidChange(movedWorkspaceIds: membershipChangedIds)
+        return true
+    }
+
     @discardableResult
     func reorderWorkspaces(
         orderedWorkspaceIds: [UUID],
@@ -4230,15 +4289,18 @@ class TabManager: ObservableObject {
                !sidebarSelectedWorkspaceIds.isDisjoint(with: Set(eligibleChildren)) || sidebarSelectedWorkspaceIds.count > 1 {
                 let hiddenIds = sidebarSelectedWorkspaceIds
                 // Collapse the multi-selection to a single row. Prefer the
-                // workspace the user was already focused on (now a member) over
-                // the new empty anchor, so grouping doesn't yank them into the
-                // group-pivot workspace. Falls back to the anchor when the
-                // caller did want the anchor focused (selectAnchor: true) or the
-                // prior selection isn't one of the grouped workspaces.
+                // workspace the user was already focused on over the new empty
+                // anchor, so grouping doesn't yank them into the group-pivot
+                // workspace — whether or not that workspace became a member,
+                // since the active tab doesn't change when selectAnchor is
+                // false and the sidebar highlight should keep tracking it.
+                // Falls back to the anchor when the caller did want the anchor
+                // focused (selectAnchor: true) or the previously focused
+                // workspace is gone.
                 let focusId: UUID = {
                     if !selectAnchor,
                        let previousSelectedId,
-                       eligibleChildren.contains(previousSelectedId) {
+                       tabs.contains(where: { $0.id == previousSelectedId }) {
                         return previousSelectedId
                     }
                     return anchor.id

@@ -10586,10 +10586,11 @@ struct VerticalTabsSidebar: View {
     @State var modifierKeyMonitor = WindowScopedShortcutHintModifierMonitor(activation: .commandOnly)
     @StateObject var dragAutoScrollController = SidebarDragAutoScrollController()
     @StateObject private var dragFailsafeMonitor = SidebarDragFailsafeMonitor()
-    /// Workspace order captured when a sidebar drag begins, so an Escape-cancel
-    /// can undo the live reorder and put the row back where it started. Nil when
-    /// no drag is in flight.
-    @State private var dragReorderSnapshot: [UUID]?
+    /// Workspace order + group membership captured when a sidebar drag begins,
+    /// so any drag that ends without committing (Escape, mouse-up outside a
+    /// valid target, app deactivation, aborted drop) undoes the live reorder
+    /// and puts every row back where it started. Nil when no drag is in flight.
+    @State private var dragReorderSnapshot: TabManager.SidebarDragRestoreSnapshot?
     @StateObject private var tabItemSettingsStore = SidebarTabItemSettingsStore(
         initialSidebarFontSize: GhosttyConfig.load().sidebarFontSize
     )
@@ -11069,9 +11070,10 @@ struct VerticalTabsSidebar: View {
             cmuxDebugLog("sidebar.dragState.sidebar tab=\(debugShortSidebarTabId(newDraggedTabId))")
 #endif
             if newDraggedTabId != nil {
-                // Snapshot the order at drag start so an Escape-cancel can undo
-                // the live reorder. Captured before any drop hover mutates it.
-                dragReorderSnapshot = tabManager.tabs.map(\.id)
+                // Snapshot order + group membership at drag start so a
+                // non-committing drag end can undo the live reorder. Captured
+                // before any drop hover mutates the model.
+                dragReorderSnapshot = tabManager.captureSidebarDragRestoreSnapshot()
                 // The failsafe monitor probes the real mouse-button state and
                 // posts `mouse_up_failsafe` if no mouse is held down. That's
                 // correct for HID-driven drags, but `debug.sidebar.simulate_drag`
@@ -11096,18 +11098,20 @@ struct VerticalTabsSidebar: View {
 #if DEBUG
             cmuxDebugLog("sidebar.dragClear tab=\(debugShortSidebarTabId(dragState.draggedTabId)) reason=\(reason)")
 #endif
-            // Escape undoes the live reorder by restoring the order captured at
-            // drag start, then clears. A normal mouse release commits via
-            // performDrop (keeping the live order), so only the explicit
-            // escape_cancel reason restores.
-            if reason == "escape_cancel",
-               let snapshot = dragReorderSnapshot,
-               snapshot != tabManager.tabs.map(\.id) {
+            // Every clear request means the drag ended WITHOUT performDrop
+            // committing — Escape, the mouse-up failsafe, app deactivation, a
+            // drop outside the sidebar, or an aborted drop. The live reorder
+            // has already mutated the model on hover, so all of them must
+            // restore the order + group membership captured at drag start. A
+            // normal in-sidebar release commits via performDrop, which clears
+            // the drag state synchronously, so its trailing failsafe mouse-up
+            // never passes the guard above.
+            if let snapshot = dragReorderSnapshot {
 #if DEBUG
                 cmuxDebugLog("sidebar.dragCancel.restoreOrder reason=\(reason)")
 #endif
                 _ = withAnimation(SidebarGroupAnimation.structure) {
-                    tabManager.reorderWorkspaces(orderedWorkspaceIds: snapshot)
+                    tabManager.restoreSidebarDragSnapshot(snapshot)
                 }
             }
             dragReorderSnapshot = nil
@@ -17967,6 +17971,16 @@ struct SidebarTabDropDelegate: DropDelegate {
         return DropProposal(operation: .move)
     }
 
+    /// A drop that aborts must roll back the live reorder — the model has
+    /// already been mutated on hover. Posting the clear request delivers
+    /// synchronously to the sidebar's lifecycle handler, which restores the
+    /// pre-drag snapshot (order + group membership) before our `defer` clears
+    /// the drag state.
+    private func abortDrop() -> Bool {
+        SidebarDragLifecycleNotification.postClearRequest(reason: "drop_aborted")
+        return false
+    }
+
     func performDrop(info: DropInfo) -> Bool {
         defer {
             dragState.clearDrag()
@@ -17979,10 +17993,11 @@ struct SidebarTabDropDelegate: DropDelegate {
 #if DEBUG
             cmuxDebugLog("sidebar.drop.abort reason=missingDraggedTab")
 #endif
-            return false
+            return abortDrop()
         }
         if isCrossWindowDrag(draggedTabId) {
-            return performCrossWindowDrop(draggedTabId: draggedTabId)
+            let didMove = performCrossWindowDrop(draggedTabId: draggedTabId)
+            return didMove ? true : abortDrop()
         }
         let usesTopLevelRows = tabManager.sidebarReorderUsesTopLevelRows(
             forDraggedWorkspaceId: draggedTabId,
@@ -18005,7 +18020,7 @@ struct SidebarTabDropDelegate: DropDelegate {
 #if DEBUG
             cmuxDebugLog("sidebar.drop.abort reason=draggedTabMissing tab=\(draggedTabId.uuidString.prefix(5))")
 #endif
-            return false
+            return abortDrop()
         }
         guard let targetIndex = SidebarDropPlanner.targetIndex(
             draggedTabId: draggedTabId,
@@ -18021,7 +18036,7 @@ struct SidebarTabDropDelegate: DropDelegate {
                 "target=\(targetTabId?.uuidString.prefix(5) ?? "end") indicator=\(debugIndicator(dragState.dropIndicator))"
             )
 #endif
-            return false
+            return abortDrop()
         }
 
         guard fromIndex != targetIndex else {
@@ -18039,10 +18054,11 @@ struct SidebarTabDropDelegate: DropDelegate {
             existingAnchorIndex: lastSidebarSelectionIndex,
             liveWorkspaceIds: tabManager.tabs.map(\.id)
         )
-        // Animate the drop settle: rows glide to their new positions instead of
-        // snapping. The array mutates once here (the live drag only moves a
-        // visual indicator, not the model), so this is post-drag and safe under
-        // the LazyVStack — it does not touch the 60fps drag hot path.
+        // Animate the drop settle: rows glide to their final positions. With
+        // the live reorder having already moved the row on hover, this commit
+        // is usually a no-op (caught by the fromIndex == targetIndex guard
+        // above); it only mutates when the last hover tick and the drop
+        // disagree, e.g. a fast flick released before the final dropUpdated.
         let didReorder = withAnimation(SidebarGroupAnimation.structure) {
             tabManager.reorderSidebarWorkspace(
                 tabId: draggedTabId,
@@ -18207,6 +18223,13 @@ struct SidebarTabDropDelegate: DropDelegate {
               !isCrossWindowDrag(draggedTabId) else { return }
         // Hovering the dragged row itself: nothing to move.
         guard targetTabId != draggedTabId else { return }
+        // `updateDropIndicator` just ran for this hover; a nil indicator means
+        // the planner resolved "the dragged row already sits at the pointer's
+        // insertion point" (the indicator is suppressed in that case).
+        // Recomputing targetIndex below would fall back to preferredEdge —
+        // which can pick the OTHER side of the hovered row and bounce the row
+        // back across it on every hover tick. Already in place: nothing to do.
+        guard dragState.dropIndicator != nil else { return }
         // Loop-breaker: a live reorder shifts rows under the pointer, re-firing
         // this drop delegate with the pointer in the same place, and the planner
         // flips the index back — an infinite ping-pong while the pointer is held

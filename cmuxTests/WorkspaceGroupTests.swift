@@ -1047,4 +1047,120 @@ struct WorkspaceGroupTests {
         #expect(headerGroupIds.contains(groupId))
         #expect(workspaceRowIds.contains(targetId) == false)
     }
+
+    // MARK: - Drag restore snapshot (cancelled / uncommitted live reorder)
+
+    @Test func dragRestoreSnapshotRestoresOrderAndGroupMembership() throws {
+        let manager = makeTabManager()
+        manager.addWorkspace(autoWelcomeIfNeeded: false)
+        manager.addWorkspace(autoWelcomeIfNeeded: false)
+        let originalIds = manager.tabs.map(\.id)
+        let groupId = try #require(manager.createWorkspaceGroup(name: "G", childWorkspaceIds: [originalIds[1]]))
+        let orderBefore = manager.tabs.map(\.id)
+        let draggedId = originalIds[3]
+
+        let snapshot = manager.captureSidebarDragRestoreSnapshot()
+        // Live-reorder the last (ungrouped) workspace between the anchor and
+        // its member: both neighbors share the group, so the drag inference
+        // absorbs it into the group.
+        let moved = manager.reorderSidebarWorkspace(
+            tabId: draggedId,
+            toIndex: 2,
+            isDragOperation: true
+        )
+        #expect(moved)
+        #expect(manager.tabs.first { $0.id == draggedId }?.groupId == groupId)
+        #expect(manager.tabs.map(\.id) != orderBefore)
+
+        let restored = manager.restoreSidebarDragSnapshot(snapshot)
+
+        #expect(restored)
+        #expect(manager.tabs.map(\.id) == orderBefore)
+        #expect(manager.tabs.first { $0.id == draggedId }?.groupId == nil)
+        let memberIds = manager.tabs.filter { $0.groupId == groupId }.map(\.id)
+        #expect(!memberIds.contains(draggedId))
+    }
+
+    @Test func dragRestoreSnapshotIsNoOpWhenNothingChanged() throws {
+        let manager = makeTabManager()
+        let orderBefore = manager.tabs.map(\.id)
+
+        let snapshot = manager.captureSidebarDragRestoreSnapshot()
+        let restored = manager.restoreSidebarDragSnapshot(snapshot)
+
+        #expect(!restored)
+        #expect(manager.tabs.map(\.id) == orderBefore)
+    }
+
+    @Test func dragRestoreSnapshotRestoresMembershipWhenOrderAlreadyMatches() throws {
+        let manager = makeTabManager()
+        manager.addWorkspace(autoWelcomeIfNeeded: false)
+        let originalIds = manager.tabs.map(\.id)
+        let groupId = try #require(manager.createWorkspaceGroup(name: "G", childWorkspaceIds: [originalIds[1]]))
+
+        let snapshot = manager.captureSidebarDragRestoreSnapshot()
+        // Membership flips while the id order happens to end up unchanged —
+        // the restore must still roll the membership back.
+        let lastTab = try #require(manager.tabs.last)
+        #expect(lastTab.groupId == nil)
+        lastTab.groupId = groupId
+
+        let restored = manager.restoreSidebarDragSnapshot(snapshot)
+
+        #expect(restored)
+        #expect(manager.tabs.first { $0.id == lastTab.id }?.groupId == nil)
+    }
+
+    @Test func dragRestoreSnapshotSkipsWorkspaceClosedMidDrag() throws {
+        let manager = makeTabManager()
+        manager.addWorkspace(autoWelcomeIfNeeded: false)
+        manager.addWorkspace(autoWelcomeIfNeeded: false)
+        let originalIds = manager.tabs.map(\.id)
+        let groupId = try #require(manager.createWorkspaceGroup(name: "G", childWorkspaceIds: [originalIds[1]]))
+        let draggedId = originalIds[3]
+
+        let snapshot = manager.captureSidebarDragRestoreSnapshot()
+        let moved = manager.reorderSidebarWorkspace(
+            tabId: draggedId,
+            toIndex: 2,
+            isDragOperation: true
+        )
+        #expect(moved)
+        let closingTab = try #require(manager.tabs.first { $0.id == originalIds[2] })
+        manager.closeWorkspace(closingTab)
+
+        let restored = manager.restoreSidebarDragSnapshot(snapshot)
+
+        #expect(restored)
+        #expect(manager.tabs.first { $0.id == draggedId }?.groupId == nil)
+        let expectedOrder = snapshot.orderedWorkspaceIds.filter { id in
+            manager.tabs.contains { $0.id == id }
+        }
+        #expect(manager.tabs.map(\.id) == expectedOrder)
+    }
+
+    // MARK: - Grouping keeps sidebar selection on the focused workspace
+
+    @Test func createGroupKeepsSidebarSelectionOnFocusedNonMember() throws {
+        let manager = makeTabManager()
+        manager.addWorkspace(autoWelcomeIfNeeded: false)
+        manager.addWorkspace(autoWelcomeIfNeeded: false)
+        let originalIds = manager.tabs.map(\.id)
+        let focusedTab = try #require(manager.tabs.first { $0.id == originalIds[3] })
+        manager.selectTab(focusedTab)
+        manager.setSidebarSelectedWorkspaceIds([originalIds[0], originalIds[1]])
+
+        let groupId = manager.createWorkspaceGroup(
+            name: "G",
+            childWorkspaceIds: [originalIds[0], originalIds[1]],
+            selectAnchor: false
+        )
+
+        #expect(groupId != nil)
+        // The active workspace did not change (selectAnchor: false), so the
+        // collapsed sidebar selection must keep tracking it instead of
+        // jumping to the new empty anchor.
+        #expect(manager.selectedTabId == focusedTab.id)
+        #expect(manager.sidebarSelectedWorkspaceIds == [focusedTab.id])
+    }
 }
