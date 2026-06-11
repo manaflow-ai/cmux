@@ -713,6 +713,48 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
             resumeClearRequests.isEmpty,
             "A pre-prompt fork exit must not clear the parent pane's resume binding, saw \(resumeClearRequests)"
         )
+        XCTAssertTrue(
+            context.state.commands.contains {
+                $0.hasPrefix("clear_agent_pid claude_code ") && $0.contains("--panel=\(context.surfaceId)")
+            },
+            "A pre-prompt fork exit must still clear the agent PID/status registered for the fork pane, saw \(context.state.commands)"
+        )
+    }
+
+    func testClaudeForkedSessionPromptSubmitRecordsWithSurfaceRefForm() throws {
+        let context = try makeClaudeHookContext(name: "claude-fork-surface-ref")
+        defer { context.cleanup() }
+
+        let parentSessionId = "parent-session"
+        let parentSurfaceId = "99999999-9999-9999-9999-999999999999"
+        let forkedSessionId = "forked-session"
+        try seedClaudeForkHookStore(
+            context: context,
+            parentSessionId: parentSessionId,
+            parentSurfaceId: parentSurfaceId,
+            activeSessionId: parentSessionId,
+            activeTurnId: "parent-turn-1"
+        )
+
+        // The hook surface may arrive as the documented surface:N ref form
+        // rather than a UUID; the staleness gate must treat the resolved UUID
+        // as the hook's own surface in that case too.
+        let result = runClaudeHookListingSurfaces(
+            context: context,
+            surfaceIds: [parentSurfaceId, context.surfaceId],
+            arguments: ["hooks", "claude", "prompt-submit"],
+            standardInput: #"{"session_id":"\#(forkedSessionId)","turn_id":"fork-turn-1","cwd":"\#(context.root.path)","hook_event_name":"UserPromptSubmit","prompt":"diverge here"}"#,
+            extraEnvironment: ["CMUX_SURFACE_ID": "surface:2"]
+        )
+        XCTAssertFalse(result.timedOut, result.stderr)
+        XCTAssertEqual(result.status, 0, result.stderr)
+
+        let forkedRecord = try readClaudeHookSession(forkedSessionId, context: context)
+        XCTAssertEqual(
+            forkedRecord["surfaceId"] as? String,
+            context.surfaceId,
+            "A forked session's first prompt-submit must record via the resolved surface when the hook supplies the surface as a ref"
+        )
     }
 
     func testClaudeStaleStopFromClosedPaneStaysStaleWhenSurfaceResolutionFallsBack() throws {
