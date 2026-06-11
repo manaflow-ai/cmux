@@ -2038,11 +2038,14 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         }
 
         // Offline preflight: fail fast instead of stacking per-route connect
-        // timeouts into the opaque ~60s wait. Skipped when a free local ticket
-        // guard fails so `connect()` classifies it (expired QR scanned offline
-        // says "expired" not "offline"; undialable routes say `no_supported_route`).
+        // timeouts into the opaque ~60s wait. Skipped only when no route is
+        // dialable so `connect()` classifies that as `no_supported_route`.
+        // Ticket expiry deliberately does NOT gate this: a stale QR is a valid
+        // pairing input now (expiry is enforced solely where the RPC attach
+        // token is used), so an expired legacy code scanned offline must say
+        // "offline", not crawl the route loop's stacked timeouts.
         let candidateRoutes = Self.supportedRoutes(for: ticket, supportedKinds: runtime?.supportedRouteKinds ?? [])
-        if !candidateRoutes.isEmpty, Self.attachTicketIsUnexpired(ticket, now: runtime?.now() ?? Date()) {
+        if !candidateRoutes.isEmpty {
             switch await failPairingIfOffline(attemptID: attemptID, phase: "preflight", routes: candidateRoutes) {
             case .failedOffline: return .failed
             case .superseded: return .superseded
