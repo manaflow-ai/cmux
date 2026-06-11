@@ -695,10 +695,14 @@ final class TerminalOutputCollector {
 }
 
 @MainActor
-@Test func expiredQRTicketWhileOfflineReportsExpiredNotOffline() async throws {
-    // The expiry guard is local and definitive: reconnecting to Wi-Fi will not
-    // revive an expired QR, so the offline preflight must not mask it with the
-    // "connect and try again" offline message. Still fails fast with no dial.
+@Test func expiredLegacyTicketWhileOfflineReportsOfflineNotExpired() async throws {
+    // Expiry no longer classifies pairing inputs: a pairing QR never expires
+    // (v2 codes carry no expiry, legacy `e=` values are dropped on decode, and
+    // the host authorizes by Stack account, not ticket age), so a legacy
+    // ticket whose `expiresAt` has passed is still a valid pairing input.
+    // While the device is offline the preflight must say so and fail fast
+    // with no dial — reconnecting and rescanning the same code is expected
+    // to work, so "offline" is the honest, actionable message.
     let ticketExpiresAt = Date().addingTimeInterval(60)
     let route = try hostPortRoute(kind: .tailscale, host: "work-mac.tailnet.ts.net", port: CmxMobileDefaults.defaultHostPort)
     let ticket = try CmxAttachTicket(
@@ -726,7 +730,8 @@ final class TerminalOutputCollector {
 
     #expect(result == .failed)
     #expect(store.connectionState == .disconnected)
-    #expect(store.connectionError == "This pairing link expired. Pair again with a fresh QR/link from that computer.")
+    #expect(store.connectionError == "This device looks offline. Connect to Wi-Fi or cellular, then try again.")
+    #expect(store.connectionErrorGuidance == nil)
     #expect(dials.count == 0)
 }
 
