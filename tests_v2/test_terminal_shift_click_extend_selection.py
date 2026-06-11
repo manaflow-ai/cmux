@@ -61,9 +61,10 @@ def main() -> int:
     with cmux(SOCKET_PATH) as c:
         _fill_viewport(c)
 
-        # Baseline: plain drag-select produces a selection.
+        # Baseline: plain drag-select produces a selection. terminal_mouse and
+        # terminal_selection both run synchronously on the app's main thread,
+        # so selection state is settled as soon as each call returns.
         _drag_select(c)
-        time.sleep(0.3)
         active, base_text = c.terminal_selection()
         _must(active, "drag-select did not produce a selection")
         _must(bool(base_text.strip()), f"drag-select produced empty text: {base_text!r}")
@@ -73,7 +74,6 @@ def main() -> int:
         # Shift+click further right on the same row must extend, not replace.
         c.terminal_mouse("down", EXTEND_X, ROW_Y, mods="shift")
         c.terminal_mouse("up", EXTEND_X, ROW_Y, mods="shift")
-        time.sleep(0.3)
         active, extended_text = c.terminal_selection()
         _must(active, "selection vanished after shift+click")
         _must(
@@ -88,7 +88,6 @@ def main() -> int:
         # Plain click clears the selection again (no sticky extend state).
         c.terminal_mouse("down", DRAG_START_X, 0.9)
         c.terminal_mouse("up", DRAG_START_X, 0.9)
-        time.sleep(0.3)
         active, _ = c.terminal_selection()
         _must(not active, "plain click after shift+click extension should clear the selection")
 
