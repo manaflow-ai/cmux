@@ -13,6 +13,19 @@ struct AgentHibernationPanelState {
     }
 }
 
+/// State for a panel whose Ghostty runtime surface was freed while the panel
+/// stayed open (plain-shell surface hibernation). Restoring starts a fresh
+/// shell in `workingDirectory` and replays `scrollback` into it.
+struct SurfaceHibernationPanelState {
+    let hibernatedAt: Date
+    let lastActivityAt: Date
+    let scrollback: String?
+    /// One-shot replay file written at hibernation time so restore stages an
+    /// environment value without doing disk I/O on the focus path.
+    let replayFilePath: String?
+    let workingDirectory: String?
+}
+
 enum AgentHibernationResumePreparation: Equatable {
     case unavailable
     case resumed(queuedStartupInput: Bool)
@@ -99,6 +112,7 @@ final class TerminalPanel: Panel, ObservableObject {
     @Published var viewReattachToken: UInt64 = 0
 
     @Published private(set) var agentHibernationState: AgentHibernationPanelState?
+    @Published private(set) var surfaceHibernationState: SurfaceHibernationPanelState?
 
     var onRequestWorkspacePaneFlash: ((WorkspaceAttentionFlashReason) -> Void)?
     var onRequestAgentHibernationResume: ((Bool) -> Bool)?
@@ -127,6 +141,10 @@ final class TerminalPanel: Panel, ObservableObject {
 
     var isAgentHibernated: Bool {
         agentHibernationState != nil
+    }
+
+    var isSurfaceHibernated: Bool {
+        surfaceHibernationState != nil
     }
 
     /// The hosted NSView for embedding in SwiftUI
@@ -535,6 +553,9 @@ final class TerminalPanel: Panel, ObservableObject {
             _ = requestAgentHibernationResume(focus: true)
             return
         }
+        if isSurfaceHibernated {
+            prepareSurfaceHibernationRestore()
+        }
         focusTerminalSurface(respectForeignFirstResponder: true)
     }
 
@@ -599,6 +620,17 @@ final class TerminalPanel: Panel, ObservableObject {
 
     func close() {
         isClosingPanel = true
+        // The shell integration deletes the replay file after a restore; a
+        // panel closed while hibernated never restores, so clean up the
+        // one-shot artifact here to keep abandoned hibernations from
+        // accumulating temp files. Once a restore begins, ownership of the
+        // path moves from the hibernation state into the surface's staged
+        // environment until the relaunched shell consumes it, so a close in
+        // that window must clean up the staged copy too.
+        if let replayFilePath = surfaceHibernationState?.replayFilePath {
+            try? FileManager.default.removeItem(atPath: replayFilePath)
+        }
+        surface.discardStagedHibernationReplayFile()
         discardTextBoxContentForClose()
         // The surface will be cleaned up by its deinit
         // Detach from the window portal on real close so stale hosted views
@@ -637,11 +669,95 @@ final class TerminalPanel: Panel, ObservableObject {
             hibernatedAt: hibernatedAt,
             lastActivityAt: lastActivityAt
         )
+        suspendSurfaceForHibernation(reason: "agentHibernation")
+    }
+
+    /// Free the runtime surface of a plain-shell panel while keeping the panel
+    /// in the layout. The captured scrollback and working directory are
+    /// replayed into a fresh shell when the panel is restored. Writes the
+    /// replay file synchronously; the hibernation timer path pre-writes it
+    /// off-actor and uses the `replayFilePath:` variant instead.
+    @discardableResult
+    func enterSurfaceHibernation(
+        scrollback: String?,
+        workingDirectory: String?,
+        lastActivityAt: Date,
+        hibernatedAt: Date = Date()
+    ) -> Bool {
+        guard !isAgentHibernated, !isSurfaceHibernated else { return false }
+        let replayEnvironment = SessionScrollbackReplayStore.replayEnvironment(for: scrollback)
+        return enterSurfaceHibernation(
+            scrollback: scrollback,
+            workingDirectory: workingDirectory,
+            lastActivityAt: lastActivityAt,
+            hibernatedAt: hibernatedAt,
+            replayFilePath: replayEnvironment[SessionScrollbackReplayStore.environmentKey]
+        )
+    }
+
+    /// Core surface-hibernation transition with a pre-written replay file.
+    @discardableResult
+    func enterSurfaceHibernation(
+        scrollback: String?,
+        workingDirectory: String?,
+        lastActivityAt: Date,
+        hibernatedAt: Date = Date(),
+        replayFilePath: String?
+    ) -> Bool {
+        guard !isAgentHibernated, !isSurfaceHibernated else { return false }
+        if let scrollback, !scrollback.isEmpty, replayFilePath == nil {
+            // The replay file is the only restore artifact for the captured
+            // history; if it could not be written, keep the surface alive and
+            // let a later evaluation retry.
+            return false
+        }
+        surfaceHibernationState = SurfaceHibernationPanelState(
+            hibernatedAt: hibernatedAt,
+            lastActivityAt: lastActivityAt,
+            scrollback: scrollback,
+            replayFilePath: replayFilePath,
+            workingDirectory: workingDirectory
+        )
+        suspendSurfaceForHibernation(reason: "surfaceHibernation")
+        return true
+    }
+
+    /// Bring a surface-hibernated panel back: stage scrollback replay and the
+    /// captured working directory, then let the surface start on the next view
+    /// attach (or immediately when already visible).
+    @discardableResult
+    func prepareSurfaceHibernationRestore() -> Bool {
+        guard let state = surfaceHibernationState else { return false }
+        surfaceHibernationState = nil
+        // The managed shell integration is the replay file's consumer. When
+        // the user disabled integration while this panel was hibernated, the
+        // relaunched shell has no replay hook, so staging the file would only
+        // orphan it in the child environment. Drop it instead: the captured
+        // text still reaches the session snapshot through the fallback seeded
+        // at hibernation time, matching how app-relaunch session restore
+        // behaves when integration is disabled.
+        let shellIntegrationEnabled = UserDefaults.standard
+            .object(forKey: "sidebarShellIntegration") as? Bool ?? true
+        if !shellIntegrationEnabled, let orphanedReplayPath = state.replayFilePath {
+            try? FileManager.default.removeItem(atPath: orphanedReplayPath)
+        }
+        surface.stageHibernationRestore(
+            replayFilePath: shellIntegrationEnabled ? state.replayFilePath : nil,
+            workingDirectory: state.workingDirectory
+        )
+        surface.prepareHibernationResume(initialInput: nil)
+        requestViewReattach()
+        surface.requestBackgroundSurfaceStartIfNeeded()
+        AgentHibernationController.shared.recordTerminalFocus(workspaceId: workspaceId, panelId: id)
+        return true
+    }
+
+    private func suspendSurfaceForHibernation(reason: String) {
         unfocus()
         searchState = nil
         hostedView.setVisibleInUI(false)
         TerminalWindowPortalRegistry.detach(hostedView: hostedView)
-        surface.suspendRuntimeSurfaceForAgentHibernation(reason: "agentHibernation")
+        surface.suspendRuntimeSurfaceForHibernation(reason: reason)
         requestViewReattach()
     }
 
@@ -652,7 +768,7 @@ final class TerminalPanel: Panel, ObservableObject {
         }
         let resumeStartupInput = state.agent.resumeStartupInput()
         agentHibernationState = nil
-        surface.prepareAgentHibernationResume(initialInput: resumeStartupInput)
+        surface.prepareHibernationResume(initialInput: resumeStartupInput)
         requestViewReattach()
         surface.requestBackgroundSurfaceStartIfNeeded()
         return .resumed(queuedStartupInput: resumeStartupInput != nil)
@@ -697,13 +813,16 @@ final class TerminalPanel: Panel, ObservableObject {
     }
 
     func performBindingAction(_ action: String) -> Bool {
-        guard !isAgentHibernated else { return false }
+        guard !isAgentHibernated, !isSurfaceHibernated else { return false }
         return surface.performBindingAction(action)
     }
 
     private func resumeForExplicitInputIfNeeded() {
-        guard isAgentHibernated else { return }
-        _ = requestAgentHibernationResume(focus: false)
+        if isAgentHibernated {
+            _ = requestAgentHibernationResume(focus: false)
+            return
+        }
+        prepareSurfaceHibernationRestore()
     }
 
     @discardableResult
@@ -753,7 +872,7 @@ final class TerminalPanel: Panel, ObservableObject {
     }
 
     func captureFocusIntent(in window: NSWindow?) -> PanelFocusIntent {
-        guard !isAgentHibernated else { return .panel }
+        guard !isAgentHibernated, !isSurfaceHibernated else { return .panel }
         if textBoxOwnsResponder(window?.firstResponder) {
             return .terminal(.textBoxInput)
         }
@@ -761,7 +880,7 @@ final class TerminalPanel: Panel, ObservableObject {
     }
 
     func preferredFocusIntentForActivation() -> PanelFocusIntent {
-        guard !isAgentHibernated else { return .panel }
+        guard !isAgentHibernated, !isSurfaceHibernated else { return .panel }
         if isTextBoxActive, textBoxInputFocusIntent == .textBox {
             return .terminal(.textBoxInput)
         }
@@ -769,7 +888,7 @@ final class TerminalPanel: Panel, ObservableObject {
     }
 
     func prepareFocusIntentForActivation(_ intent: PanelFocusIntent) {
-        guard !isAgentHibernated else { return }
+        guard !isAgentHibernated, !isSurfaceHibernated else { return }
         guard case .terminal(let target) = intent else { return }
         switch target {
         case .surface, .findField:
@@ -790,6 +909,11 @@ final class TerminalPanel: Panel, ObservableObject {
         if isAgentHibernated {
             return requestAgentHibernationResume(focus: true)
         }
+        if isSurfaceHibernated {
+            prepareSurfaceHibernationRestore()
+            focus()
+            return true
+        }
         switch intent {
         case .panel:
             focus()
@@ -809,7 +933,7 @@ final class TerminalPanel: Panel, ObservableObject {
     }
 
     func ownedFocusIntent(for responder: NSResponder, in window: NSWindow) -> PanelFocusIntent? {
-        guard !isAgentHibernated else { return nil }
+        guard !isAgentHibernated, !isSurfaceHibernated else { return nil }
         _ = window
         if textBoxOwnsResponder(responder) {
             return .terminal(.textBoxInput)
@@ -820,7 +944,7 @@ final class TerminalPanel: Panel, ObservableObject {
 
     @discardableResult
     func yieldFocusIntent(_ intent: PanelFocusIntent, in window: NSWindow) -> Bool {
-        guard !isAgentHibernated else { return false }
+        guard !isAgentHibernated, !isSurfaceHibernated else { return false }
         guard case .terminal(let target) = intent else { return false }
         if target == .textBoxInput {
             guard let firstResponder = window.firstResponder,

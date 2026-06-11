@@ -331,6 +331,23 @@ jobs:
             -only-testing:cmuxTests/AppearanceSettingsTests/testSplitGhosttyThemeUsesSystemDarkWhenAppAppearanceIsStaleLight \
             test
 
+      # The full unit-test pass below tolerates app-host crashes by classifying
+      # the surviving summary lines, so suites that sort after an early crash
+      # can be skipped without failing the job. Surface hibernation policy
+      # tests gate memory reclamation (issue 5731) and must always execute.
+      - name: Run surface hibernation policy regression
+        run: |
+          set -euo pipefail
+          SOURCE_PACKAGES_DIR="$PWD/.ci-source-packages"
+          xcodebuild -project cmux.xcodeproj -scheme cmux-unit -configuration Debug \
+            -derivedDataPath "$CMUX_DERIVED_DATA_PATH" \
+            -clonedSourcePackagesDirPath "$SOURCE_PACKAGES_DIR" \
+            -disableAutomaticPackageResolution \
+            -destination "platform=macOS" \
+            CMUX_SKIP_ZIG_BUILD=1 \
+            -only-testing:cmuxTests/SurfaceHibernationPolicyTests \
+            test
+
       - name: Run unit tests
         run: |
           set -euo pipefail

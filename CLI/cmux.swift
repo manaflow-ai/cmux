@@ -3359,6 +3359,9 @@ struct CMUXCLI {
         case "agent-hibernation":
             try runAgentHibernation(commandArgs: commandArgs, client: client, jsonOutput: jsonOutput)
 
+        case "surface-hibernation":
+            try runSurfaceHibernation(commandArgs: commandArgs, client: client, jsonOutput: jsonOutput)
+
         case "auth", "login", "logout":
             let authArgs = command == "auth" ? commandArgs : [command] + commandArgs
             let sub = authArgs.first?.lowercased() ?? "status"
@@ -5156,6 +5159,7 @@ struct CMUXCLI {
         "ssh-session-list",
         "surface",
         "surface-health",
+        "surface-hibernation",
         "surface-resume",
         "swap-pane",
         "tab-action",
@@ -13344,6 +13348,13 @@ struct CMUXCLI {
 
             Enable or disable Agent Hibernation.
             Configure idle and live-terminal limits from Settings or cmux settings JSON.
+            """
+        case "surface-hibernation":
+            return """
+            Usage: cmux surface-hibernation <on|off> [--json]
+
+            Enable or disable Surface Hibernation for idle background terminals.
+            Configure idle and live-surface limits from Settings or cmux settings JSON.
             """
         case "restore-session":
             return """
@@ -22651,6 +22662,36 @@ struct CMUXCLI {
             response = try sendV1Command("agent_hibernation off", client: client)
         default:
             throw CLIError(message: "Usage: cmux agent-hibernation <on|off> [--json]")
+        }
+
+        if jsonOutput {
+            let ok = response == "OK"
+            var fallback: [String: Any] = ["ok": ok]
+            if !ok {
+                fallback["message"] = response
+            }
+            print(jsonString(fallback))
+        } else {
+            print(response)
+        }
+    }
+
+    private func runSurfaceHibernation(
+        commandArgs: [String],
+        client: SocketClient,
+        jsonOutput: Bool
+    ) throws {
+        guard let subcommand = commandArgs.first?.lowercased() else {
+            throw CLIError(message: "Usage: cmux surface-hibernation <on|off> [--json]")
+        }
+        let response: String
+        switch subcommand {
+        case "on", "enable":
+            response = try sendV1Command("surface_hibernation on", client: client)
+        case "off", "disable":
+            response = try sendV1Command("surface_hibernation off", client: client)
+        default:
+            throw CLIError(message: "Usage: cmux surface-hibernation <on|off> [--json]")
         }
 
         if jsonOutput {
@@ -32724,6 +32765,7 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
           shortcuts
           disable-browser | enable-browser | browser-status
           agent-hibernation <on|off>
+          surface-hibernation <on|off>
           restore-session
           open <path-or-url>... [--workspace <id|ref|index>] [--surface <id|ref|index>] [--pane <id|ref|index>] [--window <id|ref|index>] [--focus <true|false>] [--no-focus]
           diff [patch-file|-] [--source <unstaged|staged|branch|last-turn>] [--unstaged|--staged|--branch|--last-turn] [--workspace <id|ref|index>] [--surface <id|ref|index>] [--window <id|ref|index>] [--cwd <path>] [--base <ref>] [--focus <true|false>] [--no-focus] [--title <text>] [--layout <split|unified>] [--font-size <points>]

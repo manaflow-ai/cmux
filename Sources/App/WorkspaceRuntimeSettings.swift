@@ -360,9 +360,138 @@ enum AgentHibernationSettings {
     }
 }
 
+enum SurfaceHibernationSettings {
+    struct Values: Equatable, Sendable {
+        var enabled: Bool
+        var idleSeconds: TimeInterval
+        var unmountedIdleSeconds: TimeInterval
+        var maxLiveSurfaces: Int
+        var confirmationSeconds: TimeInterval
+    }
+
+    static let enabledKey = "terminal.surfaceHibernation.enabled"
+    static let idleSecondsKey = "terminal.surfaceHibernation.idleSeconds"
+    static let unmountedIdleSecondsKey = "terminal.surfaceHibernation.unmountedIdleSeconds"
+    static let maxLiveSurfacesKey = "terminal.surfaceHibernation.maxLiveSurfaces"
+    static let confirmationSecondsKey = "terminal.surfaceHibernation.confirmationSeconds"
+
+    // Surface hibernation is on by default: it only reclaims surfaces that are
+    // safely at a shell prompt, restores scrollback and working directory on
+    // the next visit, and is the P0 backstop against unbounded per-workspace
+    // surface accumulation (https://github.com/manaflow-ai/cmux/issues/5731).
+    static let defaultEnabled = true
+    static let defaultIdleSeconds: TimeInterval = 300
+    static let defaultUnmountedIdleSeconds: TimeInterval = 1800
+    static let defaultMaxLiveSurfaces = 12
+    static let defaultConfirmationSeconds: TimeInterval = 60
+    static let didChangeNotification = Notification.Name("cmux.surfaceHibernationSettingsDidChange")
+
+    static func values(defaults: UserDefaults = .standard) -> Values {
+        Values(
+            enabled: isEnabled(defaults: defaults),
+            idleSeconds: idleSeconds(defaults: defaults),
+            unmountedIdleSeconds: unmountedIdleSeconds(defaults: defaults),
+            maxLiveSurfaces: maxLiveSurfaces(defaults: defaults),
+            confirmationSeconds: confirmationSeconds(defaults: defaults)
+        )
+    }
+
+    static func isEnabled(defaults: UserDefaults = .standard) -> Bool {
+        guard defaults.object(forKey: enabledKey) != nil else { return defaultEnabled }
+        return defaults.bool(forKey: enabledKey)
+    }
+
+    static func idleSeconds(defaults: UserDefaults = .standard) -> TimeInterval {
+        guard defaults.object(forKey: idleSecondsKey) != nil else { return defaultIdleSeconds }
+        return sanitizedIdleSeconds(defaults.double(forKey: idleSecondsKey))
+    }
+
+    static func unmountedIdleSeconds(defaults: UserDefaults = .standard) -> TimeInterval {
+        guard defaults.object(forKey: unmountedIdleSecondsKey) != nil else { return defaultUnmountedIdleSeconds }
+        return sanitizedUnmountedIdleSeconds(defaults.double(forKey: unmountedIdleSecondsKey))
+    }
+
+    static func maxLiveSurfaces(defaults: UserDefaults = .standard) -> Int {
+        guard defaults.object(forKey: maxLiveSurfacesKey) != nil else { return defaultMaxLiveSurfaces }
+        return sanitizedMaxLiveSurfaces(defaults.integer(forKey: maxLiveSurfacesKey))
+    }
+
+    static func confirmationSeconds(defaults: UserDefaults = .standard) -> TimeInterval {
+        guard defaults.object(forKey: confirmationSecondsKey) != nil else { return defaultConfirmationSeconds }
+        return sanitizedConfirmationSeconds(defaults.double(forKey: confirmationSecondsKey))
+    }
+
+    static func sanitizedIdleSeconds(_ value: TimeInterval) -> TimeInterval {
+        guard value.isFinite else { return defaultIdleSeconds }
+        return min(max(value.rounded(), 30), 7 * 24 * 60 * 60)
+    }
+
+    static func sanitizedUnmountedIdleSeconds(_ value: TimeInterval) -> TimeInterval {
+        guard value.isFinite else { return defaultUnmountedIdleSeconds }
+        return min(max(value.rounded(), 60), 30 * 24 * 60 * 60)
+    }
+
+    static func sanitizedMaxLiveSurfaces(_ value: Int) -> Int {
+        min(max(value, 1), 256)
+    }
+
+    static func sanitizedConfirmationSeconds(_ value: TimeInterval) -> TimeInterval {
+        guard value.isFinite else { return defaultConfirmationSeconds }
+        return min(max(value.rounded(), 5), 60 * 60)
+    }
+
+    static func setValues(
+        enabled: Bool? = nil,
+        idleSeconds: TimeInterval? = nil,
+        unmountedIdleSeconds: TimeInterval? = nil,
+        maxLiveSurfaces: Int? = nil,
+        defaults: UserDefaults = .standard,
+        notificationCenter: NotificationCenter = .default
+    ) {
+        let oldValues = values(defaults: defaults)
+        if let enabled {
+            defaults.set(enabled, forKey: enabledKey)
+        }
+        if let idleSeconds {
+            defaults.set(sanitizedIdleSeconds(idleSeconds), forKey: idleSecondsKey)
+        }
+        if let unmountedIdleSeconds {
+            defaults.set(sanitizedUnmountedIdleSeconds(unmountedIdleSeconds), forKey: unmountedIdleSecondsKey)
+        }
+        if let maxLiveSurfaces {
+            defaults.set(sanitizedMaxLiveSurfaces(maxLiveSurfaces), forKey: maxLiveSurfacesKey)
+        }
+        if oldValues != values(defaults: defaults) {
+            notifyDidChange(notificationCenter: notificationCenter)
+        }
+    }
+
+    @discardableResult
+    static func reset(
+        defaults: UserDefaults = .standard,
+        notificationCenter: NotificationCenter = .default
+    ) -> Bool {
+        let oldValues = values(defaults: defaults)
+        defaults.removeObject(forKey: enabledKey)
+        defaults.removeObject(forKey: idleSecondsKey)
+        defaults.removeObject(forKey: unmountedIdleSecondsKey)
+        defaults.removeObject(forKey: maxLiveSurfacesKey)
+        defaults.removeObject(forKey: confirmationSecondsKey)
+        let didChange = oldValues != values(defaults: defaults)
+        if didChange {
+            notifyDidChange(notificationCenter: notificationCenter)
+        }
+        return didChange
+    }
+
+    static func notifyDidChange(notificationCenter: NotificationCenter = .default) {
+        notificationCenter.post(name: didChangeNotification, object: nil)
+    }
+}
+
 enum AgentHibernationTrackingGate {
     private static let lock = NSLock()
-    private static var enabled = AgentHibernationSettings.isEnabled()
+    private static var enabled = AgentHibernationSettings.isEnabled() || SurfaceHibernationSettings.isEnabled()
 
     static func isEnabled() -> Bool {
         lock.lock()

@@ -1981,21 +1981,79 @@ enum SessionPersistenceStore {
 enum SessionScrollbackReplayStore {
     static let environmentKey = "CMUX_RESTORE_SCROLLBACK_FILE"
     private static let directoryName = "cmux-session-scrollback"
+    /// Tagged debug instances share the per-user temp directory, so replay
+    /// files are written under a bundle-scoped subdirectory and the startup
+    /// purge only ever touches this instance's own files.
+    private static var bundleScopedDirectoryComponent: String {
+        let bundleId = Bundle.main.bundleIdentifier ?? "com.cmuxterm.app"
+        return bundleId.replacingOccurrences(of: "/", with: "-")
+    }
+
+    private static func replayDirectory(tempDirectory: URL) -> URL {
+        tempDirectory
+            .appendingPathComponent(directoryName, isDirectory: true)
+            .appendingPathComponent(bundleScopedDirectoryComponent, isDirectory: true)
+    }
     private static let ansiEscape = "\u{001B}"
     private static let ansiReset = "\u{001B}[0m"
+
+    /// Replay files from a previous process are dead weight: restores write
+    /// fresh ones and the shell integration deletes them after replaying, but
+    /// quitting with hibernated panels leaves theirs behind. Purge leftovers
+    /// once per process before the first write of this session. The first
+    /// caller can be on the main actor (session restore, the hibernation
+    /// timer), so the calling thread only pays a single O(1) rename that
+    /// moves the stale tree aside; the recursive delete — unbounded with
+    /// many leftover files — runs detached. Renaming before the first write
+    /// also keeps the delete from racing freshly written replay files.
+    private static let purgeStaleReplayFilesOnce: Void = {
+        let fileManager = FileManager.default
+        let staleDirectory = replayDirectory(tempDirectory: fileManager.temporaryDirectory)
+        let discardPrefix = "\(bundleScopedDirectoryComponent)-stale-"
+        let discardDirectory = staleDirectory
+            .deletingLastPathComponent()
+            .appendingPathComponent(
+                "\(discardPrefix)\(ProcessInfo.processInfo.processIdentifier)",
+                isDirectory: true
+            )
+        try? fileManager.moveItem(at: staleDirectory, to: discardDirectory)
+        Task.detached(priority: .utility) {
+            let fileManager = FileManager.default
+            // Sweep discard directories from earlier crashes too; the prefix
+            // is bundle-scoped, so tagged debug instances never cross paths.
+            let parent = discardDirectory.deletingLastPathComponent()
+            let leftovers = (try? fileManager.contentsOfDirectory(
+                at: parent,
+                includingPropertiesForKeys: nil,
+                options: [.skipsHiddenFiles]
+            )) ?? []
+            for leftover in leftovers where leftover.lastPathComponent.hasPrefix(discardPrefix) {
+                try? fileManager.removeItem(at: leftover)
+            }
+        }
+    }()
 
     static func replayEnvironment(
         for scrollback: String?,
         tempDirectory: URL = FileManager.default.temporaryDirectory
     ) -> [String: String] {
-        guard let replayText = normalizedScrollback(scrollback) else { return [:] }
-        guard let replayFileURL = writeReplayFile(
-            contents: replayText,
-            tempDirectory: tempDirectory
-        ) else {
+        guard let path = replayFilePath(for: scrollback, tempDirectory: tempDirectory) else {
             return [:]
         }
-        return [environmentKey: replayFileURL.path]
+        return [environmentKey: path]
+    }
+
+    /// Write a one-shot replay file for `scrollback` and return its path.
+    /// Safe to call off the main actor; the hibernation timer pre-writes
+    /// replay files on a utility task so the atomic write of a large capture
+    /// never blocks the main thread.
+    static func replayFilePath(
+        for scrollback: String?,
+        tempDirectory: URL = FileManager.default.temporaryDirectory
+    ) -> String? {
+        _ = purgeStaleReplayFilesOnce
+        guard let replayText = normalizedScrollback(scrollback) else { return nil }
+        return writeReplayFile(contents: replayText, tempDirectory: tempDirectory)?.path
     }
 
     private static func normalizedScrollback(_ scrollback: String?) -> String? {
@@ -2118,7 +2176,7 @@ enum SessionScrollbackReplayStore {
 
     private static func writeReplayFile(contents: String, tempDirectory: URL) -> URL? {
         guard let data = contents.data(using: .utf8) else { return nil }
-        let directory = tempDirectory.appendingPathComponent(directoryName, isDirectory: true)
+        let directory = replayDirectory(tempDirectory: tempDirectory)
 
         do {
             try FileManager.default.createDirectory(

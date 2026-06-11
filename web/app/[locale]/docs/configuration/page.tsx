@@ -81,6 +81,12 @@ function buildSettingsFileExample(t: ConfigurationTranslation) {
   //     "idleSeconds": 5,
   //     "maxLiveTerminals": 12
   //   },
+  //   "surfaceHibernation": {
+  //     "enabled": true,
+  //     "idleSeconds": 300,
+  //     "unmountedIdleSeconds": 1800,
+  //     "maxLiveSurfaces": 12
+  //   },
   //   "textBoxMaxLines": 10
   // },
 

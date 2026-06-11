@@ -255,6 +255,30 @@ extension TerminalSurface {
         return nil
     }
 
+    /// Whether `applyManagedShellSpecificStartupEnvironment` actually
+    /// installed the integration that consumes CMUX_RESTORE_SCROLLBACK_FILE
+    /// for this launch. The helper declines silently — unreadable bundled
+    /// bootstrap, or a custom startup command displacing the fish wrapper —
+    /// and a shell launched without the hook would never replay (or delete)
+    /// a staged scrollback file, so restartability must key off these
+    /// installation artifacts rather than the shell's name.
+    static func shellIntegrationInstalledReplayHook(
+        shellName: String,
+        managedKeysAdded: Set<String>,
+        shellSpecificCommandApplied: Bool
+    ) -> Bool {
+        switch shellName {
+        case "zsh":
+            return managedKeysAdded.contains("ZDOTDIR")
+        case "bash":
+            return managedKeysAdded.contains("PROMPT_COMMAND")
+        case "fish":
+            return shellSpecificCommandApplied
+        default:
+            return false
+        }
+    }
+
     static func managedFishShellCommand(shell: String) -> String {
         let initCommand = #"source "$CMUX_FISH_INTEGRATION_FILE""#
         return "\(shellSingleQuoted(shell)) -il --init-command \(shellSingleQuoted(initCommand))"

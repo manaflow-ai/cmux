@@ -5305,16 +5305,82 @@ enum TerminalSurfaceFocusPlacement: Equatable {
     case rightSidebarDock
 }
 
-private func recordAgentHibernationTerminalInput(workspaceId: UUID, panelId: UUID) {
+// Runs on the typing hot path. Every caller is already on the main actor
+// (TerminalSurface methods and AppKit event handlers), so record directly —
+// two dictionary writes — instead of spawning a per-keystroke Task. Not
+// throttled: the unconfirmed-input safety check compares the latest input
+// timestamp against the latest agent lifecycle change, so suppressing a
+// "repeat" keystroke could hide input typed right after an idle lifecycle
+// report and let hibernation kill an active agent.
+@MainActor
+private func recordAgentHibernationTerminalInput(
+    workspaceId: UUID,
+    panelId: UUID,
+    armsPendingCommandLine: Bool = true,
+    pendingPromptSurvivals: Int = 0,
+    clearsSeededPendingCommandLine: Bool = false
+) {
     guard AgentHibernationTrackingGate.isEnabled() else { return }
-    let recordedAt = Date()
-    Task { @MainActor in
-        AgentHibernationController.shared.recordTerminalInput(
-            workspaceId: workspaceId,
-            panelId: panelId,
-            recordedAt: recordedAt
-        )
+    AgentHibernationController.shared.recordTerminalInput(
+        workspaceId: workspaceId,
+        panelId: panelId,
+        armsPendingCommandLine: armsPendingCommandLine,
+        pendingPromptSurvivals: pendingPromptSurvivals,
+        clearsSeededPendingCommandLine: clearsSeededPendingCommandLine
+    )
+}
+
+/// Whether input can leave new editable text at the prompt. Bare settling
+/// characters (Enter on an empty line, ^C, ^D, ^U), non-inserting editing
+/// and navigation controls (^L, ^A, ^E, ^K, ^W, ^R, …), and function keys
+/// type nothing, and most produce no shell preexec/precmd transition at
+/// all — arming the pending guard for them would exempt the panel from
+/// hibernation until a real command cycle. Among the C0 controls only tab
+/// (completion inserts text), ^V (quoted-insert) and ^Y (yank) can put new
+/// text on the line.
+private func terminalInputCanLeavePromptText(_ text: String) -> Bool {
+    // Scalar-level on purpose: "\r\n" is a single CRLF grapheme Character
+    // that would otherwise match neither settling byte.
+    !text.unicodeScalars.allSatisfy { scalar in
+        if scalar.value < 0x20 || scalar.value == 0x7F {
+            let inserting: Set<UInt32> = [0x09, 0x16, 0x19] // tab, ^V, ^Y
+            return !inserting.contains(scalar.value)
+        }
+        // NSEvent function-key range (arrows, F-keys, page up/down…).
+        return (0xF700...0xF8FF).contains(scalar.value)
     }
+}
+
+/// Whether a non-arming payload is a bare Enter — the input that settles a
+/// pre-tracking seeded pending guard (the line submits, opens a busy-gated
+/// PS2 continuation, or was empty). See recordTerminalInput.
+func terminalInputClearsSeededPending(_ text: String) -> Bool {
+    // Scalar-level: "\r\n" is one CRLF grapheme Character.
+    !text.isEmpty && text.unicodeScalars.allSatisfy { $0 == "\r" || $0 == "\n" }
+}
+
+/// How many prompt transitions the pending-input hibernation guard must
+/// survive for a batched payload that leaves text editable at the prompt.
+/// "cmd1\ncmd2\npartial" runs two commands — two prompt returns — before
+/// "partial" sits on the editable line, so the guard must outlive both.
+/// Returns 0 when nothing trails the last settling character (the normal
+/// prompt-transition clear applies) or when no settling character exists
+/// (pending until a real command cycle). Keyboard input arrives per
+/// keystroke and never produces a positive count.
+private func terminalInputPendingPromptSurvivals(_ text: String) -> Int {
+    // CRLF collapses to one submission before scalar-level counting; a
+    // CRLF grapheme Character would otherwise evade settling checks.
+    let normalized = text.replacingOccurrences(of: "\r\n", with: "\n")
+    let isSettling: (Unicode.Scalar) -> Bool = { scalar in
+        scalar == "\r" || scalar == "\n" ||
+            scalar == "\u{03}" || scalar == "\u{04}" || scalar == "\u{15}"
+    }
+    let scalars = Array(normalized.unicodeScalars)
+    guard let lastSettlingIndex = scalars.lastIndex(where: isSettling),
+          lastSettlingIndex < scalars.count - 1 else {
+        return 0
+    }
+    return scalars.lazy.filter(isSettling).count
 }
 
 final class TerminalSurface: Identifiable, ObservableObject {
@@ -5455,6 +5521,11 @@ final class TerminalSurface: Identifiable, ObservableObject {
     let tmuxStartCommand: String?
     let initialInput: String?
     private var nextRuntimeInitialInput: String?
+    private var nextRuntimeWorkingDirectory: String?
+    /// Whether the most recent runtime surface launched with a managed shell
+    /// integration that replays CMUX_RESTORE_SCROLLBACK_FILE. Surface
+    /// hibernation must not restart shells that cannot restore their history.
+    private(set) var runtimeSupportsScrollbackReplay = false
     private let initialEnvironmentOverrides: [String: String]
     var requestedWorkingDirectory: String? { workingDirectory }
     let focusPlacement: TerminalSurfaceFocusPlacement
@@ -5487,7 +5558,7 @@ final class TerminalSurface: Identifiable, ObservableObject {
     private var pendingSocketInputBytes: Int = 0
     private let maxPendingSocketInputBytes = 1_048_576
     private var backgroundSurfaceStartQueued = false
-    private var runtimeSurfaceSuspendedForAgentHibernation = false
+    private var runtimeSurfaceSuspendedForHibernation = false
     private var headlessStartupWindow: NSWindow?
     private var surfaceCallbackContext: Unmanaged<GhosttySurfaceCallbackContext>?
     private var claudeCommandShim: ClaudeCommandShim?
@@ -5513,6 +5584,7 @@ final class TerminalSurface: Identifiable, ObservableObject {
     private(set) var clipboardReadGeneration = 0
 #if DEBUG
     private var needsConfirmCloseOverrideForTesting: Bool?
+    private var foregroundProcessHasChildrenOverrideForTesting: Bool?
     private var runtimeSurfaceFreedOutOfBandForTesting = false
     private var runtimeSurfaceCreateAttemptCountForTesting = 0
     private let debugForceRefreshCountLock = NSLock()
@@ -6084,7 +6156,7 @@ final class TerminalSurface: Identifiable, ObservableObject {
     }
 
     private func allowsRuntimeSurfaceCreation() -> Bool {
-        portalLifecycleState == .live && !runtimeSurfaceSuspendedForAgentHibernation
+        portalLifecycleState == .live && !runtimeSurfaceSuspendedForHibernation
     }
 
     private var hasDeferredStartupWork: Bool {
@@ -6192,8 +6264,8 @@ final class TerminalSurface: Identifiable, ObservableObject {
     }
 
     @MainActor
-    func suspendRuntimeSurfaceForAgentHibernation(reason: String) {
-        runtimeSurfaceSuspendedForAgentHibernation = true
+    func suspendRuntimeSurfaceForHibernation(reason: String) {
+        runtimeSurfaceSuspendedForHibernation = true
         backgroundSurfaceStartQueued = false
         closeHeadlessStartupWindowIfNeeded()
         let callbackContext = surfaceCallbackContext
@@ -6264,6 +6336,11 @@ final class TerminalSurface: Identifiable, ObservableObject {
     @MainActor
     func debugAdditionalEnvironmentForTesting() -> [String: String] {
         additionalEnvironment
+    }
+
+    @MainActor
+    func debugNextRuntimeWorkingDirectoryForTesting() -> String? {
+        nextRuntimeWorkingDirectory
     }
 
     func debugForceRefreshCount() -> Int {
@@ -6630,7 +6707,9 @@ final class TerminalSurface: Identifiable, ObservableObject {
         }
 
         // Shell integration: inject startup wrappers for supported shells; skipped when the bundled dir is missing (deleted app bundle), see shellIntegrationDirectoryExists.
-        if UserDefaults.standard.object(forKey: "sidebarShellIntegration") as? Bool ?? true,
+        let shellIntegrationEnabled = UserDefaults.standard.object(forKey: "sidebarShellIntegration") as? Bool ?? true
+        runtimeSupportsScrollbackReplay = false
+        if shellIntegrationEnabled,
            let integrationDir = Bundle.main.resourceURL?.appendingPathComponent("shell-integration").path,
            Self.shellIntegrationDirectoryExists(integrationDir) {
             setManagedEnvironmentValue("CMUX_SHELL_INTEGRATION", "1")
@@ -6646,15 +6725,34 @@ final class TerminalSurface: Identifiable, ObservableObject {
                 ?? getenv("SHELL").map { String(cString: $0) }
                 ?? ProcessInfo.processInfo.environment["SHELL"]
                 ?? "/bin/zsh"
-            if let command = Self.applyManagedShellSpecificStartupEnvironment(
+            let shellName = URL(fileURLWithPath: shell).lastPathComponent
+            let protectedKeysBeforeShellSpecific = protectedStartupEnvironmentKeys
+            let shellSpecificCommand = Self.applyManagedShellSpecificStartupEnvironment(
                 shell: shell,
                 integrationDir: integrationDir,
                 userGhosttyShellIntegrationMode: GhosttyApp.shared.userGhosttyShellIntegrationMode,
                 to: &env,
                 protectedKeys: &protectedStartupEnvironmentKeys
-            ) {
-                if baseConfig.command?.isEmpty != false { baseConfig.command = command }
+            )
+            var shellSpecificCommandApplied = false
+            if let shellSpecificCommand, baseConfig.command?.isEmpty != false {
+                baseConfig.command = shellSpecificCommand
+                shellSpecificCommandApplied = true
             }
+            // The managed integrations are the consumers of
+            // CMUX_RESTORE_SCROLLBACK_FILE; without one, a restored shell
+            // would never replay captured scrollback. The helper skips
+            // installation when its bundled bootstrap is unreadable (and a
+            // custom startup command displaces the fish wrapper), so the
+            // flag requires evidence this launch installed a hook: the zsh
+            // ZDOTDIR redirection, the bash PROMPT_COMMAND bootstrap, or the
+            // applied fish wrapper command.
+            runtimeSupportsScrollbackReplay = Self.shellIntegrationInstalledReplayHook(
+                shellName: shellName,
+                managedKeysAdded: protectedStartupEnvironmentKeys
+                    .subtracting(protectedKeysBeforeShellSpecific),
+                shellSpecificCommandApplied: shellSpecificCommandApplied
+            )
         }
         env = Self.mergedStartupEnvironment(
             base: env,
@@ -6687,7 +6785,15 @@ final class TerminalSurface: Identifiable, ObservableObject {
             }
         }
 
+        // Consume the override before attempting creation: if the captured
+        // directory turned invalid and creation fails, a retry must not loop
+        // on the same value.
+        let runtimeWorkingDirectory = nextRuntimeWorkingDirectory
+        nextRuntimeWorkingDirectory = nil
         let resolvedWorkingDirectory: String? = {
+            if let runtimeWorkingDirectory, !runtimeWorkingDirectory.isEmpty {
+                return runtimeWorkingDirectory
+            }
             if let workingDirectory, !workingDirectory.isEmpty {
                 return workingDirectory
             }
@@ -6776,7 +6882,14 @@ final class TerminalSurface: Identifiable, ObservableObject {
 
         // Session scrollback replay must be one-shot. Reusing it on a later runtime
         // surface recreation would inject stale restored output into a live shell.
-        additionalEnvironment.removeValue(forKey: SessionScrollbackReplayStore.environmentKey)
+        // When this launch installed no replay hook (integration toggled off
+        // between staging and creation), nothing will consume the file — delete
+        // it instead of leaving it for the next-launch purge.
+        if let stagedReplayPath = additionalEnvironment.removeValue(
+            forKey: SessionScrollbackReplayStore.environmentKey
+        ), !runtimeSupportsScrollbackReplay, !stagedReplayPath.isEmpty {
+            try? FileManager.default.removeItem(atPath: stagedReplayPath)
+        }
 
         // For vsync-driven rendering, Ghostty needs to know which display we're on so it can
         // start a CVDisplayLink with the right refresh rate. If we don't set this early, the
@@ -7175,9 +7288,42 @@ final class TerminalSurface: Identifiable, ObservableObject {
     }
 
     @MainActor
-    func prepareAgentHibernationResume(initialInput: String?) {
-        runtimeSurfaceSuspendedForAgentHibernation = false
+    func prepareHibernationResume(initialInput: String?) {
+        runtimeSurfaceSuspendedForHibernation = false
         prepareNextRuntimeInitialInput(initialInput)
+    }
+
+    /// Drop a staged-but-unconsumed scrollback replay file. Ownership of the
+    /// path moves here when a restore begins, so a panel closed before the
+    /// relaunched shell consumes the file must clean it up through this.
+    @MainActor
+    func discardStagedHibernationReplayFile() {
+        guard let path = additionalEnvironment.removeValue(forKey: SessionScrollbackReplayStore.environmentKey),
+              !path.isEmpty else { return }
+        try? FileManager.default.removeItem(atPath: path)
+    }
+
+    /// Stage scrollback replay and a working-directory override for the next
+    /// runtime surface created after hibernation. Both are one-shot: the
+    /// replay file environment is consumed by the next `createSurface` and the
+    /// directory override is cleared once applied. The replay file itself was
+    /// written at hibernation time — this path runs on focus/selection and
+    /// must not perform disk I/O.
+    @MainActor
+    func stageHibernationRestore(replayFilePath: String?, workingDirectory: String?) {
+        if let replayFilePath, !replayFilePath.isEmpty {
+            additionalEnvironment[SessionScrollbackReplayStore.environmentKey] = replayFilePath
+        }
+        // No disk I/O here: this runs on interactive selection/focus paths and
+        // a stat on a dead network mount can hang the main thread. A stale
+        // directory is harmless — Ghostty ignores an unspawnable cwd at spawn
+        // time and falls back (termio/Exec.zig logs "cannot spawn command at
+        // cwd, ignoring"), and the override is consumed even when creation
+        // fails, so retries cannot loop on a bad value.
+        let trimmedDirectory = workingDirectory?.trimmingCharacters(in: .whitespacesAndNewlines)
+        if let trimmedDirectory, !trimmedDirectory.isEmpty {
+            nextRuntimeWorkingDirectory = trimmedDirectory
+        }
     }
 
     func setOcclusion(_ visible: Bool) {
@@ -7195,6 +7341,43 @@ final class TerminalSurface: Identifiable, ObservableObject {
         return ghostty_surface_needs_confirm_quit(surface)
     }
 
+    private static let shellRestartForegroundShellNames: Set<String> = [
+        "zsh", "bash", "fish", "sh", "dash", "login", "-zsh", "-bash", "-fish", "-sh"
+    ]
+
+    /// Whether the surface's foreground process is a shell sitting at a
+    /// prompt with no live children. Background jobs started with `&`
+    /// produce no prompt-state or output signal, and an attached `tmux`
+    /// client passes the prompt heuristics while its server is not a child —
+    /// both must keep surface hibernation from SIGHUPing the PTY. Freeing
+    /// the PTY is irreversible, so every unclassifiable state fails closed:
+    /// no live surface handle, no foreground PID (Ghostty reports 0 when
+    /// tcgetpgrp fails), or an unreadable argv all report "not allowed".
+    @MainActor
+    func foregroundProcessAllowsShellRestart() -> Bool {
+#if DEBUG
+        if let foregroundProcessHasChildrenOverrideForTesting {
+            return !foregroundProcessHasChildrenOverrideForTesting
+        }
+#endif
+        guard let surface = liveSurfaceForGhosttyAccess(reason: "foregroundProcessAllowsShellRestart") else {
+            return false
+        }
+        let rawPid = ghostty_surface_foreground_pid(surface)
+        guard rawPid > 0, rawPid <= UInt64(Int32.max) else { return false }
+        let pid = Int(rawPid)
+        if CmuxTopProcessSnapshot.hasChildProcesses(parentPID: pid) {
+            return false
+        }
+        guard let executable = CmuxTopProcessSnapshot.processArgumentsAndEnvironment(for: pid)?
+            .arguments.first else {
+            // Unknown foreground process: be conservative.
+            return false
+        }
+        let name = URL(fileURLWithPath: executable).lastPathComponent
+        return Self.shellRestartForegroundShellNames.contains(name)
+    }
+
     func noteClipboardReadCompleted() {
         clipboardReadGeneration += 1
         NotificationCenter.default.post(
@@ -7207,11 +7390,20 @@ final class TerminalSurface: Identifiable, ObservableObject {
     @discardableResult
     func sendText(_ text: String) -> Bool {
         guard let data = text.data(using: .utf8), !data.isEmpty else { return true }
+        let armsPendingCommandLine = terminalInputCanLeavePromptText(text)
+        let pendingPromptSurvivals = terminalInputPendingPromptSurvivals(text)
+        let clearsSeededPendingCommandLine = terminalInputClearsSeededPending(text)
         guard surface != nil else {
             guard allowsRuntimeSurfaceCreation() else { return false }
             let queued = enqueuePendingSocketInput(.pasteText(data))
             if queued {
-                recordAgentHibernationTerminalInput(workspaceId: tabId, panelId: id)
+                recordAgentHibernationTerminalInput(
+                    workspaceId: tabId,
+                    panelId: id,
+                    armsPendingCommandLine: armsPendingCommandLine,
+                    pendingPromptSurvivals: pendingPromptSurvivals,
+                    clearsSeededPendingCommandLine: clearsSeededPendingCommandLine
+                )
                 requestBackgroundSurfaceStartIfNeeded()
             }
             return queued
@@ -7220,7 +7412,13 @@ final class TerminalSurface: Identifiable, ObservableObject {
             return false
         }
         guard !ghostty_surface_process_exited(liveSurface) else { return false }
-        recordAgentHibernationTerminalInput(workspaceId: tabId, panelId: id)
+        recordAgentHibernationTerminalInput(
+            workspaceId: tabId,
+            panelId: id,
+            armsPendingCommandLine: armsPendingCommandLine,
+            pendingPromptSurvivals: pendingPromptSurvivals,
+            clearsSeededPendingCommandLine: clearsSeededPendingCommandLine
+        )
         writeTextData(data, to: liveSurface)
         return true
     }
@@ -7251,10 +7449,23 @@ final class TerminalSurface: Identifiable, ObservableObject {
     @discardableResult
     func sendNamedKey(_ keyName: String) -> NamedKeySendResult {
         guard let event = pendingKeyEvent(for: keyName) else { return .unknownKey }
+        // Single-character key names type editable prompt text ("a"), and so
+        // do space and tab (completion); other named special keys (enter,
+        // escape, arrows) do not.
+        let normalizedKeyName = keyName.lowercased()
+        let armsPendingCommandLine = keyName.count == 1 ||
+            normalizedKeyName == "space" || normalizedKeyName == "tab"
+        let clearsSeededPendingCommandLine = normalizedKeyName == "enter" ||
+            normalizedKeyName == "return"
         guard surface != nil else {
             guard allowsRuntimeSurfaceCreation() else { return .surfaceUnavailable }
             guard enqueuePendingSocketInput(.key(event)) else { return .inputQueueFull }
-            recordAgentHibernationTerminalInput(workspaceId: tabId, panelId: id)
+            recordAgentHibernationTerminalInput(
+                workspaceId: tabId,
+                panelId: id,
+                armsPendingCommandLine: armsPendingCommandLine,
+                clearsSeededPendingCommandLine: clearsSeededPendingCommandLine
+            )
             requestBackgroundSurfaceStartIfNeeded()
             return .queued
         }
@@ -7262,7 +7473,12 @@ final class TerminalSurface: Identifiable, ObservableObject {
             return .surfaceUnavailable
         }
         guard !ghostty_surface_process_exited(liveSurface) else { return .processExited }
-        recordAgentHibernationTerminalInput(workspaceId: tabId, panelId: id)
+        recordAgentHibernationTerminalInput(
+            workspaceId: tabId,
+            panelId: id,
+            armsPendingCommandLine: armsPendingCommandLine,
+            clearsSeededPendingCommandLine: clearsSeededPendingCommandLine
+        )
         sendKeyEvent(surface: liveSurface, keycode: event.keycode, mods: event.mods)
         return .sent
     }
@@ -7325,11 +7541,20 @@ final class TerminalSurface: Identifiable, ObservableObject {
     @discardableResult
     func sendInputResult(_ text: String) -> InputSendResult {
         guard !text.isEmpty else { return .sent }
+        let armsPendingCommandLine = terminalInputCanLeavePromptText(text)
+        let pendingPromptSurvivals = terminalInputPendingPromptSurvivals(text)
+        let clearsSeededPendingCommandLine = terminalInputClearsSeededPending(text)
         guard surface != nil else {
             guard allowsRuntimeSurfaceCreation() else { return .surfaceUnavailable }
             let queued = enqueuePendingSocketInput(text)
             if queued {
-                recordAgentHibernationTerminalInput(workspaceId: tabId, panelId: id)
+                recordAgentHibernationTerminalInput(
+                    workspaceId: tabId,
+                    panelId: id,
+                    armsPendingCommandLine: armsPendingCommandLine,
+                    pendingPromptSurvivals: pendingPromptSurvivals,
+                    clearsSeededPendingCommandLine: clearsSeededPendingCommandLine
+                )
                 requestBackgroundSurfaceStartIfNeeded()
             }
             return queued ? .queued : .inputQueueFull
@@ -7338,7 +7563,13 @@ final class TerminalSurface: Identifiable, ObservableObject {
             return .surfaceUnavailable
         }
         guard !ghostty_surface_process_exited(liveSurface) else { return .processExited }
-        recordAgentHibernationTerminalInput(workspaceId: tabId, panelId: id)
+        recordAgentHibernationTerminalInput(
+            workspaceId: tabId,
+            panelId: id,
+            armsPendingCommandLine: armsPendingCommandLine,
+            pendingPromptSurvivals: pendingPromptSurvivals,
+            clearsSeededPendingCommandLine: clearsSeededPendingCommandLine
+        )
         sendInput(text, to: liveSurface)
         return .sent
     }
@@ -7994,6 +8225,11 @@ final class TerminalSurface: Identifiable, ObservableObject {
     @MainActor
     func setNeedsConfirmCloseOverrideForTesting(_ value: Bool?) {
         needsConfirmCloseOverrideForTesting = value
+    }
+
+    @MainActor
+    func setForegroundProcessHasChildrenOverrideForTesting(_ value: Bool?) {
+        foregroundProcessHasChildrenOverrideForTesting = value
     }
 
     @MainActor
@@ -9531,26 +9767,49 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         )
     }
 
-    private func recordDirectAgentHibernationTerminalInput() {
+    private func recordDirectAgentHibernationTerminalInput(
+        armsPendingCommandLine: Bool = true,
+        pendingPromptSurvivals: Int = 0,
+        clearsSeededPendingCommandLine: Bool = false
+    ) {
         guard let terminalSurface else { return }
         recordAgentHibernationTerminalInput(
             workspaceId: terminalSurface.tabId,
-            panelId: terminalSurface.id
+            panelId: terminalSurface.id,
+            armsPendingCommandLine: armsPendingCommandLine,
+            pendingPromptSurvivals: pendingPromptSurvivals,
+            clearsSeededPendingCommandLine: clearsSeededPendingCommandLine
         )
+    }
+
+    private func clipboardPendingPromptSurvivals() -> Int {
+        guard let pasted = NSPasteboard.general.string(forType: .string) else { return 0 }
+        return terminalInputPendingPromptSurvivals(pasted)
+    }
+
+    private func clipboardCanLeavePromptText() -> Bool {
+        guard let pasted = NSPasteboard.general.string(forType: .string) else { return false }
+        return terminalInputCanLeavePromptText(pasted)
     }
 
     // MARK: - Clipboard paste
 
     @IBAction func paste(_ sender: Any?) {
         guard prepareSurfaceForPaste(reason: "paste.missingSurface") else { return }
-        recordDirectAgentHibernationTerminalInput()
+        recordDirectAgentHibernationTerminalInput(
+            armsPendingCommandLine: clipboardCanLeavePromptText(),
+            pendingPromptSurvivals: clipboardPendingPromptSurvivals()
+        )
         _ = performBindingAction("paste_from_clipboard")
     }
 
     /// Pastes clipboard text as plain text, stripping any rich formatting.
     @IBAction func pasteAsPlainText(_ sender: Any?) {
         guard prepareSurfaceForPaste(reason: "pasteAsPlainText.missingSurface") else { return }
-        recordDirectAgentHibernationTerminalInput()
+        recordDirectAgentHibernationTerminalInput(
+            armsPendingCommandLine: clipboardCanLeavePromptText(),
+            pendingPromptSurvivals: clipboardPendingPromptSurvivals()
+        )
         _ = performBindingAction("paste_from_clipboard")
     }
 
@@ -10051,7 +10310,6 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             super.keyDown(with: event)
             return
         }
-        recordDirectAgentHibernationTerminalInput()
 #if DEBUG
         ensureSurfaceMs = (ProcessInfo.processInfo.systemUptime - ensureSurfaceStart) * 1000.0
 #endif
@@ -10094,6 +10352,16 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
 #if DEBUG
         keyboardCopyModeMs = (ProcessInfo.processInfo.systemUptime - keyboardCopyModeStart) * 1000.0
 #endif
+        // Past the consumption branches (sidebar shortcut, find escape, copy
+        // mode) every remaining path delivers this event to the terminal, so
+        // only now does it count as terminal input: a consumed key never
+        // reaches the shell, and recording it would arm a pending
+        // command-line guard no shell transition can ever clear (and reset
+        // the panel's idle clock for input the shell never saw).
+        recordDirectAgentHibernationTerminalInput(
+            armsPendingCommandLine: event.characters.map(terminalInputCanLeavePromptText) ?? false,
+            clearsSeededPendingCommandLine: event.characters.map(terminalInputClearsSeededPending) ?? false
+        )
 #if DEBUG
         recordKeyLatency(path: "keyDown", event: event)
 #endif
@@ -16026,7 +16294,10 @@ extension GhosttyNSView: NSTextInputClient {
         guard !sanitizedChars.isEmpty else { return }
 
         // Otherwise send directly to the terminal
-        recordDirectAgentHibernationTerminalInput()
+        recordDirectAgentHibernationTerminalInput(
+            armsPendingCommandLine: terminalInputCanLeavePromptText(sanitizedChars),
+            pendingPromptSurvivals: terminalInputPendingPromptSurvivals(sanitizedChars)
+        )
         sendTextToSurface(
             sanitizedChars,
             preserveLiteralEscape: !isExternalCommittedText

@@ -270,6 +270,10 @@ nonisolated final class CmuxTopProcessSnapshot: @unchecked Sendable {
         return result
     }
 
+    nonisolated static func hasChildProcesses(parentPID: Int) -> Bool {
+        !listedChildPIDs(parentPID: parentPID).isEmpty
+    }
+
     private static func listedChildPIDs(parentPID: Int) -> [Int] {
         guard parentPID > 0 else { return [] }
 

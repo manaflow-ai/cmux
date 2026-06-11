@@ -38,6 +38,39 @@ public struct TerminalCatalogSection: SettingCatalogSection {
         userDefaultsKey: "terminal.agentHibernation.maxLiveTerminals"
     )
 
+    /// Whether Surface Hibernation reclaims idle plain-shell terminals in
+    /// hidden workspaces (scrollback and working directory are restored on
+    /// the next visit).
+    public let surfaceHibernationEnabled = DefaultsKey<Bool>(
+        id: "terminal.surfaceHibernation.enabled",
+        defaultValue: true,
+        userDefaultsKey: "terminal.surfaceHibernation.enabled"
+    )
+
+    /// Minimum quiet seconds before the live-surface cap may reclaim a
+    /// background shell terminal.
+    public let surfaceHibernationIdleSeconds = DefaultsKey<Double>(
+        id: "terminal.surfaceHibernation.idleSeconds",
+        defaultValue: 300,
+        userDefaultsKey: "terminal.surfaceHibernation.idleSeconds"
+    )
+
+    /// Seconds a workspace must stay hidden — with its terminal quiet —
+    /// before its idle shell surfaces hibernate even under the cap.
+    public let surfaceHibernationUnmountedIdleSeconds = DefaultsKey<Double>(
+        id: "terminal.surfaceHibernation.unmountedIdleSeconds",
+        defaultValue: 1800,
+        userDefaultsKey: "terminal.surfaceHibernation.unmountedIdleSeconds"
+    )
+
+    /// Maximum simultaneously live terminal surfaces before the oldest
+    /// eligible background terminals hibernate.
+    public let surfaceHibernationMaxLiveSurfaces = DefaultsKey<Int>(
+        id: "terminal.surfaceHibernation.maxLiveSurfaces",
+        defaultValue: 12,
+        userDefaultsKey: "terminal.surfaceHibernation.maxLiveSurfaces"
+    )
+
     public let showTextBoxOnNewTerminals = DefaultsKey<Bool>(
         id: "terminal.showTextBoxOnNewTerminals",
         defaultValue: false,

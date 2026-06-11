@@ -8946,7 +8946,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             in: tab,
             preferredPanelId: preferredPanelId
         ),
-           terminalPanel.isAgentHibernated {
+           terminalPanel.isAgentHibernated || terminalPanel.isSurfaceHibernated {
+            // Hibernated panels have no runtime surface and never will until
+            // they are restored; sending through the panel restores first and
+            // queues the input instead of waiting on surface readiness.
             beforeSend?()
             if !terminalPanel.sendText(text) {
                 onFailure?()
