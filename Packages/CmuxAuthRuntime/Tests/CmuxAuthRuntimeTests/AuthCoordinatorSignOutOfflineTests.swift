@@ -73,4 +73,54 @@ import Testing
         await signOut.value
         #expect(coordinator.isAuthenticated == false)
     }
+
+    @Test func teardownDeadlineDuringTokenMintSkipsSignOutHook() async throws {
+        // The teardown's first leg is minting a usable access token from the
+        // captured refresh token. Offline, that refresh hangs too; when the
+        // teardown deadline cancels it, the refresh path swallows the
+        // cancellation into `nil` and execution continues on the CANCELLED
+        // task. The sign-out hook (the push-token DELETE in production) must
+        // not run past the deadline: the deadline bounds the entire server
+        // teardown, and a post-deadline hook can interleave with a later
+        // sign-in's setup.
+        let clock = ManualTestClock()
+        let user = CMUXAuthUser(id: "u1", primaryEmail: "a@b.com", displayName: "A")
+        let client = HangingTokenMintAuthClient(user: user)
+        let store = FakeKeyValueStore()
+        let coordinator = AuthCoordinator(
+            client: client,
+            sessionCache: CMUXAuthSessionCache(keyValueStore: store, key: "has_tokens"),
+            userCache: CMUXAuthIdentityStore(keyValueStore: store, key: "cached_user"),
+            teamSelection: CMUXAuthTeamSelectionStore(keyValueStore: store, key: "selected_team"),
+            anchor: FakeAnchor(),
+            config: .test,
+            launch: .plain(),
+            clock: clock
+        )
+        try await coordinator.signInWithPassword(email: "a@b.com", password: "pw")
+        #expect(coordinator.isAuthenticated)
+
+        let hookRuns = SignOutHookCounter()
+        let signOut = Task {
+            await coordinator.signOut(onSignedOut: { _, _ in await hookRuns.increment() })
+        }
+        await client.mintDidStart()
+
+        // Already signed out locally while the mint hangs.
+        #expect(coordinator.isAuthenticated == false)
+
+        // Fire the teardown deadline while the mint is parked.
+        await clock.waitUntilSleepers()
+        clock.advance(by: .seconds(5))
+        await signOut.value
+
+        #expect(coordinator.isAuthenticated == false)
+        #expect(await hookRuns.value == 0, "the sign-out hook must not run after the teardown deadline")
+    }
+}
+
+/// Counts sign-out hook runs across actor hops.
+private actor SignOutHookCounter {
+    private(set) var value = 0
+    func increment() { value += 1 }
 }
