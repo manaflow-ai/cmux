@@ -14,7 +14,39 @@ public protocol MultiWindowRouting: Sendable {
     /// - Parameter arguments: The CLI arguments after the implicit
     ///   `--socket <path>` pair (subcommand, window targeting flags, output
     ///   format flags).
-    /// - Returns: The ``MultiWindowRouteResult`` describing how the CLI call
-    ///   finished, including the legacy `"-1"` launch-failure encoding.
-    func route(arguments: [String]) -> MultiWindowRouteResult
+    /// - Returns: The ``MultiWindowRouteResult`` describing how the launched
+    ///   CLI call finished.
+    /// - Throws: ``MultiWindowRouteLaunchError`` when the CLI process could
+    ///   not be launched; a launched CLI never throws, its outcome (including
+    ///   non-zero exit) is the returned result.
+    func route(arguments: [String]) async throws -> MultiWindowRouteResult
+}
+
+extension MultiWindowRouting {
+    /// Routes one CLI call, encoding a launch failure into the result instead
+    /// of throwing.
+    ///
+    /// This is the legacy capture encoding the pre-extraction AppDelegate
+    /// helper produced and the multi-window UI-test data file still expects:
+    /// a CLI that never launched yields termination status `-1` with the
+    /// launch error's description in `stderr` (byte-identical to the old
+    /// `String(describing:)` text via ``MultiWindowRouteLaunchError``'s
+    /// `CustomStringConvertible`). Use it when every call in a batch must run
+    /// regardless of earlier launch failures.
+    ///
+    /// - Parameter arguments: The CLI arguments after the implicit
+    ///   `--socket <path>` pair.
+    /// - Returns: The route result, with launch failure folded in as
+    ///   termination status `-1`.
+    public func routeCapturingLaunchFailure(arguments: [String]) async -> MultiWindowRouteResult {
+        do {
+            return try await route(arguments: arguments)
+        } catch {
+            return MultiWindowRouteResult(
+                terminationStatus: -1,
+                stdout: "",
+                stderr: String(describing: error)
+            )
+        }
+    }
 }

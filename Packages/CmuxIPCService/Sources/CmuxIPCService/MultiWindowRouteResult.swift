@@ -1,31 +1,30 @@
 /// The captured outcome of one multi-window route call through the bundled
 /// cmux CLI.
 ///
-/// Produced by ``MultiWindowRouting/route(arguments:)``. The fields mirror the
-/// legacy AppDelegate capture exactly: `status` is the process termination
-/// status rendered as a string (or `"-1"` when the CLI failed to launch), and
-/// the streams are UTF-8 decoded with non-decodable output collapsing to the
-/// empty string. Consumers (the multi-window UI-test scaffolding) write these
-/// strings verbatim into the shared test-data file.
+/// Produced by ``MultiWindowRouting/route(arguments:)`` once the CLI process
+/// launched and exited (a process that never launched throws
+/// ``MultiWindowRouteLaunchError`` instead). The streams are UTF-8 decoded
+/// with non-decodable output collapsing to the empty string, matching the
+/// legacy AppDelegate capture exactly; consumers (the multi-window UI-test
+/// scaffolding) write `String(terminationStatus)` and the streams verbatim
+/// into the shared test-data file.
 public struct MultiWindowRouteResult: Sendable, Equatable {
-    /// The CLI process termination status as a string, or `"-1"` when the
-    /// process could not be launched.
-    public let status: String
+    /// The CLI process termination status.
+    public let terminationStatus: Int32
     /// The captured standard output, UTF-8 decoded; empty when absent or not
     /// valid UTF-8.
     public let stdout: String
     /// The captured standard error, UTF-8 decoded; empty when absent or not
-    /// valid UTF-8. Carries the launch-error description when `status` is
-    /// `"-1"`.
+    /// valid UTF-8.
     public let stderr: String
 
     /// Creates a route result.
     /// - Parameters:
-    ///   - status: The termination status string, or `"-1"` for launch failure.
+    ///   - terminationStatus: The CLI process termination status.
     ///   - stdout: The captured standard output.
     ///   - stderr: The captured standard error.
-    public init(status: String, stdout: String, stderr: String) {
-        self.status = status
+    public init(terminationStatus: Int32, stdout: String, stderr: String) {
+        self.terminationStatus = terminationStatus
         self.stdout = stdout
         self.stderr = stderr
     }
