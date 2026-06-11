@@ -30,6 +30,7 @@ enum PreferredEditorSettings {
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/bin/sh")
         process.arguments = ["-c", "\(command) \(shellQuote(path))"]
+        process.environment = launchEnvironment()
         process.standardOutput = FileHandle.nullDevice
         process.standardError = FileHandle.nullDevice
         do {
@@ -45,6 +46,13 @@ enum PreferredEditorSettings {
         } catch {
             NSWorkspace.shared.open(url)
         }
+    }
+
+    /// Environment for the spawned editor process.
+    static func launchEnvironment(
+        base: [String: String] = ProcessInfo.processInfo.environment
+    ) -> [String: String] {
+        base
     }
 
     private static func shellQuote(_ s: String) -> String {

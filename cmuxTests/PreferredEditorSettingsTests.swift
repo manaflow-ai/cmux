@@ -47,4 +47,51 @@ import Testing
         defaults.set("  code -w  \n", forKey: PreferredEditorSettings.key)
         #expect(PreferredEditorSettings.resolvedCommand(defaults: defaults) == "code -w")
     }
+
+    // MARK: - Launch environment (#5817)
+    //
+    // GUI apps inherit a minimal PATH (`/usr/bin:/bin:/usr/sbin:/sbin`), so a
+    // bare editor command like `code` (installed in /usr/local/bin or
+    // /opt/homebrew/bin) exits 127 and the setting silently appears to do
+    // nothing. The launch environment must include the standard CLI
+    // directories so bare commands resolve the way they do in a terminal.
+
+    @Test func launchEnvironmentAppendsStandardCLIDirectoriesToGUIPath() {
+        let environment = PreferredEditorSettings.launchEnvironment(
+            base: ["PATH": "/usr/bin:/bin:/usr/sbin:/sbin"]
+        )
+        let path = environment["PATH"] ?? ""
+        let entries = path.split(separator: ":").map(String.init)
+        #expect(entries.contains("/usr/local/bin"))
+        #expect(entries.contains("/opt/homebrew/bin"))
+        // Inherited entries keep precedence over the appended directories.
+        #expect(entries.first == "/usr/bin")
+    }
+
+    @Test func launchEnvironmentDoesNotDuplicateDirectoriesAlreadyOnPath() {
+        let loginShellPath = "/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin"
+        let environment = PreferredEditorSettings.launchEnvironment(
+            base: ["PATH": loginShellPath]
+        )
+        #expect(environment["PATH"] == loginShellPath)
+    }
+
+    @Test func launchEnvironmentPreservesOtherVariables() {
+        let environment = PreferredEditorSettings.launchEnvironment(
+            base: ["PATH": "/usr/bin:/bin", "HOME": "/Users/example", "LANG": "en_US.UTF-8"]
+        )
+        #expect(environment["HOME"] == "/Users/example")
+        #expect(environment["LANG"] == "en_US.UTF-8")
+    }
+
+    @Test func launchEnvironmentProvidesUsablePathWhenBasePathMissingOrEmpty() {
+        for base in [[String: String](), ["PATH": ""], ["PATH": "   "]] {
+            let environment = PreferredEditorSettings.launchEnvironment(base: base)
+            let entries = (environment["PATH"] ?? "").split(separator: ":").map(String.init)
+            #expect(
+                entries.contains("/usr/bin") && entries.contains("/usr/local/bin"),
+                "base \(base) should still yield a usable PATH, got \(entries)"
+            )
+        }
+    }
 }
