@@ -7281,12 +7281,21 @@ final class TerminalSurface: Identifiable, ObservableObject {
         // createSurface re-creates a fresh realized surface, so we never
         // double-realize a defunct swap chain.
         guard let surface = liveSurfaceForGhosttyAccess(reason: "renderer.realize") else { return }
-        // Only advance our mirror state on a successful enqueue (see
-        // releaseRenderer). If it dropped, `rendererRealized` stays false; the
-        // controller's safety net re-realizes any visible-but-unrealized surface
-        // on its next pass so a re-shown terminal cannot stay blank.
-        if ghostty_surface_set_renderer_realized(surface, true) {
-            rendererRealized = true
+        // Re-show is the user-visible path: the swap chain must be rebuilt before
+        // the surface is presented, or it draws a blank (defunct) frame. Advance
+        // our mirror state only on a successful enqueue (see releaseRenderer).
+        // The renderer mailbox is normally empty here (an occluded surface
+        // produced no render messages), so the first push enqueues without
+        // blocking; only the rare full-queue + spurious-wakeup case drops, so
+        // retry a bounded number of times rather than leave the terminal blank
+        // until the controller's next pass. The bound stops a wedged renderer
+        // thread from spinning the UI, and the controller re-realize is the final
+        // backstop.
+        for _ in 0..<16 {
+            if ghostty_surface_set_renderer_realized(surface, true) {
+                rendererRealized = true
+                return
+            }
         }
 #endif
     }
