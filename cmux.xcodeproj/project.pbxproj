@@ -280,6 +280,7 @@
 		D0C0D0C0D0C0D0C0D0C0D001 /* DockPanelView.swift in Sources */ = {isa = PBXBuildFile; fileRef = D0C0D0C0D0C0D0C0D0C0D002 /* DockPanelView.swift */; };
 		D0B10014A1B2C3D4E5F60001 /* DragOverlayRoutingPolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = D0B10015A1B2C3D4E5F60001 /* DragOverlayRoutingPolicy.swift */; };
 		D3622100A1B2C3D4E5F60718 /* EditableTextViewArrowKeyForwardingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D3622101A1B2C3D4E5F60718 /* EditableTextViewArrowKeyForwardingTests.swift */; };
+		ED17AB0100000000000000A1 /* EditorKeyEquivalentRouter.swift in Sources */ = {isa = PBXBuildFile; fileRef = ED17AB0100000000000000A0 /* EditorKeyEquivalentRouter.swift */; };
 		A500ES01 /* EditorSaveBridge.swift in Sources */ = {isa = PBXBuildFile; fileRef = A500ES00 /* EditorSaveBridge.swift */; };
 		E4C001000000000000000001 /* ExtensionSidebarWorkspaceRowView.swift in Sources */ = {isa = PBXBuildFile; fileRef = E4C001000000000000000002 /* ExtensionSidebarWorkspaceRowView.swift */; };
 		E4C001000000000000000003 /* ExtensionWorktreePrototype.swift in Sources */ = {isa = PBXBuildFile; fileRef = E4C001000000000000000004 /* ExtensionWorktreePrototype.swift */; };
@@ -398,6 +399,14 @@
 		2F0C06000000000000000002 /* MainWindowVisibilityController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2F0C06000000000000000001 /* MainWindowVisibilityController.swift */; };
 		17C9F5BA0DD14EDC8C3E5001 /* MainWindowVisibilityControllerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 17C9F5BA0DD14EDC8C3E5002 /* MainWindowVisibilityControllerTests.swift */; };
 		A9D9000000000000000F0017 /* markdown-viewer in Resources */ = {isa = PBXBuildFile; fileRef = A9D9000000000000000F0016 /* markdown-viewer */; };
+		ED17AB0100000000000000B1 /* MarkdownEditorMessageHandler.swift in Sources */ = {isa = PBXBuildFile; fileRef = ED17AB0100000000000000B0 /* MarkdownEditorMessageHandler.swift */; };
+		ED17AB0100000000000000C1 /* MarkdownEditorPage.swift in Sources */ = {isa = PBXBuildFile; fileRef = ED17AB0100000000000000C0 /* MarkdownEditorPage.swift */; };
+		ED17AB0300000000000000A1 /* MarkdownEditorPageTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = ED17AB0300000000000000A0 /* MarkdownEditorPageTests.swift */; };
+		ED17AB0100000000000000D1 /* MarkdownEditorRenderer.swift in Sources */ = {isa = PBXBuildFile; fileRef = ED17AB0100000000000000D0 /* MarkdownEditorRenderer.swift */; };
+		ED17AB0100000000000000E1 /* MarkdownEditorRendererCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = ED17AB0100000000000000E0 /* MarkdownEditorRendererCoordinator.swift */; };
+		ED17AB0100000000000000F1 /* MarkdownEditorSchemeHandler.swift in Sources */ = {isa = PBXBuildFile; fileRef = ED17AB0100000000000000F0 /* MarkdownEditorSchemeHandler.swift */; };
+		ED17AB0200000000000000A1 /* MarkdownEditorSession.swift in Sources */ = {isa = PBXBuildFile; fileRef = ED17AB0200000000000000A0 /* MarkdownEditorSession.swift */; };
+		ED17AB0200000000000000B1 /* MarkdownEditorWebView.swift in Sources */ = {isa = PBXBuildFile; fileRef = ED17AB0200000000000000B0 /* MarkdownEditorWebView.swift */; };
 		F5168A040000000000000001 /* MarkdownFontFamily.swift in Sources */ = {isa = PBXBuildFile; fileRef = F5168A040000000000000002 /* MarkdownFontFamily.swift */; };
 		F5168A070000000000000001 /* MarkdownFontFamilyCache.swift in Sources */ = {isa = PBXBuildFile; fileRef = F5168A070000000000000002 /* MarkdownFontFamilyCache.swift */; };
 		F5168A030000000000000001 /* MarkdownFontSizeSettings.swift in Sources */ = {isa = PBXBuildFile; fileRef = F5168A030000000000000002 /* MarkdownFontSizeSettings.swift */; };
@@ -1016,6 +1025,7 @@
 		D0C0D0C0D0C0D0C0D0C0D002 /* DockPanelView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DockPanelView.swift; sourceTree = "<group>"; };
 		D0B10015A1B2C3D4E5F60001 /* DragOverlayRoutingPolicy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DragOverlayRoutingPolicy.swift; sourceTree = "<group>"; };
 		D3622101A1B2C3D4E5F60718 /* EditableTextViewArrowKeyForwardingTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EditableTextViewArrowKeyForwardingTests.swift; sourceTree = "<group>"; };
+		ED17AB0100000000000000A0 /* EditorKeyEquivalentRouter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/EditorKeyEquivalentRouter.swift; sourceTree = "<group>"; };
 		A500ES00 /* EditorSaveBridge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/EditorSaveBridge.swift; sourceTree = "<group>"; };
 		E4C001000000000000000002 /* ExtensionSidebarWorkspaceRowView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ExtensionSidebarWorkspaceRowView.swift; sourceTree = "<group>"; };
 		E4C001000000000000000004 /* ExtensionWorktreePrototype.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ExtensionWorktreePrototype.swift; sourceTree = "<group>"; };
@@ -1133,6 +1143,14 @@
 		2F0C06000000000000000001 /* MainWindowVisibilityController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/MainWindowVisibilityController.swift; sourceTree = "<group>"; };
 		17C9F5BA0DD14EDC8C3E5002 /* MainWindowVisibilityControllerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MainWindowVisibilityControllerTests.swift; sourceTree = "<group>"; };
 		A9D9000000000000000F0016 /* markdown-viewer */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = folder; path = "markdown-viewer"; sourceTree = "<group>"; };
+		ED17AB0100000000000000B0 /* MarkdownEditorMessageHandler.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/MarkdownEditorMessageHandler.swift; sourceTree = "<group>"; };
+		ED17AB0100000000000000C0 /* MarkdownEditorPage.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/MarkdownEditorPage.swift; sourceTree = "<group>"; };
+		ED17AB0300000000000000A0 /* MarkdownEditorPageTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MarkdownEditorPageTests.swift; sourceTree = "<group>"; };
+		ED17AB0100000000000000D0 /* MarkdownEditorRenderer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/MarkdownEditorRenderer.swift; sourceTree = "<group>"; };
+		ED17AB0100000000000000E0 /* MarkdownEditorRendererCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/MarkdownEditorRendererCoordinator.swift; sourceTree = "<group>"; };
+		ED17AB0100000000000000F0 /* MarkdownEditorSchemeHandler.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/MarkdownEditorSchemeHandler.swift; sourceTree = "<group>"; };
+		ED17AB0200000000000000A0 /* MarkdownEditorSession.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/MarkdownEditorSession.swift; sourceTree = "<group>"; };
+		ED17AB0200000000000000B0 /* MarkdownEditorWebView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/MarkdownEditorWebView.swift; sourceTree = "<group>"; };
 		F5168A040000000000000002 /* MarkdownFontFamily.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/MarkdownFontFamily.swift; sourceTree = "<group>"; };
 		F5168A070000000000000002 /* MarkdownFontFamilyCache.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/MarkdownFontFamilyCache.swift; sourceTree = "<group>"; };
 		F5168A030000000000000002 /* MarkdownFontSizeSettings.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/MarkdownFontSizeSettings.swift; sourceTree = "<group>"; };
@@ -1887,6 +1905,14 @@
 				A500MR00 /* BrowserMediaPlaybackReport.swift */,
 				A500MH00 /* BrowserMediaPlaybackMessageHandler.swift */,
 				A500ES00 /* EditorSaveBridge.swift */,
+				ED17AB0100000000000000A0 /* EditorKeyEquivalentRouter.swift */,
+				ED17AB0100000000000000B0 /* MarkdownEditorMessageHandler.swift */,
+				ED17AB0100000000000000C0 /* MarkdownEditorPage.swift */,
+				ED17AB0100000000000000D0 /* MarkdownEditorRenderer.swift */,
+				ED17AB0100000000000000E0 /* MarkdownEditorRendererCoordinator.swift */,
+				ED17AB0100000000000000F0 /* MarkdownEditorSchemeHandler.swift */,
+				ED17AB0200000000000000A0 /* MarkdownEditorSession.swift */,
+				ED17AB0200000000000000B0 /* MarkdownEditorWebView.swift */,
 				A500MX00 /* BrowserPanel+MediaPlayback.swift */,
 				A500RG00 /* ReactGrab.swift */,
 				A5001413 /* TerminalPanelView.swift */,
@@ -2084,6 +2110,7 @@
 				D3284002A1B2C3D4E5F60718 /* TraditionalChineseIMENumpadRegressionTests.swift */,
 				F4000001A1B2C3D4E5F60718 /* GhosttyConfigTests.swift */,
 				BCBC0A0E0000000000000D02 /* BrowserChromeMetricsTests.swift */,
+				ED17AB0300000000000000A0 /* MarkdownEditorPageTests.swift */,
 				A11EB0000000000000000001 /* GhosttyConfigPathResolverTests.swift */,
 				C13519000000000000000004 /* GhosttyTerminalStartupEnvironmentTests.swift */,
 				C13519000000000000000008 /* ClaudeConfigDirectoryPathTests.swift */,
@@ -2788,6 +2815,7 @@
 				D0C0D0C0D0C0D0C0D0C0D003 /* DockEmptyView.swift in Sources */,
 				D0C0D0C0D0C0D0C0D0C0D001 /* DockPanelView.swift in Sources */,
 				D0B10014A1B2C3D4E5F60001 /* DragOverlayRoutingPolicy.swift in Sources */,
+				ED17AB0100000000000000A1 /* EditorKeyEquivalentRouter.swift in Sources */,
 				A500ES01 /* EditorSaveBridge.swift in Sources */,
 				E4C001000000000000000001 /* ExtensionSidebarWorkspaceRowView.swift in Sources */,
 				E4C001000000000000000003 /* ExtensionWorktreePrototype.swift in Sources */,
@@ -2860,6 +2888,13 @@
 				2F0C05000000000000000002 /* MainWindowFocusController.swift in Sources */,
 				B37A00000000000000000005 /* MainWindowFocusTypes.swift in Sources */,
 				2F0C06000000000000000002 /* MainWindowVisibilityController.swift in Sources */,
+				ED17AB0100000000000000B1 /* MarkdownEditorMessageHandler.swift in Sources */,
+				ED17AB0100000000000000C1 /* MarkdownEditorPage.swift in Sources */,
+				ED17AB0100000000000000D1 /* MarkdownEditorRenderer.swift in Sources */,
+				ED17AB0100000000000000E1 /* MarkdownEditorRendererCoordinator.swift in Sources */,
+				ED17AB0100000000000000F1 /* MarkdownEditorSchemeHandler.swift in Sources */,
+				ED17AB0200000000000000A1 /* MarkdownEditorSession.swift in Sources */,
+				ED17AB0200000000000000B1 /* MarkdownEditorWebView.swift in Sources */,
 				F5168A040000000000000001 /* MarkdownFontFamily.swift in Sources */,
 				F5168A070000000000000001 /* MarkdownFontFamilyCache.swift in Sources */,
 				F5168A030000000000000001 /* MarkdownFontSizeSettings.swift in Sources */,
@@ -3241,6 +3276,7 @@
 				A17110000000000000000001 /* KeyboardShortcutSpaceKeyTests.swift in Sources */,
 				C34670040000000000000001 /* KeyboardShortcutTestSettingsIsolation.swift in Sources */,
 				17C9F5BA0DD14EDC8C3E5001 /* MainWindowVisibilityControllerTests.swift in Sources */,
+				ED17AB0300000000000000A1 /* MarkdownEditorPageTests.swift in Sources */,
 				D3664002D3664002D3664002 /* MarkdownPanelTests.swift in Sources */,
 				6AA2F2E8BEB19ED6B8E125DB /* MobileHostAuthorizationTests.swift in Sources */,
 				C0DE10510000000000000001 /* MobileHostServiceSettingsTests.swift in Sources */,

@@ -322,49 +322,16 @@ extension BrowserPanel {
         )
     }
 
-    /// Routes editor key equivalents to the Monaco page so the app's standard
-    /// Edit menu never shadows the editor: the configurable `saveFilePreview`
-    /// shortcut triggers a save, and the standard undo/redo chords drive
-    /// Monaco's own model undo/redo (WKWebView's native `undo:` does nothing
-    /// useful for a Monaco buffer). Returns whether the event was consumed.
+    /// Routes editor key equivalents to the Monaco page through the shared
+    /// ``EditorKeyEquivalentRouter`` (save shortcut incl. chords, undo/redo),
+    /// gated on this panel's editor-page state. Returns whether the event was
+    /// consumed.
     func handleEditorKeyEquivalent(event: NSEvent, webView: WKWebView) -> Bool {
-        // Save: configurable shortcut, gated on a dirty buffer / chord prefix.
-        if editorBufferIsDirty || editorSaveChordPrefixPending {
-            let shortcut = KeyboardShortcutSettings.shortcut(for: .saveFilePreview)
-            var saveMatched = false
-            if shortcut.hasChord {
-                if editorSaveChordPrefixPending {
-                    editorSaveChordPrefixPending = false
-                    if let secondStroke = shortcut.secondStroke, secondStroke.matches(event: event) {
-                        saveMatched = true
-                    }
-                } else if shortcut.firstStroke.matches(event: event) {
-                    editorSaveChordPrefixPending = true
-                    return true
-                }
-            } else if shortcut.matches(event: event) {
-                saveMatched = true
-            }
-            if saveMatched {
-                webView.evaluateJavaScript("window.__cmuxEditorRequestSave && window.__cmuxEditorRequestSave();")
-                return true
-            }
-        }
-        // Undo / redo: only when an editor page is live in this webview.
-        guard editorPageActive else { return false }
-        let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
-        let command = flags.contains(.command)
-        let shift = flags.contains(.shift)
-        let key = event.charactersIgnoringModifiers?.lowercased()
-        guard command, !flags.contains(.option), !flags.contains(.control) else { return false }
-        if key == "z", !shift {
-            webView.evaluateJavaScript("window.__cmuxEditorUndo && window.__cmuxEditorUndo();")
-            return true
-        }
-        if (key == "z" && shift) || key == "y" {
-            webView.evaluateJavaScript("window.__cmuxEditorRedo && window.__cmuxEditorRedo();")
-            return true
-        }
-        return false
+        editorKeyEquivalentRouter.handle(
+            event: event,
+            webView: webView,
+            isBufferDirty: editorBufferIsDirty,
+            isEditorActive: editorPageActive
+        )
     }
 }

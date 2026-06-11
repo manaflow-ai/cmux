@@ -94,6 +94,13 @@ export class EditorSaveController {
   private unavailable = false;
   private document: EditorSaveDocument | null = null;
   private baselineSha256: string | null;
+  /// True when the page was seeded with content that already diverged from
+  /// disk (a host regenerating the editor from an unsaved buffer, e.g. on a
+  /// theme change or web-process recovery). The buffer counts as dirty until
+  /// a successful save or a disk adoption, even though Monaco's version ids
+  /// start out "clean" — otherwise a reload would silently drop the unsaved
+  /// state from dirty tracking.
+  private initiallyDirty: boolean;
   private savedVersionId: number | null = null;
   private currentVersionId: number | null = null;
   private saving = false;
@@ -105,9 +112,14 @@ export class EditorSaveController {
   private state: EditorSaveState = { dirty: false, status: "idle", conflict: null };
   private readonly listeners = new Set<() => void>();
 
-  constructor(options: { bridge: EditorSaveBridge | null; baselineSha256: string | null }) {
+  constructor(options: {
+    bridge: EditorSaveBridge | null;
+    baselineSha256: string | null;
+    initiallyDirty?: boolean;
+  }) {
     this.bridge = options.bridge;
     this.baselineSha256 = options.baselineSha256;
+    this.initiallyDirty = options.initiallyDirty === true;
   }
 
   attachDocument(document: EditorSaveDocument): void {
@@ -171,13 +183,38 @@ export class EditorSaveController {
 
   resolveConflictUseDisk(): void {
     const conflict = this.conflict;
-    if (!this.document || conflict === null || conflict.diskContent === undefined) {
+    if (conflict === null || conflict.diskContent === undefined) {
       return;
     }
-    const versionId = this.document.replaceWith(conflict.diskContent);
+    this.adoptDiskContent(conflict.diskContent, conflict.diskSha256 ?? null);
+  }
+
+  /**
+   * Adopts `content` (the bytes currently on disk) as the buffer's synced
+   * state: re-baselines dirty tracking plus the conflict sha, replacing the
+   * buffer only when the text actually differs (so a disk rewrite with
+   * identical text — e.g. an encoding change, or this host's own save echo —
+   * never resets the undo stack). A fully identical adoption is a no-op so a
+   * save echo also keeps the "Saved" status visible. Used by the conflict
+   * card's "Use disk version" resolution, and by native hosts (the markdown
+   * panel) on clean-buffer file-watcher changes and explicit reverts.
+   */
+  adoptDiskContent(content: string, sha256: string | null): void {
+    if (!this.document) {
+      return;
+    }
+    const sameContent = this.document.getValue() === content;
+    if (sameContent && this.baselineSha256 === sha256 && this.conflict === null) {
+      // No-op: e.g. the host's boot-time sync of a page seeded from an
+      // unsaved buffer. Deliberately keeps `initiallyDirty` set — the buffer
+      // still diverges from disk.
+      return;
+    }
+    const versionId = sameContent ? this.document.getVersionId() : this.document.replaceWith(content);
+    this.initiallyDirty = false;
     this.savedVersionId = versionId;
     this.currentVersionId = versionId;
-    this.baselineSha256 = conflict.diskSha256 ?? null;
+    this.baselineSha256 = sha256;
     this.status = "idle";
     this.errorCode = undefined;
     this.errorDetail = undefined;
@@ -195,7 +232,7 @@ export class EditorSaveController {
   }
 
   private isDirty(): boolean {
-    return this.currentVersionId !== this.savedVersionId;
+    return this.initiallyDirty || this.currentVersionId !== this.savedVersionId;
   }
 
   private async performSave(force: boolean): Promise<void> {
@@ -222,6 +259,7 @@ export class EditorSaveController {
     this.saving = false;
 
     if (reply.status === "saved") {
+      this.initiallyDirty = false;
       this.savedVersionId = versionId;
       this.baselineSha256 = reply.sha256;
       this.status = "saved";
