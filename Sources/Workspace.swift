@@ -14475,21 +14475,23 @@ final class Workspace: Identifiable, ObservableObject {
     static let maxSidebarMetadataBlocks = 200
 
     /// Evicts the lowest-priority, then oldest, status entries once the cap is
-    /// exceeded so retention matches `sidebarStatusEntriesInDisplayOrder()`:
-    /// high-priority and recent entries (the ones actually shown) survive.
+    /// exceeded so retention follows the same priority/timestamp ordering as
+    /// `sidebarStatusEntriesInDisplayOrder()`: high-priority and recent entries
+    /// survive. Ranking and the keep-set are both keyed by the dictionary's
+    /// storage key (not `entry.key`) so the two can never diverge.
     private func trimSidebarStatusEntriesIfNeeded() {
         guard statusEntries.count > Self.maxSidebarStatusEntries else { return }
         let kept = Set(
-            statusEntries.values
+            statusEntries
                 .sorted { lhs, rhs in
-                    if lhs.priority != rhs.priority { return lhs.priority > rhs.priority }
-                    if lhs.timestamp != rhs.timestamp { return lhs.timestamp > rhs.timestamp }
+                    if lhs.value.priority != rhs.value.priority { return lhs.value.priority > rhs.value.priority }
+                    if lhs.value.timestamp != rhs.value.timestamp { return lhs.value.timestamp > rhs.value.timestamp }
                     return lhs.key < rhs.key
                 }
                 .prefix(Self.maxSidebarStatusEntries)
                 .map(\.key)
         )
-        let evictedKeys = Set(statusEntries.keys.filter { !kept.contains($0) })
+        let evictedKeys = Set(statusEntries.keys).subtracting(kept)
         guard !evictedKeys.isEmpty else { return }
         // Tear down the agent PID/ownership/lifecycle state coupled to the evicted
         // status keys (`set_status --pid`) before they leave `statusEntries`, so
@@ -14502,18 +14504,20 @@ final class Workspace: Identifiable, ObservableObject {
     }
 
     /// Mirror of `trimSidebarStatusEntriesIfNeeded()` for metadata blocks,
-    /// matching `sidebarMetadataBlocksInDisplayOrder()` retention.
+    /// matching `sidebarMetadataBlocksInDisplayOrder()` retention. Ranking and
+    /// keep-set are keyed by the dictionary's storage key.
     private func trimSidebarMetadataBlocksIfNeeded() {
         guard metadataBlocks.count > Self.maxSidebarMetadataBlocks else { return }
-        let keptKeys = metadataBlocks.values
-            .sorted { lhs, rhs in
-                if lhs.priority != rhs.priority { return lhs.priority > rhs.priority }
-                if lhs.timestamp != rhs.timestamp { return lhs.timestamp > rhs.timestamp }
-                return lhs.key < rhs.key
-            }
-            .prefix(Self.maxSidebarMetadataBlocks)
-            .map(\.key)
-        let kept = Set(keptKeys)
+        let kept = Set(
+            metadataBlocks
+                .sorted { lhs, rhs in
+                    if lhs.value.priority != rhs.value.priority { return lhs.value.priority > rhs.value.priority }
+                    if lhs.value.timestamp != rhs.value.timestamp { return lhs.value.timestamp > rhs.value.timestamp }
+                    return lhs.key < rhs.key
+                }
+                .prefix(Self.maxSidebarMetadataBlocks)
+                .map(\.key)
+        )
         metadataBlocks = metadataBlocks.filter { kept.contains($0.key) }
     }
 
