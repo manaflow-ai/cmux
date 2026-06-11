@@ -142,6 +142,35 @@ final class WorkspaceSidebarObservationTests: XCTestCase {
         )
     }
 
+    // Metadata has no PID/lifecycle coupling, so priority is the sole retention
+    // signal: a newer low-priority flood must not displace an existing
+    // high-priority block (#5845).
+    func testMetadataCapRetainsHighPriorityOverNewerLowPriorityFlood() {
+        let workspace = Workspace()
+        let cap = 200
+
+        workspace.metadataBlocks["important"] = SidebarMetadataBlock(
+            key: "important",
+            markdown: "m",
+            priority: 100,
+            timestamp: Date(timeIntervalSince1970: 0)
+        )
+        for index in 0..<(cap * 2) {
+            workspace.metadataBlocks["low_\(index)"] = SidebarMetadataBlock(
+                key: "low_\(index)",
+                markdown: "m",
+                priority: 0,
+                timestamp: Date(timeIntervalSince1970: TimeInterval(index + 100))
+            )
+        }
+
+        XCTAssertLessThanOrEqual(workspace.metadataBlocks.count, cap)
+        XCTAssertNotNil(
+            workspace.metadataBlocks["important"],
+            "A high-priority metadata block must survive a newer low-priority flood"
+        )
+    }
+
     // `set_status --pid` couples a status key to agent PID runtime state
     // (agentPIDs / ownership maps / port-scan tags). When the cap evicts the
     // status key, that coupled state must be torn down too, otherwise the same
