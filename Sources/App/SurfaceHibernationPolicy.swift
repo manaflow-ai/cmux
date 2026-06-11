@@ -169,12 +169,19 @@ enum SurfaceHibernationPlanner {
     static let maxSelectionsPerEvaluation = 4
 
     /// Per-tick cap on foreground-process verifications (child scan + argv
-    /// read syscalls) in the record builder. Verification runs oldest-first —
-    /// the planner's eviction order — so the bound caps main-actor syscall
-    /// fan-out at any panel count while still covering several times more
-    /// candidates than one evaluation can drain, leaving headroom for
-    /// verified-busy panels at the LRU front.
+    /// read syscalls). Verification runs oldest-first — the planner's
+    /// eviction order — so the bound caps main-actor syscall fan-out at any
+    /// panel count while still covering several times more candidates than
+    /// one evaluation can drain. Verified-busy candidates are cached (see
+    /// `foregroundBusyRecheckSeconds`) and stop consuming this budget, so a
+    /// busy prefix cannot starve reclaimable shells behind it.
     static let maxForegroundVerificationsPerEvaluation = maxSelectionsPerEvaluation * 8
+
+    /// How long a verified-busy foreground result is trusted before the
+    /// candidate pays the verification syscalls again. Until it expires the
+    /// panel simply is not reclaimed — conservative in the safe direction —
+    /// and the per-tick budget flows to candidates not yet verified.
+    static let foregroundBusyRecheckSeconds: TimeInterval = 600
 
     /// Surfaces whose workspace has been unmounted — and which have been quiet
     /// — for at least `unmountedIdleSeconds`, regardless of cap pressure.

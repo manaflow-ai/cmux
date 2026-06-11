@@ -5329,21 +5329,27 @@ private func recordAgentHibernationTerminalInput(
 }
 
 /// Whether input can leave new editable text at the prompt. Bare settling
-/// characters (Enter on an empty line, ^C, ^D, ^U) and navigation/function
-/// keys type nothing, and a bare Enter or ^C often produces no shell
-/// preexec/precmd transition at all — arming the pending guard for them
-/// would exempt the panel from hibernation forever.
+/// characters (Enter on an empty line, ^C, ^D, ^U), non-inserting editing
+/// and navigation controls (^L, ^A, ^E, ^K, ^W, ^R, …), and function keys
+/// type nothing, and most produce no shell preexec/precmd transition at
+/// all — arming the pending guard for them would exempt the panel from
+/// hibernation until a real command cycle. Among the C0 controls only tab
+/// (completion inserts text), ^V (quoted-insert) and ^Y (yank) can put new
+/// text on the line.
 private func terminalInputCanLeavePromptText(_ text: String) -> Bool {
     !text.allSatisfy { character in
-        if character == "\r" || character == "\n" ||
-            character == "\u{03}" || character == "\u{04}" || character == "\u{15}" ||
-            character == "\u{1B}" || character == "\u{7F}" || character == "\u{08}" {
-            // Settling characters plus non-inserting editing controls:
-            // escape, delete, backspace.
-            return true
+        let scalars = character.unicodeScalars
+        if scalars.count == 1, let scalar = scalars.first {
+            if scalar.value < 0x20 || scalar.value == 0x7F {
+                let inserting: Set<UInt32> = [0x09, 0x16, 0x19] // tab, ^V, ^Y
+                return !inserting.contains(scalar.value)
+            }
+            // NSEvent function-key range (arrows, F-keys, page up/down…).
+            if (0xF700...0xF8FF).contains(scalar.value) {
+                return true
+            }
         }
-        // NSEvent function-key range (arrows, F-keys, page up/down…).
-        return character.unicodeScalars.allSatisfy { (0xF700...0xF8FF).contains($0.value) }
+        return false
     }
 }
 

@@ -34,6 +34,14 @@ struct AgentHibernationRecord {
     }
 }
 
+/// The per-tick panel census plus the shell-restart candidates whose
+/// foreground process still needs (bounded, cached) verification.
+@MainActor
+struct AgentHibernationRecordCensus {
+    var records: [AgentHibernationRecord]
+    let foregroundVerificationCandidates: [(recordIndex: Int, lastActivityAt: TimeInterval)]
+}
+
 @MainActor
 final class AgentHibernationController {
     static let shared = AgentHibernationController()
@@ -61,6 +69,10 @@ final class AgentHibernationController {
     /// observed input; only these may clear on a prompt redraw without a
     /// command (empty Enter, ^C).
     private var seededPendingPanelKeys: Set<AgentHibernationPanelKey> = []
+    /// Shell-restart candidates whose foreground process was verified busy,
+    /// by verification time; fresh entries skip re-verification (and the
+    /// per-tick budget) so the bounded window advances past a busy prefix.
+    private var foregroundBusyVerifiedAt: [AgentHibernationPanelKey: TimeInterval] = [:]
     private var pendingPromptSurvivalsByPanel: [AgentHibernationPanelKey: Int] = [:]
     private var lastCommandStartByPanel: [AgentHibernationPanelKey: TimeInterval] = [:]
     private var seenLivePanelKeys: Set<AgentHibernationPanelKey> = []
@@ -332,7 +344,7 @@ final class AgentHibernationController {
         }
         guard let appDelegate = AppDelegate.shared else { return }
 
-        let records = appDelegate.agentHibernationRecords(
+        var census = appDelegate.agentHibernationRecords(
             index: index,
             activityByPanel: activityByPanel,
             terminalInputByPanel: terminalInputByPanel,
@@ -340,6 +352,8 @@ final class AgentHibernationController {
             surfaceSettings: surfaceSettings,
             now: now.timeIntervalSince1970
         )
+        applyBoundedForegroundVerification(census: &census, nowTime: now.timeIntervalSince1970)
+        let records = census.records
         let nowTime = now.timeIntervalSince1970
         let isLiveByKey = Dictionary(uniqueKeysWithValues: records.map { record in
             (record.key, Self.isRecordLive(record))
@@ -594,11 +608,51 @@ final class AgentHibernationController {
         }
     }
 
+    /// Foreground verification (child scan + argv read) costs syscalls per
+    /// candidate, so each tick verifies at most a fixed budget, oldest first —
+    /// the planner's eviction order. Candidates verified busy are cached for
+    /// `foregroundBusyRecheckSeconds` and marked busy without consuming
+    /// budget, so a long busy prefix (e.g. many attached tmux clients) cannot
+    /// starve reclaimable shells behind it: the budget flows to unverified
+    /// candidates and the window provably advances each tick. Candidates past
+    /// the budget stay conservatively busy until a later tick.
+    private func applyBoundedForegroundVerification(
+        census: inout AgentHibernationRecordCensus,
+        nowTime: TimeInterval
+    ) {
+        guard !census.foregroundVerificationCandidates.isEmpty else { return }
+        var budget = SurfaceHibernationPlanner.maxForegroundVerificationsPerEvaluation
+        let ordered = census.foregroundVerificationCandidates.sorted { lhs, rhs in
+            lhs.lastActivityAt < rhs.lastActivityAt
+        }
+        for candidate in ordered {
+            let key = census.records[candidate.recordIndex].key
+            if let verifiedAt = foregroundBusyVerifiedAt[key],
+               nowTime - verifiedAt < SurfaceHibernationPlanner.foregroundBusyRecheckSeconds {
+                census.records[candidate.recordIndex].isBusy = true
+                continue
+            }
+            guard budget > 0 else {
+                census.records[candidate.recordIndex].isBusy = true
+                continue
+            }
+            budget -= 1
+            if census.records[candidate.recordIndex].terminalPanel.surface
+                .foregroundProcessAllowsShellRestart() {
+                foregroundBusyVerifiedAt.removeValue(forKey: key)
+            } else {
+                census.records[candidate.recordIndex].isBusy = true
+                foregroundBusyVerifiedAt[key] = nowTime
+            }
+        }
+    }
+
     private func clearTrackingState() {
         activityByPanel.removeAll(keepingCapacity: false)
         terminalInputByPanel.removeAll(keepingCapacity: false)
         pendingCommandLineByPanel.removeAll(keepingCapacity: false)
         seededPendingPanelKeys.removeAll(keepingCapacity: false)
+        foregroundBusyVerifiedAt.removeAll(keepingCapacity: false)
         pendingPromptSurvivalsByPanel.removeAll(keepingCapacity: false)
         lastCommandStartByPanel.removeAll(keepingCapacity: false)
         seenLivePanelKeys.removeAll(keepingCapacity: false)
@@ -615,6 +669,7 @@ final class AgentHibernationController {
         terminalInputByPanel = terminalInputByPanel.filter { currentKeys.contains($0.key) }
         pendingCommandLineByPanel = pendingCommandLineByPanel.filter { currentKeys.contains($0.key) }
         seededPendingPanelKeys = seededPendingPanelKeys.filter { currentKeys.contains($0) }
+        foregroundBusyVerifiedAt = foregroundBusyVerifiedAt.filter { currentKeys.contains($0.key) }
         pendingPromptSurvivalsByPanel = pendingPromptSurvivalsByPanel.filter { currentKeys.contains($0.key) }
         lastCommandStartByPanel = lastCommandStartByPanel.filter { currentKeys.contains($0.key) }
         seenLivePanelKeys = seenLivePanelKeys.filter { currentKeys.contains($0) }
@@ -635,7 +690,7 @@ extension AppDelegate {
         lifecycleChangeByPanel: [AgentHibernationPanelKey: TimeInterval],
         surfaceSettings: SurfaceHibernationSettings.Values,
         now: TimeInterval
-    ) -> [AgentHibernationRecord] {
+    ) -> AgentHibernationRecordCensus {
         var records: [AgentHibernationRecord] = []
         var seenManagers: Set<ObjectIdentifier> = []
 
@@ -754,28 +809,9 @@ extension AppDelegate {
             visit(tabManager: tabManager, visibleWorkspaceId: nil)
         }
 
-        // Foreground verification (child scan + argv read) costs syscalls per
-        // panel, so it stays bounded regardless of how many hidden shells
-        // crossed the idle gate: verify only the panels the planner could
-        // actually drain soonest — oldest first, matching its eviction order —
-        // and leave the rest conservatively busy until a later tick. Should
-        // the whole verified window be genuinely busy (dozens of attached
-        // tmux clients older than everything else), reclamation degrades to a
-        // no-op rather than freeing an unverified PTY.
-        foregroundVerificationCandidates.sort { lhs, rhs in
-            lhs.lastActivityAt < rhs.lastActivityAt
-        }
-        let verificationBudget = SurfaceHibernationPlanner.maxForegroundVerificationsPerEvaluation
-        for (offset, candidate) in foregroundVerificationCandidates.enumerated() {
-            if offset < verificationBudget {
-                if !records[candidate.recordIndex].terminalPanel.surface.foregroundProcessAllowsShellRestart() {
-                    records[candidate.recordIndex].isBusy = true
-                }
-            } else {
-                records[candidate.recordIndex].isBusy = true
-            }
-        }
-
-        return records
+        return AgentHibernationRecordCensus(
+            records: records,
+            foregroundVerificationCandidates: foregroundVerificationCandidates
+        )
     }
 }
