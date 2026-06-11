@@ -1379,10 +1379,15 @@ final class TerminalOutputCollector {
     #expect(store.connectionState == .connected)
     // Until the status reply lands, the dialed Tailscale host stands in for
     // the name (the v2 ticket has neither name nor device id); the status
-    // read runs on the event-listener task, so poll briefly for the adopted
-    // identity instead of racing it.
+    // read runs on the event-listener task, so poll briefly instead of
+    // racing it. The adoption lands in steps (ticket id, identity upsert,
+    // then the display-name upsert on the serialized write chain), so poll
+    // for the LAST durable write — the persisted display name — not just
+    // the in-memory connectedHostName, which flips before that write lands.
     for _ in 0..<400 {
-        if store.connectedHostName == "Status Mac" { break }
+        if store.connectedHostName == "Status Mac",
+           let saved = try? await pairedMacStore.activeMac(),
+           saved.displayName == "Status Mac" { break }
         try await Task.sleep(nanoseconds: 5_000_000)
     }
     #expect(store.connectedHostName == "Status Mac")
@@ -1434,10 +1439,16 @@ final class TerminalOutputCollector {
     await store.connectPairingURL("cmux-ios://attach?v=2&r=100.71.210.41:\(CmxMobileDefaults.defaultHostPort)")
 
     #expect(store.connectionState == .connected)
-    // The recovery request runs on its own task; poll briefly for the
-    // adopted identity instead of racing it.
+    // The recovery request runs on its own task; poll briefly instead of
+    // racing it. The adopted device id lands first, then the identity
+    // upsert, then the display-name application + upsert on the serialized
+    // write chain — so poll for the LAST durable write (the persisted
+    // display name), not the first in-memory step.
     for _ in 0..<400 {
-        if store.activeTicket?.macDeviceID == "status-reported-mac" { break }
+        if store.activeTicket?.macDeviceID == "status-reported-mac",
+           store.connectedHostName == "Status Mac",
+           let saved = try? await pairedMacStore.activeMac(),
+           saved.displayName == "Status Mac" { break }
         try await Task.sleep(nanoseconds: 5_000_000)
     }
     #expect(store.activeTicket?.macDeviceID == "status-reported-mac")
