@@ -706,7 +706,10 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     /// Serial background queue for `ghostty_surface_process_output`, which
     /// blocks on libghostty's internal renderer/IO futex. Running it on the
     /// main thread hangs the app until the scene-update watchdog kills it.
-    private static let outputQueue = DispatchQueue(
+    /// Internal (not private) so the copyable-text extension in
+    /// `GhosttySurfaceCopyableText.swift` can enqueue its surface read with
+    /// the same FIFO-before-dispose ordering discipline.
+    static let outputQueue = DispatchQueue(
         label: "dev.cmux.GhosttySurfaceView.output",
         qos: .userInitiated
     )
@@ -3459,68 +3462,6 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         return holder.sections.joined(separator: "\n\n")
     }
 
-    /// Full-content capture for the "View as Text" copy sheet: the SCREEN
-    /// range (scrollback history plus every written row) of the on-screen
-    /// terminal surface, read entirely on the phone's own libghostty surface —
-    /// no Mac round-trip, works offline.
-    ///
-    /// Same threading contract as ``visibleTerminalSnapshot()``: the read runs
-    /// on the serial `outputQueue` because `ghostty_surface_read_text` takes
-    /// the surface lock that `process_output` holds during a render storm, so
-    /// a main-thread read would stall the present and blank the terminal.
-    /// Unlike that synchronous DEV path there is no bounded semaphore wait
-    /// here — the caller awaits, so a busy queue just resumes the continuation
-    /// late while the sheet shows its loading state.
-    ///
-    /// The continuation body enqueues on `outputQueue` synchronously while
-    /// still on the main actor, so the read is FIFO-ordered before any
-    /// later-enqueued `disposeSurface` free of the same pointer — the same
-    /// lifetime argument `visibleTerminalSnapshot()` relies on.
-    ///
-    /// The read is bounded at the source: iOS surfaces are created with
-    /// `scrollback-limit = 2000000` (see `GhosttyRuntime.applyiOSDefaults`),
-    /// so the SCREEN range can never materialize more than ~2MB of text no
-    /// matter how long the session ran. The sheet's 5000-line budget is then
-    /// applied off-main on top of that hard cap.
-    ///
-    /// - Parameter surfaceID: The shell-level surface/terminal id the caller
-    ///   wants text for (the same id the mounting representable stamped on the
-    ///   view as ``hostSurfaceID``). The lookup is scoped to that id so a
-    ///   second visible surface — another iPad scene, an in-flight transition —
-    ///   can never leak a different workspace's terminal into the capture.
-    /// - Returns: The surface's screen text, or nil when that terminal has no
-    ///   mounted surface or the read fails.
-    public static func copyableTerminalText(surfaceID: String) async -> String? {
-        registeredSurfaceViews = registeredSurfaceViews.filter { $0.value.value != nil }
-        // Scoped pick: only views stamped with the requested id qualify, and
-        // only while actually on screen (same visibility filter as
-        // `visibleTerminalSnapshot()`). A dismantling view can linger in the
-        // registry with a non-nil surface until its queued dispose runs, and
-        // its content stops at whenever its byte stream detached — prefer the
-        // sheet's honest empty state over silently copying that stale text.
-        // If the same terminal is mounted in several scenes the contents are
-        // identical, so the lowest-keyed visible match keeps the pick
-        // deterministic.
-        let matchingView = registeredSurfaceViews
-            .sorted { $0.key < $1.key }
-            .compactMap(\.value.value)
-            .first {
-                $0.hostSurfaceID == surfaceID && $0.surface != nil
-                    && $0.window != nil && !$0.isHidden && $0.alpha > 0.01
-            }
-        guard let surface = matchingView?.surface else { return nil }
-        let handle = CopyableTextSurfaceHandle(surface: surface)
-        return await withCheckedContinuation { continuation in
-            outputQueue.async {
-                // SCREEN = scrollback + all written rows. Fall back to the
-                // viewport-only read if the screen read fails outright.
-                let text = surfaceText(handle.surface, pointTag: GHOSTTY_POINT_SCREEN)
-                    ?? surfaceText(handle.surface, pointTag: GHOSTTY_POINT_VIEWPORT)
-                continuation.resume(returning: text)
-            }
-        }
-    }
-
     private func handleBell() {
         UINotificationFeedbackGenerator().notificationOccurred(.warning)
         NotificationCenter.default.post(
@@ -3554,19 +3495,6 @@ extension GhosttySurfaceView: UIGestureRecognizerDelegate {
     }
 }
 
-/// Carrier for the "View as Text" sheet's surface pointer across the hop to
-/// `GhosttySurfaceView.outputQueue`. Same safety argument as
-/// ``VisibleSnapshotRequest``: the pointer is only dereferenced on the queue
-/// that owns `process_output` and is FIFO-ordered before any queued free —
-/// hence `@unchecked Sendable`.
-///
-/// Deliberately `private` to this file alongside the other snapshot carriers:
-/// it holds the class's raw `ghostty_surface_t`, which must not escape
-/// `GhosttySurfaceView`'s queue/lifetime discipline into the wider module.
-private struct CopyableTextSurfaceHandle: @unchecked Sendable {
-    let surface: ghostty_surface_t
-}
-
 /// One surface's request for the bounded visible-terminal snapshot.
 ///
 /// The `ghostty_surface_t` is a C pointer that the snapshot only dereferences on
@@ -3587,44 +3515,6 @@ private struct VisibleSnapshotRequest: @unchecked Sendable {
 /// caller never reads it, leaving the queue task the sole accessor.
 private final class VisibleSnapshotHolder: @unchecked Sendable {
     var sections: [String] = []
-}
-
-private final class WeakGhosttySurfaceViewBox {
-    weak var value: GhosttySurfaceView?
-
-    init(_ value: GhosttySurfaceView) {
-        self.value = value
-    }
-}
-
-private extension GhosttySurfaceView {
-    @MainActor
-    static var registeredSurfaceViews: [UInt: WeakGhosttySurfaceViewBox] = [:]
-
-    @MainActor
-    static func register(surface: ghostty_surface_t, for view: GhosttySurfaceView) {
-        registeredSurfaceViews[surfaceIdentifier(for: surface)] = WeakGhosttySurfaceViewBox(view)
-        registeredSurfaceViews = registeredSurfaceViews.filter { $0.value.value != nil }
-    }
-
-    @MainActor
-    static func unregister(surface: ghostty_surface_t) {
-        registeredSurfaceViews.removeValue(forKey: surfaceIdentifier(for: surface))
-    }
-
-    @MainActor
-    static func view(for surface: ghostty_surface_t) -> GhosttySurfaceView? {
-        let identifier = surfaceIdentifier(for: surface)
-        guard let view = registeredSurfaceViews[identifier]?.value else {
-            registeredSurfaceViews.removeValue(forKey: identifier)
-            return nil
-        }
-        return view
-    }
-
-    static func surfaceIdentifier(for surface: ghostty_surface_t) -> UInt {
-        UInt(bitPattern: UnsafeRawPointer(surface))
-    }
 }
 
 private class DisplayLinkProxy {
