@@ -425,6 +425,20 @@ enum BrowserThemeSettings {
     }
 }
 
+nonisolated enum BrowserAutoFocusModeSettings {
+    static let enabledKey = "browserAutoFocusModeEnabled"
+    static let defaultEnabled = false
+
+    static var isEnabled: Bool {
+        isEnabled(defaults: .standard)
+    }
+
+    static func isEnabled(defaults: UserDefaults) -> Bool {
+        guard defaults.object(forKey: enabledKey) != nil else { return defaultEnabled }
+        return defaults.bool(forKey: enabledKey)
+    }
+}
+
 enum BrowserImportHintVariant: String, CaseIterable, Identifiable {
     case inlineStrip
     case floatingCard

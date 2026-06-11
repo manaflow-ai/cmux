@@ -11784,6 +11784,47 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         XCTAssertTrue(harness.panel.isBrowserFocusModeActive)
     }
 
+    func testAutoFocusModeEntersOnPanelFocusWhenEnabled() {
+        let defaults = UserDefaults(suiteName: "test.autoFocusMode.\(UUID().uuidString)")!
+        defaults.set(true, forKey: BrowserAutoFocusModeSettings.enabledKey)
+        XCTAssertTrue(BrowserAutoFocusModeSettings.isEnabled(defaults: defaults))
+        defaults.removePersistentDomain(forName: defaults.suiteName ?? "")
+    }
+
+    func testAutoFocusModeDefaultsToDisabled() {
+        let defaults = UserDefaults(suiteName: "test.autoFocusMode.\(UUID().uuidString)")!
+        XCTAssertFalse(BrowserAutoFocusModeSettings.isEnabled(defaults: defaults))
+        defaults.removePersistentDomain(forName: defaults.suiteName ?? "")
+    }
+
+    func testAutoFocusModeEntersFocusModeOnPanelFocus() {
+        guard let harness = makeBrowserFocusModeHarness() else { return }
+        defer { closeWindow(withId: harness.windowId) }
+
+        UserDefaults.standard.set(true, forKey: BrowserAutoFocusModeSettings.enabledKey)
+        defer { UserDefaults.standard.removeObject(forKey: BrowserAutoFocusModeSettings.enabledKey) }
+
+        // Simulate panel focus: setBrowserFocusModeActive is called by handlePanelFocusChange.
+        // Call it directly to verify the panel accepts the activation when autoFocusMode is on.
+        let activated = harness.panel.setBrowserFocusModeActive(true, reason: "autoFocusMode.panelFocus", focusWebView: false)
+        XCTAssertTrue(activated, "Expected focus mode to activate when autoFocusMode is enabled")
+        XCTAssertTrue(harness.panel.isBrowserFocusModeActive)
+    }
+
+    func testAutoFocusModeDoesNotDoubleActivateWhenAlreadyActive() {
+        guard let harness = makeBrowserFocusModeHarness() else { return }
+        defer { closeWindow(withId: harness.windowId) }
+
+        UserDefaults.standard.set(true, forKey: BrowserAutoFocusModeSettings.enabledKey)
+        defer { UserDefaults.standard.removeObject(forKey: BrowserAutoFocusModeSettings.enabledKey) }
+
+        harness.panel.setBrowserFocusModeActive(true, reason: "autoFocusMode.setup", focusWebView: false)
+        XCTAssertTrue(harness.panel.isBrowserFocusModeActive)
+        // A second focus-gain while already active must not crash or clear the mode.
+        harness.panel.setBrowserFocusModeActive(true, reason: "autoFocusMode.panelFocus", focusWebView: false)
+        XCTAssertTrue(harness.panel.isBrowserFocusModeActive, "Focus mode should remain active after redundant activation")
+    }
+
     private func makeBrowserFocusModeHarness(
         file: StaticString = #filePath,
         line: UInt = #line

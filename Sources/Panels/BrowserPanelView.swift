@@ -433,6 +433,7 @@ struct BrowserPanelView: View {
     @AppStorage(BrowserProfilePopoverDebugSettings.verticalPaddingKey)
     private var browserProfilePopoverVerticalPaddingRaw = BrowserProfilePopoverDebugSettings.defaultVerticalPadding
     @AppStorage(BrowserThemeSettings.modeKey) private var browserThemeModeRaw = BrowserThemeSettings.defaultMode.rawValue
+    @AppStorage(BrowserAutoFocusModeSettings.enabledKey) private var autoFocusModeEnabled = BrowserAutoFocusModeSettings.defaultEnabled
     @AppStorage(BrowserImportHintSettings.variantKey) private var browserImportHintVariantRaw = BrowserImportHintSettings.defaultVariant.rawValue
     @AppStorage(BrowserImportHintSettings.showOnBlankTabsKey) private var showBrowserImportHintOnBlankTabs = BrowserImportHintSettings.defaultShowOnBlankTabs
     @AppStorage(BrowserImportHintSettings.dismissedKey) private var isBrowserImportHintDismissed = BrowserImportHintSettings.defaultDismissed
@@ -979,6 +980,9 @@ struct BrowserPanelView: View {
         if focused {
             applyPendingAddressBarFocusRequestIfNeeded()
             autoFocusOmnibarIfBlank()
+            if autoFocusModeEnabled && !panel.isBrowserFocusModeActive {
+                panel.setBrowserFocusModeActive(true, reason: "autoFocusMode.panelFocus", focusWebView: false)
+            }
         } else {
             panel.invalidateAddressBarPageFocusRestoreAttempts()
             panel.clearBrowserFocusMode(reason: "panelFocus.onChange.unfocused")
