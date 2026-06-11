@@ -72,6 +72,13 @@ public final class ControlCommandCoordinator {
         if let result = handleMobileHost(request) { return result }
         if let result = handleWorkspace(request) { return result }
         if let result = handleSurface(request) { return result }
+        if let result = handleSystem(request) { return result }
+        if let result = handleProject(request) { return result }
+        if let result = handleDebug(request) { return result }
+        if let result = handleBrowser(request) { return result }
+        if let result = handleBrowserAutomation(request) { return result }
+        // handleSidebarV1 / handleBrowserPanelV1 are V1 string-command handlers;
+        // the app's v1 dispatcher calls them directly with (command:args:).
         return nil
     }
 
