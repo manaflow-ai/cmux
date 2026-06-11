@@ -1440,6 +1440,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
         SystemWideHotkeyController.shared.start()
         AgentHibernationController.shared.start()
+        RendererRealizationController.shared.start()
         NSApp.servicesProvider = self
 
         StartupBreadcrumbLog.append("appDelegate.didFinish.bootstrap.begin")
