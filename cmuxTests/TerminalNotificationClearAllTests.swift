@@ -367,7 +367,7 @@ final class TerminalNotificationClearAllTests: XCTestCase {
         FeedCoordinatorTestHooks.attentionSurfaceObserver = nil
 
         let workspace = manager.addWorkspace(select: true)
-        let feedTarget: FeedCoordinator.AttentionTarget?
+        var feedTarget: FeedCoordinator.AttentionTarget? = nil
         defer {
             if let feedTarget {
                 FeedCoordinator.shared.concludeBlockingDecisionAttention(feedTarget)
