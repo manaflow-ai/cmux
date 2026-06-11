@@ -466,9 +466,10 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     // stream and compares "now" against the last received event to detect
     // prolonged silence. Silence alone is NOT death: a healthy idle terminal
     // pushes nothing (the Mac dedupes unchanged render-grid frames), so a
-    // silence-threshold crossing first runs a bounded `mobile.host.status`
-    // probe and only tears down + re-subscribes + replays when the host fails
-    // to answer it.
+    // silence-threshold crossing first runs a bounded idempotent
+    // `mobile.events.subscribe` probe (same stream id, current topics) and
+    // only tears down + re-subscribes + replays when the host fails to answer
+    // it.
     private var renderGridLivenessTimer: (any DispatchSourceTimer)?
     private var renderGridLivenessListenerID: UUID?
     /// The in-flight liveness probe spawned by a silence-threshold crossing.
@@ -3904,9 +3905,10 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// `lastTerminalEventAt` against `renderGridLivenessSilenceThreshold`. While
     /// events keep arriving, `lastTerminalEventAt` stays fresh and every tick is a
     /// no-op. A threshold crossing is treated as a SUSPICION, not a verdict: an
-    /// idle terminal pushes no events, so the tick first probes the host with a
-    /// bounded `mobile.host.status` round-trip and only recovers when the probe
-    /// fails (see ``checkRenderGridLiveness(listenerID:)``).
+    /// idle terminal pushes no events, so the tick first re-asserts the
+    /// subscription with a bounded idempotent `mobile.events.subscribe`
+    /// round-trip and only recovers when that probe fails (see
+    /// ``checkRenderGridLiveness(listenerID:)``).
     private func startRenderGridLivenessWatchdog(listenerID: UUID) {
         stopRenderGridLivenessWatchdog(listenerID: nil)
         renderGridLivenessListenerID = listenerID
@@ -3989,10 +3991,17 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// from the half-dead transport this watchdog was built to catch. Treating
     /// silence alone as death made the watchdog tear down and full-grid-replay
     /// every healthy idle subscription every ~10.5s, forever (the 2026-06-10
-    /// Release-sim bisect finding). `mobile.host.status` is the cheapest
-    /// possible probe: auth-exempt (no token mint), side-effect free on the
-    /// host, and answered over the same transport the events ride on, so a
-    /// completed round-trip is positive proof the channel is alive.
+    /// Release-sim bisect finding).
+    ///
+    /// The probe is an idempotent `mobile.events.subscribe` for the SAME
+    /// stream id and current topics, not a generic ping: a completed
+    /// round-trip proves the transport the events ride on is alive AND that
+    /// the server-side registration is (re)installed, and the host's
+    /// subscription tracker re-evaluates producer demand on every replace. A
+    /// generic `mobile.host.status` answer could mask a dropped registration
+    /// behind a live RPC channel forever. Unlike the resync recovery, the
+    /// probe restarts nothing: no listener teardown, no replay, no stream
+    /// interruption.
     private func checkRenderGridLiveness(listenerID: UUID) {
         guard renderGridLivenessListenerID == listenerID else { return }
         guard let client = remoteClient, connectionState == .connected else { return }
@@ -4004,11 +4013,13 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         guard renderGridLivenessProbeTask == nil else { return }
         let probeTimeoutNanoseconds = runtime?.livenessProbeTimeoutNanoseconds
             ?? 3_000_000_000
+        let topics = terminalOutputTransport.eventTopics
         renderGridLivenessProbeTask = Task { @MainActor [weak self] in
-            let alive = await Self.probeConnectionLiveness(
+            let alive = await self?.probeEventSubscriptionLiveness(
                 client: client,
+                topics: topics,
                 timeoutNanoseconds: probeTimeoutNanoseconds
-            )
+            ) ?? false
             guard let self else { return }
             self.renderGridLivenessProbeTask = nil
             guard !Task.isCancelled,
@@ -4017,9 +4028,10 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                   self.remoteClient === client,
                   self.connectionState == .connected else { return }
             if alive {
-                // The host answered over the event channel: the stream is
-                // healthy but quiet. Count the round-trip as the liveness
-                // evidence so the silence window restarts from this proof.
+                // The host accepted the re-subscribe over the event channel:
+                // the stream is healthy but quiet. Count the round-trip as the
+                // liveness evidence so the silence window restarts from this
+                // proof.
                 self.recordTerminalEventStreamLiveness()
                 MobileDebugLog.anchormux("sync.liveness probe_ok silentMs=\(Int(silent * 1000))")
                 return
@@ -4034,7 +4046,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             let silentMs = Int(recheckNow.timeIntervalSince(recheckLast) * 1000)
             MobileDebugLog.anchormux("sync.liveness re-subscribe silentMs=\(silentMs)")
             self.diagnosticLog?.record(DiagnosticEvent(.livenessResubscribe, ms: UInt32(clamping: silentMs)))
-            mobileShellLog.info("render-grid stream silent for \(silentMs, privacy: .public)ms and host probe failed, re-subscribing")
+            mobileShellLog.info("render-grid stream silent for \(silentMs, privacy: .public)ms and subscription probe failed, re-subscribing")
             // resyncTerminalOutput(restartEventStream: true) stops the wedged
             // listener (which cancels this watchdog via stopTerminalRefreshPolling)
             // and starts a fresh subscription + watchdog, then replays every
@@ -4044,27 +4056,37 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         }
     }
 
-    /// Bounded positive-liveness probe over the event channel. Only a completed
-    /// `mobile.host.status` round-trip counts as alive; any error (timeout,
-    /// closed connection, rpc failure) reports dead and lets the watchdog run
-    /// its recovery. The request is auth-exempt, so the probe never blocks on
-    /// a token mint and exercises exactly the transport the events use.
-    private static func probeConnectionLiveness(
+    /// Bounded positive-liveness probe: re-assert the event subscription and
+    /// only count a completed round-trip as alive. Any failure (timeout,
+    /// closed connection, rpc rejection) reports dead and lets the watchdog
+    /// run its recovery.
+    ///
+    /// The deadline bounds the WHOLE attempt, including any Stack token work
+    /// that precedes the wire write inside `sendRequest`; an unbounded hang
+    /// there would otherwise pin the single-flight probe slot and disable the
+    /// watchdog for the rest of the generation.
+    private func probeEventSubscriptionLiveness(
         client: MobileCoreRPCClient,
+        topics: [String],
         timeoutNanoseconds: UInt64
     ) async -> Bool {
-        guard let request = try? MobileCoreRPCClient.requestData(
-            method: "mobile.host.status",
-            params: [:]
-        ) else {
-            return false
+        let probe = Task { @MainActor [weak self] in
+            await self?.requestTerminalEventSubscription(
+                client: client,
+                reason: "liveness_probe",
+                topics: topics
+            ) ?? false
         }
-        do {
-            _ = try await client.sendRequest(request, timeoutNanoseconds: timeoutNanoseconds)
-            return true
-        } catch {
-            return false
+        // Bounded deadline (allowed: cancellation-wired timeout, not a polling
+        // sleep). Cancelling the probe task surfaces inside
+        // requestTerminalEventSubscription as a cancelled request -> false.
+        let deadline = Task {
+            try? await Task.sleep(nanoseconds: timeoutNanoseconds)
+            probe.cancel()
         }
+        let alive = await probe.value
+        deadline.cancel()
+        return alive
     }
 
     private func resyncTerminalOutput(

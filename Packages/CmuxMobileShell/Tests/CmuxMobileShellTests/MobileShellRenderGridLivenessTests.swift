@@ -73,6 +73,8 @@ private actor LivenessHostRouter {
     private var recorded: [RecordedRequest] = []
     private var hostStatusRequestCount = 0
     private var heldHostStatusRequestNumbers: Set<Int> = []
+    private var subscribeRequestCount = 0
+    private var heldSubscribeRequestNumbers: Set<Int> = []
     private var holdSubscribe = false
     private var heldContinuations: [CheckedContinuation<Void, Never>] = []
 
@@ -95,11 +97,18 @@ private actor LivenessHostRouter {
         heldHostStatusRequestNumbers.insert(number)
     }
 
+    /// Hold the Nth `mobile.events.subscribe` request (1-based) forever,
+    /// modeling a dead push path whose probe never completes.
+    func holdSubscribeRequest(number: Int) {
+        heldSubscribeRequestNumbers.insert(number)
+    }
+
     /// Resume every held request so parked continuations do not leak past the
     /// end of the test.
     func releaseAllHeld() {
         holdSubscribe = false
         heldHostStatusRequestNumbers = []
+        heldSubscribeRequestNumbers = []
         let continuations = heldContinuations
         heldContinuations = []
         for continuation in continuations {
@@ -140,7 +149,8 @@ private actor LivenessHostRouter {
                 "capabilities": ["events.v1", "terminal.render_grid.v1", "terminal.replay.v1"],
             ])
         case "mobile.events.subscribe":
-            if holdSubscribe {
+            subscribeRequestCount += 1
+            if holdSubscribe || heldSubscribeRequestNumbers.contains(subscribeRequestCount) {
                 await park()
                 return nil
             }
@@ -419,11 +429,13 @@ private func makeConnectedStore(
 
 /// A healthy idle stream produces zero events (the Mac dedupes unchanged
 /// frames), so silence alone must not tear the subscription down. The
-/// watchdog must verify with a host probe and stay quiet when the host
-/// answers. Without this, the phone re-subscribed and full-grid re-replayed
-/// every ~10.5s forever on any idle terminal.
+/// watchdog may verify the silence with a bounded idempotent re-subscribe
+/// probe, but when the host answers it must stay quiet: no listener restart
+/// (observable as a second `mobile.host.status` capability resolve) and no
+/// full-grid replay. Without this, the phone tore down and full-grid
+/// re-replayed every ~10.5s forever on any idle terminal.
 @MainActor
-@Test func watchdogDoesNotResubscribeHealthyIdleStream() async throws {
+@Test func watchdogDoesNotTearDownHealthyIdleStream() async throws {
     let clock = TestClock()
     let router = LivenessHostRouter()
     let box = TransportBox()
@@ -432,30 +444,43 @@ private func makeConnectedStore(
     let sawSubscribe = try await pollUntil { await router.count(of: "mobile.events.subscribe") >= 1 }
     #expect(sawSubscribe, "listener must establish the push subscription")
 
+    let collector = OutputCollector()
+    collector.mount(store: store, surfaceID: "live-terminal")
+    let sawMountReplay = try await pollUntil { await router.count(of: "mobile.terminal.replay") >= 1 }
+    #expect(sawMountReplay, "mounting a sink arms exactly one cold-attach replay")
+
     // Idle past the silence threshold: no events at all, host healthy.
     clock.advance(by: 10)
     store.debugRunRenderGridLivenessCheckForTesting()
 
-    // The watchdog may probe the host (mobile.host.status request number 2;
-    // number 1 was the listener's transport-capability resolve), and the
-    // router answers it. What it must NOT do is restart the subscription.
-    let resubscribed = try await pollUntil(attempts: 60) {
-        await router.count(of: "mobile.events.subscribe") >= 2
+    // A teardown would restart the listener, which re-resolves capabilities
+    // (mobile.host.status request number 2) and re-replays the mounted sink.
+    let restarted = try await pollUntil(attempts: 60) {
+        await router.count(of: "mobile.host.status") >= 2
     }
     #expect(
-        resubscribed == false,
-        "the watchdog must not re-subscribe a healthy idle stream; the host answered, so silence only means the terminal had nothing to say"
+        restarted == false,
+        "the watchdog must not tear down a healthy idle stream; the host answered the probe, so silence only means the terminal had nothing to say"
     )
 
     // The probe outcome must reset the silence window: an immediate second
     // evaluation stays quiet too.
     store.debugRunRenderGridLivenessCheckForTesting()
-    let resubscribedAfterRecheck = try await pollUntil(attempts: 30) {
-        await router.count(of: "mobile.events.subscribe") >= 2
+    let restartedAfterRecheck = try await pollUntil(attempts: 30) {
+        await router.count(of: "mobile.host.status") >= 2
     }
-    #expect(resubscribedAfterRecheck == false)
+    #expect(restartedAfterRecheck == false)
     let replayCount = await router.count(of: "mobile.terminal.replay")
-    #expect(replayCount == 0, "no sink is mounted and the stream is healthy, so no replay traffic may be generated")
+    #expect(replayCount == 1, "a healthy idle stream must not generate replay traffic beyond the mount's cold-attach replay")
+
+    // The stream was never restarted: the original subscription still
+    // delivers straight into the mounted sink.
+    let event = try renderGridEventFrame(surfaceID: "live-terminal", seq: 9, text: "still-alive")
+    let transport = try #require(box.get())
+    await transport.deliver(event)
+    let delivered = try await pollUntil { collector.lines.isEmpty == false }
+    #expect(delivered, "the original stream must still be consumed after the probe")
+    collector.unmount()
 }
 
 /// The watchdog's original purpose (the ~85s silent-death hang) must keep
@@ -474,19 +499,21 @@ private func makeConnectedStore(
     let sawSubscribe = try await pollUntil { await router.count(of: "mobile.events.subscribe") >= 1 }
     #expect(sawSubscribe, "listener must establish the push subscription")
 
-    // The host stops answering the next host.status (the watchdog's probe on
-    // current code's resync path resolves capabilities first, so holding
-    // request number 2 models a dead host in both worlds).
-    await router.holdHostStatusRequest(number: 2)
+    // The host stops answering the next mobile.events.subscribe (the
+    // watchdog's re-assert probe), modeling a dead push path while the
+    // request had already left the phone.
+    await router.holdSubscribeRequest(number: 2)
     clock.advance(by: 10)
     store.debugRunRenderGridLivenessCheckForTesting()
 
-    let resubscribed = try await pollUntil(attempts: 600) {
-        await router.count(of: "mobile.events.subscribe") >= 2
+    // Recovery restarts the listener, which re-resolves capabilities: a
+    // second mobile.host.status request is the teardown-and-restart proof.
+    let restarted = try await pollUntil(attempts: 600) {
+        await router.count(of: "mobile.host.status") >= 2
     }
     #expect(
-        resubscribed,
-        "a stream that is silent past the threshold AND whose host stops answering must still be torn down and re-subscribed"
+        restarted,
+        "a stream that is silent past the threshold AND whose host stops answering the subscription probe must still be torn down and re-subscribed"
     )
     await router.releaseAllHeld()
 }
