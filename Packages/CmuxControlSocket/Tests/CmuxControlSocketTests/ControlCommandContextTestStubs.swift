@@ -352,7 +352,8 @@ extension ControlSurfaceContext {
 
     func controlSurfaceClearHistory(
         routing: ControlRoutingSelectors,
-        surfaceID: UUID?
+        surfaceID: UUID?,
+        hasSurfaceIDParam: Bool
     ) -> ControlSurfaceClearHistoryResolution { .tabManagerUnavailable }
 
     func controlSurfaceTriggerFlash(
@@ -388,15 +389,21 @@ extension ControlSurfaceContext {
 
     func controlSurfaceResumeSet(
         routing: ControlRoutingSelectors,
+        explicitTargetID: UUID?,
+        hasResolvedWindowID: Bool,
         inputs: ControlSurfaceResumeSetInputs
     ) -> ControlSurfaceResumeResolution { .surfaceNotFound }
 
     func controlSurfaceResumeGet(
-        routing: ControlRoutingSelectors
+        routing: ControlRoutingSelectors,
+        explicitTargetID: UUID?,
+        hasResolvedWindowID: Bool
     ) -> ControlSurfaceResumeResolution { .surfaceNotFound }
 
     func controlSurfaceResumeClear(
         routing: ControlRoutingSelectors,
+        explicitTargetID: UUID?,
+        hasResolvedWindowID: Bool,
         expectedCheckpointID: String?,
         expectedSource: String?
     ) -> ControlSurfaceResumeResolution { .surfaceNotFound }

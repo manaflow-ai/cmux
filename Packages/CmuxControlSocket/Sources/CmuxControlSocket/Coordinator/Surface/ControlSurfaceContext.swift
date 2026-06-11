@@ -155,11 +155,16 @@ public protocol ControlSurfaceContext: AnyObject {
     ///
     /// - Parameters:
     ///   - routing: The routing selectors.
-    ///   - surfaceID: The explicit `surface_id`, or `nil` for the focused surface.
+    ///   - surfaceID: The parsed `surface_id`, or `nil` (focused-surface fallback
+    ///     only when the param was absent).
+    ///   - hasSurfaceIDParam: Whether a `surface_id` param was present at all —
+    ///     present-but-unparseable must error, not silently fall back to the
+    ///     focused surface (legacy `params["surface_id"] != nil` guard).
     /// - Returns: The clear-history resolution.
     func controlSurfaceClearHistory(
         routing: ControlRoutingSelectors,
-        surfaceID: UUID?
+        surfaceID: UUID?,
+        hasSurfaceIDParam: Bool
     ) -> ControlSurfaceClearHistoryResolution
 
     /// Triggers the focus flash for `surface.trigger_flash`.
@@ -245,6 +250,8 @@ public protocol ControlSurfaceContext: AnyObject {
     /// - Returns: The resume resolution.
     func controlSurfaceResumeSet(
         routing: ControlRoutingSelectors,
+        explicitTargetID: UUID?,
+        hasResolvedWindowID: Bool,
         inputs: ControlSurfaceResumeSetInputs
     ) -> ControlSurfaceResumeResolution
 
@@ -253,7 +260,11 @@ public protocol ControlSurfaceContext: AnyObject {
     /// - Parameter routing: The routing selectors (with the surface-resume
     ///   precedence).
     /// - Returns: The resume resolution.
-    func controlSurfaceResumeGet(routing: ControlRoutingSelectors) -> ControlSurfaceResumeResolution
+    func controlSurfaceResumeGet(
+        routing: ControlRoutingSelectors,
+        explicitTargetID: UUID?,
+        hasResolvedWindowID: Bool
+    ) -> ControlSurfaceResumeResolution
 
     /// Clears the resume binding for `surface.resume.clear`, honoring the optional
     /// expected checkpoint/source guards.
@@ -265,6 +276,8 @@ public protocol ControlSurfaceContext: AnyObject {
     /// - Returns: The resume resolution.
     func controlSurfaceResumeClear(
         routing: ControlRoutingSelectors,
+        explicitTargetID: UUID?,
+        hasResolvedWindowID: Bool,
         expectedCheckpointID: String?,
         expectedSource: String?
     ) -> ControlSurfaceResumeResolution

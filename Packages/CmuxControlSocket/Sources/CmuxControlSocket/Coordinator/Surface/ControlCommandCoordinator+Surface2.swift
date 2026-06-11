@@ -107,7 +107,8 @@ extension ControlCommandCoordinator {
         }
         let resolution = context?.controlSurfaceClearHistory(
             routing: routing,
-            surfaceID: surfaceIDForInput(params)
+            surfaceID: uuid(params, "surface_id"),
+            hasSurfaceIDParam: params["surface_id"] != nil
         ) ?? .tabManagerUnavailable
         switch resolution {
         case .tabManagerUnavailable:
@@ -342,11 +343,4 @@ extension ControlCommandCoordinator {
 
     // MARK: - helpers
 
-    /// The `surface_id` selector for the body methods that resolve the focused
-    /// surface when no `surface_id` is given (`clear_history`). Matches the legacy
-    /// `v2UUID(params, "surface_id") ?? focused` precedence by returning the parsed
-    /// id (or `nil` to defer to the focused surface).
-    func surfaceIDForInput(_ params: [String: JSONValue]) -> UUID? {
-        uuid(params, "surface_id")
-    }
 }

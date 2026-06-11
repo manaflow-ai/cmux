@@ -92,17 +92,19 @@ extension TerminalController: ControlWorkspaceContext {
         guard let tabManager = resolveTabManager(routing: routing) else {
             return .tabManagerUnavailable
         }
-        guard let workspaceId = tabManager.selectedTabId,
-              let workspace = tabManager.tabs.first(where: { $0.id == workspaceId }) else {
+        guard let workspaceId = tabManager.selectedTabId else {
             return .noWorkspaceSelected
         }
+        // Legacy: a selectedTabId pointing at a workspace missing from `tabs`
+        // still answered .ok with "workspace": null.
+        let workspace = tabManager.tabs.first(where: { $0.id == workspaceId })
         let index = tabManager.tabs.firstIndex(where: { $0.id == workspaceId })
         let windowId = AppDelegate.shared?.windowId(for: tabManager)
         return .resolved(
             windowID: windowId,
             workspaceID: workspaceId,
             index: index,
-            summary: controlWorkspaceSummary(workspace)
+            summary: workspace.map { controlWorkspaceSummary($0) }
         )
     }
 
@@ -746,11 +748,3 @@ extension TerminalController: ControlWorkspaceContext {
     }
 }
 
-/// Local `JSONValue` null test for the create-input passthrough (the package's
-/// own `isNull` is file-private to the coordinator extensions).
-private extension JSONValue {
-    var isControlNull: Bool {
-        if case .null = self { return true }
-        return false
-    }
-}

@@ -10,6 +10,10 @@ public import Foundation
 public enum ControlSurfaceSplitResolution: Sendable, Equatable {
     /// No TabManager resolved (legacy `unavailable` / "TabManager not available").
     case tabManagerUnavailable
+    /// The direction token did not parse (legacy `invalid_params` /
+    /// "Missing or invalid direction (left|right|up|down)"). The coordinator
+    /// pre-validates the same token set, so this is a drift-safety net.
+    case invalidDirection
     /// The type token resolved to `agent-session` (legacy `invalid_params` /
     /// "agent-session is only supported by surface.create", `data: {"type": …}`).
     case agentSessionRejected(typeRawValue: String)

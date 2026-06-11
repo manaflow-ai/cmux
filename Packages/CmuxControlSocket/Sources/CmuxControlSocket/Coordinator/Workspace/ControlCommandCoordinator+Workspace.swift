@@ -132,7 +132,7 @@ extension ControlCommandCoordinator {
                 "window_ref": ref(.window, windowID),
                 "workspace_id": .string(workspaceID.uuidString),
                 "workspace_ref": ref(.workspace, workspaceID),
-                "workspace": workspaceSummaryPayload(summary, index: index, selected: true),
+                "workspace": summary.map { workspaceSummaryPayload($0, index: index, selected: true) } ?? .null,
             ]))
         }
     }
@@ -156,11 +156,17 @@ extension ControlCommandCoordinator {
 
     /// `workspace.select` — select a workspace by id.
     func workspaceSelect(_ params: [String: JSONValue]) -> ControlCallResult {
+        let routing = routingSelectors(params)
+        // Legacy resolved the TabManager BEFORE param validation, so unresolvable
+        // routing wins over a missing/invalid param (`unavailable` first).
+        guard context?.controlWorkspaceRoutingResolvesTabManager(routing: routing) ?? false else {
+            return .err(code: "unavailable", message: "TabManager not available", data: nil)
+        }
         guard let workspaceID = uuid(params, "workspace_id") else {
             return .err(code: "invalid_params", message: "Missing or invalid workspace_id", data: nil)
         }
         let resolution = context?.controlSelectWorkspace(
-            routing: routingSelectors(params),
+            routing: routing,
             workspaceID: workspaceID
         ) ?? .tabManagerUnavailable
         switch resolution {
@@ -183,11 +189,17 @@ extension ControlCommandCoordinator {
 
     /// `workspace.close` — close a workspace by id.
     func workspaceClose(_ params: [String: JSONValue]) -> ControlCallResult {
+        let routing = routingSelectors(params)
+        // Legacy resolved the TabManager BEFORE param validation, so unresolvable
+        // routing wins over a missing/invalid param (`unavailable` first).
+        guard context?.controlWorkspaceRoutingResolvesTabManager(routing: routing) ?? false else {
+            return .err(code: "unavailable", message: "TabManager not available", data: nil)
+        }
         guard let workspaceID = uuid(params, "workspace_id") else {
             return .err(code: "invalid_params", message: "Missing or invalid workspace_id", data: nil)
         }
         let resolution = context?.controlCloseWorkspace(
-            routing: routingSelectors(params),
+            routing: routing,
             workspaceID: workspaceID
         ) ?? .tabManagerUnavailable
         switch resolution {
@@ -526,6 +538,12 @@ extension ControlCommandCoordinator {
 
     /// `workspace.rename` — set a workspace's custom title.
     func workspaceRename(_ params: [String: JSONValue]) -> ControlCallResult {
+        let routing = routingSelectors(params)
+        // Legacy resolved the TabManager BEFORE param validation, so unresolvable
+        // routing wins over a missing/invalid param (`unavailable` first).
+        guard context?.controlWorkspaceRoutingResolvesTabManager(routing: routing) ?? false else {
+            return .err(code: "unavailable", message: "TabManager not available", data: nil)
+        }
         guard let workspaceID = uuid(params, "workspace_id") else {
             return .err(code: "invalid_params", message: "Missing or invalid workspace_id", data: nil)
         }
@@ -533,7 +551,7 @@ extension ControlCommandCoordinator {
             return .err(code: "invalid_params", message: "Missing or invalid title", data: nil)
         }
         let resolution = context?.controlRenameWorkspace(
-            routing: routingSelectors(params),
+            routing: routing,
             workspaceID: workspaceID,
             title: title
         ) ?? .tabManagerUnavailable

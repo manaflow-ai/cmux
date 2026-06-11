@@ -217,11 +217,23 @@ extension ControlCommandCoordinator {
         guard context?.controlSurfaceRoutingResolvesTabManager(routing: routing) ?? false else {
             return .err(code: "unavailable", message: "TabManager not available", data: nil)
         }
-        guard let directionRaw = string(params, "direction") else {
+        // Token set mirrors the app's `parseSplitDirection`; validating it here
+        // preserves the legacy error ORDER (direction → agent-session → divider).
+        guard let directionRaw = string(params, "direction"),
+              ["left", "l", "right", "r", "up", "u", "down", "d"].contains(directionRaw.lowercased()) else {
             return .err(
                 code: "invalid_params",
                 message: "Missing or invalid direction (left|right|up|down)",
                 data: nil
+            )
+        }
+        // Legacy rejected agent-session BEFORE divider validation (token match
+        // mirrors the app's `v2PanelType` normalized-token mapping).
+        if let typeRaw = string(params, "type"), normalizedToken(typeRaw) == "agentsession" {
+            return .err(
+                code: "invalid_params",
+                message: "agent-session is only supported by surface.create",
+                data: .object(["type": .string("agentSession")])
             )
         }
         let parsedDivider = initialDividerPosition(params)
@@ -246,6 +258,15 @@ extension ControlCommandCoordinator {
         switch resolution {
         case .tabManagerUnavailable:
             return .err(code: "unavailable", message: "TabManager not available", data: nil)
+        case .invalidDirection:
+            // Drift-safety net: the coordinator pre-validates the same token set,
+            // so this only fires if the app's parseSplitDirection ever diverges —
+            // and then it still emits the legacy error.
+            return .err(
+                code: "invalid_params",
+                message: "Missing or invalid direction (left|right|up|down)",
+                data: nil
+            )
         case .agentSessionRejected(let typeRawValue):
             return .err(
                 code: "invalid_params",

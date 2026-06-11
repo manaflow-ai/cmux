@@ -99,13 +99,19 @@ extension TerminalController {
 
     func controlSurfaceClearHistory(
         routing: ControlRoutingSelectors,
-        surfaceID: UUID?
+        surfaceID: UUID?,
+        hasSurfaceIDParam: Bool
     ) -> ControlSurfaceClearHistoryResolution {
         guard let tabManager = resolveTabManager(routing: routing) else {
             return .tabManagerUnavailable
         }
         guard let ws = resolveSurfaceWorkspace(routing: routing, tabManager: tabManager) else {
             return .workspaceNotFound
+        }
+        // Legacy: a present-but-unparseable surface_id errors; it must never fall
+        // back to clearing the focused surface (wrong-target side effect).
+        if hasSurfaceIDParam, surfaceID == nil {
+            return .surfaceNotFoundForID
         }
         guard let surfaceId = surfaceID ?? ws.focusedPanelId else {
             return .noFocusedSurface

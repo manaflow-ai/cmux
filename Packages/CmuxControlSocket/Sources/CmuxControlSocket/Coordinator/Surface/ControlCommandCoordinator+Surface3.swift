@@ -57,8 +57,20 @@ extension ControlCommandCoordinator {
             autoResume: source == "agent-hook" ? (bool(params, "auto_resume") ?? false) : false
         )
         return surfaceResumeResult(
-            context?.controlSurfaceResumeSet(routing: routing, inputs: inputs) ?? .setFailed
+            context?.controlSurfaceResumeSet(
+                routing: routing,
+                explicitTargetID: surfaceResumeExplicitTargetID(params),
+                hasResolvedWindowID: uuid(params, "window_id") != nil,
+                inputs: inputs
+            ) ?? .setFailed
         )
+    }
+
+    /// The legacy resume-target selector: `surface_id ?? tab_id` ONLY — the
+    /// `terminal_id` alias that general routing honors was never part of the
+    /// resume-target precedence (origin `v2ResolveSurfaceResumeTarget`).
+    private func surfaceResumeExplicitTargetID(_ params: [String: JSONValue]) -> UUID? {
+        uuid(params, "surface_id") ?? uuid(params, "tab_id")
     }
 
     // MARK: - resume.get
@@ -71,7 +83,11 @@ extension ControlCommandCoordinator {
             return .err(code: "unavailable", message: Self.surfaceWindowUnavailableMessage, data: nil)
         }
         return surfaceResumeResult(
-            context?.controlSurfaceResumeGet(routing: routing) ?? .surfaceNotFound
+            context?.controlSurfaceResumeGet(
+                routing: routing,
+                explicitTargetID: surfaceResumeExplicitTargetID(params),
+                hasResolvedWindowID: uuid(params, "window_id") != nil
+            ) ?? .surfaceNotFound
         )
     }
 
@@ -86,6 +102,8 @@ extension ControlCommandCoordinator {
         }
         let resolution = context?.controlSurfaceResumeClear(
             routing: routing,
+            explicitTargetID: surfaceResumeExplicitTargetID(params),
+            hasResolvedWindowID: uuid(params, "window_id") != nil,
             expectedCheckpointID: optionalTrimmedRawString(params, "checkpoint_id")
                 ?? optionalTrimmedRawString(params, "checkpointId"),
             expectedSource: optionalTrimmedRawString(params, "source")

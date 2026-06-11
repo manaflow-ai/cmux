@@ -18,9 +18,14 @@ extension TerminalController {
     /// selectors the coordinator already parsed in place of the raw params.
     private func resolveSurfaceResumeTarget(
         routing: ControlRoutingSelectors,
+        explicitTargetID: UUID?,
+        hasResolvedWindowID: Bool,
         fallbackTabManager: TabManager
     ) -> (tabManager: TabManager, workspace: Workspace, surfaceId: UUID)? {
-        if let explicitSurfaceId = routing.surfaceID {
+        // Legacy explicit target: surface_id ?? tab_id ONLY (terminal_id is a
+        // general-routing alias but was never a resume target), and the window
+        // branch requires a RESOLVABLE window_id (legacy `v2UUID != nil`).
+        if let explicitSurfaceId = explicitTargetID {
             if let explicitWorkspaceId = routing.workspaceID {
                 guard let workspace = fallbackTabManager.tabs.first(where: { $0.id == explicitWorkspaceId }),
                       workspace.terminalPanel(for: explicitSurfaceId) != nil else {
@@ -28,7 +33,7 @@ extension TerminalController {
                 }
                 return (fallbackTabManager, workspace, explicitSurfaceId)
             }
-            if routing.hasWindowIDParam {
+            if hasResolvedWindowID {
                 guard let workspace = fallbackTabManager.tabs.first(where: {
                     $0.terminalPanel(for: explicitSurfaceId) != nil
                 }) else {
@@ -151,6 +156,8 @@ extension TerminalController {
 
     func controlSurfaceResumeSet(
         routing: ControlRoutingSelectors,
+        explicitTargetID: UUID?,
+        hasResolvedWindowID: Bool,
         inputs: ControlSurfaceResumeSetInputs
     ) -> ControlSurfaceResumeResolution {
         guard let tabManager = resolveTabManager(routing: routing) else {
@@ -167,7 +174,12 @@ extension TerminalController {
             autoResume: inputs.autoResume,
             updatedAt: Date().timeIntervalSince1970
         )
-        guard let target = resolveSurfaceResumeTarget(routing: routing, fallbackTabManager: tabManager) else {
+        guard let target = resolveSurfaceResumeTarget(
+            routing: routing,
+            explicitTargetID: explicitTargetID,
+            hasResolvedWindowID: hasResolvedWindowID,
+            fallbackTabManager: tabManager
+        ) else {
             return .surfaceNotFound
         }
         let effectiveBinding = surfaceResumeBindingWithApproval(binding)
@@ -183,11 +195,20 @@ extension TerminalController {
         ))
     }
 
-    func controlSurfaceResumeGet(routing: ControlRoutingSelectors) -> ControlSurfaceResumeResolution {
+    func controlSurfaceResumeGet(
+        routing: ControlRoutingSelectors,
+        explicitTargetID: UUID?,
+        hasResolvedWindowID: Bool
+    ) -> ControlSurfaceResumeResolution {
         guard let tabManager = resolveTabManager(routing: routing) else {
             return .windowUnavailable
         }
-        guard let target = resolveSurfaceResumeTarget(routing: routing, fallbackTabManager: tabManager) else {
+        guard let target = resolveSurfaceResumeTarget(
+            routing: routing,
+            explicitTargetID: explicitTargetID,
+            hasResolvedWindowID: hasResolvedWindowID,
+            fallbackTabManager: tabManager
+        ) else {
             return .surfaceNotFound
         }
         return .result(surfaceResumeSnapshot(
@@ -201,13 +222,20 @@ extension TerminalController {
 
     func controlSurfaceResumeClear(
         routing: ControlRoutingSelectors,
+        explicitTargetID: UUID?,
+        hasResolvedWindowID: Bool,
         expectedCheckpointID: String?,
         expectedSource: String?
     ) -> ControlSurfaceResumeResolution {
         guard let tabManager = resolveTabManager(routing: routing) else {
             return .windowUnavailable
         }
-        guard let target = resolveSurfaceResumeTarget(routing: routing, fallbackTabManager: tabManager) else {
+        guard let target = resolveSurfaceResumeTarget(
+            routing: routing,
+            explicitTargetID: explicitTargetID,
+            hasResolvedWindowID: hasResolvedWindowID,
+            fallbackTabManager: tabManager
+        ) else {
             return .surfaceNotFound
         }
         let currentBinding = target.workspace.surfaceResumeBinding(panelId: target.surfaceId)
