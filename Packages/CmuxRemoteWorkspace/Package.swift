@@ -17,6 +17,7 @@ let package = Package(
         .package(path: "../CmuxFoundation"),
         .package(path: "../CmuxCore"),
         .package(path: "../CmuxRemoteDaemon"),
+        .package(path: "../CmuxSocketControl"),
     ],
     targets: [
         .target(
@@ -25,6 +26,7 @@ let package = Package(
                 .product(name: "CmuxFoundation", package: "CmuxFoundation"),
                 .product(name: "CmuxCore", package: "CmuxCore"),
                 .product(name: "CmuxRemoteDaemon", package: "CmuxRemoteDaemon"),
+                .product(name: "CmuxSocketControl", package: "CmuxSocketControl"),
             ],
             swiftSettings: [
                 .swiftLanguageMode(.v6),

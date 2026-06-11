@@ -3643,7 +3643,19 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
                 localSocketPath: nil,
                 terminalStartupCommand: nil
             ),
-            controllerID: UUID()
+            controllerID: UUID(),
+            proxyBroker: RemoteProxyBroker(
+                tunnelProvider: RemoteDaemonProxyTunnelProvider(
+                    strings: RemoteDaemonStrings(
+                        missingPersistentPTYCapability: "missing persistent pty capability",
+                        missingRequiredFunctionality: "missing required functionality"
+                    ),
+                    ptyBridgeStrings: AppRemotePTYBridgeStrings()
+                )
+            ),
+            manifestRepository: RemoteDaemonManifestRepository(
+                homeDirectory: FileManager.default.homeDirectoryForCurrentUser
+            )
         )
 
         let didCloseReadHandles = DispatchSemaphore(value: 0)

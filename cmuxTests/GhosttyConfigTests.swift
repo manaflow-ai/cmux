@@ -1683,8 +1683,8 @@ final class WorkspaceRemoteDaemonManifestTests: XCTestCase {
         }
         """
 
-        let manifest = Workspace.remoteDaemonManifest(from: [
-            Workspace.remoteDaemonManifestInfoKey: manifestJSON,
+        let manifest = WorkspaceRemoteDaemonManifest(infoDictionary: [
+            WorkspaceRemoteDaemonManifest.infoDictionaryKey: manifestJSON,
         ])
 
         XCTAssertEqual(manifest?.releaseTag, "v0.62.0")
@@ -1692,7 +1692,10 @@ final class WorkspaceRemoteDaemonManifestTests: XCTestCase {
     }
 
     func testRemoteDaemonCachePathIsVersionedByPlatform() throws {
-        let url = try Workspace.remoteDaemonCachedBinaryURL(
+        let repository = RemoteDaemonManifestRepository(
+            homeDirectory: FileManager.default.homeDirectoryForCurrentUser
+        )
+        let url = try repository.cachedBinaryURL(
             version: "0.62.0",
             goOS: "linux",
             goArch: "arm64"

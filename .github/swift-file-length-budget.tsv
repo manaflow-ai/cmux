@@ -4,8 +4,8 @@
 32873	CLI/cmux.swift
 538	Packages/CmuxRemoteWorkspace/Sources/CmuxRemoteWorkspace/PTYBridge/RemotePTYBridgeSession.swift
 518	Packages/CmuxControlSocket/Sources/CmuxControlSocket/Coordinator/Surface/ControlCommandCoordinator+Surface.swift
-18034	Sources/TerminalController.swift
-16292	Sources/Workspace.swift
+18045	Sources/TerminalController.swift
+15823	Sources/Workspace.swift
 19246	Sources/ContentView.swift
 18044	Sources/AppDelegate.swift
 16539	Sources/GhosttyTerminalView.swift
@@ -15,8 +15,8 @@
 8494	cmuxTests/CLINotifyProcessIntegrationRegressionTests.swift
 7737	Sources/Panels/BrowserPanelView.swift
 7199	cmuxTests/WorkspaceUnitTests.swift
-6954	cmuxTests/WorkspaceRemoteConnectionTests.swift
-6545	cmuxTests/GhosttyConfigTests.swift
+6966	cmuxTests/WorkspaceRemoteConnectionTests.swift
+6548	cmuxTests/GhosttyConfigTests.swift
 6299	cmuxTests/TerminalAndGhosttyTests.swift
 6221	cmuxTests/SessionPersistenceTests.swift
 6119	CLI/cmux_open.swift

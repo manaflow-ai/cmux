@@ -686,7 +686,7 @@ extension TerminalController: ControlWorkspaceContext {
     func controlWorkspaceRemotePTYAttachEnd(
         workspaceID workspaceId: UUID,
         surfaceID surfaceId: UUID,
-        sessionID sessionID: String
+        sessionID: String
     ) -> ControlWorkspaceRemotePTYAttachEndResolution {
         let located = AppDelegate.shared?.workspaceContainingPanel(
             panelId: surfaceId,

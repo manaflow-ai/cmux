@@ -52,6 +52,28 @@ struct WorkspaceRemoteDaemonManifestTests {
         #expect(manifest.entry(goOS: "darwin", goArch: "arm64")?.assetName == "cmuxd-remote-darwin-arm64")
         #expect(manifest.entry(goOS: "linux", goArch: "arm64") == nil)
     }
+
+    @Test("decodes from an Info dictionary under the wire-pinned key")
+    func decodesFromInfoDictionary() throws {
+        let manifest = try #require(WorkspaceRemoteDaemonManifest(infoDictionary: [
+            WorkspaceRemoteDaemonManifest.infoDictionaryKey: manifestJSON,
+        ]))
+        #expect(WorkspaceRemoteDaemonManifest.infoDictionaryKey == "CMUXRemoteDaemonManifestJSON")
+        #expect(manifest.releaseTag == "cmuxd-remote-v0.20.0")
+        #expect(manifest.entry(goOS: "linux", goArch: "amd64")?.assetName == "cmuxd-remote-linux-amd64")
+    }
+
+    @Test("Info-dictionary decode rejects a missing, blank, or undecodable manifest")
+    func infoDictionaryDecodeRejectsInvalid() {
+        #expect(WorkspaceRemoteDaemonManifest(infoDictionary: nil) == nil)
+        #expect(WorkspaceRemoteDaemonManifest(infoDictionary: [:]) == nil)
+        #expect(WorkspaceRemoteDaemonManifest(infoDictionary: [
+            WorkspaceRemoteDaemonManifest.infoDictionaryKey: "   \n ",
+        ]) == nil)
+        #expect(WorkspaceRemoteDaemonManifest(infoDictionary: [
+            WorkspaceRemoteDaemonManifest.infoDictionaryKey: "{not json",
+        ]) == nil)
+    }
 }
 
 @Suite("WorkspaceRemoteWebSocketDaemonEndpoint")

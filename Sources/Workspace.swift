@@ -96,26 +96,6 @@ private struct SessionPaneRestoreEntry {
 
 
 extension Workspace {
-    nonisolated static let remoteDaemonManifestInfoKey = WorkspaceRemoteSessionController.remoteDaemonManifestInfoKey
-
-    nonisolated static func remoteDaemonManifest(from infoDictionary: [String: Any]?) -> WorkspaceRemoteDaemonManifest? {
-        WorkspaceRemoteSessionController.remoteDaemonManifest(from: infoDictionary)
-    }
-
-    nonisolated static func remoteDaemonCachedBinaryURL(
-        version: String,
-        goOS: String,
-        goArch: String,
-        fileManager: FileManager = .default
-    ) throws -> URL {
-        try WorkspaceRemoteSessionController.remoteDaemonCachedBinaryURL(
-            version: version,
-            goOS: goOS,
-            goArch: goArch,
-            fileManager: fileManager
-        )
-    }
-
     func sessionSnapshot(
         includeScrollback: Bool,
         restorableAgentIndex: RestorableAgentSessionIndex? = nil,
@@ -2323,336 +2303,6 @@ extension Workspace {
 
 }
 
-private final class WorkspaceRemoteProxyBroker {
-    enum Update {
-        case connecting
-        case ready(BrowserProxyEndpoint)
-        case error(String)
-    }
-
-    final class Lease {
-        private let key: String
-        private let subscriberID: UUID
-        private weak var broker: WorkspaceRemoteProxyBroker?
-        private var isReleased = false
-
-        fileprivate init(key: String, subscriberID: UUID, broker: WorkspaceRemoteProxyBroker) {
-            self.key = key
-            self.subscriberID = subscriberID
-            self.broker = broker
-        }
-
-        func release() {
-            guard !isReleased else { return }
-            isReleased = true
-            broker?.release(key: key, subscriberID: subscriberID)
-        }
-
-        deinit {
-            release()
-        }
-    }
-
-    private final class Entry {
-        let configuration: WorkspaceRemoteConfiguration
-        var remotePath: String
-        var tunnel: RemoteDaemonProxyTunnel?
-        var endpoint: BrowserProxyEndpoint?
-        var restartWorkItem: DispatchWorkItem?
-        var restartRetryCount = 0
-        var subscribers: [UUID: (Update) -> Void] = [:]
-
-        init(configuration: WorkspaceRemoteConfiguration, remotePath: String) {
-            self.configuration = configuration
-            self.remotePath = remotePath
-        }
-    }
-
-    static let shared = WorkspaceRemoteProxyBroker()
-
-    private let queue = DispatchQueue(label: "com.cmux.remote-ssh.proxy-broker", qos: .utility)
-    private var entries: [String: Entry] = [:]
-
-    func acquire(
-        configuration: WorkspaceRemoteConfiguration,
-        remotePath: String,
-        onUpdate: @escaping (Update) -> Void
-    ) -> Lease {
-        queue.sync {
-            let key = Self.transportKey(for: configuration)
-            let subscriberID = UUID()
-            let entry: Entry
-            if let existing = entries[key] {
-                entry = existing
-                if existing.remotePath != remotePath {
-                    existing.remotePath = remotePath
-                    existing.restartRetryCount = 0
-                    if existing.tunnel != nil {
-                        stopEntryRuntimeLocked(existing)
-                        notifyLocked(existing, update: .connecting)
-                    }
-                }
-            } else {
-                entry = Entry(configuration: configuration, remotePath: remotePath)
-                entries[key] = entry
-            }
-
-            entry.subscribers[subscriberID] = onUpdate
-            if let endpoint = entry.endpoint {
-                onUpdate(.ready(endpoint))
-            } else {
-                onUpdate(.connecting)
-            }
-
-            if entry.tunnel == nil, entry.restartWorkItem == nil {
-                startEntryLocked(key: key, entry: entry)
-            }
-
-            return Lease(key: key, subscriberID: subscriberID, broker: self)
-        }
-    }
-
-    func listPTY(configuration: WorkspaceRemoteConfiguration) throws -> [[String: Any]] {
-        try withReadyTunnel(configuration: configuration) { tunnel in
-            try tunnel.listPTY()
-        }
-    }
-
-    func closePTY(configuration: WorkspaceRemoteConfiguration, sessionID: String) throws {
-        try withReadyTunnel(configuration: configuration) { tunnel in
-            try tunnel.closePTY(sessionID: sessionID)
-        }
-    }
-
-    func resizePTY(
-        configuration: WorkspaceRemoteConfiguration,
-        sessionID: String,
-        attachmentID: String,
-        attachmentToken: String,
-        cols: Int,
-        rows: Int
-    ) throws {
-        try withReadyTunnel(configuration: configuration) { tunnel in
-            try tunnel.resizePTY(
-                sessionID: sessionID,
-                attachmentID: attachmentID,
-                attachmentToken: attachmentToken,
-                cols: cols,
-                rows: rows
-            )
-        }
-    }
-
-    func detachPTY(
-        configuration: WorkspaceRemoteConfiguration,
-        sessionID: String,
-        attachmentID: String,
-        attachmentToken: String
-    ) throws {
-        try withReadyTunnel(configuration: configuration) { tunnel in
-            try tunnel.detachPTY(
-                sessionID: sessionID,
-                attachmentID: attachmentID,
-                attachmentToken: attachmentToken
-            )
-        }
-    }
-
-    func startPTYBridge(
-        configuration: WorkspaceRemoteConfiguration,
-        sessionID: String,
-        attachmentID: String,
-        command: String?,
-        requireExisting: Bool
-    ) throws -> RemotePTYBridgeServer.Endpoint {
-        try withReadyTunnel(configuration: configuration) { tunnel in
-            try tunnel.startPTYBridge(
-                sessionID: sessionID,
-                attachmentID: attachmentID,
-                command: command,
-                requireExisting: requireExisting
-            )
-        }
-    }
-
-    private func withReadyTunnel<T>(
-        configuration: WorkspaceRemoteConfiguration,
-        _ body: (RemoteDaemonProxyTunnel) throws -> T
-    ) throws -> T {
-        try queue.sync {
-            let key = Self.transportKey(for: configuration)
-            guard let entry = entries[key], let tunnel = entry.tunnel else {
-                throw NSError(domain: "cmux.remote.pty", code: 40, userInfo: [
-                    NSLocalizedDescriptionKey: "remote daemon tunnel is not ready",
-                ])
-            }
-            return try body(tunnel)
-        }
-    }
-
-    private func release(key: String, subscriberID: UUID) {
-        queue.async { [weak self] in
-            guard let self, let entry = self.entries[key] else { return }
-            entry.subscribers.removeValue(forKey: subscriberID)
-            guard entry.subscribers.isEmpty else { return }
-            self.teardownEntryLocked(key: key, entry: entry)
-        }
-    }
-
-    private func startEntryLocked(key: String, entry: Entry) {
-        entry.restartWorkItem?.cancel()
-        entry.restartWorkItem = nil
-
-        let localPort: Int
-        if let forcedLocalPort = entry.configuration.localProxyPort {
-            // Internal deterministic test hook used by docker regressions to force bind conflicts.
-            localPort = forcedLocalPort
-        } else {
-            let retryDelay = Self.retryDelay(baseDelay: 3.0, retry: entry.restartRetryCount + 1)
-            guard let allocatedPort = Self.allocateLoopbackPort() else {
-                notifyLocked(
-                    entry,
-                    update: .error("Failed to allocate local proxy port\(Self.retrySuffix(delay: retryDelay))")
-                )
-                scheduleRestartLocked(key: key, entry: entry, baseDelay: 3.0)
-                return
-            }
-            localPort = allocatedPort
-        }
-
-        do {
-            let tunnel = RemoteDaemonProxyTunnel(
-                configuration: entry.configuration,
-                remotePath: entry.remotePath,
-                localPort: localPort,
-                strings: .appLocalized,
-                ptyBridgeStrings: AppRemotePTYBridgeStrings()
-            ) { [weak self] detail in
-                self?.queue.async {
-                    self?.handleTunnelFailureLocked(key: key, detail: detail)
-                }
-            }
-            try tunnel.start()
-            entry.tunnel = tunnel
-            let endpoint = BrowserProxyEndpoint(host: "127.0.0.1", port: localPort)
-            entry.endpoint = endpoint
-            entry.restartRetryCount = 0
-            notifyLocked(entry, update: .ready(endpoint))
-        } catch {
-            stopEntryRuntimeLocked(entry)
-            let detail = "Failed to start local daemon proxy: \(error.localizedDescription)"
-            let retryDelay = Self.retryDelay(baseDelay: 3.0, retry: entry.restartRetryCount + 1)
-            notifyLocked(entry, update: .error("\(detail)\(Self.retrySuffix(delay: retryDelay))"))
-            scheduleRestartLocked(key: key, entry: entry, baseDelay: 3.0)
-        }
-    }
-
-    private func handleTunnelFailureLocked(key: String, detail: String) {
-        guard let entry = entries[key], entry.tunnel != nil else { return }
-        stopEntryRuntimeLocked(entry)
-        let retryDelay = Self.retryDelay(baseDelay: 3.0, retry: entry.restartRetryCount + 1)
-        notifyLocked(entry, update: .error("\(detail)\(Self.retrySuffix(delay: retryDelay))"))
-        scheduleRestartLocked(key: key, entry: entry, baseDelay: 3.0)
-    }
-
-    private func scheduleRestartLocked(key: String, entry: Entry, baseDelay: TimeInterval) {
-        guard !entry.subscribers.isEmpty else {
-            teardownEntryLocked(key: key, entry: entry)
-            return
-        }
-        guard entry.restartWorkItem == nil else { return }
-        entry.restartRetryCount += 1
-        let retryDelay = Self.retryDelay(baseDelay: baseDelay, retry: entry.restartRetryCount)
-
-        let workItem = DispatchWorkItem { [weak self] in
-            guard let self, let currentEntry = self.entries[key] else { return }
-            currentEntry.restartWorkItem = nil
-            guard !currentEntry.subscribers.isEmpty else {
-                self.teardownEntryLocked(key: key, entry: currentEntry)
-                return
-            }
-            self.notifyLocked(currentEntry, update: .connecting)
-            self.startEntryLocked(key: key, entry: currentEntry)
-        }
-
-        entry.restartWorkItem = workItem
-        queue.asyncAfter(deadline: .now() + retryDelay, execute: workItem)
-    }
-
-    private func teardownEntryLocked(key: String, entry: Entry) {
-        entry.restartWorkItem?.cancel()
-        entry.restartWorkItem = nil
-        stopEntryRuntimeLocked(entry)
-        entries.removeValue(forKey: key)
-    }
-
-    private func stopEntryRuntimeLocked(_ entry: Entry) {
-        entry.tunnel?.stop()
-        entry.tunnel = nil
-        entry.endpoint = nil
-    }
-
-    private func notifyLocked(_ entry: Entry, update: Update) {
-        for callback in entry.subscribers.values {
-            callback(update)
-        }
-    }
-
-    private static func transportKey(for configuration: WorkspaceRemoteConfiguration) -> String {
-        configuration.proxyBrokerTransportKey
-    }
-
-    private static func allocateLoopbackPort() -> Int? {
-        for _ in 0..<8 {
-            let fd = socket(AF_INET, SOCK_STREAM, 0)
-            guard fd >= 0 else { return nil }
-            defer { close(fd) }
-
-            var yes: Int32 = 1
-            setsockopt(fd, SOL_SOCKET, SO_REUSEADDR, &yes, socklen_t(MemoryLayout<Int32>.size))
-
-            var addr = sockaddr_in()
-            addr.sin_len = UInt8(MemoryLayout<sockaddr_in>.size)
-            addr.sin_family = sa_family_t(AF_INET)
-            addr.sin_port = in_port_t(0)
-            addr.sin_addr = in_addr(s_addr: inet_addr("127.0.0.1"))
-
-            let bindResult = withUnsafePointer(to: &addr) { ptr in
-                ptr.withMemoryRebound(to: sockaddr.self, capacity: 1) { sockaddrPtr in
-                    bind(fd, sockaddrPtr, socklen_t(MemoryLayout<sockaddr_in>.size))
-                }
-            }
-            guard bindResult == 0 else { continue }
-
-            var bound = sockaddr_in()
-            var len = socklen_t(MemoryLayout<sockaddr_in>.size)
-            let nameResult = withUnsafeMutablePointer(to: &bound) { ptr in
-                ptr.withMemoryRebound(to: sockaddr.self, capacity: 1) { sockaddrPtr in
-                    getsockname(fd, sockaddrPtr, &len)
-                }
-            }
-            guard nameResult == 0 else { continue }
-
-            let port = Int(UInt16(bigEndian: bound.sin_port))
-            if port > 0 && port <= 65535 {
-                return port
-            }
-        }
-        return nil
-    }
-
-    private static func retrySuffix(delay: TimeInterval) -> String {
-        let seconds = max(1, Int(delay.rounded()))
-        return " (retry in \(seconds)s)"
-    }
-
-    private static func retryDelay(baseDelay: TimeInterval, retry: Int) -> TimeInterval {
-        let exponent = Double(max(0, retry - 1))
-        return min(baseDelay * pow(2.0, exponent), 60.0)
-    }
-}
-
-
 final class WorkspaceRemoteSessionController {
 #if DEBUG
     // XCTest seam: tests assign this before starting a controller and clear it
@@ -2748,6 +2398,8 @@ final class WorkspaceRemoteSessionController {
     private weak var workspace: Workspace?
     private let configuration: WorkspaceRemoteConfiguration
     private let controllerID: UUID
+    private let proxyBroker: any RemoteProxyBrokering
+    private let manifestRepository: RemoteDaemonManifestRepository
 
     private enum RemotePortPollingMode {
         case hostWide
@@ -2787,7 +2439,7 @@ final class WorkspaceRemoteSessionController {
     }
 
     private var isStopping = false
-    private var proxyLease: WorkspaceRemoteProxyBroker.Lease?
+    private var proxyLease: RemoteProxyLease?
     private var proxyEndpoint: BrowserProxyEndpoint?
     private var daemonReady = false
     private var daemonBootstrapVersion: String?
@@ -2827,10 +2479,18 @@ final class WorkspaceRemoteSessionController {
 
     private static let reverseRelayStartupGracePeriod: TimeInterval = 0.5
 
-    init(workspace: Workspace, configuration: WorkspaceRemoteConfiguration, controllerID: UUID) {
+    init(
+        workspace: Workspace,
+        configuration: WorkspaceRemoteConfiguration,
+        controllerID: UUID,
+        proxyBroker: any RemoteProxyBrokering,
+        manifestRepository: RemoteDaemonManifestRepository
+    ) {
         self.workspace = workspace
         self.configuration = configuration
         self.controllerID = controllerID
+        self.proxyBroker = proxyBroker
+        self.manifestRepository = manifestRepository
         queue.setSpecific(key: queueKey, value: ())
     }
 
@@ -2872,7 +2532,7 @@ final class WorkspaceRemoteSessionController {
                     NSLocalizedDescriptionKey: "remote daemon is not ready",
                 ])
             }
-            return try WorkspaceRemoteProxyBroker.shared.listPTY(configuration: self.configuration)
+            return try self.proxyBroker.listPTY(configuration: self.configuration)
         }
     }
 
@@ -2883,7 +2543,7 @@ final class WorkspaceRemoteSessionController {
                     NSLocalizedDescriptionKey: "remote daemon is not ready",
                 ])
             }
-            try WorkspaceRemoteProxyBroker.shared.closePTY(configuration: self.configuration, sessionID: sessionID)
+            try self.proxyBroker.closePTY(configuration: self.configuration, sessionID: sessionID)
         }
     }
 
@@ -3029,7 +2689,7 @@ final class WorkspaceRemoteSessionController {
                 NSLocalizedDescriptionKey: "remote daemon is not ready",
             ])
         }
-        return try WorkspaceRemoteProxyBroker.shared.startPTYBridge(
+        return try proxyBroker.startPTYBridge(
             configuration: configuration,
             sessionID: sessionID,
             attachmentID: attachmentID,
@@ -3081,7 +2741,7 @@ final class WorkspaceRemoteSessionController {
                     NSLocalizedDescriptionKey: "remote daemon is not ready",
                 ])
             }
-            try WorkspaceRemoteProxyBroker.shared.resizePTY(
+            try self.proxyBroker.resizePTY(
                 configuration: self.configuration,
                 sessionID: sessionID,
                 attachmentID: attachmentID,
@@ -3104,7 +2764,7 @@ final class WorkspaceRemoteSessionController {
                     NSLocalizedDescriptionKey: "remote daemon is not ready",
                 ])
             }
-            try WorkspaceRemoteProxyBroker.shared.detachPTY(
+            try self.proxyBroker.detachPTY(
                 configuration: self.configuration,
                 sessionID: sessionID,
                 attachmentID: attachmentID,
@@ -3358,7 +3018,7 @@ final class WorkspaceRemoteSessionController {
             return
         }
 
-        let lease = WorkspaceRemoteProxyBroker.shared.acquire(
+        let lease = proxyBroker.acquire(
             configuration: configuration,
             remotePath: remotePath
         ) { [weak self] update in
@@ -3571,7 +3231,7 @@ final class WorkspaceRemoteSessionController {
         removeRemoteRelayMetadataLocked()
     }
 
-    private func handleProxyBrokerUpdateLocked(_ update: WorkspaceRemoteProxyBroker.Update) {
+    private func handleProxyBrokerUpdateLocked(_ update: RemoteProxyBrokerUpdate) {
         guard !isStopping else { return }
         switch update {
         case .connecting:
@@ -4679,48 +4339,10 @@ final class WorkspaceRemoteSessionController {
         )
     }
 
-    static let remoteDaemonManifestInfoKey = "CMUXRemoteDaemonManifestJSON"
-
-    static func remoteDaemonManifest(from infoDictionary: [String: Any]?) -> WorkspaceRemoteDaemonManifest? {
-        guard let rawManifest = infoDictionary?[remoteDaemonManifestInfoKey] as? String else { return nil }
-        let trimmed = rawManifest.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { return nil }
-        guard let data = trimmed.data(using: .utf8) else { return nil }
-        return try? JSONDecoder().decode(WorkspaceRemoteDaemonManifest.self, from: data)
-    }
-
+    /// Reads the manifest release builds embed in the app's Info dictionary
+    /// (`Bundle.main` stays app-side; the package never reads it).
     private static func remoteDaemonManifest() -> WorkspaceRemoteDaemonManifest? {
-        remoteDaemonManifest(from: Bundle.main.infoDictionary)
-    }
-
-    private static func remoteDaemonCacheRoot(fileManager: FileManager = .default) throws -> URL {
-        // Cache under the non-TCC cmux state directory (matching the CLI's
-        // remoteDaemonCacheURL) rather than Application Support, so the
-        // separately-signed CLI can read it on `cmux ssh` without tripping the
-        // macOS Sequoia "access data from other apps" prompt
-        // (https://github.com/manaflow-ai/cmux/issues/5146).
-        let cacheRoot = CmuxStateDirectory.url(homeDirectory: fileManager.homeDirectoryForCurrentUser)
-            .appendingPathComponent("remote-daemons", isDirectory: true)
-        try fileManager.createDirectory(at: cacheRoot, withIntermediateDirectories: true)
-        return cacheRoot
-    }
-
-    static func remoteDaemonCachedBinaryURL(
-        version: String,
-        goOS: String,
-        goArch: String,
-        fileManager: FileManager = .default
-    ) throws -> URL {
-        try remoteDaemonCacheRoot(fileManager: fileManager)
-            .appendingPathComponent(version, isDirectory: true)
-            .appendingPathComponent("\(goOS)-\(goArch)", isDirectory: true)
-            .appendingPathComponent("cmuxd-remote", isDirectory: false)
-    }
-
-    private static func sha256Hex(forFile url: URL) throws -> String {
-        let data = try Data(contentsOf: url)
-        let digest = SHA256.hash(data: data)
-        return digest.map { String(format: "%02x", $0) }.joined()
+        WorkspaceRemoteDaemonManifest(infoDictionary: Bundle.main.infoDictionary)
     }
 
     private static func allowLocalDaemonBuildFallback(environment: [String: String] = ProcessInfo.processInfo.environment) -> Bool {
@@ -4744,102 +4366,6 @@ final class WorkspaceRemoteSessionController {
             .appendingPathComponent("cmuxd-remote", isDirectory: false)
     }
 
-    /// Fetch the live manifest JSON from the release, returning nil on any failure.
-    private static func fetchRemoteManifestLocked(releaseURL: String, version: String) -> WorkspaceRemoteDaemonManifest? {
-        guard let manifestURL = URL(string: "\(releaseURL)/cmuxd-remote-manifest.json") else { return nil }
-        let request = NSMutableURLRequest(url: manifestURL)
-        request.timeoutInterval = 15
-        request.setValue("cmux/\(version)", forHTTPHeaderField: "User-Agent")
-        let session = URLSession(configuration: .ephemeral)
-        let semaphore = DispatchSemaphore(value: 0)
-        var resultData: Data?
-        session.dataTask(with: request as URLRequest) { data, response, error in
-            defer { semaphore.signal() }
-            guard error == nil,
-                  let httpResponse = response as? HTTPURLResponse,
-                  (200...299).contains(httpResponse.statusCode) else { return }
-            resultData = data
-        }.resume()
-        _ = semaphore.wait(timeout: .now() + 20.0)
-        session.finishTasksAndInvalidate()
-        guard let data = resultData else { return nil }
-        return try? JSONDecoder().decode(WorkspaceRemoteDaemonManifest.self, from: data)
-    }
-
-    private func downloadRemoteDaemonBinaryLocked(entry: WorkspaceRemoteDaemonManifest.Entry, version: String, releaseURL: String? = nil) throws -> URL {
-        guard let url = URL(string: entry.downloadURL) else {
-            throw NSError(domain: "cmux.remote.daemon", code: 25, userInfo: [
-                NSLocalizedDescriptionKey: "remote daemon manifest has an invalid download URL",
-            ])
-        }
-
-        let cacheURL = try Self.remoteDaemonCachedBinaryURL(version: version, goOS: entry.goOS, goArch: entry.goArch)
-        let fileManager = FileManager.default
-        try fileManager.createDirectory(at: cacheURL.deletingLastPathComponent(), withIntermediateDirectories: true)
-
-        let request = NSMutableURLRequest(url: url)
-        request.timeoutInterval = 60
-        request.setValue("cmux/\(version)", forHTTPHeaderField: "User-Agent")
-        let session = URLSession(configuration: .ephemeral)
-
-        let semaphore = DispatchSemaphore(value: 0)
-        var downloadedURL: URL?
-        var downloadError: Error?
-        session.downloadTask(with: request as URLRequest) { localURL, response, error in
-            defer { semaphore.signal() }
-            if let error {
-                downloadError = error
-                return
-            }
-            if let httpResponse = response as? HTTPURLResponse,
-               !(200...299).contains(httpResponse.statusCode) {
-                downloadError = NSError(domain: "cmux.remote.daemon", code: 26, userInfo: [
-                    NSLocalizedDescriptionKey: "remote daemon download failed with HTTP \(httpResponse.statusCode)",
-                ])
-                return
-            }
-            downloadedURL = localURL
-        }.resume()
-        _ = semaphore.wait(timeout: .now() + 75.0)
-        session.finishTasksAndInvalidate()
-
-        if let downloadError {
-            throw downloadError
-        }
-        guard let downloadedURL else {
-            throw NSError(domain: "cmux.remote.daemon", code: 27, userInfo: [
-                NSLocalizedDescriptionKey: "remote daemon download did not produce a file",
-            ])
-        }
-
-        let downloadedSHA = try Self.sha256Hex(forFile: downloadedURL)
-        if downloadedSHA != entry.sha256.lowercased() {
-            // The embedded manifest's checksum doesn't match the downloaded binary.
-            // This can happen when a newer nightly overwrites the shared release
-            // asset after this build's manifest was embedded. As a fallback, fetch
-            // the live manifest from the release and verify against that.
-            if let releaseURL,
-               let liveManifest = Self.fetchRemoteManifestLocked(releaseURL: releaseURL, version: version),
-               let liveEntry = liveManifest.entry(goOS: entry.goOS, goArch: entry.goArch),
-               downloadedSHA == liveEntry.sha256.lowercased() {
-                debugLog("remote.download.checksum-fallback: embedded manifest checksum stale, live manifest matched for \(entry.assetName)")
-            } else {
-                throw NSError(domain: "cmux.remote.daemon", code: 28, userInfo: [
-                    NSLocalizedDescriptionKey: "remote daemon checksum mismatch for \(entry.assetName)",
-                ])
-            }
-        }
-
-        let tempURL = cacheURL.deletingLastPathComponent()
-            .appendingPathComponent(".\(cacheURL.lastPathComponent).tmp-\(UUID().uuidString)")
-        try? fileManager.removeItem(at: tempURL)
-        try fileManager.moveItem(at: downloadedURL, to: tempURL)
-        try fileManager.setAttributes([.posixPermissions: 0o755], ofItemAtPath: tempURL.path)
-        try? fileManager.removeItem(at: cacheURL)
-        try fileManager.moveItem(at: tempURL, to: cacheURL)
-        return cacheURL
-    }
-
     private func buildLocalDaemonBinary(goOS: String, goArch: String, version: String) throws -> URL {
         if let explicitBinary = Self.explicitRemoteDaemonBinaryURL(),
            FileManager.default.isExecutableFile(atPath: explicitBinary.path) {
@@ -4850,19 +4376,20 @@ final class WorkspaceRemoteSessionController {
         if let manifest = Self.remoteDaemonManifest(),
            manifest.appVersion == version,
            let entry = manifest.entry(goOS: goOS, goArch: goArch) {
-            let cacheURL = try Self.remoteDaemonCachedBinaryURL(version: manifest.appVersion, goOS: goOS, goArch: goArch)
-            if FileManager.default.fileExists(atPath: cacheURL.path) {
-                let cachedSHA = try Self.sha256Hex(forFile: cacheURL)
-                if cachedSHA == entry.sha256.lowercased(),
-                   FileManager.default.isExecutableFile(atPath: cacheURL.path) {
-                    debugLog("remote.build.cached path=\(cacheURL.path)")
-                    return cacheURL
-                }
-                try? FileManager.default.removeItem(at: cacheURL)
+            if let cacheURL = try manifestRepository.validatedCachedBinary(entry: entry, version: manifest.appVersion) {
+                debugLog("remote.build.cached path=\(cacheURL.path)")
+                return cacheURL
             }
-            let downloadedURL = try downloadRemoteDaemonBinaryLocked(entry: entry, version: manifest.appVersion, releaseURL: manifest.releaseURL)
-            debugLog("remote.build.downloaded path=\(downloadedURL.path)")
-            return downloadedURL
+            let download = try manifestRepository.downloadBinary(
+                entry: entry,
+                version: manifest.appVersion,
+                releaseURL: manifest.releaseURL
+            )
+            if download.usedLiveManifestChecksumFallback {
+                debugLog("remote.download.checksum-fallback: embedded manifest checksum stale, live manifest matched for \(entry.assetName)")
+            }
+            debugLog("remote.build.downloaded path=\(download.binaryURL.path)")
+            return download.binaryURL
         }
 
         guard Self.allowLocalDaemonBuildFallback() else {
@@ -9878,7 +9405,11 @@ final class Workspace: Identifiable, ObservableObject {
         let controller = WorkspaceRemoteSessionController(
             workspace: self,
             configuration: configuration,
-            controllerID: controllerID
+            controllerID: controllerID,
+            proxyBroker: TerminalController.shared.remoteProxyBroker,
+            manifestRepository: RemoteDaemonManifestRepository(
+                homeDirectory: FileManager.default.homeDirectoryForCurrentUser
+            )
         )
         activeRemoteSessionControllerID = controllerID
         remoteSessionController = controller

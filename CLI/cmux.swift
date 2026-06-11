@@ -10942,7 +10942,7 @@ struct CMUXCLI {
         // cross-identity reach into the app's Application Support data triggers the
         // macOS Sequoia "access data from other apps" prompt
         // (https://github.com/manaflow-ai/cmux/issues/5146). The app's
-        // Workspace.remoteDaemonCachedBinaryURL resolves the same path. The CLI is
+        // RemoteDaemonManifestRepository.cachedBinaryURL resolves the same path. The CLI is
         // a composition root, so it names the concrete `FileManager.default` here.
         return CmuxStateDirectory.url(homeDirectory: FileManager.default.homeDirectoryForCurrentUser)
             .appendingPathComponent("remote-daemons", isDirectory: true)

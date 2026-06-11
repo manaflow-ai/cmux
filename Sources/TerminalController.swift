@@ -2,6 +2,8 @@ import AppKit
 import CmuxCore
 import CmuxAuthRuntime
 import CmuxControlSocket
+import CmuxRemoteDaemon
+import CmuxRemoteWorkspace
 import CmuxSettings
 import CmuxSocketControl
 import CmuxSwiftRenderUI
@@ -99,6 +101,11 @@ class TerminalController {
     @MainActor private(set) var browserSignInFlow: HostBrowserSignInFlow?
     // Sendable value type; injected at construction so socket auth never reaches a global.
     private nonisolated let passwordStore: SocketControlPasswordStore
+    /// Process-wide proxy-tunnel broker (one shared tunnel per remote transport across all
+    /// windows), constructed at this app-hub composition point and injected into each
+    /// `WorkspaceRemoteSessionController`; ownership moves to the composition root with the
+    /// planned `RemoteSessionCoordinator` wiring.
+    nonisolated let remoteProxyBroker: any RemoteProxyBrokering
     // Stateless Sendable structs from CmuxControlSocket; injected at construction.
     // `transport` is internal so sibling-file extensions (CmuxEventStream) can write through it.
     nonisolated let transport: SocketTransport
@@ -264,10 +271,14 @@ class TerminalController {
     private init(
         passwordStore: SocketControlPasswordStore = SocketControlPasswordStore(),
         transport: SocketTransport = SocketTransport(),
-        listenerPolicy: SocketListenerPolicy = SocketListenerPolicy()
+        listenerPolicy: SocketListenerPolicy = SocketListenerPolicy(),
+        remoteProxyBroker: any RemoteProxyBrokering = RemoteProxyBroker(
+            tunnelProvider: RemoteDaemonProxyTunnelProvider(strings: .appLocalized, ptyBridgeStrings: AppRemotePTYBridgeStrings())
+        )
     ) {
         self.passwordStore = passwordStore
         self.transport = transport
+        self.remoteProxyBroker = remoteProxyBroker
         let serverEventTarget = ServerEventTarget()
         let socketServer = SocketControlServer(
             transport: transport,
