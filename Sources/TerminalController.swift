@@ -104,6 +104,8 @@ class TerminalController {
     // The package-owned listener: path/bind/lock lifecycle, accept source,
     // backoff/rearm recovery, and the generation-counted state machine.
     nonisolated let socketServer: SocketControlServer
+    // Accepted-connection consumer; runs until process exit (singleton).
+    private nonisolated let socketConnectionsTask: Task<Void, Never>
     // Per-surface dedupe for high-frequency report_* socket telemetry.
     private nonisolated let socketFastPathState = SocketFastPathState()
     private nonisolated let myPid = getpid()
@@ -264,11 +266,25 @@ class TerminalController {
         self.passwordStore = passwordStore
         self.transport = transport
         let serverEventTarget = ServerEventTarget()
-        self.socketServer = SocketControlServer(
+        let socketServer = SocketControlServer(
             transport: transport,
             listenerPolicy: listenerPolicy,
             events: Self.makeSocketServerEvents(target: serverEventTarget)
         )
+        self.socketServer = socketServer
+        // Single consumer of the accepted-connection stream, detached so
+        // accepts never funnel through the main actor. Each connection still
+        // gets a dedicated thread: command bodies block (main-thread sync
+        // hops, semaphore waits), so never the cooperative pool.
+        self.socketConnectionsTask = Task.detached {
+            for await connection in socketServer.connections {
+                guard let controller = serverEventTarget.controller else {
+                    close(connection.socket)
+                    continue
+                }
+                controller.spawnClientHandler(socket: connection.socket, peerPid: connection.peerProcessID)
+            }
+        }
         serverEventTarget.controller = self
         browserDownloadObserver = NotificationCenter.default.addObserver(
             forName: .browserDownloadEventDidArrive,
@@ -291,7 +307,7 @@ class TerminalController {
     }
 
     @discardableResult
-    nonisolated func reserveStartupSocketPath(_ path: String) -> String {
+    func reserveStartupSocketPath(_ path: String) -> String {
         socketServer.reserveStartupSocketPath(path)
     }
 
@@ -646,17 +662,11 @@ class TerminalController {
                 sentryCaptureError(message, category: "socket", data: data, contextKey: "socket_listener")
             },
             listenerDidStart: { path, _ in
+                // @MainActor closure, invoked synchronously inside start().
                 target.controller?.socketListenerDidStart(path: path)
             },
             recordLastSocketPath: { path in
                 SocketControlSettings.recordLastSocketPath(path)
-            },
-            clientAccepted: { socket, peerPid in
-                guard let controller = target.controller else {
-                    close(socket)
-                    return
-                }
-                controller.spawnClientHandler(socket: socket, peerPid: peerPid)
             },
             pathMissingDetected: { path, generation in
                 Task { @MainActor in
@@ -697,48 +707,44 @@ class TerminalController {
         )
     }
 
-    /// Invoked by the server at the exact point the legacy `start` posted
-    /// `.socketListenerDidStart`: after the running-state commit, before the
-    /// path monitor and accept source arm. Every start path runs on the main
-    /// thread (`start` is `@MainActor`; rearm fires on the main queue; the
-    /// path-missing restart hops through a `@MainActor` task).
-    private nonisolated func socketListenerDidStart(path: String) {
-        MainActor.assumeIsolated {
-            NotificationCenter.default.post(
-                name: .socketListenerDidStart,
-                object: self,
-                userInfo: ["path": path]
-            )
+    /// Invoked synchronously inside the server's `start()` on the main
+    /// actor, at the exact lifecycle point the legacy implementation posted
+    /// `.socketListenerDidStart`.
+    private func socketListenerDidStart(path: String) {
+        NotificationCenter.default.post(
+            name: .socketListenerDidStart,
+            object: self,
+            userInfo: ["path": path]
+        )
 
-            // Wire batched port scanner results back to workspace state.
-            PortScanner.shared.onPortsUpdated = { [weak self] workspaceId, panelId, ports in
-                guard let self, let tabManager = self.tabManager else { return }
-                guard let workspace = tabManager.tabs.first(where: { $0.id == workspaceId }) else { return }
-                let validSurfaceIds = Set(workspace.panels.keys)
-                guard validSurfaceIds.contains(panelId) else { return }
-                workspace.surfaceListeningPorts[panelId] = ports.isEmpty ? nil : ports
+        // Wire batched port scanner results back to workspace state.
+        PortScanner.shared.onPortsUpdated = { [weak self] workspaceId, panelId, ports in
+            guard let self, let tabManager = self.tabManager else { return }
+            guard let workspace = tabManager.tabs.first(where: { $0.id == workspaceId }) else { return }
+            let validSurfaceIds = Set(workspace.panels.keys)
+            guard validSurfaceIds.contains(panelId) else { return }
+            workspace.surfaceListeningPorts[panelId] = ports.isEmpty ? nil : ports
+            workspace.recomputeListeningPorts()
+        }
+        PortScanner.shared.onAgentPortsUpdated = { [weak self] workspaceId, ports in
+            guard let self, let tabManager = self.tabManager else { return }
+            guard let workspace = tabManager.tabs.first(where: { $0.id == workspaceId }) else { return }
+            if workspace.agentListeningPorts != ports {
+                workspace.agentListeningPorts = ports
                 workspace.recomputeListeningPorts()
             }
-            PortScanner.shared.onAgentPortsUpdated = { [weak self] workspaceId, ports in
-                guard let self, let tabManager = self.tabManager else { return }
-                guard let workspace = tabManager.tabs.first(where: { $0.id == workspaceId }) else { return }
-                if workspace.agentListeningPorts != ports {
-                    workspace.agentListeningPorts = ports
-                    workspace.recomputeListeningPorts()
+        }
+        PortScanner.shared.agentPIDsProvider = { [weak self] workspaceIds in
+            guard let self, let tabManager = self.tabManager else { return [:] }
+            var pidsByWorkspace: [UUID: Set<Int>] = [:]
+            for workspaceId in workspaceIds {
+                guard let workspace = tabManager.tabs.first(where: { $0.id == workspaceId }) else { continue }
+                let pids = Set(workspace.agentPIDs.values.compactMap { $0 > 0 ? Int($0) : nil })
+                if !pids.isEmpty {
+                    pidsByWorkspace[workspaceId] = pids
                 }
             }
-            PortScanner.shared.agentPIDsProvider = { [weak self] workspaceIds in
-                guard let self, let tabManager = self.tabManager else { return [:] }
-                var pidsByWorkspace: [UUID: Set<Int>] = [:]
-                for workspaceId in workspaceIds {
-                    guard let workspace = tabManager.tabs.first(where: { $0.id == workspaceId }) else { continue }
-                    let pids = Set(workspace.agentPIDs.values.compactMap { $0 > 0 ? Int($0) : nil })
-                    if !pids.isEmpty {
-                        pidsByWorkspace[workspaceId] = pids
-                    }
-                }
-                return pidsByWorkspace
-            }
+            return pidsByWorkspace
         }
     }
 
@@ -765,7 +771,8 @@ class TerminalController {
         start(tabManager: tabManager, socketPath: path, accessMode: restartMode)
     }
 
-    nonisolated func stop() {
+    func stop() {
+        // Synchronous by contract: termination needs the unlink before exit.
         socketServer.stop()
     }
 
@@ -952,6 +959,18 @@ class TerminalController {
             }
             semaphore.wait()
             return v2Ok(id: request.id, result: v2AuthStatusPayload(timedOut: false))
+        case "auth.sign_in_url":
+            var signInURL: String?
+            v2MainSync {
+                MainActor.assumeIsolated {
+                    signInURL = self.browserSignInFlow?.manualSignInURL.absoluteString
+                }
+            }
+            var result: [String: Any] = [:]
+            if let signInURL {
+                result["url"] = signInURL
+            }
+            return v2Ok(id: request.id, result: result)
         case "auth.begin_sign_in":
             let timeoutSeconds = (request.params["timeout_seconds"] as? Double) ?? 300
             let semaphore = DispatchSemaphore(value: 0)
@@ -1076,28 +1095,29 @@ class TerminalController {
         consecutiveFailures: Int,
         delayMs: Int
     ) {
-        let deadline = DispatchTime.now() + .milliseconds(delayMs)
-        DispatchQueue.main.asyncAfter(deadline: deadline) { [weak self] in
+        Task { @MainActor [weak self] in
             guard let self else { return }
-            MainActor.assumeIsolated {
-                guard let tabManager = self.tabManager else { return }
-                guard let restartPath = self.socketServer.claimPendingRearm(
-                    generation: generation,
-                    errnoCode: errnoCode,
-                    consecutiveFailures: consecutiveFailures,
-                    delayMs: delayMs
-                ) else { return }
+            // Bounded rearm delay on the server's injected recovery clock
+            // (replaces the legacy main-queue asyncAfter); a stale fire is a
+            // no-op via the pending-rearm generation guard in the claim.
+            try? await self.socketServer.recoveryClock.sleep(forMilliseconds: delayMs)
+            guard let tabManager = self.tabManager else { return }
+            guard let restartPath = self.socketServer.claimPendingRearm(
+                generation: generation,
+                errnoCode: errnoCode,
+                consecutiveFailures: consecutiveFailures,
+                delayMs: delayMs
+            ) else { return }
 
-                let restartMode = self.socketServer.accessMode
+            let restartMode = self.socketServer.accessMode
 
-                self.stop()
-                self.start(
-                    tabManager: tabManager,
-                    socketPath: restartPath,
-                    accessMode: restartMode,
-                    preserveAcceptFailureStreak: true
-                )
-            }
+            self.stop()
+            self.start(
+                tabManager: tabManager,
+                socketPath: restartPath,
+                accessMode: restartMode,
+                preserveAcceptFailureStreak: true
+            )
         }
     }
 
@@ -1137,31 +1157,24 @@ class TerminalController {
             }
         }
 
-        var buffer = [UInt8](repeating: 0, count: 4096)
-        var pending = ""
         var authenticated = false
+        let lineReader = ControlClientLineReader(socket: socket)
 
-        while socketServer.isRunning {
-            let bytesRead = read(socket, &buffer, buffer.count - 1)
-            guard bytesRead > 0 else { break }
+        while let line = lineReader.nextLine(shouldContinueReading: { socketServer.isRunning }) {
+            let trimmed = line.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !trimmed.isEmpty else { continue }
 
-            let chunk = String(bytes: buffer[0..<bytesRead], encoding: .utf8) ?? ""
-            pending.append(chunk)
-
-            while let newlineIndex = pending.firstIndex(of: "\n") {
-                let line = String(pending[..<newlineIndex])
-                pending = String(pending[pending.index(after: newlineIndex)...])
-                let trimmed = line.trimmingCharacters(in: .whitespacesAndNewlines)
-                guard !trimmed.isEmpty else { continue }
-
+            var shouldCloseSocket = false
+            autoreleasepool {
                 if isEventsStreamRequest(trimmed) {
                     if let response = authResponseIfNeeded(for: trimmed, authenticated: &authenticated) {
-                        guard writeSocketResponse(response, to: socket) else {
-                            return
+                        if !writeSocketResponse(response, to: socket) {
+                            shouldCloseSocket = true
                         }
-                        continue
+                        return
                     }
                     handleEventsStreamRequest(trimmed, socket: socket)
+                    shouldCloseSocket = true
                     return
                 }
 
@@ -1170,10 +1183,13 @@ class TerminalController {
                 if let response = result.response {
                     let didWriteResponse = writeSocketResponse(response, to: socket)
                     publishSocketEvents(command: trimmed, response: response)
-                    guard didWriteResponse else {
-                        return
+                    if !didWriteResponse {
+                        shouldCloseSocket = true
                     }
                 }
+            }
+            if shouldCloseSocket {
+                return
             }
         }
     }
@@ -1266,17 +1282,145 @@ class TerminalController {
         if trimmed.hasPrefix("ERROR:") {
             return "error"
         }
-        if trimmed.hasPrefix("{"),
-           let data = trimmed.data(using: .utf8),
-           let dict = (try? JSONSerialization.jsonObject(with: data, options: [])) as? [String: Any] {
-            if let ok = dict["ok"] as? Bool {
-                return ok ? "ok" : "error"
-            }
-            if dict["error"] != nil {
+        if trimmed.hasPrefix("{") {
+            let prefix = trimmed.prefix(4096)
+            if topLevelJSONResponseStatus(in: prefix) == "error" {
                 return "error"
             }
         }
         return "ok"
+    }
+
+    private nonisolated static func topLevelJSONResponseStatus(in text: Substring) -> String? {
+        var index = text.startIndex
+        skipJSONWhitespace(in: text, index: &index)
+        guard index < text.endIndex, text[index] == "{" else { return nil }
+        index = text.index(after: index)
+
+        while index < text.endIndex {
+            skipJSONWhitespace(in: text, index: &index)
+            if index >= text.endIndex { return nil }
+            if text[index] == "}" { return nil }
+            if text[index] == "," {
+                index = text.index(after: index)
+                continue
+            }
+            guard text[index] == "\"",
+                  let key = scanJSONString(in: text, index: &index) else {
+                return nil
+            }
+            skipJSONWhitespace(in: text, index: &index)
+            guard index < text.endIndex, text[index] == ":" else { return nil }
+            index = text.index(after: index)
+            skipJSONWhitespace(in: text, index: &index)
+
+            if key == "error" {
+                return "error"
+            }
+            if key == "ok" {
+                if text[index...].hasPrefix("false") {
+                    return "error"
+                }
+                if text[index...].hasPrefix("true") {
+                    return "ok"
+                }
+            }
+            guard skipJSONValue(in: text, index: &index) else {
+                return nil
+            }
+        }
+        return nil
+    }
+
+    private nonisolated static func scanJSONString(in text: Substring, index: inout String.Index) -> String? {
+        guard index < text.endIndex, text[index] == "\"" else { return nil }
+        index = text.index(after: index)
+        var result = ""
+        var isEscaped = false
+        while index < text.endIndex {
+            let char = text[index]
+            index = text.index(after: index)
+            if isEscaped {
+                result.append(char)
+                isEscaped = false
+                continue
+            }
+            if char == "\\" {
+                isEscaped = true
+                continue
+            }
+            if char == "\"" {
+                return result
+            }
+            result.append(char)
+        }
+        return nil
+    }
+
+    private nonisolated static func skipJSONValue(in text: Substring, index: inout String.Index) -> Bool {
+        guard index < text.endIndex else { return false }
+        switch text[index] {
+        case "\"":
+            return scanJSONString(in: text, index: &index) != nil
+        case "{", "[":
+            return skipJSONContainer(in: text, index: &index)
+        default:
+            while index < text.endIndex {
+                switch text[index] {
+                case ",", "}":
+                    return true
+                default:
+                    index = text.index(after: index)
+                }
+            }
+            return true
+        }
+    }
+
+    private nonisolated static func skipJSONContainer(in text: Substring, index: inout String.Index) -> Bool {
+        guard index < text.endIndex else { return false }
+        let opener = text[index]
+        let closer: Character = opener == "{" ? "}" : "]"
+        var depth = 1
+        index = text.index(after: index)
+        var isInString = false
+        var isEscaped = false
+        while index < text.endIndex {
+            let char = text[index]
+            index = text.index(after: index)
+            if isInString {
+                if isEscaped {
+                    isEscaped = false
+                } else if char == "\\" {
+                    isEscaped = true
+                } else if char == "\"" {
+                    isInString = false
+                }
+                continue
+            }
+            if char == "\"" {
+                isInString = true
+            } else if char == opener {
+                depth += 1
+            } else if char == closer {
+                depth -= 1
+                if depth == 0 {
+                    return true
+                }
+            }
+        }
+        return false
+    }
+
+    private nonisolated static func skipJSONWhitespace(in text: Substring, index: inout String.Index) {
+        while index < text.endIndex {
+            switch text[index] {
+            case " ", "\t", "\n", "\r":
+                index = text.index(after: index)
+            default:
+                return
+            }
+        }
     }
 
     private nonisolated static func debugLogSocketCommandEndIfNeeded(
@@ -1808,6 +1952,10 @@ class TerminalController {
             return v2Result(id: id, self.v2WindowCreate(params: params))
         case "window.close":
             return v2Result(id: id, self.v2WindowClose(params: params))
+        case "window.displays":
+            return v2Result(id: id, self.v2WindowDisplays(params: params))
+        case "window.display":
+            return v2Result(id: id, self.v2WindowDisplay(params: params))
 
         // Workspaces
         case "workspace.list":
@@ -2021,6 +2169,18 @@ class TerminalController {
             return v2Result(id: id, self.v2BrowserForward(params: params))
         case "browser.reload":
             return v2Result(id: id, self.v2BrowserReload(params: params))
+        case "browser.react_grab.toggle":
+            return v2Result(id: id, self.v2BrowserReactGrabToggle(params: params))
+        case "browser.devtools.toggle":
+            return v2Result(id: id, self.v2BrowserDevToolsToggle(params: params))
+        case "browser.console.show":
+            return v2Result(id: id, self.v2BrowserConsoleShow(params: params))
+        case "browser.focus_mode.set":
+            return v2Result(id: id, self.v2BrowserFocusModeSet(params: params))
+        case "browser.zoom.set":
+            return v2Result(id: id, self.v2BrowserZoomSet(params: params))
+        case "browser.history.clear":
+            return v2Result(id: id, self.v2BrowserHistoryClear(params: params))
         case "browser.url.get":
             return v2Result(id: id, self.v2BrowserGetURL(params: params))
         case "browser.focus_webview":
@@ -2314,6 +2474,7 @@ class TerminalController {
             "terminal.viewport",
             "auth.login",
             "auth.status",
+            "auth.sign_in_url",
             "auth.begin_sign_in",
             "auth.sign_out",
             "vm.list",
@@ -2327,6 +2488,8 @@ class TerminalController {
             "window.focus",
             "window.create",
             "window.close",
+            "window.displays",
+            "window.display",
             "workspace.list",
             "workspace.create",
             "workspace.select",
@@ -2437,6 +2600,12 @@ class TerminalController {
             "browser.back",
             "browser.forward",
             "browser.reload",
+            "browser.react_grab.toggle",
+            "browser.devtools.toggle",
+            "browser.console.show",
+            "browser.focus_mode.set",
+            "browser.zoom.set",
+            "browser.history.clear",
             "browser.url.get",
             "browser.snapshot",
             "browser.eval",
@@ -3939,6 +4108,78 @@ class TerminalController {
             ])
     }
 
+    private func v2WindowDisplays(params _: [String: Any]) -> V2CallResult {
+        let displays = v2MainSync { AppDelegate.shared?.availableDisplays() } ?? []
+        let payload: [[String: Any]] = displays.map { display in
+            [
+                "name": display.name,
+                "index": display.index,
+                "display_id": v2OrNull(display.displayID.map { Int($0) }),
+                "main": display.isMain,
+                "frame": [
+                    "x": Int(display.frame.origin.x),
+                    "y": Int(display.frame.origin.y),
+                    "width": Int(display.frame.width),
+                    "height": Int(display.frame.height)
+                ]
+            ]
+        }
+        return .ok(["displays": payload])
+    }
+
+    private func v2WindowDisplay(params: [String: Any]) -> V2CallResult {
+        guard let displayQuery = (params["display"] as? String)?
+                .trimmingCharacters(in: .whitespacesAndNewlines),
+              !displayQuery.isEmpty else {
+            return .err(code: "invalid_params", message: "Missing or invalid display", data: nil)
+        }
+
+        // Explicit window target moves just that window; otherwise move every main
+        // window of this instance (a dev build usually has one).
+        if let windowId = v2UUID(params, "window_id") {
+            let resolved = v2MainSync {
+                AppDelegate.shared?.moveMainWindow(windowId: windowId, toDisplayMatching: displayQuery)
+            }
+            if let display = resolved {
+                return .ok([
+                    "display": display,
+                    "window_id": windowId.uuidString,
+                    "window_ref": v2Ref(kind: .window, uuid: windowId),
+                    "moved": [windowId.uuidString]
+                ])
+            }
+            let windowExists = v2MainSync {
+                AppDelegate.shared?.windowForMainWindowId(windowId) != nil
+            }
+            if !windowExists {
+                return .err(code: "not_found", message: "Window not found", data: [
+                    "window_id": windowId.uuidString,
+                    "window_ref": v2Ref(kind: .window, uuid: windowId)
+                ])
+            }
+            return v2DisplayNotFound(displayQuery)
+        }
+
+        guard let result = v2MainSync({
+            AppDelegate.shared?.moveAllMainWindows(toDisplayMatching: displayQuery)
+        }) else {
+            return v2DisplayNotFound(displayQuery)
+        }
+        return .ok([
+            "display": result.display,
+            "moved": result.windowIds.map { $0.uuidString }
+        ])
+    }
+
+    private func v2DisplayNotFound(_ requested: String) -> V2CallResult {
+        let names = v2MainSync { AppDelegate.shared?.availableDisplays().map(\.name) } ?? []
+        return .err(
+            code: "not_found",
+            message: "Display not found: \(requested)",
+            data: ["requested": requested, "available": names]
+        )
+    }
+
     // MARK: - V2 Workspace Methods
 
     private func v2WorkspaceSummaryPayload(
@@ -4161,7 +4402,7 @@ class TerminalController {
             "pinned": workspace.isPinned,
             "root_path": v2OrNull(rootPath),
             "project_root_path": v2OrNull(projectRootPath),
-            "branch_summary": v2OrNull(workspace.gitBranch?.branch),
+            "branch_summary": v2OrNull(workspace.sidebarGitBranchesInDisplayOrder().first?.branch),
             "remote_display_target": v2OrNull(workspace.remoteDisplayTarget),
             "remote_connection_state": workspace.remoteConnectionState.rawValue,
             "remote": workspace.remoteStatusPayload(),
@@ -12257,14 +12498,12 @@ class TerminalController {
         v2BrowserSelectorAction(params: params, actionName: "click") { selectorLiteral in
             """
             (() => {
+              \(Self.browserInputHelpers)
               const el = document.querySelector(\(selectorLiteral));
               if (!el) return { ok: false, error: 'not_found' };
+              if (el.disabled) return { ok: false, error: 'disabled' };
               el.scrollIntoView({ block: 'nearest', inline: 'nearest' });
-              if (typeof el.click === 'function') {
-                el.click();
-              } else {
-                el.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, view: window, detail: 1 }));
-              }
+              __cmuxClick(el);
               return { ok: true };
             })()
             """
@@ -12275,10 +12514,15 @@ class TerminalController {
         v2BrowserSelectorAction(params: params, actionName: "dblclick") { selectorLiteral in
             """
             (() => {
+              \(Self.browserInputHelpers)
               const el = document.querySelector(\(selectorLiteral));
               if (!el) return { ok: false, error: 'not_found' };
+              if (el.disabled) return { ok: false, error: 'disabled' };
               el.scrollIntoView({ block: 'nearest', inline: 'nearest' });
-              el.dispatchEvent(new MouseEvent('dblclick', { bubbles: true, cancelable: true, view: window, detail: 2 }));
+              __cmuxClick(el);
+              __cmuxClick(el);
+              const c = __cmuxCenter(el);
+              __cmuxMouse(el, 'dblclick', c, 0, 2);
               return { ok: true };
             })()
             """
@@ -12289,11 +12533,11 @@ class TerminalController {
         v2BrowserSelectorAction(params: params, actionName: "hover") { selectorLiteral in
             """
             (() => {
+              \(Self.browserInputHelpers)
               const el = document.querySelector(\(selectorLiteral));
               if (!el) return { ok: false, error: 'not_found' };
               el.scrollIntoView({ block: 'nearest', inline: 'nearest' });
-              el.dispatchEvent(new MouseEvent('mouseover', { bubbles: true, cancelable: true, view: window }));
-              el.dispatchEvent(new MouseEvent('mouseenter', { bubbles: true, cancelable: true, view: window }));
+              __cmuxHover(el);
               return { ok: true };
             })()
             """
@@ -12335,6 +12579,70 @@ class TerminalController {
         }
     """
 
+    /// Reusable JS that dispatches framework-correct input events. Synthetic (untrusted) events do
+    /// not run native default actions, and many frameworks/libraries listen on the full pointer +
+    /// mouse sequence (not just `click`) or need legacy KeyboardEvent fields (keyCode/which/code).
+    /// These helpers reproduce a real user gesture so React, Vue, Svelte, Angular, Solid, and
+    /// vanilla handlers all fire. Define them once at the top of an injected snippet, then call
+    /// `__cmuxClick(el)`, `__cmuxHover(el)`, `__cmuxSetChecked(el, desired)`, and `__cmuxKey(t,type,key)`.
+    private static let browserInputHelpers = """
+    function __cmuxCenter(el){const r=el.getBoundingClientRect();return {x:Math.floor(r.left+Math.min(r.width,r.width/2)),y:Math.floor(r.top+Math.min(r.height,r.height/2))};}
+    function __cmuxPointer(el,type,c,buttons){try{el.dispatchEvent(new PointerEvent(type,{bubbles:true,cancelable:true,composed:true,view:window,pointerId:1,pointerType:'mouse',isPrimary:true,button:0,buttons:buttons,clientX:c.x,clientY:c.y,screenX:c.x,screenY:c.y}));}catch(e){}}
+    function __cmuxMouse(el,type,c,buttons,detail,bubbles){el.dispatchEvent(new MouseEvent(type,{bubbles:(bubbles===false?false:true),cancelable:true,composed:true,view:window,button:0,buttons:buttons,detail:detail||0,clientX:c.x,clientY:c.y,screenX:c.x,screenY:c.y}));}
+    function __cmuxClick(el){const c=__cmuxCenter(el);
+      __cmuxPointer(el,'pointerover',c,0);__cmuxMouse(el,'mouseover',c,0);
+      __cmuxPointer(el,'pointerenter',c,0);__cmuxMouse(el,'mouseenter',c,0,0,false);
+      __cmuxPointer(el,'pointermove',c,0);__cmuxMouse(el,'mousemove',c,0);
+      __cmuxPointer(el,'pointerdown',c,1);__cmuxMouse(el,'mousedown',c,1,1);
+      if(typeof el.focus==='function'){try{el.focus({preventScroll:true});}catch(e){try{el.focus();}catch(e2){}}}
+      __cmuxPointer(el,'pointerup',c,0);__cmuxMouse(el,'mouseup',c,0,1);
+      if(typeof el.click==='function'){el.click();}else{__cmuxMouse(el,'click',c,0,1);}
+    }
+    function __cmuxHover(el){const c=__cmuxCenter(el);
+      __cmuxPointer(el,'pointerover',c,0);__cmuxMouse(el,'mouseover',c,0);
+      __cmuxPointer(el,'pointerenter',c,0);__cmuxMouse(el,'mouseenter',c,0,0,false);
+      __cmuxPointer(el,'pointermove',c,0);__cmuxMouse(el,'mousemove',c,0);
+    }
+    function __cmuxSetChecked(el,desired){
+      // A click event runs the checkbox/radio activation behavior (it TOGGLES a checkbox / SELECTS a
+      // radio) even when dispatched, and is also what React maps onChange to. So the correct way to
+      // reach a target state is to click only when it differs; that fires input + change + (React)
+      // onChange and leaves checked === desired. Setting el.checked directly does not update React's
+      // controlled state and a separate click would toggle it back.
+      if(el.checked===desired) return;
+      // A radio cannot be turned OFF by clicking (clicking a radio only ever selects it). For that
+      // one case set the property directly via the native setter and notify listeners.
+      if(desired===false && el.type==='radio'){
+        let ns=null;
+        for(let p=Object.getPrototypeOf(el);p;p=Object.getPrototypeOf(p)){
+          const d=Object.getOwnPropertyDescriptor(p,'checked'); if(d&&d.set){ns=d.set;break;}
+        }
+        if(ns){ns.call(el,false);}else{el.checked=false;}
+        el.dispatchEvent(new Event('input',{bubbles:true}));
+        el.dispatchEvent(new Event('change',{bubbles:true}));
+        return;
+      }
+      if(typeof el.click==='function'){el.click();}
+      else {const c=__cmuxCenter(el); __cmuxMouse(el,'click',c,0,1);}
+    }
+    function __cmuxKeyMeta(key){
+      const map={Enter:[13,'Enter'],Tab:[9,'Tab'],Backspace:[8,'Backspace'],Delete:[46,'Delete'],Escape:[27,'Escape'],' ':[32,'Space'],ArrowUp:[38,'ArrowUp'],ArrowDown:[40,'ArrowDown'],ArrowLeft:[37,'ArrowLeft'],ArrowRight:[39,'ArrowRight'],Home:[36,'Home'],End:[35,'End'],PageUp:[33,'PageUp'],PageDown:[34,'PageDown']};
+      if(map[key])return {keyCode:map[key][0],code:map[key][1]};
+      if(key&&key.length===1){const u=key.toUpperCase();
+        if(/[A-Z]/.test(u))return {keyCode:u.charCodeAt(0),code:'Key'+u};
+        if(/[0-9]/.test(u))return {keyCode:u.charCodeAt(0),code:'Digit'+u};
+        return {keyCode:key.charCodeAt(0),code:''};}
+      return {keyCode:0,code:key||''};
+    }
+    function __cmuxKey(target,type,key){
+      const meta=__cmuxKeyMeta(key);
+      const ev=new KeyboardEvent(type,{key:key,code:meta.code,location:0,repeat:false,isComposing:false,bubbles:true,cancelable:true,composed:true,view:window});
+      try{Object.defineProperty(ev,'keyCode',{get(){return meta.keyCode;}});}catch(e){}
+      try{Object.defineProperty(ev,'which',{get(){return meta.keyCode;}});}catch(e){}
+      return target.dispatchEvent(ev);
+    }
+    """
+
     private func v2BrowserType(params: [String: Any]) -> V2CallResult {
         guard let text = v2String(params, "text") else {
             return .err(code: "invalid_params", message: "Missing text", data: nil)
@@ -12349,11 +12657,18 @@ class TerminalController {
               const chunk = String(\(textLiteral));
               if ('value' in el) {
                 const newValue = (el.value || '') + chunk;
+                // beforeinput is cancelable; honor a page that rejects the edit (input masks,
+                // controlled editors) instead of forcing the value and drifting from app state.
+                let proceed = true;
+                try { proceed = el.dispatchEvent(new InputEvent('beforeinput', { bubbles: true, cancelable: true, inputType: 'insertText', data: chunk })); } catch (e) {}
+                if (!proceed) return { ok: false, error: 'input_rejected' };
                 \(Self.reactCompatibleSetValue)
-                el.dispatchEvent(new Event('input', { bubbles: true }));
+                try { el.dispatchEvent(new InputEvent('input', { bubbles: true, inputType: 'insertText', data: chunk })); }
+                catch (e) { el.dispatchEvent(new Event('input', { bubbles: true })); }
                 el.dispatchEvent(new Event('change', { bubbles: true }));
               } else {
                 el.textContent = (el.textContent || '') + chunk;
+                try { el.dispatchEvent(new InputEvent('input', { bubbles: true, inputType: 'insertText', data: chunk })); } catch (e) {}
               }
               return { ok: true };
             })()
@@ -12375,11 +12690,18 @@ class TerminalController {
               if (typeof el.focus === 'function') el.focus();
               const newValue = String(\(textLiteral));
               if ('value' in el) {
+                // beforeinput is cancelable; honor a page that rejects the edit instead of forcing
+                // the value and drifting from app state.
+                let proceed = true;
+                try { proceed = el.dispatchEvent(new InputEvent('beforeinput', { bubbles: true, cancelable: true, inputType: 'insertReplacementText', data: newValue })); } catch (e) {}
+                if (!proceed) return { ok: false, error: 'input_rejected' };
                 \(Self.reactCompatibleSetValue)
-                el.dispatchEvent(new Event('input', { bubbles: true }));
+                try { el.dispatchEvent(new InputEvent('input', { bubbles: true, inputType: 'insertReplacementText', data: newValue })); }
+                catch (e) { el.dispatchEvent(new Event('input', { bubbles: true })); }
                 el.dispatchEvent(new Event('change', { bubbles: true }));
               } else {
                 el.textContent = newValue;
+                try { el.dispatchEvent(new InputEvent('input', { bubbles: true, inputType: 'insertReplacementText', data: newValue })); } catch (e) {}
               }
               return { ok: true };
             })()
@@ -12396,12 +12718,31 @@ class TerminalController {
             let keyLiteral = v2JSONLiteral(key)
             let script = """
             (() => {
+              \(Self.browserInputHelpers)
               const target = document.activeElement || document.body || document.documentElement;
               if (!target) return { ok: false, error: 'not_found' };
               const k = String(\(keyLiteral));
-              target.dispatchEvent(new KeyboardEvent('keydown', { key: k, bubbles: true, cancelable: true }));
-              target.dispatchEvent(new KeyboardEvent('keypress', { key: k, bubbles: true, cancelable: true }));
-              target.dispatchEvent(new KeyboardEvent('keyup', { key: k, bubbles: true, cancelable: true }));
+              const kdNotPrevented = __cmuxKey(target, 'keydown', k);
+              // keypress historically fires for character-producing keys, which includes Enter and
+              // Space; many pages still bind submit/search to keypress for Enter.
+              let kpNotPrevented = true;
+              if (k.length === 1 || k === 'Enter') { kpNotPrevented = __cmuxKey(target, 'keypress', k); }
+              __cmuxKey(target, 'keyup', k);
+              // Synthetic key events do not run WebKit's native "Enter submits the form" default
+              // action. Mirror real-user behavior, but only when neither keydown nor keypress was
+              // canceled (pages cancel Enter to run their own handling) and the native HTML implicit
+              // submission rules would apply: focus is a single-line text-like field AND the form has
+              // a submit control or exactly one such field.
+              if (k === 'Enter' && kdNotPrevented && kpNotPrevented && target && target.tagName === 'INPUT' && target.form) {
+                const submitTypes = ['text','search','email','url','tel','password','number','date','datetime-local','month','week','time'];
+                if (submitTypes.indexOf((target.type || 'text').toLowerCase()) !== -1) {
+                  const hasSubmit = !!target.form.querySelector('input[type=submit],input[type=image],button[type=submit],button:not([type])');
+                  const textFields = target.form.querySelectorAll('input[type=text],input[type=search],input[type=email],input[type=url],input[type=tel],input[type=password],input[type=number],input[type=date],input[type=datetime-local],input[type=month],input[type=week],input[type=time],input:not([type])');
+                  if (hasSubmit || textFields.length === 1) {
+                    try { if (target.form.requestSubmit) { target.form.requestSubmit(); } else { target.form.submit(); } } catch (e) {}
+                  }
+                }
+              }
               return { ok: true };
             })()
             """
@@ -12429,10 +12770,11 @@ class TerminalController {
             let keyLiteral = v2JSONLiteral(key)
             let script = """
             (() => {
+              \(Self.browserInputHelpers)
               const target = document.activeElement || document.body || document.documentElement;
               if (!target) return { ok: false, error: 'not_found' };
               const k = String(\(keyLiteral));
-              target.dispatchEvent(new KeyboardEvent('keydown', { key: k, bubbles: true, cancelable: true }));
+              __cmuxKey(target, 'keydown', k);
               return { ok: true };
             })()
             """
@@ -12460,10 +12802,11 @@ class TerminalController {
             let keyLiteral = v2JSONLiteral(key)
             let script = """
             (() => {
+              \(Self.browserInputHelpers)
               const target = document.activeElement || document.body || document.documentElement;
               if (!target) return { ok: false, error: 'not_found' };
               const k = String(\(keyLiteral));
-              target.dispatchEvent(new KeyboardEvent('keyup', { key: k, bubbles: true, cancelable: true }));
+              __cmuxKey(target, 'keyup', k);
               return { ok: true };
             })()
             """
@@ -12487,12 +12830,15 @@ class TerminalController {
         v2BrowserSelectorAction(params: params, actionName: checked ? "check" : "uncheck") { selectorLiteral in
             """
             (() => {
+              \(Self.browserInputHelpers)
               const el = document.querySelector(\(selectorLiteral));
               if (!el) return { ok: false, error: 'not_found' };
               if (!('checked' in el)) return { ok: false, error: 'not_checkable' };
-              el.checked = \(checked ? "true" : "false");
-              el.dispatchEvent(new Event('input', { bubbles: true }));
-              el.dispatchEvent(new Event('change', { bubbles: true }));
+              if (el.disabled) return { ok: false, error: 'disabled' };
+              el.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+              if (typeof el.focus === 'function') { try { el.focus({ preventScroll: true }); } catch (e) {} }
+              __cmuxSetChecked(el, \(checked ? "true" : "false"));
+              if (el.checked !== \(checked ? "true" : "false")) return { ok: false, error: 'not_changed' };
               return { ok: true };
             })()
             """
@@ -12895,6 +13241,211 @@ class TerminalController {
             result = .ok(payload)
         }
         return result
+    }
+
+    /// Resolves the browser panel a CLI browser action should target, mirroring the
+    /// GUI "act on the focused browser" semantics: an explicit `surface_id` browser wins,
+    /// otherwise the workspace's focused browser, otherwise the sole browser in the workspace.
+    @MainActor
+    private func v2ResolveBrowserPanelForFocusedAction(
+        workspace: Workspace,
+        params: [String: Any]
+    ) -> (panel: BrowserPanel, surfaceId: UUID)? {
+        // An explicit surface is authoritative: if surface_id is SUPPLIED (even as a stale,
+        // unresolvable, or empty handle) it must resolve to a browser in this workspace, else nil.
+        // Only a genuinely ABSENT surface_id falls back to the focused/sole browser. Use
+        // v2HasNonNullParam for presence so an empty string is not mistaken for absent.
+        if v2HasNonNullParam(params, "surface_id") {
+            guard let sid = v2UUID(params, "surface_id"),
+                  let panel = workspace.browserPanel(for: sid) else { return nil }
+            return (panel, sid)
+        }
+        if let focusedId = workspace.focusedPanelId, let panel = workspace.browserPanel(for: focusedId) {
+            return (panel, focusedId)
+        }
+        let browsers: [(UUID, BrowserPanel)] = workspace.panels.values.compactMap { panel in
+            (panel as? BrowserPanel).map { (panel.id, $0) }
+        }
+        if browsers.count == 1 { return (browsers[0].1, browsers[0].0) }
+        return nil
+    }
+
+    /// Builds the standard workspace/surface/window identity payload for a browser action.
+    @MainActor
+    private func v2BrowserActionPayload(
+        workspace: Workspace,
+        surfaceId: UUID,
+        tabManager: TabManager,
+        extra: [String: Any] = [:]
+    ) -> [String: Any] {
+        var payload: [String: Any] = [
+            "workspace_id": workspace.id.uuidString,
+            "workspace_ref": v2Ref(kind: .workspace, uuid: workspace.id),
+            "surface_id": surfaceId.uuidString,
+            "surface_ref": v2Ref(kind: .surface, uuid: surfaceId),
+            "window_id": v2OrNull(v2ResolveWindowId(tabManager: tabManager)?.uuidString),
+            "window_ref": v2Ref(kind: .window, uuid: v2ResolveWindowId(tabManager: tabManager))
+        ]
+        for (key, value) in extra { payload[key] = value }
+        return payload
+    }
+
+    /// Returns an error if any of the given handle params is SUPPLIED but does not resolve.
+    /// v2UUID returns nil for both an absent param and a present-but-unresolvable handle (e.g. a
+    /// stale `surface:2`/`workspace:99` ref), so a supplied target must not be treated as omitted
+    /// and silently fall back to the focused/selected context. Returns nil when all are valid.
+    private func v2RejectUnresolvedHandles(_ params: [String: Any], _ keys: [String]) -> V2CallResult? {
+        // Use v2HasNonNullParam (not v2String) for presence: v2String trims empties to nil, so an
+        // empty/whitespace explicit handle would otherwise look absent and silently fall back.
+        for key in keys where v2HasNonNullParam(params, key) && v2UUID(params, key) == nil {
+            return .err(code: "invalid_params", message: "Unresolved \(key)", data: nil)
+        }
+        return nil
+    }
+
+    private func v2BrowserReactGrabToggle(params: [String: Any]) -> V2CallResult {
+        guard let tabManager = v2ResolveTabManager(params: params) else {
+            return .err(code: "unavailable", message: "TabManager not available", data: nil)
+        }
+        if let err = v2RejectUnresolvedHandles(params, ["surface_id", "return_to", "workspace_id", "window_id"]) {
+            return err
+        }
+        var result: V2CallResult = .err(code: "not_found", message: "No browser surface to toggle React Grab on", data: nil)
+        v2MainSync {
+            guard let ws = v2ResolveWorkspace(params: params, tabManager: tabManager) else { return }
+            let browserSurfaceId = v2UUID(params, "surface_id")
+            let returnSurfaceId = v2UUID(params, "return_to")
+            guard let actedBrowserId = tabManager.toggleReactGrab(
+                in: ws,
+                browserSurfaceId: browserSurfaceId,
+                returnTerminalSurfaceId: returnSurfaceId
+            ) else { return }
+            result = .ok(v2BrowserActionPayload(
+                workspace: ws,
+                surfaceId: actedBrowserId,
+                tabManager: tabManager,
+                extra: ["toggled": true]
+            ))
+        }
+        return result
+    }
+
+    private func v2BrowserDevToolsToggle(params: [String: Any]) -> V2CallResult {
+        guard let tabManager = v2ResolveTabManager(params: params) else {
+            return .err(code: "unavailable", message: "TabManager not available", data: nil)
+        }
+        if let err = v2RejectUnresolvedHandles(params, ["surface_id", "workspace_id", "window_id"]) { return err }
+        var result: V2CallResult = .err(code: "not_found", message: "No browser surface found", data: nil)
+        v2MainSync {
+            guard let ws = v2ResolveWorkspace(params: params, tabManager: tabManager),
+                  let target = v2ResolveBrowserPanelForFocusedAction(workspace: ws, params: params) else { return }
+            let handled = target.panel.toggleDeveloperTools()
+            result = .ok(v2BrowserActionPayload(
+                workspace: ws, surfaceId: target.surfaceId, tabManager: tabManager,
+                extra: ["handled": handled]
+            ))
+        }
+        return result
+    }
+
+    private func v2BrowserConsoleShow(params: [String: Any]) -> V2CallResult {
+        guard let tabManager = v2ResolveTabManager(params: params) else {
+            return .err(code: "unavailable", message: "TabManager not available", data: nil)
+        }
+        if let err = v2RejectUnresolvedHandles(params, ["surface_id", "workspace_id", "window_id"]) { return err }
+        var result: V2CallResult = .err(code: "not_found", message: "No browser surface found", data: nil)
+        v2MainSync {
+            guard let ws = v2ResolveWorkspace(params: params, tabManager: tabManager),
+                  let target = v2ResolveBrowserPanelForFocusedAction(workspace: ws, params: params) else { return }
+            let handled = target.panel.showDeveloperToolsConsole()
+            result = .ok(v2BrowserActionPayload(
+                workspace: ws, surfaceId: target.surfaceId, tabManager: tabManager,
+                extra: ["handled": handled]
+            ))
+        }
+        return result
+    }
+
+    private func v2BrowserFocusModeSet(params: [String: Any]) -> V2CallResult {
+        guard let tabManager = v2ResolveTabManager(params: params) else {
+            return .err(code: "unavailable", message: "TabManager not available", data: nil)
+        }
+        if let err = v2RejectUnresolvedHandles(params, ["surface_id", "workspace_id", "window_id"]) { return err }
+        let mode = (v2String(params, "mode") ?? "toggle").lowercased()
+        let enterAliases: Set<String> = ["enter", "on", "true", "active"]
+        let exitAliases: Set<String> = ["exit", "off", "false", "inactive"]
+        guard mode == "toggle" || enterAliases.contains(mode) || exitAliases.contains(mode) else {
+            return .err(code: "invalid_params", message: "mode must be one of: enter, exit, toggle, on, off", data: nil)
+        }
+        var result: V2CallResult = .err(code: "not_found", message: "No browser surface found", data: nil)
+        v2MainSync {
+            guard let ws = v2ResolveWorkspace(params: params, tabManager: tabManager),
+                  let target = v2ResolveBrowserPanelForFocusedAction(workspace: ws, params: params) else { return }
+            // Entering browser focus mode requires the target browser to be the focused, on-screen
+            // panel (the GUI shortcut already runs from inside it). When the CLI targets a browser
+            // that is not focused, focus it first so "enter" actually engages instead of no-opping.
+            let willActivate = enterAliases.contains(mode)
+                || (mode == "toggle" && !target.panel.isBrowserFocusModeActive)
+            if willActivate, ws.focusedPanelId != target.surfaceId {
+                ws.clearSplitZoom()
+                ws.focusPanel(target.surfaceId)
+            }
+            let handled: Bool
+            if enterAliases.contains(mode) {
+                handled = target.panel.setBrowserFocusModeActive(true, reason: "cli.focusMode", focusWebView: true)
+            } else if exitAliases.contains(mode) {
+                handled = target.panel.setBrowserFocusModeActive(false, reason: "cli.focusMode", focusWebView: false)
+            } else {
+                handled = target.panel.toggleBrowserFocusMode(reason: "cli.focusMode", focusWebView: true)
+            }
+            result = .ok(v2BrowserActionPayload(
+                workspace: ws, surfaceId: target.surfaceId, tabManager: tabManager,
+                extra: ["handled": handled, "mode": mode]
+            ))
+        }
+        return result
+    }
+
+    private func v2BrowserZoomSet(params: [String: Any]) -> V2CallResult {
+        guard let tabManager = v2ResolveTabManager(params: params) else {
+            return .err(code: "unavailable", message: "TabManager not available", data: nil)
+        }
+        if let err = v2RejectUnresolvedHandles(params, ["surface_id", "workspace_id", "window_id"]) { return err }
+        let direction = (v2String(params, "direction") ?? "").lowercased()
+        guard ["in", "out", "reset"].contains(direction) else {
+            return .err(code: "invalid_params", message: "direction must be one of: in, out, reset", data: nil)
+        }
+        var result: V2CallResult = .err(code: "not_found", message: "No browser surface found", data: nil)
+        v2MainSync {
+            guard let ws = v2ResolveWorkspace(params: params, tabManager: tabManager),
+                  let target = v2ResolveBrowserPanelForFocusedAction(workspace: ws, params: params) else { return }
+            let handled: Bool
+            switch direction {
+            case "in": handled = target.panel.zoomIn()
+            case "out": handled = target.panel.zoomOut()
+            default: handled = target.panel.resetZoom()
+            }
+            result = .ok(v2BrowserActionPayload(
+                workspace: ws, surfaceId: target.surfaceId, tabManager: tabManager,
+                extra: ["handled": handled, "direction": direction]
+            ))
+        }
+        return result
+    }
+
+    private func v2BrowserHistoryClear(params: [String: Any]) -> V2CallResult {
+        // Mirrors the View menu's "Clear Browser History", which clears the default profile's
+        // history store (BrowserHistoryStore.shared). Per-profile history stores are NOT touched,
+        // so the response reports scope=default to avoid a false "everything cleared" signal.
+        // Destructive: require explicit deletion intent so a mistyped command or background agent
+        // cannot silently wipe history.
+        guard v2Bool(params, "force") == true else {
+            return .err(code: "invalid_params", message: "browser.history.clear requires force=true", data: nil)
+        }
+        v2MainSync {
+            BrowserHistoryStore.shared.clearHistory()
+        }
+        return .ok(["cleared": true, "scope": "default_profile"])
     }
 
     private func v2BrowserGetURL(params: [String: Any]) -> V2CallResult {
@@ -20700,10 +21251,8 @@ class TerminalController {
             result = v2MobileTerminalMouse(params: request.params)
         case "workspace.action":
             result = v2MobileWorkspaceAction(params: request.params)
-#if DEBUG
         case "dogfood.feedback.submit":
             result = await v2MobileDogfoodFeedbackSubmit(params: request.params)
-#endif
         default:
             result = .err(code: "method_not_found", message: "Unknown mobile method", data: [
                 "method": request.method
@@ -20712,13 +21261,12 @@ class TerminalController {
         return mobileHostResult(result)
     }
 
-#if DEBUG
-    /// Hard caps for the DEV dogfood feedback sink. A debug client is the only
-    /// caller, but a malformed or hostile request must not be able to allocate
-    /// huge buffers, block the Mac UI, or grow the cache without bound. Strings
-    /// are capped by character count before any large allocation; the base64
-    /// blob is rejected outright past its cap (so it is never decoded), and a
-    /// decoded blob past the byte cap is dropped.
+    /// Hard caps for the agent feedback sink. The only intended caller is a
+    /// paired phone, but a malformed or hostile request must not be able to
+    /// allocate huge buffers, block the Mac UI, or grow the cache without bound.
+    /// Strings are capped by character count before any large allocation; the
+    /// base64 blob is rejected outright past its cap (so it is never decoded),
+    /// and a decoded blob past the byte cap is dropped.
     nonisolated private static let dogfoodFeedbackMaxTextChars = 16_384
     nonisolated private static let dogfoodFeedbackMaxTerminalChars = 262_144
     nonisolated private static let dogfoodFeedbackMaxBuildStampChars = 512
@@ -20728,21 +21276,50 @@ class TerminalController {
     /// each write so a retrying client can't grow the cache without bound.
     nonisolated private static let dogfoodFeedbackMaxRetainedBundles = 50
 
-    /// DEV-only dogfood feedback sink (P1 of the Mac↔phone feedback loop).
+    /// The privileged feedback domain. Mirrors `isManaflowEmail` in
+    /// `CmuxMobileShellModel` (the phone's routing source of truth) but is
+    /// replicated here so the macOS app target need not link that mobile
+    /// package just for this one suffix check. Trims + lowercases before
+    /// matching so stored casing/padding does not bypass the gate.
+    nonisolated static func isPrivilegedFeedbackEmail(_ email: String?) -> Bool {
+        guard let email else { return false }
+        let normalized = email.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        return normalized.hasSuffix("@manaflow.ai")
+    }
+
+    /// Privileged agent feedback sink (the Mac↔phone feedback loop).
     ///
     /// Decodes `{ text, terminal_text, build_stamp, diagnostic_blob_base64 }`,
     /// writes a self-contained bundle directory under
     /// `~/.cache/cmux-dogfood-feedback/<ISO8601>_<shortid>/` (a `bundle.json`
     /// manifest plus the decoded `diagnostic.log`), and returns the bundle path.
-    /// Gated behind `#if DEBUG` and the same-account Stack-auth authorization the
-    /// rest of the mobile data plane enforces, so it never exists in a release
-    /// build and never accepts an unauthenticated caller.
+    /// It is protected by the same-account Stack-auth authorization the rest of
+    /// the mobile data plane enforces, so it never accepts an unauthenticated
+    /// caller. The phone only ever routes here for `@manaflow.ai` users on an
+    /// active connection, so this exists in Release builds too (the team can
+    /// dogfood beta/prod), and only a Mac that runs the watcher acts on it.
     ///
     /// Field sizes are capped on the main actor *before* any large allocation,
     /// invalid/oversized base64 is rejected without decoding, and the decode +
     /// filesystem writes run off the main actor so a large payload cannot block
     /// the Mac UI.
     private func v2MobileDogfoodFeedbackSubmit(params: [String: Any]) async -> V2CallResult {
+        // Privilege check at the trust boundary: the mobile data plane only
+        // accepts same-account connections, so the caller is this Mac's own Stack
+        // account. The privileged agent feedback sink is restricted to the
+        // @manaflow.ai domain; a crafted RPC from any other account is rejected
+        // here regardless of which route the phone UI chose. (The phone also
+        // gates the route on `@manaflow.ai` + `dogfood.v1`, but the Mac is the
+        // real boundary.)
+        let localEmail = await MobileHostService.shared.currentAuthenticatedLocalUserEmail()
+        guard Self.isPrivilegedFeedbackEmail(localEmail) else {
+            return .err(
+                code: "unauthorized",
+                message: "Feedback agent sink is restricted to privileged accounts",
+                data: nil
+            )
+        }
+
         // Cheap main-actor validation first: cap each field by character count
         // before allocating anything large, and reject an oversized base64 blob
         // outright so it is never decoded into a giant Data.
@@ -20887,7 +21464,6 @@ class TerminalController {
             try? fileManager.removeItem(at: stale)
         }
     }
-#endif
 
     /// The `workspace.action` sub-actions the mobile data plane may invoke.
     ///
@@ -21855,6 +22431,8 @@ class TerminalController {
         if let browserDownloadObserver {
             NotificationCenter.default.removeObserver(browserDownloadObserver)
         }
-        stop()
+        // No stop() here: the controller is an app-lifetime singleton, so
+        // deinit never runs; listener teardown is applicationWillTerminate's
+        // synchronous stop() on the main actor.
     }
 }

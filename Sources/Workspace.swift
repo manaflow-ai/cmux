@@ -761,11 +761,22 @@ extension Workspace {
                 anchorPanelId: fallbackAnchorPanelId
             )
         }
-        let restorableAgentIndex = RestorableAgentSessionIndex.load()
+        // Prefer the warm cached agent index over a synchronous
+        // `RestorableAgentSessionIndex.load()` (sysctl-per-record + disk, ~350ms-1.8s on
+        // machines with large agent history) so closing a tab does not freeze the main
+        // thread. Fall back to a fresh load only when the cache has not loaded yet (the
+        // brief window after launch before the first refresh completes; the cache is
+        // prewarmed at launch so this is rare). A cached entry at most one refresh stale
+        // is acceptable here because restore prefers the always-fresh in-memory
+        // resumeBinding and only consults this agent snapshot when no binding exists, so
+        // cmux-launched agents reopen correctly regardless of cache freshness.
+        let agentIndex = SharedLiveAgentIndex.shared.currentIndexSchedulingRefresh()
+            ?? RestorableAgentSessionIndex.load()
+        let restorableAgent = agentIndex.snapshot(workspaceId: id, panelId: panelId)
         guard let snapshot = sessionPanelSnapshot(
             panelId: panelId,
             includeScrollback: true,
-            restorableAgent: restorableAgentIndex.snapshot(workspaceId: id, panelId: panelId),
+            restorableAgent: restorableAgent,
             resumeBinding: effectiveSurfaceResumeBinding(
                 panelId: panelId,
                 surfaceResumeBindingIndex: nil
@@ -6426,6 +6437,9 @@ final class WorkspaceRemoteSessionController {
     private var reverseRelayStderrBuffer = ""
     private var reconnectRetryCount = 0
     private var reconnectWorkItem: DispatchWorkItem?
+    private var consecutiveUnreachableProbeCount = 0
+    private var reconnectSuspended = false
+    private var reachabilityProbeGeneration: UInt64 = 0
     private var heartbeatCount: Int = 0
     private var connectionAttemptStartedAt: Date?
     private var pendingPTYBridgeStarts: [UUID: PendingPTYBridgeStart] = [:]
@@ -6813,6 +6827,9 @@ final class WorkspaceRemoteSessionController {
         reconnectWorkItem?.cancel()
         reconnectWorkItem = nil
         reconnectRetryCount = 0
+        consecutiveUnreachableProbeCount = 0
+        reconnectSuspended = false
+        reachabilityProbeGeneration &+= 1
         reverseRelayRestartWorkItem?.cancel()
         reverseRelayRestartWorkItem = nil
         remotePortScanCoalesceWorkItem?.cancel()
@@ -7195,6 +7212,11 @@ final class WorkspaceRemoteSessionController {
             reconnectWorkItem?.cancel()
             reconnectWorkItem = nil
             reconnectRetryCount = 0
+            consecutiveUnreachableProbeCount = 0
+            // A live connection ends any suspension; without this a future
+            // failure would hit the suspended guard and never reschedule.
+            reconnectSuspended = false
+            reachabilityProbeGeneration &+= 1
             guard proxyEndpoint != endpoint else {
                 recordHeartbeatActivityLocked()
                 fulfillPendingPTYBridgeStartsLocked()
@@ -7249,7 +7271,9 @@ final class WorkspaceRemoteSessionController {
     private func scheduleReconnectLocked(baseDelay: TimeInterval) -> RetrySchedule {
         let retryNumber = reconnectRetryCount + 1
         let retryDelay = Self.retryDelay(baseDelay: baseDelay, retry: retryNumber)
-        guard !isStopping else { return RetrySchedule(retry: retryNumber, delay: retryDelay) }
+        guard !isStopping, !reconnectSuspended else {
+            return RetrySchedule(retry: retryNumber, delay: retryDelay)
+        }
         reconnectWorkItem?.cancel()
         reconnectRetryCount = retryNumber
         let workItem = DispatchWorkItem { [weak self] in
@@ -7261,7 +7285,87 @@ final class WorkspaceRemoteSessionController {
         }
         reconnectWorkItem = workItem
         queue.asyncAfter(deadline: .now() + retryDelay, execute: workItem)
+        evaluateReconnectPolicyLocked()
         return RetrySchedule(retry: retryNumber, delay: retryDelay)
+    }
+
+    /// Probe whether the SSH endpoint is reachable at all after a failed
+    /// connection attempt. While the host stays unreachable the retry loop is
+    /// allowed a short streak of attempts (absorbing sleep/wake and network
+    /// handoffs) and then suspends instead of retrying indefinitely
+    /// (https://github.com/manaflow-ai/cmux/issues/5734).
+    private func evaluateReconnectPolicyLocked() {
+        guard configuration.transport == .ssh else { return }
+        reachabilityProbeGeneration &+= 1
+        let generation = reachabilityProbeGeneration
+        WorkspaceRemoteHostReachabilityProbe.probe(
+            destination: configuration.destination,
+            port: configuration.port,
+            identityFile: configuration.identityFile,
+            sshOptions: configuration.sshOptions
+        ) { [weak self] outcome in
+            guard let self else { return }
+            self.queue.async {
+                self.handleReachabilityProbeOutcomeLocked(outcome, generation: generation)
+            }
+        }
+    }
+
+    private func handleReachabilityProbeOutcomeLocked(
+        _ outcome: WorkspaceRemoteHostProbeOutcome,
+        generation: UInt64
+    ) {
+        guard generation == reachabilityProbeGeneration else { return }
+        guard !isStopping, !reconnectSuspended else { return }
+        // The probe only judges a still-pending retry; if the retry resolved
+        // while the probe ran, the connected/stopped paths own the state.
+        guard reconnectWorkItem != nil else { return }
+        let evaluation = WorkspaceRemoteReconnectPolicy.evaluate(
+            outcome: outcome,
+            previousConsecutiveUnreachableProbes: consecutiveUnreachableProbeCount
+        )
+        consecutiveUnreachableProbeCount = evaluation.consecutiveUnreachableProbes
+        debugLog(
+            "remote.session.reachability outcome=\(Self.debugDescription(for: outcome)) " +
+            "streak=\(evaluation.consecutiveUnreachableProbes) " +
+            "decision=\(evaluation.decision == .suspend ? "suspend" : "retry") \(debugConfigSummary())"
+        )
+        if evaluation.decision == .suspend {
+            suspendAutoReconnectLocked()
+        }
+    }
+
+    /// Halt the automatic reconnect loop and surface a suspended state with a
+    /// manual Reconnect affordance. `Workspace.reconnectRemoteConnection()`
+    /// (sidebar button, workspace context menu, `cmux workspace reconnect`,
+    /// and the `workspace.remote.reconnect` socket command) replaces this
+    /// controller, which resets the policy state.
+    private func suspendAutoReconnectLocked() {
+        reconnectWorkItem?.cancel()
+        reconnectWorkItem = nil
+        reconnectSuspended = true
+        debugLog(
+            "remote.session.reconnect.suspended afterUnreachableProbes=\(consecutiveUnreachableProbeCount) " +
+            debugConfigSummary()
+        )
+        let detailFormat = String(
+            localized: "remote.state.suspended.detail",
+            defaultValue: "Can't reach %@ — automatic reconnect is paused. Use Reconnect when your network is back."
+        )
+        let detail = String(format: detailFormat, configuration.displayTarget)
+        publishDaemonStatus(.unavailable, detail: detail)
+        publishState(.suspended, detail: detail)
+    }
+
+    private static func debugDescription(for outcome: WorkspaceRemoteHostProbeOutcome) -> String {
+        switch outcome {
+        case .reachable:
+            return "reachable"
+        case .unreachable(let reason):
+            return "unreachable(\(debugLogSnippet(reason, limit: 80)))"
+        case .indeterminate:
+            return "indeterminate"
+        }
     }
 
     private func publishState(_ state: WorkspaceRemoteConnectionState, detail: String?) {
@@ -9785,20 +9889,15 @@ struct SidebarGitBranchState: Equatable {
     let isDirty: Bool
 }
 
-private struct SidebarPanelObservationState: Equatable {
-    let panelIds: [UUID]
-
-    init(panels: [UUID: any Panel]) {
-        panelIds = panels.keys.sorted { $0.uuidString < $1.uuidString }
-    }
-}
-
-enum WorkspaceRemoteConnectionState: String {
+enum WorkspaceRemoteConnectionState: String, Equatable {
     case disconnected
     case connecting
     case reconnecting
     case connected
     case error
+    /// Automatic reconnect halted because the host stayed unreachable; the
+    /// user reconnects manually (sidebar Reconnect, context menu, CLI).
+    case suspended
 }
 
 enum WorkspaceRemoteDaemonState: String {
@@ -10294,16 +10393,22 @@ struct ClosedBrowserPanelRestoreSnapshot {
     }
 }
 
-/// Process-wide cache of `RestorableAgentSessionIndex.load()` results, used by every
-/// workspace's right-click "Fork Conversation" availability check. The load runs
-/// `sysctl(KERN_PROCARGS2)` per hook record for live-PID filtering, which is too
-/// expensive to do synchronously during SwiftUI menu evaluation, so refreshes run on a
-/// `Task.detached(priority: .utility)` and the cached snapshot is read synchronously
-/// (stale-tolerant: agent `--resume` / `--fork-session` paths read transcripts from disk
-/// and don't care whether the cmux-recorded PID is still alive). `ObservableObject`
-/// conformance lets each workspace forward `objectWillChange` when a refresh lands so
-/// ContentView re-renders and bonsplit's TabBarView picks up the new snapshot on the
-/// same frame.
+/// Process-wide, event-driven cache of `RestorableAgentSessionIndex.load()` results, used
+/// by the right-click "Fork Conversation" availability check and the close-history undo
+/// snapshot. `load()` runs `sysctl(KERN_PROCARGS2)` per hook record plus disk reads
+/// (350ms-1.8s on large agent histories), far too expensive to do synchronously on the
+/// main actor, so reloads run on a `Task.detached(priority: .utility)` and callers read
+/// the cached snapshot synchronously.
+///
+/// Freshness is driven by a watcher on the hook-store directory (`~/.cmuxterm`), which the
+/// `cmux hooks` CLI writes when an agent session starts or updates. The cache reloads
+/// shortly after an actual change (coalesced + rate-limited) and otherwise idles, with a
+/// long fallback TTL for pull access. This replaced a 1s pull TTL that reloaded
+/// near-continuously while the sidebar was visible, because each load outlasts a 1s TTL.
+///
+/// `ObservableObject` conformance lets each workspace forward `objectWillChange` when a
+/// reload lands so ContentView re-renders and bonsplit's TabBarView picks up the new
+/// snapshot on the same frame.
 @MainActor
 final class SharedLiveAgentIndex: ObservableObject {
     static let shared = SharedLiveAgentIndex()
@@ -10311,27 +10416,56 @@ final class SharedLiveAgentIndex: ObservableObject {
     @Published private(set) var index: RestorableAgentSessionIndex?
     private var loadedAt: Date?
     private var refreshTask: Task<Void, Never>?
-    private static let cacheTTL: TimeInterval = 1.0
+    // A hook-store change arrived while a reload was in flight; reload again after.
+    private var changePending = false
+    // Holds a pending rate-limited reload when changes arrive faster than the floor.
+    private var deferredReloadTask: Task<Void, Never>?
+
+    // The directory watcher is the primary freshness mechanism; pull access only needs an
+    // occasional safety refresh.
+    private static let cacheTTL: TimeInterval = 60.0
+    // Floor between event-driven reloads so a chatty agent cannot thrash the ~1.6s loader.
+    private static let minEventReloadInterval: TimeInterval = 2.0
+
+    private var directoryWatchSource: DispatchSourceFileSystemObject?
+    private let watchQueue = DispatchQueue(label: "com.cmuxterm.app.sharedLiveAgentIndexWatch")
 
     private init() {}
 
-    /// Read the cached snapshot for the given (workspaceId, panelId) and kick off a
-    /// background refresh if the cache has aged out. Never blocks; the first call after a
-    /// stale-out returns the previous (possibly nil) value, and the next view re-render
-    /// after the async load completes sees the fresh snapshot.
+    /// Read the cached snapshot for the given (workspaceId, panelId). Never blocks.
     func snapshot(workspaceId: UUID, panelId: UUID) -> SessionRestorableAgentSnapshot? {
         scheduleRefreshIfStale()
         return index?.snapshot(workspaceId: workspaceId, panelId: panelId)
     }
 
+    /// Current cached index. Never blocks. Used by the close-history undo snapshot so
+    /// closing a tab does not pay the synchronous `RestorableAgentSessionIndex.load()`
+    /// cost on the main thread. The directory watcher keeps this current; stale tolerance
+    /// is fine because restore/resume re-reads transcripts from disk and only uses the
+    /// cached snapshot's session identity, not the live PID set.
+    func currentIndexSchedulingRefresh() -> RestorableAgentSessionIndex? {
+        scheduleRefreshIfStale()
+        return index
+    }
+
+    /// Ensure the hook-store watcher is running and refresh if the cache has aged past the
+    /// long fallback TTL. The watcher, not this TTL, is the primary freshness path.
     func scheduleRefreshIfStale() {
-        if refreshTask != nil { return }
-        let now = Date()
-        if let loadedAt, now.timeIntervalSince(loadedAt) < Self.cacheTTL {
+        ensureWatchingHookStoreDirectory()
+        guard refreshTask == nil else { return }
+        if let loadedAt, Date().timeIntervalSince(loadedAt) < Self.cacheTTL {
             return
         }
+        startReload()
+    }
+
+    private func startReload() {
+        deferredReloadTask?.cancel()
+        deferredReloadTask = nil
         refreshTask = Task { @MainActor [weak self] in
             let newIndex = await Task.detached(priority: .utility) {
+                // agent-index-load-ok: off-main cache loader (this IS the sanctioned home
+                // for load(); everything else should read SharedLiveAgentIndex.shared).
                 RestorableAgentSessionIndex.load()
             }.value
             guard let self else { return }
@@ -10340,6 +10474,80 @@ final class SharedLiveAgentIndex: ObservableObject {
             self.index = newIndex
             self.loadedAt = Date()
             self.refreshTask = nil
+            if self.changePending {
+                self.changePending = false
+                self.handleHookStoreChange()
+            }
+        }
+    }
+
+    /// Coalesce and rate-limit reloads triggered by hook-store directory changes.
+    private func handleHookStoreChange() {
+        if refreshTask != nil {
+            changePending = true
+            return
+        }
+        let elapsed = loadedAt.map { Date().timeIntervalSince($0) } ?? .infinity
+        if elapsed >= Self.minEventReloadInterval {
+            startReload()
+        } else if deferredReloadTask == nil {
+            // Bounded, cancellable delay to honor the reload floor (not a sync
+            // substitute): wait the remainder, then re-evaluate.
+            let wait = Self.minEventReloadInterval - elapsed
+            deferredReloadTask = Task { @MainActor [weak self] in
+                try? await Task.sleep(for: .seconds(wait))
+                guard !Task.isCancelled, let self else { return }
+                self.deferredReloadTask = nil
+                self.handleHookStoreChange()
+            }
+        }
+    }
+
+    private func ensureWatchingHookStoreDirectory() {
+        guard directoryWatchSource == nil else { return }
+        let dir = RestorableAgentKind.claude
+            .hookStoreFileURL()
+            .deletingLastPathComponent()
+            .path
+        // Ensure the hook-store directory exists so the watcher installs at launch and
+        // observes the very first hook write. On a fresh/cleaned install it would
+        // otherwise not exist yet, the watcher would not install, and the first agent's
+        // session could stay invisible behind the fallback TTL. This is cmux's own state
+        // directory (the `cmux hooks` CLI writes here too), so creating it empty is benign.
+        try? FileManager.default.createDirectory(atPath: dir, withIntermediateDirectories: true)
+        let fd = open(dir, O_EVTONLY)
+        guard fd >= 0 else {
+            // Directory still unavailable (e.g. permissions); retried on the next
+            // scheduleRefreshIfStale() (sidebar render / close).
+            return
+        }
+        // A directory-level kqueue source reports entry changes (create/delete/rename) but
+        // not in-place data writes to an existing child file. That is sufficient here
+        // because every hook-store write is atomic (write-temp + rename, e.g.
+        // ClaudeHookSessionStore.saveUnlocked uses `.write(options: .atomic)`), so each
+        // update lands as a rename into this directory and fires the source. This matches
+        // cmux's existing CmuxConfig watcher, which relies on the same atomic-write
+        // invariant. The 60s fallback TTL backstops anything a future non-atomic writer
+        // to ~/.cmuxterm might add.
+        let source = DispatchSource.makeFileSystemObjectSource(
+            fileDescriptor: fd,
+            eventMask: [.write, .link, .rename],
+            queue: watchQueue
+        )
+        source.setEventHandler { [weak self] in
+            Task { @MainActor in self?.handleHookStoreChange() }
+        }
+        source.setCancelHandler { Darwin.close(fd) }
+        source.resume()
+        directoryWatchSource = source
+        // The watcher may have just been installed after `~/.cmuxterm` first appeared
+        // (first run / cleaned state); any hook writes before this moment were unobserved
+        // and an earlier empty load may have stamped a "fresh" loadedAt that would
+        // suppress the fallback-TTL reload. Force a catch-up reload now.
+        if refreshTask == nil {
+            startReload()
+        } else {
+            changePending = true
         }
     }
 }
@@ -10652,58 +10860,11 @@ final class Workspace: Identifiable, ObservableObject {
     var invalidatedRestoredAgentFingerprintsByPanelId: [UUID: Int] = [:]
     private var pendingTerminalInputObserversByPanelId: [UUID: [WorkspacePendingTerminalInputObserver]] = [:]
 
-    private func sidebarObservationSignal<Value: Equatable>(
-        _ publisher: Published<Value>.Publisher
-    ) -> AnyPublisher<Void, Never> {
-        publisher
-            .dropFirst()
-            .removeDuplicates()
-            .map { _ in () }
-            .eraseToAnyPublisher()
-    }
-
-    lazy var sidebarImmediateObservationPublisher: AnyPublisher<Void, Never> = {
-        let publishers: [AnyPublisher<Void, Never>] = [
-            sidebarObservationSignal($title),
-            sidebarObservationSignal($customDescription),
-            sidebarObservationSignal($isPinned),
-            sidebarObservationSignal($customColor),
-            sidebarObservationSignal($latestConversationMessage),
-            sidebarObservationSignal($latestSubmittedMessage),
-            sidebarObservationSignal($latestSubmittedAt),
-        ]
-
-        return Publishers.MergeMany(publishers).eraseToAnyPublisher()
-    }()
-
-    lazy var sidebarObservationPublisher: AnyPublisher<Void, Never> = {
-        let publishers: [AnyPublisher<Void, Never>] = [
-            sidebarObservationSignal($currentDirectory),
-            sidebarObservationSignal($extensionSidebarProjectRootPath),
-            $panels
-                .map(SidebarPanelObservationState.init)
-                .dropFirst()
-                .removeDuplicates()
-                .map { _ in () }
-                .eraseToAnyPublisher(),
-            sidebarObservationSignal($panelDirectories),
-            sidebarObservationSignal($statusEntries),
-            sidebarObservationSignal($metadataBlocks),
-            sidebarObservationSignal($logEntries),
-            sidebarObservationSignal($progress),
-            sidebarObservationSignal($gitBranch),
-            sidebarObservationSignal($panelGitBranches),
-            sidebarObservationSignal($pullRequest),
-            sidebarObservationSignal($panelPullRequests),
-            sidebarObservationSignal($remoteConfiguration),
-            sidebarObservationSignal($remoteConnectionState),
-            sidebarObservationSignal($remoteConnectionDetail),
-            sidebarObservationSignal($activeRemoteTerminalSessionCount),
-            sidebarObservationSignal($listeningPorts),
-        ]
-
-        return Publishers.MergeMany(publishers).eraseToAnyPublisher()
-    }()
+    // Sidebar rows cache snapshots, so observation must begin with the current
+    // workspace state. Build state publishers from @Published current values
+    // instead of dropping the first value and repairing timing with a Void event.
+    lazy var sidebarImmediateObservationPublisher: AnyPublisher<Void, Never> = makeSidebarImmediateObservationPublisher()
+    lazy var sidebarObservationPublisher: AnyPublisher<Void, Never> = makeSidebarObservationPublisher()
 
     private func scheduleExtensionSidebarProjectRootRefresh(for directory: String) {
         extensionSidebarProjectRootRefreshID &+= 1
@@ -13930,7 +14091,8 @@ final class Workspace: Identifiable, ObservableObject {
             if remoteConnectionState == .error ||
                 remoteDaemonStatus.state == .error ||
                 remoteConnectionState == .connecting ||
-                remoteConnectionState == .reconnecting {
+                remoteConnectionState == .reconnecting ||
+                remoteConnectionState == .suspended {
                 return
             }
             disconnectRemoteConnection(clearConfiguration: true)
@@ -14154,6 +14316,44 @@ final class Workspace: Identifiable, ObservableObject {
         remoteConnectionState = effectiveState
         remoteConnectionDetail = detail
         applyBrowserRemoteWorkspaceStatusToPanels()
+
+        if state == .suspended {
+            let entryDetail = trimmedDetail ?? ""
+            let entryValue = String(
+                format: String(
+                    localized: "remote.statusEntry.suspended",
+                    defaultValue: "SSH reconnect paused (%@): %@"
+                ),
+                locale: .current,
+                target,
+                entryDetail
+            )
+            statusEntries[Self.remoteErrorStatusKey] = SidebarStatusEntry(
+                key: Self.remoteErrorStatusKey,
+                value: entryValue,
+                icon: "pause.circle",
+                color: nil,
+                timestamp: Date()
+            )
+            let fingerprint = "suspended:\(entryDetail)"
+            if remoteLastErrorFingerprint != fingerprint {
+                remoteLastErrorFingerprint = fingerprint
+                appendSidebarLog(message: entryValue, level: .warning, source: "remote")
+                AppDelegate.shared?.notificationStore?.addNotification(
+                    tabId: id,
+                    surfaceId: nil,
+                    title: String(
+                        localized: "remote.notification.suspendedTitle",
+                        defaultValue: "SSH Reconnect Paused"
+                    ),
+                    subtitle: target,
+                    body: entryDetail,
+                    cooldownKey: remoteNotificationCooldownKey(target: target),
+                    cooldownInterval: Self.remoteNotificationCooldown
+                )
+            }
+            return
+        }
 
         if let trimmedDetail, !trimmedDetail.isEmpty, (state == .error || proxyOnlyError) {
             let statusPrefix = proxyOnlyError ? "Remote proxy unavailable" : "SSH error"

@@ -100,13 +100,12 @@ jobs:
   build-sign-notarize-nightly:
     needs: decide
     if: needs.decide.outputs.should_build == 'true'
-    # Run on the macOS 15 host because zig 0.15.2 can cross-link the universal
-    # (arm64 + x86_64) Ghostty CLI helper only against a pre-26 SDK. The Swift
-    # app is built with the macOS 26 Xcode on this same runner so it adopts
-    # Liquid Glass on Tahoe; the helper is built separately with the older Xcode
-    # and injected before signing (see Select Xcode + the helper build/inject
-    # steps). Building the whole app with Xcode 16 (#5022) shipped a macOS 15 SDK
-    # binary that Tahoe forced into the legacy non-Liquid-Glass appearance.
+    # Run on the macOS 15 host that carries the signing/notarization secrets.
+    # The Swift app still selects an Xcode with the macOS 26 SDK so it adopts
+    # Liquid Glass on Tahoe. The Ghostty CLI helper is built separately and
+    # injected before signing, preferring a pre-26 SDK when the runner image has
+    # one but falling back to the selected app Xcode when the image only ships
+    # Xcode 26. The helper build remains required and lipo-verified below.
     runs-on: ${{ vars.MACOS_RUNNER_15 || 'warp-macos-15-arm64-6x' }}
     timeout-minutes: 30
     steps:
@@ -141,57 +140,7 @@ jobs:
         if: needs.decide.outputs.should_publish != 'true' || steps.current_head_prebuild.outputs.still_current == 'true'
         run: |
           set -euo pipefail
-          # The app must link against the macOS 26 SDK so it adopts Liquid Glass
-          # on Tahoe (the team is pinned to Xcode 26 via .xcode-version). The zig
-          # Ghostty CLI helper must link against a pre-26 SDK because zig 0.15.2
-          # cannot cross-link x86_64 against the macOS 26 SDK. Both Xcodes ship on
-          # the macOS 15 runner image, so pick the newest of each by SDK version.
-          # Compare SDK versions numerically (not lexicographically) so e.g.
-          # 26.10 sorts above 26.3.
-          sdk_rank() {
-            # "26.2" -> 26002 ; "26" -> 26000
-            local v="$1" maj min
-            maj="${v%%.*}"
-            min="${v#*.}"
-            [ "$min" = "$v" ] && min=0
-            min="${min%%.*}"
-            printf '%d' "$(( maj * 1000 + min ))"
-          }
-          APP_DEVELOPER_DIR=""; APP_SDK_VER=""; APP_RANK=-1
-          HELPER_DEVELOPER_DIR=""; HELPER_SDK_VER=""; HELPER_RANK=-1
-          while IFS= read -r app; do
-            [ -n "$app" ] || continue
-            dev="$app/Contents/Developer"
-            [ -d "$dev" ] || continue
-            sdk_ver="$(DEVELOPER_DIR="$dev" xcrun --sdk macosx --show-sdk-version 2>/dev/null || true)"
-            [ -n "$sdk_ver" ] || continue
-            rank="$(sdk_rank "$sdk_ver")"
-            echo "Found $app -> macOS SDK $sdk_ver (rank $rank)"
-            if [ "${sdk_ver%%.*}" -ge 26 ]; then
-              if [ "$rank" -gt "$APP_RANK" ]; then
-                APP_DEVELOPER_DIR="$dev"; APP_SDK_VER="$sdk_ver"; APP_RANK="$rank"
-              fi
-            else
-              if [ "$rank" -gt "$HELPER_RANK" ]; then
-                HELPER_DEVELOPER_DIR="$dev"; HELPER_SDK_VER="$sdk_ver"; HELPER_RANK="$rank"
-              fi
-            fi
-          done < <(find /Applications -maxdepth 1 -name 'Xcode*.app' -print 2>/dev/null)
-
-          if [ -z "$APP_DEVELOPER_DIR" ]; then
-            echo "No Xcode with the macOS 26+ SDK found; the app would ship without Liquid Glass on Tahoe." >&2
-            exit 1
-          fi
-          if [ -z "$HELPER_DEVELOPER_DIR" ]; then
-            echo "No pre-26 Xcode found to cross-link the universal Ghostty CLI helper (zig 0.15.2 cannot link x86_64 against the macOS 26 SDK)." >&2
-            exit 1
-          fi
-
-          echo "App build Xcode (DEVELOPER_DIR): $APP_DEVELOPER_DIR (macOS SDK $APP_SDK_VER)"
-          echo "Helper build Xcode (HELPER_DEVELOPER_DIR): $HELPER_DEVELOPER_DIR (macOS SDK $HELPER_SDK_VER)"
-          DEVELOPER_DIR="$APP_DEVELOPER_DIR" xcodebuild -version
-          echo "DEVELOPER_DIR=$APP_DEVELOPER_DIR" >> "$GITHUB_ENV"
-          echo "HELPER_DEVELOPER_DIR=$HELPER_DEVELOPER_DIR" >> "$GITHUB_ENV"
+          ./scripts/select-nightly-xcodes.sh
 
       - name: Install build deps
         if: needs.decide.outputs.should_publish != 'true' || steps.current_head_prebuild.outputs.still_current == 'true'
@@ -203,7 +152,6 @@ jobs:
       - name: Build universal Ghostty CLI helper
         if: needs.decide.outputs.should_publish != 'true' || steps.current_head_prebuild.outputs.still_current == 'true'
         env:
-          # zig 0.15.2 can cross-link the x86_64 slice only against a pre-26 SDK.
           DEVELOPER_DIR: ${{ env.HELPER_DEVELOPER_DIR }}
         run: |
           set -euo pipefail
@@ -619,7 +567,21 @@ jobs:
           cp appcast.xml appcast-universal.xml
 
       - name: Attest remote daemon nightly assets
+        id: attest-remote-daemon-nightly-assets
         if: needs.decide.outputs.should_publish != 'true' || (steps.current_head_prebuild.outputs.still_current == 'true' && steps.current_head_postbuild.outputs.still_current == 'true')
+        continue-on-error: true
+        uses: actions/attest-build-provenance@a2bbfa25375fe432b6a289bc6b6cd05ecd0c4c32 # v4.1.0
+        with:
+          subject-path: |
+            remote-daemon-assets/cmuxd-remote-darwin-arm64-${{ env.NIGHTLY_BUILD }}
+            remote-daemon-assets/cmuxd-remote-darwin-amd64-${{ env.NIGHTLY_BUILD }}
+            remote-daemon-assets/cmuxd-remote-linux-arm64-${{ env.NIGHTLY_BUILD }}
+            remote-daemon-assets/cmuxd-remote-linux-amd64-${{ env.NIGHTLY_BUILD }}
+            remote-daemon-assets/cmuxd-remote-checksums-${{ env.NIGHTLY_BUILD }}.txt
+            remote-daemon-assets/cmuxd-remote-manifest-${{ env.NIGHTLY_BUILD }}.json
+
+      - name: Retry remote daemon nightly asset attestation
+        if: (needs.decide.outputs.should_publish != 'true' || (steps.current_head_prebuild.outputs.still_current == 'true' && steps.current_head_postbuild.outputs.still_current == 'true')) && steps.attest-remote-daemon-nightly-assets.outcome == 'failure'
         uses: actions/attest-build-provenance@a2bbfa25375fe432b6a289bc6b6cd05ecd0c4c32 # v4.1.0
         with:
           subject-path: |
