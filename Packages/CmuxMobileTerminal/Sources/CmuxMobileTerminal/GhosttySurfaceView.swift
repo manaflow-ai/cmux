@@ -3559,6 +3559,10 @@ extension GhosttySurfaceView: UIGestureRecognizerDelegate {
 /// ``VisibleSnapshotRequest``: the pointer is only dereferenced on the queue
 /// that owns `process_output` and is FIFO-ordered before any queued free —
 /// hence `@unchecked Sendable`.
+///
+/// Deliberately `private` to this file alongside the other snapshot carriers:
+/// it holds the class's raw `ghostty_surface_t`, which must not escape
+/// `GhosttySurfaceView`'s queue/lifetime discipline into the wider module.
 private struct CopyableTextSurfaceHandle: @unchecked Sendable {
     let surface: ghostty_surface_t
 }
