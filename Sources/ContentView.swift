@@ -2641,11 +2641,18 @@ struct ContentView: View {
                   let workspace = tabManager.tabs.first(where: { $0.id == id }) else { return nil }
             let cwd = workspace.currentDirectory.trimmingCharacters(in: .whitespacesAndNewlines)
             guard !cwd.isEmpty else { return nil }
-            return NotesTreeStorage.resolveWorkspaceRoot(
-                projectRoot: NoteSupport.projectRoot(forCwd: cwd),
+            let projectRoot = NoteSupport.projectRoot(forCwd: cwd)
+            // Never hand agents a notes dir whose trust boundary is a
+            // committed symlink (.cmux, .cmux/notes, or the predictable
+            // workspace folder itself) — their writes would follow it out.
+            guard NoteSupport.projectNotesDirectoryIsTrusted(projectRoot: projectRoot) else { return nil }
+            let root = NotesTreeStorage.resolveWorkspaceRoot(
+                projectRoot: projectRoot,
                 cwd: cwd,
                 anchorId: workspace.noteAnchorId
             )
+            guard !NotesTreeStorage.isSymlink(root) else { return nil }
+            return root
         }
     }
 

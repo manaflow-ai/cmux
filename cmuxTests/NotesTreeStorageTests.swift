@@ -457,6 +457,31 @@ import Testing
         #expect(try CmuxNoteStore.list(projectRoot: projectRoot).first { $0.slug == "tracked" } == nil)
     }
 
+    /// The per-workspace folder name is predictable, so a repository can
+    /// commit `.cmux/notes/<workspace-folder>` as a symlink; the tree must
+    /// neither adopt it, create through it, nor read/write its marker.
+    @Test func symlinkedWorkspaceFolderIsRejected() throws {
+        let notesDir = (projectRoot as NSString).appendingPathComponent(".cmux/notes")
+        try fm.createDirectory(atPath: notesDir, withIntermediateDirectories: true)
+        let outside = (projectRoot as NSString).appendingPathComponent("elsewhere-ws")
+        try fm.createDirectory(atPath: outside, withIntermediateDirectories: true)
+        let folderName = NotesTreeStorage.workspaceFolderName(cwd: "/work", anchorId: "anchor-evil2")
+        let linked = (notesDir as NSString).appendingPathComponent(folderName)
+        try fm.createSymbolicLink(atPath: linked, withDestinationPath: outside)
+
+        #expect(throws: NotesTreeStorageError.self) {
+            try NotesTreeStorage.ensureWorkspaceRoot(
+                projectRoot: projectRoot, cwd: "/work", title: "WS", anchorId: "anchor-evil2"
+            )
+        }
+        #expect(NotesTreeStorage.readWorkspaceSessions(inRoot: linked).isEmpty)
+        let wrote = NotesTreeStorage.updateWorkspaceSessions(
+            inRoot: linked, observed: [], live: [], now: 1_700_000_000
+        )
+        #expect(!wrote)
+        #expect((try? fm.contentsOfDirectory(atPath: outside))?.isEmpty == true)
+    }
+
     /// A committed symlink AT `.cmux/notes` (or `.cmux`) re-roots the entire
     /// containment boundary; both the flat store and the tree must refuse to
     /// operate instead of trusting the link target as the notes root.

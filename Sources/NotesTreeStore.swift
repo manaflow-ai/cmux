@@ -200,7 +200,7 @@ final class NotesTreeStore: ObservableObject {
             contentRevision &+= 1
             return
         }
-        guard let root = resolvedRootPath else {
+        guard let root = resolvedRootPath, !NotesTreeStorage.isSymlink(root) else {
             rootNodes = []
             contentRevision &+= 1
             return

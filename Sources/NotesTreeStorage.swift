@@ -239,6 +239,10 @@ enum NotesTreeStorage {
         }
         let normalizedCwd = (cwd as NSString).standardizingPath
         let root = resolveWorkspaceRoot(projectRoot: projectRoot, cwd: normalizedCwd, anchorId: anchorId)
+        // The resolved folder name is predictable, so a repository can commit
+        // it as a symlink; createDirectory would follow it silently and the
+        // marker/note writes below would escape the notes tree.
+        guard !isSymlink(root) else { throw NotesTreeStorageError.untrustedNotesDirectory }
         try FileManager.default.createDirectory(atPath: root, withIntermediateDirectories: true)
         let markerPath = (root as NSString).appendingPathComponent(workspaceMarkerName)
         let existing: NotesWorkspaceMarker? = try? readJSON(fromPath: markerPath)
@@ -254,6 +258,13 @@ enum NotesTreeStorage {
         return root
     }
 
+    /// True when the path's own final component is a symbolic link (lstat
+    /// semantics; ancestors may still contain system links like `/tmp`).
+    static func isSymlink(_ path: String) -> Bool {
+        ((try? FileManager.default.attributesOfItem(atPath: path))?[.type] as? FileAttributeType)
+            == .typeSymbolicLink
+    }
+
     private static func existingWorkspaceFolder(
         inNotesDir notesDir: String, cwd: String, anchorId: String?
     ) -> String? {
@@ -262,6 +273,9 @@ enum NotesTreeStorage {
         var legacyCwdMatch: String?
         for name in names where !name.hasPrefix(".") {
             let dir = (notesDir as NSString).appendingPathComponent(name)
+            // Never adopt a symlinked workspace folder: every marker and note
+            // write below it would land wherever the link points.
+            if isSymlink(dir) { continue }
             var isDir: ObjCBool = false
             guard fm.fileExists(atPath: dir, isDirectory: &isDir), isDir.boolValue else { continue }
             let markerPath = (dir as NSString).appendingPathComponent(workspaceMarkerName)
@@ -287,6 +301,7 @@ enum NotesTreeStorage {
 
     /// The session records accrued for this workspace, recency-sorted.
     static func readWorkspaceSessions(inRoot root: String) -> [NotesWorkspaceSessionRecord] {
+        guard !isSymlink(root) else { return [] }
         let markerPath = (root as NSString).appendingPathComponent(workspaceMarkerName)
         guard let marker: NotesWorkspaceMarker = try? readJSON(fromPath: markerPath) else { return [] }
         return (marker.sessions ?? []).sorted { $0.modified > $1.modified }
@@ -305,6 +320,7 @@ enum NotesTreeStorage {
         now: TimeInterval,
         cap: Int = 50
     ) -> Bool {
+        guard !isSymlink(root) else { return false }
         let markerPath = (root as NSString).appendingPathComponent(workspaceMarkerName)
         guard let marker: NotesWorkspaceMarker = try? readJSON(fromPath: markerPath) else { return false }
         var byKey: [String: NotesWorkspaceSessionRecord] = [:]
