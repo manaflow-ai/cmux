@@ -294,8 +294,8 @@ public final class MobilePushCoordinator {
         await store.dismissNotification(ids: [trimmed])
     }
 
-    /// Handle a silent Mac→iOS dismiss push (the cold lane: the Mac cleared
-    /// notifications while no phone was live-attached). Removes the matching
+    /// Handle a silent Mac→iOS dismiss push (the cold lane, fanned out to every
+    /// registered device after a Mac-side clear). Removes the matching
     /// delivered banners directly through the system-notification seam — the
     /// store may not exist yet on a background wake — while the badge was
     /// already applied by the system from the push's `aps.badge`.

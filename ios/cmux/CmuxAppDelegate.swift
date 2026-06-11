@@ -97,8 +97,9 @@ final class CmuxAppDelegate: NSObject, UIApplicationDelegate, UNUserNotification
     }
 
     /// Silent dismiss push (the cold lane of Mac→iOS dismiss-sync): the Mac
-    /// cleared notifications while no phone was live-attached, so it sent a
-    /// `content-available` push carrying the dismissed ids. The system applies
+    /// cleared notifications and sent every registered device a
+    /// `content-available` push carrying the dismissed ids (idempotent no-op if
+    /// this device already handled the live peer event). The system applies
     /// the authoritative badge from `aps.badge` without waking us; when iOS
     /// grants the background wake — strictly budgeted, a handful per hour at
     /// best — we also remove the matching delivered banners. Anything iOS
