@@ -391,8 +391,14 @@ final class RemoteTmuxSessionMirror {
     /// Used by the split BUTTON / `shouldSplitPane` path, which works at the
     /// bonsplit-pane (tab) level rather than per mirror surface. Returns `true`
     /// if handled (the caller vetoes the local split).
+    ///
+    /// Requires a live `.connected` stream — NOT just `!exited`: while
+    /// reconnecting there is no stdin and `send` silently drops the command,
+    /// so claiming "routed" would report success for a mutation that never
+    /// reached tmux (socket callers translate `true` into an accepted reply).
     func requestSplit(windowPanelId panelId: UUID, vertical: Bool) -> Bool {
-        guard !connection.exited, let windowId = windowId(forPanel: panelId) else { return false }
+        guard connection.connectionState == .connected,
+              let windowId = windowId(forPanel: panelId) else { return false }
         let targetPane = windowMirrorByWindowId[windowId]?.activePaneId
             ?? connection.windowsByID[windowId]?.paneIDsInOrder.first
         guard let targetPane else { return false }

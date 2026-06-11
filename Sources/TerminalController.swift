@@ -7320,17 +7320,30 @@ class TerminalController {
                 }
 
                 let targetIndex = insertionIndexToRight(anchorTabId: anchorTabId, inPane: paneId)
-                guard let newPanel = workspace.newTerminalSurface(inPane: paneId, focus: focus) else {
+                switch workspace.newTerminalSurfaceOutcome(inPane: paneId, focus: focus) {
+                case .created(let newPanel):
+                    _ = workspace.reorderSurface(panelId: newPanel.id, toIndex: targetIndex, focus: focus)
+                    finish([
+                        "created_surface_id": newPanel.id.uuidString,
+                        "created_surface_ref": v2Ref(kind: .surface, uuid: newPanel.id),
+                        "created_tab_id": newPanel.id.uuidString,
+                        "created_tab_ref": v2TabRef(uuid: newPanel.id)
+                    ])
+                case .routedToRemote:
+                    // Routed to the remote tmux mirror as `new-window`; the tab
+                    // arrives via %window-add (tmux appends, so no local reorder).
+                    finish([
+                        "accepted": true,
+                        "routed": "remote-tmux",
+                        "created_surface_id": NSNull(),
+                        "created_surface_ref": NSNull(),
+                        "created_tab_id": NSNull(),
+                        "created_tab_ref": NSNull()
+                    ])
+                case .failed:
                     result = .err(code: "internal_error", message: "Failed to create tab", data: nil)
                     return
                 }
-                _ = workspace.reorderSurface(panelId: newPanel.id, toIndex: targetIndex, focus: focus)
-                finish([
-                    "created_surface_id": newPanel.id.uuidString,
-                    "created_surface_ref": v2Ref(kind: .surface, uuid: newPanel.id),
-                    "created_tab_id": newPanel.id.uuidString,
-                    "created_tab_ref": v2TabRef(uuid: newPanel.id)
-                ])
 
             case "new_browser_right", "new_browser_to_right", "new_browser_tab_to_right":
                 guard let anchorTabId = workspace.surfaceIdFromPanelId(surfaceId),
@@ -7945,6 +7958,73 @@ class TerminalController {
         return (providerID, rendererKind, nil)
     }
 
+    /// v1 socket error for a left/up split directed at a mirror workspace.
+    /// Shared by both v1 split handlers so wording stays consistent.
+    private static let v1MirrorDirectionError =
+        "ERROR: direction left/up is not supported in a remote tmux mirror workspace"
+
+    /// Pre-mutation validation for terminal create/split requests aimed at a
+    /// remote tmux mirror workspace. The routed tmux command (`split-window` /
+    /// `new-window`) cannot honor these options, and reporting "accepted" while
+    /// silently dropping them would lie to the caller — so reject BEFORE
+    /// routing, while the remote session is still unmutated (an error after the
+    /// mutation invites retries that duplicate remote panes). `focus` is
+    /// deliberately NOT validated: the socket default is `focus=false` and tmux
+    /// always focuses the new remote pane, so it stays best-effort.
+    ///
+    /// Returns `nil` when all options are compatible (no rejection needed).
+    private func v2MirrorUnsupportedOptionsError(
+        insertFirst: Bool = false,
+        workingDirectory: String? = nil,
+        initialCommand: String? = nil,
+        tmuxStartCommand: String? = nil,
+        startupEnvironment: [String: String] = [:],
+        initialDividerPosition: Double? = nil,
+        remotePTYSessionID: String? = nil
+    ) -> V2CallResult? {
+        var unsupported: [String] = []
+        if insertFirst { unsupported.append("direction=left/up") }
+        if workingDirectory != nil { unsupported.append("working_directory") }
+        if initialCommand != nil { unsupported.append("initial_command") }
+        if tmuxStartCommand != nil { unsupported.append("tmux_start_command") }
+        if !startupEnvironment.isEmpty { unsupported.append("startup_environment") }
+        if initialDividerPosition != nil { unsupported.append("initial_divider_position") }
+        if remotePTYSessionID != nil { unsupported.append("remote_pty_session_id") }
+        guard !unsupported.isEmpty else { return nil }
+        return .err(
+            code: "invalid_params",
+            message: "Not supported when targeting a remote tmux mirror workspace (the request is routed to tmux and these options cannot be applied): \(unsupported.joined(separator: ", "))",
+            data: ["unsupported": unsupported, "routed_target": "remote-tmux"]
+        )
+    }
+
+    /// Success payload for a terminal split/surface request that was routed to a
+    /// remote tmux mirror: the new pane/tab arrives asynchronously via the
+    /// mirror's topology events (`%layout-change` / `%window-add`), so there is
+    /// no local surface id to return yet. Returning an error here instead would
+    /// make automation retry and duplicate remote panes — the remote session was
+    /// already mutated.
+    private func v2RemoteRoutedCreationResult(
+        tabManager: TabManager,
+        workspace ws: Workspace,
+        panelType: PanelType = .terminal
+    ) -> V2CallResult {
+        let windowId = v2ResolveWindowId(tabManager: tabManager)
+        return .ok([
+            "accepted": true,
+            "routed": "remote-tmux",
+            "window_id": v2OrNull(windowId?.uuidString),
+            "window_ref": v2Ref(kind: .window, uuid: windowId),
+            "workspace_id": ws.id.uuidString,
+            "workspace_ref": v2Ref(kind: .workspace, uuid: ws.id),
+            "pane_id": NSNull(),
+            "pane_ref": NSNull(),
+            "surface_id": NSNull(),
+            "surface_ref": NSNull(),
+            "type": panelType.rawValue
+        ])
+    }
+
     private func v2SurfaceSplit(params: [String: Any]) -> V2CallResult {
         guard let tabManager = v2ResolveTabManager(params: params) else {
             return .err(code: "unavailable", message: "TabManager not available", data: nil)
@@ -7999,6 +8079,20 @@ class TerminalController {
                 return
             }
 
+            if ws.isRemoteTmuxMirror, panelType == .terminal,
+               let err = v2MirrorUnsupportedOptionsError(
+                   insertFirst: direction.insertFirst,
+                   workingDirectory: workingDirectory,
+                   initialCommand: initialCommand,
+                   tmuxStartCommand: tmuxStartCommand,
+                   startupEnvironment: startupEnvironment,
+                   initialDividerPosition: initialDividerPosition,
+                   remotePTYSessionID: remotePTYSessionID
+               ) {
+                result = err
+                return
+            }
+
             v2MaybeFocusWindow(for: tabManager)
             v2MaybeSelectWorkspace(tabManager, workspace: ws)
 
@@ -8017,10 +8111,10 @@ class TerminalController {
                     initialDividerPosition: initialDividerPosition.map { CGFloat($0) }
                 )?.id
             } else {
-                newId = tabManager.newSplit(
-                    tabId: ws.id,
-                    surfaceId: targetSurfaceId,
-                    direction: direction,
+                switch ws.newTerminalSplitOutcome(
+                    from: targetSurfaceId,
+                    orientation: orientation,
+                    insertFirst: insertFirst,
                     focus: focus,
                     workingDirectory: workingDirectory,
                     initialCommand: initialCommand,
@@ -8028,7 +8122,15 @@ class TerminalController {
                     startupEnvironment: startupEnvironment,
                     initialDividerPosition: initialDividerPosition.map { CGFloat($0) },
                     remotePTYSessionID: remotePTYSessionID
-                )
+                ) {
+                case .created(let panel):
+                    newId = panel.id
+                case .routedToRemote:
+                    result = v2RemoteRoutedCreationResult(tabManager: tabManager, workspace: ws, panelType: panelType)
+                    return
+                case .failed:
+                    newId = nil
+                }
             }
 
             if let newId {
@@ -8244,6 +8346,18 @@ class TerminalController {
                 return
             }
 
+            if ws.isRemoteTmuxMirror, panelType == .terminal,
+               let err = v2MirrorUnsupportedOptionsError(
+                   workingDirectory: workingDirectory,
+                   initialCommand: initialCommand,
+                   tmuxStartCommand: tmuxStartCommand,
+                   startupEnvironment: startupEnvironment,
+                   remotePTYSessionID: remotePTYSessionID
+               ) {
+                result = err
+                return
+            }
+
             let newPanelId: UUID?
             let focus = v2FocusAllowed(requested: v2Bool(params, "focus") ?? false)
             if panelType == .browser {
@@ -8262,7 +8376,7 @@ class TerminalController {
                     focus: focus
                 )?.id
             } else {
-                newPanelId = ws.newTerminalSurface(
+                switch ws.newTerminalSurfaceOutcome(
                     inPane: paneId,
                     focus: focus,
                     workingDirectory: workingDirectory,
@@ -8270,7 +8384,15 @@ class TerminalController {
                     tmuxStartCommand: tmuxStartCommand,
                     startupEnvironment: startupEnvironment,
                     remotePTYSessionID: remotePTYSessionID
-                )?.id
+                ) {
+                case .created(let panel):
+                    newPanelId = panel.id
+                case .routedToRemote:
+                    result = v2RemoteRoutedCreationResult(tabManager: tabManager, workspace: ws, panelType: panelType)
+                    return
+                case .failed:
+                    newPanelId = nil
+                }
             }
 
             guard let newPanelId else {
@@ -9651,6 +9773,19 @@ class TerminalController {
                 return
             }
 
+            if ws.isRemoteTmuxMirror, panelType == .terminal,
+               let err = v2MirrorUnsupportedOptionsError(
+                   insertFirst: insertFirst,
+                   workingDirectory: workingDirectory,
+                   initialCommand: initialCommand,
+                   tmuxStartCommand: tmuxStartCommand,
+                   startupEnvironment: startupEnvironment,
+                   initialDividerPosition: initialDividerPosition
+               ) {
+                result = err
+                return
+            }
+
             let newPanelId: UUID?
             let focus = v2FocusAllowed(requested: v2Bool(params, "focus") ?? false)
             if panelType == .browser {
@@ -9664,7 +9799,7 @@ class TerminalController {
                     initialDividerPosition: initialDividerPosition.map { CGFloat($0) }
                 )?.id
             } else {
-                newPanelId = ws.newTerminalSplit(
+                switch ws.newTerminalSplitOutcome(
                     from: sourcePanelId,
                     orientation: orientation,
                     insertFirst: insertFirst,
@@ -9674,7 +9809,15 @@ class TerminalController {
                     tmuxStartCommand: tmuxStartCommand,
                     startupEnvironment: startupEnvironment,
                     initialDividerPosition: initialDividerPosition.map { CGFloat($0) }
-                )?.id
+                ) {
+                case .created(let panel):
+                    newPanelId = panel.id
+                case .routedToRemote:
+                    result = v2RemoteRoutedCreationResult(tabManager: tabManager, workspace: ws, panelType: panelType)
+                    return
+                case .failed:
+                    newPanelId = nil
+                }
             }
 
             guard let newPanelId else {
@@ -17721,8 +17864,24 @@ class TerminalController {
                 return
             }
 
-            if let newPanelId = tabManager.newSplit(tabId: tabId, surfaceId: targetSurface, direction: direction) {
-                result = "OK \(newPanelId.uuidString)"
+            if tab.isRemoteTmuxMirror, direction.insertFirst {
+                // Routed tmux `split-window` cannot insert before the target
+                // pane; reject before mutating the remote session.
+                result = Self.v1MirrorDirectionError
+                return
+            }
+
+            switch tab.newTerminalSplitOutcome(
+                from: targetSurface,
+                orientation: direction.orientation,
+                insertFirst: direction.insertFirst
+            ) {
+            case .created(let panel):
+                result = "OK \(panel.id.uuidString)"
+            case .routedToRemote:
+                result = "OK routed-to-remote-tmux"
+            case .failed:
+                break
             }
         }
         return result
@@ -19468,27 +19627,35 @@ class TerminalController {
                 return
             }
 
-            let newPanelId: UUID?
             if panelType == .browser {
-                newPanelId = tab.newBrowserSplit(
+                if let id = tab.newBrowserSplit(
                     from: focusedPanelId,
                     orientation: orientation,
                     insertFirst: insertFirst,
                     url: url,
                     focus: focus,
                     creationPolicy: .automationPreload
-                )?.id
+                )?.id {
+                    result = "OK \(id.uuidString)"
+                }
+            } else if tab.isRemoteTmuxMirror, insertFirst {
+                // Routed tmux `split-window` cannot insert before the target
+                // pane; reject before mutating the remote session.
+                result = Self.v1MirrorDirectionError
             } else {
-                newPanelId = tab.newTerminalSplit(
+                switch tab.newTerminalSplitOutcome(
                     from: focusedPanelId,
                     orientation: orientation,
                     insertFirst: insertFirst,
                     focus: focus
-                )?.id
-            }
-
-            if let id = newPanelId {
-                result = "OK \(id.uuidString)"
+                ) {
+                case .created(let panel):
+                    result = "OK \(panel.id.uuidString)"
+                case .routedToRemote:
+                    result = "OK routed-to-remote-tmux"
+                case .failed:
+                    break
+                }
             }
         }
         return result
@@ -21224,20 +21391,24 @@ class TerminalController {
                 return
             }
 
-            let newPanelId: UUID?
             if panelType == .browser {
-                newPanelId = tab.newBrowserSurface(
+                if let id = tab.newBrowserSurface(
                     inPane: targetPaneId,
                     url: url,
                     focus: focus,
                     creationPolicy: .automationPreload
-                )?.id
+                )?.id {
+                    result = "OK \(id.uuidString)"
+                }
             } else {
-                newPanelId = tab.newTerminalSurface(inPane: targetPaneId, focus: focus)?.id
-            }
-
-            if let id = newPanelId {
-                result = "OK \(id.uuidString)"
+                switch tab.newTerminalSurfaceOutcome(inPane: targetPaneId, focus: focus) {
+                case .created(let panel):
+                    result = "OK \(panel.id.uuidString)"
+                case .routedToRemote:
+                    result = "OK routed-to-remote-tmux"
+                case .failed:
+                    break
+                }
             }
         }
         return result

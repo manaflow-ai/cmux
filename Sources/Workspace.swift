@@ -14705,6 +14705,81 @@ final class Workspace: Identifiable, ObservableObject {
         initialDividerPosition: CGFloat? = nil,
         remotePTYSessionID: String? = nil
     ) -> TerminalPanel? {
+        return newTerminalSplitOutcome(
+            from: panelId,
+            orientation: orientation,
+            insertFirst: insertFirst,
+            focus: focus,
+            workingDirectory: workingDirectory,
+            initialCommand: initialCommand,
+            tmuxStartCommand: tmuxStartCommand,
+            startupEnvironment: startupEnvironment,
+            initialDividerPosition: initialDividerPosition,
+            remotePTYSessionID: remotePTYSessionID
+        ).panel
+    }
+
+    /// Like ``newTerminalSplit(from:orientation:insertFirst:focus:workingDirectory:initialCommand:tmuxStartCommand:startupEnvironment:initialDividerPosition:remotePTYSessionID:)``
+    /// but distinguishes a split routed to the remote tmux mirror from a genuine
+    /// failure, so socket/CLI handlers can report the routed request as accepted.
+    /// (Reporting an error makes automation retry and duplicate remote panes.)
+    func newTerminalSplitOutcome(
+        from panelId: UUID,
+        orientation: SplitOrientation,
+        insertFirst: Bool = false,
+        focus: Bool = true,
+        workingDirectory: String? = nil,
+        initialCommand: String? = nil,
+        tmuxStartCommand: String? = nil,
+        startupEnvironment: [String: String] = [:],
+        initialDividerPosition: CGFloat? = nil,
+        remotePTYSessionID: String? = nil
+    ) -> TerminalPanelCreationOutcome {
+        // In a remote tmux mirror workspace a split means "split the mirrored
+        // tmux pane": route it to the remote and let the resulting
+        // %layout-change render the new pane (one source of truth). NEVER
+        // create a local split here, even when the route can't be taken
+        // (dead/missing connection) — a local pane would be an orphan the
+        // mirror's rebuild() never reconciles, breaking the 1:1 invariant
+        // (same rule as newTerminalSurfaceOutcome). Routing by the requested
+        // panel — not the pane's selected tab, which is all the bonsplit-level
+        // veto in splitTabBar(_:shouldSplitPane:orientation:) can see — keeps
+        // programmatic splits aimed at a background window-tab precise.
+        if isRemoteTmuxMirror {
+            let routed = AppDelegate.shared?.remoteTmuxController.handleMirrorTabSplitRequested(
+                workspaceId: id,
+                panelId: panelId,
+                vertical: orientation == .vertical
+            ) ?? false
+            return routed ? .routedToRemote : .failed
+        }
+        guard let panel = newTerminalSplitLocal(
+            from: panelId,
+            orientation: orientation,
+            insertFirst: insertFirst,
+            focus: focus,
+            workingDirectory: workingDirectory,
+            initialCommand: initialCommand,
+            tmuxStartCommand: tmuxStartCommand,
+            startupEnvironment: startupEnvironment,
+            initialDividerPosition: initialDividerPosition,
+            remotePTYSessionID: remotePTYSessionID
+        ) else { return .failed }
+        return .created(panel)
+    }
+
+    private func newTerminalSplitLocal(
+        from panelId: UUID,
+        orientation: SplitOrientation,
+        insertFirst: Bool,
+        focus: Bool,
+        workingDirectory: String?,
+        initialCommand: String?,
+        tmuxStartCommand: String?,
+        startupEnvironment: [String: String],
+        initialDividerPosition: CGFloat?,
+        remotePTYSessionID: String?
+    ) -> TerminalPanel? {
 #if DEBUG
         let splitTimingStart = ProcessInfo.processInfo.systemUptime
         let splitTransport = remoteConfiguration?.transport.rawValue ?? "local"
@@ -14906,6 +14981,37 @@ final class Workspace: Identifiable, ObservableObject {
         remotePTYSessionID: String? = nil,
         suppressWorkspaceRemoteStartupCommand: Bool = false
     ) -> TerminalPanel? {
+        return newTerminalSurfaceOutcome(
+            inPane: paneId,
+            focus: focus,
+            workingDirectory: workingDirectory,
+            initialCommand: initialCommand,
+            tmuxStartCommand: tmuxStartCommand,
+            initialInput: initialInput,
+            startupEnvironment: startupEnvironment,
+            autoRefreshMetadata: autoRefreshMetadata,
+            preserveFocusWhenUnfocused: preserveFocusWhenUnfocused,
+            remotePTYSessionID: remotePTYSessionID,
+            suppressWorkspaceRemoteStartupCommand: suppressWorkspaceRemoteStartupCommand
+        ).panel
+    }
+
+    /// Like ``newTerminalSurface(inPane:focus:workingDirectory:initialCommand:tmuxStartCommand:initialInput:startupEnvironment:autoRefreshMetadata:preserveFocusWhenUnfocused:remotePTYSessionID:suppressWorkspaceRemoteStartupCommand:)``
+    /// but distinguishes a request routed to the remote tmux mirror from a genuine
+    /// failure, so socket/CLI handlers can report the routed request as accepted.
+    func newTerminalSurfaceOutcome(
+        inPane paneId: PaneID,
+        focus: Bool? = nil,
+        workingDirectory: String? = nil,
+        initialCommand: String? = nil,
+        tmuxStartCommand: String? = nil,
+        initialInput: String? = nil,
+        startupEnvironment: [String: String] = [:],
+        autoRefreshMetadata: Bool = true,
+        preserveFocusWhenUnfocused: Bool = true,
+        remotePTYSessionID: String? = nil,
+        suppressWorkspaceRemoteStartupCommand: Bool = false
+    ) -> TerminalPanelCreationOutcome {
         // In a remote tmux mirror workspace, a new tab means "create a tmux
         // window" — route it to the remote and let the resulting %window-add
         // notification add the tab (one source of truth). NEVER create a local
@@ -14914,9 +15020,39 @@ final class Workspace: Identifiable, ObservableObject {
         // breaking the 1:1 invariant (symmetric with newBrowserSurface). A dead
         // mirror workspace is torn down separately via handleSessionEndedRemotely.
         if isRemoteTmuxMirror {
-            _ = AppDelegate.shared?.remoteTmuxController.handleMirrorNewTabRequested(workspaceId: id)
-            return nil
+            let routed = AppDelegate.shared?.remoteTmuxController
+                .handleMirrorNewTabRequested(workspaceId: id) ?? false
+            return routed ? .routedToRemote : .failed
         }
+        guard let panel = newTerminalSurfaceLocal(
+            inPane: paneId,
+            focus: focus,
+            workingDirectory: workingDirectory,
+            initialCommand: initialCommand,
+            tmuxStartCommand: tmuxStartCommand,
+            initialInput: initialInput,
+            startupEnvironment: startupEnvironment,
+            autoRefreshMetadata: autoRefreshMetadata,
+            preserveFocusWhenUnfocused: preserveFocusWhenUnfocused,
+            remotePTYSessionID: remotePTYSessionID,
+            suppressWorkspaceRemoteStartupCommand: suppressWorkspaceRemoteStartupCommand
+        ) else { return .failed }
+        return .created(panel)
+    }
+
+    private func newTerminalSurfaceLocal(
+        inPane paneId: PaneID,
+        focus: Bool?,
+        workingDirectory: String?,
+        initialCommand: String?,
+        tmuxStartCommand: String?,
+        initialInput: String?,
+        startupEnvironment: [String: String],
+        autoRefreshMetadata: Bool,
+        preserveFocusWhenUnfocused: Bool,
+        remotePTYSessionID: String?,
+        suppressWorkspaceRemoteStartupCommand: Bool
+    ) -> TerminalPanel? {
         let shouldFocusNewTab = focus ?? (bonsplitController.focusedPaneId == paneId)
         let previousFocusedPanelId = focusedPanelId
         let previousHostedView = focusedTerminalPanel?.hostedView
@@ -19704,14 +19840,19 @@ extension Workspace: BonsplitDelegate {
     func splitTabBar(_ controller: BonsplitController, shouldSplitPane pane: PaneID, orientation: SplitOrientation) -> Bool {
         // In a remote tmux mirror, a split (button or any bonsplit-level split)
         // becomes a tmux `split-window`; the new pane arrives via %layout-change.
-        // Veto the local split when handled. Local workspaces split normally.
-        guard isRemoteTmuxMirror,
-              let tabId = bonsplitController.selectedTab(inPane: pane)?.id,
-              let panelId = panelIdFromSurfaceId(tabId) else { return true }
-        let handled = AppDelegate.shared?.remoteTmuxController.handleMirrorTabSplitRequested(
-            workspaceId: id, panelId: panelId, vertical: orientation == .vertical
-        ) ?? false
-        return !handled
+        // Local workspaces split normally. ALWAYS veto the local split in a
+        // mirror — even when the route can't be taken (tab lookup failed, or
+        // the connection is reconnecting and can't deliver the command) — a
+        // local pane would be an orphan the mirror's rebuild() never
+        // reconciles, breaking the 1:1 invariant.
+        guard isRemoteTmuxMirror else { return true }
+        if let tabId = bonsplitController.selectedTab(inPane: pane)?.id,
+           let panelId = panelIdFromSurfaceId(tabId) {
+            _ = AppDelegate.shared?.remoteTmuxController.handleMirrorTabSplitRequested(
+                workspaceId: id, panelId: panelId, vertical: orientation == .vertical
+            )
+        }
+        return false
     }
 
     func splitTabBar(_ controller: BonsplitController, didReorderTabsInPane pane: PaneID, orderedTabIds: [TabID]) {

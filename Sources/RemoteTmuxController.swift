@@ -283,12 +283,17 @@ final class RemoteTmuxController {
     /// that session. The new tab arrives via the `%window-add` notification (one
     /// source of truth), so the caller must NOT also create a local tab.
     ///
-    /// - Returns: `true` if routed to the remote (caller suppresses the local
-    ///   tab); `false` if there is no live mirror/connection (caller proceeds
-    ///   with normal local behavior).
+    /// Requires a live `.connected` stream — NOT just `!exited`: while
+    /// reconnecting there is no stdin and `send` silently drops the command, so
+    /// returning `true` would let socket callers report an accepted mutation
+    /// that never reached tmux.
+    ///
+    /// - Returns: `true` if routed to the remote; `false` if there is no live
+    ///   mirror/connection (callers must still NOT create a local tab in a
+    ///   mirror workspace — they report failure instead).
     func handleMirrorNewTabRequested(workspaceId: UUID) -> Bool {
         guard let mirror = sessionMirrors.values.first(where: { $0.mirroredWorkspaceId == workspaceId }),
-              !mirror.connection.exited else { return false }
+              mirror.connection.connectionState == .connected else { return false }
         mirror.connection.send("new-window")
         return true
     }

@@ -3915,7 +3915,7 @@ struct CMUXCLI {
             if let sfId { params["surface_id"] = sfId }
             try applyFocusOption(focusOpt, defaultValue: false, to: &params)
             let payload = try client.sendV2(method: "surface.split", params: params)
-            printV2Payload(payload, jsonOutput: jsonOutput, idFormat: idFormat, fallbackText: v2OKSummary(payload, idFormat: idFormat))
+            printV2Payload(payload, jsonOutput: jsonOutput, idFormat: idFormat, fallbackText: v2CreationSummary(payload, idFormat: idFormat))
 
         case "list-panes":
             let workspaceArg = workspaceFromArgsOrEnv(commandArgs, windowOverride: windowId)
@@ -4011,7 +4011,7 @@ struct CMUXCLI {
             if let url { params["url"] = url }
             try applyFocusOption(focusOpt, defaultValue: false, to: &params)
             let payload = try client.sendV2(method: "pane.create", params: params)
-            printV2Payload(payload, jsonOutput: jsonOutput, idFormat: idFormat, fallbackText: v2OKSummary(payload, idFormat: idFormat, kinds: ["surface", "pane", "workspace"]))
+            printV2Payload(payload, jsonOutput: jsonOutput, idFormat: idFormat, fallbackText: v2CreationSummary(payload, idFormat: idFormat, kinds: ["surface", "pane", "workspace"]))
 
         case "new-surface":
             let workspaceArg = workspaceFromArgsOrEnv(commandArgs, windowOverride: windowId)
@@ -4039,7 +4039,7 @@ struct CMUXCLI {
             }
             try applyFocusOption(focusOpt, defaultValue: false, to: &params)
             let payload = try client.sendV2(method: "surface.create", params: params)
-            printV2Payload(payload, jsonOutput: jsonOutput, idFormat: idFormat, fallbackText: v2OKSummary(payload, idFormat: idFormat, kinds: ["surface", "pane", "workspace"]))
+            printV2Payload(payload, jsonOutput: jsonOutput, idFormat: idFormat, fallbackText: v2CreationSummary(payload, idFormat: idFormat, kinds: ["surface", "pane", "workspace"]))
 
         case "surface":
             try runSurfaceCommand(
@@ -10508,7 +10508,7 @@ struct CMUXCLI {
             output,
             jsonOutput: jsonOutput,
             idFormat: idFormat,
-            fallbackText: v2OKSummary(output, idFormat: idFormat, kinds: ["surface", "pane", "workspace"])
+            fallbackText: v2CreationSummary(output, idFormat: idFormat, kinds: ["surface", "pane", "workspace"])
         )
     }
 
@@ -15986,6 +15986,21 @@ struct CMUXCLI {
         return parts.joined(separator: " ")
     }
 
+    /// Summary for surface.split / surface.create responses, which report
+    /// `accepted: true` (and no surface id) when the request was routed to a
+    /// remote tmux mirror — the new pane arrives asynchronously.
+    func v2CreationSummary(_ payload: [String: Any], idFormat: CLIIDFormat, kinds: [String] = ["surface", "workspace"]) -> String {
+        guard (payload["accepted"] as? Bool) == true else {
+            return v2OKSummary(payload, idFormat: idFormat, kinds: kinds)
+        }
+        var parts = ["OK", "accepted"]
+        if let handle = formatHandle(payload, kind: "workspace", idFormat: idFormat) {
+            parts.append(handle)
+        }
+        parts.append("(routed to remote tmux; the new pane arrives asynchronously)")
+        return parts.joined(separator: " ")
+    }
+
     private struct TreeCommandOptions {
         let includeAllWindows: Bool
         let workspaceHandle: String?
@@ -19353,6 +19368,12 @@ struct CMUXCLI {
             }
 
             let created = try socketClient.sendV2(method: "surface.split", params: splitParams)
+            if (created["accepted"] as? Bool) == true {
+                // Routed to a remote tmux mirror: the pane was created on the
+                // remote session and there is no local surface id to attach the
+                // subagent to. Retrying would duplicate the remote pane.
+                throw CLIError(message: "Codex subagent panes are not supported in remote tmux mirror workspaces (surface.split was routed to the remote tmux session)")
+            }
             guard let surfaceId = created["surface_id"] as? String else {
                 throw CLIError(message: "surface.split did not return surface_id")
             }
@@ -21082,6 +21103,21 @@ struct CMUXCLI {
                 splitParams["initial_divider_position"] = dividerPosition
             }
             let created = try client.sendV2(method: "surface.split", params: splitParams)
+            if (created["accepted"] as? Bool) == true {
+                // Routed to a remote tmux mirror: the split was applied to the
+                // remote tmux session and the pane arrives asynchronously.
+                // Option-carrying requests (command, cwd, sizing) are rejected
+                // server-side BEFORE the remote mutation, so reaching here
+                // means a plain split: succeed quietly (tmux split-window
+                // prints nothing without -P) and skip local layout tracking.
+                // Erroring here would invite retries that duplicate the
+                // already-created remote pane. -P is the one thing we cannot
+                // honor after the fact — there is no local surface id yet.
+                if parsed.hasFlag("-P") {
+                    throw CLIError(message: "split-window -P is not supported in a remote tmux mirror workspace (the split was already applied to the remote tmux session; the new pane id is not yet known)")
+                }
+                break
+            }
             guard let surfaceId = created["surface_id"] as? String else {
                 throw CLIError(message: "surface.split did not return surface_id")
             }
