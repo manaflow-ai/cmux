@@ -11702,14 +11702,20 @@ struct CMUXCLI {
             return
         }
 
-        // Caller routing: an explicit --workspace/--window, else the invoking workspace
-        // (CMUX_WORKSPACE_ID). Resolved up front so an INDEXED --surface/--return-to is scoped to
-        // the requested workspace/window rather than the foreground selection.
-        func callerRoutingHandles() throws -> (workspace: String?, window: String?) {
+        // Routing scope for resolving an INDEXED --return-to handle. It must match the scope
+        // optionalSurfaceParams() uses for the (optional) explicit --surface: an explicit surface is
+        // scoped to explicit --workspace/--window only and does NOT inherit the env-default
+        // workspace (it may legitimately target a different workspace than the caller's terminal),
+        // while an implicit surface falls back to the caller's CMUX_WORKSPACE_ID. Scoping a return
+        // handle to the env workspace when the browser lives in another workspace would index the
+        // wrong terminal.
+        func returnToRoutingHandles() throws -> (workspace: String?, window: String?) {
             let (workspaceOpt, _) = parseOption(subArgs, name: "--workspace")
             let (windowOpt, _) = parseOption(subArgs, name: "--window")
             let windowHandle = try windowOpt.flatMap { try normalizeWindowHandle($0, client: client) }
-            let workspaceRaw = workspaceOpt ?? (windowOpt == nil ? ProcessInfo.processInfo.environment["CMUX_WORKSPACE_ID"] : nil)
+            let workspaceRaw = surfaceRaw != nil
+                ? workspaceOpt
+                : (workspaceOpt ?? (windowOpt == nil ? ProcessInfo.processInfo.environment["CMUX_WORKSPACE_ID"] : nil))
             let workspaceHandle = try workspaceRaw.flatMap {
                 try normalizeWorkspaceHandle($0, client: client, windowHandle: windowHandle)
             }
@@ -11769,7 +11775,7 @@ struct CMUXCLI {
                 throw CLIError(message: "Unsupported browser react-grab subcommand: \(verb) (expected: toggle)")
             }
             var params = try optionalSurfaceParams()
-            let routing = try callerRoutingHandles()
+            let routing = try returnToRoutingHandles()
             let (returnOpt, _) = parseOption(subArgs, name: "--return-to")
             if let returnRaw = returnOpt {
                 // A supplied-but-unresolvable --return-to is an error, never a silent
