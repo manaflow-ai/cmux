@@ -12655,6 +12655,12 @@ class TerminalController {
                 catch (e) { el.dispatchEvent(new Event('input', { bubbles: true })); }
                 el.dispatchEvent(new Event('change', { bubbles: true }));
               } else {
+                // contenteditable / non-value elements get the same cancelable beforeinput so a rich
+                // editor (ProseMirror, Slate, etc.) that manages its own model can reject the edit
+                // instead of us silently overwriting textContent and drifting from app state.
+                let proceed = true;
+                try { proceed = el.dispatchEvent(new InputEvent('beforeinput', { bubbles: true, cancelable: true, inputType: 'insertText', data: chunk })); } catch (e) {}
+                if (!proceed) return { ok: false, error: 'input_rejected' };
                 el.textContent = (el.textContent || '') + chunk;
                 try { el.dispatchEvent(new InputEvent('input', { bubbles: true, inputType: 'insertText', data: chunk })); } catch (e) {}
               }
@@ -12688,6 +12694,12 @@ class TerminalController {
                 catch (e) { el.dispatchEvent(new Event('input', { bubbles: true })); }
                 el.dispatchEvent(new Event('change', { bubbles: true }));
               } else {
+                // contenteditable / non-value elements get the same cancelable beforeinput so a rich
+                // editor that manages its own model can reject the edit instead of us silently
+                // overwriting textContent.
+                let proceed = true;
+                try { proceed = el.dispatchEvent(new InputEvent('beforeinput', { bubbles: true, cancelable: true, inputType: 'insertReplacementText', data: newValue })); } catch (e) {}
+                if (!proceed) return { ok: false, error: 'input_rejected' };
                 el.textContent = newValue;
                 try { el.dispatchEvent(new InputEvent('input', { bubbles: true, inputType: 'insertReplacementText', data: newValue })); } catch (e) {}
               }
@@ -13266,13 +13278,14 @@ class TerminalController {
         tabManager: TabManager,
         extra: [String: Any] = [:]
     ) -> [String: Any] {
+        let windowId = v2ResolveWindowId(tabManager: tabManager)
         var payload: [String: Any] = [
             "workspace_id": workspace.id.uuidString,
             "workspace_ref": v2Ref(kind: .workspace, uuid: workspace.id),
             "surface_id": surfaceId.uuidString,
             "surface_ref": v2Ref(kind: .surface, uuid: surfaceId),
-            "window_id": v2OrNull(v2ResolveWindowId(tabManager: tabManager)?.uuidString),
-            "window_ref": v2Ref(kind: .window, uuid: v2ResolveWindowId(tabManager: tabManager))
+            "window_id": v2OrNull(windowId?.uuidString),
+            "window_ref": v2Ref(kind: .window, uuid: windowId)
         ]
         for (key, value) in extra { payload[key] = value }
         return payload
@@ -13372,9 +13385,14 @@ class TerminalController {
             // Entering browser focus mode requires the target browser to be the focused, on-screen
             // panel (the GUI shortcut already runs from inside it). When the CLI targets a browser
             // that is not focused, focus it first so "enter" actually engages instead of no-opping.
+            // Focusing the panel makes the render/visibility/modal-host preconditions of
+            // canEnterBrowserFocusMode true, so those are not a reason to withhold focus. An open
+            // find bar (searchState) is the one precondition focusing does NOT satisfy: entry will
+            // fail, so don't steal foreground focus or collapse a split-zoom for an action that
+            // cannot engage.
             let willActivate = enterAliases.contains(mode)
                 || (mode == "toggle" && !target.panel.isBrowserFocusModeActive)
-            if willActivate, ws.focusedPanelId != target.surfaceId {
+            if willActivate, target.panel.searchState == nil, ws.focusedPanelId != target.surfaceId {
                 ws.clearSplitZoom()
                 ws.focusPanel(target.surfaceId)
             }
