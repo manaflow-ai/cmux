@@ -1899,6 +1899,8 @@ class TerminalController {
             return v2Result(id: id, self.v2MobileTerminalCreate(params: params))
         case "mobile.terminal.input", "terminal.input":
             return v2Result(id: id, self.v2MobileTerminalInput(params: params))
+        case "mobile.terminal.paste", "terminal.paste":
+            return v2Result(id: id, self.v2MobileTerminalPaste(params: params))
         case "mobile.terminal.replay", "terminal.replay":
             return v2Result(id: id, self.v2MobileTerminalReplay(params: params))
         case "mobile.terminal.viewport", "terminal.viewport":
@@ -2157,6 +2159,18 @@ class TerminalController {
             return v2Result(id: id, self.v2BrowserForward(params: params))
         case "browser.reload":
             return v2Result(id: id, self.v2BrowserReload(params: params))
+        case "browser.react_grab.toggle":
+            return v2Result(id: id, self.v2BrowserReactGrabToggle(params: params))
+        case "browser.devtools.toggle":
+            return v2Result(id: id, self.v2BrowserDevToolsToggle(params: params))
+        case "browser.console.show":
+            return v2Result(id: id, self.v2BrowserConsoleShow(params: params))
+        case "browser.focus_mode.set":
+            return v2Result(id: id, self.v2BrowserFocusModeSet(params: params))
+        case "browser.zoom.set":
+            return v2Result(id: id, self.v2BrowserZoomSet(params: params))
+        case "browser.history.clear":
+            return v2Result(id: id, self.v2BrowserHistoryClear(params: params))
         case "browser.url.get":
             return v2Result(id: id, self.v2BrowserGetURL(params: params))
         case "browser.focus_webview":
@@ -2442,10 +2456,12 @@ class TerminalController {
             "mobile.workspace.list",
             "mobile.terminal.create",
             "mobile.terminal.input",
+            "mobile.terminal.paste",
             "mobile.terminal.replay",
             "mobile.terminal.viewport",
             "terminal.create",
             "terminal.input",
+            "terminal.paste",
             "terminal.replay",
             "terminal.viewport",
             "auth.login",
@@ -2576,6 +2592,12 @@ class TerminalController {
             "browser.back",
             "browser.forward",
             "browser.reload",
+            "browser.react_grab.toggle",
+            "browser.devtools.toggle",
+            "browser.console.show",
+            "browser.focus_mode.set",
+            "browser.zoom.set",
+            "browser.history.clear",
             "browser.url.get",
             "browser.snapshot",
             "browser.eval",
@@ -4372,7 +4394,7 @@ class TerminalController {
             "pinned": workspace.isPinned,
             "root_path": v2OrNull(rootPath),
             "project_root_path": v2OrNull(projectRootPath),
-            "branch_summary": v2OrNull(workspace.gitBranch?.branch),
+            "branch_summary": v2OrNull(workspace.sidebarGitBranchesInDisplayOrder().first?.branch),
             "remote_display_target": v2OrNull(workspace.remoteDisplayTarget),
             "remote_connection_state": workspace.remoteConnectionState.rawValue,
             "remote": workspace.remoteStatusPayload(),
@@ -12468,14 +12490,12 @@ class TerminalController {
         v2BrowserSelectorAction(params: params, actionName: "click") { selectorLiteral in
             """
             (() => {
+              \(Self.browserInputHelpers)
               const el = document.querySelector(\(selectorLiteral));
               if (!el) return { ok: false, error: 'not_found' };
+              if (el.disabled) return { ok: false, error: 'disabled' };
               el.scrollIntoView({ block: 'nearest', inline: 'nearest' });
-              if (typeof el.click === 'function') {
-                el.click();
-              } else {
-                el.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, view: window, detail: 1 }));
-              }
+              __cmuxClick(el);
               return { ok: true };
             })()
             """
@@ -12486,10 +12506,15 @@ class TerminalController {
         v2BrowserSelectorAction(params: params, actionName: "dblclick") { selectorLiteral in
             """
             (() => {
+              \(Self.browserInputHelpers)
               const el = document.querySelector(\(selectorLiteral));
               if (!el) return { ok: false, error: 'not_found' };
+              if (el.disabled) return { ok: false, error: 'disabled' };
               el.scrollIntoView({ block: 'nearest', inline: 'nearest' });
-              el.dispatchEvent(new MouseEvent('dblclick', { bubbles: true, cancelable: true, view: window, detail: 2 }));
+              __cmuxClick(el);
+              __cmuxClick(el);
+              const c = __cmuxCenter(el);
+              __cmuxMouse(el, 'dblclick', c, 0, 2);
               return { ok: true };
             })()
             """
@@ -12500,11 +12525,11 @@ class TerminalController {
         v2BrowserSelectorAction(params: params, actionName: "hover") { selectorLiteral in
             """
             (() => {
+              \(Self.browserInputHelpers)
               const el = document.querySelector(\(selectorLiteral));
               if (!el) return { ok: false, error: 'not_found' };
               el.scrollIntoView({ block: 'nearest', inline: 'nearest' });
-              el.dispatchEvent(new MouseEvent('mouseover', { bubbles: true, cancelable: true, view: window }));
-              el.dispatchEvent(new MouseEvent('mouseenter', { bubbles: true, cancelable: true, view: window }));
+              __cmuxHover(el);
               return { ok: true };
             })()
             """
@@ -12546,6 +12571,70 @@ class TerminalController {
         }
     """
 
+    /// Reusable JS that dispatches framework-correct input events. Synthetic (untrusted) events do
+    /// not run native default actions, and many frameworks/libraries listen on the full pointer +
+    /// mouse sequence (not just `click`) or need legacy KeyboardEvent fields (keyCode/which/code).
+    /// These helpers reproduce a real user gesture so React, Vue, Svelte, Angular, Solid, and
+    /// vanilla handlers all fire. Define them once at the top of an injected snippet, then call
+    /// `__cmuxClick(el)`, `__cmuxHover(el)`, `__cmuxSetChecked(el, desired)`, and `__cmuxKey(t,type,key)`.
+    private static let browserInputHelpers = """
+    function __cmuxCenter(el){const r=el.getBoundingClientRect();return {x:Math.floor(r.left+Math.min(r.width,r.width/2)),y:Math.floor(r.top+Math.min(r.height,r.height/2))};}
+    function __cmuxPointer(el,type,c,buttons){try{el.dispatchEvent(new PointerEvent(type,{bubbles:true,cancelable:true,composed:true,view:window,pointerId:1,pointerType:'mouse',isPrimary:true,button:0,buttons:buttons,clientX:c.x,clientY:c.y,screenX:c.x,screenY:c.y}));}catch(e){}}
+    function __cmuxMouse(el,type,c,buttons,detail,bubbles){el.dispatchEvent(new MouseEvent(type,{bubbles:(bubbles===false?false:true),cancelable:true,composed:true,view:window,button:0,buttons:buttons,detail:detail||0,clientX:c.x,clientY:c.y,screenX:c.x,screenY:c.y}));}
+    function __cmuxClick(el){const c=__cmuxCenter(el);
+      __cmuxPointer(el,'pointerover',c,0);__cmuxMouse(el,'mouseover',c,0);
+      __cmuxPointer(el,'pointerenter',c,0);__cmuxMouse(el,'mouseenter',c,0,0,false);
+      __cmuxPointer(el,'pointermove',c,0);__cmuxMouse(el,'mousemove',c,0);
+      __cmuxPointer(el,'pointerdown',c,1);__cmuxMouse(el,'mousedown',c,1,1);
+      if(typeof el.focus==='function'){try{el.focus({preventScroll:true});}catch(e){try{el.focus();}catch(e2){}}}
+      __cmuxPointer(el,'pointerup',c,0);__cmuxMouse(el,'mouseup',c,0,1);
+      if(typeof el.click==='function'){el.click();}else{__cmuxMouse(el,'click',c,0,1);}
+    }
+    function __cmuxHover(el){const c=__cmuxCenter(el);
+      __cmuxPointer(el,'pointerover',c,0);__cmuxMouse(el,'mouseover',c,0);
+      __cmuxPointer(el,'pointerenter',c,0);__cmuxMouse(el,'mouseenter',c,0,0,false);
+      __cmuxPointer(el,'pointermove',c,0);__cmuxMouse(el,'mousemove',c,0);
+    }
+    function __cmuxSetChecked(el,desired){
+      // A click event runs the checkbox/radio activation behavior (it TOGGLES a checkbox / SELECTS a
+      // radio) even when dispatched, and is also what React maps onChange to. So the correct way to
+      // reach a target state is to click only when it differs; that fires input + change + (React)
+      // onChange and leaves checked === desired. Setting el.checked directly does not update React's
+      // controlled state and a separate click would toggle it back.
+      if(el.checked===desired) return;
+      // A radio cannot be turned OFF by clicking (clicking a radio only ever selects it). For that
+      // one case set the property directly via the native setter and notify listeners.
+      if(desired===false && el.type==='radio'){
+        let ns=null;
+        for(let p=Object.getPrototypeOf(el);p;p=Object.getPrototypeOf(p)){
+          const d=Object.getOwnPropertyDescriptor(p,'checked'); if(d&&d.set){ns=d.set;break;}
+        }
+        if(ns){ns.call(el,false);}else{el.checked=false;}
+        el.dispatchEvent(new Event('input',{bubbles:true}));
+        el.dispatchEvent(new Event('change',{bubbles:true}));
+        return;
+      }
+      if(typeof el.click==='function'){el.click();}
+      else {const c=__cmuxCenter(el); __cmuxMouse(el,'click',c,0,1);}
+    }
+    function __cmuxKeyMeta(key){
+      const map={Enter:[13,'Enter'],Tab:[9,'Tab'],Backspace:[8,'Backspace'],Delete:[46,'Delete'],Escape:[27,'Escape'],' ':[32,'Space'],ArrowUp:[38,'ArrowUp'],ArrowDown:[40,'ArrowDown'],ArrowLeft:[37,'ArrowLeft'],ArrowRight:[39,'ArrowRight'],Home:[36,'Home'],End:[35,'End'],PageUp:[33,'PageUp'],PageDown:[34,'PageDown']};
+      if(map[key])return {keyCode:map[key][0],code:map[key][1]};
+      if(key&&key.length===1){const u=key.toUpperCase();
+        if(/[A-Z]/.test(u))return {keyCode:u.charCodeAt(0),code:'Key'+u};
+        if(/[0-9]/.test(u))return {keyCode:u.charCodeAt(0),code:'Digit'+u};
+        return {keyCode:key.charCodeAt(0),code:''};}
+      return {keyCode:0,code:key||''};
+    }
+    function __cmuxKey(target,type,key){
+      const meta=__cmuxKeyMeta(key);
+      const ev=new KeyboardEvent(type,{key:key,code:meta.code,location:0,repeat:false,isComposing:false,bubbles:true,cancelable:true,composed:true,view:window});
+      try{Object.defineProperty(ev,'keyCode',{get(){return meta.keyCode;}});}catch(e){}
+      try{Object.defineProperty(ev,'which',{get(){return meta.keyCode;}});}catch(e){}
+      return target.dispatchEvent(ev);
+    }
+    """
+
     private func v2BrowserType(params: [String: Any]) -> V2CallResult {
         guard let text = v2String(params, "text") else {
             return .err(code: "invalid_params", message: "Missing text", data: nil)
@@ -12560,11 +12649,24 @@ class TerminalController {
               const chunk = String(\(textLiteral));
               if ('value' in el) {
                 const newValue = (el.value || '') + chunk;
+                // beforeinput is cancelable; honor a page that rejects the edit (input masks,
+                // controlled editors) instead of forcing the value and drifting from app state.
+                let proceed = true;
+                try { proceed = el.dispatchEvent(new InputEvent('beforeinput', { bubbles: true, cancelable: true, inputType: 'insertText', data: chunk })); } catch (e) {}
+                if (!proceed) return { ok: false, error: 'input_rejected' };
                 \(Self.reactCompatibleSetValue)
-                el.dispatchEvent(new Event('input', { bubbles: true }));
+                try { el.dispatchEvent(new InputEvent('input', { bubbles: true, inputType: 'insertText', data: chunk })); }
+                catch (e) { el.dispatchEvent(new Event('input', { bubbles: true })); }
                 el.dispatchEvent(new Event('change', { bubbles: true }));
               } else {
+                // contenteditable / non-value elements get the same cancelable beforeinput so a rich
+                // editor (ProseMirror, Slate, etc.) that manages its own model can reject the edit
+                // instead of us silently overwriting textContent and drifting from app state.
+                let proceed = true;
+                try { proceed = el.dispatchEvent(new InputEvent('beforeinput', { bubbles: true, cancelable: true, inputType: 'insertText', data: chunk })); } catch (e) {}
+                if (!proceed) return { ok: false, error: 'input_rejected' };
                 el.textContent = (el.textContent || '') + chunk;
+                try { el.dispatchEvent(new InputEvent('input', { bubbles: true, inputType: 'insertText', data: chunk })); } catch (e) {}
               }
               return { ok: true };
             })()
@@ -12586,11 +12688,24 @@ class TerminalController {
               if (typeof el.focus === 'function') el.focus();
               const newValue = String(\(textLiteral));
               if ('value' in el) {
+                // beforeinput is cancelable; honor a page that rejects the edit instead of forcing
+                // the value and drifting from app state.
+                let proceed = true;
+                try { proceed = el.dispatchEvent(new InputEvent('beforeinput', { bubbles: true, cancelable: true, inputType: 'insertReplacementText', data: newValue })); } catch (e) {}
+                if (!proceed) return { ok: false, error: 'input_rejected' };
                 \(Self.reactCompatibleSetValue)
-                el.dispatchEvent(new Event('input', { bubbles: true }));
+                try { el.dispatchEvent(new InputEvent('input', { bubbles: true, inputType: 'insertReplacementText', data: newValue })); }
+                catch (e) { el.dispatchEvent(new Event('input', { bubbles: true })); }
                 el.dispatchEvent(new Event('change', { bubbles: true }));
               } else {
+                // contenteditable / non-value elements get the same cancelable beforeinput so a rich
+                // editor that manages its own model can reject the edit instead of us silently
+                // overwriting textContent.
+                let proceed = true;
+                try { proceed = el.dispatchEvent(new InputEvent('beforeinput', { bubbles: true, cancelable: true, inputType: 'insertReplacementText', data: newValue })); } catch (e) {}
+                if (!proceed) return { ok: false, error: 'input_rejected' };
                 el.textContent = newValue;
+                try { el.dispatchEvent(new InputEvent('input', { bubbles: true, inputType: 'insertReplacementText', data: newValue })); } catch (e) {}
               }
               return { ok: true };
             })()
@@ -12607,12 +12722,31 @@ class TerminalController {
             let keyLiteral = v2JSONLiteral(key)
             let script = """
             (() => {
+              \(Self.browserInputHelpers)
               const target = document.activeElement || document.body || document.documentElement;
               if (!target) return { ok: false, error: 'not_found' };
               const k = String(\(keyLiteral));
-              target.dispatchEvent(new KeyboardEvent('keydown', { key: k, bubbles: true, cancelable: true }));
-              target.dispatchEvent(new KeyboardEvent('keypress', { key: k, bubbles: true, cancelable: true }));
-              target.dispatchEvent(new KeyboardEvent('keyup', { key: k, bubbles: true, cancelable: true }));
+              const kdNotPrevented = __cmuxKey(target, 'keydown', k);
+              // keypress historically fires for character-producing keys, which includes Enter and
+              // Space; many pages still bind submit/search to keypress for Enter.
+              let kpNotPrevented = true;
+              if (k.length === 1 || k === 'Enter') { kpNotPrevented = __cmuxKey(target, 'keypress', k); }
+              __cmuxKey(target, 'keyup', k);
+              // Synthetic key events do not run WebKit's native "Enter submits the form" default
+              // action. Mirror real-user behavior, but only when neither keydown nor keypress was
+              // canceled (pages cancel Enter to run their own handling) and the native HTML implicit
+              // submission rules would apply: focus is a single-line text-like field AND the form has
+              // a submit control or exactly one such field.
+              if (k === 'Enter' && kdNotPrevented && kpNotPrevented && target && target.tagName === 'INPUT' && target.form) {
+                const submitTypes = ['text','search','email','url','tel','password','number','date','datetime-local','month','week','time'];
+                if (submitTypes.indexOf((target.type || 'text').toLowerCase()) !== -1) {
+                  const hasSubmit = !!target.form.querySelector('input[type=submit],input[type=image],button[type=submit],button:not([type])');
+                  const textFields = target.form.querySelectorAll('input[type=text],input[type=search],input[type=email],input[type=url],input[type=tel],input[type=password],input[type=number],input[type=date],input[type=datetime-local],input[type=month],input[type=week],input[type=time],input:not([type])');
+                  if (hasSubmit || textFields.length === 1) {
+                    try { if (target.form.requestSubmit) { target.form.requestSubmit(); } else { target.form.submit(); } } catch (e) {}
+                  }
+                }
+              }
               return { ok: true };
             })()
             """
@@ -12640,10 +12774,11 @@ class TerminalController {
             let keyLiteral = v2JSONLiteral(key)
             let script = """
             (() => {
+              \(Self.browserInputHelpers)
               const target = document.activeElement || document.body || document.documentElement;
               if (!target) return { ok: false, error: 'not_found' };
               const k = String(\(keyLiteral));
-              target.dispatchEvent(new KeyboardEvent('keydown', { key: k, bubbles: true, cancelable: true }));
+              __cmuxKey(target, 'keydown', k);
               return { ok: true };
             })()
             """
@@ -12671,10 +12806,11 @@ class TerminalController {
             let keyLiteral = v2JSONLiteral(key)
             let script = """
             (() => {
+              \(Self.browserInputHelpers)
               const target = document.activeElement || document.body || document.documentElement;
               if (!target) return { ok: false, error: 'not_found' };
               const k = String(\(keyLiteral));
-              target.dispatchEvent(new KeyboardEvent('keyup', { key: k, bubbles: true, cancelable: true }));
+              __cmuxKey(target, 'keyup', k);
               return { ok: true };
             })()
             """
@@ -12698,12 +12834,15 @@ class TerminalController {
         v2BrowserSelectorAction(params: params, actionName: checked ? "check" : "uncheck") { selectorLiteral in
             """
             (() => {
+              \(Self.browserInputHelpers)
               const el = document.querySelector(\(selectorLiteral));
               if (!el) return { ok: false, error: 'not_found' };
               if (!('checked' in el)) return { ok: false, error: 'not_checkable' };
-              el.checked = \(checked ? "true" : "false");
-              el.dispatchEvent(new Event('input', { bubbles: true }));
-              el.dispatchEvent(new Event('change', { bubbles: true }));
+              if (el.disabled) return { ok: false, error: 'disabled' };
+              el.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+              if (typeof el.focus === 'function') { try { el.focus({ preventScroll: true }); } catch (e) {} }
+              __cmuxSetChecked(el, \(checked ? "true" : "false"));
+              if (el.checked !== \(checked ? "true" : "false")) return { ok: false, error: 'not_changed' };
               return { ok: true };
             })()
             """
@@ -13106,6 +13245,217 @@ class TerminalController {
             result = .ok(payload)
         }
         return result
+    }
+
+    /// Resolves the browser panel a CLI browser action should target, mirroring the
+    /// GUI "act on the focused browser" semantics: an explicit `surface_id` browser wins,
+    /// otherwise the workspace's focused browser, otherwise the sole browser in the workspace.
+    @MainActor
+    private func v2ResolveBrowserPanelForFocusedAction(
+        workspace: Workspace,
+        params: [String: Any]
+    ) -> (panel: BrowserPanel, surfaceId: UUID)? {
+        // An explicit surface is authoritative: if surface_id is SUPPLIED (even as a stale,
+        // unresolvable, or empty handle) it must resolve to a browser in this workspace, else nil.
+        // Only a genuinely ABSENT surface_id falls back to the focused/sole browser. Use
+        // v2HasNonNullParam for presence so an empty string is not mistaken for absent.
+        if v2HasNonNullParam(params, "surface_id") {
+            guard let sid = v2UUID(params, "surface_id"),
+                  let panel = workspace.browserPanel(for: sid) else { return nil }
+            return (panel, sid)
+        }
+        if let focusedId = workspace.focusedPanelId, let panel = workspace.browserPanel(for: focusedId) {
+            return (panel, focusedId)
+        }
+        let browsers: [(UUID, BrowserPanel)] = workspace.panels.values.compactMap { panel in
+            (panel as? BrowserPanel).map { (panel.id, $0) }
+        }
+        if browsers.count == 1 { return (browsers[0].1, browsers[0].0) }
+        return nil
+    }
+
+    /// Builds the standard workspace/surface/window identity payload for a browser action.
+    @MainActor
+    private func v2BrowserActionPayload(
+        workspace: Workspace,
+        surfaceId: UUID,
+        tabManager: TabManager,
+        extra: [String: Any] = [:]
+    ) -> [String: Any] {
+        let windowId = v2ResolveWindowId(tabManager: tabManager)
+        var payload: [String: Any] = [
+            "workspace_id": workspace.id.uuidString,
+            "workspace_ref": v2Ref(kind: .workspace, uuid: workspace.id),
+            "surface_id": surfaceId.uuidString,
+            "surface_ref": v2Ref(kind: .surface, uuid: surfaceId),
+            "window_id": v2OrNull(windowId?.uuidString),
+            "window_ref": v2Ref(kind: .window, uuid: windowId)
+        ]
+        for (key, value) in extra { payload[key] = value }
+        return payload
+    }
+
+    /// Returns an error if any of the given handle params is SUPPLIED but does not resolve.
+    /// v2UUID returns nil for both an absent param and a present-but-unresolvable handle (e.g. a
+    /// stale `surface:2`/`workspace:99` ref), so a supplied target must not be treated as omitted
+    /// and silently fall back to the focused/selected context. Returns nil when all are valid.
+    private func v2RejectUnresolvedHandles(_ params: [String: Any], _ keys: [String]) -> V2CallResult? {
+        // Use v2HasNonNullParam (not v2String) for presence: v2String trims empties to nil, so an
+        // empty/whitespace explicit handle would otherwise look absent and silently fall back.
+        for key in keys where v2HasNonNullParam(params, key) && v2UUID(params, key) == nil {
+            return .err(code: "invalid_params", message: "Unresolved \(key)", data: nil)
+        }
+        return nil
+    }
+
+    private func v2BrowserReactGrabToggle(params: [String: Any]) -> V2CallResult {
+        guard let tabManager = v2ResolveTabManager(params: params) else {
+            return .err(code: "unavailable", message: "TabManager not available", data: nil)
+        }
+        if let err = v2RejectUnresolvedHandles(params, ["surface_id", "return_to", "workspace_id", "window_id"]) {
+            return err
+        }
+        var result: V2CallResult = .err(code: "not_found", message: "No browser surface to toggle React Grab on", data: nil)
+        v2MainSync {
+            guard let ws = v2ResolveWorkspace(params: params, tabManager: tabManager) else { return }
+            let browserSurfaceId = v2UUID(params, "surface_id")
+            let returnSurfaceId = v2UUID(params, "return_to")
+            guard let actedBrowserId = tabManager.toggleReactGrab(
+                in: ws,
+                browserSurfaceId: browserSurfaceId,
+                returnTerminalSurfaceId: returnSurfaceId
+            ) else { return }
+            result = .ok(v2BrowserActionPayload(
+                workspace: ws,
+                surfaceId: actedBrowserId,
+                tabManager: tabManager,
+                extra: ["toggled": true]
+            ))
+        }
+        return result
+    }
+
+    private func v2BrowserDevToolsToggle(params: [String: Any]) -> V2CallResult {
+        guard let tabManager = v2ResolveTabManager(params: params) else {
+            return .err(code: "unavailable", message: "TabManager not available", data: nil)
+        }
+        if let err = v2RejectUnresolvedHandles(params, ["surface_id", "workspace_id", "window_id"]) { return err }
+        var result: V2CallResult = .err(code: "not_found", message: "No browser surface found", data: nil)
+        v2MainSync {
+            guard let ws = v2ResolveWorkspace(params: params, tabManager: tabManager),
+                  let target = v2ResolveBrowserPanelForFocusedAction(workspace: ws, params: params) else { return }
+            let handled = target.panel.toggleDeveloperTools()
+            result = .ok(v2BrowserActionPayload(
+                workspace: ws, surfaceId: target.surfaceId, tabManager: tabManager,
+                extra: ["handled": handled]
+            ))
+        }
+        return result
+    }
+
+    private func v2BrowserConsoleShow(params: [String: Any]) -> V2CallResult {
+        guard let tabManager = v2ResolveTabManager(params: params) else {
+            return .err(code: "unavailable", message: "TabManager not available", data: nil)
+        }
+        if let err = v2RejectUnresolvedHandles(params, ["surface_id", "workspace_id", "window_id"]) { return err }
+        var result: V2CallResult = .err(code: "not_found", message: "No browser surface found", data: nil)
+        v2MainSync {
+            guard let ws = v2ResolveWorkspace(params: params, tabManager: tabManager),
+                  let target = v2ResolveBrowserPanelForFocusedAction(workspace: ws, params: params) else { return }
+            let handled = target.panel.showDeveloperToolsConsole()
+            result = .ok(v2BrowserActionPayload(
+                workspace: ws, surfaceId: target.surfaceId, tabManager: tabManager,
+                extra: ["handled": handled]
+            ))
+        }
+        return result
+    }
+
+    private func v2BrowserFocusModeSet(params: [String: Any]) -> V2CallResult {
+        guard let tabManager = v2ResolveTabManager(params: params) else {
+            return .err(code: "unavailable", message: "TabManager not available", data: nil)
+        }
+        if let err = v2RejectUnresolvedHandles(params, ["surface_id", "workspace_id", "window_id"]) { return err }
+        let mode = (v2String(params, "mode") ?? "toggle").lowercased()
+        let enterAliases: Set<String> = ["enter", "on", "true", "active"]
+        let exitAliases: Set<String> = ["exit", "off", "false", "inactive"]
+        guard mode == "toggle" || enterAliases.contains(mode) || exitAliases.contains(mode) else {
+            return .err(code: "invalid_params", message: "mode must be one of: enter, exit, toggle, on, off", data: nil)
+        }
+        var result: V2CallResult = .err(code: "not_found", message: "No browser surface found", data: nil)
+        v2MainSync {
+            guard let ws = v2ResolveWorkspace(params: params, tabManager: tabManager),
+                  let target = v2ResolveBrowserPanelForFocusedAction(workspace: ws, params: params) else { return }
+            // Entering browser focus mode requires the target browser to be the focused, on-screen
+            // panel (the GUI shortcut already runs from inside it). When the CLI targets a browser
+            // that is not focused, focus it first so "enter" actually engages instead of no-opping.
+            // Focusing the panel makes the render/visibility/modal-host preconditions of
+            // canEnterBrowserFocusMode true, so those are not a reason to withhold focus. An open
+            // find bar (searchState) is the one precondition focusing does NOT satisfy: entry will
+            // fail, so don't steal foreground focus or collapse a split-zoom for an action that
+            // cannot engage.
+            let willActivate = enterAliases.contains(mode)
+                || (mode == "toggle" && !target.panel.isBrowserFocusModeActive)
+            if willActivate, target.panel.searchState == nil, ws.focusedPanelId != target.surfaceId {
+                ws.clearSplitZoom()
+                ws.focusPanel(target.surfaceId)
+            }
+            let handled: Bool
+            if enterAliases.contains(mode) {
+                handled = target.panel.setBrowserFocusModeActive(true, reason: "cli.focusMode", focusWebView: true)
+            } else if exitAliases.contains(mode) {
+                handled = target.panel.setBrowserFocusModeActive(false, reason: "cli.focusMode", focusWebView: false)
+            } else {
+                handled = target.panel.toggleBrowserFocusMode(reason: "cli.focusMode", focusWebView: true)
+            }
+            result = .ok(v2BrowserActionPayload(
+                workspace: ws, surfaceId: target.surfaceId, tabManager: tabManager,
+                extra: ["handled": handled, "mode": mode]
+            ))
+        }
+        return result
+    }
+
+    private func v2BrowserZoomSet(params: [String: Any]) -> V2CallResult {
+        guard let tabManager = v2ResolveTabManager(params: params) else {
+            return .err(code: "unavailable", message: "TabManager not available", data: nil)
+        }
+        if let err = v2RejectUnresolvedHandles(params, ["surface_id", "workspace_id", "window_id"]) { return err }
+        let direction = (v2String(params, "direction") ?? "").lowercased()
+        guard ["in", "out", "reset"].contains(direction) else {
+            return .err(code: "invalid_params", message: "direction must be one of: in, out, reset", data: nil)
+        }
+        var result: V2CallResult = .err(code: "not_found", message: "No browser surface found", data: nil)
+        v2MainSync {
+            guard let ws = v2ResolveWorkspace(params: params, tabManager: tabManager),
+                  let target = v2ResolveBrowserPanelForFocusedAction(workspace: ws, params: params) else { return }
+            let handled: Bool
+            switch direction {
+            case "in": handled = target.panel.zoomIn()
+            case "out": handled = target.panel.zoomOut()
+            default: handled = target.panel.resetZoom()
+            }
+            result = .ok(v2BrowserActionPayload(
+                workspace: ws, surfaceId: target.surfaceId, tabManager: tabManager,
+                extra: ["handled": handled, "direction": direction]
+            ))
+        }
+        return result
+    }
+
+    private func v2BrowserHistoryClear(params: [String: Any]) -> V2CallResult {
+        // Mirrors the View menu's "Clear Browser History", which clears the default profile's
+        // history store (BrowserHistoryStore.shared). Per-profile history stores are NOT touched,
+        // so the response reports scope=default to avoid a false "everything cleared" signal.
+        // Destructive: require explicit deletion intent so a mistyped command or background agent
+        // cannot silently wipe history.
+        guard v2Bool(params, "force") == true else {
+            return .err(code: "invalid_params", message: "browser.history.clear requires force=true", data: nil)
+        }
+        v2MainSync {
+            BrowserHistoryStore.shared.clearHistory()
+        }
+        return .ok(["cleared": true, "scope": "default_profile"])
     }
 
     private func v2BrowserGetURL(params: [String: Any]) -> V2CallResult {
@@ -20899,6 +21249,8 @@ class TerminalController {
             result = v2MobileTerminalCreate(params: request.params)
         case "mobile.terminal.input", "terminal.input":
             result = v2MobileTerminalInput(params: request.params)
+        case "mobile.terminal.paste", "terminal.paste":
+            result = v2MobileTerminalPaste(params: request.params)
         case "mobile.terminal.paste_image", "terminal.paste_image":
             result = v2MobileTerminalPasteImage(params: request.params)
         case "mobile.terminal.replay", "terminal.replay":
@@ -21891,6 +22243,132 @@ class TerminalController {
             "surface_id": terminalPanel.id.uuidString,
             "queued": sendResult == .queued,
         ])
+    }
+
+    /// Deliver a composed block from the mobile composer as a bracketed paste
+    /// followed by an optional single submit key.
+    ///
+    /// This mirrors the macOS TextBox composer dispatch
+    /// (`[.pasteText(payload), .namedKey(submitKey)]`): the text goes through
+    /// `sendText` (libghostty `ghostty_surface_text`), which bracketed-pastes it
+    /// (`ESC[200~ … ESC[201~` when DECSET 2004 is active) so the agent's line
+    /// editor inserts the whole, possibly multi-line, block as literal text
+    /// instead of treating every interior newline as a submit. A single named
+    /// submit key then commits it once. The `terminal.input` path is wrong for a
+    /// composed block: `parsedSocketInputEvents` rewrites every `\n`/`\r` to a
+    /// raw CR, so an N-line message fragments into N submissions.
+    ///
+    /// `submit_key` is optional: `return`/`enter` (default) or `ctrl+enter`
+    /// submit; `none` pastes without submitting so the composer can keep editing.
+    private func v2MobileTerminalPaste(params: [String: Any]) -> V2CallResult {
+        guard let text = v2RawString(params, "text"), !text.isEmpty else {
+            return .err(code: "invalid_params", message: "Missing text", data: nil)
+        }
+        // Resolve the optional submit key up front so an unsupported value fails
+        // before any text is pasted (no partial application). The phone sends
+        // `return` as the default submit *intent*; the agent-aware upgrade to
+        // `ctrl+enter` happens below once the surface (and its agent context) is
+        // resolved, because only the Mac knows which agent is running.
+        let submitKeyRaw = (v2String(params, "submit_key") ?? "return").lowercased()
+        var submitKeyName: String?
+        var submitKeyWasReturnIntent = false
+        switch submitKeyRaw {
+        case "", "return", "enter":
+            submitKeyName = "return"
+            submitKeyWasReturnIntent = true
+        case "ctrl+enter":
+            submitKeyName = "ctrl+enter"
+        case "none":
+            submitKeyName = nil
+        default:
+            return .err(code: "invalid_params", message: "Unsupported submit_key", data: ["submit_key": submitKeyRaw])
+        }
+        if let error = mobileWorkspaceIDValidationError(params: params) {
+            return error
+        }
+        if let error = mobileTerminalAliasValidationError(params: params) {
+            return error
+        }
+        guard let resolved = mobileResolveWorkspaceAndSurface(params: params, requireTerminal: true),
+              let surfaceId = resolved.surfaceId,
+              let terminalPanel = resolved.workspace.terminalPanel(for: surfaceId) else {
+            return .err(code: "not_found", message: "Terminal surface not found", data: nil)
+        }
+
+        // Mirror the macOS TextBox composer's submit-key selection
+        // (`TextBoxInput.dispatchEvents`): Claude Code needs `ctrl+enter` to
+        // submit a multi-line block, while plain `return` submits a newline mid
+        // prompt. The phone cannot know the running agent, so it always asks for
+        // `return`; upgrade that intent here when the surface is Claude and the
+        // composed text spans multiple lines. Explicit `ctrl+enter`/`none` from
+        // the client are honored as-is.
+        if submitKeyWasReturnIntent,
+           text.contains("\n") || text.contains("\r"),
+           TextBoxAgentDetection.isClaudeCode(
+               context: WorkspaceContentView.terminalAgentContext(panel: terminalPanel, workspace: resolved.workspace)
+           ) {
+            submitKeyName = "ctrl+enter"
+        }
+
+        applyMobileViewportReport(params: params, terminalPanel: terminalPanel)
+
+        // Send through the TerminalPanel explicit-input wrappers (not the raw
+        // surface): they run `resumeForExplicitInputIfNeeded()` first, waking a
+        // hibernated agent terminal the same way local typing does, so a mobile
+        // composer submit cannot write into a cold surface.
+        guard terminalPanel.sendText(text) else {
+            return .err(code: "surface_unavailable", message: Self.terminalSurfaceUnavailableMessage, data: ["surface_id": surfaceId.uuidString])
+        }
+
+        // The paste text is already accepted by the surface above. From here on a
+        // submit-key failure must NOT surface as an RPC error: the client treats
+        // any error as "nothing was sent" and keeps the composer draft, so a
+        // retry would paste the whole block a second time. Report partial
+        // success instead — `submitted: false` plus `submit_error` — so the
+        // client clears the draft (the text is sitting at the prompt) and can
+        // tell the user the submit keypress is still needed.
+        var submitted = false
+        var submitError: String?
+        if let submitKeyName {
+            let keyResult = terminalPanel.sendNamedKeyResult(submitKeyName)
+            if keyResult.accepted {
+                submitted = true
+            } else {
+                switch keyResult {
+                case .inputQueueFull:
+                    submitError = "input_queue_full"
+                case .surfaceUnavailable:
+                    submitError = "surface_unavailable"
+                case .processExited:
+                    submitError = "process_exited"
+                case .unknownKey, .sent, .queued:
+                    // .sent / .queued are accepted results and unreachable in this
+                    // else-branch; grouped here only to keep the switch exhaustive.
+                    submitError = "unknown_key"
+                }
+            }
+        }
+
+        terminalPanel.surface.forceRefresh(reason: "mobileHost.terminalPaste")
+
+        #if DEBUG
+        cmuxDebugLog(
+            "mobile.terminal.paste workspace=\(resolved.workspace.id.uuidString.prefix(8)) surface=\(surfaceId.uuidString.prefix(8)) chars=\(text.count) submitted=\(submitted ? 1 : 0)"
+        )
+        #endif
+
+        var payload: [String: Any] = [
+            "workspace_id": resolved.workspace.id.uuidString,
+            "surface_id": terminalPanel.id.uuidString,
+            "submitted": submitted,
+        ]
+        if let submitError {
+            payload["submit_error"] = submitError
+        }
+        if let seq = MobileTerminalByteTee.shared.currentSequence(surfaceID: surfaceId) {
+            payload["terminal_seq"] = seq
+        }
+        return .ok(payload)
     }
 
     private func applyMobileViewportReport(
