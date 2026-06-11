@@ -315,7 +315,15 @@ struct SessionEntry: Identifiable, Hashable {
     private var resumeCommandWithoutWorkingDirectory: String? {
         switch specifics {
         case let .claude(model, permissionMode, configDirectoryForResume):
-            var parts = ["claude --resume \(sessionId)"]
+            // Route through the wrapper shim token so a manually-resumed claude session
+            // re-injects cmux hooks even when the command runs in a shell where the
+            // integration's PATH shim / `claude()` function are not active (e.g. the
+            // `$SHELL -lic` restore launcher). The token is POSIX-only and this command
+            // is typed into — and copy-pasted into — the user's own shell (fish/csh
+            // included), so the rendered command is wrapped in `/bin/sh -c '…'` to parse
+            // everywhere; the `cd` guard stays outside in `resumeCommandWithCwd`.
+            // https://github.com/manaflow-ai/cmux/issues/5639
+            var parts = ["\(AgentResumeArgv.claudeWrapperShellExecutableToken) --resume \(sessionId)"]
             if let model, !model.isEmpty {
                 parts.append("--model \(Self.shellQuote(model))")
             }
@@ -325,7 +333,9 @@ struct SessionEntry: Identifiable, Hashable {
             let environment = configDirectoryForResume.map {
                 ["CLAUDE_CONFIG_DIR": $0, "CMUX_PRESERVE_CLAUDE_AUTH_SELECTION_ENV": "1", "CMUX_PRESERVE_CLAUDE_AUTH_SELECTION_ENV_KEYS": "CLAUDE_CONFIG_DIR"]
             } ?? [:]
-            return Self.withShellEnvironment(environment, command: parts.joined(separator: " "))
+            return AgentResumeArgv.portableClaudeResumeShellCommand(
+                posixCommand: Self.withShellEnvironment(environment, command: parts.joined(separator: " "))
+            )
         case let .codex(model, approval, sandbox, effort):
             var parts = ["codex resume \(sessionId)"]
             if let model, !model.isEmpty {

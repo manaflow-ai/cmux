@@ -1,6 +1,7 @@
 import Foundation
 import CMUXAgentLaunch
 import CmuxFoundation
+import CmuxSettings
 import CmuxSocketControl
 import CoreFoundation
 import CryptoKit
@@ -2887,6 +2888,11 @@ struct CMUXCLI {
 
     private static func shouldFocusWindowBeforeDispatch(command: String, commandArgs: [String]) -> Bool {
         let normalizedCommand = command.lowercased()
+        // `window` repositions a window (e.g. `window display`); it must not
+        // pre-focus, or it would steal macOS focus before moving the window.
+        if normalizedCommand == "window" {
+            return false
+        }
         if normalizedCommand == "surface-resume" {
             return false
         }
@@ -3006,6 +3012,17 @@ struct CMUXCLI {
                     environment: processEnv
                 ),
                 explicitPassword: socketPasswordArg,
+                jsonOutput: jsonOutput
+            )
+            return
+        }
+
+        // `window default-display` only reads/writes the shared dev setting file;
+        // it must work with no cmux running, so handle it before socket resolution.
+        if command == "window",
+           commandArgs.first?.lowercased() == "default-display" {
+            try runWindowDefaultDisplayCommand(
+                commandArgs: Array(commandArgs.dropFirst()),
                 jsonOutput: jsonOutput
             )
             return
@@ -3798,6 +3815,15 @@ struct CMUXCLI {
 
         case "workspace-group":
             try runWorkspaceGroup(
+                commandArgs: commandArgs,
+                client: client,
+                jsonOutput: jsonOutput,
+                idFormat: idFormat,
+                windowOverride: windowId
+            )
+
+        case "window":
+            try runWindowNamespace(
                 commandArgs: commandArgs,
                 client: client,
                 jsonOutput: jsonOutput,
@@ -7112,6 +7138,149 @@ struct CMUXCLI {
     /// same v2 socket methods that legacy verbs use (`new-workspace`,
     /// `list-workspaces`, etc.) so behavior matches. Legacy verbs keep working
     /// unchanged for backwards compatibility.
+    /// `cmux window default-display [<name>|--clear]` — read/write the shared,
+    /// cross-tag default display that DEBUG cmux builds open new windows on.
+    ///
+    /// Persisted through ``CmuxSettings/JSONConfigStore`` in the shared
+    /// `cmux.json` under `app.devWindowDisplay`, so it applies to every tagged
+    /// dev build regardless of bundle id. No running app required: the value is
+    /// read/written directly on disk via the store on this no-socket early path.
+    private func runWindowDefaultDisplayCommand(commandArgs: [String], jsonOutput: Bool) throws {
+        let store = JSONConfigStore(fileURL: CmuxConfigLocation().userConfigFile)
+        let key = SettingCatalog().app.devWindowDisplay
+
+        // Bridge the actor-backed store to this synchronous CLI: run the async
+        // store call on the cooperative pool and block this thread until it
+        // signals. The semaphore establishes the happens-before that makes the
+        // `nonisolated(unsafe)` result hand-off race-free.
+        func runBlocking<T: Sendable>(_ work: @escaping @Sendable () async throws -> T) throws -> T {
+            let semaphore = DispatchSemaphore(value: 0)
+            nonisolated(unsafe) var output: Result<T, Error>!
+            Task {
+                do { output = .success(try await work()) }
+                catch { output = .failure(error) }
+                semaphore.signal()
+            }
+            semaphore.wait()
+            return try output.get()
+        }
+
+        func currentValue() throws -> String? {
+            let trimmed = try runBlocking { await store.value(for: key) }
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            return trimmed.isEmpty ? nil : trimmed
+        }
+
+        if commandArgs.contains("--clear") {
+            try runBlocking { try await store.reset(key) }
+            if jsonOutput { print(jsonString(["default_display": NSNull()])) }
+            else { print("Cleared dev window display default.") }
+            return
+        }
+
+        let positional = commandArgs.filter { !$0.hasPrefix("-") }
+        if let raw = positional.first {
+            let name = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !name.isEmpty else {
+                throw CLIError(message: "window default-display requires a display name, or --clear")
+            }
+            try runBlocking { try await store.set(name, for: key) }
+            if jsonOutput { print(jsonString(["default_display": name])) }
+            else { print("Dev builds will open on \"\(name)\" (DEBUG builds, applied at window creation).") }
+            return
+        }
+
+        let current = try currentValue()
+        if jsonOutput {
+            if let current {
+                print(jsonString(["default_display": current]))
+            } else {
+                print(jsonString(["default_display": NSNull()]))
+            }
+        } else {
+            print(current ?? "(unset)")
+        }
+    }
+
+    private func runWindowNamespace(
+        commandArgs: [String],
+        client: SocketClient,
+        jsonOutput: Bool,
+        idFormat: CLIIDFormat,
+        windowOverride: String?
+    ) throws {
+        guard let sub = commandArgs.first?.lowercased() else {
+            throw CLIError(message: "window requires a subcommand. Try: display, displays, default-display")
+        }
+        let rest = Array(commandArgs.dropFirst())
+        switch sub {
+        case "displays":
+            try runWindowDisplaysCommand(client: client, jsonOutput: jsonOutput)
+        case "display":
+            try runWindowDisplayCommand(
+                commandArgs: rest,
+                client: client,
+                jsonOutput: jsonOutput,
+                idFormat: idFormat,
+                windowOverride: windowOverride
+            )
+        default:
+            throw CLIError(message: "Unknown window subcommand: \(sub). Try: display, displays")
+        }
+    }
+
+    /// `cmux window displays` — list connected displays (name + index).
+    private func runWindowDisplaysCommand(client: SocketClient, jsonOutput: Bool) throws {
+        let response = try client.sendV2(method: "window.displays")
+        if jsonOutput {
+            print(jsonString(response))
+            return
+        }
+        let displays = (response["displays"] as? [[String: Any]]) ?? []
+        if displays.isEmpty {
+            print("No displays found.")
+            return
+        }
+        for display in displays {
+            let name = (display["name"] as? String) ?? "(unknown)"
+            let index = (display["index"] as? Int) ?? -1
+            let isMain = (display["main"] as? Bool) ?? false
+            print("\(index): \(name)\(isMain ? "  (main)" : "")")
+        }
+    }
+
+    /// `cmux window display "<name>"` — move this instance's window(s) onto the
+    /// named display, preserving size. `--list` is an alias for `window displays`.
+    private func runWindowDisplayCommand(
+        commandArgs: [String],
+        client: SocketClient,
+        jsonOutput: Bool,
+        idFormat: CLIIDFormat,
+        windowOverride: String?
+    ) throws {
+        if commandArgs.contains("--list") || commandArgs.contains("-l") {
+            try runWindowDisplaysCommand(client: client, jsonOutput: jsonOutput)
+            return
+        }
+        let positional = commandArgs.filter { !$0.hasPrefix("-") }
+        guard let displayName = positional.first, !displayName.isEmpty else {
+            throw CLIError(message: "window display requires a display name. Usage: cmux window display \"LG HDR 4K\"  (list names with: cmux window displays)")
+        }
+        var params: [String: Any] = ["display": displayName]
+        if let windowOverride {
+            let normalized = try normalizeWindowHandle(windowOverride, client: client) ?? windowOverride
+            params["window_id"] = normalized
+        }
+        let response = try client.sendV2(method: "window.display", params: params)
+        if jsonOutput {
+            print(jsonString(formatIDs(response, mode: idFormat)))
+            return
+        }
+        let resolvedDisplay = (response["display"] as? String) ?? displayName
+        let movedCount = (response["moved"] as? [Any])?.count ?? 0
+        print("Moved \(movedCount) window\(movedCount == 1 ? "" : "s") to \(resolvedDisplay).")
+    }
+
     private func runWorkspaceNamespace(
         commandArgs: [String],
         client: SocketClient,
@@ -7120,7 +7289,10 @@ struct CMUXCLI {
         windowOverride: String?
     ) throws {
         guard let sub = commandArgs.first?.lowercased() else {
-            throw CLIError(message: "workspace requires a subcommand. Try: list, create, close, rename, select, group")
+            throw CLIError(message: String(
+                localized: "cli.error.workspaceSubcommandRequired",
+                defaultValue: "workspace requires a subcommand. Try: list, create, close, rename, select, reconnect, disconnect, group"
+            ))
         }
         let rest = Array(commandArgs.dropFirst())
         switch sub {
@@ -7180,9 +7352,74 @@ struct CMUXCLI {
                 windowOverride: windowOverride,
                 requireWorkspaceFlag: false
             )
+        case "reconnect":
+            try runWorkspaceRemoteConnectionCommand(
+                commandName: "workspace reconnect",
+                method: "workspace.remote.reconnect",
+                commandArgs: rest,
+                client: client,
+                jsonOutput: jsonOutput,
+                idFormat: idFormat,
+                windowOverride: windowOverride
+            )
+        case "disconnect":
+            try runWorkspaceRemoteConnectionCommand(
+                commandName: "workspace disconnect",
+                method: "workspace.remote.disconnect",
+                commandArgs: rest,
+                client: client,
+                jsonOutput: jsonOutput,
+                idFormat: idFormat,
+                windowOverride: windowOverride
+            )
         default:
-            throw CLIError(message: "Unknown workspace subcommand: \(sub). Try: list, create, close, rename, select, group")
+            throw CLIError(message: String(
+                format: String(
+                    localized: "cli.error.workspaceSubcommandUnknown",
+                    defaultValue: "Unknown workspace subcommand: %@. Try: list, create, close, rename, select, reconnect, disconnect, group"
+                ),
+                locale: .current,
+                sub
+            ))
         }
+    }
+
+    /// `cmux workspace reconnect|disconnect` — manual control over a remote
+    /// (SSH) workspace's connection. Targets the positional/`--workspace`
+    /// handle, then the caller's workspace, then the selected workspace.
+    private func runWorkspaceRemoteConnectionCommand(
+        commandName: String,
+        method: String,
+        commandArgs: [String],
+        client: SocketClient,
+        jsonOutput: Bool,
+        idFormat: CLIIDFormat,
+        windowOverride: String?
+    ) throws {
+        let (workspaceArg, rem0) = parseOption(commandArgs, name: "--workspace")
+        let (_, rem1) = parseOption(rem0, name: "--window")
+        let positional = rem1.first(where: { !$0.hasPrefix("--") })
+        let windowRaw = windowFromArgsOrOverride(commandArgs, windowOverride: windowOverride)
+        // With an explicit --window and no workspace argument, target that
+        // window's selected workspace on the server instead of the caller's
+        // CMUX_WORKSPACE_ID, which may live in a different window.
+        let target = workspaceArg
+            ?? positional
+            ?? (windowRaw == nil ? ProcessInfo.processInfo.environment["CMUX_WORKSPACE_ID"] : nil)
+
+        var params: [String: Any] = [:]
+        let winId = try normalizeWindowHandle(windowRaw, client: client)
+        if let winId { params["window_id"] = winId }
+        if let wsId = try normalizeWorkspaceHandle(target, client: client, windowHandle: winId) {
+            params["workspace_id"] = wsId
+        }
+        let payload = try client.sendV2(method: method, params: params)
+        printV2Payload(
+            payload,
+            jsonOutput: jsonOutput,
+            idFormat: idFormat,
+            fallbackText: v2OKSummary(payload, idFormat: idFormat, kinds: ["workspace", "window"])
+        )
     }
 
     /// Emit a `cmux workspace-group` mutation response: JSON when --json,
@@ -11019,7 +11256,7 @@ struct CMUXCLI {
         var surfaceRaw = surfaceOpt
         var args = argsWithoutSurfaceFlag
 
-        let verbsWithoutSurface: Set<String> = ["open", "open-split", "new", "identify", "import", "profile", "profiles"]
+        let verbsWithoutSurface: Set<String> = ["open", "open-split", "new", "identify", "import", "profile", "profiles", "react-grab", "reactgrab", "devtools", "dev-tools", "focus-mode", "zoom", "history"]
         if surfaceRaw == nil, let first = args.first {
             if !first.hasPrefix("-") && !verbsWithoutSurface.contains(first.lowercased()) {
                 surfaceRaw = first
@@ -11537,6 +11774,141 @@ struct CMUXCLI {
                 params["snapshot_after"] = true
             }
             let payload = try client.sendV2(method: methodMap[subcommand]!, params: params)
+            output(payload, fallback: "OK")
+            return
+        }
+
+        // Caller routing: an explicit --workspace/--window, else the invoking workspace
+        // (CMUX_WORKSPACE_ID). Resolved up front so an INDEXED --surface/--return-to is scoped to
+        // the requested workspace/window rather than the foreground selection.
+        func callerRoutingHandles() throws -> (workspace: String?, window: String?) {
+            let (workspaceOpt, _) = parseOption(subArgs, name: "--workspace")
+            let (windowOpt, _) = parseOption(subArgs, name: "--window")
+            let windowHandle = try windowOpt.flatMap { try normalizeWindowHandle($0, client: client) }
+            let workspaceRaw = workspaceOpt ?? (windowOpt == nil ? ProcessInfo.processInfo.environment["CMUX_WORKSPACE_ID"] : nil)
+            let workspaceHandle = try workspaceRaw.flatMap {
+                try normalizeWorkspaceHandle($0, client: client, windowHandle: windowHandle)
+            }
+            return (workspaceHandle, windowHandle)
+        }
+
+        // The verb/mode/direction is the first POSITIONAL token; routing flags may appear before or
+        // after it, e.g. `browser devtools --workspace ws` or `browser zoom --window w in`.
+        func browserActionVerbArgs() -> [String] {
+            var rest = subArgs
+            for name in ["--workspace", "--window", "--return-to"] {
+                (_, rest) = parseOption(rest, name: name)
+            }
+            return rest.filter { !$0.hasPrefix("--") }
+        }
+
+        // Optional browser surface: an explicit --surface (or positional handle) targets that
+        // browser; otherwise the app acts on the focused browser of the CALLER's workspace.
+        // When no surface is given we still scope to the invoking workspace so a background agent
+        // never acts on whatever workspace happens to be selected in the foreground.
+        func optionalSurfaceParams() throws -> [String: Any] {
+            let (workspaceOpt, _) = parseOption(subArgs, name: "--workspace")
+            let (windowOpt, _) = parseOption(subArgs, name: "--window")
+            let windowHandle = try windowOpt.flatMap { try normalizeWindowHandle($0, client: client) }
+            let explicitWorkspace = try workspaceOpt.flatMap {
+                try normalizeWorkspaceHandle($0, client: client, windowHandle: windowHandle)
+            }
+            if let raw = surfaceRaw {
+                // Explicit surface: scope index resolution to explicit routing, and carry explicit
+                // routing so the server rejects a surface/workspace mismatch. Do NOT add the
+                // env-default workspace; an explicit surface handle may legitimately reference a
+                // different workspace than the caller's terminal.
+                guard let resolved = try normalizeSurfaceHandle(
+                    raw, client: client, workspaceHandle: explicitWorkspace, windowHandle: windowHandle
+                ) else {
+                    throw CLIError(message: "Invalid surface handle")
+                }
+                var params: [String: Any] = ["surface_id": resolved]
+                if let windowHandle { params["window_id"] = windowHandle }
+                if let explicitWorkspace { params["workspace_id"] = explicitWorkspace }
+                return params
+            }
+            var params: [String: Any] = [:]
+            if let windowHandle { params["window_id"] = windowHandle }
+            let workspaceRaw = workspaceOpt ?? (windowOpt == nil ? ProcessInfo.processInfo.environment["CMUX_WORKSPACE_ID"] : nil)
+            if let workspaceHandle = try workspaceRaw.flatMap({
+                try normalizeWorkspaceHandle($0, client: client, windowHandle: windowHandle)
+            }) {
+                params["workspace_id"] = workspaceHandle
+            }
+            return params
+        }
+
+        if subcommand == "react-grab" || subcommand == "reactgrab" {
+            let verb = browserActionVerbArgs().first?.lowercased() ?? "toggle"
+            guard verb == "toggle" else {
+                throw CLIError(message: "Unsupported browser react-grab subcommand: \(verb) (expected: toggle)")
+            }
+            var params = try optionalSurfaceParams()
+            let routing = try callerRoutingHandles()
+            let (returnOpt, _) = parseOption(subArgs, name: "--return-to")
+            if let returnRaw = returnOpt {
+                // A supplied-but-unresolvable --return-to is an error, never a silent
+                // pasteback drop: mirror the explicit-surface guard in optionalSurfaceParams().
+                guard let resolvedReturn = try normalizeSurfaceHandle(
+                    returnRaw, client: client,
+                    workspaceHandle: routing.workspace, windowHandle: routing.window
+                ) else {
+                    throw CLIError(message: "Invalid --return-to surface handle")
+                }
+                params["return_to"] = resolvedReturn
+            }
+            let payload = try client.sendV2(method: "browser.react_grab.toggle", params: params)
+            output(payload, fallback: "OK")
+            return
+        }
+
+        if subcommand == "devtools" || subcommand == "dev-tools" {
+            let verb = browserActionVerbArgs().first?.lowercased() ?? "toggle"
+            let method: String
+            switch verb {
+            case "toggle": method = "browser.devtools.toggle"
+            case "console": method = "browser.console.show"
+            default:
+                throw CLIError(message: "Unsupported browser devtools subcommand: \(verb) (expected: toggle, console)")
+            }
+            let payload = try client.sendV2(method: method, params: try optionalSurfaceParams())
+            output(payload, fallback: "OK")
+            return
+        }
+
+        if subcommand == "focus-mode" {
+            let mode = browserActionVerbArgs().first?.lowercased() ?? "toggle"
+            guard ["enter", "exit", "toggle", "on", "off"].contains(mode) else {
+                throw CLIError(message: "browser focus-mode requires one of: enter, exit, toggle, on, off")
+            }
+            var params = try optionalSurfaceParams()
+            params["mode"] = mode
+            let payload = try client.sendV2(method: "browser.focus_mode.set", params: params)
+            output(payload, fallback: "OK")
+            return
+        }
+
+        if subcommand == "zoom" {
+            guard let direction = browserActionVerbArgs().first?.lowercased(), ["in", "out", "reset"].contains(direction) else {
+                throw CLIError(message: "browser zoom requires one of: in, out, reset")
+            }
+            var params = try optionalSurfaceParams()
+            params["direction"] = direction
+            let payload = try client.sendV2(method: "browser.zoom.set", params: params)
+            output(payload, fallback: "OK")
+            return
+        }
+
+        if subcommand == "history" {
+            let verb = browserActionVerbArgs().first?.lowercased() ?? "clear"
+            guard verb == "clear" else {
+                throw CLIError(message: "Unsupported browser history subcommand: \(verb) (expected: clear)")
+            }
+            guard hasFlag(subArgs, name: "--force") || hasFlag(subArgs, name: "--yes") else {
+                throw CLIError(message: "browser history clear permanently deletes the default browser profile's history (same as the View menu's Clear Browser History); pass --force to confirm")
+            }
+            let payload = try client.sendV2(method: "browser.history.clear", params: ["force": true])
             output(payload, fallback: "OK")
             return
         }
@@ -13500,7 +13872,7 @@ struct CMUXCLI {
               cmux list-workspaces
             """
         case "workspace":
-            return """
+            return String(localized: "cli.workspace.usage", defaultValue: """
             Usage: cmux workspace <subcommand> [flags]
 
             Canonical noun for workspace operations. Legacy verbs
@@ -13514,13 +13886,23 @@ struct CMUXCLI {
               close <workspace>       Close a workspace
               rename <workspace> --title <new>
               select <workspace>      Make a workspace active
+              reconnect [workspace]   Reconnect a remote (SSH) workspace, including one
+                                      whose automatic reconnect paused because the host
+                                      was unreachable
+              disconnect [workspace]  Stop a remote (SSH) workspace's connection
               group <subcommand>      Workspace group operations (see cmux workspace-group --help)
+
+            reconnect/disconnect accept a positional handle or --workspace
+            <id|ref|index>, defaulting to the caller's workspace, then the
+            selected one (of --window's window when given).
 
             Examples:
               cmux workspace list --json
               cmux workspace create --name Build --cwd ~/projects/myapp
               cmux workspace close workspace:3
-            """
+              cmux workspace reconnect
+              cmux workspace disconnect --workspace workspace:3
+            """)
         case "workspace-group":
             return """
             Usage: cmux workspace-group <subcommand> [flags]
@@ -25364,7 +25746,16 @@ struct CMUXCLI {
         let resumeCommandParts = kind == "hermes-agent"
             ? hermesAgentArgumentsByReplacingOpenAICodexProvider(sanitizedCommandParts)
             : sanitizedCommandParts
-        var command = resumeCommandParts.map(cliShellQuote).joined(separator: " ")
+        // Route the claude executable through the wrapper shim token so the executed
+        // command re-injects cmux hooks even when run via the `$SHELL -lic` restore
+        // launcher (where the integration's PATH shim / `claude()` function are not
+        // active). The token is POSIX-only and the launcher dispatches through the
+        // user's shell (fish/csh/tcsh included), so token-bearing commands are wrapped
+        // in `/bin/sh -c '…'` to parse everywhere; the cwd guard below stays outside so
+        // cd-prefix rewriting keeps composing. https://github.com/manaflow-ai/cmux/issues/5639
+        var command = kind == "claude"
+            ? AgentResumeArgv.renderedPortableClaudeResumeShellCommand(parts: resumeCommandParts, quote: cliShellQuote)
+            : resumeCommandParts.map(cliShellQuote).joined(separator: " ")
         if kind == "hermes-agent" {
             command = hermesAgentSubrouterResumeCommand(
                 command,
@@ -32453,6 +32844,11 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
           browser open-split [url]
           browser goto|navigate <url> [--snapshot-after]
           browser back|forward|reload [--snapshot-after]
+          browser react-grab toggle [--surface <id>] [--return-to <terminal-surface>]
+          browser devtools toggle|console [--surface <id>]
+          browser focus-mode enter|exit|toggle [--surface <id>]
+          browser zoom in|out|reset [--surface <id>]
+          browser history clear --force   (clears the default profile's history; mirrors the View menu)
           browser url|get-url
           browser snapshot [--interactive|-i] [--cursor] [--compact] [--max-depth <n>] [--selector <css>]
           browser eval <script>

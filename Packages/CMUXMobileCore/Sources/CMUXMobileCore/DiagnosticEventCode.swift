@@ -36,4 +36,7 @@ public enum DiagnosticEventCode: UInt16, Sendable, Codable, CaseIterable {
     case byteGap = 8
     /// A generic error at an instrumented seam.
     case error = 9
+    /// A pairing attempt was short-circuited because the device had no network
+    /// path (the reachability preflight failed before any connect).
+    case pairUnreachable = 10
 }

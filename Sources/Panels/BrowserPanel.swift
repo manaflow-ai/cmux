@@ -960,7 +960,7 @@ enum BrowserAvailabilitySettings {
     static let defaultDisabled = false
 
     static func isDisabled(defaults: UserDefaults = .standard) -> Bool {
-        defaults.synchronize()
+        // No synchronize() on read: it forces a blocking prefs-plist reload on a path hit from link-open/pane-create; UserDefaults stays coherent in-process and via cfprefsd.
         if defaults.object(forKey: disabledKey) == nil {
             return defaultDisabled
         }
@@ -972,8 +972,8 @@ enum BrowserAvailabilitySettings {
     }
 
     static func setDisabled(_ disabled: Bool, defaults: UserDefaults = .standard) {
+        // `set` already persists; `synchronize()` is a deprecated no-op-style fsync.
         defaults.set(disabled, forKey: disabledKey)
-        defaults.synchronize()
         NotificationCenter.default.post(name: didChangeNotification, object: nil)
     }
 }

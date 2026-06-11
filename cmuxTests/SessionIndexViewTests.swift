@@ -82,7 +82,7 @@ final class SessionIndexViewTests: XCTestCase {
 
         XCTAssertEqual(
             entry.resumeCommand,
-            "env CLAUDE_CONFIG_DIR='\(configDir.path)' CMUX_PRESERVE_CLAUDE_AUTH_SELECTION_ENV=1 CMUX_PRESERVE_CLAUDE_AUTH_SELECTION_ENV_KEYS=CLAUDE_CONFIG_DIR claude --resume claude-session-123"
+            posixShWrappedForTest("env CLAUDE_CONFIG_DIR='\(configDir.path)' CMUX_PRESERVE_CLAUDE_AUTH_SELECTION_ENV=1 CMUX_PRESERVE_CLAUDE_AUTH_SELECTION_ENV_KEYS=CLAUDE_CONFIG_DIR \"$([ -x \"${CMUX_CLAUDE_WRAPPER_SHIM:-}\" ] && printf '%s' \"$CMUX_CLAUDE_WRAPPER_SHIM\" || printf claude)\" --resume claude-session-123")
         )
     }
 
@@ -114,7 +114,7 @@ final class SessionIndexViewTests: XCTestCase {
 
         XCTAssertEqual(
             entry.resumeCommand,
-            "env CLAUDE_CONFIG_DIR='\(configDir.path)' CMUX_PRESERVE_CLAUDE_AUTH_SELECTION_ENV=1 CMUX_PRESERVE_CLAUDE_AUTH_SELECTION_ENV_KEYS=CLAUDE_CONFIG_DIR claude --resume claude-session-123"
+            posixShWrappedForTest("env CLAUDE_CONFIG_DIR='\(configDir.path)' CMUX_PRESERVE_CLAUDE_AUTH_SELECTION_ENV=1 CMUX_PRESERVE_CLAUDE_AUTH_SELECTION_ENV_KEYS=CLAUDE_CONFIG_DIR \"$([ -x \"${CMUX_CLAUDE_WRAPPER_SHIM:-}\" ] && printf '%s' \"$CMUX_CLAUDE_WRAPPER_SHIM\" || printf claude)\" --resume claude-session-123")
         )
     }
 
@@ -562,6 +562,13 @@ final class SessionIndexViewTests: XCTestCase {
     private func sqliteMessage(_ db: OpaquePointer) -> String? {
         guard let cString = sqlite3_errmsg(db) else { return nil }
         return String(cString: cString)
+    }
+
+    /// Mirrors `AgentResumeArgv.portableClaudeResumeShellCommand`: the rendered claude
+    /// resume command is wrapped as `/bin/sh -c '…'` so it parses in non-POSIX shells
+    /// (fish/csh/tcsh). https://github.com/manaflow-ai/cmux/issues/5639
+    private func posixShWrappedForTest(_ posixCommand: String) -> String {
+        "/bin/sh -c '" + posixCommand.replacingOccurrences(of: "'", with: "'\\''") + "'"
     }
 }
 
