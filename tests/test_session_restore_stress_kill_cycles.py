@@ -405,13 +405,57 @@ def main() -> int:
             client = _connect(socket_path)
             try:
                 _assert_all_sessions_resumed(client, "relaunch with corrupt primary snapshot", failures)
+
+                if not previous_snapshot.exists():
+                    failures.append(
+                        "corrupt-snapshot phase: -previous backup snapshot was deleted; "
+                        "restore-session recovery is impossible after a corrupt primary snapshot"
+                    )
+                else:
+                    # The manual `cmux restore-session` recovery entrypoint must
+                    # also still work from the preserved backup. It reopens the
+                    # backed-up workspaces in a new window (with the same
+                    # workspace ids as the startup fallback restore, since both
+                    # read the same backup), so assert on the window count.
+                    cli_path = app_path / "Contents" / "Resources" / "bin" / "cmux"
+                    restore_env = dict(os.environ)
+                    restore_env["CMUX_SOCKET_PATH"] = str(socket_path)
+
+                    def window_count() -> int:
+                        result = subprocess.run(
+                            [str(cli_path), "list-windows", "--json"],
+                            capture_output=True,
+                            text=True,
+                            env=restore_env,
+                        )
+                        try:
+                            return len(json.loads(result.stdout))
+                        except (json.JSONDecodeError, TypeError):
+                            return -1
+
+                    windows_before = window_count()
+                    restore_proc = subprocess.run(
+                        [str(cli_path), "restore-session"],
+                        capture_output=True,
+                        text=True,
+                        env=restore_env,
+                    )
+                    if restore_proc.returncode != 0 or restore_proc.stdout.strip() != "OK":
+                        failures.append(
+                            "corrupt-snapshot phase: restore-session failed after backup-preserving "
+                            f"relaunch; rc={restore_proc.returncode} stdout={restore_proc.stdout!r} "
+                            f"stderr={restore_proc.stderr!r}"
+                        )
+                    elif windows_before < 1 or not _wait_for_condition(
+                        20.0, lambda: window_count() > windows_before
+                    ):
+                        failures.append(
+                            "corrupt-snapshot phase: restore-session did not reopen the backed-up "
+                            f"session in a new window (windows before={windows_before}, "
+                            f"after={window_count()})"
+                        )
             finally:
                 client.close()
-            if not previous_snapshot.exists():
-                failures.append(
-                    "corrupt-snapshot phase: -previous backup snapshot was deleted; "
-                    "restore-session recovery is impossible after a corrupt primary snapshot"
-                )
             _quit(bundle_id, socket_path)
         finally:
             _kill_existing(app_path)

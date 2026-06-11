@@ -1975,10 +1975,17 @@ enum SessionPersistenceStore {
         case .missing:
             return nil
         case .unusable:
-            return loadReopenSessionSnapshot(
+            let backup = loadReopenSessionSnapshot(
                 bundleIdentifier: bundleIdentifier,
                 appSupportDirectory: appSupportDirectory
             )
+#if DEBUG
+            cmuxDebugLog(
+                "session.restore.primaryUnusable path=\(primaryURL.path) " +
+                    "backupRecovered=\(backup != nil ? 1 : 0)"
+            )
+#endif
+            return backup
         }
     }
 
