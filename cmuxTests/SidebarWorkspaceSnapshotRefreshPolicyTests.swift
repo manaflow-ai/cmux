@@ -93,6 +93,8 @@ final class SidebarWorkspaceSnapshotRefreshPolicyTests: XCTestCase {
         customDescription: String? = nil,
         isPinned: Bool = false,
         customColorHex: String? = nil,
+        customTitle: String? = nil,
+        folderName: String? = nil,
         remoteConnectionStatusText: String = "Disconnected",
         latestConversationMessage: String? = nil,
         listeningPorts: [Int] = []
@@ -100,6 +102,8 @@ final class SidebarWorkspaceSnapshotRefreshPolicyTests: XCTestCase {
         SidebarWorkspaceSnapshotBuilder.Snapshot(
             presentationKey: presentationKey ?? Self.presentationKey(),
             title: title,
+            customTitle: customTitle,
+            folderName: folderName,
             customDescription: customDescription,
             isPinned: isPinned,
             customColorHex: customColorHex,
