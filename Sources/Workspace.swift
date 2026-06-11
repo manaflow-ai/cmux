@@ -13282,6 +13282,14 @@ final class Workspace: Identifiable, ObservableObject {
     }
 
     @MainActor
+    @discardableResult
+    func markActiveRemoteTerminalSurface(_ panelId: UUID) -> Bool {
+        guard panels[panelId] is TerminalPanel else { return false }
+        trackRemoteTerminalSurface(panelId)
+        return true
+    }
+
+    @MainActor
     func shouldKeepPersistentRemoteSurfaceOpenAfterChildExit(_ panelId: UUID) -> Bool {
         guard remoteConfiguration?.preserveAfterTerminalExit == true else { return false }
         return activeRemoteTerminalSurfaceIds.contains(panelId) ||

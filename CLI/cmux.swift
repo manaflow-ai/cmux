@@ -7716,6 +7716,7 @@ struct CMUXCLI {
         let agentSocketPath: String?
         let localSocketPath: String
         let remoteRelayPort: Int
+        let noWorkspace: Bool
         /// True when the remote is a cloud VM with cmuxd-remote pre-baked in the image.
         /// Set by `cmux vm new/shell/attach`; false for plain `cmux ssh`.
         let skipDaemonBootstrap: Bool
@@ -7733,6 +7734,7 @@ struct CMUXCLI {
             agentSocketPath: String? = nil,
             localSocketPath: String,
             remoteRelayPort: Int,
+            noWorkspace: Bool = false,
             skipDaemonBootstrap: Bool = false
         ) {
             self.destination = destination
@@ -7747,6 +7749,7 @@ struct CMUXCLI {
             self.agentSocketPath = agentSocketPath
             self.localSocketPath = localSocketPath
             self.remoteRelayPort = remoteRelayPort
+            self.noWorkspace = noWorkspace
             self.skipDaemonBootstrap = skipDaemonBootstrap
         }
     }
@@ -7999,6 +8002,21 @@ struct CMUXCLI {
             "extraArgs=\(sshOptions.extraArguments.count)"
         )
 
+        if sshOptions.noWorkspace {
+            try runSSHWithoutCreatingWorkspace(
+                sshOptions: sshOptions,
+                relayID: relayID,
+                relayToken: relayToken,
+                client: client,
+                jsonOutput: jsonOutput,
+                idFormat: idFormat,
+                remoteSSHOptions: remoteSSHOptions,
+                reusableTerminalStartupCommand: reusableTerminalStartupCommand,
+                configuredForegroundAuthToken: configuredForegroundAuthToken
+            )
+            return
+        }
+
         var workspaceCreateParams: [String: Any] = [
             "initial_command": initialSSHStartupCommand,
         ]
@@ -8169,6 +8187,110 @@ struct CMUXCLI {
         }
     }
 
+    private func runSSHWithoutCreatingWorkspace(
+        sshOptions: SSHCommandOptions,
+        relayID: String,
+        relayToken: String,
+        client: SocketClient,
+        jsonOutput: Bool,
+        idFormat: CLIIDFormat,
+        remoteSSHOptions: [String],
+        reusableTerminalStartupCommand: String,
+        configuredForegroundAuthToken: String?
+    ) throws {
+        if sshOptions.workspaceName?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false {
+            throw CLIError(message: "ssh: --name cannot be used with --no-workspace")
+        }
+
+        let env = ProcessInfo.processInfo.environment
+        let windowHandle = try normalizeWindowHandle(sshOptions.windowRaw, client: client)
+        let envWorkspace = windowHandle == nil ? env["CMUX_WORKSPACE_ID"] : nil
+        guard let workspaceId = try normalizeWorkspaceHandle(
+            envWorkspace,
+            client: client,
+            windowHandle: windowHandle,
+            allowCurrent: true
+        ) else {
+            throw CLIError(message: "ssh: --no-workspace requires a current cmux workspace")
+        }
+        let activeSurfaceId = try resolveNoWorkspaceSSHActiveSurface(
+            workspaceId: workspaceId,
+            windowHandle: windowHandle,
+            client: client
+        )
+
+        var configureParams: [String: Any] = [
+            "workspace_id": workspaceId,
+            "destination": sshOptions.displayDestination,
+            "auto_connect": configuredForegroundAuthToken == nil,
+            "terminal_startup_command": reusableTerminalStartupCommand,
+        ]
+        if let configuredForegroundAuthToken {
+            configureParams["foreground_auth_token"] = configuredForegroundAuthToken
+        }
+        if let port = sshOptions.port {
+            configureParams["port"] = port
+        }
+        if let identityFile = normalizedSSHIdentityPath(sshOptions.identityFile) {
+            configureParams["identity_file"] = identityFile
+        }
+        if !remoteSSHOptions.isEmpty {
+            configureParams["ssh_options"] = remoteSSHOptions
+        }
+        if let agentSocketPath = sshOptions.agentSocketPath {
+            configureParams["ssh_auth_sock"] = agentSocketPath
+        }
+        if sshOptions.remoteRelayPort > 0 {
+            configureParams["relay_port"] = sshOptions.remoteRelayPort
+            configureParams["relay_id"] = relayID
+            configureParams["relay_token"] = relayToken
+            configureParams["local_socket_path"] = sshOptions.localSocketPath
+        }
+        if sshOptions.skipDaemonBootstrap {
+            configureParams["skip_daemon_bootstrap"] = true
+        }
+        if let activeSurfaceId {
+            configureParams["active_terminal_surface_id"] = activeSurfaceId
+        }
+
+        let configuredPayload = try client.sendV2(method: "workspace.remote.configure", params: configureParams)
+        if ProcessInfo.processInfo.environment["CMUX_SSH_NO_WORKSPACE_SKIP_EXEC_FOR_TESTING"] == "1" {
+            if jsonOutput {
+                print(jsonString(formatIDs(configuredPayload, mode: idFormat)))
+            } else {
+                let workspaceHandle = formatHandle(configuredPayload, kind: "workspace", idFormat: idFormat) ?? workspaceId
+                let remote = configuredPayload["remote"] as? [String: Any]
+                let state = (remote?["state"] as? String) ?? "unknown"
+                print("OK workspace=\(workspaceHandle) target=\(sshOptions.displayDestination) state=\(state)")
+            }
+            return
+        }
+
+        let sshArguments = buildSSHCommandArguments(sshOptions)
+        guard let launchPath = sshArguments.first else {
+            throw CLIError(message: "ssh: could not construct ssh command")
+        }
+        client.close()
+        try execInteractiveProgram(
+            launchPath: launchPath,
+            arguments: Array(sshArguments.dropFirst())
+        )
+    }
+
+    private func resolveNoWorkspaceSSHActiveSurface(
+        workspaceId: String,
+        windowHandle: String?,
+        client: SocketClient
+    ) throws -> String? {
+        let env = ProcessInfo.processInfo.environment
+        if windowHandle == nil,
+           let envSurface = env["CMUX_SURFACE_ID"]?.trimmingCharacters(in: .whitespacesAndNewlines),
+           !envSurface.isEmpty {
+            return try normalizeSurfaceHandle(envSurface, client: client, workspaceHandle: workspaceId)
+        }
+        return try? resolveSurfaceId(nil, workspaceId: workspaceId, client: client)
+    }
+
     private func parseSSHCommandOptions(
         _ commandArgs: [String],
         localSocketPath: String = "",
@@ -8181,6 +8303,7 @@ struct CMUXCLI {
         var workspaceName: String?
         var windowRaw: String?
         var noFocus = false
+        var noWorkspace = false
         var sshOptions: [String] = []
         var extraArguments: [String] = []
         var forwardAgentOverride: Bool?
@@ -8228,6 +8351,9 @@ struct CMUXCLI {
                 index += 2
             case "--no-focus":
                 noFocus = true
+                index += 1
+            case "--no-workspace":
+                noWorkspace = true
                 index += 1
             case "-A", "--forward-agent":
                 forwardAgentOverride = true
@@ -8280,7 +8406,8 @@ struct CMUXCLI {
             extraArguments: extraArguments,
             agentSocketPath: agentForwarding.agentSocketPath,
             localSocketPath: localSocketPath,
-            remoteRelayPort: remoteRelayPort
+            remoteRelayPort: remoteRelayPort,
+            noWorkspace: noWorkspace
         )
     }
 
@@ -13969,9 +14096,11 @@ struct CMUXCLI {
               --ssh-option <opt>      Extra SSH -o option (repeatable)
               --window <id|ref|index> Target window for the managed workspace
               --no-focus              Create workspace without switching to it
+              --no-workspace          Run ssh in this terminal and associate this workspace with the remote
 
             Example:
               cmux ssh dev@my-host
+              cmux ssh --no-workspace dev@my-host
               cmux ssh dev@my-host --name "gpu-box" --port 2222 --identity ~/.ssh/id_ed25519
               cmux ssh dev@my-host --forward-agent
               cmux ssh dev@my-host --ssh-option UserKnownHostsFile=/dev/null --ssh-option StrictHostKeyChecking=no
@@ -32759,7 +32888,7 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
           move-tab-to-new-workspace [--tab <id|ref|index>] [--surface <id|ref|index>] [--workspace <id|ref|index>] [--window <id|ref|index>] [--title <text>] [--focus <true|false>]
           list-workspaces [--window <id|ref|index>]
           new-workspace [--name <title>] [--description <text>] [--cwd <path>] [--command <text>] [--layout <json>] [--window <id|ref|index>] [--focus <true|false>]
-          ssh <destination> [--name <title>] [--port <n>] [--identity <path>] [-A|--forward-agent] [-a|--no-forward-agent] [--ssh-option <opt>] [--window <id|ref|index>] [--no-focus] [-- <remote-command-args>]
+          ssh <destination> [--name <title>] [--port <n>] [--identity <path>] [-A|--forward-agent] [-a|--no-forward-agent] [--ssh-option <opt>] [--window <id|ref|index>] [--no-focus] [--no-workspace] [-- <remote-command-args>]
           ssh-session-list [--workspace <id|ref|index> | --all-workspaces]
           ssh-session-attach --session-id <id> [--workspace <id|ref|index>] [--pane <id|ref|index> | --split <left|right|up|down>]
           ssh-session-cleanup [--workspace <id|ref|index> | --all-workspaces] (--session-id <id> | --all)
