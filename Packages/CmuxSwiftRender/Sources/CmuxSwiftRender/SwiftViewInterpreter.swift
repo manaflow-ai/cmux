@@ -65,7 +65,11 @@ public struct SwiftViewInterpreter: Sendable {
             self.registerFunctions(program.file.statements, env)
             for item in program.file.statements {
                 if let expr = item.item.as(ExprSyntax.self), let node = self.evalView(expr, env) {
-                    return node
+                    // A tripped node budget means the tree was truncated
+                    // mid-walk; publish nothing so the host's last-good-sticky
+                    // render keeps the previous output instead of flashing a
+                    // partial tree.
+                    return env.budget.nodesExceeded ? nil : node
                 }
             }
             return nil
@@ -119,7 +123,7 @@ public struct SwiftViewInterpreter: Sendable {
     private func evalView(_ expr: ExprSyntax, _ env: Environment) -> RenderNode? {
         env.budget.enter()
         defer { env.budget.leave() }
-        guard !env.budget.exceeded else { return nil }
+        guard !env.budget.exceeded, !env.budget.nodesExceeded else { return nil }
         guard let call = expr.as(FunctionCallExprSyntax.self) else { return nil }
         return evalCall(call, env)
     }
@@ -305,10 +309,13 @@ public struct SwiftViewInterpreter: Sendable {
     private func evalItems(_ items: CodeBlockItemListSyntax, _ env: Environment) -> [RenderNode] {
         env.budget.enter()
         defer { env.budget.leave() }
-        guard !env.budget.exceeded else { return [] }
+        guard !env.budget.exceeded, !env.budget.nodesExceeded else { return [] }
         registerFunctions(items, env)
         var out: [RenderNode] = []
         for item in items {
+            // Stop producing once the node budget trips; the top-level
+            // evaluate discards the truncated walk.
+            if env.budget.nodesExceeded { break }
             let node = item.item
             if let decl = node.as(VariableDeclSyntax.self) {
                 applyBinding(decl, env)
@@ -325,12 +332,14 @@ public struct SwiftViewInterpreter: Sendable {
                 if let call = expr.as(FunctionCallExprSyntax.self), isForEach(call) {
                     out += evalForEach(call, env)
                 } else if let child = evalView(expr, env) {
+                    env.budget.recordNode()
                     out.append(child)
                 }
             } else if let expr = node.as(ExprSyntax.self) {
                 if let call = expr.as(FunctionCallExprSyntax.self), isForEach(call) {
                     out += evalForEach(call, env)
                 } else if let child = evalView(expr, env) {
+                    env.budget.recordNode()
                     out.append(child)
                 }
             }
@@ -441,6 +450,10 @@ public struct SwiftViewInterpreter: Sendable {
         let names = closureParameterNames(closure)
         var out: [RenderNode] = []
         for value in values {
+            // A pathological sequence (e.g. `ForEach(0..<100_000)`) must trip
+            // the node budget after a few thousand rows, not iterate to the
+            // end doing wasted work.
+            if env.budget.nodesExceeded { break }
             let scope = env.makeChild()
             if names.count >= 2 {
                 // Two-param form, e.g. `ForEach(Array(xs.enumerated()), id: \.offset)
@@ -554,6 +567,7 @@ public struct SwiftViewInterpreter: Sendable {
               let values = sequence.iterationValues else { return [] }
         var out: [RenderNode] = []
         for value in values {
+            if env.budget.nodesExceeded { break } // same early-out as evalForEach
             let scope = env.makeChild()
             scope.define(name, value)
             out += evalItems(loop.body.statements, scope)
