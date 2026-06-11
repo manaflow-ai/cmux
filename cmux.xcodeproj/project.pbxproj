@@ -406,6 +406,7 @@
 		C34670040000000000000001 /* KeyboardShortcutTestSettingsIsolation.swift in Sources */ = {isa = PBXBuildFile; fileRef = C34670040000000000000002 /* KeyboardShortcutTestSettingsIsolation.swift */; };
 		DA7A10CA710E000000000003 /* Localizable.xcstrings in Resources */ = {isa = PBXBuildFile; fileRef = DA7A10CA710E000000000001 /* Localizable.xcstrings */; };
 		53750022A0B1C2D3E4F50022 /* MacAuthComposition.swift in Sources */ = {isa = PBXBuildFile; fileRef = 53750023A0B1C2D3E4F50023 /* MacAuthComposition.swift */; };
+		D1F0A00200000000000000B1 /* MacPresenceMonitor.swift in Sources */ = {isa = PBXBuildFile; fileRef = D1F0A00200000000000000B2 /* MacPresenceMonitor.swift */; };
 		2F0C05000000000000000002 /* MainWindowFocusController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2F0C05000000000000000001 /* MainWindowFocusController.swift */; };
 		B37A00000000000000000005 /* MainWindowFocusTypes.swift in Sources */ = {isa = PBXBuildFile; fileRef = B37A00000000000000000006 /* MainWindowFocusTypes.swift */; };
 		2F0C06000000000000000002 /* MainWindowVisibilityController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2F0C06000000000000000001 /* MainWindowVisibilityController.swift */; };
@@ -465,6 +466,7 @@
 		C44550000000000000000001 /* PanelOwnedNativeViewSessionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C44550000000000000000002 /* PanelOwnedNativeViewSessionTests.swift */; };
 		A5001425 /* PDFPreviewChromeDebugWindowController.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001424 /* PDFPreviewChromeDebugWindowController.swift */; };
 		D1F0A00100000000000000A1 /* PhonePushClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = D1F0A00100000000000000A2 /* PhonePushClient.swift */; };
+		D1F0A00300000000000000C1 /* PhonePushPresenceGateTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D1F0A00300000000000000C2 /* PhonePushPresenceGateTests.swift */; };
 		B3575000000000000000000A /* PiVaultAgentPersistenceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B35750000000000000000009 /* PiVaultAgentPersistenceTests.swift */; };
 		D0B10008A1B2C3D4E5F60001 /* PortalTabDragRoutingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D0B10009A1B2C3D4E5F60001 /* PortalTabDragRoutingTests.swift */; };
 		A5001540 /* PortScanner.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001541 /* PortScanner.swift */; };
@@ -1171,6 +1173,7 @@
 		C34670040000000000000002 /* KeyboardShortcutTestSettingsIsolation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KeyboardShortcutTestSettingsIsolation.swift; sourceTree = "<group>"; };
 		DA7A10CA710E000000000001 /* Localizable.xcstrings */ = {isa = PBXFileReference; lastKnownFileType = text.json.xcstrings; path = Localizable.xcstrings; sourceTree = "<group>"; };
 		53750023A0B1C2D3E4F50023 /* MacAuthComposition.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = MacAuthComposition.swift; sourceTree = "<group>"; };
+		D1F0A00200000000000000B2 /* MacPresenceMonitor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MacPresenceMonitor.swift; sourceTree = "<group>"; };
 		2F0C05000000000000000001 /* MainWindowFocusController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MainWindowFocusController.swift; sourceTree = "<group>"; };
 		B37A00000000000000000006 /* MainWindowFocusTypes.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MainWindowFocusTypes.swift; sourceTree = "<group>"; };
 		2F0C06000000000000000001 /* MainWindowVisibilityController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/MainWindowVisibilityController.swift; sourceTree = "<group>"; };
@@ -1229,6 +1232,7 @@
 		C44550000000000000000002 /* PanelOwnedNativeViewSessionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PanelOwnedNativeViewSessionTests.swift; sourceTree = "<group>"; };
 		A5001424 /* PDFPreviewChromeDebugWindowController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/PDFPreviewChromeDebugWindowController.swift; sourceTree = "<group>"; };
 		D1F0A00100000000000000A2 /* PhonePushClient.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = PhonePushClient.swift; sourceTree = "<group>"; };
+		D1F0A00300000000000000C2 /* PhonePushPresenceGateTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PhonePushPresenceGateTests.swift; sourceTree = "<group>"; };
 		B35750000000000000000009 /* PiVaultAgentPersistenceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PiVaultAgentPersistenceTests.swift; sourceTree = "<group>"; };
 		D0B10009A1B2C3D4E5F60001 /* PortalTabDragRoutingTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PortalTabDragRoutingTests.swift; sourceTree = "<group>"; };
 		A5001541 /* PortScanner.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PortScanner.swift; sourceTree = "<group>"; };
@@ -1935,6 +1939,7 @@
 				B37A00000000000000000006 /* MainWindowFocusTypes.swift */,
 				2F0C05000000000000000001 /* MainWindowFocusController.swift */,
 				A5001091 /* NotificationsPage.swift */,
+				D1F0A00200000000000000B2 /* MacPresenceMonitor.swift */,
 				A5001092 /* TerminalNotificationStore.swift */,
 				A5001097 /* TerminalNotificationPolicy.swift */,
 				F1A0C0DE0000000000000001 /* FindTextFieldSupport.swift */,
@@ -2286,6 +2291,7 @@
 				D2C075029771815DD5DA1332 /* NotificationAndMenuBarTests.swift */,
 				4E5F60720000000000000002 /* NotificationSoundSettingsTests.swift */,
 				42092CDB2109E250F7F2A76E /* TabManagerUnitTests.swift */,
+				D1F0A00300000000000000C2 /* PhonePushPresenceGateTests.swift */,
 				B79482F1ECA54E98BE5C8953 /* WindowKeyDownReplayGuardTests.swift */,
 				D1FFC0DE000000000000C001 /* DiffCommentStoreTests.swift */,
 				C9A57002C9A57002C9A57002 /* WorkspaceGroupTests.swift */,
@@ -2955,6 +2961,7 @@
 				A5F10011A1B2C3D4E5F60719 /* KeyboardShortcutSettingsFileStore.swift in Sources */,
 				C1713004C1713004C1713004 /* KeyboardShortcutSettingsLookup.swift in Sources */,
 				53750022A0B1C2D3E4F50022 /* MacAuthComposition.swift in Sources */,
+				D1F0A00200000000000000B1 /* MacPresenceMonitor.swift in Sources */,
 				2F0C05000000000000000002 /* MainWindowFocusController.swift in Sources */,
 				B37A00000000000000000005 /* MainWindowFocusTypes.swift in Sources */,
 				2F0C06000000000000000002 /* MainWindowVisibilityController.swift in Sources */,
@@ -3366,6 +3373,7 @@
 				0A0F00550000000000000001 /* OmpSupportTests.swift in Sources */,
 				A5E01203A1B2C3D4E5F60718 /* OpenCodeHookRegressionTests.swift in Sources */,
 				C44550000000000000000001 /* PanelOwnedNativeViewSessionTests.swift in Sources */,
+				D1F0A00300000000000000C1 /* PhonePushPresenceGateTests.swift in Sources */,
 					B3575000000000000000000A /* PiVaultAgentPersistenceTests.swift in Sources */,
 					D0B10008A1B2C3D4E5F60001 /* PortalTabDragRoutingTests.swift in Sources */,
 					F4100000A1B2C3D4E5F60718 /* PortScannerTests.swift in Sources */,

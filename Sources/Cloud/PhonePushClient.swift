@@ -9,6 +9,32 @@ enum PhonePushSettings {
     /// When true, forward a generic message instead of the real title/body so
     /// terminal content never leaves the Mac.
     static let hideContentKey = "forwardNotificationsHideContent"
+    /// WHEN forwards happen once the master gate is on: a
+    /// ``PhoneForwardingMode`` raw value. Missing/unrecognized values fall
+    /// back to ``PhoneForwardingMode/defaultMode`` (only when away).
+    static let forwardModeKey = "forwardNotificationsToPhoneMode"
+}
+
+/// Refines WHEN notifications are forwarded once
+/// ``PhonePushSettings/forwardEnabledKey`` is on. It never widens forwarding:
+/// the master toggle stays the opt-in.
+enum PhoneForwardingMode: String, CaseIterable {
+    /// Forward only while the user is away from this Mac (the default,
+    /// including for users who enabled forwarding before this mode existed).
+    case onlyWhenAway
+    /// Forward every notification regardless of Mac presence.
+    case always
+
+    static let defaultMode: PhoneForwardingMode = .onlyWhenAway
+
+    static func fromDefaults(_ defaults: UserDefaults = .standard) -> PhoneForwardingMode {
+        guard let raw = defaults.string(forKey: PhonePushSettings.forwardModeKey),
+              let mode = PhoneForwardingMode(rawValue: raw)
+        else {
+            return defaultMode
+        }
+        return mode
+    }
 }
 
 /// Forwards macOS terminal notifications to the user's iPhone via the cmux web
@@ -37,6 +63,17 @@ final class PhonePushClient {
 
     static var isForwardingEnabled: Bool {
         UserDefaults.standard.bool(forKey: PhonePushSettings.forwardEnabledKey)
+    }
+
+    /// The presence gate. NOT IMPLEMENTED YET: presence is ignored and every
+    /// enabled forward goes through (today's behavior).
+    nonisolated static func shouldForward(
+        mode: PhoneForwardingMode,
+        presence: MacPresenceMonitor.Decision
+    ) -> Bool {
+        _ = mode
+        _ = presence
+        return true
     }
 
     /// Forward a notification if the user opted in. Captures the fields up front
