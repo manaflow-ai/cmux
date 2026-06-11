@@ -106,7 +106,6 @@ final class SidebarWorkspaceSnapshotRefreshPolicyTests: XCTestCase {
             remoteWorkspaceSidebarText: nil,
             remoteConnectionStatusText: remoteConnectionStatusText,
             remoteStateHelpText: "",
-            showsRemoteReconnectAffordance: false,
             copyableSidebarSSHError: nil,
             latestConversationMessage: latestConversationMessage,
             metadataEntries: [],
