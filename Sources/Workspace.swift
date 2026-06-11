@@ -12426,7 +12426,7 @@ final class Workspace: Identifiable, ObservableObject {
         // idle in the resolver. recordTerminalFocus below resets the idle timer so
         // it waits a fresh idle window after you leave.
         if let resumedKind = restoredAgentSnapshotsByPanelId[panelId]?.kind {
-            setAgentLifecycle(key: resumedKind.rawValue, panelId: panelId, lifecycle: .idle)
+            setAgentLifecycle(key: resumedKind.lifecycleStatusKey, panelId: panelId, lifecycle: .idle)
         }
         AgentHibernationController.shared.recordTerminalFocus(workspaceId: id, panelId: panelId)
         if focus {

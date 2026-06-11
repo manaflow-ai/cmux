@@ -87,6 +87,17 @@ enum RestorableAgentKind: Codable, Hashable, Sendable {
         }
     }
 
+    /// The status key used by the agent's CLI hook for `set_agent_lifecycle` commands.
+    /// Matches `AgentHibernationLifecycleStatusKeys.allowedStatusKeys`.
+    /// Claude's hook uses `claude_code` while the restorable-agent identity is `claude`,
+    /// so the two keys are different; all other agents share their rawValue and status key.
+    var lifecycleStatusKey: String {
+        switch self {
+        case .claude: return "claude_code"
+        default: return rawValue
+        }
+    }
+
     var customAgentID: String? {
         if case .custom(let id) = self {
             return id
