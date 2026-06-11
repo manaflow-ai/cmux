@@ -64,20 +64,22 @@ final class RendererRealizationController {
     private init() {}
 
     func start() {
-        guard settingsObserver == nil else {
-            updateTimerForCurrentSettings()
-            return
-        }
-        settingsObserver = NotificationCenter.default.addObserver(
-            forName: RendererRealizationSettings.didChangeNotification,
-            object: nil,
-            queue: .main
-        ) { _ in
-            Task { @MainActor in
-                RendererRealizationController.shared.updateTimerForCurrentSettings()
+        if settingsObserver == nil {
+            // An immediate pass when the setting changes (command palette /
+            // cmux.json post this). The always-on timer below is the safety net
+            // for write paths that do NOT post it (the Settings-window toggle
+            // writes the default directly), so re-enabling always takes effect.
+            settingsObserver = NotificationCenter.default.addObserver(
+                forName: RendererRealizationSettings.didChangeNotification,
+                object: nil,
+                queue: .main
+            ) { _ in
+                Task { @MainActor in
+                    RendererRealizationController.shared.evaluate(now: Date())
+                }
             }
         }
-        updateTimerForCurrentSettings()
+        ensureTimerRunning()
     }
 
     func stop() {
@@ -89,12 +91,14 @@ final class RendererRealizationController {
         }
     }
 
-    private func updateTimerForCurrentSettings() {
-        guard RendererRealizationSettings.isEnabled() else {
-            timer?.cancel()
-            timer = nil
-            return
-        }
+    /// The timer always runs once started; `evaluate` reads `enabled` fresh each
+    /// pass and no-ops when the feature is off. Keeping it running (rather than
+    /// cancelling when disabled) means toggling the setting back on from any
+    /// surface, including the Settings window which writes UserDefaults directly
+    /// without posting a change notification, takes effect on the next pass
+    /// instead of requiring a relaunch. The disabled-pass cost is a settings read
+    /// plus an early return every 20s.
+    private func ensureTimerRunning() {
         guard timer == nil else { return }
         let timer = DispatchSource.makeTimerSource(queue: timerQueue)
         timer.schedule(deadline: .now() + 10, repeating: 20)
