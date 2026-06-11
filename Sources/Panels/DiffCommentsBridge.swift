@@ -109,7 +109,7 @@ final class DiffCommentsBridge: NSObject, WKScriptMessageHandlerWithReply {
         ["ok": false, "error": ["code": error.code, "userMessage": error.userMessage]]
     }
 
-    nonisolated static func isTrustedDiffViewerFrame(_ frameInfo: WKFrameInfo) -> Bool {
+    static func isTrustedDiffViewerFrame(_ frameInfo: WKFrameInfo) -> Bool {
         guard frameInfo.isMainFrame,
               let token = diffViewerToken(from: frameInfo.request.url) else {
             return false
@@ -123,7 +123,7 @@ final class DiffCommentsBridge: NSObject, WKScriptMessageHandlerWithReply {
     /// once the app boots, so live bridge messages carry a different fragment
     /// than the URL the page was opened with. Token registration (checked by
     /// the caller) remains the trust authority.
-    nonisolated static func diffViewerToken(from url: URL?) -> String? {
+    static func diffViewerToken(from url: URL?) -> String? {
         if let components = CmuxDiffViewerURLSchemeHandler.diffViewerComponents(from: url) {
             return components.token
         }

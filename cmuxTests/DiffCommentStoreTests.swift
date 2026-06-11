@@ -165,6 +165,7 @@ final class DiffCommentSubmissionPoolTests: XCTestCase {
     }
 }
 
+@MainActor
 final class DiffCommentsBridgeTokenTests: XCTestCase {
     private let token = "0c33124b-9f59-4ba2-a2c2-9bd3b1cba001"
 
