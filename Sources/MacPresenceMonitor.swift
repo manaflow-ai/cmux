@@ -92,6 +92,29 @@ struct MacPresenceMonitor {
     }
 }
 
+/// Coalesces presence evaluations under notification bursts: live signal
+/// sampling (WindowServer session dictionary, display state, running apps,
+/// HID timestamps) runs at most once per ``ttl``; callers inside the window
+/// get the cached decision. Presence changes on the order of minutes, so a
+/// 1 s reuse window cannot meaningfully change a forwarding outcome.
+struct MacPresenceDecisionCache {
+    static let ttl: TimeInterval = 1.0
+
+    private var last: MacPresenceMonitor.Decision?
+
+    mutating func decision(from monitor: MacPresenceMonitor) -> MacPresenceMonitor.Decision {
+        let now = monitor.now()
+        if let last,
+           now >= last.evaluatedAt,
+           now.timeIntervalSince(last.evaluatedAt) < Self.ttl {
+            return last
+        }
+        let fresh = monitor.evaluate()
+        last = fresh
+        return fresh
+    }
+}
+
 extension MacPresenceMonitor {
     /// Production monitor backed by the real WindowServer/HID signals.
     static func live(now: @escaping () -> Date = Date.init) -> MacPresenceMonitor {

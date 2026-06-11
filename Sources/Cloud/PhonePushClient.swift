@@ -55,6 +55,8 @@ final class PhonePushClient {
     private static let minInterval: TimeInterval = 1.0
     /// Presence source for the "only when away" mode. Injectable for tests.
     var presenceMonitor: MacPresenceMonitor = .live()
+    /// Bounds live presence sampling to once per second under bursts.
+    private var presenceCache = MacPresenceDecisionCache()
 
     private init() {}
 
@@ -90,14 +92,20 @@ final class PhonePushClient {
         guard Self.isForwardingEnabled else { return }
 
         // Presence gate, evaluated per notification at delivery time so the
-        // phone never receives a suppressed push. Checked before the throttle
-        // so a suppressed notification does not consume the throttle slot.
-        let presence = presenceMonitor.evaluate()
-        guard Self.shouldForward(mode: .fromDefaults(), presence: presence) else {
+        // phone never receives a suppressed push. Checked before the send
+        // throttle so a suppressed notification does not consume the throttle
+        // slot. `.always` skips presence sampling entirely (`shouldForward`
+        // is constant true there), and the cache bounds live WindowServer/HID
+        // sampling to once per `MacPresenceDecisionCache.ttl` under bursts.
+        let mode = PhoneForwardingMode.fromDefaults()
+        if mode != .always {
+            let presence = presenceCache.decision(from: presenceMonitor)
+            guard Self.shouldForward(mode: mode, presence: presence) else {
 #if DEBUG
-            cmuxDebugLog("phonepush.suppressed reason=macActive verdict=\(presence.verdict)")
+                cmuxDebugLog("phonepush.suppressed reason=macActive verdict=\(presence.verdict)")
 #endif
-            return
+                return
+            }
         }
 
         let key = "\(notification.tabId.uuidString):\(notification.surfaceId?.uuidString ?? "")"
