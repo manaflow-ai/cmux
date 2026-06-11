@@ -391,6 +391,14 @@ enum NotesTreeStorage {
         for name in names {
             if name.hasPrefix(".") || name == workspaceMarkerName || name == sessionMarkerName { continue }
             let full = (directory as NSString).appendingPathComponent(name)
+            // Never traverse symlinks: a project-controlled link under
+            // `.cmux/notes` (e.g. `home -> $HOME`) must not let the tree
+            // list, open, or watch files outside the notes root. Mutations
+            // canonicalize separately; listing is the first boundary.
+            if let type = (try? fm.attributesOfItem(atPath: full))?[.type] as? FileAttributeType,
+               type == .typeSymbolicLink {
+                continue
+            }
             var isDir: ObjCBool = false
             guard fm.fileExists(atPath: full, isDirectory: &isDir) else { continue }
             if isDir.boolValue {

@@ -11,6 +11,7 @@ final class RightSidebarCommandPaletteTests: XCTestCase {
     func testCommandPaletteIncludesDefaultRightSidebarModes() throws {
         try withSavedBetaFeatureDefaults {
             let defaults = UserDefaults.standard
+            defaults.removeObject(forKey: RightSidebarBetaFeatureSettings.notesEnabledKey)
             defaults.removeObject(forKey: RightSidebarBetaFeatureSettings.feedEnabledKey)
             defaults.removeObject(forKey: RightSidebarBetaFeatureSettings.dockEnabledKey)
             let contributions = ContentView.commandPaletteRightSidebarModeCommandContributions()
@@ -36,17 +37,32 @@ final class RightSidebarCommandPaletteTests: XCTestCase {
                 XCTAssertTrue(contribution.enablement(context))
             }
 
-            // files, notes, find, sessions are always available; feed/dock are off by default.
-            XCTAssertEqual(contributions.count, 4)
-            XCTAssertNotNil(contributionsByID[ContentView.commandPaletteRightSidebarModeCommandID(.notes)])
+            // files, find, sessions are always available; notes/feed/dock are
+            // beta features, off by default.
+            XCTAssertEqual(contributions.count, 3)
+            XCTAssertNil(contributionsByID[ContentView.commandPaletteRightSidebarModeCommandID(.notes)])
             XCTAssertNil(contributionsByID[ContentView.commandPaletteRightSidebarModeCommandID(.feed)])
             XCTAssertNil(contributionsByID[ContentView.commandPaletteRightSidebarModeCommandID(.dock)])
+        }
+    }
+
+    func testCommandPaletteIncludesNotesWhenBetaEnabled() throws {
+        try withSavedBetaFeatureDefaults {
+            let defaults = UserDefaults.standard
+            defaults.set(true, forKey: RightSidebarBetaFeatureSettings.notesEnabledKey)
+            defaults.removeObject(forKey: RightSidebarBetaFeatureSettings.feedEnabledKey)
+            defaults.removeObject(forKey: RightSidebarBetaFeatureSettings.dockEnabledKey)
+            let contributions = ContentView.commandPaletteRightSidebarModeCommandContributions()
+            let contributionsByID = Dictionary(uniqueKeysWithValues: contributions.map { ($0.commandId, $0) })
+            XCTAssertEqual(contributions.count, 4)
+            XCTAssertNotNil(contributionsByID[ContentView.commandPaletteRightSidebarModeCommandID(.notes)])
         }
     }
 
     func testCommandPaletteRightSidebarActionsUseModeShortcutActions() {
         withSavedBetaFeatureDefaults {
             let defaults = UserDefaults.standard
+            defaults.set(true, forKey: RightSidebarBetaFeatureSettings.notesEnabledKey)
             defaults.set(true, forKey: RightSidebarBetaFeatureSettings.feedEnabledKey)
             defaults.set(true, forKey: RightSidebarBetaFeatureSettings.dockEnabledKey)
 
@@ -74,9 +90,11 @@ final class RightSidebarCommandPaletteTests: XCTestCase {
 
     private func withSavedBetaFeatureDefaults(_ body: () throws -> Void) rethrows {
         let defaults = UserDefaults.standard
+        let previousNotes = defaults.object(forKey: RightSidebarBetaFeatureSettings.notesEnabledKey)
         let previousFeed = defaults.object(forKey: RightSidebarBetaFeatureSettings.feedEnabledKey)
         let previousDock = defaults.object(forKey: RightSidebarBetaFeatureSettings.dockEnabledKey)
         defer {
+            restore(previousNotes, forKey: RightSidebarBetaFeatureSettings.notesEnabledKey)
             restore(previousFeed, forKey: RightSidebarBetaFeatureSettings.feedEnabledKey)
             restore(previousDock, forKey: RightSidebarBetaFeatureSettings.dockEnabledKey)
         }

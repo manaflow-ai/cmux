@@ -457,6 +457,32 @@ import Testing
         #expect(try CmuxNoteStore.list(projectRoot: projectRoot).first { $0.slug == "tracked" } == nil)
     }
 
+    /// Symlinked children are never listed: a project-controlled link under
+    /// the notes root must not let the tree traverse, open, or watch paths
+    /// outside it.
+    @Test func listEntriesSkipsSymlinkedChildren() throws {
+        let root = try NotesTreeStorage.ensureWorkspaceRoot(
+            projectRoot: projectRoot, cwd: "/work", title: "WS", anchorId: "anchor-link"
+        )
+        let outside = (projectRoot as NSString).appendingPathComponent("outside")
+        try fm.createDirectory(atPath: outside, withIntermediateDirectories: true)
+        try write("secret", to: (outside as NSString).appendingPathComponent("leak.md"))
+        try fm.createSymbolicLink(
+            atPath: (root as NSString).appendingPathComponent("escape"),
+            withDestinationPath: outside
+        )
+        try fm.createSymbolicLink(
+            atPath: (root as NSString).appendingPathComponent("alias.md"),
+            withDestinationPath: (outside as NSString).appendingPathComponent("leak.md")
+        )
+        try write("real", to: (root as NSString).appendingPathComponent("real.md"))
+
+        let names = NotesTreeStorage.listEntries(inDirectory: root).map(\.name)
+        #expect(names.contains("real.md"))
+        #expect(!names.contains("escape"))
+        #expect(!names.contains("alias.md"))
+    }
+
     /// A case-only rename must stay in place instead of colliding with
     /// itself on the (default) case-insensitive filesystem and coming back
     /// numerically suffixed (`Todo-2.md`).
