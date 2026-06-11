@@ -33,6 +33,11 @@ struct WorkspaceDetailView: View {
     @State private var isSubmittingFeedback = false
     @State private var feedbackErrorMessage: String?
     @State private var isTextSheetPresented = false
+    /// Captured at the moment the "View as Text" action is tapped so the
+    /// sheet keeps showing the terminal the user asked about even if the
+    /// workspace selection changes underneath it (e.g. Mac-side sync) while
+    /// the sheet is open; the sheet loads its snapshot once per presentation.
+    @State private var textSheetSurfaceID: String?
     #endif
 
     private var selectedTerminal: MobileTerminalPreview? {
@@ -191,7 +196,7 @@ struct WorkspaceDetailView: View {
             feedbackComposer
         }
         .sheet(isPresented: $isTextSheetPresented) {
-            TerminalTextSheetView(surfaceID: selectedTerminal?.id.rawValue)
+            TerminalTextSheetView(surfaceID: textSheetSurfaceID)
         }
         #endif
     }
@@ -326,6 +331,7 @@ struct WorkspaceDetailView: View {
     /// Opens the "View as Text" sheet: the terminal's content as selectable
     /// plain text, because the render surface itself has no copy affordance.
     private func openTextSheetFromMenu() {
+        textSheetSurfaceID = selectedTerminal?.id.rawValue
         isTextSheetPresented = true
     }
 
