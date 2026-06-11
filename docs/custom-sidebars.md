@@ -6,7 +6,7 @@ native SwiftUI in the real sidebar, hot-reloads on save, binds to live cmux
 state, and can run cmux commands on tap. This guide is the authoring contract
 for you or a coding agent.
 
-It is an opt-in beta: turn on **Settings → Beta features → Custom sidebars**
+It is a beta, on by default. Turn it off in **Settings → Custom Sidebars**
 (`customSidebars.beta.enabled`). While off, custom sidebars do not appear.
 
 ## If you are an agent building this for someone
