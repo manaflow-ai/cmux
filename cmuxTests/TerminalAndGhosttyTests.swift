@@ -1966,6 +1966,36 @@ final class TerminalOffscreenStartupTests: XCTestCase {
         )
     }
 
+    /// Superseded phone-banner dismissals are deferred behind the (throttled)
+    /// replacement push: the buffer must accumulate ids across throttled
+    /// supersedes, dedupe replays, and hand everything over exactly once when
+    /// the replacement push finally goes out.
+    func testSupersededPhoneDismissBufferAccumulatesAndFlushesOnce() {
+        var buffer = SupersededPhoneDismissBuffer()
+        let key = SupersededPhoneDismissBuffer.key(tabId: UUID(), surfaceId: UUID())
+
+        buffer.stash(ids: ["a"], forKey: key)
+        buffer.stash(ids: ["b", "a"], forKey: key) // replayed "a" kept once
+
+        XCTAssertEqual(buffer.flush(forKey: key), ["a", "b"])
+        XCTAssertEqual(buffer.flush(forKey: key), [])
+    }
+
+    func testSupersededPhoneDismissBufferIsBoundedAndPerKey() {
+        var buffer = SupersededPhoneDismissBuffer()
+        let hot = SupersededPhoneDismissBuffer.key(tabId: UUID(), surfaceId: UUID())
+        let other = SupersededPhoneDismissBuffer.key(tabId: UUID(), surfaceId: nil)
+
+        buffer.stash(ids: (0..<70).map { "n-\($0)" }, forKey: hot)
+        buffer.stash(ids: ["x"], forKey: other)
+
+        let flushed = buffer.flush(forKey: hot)
+        XCTAssertEqual(flushed.count, SupersededPhoneDismissBuffer.capacityPerKey)
+        XCTAssertEqual(flushed.first, "n-6") // oldest evicted past the cap
+        XCTAssertEqual(flushed.last, "n-69")
+        XCTAssertEqual(buffer.flush(forKey: other), ["x"]) // keys independent
+    }
+
     /// The phone badge counts unread notification entries only. Workspace-level
     /// manual unread indicators feed the Mac Dock badge but have no phone banner,
     /// so they must not inflate the phone count.
