@@ -8,6 +8,7 @@ import CFNetwork
 import SQLite3
 import CryptoKit
 import Darwin
+import UniformTypeIdentifiers
 #if canImport(CommonCrypto)
 import CommonCrypto
 #endif
@@ -4474,52 +4475,46 @@ final class BrowserPanel: Panel, ObservableObject {
         // Downloads save to a temp file synchronously (no NSSavePanel during WebKit
         // callbacks), then show NSSavePanel after the download completes.
         let dlDelegate = BrowserDownloadDelegate()
-        dlDelegate.onDownloadStarted = { [weak self] filename in
+        let postDownloadEvent: ([String: Any]) -> Void = { [weak self] event in
             guard let self else { return }
-            self.beginDownloadActivity()
             NotificationCenter.default.post(
                 name: .browserDownloadEventDidArrive,
                 object: self,
                 userInfo: [
                     "surfaceId": self.id,
                     "workspaceId": self.workspaceId,
-                    "event": [
-                        "type": "started",
-                        "filename": filename
-                    ]
+                    "event": event
                 ]
             )
+        }
+        dlDelegate.onDownloadStarted = { [weak self] filename in
+            guard let self else { return }
+            self.beginDownloadActivity()
+            postDownloadEvent([
+                "type": "started",
+                "filename": filename
+            ])
         }
         dlDelegate.onDownloadReadyToSave = { [weak self] in
             guard let self else { return }
             self.endDownloadActivity()
-            NotificationCenter.default.post(
-                name: .browserDownloadEventDidArrive,
-                object: self,
-                userInfo: [
-                    "surfaceId": self.id,
-                    "workspaceId": self.workspaceId,
-                    "event": [
-                        "type": "ready_to_save"
-                    ]
-                ]
-            )
+            postDownloadEvent([
+                "type": "ready_to_save"
+            ])
         }
-        dlDelegate.onDownloadFailed = { [weak self] error in
+        dlDelegate.onDownloadFailed = { [weak self] _ in
             guard let self else { return }
             self.endDownloadActivity()
-            NotificationCenter.default.post(
-                name: .browserDownloadEventDidArrive,
-                object: self,
-                userInfo: [
-                    "surfaceId": self.id,
-                    "workspaceId": self.workspaceId,
-                    "event": [
-                        "type": "failed",
-                        "error": error.localizedDescription
-                    ]
-                ]
-            )
+            postDownloadEvent([
+                "type": "failed",
+                "code": "download_failed"
+            ])
+        }
+        dlDelegate.onDownloadSaveFailed = { _ in
+            postDownloadEvent([
+                "type": "failed",
+                "code": "download_save_failed"
+            ])
         }
         navDelegate.downloadDelegate = dlDelegate
         self.downloadDelegate = dlDelegate
@@ -4527,6 +4522,7 @@ final class BrowserPanel: Panel, ObservableObject {
 
         // Set up UI delegate (handles cmd+click, target=_blank, and context menu)
         let browserUIDelegate = BrowserUIDelegate()
+        browserUIDelegate.downloadDelegate = dlDelegate
         browserUIDelegate.openInNewTab = { [weak self] url in
             guard let self else { return }
             self.openLinkInNewTab(url: url)
@@ -8805,20 +8801,38 @@ private extension NSObject {
 
 // MARK: - Download Delegate
 
+private final class WeakWindow {
+    weak var window: NSWindow?
+
+    init(_ window: NSWindow?) {
+        self.window = window
+    }
+}
+
 /// Handles WKDownload lifecycle by saving to a temp file synchronously (no UI
 /// during WebKit callbacks), then showing NSSavePanel after the download finishes.
+@MainActor
 class BrowserDownloadDelegate: NSObject, WKDownloadDelegate {
-    private struct DownloadState {
+    private final class DownloadState {
         let tempURL: URL
         let suggestedFilename: String
+        weak var presentingWindow: NSWindow?
+
+        init(tempURL: URL, suggestedFilename: String, presentingWindow: NSWindow?) {
+            self.tempURL = tempURL
+            self.suggestedFilename = suggestedFilename
+            self.presentingWindow = presentingWindow
+        }
     }
 
     /// Tracks active downloads keyed by WKDownload identity.
     private var activeDownloads: [ObjectIdentifier: DownloadState] = [:]
-    private let activeDownloadsLock = NSLock()
+    private var downloadWindows: [ObjectIdentifier: WeakWindow] = [:]
+    private var activeSavePanels: [ObjectIdentifier: NSSavePanel] = [:]
     var onDownloadStarted: ((String) -> Void)?
     var onDownloadReadyToSave: (() -> Void)?
     var onDownloadFailed: ((Error) -> Void)?
+    var onDownloadSaveFailed: ((Error) -> Void)?
 
     private static let tempDir: URL = {
         let dir = FileManager.default.temporaryDirectory.appendingPathComponent("cmux-downloads", isDirectory: true)
@@ -8836,25 +8850,100 @@ class BrowserDownloadDelegate: NSObject, WKDownloadDelegate {
         return safe.isEmpty ? "download" : safe
     }
 
+    private static func preferredFilenameExtension(mimeType: String?, fallbackURL: URL?) -> String? {
+        if let mimeType,
+           let preferred = UTType(mimeType: mimeType)?.preferredFilenameExtension,
+           !preferred.isEmpty {
+            return preferred
+        }
+
+        if let mimeType, mimeType.caseInsensitiveCompare("application/pdf") == .orderedSame {
+            return "pdf"
+        }
+
+        let fallbackExtension = fallbackURL?.pathExtension.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        return fallbackExtension.isEmpty ? nil : fallbackExtension
+    }
+
+    static func filename(
+        from suggestedFilename: String,
+        fallbackURL: URL?,
+        mimeType: String?
+    ) -> String {
+        var safeFilename = sanitizedFilename(suggestedFilename, fallbackURL: fallbackURL)
+        let existingExtension = (safeFilename as NSString).pathExtension
+        if existingExtension.isEmpty,
+           let inferredExtension = preferredFilenameExtension(mimeType: mimeType, fallbackURL: fallbackURL) {
+            safeFilename += ".\(inferredExtension)"
+        }
+        return safeFilename
+    }
+
+    func prepareForDownload(_ download: WKDownload, presentingWindow: NSWindow?) {
+        downloadWindows[ObjectIdentifier(download)] = WeakWindow(presentingWindow)
+    }
+
     private func storeState(_ state: DownloadState, for download: WKDownload) {
-        activeDownloadsLock.lock()
         activeDownloads[ObjectIdentifier(download)] = state
-        activeDownloadsLock.unlock()
     }
 
     private func removeState(for download: WKDownload) -> DownloadState? {
-        activeDownloadsLock.lock()
-        let state = activeDownloads.removeValue(forKey: ObjectIdentifier(download))
-        activeDownloadsLock.unlock()
+        let identifier = ObjectIdentifier(download)
+        let state = activeDownloads.removeValue(forKey: identifier)
+        downloadWindows.removeValue(forKey: identifier)
         return state
     }
 
-    private func notifyOnMain(_ action: @escaping () -> Void) {
-        if Thread.isMainThread {
-            action()
-        } else {
-            DispatchQueue.main.async(execute: action)
+    private func presentingWindow(for download: WKDownload) -> NSWindow? {
+        downloadWindows[ObjectIdentifier(download)]?.window
+    }
+
+    func presentSavePanel(
+        _ savePanel: NSSavePanel,
+        presentingWindow: NSWindow?,
+        completionHandler: @escaping (NSApplication.ModalResponse) -> Void
+    ) {
+        let panelID = ObjectIdentifier(savePanel)
+        activeSavePanels[panelID] = savePanel
+        let retainedCompletion: (NSApplication.ModalResponse) -> Void = { [weak self] result in
+            completionHandler(result)
+            self?.activeSavePanels.removeValue(forKey: panelID)
         }
+
+#if DEBUG
+        cmuxDebugLog("download.savePanel.present file=\(savePanel.nameFieldStringValue) sheet=\(presentingWindow == nil ? 0 : 1)")
+#endif
+        if let presentingWindow {
+            savePanel.beginSheetModal(for: presentingWindow, completionHandler: retainedCompletion)
+        } else {
+            savePanel.begin(completionHandler: retainedCompletion)
+        }
+    }
+
+    private func presentFinishedDownloadSavePanel(_ info: DownloadState) {
+        onDownloadReadyToSave?()
+        let savePanel = NSSavePanel()
+        savePanel.nameFieldStringValue = info.suggestedFilename
+        savePanel.canCreateDirectories = true
+        savePanel.directoryURL = FileManager.default.urls(for: .downloadsDirectory, in: .userDomainMask).first
+
+        let handleResult: (NSApplication.ModalResponse) -> Void = { result in
+            guard result == .OK, let destURL = savePanel.url else {
+                try? FileManager.default.removeItem(at: info.tempURL)
+                return
+            }
+            do {
+                try? FileManager.default.removeItem(at: destURL)
+                try FileManager.default.moveItem(at: info.tempURL, to: destURL)
+                NSLog("BrowserPanel download saved: %@", destURL.path)
+            } catch {
+                NSLog("BrowserPanel download move failed: %@", error.localizedDescription)
+                try? FileManager.default.removeItem(at: info.tempURL)
+                self.onDownloadSaveFailed?(error)
+            }
+        }
+
+        presentSavePanel(savePanel, presentingWindow: info.presentingWindow, completionHandler: handleResult)
     }
 
     func download(
@@ -8864,14 +8953,23 @@ class BrowserDownloadDelegate: NSObject, WKDownloadDelegate {
         completionHandler: @escaping (URL?) -> Void
     ) {
         // Save to a temp file — return synchronously so WebKit is never blocked.
-        let safeFilename = Self.sanitizedFilename(suggestedFilename, fallbackURL: response.url)
+        let safeFilename = Self.filename(
+            from: suggestedFilename,
+            fallbackURL: response.url,
+            mimeType: response.mimeType
+        )
         let tempFilename = "\(UUID().uuidString)-\(safeFilename)"
         let destURL = Self.tempDir.appendingPathComponent(tempFilename, isDirectory: false)
         try? FileManager.default.removeItem(at: destURL)
-        storeState(DownloadState(tempURL: destURL, suggestedFilename: safeFilename), for: download)
-        notifyOnMain { [weak self] in
-            self?.onDownloadStarted?(safeFilename)
-        }
+        storeState(
+            DownloadState(
+                tempURL: destURL,
+                suggestedFilename: safeFilename,
+                presentingWindow: presentingWindow(for: download)
+            ),
+            for: download
+        )
+        onDownloadStarted?(safeFilename)
         #if DEBUG
         cmuxDebugLog("download.decideDestination file=\(safeFilename)")
         #endif
@@ -8891,28 +8989,12 @@ class BrowserDownloadDelegate: NSObject, WKDownloadDelegate {
         #endif
         NSLog("BrowserPanel download finished: %@", info.suggestedFilename)
 
-        // Show NSSavePanel on the next runloop iteration (safe context).
-        DispatchQueue.main.async {
-            self.onDownloadReadyToSave?()
-            let savePanel = NSSavePanel()
-            savePanel.nameFieldStringValue = info.suggestedFilename
-            savePanel.canCreateDirectories = true
-            savePanel.directoryURL = FileManager.default.urls(for: .downloadsDirectory, in: .userDomainMask).first
-
-            savePanel.begin { result in
-                guard result == .OK, let destURL = savePanel.url else {
-                    try? FileManager.default.removeItem(at: info.tempURL)
-                    return
-                }
-                do {
-                    try? FileManager.default.removeItem(at: destURL)
-                    try FileManager.default.moveItem(at: info.tempURL, to: destURL)
-                    NSLog("BrowserPanel download saved: %@", destURL.path)
-                } catch {
-                    NSLog("BrowserPanel download move failed: %@", error.localizedDescription)
-                    try? FileManager.default.removeItem(at: info.tempURL)
-                }
+        Task { @MainActor [weak self] in
+            guard let self else {
+                try? FileManager.default.removeItem(at: info.tempURL)
+                return
             }
+            self.presentFinishedDownloadSavePanel(info)
         }
     }
 
@@ -8920,14 +9002,13 @@ class BrowserDownloadDelegate: NSObject, WKDownloadDelegate {
         if let info = removeState(for: download) {
             try? FileManager.default.removeItem(at: info.tempURL)
         }
-        notifyOnMain { [weak self] in
-            self?.onDownloadFailed?(error)
-        }
+        onDownloadFailed?(error)
         #if DEBUG
         cmuxDebugLog("download.failed error=\(error.localizedDescription)")
         #endif
         NSLog("BrowserPanel download failed: %@", error.localizedDescription)
     }
+
 }
 
 // MARK: - Navigation Delegate
@@ -9151,7 +9232,7 @@ private class BrowserNavigationDelegate: NSObject, WKNavigationDelegate {
     var shouldBlockInsecureHTTPNavigation: ((URL) -> Bool)?
     var handleBlockedInsecureHTTPNavigation: ((URLRequest, BrowserInsecureHTTPNavigationIntent) -> Void)?
     /// Direct reference to the download delegate — must be set synchronously in didBecome callbacks.
-    var downloadDelegate: WKDownloadDelegate?
+    var downloadDelegate: BrowserDownloadDelegate?
     /// The URL of the last navigation that was attempted. Used to preserve the omnibar URL
     /// when a provisional navigation fails (e.g. connection refused on localhost:3000).
     var lastAttemptedURL: URL?
@@ -9488,6 +9569,7 @@ private class BrowserNavigationDelegate: NSObject, WKNavigationDelegate {
         cmuxDebugLog("download.didBecome source=navigationAction")
         #endif
         NSLog("BrowserPanel download didBecome from navigationAction")
+        downloadDelegate?.prepareForDownload(download, presentingWindow: webView.window)
         download.delegate = downloadDelegate
     }
 
@@ -9496,6 +9578,7 @@ private class BrowserNavigationDelegate: NSObject, WKNavigationDelegate {
         cmuxDebugLog("download.didBecome source=navigationResponse")
         #endif
         NSLog("BrowserPanel download didBecome from navigationResponse")
+        downloadDelegate?.prepareForDownload(download, presentingWindow: webView.window)
         download.delegate = downloadDelegate
     }
 }
@@ -9503,6 +9586,7 @@ private class BrowserNavigationDelegate: NSObject, WKNavigationDelegate {
 // MARK: - UI Delegate
 
 private class BrowserUIDelegate: NSObject, WKUIDelegate {
+    weak var downloadDelegate: BrowserDownloadDelegate?
     var openInNewTab: ((URL) -> Void)?
     var requestNavigation: ((URLRequest, BrowserInsecureHTTPNavigationIntent) -> Void)?
     var presentAlert: BrowserAlertPresenter = browserPresentAlert
@@ -9511,6 +9595,45 @@ private class BrowserUIDelegate: NSObject, WKUIDelegate {
 
     func webViewDidClose(_ webView: WKWebView) {
         closeRequested?(webView)
+    }
+
+    @objc(_webView:saveDataToFile:suggestedFilename:mimeType:originatingURL:)
+    func _webView(
+        _ webView: WKWebView,
+        saveDataToFile data: NSData?,
+        suggestedFilename: String?,
+        mimeType: String?,
+        originatingURL url: URL?
+    ) {
+#if DEBUG
+        cmuxDebugLog("browser.pdfPreview.save requested filename=\(suggestedFilename ?? "nil")")
+#endif
+        BrowserPDFPreviewActionSupport.saveDataToFile(
+            data,
+            suggestedFilename: suggestedFilename,
+            mimeType: mimeType,
+            originatingURL: url,
+            from: webView,
+            downloadDelegate: downloadDelegate
+        )
+    }
+
+    @objc(_webView:printFrame:pdfFirstPageSize:completionHandler:)
+    func _webView(
+        _ webView: WKWebView,
+        printFrame frame: AnyObject,
+        pdfFirstPageSize size: CGSize,
+        completionHandler: @escaping () -> Void
+    ) {
+        _ = frame
+#if DEBUG
+        cmuxDebugLog("browser.pdfPreview.print requested size=\(Int(size.width))x\(Int(size.height))")
+#endif
+        BrowserPDFPreviewActionSupport.printFrame(
+            from: webView,
+            pdfFirstPageSize: size,
+            completionHandler: completionHandler
+        )
     }
 
     private func javaScriptDialogTitle(for webView: WKWebView) -> String {

@@ -1644,6 +1644,42 @@ final class CmuxWebViewContextMenuTests: XCTestCase {
     }
 }
 
+final class BrowserPDFPreviewActionDelegateTests: XCTestCase {
+    private let saveDataSelector = NSSelectorFromString(
+        "_webView:saveDataToFile:suggestedFilename:mimeType:originatingURL:"
+    )
+    private let printFrameSelector = NSSelectorFromString(
+        "_webView:printFrame:pdfFirstPageSize:completionHandler:"
+    )
+
+    @MainActor
+    func testInlineBrowserUIDelegateHandlesWebKitPDFPreviewActions() throws {
+        let panel = BrowserPanel(workspaceId: UUID(), renderInitialNavigation: false)
+        let delegate = try XCTUnwrap(panel.webView.uiDelegate as? NSObject)
+
+        XCTAssertTrue(delegate.responds(to: saveDataSelector))
+        XCTAssertTrue(delegate.responds(to: printFrameSelector))
+    }
+
+    @MainActor
+    func testPopupBrowserUIDelegateHandlesWebKitPDFPreviewActions() throws {
+        let controller = BrowserPopupWindowController(
+            configuration: WKWebViewConfiguration(),
+            windowFeatures: WKWindowFeatures(),
+            browserContext: BrowserPopupBrowserContext(
+                websiteDataStore: .nonPersistent()
+            ),
+            openerPanel: nil
+        )
+        defer { controller.closePopup() }
+
+        let delegate = try XCTUnwrap(controller.webView.uiDelegate as? NSObject)
+
+        XCTAssertTrue(delegate.responds(to: saveDataSelector))
+        XCTAssertTrue(delegate.responds(to: printFrameSelector))
+    }
+}
+
 
 final class BrowserDevToolsButtonDebugSettingsTests: XCTestCase {
     private func makeIsolatedDefaults() -> UserDefaults {
