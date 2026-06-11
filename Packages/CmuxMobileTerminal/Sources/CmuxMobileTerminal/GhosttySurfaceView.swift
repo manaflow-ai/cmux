@@ -1213,6 +1213,12 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     /// chrome actions (create workspace/terminal, switch terminal) so the
     /// software keyboard does not pop up unprompted.
     public var autoFocusOnWindowAttach = true
+    /// The shell-level surface/terminal id this view renders (the id the
+    /// workspace store streams bytes for), stamped by the mounting
+    /// representable. Scopes registry lookups — e.g. the "View as Text"
+    /// capture — to the terminal the caller actually asked about, instead of
+    /// whichever registered surface happens to sort first.
+    public var hostSurfaceID: String?
 
     @objc private func handleKeyboardWillShow(_ notification: Notification) {
         guard let frameEnd = notification.userInfo?[UIResponder.keyboardFrameEndUserInfoKey] as? CGRect,
@@ -3477,18 +3483,23 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     /// matter how long the session ran. The sheet's 5000-line budget is then
     /// applied off-main on top of that hard cap.
     ///
-    /// - Returns: The surface's screen text, or nil when no terminal surface
-    ///   is on screen or the read fails.
-    public static func copyableTerminalText() async -> String? {
+    /// - Parameter surfaceID: The shell-level surface/terminal id the caller
+    ///   wants text for (the same id the mounting representable stamped on the
+    ///   view as ``hostSurfaceID``). The lookup is scoped to that id so a
+    ///   second visible surface — another iPad scene, an in-flight transition —
+    ///   can never leak a different workspace's terminal into the capture.
+    /// - Returns: The surface's screen text, or nil when that terminal has no
+    ///   mounted surface or the read fails.
+    public static func copyableTerminalText(surfaceID: String) async -> String? {
         registeredSurfaceViews = registeredSurfaceViews.filter { $0.value.value != nil }
-        // Deterministic pick: the lowest-keyed on-screen surface. The iOS
-        // detail layout shows one terminal at a time, so this is "the visible
-        // terminal" in practice.
-        let visibleView = registeredSurfaceViews
+        // Scoped pick: only views stamped with the requested id qualify. If
+        // the same terminal is mounted in several scenes the contents are
+        // identical, so the lowest-keyed match keeps the pick deterministic.
+        let matchingView = registeredSurfaceViews
             .sorted { $0.key < $1.key }
             .compactMap(\.value.value)
-            .first { $0.window != nil && !$0.isHidden && $0.alpha > 0.01 && $0.surface != nil }
-        guard let surface = visibleView?.surface else { return nil }
+            .first { $0.hostSurfaceID == surfaceID && $0.surface != nil }
+        guard let surface = matchingView?.surface else { return nil }
         let handle = CopyableTextSurfaceHandle(surface: surface)
         return await withCheckedContinuation { continuation in
             outputQueue.async {

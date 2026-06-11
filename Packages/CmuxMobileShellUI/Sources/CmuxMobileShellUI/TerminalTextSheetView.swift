@@ -16,6 +16,11 @@ import UIKit
 /// capped to `TerminalTextSnapshot.defaultLineBudget` lines, with a banner
 /// when older lines were dropped.
 struct TerminalTextSheetView: View {
+    /// The shell-level surface/terminal id whose text the sheet shows — the
+    /// terminal selected in the workspace that opened it. Nil when the
+    /// workspace has no terminal; the sheet then shows its empty state.
+    let surfaceID: String?
+
     @Environment(\.dismiss) private var dismiss
 
     /// Loaded once per presentation in `.task`; nil while the off-main surface
@@ -102,7 +107,11 @@ struct TerminalTextSheetView: View {
     }
 
     private func loadSnapshot() async {
-        let fullText = await GhosttySurfaceView.copyableTerminalText()
+        guard let surfaceID else {
+            isLoading = false
+            return
+        }
+        let fullText = await GhosttySurfaceView.copyableTerminalText(surfaceID: surfaceID)
         // Cap off the main actor: the capture is bounded by the iOS surface's
         // scrollback-limit (~2MB, see applyiOSDefaults), but splitting and
         // rejoining even that much text is O(content) string work that would
