@@ -12300,13 +12300,14 @@ final class Workspace: Identifiable, ObservableObject {
             incoming: lifecycle
         )
         agentLifecycleStatesByPanelId[targetPanelId, default: [:]][key] = resolved
-        // Only advance the lifecycle-change timestamp when the stored value actually
-        // changes. Suppressing an incoming `.unknown` (because `existing` is already
-        // definitive) must not advance `lifecycleChangeAt`: the planner uses
-        // `terminalInputAt > lifecycleChangeAt` to detect unconfirmed input, so a
-        // phantom timestamp update would clear that guard and could make a no-emit
-        // agent hibernation-eligible while it is still running.
-        if resolved != existing {
+        // Advance the lifecycle-change timestamp for any definitive event, including
+        // repeated same-value updates (e.g. a second `.idle` completion advances
+        // lifecycleChangeAt past terminalInputAt so hasUnconfirmedTerminalInput clears).
+        // Only skip the timestamp when an incoming `.unknown` was suppressed by
+        // preservingDefinitive: a phantom update there would erase the
+        // terminalInputAt > lifecycleChangeAt guard for no-emit agents mid-turn.
+        let suppressed = lifecycle == .unknown && resolved == existing
+        if !suppressed {
             recordAgentLifecycleChange(panelId: targetPanelId)
         }
     }

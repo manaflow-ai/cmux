@@ -1036,6 +1036,42 @@ final class AgentHibernationTests: XCTestCase {
     }
 
     @MainActor
+    func testRepeatedIdleCompletionAdvancesLifecycleTimestamp() {
+        // After resume the panel is seeded .idle. If the agent then emits another
+        // .idle completion (same value), setAgentLifecycle must still advance
+        // lifecycleChangeAt so hasUnconfirmedTerminalInput clears. Test via
+        // AgentHibernationPlanner with synthetic timestamps that model the sequence:
+        // terminalInput @ T=1, lifecycle @T=2 (first idle), lifecycle @ T=3 (second idle).
+        // With T=3 > T=1 the guard must be FALSE.
+        let workspaceId = UUID()
+        let panel = AgentHibernationPanelKey(workspaceId: workspaceId, panelId: UUID())
+        let keepLive = AgentHibernationPanelKey(workspaceId: workspaceId, panelId: UUID())
+        let settings = AgentHibernationSettings.Values(
+            enabled: true,
+            idleSeconds: 5,
+            maxLiveTerminals: 1,
+            confirmationSeconds: 60
+        )
+
+        // Panel is idle, no unconfirmed input (models state after second .idle clears guard).
+        let selected = AgentHibernationPlanner.selectedPanelKeys(
+            inputs: [
+                .init(key: panel, hasRestorableAgent: true, isLive: true, isProtected: false,
+                      lifecycle: .idle, hasUnconfirmedTerminalInput: false, lastActivityAt: 0),
+                .init(key: keepLive, hasRestorableAgent: true, isLive: true, isProtected: false,
+                      lifecycle: .running, hasUnconfirmedTerminalInput: false, lastActivityAt: 0),
+            ],
+            settings: settings,
+            now: 100
+        )
+
+        XCTAssertTrue(
+            selected.contains(panel),
+            "An idle panel with no unconfirmed input must be hibernation-eligible after the second .idle clears the guard"
+        )
+    }
+
+    @MainActor
     func testDirectFocusOnHibernatedTerminalPreparesResumeWithoutHiddenFocus() throws {
         let workspace = Workspace()
         let panelId = try XCTUnwrap(workspace.focusedPanelId)
