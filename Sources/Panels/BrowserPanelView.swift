@@ -134,26 +134,6 @@ private extension WKWebView {
     }
 }
 
-extension Image {
-    /// Sizes an SF Symbol from an explicit frame rather than font metrics.
-    ///
-    /// A `.font(.system(size:))`-sized symbol can rasterize at 0×0 during a
-    /// transient layout pass (e.g. while a panel's hosting view is first added
-    /// to the hierarchy, before font metrics resolve). macOS 26+ rejects a
-    /// zero raster size with an uncaught `NSInvalidArgumentException`
-    /// (`targetSizeInPoints.width>0 && targetSizeInPoints.height>0`), which
-    /// AppKit turns into a hard crash. Driving the raster size from a fixed
-    /// frame keeps it positive across every layout pass. Mirrors the fix in
-    /// `SidebarHelpMenuButton` (#5670).
-    func cmuxSymbolPixelSize(_ size: CGFloat, weight: Font.Weight = .regular) -> some View {
-        self
-            .resizable()
-            .scaledToFit()
-            .fontWeight(weight)
-            .frame(width: size, height: size, alignment: .center)
-    }
-}
-
 enum BrowserDevToolsIconOption: String, CaseIterable, Identifiable {
     case wrenchAndScrewdriver = "wrench.and.screwdriver"
     case wrenchAndScrewdriverFill = "wrench.and.screwdriver.fill"

@@ -14552,18 +14552,9 @@ private struct SidebarHelpMenuButton: View {
             isPopoverPresented.toggle()
         } label: {
             Image(systemName: "questionmark.circle")
-                .resizable()
-                .scaledToFit()
-                .fontWeight(.medium)
+                .cmuxSymbolPixelSize(iconSize, weight: .medium)
                 .symbolRenderingMode(.monochrome)
                 .foregroundStyle(Color(nsColor: .secondaryLabelColor))
-                // Drive the symbol's raster size from an explicit frame rather
-                // than font metrics. During the window's pre-visible layout pass
-                // the font metrics aren't resolved yet, so a `.font`-sized symbol
-                // rasterizes at 0×0 — which macOS 26+ rejects with an uncaught
-                // `NSInvalidArgumentException` (targetSizeInPoints.width/height>0),
-                // crashing on launch. A fixed frame keeps the raster size positive.
-                .frame(width: iconSize, height: iconSize, alignment: .center)
                 .frame(width: buttonSize, height: buttonSize, alignment: .center)
         }
         .buttonStyle(SidebarFooterIconButtonStyle())
