@@ -453,6 +453,258 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         )
     }
 
+    // MARK: - Forked conversation restore (https://github.com/manaflow-ai/cmux/issues/5908)
+    //
+    // `claude --resume <parent> --fork-session` fires SessionStart with the PARENT
+    // session id; the forked session id is only minted at the first UserPromptSubmit.
+    // Without special handling the fork pane's SessionStart steals the parent record's
+    // surface binding, and the forked session's own hooks are dropped as stale by the
+    // per-workspace active-session gate, so a restart restores the parent conversation
+    // in the fork pane and the forked conversation is lost.
+
+    private func claudeForkLaunchEnvironment(
+        context: ClaudeHookContext,
+        parentSessionId: String
+    ) -> [String: String] {
+        agentLaunchEnvironment(
+            context: context,
+            kind: "claude",
+            executable: "/usr/local/bin/claude",
+            arguments: ["/usr/local/bin/claude", "--resume", parentSessionId, "--fork-session"]
+        )
+    }
+
+    private func seedClaudeForkHookStore(
+        context: ClaudeHookContext,
+        parentSessionId: String,
+        parentSurfaceId: String,
+        forkedSessionId: String? = nil,
+        forkedSurfaceId: String? = nil,
+        activeSessionId: String,
+        activeTurnId: String?
+    ) throws {
+        let now = Date().timeIntervalSince1970
+        var sessions: [String: Any] = [
+            parentSessionId: [
+                "sessionId": parentSessionId,
+                "workspaceId": context.workspaceId,
+                "surfaceId": parentSurfaceId,
+                "cwd": context.root.path,
+                "agentLifecycle": "running",
+                "startedAt": now,
+                "updatedAt": now,
+            ],
+        ]
+        if let forkedSessionId, let forkedSurfaceId {
+            sessions[forkedSessionId] = [
+                "sessionId": forkedSessionId,
+                "workspaceId": context.workspaceId,
+                "surfaceId": forkedSurfaceId,
+                "cwd": context.root.path,
+                "agentLifecycle": "running",
+                "startedAt": now,
+                "updatedAt": now,
+            ]
+        }
+        var active: [String: Any] = [
+            "sessionId": activeSessionId,
+            "updatedAt": now,
+        ]
+        if let activeTurnId {
+            active["turnId"] = activeTurnId
+        }
+        let store: [String: Any] = [
+            "version": 1,
+            "sessions": sessions,
+            "activeSessionsByWorkspace": [context.workspaceId: active],
+        ]
+        try JSONSerialization.data(withJSONObject: store, options: [.prettyPrinted])
+            .write(
+                to: context.root.appendingPathComponent("claude-hook-sessions.json"),
+                options: .atomic
+            )
+    }
+
+    private func runClaudeHookListingSurfaces(
+        context: ClaudeHookContext,
+        surfaceIds: [String],
+        arguments: [String],
+        standardInput: String,
+        extraEnvironment: [String: String] = [:]
+    ) -> ProcessRunResult {
+        let serverHandled = startMockServer(listenerFD: context.listenerFD, state: context.state) { line in
+            guard let payload = self.jsonObject(line) else {
+                return "OK"
+            }
+            guard let id = payload["id"] as? String, let method = payload["method"] as? String else {
+                return self.malformedRequestResponse(id: payload["id"] as? String, raw: line)
+            }
+            switch method {
+            case "surface.list":
+                return self.v2Response(
+                    id: id,
+                    ok: true,
+                    result: [
+                        "surfaces": surfaceIds.enumerated().map { index, surfaceId in
+                            ["id": surfaceId, "ref": "surface:\(index + 1)", "focused": index == 0] as [String: Any]
+                        }
+                    ]
+                )
+            case "feed.push":
+                return self.v2Response(id: id, ok: true, result: [:])
+            case "surface.resume.set":
+                return self.v2Response(id: id, ok: true, result: ["resume_binding": [:]])
+            case "surface.resume.clear":
+                return self.v2Response(id: id, ok: true, result: ["cleared": true])
+            default:
+                return self.v2Response(id: id, ok: false, error: ["code": "unrecognized_method", "message": "unexpected method: \(method)"])
+            }
+        }
+
+        var environment = [
+            "HOME": context.root.path,
+            "PATH": "/usr/bin:/bin:/usr/sbin:/sbin",
+            "CMUX_SOCKET_PATH": context.socketPath,
+            "CMUX_WORKSPACE_ID": context.workspaceId,
+            "CMUX_SURFACE_ID": context.surfaceId,
+            "CMUX_CLAUDE_HOOK_STATE_PATH": context.root.appendingPathComponent("claude-hook-sessions.json").path,
+            "CMUX_CLI_SENTRY_DISABLED": "1",
+            "CMUX_CLAUDE_HOOK_SENTRY_DISABLED": "1",
+        ]
+        for (key, value) in extraEnvironment {
+            environment[key] = value
+        }
+
+        let result = runProcess(
+            executablePath: context.cliPath,
+            arguments: arguments,
+            environment: environment,
+            standardInput: standardInput,
+            timeout: 5
+        )
+        wait(for: [serverHandled], timeout: 5)
+        return result
+    }
+
+    func testClaudeForkSessionStartKeepsParentSessionBoundToOriginalSurface() throws {
+        let context = try makeClaudeHookContext(name: "claude-fork-session-start")
+        defer { context.cleanup() }
+
+        let parentSessionId = "parent-session"
+        let parentSurfaceId = "99999999-9999-9999-9999-999999999999"
+        try seedClaudeForkHookStore(
+            context: context,
+            parentSessionId: parentSessionId,
+            parentSurfaceId: parentSurfaceId,
+            activeSessionId: parentSessionId,
+            activeTurnId: "parent-turn-1"
+        )
+
+        let result = runClaudeHookListingSurfaces(
+            context: context,
+            surfaceIds: [parentSurfaceId, context.surfaceId],
+            arguments: ["hooks", "claude", "session-start"],
+            standardInput: #"{"session_id":"\#(parentSessionId)","source":"resume","cwd":"\#(context.root.path)","hook_event_name":"SessionStart"}"#,
+            extraEnvironment: claudeForkLaunchEnvironment(context: context, parentSessionId: parentSessionId)
+        )
+        XCTAssertFalse(result.timedOut, result.stderr)
+        XCTAssertEqual(result.status, 0, result.stderr)
+
+        let parentRecord = try readClaudeHookSession(parentSessionId, context: context)
+        XCTAssertEqual(
+            parentRecord["surfaceId"] as? String,
+            parentSurfaceId,
+            "Fork-session SessionStart reports the parent session id and must not steal the parent record's surface binding for the fork pane"
+        )
+    }
+
+    func testClaudeForkedSessionPromptSubmitRecordsWhileParentTurnActive() throws {
+        let context = try makeClaudeHookContext(name: "claude-fork-prompt-submit")
+        defer { context.cleanup() }
+
+        let parentSessionId = "parent-session"
+        let parentSurfaceId = "99999999-9999-9999-9999-999999999999"
+        let forkedSessionId = "forked-session"
+        try seedClaudeForkHookStore(
+            context: context,
+            parentSessionId: parentSessionId,
+            parentSurfaceId: parentSurfaceId,
+            activeSessionId: parentSessionId,
+            activeTurnId: "parent-turn-1"
+        )
+
+        let commandStart = context.state.commands.count
+        let result = runClaudeHookListingSurfaces(
+            context: context,
+            surfaceIds: [parentSurfaceId, context.surfaceId],
+            arguments: ["hooks", "claude", "prompt-submit"],
+            standardInput: #"{"session_id":"\#(forkedSessionId)","turn_id":"fork-turn-1","cwd":"\#(context.root.path)","hook_event_name":"UserPromptSubmit","prompt":"diverge here"}"#,
+            extraEnvironment: claudeForkLaunchEnvironment(context: context, parentSessionId: parentSessionId)
+        )
+        XCTAssertFalse(result.timedOut, result.stderr)
+        XCTAssertEqual(result.status, 0, result.stderr)
+
+        let forkedRecord = try readClaudeHookSession(forkedSessionId, context: context)
+        XCTAssertEqual(
+            forkedRecord["surfaceId"] as? String,
+            context.surfaceId,
+            "The forked session's first prompt-submit must bind the forked session to the fork pane even while the parent session owns the workspace's active turn"
+        )
+        XCTAssertEqual(
+            forkedRecord["isRestorable"] as? Bool,
+            true,
+            "The forked session must become restorable so a cmux restart resumes the fork, not the parent"
+        )
+
+        let promptCommands = Array(context.state.commands.dropFirst(commandStart))
+        let resumeBindingRequests = promptCommands.compactMap { command -> [String: Any]? in
+            guard let payload = jsonObject(command),
+                  payload["method"] as? String == "surface.resume.set" else {
+                return nil
+            }
+            return payload["params"] as? [String: Any]
+        }
+        XCTAssertEqual(resumeBindingRequests.count, 1, promptCommands.joined(separator: "\n"))
+        let request = try XCTUnwrap(resumeBindingRequests.first)
+        XCTAssertEqual(request["checkpoint_id"] as? String, forkedSessionId)
+        XCTAssertEqual(request["surface_id"] as? String, context.surfaceId)
+    }
+
+    func testClaudeParentPaneStopAppliesAfterForkedSessionPromoted() throws {
+        let context = try makeClaudeHookContext(name: "claude-fork-parent-stop")
+        defer { context.cleanup() }
+
+        let parentSessionId = "parent-session"
+        let parentSurfaceId = "99999999-9999-9999-9999-999999999999"
+        let forkedSessionId = "forked-session"
+        try seedClaudeForkHookStore(
+            context: context,
+            parentSessionId: parentSessionId,
+            parentSurfaceId: parentSurfaceId,
+            forkedSessionId: forkedSessionId,
+            forkedSurfaceId: context.surfaceId,
+            activeSessionId: forkedSessionId,
+            activeTurnId: "fork-turn-1"
+        )
+
+        let result = runClaudeHookListingSurfaces(
+            context: context,
+            surfaceIds: [parentSurfaceId, context.surfaceId],
+            arguments: ["hooks", "claude", "stop"],
+            standardInput: #"{"session_id":"\#(parentSessionId)","cwd":"\#(context.root.path)","hook_event_name":"Stop","last_assistant_message":"parent turn finished"}"#,
+            extraEnvironment: ["CMUX_SURFACE_ID": parentSurfaceId]
+        )
+        XCTAssertFalse(result.timedOut, result.stderr)
+        XCTAssertEqual(result.status, 0, result.stderr)
+
+        let parentRecord = try readClaudeHookSession(parentSessionId, context: context)
+        XCTAssertEqual(
+            parentRecord["agentLifecycle"] as? String,
+            "idle",
+            "The parent pane's Stop must keep applying after the forked session became the workspace's active session in another pane"
+        )
+    }
+
     func testClaudePromptSubmitResumeBindingPersistsAuthSelectionMarkersWithoutValues() throws {
         let context = try makeClaudeHookContext(name: "claude-resume-env-redaction")
         defer { context.cleanup() }
