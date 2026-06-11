@@ -103,7 +103,7 @@
 845	cmuxTests/SSHStartupSignalLifecycleTests.swift
 844	Sources/Panels/MarkdownWebRenderer.swift
 830	Sources/TaskManagerTypes.swift
-813	Sources/NotesTreeStorage.swift
+829	Sources/NotesTreeStorage.swift
 810	Packages/CmuxSwiftRender/Tests/CmuxSwiftRenderTests/SwiftViewInterpreterTests.swift
 787	Sources/ClosedItemHistory.swift
 768	Sources/MainWindowFocusController.swift
@@ -136,16 +136,17 @@
 660	Sources/SessionIndexModels.swift
 654	Packages/CmuxSettingsUI/Sources/CmuxSettingsUI/Sections/KeyboardShortcutsSection.swift
 650	Sources/Panels/MarkdownRemoteImageLoader.swift
+649	Sources/CmuxNoteStore.swift
 649	Sources/CmuxTopSnapshot.swift
 643	Sources/Panels/MarkdownPanel.swift
 640	cmuxTests/CommandPaletteNucleoFFITests.swift
 638	Packages/CmuxSwiftRender/Sources/CmuxSwiftRender/ExpressionEvaluator.swift
 630	Packages/CmuxSettings/Sources/CmuxSettings/Values/ShortcutWhenClause.swift
-630	Sources/CmuxNoteStore.swift
 627	Sources/WorkspaceRemoteConfiguration.swift
 621	cmuxUITests/RightSidebarChromeHeightUITests.swift
 620	cmuxTests/TerminalNotificationQueueTests.swift
 619	cmuxTests/FinderFileDropRegressionTests.swift
+614	cmuxTests/NotesTreeStorageTests.swift
 614	cmuxTests/SessionIndexViewTests.swift
 613	Sources/PortScanner.swift
 604	Sources/CmuxConfigExecutor.swift
@@ -167,7 +168,6 @@
 560	cmuxTests/GhosttyConfigPathResolverTests.swift
 558	Packages/CmuxGit/Sources/CmuxGit/Parsing/GitMetadataService+Config.swift
 554	Sources/Panels/BrowserAutomation.swift
-554	cmuxTests/NotesTreeStorageTests.swift
 551	Packages/CmuxSettingsUI/Sources/CmuxSettingsUI/Sections/BrowserSection.swift
 547	Packages/CmuxSocketControl/Sources/CmuxSocketControl/SocketControlSettings.swift
 546	Sources/Windowing/WindowGlassEffect.swift
