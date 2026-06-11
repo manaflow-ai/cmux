@@ -1,11 +1,14 @@
 import AppKit
 
+@MainActor
 private var cmuxBrowserWebKitKeyDownDispatchDepth = 0
 
+@MainActor
 func cmuxBrowserWebKitKeyDownDispatchIsActive() -> Bool {
     cmuxBrowserWebKitKeyDownDispatchDepth > 0
 }
 
+@MainActor
 func cmuxWithBrowserWebKitKeyDownDispatch<T>(_ body: () -> T) -> T {
     cmuxBrowserWebKitKeyDownDispatchDepth += 1
     defer {
@@ -14,6 +17,7 @@ func cmuxWithBrowserWebKitKeyDownDispatch<T>(_ body: () -> T) -> T {
     return body()
 }
 
+@MainActor
 extension CmuxWebView {
     func forwardKeyDownToWebKit(_ event: NSEvent) {
         cmuxWithBrowserWebKitKeyDownDispatch {
