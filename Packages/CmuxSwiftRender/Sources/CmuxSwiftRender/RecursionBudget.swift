@@ -3,7 +3,7 @@
 /// to a contained failure instead of overflowing the stack or handing SwiftUI
 /// a multi-thousand-node tree that freezes the host.
 ///
-/// One instance is created at the root ``Environment`` and shared with every
+/// One instance is created at the root ``EvalEnvironment`` and shared with every
 /// child scope. Recursive evaluation entry points call ``enter()`` on the way
 /// in (always paired with ``leave()`` via `defer`) and bail when ``exceeded``.
 /// Node-producing entry points call ``recordNode()`` and bail when

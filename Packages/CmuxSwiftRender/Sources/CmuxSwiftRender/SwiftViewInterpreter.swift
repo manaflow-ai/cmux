@@ -11,7 +11,7 @@ import SwiftSyntax
 /// `spacing:` argument, string literals with interpolation, modifier chains
 /// (recorded as ``RenderModifier``), and inside a ViewBuilder body the
 /// language constructs `for … in <range>`, `if/else`, and `let` bindings,
-/// evaluated against an ``Environment`` seeded with `@State`-style values.
+/// evaluated against an ``EvalEnvironment`` seeded with `@State`-style values.
 /// Unsupported syntax is skipped rather than crashing.
 ///
 /// ```swift
@@ -56,12 +56,12 @@ public struct SwiftViewInterpreter: Sendable {
     /// when nothing supported is found.
     ///
     /// Runs the tree-walk on a dedicated large-stack worker thread (the walker
-    /// recurses with view nesting); the per-``Environment`` ``RecursionBudget``
+    /// recurses with view nesting); the per-``EvalEnvironment`` ``RecursionBudget``
     /// backstops genuinely unbounded interpreter recursion (e.g. mutually
     /// recursive view helpers).
     public func evaluate(_ program: ParsedProgram, state: [String: SwiftValue] = [:]) -> RenderNode? {
         onLargeStack {
-            let env = Environment(values: state)
+            let env = EvalEnvironment(values: state)
             self.registerFunctions(program.file.statements, env)
             for item in program.file.statements {
                 if let expr = item.item.as(ExprSyntax.self), let node = self.evalView(expr, env) {
@@ -106,7 +106,7 @@ public struct SwiftViewInterpreter: Sendable {
 
     /// Registers any `func` declarations in `items` into `env` so value and
     /// view helpers can be called (including before their declaration).
-    private func registerFunctions(_ items: CodeBlockItemListSyntax, _ env: Environment) {
+    private func registerFunctions(_ items: CodeBlockItemListSyntax, _ env: EvalEnvironment) {
         for item in items {
             if let fn = item.item.as(FunctionDeclSyntax.self) {
                 env.defineFunction(fn.name.text, fn)
@@ -114,13 +114,13 @@ public struct SwiftViewInterpreter: Sendable {
         }
     }
 
-    private func bindParameters(_ decl: FunctionDeclSyntax, _ call: FunctionCallExprSyntax, _ env: Environment) -> Environment {
+    private func bindParameters(_ decl: FunctionDeclSyntax, _ call: FunctionCallExprSyntax, _ env: EvalEnvironment) -> EvalEnvironment {
         expressions.bindParameters(decl, call, env)
     }
 
     // MARK: - View expressions
 
-    private func evalView(_ expr: ExprSyntax, _ env: Environment) -> RenderNode? {
+    private func evalView(_ expr: ExprSyntax, _ env: EvalEnvironment) -> RenderNode? {
         env.budget.enter()
         defer { env.budget.leave() }
         guard !env.budget.exceeded, !env.budget.nodesExceeded else { return nil }
@@ -128,7 +128,7 @@ public struct SwiftViewInterpreter: Sendable {
         return evalCall(call, env)
     }
 
-    private func evalCall(_ call: FunctionCallExprSyntax, _ env: Environment) -> RenderNode? {
+    private func evalCall(_ call: FunctionCallExprSyntax, _ env: EvalEnvironment) -> RenderNode? {
         if let member = call.calledExpression.as(MemberAccessExprSyntax.self) {
             guard let base = member.base, var node = evalView(base, env) else { return nil }
             let name = member.declName.baseName.text
@@ -306,7 +306,7 @@ public struct SwiftViewInterpreter: Sendable {
 
     // MARK: - ViewBuilder statements
 
-    private func evalItems(_ items: CodeBlockItemListSyntax, _ env: Environment) -> [RenderNode] {
+    private func evalItems(_ items: CodeBlockItemListSyntax, _ env: EvalEnvironment) -> [RenderNode] {
         env.budget.enter()
         defer { env.budget.leave() }
         guard !env.budget.exceeded, !env.budget.nodesExceeded else { return [] }
@@ -360,7 +360,7 @@ public struct SwiftViewInterpreter: Sendable {
     /// Extracts gradient color stops from a `colors: [...]` argument, or from a
     /// nested `gradient: Gradient(colors: [...])`. Each stop is a hex/token
     /// string the bridge resolves via the color palette.
-    private func gradientColors(_ call: FunctionCallExprSyntax, _ env: Environment) -> [String] {
+    private func gradientColors(_ call: FunctionCallExprSyntax, _ env: EvalEnvironment) -> [String] {
         var arrayExpr = call.arguments.first(where: { $0.label?.text == "colors" })?.expression
         if arrayExpr == nil,
            let gradient = call.arguments.first(where: { $0.label?.text == "gradient" })?.expression.as(FunctionCallExprSyntax.self) {
@@ -387,7 +387,7 @@ public struct SwiftViewInterpreter: Sendable {
 
     /// Normalized `ProgressView` fraction (0...1) from `value:`/`total:`, or nil
     /// for the indeterminate form.
-    private func progressValue(_ call: FunctionCallExprSyntax, _ env: Environment) -> Double? {
+    private func progressValue(_ call: FunctionCallExprSyntax, _ env: EvalEnvironment) -> Double? {
         guard let value = doubleArgument(named: "value", call.arguments, env) else { return nil }
         let total = doubleArgument(named: "total", call.arguments, env) ?? 1
         guard total != 0 else { return nil }
@@ -396,7 +396,7 @@ public struct SwiftViewInterpreter: Sendable {
 
     /// Whether a `ScrollView(...)` declares a horizontal axis. Inspects the
     /// leading unlabeled `axes` argument's source for `.horizontal`.
-    private func scrollViewIsHorizontal(_ call: FunctionCallExprSyntax, _ env: Environment) -> Bool {
+    private func scrollViewIsHorizontal(_ call: FunctionCallExprSyntax, _ env: EvalEnvironment) -> Bool {
         guard let axes = call.arguments.first(where: { $0.label == nil })?.expression else { return false }
         return axes.trimmedDescription.contains("horizontal")
     }
@@ -404,7 +404,7 @@ public struct SwiftViewInterpreter: Sendable {
     /// Evaluates `Reorderable(data, move: "method", id: "field") { item in row }`
     /// into a `.reorderable` node: one rendered row per item plus a
     /// ``ReorderSpec`` carrying the item ids and the drop command.
-    private func evalReorderable(_ call: FunctionCallExprSyntax, _ env: Environment) -> RenderNode? {
+    private func evalReorderable(_ call: FunctionCallExprSyntax, _ env: EvalEnvironment) -> RenderNode? {
         guard let dataExpr = call.arguments.first(where: { $0.label == nil })?.expression,
               case let .array(items)? = expressions.eval(dataExpr, env),
               let closure = call.trailingClosure else { return nil }
@@ -431,7 +431,7 @@ public struct SwiftViewInterpreter: Sendable {
         )
     }
 
-    private func labeledStringArgument(_ label: String, _ args: LabeledExprListSyntax, _ env: Environment) -> String? {
+    private func labeledStringArgument(_ label: String, _ args: LabeledExprListSyntax, _ env: EvalEnvironment) -> String? {
         guard let expr = args.first(where: { $0.label?.text == label })?.expression else { return nil }
         return exprString(expr, env)
     }
@@ -442,7 +442,7 @@ public struct SwiftViewInterpreter: Sendable {
 
     /// Expands `ForEach(<sequence>) { item in … }` into a flat list of nodes,
     /// binding the closure parameter (or `$0`) to each element.
-    private func evalForEach(_ call: FunctionCallExprSyntax, _ env: Environment) -> [RenderNode] {
+    private func evalForEach(_ call: FunctionCallExprSyntax, _ env: EvalEnvironment) -> [RenderNode] {
         guard let sequenceExpr = call.arguments.first?.expression,
               let sequence = expressions.eval(sequenceExpr, env),
               let values = sequence.iterationValues,
@@ -485,7 +485,7 @@ public struct SwiftViewInterpreter: Sendable {
     /// Captures the commands in a `Button` action closure (currently
     /// `cmux("method", args…)` calls), evaluating argument expressions
     /// against `env` so loop-captured values are baked in.
-    private func parseAction(_ closure: ClosureExprSyntax, _ env: Environment) -> ButtonAction {
+    private func parseAction(_ closure: ClosureExprSyntax, _ env: EvalEnvironment) -> ButtonAction {
         var commands: [ActionCommand] = []
         for item in closure.statements {
             guard let call = item.item.as(ExprSyntax.self)?.as(FunctionCallExprSyntax.self),
@@ -530,7 +530,7 @@ public struct SwiftViewInterpreter: Sendable {
 
     /// Evaluates a view-position `switch`: the first matching (or `default`)
     /// case's statements are rendered.
-    private func evalSwitch(_ switchExpr: SwitchExprSyntax, _ env: Environment) -> [RenderNode] {
+    private func evalSwitch(_ switchExpr: SwitchExprSyntax, _ env: EvalEnvironment) -> [RenderNode] {
         let subject = expressions.eval(switchExpr.subject, env)
         for caseSyntax in switchExpr.cases {
             guard let switchCase = caseSyntax.as(SwitchCaseSyntax.self) else { continue }
@@ -543,7 +543,7 @@ public struct SwiftViewInterpreter: Sendable {
 
     /// Whether a `switch` case label matches `subject` (literal/`.member`
     /// patterns; `default` always matches).
-    private func switchCaseMatches(_ label: SwitchCaseSyntax.Label, _ subject: SwiftValue?, _ env: Environment) -> Bool {
+    private func switchCaseMatches(_ label: SwitchCaseSyntax.Label, _ subject: SwiftValue?, _ env: EvalEnvironment) -> Bool {
         switch label {
         case .default:
             return true
@@ -561,7 +561,7 @@ public struct SwiftViewInterpreter: Sendable {
         }
     }
 
-    private func evalFor(_ loop: ForStmtSyntax, _ env: Environment) -> [RenderNode] {
+    private func evalFor(_ loop: ForStmtSyntax, _ env: EvalEnvironment) -> [RenderNode] {
         guard let name = loop.pattern.as(IdentifierPatternSyntax.self)?.identifier.text,
               let sequence = expressions.eval(loop.sequence, env),
               let values = sequence.iterationValues else { return [] }
@@ -575,7 +575,7 @@ public struct SwiftViewInterpreter: Sendable {
         return out
     }
 
-    private func evalIf(_ ifExpr: IfExprSyntax, _ env: Environment) -> [RenderNode] {
+    private func evalIf(_ ifExpr: IfExprSyntax, _ env: EvalEnvironment) -> [RenderNode] {
         // The then-branch runs in a child scope so `if let x = …` bindings are
         // visible to it.
         let scope = env.makeChild()
@@ -595,7 +595,7 @@ public struct SwiftViewInterpreter: Sendable {
     /// Evaluates an `if`/`guard` condition list against `scope`, binding any
     /// `let name = expr` (or shorthand `let name`) optional bindings into
     /// `scope` when non-nil. Returns false if any condition fails.
-    private func conditionsPass(_ conditions: ConditionElementListSyntax, _ scope: Environment) -> Bool {
+    private func conditionsPass(_ conditions: ConditionElementListSyntax, _ scope: EvalEnvironment) -> Bool {
         for element in conditions {
             if let binding = element.condition.as(OptionalBindingConditionSyntax.self) {
                 let name = binding.pattern.as(IdentifierPatternSyntax.self)?.identifier.text
@@ -618,7 +618,7 @@ public struct SwiftViewInterpreter: Sendable {
         return true
     }
 
-    private func applyBinding(_ decl: VariableDeclSyntax, _ env: Environment) {
+    private func applyBinding(_ decl: VariableDeclSyntax, _ env: EvalEnvironment) {
         for binding in decl.bindings {
             guard let name = binding.pattern.as(IdentifierPatternSyntax.self)?.identifier.text,
                   let value = binding.initializer.map({ expressions.eval($0.value, env) }) ?? nil else { continue }
@@ -628,21 +628,21 @@ public struct SwiftViewInterpreter: Sendable {
 
     // MARK: - Argument helpers
 
-    private func stringArgument(_ args: LabeledExprListSyntax, _ env: Environment) -> String? {
+    private func stringArgument(_ args: LabeledExprListSyntax, _ env: EvalEnvironment) -> String? {
         guard let first = args.first?.expression else { return nil }
         return exprString(first, env)
     }
 
     /// Resolves an expression to a string: literal segments (with
     /// interpolation) or any value's display form.
-    private func exprString(_ expr: ExprSyntax, _ env: Environment) -> String? {
+    private func exprString(_ expr: ExprSyntax, _ env: EvalEnvironment) -> String? {
         if let literal = expr.as(StringLiteralExprSyntax.self) {
             return expressions.evalString(literal, env)
         }
         return expressions.eval(expr, env)?.displayString
     }
 
-    private func doubleArgument(named label: String, _ args: LabeledExprListSyntax, _ env: Environment) -> Double? {
+    private func doubleArgument(named label: String, _ args: LabeledExprListSyntax, _ env: EvalEnvironment) -> Double? {
         for arg in args where arg.label?.text == label {
             switch expressions.eval(arg.expression, env) {
             case let .int(value): return Double(value)
@@ -655,7 +655,7 @@ public struct SwiftViewInterpreter: Sendable {
 
     /// Captures a modifier's labeled arguments, evaluating each to a string
     /// where possible (else the source token, e.g. `.infinity` / `.leading`).
-    private func modifierArgs(_ args: LabeledExprListSyntax, _ env: Environment) -> [ModifierArg] {
+    private func modifierArgs(_ args: LabeledExprListSyntax, _ env: EvalEnvironment) -> [ModifierArg] {
         args.map { arg in
             // Resolve a ternary to its taken branch first, so member-token
             // choices like `sel ? .blue : .red` capture `.blue`/`.red`.
@@ -667,7 +667,7 @@ public struct SwiftViewInterpreter: Sendable {
 
     /// If `expr` is a ternary, evaluates the condition and returns the taken
     /// branch (recursively); otherwise returns `expr` unchanged.
-    private func resolveTernaryBranch(_ expr: ExprSyntax, _ env: Environment) -> ExprSyntax {
+    private func resolveTernaryBranch(_ expr: ExprSyntax, _ env: EvalEnvironment) -> ExprSyntax {
         guard let ternary = expr.as(TernaryExprSyntax.self) else { return expr }
         let taken = expressions.eval(ternary.condition, env)?.isTruthy ?? false
         return resolveTernaryBranch(taken ? ternary.thenExpression : ternary.elseExpression, env)

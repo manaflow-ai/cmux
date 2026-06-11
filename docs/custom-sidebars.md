@@ -71,6 +71,26 @@ renderers protect the host against pathological sources with an evaluation
 budget (nesting depth and total produced nodes): a render that exceeds the
 budget is discarded and the last good render stays up.
 
+## Downloadable examples
+
+The repo includes ready-to-copy sidebars in `Examples/CustomSidebars/`:
+
+- `status-board.swift` groups workspaces by live signals like urgent bugs,
+  review, progress, research, and done.
+- `finder.swift` shows a macOS Finder-style workspace browser with a source
+  list, selected workspace details, and tabs.
+
+Install one from a cmux checkout:
+
+    mkdir -p ~/.config/cmux/sidebars
+    cp Examples/CustomSidebars/status-board.swift ~/.config/cmux/sidebars/status-board.swift
+    cp Examples/CustomSidebars/finder.swift ~/.config/cmux/sidebars/finder.swift
+
+Then validate and select it:
+
+    cmux sidebar validate status-board
+    cmux sidebar select status-board
+
 ## Quick start
 
     cat > ~/.config/cmux/sidebars/mine.swift <<'SWIFT'

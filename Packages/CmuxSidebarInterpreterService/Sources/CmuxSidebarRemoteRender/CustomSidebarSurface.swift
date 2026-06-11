@@ -24,6 +24,7 @@ public struct CustomSidebarSurface: View {
     private let dispatch: SidebarActionDispatch
     private let contentInsets: CustomSidebarContentInsets
     private let rendersInProcess: Bool
+    @Binding private var client: RenderWorkerClient?
 
     /// Creates the surface.
     ///
@@ -32,20 +33,25 @@ public struct CustomSidebarSurface: View {
     ///   - dataContext: Live, read-only values the interpreter binds.
     ///   - dispatch: Runs button/tap actions against the host command surface.
     ///   - contentInsets: Top/bottom scroll insets for the host chrome.
-    ///   - rendersInProcess: `true` mounts the in-process renderer; `false`
-    ///     (the safe default) mounts the out-of-process worker.
+    ///   - rendersInProcess: `true` (the default) mounts the in-process
+    ///     renderer; `false` mounts the out-of-process worker.
+    ///   - client: Window-owned worker client storage for the remote lane,
+    ///     so provider switches reuse the live worker instead of paying a
+    ///     spawn-and-handshake blank frame (see ``RemoteCustomSidebarHost``).
     public init(
         fileURL: URL,
         dataContext: [String: SwiftValue],
         dispatch: SidebarActionDispatch,
         contentInsets: CustomSidebarContentInsets = .zero,
-        rendersInProcess: Bool = false
+        rendersInProcess: Bool = true,
+        client: Binding<RenderWorkerClient?>
     ) {
         self.fileURL = fileURL
         self.dataContext = dataContext
         self.dispatch = dispatch
         self.contentInsets = contentInsets
         self.rendersInProcess = rendersInProcess
+        self._client = client
     }
 
     public var body: some View {
@@ -68,7 +74,8 @@ public struct CustomSidebarSurface: View {
                 fileURL: fileURL,
                 dataContext: dataContext,
                 dispatch: dispatch,
-                contentInsets: contentInsets
+                contentInsets: contentInsets,
+                client: $client
             )
         }
     }
