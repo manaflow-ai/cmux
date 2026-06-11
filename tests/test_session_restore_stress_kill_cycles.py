@@ -32,14 +32,23 @@ from pathlib import Path
 
 from cmux import cmux
 
+# (launcher, session id, marker tokens). A session counts as resumed when one
+# scrollback line contains every token: the fake-agent prefix proves the fake
+# binary ran (the typed resume command alone does not contain it), and the
+# session token proves which session it was. Claude tokens stay order-agnostic
+# because the cmux claude wrapper inserts its own arguments around --resume.
 SESSION_SPECS = [
-    ("claude", "claude-stress-0", "CMUX_FAKE_CLAUDE_RESUME:--resume claude-stress-0"),
-    ("claude", "claude-stress-1", "CMUX_FAKE_CLAUDE_RESUME:--resume claude-stress-1"),
-    ("codex", "codex-stress-0", "CMUX_FAKE_CODEX_RESUME:resume codex-stress-0"),
-    ("codex", "codex-stress-1", "CMUX_FAKE_CODEX_RESUME:resume codex-stress-1"),
-    ("opencode", "opencode-stress-0", "CMUX_FAKE_OPENCODE_RESUME:--session opencode-stress-0"),
-    ("opencode", "opencode-stress-1", "CMUX_FAKE_OPENCODE_RESUME:--session opencode-stress-1"),
+    ("claude", "claude-stress-0", ("CMUX_FAKE_CLAUDE_RESUME:", "--resume claude-stress-0")),
+    ("claude", "claude-stress-1", ("CMUX_FAKE_CLAUDE_RESUME:", "--resume claude-stress-1")),
+    ("codex", "codex-stress-0", ("CMUX_FAKE_CODEX_RESUME:", "resume codex-stress-0")),
+    ("codex", "codex-stress-1", ("CMUX_FAKE_CODEX_RESUME:", "resume codex-stress-1")),
+    ("opencode", "opencode-stress-0", ("CMUX_FAKE_OPENCODE_RESUME:", "--session opencode-stress-0")),
+    ("opencode", "opencode-stress-1", ("CMUX_FAKE_OPENCODE_RESUME:", "--session opencode-stress-1")),
 ]
+
+
+def _marker_found(combined: str, tokens: tuple[str, ...]) -> bool:
+    return any(all(token in line for token in tokens) for line in combined.splitlines())
 
 
 def _bundle_id(app_path: Path) -> str:
@@ -206,11 +215,11 @@ def _hook_session_entry(
     launcher: str,
     executable_path: Path,
     environment: dict[str, str],
+    transcript_path: Path | None = None,
 ) -> dict:
-    # The captured environment matters for claude: resume routes through the
-    # wrapper shim / bare `claude` on PATH instead of the captured executable,
-    # so the fake binary must win the PATH lookup in the restored shell.
-    return {
+    # Claude hook records are only restorable when their transcript exists on
+    # disk (hookRecordIsRestorable), so claude entries carry a transcriptPath.
+    entry = {
         "sessionId": session_id,
         "workspaceId": workspace_id,
         "surfaceId": surface_id,
@@ -226,6 +235,9 @@ def _hook_session_entry(
         },
         "updatedAt": time.time(),
     }
+    if transcript_path is not None:
+        entry["transcriptPath"] = str(transcript_path)
+    return entry
 
 
 def _collect_all_scrollbacks(client: cmux) -> str:
@@ -249,12 +261,12 @@ def _assert_all_sessions_resumed(
         if len(client.list_workspaces()) < len(SESSION_SPECS):
             return False
         combined = _collect_all_scrollbacks(client)
-        return all(marker in combined for marker in expected_markers)
+        return all(_marker_found(combined, marker) for marker in expected_markers)
 
     if _wait_for_condition(timeout, all_present):
         return
     combined = _collect_all_scrollbacks(client)
-    missing = [marker for marker in expected_markers if marker not in combined]
+    missing = [marker for marker in expected_markers if not _marker_found(combined, marker)]
     workspace_count = len(client.list_workspaces())
     failures.append(
         f"{phase}: {len(missing)}/{len(expected_markers)} sessions did not resume "
@@ -293,6 +305,9 @@ def main() -> int:
         app_env = {
             "PATH": launch_path,
             "CMUX_AGENT_HOOK_STATE_DIR": str(hook_state_dir),
+            # Claude resume routes through the cmux claude wrapper, which
+            # resolves the real binary; point it at the fake one instead.
+            "CMUX_CUSTOM_CLAUDE_PATH": str(fake_bin_dir / "claude"),
         }
 
         def remove_hook_state() -> None:
@@ -322,6 +337,10 @@ def main() -> int:
                     if not surfaces:
                         failures.append(f"setup: expected a surface in workspace {index}")
                         continue
+                    transcript_path: Path | None = None
+                    if launcher == "claude":
+                        transcript_path = Path(td) / f"transcript-{session_id}.jsonl"
+                        transcript_path.write_text('{"type":"user"}\n', encoding="utf-8")
                     entries_by_launcher.setdefault(launcher, []).append(
                         _hook_session_entry(
                             session_id=session_id,
@@ -331,6 +350,7 @@ def main() -> int:
                             launcher=launcher,
                             executable_path=fake_bin_dir / launcher,
                             environment={"PATH": launch_path, "SHELL": "/bin/zsh"},
+                            transcript_path=transcript_path,
                         )
                     )
                 for launcher, entries in entries_by_launcher.items():
