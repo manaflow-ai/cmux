@@ -408,6 +408,59 @@ import Testing
         #expect(store.bool(forKey: "has_tokens"))
     }
 
+    @Test func parkedStaleClearCannotWipeAFreshSignInsTokens() async throws {
+        // Same interleave as the test above, but asserting the TOKENS. The
+        // stale flow's write-high-water check runs before its clear suspends,
+        // so a fresh sign-in that writes the store while the clear is parked
+        // is invisible to it; an unconditional clear then wipes the fresh
+        // session's tokens while its published state survives: an
+        // authenticated shell with empty credentials that fails at the next
+        // API call or launch restore. The clear must be a compare-and-clear
+        // against the stale session's refresh token, atomic at the token
+        // store, so a store that changed owners after the decision is left
+        // alone.
+        let user = CMUXAuthUser(id: "u1", primaryEmail: "a@b.com", displayName: "A")
+        let client = GateableValidationAuthClient(user: user)
+        let store = FakeKeyValueStore()
+        let coordinator = AuthCoordinator(
+            client: client,
+            sessionCache: CMUXAuthSessionCache(keyValueStore: store, key: "has_tokens"),
+            userCache: CMUXAuthIdentityStore(keyValueStore: store, key: "cached_user"),
+            teamSelection: CMUXAuthTeamSelectionStore(keyValueStore: store, key: "selected_team"),
+            anchor: FakeAnchor(),
+            config: .test,
+            launch: .plain()
+        )
+        try await coordinator.signInWithPassword(email: "a@b.com", password: "pw")
+        #expect(coordinator.isAuthenticated)
+
+        await client.armValidationGate()
+        let revalidation = Task { await coordinator.revalidateSession() }
+        await client.validationDidPark()
+
+        // The old validation fails definitively and suspends inside the
+        // token-store clear of its .clearSession handling.
+        await client.setGatedValidationError(AuthError.unauthorized)
+        await client.armClearGate()
+        await client.releaseParkedValidation()
+        await client.clearDidPark()
+
+        // A fresh sign-in writes new tokens and publishes while that stale
+        // clear is suspended.
+        try await coordinator.signInWithPassword(email: "a@b.com", password: "pw")
+        #expect(coordinator.isAuthenticated)
+
+        await client.releaseParkedClear()
+        await revalidation.value
+
+        // The fresh session keeps BOTH its published state and its tokens.
+        #expect(coordinator.isAuthenticated)
+        #expect(coordinator.currentUser == user)
+        #expect(store.bool(forKey: "has_tokens"))
+        #expect(await client.accessToken() == "access-2")
+        #expect(await client.refreshToken() == "refresh-2")
+    }
+
     @Test func exchangeResumingInsideSignOutTakesTheRollbackPath() async throws {
         // Sign-out must already have won by the time it first suspends: an
         // in-flight credential exchange that resumes while sign-out is parked
