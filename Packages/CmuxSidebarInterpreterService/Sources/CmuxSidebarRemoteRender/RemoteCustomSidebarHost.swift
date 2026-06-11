@@ -22,6 +22,7 @@ public struct RemoteCustomSidebarHost: View {
     private let contentInsets: CustomSidebarContentInsets
 
     @Binding private var client: RenderWorkerClient?
+    private var sourceKey: String { fileURL.standardizedFileURL.path }
 
     /// Creates the host.
     ///
@@ -50,7 +51,7 @@ public struct RemoteCustomSidebarHost: View {
 
     public var body: some View {
         Group {
-            if let client {
+            if let client, client.sourceKey == sourceKey {
                 RemoteCustomSidebarView(
                     fileURL: fileURL,
                     dataContext: dataContext,
@@ -62,9 +63,12 @@ public struct RemoteCustomSidebarHost: View {
                 Color.clear
             }
         }
-        .task {
-            if client == nil {
-                client = RenderWorkerClient.reexecingCurrentBinary()
+        .task(id: sourceKey) {
+            guard client?.sourceKey != sourceKey else { return }
+            let previous = client
+            client = RenderWorkerClient.reexecingCurrentBinary(sourceKey: sourceKey)
+            if let previous {
+                await previous.shutdown()
             }
         }
     }
