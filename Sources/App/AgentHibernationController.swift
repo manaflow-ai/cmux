@@ -488,10 +488,46 @@ final class AgentHibernationController {
                 lastActivityAt: lastActivityAt
             )
         } else {
-            _ = record.workspace.enterSurfaceHibernation(
-                panelId: record.key.panelId,
+            hibernateSurfaceWithOffActorReplayWrite(record: record, lastActivityAt: lastActivityAt)
+        }
+    }
+
+    /// Shell-restart hibernation from the timer: capture on the main actor,
+    /// write the replay file on a utility task (an atomic write of a large
+    /// scrollback would stall the main thread), then re-validate and commit.
+    /// Any activity or input observed during the write hop aborts the
+    /// transition and discards the file — the panel simply stays live.
+    private func hibernateSurfaceWithOffActorReplayWrite(
+        record: AgentHibernationRecord,
+        lastActivityAt: Date
+    ) {
+        let key = record.key
+        guard let capture = record.workspace.captureSurfaceHibernation(panelId: key.panelId) else {
+            return
+        }
+        let activityAtCapture = activityByPanel[key]
+        let inputAtCapture = terminalInputByPanel[key]
+        let scrollback = capture.scrollback
+        Task { @MainActor in
+            let replayFilePath = await Task.detached(priority: .utility) {
+                SessionScrollbackReplayStore.replayFilePath(for: scrollback)
+            }.value
+            let stillQuiet = self.activityByPanel[key] == activityAtCapture &&
+                self.terminalInputByPanel[key] == inputAtCapture
+            if !stillQuiet || !record.workspace.commitSurfaceHibernation(
+                panelId: key.panelId,
+                capture: capture,
+                replayFilePath: replayFilePath,
                 lastActivityAt: lastActivityAt
-            )
+            ) {
+                if !stillQuiet, let replayFilePath {
+                    // commit deletes the file itself when it aborts; the
+                    // quiet-check abort must clean up its own copy.
+                    Task.detached(priority: .utility) {
+                        try? FileManager.default.removeItem(atPath: replayFilePath)
+                    }
+                }
+            }
         }
     }
 

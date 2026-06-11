@@ -674,7 +674,9 @@ final class TerminalPanel: Panel, ObservableObject {
 
     /// Free the runtime surface of a plain-shell panel while keeping the panel
     /// in the layout. The captured scrollback and working directory are
-    /// replayed into a fresh shell when the panel is restored.
+    /// replayed into a fresh shell when the panel is restored. Writes the
+    /// replay file synchronously; the hibernation timer path pre-writes it
+    /// off-actor and uses the `replayFilePath:` variant instead.
     @discardableResult
     func enterSurfaceHibernation(
         scrollback: String?,
@@ -684,10 +686,28 @@ final class TerminalPanel: Panel, ObservableObject {
     ) -> Bool {
         guard !isAgentHibernated, !isSurfaceHibernated else { return false }
         let replayEnvironment = SessionScrollbackReplayStore.replayEnvironment(for: scrollback)
-        let replayFilePath = replayEnvironment[SessionScrollbackReplayStore.environmentKey]
+        return enterSurfaceHibernation(
+            scrollback: scrollback,
+            workingDirectory: workingDirectory,
+            lastActivityAt: lastActivityAt,
+            hibernatedAt: hibernatedAt,
+            replayFilePath: replayEnvironment[SessionScrollbackReplayStore.environmentKey]
+        )
+    }
+
+    /// Core surface-hibernation transition with a pre-written replay file.
+    @discardableResult
+    func enterSurfaceHibernation(
+        scrollback: String?,
+        workingDirectory: String?,
+        lastActivityAt: Date,
+        hibernatedAt: Date = Date(),
+        replayFilePath: String?
+    ) -> Bool {
+        guard !isAgentHibernated, !isSurfaceHibernated else { return false }
         if let scrollback, !scrollback.isEmpty, replayFilePath == nil {
             // The replay file is the only restore artifact for the captured
-            // history; if it cannot be written, keep the surface alive and
+            // history; if it could not be written, keep the surface alive and
             // let a later evaluation retry.
             return false
         }

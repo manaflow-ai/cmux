@@ -5339,19 +5339,15 @@ private func recordAgentHibernationTerminalInput(
 /// (completion inserts text), ^V (quoted-insert) and ^Y (yank) can put new
 /// text on the line.
 private func terminalInputCanLeavePromptText(_ text: String) -> Bool {
-    !text.allSatisfy { character in
-        let scalars = character.unicodeScalars
-        if scalars.count == 1, let scalar = scalars.first {
-            if scalar.value < 0x20 || scalar.value == 0x7F {
-                let inserting: Set<UInt32> = [0x09, 0x16, 0x19] // tab, ^V, ^Y
-                return !inserting.contains(scalar.value)
-            }
-            // NSEvent function-key range (arrows, F-keys, page up/down…).
-            if (0xF700...0xF8FF).contains(scalar.value) {
-                return true
-            }
+    // Scalar-level on purpose: "\r\n" is a single CRLF grapheme Character
+    // that would otherwise match neither settling byte.
+    !text.unicodeScalars.allSatisfy { scalar in
+        if scalar.value < 0x20 || scalar.value == 0x7F {
+            let inserting: Set<UInt32> = [0x09, 0x16, 0x19] // tab, ^V, ^Y
+            return !inserting.contains(scalar.value)
         }
-        return false
+        // NSEvent function-key range (arrows, F-keys, page up/down…).
+        return (0xF700...0xF8FF).contains(scalar.value)
     }
 }
 
@@ -5359,7 +5355,8 @@ private func terminalInputCanLeavePromptText(_ text: String) -> Bool {
 /// pre-tracking seeded pending guard (the line submits, opens a busy-gated
 /// PS2 continuation, or was empty). See recordTerminalInput.
 func terminalInputClearsSeededPending(_ text: String) -> Bool {
-    !text.isEmpty && text.allSatisfy { $0 == "\r" || $0 == "\n" }
+    // Scalar-level: "\r\n" is one CRLF grapheme Character.
+    !text.isEmpty && text.unicodeScalars.allSatisfy { $0 == "\r" || $0 == "\n" }
 }
 
 /// How many prompt transitions the pending-input hibernation guard must
@@ -5371,15 +5368,19 @@ func terminalInputClearsSeededPending(_ text: String) -> Bool {
 /// (pending until a real command cycle). Keyboard input arrives per
 /// keystroke and never produces a positive count.
 private func terminalInputPendingPromptSurvivals(_ text: String) -> Int {
-    let isSettling: (Character) -> Bool = { character in
-        character == "\r" || character == "\n" ||
-            character == "\u{03}" || character == "\u{04}" || character == "\u{15}"
+    // CRLF collapses to one submission before scalar-level counting; a
+    // CRLF grapheme Character would otherwise evade settling checks.
+    let normalized = text.replacingOccurrences(of: "\r\n", with: "\n")
+    let isSettling: (Unicode.Scalar) -> Bool = { scalar in
+        scalar == "\r" || scalar == "\n" ||
+            scalar == "\u{03}" || scalar == "\u{04}" || scalar == "\u{15}"
     }
-    guard let lastSettlingIndex = text.lastIndex(where: isSettling),
-          !text[text.index(after: lastSettlingIndex)...].isEmpty else {
+    let scalars = Array(normalized.unicodeScalars)
+    guard let lastSettlingIndex = scalars.lastIndex(where: isSettling),
+          lastSettlingIndex < scalars.count - 1 else {
         return 0
     }
-    return text.lazy.filter(isSettling).count
+    return scalars.lazy.filter(isSettling).count
 }
 
 final class TerminalSurface: Identifiable, ObservableObject {

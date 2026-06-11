@@ -2037,15 +2037,23 @@ enum SessionScrollbackReplayStore {
         for scrollback: String?,
         tempDirectory: URL = FileManager.default.temporaryDirectory
     ) -> [String: String] {
-        _ = purgeStaleReplayFilesOnce
-        guard let replayText = normalizedScrollback(scrollback) else { return [:] }
-        guard let replayFileURL = writeReplayFile(
-            contents: replayText,
-            tempDirectory: tempDirectory
-        ) else {
+        guard let path = replayFilePath(for: scrollback, tempDirectory: tempDirectory) else {
             return [:]
         }
-        return [environmentKey: replayFileURL.path]
+        return [environmentKey: path]
+    }
+
+    /// Write a one-shot replay file for `scrollback` and return its path.
+    /// Safe to call off the main actor; the hibernation timer pre-writes
+    /// replay files on a utility task so the atomic write of a large capture
+    /// never blocks the main thread.
+    static func replayFilePath(
+        for scrollback: String?,
+        tempDirectory: URL = FileManager.default.temporaryDirectory
+    ) -> String? {
+        _ = purgeStaleReplayFilesOnce
+        guard let replayText = normalizedScrollback(scrollback) else { return nil }
+        return writeReplayFile(contents: replayText, tempDirectory: tempDirectory)?.path
     }
 
     private static func normalizedScrollback(_ scrollback: String?) -> String? {

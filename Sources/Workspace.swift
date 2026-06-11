@@ -12744,15 +12744,19 @@ final class Workspace: Identifiable, ObservableObject {
         return didResume
     }
 
-    /// Capture scrollback and working directory, then free the panel's runtime
-    /// surface while keeping the panel in the layout. The shell ends; restoring
-    /// starts a fresh one with the captured state replayed.
-    @discardableResult
-    func enterSurfaceHibernation(panelId: UUID, lastActivityAt: Date) -> Bool {
+    struct SurfaceHibernationCapture: Sendable {
+        let scrollback: String?
+        let workingDirectory: String?
+    }
+
+    /// Read the state a surface hibernation must preserve, without mutating
+    /// anything. The hibernation timer writes the replay file off the main
+    /// actor between this and `commitSurfaceHibernation`.
+    func captureSurfaceHibernation(panelId: UUID) -> SurfaceHibernationCapture? {
         guard let terminalPanel = panels[panelId] as? TerminalPanel,
               !terminalPanel.isAgentHibernated,
               !terminalPanel.isSurfaceHibernated else {
-            return false
+            return nil
         }
         let capturedText = TerminalController.shared.readTerminalTextForSnapshot(
             terminalPanel: terminalPanel,
@@ -12764,7 +12768,7 @@ final class Workspace: Identifiable, ObservableObject {
             // (an empty terminal reads as ""). The capture is the only copy
             // restore will ever have, so keep the surface and let a later
             // evaluation retry.
-            return false
+            return nil
         }
         let scrollback = SessionPersistencePolicy.truncatedScrollback(capturedText)
         let panelDirectory = panelDirectories[panelId]?.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -12772,11 +12776,29 @@ final class Workspace: Identifiable, ObservableObject {
         let workingDirectory = panelDirectory?.isEmpty == false
             ? panelDirectory
             : (fallbackDirectory.isEmpty ? nil : fallbackDirectory)
-        guard terminalPanel.enterSurfaceHibernation(
-            scrollback: scrollback,
-            workingDirectory: workingDirectory,
-            lastActivityAt: lastActivityAt
-        ) else {
+        return SurfaceHibernationCapture(scrollback: scrollback, workingDirectory: workingDirectory)
+    }
+
+    /// Free the panel's runtime surface using a capture whose replay file was
+    /// already written. Deletes the file when the transition aborts (the
+    /// panel closed or hibernated through another path meanwhile).
+    @discardableResult
+    func commitSurfaceHibernation(
+        panelId: UUID,
+        capture: SurfaceHibernationCapture,
+        replayFilePath: String?,
+        lastActivityAt: Date
+    ) -> Bool {
+        guard let terminalPanel = panels[panelId] as? TerminalPanel,
+              terminalPanel.enterSurfaceHibernation(
+                  scrollback: capture.scrollback,
+                  workingDirectory: capture.workingDirectory,
+                  lastActivityAt: lastActivityAt,
+                  replayFilePath: replayFilePath
+              ) else {
+            if let replayFilePath {
+                try? FileManager.default.removeItem(atPath: replayFilePath)
+            }
             return false
         }
         // Seed the session-snapshot fallback immediately: an autosave can land
@@ -12786,12 +12808,28 @@ final class Workspace: Identifiable, ObservableObject {
         // entry (e.g. session-restore seeding) for the same reason — the
         // restore-window save would otherwise resurrect scrollback that no
         // longer reflects this terminal.
-        if let scrollback {
+        if let scrollback = capture.scrollback {
             restoredTerminalScrollbackByPanelId[panelId] = scrollback
         } else {
             restoredTerminalScrollbackByPanelId.removeValue(forKey: panelId)
         }
         return true
+    }
+
+    /// Capture scrollback and working directory, then free the panel's runtime
+    /// surface while keeping the panel in the layout. The shell ends; restoring
+    /// starts a fresh one with the captured state replayed. Writes the replay
+    /// file synchronously; the hibernation timer uses the capture/commit split
+    /// with an off-actor write instead.
+    @discardableResult
+    func enterSurfaceHibernation(panelId: UUID, lastActivityAt: Date) -> Bool {
+        guard let capture = captureSurfaceHibernation(panelId: panelId) else { return false }
+        return commitSurfaceHibernation(
+            panelId: panelId,
+            capture: capture,
+            replayFilePath: SessionScrollbackReplayStore.replayFilePath(for: capture.scrollback),
+            lastActivityAt: lastActivityAt
+        )
     }
 
     @discardableResult

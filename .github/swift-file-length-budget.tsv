@@ -3,10 +3,10 @@
 # Reduce counts as files shrink. CI fails if tracked files exceed this budget.
 32997	CLI/cmux.swift
 22505	Sources/TerminalController.swift
-20103	Sources/Workspace.swift
+20141	Sources/Workspace.swift
 19248	Sources/ContentView.swift
 18060	Sources/AppDelegate.swift
-16809	Sources/GhosttyTerminalView.swift
+16810	Sources/GhosttyTerminalView.swift
 13608	Sources/Panels/BrowserPanel.swift
 11916	cmuxTests/AppDelegateShortcutRoutingTests.swift
 10012	Sources/TabManager.swift
@@ -44,7 +44,7 @@
 2290	Sources/FileExplorerView.swift
 2260	Sources/TerminalWindowPortal.swift
 2208	Sources/Mobile/MobileHostService.swift
-2188	Sources/SessionPersistence.swift
+2196	Sources/SessionPersistence.swift
 2123	cmuxTests/ShortcutAndCommandPaletteTests.swift
 2117	cmuxTests/CmuxConfigTests.swift
 2039	Sources/KeyboardShortcutSettingsFileStore.swift
@@ -84,7 +84,7 @@
 1021	cmuxUITests/TerminalCmdClickUITests.swift
 1006	cmuxTests/CmuxSSHURLRequestTests.swift
 1000	cmuxTests/CmuxTopSnapshotScopeTests.swift
-968	Sources/Panels/TerminalPanel.swift
+988	Sources/Panels/TerminalPanel.swift
 949	Packages/CmuxMobileTerminal/Sources/CmuxMobileTerminal/TerminalInputTextView.swift
 947	Sources/TerminalNotificationPolicy.swift
 945	Sources/SessionIndexRegisteredAgents.swift
@@ -98,12 +98,12 @@
 894	Sources/CommandPalette/CommandPaletteSettingsToggle.swift
 878	Sources/WorkspaceContentView.swift
 868	Sources/Panels/BrowserScreenshotSnapshotter.swift
+863	Sources/App/AgentHibernationController.swift
 856	Packages/CmuxSettingsUI/Sources/CmuxSettingsUI/Sections/AppSection.swift
 846	cmuxTests/AgentSessionAutoResumeSettingsTests.swift
 845	cmuxTests/SSHStartupSignalLifecycleTests.swift
 842	Sources/Panels/MarkdownWebRenderer.swift
 830	Sources/TaskManagerTypes.swift
-827	Sources/App/AgentHibernationController.swift
 810	Packages/CmuxSwiftRender/Tests/CmuxSwiftRenderTests/SwiftViewInterpreterTests.swift
 787	Sources/ClosedItemHistory.swift
 768	Sources/MainWindowFocusController.swift
