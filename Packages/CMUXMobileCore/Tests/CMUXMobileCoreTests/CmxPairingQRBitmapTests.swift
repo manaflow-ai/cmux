@@ -82,7 +82,10 @@ import Testing
                     bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
                 )
             )
-            context.draw(image, in: CGRect(x: 0, y: 0, width: width, height: height))
+            context.draw(
+                image,
+                in: CGRect(x: 0, y: 0, width: CGFloat(width), height: CGFloat(height))
+            )
         }
         return stride(from: 0, to: rgba.count, by: 4).map { rgba[$0] }
     }

@@ -58,7 +58,7 @@ struct MobilePairingQRImageView: View {
         }
         return NSImage(
             cgImage: cgImage,
-            size: NSSize(width: cgImage.width, height: cgImage.height)
+            size: NSSize(width: CGFloat(cgImage.width), height: CGFloat(cgImage.height))
         )
     }
 }
