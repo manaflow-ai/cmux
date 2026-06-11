@@ -68,8 +68,9 @@ struct ControlCommandCoordinatorWindowTests {
 
     @Test func unownedMethodFallsThrough() {
         let (coordinator, _) = makeCoordinator()
-        // A method no coordinator domain owns yet (browser is not extracted).
-        #expect(coordinator.handle(request("browser.navigate")) == nil)
+        // A method no coordinator domain owns (still served by the legacy
+        // app-side dispatcher), so `handle` falls through with `nil`.
+        #expect(coordinator.handle(request("legacy.unowned_method")) == nil)
     }
 
     @Test func windowListBuildsRowsWithMintedRefs() {
