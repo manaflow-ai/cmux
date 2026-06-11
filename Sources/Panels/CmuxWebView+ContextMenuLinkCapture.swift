@@ -280,14 +280,20 @@ private final class ContextMenuLinkCaptureMessageHandler: NSObject, WKScriptMess
         let trusted = body?["trusted"] as? Bool ?? false
         let href = body?["href"] as? String ?? ""
         let url = href.isEmpty ? nil : URL(string: href)
-        Task { @MainActor [weak webView] in
+        // WebKit delivers script messages on the main thread (same pattern as
+        // BrowserMediaPlaybackMessageHandler). Apply the capture synchronously
+        // instead of hopping through a `Task` so it stays ordered with the
+        // AppKit click lifecycle: a deferred report from the previous click
+        // must not run after `rightMouseDown` clears the capture and repopulate
+        // it for the menu the new click opens.
+        MainActor.assumeIsolated {
             // Synthetic contextmenu events dispatched by page JavaScript carry
             // isTrusted == false; recording them would let a page substitute a
             // decoy link for the one the user right-clicked.
             guard trusted || CmuxWebView.contextMenuLinkCaptureAcceptsUntrustedEventsForTesting else {
                 return
             }
-            webView?.noteContextMenuCapturedLink(url)
+            webView.noteContextMenuCapturedLink(url)
         }
     }
 }
