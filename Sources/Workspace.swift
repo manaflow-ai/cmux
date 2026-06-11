@@ -10680,12 +10680,8 @@ final class Workspace: Identifiable, ObservableObject {
     @Published private(set) var tmuxWorkspaceFlashReason: WorkspaceAttentionFlashReason?
     @Published private(set) var tmuxWorkspaceFlashToken: UInt64 = 0
     var manualUnreadMarkedAt: [UUID: Date] = [:]
-    @Published var statusEntries: [String: SidebarStatusEntry] = [:] {
-        didSet { trimSidebarStatusEntriesIfNeeded(previousKeys: Set(oldValue.keys)) }
-    }
-    @Published var metadataBlocks: [String: SidebarMetadataBlock] = [:] {
-        didSet { trimSidebarMetadataBlocksIfNeeded(previousKeys: Set(oldValue.keys)) }
-    }
+    @Published var statusEntries: [String: SidebarStatusEntry] = [:]
+    @Published var metadataBlocks: [String: SidebarMetadataBlock] = [:]
     @Published private(set) var latestConversationMessage: String?
     @Published private(set) var latestSubmittedMessage: String?
     @Published private(set) var latestSubmittedAt: Date?
@@ -10732,15 +10728,6 @@ final class Workspace: Identifiable, ObservableObject {
 
     private static let remoteErrorStatusKey = "remote.error"
     private static let remotePortConflictStatusKey = "remote.port_conflicts"
-    /// cmux-owned status keys that carry application state (not external agent
-    /// telemetry) and must never be evicted by the status cap. `remote.error`
-    /// is read by `hasProxyOnlyRemoteSidebarError` to preserve the connected
-    /// state during proxy-only reconnects, so dropping it under a status flood
-    /// would corrupt remote-connection handling (#5845 review).
-    static let reservedSidebarStatusKeys: Set<String> = [
-        remoteErrorStatusKey,
-        remotePortConflictStatusKey,
-    ]
     private static let remoteNotificationCooldown: TimeInterval = 5 * 60
     private static let sshControlMasterCleanupQueue = DispatchQueue(
         label: "com.cmux.remote-ssh.control-master-cleanup",
@@ -14331,96 +14318,6 @@ final class Workspace: Identifiable, ObservableObject {
         if logEntries.count > limit {
             logEntries.removeFirst(logEntries.count - limit)
         }
-    }
-
-    /// Upper bound on retained sidebar status pills / metadata blocks per
-    /// workspace. The sidebar `status`/`metadata` socket API lets agents and CI
-    /// scripts insert entries under arbitrary caller-chosen keys. Without a cap,
-    /// a long-running or verbose integration (e.g. ~30 live agent sessions over
-    /// hours, https://github.com/manaflow-ai/cmux/issues/5845) grows these
-    /// `@Published` dictionaries without bound, which both leaks memory and makes
-    /// the per-tick `removeDuplicates` equality check and the
-    /// `sidebarStatusEntriesInDisplayOrder()` / `sidebarMetadataBlocksInDisplayOrder()`
-    /// sorts that feed the sidebar view graph progressively more expensive on the
-    /// main thread. The bound is generous enough that no realistic integration
-    /// (the collapsed sidebar shows at most a handful of pills) is affected;
-    /// it only clamps pathological growth. Mirrors the `logEntries` cap above.
-    static let maxSidebarStatusEntries = 200
-    static let maxSidebarMetadataBlocks = 200
-
-    /// Evicts status entries once the cap is exceeded. Retention is tiered:
-    ///  1. cmux-owned reserved keys (application state).
-    ///  2. statuses backed by a live agent (coupled PID or lifecycle state) — so
-    ///     an actively updated agent status whose display timestamp went stale
-    ///     can't be aged out by a flood of newer distinct keys.
-    ///  3. keys inserted by the write that triggered this trim (`previousKeys`
-    ///     is the pre-write key set). Multi-step updates such as
-    ///     `set_status --pid` insert the status first and record the coupling
-    ///     marker afterward; this grace tier keeps the just-inserted status alive
-    ///     across its own synchronous trim so `recordAgentPIDForSurvivingStatusKey`
-    ///     can mark it live before the next trim (#5845). It is a *tier*, not an
-    ///     absolute pin — a bulk insert above the cap still ranks within this
-    ///     tier by priority/timestamp, so the cap is always enforced.
-    ///  4. everything else, by the same priority/timestamp order as
-    ///     `sidebarStatusEntriesInDisplayOrder()`.
-    /// Ranking and the keep-set are both keyed by the dictionary's storage key
-    /// (not `entry.key`) so the two can never diverge.
-    private func trimSidebarStatusEntriesIfNeeded(previousKeys: Set<String>) {
-        guard statusEntries.count > Self.maxSidebarStatusEntries else { return }
-        let liveAgentStatusKeys = statusKeysWithCoupledAgentRuntime()
-        let justInsertedKeys = Set(statusEntries.keys).subtracting(previousKeys)
-        let kept = Set(
-            statusEntries
-                .sorted { lhs, rhs in
-                    let lhsReserved = Self.reservedSidebarStatusKeys.contains(lhs.key)
-                    let rhsReserved = Self.reservedSidebarStatusKeys.contains(rhs.key)
-                    if lhsReserved != rhsReserved { return lhsReserved }
-                    let lhsLive = liveAgentStatusKeys.contains(lhs.key)
-                    let rhsLive = liveAgentStatusKeys.contains(rhs.key)
-                    if lhsLive != rhsLive { return lhsLive }
-                    let lhsFresh = justInsertedKeys.contains(lhs.key)
-                    let rhsFresh = justInsertedKeys.contains(rhs.key)
-                    if lhsFresh != rhsFresh { return lhsFresh }
-                    if lhs.value.priority != rhs.value.priority { return lhs.value.priority > rhs.value.priority }
-                    if lhs.value.timestamp != rhs.value.timestamp { return lhs.value.timestamp > rhs.value.timestamp }
-                    return lhs.key < rhs.key
-                }
-                .prefix(Self.maxSidebarStatusEntries)
-                .map(\.key)
-        )
-        let evictedKeys = Set(statusEntries.keys).subtracting(kept)
-        guard !evictedKeys.isEmpty else { return }
-        // Tear down the agent PID/ownership/lifecycle state coupled to the evicted
-        // status keys (`set_status --pid`) before they leave `statusEntries`, so
-        // those runtime maps and the port-scan tags keyed off them stay bounded
-        // too (#5845). Must precede the removal so dotted status keys resolve.
-        purgeAgentRuntimeState(forEvictedStatusKeys: evictedKeys)
-        // Reassigning re-enters didSet, but the next pass sees count <= cap and
-        // returns immediately, so recursion terminates at depth two.
-        statusEntries = statusEntries.filter { kept.contains($0.key) }
-    }
-
-    /// Mirror of `trimSidebarStatusEntriesIfNeeded()` for metadata blocks,
-    /// matching `sidebarMetadataBlocksInDisplayOrder()` retention, with the same
-    /// just-inserted grace tier. Ranking and keep-set are keyed by the
-    /// dictionary's storage key.
-    private func trimSidebarMetadataBlocksIfNeeded(previousKeys: Set<String>) {
-        guard metadataBlocks.count > Self.maxSidebarMetadataBlocks else { return }
-        let justInsertedKeys = Set(metadataBlocks.keys).subtracting(previousKeys)
-        let kept = Set(
-            metadataBlocks
-                .sorted { lhs, rhs in
-                    let lhsFresh = justInsertedKeys.contains(lhs.key)
-                    let rhsFresh = justInsertedKeys.contains(rhs.key)
-                    if lhsFresh != rhsFresh { return lhsFresh }
-                    if lhs.value.priority != rhs.value.priority { return lhs.value.priority > rhs.value.priority }
-                    if lhs.value.timestamp != rhs.value.timestamp { return lhs.value.timestamp > rhs.value.timestamp }
-                    return lhs.key < rhs.key
-                }
-                .prefix(Self.maxSidebarMetadataBlocks)
-                .map(\.key)
-        )
-        metadataBlocks = metadataBlocks.filter { kept.contains($0.key) }
     }
 
     // MARK: - Panel Operations
