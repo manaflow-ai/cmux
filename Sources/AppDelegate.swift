@@ -1072,6 +1072,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private var lastSessionAutosaveFingerprint: Int?
     private var lastSessionAutosavePersistedAt: Date = .distantPast
     private var lastTypingActivityAt: TimeInterval = 0
+    private typealias MainWindowDisplayGeometryChangeSource = MainWindowDisplayGeometryCoordinator.ChangeSource
+    private typealias MainWindowDisplayGeometryTransitionReason = MainWindowDisplayGeometryCoordinator.TransitionReason
+    private typealias MainWindowDisplayGeometryTransitionSource = MainWindowDisplayGeometryCoordinator.TransitionSource
+    private let mainWindowDisplayGeometryCoordinator = MainWindowDisplayGeometryCoordinator()
     var didHandleExplicitOpenIntentAtStartup = false
     private var didScheduleInitialMainWindowBootstrap = false
     var shouldDeferInitialMainWindowBootstrapForExternalConfirmation = false
@@ -3402,7 +3406,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
 
         if let intersectingDisplay = availableDisplays.first(where: { $0.visibleFrame.intersects(frame) }) {
-            return clampFrame(
+            return clampRestoredFrame(
                 frame,
                 within: intersectingDisplay.visibleFrame,
                 minWidth: minWidth,
@@ -3446,7 +3450,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             ) {
                 return frame
             }
-            return clampFrame(
+            return clampRestoredFrame(
                 frame,
                 within: targetDisplay.visibleFrame,
                 minWidth: minWidth,
@@ -3555,16 +3559,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
         let relativeX = (frame.minX - source.minX) / source.width
         let relativeY = (frame.minY - source.minY) / source.height
-        let relativeWidth = frame.width / source.width
-        let relativeHeight = frame.height / source.height
 
         let remapped = CGRect(
             x: target.minX + (relativeX * target.width),
             y: target.minY + (relativeY * target.height),
-            width: target.width * relativeWidth,
-            height: target.height * relativeHeight
+            width: max(frame.width, minWidth),
+            height: max(frame.height, minHeight)
         )
-        return clampFrame(remapped, within: target, minWidth: minWidth, minHeight: minHeight)
+        return clampRestoredFrame(remapped, within: target, minWidth: minWidth, minHeight: minHeight)
     }
 
     private nonisolated static func centeredFrame(
@@ -3579,7 +3581,38 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             width: frame.width,
             height: frame.height
         )
-        return clampFrame(centered, within: visibleFrame, minWidth: minWidth, minHeight: minHeight)
+        return clampRestoredFrame(centered, within: visibleFrame, minWidth: minWidth, minHeight: minHeight)
+    }
+
+    private nonisolated static func clampRestoredFrame(
+        _ frame: CGRect,
+        within visibleFrame: CGRect,
+        minWidth: CGFloat,
+        minHeight: CGFloat
+    ) -> CGRect {
+        guard visibleFrame.width.isFinite,
+              visibleFrame.height.isFinite,
+              visibleFrame.width > 0,
+              visibleFrame.height > 0 else {
+            return frame
+        }
+
+        let width = max(frame.width, minWidth)
+        let height = max(frame.height, minHeight)
+        let x: CGFloat
+        if width > visibleFrame.width {
+            x = visibleFrame.minX
+        } else {
+            x = min(max(frame.minX, visibleFrame.minX), visibleFrame.maxX - width)
+        }
+        let y: CGFloat
+        if height > visibleFrame.height {
+            y = visibleFrame.maxY - height
+        } else {
+            y = min(max(frame.minY, visibleFrame.minY), visibleFrame.maxY - height)
+        }
+
+        return CGRect(x: x, y: y, width: width, height: height)
     }
 
     private nonisolated static func clampFrame(
@@ -3710,7 +3743,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             object: nil,
             queue: .main
         ) { [weak self] _ in
-            Task { @MainActor [weak self] in
+            MainActor.assumeIsolated { [weak self] in
                 guard let self else { return }
                 self.isTerminatingApp = true
                 _ = self.saveSessionSnapshotIncludingProcessDetectedIndexes(includeScrollback: true, removeWhenEmpty: false)
@@ -3724,8 +3757,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             object: nil,
             queue: .main
         ) { [weak self] _ in
-            Task { @MainActor [weak self] in
+            MainActor.assumeIsolated { [weak self] in
                 guard let self else { return }
+                self.beginMainWindowDisplayGeometryTransition(
+                    source: .workspaceSessionDidResignActive,
+                    reason: .sleepWake
+                )
                 if self.isTerminatingApp {
                     _ = self.saveSessionSnapshotIncludingProcessDetectedIndexes(includeScrollback: true, removeWhenEmpty: false)
                     ClosedItemHistoryStore.shared.flushPendingSaves()
@@ -3736,16 +3773,205 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
         lifecycleSnapshotObservers.append(sessionResignObserver)
 
+        let screensDidSleepObserver = workspaceCenter.addObserver(
+            forName: NSWorkspace.screensDidSleepNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            MainActor.assumeIsolated { [weak self] in
+                self?.beginMainWindowDisplayGeometryTransition(
+                    source: .workspaceScreensDidSleep,
+                    reason: .sleepWake
+                )
+            }
+        }
+        lifecycleSnapshotObservers.append(screensDidSleepObserver)
+
+        let screensDidWakeObserver = workspaceCenter.addObserver(
+            forName: NSWorkspace.screensDidWakeNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            MainActor.assumeIsolated { [weak self] in
+                self?.handleMainWindowDisplayGeometryChange(source: .workspaceScreensDidWake)
+            }
+        }
+        lifecycleSnapshotObservers.append(screensDidWakeObserver)
+
         let didWakeObserver = workspaceCenter.addObserver(
             forName: NSWorkspace.didWakeNotification,
             object: nil,
             queue: .main
         ) { [weak self] _ in
-            Task { @MainActor [weak self] in
-                self?.restartSocketListenerIfEnabled(source: "workspace.didWake")
+            MainActor.assumeIsolated { [weak self] in
+                guard let self else { return }
+                self.handleMainWindowDisplayGeometryChange(source: .workspaceDidWake)
+                self.restartSocketListenerIfEnabled(source: "workspace.didWake")
             }
         }
         lifecycleSnapshotObservers.append(didWakeObserver)
+
+        let sessionBecomeActiveObserver = workspaceCenter.addObserver(
+            forName: NSWorkspace.sessionDidBecomeActiveNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            MainActor.assumeIsolated { [weak self] in
+                self?.handleMainWindowDisplayGeometryChange(source: .workspaceSessionDidBecomeActive)
+            }
+        }
+        lifecycleSnapshotObservers.append(sessionBecomeActiveObserver)
+
+        mainWindowDisplayGeometryCoordinator.prime(current: currentMainWindowDisplayGeometry())
+
+        let appCenter = NotificationCenter.default
+        let screenChangeObserver = appCenter.addObserver(
+            forName: NSApplication.didChangeScreenParametersNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            MainActor.assumeIsolated { [weak self] in
+                guard let self else { return }
+                self.beginMainWindowDisplayGeometryTransition(
+                    source: .applicationDidChangeScreenParameters,
+                    reason: .displayReconfiguration
+                )
+                self.handleMainWindowDisplayGeometryChange(source: .applicationDidChangeScreenParameters)
+            }
+        }
+        lifecycleSnapshotObservers.append(screenChangeObserver)
+
+        let windowMoveObserver = appCenter.addObserver(
+            forName: NSWindow.didMoveNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] notification in
+            MainActor.assumeIsolated {
+                self?.updateSavedDisplayWindowFrameFromUserWindowChange(notification.object as? NSWindow)
+            }
+        }
+        lifecycleSnapshotObservers.append(windowMoveObserver)
+
+        let windowResizeObserver = appCenter.addObserver(
+            forName: NSWindow.didResizeNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] notification in
+            MainActor.assumeIsolated {
+                self?.updateSavedDisplayWindowFrameFromUserWindowChange(notification.object as? NSWindow)
+            }
+        }
+        lifecycleSnapshotObservers.append(windowResizeObserver)
+    }
+
+    private func currentConnectedDisplayIDs() -> Set<UInt32> {
+        Set(NSScreen.screens.compactMap { $0.cmuxDisplayID })
+    }
+
+    private func currentMainWindowDisplayGeometry() -> MainWindowDisplayGeometryCoordinator.CurrentGeometry {
+        let displays = currentDisplayGeometries()
+        return MainWindowDisplayGeometryCoordinator.CurrentGeometry(
+            connectedDisplayIDs: currentConnectedDisplayIDs(),
+            availableDisplays: displays.available,
+            fallbackDisplay: displays.fallback,
+            windows: mainWindowContexts.values.map { liveMainWindowGeometry(for: $0) }
+        )
+    }
+
+    private func liveMainWindowGeometry(
+        for context: MainWindowContext,
+        window suppliedWindow: NSWindow? = nil
+    ) -> MainWindowDisplayGeometryCoordinator.LiveWindowGeometry {
+        let window = suppliedWindow ?? context.window ?? windowForMainWindowId(context.windowId)
+        return MainWindowDisplayGeometryCoordinator.LiveWindowGeometry(
+            windowId: context.windowId,
+            frame: window?.frame,
+            displayID: window?.screen?.cmuxDisplayID,
+            display: displaySnapshot(for: window)
+        )
+    }
+
+    private func beginMainWindowDisplayGeometryTransition(
+        source: MainWindowDisplayGeometryTransitionSource,
+        reason: MainWindowDisplayGeometryTransitionReason
+    ) {
+        mainWindowDisplayGeometryCoordinator.beginTransition(
+            source: source,
+            reason: reason,
+            current: currentMainWindowDisplayGeometry()
+        )
+    }
+
+    private func updateSavedDisplayWindowFrameFromUserWindowChange(_ window: NSWindow?) {
+        guard let window else { return }
+        guard isMainTerminalWindow(window) else { return }
+        guard let context = contextForMainTerminalWindow(window, reindex: false) else { return }
+        mainWindowDisplayGeometryCoordinator.recordUserWindowChange(
+            liveWindow: liveMainWindowGeometry(for: context, window: window),
+            current: currentMainWindowDisplayGeometry()
+        )
+    }
+
+    private func handleMainWindowDisplayGeometryChange(source: MainWindowDisplayGeometryChangeSource) {
+        let requests = mainWindowDisplayGeometryCoordinator.restoreRequests(
+            source: source,
+            current: currentMainWindowDisplayGeometry()
+        )
+        var restoredWindowIDs = Set<UUID>()
+
+        for request in requests {
+            guard let context = mainWindowContexts.values.first(where: { $0.windowId == request.windowId }),
+                  let window = context.window ?? windowForMainWindowId(context.windowId) else {
+                continue
+            }
+
+            mainWindowDisplayGeometryCoordinator.withApplyingCachedGeometry {
+                window.setFrame(request.frame, display: true)
+            }
+            restoredWindowIDs.insert(request.windowId)
+
+            mainWindowDisplayGeometryCoordinator.recordAppliedRestore(
+                windowId: request.windowId,
+                displayID: request.displayID,
+                frame: SessionRectSnapshot(window.frame),
+                display: displaySnapshot(for: window)
+            )
+
+#if DEBUG
+            cmuxDebugLog(
+                "window.geometry.restore source=\(source.rawValue) window=\(request.windowId.uuidString.prefix(8)) " +
+                    "display=\(request.displayID) frame={\(debugNSRectDescription(window.frame))}"
+            )
+#endif
+        }
+
+        mainWindowDisplayGeometryCoordinator.finishDisplayGeometryChange(
+            source: source,
+            current: currentMainWindowDisplayGeometry(),
+            restoredWindowIDs: restoredWindowIDs
+        )
+        if !restoredWindowIDs.isEmpty {
+            _ = saveSessionSnapshot(includeScrollback: false)
+        }
+    }
+
+    private func removeSavedDisplayWindowFrames(forWindowId windowId: UUID) {
+        mainWindowDisplayGeometryCoordinator.removeWindowFrames(forWindowId: windowId)
+    }
+
+    private func snapshotGeometry(for context: MainWindowContext) -> (
+        frame: SessionRectSnapshot?,
+        display: SessionDisplaySnapshot?
+    ) {
+        let window = context.window ?? windowForMainWindowId(context.windowId)
+        let geometry = mainWindowDisplayGeometryCoordinator.snapshotGeometry(
+            windowId: context.windowId,
+            liveFrame: window?.frame,
+            liveDisplayID: window?.screen?.cmuxDisplayID,
+            liveDisplay: displaySnapshot(for: window),
+            current: currentMainWindowDisplayGeometry()
+        )
+        return (geometry.frame, geometry.display)
     }
 
     private func socketListenerConfigurationIfEnabled() -> (mode: SocketControlMode, path: String)? {
@@ -3859,8 +4085,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 hasher.combine(1)
             }
 
-            if let window = context.window ?? windowForMainWindowId(context.windowId) {
-                Self.hashFrame(window.frame, into: &hasher)
+            let geometry = snapshotGeometry(for: context)
+            if let frame = geometry.frame {
+                Self.hashFrame(frame.cgRect, into: &hasher)
+            } else {
+                hasher.combine(-1)
+            }
+            if let display = geometry.display {
+                Self.hashDisplaySnapshot(display, into: &hasher)
             } else {
                 hasher.combine(-1)
             }
@@ -4237,6 +4469,23 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         quantized.forEach { hasher.combine($0) }
     }
 
+    private nonisolated static func hashDisplaySnapshot(
+        _ display: SessionDisplaySnapshot,
+        into hasher: inout Hasher
+    ) {
+        hasher.combine(display.displayID.map { Int($0) } ?? -1)
+        if let frame = display.frame {
+            hashFrame(frame.cgRect, into: &hasher)
+        } else {
+            hasher.combine(-1)
+        }
+        if let visibleFrame = display.visibleFrame {
+            hashFrame(visibleFrame.cgRect, into: &hasher)
+        } else {
+            hasher.combine(-1)
+        }
+    }
+
     private func persistSessionSnapshot(
         _ snapshot: AppSessionSnapshot?,
         removeWhenEmpty: Bool,
@@ -4321,11 +4570,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             surfaceResumeBindingIndex: surfaceResumeBindingIndex
         )
 
-        let window = context.window ?? windowForMainWindowId(context.windowId)
+        let geometry = snapshotGeometry(for: context)
         return SessionWindowSnapshot(
             windowId: context.windowId,
-            frame: window.map { SessionRectSnapshot($0.frame) },
-            display: displaySnapshot(for: window),
+            frame: geometry.frame,
+            display: geometry.display,
             tabManager: tabManagerSnapshot,
             sidebar: SessionSidebarSnapshot(
                 isVisible: context.sidebarState.isVisible,
@@ -4504,6 +4753,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
 
         let didApplyStartupSessionRestore = attemptStartupSessionRestoreIfNeeded(primaryWindow: window)
+        mainWindowDisplayGeometryCoordinator.recordCurrentGeometry(current: currentMainWindowDisplayGeometry())
         if Self.shouldSaveSessionSnapshotAfterMainWindowRegistration(
             isTerminatingApp: isTerminatingApp,
             didApplyStartupSessionRestore: didApplyStartupSessionRestore,
@@ -5868,6 +6118,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         commandPaletteEscapeSuppressionStartedAtByWindowId.removeValue(forKey: context.windowId)
         commandPaletteSelectionByWindowId.removeValue(forKey: context.windowId)
         commandPaletteSnapshotByWindowId.removeValue(forKey: context.windowId)
+        removeSavedDisplayWindowFrames(forWindowId: context.windowId)
 
         if tabManager === context.tabManager {
             activateMainWindowContext(Array(mainWindowContexts.values).first { resolvedWindow(for: $0) != nil } ?? (allowWindowlessFallback ? mainWindowContexts.values.first : nil))
@@ -16115,6 +16366,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         commandPaletteEscapeSuppressionStartedAtByWindowId.removeValue(forKey: removed.windowId)
         commandPaletteSelectionByWindowId.removeValue(forKey: removed.windowId)
         commandPaletteSnapshotByWindowId.removeValue(forKey: removed.windowId)
+        removeSavedDisplayWindowFrames(forWindowId: removed.windowId)
 
         // Avoid stale notifications that can no longer be opened once the owning window is gone.
         if let store = notificationStore {

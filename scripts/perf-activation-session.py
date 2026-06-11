@@ -48,12 +48,12 @@ class CmuxPerfRunner:
         self.cmuxd_socket_path = pathlib.Path(
             os.path.expanduser(f"~/Library/Application Support/cmux/cmuxd-dev-{self.tag_slug}.sock")
         )
-        self.debug_log_path = pathlib.Path(f"/tmp/cmux-debug-{self.tag_slug}.log")
-        self.stdout_path = pathlib.Path(f"/tmp/cmux-perf-{self.tag_slug}-stdout.log")
         self.app_path = pathlib.Path(args.app_path).expanduser() if args.app_path else self.default_app_path()
         self.binary_path = self.app_path / "Contents/MacOS/cmux DEV"
         self.cli_path = self.app_path / "Contents/Resources/bin/cmux"
         self.fixture_root = self.make_fixture_root(args.fixture_root)
+        self.debug_log_path = self.fixture_root / "cmux-debug.log"
+        self.stdout_path = self.fixture_root / "cmux-stdout.log"
         self.proc: subprocess.Popen | None = None
         self.heavy_scrollback_surfaces: set[str] = set()
         self.result: dict = {
