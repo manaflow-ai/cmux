@@ -36,7 +36,7 @@
 2877	Sources/SessionIndexView.swift
 2871	cmuxTests/CMUXOpenCommandTests.swift
 2654	Sources/Panels/CmuxWebView.swift
-2559	Sources/TerminalNotificationStore.swift
+2580	Sources/TerminalNotificationStore.swift
 2545	cmuxTests/WorkspaceManualUnreadTests.swift
 2513	cmuxTests/CommandPaletteSearchEngineTests.swift
 2509	Sources/KeyboardShortcutSettings.swift
@@ -61,16 +61,16 @@
 1560	cmuxTests/TextBoxMentionCompletionTests.swift
 1498	cmuxTests/OmnibarAndToolsTests.swift
 1496	cmuxUITests/MultiWindowNotificationsUITests.swift
+1466	cmuxTests/TerminalNotificationClearAllTests.swift
 1450	Sources/FileExplorerStore.swift
 1410	Sources/CommandPalette/CommandPaletteSearch.swift
-1386	cmuxTests/TerminalNotificationClearAllTests.swift
 1380	cmuxUITests/MenuKeyEquivalentRoutingUITests.swift
 1376	cmuxTests/KeyboardShortcutSettingsFileStoreStartupTests.swift
 1372	cmuxTests/AppDelegateIssue2907RoutingTests.swift
 1365	Sources/Feed/FeedButtonStyleDebugWindowController.swift
 1362	Sources/CMUXInstalledExtensionSidebarHostView.swift
+1328	Sources/Feed/FeedCoordinator.swift
 1313	cmuxTests/MobileHostAuthorizationTests.swift
-1304	Sources/Feed/FeedCoordinator.swift
 1285	cmuxUITests/SidebarHelpMenuUITests.swift
 1197	cmuxTests/CodexAppServerSessionTests.swift
 1156	cmuxTests/SidebarOrderingTests.swift
