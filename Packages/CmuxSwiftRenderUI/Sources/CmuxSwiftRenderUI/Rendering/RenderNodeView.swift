@@ -145,6 +145,9 @@ struct RenderNodeView: View {
         case .angularGradient:
             AngularGradient(colors: gradientColors(node),
                             center: dslUnitPoint(node.points.first, default: .center))
+        case .textField:
+            // SPIKE STUB (not for merge): see TextFieldNodeView.
+            TextFieldNodeView(node: node)
         }
     }
 

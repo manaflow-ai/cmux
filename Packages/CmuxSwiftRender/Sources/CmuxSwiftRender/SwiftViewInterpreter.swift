@@ -188,6 +188,18 @@ public struct SwiftViewInterpreter: Sendable {
                 text: stringArgument(call.arguments, env) ?? labeledStringArgument("title", call.arguments, env) ?? "",
                 systemName: labeledStringArgument("systemImage", call.arguments, env)
             )
+        case "TextField":
+            // SPIKE STUB (not for merge): lowers `TextField("ph", text: $x)`
+            // so the in-process bridge can prove typing/focus fidelity. The
+            // binding name is captured for display only; the static IR has no
+            // binding concept, so the typed value never reaches the environment.
+            let bindingSource = call.arguments.first(where: { $0.label?.text == "text" })?
+                .expression.trimmedDescription.trimmingCharacters(in: .whitespaces)
+            return RenderNode(
+                kind: .textField,
+                text: stringArgument(call.arguments, env) ?? "",
+                binding: bindingSource.map { $0.hasPrefix("$") ? String($0.dropFirst()) : $0 }
+            )
         case "Spacer":
             return RenderNode(kind: .spacer)
         case "Divider":
