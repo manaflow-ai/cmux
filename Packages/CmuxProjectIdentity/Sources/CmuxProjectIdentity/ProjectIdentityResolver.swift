@@ -26,19 +26,23 @@ public actor ProjectIdentityResolver {
     ///
     /// Always returns a value: when no `AppIcon` asset is found, the icon and
     /// color are `nil` and only the name + ``ProjectMonogram`` are populated.
-    public func resolve(projectRootPath: String) -> ProjectIdentity {
-        let root = URL(fileURLWithPath: projectRootPath, isDirectory: true)
-        let name = root.lastPathComponent
-        let monogram = ProjectMonogram(projectName: name).value
+    public func resolve(projectRootPath: String) async -> ProjectIdentity {
+        let locator = self.locator
+        let averageColor = self.averageColor
+        return await Task.detached(priority: .utility) {
+            let root = URL(fileURLWithPath: projectRootPath, isDirectory: true)
+            let name = root.lastPathComponent
+            let monogram = ProjectMonogram(projectName: name).value
 
-        guard let iconURL = locator.bestIconURL(inProjectRoot: root),
-              let pngData = try? Data(contentsOf: iconURL),
-              let image = NSImage(data: pngData),
-              let cgImage = image.cgImage(forProposedRect: nil, context: nil, hints: nil)
-        else {
-            return ProjectIdentity(projectName: name, iconPNGData: nil, dominantColorHex: nil, monogram: monogram)
-        }
-        let colorHex = averageColor.hexString(of: cgImage)
-        return ProjectIdentity(projectName: name, iconPNGData: pngData, dominantColorHex: colorHex, monogram: monogram)
+            guard let iconURL = locator.bestIconURL(inProjectRoot: root),
+                  let imageData = try? Data(contentsOf: iconURL),
+                  let image = NSImage(data: imageData),
+                  let cgImage = image.cgImage(forProposedRect: nil, context: nil, hints: nil)
+            else {
+                return ProjectIdentity(projectName: name, iconImageData: nil, dominantColorHex: nil, monogram: monogram)
+            }
+            let colorHex = averageColor.hexString(of: cgImage)
+            return ProjectIdentity(projectName: name, iconImageData: imageData, dominantColorHex: colorHex, monogram: monogram)
+        }.value
     }
 }

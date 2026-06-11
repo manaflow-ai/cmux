@@ -15,10 +15,7 @@ private func writePNG(_ color: NSColor, to url: URL, side: Int = 32) throws {
 
 @Test func resolverReturnsNameMonogramIconAndColor() async throws {
     let root = FileManager.default.temporaryDirectory
-        .appendingPathComponent("cmux", isDirectory: true) // name should be "cmux"
-        .appendingPathComponent("..", isDirectory: true)
         .appendingPathComponent("RootFix-\(UUID().uuidString)/cmux", isDirectory: true)
-        .standardizedFileURL
     let set = root.appendingPathComponent("App/Assets.xcassets/AppIcon.appiconset", isDirectory: true)
     try FileManager.default.createDirectory(at: set, withIntermediateDirectories: true)
     try writePNG(.red, to: set.appendingPathComponent("icon.png"))
@@ -32,7 +29,7 @@ private func writePNG(_ color: NSColor, to url: URL, side: Int = 32) throws {
 
     #expect(identity.projectName == "cmux")
     #expect(identity.monogram == "CM")
-    #expect(identity.iconPNGData != nil)
+    #expect(identity.iconImageData != nil)
     #expect(identity.dominantColorHex == "#FF0000")
 }
 
@@ -41,7 +38,7 @@ private func writePNG(_ color: NSColor, to url: URL, side: Int = 32) throws {
     try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
     defer { try? FileManager.default.removeItem(at: root) }
     let identity = await ProjectIdentityResolver(fileManager: .default).resolve(projectRootPath: root.path)
-    #expect(identity.iconPNGData == nil)
+    #expect(identity.iconImageData == nil)
     #expect(identity.dominantColorHex == nil)
     #expect(identity.monogram.count >= 1)
 }

@@ -11,7 +11,6 @@ let package = Package(
         .target(
             name: "CmuxProjectIdentity",
             swiftSettings: [
-                .swiftLanguageMode(.v6),
                 .enableUpcomingFeature("ExistentialAny"),
                 .enableUpcomingFeature("InternalImportsByDefault"),
             ]

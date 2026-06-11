@@ -1,7 +1,8 @@
 import Foundation
 
 /// Locates the highest-resolution `AppIcon` image file inside a project tree.
-struct AppIconImageLocator {
+// FileManager is Apple-documented thread-safe; this struct holds no other state.
+struct AppIconImageLocator: @unchecked Sendable {
     private let fileManager: FileManager
 
     /// Creates a locator. Inject a `FileManager` for testing.

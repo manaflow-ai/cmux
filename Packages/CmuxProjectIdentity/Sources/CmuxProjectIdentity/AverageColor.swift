@@ -1,5 +1,4 @@
 import CoreGraphics
-import Foundation
 
 /// Computes the average color of an image by downsampling it to a single pixel.
 struct AverageColor {
@@ -14,6 +13,7 @@ struct AverageColor {
             space: colorSpace, bitmapInfo: bitmapInfo
         ) else { return nil }
         context.interpolationQuality = .medium
+        // App icons are opaque; for non-opaque inputs, un-premultiply before reading pixel bytes to avoid darker-than-actual values.
         context.draw(image, in: CGRect(x: 0, y: 0, width: 1, height: 1))
         return String(format: "#%02X%02X%02X", pixel[0], pixel[1], pixel[2])
     }

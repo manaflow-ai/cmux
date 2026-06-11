@@ -4,7 +4,7 @@ import Testing
 
 @Test
 func projectIdentityIsEquatable() {
-    let a = ProjectIdentity(projectName: "cmux", iconPNGData: nil, dominantColorHex: "#FF0000", monogram: "CM")
-    let b = ProjectIdentity(projectName: "cmux", iconPNGData: nil, dominantColorHex: "#FF0000", monogram: "CM")
+    let a = ProjectIdentity(projectName: "cmux", iconImageData: nil, dominantColorHex: "#FF0000", monogram: "CM")
+    let b = ProjectIdentity(projectName: "cmux", iconImageData: nil, dominantColorHex: "#FF0000", monogram: "CM")
     #expect(a == b)
 }
