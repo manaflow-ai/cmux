@@ -22317,22 +22317,31 @@ class TerminalController {
             return .err(code: "surface_unavailable", message: Self.terminalSurfaceUnavailableMessage, data: ["surface_id": surfaceId.uuidString])
         }
 
+        // The paste text is already accepted by the surface above. From here on a
+        // submit-key failure must NOT surface as an RPC error: the client treats
+        // any error as "nothing was sent" and keeps the composer draft, so a
+        // retry would paste the whole block a second time. Report partial
+        // success instead — `submitted: false` plus `submit_error` — so the
+        // client clears the draft (the text is sitting at the prompt) and can
+        // tell the user the submit keypress is still needed.
         var submitted = false
+        var submitError: String?
         if let submitKeyName {
             let keyResult = surface.sendNamedKey(submitKeyName)
-            guard keyResult.accepted else {
+            if keyResult.accepted {
+                submitted = true
+            } else {
                 switch keyResult {
                 case .inputQueueFull:
-                    return .err(code: "input_queue_full", message: Self.terminalInputQueueFullMessage, data: ["surface_id": surfaceId.uuidString])
+                    submitError = "input_queue_full"
                 case .surfaceUnavailable:
-                    return .err(code: "surface_unavailable", message: Self.terminalSurfaceUnavailableMessage, data: ["surface_id": surfaceId.uuidString])
+                    submitError = "surface_unavailable"
                 case .processExited:
-                    return .err(code: "process_exited", message: Self.terminalProcessExitedMessage, data: ["surface_id": surfaceId.uuidString])
+                    submitError = "process_exited"
                 case .unknownKey, .sent, .queued:
-                    return .err(code: "invalid_params", message: "Unsupported submit_key", data: ["submit_key": submitKeyRaw])
+                    submitError = "unknown_key"
                 }
             }
-            submitted = true
         }
 
         surface.forceRefresh(reason: "mobileHost.terminalPaste")
@@ -22348,6 +22357,9 @@ class TerminalController {
             "surface_id": terminalPanel.id.uuidString,
             "submitted": submitted,
         ]
+        if let submitError {
+            payload["submit_error"] = submitError
+        }
         if let seq = MobileTerminalByteTee.shared.currentSequence(surfaceID: surfaceId) {
             payload["terminal_seq"] = seq
         }

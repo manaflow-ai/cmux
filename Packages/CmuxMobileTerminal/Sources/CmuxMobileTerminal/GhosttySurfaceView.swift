@@ -2877,10 +2877,14 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         // ``bottomDockFrames()`` encode the `terminal / toolbar / composer / keyboard`
         // stack. While the HIDE button has suppressed the chrome (``chromeHidden``) the
         // toolbar is off screen and reserves nothing, and the composer band is hidden,
-        // so the grid reclaims the whole height; reserve only the keyboard if it is
-        // somehow still up.
+        // so the grid reclaims the whole height — including the bottom safe area
+        // (the home-indicator strip), matching ``bottomDockFrames()`` pinning the
+        // dock to `bounds.height`. Reserve only an actual keyboard if it is
+        // somehow still up; `keyboardOccupancyInBounds` must not be used here
+        // because its keyboard-down fallback is the safe-area inset, which would
+        // leave an empty strip under the full-screen grid.
         let reservedBottom = chromeHidden
-            ? keyboardOccupancyInBounds
+            ? max(0, keyboardHeight)
             : composerBandHeight + reservedToolbarHeight + keyboardOccupancyInBounds
         let bottomInset = min(reservedBottom, max(0, bounds.height - 1))
         let containerW = max(1, bounds.width)
