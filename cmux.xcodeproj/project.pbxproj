@@ -466,8 +466,6 @@
 		A5001521 /* PostHogAnalytics.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001520 /* PostHogAnalytics.swift */; };
 		C135190000000000000000A1 /* PreferredEditorSettingsTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C135190000000000000000A2 /* PreferredEditorSettingsTests.swift */; };
 		C47110010000000000000001 /* ProcessPipeReadCrashRegressionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C47110010000000000000002 /* ProcessPipeReadCrashRegressionTests.swift */; };
-		C47110020000000000000001 /* ProcessPipeReader.swift in Sources */ = {isa = PBXBuildFile; fileRef = C47110020000000000000002 /* ProcessPipeReader.swift */; };
-		C47110020000000000000003 /* ProcessPipeReader.swift in Sources */ = {isa = PBXBuildFile; fileRef = C47110020000000000000002 /* ProcessPipeReader.swift */; };
 		A5C0DE0000000000000000BA /* ProjectBuildSettingsTabView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5C0DE0000000000000000B9 /* ProjectBuildSettingsTabView.swift */; };
 		A5C0DE0000000000000000B6 /* ProjectFilesTabView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5C0DE0000000000000000B5 /* ProjectFilesTabView.swift */; };
 		A5C0DE0000000000000000B2 /* ProjectPanel.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5C0DE0000000000000000B1 /* ProjectPanel.swift */; };
@@ -1233,7 +1231,6 @@
 		A5001520 /* PostHogAnalytics.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PostHogAnalytics.swift; sourceTree = "<group>"; };
 		C135190000000000000000A2 /* PreferredEditorSettingsTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PreferredEditorSettingsTests.swift; sourceTree = "<group>"; };
 		C47110010000000000000002 /* ProcessPipeReadCrashRegressionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProcessPipeReadCrashRegressionTests.swift; sourceTree = "<group>"; };
-		C47110020000000000000002 /* ProcessPipeReader.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProcessPipeReader.swift; sourceTree = "<group>"; };
 		A5C0DE0000000000000000B9 /* ProjectBuildSettingsTabView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/ProjectBuildSettingsTabView.swift; sourceTree = "<group>"; };
 		A5C0DE0000000000000000B5 /* ProjectFilesTabView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/ProjectFilesTabView.swift; sourceTree = "<group>"; };
 		A5C0DE0000000000000000B1 /* ProjectPanel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/ProjectPanel.swift; sourceTree = "<group>"; };
@@ -1726,7 +1723,6 @@
 				A5001011 /* cmuxApp.swift */,
 				C46790000000000000000004 /* CLIForwardingLaunchRouter.swift */,
 				C46790000000000000000006 /* RosettaNativeRelaunch.swift */,
-				C47110020000000000000002 /* ProcessPipeReader.swift */,
 				5E2701020000000000000002 /* SentryEventScrubber.swift */,
 				D9CCF001D9CCF001D9CCF001 /* SettingsLazyLoadHelpers.swift */,
 				E3309A08 /* cmuxApp+EqualizeSplitsMenu.swift */,
@@ -3008,7 +3004,6 @@
 				D1F0A00100000000000000A1 /* PhonePushClient.swift in Sources */,
 				A5001540 /* PortScanner.swift in Sources */,
 				A5001521 /* PostHogAnalytics.swift in Sources */,
-				C47110020000000000000001 /* ProcessPipeReader.swift in Sources */,
 					A5C0DE0000000000000000BA /* ProjectBuildSettingsTabView.swift in Sources */,
 					A5C0DE0000000000000000B6 /* ProjectFilesTabView.swift in Sources */,
 					A5C0DE0000000000000000B2 /* ProjectPanel.swift in Sources */,
@@ -3219,7 +3214,6 @@
 				C0DECAFE0000000000000001 /* CodexTeamsApprovalBridge.swift in Sources */,
 					FEEDC1A50000000000000001 /* FeedEventClassifier.swift in Sources */,
 				C0DEF0B10000000000000003 /* JSONCParser.swift in Sources */,
-				C47110020000000000000003 /* ProcessPipeReader.swift in Sources */,
 				B9000028A1B2C3D4E5F60719 /* RemoteInteractiveShellBootstrapBuilder.swift in Sources */,
 				B9000027A1B2C3D4E5F60719 /* RemoteRelayZshBootstrap.swift in Sources */,
 				5E2701020000000000000003 /* SentryEventScrubber.swift in Sources */,

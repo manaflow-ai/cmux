@@ -1,3 +1,4 @@
+import CmuxFoundation
 import Foundation
 import Darwin
 
@@ -310,11 +311,11 @@ struct DetectedSSHSession: Equatable {
         }
 
         let stdout = String(
-            data: ProcessPipeReader.readDataToEndOfFileOrEmpty(from: stdoutPipe.fileHandleForReading),
+            data: stdoutPipe.fileHandleForReading.readDataToEndOfFileOrEmpty(),
             encoding: .utf8
         ) ?? ""
         let stderr = String(
-            data: ProcessPipeReader.readDataToEndOfFileOrEmpty(from: stderrPipe.fileHandleForReading),
+            data: stderrPipe.fileHandleForReading.readDataToEndOfFileOrEmpty(),
             encoding: .utf8
         ) ?? ""
         if operation?.isCancelled == true {
@@ -475,7 +476,7 @@ enum TerminalSSHSessionDetector {
             return []
         }
 
-        let data = ProcessPipeReader.readDataToEndOfFileOrEmpty(from: pipe.fileHandleForReading)
+        let data = pipe.fileHandleForReading.readDataToEndOfFileOrEmpty()
         process.waitUntilExit()
 
         guard process.terminationStatus == 0,

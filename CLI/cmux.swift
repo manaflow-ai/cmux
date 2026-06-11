@@ -19599,7 +19599,7 @@ struct CMUXCLI {
         let outputBox = CodexTeamsAsyncBox<Data>()
         let outputReadSemaphore = DispatchSemaphore(value: 0)
         DispatchQueue.global(qos: .utility).async {
-            outputBox.set(ProcessPipeReader.readDataToEndOfFileOrEmpty(from: output.fileHandleForReading))
+            outputBox.set(output.fileHandleForReading.readDataToEndOfFileOrEmpty())
             outputReadSemaphore.signal()
         }
 
@@ -21405,8 +21405,8 @@ struct CMUXCLI {
         stdinPipe.fileHandleForWriting.closeFile()
         process.waitUntilExit()
 
-        let stdoutData = ProcessPipeReader.readDataToEndOfFileOrEmpty(from: stdoutPipe.fileHandleForReading)
-        let stderrData = ProcessPipeReader.readDataToEndOfFileOrEmpty(from: stderrPipe.fileHandleForReading)
+        let stdoutData = stdoutPipe.fileHandleForReading.readDataToEndOfFileOrEmpty()
+        let stderrData = stderrPipe.fileHandleForReading.readDataToEndOfFileOrEmpty()
         let stdout = String(data: stdoutData, encoding: .utf8) ?? ""
         let stderr = String(data: stderrData, encoding: .utf8) ?? ""
         return (process.terminationStatus, stdout, stderr)
@@ -25416,7 +25416,7 @@ struct CMUXCLI {
         process.waitUntilExit()
         guard process.terminationStatus == 0 else { return nil }
 
-        let data = ProcessPipeReader.readDataToEndOfFileOrEmpty(from: stdout.fileHandleForReading)
+        let data = stdout.fileHandleForReading.readDataToEndOfFileOrEmpty()
         guard let output = String(data: data, encoding: .utf8)?
             .trimmingCharacters(in: .whitespacesAndNewlines),
             !output.isEmpty else {
@@ -30423,12 +30423,12 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
         let drainGroup = DispatchGroup()
         drainGroup.enter()
         DispatchQueue.global(qos: .utility).async {
-            stdoutData = ProcessPipeReader.readDataToEndOfFileOrEmpty(from: stdoutHandle)
+            stdoutData = stdoutHandle.readDataToEndOfFileOrEmpty()
             drainGroup.leave()
         }
         drainGroup.enter()
         DispatchQueue.global(qos: .utility).async {
-            stderrData = ProcessPipeReader.readDataToEndOfFileOrEmpty(from: stderrHandle)
+            stderrData = stderrHandle.readDataToEndOfFileOrEmpty()
             drainGroup.leave()
         }
 
@@ -32484,7 +32484,7 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
             return nil
         }
 
-        let data = ProcessPipeReader.readDataToEndOfFileOrEmpty(from: stdout.fileHandleForReading)
+        let data = stdout.fileHandleForReading.readDataToEndOfFileOrEmpty()
         guard let output = String(data: data, encoding: .utf8) else {
             return nil
         }
