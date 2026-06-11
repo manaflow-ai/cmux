@@ -47,11 +47,156 @@ struct BrowserSystemProxyMirror: Equatable {
     /// Maps a `CFNetworkCopySystemProxySettings()` dictionary to an explicit
     /// proxy + bypass mirror, or `nil` when the active configuration cannot
     /// be represented faithfully.
+    ///
+    /// The mirror fails closed: whenever any part of the system policy —
+    /// proxy routing or bypass rules — has no `ProxyConfiguration`
+    /// equivalent, no mirror is produced and WebKit keeps following the
+    /// system proxy unchanged. The one exception is the link-local CIDR
+    /// `169.254/16`, which macOS ships in the default bypass list of every
+    /// network service: treating it as blocking would disable the loopback
+    /// fix on effectively every Mac, so it is skipped instead (literal
+    /// link-local URLs are the only flow that loses its bypass).
     init?(systemProxySettings settings: [String: Any]) {
-        // Mirroring is not implemented yet: local-workspace browser panes
-        // currently always fall back to the system proxy, with no loopback
-        // bypass (https://github.com/manaflow-ai/cmux/issues/5888).
-        return nil
+        // PAC files and WPAD evaluate a script per URL; they cannot be
+        // expressed as static ProxyConfiguration values, so the system keeps
+        // handling them (current behavior, no loopback bypass).
+        guard !Self.isEnabled(kCFNetworkProxiesProxyAutoConfigEnable, in: settings),
+              !Self.isEnabled(kCFNetworkProxiesProxyAutoDiscoveryEnable, in: settings) else {
+            return nil
+        }
+
+        // "Exclude simple hostnames" bypasses every dot-less hostname; a
+        // hostname-suffix exclusion list cannot express that, so decline
+        // rather than silently routing those hosts to the proxy.
+        guard !Self.isEnabled(kCFNetworkProxiesExcludeSimpleHostnames, in: settings) else {
+            return nil
+        }
+
+        let httpConfigured = Self.isEnabled(kCFNetworkProxiesHTTPEnable, in: settings)
+        let httpsConfigured = Self.isEnabled(kCFNetworkProxiesHTTPSEnable, in: settings)
+        if httpConfigured || httpsConfigured {
+            // A single CONNECT configuration routes both http and https the
+            // same way, so it only faithfully represents the system policy
+            // when the HTTP and HTTPS web proxies are both enabled and point
+            // at the identical endpoint — the shape global-proxy tools
+            // (Clash/mihomo/Surge) write. HTTP-only, HTTPS-only, and split
+            // endpoints are declined instead of rerouting traffic contrary
+            // to the user's settings.
+            guard let http = Self.endpoint(
+                in: settings,
+                enableKey: kCFNetworkProxiesHTTPEnable,
+                hostKey: kCFNetworkProxiesHTTPProxy,
+                portKey: kCFNetworkProxiesHTTPPort
+            ), let https = Self.endpoint(
+                in: settings,
+                enableKey: kCFNetworkProxiesHTTPSEnable,
+                hostKey: kCFNetworkProxiesHTTPSProxy,
+                portKey: kCFNetworkProxiesHTTPSPort
+            ), http.host.lowercased() == https.host.lowercased(),
+               http.port == https.port else {
+                return nil
+            }
+            proxy = .httpCONNECT(host: https.host, port: https.port)
+        } else if let socks = Self.endpoint(
+            in: settings,
+            enableKey: kCFNetworkProxiesSOCKSEnable,
+            hostKey: kCFNetworkProxiesSOCKSProxy,
+            portKey: kCFNetworkProxiesSOCKSPort
+        ) {
+            proxy = .socksV5(host: socks.host, port: socks.port)
+        } else {
+            return nil
+        }
+
+        let bypassList = (settings[kCFNetworkProxiesExceptionsList as String] as? [Any] ?? [])
+            .compactMap { $0 as? String }
+        guard let merged = Self.mergedExcludedDomains(systemBypassList: bypassList) else {
+            return nil
+        }
+        excludedDomains = merged
+    }
+
+    private static func isEnabled(_ key: CFString, in settings: [String: Any]) -> Bool {
+        (settings[key as String] as? NSNumber)?.boolValue ?? false
+    }
+
+    private static func endpoint(
+        in settings: [String: Any],
+        enableKey: CFString,
+        hostKey: CFString,
+        portKey: CFString
+    ) -> (host: String, port: UInt16)? {
+        guard isEnabled(enableKey, in: settings) else { return nil }
+        guard let host = (settings[hostKey as String] as? String)?
+            .trimmingCharacters(in: .whitespacesAndNewlines),
+            !host.isEmpty else { return nil }
+        guard let port = (settings[portKey as String] as? NSNumber)?.intValue,
+              port > 0, port <= 65535 else { return nil }
+        return (host: host, port: UInt16(port))
+    }
+
+    /// How a single system bypass-list entry maps onto `excludedDomains`.
+    private enum BypassEntryResolution {
+        /// Expressible as a hostname-suffix exclusion.
+        case domain(String)
+        /// The macOS default link-local CIDR; skipped without blocking the
+        /// mirror (see `init?(systemProxySettings:)`).
+        case ignorableDefault
+        /// Whitespace or wildcard-only fragments that express no bypass
+        /// intent; skipped without blocking the mirror.
+        case noise
+        /// A deliberate bypass rule with no hostname-suffix equivalent
+        /// (CIDR ranges, non-leading wildcards); declines the whole mirror
+        /// so the system policy keeps being honored.
+        case unrepresentable
+    }
+
+    /// Merges the loopback defaults with the user's macOS bypass list
+    /// ("Bypass proxy settings for these Hosts & Domains"), or returns `nil`
+    /// when the list contains a deliberate rule that hostname-suffix
+    /// exclusions cannot express. Leading `*.` / `.` prefixes are normalized
+    /// away (`*.local` → `local`), entries are lowercased and deduplicated.
+    private static func mergedExcludedDomains(systemBypassList: [String]) -> [String]? {
+        var seen = Set(loopbackExclusions)
+        var merged = loopbackExclusions
+        for rawEntry in systemBypassList {
+            switch resolveBypassEntry(rawEntry) {
+            case .domain(let entry):
+                if seen.insert(entry).inserted {
+                    merged.append(entry)
+                }
+            case .ignorableDefault, .noise:
+                continue
+            case .unrepresentable:
+                return nil
+            }
+        }
+        return merged
+    }
+
+    private static func resolveBypassEntry(_ rawEntry: String) -> BypassEntryResolution {
+        let trimmed = rawEntry.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        if trimmed.isEmpty {
+            return .noise
+        }
+        if trimmed == "169.254/16" || trimmed == "169.254.0.0/16" {
+            return .ignorableDefault
+        }
+
+        var entry = trimmed
+        if entry.hasPrefix("*.") {
+            entry.removeFirst(2)
+        }
+        while entry.hasPrefix(".") {
+            entry.removeFirst()
+        }
+        if entry.isEmpty {
+            return .noise
+        }
+        if entry.contains("/") || entry.contains("*") {
+            return .unrepresentable
+        }
+        return .domain(entry)
     }
 }
 

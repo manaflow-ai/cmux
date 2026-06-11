@@ -3886,7 +3886,7 @@ final class BrowserPanel: Panel, ObservableObject {
         lockedPortalHost = nil
 
         bindWebView(replacement)
-        applyRemoteProxyConfigurationIfAvailable()
+        applyProxyConfigurationIfAvailable()
         applyBrowserThemeModeIfNeeded()
         restoreSessionNavigationHistory(
             backHistoryURLStrings: history.backHistoryURLStrings,
@@ -4443,7 +4443,7 @@ final class BrowserPanel: Panel, ObservableObject {
         self.webView = webView
         self.insecureHTTPAlertFactory = { NSAlert() }
         hiddenWebViewDiscardManager.delegate = self
-        applyRemoteProxyConfigurationIfAvailable()
+        applyProxyConfigurationIfAvailable()
         BrowserProfileStore.shared.noteUsed(resolvedProfileID)
 
         // Set up navigation delegate
@@ -4750,7 +4750,7 @@ final class BrowserPanel: Panel, ObservableObject {
         guard !bypassesRemoteWorkspaceProxy else { return }
         guard remoteProxyEndpoint != endpoint else { return }
         remoteProxyEndpoint = endpoint
-        applyRemoteProxyConfigurationIfAvailable()
+        applyProxyConfigurationIfAvailable()
         resumePendingRemoteNavigationIfNeeded()
     }
 
@@ -4759,12 +4759,24 @@ final class BrowserPanel: Panel, ObservableObject {
         remoteWorkspaceStatus = status
     }
 
-    private func applyRemoteProxyConfigurationIfAvailable() {
+    private func applyProxyConfigurationIfAvailable() {
         guard #available(macOS 14.0, *) else { return }
 
         let store = webView.configuration.websiteDataStore
         guard let endpoint = remoteProxyEndpoint else {
-            store.proxyConfigurations = []
+            // Local workspaces: mirror an active macOS system proxy with
+            // loopback excluded so http://localhost dev servers stay
+            // reachable under a global proxy (issue #5888). With no mappable
+            // system proxy this stays empty and WebKit keeps following the
+            // system proxy as before.
+            let configurations = Self.localWorkspaceProxyConfigurations()
+            store.proxyConfigurations = configurations
+#if DEBUG
+            cmuxDebugLog(
+                "browser.systemProxyMirror.apply panel=\(id.uuidString.prefix(5)) " +
+                "mirrored=\(configurations.isEmpty ? 0 : 1)"
+            )
+#endif
             return
         }
 
@@ -4780,6 +4792,23 @@ final class BrowserPanel: Panel, ObservableObject {
         let socks = ProxyConfiguration(socksv5Proxy: nwEndpoint)
         let connect = ProxyConfiguration(httpCONNECTProxy: nwEndpoint)
         store.proxyConfigurations = [socks, connect]
+    }
+
+    /// Builds the explicit proxy configurations for a local-workspace data
+    /// store by mirroring the active macOS system proxy, excluding loopback
+    /// and the user's proxy bypass list
+    /// (https://github.com/manaflow-ai/cmux/issues/5888). Returns an empty
+    /// array when no mappable system proxy is active so WebKit falls back to
+    /// the system proxy unchanged.
+    private static func localWorkspaceProxyConfigurations() -> [ProxyConfiguration] {
+        guard let rawSettings = CFNetworkCopySystemProxySettings()?.takeRetainedValue() else {
+            return []
+        }
+        guard let settings = rawSettings as NSDictionary as? [String: Any],
+              let mirror = BrowserSystemProxyMirror(systemProxySettings: settings) else {
+            return []
+        }
+        return mirror.proxyConfigurations()
     }
 
     private func beginDownloadActivity() {
@@ -4840,7 +4869,7 @@ final class BrowserPanel: Panel, ObservableObject {
                 reason: "workspace_reattach"
             )
         }
-        applyRemoteProxyConfigurationIfAvailable()
+        applyProxyConfigurationIfAvailable()
         resumePendingRemoteNavigationIfNeeded()
     }
 
@@ -5296,6 +5325,14 @@ final class BrowserPanel: Panel, ObservableObject {
             .sink { [weak self] notification in
                 guard let self else { return }
                 self.applyWebViewBackground(color: GhosttyBackgroundTheme.color(from: notification))
+            }
+            .store(in: &webViewCancellables)
+
+        // Keep the local-workspace system-proxy mirror fresh when the user
+        // toggles a global proxy or switches network locations mid-session.
+        NotificationCenter.default.publisher(for: .browserSystemProxySettingsDidChange)
+            .sink { [weak self] _ in
+                self?.applyProxyConfigurationIfAvailable()
             }
             .store(in: &webViewCancellables)
 
