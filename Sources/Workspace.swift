@@ -10777,10 +10777,10 @@ final class Workspace: Identifiable, ObservableObject {
     @Published private(set) var tmuxWorkspaceFlashToken: UInt64 = 0
     var manualUnreadMarkedAt: [UUID: Date] = [:]
     @Published var statusEntries: [String: SidebarStatusEntry] = [:] {
-        didSet { trimSidebarStatusEntriesIfNeeded() }
+        didSet { trimSidebarStatusEntriesIfNeeded(previousKeys: Set(oldValue.keys)) }
     }
     @Published var metadataBlocks: [String: SidebarMetadataBlock] = [:] {
-        didSet { trimSidebarMetadataBlocksIfNeeded() }
+        didSet { trimSidebarMetadataBlocksIfNeeded(previousKeys: Set(oldValue.keys)) }
     }
     @Published private(set) var latestConversationMessage: String?
     @Published private(set) var latestSubmittedMessage: String?
@@ -14484,16 +14484,26 @@ final class Workspace: Identifiable, ObservableObject {
     static let maxSidebarMetadataBlocks = 200
 
     /// Evicts status entries once the cap is exceeded. Retention is tiered:
-    /// cmux-owned reserved keys (application state) first, then statuses backed
-    /// by a live agent (coupled PID or lifecycle state — so an actively updated
-    /// agent status that kept its original insertion timestamp can't be aged out
-    /// by a flood of newer distinct keys), then the rest follow the same
-    /// priority/timestamp ordering as `sidebarStatusEntriesInDisplayOrder()`.
+    ///  1. cmux-owned reserved keys (application state).
+    ///  2. statuses backed by a live agent (coupled PID or lifecycle state) — so
+    ///     an actively updated agent status whose display timestamp went stale
+    ///     can't be aged out by a flood of newer distinct keys.
+    ///  3. keys inserted by the write that triggered this trim (`previousKeys`
+    ///     is the pre-write key set). Multi-step updates such as
+    ///     `set_status --pid` insert the status first and record the coupling
+    ///     marker afterward; this grace tier keeps the just-inserted status alive
+    ///     across its own synchronous trim so `recordAgentPIDForSurvivingStatusKey`
+    ///     can mark it live before the next trim (#5845). It is a *tier*, not an
+    ///     absolute pin — a bulk insert above the cap still ranks within this
+    ///     tier by priority/timestamp, so the cap is always enforced.
+    ///  4. everything else, by the same priority/timestamp order as
+    ///     `sidebarStatusEntriesInDisplayOrder()`.
     /// Ranking and the keep-set are both keyed by the dictionary's storage key
     /// (not `entry.key`) so the two can never diverge.
-    private func trimSidebarStatusEntriesIfNeeded() {
+    private func trimSidebarStatusEntriesIfNeeded(previousKeys: Set<String>) {
         guard statusEntries.count > Self.maxSidebarStatusEntries else { return }
         let liveAgentStatusKeys = statusKeysWithCoupledAgentRuntime()
+        let justInsertedKeys = Set(statusEntries.keys).subtracting(previousKeys)
         let kept = Set(
             statusEntries
                 .sorted { lhs, rhs in
@@ -14503,6 +14513,9 @@ final class Workspace: Identifiable, ObservableObject {
                     let lhsLive = liveAgentStatusKeys.contains(lhs.key)
                     let rhsLive = liveAgentStatusKeys.contains(rhs.key)
                     if lhsLive != rhsLive { return lhsLive }
+                    let lhsFresh = justInsertedKeys.contains(lhs.key)
+                    let rhsFresh = justInsertedKeys.contains(rhs.key)
+                    if lhsFresh != rhsFresh { return lhsFresh }
                     if lhs.value.priority != rhs.value.priority { return lhs.value.priority > rhs.value.priority }
                     if lhs.value.timestamp != rhs.value.timestamp { return lhs.value.timestamp > rhs.value.timestamp }
                     return lhs.key < rhs.key
@@ -14523,13 +14536,18 @@ final class Workspace: Identifiable, ObservableObject {
     }
 
     /// Mirror of `trimSidebarStatusEntriesIfNeeded()` for metadata blocks,
-    /// matching `sidebarMetadataBlocksInDisplayOrder()` retention. Ranking and
-    /// keep-set are keyed by the dictionary's storage key.
-    private func trimSidebarMetadataBlocksIfNeeded() {
+    /// matching `sidebarMetadataBlocksInDisplayOrder()` retention, with the same
+    /// just-inserted grace tier. Ranking and keep-set are keyed by the
+    /// dictionary's storage key.
+    private func trimSidebarMetadataBlocksIfNeeded(previousKeys: Set<String>) {
         guard metadataBlocks.count > Self.maxSidebarMetadataBlocks else { return }
+        let justInsertedKeys = Set(metadataBlocks.keys).subtracting(previousKeys)
         let kept = Set(
             metadataBlocks
                 .sorted { lhs, rhs in
+                    let lhsFresh = justInsertedKeys.contains(lhs.key)
+                    let rhsFresh = justInsertedKeys.contains(rhs.key)
+                    if lhsFresh != rhsFresh { return lhsFresh }
                     if lhs.value.priority != rhs.value.priority { return lhs.value.priority > rhs.value.priority }
                     if lhs.value.timestamp != rhs.value.timestamp { return lhs.value.timestamp > rhs.value.timestamp }
                     return lhs.key < rhs.key
