@@ -48,6 +48,9 @@ final class BrowserSystemProxyWatcher {
         let proxiesKey = SCDynamicStoreKeyCreateProxies(nil)
         guard SCDynamicStoreSetNotificationKeys(store, [proxiesKey] as CFArray, nil),
               SCDynamicStoreSetDispatchQueue(store, .main) else {
+            // No queue is set when this path runs today (the queue call is
+            // the last to fail); defensive teardown for future reordering.
+            SCDynamicStoreSetDispatchQueue(store, nil)
             return
         }
         dynamicStore = store
