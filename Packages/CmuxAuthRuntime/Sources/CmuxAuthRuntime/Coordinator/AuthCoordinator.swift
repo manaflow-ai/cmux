@@ -759,8 +759,12 @@ public final class AuthCoordinator {
                     try await client.revokeSession(accessToken: teardownAccessToken, refreshToken: refreshToken)
                 } catch {
                     // Best-effort by design; see the security tradeoff above.
+                    // The full error goes to the unified log privately; the
+                    // public redacted sink gets only the error TYPE, because
+                    // a Stack error body can carry opaque identifiers the
+                    // redaction regexes don't recognize.
                     authLog.error("Sign-out session revocation failed: \(error.localizedDescription, privacy: .private)")
-                    log.log("auth.signOut revocation failed: \(error)")
+                    log.log("auth.signOut revocation failed: \(String(describing: type(of: error)))")
                 }
             }
             group.addTask {
