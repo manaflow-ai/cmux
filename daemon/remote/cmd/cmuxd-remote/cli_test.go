@@ -1283,3 +1283,25 @@ func TestCLIWorkspaceGroupUnknownSubcommand(t *testing.T) {
 		t.Fatalf("unsupported workspace subcommand should return 2, got %d", code)
 	}
 }
+
+func TestCLIWorkspaceGroupListForwardsCallerEnvContext(t *testing.T) {
+	sockPath, requests := startMockV2SocketWithRequestCapture(t)
+	t.Setenv("CMUX_WORKSPACE_ID", "env-ws")
+	t.Setenv("CMUX_SURFACE_ID", "env-sf")
+	code := runCLI([]string{"--socket", sockPath, "--json", "workspace", "group", "list"})
+	if code != 0 {
+		t.Fatalf("workspace group list should return 0, got %d", code)
+	}
+	params := expectGroupRequest(t, requests, "workspace.group.list")
+	if params["workspace_id"] != "env-ws" || params["surface_id"] != "env-sf" {
+		t.Fatalf("expected caller env context to be forwarded, got %v", params)
+	}
+}
+
+func TestCLIWorkspaceGroupRemoveStillRequiresExplicitWorkspaceWithEnv(t *testing.T) {
+	sockPath := startMockV2Socket(t)
+	t.Setenv("CMUX_WORKSPACE_ID", "env-ws")
+	if code := runCLI([]string{"--socket", sockPath, "workspace", "group", "remove"}); code != 2 {
+		t.Fatalf("remove without --workspace should return 2 even with env set, got %d", code)
+	}
+}

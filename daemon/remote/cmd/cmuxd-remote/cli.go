@@ -512,6 +512,14 @@ func runWorkspaceGroupRelay(socketPath string, args []string, jsonOutput bool, r
 		}
 	}
 
+	// Forward the SSH caller's workspace/surface context so methods without a
+	// group id (list, create) resolve the caller's window instead of whichever
+	// local window is focused. Group-id routing still wins server-side, and
+	// subcommands that require an explicit --workspace have already validated
+	// it above, so the fallback never satisfies a missing required flag.
+	applyWorkspaceEnvFallback(params)
+	applySurfaceEnvFallback(params)
+
 	method := "workspace.group." + strings.ReplaceAll(sub, "-", "_")
 	resp, err := socketRoundTripV2(socketPath, method, params, refreshAddr)
 	if err != nil {
