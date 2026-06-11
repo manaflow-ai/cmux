@@ -1996,6 +1996,24 @@ final class TerminalOffscreenStartupTests: XCTestCase {
         XCTAssertEqual(buffer.flush(forKey: other), ["x"]) // keys independent
     }
 
+    /// Tab-scoped read/clear operations must drain every surface key under the
+    /// tab (after them no surface in the tab has an unread entry), while other
+    /// tabs' stashes stay put; clear-all/mark-all-read drain everything.
+    func testSupersededPhoneDismissBufferTabAndGlobalFlush() {
+        var buffer = SupersededPhoneDismissBuffer()
+        let tabA = UUID()
+        let tabB = UUID()
+        buffer.stash(ids: ["a1"], forKey: SupersededPhoneDismissBuffer.key(tabId: tabA, surfaceId: UUID()))
+        buffer.stash(ids: ["a2"], forKey: SupersededPhoneDismissBuffer.key(tabId: tabA, surfaceId: nil))
+        buffer.stash(ids: ["b1"], forKey: SupersededPhoneDismissBuffer.key(tabId: tabB, surfaceId: UUID()))
+
+        XCTAssertEqual(buffer.flush(matchingTabId: tabA).sorted(), ["a1", "a2"])
+        XCTAssertEqual(buffer.flush(matchingTabId: tabA), []) // drained exactly once
+
+        XCTAssertEqual(buffer.flushAll(), ["b1"])
+        XCTAssertEqual(buffer.flushAll(), [])
+    }
+
     /// The phone badge counts unread notification entries only. Workspace-level
     /// manual unread indicators feed the Mac Dock badge but have no phone banner,
     /// so they must not inflate the phone count.
