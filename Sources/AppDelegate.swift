@@ -1240,8 +1240,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
         if mainWindowVisibilityController.showApplicationWindows(
             windows: mainWindowsForVisibilityController(),
-            reason: .applicationReopen,
-            activation: .none
+            reason: .applicationReopen
         ) == nil {
             _ = ensureInitialMainWindowIfNeeded()
         }
