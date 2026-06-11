@@ -866,10 +866,10 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     }
 
     /// Clear delivered banners on this phone in response to a Mac-side dismiss
-    /// (`notification.dismissed` peer event). The stable notification id was sent
-    /// to APNs as the `apns-collapse-id`, so the delivered remote notification's
-    /// `request.identifier` equals that id, which is what the injected
-    /// ``DeliveredNotificationClearing`` seam matches on.
+    /// (`notification.dismissed` peer event). The ids are stable Mac-side
+    /// notification ids; the injected ``DeliveredNotificationClearing`` seam
+    /// maps them to the matching delivered banners via their
+    /// `cmux.notificationId` payload key.
     /// - Parameter ids: The notification ids the Mac dismissed.
     public func clearDeliveredNotifications(ids: [String]) {
         let trimmed = ids

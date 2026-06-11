@@ -104,9 +104,12 @@ export async function sendApnsNotification(
   if (targets.length === 0) return [];
   const jwt = providerToken(config);
   const body = Buffer.from(JSON.stringify(buildApnsPayload(input)));
-  // The delivered banner's identifier (the lever for Mac→iOS dismiss) IS the
-  // apns-collapse-id when set. APNs caps it at 64 bytes; a UUID is 36, but guard
-  // anyway so an over-long id degrades to "no collapse" instead of a 400.
+  // The collapse-id coalesces repeated updates for the same notification into
+  // one delivered banner (the dismiss lever itself is the `cmux.notificationId`
+  // payload key, which iOS maps to delivered banners; the request identifier
+  // equaling the collapse-id is observed OS behavior, not a contract). APNs
+  // caps it at 64 bytes; a UUID is 36, but guard anyway so an over-long id
+  // degrades to "no collapse" instead of a 400.
   // Never set on a dismiss push: a collapse would try to REPLACE the delivered
   // banner with the invisible dismiss payload instead of leaving removal to the
   // app's background handler.
@@ -208,9 +211,8 @@ function sendOne(
         "content-type": "application/json",
         "content-length": String(body.length),
       };
-      // Sets the delivered notification's identifier on iOS, so a later
-      // notification.dismissed event can clear this exact banner. Also collapses
-      // repeated updates for the same notification into one.
+      // Collapses repeated updates for the same notification into one
+      // delivered banner.
       if (collapseId) headers["apns-collapse-id"] = collapseId;
       if (priority) headers["apns-priority"] = priority;
       req = client.request(headers);

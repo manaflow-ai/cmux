@@ -11,16 +11,21 @@ public import Foundation
 /// ``SystemDeliveredNotificationClearer``; tests inject a fake to assert which
 /// ids were cleared and which badge counts were applied.
 ///
-/// The identifiers are the delivered remote notifications' `request.identifier`,
-/// which (because the Mac stamps each push with `apns-collapse-id = notificationId`)
-/// equal the stable Mac-side notification ids carried in the dismiss event.
+/// All ids at this seam are STABLE MAC-SIDE NOTIFICATION IDS (the
+/// `cmux.notificationId` payload key the Mac stamps on every forwarded
+/// banner), never raw `UNNotificationRequest` identifiers: a delivered remote
+/// notification's request identifier equals the `apns-collapse-id` only by
+/// observed OS behavior, not by documented contract, so conformers map between
+/// the two themselves (see
+/// ``SystemDeliveredNotificationClearer/macNotificationID(for:)``).
 public protocol DeliveredNotificationClearing: Sendable {
-    /// Remove the delivered notifications with the given identifiers, if present.
-    /// - Parameter ids: The delivered-notification identifiers to clear.
+    /// Remove the delivered notifications carrying the given Mac notification
+    /// ids, if present. Best-effort fire-and-forget.
+    /// - Parameter ids: The stable Mac-side notification ids to clear.
     func removeDelivered(ids: [String])
 
-    /// The identifiers of all currently delivered notifications, for the
-    /// foreground reconcile sweep.
+    /// The Mac notification ids of all currently delivered notifications, for
+    /// the foreground reconcile sweep.
     func deliveredIdentifiers() async -> [String]
 
     /// SET the app-icon badge to the authoritative unread total computed by the
