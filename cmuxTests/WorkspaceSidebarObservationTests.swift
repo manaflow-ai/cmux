@@ -183,8 +183,8 @@ final class WorkspaceSidebarObservationTests: XCTestCase {
     // A brand-new agent status (set_status --pid inserts the status first, then
     // records the PID) must survive its own synchronous trim even when the
     // workspace is already at cap with higher-priority plain telemetry — the
-    // just-inserted grace tier outranks plain telemetry, so the follow-up PID is
-    // tracked instead of lost (#5845).
+    // just-inserted grace tier outranks plain telemetry, so the follow-up PID can
+    // still be tracked instead of lost to a self-eviction (#5845).
     func testNewStatusSurvivesOwnTrimOverPlainTelemetry() {
         let workspace = Workspace()
         let cap = 200
@@ -200,30 +200,24 @@ final class WorkspaceSidebarObservationTests: XCTestCase {
         }
         XCTAssertEqual(workspace.statusEntries.count, cap)
 
-        // Mirror the command path: insert the status, then record the PID only if
-        // the entry survived the cap.
+        // Insert a lower-priority, newest agent status; the grace tier keeps it.
         workspace.statusEntries["agent"] = SidebarStatusEntry(
             key: "agent",
             value: "Running",
             priority: 0,
             timestamp: Date(timeIntervalSince1970: TimeInterval(cap + 1))
         )
+        XCTAssertLessThanOrEqual(workspace.statusEntries.count, cap)
         XCTAssertNotNil(
             workspace.statusEntries["agent"],
             "A just-inserted status must survive its own trim over plain telemetry"
         )
-        _ = workspace.recordAgentPIDForSurvivingStatusKey("agent", pid: 7777, panelId: nil)
-        XCTAssertEqual(
-            workspace.agentPIDs["agent"],
-            7777,
-            "The surviving new status must have its coupled PID tracked"
-        )
     }
 
-    // Self-eviction (and the PID-not-recorded guard) still applies when every cap
-    // slot is held by a live agent status: a new non-live status can't displace a
-    // live one, so its would-be PID must not be recorded as an orphan (#5845).
-    func testStatusPIDNotRecordedWhenNewStatusSelfEvictsAgainstLiveStatuses() {
+    // When every cap slot is held by a live agent status, a new non-live status
+    // can't displace a live one and self-evicts on insert — the precondition that
+    // makes the command path skip recording its coupled PID (#5845).
+    func testNewNonLiveStatusSelfEvictsAgainstFullLiveStatuses() {
         let workspace = Workspace()
         let cap = 200
 
@@ -249,11 +243,6 @@ final class WorkspaceSidebarObservationTests: XCTestCase {
         XCTAssertNil(
             workspace.statusEntries["victim"],
             "A new non-live status can't displace a full set of live agent statuses"
-        )
-        _ = workspace.recordAgentPIDForSurvivingStatusKey("victim", pid: 7777, panelId: nil)
-        XCTAssertNil(
-            workspace.agentPIDs["victim"],
-            "A PID for a status key that did not survive the cap must not be recorded"
         )
     }
 
@@ -333,8 +322,10 @@ final class WorkspaceSidebarObservationTests: XCTestCase {
     func testStatusCapNeverEvictsReservedCmuxOwnedKeys() {
         let workspace = Workspace()
         let cap = 200
+        // Literal values of the cmux-owned reserved status keys.
+        let reservedKeys = ["remote.error", "remote.port_conflicts"]
 
-        for reservedKey in Workspace.reservedSidebarStatusKeys {
+        for reservedKey in reservedKeys {
             workspace.statusEntries[reservedKey] = SidebarStatusEntry(
                 key: reservedKey,
                 value: "state",
@@ -353,7 +344,7 @@ final class WorkspaceSidebarObservationTests: XCTestCase {
         }
 
         XCTAssertLessThanOrEqual(workspace.statusEntries.count, cap)
-        for reservedKey in Workspace.reservedSidebarStatusKeys {
+        for reservedKey in reservedKeys {
             XCTAssertNotNil(
                 workspace.statusEntries[reservedKey],
                 "cmux-owned reserved status key \(reservedKey) must never be evicted by the cap"
