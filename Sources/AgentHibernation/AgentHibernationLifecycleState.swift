@@ -46,11 +46,13 @@ enum AgentHibernationLifecycleState: String, Codable, Sendable, Equatable, CaseI
     /// Resolves a panel's hibernation lifecycle from all of its per-agent status
     /// sources plus a persisted fallback.
     ///
-    /// Priority: a busy (`running`) or blocked (`needsInput`) source wins, then a
-    /// definitive `idle`, and only then the indeterminate `unknown`. `idle`
-    /// intentionally outranks `unknown` so a real idle is never masked by an
-    /// agent that also reports an indeterminate status (which previously blocked
-    /// hibernation for those agents entirely).
+    /// Priority: busy (`running`) or blocked (`needsInput`) first, then
+    /// indeterminate (`unknown`), then definitive idle. `unknown` outranks `idle`
+    /// so that any unclassified source blocks hibernation — a stale `.idle` from
+    /// one agent key cannot mask an active `.unknown` from another key on the same
+    /// panel. In practice each panel has one agent key at a time (the other is
+    /// pruned via `clearAgentLifecycle`/`clearAgentLifecycleStates` at session end),
+    /// so the single entry is whatever that agent last reported.
     static func resolved(
         from states: some Collection<AgentHibernationLifecycleState>,
         fallback: AgentHibernationLifecycleState?
@@ -58,8 +60,8 @@ enum AgentHibernationLifecycleState: String, Codable, Sendable, Equatable, CaseI
         guard !states.isEmpty else { return fallback ?? .unknown }
         if states.contains(.running) { return .running }
         if states.contains(.needsInput) { return .needsInput }
-        if states.contains(.idle) { return .idle }
         if states.contains(.unknown) { return .unknown }
+        if states.contains(.idle) { return .idle }
         return fallback ?? .unknown
     }
 

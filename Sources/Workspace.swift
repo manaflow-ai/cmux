@@ -12288,12 +12288,16 @@ final class Workspace: Identifiable, ObservableObject {
     ) {
         let targetPanelId = panelId ?? focusedPanelId
         guard let targetPanelId, panels[targetPanelId] != nil else { return }
-        // Never let an indeterminate `unknown` (e.g. a resume/relaunch SessionStart,
-        // which can also arrive under a brand-new session id) erase a previously
-        // proven lifecycle for this panel. Without this a resumed-but-quiescent
-        // agent gets stuck at `unknown` and never re-hibernates. Any definitive
-        // incoming state still wins, so a real new turn (`running`)/block
-        // (`needsInput`)/turn-end (`idle`) updates normally.
+        // Never let an indeterminate `unknown` erase a previously proven lifecycle
+        // for this panel. In the resume path, `resumeAgentHibernation` seeds `.idle`
+        // and the resumed agent's SessionStart immediately emits `.unknown`; without
+        // this guard the panel would drop to `.unknown` and the agent could never
+        // re-hibernate (the hibernation-is-one-shot bug). Any definitive incoming
+        // state (`.running`/`.needsInput`/`.idle`) always wins, so a real new turn
+        // or completion still updates normally. Explicit lifecycle clears go through
+        // `clearAgentLifecycle`/`clearAgentLifecycleStates`, not a `.unknown` update.
+        // Invariant: the only callers that pass `.unknown` here are agent SessionStart
+        // hook integrations; no current integration uses `.unknown` as an explicit reset.
         let existing = agentLifecycleStatesByPanelId[targetPanelId]?[key]
         let resolved = AgentHibernationLifecycleState.preservingDefinitive(
             existing: existing,
