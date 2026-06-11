@@ -4218,6 +4218,213 @@ extension CLINotifyProcessIntegrationRegressionTests {
         )
     }
 
+    // MARK: - Error and Attention notification classification
+
+    /// Error notifications must set `.needsInput` (non-hibernatable), mirroring the generic
+    /// path's `.error` → `.needsInput` mapping. Previously they mapped to `.idle`, making
+    /// a still-broken agent eligible for hibernation.
+    func testClaudeErrorNotificationSetsNeedsInput() throws {
+        let cliPath = try bundledCLIPath()
+        let socketPath = makeSocketPath("claude-error-notif")
+        let listenerFD = try bindUnixSocket(at: socketPath)
+        let state = MockSocketServerState()
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-claude-error-\(UUID().uuidString)", isDirectory: true)
+        let workspaceId = "11111111-1111-1111-1111-111111111111"
+        let surfaceId = "22222222-2222-2222-2222-222222222222"
+        let sessionId = "claude-error-session"
+
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer {
+            Darwin.close(listenerFD)
+            unlink(socketPath)
+            try? FileManager.default.removeItem(at: root)
+        }
+
+        let environment: [String: String] = [
+            "HOME": root.path,
+            "PATH": "/usr/bin:/bin:/usr/sbin:/sbin",
+            "PWD": root.path,
+            "CMUX_SOCKET_PATH": socketPath,
+            "CMUX_WORKSPACE_ID": workspaceId,
+            "CMUX_SURFACE_ID": surfaceId,
+            "CMUX_AGENT_HOOK_STATE_DIR": root.path,
+            "CMUX_CLI_SENTRY_DISABLED": "1",
+        ]
+
+        func runClaudeHook(_ subcommand: String, input: String) -> ProcessRunResult {
+            let serverHandled = startMockServer(listenerFD: listenerFD, state: state) { line in
+                guard let payload = self.jsonObject(line) else { return "OK" }
+                guard let id = payload["id"] as? String, let method = payload["method"] as? String else {
+                    return self.malformedRequestResponse(id: payload["id"] as? String, raw: line)
+                }
+                switch method {
+                case "surface.list":
+                    return self.surfaceListResponse(id: id, surfaceId: surfaceId)
+                case "surface.resume.set":
+                    return self.v2Response(id: id, ok: true, result: ["ok": true])
+                case "feed.push":
+                    return self.v2Response(id: id, ok: true, result: [:])
+                default:
+                    return self.v2Response(id: id, ok: true, result: [:])
+                }
+            }
+            let result = runProcess(
+                executablePath: cliPath,
+                arguments: ["hooks", "claude", subcommand],
+                environment: environment,
+                standardInput: input,
+                timeout: 5
+            )
+            wait(for: [serverHandled], timeout: 5)
+            return result
+        }
+
+        func persistedLifecycle() throws -> String? {
+            let storeURL = root.appendingPathComponent("claude-hook-sessions.json", isDirectory: false)
+            let json = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(contentsOf: storeURL)) as? [String: Any])
+            let sessions = try XCTUnwrap(json["sessions"] as? [String: Any])
+            let session = try XCTUnwrap(sessions[sessionId] as? [String: Any])
+            return session["agentLifecycle"] as? String
+        }
+
+        let sessionStart = runClaudeHook(
+            "session-start",
+            input: #"{"session_id":"\#(sessionId)","cwd":"\#(root.path)","hook_event_name":"SessionStart","source":"clear"}"#
+        )
+        XCTAssertFalse(sessionStart.timedOut, sessionStart.stderr)
+        XCTAssertEqual(sessionStart.status, 0, sessionStart.stderr)
+
+        // Error notification: signal=error, message=<error text>. Triggers the "Error"
+        // subtitle branch → must store agentLifecycle=needsInput, not idle.
+        let errorNotif = runClaudeHook(
+            "notification",
+            input: #"{"session_id":"\#(sessionId)","cwd":"\#(root.path)","hook_event_name":"Notification","message":"failed to apply diff"}"#
+        )
+        XCTAssertFalse(errorNotif.timedOut, errorNotif.stderr)
+        XCTAssertEqual(errorNotif.status, 0, errorNotif.stderr)
+
+        // The notification hook classifies "failed" as an "Error" subtitle.
+        // Before the fix the stored lifecycle was "idle"; the correct value is "needsInput".
+        XCTAssertEqual(
+            try persistedLifecycle(), "needsInput",
+            "Claude notification with error/failed text must store agentLifecycle=needsInput, not idle (P1 regression)"
+        )
+    }
+
+    /// "Attention" notifications with a specific (non-fallback) message must NOT change the
+    /// stored lifecycle. The agent may be mid-turn; updating lifecycle to .idle would make
+    /// it prematurely hibernatable.
+    func testClaudeAttentionNotificationWithSpecificMessageDoesNotChangeLifecycle() throws {
+        let cliPath = try bundledCLIPath()
+        let socketPath = makeSocketPath("claude-attention-notif")
+        let listenerFD = try bindUnixSocket(at: socketPath)
+        let state = MockSocketServerState()
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-claude-attn-\(UUID().uuidString)", isDirectory: true)
+        let workspaceId = "11111111-1111-1111-1111-111111111111"
+        let surfaceId = "22222222-2222-2222-2222-222222222222"
+        let sessionId = "claude-attn-session"
+
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer {
+            Darwin.close(listenerFD)
+            unlink(socketPath)
+            try? FileManager.default.removeItem(at: root)
+        }
+
+        let environment: [String: String] = [
+            "HOME": root.path,
+            "PATH": "/usr/bin:/bin:/usr/sbin:/sbin",
+            "PWD": root.path,
+            "CMUX_SOCKET_PATH": socketPath,
+            "CMUX_WORKSPACE_ID": workspaceId,
+            "CMUX_SURFACE_ID": surfaceId,
+            "CMUX_AGENT_HOOK_STATE_DIR": root.path,
+            "CMUX_CLI_SENTRY_DISABLED": "1",
+        ]
+
+        func runClaudeHook(_ subcommand: String, input: String) -> ProcessRunResult {
+            let serverHandled = startMockServer(listenerFD: listenerFD, state: state) { line in
+                guard let payload = self.jsonObject(line) else { return "OK" }
+                guard let id = payload["id"] as? String, let method = payload["method"] as? String else {
+                    return self.malformedRequestResponse(id: payload["id"] as? String, raw: line)
+                }
+                switch method {
+                case "surface.list":
+                    return self.surfaceListResponse(id: id, surfaceId: surfaceId)
+                case "surface.resume.set":
+                    return self.v2Response(id: id, ok: true, result: ["ok": true])
+                case "feed.push":
+                    return self.v2Response(id: id, ok: true, result: [:])
+                default:
+                    return self.v2Response(id: id, ok: true, result: [:])
+                }
+            }
+            let result = runProcess(
+                executablePath: cliPath,
+                arguments: ["hooks", "claude", subcommand],
+                environment: environment,
+                standardInput: input,
+                timeout: 5
+            )
+            wait(for: [serverHandled], timeout: 5)
+            return result
+        }
+
+        func persistedLifecycle() throws -> String? {
+            let storeURL = root.appendingPathComponent("claude-hook-sessions.json", isDirectory: false)
+            guard let data = try? Data(contentsOf: storeURL),
+                  let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                  let sessions = json["sessions"] as? [String: Any],
+                  let session = sessions[sessionId] as? [String: Any] else { return nil }
+            return session["agentLifecycle"] as? String
+        }
+
+        let sessionStart = runClaudeHook(
+            "session-start",
+            input: #"{"session_id":"\#(sessionId)","cwd":"\#(root.path)","hook_event_name":"SessionStart","source":"clear"}"#
+        )
+        XCTAssertFalse(sessionStart.timedOut, sessionStart.stderr)
+        XCTAssertEqual(sessionStart.status, 0, sessionStart.stderr)
+
+        // Seed .needsInput in the persisted store by running a stop with needsInput result,
+        // simulating an agent that is mid-turn with a lifecycle already written.
+        let stop = runClaudeHook(
+            "stop",
+            input: #"{"session_id":"\#(sessionId)","cwd":"\#(root.path)","hook_event_name":"Stop","stop_reason":"user"}"#
+        )
+        XCTAssertFalse(stop.timedOut, stop.stderr)
+        // stop hook exits 0 or non-zero depending on override; just check it ran.
+        _ = stop
+
+        // Write needsInput directly through a pre-tool-use so the store has a definitive value.
+        let preToolUse = runClaudeHook(
+            "pre-tool-use",
+            input: #"{"session_id":"\#(sessionId)","cwd":"\#(root.path)","hook_event_name":"PreToolUse","tool_name":"AskUserQuestion","tool_input":{"questions":[{"question":"Continue?","options":[{"label":"Yes"},{"label":"No"}]}]}}"#
+        )
+        XCTAssertFalse(preToolUse.timedOut, preToolUse.stderr)
+        XCTAssertEqual(preToolUse.status, 0, preToolUse.stderr)
+        XCTAssertEqual(
+            try persistedLifecycle(), "needsInput",
+            "prereq: AskUserQuestion PreToolUse must store needsInput"
+        )
+
+        // Attention notification with a specific message (not the generic fallback).
+        // Before the fix this overwrote needsInput with idle; the correct behavior is no change.
+        let attnNotif = runClaudeHook(
+            "notification",
+            input: #"{"session_id":"\#(sessionId)","cwd":"\#(root.path)","hook_event_name":"Notification","message":"Reviewing changes in src/"}"#
+        )
+        XCTAssertFalse(attnNotif.timedOut, attnNotif.stderr)
+        XCTAssertEqual(attnNotif.status, 0, attnNotif.stderr)
+
+        XCTAssertEqual(
+            try persistedLifecycle(), "needsInput",
+            "Claude Attention notification with a specific message must NOT clobber a prior needsInput lifecycle (P1 regression)"
+        )
+    }
+
     // MARK: - P2: Generic SessionStart live-unknown bypasses effective() fallback
 
     /// P2 regression: when a generic agent session record has `lastNotificationStatus=idle`
