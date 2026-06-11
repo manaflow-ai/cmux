@@ -2849,6 +2849,7 @@ struct TextBoxInputContainer: View {
     }
 
     @State private var showPendingCommentsPreview = false
+    @State private var pendingCommentsPreviewHideTask: Task<Void, Never>?
 
     private func pendingCommentsChip(count: Int, foreground: Color) -> some View {
         HStack(spacing: 5) {
@@ -2882,12 +2883,32 @@ struct TextBoxInputContainer: View {
         )
         .foregroundStyle(foreground.opacity(0.92))
         .onHover { hovering in
-            showPendingCommentsPreview = hovering
+            setPendingCommentsPreviewHovered(hovering)
         }
         .popover(isPresented: $showPendingCommentsPreview, arrowEdge: .top) {
             pendingCommentsPreview()
+                .onHover { hovering in
+                    setPendingCommentsPreviewHovered(hovering)
+                }
         }
         .accessibilityLabel(pendingCommentsLabel(count))
+    }
+
+    private func setPendingCommentsPreviewHovered(_ hovering: Bool) {
+        pendingCommentsPreviewHideTask?.cancel()
+        pendingCommentsPreviewHideTask = nil
+        if hovering {
+            showPendingCommentsPreview = true
+            return
+        }
+        // Bounded grace period so the cursor can travel from the chip into the
+        // popover (to scroll it) without the popover dismissing mid-flight.
+        // Cancelled whenever either surface is re-entered.
+        pendingCommentsPreviewHideTask = Task { @MainActor in
+            try? await Task.sleep(nanoseconds: 300_000_000)
+            guard !Task.isCancelled else { return }
+            showPendingCommentsPreview = false
+        }
     }
 
     private func pendingCommentsPreview() -> some View {
@@ -2903,7 +2924,9 @@ struct TextBoxInputContainer: View {
                         .frame(maxWidth: .infinity, alignment: .leading)
                 }
             }
-            .padding(12)
+            .padding(.horizontal, 14)
+            .padding(.top, 14)
+            .padding(.bottom, 12)
         }
         .frame(minWidth: 320, idealWidth: 440, maxWidth: 520, maxHeight: 360)
     }

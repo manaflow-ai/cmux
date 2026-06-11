@@ -26,6 +26,12 @@ export function CommentComposer({
         rows={3}
         value={message}
         onChange={(event) => setMessage(event.currentTarget.value)}
+        onKeyDown={(event) => {
+          if (event.key === "Enter" && (event.metaKey || event.ctrlKey) && message.trim() !== "") {
+            event.preventDefault();
+            onSave(message);
+          }
+        }}
       />
       <div className="comment-composer-footer">
         <span />

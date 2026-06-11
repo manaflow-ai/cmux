@@ -28,6 +28,13 @@ function hunkRange(hunk: CommentHunk, side: DiffCommentSide): { start: number; c
     : { start: hunk.deletionStart, count: hunk.deletionCount, lineIndex: hunk.deletionLineIndex };
 }
 
+
+function lineContent(lines: string[], index: number): string {
+  // @pierre/diffs keeps each line's trailing newline; strip it so excerpts,
+  // anchors, and previews never double-space.
+  return (lines[index] ?? "").replace(/\r?\n$/, "");
+}
+
 function sideLines(fileDiff: CommentFileDiff | null | undefined, side: DiffCommentSide): string[] {
   const lines = side === "additions" ? fileDiff?.additionLines : fileDiff?.deletionLines;
   return Array.isArray(lines) ? lines : [];
@@ -64,8 +71,8 @@ export function lineTextFor(
   if (index == null) {
     return null;
   }
-  const text = sideLines(fileDiff, side)[index];
-  return typeof text === "string" ? text : null;
+  const lines = sideLines(fileDiff, side);
+  return index < lines.length ? lineContent(lines, index) : null;
 }
 
 /**
@@ -85,7 +92,7 @@ export function anchorComment(
   for (const hunk of fileDiff?.hunks ?? []) {
     const { start, count, lineIndex } = hunkRange(hunk, comment.side);
     for (let offset = 0; offset < count; offset += 1) {
-      if (lines[lineIndex + offset] === comment.lineText) {
+      if (lineContent(lines, lineIndex + offset) === comment.lineText) {
         matches.add(start + offset);
       }
     }
@@ -126,7 +133,7 @@ export function diffExcerptFor(
         for (let offset = 0; offset < content.lines; offset += 1) {
           const lineNumber = side === "additions" ? additionLine + offset : deletionLine + offset;
           if (lineNumber >= first && lineNumber <= last) {
-            rows.push(` ${additionLines[content.additionLineIndex + offset] ?? ""}`);
+            rows.push(` ${lineContent(additionLines, content.additionLineIndex + offset)}`);
           }
         }
         additionLine += content.lines;
@@ -138,10 +145,10 @@ export function diffExcerptFor(
         : content.deletions > 0 && deletionLine <= last && deletionLine + content.deletions - 1 >= first;
       if (blockTouchesRange) {
         for (let offset = 0; offset < content.deletions; offset += 1) {
-          rows.push(`-${deletionLines[content.deletionLineIndex + offset] ?? ""}`);
+          rows.push(`-${lineContent(deletionLines, content.deletionLineIndex + offset)}`);
         }
         for (let offset = 0; offset < content.additions; offset += 1) {
-          rows.push(`+${additionLines[content.additionLineIndex + offset] ?? ""}`);
+          rows.push(`+${lineContent(additionLines, content.additionLineIndex + offset)}`);
         }
       }
       additionLine += content.additions;
