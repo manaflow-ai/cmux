@@ -48,6 +48,10 @@ final class RenderWorkerCoordinator {
     /// replace a working sidebar. Reset when the selected file changes.
     private var lastGoodState: CustomSidebarModel.State?
     private var lastGoodRender: RenderNode?
+    /// State currently published to SwiftUI. This may intentionally differ from
+    /// `model.state` while a transient missing/failed file keeps last-good
+    /// content on screen.
+    private var displayedState: CustomSidebarModel.State?
 
     /// Sends interpreted-button actions back to the host for dispatch.
     private lazy var dispatch = SidebarActionDispatch { [weak self] action in
@@ -140,6 +144,7 @@ final class RenderWorkerCoordinator {
             hasRendered = false
             lastGoodState = nil
             lastGoodRender = nil
+            displayedState = nil
             let model = CustomSidebarModel(fileURL: url)
             self.model = model
             model.start()
@@ -160,7 +165,7 @@ final class RenderWorkerCoordinator {
         // content, so resizes showed stretched stale pixels until the next
         // scene tick repainted (~1s). Reuses the cached render; nothing is
         // re-interpreted here.
-        hosting.rootView = currentContent()
+        hosting.rootView = currentContent(state: displayedState)
         pump()
     }
 
@@ -226,6 +231,7 @@ final class RenderWorkerCoordinator {
                 swiftRender = lastGoodRender
             }
         }
+        displayedState = displayState
         hosting.rootView = currentContent(state: displayState)
         pump()
     }

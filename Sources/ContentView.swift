@@ -1083,12 +1083,6 @@ struct ContentView: View {
     @State private var titlebarText: String = ""
     @State private var isFullScreen: Bool = false
     @State private var observedWindow: NSWindow?
-    /// This window's custom-sidebar render worker, owned here (not in the
-    /// sidebar subtree) so toggling the sidebar keeps the worker warm and
-    /// reopening adopts the cached remote context instantly. Created lazily
-    /// on the first custom-sidebar mount; the surface's window-close reaper
-    /// shuts it down, and the worker also exits on pipe EOF if this window
-    /// deallocates while the sidebar is hidden.
     @State private var sidebarRenderWorkerClient: RenderWorkerClient?
     @StateObject private var fullscreenControlsViewModel = TitlebarControlsViewModel()
     @StateObject private var fileExplorerStore = FileExplorerStore()
@@ -2035,9 +2029,7 @@ struct ContentView: View {
             },
             observedWindow: observedWindow,
             selection: $sidebarSelectionState.selection,
-            selectedTabIds: $selectedTabIds,
-            lastSidebarSelectionIndex: $lastSidebarSelectionIndex,
-            sidebarRenderWorkerClient: $sidebarRenderWorkerClient
+            selectedTabIds: $selectedTabIds, lastSidebarSelectionIndex: $lastSidebarSelectionIndex, sidebarRenderWorkerClient: $sidebarRenderWorkerClient
         )
         .frame(width: sidebarWidth)
         .frame(maxHeight: .infinity, alignment: .topLeading)
@@ -10624,8 +10616,6 @@ struct VerticalTabsSidebar: View {
     @Binding var selection: SidebarSelection
     @Binding var selectedTabIds: Set<UUID>
     @Binding var lastSidebarSelectionIndex: Int?
-    /// Window-owned render-worker client (see ContentView); threaded down so
-    /// the custom-sidebar branch can mount without respawning the worker.
     @Binding var sidebarRenderWorkerClient: RenderWorkerClient?
     @State var modifierKeyMonitor = WindowScopedShortcutHintModifierMonitor(activation: .commandOnly)
     @StateObject var dragAutoScrollController = SidebarDragAutoScrollController()
@@ -11420,10 +11410,7 @@ struct VerticalTabsSidebar: View {
                     fileURL: customSidebarURL,
                     dataContext: customSidebarDataContext(now: timeline.date),
                     dispatch: makeCmuxSidebarActionDispatch(),
-                    contentInsets: CustomSidebarContentInsets(
-                        top: SidebarWorkspaceScrollInsets.workspaceList.top,
-                        bottom: SidebarWorkspaceScrollInsets.workspaceList.bottom
-                    ),
+                    contentInsets: CustomSidebarContentInsets(top: SidebarWorkspaceScrollInsets.workspaceList.top, bottom: SidebarWorkspaceScrollInsets.workspaceList.bottom),
                     client: $sidebarRenderWorkerClient
                 )
             }
