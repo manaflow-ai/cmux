@@ -59,6 +59,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
 
     private static let terminalRenderGridCapability = "terminal.render_grid.v1"
     private static let workspaceActionsCapability = "workspace.actions.v1"
+    private static let dogfoodFeedbackCapability = "dogfood.v1"
     private static let terminalOutputCapabilityTimeoutNanoseconds: UInt64 = 750_000_000
 
     /// How long the render-grid stream may stay silent (no event of any topic)
@@ -182,6 +183,12 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// for older Macs that lack the handler, so the UI can hide rename/pin rather
     /// than offer actions that would fail with `method_not_found`.
     public private(set) var supportsWorkspaceActions: Bool = false
+    /// Whether the connected Mac advertises the `dogfood.v1` capability (the
+    /// `dogfood.feedback.submit` agent sink). `false` until host status is read,
+    /// and for older Macs that lack the handler, so the privileged Send Feedback
+    /// route falls back to email rather than failing with `method_not_found`
+    /// under client/server version skew.
+    public private(set) var supportsDogfoodFeedback: Bool = false
     public var terminalInputText: String
     public var selectedWorkspaceID: MobileWorkspacePreview.ID? {
         didSet {
@@ -213,6 +220,14 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     private let reachability: any ReachabilityProviding
     private let pairingHintDefaults: UserDefaults
     private let clientID: String
+    /// Delivers the email path of Send Feedback (`/api/feedback`). `nil` when the
+    /// web API base URL is unavailable; the email path then fails closed and the
+    /// UI surfaces an error rather than silently dropping the report.
+    private let feedbackEmailSubmitter: (any MobileFeedbackEmailSubmitting)?
+    /// Resolves the current build + device stamp. Injected from the app layer
+    /// (which can read `Bundle.main`/`UIDevice`); defaults to an empty stamp so
+    /// previews/tests need not provide one.
+    private let feedbackStampProvider: @MainActor () -> MobileFeedbackStamp
     /// The injected, fire-and-forget product-analytics emitter. Defaults to
     /// ``NoopAnalytics`` so previews/tests inject nothing.
     private let analytics: any AnalyticsEmitting
@@ -342,7 +357,9 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         reachability: any ReachabilityProviding = ReachabilityService(),
         pairingHintDefaults: UserDefaults = .standard,
         analytics: any AnalyticsEmitting = NoopAnalytics(),
-        diagnosticLog: DiagnosticLog? = nil
+        diagnosticLog: DiagnosticLog? = nil,
+        feedbackEmailSubmitter: (any MobileFeedbackEmailSubmitting)? = nil,
+        feedbackStampProvider: @escaping @MainActor () -> MobileFeedbackStamp = { MobileShellComposite.emptyFeedbackStamp }
     ) {
         self.runtime = runtime
         self.pairedMacStore = pairedMacStore
@@ -352,6 +369,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         self.pairingHintDefaults = pairingHintDefaults
         self.analytics = analytics
         self.diagnosticLog = diagnosticLog
+        self.feedbackEmailSubmitter = feedbackEmailSubmitter
+        self.feedbackStampProvider = feedbackStampProvider
         // Distinguish "key absent" (an install that predates the hint and may
         // already have a paired Mac in SQLite) from "key present and false" (we
         // determined there is no paired Mac). didSet is not called for these
@@ -456,6 +475,9 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         // Drop the cached paired Macs so the next signed-in user never sees the
         // previous user's hosts in the switcher.
         pairedMacs = []
+        // Likewise drop the registry-backed device tree so a shared device never
+        // shows the previous user's team devices after sign-out.
+        registryDevices = []
         // Reset the in-memory restoring flags; hasKnownPairedMac stays driven by
         // the forget path. On a real account switch the next reconnect's no-mac
         // branch clears the hint. Bump the reconnect generation so any in-flight
@@ -589,11 +611,16 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         }
     }
 
-    #if DEBUG
-    /// DEV dogfood feedback round-trip (P1): export the structured diagnostic
-    /// log, package it with the supplied debug-log text, visible terminal text,
-    /// and an optional freeform note, and submit it to the paired Mac's
-    /// `dogfood.feedback.submit` sink.
+    /// Privileged direct-to-agent feedback round-trip: export the structured
+    /// diagnostic log, package it with the supplied debug-log text, visible
+    /// terminal text, and an optional freeform note, and submit it to the paired
+    /// Mac's `dogfood.feedback.submit` sink so the existing watcher under
+    /// `~/.cache/cmux-dogfood-feedback/` catches it.
+    ///
+    /// This is the privileged path of the Send Feedback feature: it is offered
+    /// only to `@manaflow.ai` users on an active mobile-host connection (see
+    /// ``MobileFeedbackRoute/resolve(email:hasActiveMacConnection:hostSupportsAgentSink:)``), and is NOT
+    /// `#if DEBUG`-gated, so it works on Release (beta/prod) builds for the team.
     ///
     /// The structured log is exported here (the store owns ``diagnosticLog``);
     /// the string snapshots are gathered by the caller on the UI layer, where the
@@ -601,19 +628,23 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// transport failure is logged and surfaced via the returned `Bool`.
     ///
     /// - Parameters:
-    ///   - text: An optional freeform note from the dogfooder.
+    ///   - text: An optional freeform note from the user.
     ///   - debugLogText: The string debug-log snapshot (from `MobileDebugLog`).
     ///   - terminalText: The visible terminal text (from `GhosttySurfaceView`).
+    ///   - buildStamp: The build-identity stamp (build type + version + OS +
+    ///     device) written into the bundle. Defaults to the diagnostic log's
+    ///     stamp when not supplied.
     /// - Returns: `true` when the Mac acknowledged the bundle.
     @discardableResult
-    public func submitDogfoodFeedback(
+    public func submitPrivilegedAgentFeedback(
         text: String,
         debugLogText: String,
-        terminalText: String
+        terminalText: String,
+        buildStamp: String? = nil
     ) async -> Bool {
         guard let client = remoteClient else { return false }
         let diagnosticBlob = await diagnosticLog?.export() ?? Data()
-        let buildStamp = diagnosticLog?.buildStamp ?? ""
+        let buildStamp = buildStamp ?? diagnosticLog?.buildStamp ?? ""
         let clientID = clientID
         // Cap inputs and build the (potentially multi-MiB) combined blob +
         // base64 + JSON request OFF the main actor: the store is `@MainActor`, so
@@ -686,7 +717,133 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             ]
         )
     }
-    #endif
+
+    // MARK: - Feedback routing
+
+    /// An all-empty stamp used when no app-layer provider is injected (previews /
+    /// tests). A real build always injects a populated provider at the
+    /// composition root.
+    public static let emptyFeedbackStamp = MobileFeedbackStamp(
+        buildType: .prod,
+        appVersion: "",
+        appBuild: "",
+        bundleIdentifier: "",
+        osVersion: "",
+        deviceModel: ""
+    )
+
+    /// The signed-in user's primary email, read through the identity seam.
+    ///
+    /// Used by the Send Feedback affordance to decide the route (privileged vs
+    /// email) and to prefill the reply-to address on the email path.
+    public var signedInUserEmail: String? {
+        identityProvider?.currentUserEmail
+    }
+
+    /// Whether the device currently has an active mobile-host connection to a
+    /// paired Mac — the implementable "on the tailnet" proxy used by feedback
+    /// routing, since that transport runs over Tailscale.
+    public var hasActiveMacConnection: Bool {
+        connectionState == .connected && remoteClient != nil
+    }
+
+    /// Where a Send Feedback submission should be delivered right now.
+    ///
+    /// Pure decision over the current email + connection state; the privileged
+    /// direct-to-agent route is offered only to `@manaflow.ai` users on an
+    /// active connection, everyone else routes to the email inbox.
+    public var currentFeedbackRoute: MobileFeedbackRoute {
+        MobileFeedbackRoute.resolve(
+            email: signedInUserEmail,
+            hasActiveMacConnection: hasActiveMacConnection,
+            hostSupportsAgentSink: supportsDogfoodFeedback
+        )
+    }
+
+    /// The current build + device stamp, resolved through the injected provider.
+    public var currentFeedbackStamp: MobileFeedbackStamp {
+        feedbackStampProvider()
+    }
+
+    /// Outcome of a Send Feedback submission, including which route was taken so
+    /// the UI can word its confirmation ("sent to the agent" vs "emailed").
+    public enum FeedbackSubmissionOutcome: Equatable, Sendable {
+        /// The rich diagnostic bundle was delivered to the paired Mac.
+        case sentToAgent
+        /// The message was emailed to the feedback inbox.
+        case emailed
+        /// Delivery failed; the UI should surface an error and let the user retry.
+        case failed
+    }
+
+    /// The single Send Feedback entrypoint. Routes the submission to the
+    /// privileged direct-to-agent bundle or the email inbox per
+    /// ``currentFeedbackRoute``, stamping the build + device on both paths.
+    ///
+    /// One mutation path so every surface (the menu affordance, and any future
+    /// entrypoint) shares the same routing, stamping, and delivery rather than
+    /// duplicating it.
+    ///
+    /// - Parameters:
+    ///   - message: The freeform feedback body.
+    ///   - emailOverride: The reply-to email when the user edited it on the email
+    ///     path; defaults to the signed-in email.
+    ///   - debugLogText: The string debug-log snapshot, used only on the agent
+    ///     path.
+    ///   - terminalText: The visible terminal text, used only on the agent path.
+    /// - Returns: The outcome (which route succeeded, or `.failed`).
+    @discardableResult
+    public func submitFeedback(
+        message: String,
+        emailOverride: String? = nil,
+        debugLogText: String,
+        terminalText: String
+    ) async -> FeedbackSubmissionOutcome {
+        let stamp = currentFeedbackStamp
+        switch currentFeedbackRoute {
+        case .privilegedAgent:
+            let ok = await submitPrivilegedAgentFeedback(
+                text: message,
+                debugLogText: debugLogText,
+                terminalText: terminalText,
+                buildStamp: stamp.agentBuildStamp
+            )
+            if ok {
+                return .sentToAgent
+            }
+            // The agent sink failed (e.g. the Mac rejected the privileged sink,
+            // or the RPC could not be delivered). Fall back to the email inbox
+            // rather than dead-ending, so the report is still delivered. Any
+            // valid reply-to works; we have the signed-in email here.
+            mobileShellLog.error("privileged agent feedback failed; falling back to email")
+            return await submitFeedbackEmail(message: message, emailOverride: emailOverride, stamp: stamp)
+        case .email:
+            return await submitFeedbackEmail(message: message, emailOverride: emailOverride, stamp: stamp)
+        }
+    }
+
+    /// Email the feedback inbox, returning `.emailed` on success and `.failed`
+    /// when the submitter is unavailable or the POST fails. Shared by the email
+    /// route and the privileged-agent fallback so both deliver identically.
+    private func submitFeedbackEmail(
+        message: String,
+        emailOverride: String?,
+        stamp: MobileFeedbackStamp
+    ) async -> FeedbackSubmissionOutcome {
+        guard let submitter = feedbackEmailSubmitter else {
+            mobileShellLog.error("feedback email submitter unavailable")
+            return .failed
+        }
+        let email = (emailOverride ?? signedInUserEmail ?? "")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        do {
+            try await submitter.submit(email: email, message: message, stamp: stamp)
+            return .emailed
+        } catch {
+            mobileShellLog.error("feedback email submit failed error=\(String(describing: error), privacy: .public)")
+            return .failed
+        }
+    }
 
     // MARK: - Network recovery
 
@@ -1081,6 +1238,221 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             guard oldValue.count != pairedMacs.count else { return }
             analytics.setSuperProperties(["paired_mac_count": .int(pairedMacs.count)])
         }
+    }
+
+    // MARK: - Device registry tree
+
+    /// The team's registered devices and their cmux app instances (tags), for the
+    /// device tree (device → tags → workspaces). Fetched from the team-scoped
+    /// device registry via ``loadRegistryDevices()``. Empty until the first load,
+    /// when the registry is unreachable, or after sign-out. Best-effort: a
+    /// registry outage leaves this empty and the UI falls back to the locally
+    /// known paired Macs, so the tree degrades to the same hosts the switcher
+    /// shows rather than going blank.
+    public private(set) var registryDevices: [RegistryDevice] = []
+
+    /// The cmux device id of the Mac the live connection currently targets, or
+    /// `nil` when not connected. Used by the device tree to mark which device row
+    /// is live.
+    ///
+    /// Prefers the active attach ticket's real `macDeviceID`. A manual (`manual-…`)
+    /// ticket has no real device id (the host lacks `mobile.attach_ticket.create`,
+    /// so the connect synthesizes a manual ticket even on success); in that case,
+    /// fall back to the active paired Mac's device id, which the registry/switch
+    /// connect paths persist on success. This keeps the connected device — and its
+    /// live workspaces — visible in the tree even when the live ticket is manual.
+    /// Yields `nil` only when there is genuinely no real device id to correlate.
+    public var connectedMacDeviceID: String? {
+        guard connectionState == .connected else { return nil }
+        if let macDeviceID = activeTicket?.macDeviceID,
+           !macDeviceID.isEmpty,
+           !macDeviceID.hasPrefix("manual-") {
+            return macDeviceID
+        }
+        // Manual/synthetic ticket but a live connection: correlate via the active
+        // paired Mac the connect path persisted (its id is the real device id).
+        if let activeMacID = pairedMacs.first(where: { $0.isActive })?.macDeviceID,
+           !activeMacID.isEmpty,
+           !activeMacID.hasPrefix("manual-") {
+            return activeMacID
+        }
+        return nil
+    }
+
+    /// Reload ``registryDevices`` from the team-scoped device registry.
+    ///
+    /// Best-effort and failure-tolerant: a missing registry, an unauthorized
+    /// call, or a malformed response leaves the current list untouched (so a
+    /// transient blip never blanks a populated tree). Devices are sorted with the
+    /// currently-connected one first, then by most-recently-seen, so the tree
+    /// leads with the host the user is on. Mirrors ``loadPairedMacs()``: signed
+    /// out yields an empty list.
+    public func loadRegistryDevices() async {
+        guard isSignedIn, let deviceRegistry else {
+            registryDevices = []
+            return
+        }
+        // Capture the requesting user so a result that lands after a sign-out +
+        // different-user sign-in is discarded, not assigned into the new user's
+        // tree. `isSignedIn` alone is true again after the switch, so it cannot
+        // catch this account-switch race (mirrors loadPairedMacs's user guard).
+        let requestingUserID = identityProvider?.currentUserID
+        let outcome = await deviceRegistry.listDevices()
+        let loaded: [RegistryDevice]
+        switch outcome {
+        case .ok(let devices):
+            loaded = devices
+        case .authRejected:
+            // The registry is team-scoped and rejected the call on auth/scope
+            // grounds (401/403): the cached list may be another scope's data, so
+            // clear it. The tree falls back to local paired Macs via
+            // `deviceTreeDevices`, so the sheet stays usable. Guarded on the
+            // requesting user still being current (mirroring the `.ok` path):
+            // a stale 401 from a signed-out session that lands after a
+            // different user signed in must not blank the new user's tree.
+            if identityProvider?.currentUserID == requestingUserID {
+                registryDevices = []
+            }
+            return
+        case .transientFailure:
+            // Network blip / 5xx / malformed body: keep what we have rather than
+            // blanking a populated tree on a transient failure.
+            return
+        }
+        // The await above suspended the main actor; discard the result unless we
+        // are still the same signed-in user, so a slow load can never repopulate
+        // another user's team devices after sign-out or an account switch.
+        guard isSignedIn, identityProvider?.currentUserID == requestingUserID else {
+            registryDevices = []
+            return
+        }
+        let connectedID = connectedMacDeviceID
+        registryDevices = loaded.sorted { lhs, rhs in
+            let lhsConnected = lhs.deviceId == connectedID
+            let rhsConnected = rhs.deviceId == connectedID
+            if lhsConnected != rhsConnected { return lhsConnected }
+            return lhs.lastSeenAt > rhs.lastSeenAt
+        }
+    }
+
+    /// The device-tree data source, honoring the registry's best-effort/fallback
+    /// contract: the registry list when it loaded, otherwise the locally paired
+    /// Macs synthesized into the same two-level shape.
+    ///
+    /// When `/api/devices` is unreachable, unauthorized, or malformed,
+    /// ``registryDevices`` stays empty; the tree must not collapse to "no devices"
+    /// while the phone still has usable paired Macs. Each paired Mac becomes a
+    /// device with a single `default` instance carrying its routes, so the tree
+    /// (and its connect-on-tap) keeps working with the cloud down. The connected
+    /// device sorts first, then most-recently-seen.
+    public var deviceTreeDevices: [RegistryDevice] {
+        if !registryDevices.isEmpty { return registryDevices }
+        let connectedID = connectedMacDeviceID
+        return pairedMacs
+            .map { mac in
+                RegistryDevice(
+                    deviceId: mac.macDeviceID,
+                    platform: "mac",
+                    displayName: mac.displayName,
+                    lastSeenAt: mac.lastSeenAt,
+                    instances: [
+                        RegistryAppInstance(
+                            tag: "default",
+                            routes: mac.routes,
+                            lastSeenAt: mac.lastSeenAt
+                        )
+                    ]
+                )
+            }
+            .sorted { lhs, rhs in
+                let lhsConnected = lhs.deviceId == connectedID
+                let rhsConnected = rhs.deviceId == connectedID
+                if lhsConnected != rhsConnected { return lhsConnected }
+                return lhs.lastSeenAt > rhs.lastSeenAt
+            }
+    }
+
+    /// Connect the live session to a specific registry app instance (a tag on a
+    /// device) using that instance's advertised routes.
+    ///
+    /// This is the device tree's tap-to-open for a tag that is not the currently
+    /// connected one: it routes through the same destructive ``connectManualHost``
+    /// path the multi-Mac switcher uses, then persists the device as the active
+    /// paired Mac on success (so a later relaunch reconnects to it) and refreshes
+    /// the paired-Mac list. A no-op when the instance advertises no reachable
+    /// route. Failure surfaces through ``connectionError`` like any other connect.
+    ///
+    /// Like ``switchToMac(macDeviceID:)``, the connect is destructive (it replaces
+    /// the live client), so tapping a stale/offline tag while connected would drop
+    /// a healthy session. To avoid stranding the user, on a failed connect the
+    /// previously-active Mac is reconnected, so a bad target leaves the user where
+    /// they were rather than disconnected.
+    /// - Parameters:
+    ///   - device: The registry device the instance belongs to.
+    ///   - instance: The tag/app-instance to connect to.
+    public func connectToRegistryInstance(
+        device: RegistryDevice,
+        instance: RegistryAppInstance
+    ) async {
+        let supportedKinds = runtime?.supportedRouteKinds ?? []
+        guard let (host, port) = Self.firstReconnectHostPortRoute(
+            instance.routes,
+            supportedKinds: supportedKinds
+        ), let normalizedHost = MobileShellRouteAuthPolicy.normalizedManualHost(host) else {
+            mobileShellLog.error(
+                "connectToRegistryInstance: no reconnectable route device=\(device.deviceId, privacy: .public) tag=\(instance.tag, privacy: .public)"
+            )
+            return
+        }
+        // Already connected to this exact device/instance route: nothing to do.
+        if connectionState == .connected,
+           connectedMacDeviceID == device.deviceId,
+           case let .hostPort(liveHost, livePort)? = activeRoute?.endpoint,
+           liveHost == normalizedHost, livePort == port {
+            return
+        }
+        // The currently-active Mac to fall back to if the connect fails, so the
+        // destructive connect below can be rolled back. Unlike switchToMac, this
+        // does NOT exclude the tapped device: a Mac can run multiple tagged builds,
+        // so tapping another tag on the *currently connected* device must still be
+        // able to reconnect that same device's active route if the new tag is
+        // stale/offline. Excluding it would strand the user on a same-device tag
+        // switch failure.
+        let previousActive = pairedMacs.first { $0.isActive }
+        await connectManualHost(name: device.displayName ?? host, host: host, port: port)
+        // Persist as the active paired Mac only when the live connection is to
+        // THIS route (a switch tapped while this connect was in flight could win
+        // the connection; matching the live route avoids persisting a stale
+        // target). Uses the real device id so reconnect-on-relaunch finds it.
+        guard connectionState == .connected,
+              case let .hostPort(liveHost, livePort)? = activeRoute?.endpoint,
+              liveHost == normalizedHost, livePort == port else {
+            // The connect did not land on this route. If the destructive path
+            // dropped a previously-active session, reconnect it so a failed tap on
+            // a stale/offline tag does not strand the user disconnected.
+            if previousActive != nil, connectionState != .connected {
+                _ = await reconnectActiveMacIfAvailable(stackUserID: identityProvider?.currentUserID)
+            }
+            return
+        }
+        if let pairedMacStore, !device.deviceId.hasPrefix("manual-") {
+            do {
+                try await pairedMacStore.upsert(
+                    macDeviceID: device.deviceId,
+                    displayName: device.displayName,
+                    routes: instance.routes,
+                    markActive: true,
+                    stackUserID: identityProvider?.currentUserID
+                )
+                hasKnownPairedMac = true
+            } catch {
+                mobileShellLog.error(
+                    "connectToRegistryInstance upsert failed device=\(device.deviceId, privacy: .public) error=\(String(describing: error), privacy: .public)"
+                )
+            }
+        }
+        await loadPairedMacs()
+        await loadRegistryDevices()
     }
 
     /// Reload ``pairedMacs`` from the store, scoped to the signed-in Stack user.
@@ -1970,6 +2342,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         terminalReplaySurfaceIDsInFlight = []
         terminalOutputTransport = .rawBytes
         supportsWorkspaceActions = false
+        supportsDogfoodFeedback = false
         terminalSubscriptionRefreshTask?.cancel()
         terminalSubscriptionRefreshTask = nil
         stopRenderGridLivenessWatchdog(listenerID: nil)
@@ -2467,9 +2840,11 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             guard let payload = try? MobileHostStatusResponse.decode(data) else {
                 terminalOutputTransport = fallback
                 supportsWorkspaceActions = false
+                supportsDogfoodFeedback = false
                 return fallback
             }
             supportsWorkspaceActions = payload.capabilities.contains(Self.workspaceActionsCapability)
+            supportsDogfoodFeedback = payload.capabilities.contains(Self.dogfoodFeedbackCapability)
             let transport: TerminalOutputTransport = payload.capabilities.contains(Self.terminalRenderGridCapability) ||
                 payload.terminalFidelity == "render_grid" ? .renderGrid : .rawBytes
             terminalOutputTransport = transport
@@ -2478,6 +2853,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         } catch {
             terminalOutputTransport = fallback
             supportsWorkspaceActions = false
+            supportsDogfoodFeedback = false
             MobileDebugLog.anchormux("sync.transport=raw_bytes reason=status_failed")
             return fallback
         }
