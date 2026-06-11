@@ -457,6 +457,21 @@ import Testing
         #expect(try CmuxNoteStore.list(projectRoot: projectRoot).first { $0.slug == "tracked" } == nil)
     }
 
+    /// A case-only rename must stay in place instead of colliding with
+    /// itself on the (default) case-insensitive filesystem and coming back
+    /// numerically suffixed (`Todo-2.md`).
+    @Test func caseOnlyRenameDoesNotSuffix() throws {
+        let root = try NotesTreeStorage.ensureWorkspaceRoot(
+            projectRoot: projectRoot, cwd: "/work", title: "WS", anchorId: "anchor-case"
+        )
+        let note = try NotesTreeStorage.newNote(inFolder: root, preferredName: "todo")
+        let renamed = try NotesTreeStorage.rename(sourcePath: note, toName: "Todo")
+        #expect((renamed as NSString).lastPathComponent == "Todo.md")
+        let folder = try NotesTreeStorage.newFolder(inFolder: root, preferredName: "docs")
+        let renamedFolder = try NotesTreeStorage.rename(sourcePath: folder, toName: "Docs")
+        #expect((renamedFolder as NSString).lastPathComponent == "Docs")
+    }
+
     /// Nested tree paths resolve the same project root as flat note paths —
     /// regression for restore deriving `<cwd>/.cmux/notes/<leaf>` when a
     /// relocated note's parent is no longer the notes directory itself.

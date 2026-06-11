@@ -476,6 +476,14 @@ enum NotesTreeStorage {
         let parent = (src as NSString).deletingLastPathComponent
         let targetName = isNote ? "\(stem).md" : stem
         if targetName == (src as NSString).lastPathComponent { return src }
+        // A case-only rename on the (default) case-insensitive filesystem
+        // collides with itself in `uniquePath` and would come back suffixed
+        // (`Todo-2.md`); rename in place instead.
+        if targetName.caseInsensitiveCompare((src as NSString).lastPathComponent) == .orderedSame {
+            let dest = (parent as NSString).appendingPathComponent(targetName)
+            try fm.moveItem(atPath: src, toPath: dest)
+            return dest
+        }
         let dest = uniquePath(inFolder: parent, base: stem, ext: isNote ? "md" : nil)
         try fm.moveItem(atPath: src, toPath: dest)
         return dest
