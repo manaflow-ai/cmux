@@ -1,3 +1,5 @@
+import Foundation
+
 /// In-memory ``TerminalDraftStoring``: per-terminal composer drafts that live for
 /// the app session.
 ///
