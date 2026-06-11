@@ -101,6 +101,20 @@ struct AppScrollerStylePolicyTests {
         #expect(defaults.setCount == 1)
     }
 
+    @Test func honorsExplicitPerAppOptOut() {
+        // A user who deliberately sets a per-app value in cmux's own domain
+        // (`defaults write <cmux-bundle-id> AppleShowScrollBars Always`) keeps
+        // it — the override only writes when the app domain has no value.
+        let defaults = RecordingDefaults(appDomain: [
+            AppScrollerStylePolicy.scrollBarsDefaultsKey: "Always"
+        ])
+
+        AppScrollerStylePolicy.applyAtLaunch(defaults: defaults)
+
+        #expect(defaults.string(forKey: AppScrollerStylePolicy.scrollBarsDefaultsKey) == "Always")
+        #expect(defaults.setCount == 0)
+    }
+
     @Test func reapplyWritesNothing() {
         // Launch runs this once per process; a re-run (or any later launch with
         // the app-domain override already in place) must not re-write the key.

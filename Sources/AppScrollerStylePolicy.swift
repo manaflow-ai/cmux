@@ -41,8 +41,12 @@ import AppKit
 /// `AppleShowScrollBars` key from cmux's application domain (e.g. a one-shot
 /// `defaults.removeObject(forKey:)` migration) so stale installs stop forcing
 /// overlay. Accessibility note: this overrides a deliberate system-wide
-/// "Always" choice for cmux only; it intentionally matches the no-opt-out
-/// overlay forcing the terminal/sidebar/text-input surfaces already apply.
+/// "Always" choice for cmux only, matching the overlay forcing the
+/// terminal/sidebar/text-input surfaces already apply. There is, however, a
+/// per-app escape hatch — an explicit `AppleShowScrollBars` value in cmux's own
+/// defaults domain (`defaults write <cmux-bundle-id> AppleShowScrollBars
+/// Always`) is honored, because the override is written only when the app
+/// domain has no value of its own.
 enum AppScrollerStylePolicy {
     /// `AppleShowScrollBars` selects overlay vs. legacy scrollers app-wide.
     static let scrollBarsDefaultsKey = "AppleShowScrollBars"
@@ -73,10 +77,16 @@ enum AppScrollerStylePolicy {
         // a later system switch to "Always" (which posts the distributed
         // settings-changed notification) would then re-resolve AppKit to legacy
         // scrollers for the rest of the session, reintroducing #3241 until the
-        // next launch. Persisting to the app domain whenever it is absent makes
-        // the override deterministic while still avoiding redundant writes.
-        let appDomainValue = defaults.persistentDomain(forName: bundleIdentifier)?[scrollBarsDefaultsKey] as? String
-        if appDomainValue != overlayValue {
+        // next launch.
+        //
+        // Write only when the app domain has *no* explicit value. A fresh
+        // install gets the deterministic override and the mid-session gap stays
+        // closed, but a deliberate per-app escape hatch is honored across
+        // launches: `defaults write <cmux-bundle-id> AppleShowScrollBars Always`
+        // (or `Automatic`) survives because the key is then present and we leave
+        // it untouched. This also avoids redundant writes on later launches.
+        let appDomainValue = defaults.persistentDomain(forName: bundleIdentifier)?[scrollBarsDefaultsKey]
+        if appDomainValue == nil {
             defaults.set(overlayValue, forKey: scrollBarsDefaultsKey)
         }
     }
