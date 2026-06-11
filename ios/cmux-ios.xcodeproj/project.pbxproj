@@ -3,31 +3,15 @@
 	archiveVersion = 1;
 	classes = {
 	};
-	objectVersion = 60;
+	objectVersion = 70;
 	objects = {
 
 /* Begin PBXBuildFile section */
-		8B8A10AA2DF5000000A66F90 /* AppCompositionRoot.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8B8A10AB2DF5000000A66F90 /* AppCompositionRoot.swift */; };
-		8B8A10022DF5000000A66F90 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 8B8A10192DF5000000A66F90 /* Assets.xcassets */; };
-		8B8A10012DF5000000A66F90 /* cmuxApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8B8A10172DF5000000A66F90 /* cmuxApp.swift */; };
-		8B8A10F02DF5000000A66F90 /* CmuxAppDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8B8A10F12DF5000000A66F90 /* CmuxAppDelegate.swift */; };
 		8B41F6832DEDD23B001A66F9 /* cmuxFeature in Frameworks */ = {isa = PBXBuildFile; productRef = 8B41F6822DEDD23B001A66F9 /* cmuxFeature */; };
 		8B41F6852DEDD25C001A66F9 /* cmuxFeature in Frameworks */ = {isa = PBXBuildFile; productRef = 8B41F6842DEDD25C001A66F9 /* cmuxFeature */; };
 		8B7E20012DF3A00100A66F90 /* CMUXMobileCore in Frameworks */ = {isa = PBXBuildFile; productRef = 8B7E20032DF3A00100A66F90 /* CMUXMobileCore */; };
 		8B7E20022DF3A00100A66F90 /* CMUXMobileCore in Frameworks */ = {isa = PBXBuildFile; productRef = 8B7E20042DF3A00100A66F90 /* CMUXMobileCore */; };
 		8B7E20052DF3A00100A66F90 /* CmuxMobileTransport in Frameworks */ = {isa = PBXBuildFile; productRef = 8B7E20062DF3A00100A66F90 /* CmuxMobileTransport */; };
-		0D28CE33B9E51C48D7F4348A /* cmuxUITests+ColorBandTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D2E10C4C308A591AAA4D7937 /* cmuxUITests+ColorBandTests.swift */; };
-		BC5AD6F9F851761998066A18 /* cmuxUITests+InteractionHelpers.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8457BB9B988E5C2CEA9685B7 /* cmuxUITests+InteractionHelpers.swift */; };
-		4FD46A4A98A21C846B6730C0 /* cmuxUITests+LaunchHelpers.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3FBBA31EC2B6D643157DDC80 /* cmuxUITests+LaunchHelpers.swift */; };
-		58F1A129AD4A2F5E6CB12569 /* cmuxUITests+PairingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0AA131F961B2DC43DAE9ECD7 /* cmuxUITests+PairingTests.swift */; };
-		ADE4113CA5626223765CBACE /* cmuxUITests+TerminalRowAssertions.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5E5EC9EDA352FB16C1E8BEB4 /* cmuxUITests+TerminalRowAssertions.swift */; };
-		BD8FC6C5175E1EC8CDFA7961 /* cmuxUITests+TerminalTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C300A36C7EDB8B3315DDCA03 /* cmuxUITests+TerminalTests.swift */; };
-		8B8A10052DF5000000A66F90 /* cmuxUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8B8A101C2DF5000000A66F90 /* cmuxUITests.swift */; };
-		8B8A10032DF5000000A66F90 /* InfoPlist.xcstrings in Resources */ = {isa = PBXBuildFile; fileRef = 8B8A101A2DF5000000A66F90 /* InfoPlist.xcstrings */; };
-		8B8A10042DF5000000A66F90 /* Localizable.xcstrings in Resources */ = {isa = PBXBuildFile; fileRef = 8B8A101B2DF5000000A66F90 /* Localizable.xcstrings */; };
-		57F79FB7D1F69C8BEF459B17 /* MobileSyncMockHostServer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4F43E1A3A8CB952435F83FD1 /* MobileSyncMockHostServer.swift */; };
-		924BAE18A292FC950A8182A9 /* MockColorBands.swift in Sources */ = {isa = PBXBuildFile; fileRef = B17449F21F8D466AF9E59004 /* MockColorBands.swift */; };
-		4CDA876E5FE7B93F86A3E9F2 /* XCUIApplication+Orientation.swift in Sources */ = {isa = PBXBuildFile; fileRef = 09FE298C706854260ECA2010 /* XCUIApplication+Orientation.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -41,32 +25,49 @@
 /* End PBXContainerItemProxy section */
 
 /* Begin PBXFileReference section */
-		8B8A10AB2DF5000000A66F90 /* AppCompositionRoot.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppCompositionRoot.swift; sourceTree = "<group>"; };
-		8B8A10192DF5000000A66F90 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		8B41F6452DEDD0D5001A66F9 /* cmux.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = cmux.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		8B8A10162DF5000000A66F90 /* cmux.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = cmux.entitlements; sourceTree = "<group>"; };
 		8B41F65C2DEDD0D6001A66F9 /* cmux.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = cmux.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
-		8B8A10182DF5000000A66F90 /* cmux.xctestplan */ = {isa = PBXFileReference; lastKnownFileType = file; path = cmux.xctestplan; sourceTree = "<group>"; };
-		8B8A10172DF5000000A66F90 /* cmuxApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = cmuxApp.swift; sourceTree = "<group>"; };
-		8B8A10F12DF5000000A66F90 /* CmuxAppDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CmuxAppDelegate.swift; sourceTree = "<group>"; };
-		D2E10C4C308A591AAA4D7937 /* cmuxUITests+ColorBandTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "cmuxUITests+ColorBandTests.swift"; sourceTree = "<group>"; };
-		8457BB9B988E5C2CEA9685B7 /* cmuxUITests+InteractionHelpers.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "cmuxUITests+InteractionHelpers.swift"; sourceTree = "<group>"; };
-		3FBBA31EC2B6D643157DDC80 /* cmuxUITests+LaunchHelpers.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "cmuxUITests+LaunchHelpers.swift"; sourceTree = "<group>"; };
-		0AA131F961B2DC43DAE9ECD7 /* cmuxUITests+PairingTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "cmuxUITests+PairingTests.swift"; sourceTree = "<group>"; };
-		5E5EC9EDA352FB16C1E8BEB4 /* cmuxUITests+TerminalRowAssertions.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "cmuxUITests+TerminalRowAssertions.swift"; sourceTree = "<group>"; };
-		C300A36C7EDB8B3315DDCA03 /* cmuxUITests+TerminalTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "cmuxUITests+TerminalTests.swift"; sourceTree = "<group>"; };
-		8B8A101C2DF5000000A66F90 /* cmuxUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = cmuxUITests.swift; sourceTree = "<group>"; };
 		8B8A10112DF5000000A66F90 /* Debug.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = Debug.xcconfig; sourceTree = "<group>"; };
 		8B8A10152DF5000000A66F90 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
-		8B8A101A2DF5000000A66F90 /* InfoPlist.xcstrings */ = {isa = PBXFileReference; lastKnownFileType = text.json.xcstrings; path = InfoPlist.xcstrings; sourceTree = "<group>"; };
-		8B8A101B2DF5000000A66F90 /* Localizable.xcstrings */ = {isa = PBXFileReference; lastKnownFileType = text.json.xcstrings; path = Localizable.xcstrings; sourceTree = "<group>"; };
-		4F43E1A3A8CB952435F83FD1 /* MobileSyncMockHostServer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MobileSyncMockHostServer.swift; sourceTree = "<group>"; };
-		B17449F21F8D466AF9E59004 /* MockColorBands.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MockColorBands.swift; sourceTree = "<group>"; };
 		8B8A10122DF5000000A66F90 /* Release.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = Release.xcconfig; sourceTree = "<group>"; };
 		8B8A10142DF5000000A66F90 /* Shared.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = Shared.xcconfig; sourceTree = "<group>"; };
 		8B8A10132DF5000000A66F90 /* Tests.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = Tests.xcconfig; sourceTree = "<group>"; };
-		09FE298C706854260ECA2010 /* XCUIApplication+Orientation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "XCUIApplication+Orientation.swift"; sourceTree = "<group>"; };
 /* End PBXFileReference section */
+
+/* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
+		4BACEC8634C11DB2440789B8 /* Exceptions for "cmux" folder in "cmux" target */ = {
+			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
+			membershipExceptions = (
+				cmux.xctestplan,
+			);
+			target = 8B41F6442DEDD0D5001A66F9 /* cmux */;
+		};
+/* End PBXFileSystemSynchronizedBuildFileExceptionSet section */
+
+/* Begin PBXFileSystemSynchronizedRootGroup section */
+		8B41F6472DEDD0D5001A66F9 /* cmux */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			exceptions = (
+				4BACEC8634C11DB2440789B8 /* Exceptions for "cmux" folder in "cmux" target */,
+			);
+			explicitFileTypes = {
+			};
+			explicitFolders = (
+			);
+			path = cmux;
+			sourceTree = "<group>";
+		};
+		8B41F65F2DEDD0D6001A66F9 /* cmuxUITests */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			explicitFileTypes = {
+			};
+			explicitFolders = (
+			);
+			path = cmuxUITests;
+			sourceTree = "<group>";
+		};
+/* End PBXFileSystemSynchronizedRootGroup section */
 
 /* Begin PBXFrameworksBuildPhase section */
 		8B41F6422DEDD0D5001A66F9 /* Frameworks */ = {
@@ -91,36 +92,6 @@
 /* End PBXFrameworksBuildPhase section */
 
 /* Begin PBXGroup section */
-		8B41F6472DEDD0D5001A66F9 /* cmux */ = {
-			isa = PBXGroup;
-			children = (
-				8B8A10192DF5000000A66F90 /* Assets.xcassets */,
-				8B8A10212DF5000000A66F90 /* Resources */,
-				8B8A10172DF5000000A66F90 /* cmuxApp.swift */,
-				8B8A10F12DF5000000A66F90 /* CmuxAppDelegate.swift */,
-				8B8A10AB2DF5000000A66F90 /* AppCompositionRoot.swift */,
-				8B8A10182DF5000000A66F90 /* cmux.xctestplan */,
-			);
-			path = cmux;
-			sourceTree = "<group>";
-		};
-		8B41F65F2DEDD0D6001A66F9 /* cmuxUITests */ = {
-			isa = PBXGroup;
-			children = (
-				8B8A101C2DF5000000A66F90 /* cmuxUITests.swift */,
-				C300A36C7EDB8B3315DDCA03 /* cmuxUITests+TerminalTests.swift */,
-				5E5EC9EDA352FB16C1E8BEB4 /* cmuxUITests+TerminalRowAssertions.swift */,
-				0AA131F961B2DC43DAE9ECD7 /* cmuxUITests+PairingTests.swift */,
-				3FBBA31EC2B6D643157DDC80 /* cmuxUITests+LaunchHelpers.swift */,
-				8457BB9B988E5C2CEA9685B7 /* cmuxUITests+InteractionHelpers.swift */,
-				D2E10C4C308A591AAA4D7937 /* cmuxUITests+ColorBandTests.swift */,
-				09FE298C706854260ECA2010 /* XCUIApplication+Orientation.swift */,
-				B17449F21F8D466AF9E59004 /* MockColorBands.swift */,
-				4F43E1A3A8CB952435F83FD1 /* MobileSyncMockHostServer.swift */,
-			);
-			path = cmuxUITests;
-			sourceTree = "<group>";
-		};
 		8B41F63C2DEDD0D5001A66F9 = {
 			isa = PBXGroup;
 			children = (
@@ -146,15 +117,6 @@
 			children = (
 			);
 			name = Frameworks;
-			sourceTree = "<group>";
-		};
-		8B8A10212DF5000000A66F90 /* Resources */ = {
-			isa = PBXGroup;
-			children = (
-				8B8A101A2DF5000000A66F90 /* InfoPlist.xcstrings */,
-				8B8A101B2DF5000000A66F90 /* Localizable.xcstrings */,
-			);
-			path = Resources;
 			sourceTree = "<group>";
 		};
 		8BD71C052DEE41D800CEDD92 /* Config */ = {
@@ -185,6 +147,9 @@
 			);
 			dependencies = (
 			);
+			fileSystemSynchronizedGroups = (
+				8B41F6472DEDD0D5001A66F9 /* cmux */,
+			);
 			name = cmux;
 			packageProductDependencies = (
 				8B41F6842DEDD25C001A66F9 /* cmuxFeature */,
@@ -207,6 +172,9 @@
 			);
 			dependencies = (
 				8B41F65E2DEDD0D6001A66F9 /* PBXTargetDependency */,
+			);
+			fileSystemSynchronizedGroups = (
+				8B41F65F2DEDD0D6001A66F9 /* cmuxUITests */,
 			);
 			name = cmuxUITests;
 			packageProductDependencies = (
@@ -261,9 +229,6 @@
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				8B8A10022DF5000000A66F90 /* Assets.xcassets in Resources */,
-				8B8A10032DF5000000A66F90 /* InfoPlist.xcstrings in Resources */,
-				8B8A10042DF5000000A66F90 /* Localizable.xcstrings in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -281,9 +246,6 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				8B8A10AA2DF5000000A66F90 /* AppCompositionRoot.swift in Sources */,
-				8B8A10012DF5000000A66F90 /* cmuxApp.swift in Sources */,
-				8B8A10F02DF5000000A66F90 /* CmuxAppDelegate.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -291,16 +253,6 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				0D28CE33B9E51C48D7F4348A /* cmuxUITests+ColorBandTests.swift in Sources */,
-				BC5AD6F9F851761998066A18 /* cmuxUITests+InteractionHelpers.swift in Sources */,
-				4FD46A4A98A21C846B6730C0 /* cmuxUITests+LaunchHelpers.swift in Sources */,
-				58F1A129AD4A2F5E6CB12569 /* cmuxUITests+PairingTests.swift in Sources */,
-				ADE4113CA5626223765CBACE /* cmuxUITests+TerminalRowAssertions.swift in Sources */,
-				BD8FC6C5175E1EC8CDFA7961 /* cmuxUITests+TerminalTests.swift in Sources */,
-				8B8A10052DF5000000A66F90 /* cmuxUITests.swift in Sources */,
-				57F79FB7D1F69C8BEF459B17 /* MobileSyncMockHostServer.swift in Sources */,
-				924BAE18A292FC950A8182A9 /* MockColorBands.swift in Sources */,
-				4CDA876E5FE7B93F86A3E9F2 /* XCUIApplication+Orientation.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

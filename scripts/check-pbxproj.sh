@@ -16,7 +16,12 @@ XCODE_VERSION_FILE="$REPO_ROOT/.xcode-version"
 XCODE_VERSION="$(tr -d '[:space:]' < "$XCODE_VERSION_FILE")"
 XCODE_MAJOR="${XCODE_VERSION%%.*}"
 case "$XCODE_MAJOR" in
-    26)  EXPECTED_OBJECT_VERSION=60 ;;
+    # 70 is the filesystem-synchronized project format: the cmux/cmuxTests/
+    # cmuxUITests/CLI folders are PBXFileSystemSynchronizedRootGroup entries,
+    # which Xcode only supports at objectVersion >= 70. Lowering this back to
+    # 60 would require de-converting every synchronized group to per-file
+    # PBXBuildFile/PBXSourcesBuildPhase wiring.
+    26)  EXPECTED_OBJECT_VERSION=70 ;;
     *)   echo "::error::Unknown Xcode major '$XCODE_MAJOR' in .xcode-version ($XCODE_VERSION). Add a case in scripts/check-pbxproj.sh." >&2; exit 1 ;;
 esac
 
