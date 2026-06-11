@@ -5,6 +5,7 @@ import CmuxMobileRPC
 @testable import CmuxMobileShell
 @testable import CmuxMobileShellUI
 import CmuxMobileShellModel
+import CmuxMobileTransport
 import CmuxMobileWorkspace
 import Foundation
 import StackAuth
@@ -640,7 +641,110 @@ final class TerminalOutputCollector {
     #expect(route.kind == .tailscale)
     #expect(store.phase == .pairing)
     #expect(store.connectionState == .disconnected)
-    #expect(store.connectionError == "No response from work-mac.tailnet.ts.net:58465. Make sure the host app is open and accepting mobile connections.")
+    // A handshake timeout to a Tailscale host now points the user at the real
+    // cause (Mac asleep / off Tailscale) instead of wrongly blaming the host
+    // app, and carries an actionable guidance line.
+    #expect(store.connectionError == "No response from work-mac.tailnet.ts.net:58465. Your Mac may be asleep or off Tailscale. Make sure it's awake and on the same Tailscale network.")
+    #expect(store.connectionErrorGuidance != nil)
+}
+
+@MainActor
+@Test func manualHostPairingWhileOfflineFailsFastWithGuidanceAndNoDial() async throws {
+    // Reachability preflight: a phone with no network path must fail the pair
+    // immediately with the offline category and never dial a transport, instead
+    // of letting the connect sit in NWConnection's `.waiting` state and stack
+    // the per-route timeouts into the opaque ~60s wait the reporter saw.
+    let dials = TransportDialRecorder()
+    let runtime = testRuntime(
+        supportedRouteKinds: [.tailscale],
+        transportFactory: RecordingNeverConnectTransportFactory(dials: dials)
+    )
+    let store = CMUXMobileShellStore(
+        runtime: runtime,
+        reachability: OfflineReachability()
+    )
+
+    store.signIn()
+    await store.connectManualHost(name: "Work Mac", host: "work-mac.tailnet.ts.net", port: CmxMobileDefaults.defaultHostPort)
+
+    #expect(store.phase == .pairing)
+    #expect(store.connectionState == .disconnected)
+    // Non-empty, offline-specific headline: the spinner can no longer revert
+    // silently, and the message names the real problem (the phone is offline).
+    #expect(store.connectionError == "This device looks offline. Connect to Wi-Fi or cellular, then try again.")
+    // The offline headline carries the actionable guidance inline (connect to
+    // Wi-Fi or cellular), so no separate guidance line is shown for it.
+    #expect(store.connectionErrorGuidance == nil)
+    // The preflight short-circuited before any transport was created.
+    #expect(dials.count == 0)
+}
+
+@MainActor
+@Test func qrPairingWhileOfflineFailsFastWithoutDial() async throws {
+    let route = try hostPortRoute(kind: .tailscale, host: "work-mac.tailnet.ts.net", port: CmxMobileDefaults.defaultHostPort)
+    let ticket = try CmxAttachTicket(
+        workspaceID: UUID().uuidString,
+        terminalID: nil,
+        macDeviceID: "test-mac",
+        macDisplayName: "Test Mac",
+        routes: [route],
+        expiresAt: Date().addingTimeInterval(60),
+        authToken: "ticket-secret"
+    )
+    let dials = TransportDialRecorder()
+    let runtime = testRuntime(
+        supportedRouteKinds: [.tailscale],
+        transportFactory: RecordingNeverConnectTransportFactory(dials: dials)
+    )
+    let store = CMUXMobileShellStore(
+        runtime: runtime,
+        reachability: OfflineReachability()
+    )
+
+    store.signIn()
+    let result = await store.connectPairingURLResult(try attachURL(for: ticket).absoluteString)
+
+    #expect(result == .failed)
+    #expect(store.connectionState == .disconnected)
+    #expect(store.connectionError == "This device looks offline. Connect to Wi-Fi or cellular, then try again.")
+    #expect(store.connectionErrorGuidance == nil)
+    #expect(dials.count == 0)
+}
+
+@MainActor
+@Test func expiredQRTicketWhileOfflineReportsExpiredNotOffline() async throws {
+    // The expiry guard is local and definitive: reconnecting to Wi-Fi will not
+    // revive an expired QR, so the offline preflight must not mask it with the
+    // "connect and try again" offline message. Still fails fast with no dial.
+    let ticketExpiresAt = Date().addingTimeInterval(60)
+    let route = try hostPortRoute(kind: .tailscale, host: "work-mac.tailnet.ts.net", port: CmxMobileDefaults.defaultHostPort)
+    let ticket = try CmxAttachTicket(
+        workspaceID: UUID().uuidString,
+        terminalID: nil,
+        macDeviceID: "test-mac",
+        macDisplayName: "Test Mac",
+        routes: [route],
+        expiresAt: ticketExpiresAt,
+        authToken: "ticket-secret"
+    )
+    let dials = TransportDialRecorder()
+    let runtime = testRuntime(
+        supportedRouteKinds: [.tailscale],
+        transportFactory: RecordingNeverConnectTransportFactory(dials: dials),
+        now: { ticketExpiresAt.addingTimeInterval(1) }
+    )
+    let store = CMUXMobileShellStore(
+        runtime: runtime,
+        reachability: OfflineReachability()
+    )
+
+    store.signIn()
+    let result = await store.connectPairingURLResult(try attachURL(for: ticket).absoluteString)
+
+    #expect(result == .failed)
+    #expect(store.connectionState == .disconnected)
+    #expect(store.connectionError == "This pairing link expired. Pair again with a fresh QR/link from that computer.")
+    #expect(dials.count == 0)
 }
 
 @MainActor
@@ -698,6 +802,33 @@ final class TerminalOutputCollector {
     } else {
         Issue.record("manual loopback route should use host/port")
     }
+}
+
+@MainActor
+@Test func manualHostPairingToLoopbackStillDialsWhileOffline() async throws {
+    // Loopback needs no external network path (simulator/dev pairing to
+    // 127.0.0.1), so the offline reachability preflight must not block it.
+    let attachRoute = try hostPortRoute(kind: .debugLoopback, host: "127.0.0.1", port: CmxMobileDefaults.defaultHostPort)
+    let responses = ScriptedTransportResponses([
+        try rpcAttachTicketFrame(route: attachRoute, workspaceID: "local-workspace"),
+        try rpcWorkspaceListFrame(workspaceID: "local-workspace", title: "Local Workspace"),
+    ])
+    let runtime = testRuntime(
+        supportedRouteKinds: [.debugLoopback],
+        transportFactory: ScriptedTransportFactory(responses: responses)
+    )
+    let store = CMUXMobileShellStore(
+        runtime: runtime,
+        reachability: OfflineReachability()
+    )
+
+    store.signIn()
+    await store.connectManualHost(name: "", host: "127.0.0.1", port: CmxMobileDefaults.defaultHostPort)
+
+    #expect(store.phase == .workspaces)
+    #expect(store.connectionState == .connected)
+    #expect(store.connectionError == nil)
+    #expect(store.activeRoute?.kind == .debugLoopback)
 }
 
 @MainActor
@@ -1866,6 +1997,94 @@ final class TerminalOutputCollector {
     collector.unmount()
 }
 
+@MainActor
+@Test func pullToRefreshAwaitsRealWorkspaceListRoundTrip() async throws {
+    let route = try CmxAttachRoute(
+        id: "debug_loopback",
+        kind: .debugLoopback,
+        endpoint: .hostPort(host: "127.0.0.1", port: 56584)
+    )
+    let ticket = try CmxAttachTicket(
+        workspaceID: "before-workspace",
+        terminalID: nil,
+        macDeviceID: "test-mac",
+        macDisplayName: "Test Mac",
+        routes: [route],
+        expiresAt: Date().addingTimeInterval(60)
+    )
+    let router = PullToRefreshWorkspaceListRouter()
+    let runtime = testRuntime(
+        supportedRouteKinds: [.debugLoopback],
+        transportFactory: RequestAwareTransportFactory(router: router),
+        supportsServerPushEvents: true
+    )
+    let store = CMUXMobileShellStore.preview(runtime: runtime)
+
+    store.signIn()
+    await store.connectPairingURL(try attachURL(for: ticket).absoluteString)
+    _ = try await waitForWorkspaceIDs(in: store, matching: ["before-workspace"])
+
+    // A pull re-fetches `mobile.workspace.list` and only resolves once the
+    // round-trip has applied the new authoritative list.
+    await store.refreshWorkspaces()
+
+    #expect(store.workspaces.map(\.id.rawValue) == ["after-workspace"])
+    let refreshRequests = await router.sentRequests().filter { $0.method == "mobile.workspace.list" }
+    #expect(refreshRequests.count == 1)
+}
+
+@MainActor
+@Test func pullToRefreshWhileDisconnectedReturnsWithoutHangingOrClearingList() async throws {
+    // Not connected: the pull must return promptly (no transport round-trip to
+    // hang on) and leave the existing list intact.
+    let store = MobileShellComposite.preview()
+    let before = store.workspaces.map(\.id.rawValue)
+
+    await store.refreshWorkspaces()
+
+    #expect(store.connectionState == .disconnected)
+    #expect(store.workspaces.map(\.id.rawValue) == before)
+}
+
+@MainActor
+@Test func rapidPullToRefreshesCoalesceOntoOneRoundTrip() async throws {
+    let route = try CmxAttachRoute(
+        id: "debug_loopback",
+        kind: .debugLoopback,
+        endpoint: .hostPort(host: "127.0.0.1", port: 56584)
+    )
+    let ticket = try CmxAttachTicket(
+        workspaceID: "before-workspace",
+        terminalID: nil,
+        macDeviceID: "test-mac",
+        macDisplayName: "Test Mac",
+        routes: [route],
+        expiresAt: Date().addingTimeInterval(60)
+    )
+    let router = PullToRefreshWorkspaceListRouter(refreshResponseDelayNanoseconds: 50_000_000)
+    let runtime = testRuntime(
+        supportedRouteKinds: [.debugLoopback],
+        transportFactory: RequestAwareTransportFactory(router: router),
+        supportsServerPushEvents: true
+    )
+    let store = CMUXMobileShellStore.preview(runtime: runtime)
+
+    store.signIn()
+    await store.connectPairingURL(try attachURL(for: ticket).absoluteString)
+    _ = try await waitForWorkspaceIDs(in: store, matching: ["before-workspace"])
+
+    // Two overlapping pulls (the second starts while the first is still in flight)
+    // must coalesce onto a single `mobile.workspace.list` round-trip, not stack
+    // two fetches.
+    async let first: Void = store.refreshWorkspaces()
+    async let second: Void = store.refreshWorkspaces()
+    _ = await (first, second)
+
+    #expect(store.workspaces.map(\.id.rawValue) == ["after-workspace"])
+    let refreshRequests = await router.sentRequests().filter { $0.method == "mobile.workspace.list" }
+    #expect(refreshRequests.count == 1)
+}
+
 private struct MissingTestStackAccessToken: Error {}
 
 private func testRuntime(
@@ -2604,6 +2823,49 @@ private actor TerminalRenderGridEventRouter: RequestAwareTransportRouter {
     }
 }
 
+/// Router for the pull-to-refresh tests: the connect-time `workspace.list`
+/// returns `before-workspace`; the pull-driven `mobile.workspace.list` returns a
+/// different `after-workspace`, so the test can prove the pull re-fetched and
+/// applied authoritative data. An optional response delay lets a second
+/// overlapping pull start while the first is still in flight, exercising the
+/// in-flight coalescing guard.
+private actor PullToRefreshWorkspaceListRouter: RequestAwareTransportRouter {
+    private let refreshResponseDelayNanoseconds: UInt64
+    private var requests: [RecordedRPCRequest] = []
+
+    init(refreshResponseDelayNanoseconds: UInt64 = 0) {
+        self.refreshResponseDelayNanoseconds = refreshResponseDelayNanoseconds
+    }
+
+    func record(_ request: RecordedRPCRequest) {
+        requests.append(request)
+    }
+
+    func sentRequests() -> [RecordedRPCRequest] {
+        requests
+    }
+
+    func response(for request: RecordedRPCRequest) async throws -> Data? {
+        switch request.method {
+        case "workspace.list":
+            return try rpcWorkspaceListFrame(workspaceID: "before-workspace", title: "Before Workspace")
+        case "mobile.workspace.list":
+            if refreshResponseDelayNanoseconds > 0 {
+                try await Task.sleep(nanoseconds: refreshResponseDelayNanoseconds)
+            }
+            return try rpcWorkspaceListFrame(workspaceID: "after-workspace", title: "After Workspace")
+        case "mobile.host.status":
+            return try rpcHostStatusFrame(renderGrid: true)
+        case "mobile.events.subscribe":
+            return try rpcResultFrame(result: ["stream_id": "events"])
+        case "mobile.terminal.replay":
+            return try rpcResultFrame(result: [:])
+        default:
+            return try rpcErrorFrame(message: "Unexpected method \(request.method ?? "nil")")
+        }
+    }
+}
+
 private actor RequestAwareTransport: CmxByteTransport {
     private let router: any RequestAwareTransportRouter
     private var pendingResponses: [Data] = []
@@ -3004,6 +3266,41 @@ private func combinedFrames(_ frames: [Data]) -> Data {
 private struct HangingTransportFactory: CmxByteTransportFactory {
     func makeTransport(for route: CmxAttachRoute) throws -> any CmxByteTransport {
         HangingTransport()
+    }
+}
+
+/// A ``ReachabilityProviding`` double reporting a permanently-offline device, so
+/// the pairing reachability preflight short-circuits before any connect.
+private struct OfflineReachability: ReachabilityProviding {
+    var isOnline: Bool { false }
+    func pathChanges() -> AsyncStream<Void> {
+        AsyncStream { $0.finish() }
+    }
+}
+
+/// Counts how many times a transport was created (dialed), synchronously, so
+/// the "zero transports created" assertion cannot race a fire-and-forget task.
+/// Used to prove the offline preflight returns before any transport is made.
+private final class TransportDialRecorder: @unchecked Sendable {
+    private let lock = NSLock()
+    private var dialCount = 0
+    var count: Int {
+        lock.withLock { dialCount }
+    }
+
+    func record() {
+        lock.withLock { dialCount += 1 }
+    }
+}
+
+/// A transport factory whose product would never connect; it records each
+/// `makeTransport` synchronously so a test can assert the offline preflight
+/// never dialed.
+private struct RecordingNeverConnectTransportFactory: CmxByteTransportFactory {
+    let dials: TransportDialRecorder
+    func makeTransport(for route: CmxAttachRoute) throws -> any CmxByteTransport {
+        dials.record()
+        return HangingTransport()
     }
 }
 

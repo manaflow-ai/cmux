@@ -2887,6 +2887,11 @@ struct CMUXCLI {
 
     private static func shouldFocusWindowBeforeDispatch(command: String, commandArgs: [String]) -> Bool {
         let normalizedCommand = command.lowercased()
+        // `window` repositions a window (e.g. `window display`); it must not
+        // pre-focus, or it would steal macOS focus before moving the window.
+        if normalizedCommand == "window" {
+            return false
+        }
         if normalizedCommand == "surface-resume" {
             return false
         }
@@ -3798,6 +3803,15 @@ struct CMUXCLI {
 
         case "workspace-group":
             try runWorkspaceGroup(
+                commandArgs: commandArgs,
+                client: client,
+                jsonOutput: jsonOutput,
+                idFormat: idFormat,
+                windowOverride: windowId
+            )
+
+        case "window":
+            try runWindowNamespace(
                 commandArgs: commandArgs,
                 client: client,
                 jsonOutput: jsonOutput,
@@ -7112,6 +7126,85 @@ struct CMUXCLI {
     /// same v2 socket methods that legacy verbs use (`new-workspace`,
     /// `list-workspaces`, etc.) so behavior matches. Legacy verbs keep working
     /// unchanged for backwards compatibility.
+    private func runWindowNamespace(
+        commandArgs: [String],
+        client: SocketClient,
+        jsonOutput: Bool,
+        idFormat: CLIIDFormat,
+        windowOverride: String?
+    ) throws {
+        guard let sub = commandArgs.first?.lowercased() else {
+            throw CLIError(message: "window requires a subcommand. Try: display, displays")
+        }
+        let rest = Array(commandArgs.dropFirst())
+        switch sub {
+        case "displays":
+            try runWindowDisplaysCommand(client: client, jsonOutput: jsonOutput)
+        case "display":
+            try runWindowDisplayCommand(
+                commandArgs: rest,
+                client: client,
+                jsonOutput: jsonOutput,
+                idFormat: idFormat,
+                windowOverride: windowOverride
+            )
+        default:
+            throw CLIError(message: "Unknown window subcommand: \(sub). Try: display, displays")
+        }
+    }
+
+    /// `cmux window displays` — list connected displays (name + index).
+    private func runWindowDisplaysCommand(client: SocketClient, jsonOutput: Bool) throws {
+        let response = try client.sendV2(method: "window.displays")
+        if jsonOutput {
+            print(jsonString(response))
+            return
+        }
+        let displays = (response["displays"] as? [[String: Any]]) ?? []
+        if displays.isEmpty {
+            print("No displays found.")
+            return
+        }
+        for display in displays {
+            let name = (display["name"] as? String) ?? "(unknown)"
+            let index = (display["index"] as? Int) ?? -1
+            let isMain = (display["main"] as? Bool) ?? false
+            print("\(index): \(name)\(isMain ? "  (main)" : "")")
+        }
+    }
+
+    /// `cmux window display "<name>"` — move this instance's window(s) onto the
+    /// named display, preserving size. `--list` is an alias for `window displays`.
+    private func runWindowDisplayCommand(
+        commandArgs: [String],
+        client: SocketClient,
+        jsonOutput: Bool,
+        idFormat: CLIIDFormat,
+        windowOverride: String?
+    ) throws {
+        if commandArgs.contains("--list") || commandArgs.contains("-l") {
+            try runWindowDisplaysCommand(client: client, jsonOutput: jsonOutput)
+            return
+        }
+        let positional = commandArgs.filter { !$0.hasPrefix("-") }
+        guard let displayName = positional.first, !displayName.isEmpty else {
+            throw CLIError(message: "window display requires a display name. Usage: cmux window display \"LG HDR 4K\"  (list names with: cmux window displays)")
+        }
+        var params: [String: Any] = ["display": displayName]
+        if let windowOverride {
+            let normalized = try normalizeWindowHandle(windowOverride, client: client) ?? windowOverride
+            params["window_id"] = normalized
+        }
+        let response = try client.sendV2(method: "window.display", params: params)
+        if jsonOutput {
+            print(jsonString(formatIDs(response, mode: idFormat)))
+            return
+        }
+        let resolvedDisplay = (response["display"] as? String) ?? displayName
+        let movedCount = (response["moved"] as? [Any])?.count ?? 0
+        print("Moved \(movedCount) window\(movedCount == 1 ? "" : "s") to \(resolvedDisplay).")
+    }
+
     private func runWorkspaceNamespace(
         commandArgs: [String],
         client: SocketClient,
@@ -7120,7 +7213,10 @@ struct CMUXCLI {
         windowOverride: String?
     ) throws {
         guard let sub = commandArgs.first?.lowercased() else {
-            throw CLIError(message: "workspace requires a subcommand. Try: list, create, close, rename, select, group")
+            throw CLIError(message: String(
+                localized: "cli.error.workspaceSubcommandRequired",
+                defaultValue: "workspace requires a subcommand. Try: list, create, close, rename, select, reconnect, disconnect, group"
+            ))
         }
         let rest = Array(commandArgs.dropFirst())
         switch sub {
@@ -7180,9 +7276,74 @@ struct CMUXCLI {
                 windowOverride: windowOverride,
                 requireWorkspaceFlag: false
             )
+        case "reconnect":
+            try runWorkspaceRemoteConnectionCommand(
+                commandName: "workspace reconnect",
+                method: "workspace.remote.reconnect",
+                commandArgs: rest,
+                client: client,
+                jsonOutput: jsonOutput,
+                idFormat: idFormat,
+                windowOverride: windowOverride
+            )
+        case "disconnect":
+            try runWorkspaceRemoteConnectionCommand(
+                commandName: "workspace disconnect",
+                method: "workspace.remote.disconnect",
+                commandArgs: rest,
+                client: client,
+                jsonOutput: jsonOutput,
+                idFormat: idFormat,
+                windowOverride: windowOverride
+            )
         default:
-            throw CLIError(message: "Unknown workspace subcommand: \(sub). Try: list, create, close, rename, select, group")
+            throw CLIError(message: String(
+                format: String(
+                    localized: "cli.error.workspaceSubcommandUnknown",
+                    defaultValue: "Unknown workspace subcommand: %@. Try: list, create, close, rename, select, reconnect, disconnect, group"
+                ),
+                locale: .current,
+                sub
+            ))
         }
+    }
+
+    /// `cmux workspace reconnect|disconnect` — manual control over a remote
+    /// (SSH) workspace's connection. Targets the positional/`--workspace`
+    /// handle, then the caller's workspace, then the selected workspace.
+    private func runWorkspaceRemoteConnectionCommand(
+        commandName: String,
+        method: String,
+        commandArgs: [String],
+        client: SocketClient,
+        jsonOutput: Bool,
+        idFormat: CLIIDFormat,
+        windowOverride: String?
+    ) throws {
+        let (workspaceArg, rem0) = parseOption(commandArgs, name: "--workspace")
+        let (_, rem1) = parseOption(rem0, name: "--window")
+        let positional = rem1.first(where: { !$0.hasPrefix("--") })
+        let windowRaw = windowFromArgsOrOverride(commandArgs, windowOverride: windowOverride)
+        // With an explicit --window and no workspace argument, target that
+        // window's selected workspace on the server instead of the caller's
+        // CMUX_WORKSPACE_ID, which may live in a different window.
+        let target = workspaceArg
+            ?? positional
+            ?? (windowRaw == nil ? ProcessInfo.processInfo.environment["CMUX_WORKSPACE_ID"] : nil)
+
+        var params: [String: Any] = [:]
+        let winId = try normalizeWindowHandle(windowRaw, client: client)
+        if let winId { params["window_id"] = winId }
+        if let wsId = try normalizeWorkspaceHandle(target, client: client, windowHandle: winId) {
+            params["workspace_id"] = wsId
+        }
+        let payload = try client.sendV2(method: method, params: params)
+        printV2Payload(
+            payload,
+            jsonOutput: jsonOutput,
+            idFormat: idFormat,
+            fallbackText: v2OKSummary(payload, idFormat: idFormat, kinds: ["workspace", "window"])
+        )
     }
 
     /// Emit a `cmux workspace-group` mutation response: JSON when --json,
@@ -13635,7 +13796,7 @@ struct CMUXCLI {
               cmux list-workspaces
             """
         case "workspace":
-            return """
+            return String(localized: "cli.workspace.usage", defaultValue: """
             Usage: cmux workspace <subcommand> [flags]
 
             Canonical noun for workspace operations. Legacy verbs
@@ -13649,13 +13810,23 @@ struct CMUXCLI {
               close <workspace>       Close a workspace
               rename <workspace> --title <new>
               select <workspace>      Make a workspace active
+              reconnect [workspace]   Reconnect a remote (SSH) workspace, including one
+                                      whose automatic reconnect paused because the host
+                                      was unreachable
+              disconnect [workspace]  Stop a remote (SSH) workspace's connection
               group <subcommand>      Workspace group operations (see cmux workspace-group --help)
+
+            reconnect/disconnect accept a positional handle or --workspace
+            <id|ref|index>, defaulting to the caller's workspace, then the
+            selected one (of --window's window when given).
 
             Examples:
               cmux workspace list --json
               cmux workspace create --name Build --cwd ~/projects/myapp
               cmux workspace close workspace:3
-            """
+              cmux workspace reconnect
+              cmux workspace disconnect --workspace workspace:3
+            """)
         case "workspace-group":
             return """
             Usage: cmux workspace-group <subcommand> [flags]

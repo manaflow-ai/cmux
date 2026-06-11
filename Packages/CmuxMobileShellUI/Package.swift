@@ -16,6 +16,7 @@ let package = Package(
     dependencies: [
         .package(path: "../CMUXMobileCore"),
         .package(path: "../CmuxAuthRuntime"),
+        .package(path: "../CmuxMobileBrowser"),
         .package(path: "../CmuxMobileCamera"),
         .package(path: "../CmuxMobileDiagnostics"),
         .package(path: "../CmuxMobilePairedMac"),
@@ -33,6 +34,7 @@ let package = Package(
             dependencies: [
                 "CMUXMobileCore",
                 "CmuxAuthRuntime",
+                "CmuxMobileBrowser",
                 "CmuxMobileCamera",
                 "CmuxMobileDiagnostics",
                 "CmuxMobilePairedMac",

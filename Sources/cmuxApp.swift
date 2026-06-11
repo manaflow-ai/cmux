@@ -4,6 +4,7 @@ import CmuxSidebarRemoteRender
 import CmuxSocketControl
 import CmuxSettings
 import CmuxSettingsUI
+import CmuxUpdater
 import CmuxUpdaterUI
 import SwiftUI
 import Observation
@@ -445,6 +446,13 @@ struct cmuxApp: App {
                 }
                 Button("Show Loading State") {
                     appDelegate.showUpdatePillLoading(nil)
+                }
+                Menu("Show Update Error…") {
+                    ForEach(DebugUpdateErrorScenario.allCases, id: \.self) { scenario in
+                        Button(scenario.menuTitle) {
+                            appDelegate.updateViewModel.debugShowUpdateError(scenario)
+                        }
+                    }
                 }
                 Button("Hide Update Pill") {
                     appDelegate.hideUpdatePill(nil)
