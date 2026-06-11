@@ -457,6 +457,24 @@ import Testing
         #expect(try CmuxNoteStore.list(projectRoot: projectRoot).first { $0.slug == "tracked" } == nil)
     }
 
+    /// Note classification (which enables implicit autosave) must reject
+    /// symlinked note files and untrusted roots — a committed
+    /// `.cmux/notes/x.md -> elsewhere` must stay a plain markdown file.
+    @Test @MainActor func noteClassificationRejectsSymlinkedPaths() throws {
+        let notesDir = (projectRoot as NSString).appendingPathComponent(".cmux/notes")
+        try fm.createDirectory(atPath: notesDir, withIntermediateDirectories: true)
+        let real = (notesDir as NSString).appendingPathComponent("real.md")
+        try write("note", to: real)
+        #expect(MarkdownPanel.isWorkspaceNotesPath(real))
+
+        let outside = (projectRoot as NSString).appendingPathComponent("victim2.md")
+        try write("secret", to: outside)
+        let link = (notesDir as NSString).appendingPathComponent("trap.md")
+        try fm.createSymbolicLink(atPath: link, withDestinationPath: outside)
+        #expect(!MarkdownPanel.isWorkspaceNotesPath(link))
+        #expect(!MarkdownPanel.isWorkspaceNotesPath(outside))
+    }
+
     /// The per-workspace folder name is predictable, so a repository can
     /// commit `.cmux/notes/<workspace-folder>` as a symlink; the tree must
     /// neither adopt it, create through it, nor read/write its marker.

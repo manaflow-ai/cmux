@@ -193,10 +193,26 @@ final class MarkdownPanel: Panel, ObservableObject, FilePreviewTextEditingPanel 
         startWatching()
     }
 
-    /// True for paths inside a `.cmux/notes` tree (the per-workspace Notes
-    /// filesystem).
+    /// True for paths inside a TRUSTED `.cmux/notes` tree (the per-workspace
+    /// Notes filesystem). Note classification turns on implicit writes
+    /// (debounced autosave and the close flush), so a bare substring match is
+    /// not enough: the project-controlled root components must not be
+    /// symlinks, the file itself must not be one, and the canonical path must
+    /// stay inside the notes root — otherwise a committed link like
+    /// `.cmux/notes/x.md -> ~/.zshrc` would get silently autosaved through.
     static func isWorkspaceNotesPath(_ path: String) -> Bool {
-        ((path as NSString).standardizingPath).contains("/.cmux/notes/")
+        let standardized = (path as NSString).standardizingPath
+        guard let projectRoot = NoteSupport.projectRoot(forNotePath: standardized) else { return false }
+        guard NoteSupport.projectNotesDirectoryIsTrusted(projectRoot: projectRoot) else { return false }
+        let fm = FileManager.default
+        if ((try? fm.attributesOfItem(atPath: standardized))?[.type] as? FileAttributeType)
+            == .typeSymbolicLink {
+            return false
+        }
+        let notesRoot = ((NoteSupport.notesDirectory(forProjectRoot: projectRoot) as NSString)
+            .standardizingPath as NSString).resolvingSymlinksInPath
+        let canonical = (standardized as NSString).resolvingSymlinksInPath
+        return canonical == notesRoot || canonical.hasPrefix(notesRoot + "/")
     }
 
     /// Adopt a changed typography default (from another viewer's "Set as Default"
