@@ -3,7 +3,7 @@
 # Reduce counts as files shrink. CI fails if tracked files exceed this budget.
 32873	CLI/cmux.swift
 518	Packages/CmuxControlSocket/Sources/CmuxControlSocket/Coordinator/Surface/ControlCommandCoordinator+Surface.swift
-   10752	Sources/TerminalController.swift
+10752	Sources/TerminalController.swift
 19955	Sources/Workspace.swift
 19245	Sources/ContentView.swift
 18044	Sources/AppDelegate.swift
