@@ -67,7 +67,11 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
         #endif
         context.coordinator.attach(surfaceView: view)
         // Mount the composer band immediately if the composer was already open when
-        // this surface was (re)built (e.g. a terminal switch while composing).
+        // this surface was (re)built (e.g. a terminal switch while composing), and
+        // seed the surface's composerActive flag to match. SwiftUI does call
+        // `updateUIView` right after `makeUIView`, but the compose button's intent
+        // math reads this flag, so it must never depend on that ordering contract.
+        view.setComposerActive(isComposerActive)
         context.coordinator.setComposerMounted(isComposerActive)
         return view
     }

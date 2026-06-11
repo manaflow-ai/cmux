@@ -654,6 +654,12 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         // before the wipe would only write text the wipe then deletes, but the
         // buffer itself must not carry one account's text into the next.
         pendingDraftSaveTextByTerminalID = [:]
+        // Per-terminal composer dismissals are this user's session UI state; the
+        // next account starts with the default-open composer everywhere. Clear
+        // the focus mirror BEFORE the selection resets below so the terminal
+        // switch they trigger cannot arm a stale focus request.
+        composerDismissedTerminalIDs = []
+        composerFieldIsFocused = false
         clearPairingError()
         activeTicket = nil
         activeRoute = nil
@@ -2188,10 +2194,12 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         requestComposerFieldFocus()
     }
 
-    /// Dismiss the iMessage-style composer if it is open. Used when the user hides
-    /// the keyboard while composing, so the composer can never be left presented
-    /// with the keyboard down. Idempotent: a no-op when the composer is already
-    /// closed.
+    /// Explicitly dismiss the iMessage-style composer for the selected terminal,
+    /// recording the dismissal for the session. This is the explicit-close API
+    /// (hosts and tests); the user-facing closes go through ``toggleComposer()``.
+    /// The keyboard collapsing never dismisses the composer (Round 8): the band
+    /// survives a keyboard-down and only the chevron / compose toggle closes it.
+    /// Idempotent: a no-op when the composer is already closed.
     public func dismissComposer() {
         guard isComposerPresented else { return }
         setComposerPresented(false)

@@ -905,12 +905,15 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         lastReportedSize ?? TerminalGridSize(columns: 100, rows: 32, pixelWidth: 900, pixelHeight: 650)
     }
 
+    #if DEBUG
     /// Structured diagnostic log (DEBUG dogfood builds only), property-injected
     /// from the shell store by ``GhosttySurfaceRepresentable`` so the
     /// composer-dock probes land in the blob the diagnostic export captures.
-    /// `nil` in release and in hosts that do not wire it; every probe is then a
-    /// no-op.
+    /// `nil` in hosts that do not wire it; every probe is then a no-op. The
+    /// property does not exist in release builds — every reader is inside a
+    /// `#if DEBUG` block.
     public var diagnosticLog: DiagnosticLog?
+    #endif
 
     private lazy var inputProxy: TerminalInputTextView = {
         let inputProxy = TerminalInputTextView()
