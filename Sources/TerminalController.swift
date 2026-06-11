@@ -13623,19 +13623,29 @@ class TerminalController {
     /// for the already-removed phone banner. Carries only opaque UUIDs, never
     /// terminal content.
     private func v2MobileNotificationDismiss(params: [String: Any]) -> V2CallResult {
+        // Cap the scan like `notification.reconcile`: a phone cannot meaningfully
+        // dismiss more than this in one request (its durable outbox holds 128),
+        // so anything past the cap is a malformed or hostile frame and is
+        // ignored instead of trimmed/parsed on the main actor.
+        let maxDismissIDs = 256
         var rawIDs: [String] = []
         if let single = v2OptionalTrimmedRawString(params, "notification_id") {
             rawIDs.append(single)
         }
         if let array = params["notification_ids"] as? [Any] {
-            for value in array {
+            for value in array.prefix(maxDismissIDs) {
                 if let string = (value as? String)?.trimmingCharacters(in: .whitespacesAndNewlines),
                    !string.isEmpty {
                     rawIDs.append(string)
                 }
             }
         }
-        let ids = rawIDs.compactMap { UUID(uuidString: $0) }
+        // Dedupe (preserving order) so a repeated id cannot double-count in
+        // `dismissed` or run the markRead path twice.
+        var seenIDs = Set<UUID>()
+        let ids = rawIDs
+            .compactMap { UUID(uuidString: $0) }
+            .filter { seenIDs.insert($0).inserted }
         guard !ids.isEmpty else {
             return .err(
                 code: "invalid_params",
