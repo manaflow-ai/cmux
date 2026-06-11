@@ -960,7 +960,7 @@ enum BrowserAvailabilitySettings {
     static let defaultDisabled = false
 
     static func isDisabled(defaults: UserDefaults = .standard) -> Bool {
-        defaults.synchronize()
+        // No synchronize() on read: it forces a blocking prefs-plist reload on a path hit from link-open/pane-create; UserDefaults stays coherent in-process and via cfprefsd.
         if defaults.object(forKey: disabledKey) == nil {
             return defaultDisabled
         }
@@ -972,8 +972,8 @@ enum BrowserAvailabilitySettings {
     }
 
     static func setDisabled(_ disabled: Bool, defaults: UserDefaults = .standard) {
+        // `set` already persists; `synchronize()` is a deprecated no-op-style fsync.
         defaults.set(disabled, forKey: disabledKey)
-        defaults.synchronize()
         NotificationCenter.default.post(name: didChangeNotification, object: nil)
     }
 }
@@ -2639,6 +2639,20 @@ final class CmuxDiffViewerURLSchemeHandler: NSObject, WKURLSchemeHandler {
         lock.unlock()
     }
 
+    /// Whether the token currently has a registered (or manifest-restorable)
+    /// session. Used to trust-gate native bridge calls from diff viewer pages.
+    func hasActiveSession(token: String, now: Date = Date()) -> Bool {
+        guard Self.isValidToken(token) else { return false }
+        lock.lock()
+        pruneExpiredSessionsLocked(now: now)
+        let isRegistered = sessions[token] != nil
+        lock.unlock()
+        if isRegistered {
+            return true
+        }
+        return registerFromManifest(token: token, now: now)
+    }
+
     func registeredFile(for url: URL, now: Date = Date()) -> RegisteredFile? {
         guard url.scheme == Self.scheme,
               let token = url.host,
@@ -4128,6 +4142,10 @@ final class BrowserPanel: Panel, ObservableObject {
                 forURLScheme: CmuxDiffViewerURLSchemeHandler.scheme
             )
         }
+        // Review-comment persistence + TextBox attach for diff viewer pages.
+        // The handler itself rejects every frame that is not a registered diff
+        // viewer session, so installing it on all browser webviews is safe.
+        DiffCommentsBridge.installIfNeeded(on: configuration.userContentController)
 
         // Enable developer extras (DevTools)
         configuration.preferences.setValue(true, forKey: "developerExtrasEnabled")
@@ -4198,6 +4216,7 @@ final class BrowserPanel: Panel, ObservableObject {
     }
 
     private func bindWebView(_ webView: CmuxWebView) {
+        DiffCommentsBridge.associate(panelId: id, workspaceId: workspaceId, with: webView)
         webView.onMouseBackButton = { [weak self] in
             self?.goBack()
         }
@@ -5308,14 +5327,45 @@ final class BrowserPanel: Panel, ObservableObject {
             webView.underPageBackgroundColor = .clear
             webView.layer?.isOpaque = false
             webView.layer?.backgroundColor = NSColor.clear.cgColor
+            portalAnchorView.wantsLayer = true
+            portalAnchorView.layer?.isOpaque = false
+            portalAnchorView.layer?.backgroundColor = NSColor.clear.cgColor
             return
         }
-        // Restore opaque drawing in case a transparent theme previously made
-        // this webview clear before the user switched to an opaque theme.
+        if usesTransparentBackground {
+            // Transparent-background internal surface (the diff viewer, and future
+            // app-bundled cmux panels) on an OPAQUE theme. The page keeps its body
+            // transparent, and the pane behind it is a plain gray window backdrop,
+            // not the terminal color. With WebKit drawing its own background the
+            // webview flashes white during navigation (blank document) and any
+            // transparent page region (loading skeleton, empty/error state) shows
+            // gray. So instead of letting WebKit draw, paint the webview and its
+            // portal anchor with the theme color directly (clear-draw + themed
+            // layer, exactly like the markdown and agent-session renderers). That
+            // makes the blank webview, the brief pane-reveal frame, and every
+            // transparent page region render the terminal color from the first
+            // frame. Tracks live theme changes via this same call.
+            webView.wantsLayer = true
+            webView.setValue(false, forKey: "drawsBackground")
+            webView.underPageBackgroundColor = color
+            webView.layer?.isOpaque = color.alphaComponent >= 0.999
+            webView.layer?.backgroundColor = color.cgColor
+            portalAnchorView.wantsLayer = true
+            portalAnchorView.layer?.isOpaque = color.alphaComponent >= 0.999
+            portalAnchorView.layer?.backgroundColor = color.cgColor
+            return
+        }
+        // Real website on an opaque theme: keep WebKit drawing its own background
+        // so pages without their own CSS background remain readable. (Restores
+        // opaque drawing in case a transparent theme previously made this webview
+        // clear before the user switched to an opaque theme.)
         webView.setValue(true, forKey: "drawsBackground")
         webView.layer?.isOpaque = color.alphaComponent >= 0.999
         webView.layer?.backgroundColor = nil
         webView.underPageBackgroundColor = color
+        portalAnchorView.wantsLayer = true
+        portalAnchorView.layer?.isOpaque = false
+        portalAnchorView.layer?.backgroundColor = NSColor.clear.cgColor
     }
 
     func drawsConfiguredWebViewBackgroundForCurrentPage() -> Bool {

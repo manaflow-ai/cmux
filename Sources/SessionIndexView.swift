@@ -1069,6 +1069,12 @@ private enum SessionTranscriptLoader {
     private static let maxTurnTextCharacters = 40_000
     private static let newlineByte: UInt8 = 10
 
+    // Wrapping `Data(string.utf8)` in a helper keeps large needle array literals
+    // cheap to type-check. The Xcode 27 / Swift 6.4 expression solver otherwise
+    // times out on the bigger literals below ("unable to type-check this
+    // expression in reasonable time"), which Xcode 26 tolerated.
+    private static func needle(_ string: String) -> Data { Data(string.utf8) }
+
     private static let claudeUserNeedles = [
         Data(#""type":"user""#.utf8),
         Data(#""type": "user""#.utf8),
@@ -1116,30 +1122,30 @@ private enum SessionTranscriptLoader {
         Data(#""type": "developer""#.utf8)
     ]
     private static let grokToolRoleNeedles = [
-        Data(#""role":"tool""#.utf8),
-        Data(#""role": "tool""#.utf8),
-        Data(#""role":"tool_use""#.utf8),
-        Data(#""role": "tool_use""#.utf8),
-        Data(#""role":"tool_result""#.utf8),
-        Data(#""role": "tool_result""#.utf8),
-        Data(#""role":"function_call""#.utf8),
-        Data(#""role": "function_call""#.utf8),
-        Data(#""role":"function_call_output""#.utf8),
-        Data(#""role": "function_call_output""#.utf8),
-        Data(#""type":"tool""#.utf8),
-        Data(#""type": "tool""#.utf8),
-        Data(#""type":"tool_use""#.utf8),
-        Data(#""type": "tool_use""#.utf8),
-        Data(#""type":"tool_result""#.utf8),
-        Data(#""type": "tool_result""#.utf8),
-        Data(#""type":"function_call""#.utf8),
-        Data(#""type": "function_call""#.utf8),
-        Data(#""type":"function_call_output""#.utf8),
-        Data(#""type": "function_call_output""#.utf8)
+        needle(#""role":"tool""#),
+        needle(#""role": "tool""#),
+        needle(#""role":"tool_use""#),
+        needle(#""role": "tool_use""#),
+        needle(#""role":"tool_result""#),
+        needle(#""role": "tool_result""#),
+        needle(#""role":"function_call""#),
+        needle(#""role": "function_call""#),
+        needle(#""role":"function_call_output""#),
+        needle(#""role": "function_call_output""#),
+        needle(#""type":"tool""#),
+        needle(#""type": "tool""#),
+        needle(#""type":"tool_use""#),
+        needle(#""type": "tool_use""#),
+        needle(#""type":"tool_result""#),
+        needle(#""type": "tool_result""#),
+        needle(#""type":"function_call""#),
+        needle(#""type": "function_call""#),
+        needle(#""type":"function_call_output""#),
+        needle(#""type": "function_call_output""#)
     ]
     private static let grokRoleNeedles = [
-        Data(#""role":"#.utf8),
-        Data(#""role": "#.utf8)
+        needle(#""role":"#),
+        needle(#""role": "#)
     ]
         + grokAssistantRoleNeedles
         + grokUserRoleNeedles
