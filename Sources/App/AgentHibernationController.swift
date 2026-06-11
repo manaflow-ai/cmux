@@ -155,6 +155,8 @@ final class AgentHibernationController {
         )
         timerQueue.async {
             guard let data = try? JSONEncoder().encode(snapshot) else { return }
+            let dir = Self.durableInputStoreURL.deletingLastPathComponent()
+            try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
             try? data.write(to: Self.durableInputStoreURL, options: .atomic)
         }
     }
