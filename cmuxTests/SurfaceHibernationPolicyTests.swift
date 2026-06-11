@@ -972,6 +972,35 @@ struct SurfaceHibernationPolicyTests {
         )
     }
 
+    @MainActor
+    @Test
+    func duplicatePromptIdleReportClearsSeededPendingThroughWorkspace() throws {
+        let wasTracking = AgentHibernationTrackingGate.isEnabled()
+        AgentHibernationTrackingGate.setEnabled(true)
+        defer { AgentHibernationTrackingGate.setEnabled(wasTracking) }
+        let controller = AgentHibernationController.shared
+        let workspace = Workspace()
+        let panelId = try #require(workspace.focusedPanelId)
+
+        // The shell was already idle when tracking began…
+        workspace.updatePanelShellActivityState(panelId: panelId, state: .promptIdle)
+        controller.debugSeedPendingCommandLineForTesting(
+            workspaceId: workspace.id,
+            panelId: panelId,
+            recordedAt: Date()
+        )
+        // …so the empty Enter that requalifies it re-reports the same state.
+        // The workspace-level dedupe must not swallow it before the
+        // controller's seeded-pending reconciliation sees the redraw.
+        workspace.updatePanelShellActivityState(panelId: panelId, state: .promptIdle)
+
+        let state = controller.debugPendingCommandLineStateForTesting(
+            workspaceId: workspace.id,
+            panelId: panelId
+        )
+        #expect(state.pendingAt == nil)
+    }
+
     // MARK: - Replay-hook installation evidence
 
     @Test

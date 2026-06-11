@@ -12576,14 +12576,19 @@ final class Workspace: Identifiable, ObservableObject {
 
     func updatePanelShellActivityState(panelId: UUID, state: PanelShellActivityState) {
         guard panels[panelId] != nil else { return }
-        let previousState = panelShellActivityStates[panelId] ?? .unknown
-        guard previousState != state else { return }
-        panelShellActivityStates[panelId] = state
+        // Every report reaches the hibernation controller before the dedupe:
+        // each one is a real precmd/preexec execution, and a repeat promptIdle
+        // (empty Enter, ^C at an already-idle prompt) is exactly the signal
+        // that clears pre-tracking seeded pending input. The dedupe below
+        // still guards the state write and the restored-agent state machine.
         AgentHibernationController.shared.recordShellActivityTransition(
             workspaceId: id,
             panelId: panelId,
             state: state
         )
+        let previousState = panelShellActivityStates[panelId] ?? .unknown
+        guard previousState != state else { return }
+        panelShellActivityStates[panelId] = state
         if let restoredAgent = restoredAgentSnapshotsByPanelId[panelId] {
             updateRestoredAgentResumeState(
                 panelId: panelId,
