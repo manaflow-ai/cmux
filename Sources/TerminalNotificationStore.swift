@@ -818,6 +818,45 @@ struct TerminalNotification: Identifiable, Hashable {
     }
 }
 
+/// Per-tab/surface stash of superseded phone-banner ids whose dismiss is
+/// deferred until the replacement banner push is actually queued (the phone
+/// push path throttles per tab/surface; see
+/// ``TerminalNotificationStore/deliverNotificationSideEffects``). Bounded per
+/// key; holds opaque notification UUID strings only, never content.
+struct SupersededPhoneDismissBuffer {
+    private var idsByKey: [String: [String]] = [:]
+    /// More superseded-but-undelivered banners than this for one tab/surface
+    /// means a runaway producer; the oldest ids are evicted (their banners were
+    /// already replaced on the phone by newer ones via earlier dismissals, and
+    /// the reconcile sweep heals any stragglers from the tombstone ring).
+    static let capacityPerKey = 64
+
+    /// The stash key for a notification's tab/surface, mirroring the phone push
+    /// throttle key.
+    static func key(tabId: UUID, surfaceId: UUID?) -> String {
+        "\(tabId.uuidString):\(surfaceId?.uuidString ?? "")"
+    }
+
+    /// Park superseded banner ids until the replacement push is queued.
+    /// Duplicates are kept once; the oldest evicted past ``capacityPerKey``.
+    mutating func stash(ids: [String], forKey key: String) {
+        guard !ids.isEmpty else { return }
+        var pending = idsByKey[key] ?? []
+        for id in ids where !pending.contains(id) {
+            pending.append(id)
+        }
+        if pending.count > Self.capacityPerKey {
+            pending.removeFirst(pending.count - Self.capacityPerKey)
+        }
+        idsByKey[key] = pending
+    }
+
+    /// Take (and clear) everything stashed for the key, oldest first.
+    mutating func flush(forKey key: String) -> [String] {
+        idsByKey.removeValue(forKey: key) ?? []
+    }
+}
+
 @MainActor
 final class TerminalNotificationStore: ObservableObject {
     private struct TabSurfaceKey: Hashable {
@@ -910,6 +949,19 @@ final class TerminalNotificationStore: ObservableObject {
         dismissedTombstoneOrder.removeAll()
         dismissedTombstonesLoaded = false
     }
+
+    /// Phone-banner dismissals for superseded notifications, deferred until the
+    /// replacement banner push for the same tab/surface is actually queued.
+    /// ``PhonePushClient/forward(_:badgeCount:)`` throttles per tab/surface, so
+    /// dismissing the old banner unconditionally could strand the phone with no
+    /// banner at all for a still-unread notification when the replacement push
+    /// was dropped. The store stashes the superseded ids here and emits the
+    /// dismiss only after a replacement push is queued, making clear+replace
+    /// atomic from the phone's perspective. Until then the phone keeps the
+    /// older (stale-text) banner — the pre-existing throttle behavior — and the
+    /// reconcile sweep still classifies the ids correctly because they are
+    /// tombstoned at supersede time.
+    private var supersededPhoneDismissBuffer = SupersededPhoneDismissBuffer()
 
     /// Classify which of the phone's delivered banner ids have been handled on
     /// this Mac: still in the store and read, or recently removed (tombstoned).
@@ -1746,11 +1798,21 @@ final class TerminalNotificationStore: ObservableObject {
         if !idsToClear.isEmpty {
             center.removeDeliveredNotificationsOffMain(withIdentifiers: idsToClear)
             center.removePendingNotificationRequestsOffMain(withIdentifiers: idsToClear)
-            // A newer notification for this tab+surface superseded the old one and
-            // its Mac banner was just cleared; clear the superseded phone banner
-            // too. The new notification carries a different id (and APNs
-            // collapse-id), so without this the phone would stack both.
-            emitNotificationsDismissed(ids: idsToClear)
+            // A newer notification for this tab+surface superseded the old one
+            // and its Mac banner was just cleared. The superseded entries
+            // already left the store, so tombstone them now for the reconcile
+            // sweep — but DEFER the phone-banner dismiss until the replacement
+            // banner push is actually queued (see
+            // ``deliverNotificationSideEffects``): the phone must never lose
+            // its only banner to a dismissal whose replacement was throttled.
+            recordDismissTombstones(ids: idsToClear.compactMap { UUID(uuidString: $0) })
+            supersededPhoneDismissBuffer.stash(
+                ids: idsToClear,
+                forKey: SupersededPhoneDismissBuffer.key(
+                    tabId: notification.tabId,
+                    surfaceId: notification.surfaceId
+                )
+            )
         }
         deliverNotificationSideEffects(
             notification,
@@ -1798,7 +1860,22 @@ final class TerminalNotificationStore: ObservableObject {
             // mutated above, so it includes this notification); the server
             // stamps it as `aps.badge` so the icon badge is SET, not incremented.
             if effects.desktop {
-                PhonePushClient.shared.forward(notification, badgeCount: indexes.unreadCount)
+                let queued = PhonePushClient.shared.forward(notification, badgeCount: indexes.unreadCount)
+                // Only once the replacement banner push is queued is it safe to
+                // clear the superseded banners it replaces (deferred from
+                // `recordNotification`); a throttled push leaves them stashed
+                // for the next successful forward of this tab/surface.
+                if queued {
+                    let superseded = supersededPhoneDismissBuffer.flush(
+                        forKey: SupersededPhoneDismissBuffer.key(
+                            tabId: notification.tabId,
+                            surfaceId: notification.surfaceId
+                        )
+                    )
+                    if !superseded.isEmpty {
+                        emitNotificationsDismissed(ids: superseded)
+                    }
+                }
             }
         }
     }

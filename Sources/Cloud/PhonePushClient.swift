@@ -88,15 +88,21 @@ final class PhonePushClient {
     /// - Parameter badgeCount: The authoritative unread-notification total at
     ///   send time; the server emits it as `aps.badge` so the phone's icon badge
     ///   is always SET to the computed total (never incremented locally).
-    func forward(_ notification: TerminalNotification, badgeCount: Int) {
-        guard Self.isForwardingEnabled else { return }
+    /// - Returns: Whether the banner push was actually queued for sending —
+    ///   `false` when forwarding is off or the per-tab/surface throttle dropped
+    ///   it. The store keys the superseded-banner dismiss on this, so a
+    ///   throttled replacement can never strand the phone with no banner for a
+    ///   still-unread notification.
+    @discardableResult
+    func forward(_ notification: TerminalNotification, badgeCount: Int) -> Bool {
+        guard Self.isForwardingEnabled else { return false }
 
         // Read-only burst-throttle check FIRST: a dictionary lookup that
         // bounds everything downstream (presence sampling and sends) to one
         // per key per second under notification storms.
         let key = "\(notification.tabId.uuidString):\(notification.surfaceId?.uuidString ?? "")"
         let now = Date()
-        if let last = lastSentAt[key], now.timeIntervalSince(last) < Self.minInterval { return }
+        if let last = lastSentAt[key], now.timeIntervalSince(last) < Self.minInterval { return false }
 
         // Presence gate, decided per notification at delivery time so the
         // phone never receives a suppressed push. `.always` skips sampling
@@ -106,6 +112,9 @@ final class PhonePushClient {
         // by the active-decision cache instead of the send throttle, because
         // suppression must not consume a send slot. See
         // `MacPresenceDecisionCache` for the explicit staleness invariant.
+        // A suppressed forward queues no banner push, so it reports `false`
+        // like a throttled one: the store must not dismiss the superseded
+        // banner when no replacement is coming.
         let mode = PhoneForwardingMode.fromDefaults()
         if mode != .always {
             let presence = presenceCache.decision(from: presenceMonitor)
@@ -113,7 +122,7 @@ final class PhonePushClient {
 #if DEBUG
                 cmuxDebugLog("phonepush.suppressed reason=macActive verdict=\(presence.verdict)")
 #endif
-                return
+                return false
             }
         }
 
@@ -136,6 +145,7 @@ final class PhonePushClient {
             hideContent: hideContent
         )
         Task { await send(payload) }
+        return true
     }
 
     /// The cold lane of Mac→iOS dismiss-sync: mirror a Mac-side dismiss through
