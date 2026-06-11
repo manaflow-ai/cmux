@@ -1430,6 +1430,10 @@ private let cmuxAuxiliaryWindowIdentifiers: Set<String> = [
     "cmux.startupAppearanceDebug",
     "cmux.bonsplitTabBarDebug",
     "cmux.titlebarLayoutDebug",
+    // The iOS pairing window hosts a standalone "Sign In" / pairing flow. Cmd-W
+    // (and menu Close) must dismiss this window itself, never the workspace
+    // behind it. https://github.com/manaflow-ai/cmux/issues/3617
+    MobilePairingWindowController.windowIdentifier,
 ]
 
 /// Returns whether the given window should handle the standard close shortcut

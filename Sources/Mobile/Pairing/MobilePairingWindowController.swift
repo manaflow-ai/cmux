@@ -12,7 +12,10 @@ final class MobilePairingWindowController {
     /// singletons (see the task-manager and debug windows).
     static let shared = MobilePairingWindowController()
 
-    private static let windowIdentifier = "cmux.mobilePairingWindow"
+    /// The pairing window's stable `NSWindow.identifier`. Exposed so the
+    /// app's close-shortcut routing can treat this as an auxiliary window
+    /// (Cmd-W closes the pairing window itself, never the workspace behind it).
+    static let windowIdentifier = "cmux.mobilePairingWindow"
 
     private var window: NSWindow?
 
@@ -41,6 +44,9 @@ final class MobilePairingWindowController {
         window.identifier = NSUserInterfaceItemIdentifier(Self.windowIdentifier)
         window.styleMask = [.titled, .closable, .miniaturizable]
         window.isReleasedWhenClosed = false
+        // On-demand window: never let AppKit state restoration reopen it
+        // uninvited on the next launch.
+        window.isRestorable = false
         window.setContentSize(NSSize(width: 460, height: 640))
         window.center()
         self.window = window
