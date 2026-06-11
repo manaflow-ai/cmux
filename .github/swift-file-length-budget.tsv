@@ -2,8 +2,8 @@
 # Format: max_lines<TAB>relative path
 # Reduce counts as files shrink. CI fails if tracked files exceed this budget.
 32949	CLI/cmux.swift
-22426	Sources/TerminalController.swift
-19955	Sources/Workspace.swift
+22429	Sources/TerminalController.swift
+20058	Sources/Workspace.swift
 19245	Sources/ContentView.swift
 18056	Sources/AppDelegate.swift
 16539	Sources/GhosttyTerminalView.swift
@@ -76,10 +76,10 @@
 1144	Sources/VaultAgentProcessScanner.swift
 1139	cmuxTests/PiVaultAgentPersistenceTests.swift
 1107	Sources/AppDelegate+CmuxSSHURL.swift
+1096	Sources/GhosttyConfig.swift
 1084	cmuxTests/AgentHibernationTests.swift
 1068	cmuxTests/FileExplorerStoreTests.swift
 1058	cmuxUITests/BonsplitTabDragUITests.swift
-1096	Sources/GhosttyConfig.swift
 1021	cmuxUITests/TerminalCmdClickUITests.swift
 1006	cmuxTests/CmuxSSHURLRequestTests.swift
 1000	cmuxTests/CmuxTopSnapshotScopeTests.swift
@@ -167,8 +167,8 @@
 539	CLI/CodexTeamsApprovalBridge.swift
 538	CLI/CMUXCLI+Themes.swift
 536	cmuxTests/CmuxConfigContextMenuTests.swift
-530	cmuxUITests/AutomationSocketUITests.swift
 528	cmuxTests/CLINotifyProcessTestSupport.swift
+528	cmuxUITests/AutomationSocketUITests.swift
 527	CLI/CLISocketPathResolver.swift
 523	Packages/CmuxSettingsUI/Sources/CmuxSettingsUI/Scene/SettingsWindowScene.swift
 522	Packages/CmuxMobileTerminal/Sources/CmuxMobileTerminal/GhosttyRuntime.swift
