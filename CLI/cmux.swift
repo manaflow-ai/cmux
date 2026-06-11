@@ -1,6 +1,7 @@
 import Foundation
 import CMUXAgentLaunch
 import CmuxFoundation
+import CmuxSettings
 import CmuxSocketControl
 import CoreFoundation
 import CryptoKit
@@ -3011,6 +3012,17 @@ struct CMUXCLI {
                     environment: processEnv
                 ),
                 explicitPassword: socketPasswordArg,
+                jsonOutput: jsonOutput
+            )
+            return
+        }
+
+        // `window default-display` only reads/writes the shared dev setting file;
+        // it must work with no cmux running, so handle it before socket resolution.
+        if command == "window",
+           commandArgs.first?.lowercased() == "default-display" {
+            try runWindowDefaultDisplayCommand(
+                commandArgs: Array(commandArgs.dropFirst()),
                 jsonOutput: jsonOutput
             )
             return
@@ -7130,6 +7142,70 @@ struct CMUXCLI {
     /// same v2 socket methods that legacy verbs use (`new-workspace`,
     /// `list-workspaces`, etc.) so behavior matches. Legacy verbs keep working
     /// unchanged for backwards compatibility.
+    /// `cmux window default-display [<name>|--clear]` — read/write the shared,
+    /// cross-tag default display that DEBUG cmux builds open new windows on.
+    ///
+    /// Persisted through ``CmuxSettings/JSONConfigStore`` in the shared
+    /// `cmux.json` under `app.devWindowDisplay`, so it applies to every tagged
+    /// dev build regardless of bundle id. No running app required: the value is
+    /// read/written directly on disk via the store on this no-socket early path.
+    private func runWindowDefaultDisplayCommand(commandArgs: [String], jsonOutput: Bool) throws {
+        let store = JSONConfigStore(fileURL: CmuxConfigLocation().userConfigFile)
+        let key = SettingCatalog().app.devWindowDisplay
+
+        // Bridge the actor-backed store to this synchronous CLI: run the async
+        // store call on the cooperative pool and block this thread until it
+        // signals. The semaphore establishes the happens-before that makes the
+        // `nonisolated(unsafe)` result hand-off race-free.
+        func runBlocking<T: Sendable>(_ work: @escaping @Sendable () async throws -> T) throws -> T {
+            let semaphore = DispatchSemaphore(value: 0)
+            nonisolated(unsafe) var output: Result<T, Error>!
+            Task {
+                do { output = .success(try await work()) }
+                catch { output = .failure(error) }
+                semaphore.signal()
+            }
+            semaphore.wait()
+            return try output.get()
+        }
+
+        func currentValue() throws -> String? {
+            let trimmed = try runBlocking { await store.value(for: key) }
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            return trimmed.isEmpty ? nil : trimmed
+        }
+
+        if commandArgs.contains("--clear") {
+            try runBlocking { try await store.reset(key) }
+            if jsonOutput { print(jsonString(["default_display": NSNull()])) }
+            else { print("Cleared dev window display default.") }
+            return
+        }
+
+        let positional = commandArgs.filter { !$0.hasPrefix("-") }
+        if let raw = positional.first {
+            let name = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !name.isEmpty else {
+                throw CLIError(message: "window default-display requires a display name, or --clear")
+            }
+            try runBlocking { try await store.set(name, for: key) }
+            if jsonOutput { print(jsonString(["default_display": name])) }
+            else { print("Dev builds will open on \"\(name)\" (DEBUG builds, applied at window creation).") }
+            return
+        }
+
+        let current = try currentValue()
+        if jsonOutput {
+            if let current {
+                print(jsonString(["default_display": current]))
+            } else {
+                print(jsonString(["default_display": NSNull()]))
+            }
+        } else {
+            print(current ?? "(unset)")
+        }
+    }
+
     private func runWindowNamespace(
         commandArgs: [String],
         client: SocketClient,
@@ -7138,7 +7214,7 @@ struct CMUXCLI {
         windowOverride: String?
     ) throws {
         guard let sub = commandArgs.first?.lowercased() else {
-            throw CLIError(message: "window requires a subcommand. Try: display, displays")
+            throw CLIError(message: "window requires a subcommand. Try: display, displays, default-display")
         }
         let rest = Array(commandArgs.dropFirst())
         switch sub {
@@ -11706,14 +11782,20 @@ struct CMUXCLI {
             return
         }
 
-        // Caller routing: an explicit --workspace/--window, else the invoking workspace
-        // (CMUX_WORKSPACE_ID). Resolved up front so an INDEXED --surface/--return-to is scoped to
-        // the requested workspace/window rather than the foreground selection.
-        func callerRoutingHandles() throws -> (workspace: String?, window: String?) {
+        // Routing scope for resolving an INDEXED --return-to handle. It must match the scope
+        // optionalSurfaceParams() uses for the (optional) explicit --surface: an explicit surface is
+        // scoped to explicit --workspace/--window only and does NOT inherit the env-default
+        // workspace (it may legitimately target a different workspace than the caller's terminal),
+        // while an implicit surface falls back to the caller's CMUX_WORKSPACE_ID. Scoping a return
+        // handle to the env workspace when the browser lives in another workspace would index the
+        // wrong terminal.
+        func returnToRoutingHandles() throws -> (workspace: String?, window: String?) {
             let (workspaceOpt, _) = parseOption(subArgs, name: "--workspace")
             let (windowOpt, _) = parseOption(subArgs, name: "--window")
             let windowHandle = try windowOpt.flatMap { try normalizeWindowHandle($0, client: client) }
-            let workspaceRaw = workspaceOpt ?? (windowOpt == nil ? ProcessInfo.processInfo.environment["CMUX_WORKSPACE_ID"] : nil)
+            let workspaceRaw = surfaceRaw != nil
+                ? workspaceOpt
+                : (workspaceOpt ?? (windowOpt == nil ? ProcessInfo.processInfo.environment["CMUX_WORKSPACE_ID"] : nil))
             let workspaceHandle = try workspaceRaw.flatMap {
                 try normalizeWorkspaceHandle($0, client: client, windowHandle: windowHandle)
             }
@@ -11773,7 +11855,7 @@ struct CMUXCLI {
                 throw CLIError(message: "Unsupported browser react-grab subcommand: \(verb) (expected: toggle)")
             }
             var params = try optionalSurfaceParams()
-            let routing = try callerRoutingHandles()
+            let routing = try returnToRoutingHandles()
             let (returnOpt, _) = parseOption(subArgs, name: "--return-to")
             if let returnRaw = returnOpt {
                 // A supplied-but-unresolvable --return-to is an error, never a silent
