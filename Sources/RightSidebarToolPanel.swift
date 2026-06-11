@@ -167,8 +167,17 @@ final class RightSidebarToolPanel: Panel, ObservableObject {
     }
 
     private func observeWorkspaceRootChanges(_ workspace: Workspace) {
+        // `$title` reflects the live terminal/OSC title. A remote shell sets it to
+        // `user@host:cwd` when an `ssh` session starts and the local shell resets
+        // it on exit (Ctrl+D), so observing it drives the file-explorer root in
+        // BOTH directions event-driven: switch to the remote root when SSH is
+        // detected, and revert to the local cwd once the session ends. Without
+        // this, `currentDirectory` never changes during a local-terminal SSH
+        // session (Ghostty rejects remote OSC 7 pwd reports), so the sidebar would
+        // stay stuck on the remote workspace after the session closed.
         workspaceObservationCancellable = Publishers.MergeMany(
             workspace.$currentDirectory.map { _ in () }.eraseToAnyPublisher(),
+            workspace.$title.map { _ in () }.eraseToAnyPublisher(),
             workspace.$remoteConfiguration.map { _ in () }.eraseToAnyPublisher(),
             workspace.$remoteConnectionState.map { _ in () }.eraseToAnyPublisher(),
             workspace.$remoteConnectionDetail.map { _ in () }.eraseToAnyPublisher(),
@@ -205,6 +214,30 @@ final class RightSidebarToolPanel: Panel, ObservableObject {
                     rootPath: workspace.currentDirectory,
                     isAvailable: workspace.remoteConnectionState == .connected,
                     unavailableDetail: unavailableDetail
+                )
+            )
+            return
+        }
+
+        let detectedSSH: DetectedSSHSession? = workspace.focusedPanelId.flatMap { panelId in
+            workspace.candidateTTYNames(forPanel: panelId).lazy
+                .compactMap { TerminalSSHSessionDetector.detect(forTTY: $0) }
+                .first
+        }
+        if let sshSession = detectedSSH {
+            store.applyWorkspaceRoot(
+                .remoteSSH(
+                    workspaceId: workspace.id,
+                    connection: SSHFileExplorerConnection(
+                        destination: sshSession.destination,
+                        port: sshSession.port,
+                        identityFile: sshSession.identityFile,
+                        sshOptions: sshSession.sshOptions
+                    ),
+                    displayTarget: sshSession.destination,
+                    rootPath: TerminalSSHSessionDetector.remoteWorkingDirectory(fromTitle: workspace.title),
+                    isAvailable: true,
+                    unavailableDetail: nil
                 )
             )
             return

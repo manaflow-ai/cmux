@@ -11913,6 +11913,31 @@ final class Workspace: Identifiable, ObservableObject {
         panels[panelId] as? TerminalPanel
     }
 
+    func ttyName(forPanel panelId: UUID) -> String? {
+        candidateTTYNames(forPanel: panelId).first
+    }
+
+    /// Candidate TTY device names for a panel, most authoritative first.
+    ///
+    /// The live Ghostty surface PTY (queried via `TIOCPTYGNAME`) is preferred
+    /// because shell-integration-reported names in `surfaceTTYNames` can be stale
+    /// (e.g. they may capture the launching terminal's TTY rather than the panel's
+    /// own PTY). Callers that need to resolve a real session (such as SSH
+    /// detection) should try every candidate and use the first that resolves.
+    func candidateTTYNames(forPanel panelId: UUID) -> [String] {
+        var result: [String] = []
+        if let live = terminalPanel(for: panelId)?.surface.ttyName,
+           !live.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            result.append(live)
+        }
+        if let reported = surfaceTTYNames[panelId],
+           !reported.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+           !result.contains(reported) {
+            result.append(reported)
+        }
+        return result
+    }
+
     func browserPanel(for panelId: UUID) -> BrowserPanel? {
         panels[panelId] as? BrowserPanel
     }
