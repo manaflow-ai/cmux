@@ -10,29 +10,38 @@ struct AppIconImageLocator: @unchecked Sendable {
 
     /// Returns the URL of the largest rendered icon in the project's `AppIcon`
     /// asset, or `nil` when no usable `*.appiconset` is found.
+    ///
+    /// Candidates are tried in preference order and the first one that yields a
+    /// usable image wins, so an empty or image-less `*.appiconset` never shadows
+    /// a populated one elsewhere in the tree.
     func bestIconURL(inProjectRoot root: URL) -> URL? {
-        guard let set = appIconSetURL(inRoot: root) else { return nil }
-        return largestImageURL(inAppIconSet: set)
+        for set in rankedAppIconSetURLs(inRoot: root) {
+            if let url = largestImageURL(inAppIconSet: set) { return url }
+        }
+        return nil
     }
 
-    private func appIconSetURL(inRoot root: URL) -> URL? {
+    private func rankedAppIconSetURLs(inRoot root: URL) -> [URL] {
         let keys: [URLResourceKey] = [.isDirectoryKey]
         guard let walker = fileManager.enumerator(
             at: root, includingPropertiesForKeys: keys, options: [.skipsHiddenFiles]
-        ) else { return nil }
+        ) else { return [] }
         var candidates: [URL] = []
         for case let url as URL in walker where url.pathExtension == "appiconset" {
             candidates.append(url)
         }
-        // Prefer the set literally named "AppIcon"; then shallowest path.
-        return candidates
-            .sorted { lhs, rhs in
-                let lhsNamed = lhs.deletingPathExtension().lastPathComponent == "AppIcon"
-                let rhsNamed = rhs.deletingPathExtension().lastPathComponent == "AppIcon"
-                if lhsNamed != rhsNamed { return lhsNamed }
+        // Prefer the set literally named "AppIcon"; then the shallowest path; then
+        // a stable lexicographic tie-break so selection is deterministic when two
+        // sets are otherwise equal (e.g. iOS vs. Mac targets at the same depth).
+        return candidates.sorted { lhs, rhs in
+            let lhsNamed = lhs.deletingPathExtension().lastPathComponent == "AppIcon"
+            let rhsNamed = rhs.deletingPathExtension().lastPathComponent == "AppIcon"
+            if lhsNamed != rhsNamed { return lhsNamed }
+            if lhs.pathComponents.count != rhs.pathComponents.count {
                 return lhs.pathComponents.count < rhs.pathComponents.count
             }
-            .first
+            return lhs.path < rhs.path
+        }
     }
 
     private func largestImageURL(inAppIconSet set: URL) -> URL? {
