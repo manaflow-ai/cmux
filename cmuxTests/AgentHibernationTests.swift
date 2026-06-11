@@ -333,7 +333,7 @@ final class AgentHibernationTests: XCTestCase {
         let sessionStartAt: TimeInterval = 1_200.0 // agent SessionStart (.unknown) upsert
 
         // lifecycleUpdatedAt stays at idleAt — the SessionStart did NOT advance it
-        // because incoming was .unknown (preservingDefinitive kept .idle in the record).
+        // because incoming was .unknown (hook store preservingDefinitive in update()).
         let lifecycleUpdatedAt: TimeInterval = idleAt
 
         // updatedAt (incorrectly used in the old fix) WOULD be sessionStartAt,

@@ -12288,30 +12288,16 @@ final class Workspace: Identifiable, ObservableObject {
     ) {
         let targetPanelId = panelId ?? focusedPanelId
         guard let targetPanelId, panels[targetPanelId] != nil else { return }
-        // Never let an indeterminate `unknown` erase a previously proven lifecycle
-        // for this panel. In the resume path, `resumeAgentHibernation` seeds `.idle`
-        // and the resumed agent's SessionStart immediately emits `.unknown`; without
-        // this guard the panel would drop to `.unknown` and the agent could never
-        // re-hibernate (the hibernation-is-one-shot bug). Any definitive incoming
-        // state (`.running`/`.needsInput`/`.idle`) always wins, so a real new turn
-        // or completion still updates normally. Explicit lifecycle clears go through
-        // `clearAgentLifecycle`/`clearAgentLifecycleStates`, not a `.unknown` update.
-        // Invariant: the only callers that pass `.unknown` here are agent SessionStart
-        // hook integrations; no current integration uses `.unknown` as an explicit reset.
-        let existing = agentLifecycleStatesByPanelId[targetPanelId]?[key]
-        let resolved = AgentHibernationLifecycleState.preservingDefinitive(
-            existing: existing,
-            incoming: lifecycle
-        )
-        agentLifecycleStatesByPanelId[targetPanelId, default: [:]][key] = resolved
-        // Advance the lifecycle-change timestamp for any definitive event, including
-        // repeated same-value updates (e.g. a second `.idle` completion advances
-        // lifecycleChangeAt past terminalInputAt so hasUnconfirmedTerminalInput clears).
-        // Only skip the timestamp when an incoming `.unknown` was suppressed by
-        // preservingDefinitive: a phantom update there would erase the
-        // terminalInputAt > lifecycleChangeAt guard for no-emit agents mid-turn.
-        let suppressed = lifecycle == .unknown && resolved == existing
-        if !suppressed {
+        agentLifecycleStatesByPanelId[targetPanelId, default: [:]][key] = lifecycle
+        // Only advance lifecycleChangeAt for definitive (non-unknown) events. An
+        // `.unknown` SessionStart must not push the timestamp past a recent
+        // terminalInputAt, which would clear the hasUnconfirmedTerminalInput guard
+        // and allow premature hibernation mid-turn. The CLI hook processor already
+        // skips `.unknown` writes when the persisted record has a definitive lifecycle
+        // (preservingDefinitive in the hook store update()), so this guard covers the
+        // live in-memory side. Definitive updates (including repeated `.idle`) still
+        // advance lifecycleChangeAt so hasUnconfirmedTerminalInput clears normally.
+        if lifecycle != .unknown {
             recordAgentLifecycleChange(panelId: targetPanelId)
         }
     }

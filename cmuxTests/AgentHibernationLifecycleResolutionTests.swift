@@ -19,12 +19,11 @@ import Testing
         #expect(Lifecycle.resolved(from: [Lifecycle](), fallback: .needsInput) == .needsInput)
     }
 
-    /// `unknown` from any source blocks `idle` — a stale `.idle` key on the same
-    /// panel must not make it hibernation-eligible while another key is in an
-    /// indeterminate state. In practice each panel has one agent key at a time
-    /// (the other is cleared at session end), so `preservingDefinitive` in
-    /// `setAgentLifecycle` already prevents a `.unknown` SessionStart from
-    /// overwriting a legitimate `.idle` for the same key.
+    /// `unknown` from any source blocks `idle` — an `.unknown` entry from a
+    /// newly-started or restarted agent key on the same panel must not be masked
+    /// by a stale `.idle` left from a prior completed turn. In practice each panel
+    /// has one agent key at a time (the other is cleared at session end), so the
+    /// single entry is whatever that agent last reported.
     @Test func resolvedUnknownBlocksIdle() {
         #expect(Lifecycle.resolved(from: [.unknown, .idle], fallback: nil) == .unknown)
         #expect(Lifecycle.resolved(from: [.idle, .unknown], fallback: nil) == .unknown)

@@ -48,11 +48,12 @@ enum AgentHibernationLifecycleState: String, Codable, Sendable, Equatable, CaseI
     ///
     /// Priority: busy (`running`) or blocked (`needsInput`) first, then
     /// indeterminate (`unknown`), then definitive idle. `unknown` outranks `idle`
-    /// so that any unclassified source blocks hibernation — a stale `.idle` from
-    /// one agent key cannot mask an active `.unknown` from another key on the same
-    /// panel. In practice each panel has one agent key at a time (the other is
-    /// pruned via `clearAgentLifecycle`/`clearAgentLifecycleStates` at session end),
-    /// so the single entry is whatever that agent last reported.
+    /// so that any unclassified source blocks hibernation — an `.unknown` from a
+    /// newly-started or restarted agent key cannot be masked by a stale `.idle`
+    /// left by a previous completed turn on the same panel. In practice each
+    /// panel has one agent key at a time (the other is pruned via
+    /// `clearAgentLifecycle`/`clearAgentLifecycleStates` at session end), so the
+    /// single entry is whatever that agent last reported.
     static func resolved(
         from states: some Collection<AgentHibernationLifecycleState>,
         fallback: AgentHibernationLifecycleState?
