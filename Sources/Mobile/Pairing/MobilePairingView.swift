@@ -225,11 +225,11 @@ struct MobilePairingView: View {
     private func readyContent(_ ready: MobilePairingModel.Ready) -> some View {
         VStack(alignment: .center, spacing: 14) {
             // The QR fills the window width (resize the window for an even
-            // bigger code). The 20pt white padding is the QR quiet zone; with
-            // a low-version code at this size it stays comfortably above the
-            // 4-module spec minimum.
+            // bigger code). The spec 4-module quiet zone is baked into the
+            // bitmap itself so it scales with the code; the padding and white
+            // card here are cosmetic.
             MobilePairingQRImageView(payload: ready.attachURL)
-                .padding(20)
+                .padding(12)
                 .background(.white, in: RoundedRectangle(cornerRadius: 16))
                 .overlay(
                     RoundedRectangle(cornerRadius: 16)

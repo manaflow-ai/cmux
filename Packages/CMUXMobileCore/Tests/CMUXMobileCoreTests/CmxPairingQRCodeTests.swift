@@ -252,19 +252,22 @@ import Testing
     }
 
     /// Prints the payload-size + QR-version drop from the real encoders, so
-    /// the win is visible in test output. Binary-mode ECC-L capacities per
+    /// the win is visible in test output. Binary-mode ECC-M capacities per
     /// QR version (ISO/IEC 18004): the smallest version whose capacity fits
-    /// the payload is what `CIFilter.qrCodeGenerator` emits at level L.
+    /// the payload is what `CIFilter.qrCodeGenerator` emits at level M, the
+    /// level ``CmxPairingQRBitmap`` renders at (M's redundancy absorbs the
+    /// glare and off-angle blur of scanning a Mac screen; the payload is
+    /// small enough that the version stays low anyway).
     @Test func reportsPayloadBytesAndQRVersionBeforeAfter() throws {
         func qrVersion(forByteCount count: Int) -> Int {
-            let eccLByteCapacities = [
-                17, 32, 53, 78, 106, 134, 154, 192, 230, 271,
-                321, 367, 425, 458, 520, 586, 644, 718, 792, 858,
+            let eccMByteCapacities = [
+                14, 26, 42, 62, 84, 106, 122, 152, 180, 213,
+                251, 287, 331, 362, 412, 450, 504, 560, 624, 666,
             ]
-            for (index, capacity) in eccLByteCapacities.enumerated() where count <= capacity {
+            for (index, capacity) in eccMByteCapacities.enumerated() where count <= capacity {
                 return index + 1
             }
-            return eccLByteCapacities.count + 1
+            return eccMByteCapacities.count + 1
         }
 
         let oneRoute = try pairingTicket(routes: [
@@ -288,7 +291,7 @@ import Testing
             let afterBytes = after.utf8.count
             print(
                 "pairing-qr \(label): \(beforeBytes)B/QR v\(qrVersion(forByteCount: beforeBytes)) -> " +
-                "\(afterBytes)B/QR v\(qrVersion(forByteCount: afterBytes)) (ECC L)"
+                "\(afterBytes)B/QR v\(qrVersion(forByteCount: afterBytes)) (ECC M)"
             )
             #expect(afterBytes < beforeBytes)
             // The representative 2-route QR stays under 100 bytes / version 6.
