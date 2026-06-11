@@ -36,6 +36,15 @@ public final class ControlClientLineReader {
         self.buffer = [UInt8](repeating: 0, count: bufferSize)
     }
 
+    /// Bytes already read from the socket but not yet returned as a line —
+    /// everything buffered past the most recently returned line's newline.
+    ///
+    /// Use this when connection ownership is handed off to another read loop
+    /// (for example a long-running worker that takes over the descriptor) so
+    /// already-buffered client input is carried across the transfer instead of
+    /// being lost with this reader.
+    public var bufferedRemainder: String { pending }
+
     /// Returns the next newline-terminated line (without the newline), or
     /// `nil` when the connection ended or `shouldContinueReading` returned
     /// `false` before a blocking read.

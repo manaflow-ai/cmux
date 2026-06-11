@@ -1381,6 +1381,7 @@ class TerminalController {
             guard !trimmed.isEmpty else { continue }
 
             var shouldCloseSocket = false
+            var didHandOffSocket = false
             autoreleasepool {
                 if isEventsStreamRequest(trimmed) {
                     if let response = authResponseIfNeeded(for: trimmed, authenticated: &authenticated) {
@@ -1394,26 +1395,18 @@ class TerminalController {
                     return
                 }
 
-                var nextAuthenticated = authenticated
-                if let response = authResponseIfNeeded(for: trimmed, authenticated: &nextAuthenticated) {
-                    authenticated = nextAuthenticated
-                    let didWriteResponse = writeSocketResponse(response, to: socket)
-                    publishSocketEvents(command: trimmed, response: response)
-                    guard didWriteResponse else {
-                        return
-                    }
-                    continue
-                }
-                authenticated = nextAuthenticated
-
                 if socketWorkerV2WorktreeRequestIfNeeded(for: trimmed) != nil {
+                    // Hand the connection off to the dedicated worktree worker,
+                    // seeding it with whatever the line reader has already
+                    // buffered past this command so no client input is lost.
                     handlerOwnsSocket = false
                     handOffSocketWorkerV2WorktreeResponse(
                         command: trimmed,
                         socket: socket,
-                        pending: pending,
+                        pending: lineReader.bufferedRemainder,
                         authenticated: authenticated
                     )
+                    didHandOffSocket = true
                     return
                 }
 
@@ -1426,6 +1419,9 @@ class TerminalController {
                         shouldCloseSocket = true
                     }
                 }
+            }
+            if didHandOffSocket {
+                return
             }
             if shouldCloseSocket {
                 return

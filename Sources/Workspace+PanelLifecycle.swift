@@ -404,8 +404,6 @@ extension Workspace {
             panel?.close()
         }
 
-        let ephemeralWorktree = ephemeralWorktreesByPanelId.removeValue(forKey: panelId)
-
         panels.removeValue(forKey: panelId)
         untrackRemoteTerminalSurface(panelId)
         pendingRemoteTerminalChildExitSurfaceIds.remove(panelId)
@@ -450,7 +448,12 @@ extension Workspace {
         if requestTransferredRemoteCleanup, let transferredRemoteCleanupConfiguration {
             Self.requestSSHControlMasterCleanupIfNeeded(configuration: transferredRemoteCleanupConfiguration)
         }
-        if closePanel, let ephemeralWorktree {
+        // Only forget the worktree record when the panel is actually closing.
+        // The terminal-respawn path calls this with `closePanel: false` and then
+        // recreates the panel under the same id, so the record must survive to
+        // keep the worktree tracked for later block-policy prompts and cleanup.
+        if closePanel,
+           let ephemeralWorktree = ephemeralWorktreesByPanelId.removeValue(forKey: panelId) {
             EphemeralWorktreeRegistry.shared.cleanupInBackground(
                 ephemeralWorktree,
                 userConfirmed: ephemeralWorktreeCleanupAuthorized
