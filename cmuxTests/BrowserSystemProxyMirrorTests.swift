@@ -341,6 +341,20 @@ import Testing
 
     // MARK: - ProxyConfiguration conversion
 
+    /// Reads the exclusions from the underlying `nw_proxy_config` — the
+    /// representation WebKit actually consumes. The Swift
+    /// `ProxyConfiguration.excludedDomains` getter returns `[]` even after a
+    /// successful set (observed on macOS 15 and 26; the setter does write
+    /// through to the C config), so asserting via the getter would test an
+    /// Apple getter bug instead of the produced configuration.
+    private func enumeratedExcludedDomains(_ configuration: ProxyConfiguration) -> [String] {
+        var domains: [String] = []
+        nw_proxy_config_enumerate_excluded_domains(configuration._nw) { domain in
+            domains.append(String(cString: domain))
+        }
+        return domains
+    }
+
     @Test("A CONNECT mirror produces one proxy configuration carrying the exclusions")
     func connectMirrorProducesConfigurationWithExclusions() throws {
         let mirror = try #require(
@@ -351,7 +365,7 @@ import Testing
         let configurations = mirror.proxyConfigurations()
         #expect(configurations.count == 1)
         let configuration = try #require(configurations.first)
-        #expect(configuration.excludedDomains == mirror.excludedDomains)
+        #expect(enumeratedExcludedDomains(configuration) == mirror.excludedDomains)
         #expect(configuration.allowFailover == false)
     }
 
@@ -363,7 +377,7 @@ import Testing
         let configurations = mirror.proxyConfigurations()
         #expect(configurations.count == 1)
         let configuration = try #require(configurations.first)
-        #expect(configuration.excludedDomains == mirror.excludedDomains)
+        #expect(enumeratedExcludedDomains(configuration) == mirror.excludedDomains)
         #expect(configuration.allowFailover == false)
     }
 }

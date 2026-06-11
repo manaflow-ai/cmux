@@ -4752,10 +4752,11 @@ final class BrowserPanel: Panel, ObservableObject {
 
         let store = webView.configuration.websiteDataStore
         guard let endpoint = remoteProxyEndpoint else {
-            // Mirror an active system proxy with loopback excluded so local
-            // dev servers stay reachable under a global proxy (issue #5888);
-            // empty (system proxy as before) when no faithful mirror exists.
-            store.proxyConfigurations = BrowserSystemProxyMirror.currentProxyConfigurations()
+            // Local panes mirror an active system proxy with loopback excluded
+            // (issue #5888); empty when no faithful mirror exists. Remote panes
+            // keep the empty fallback while their cmuxd endpoint is pending/lost.
+            store.proxyConfigurations = usesRemoteWorkspaceProxy
+                ? [] : BrowserSystemProxyMirror.currentProxyConfigurations()
             return
         }
 

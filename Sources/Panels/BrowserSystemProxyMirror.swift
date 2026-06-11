@@ -54,8 +54,11 @@ struct BrowserSystemProxyMirror: Equatable {
     /// system proxy unchanged. The one exception is the link-local CIDR
     /// `169.254/16`, which macOS ships in the default bypass list of every
     /// network service: treating it as blocking would disable the loopback
-    /// fix on effectively every Mac, so it is skipped instead (literal
-    /// link-local URLs are the only flow that loses its bypass).
+    /// fix on effectively every Mac, so it is skipped instead. Literal
+    /// link-local URLs (e.g. `http://169.254.169.254` metadata endpoints)
+    /// are the only flow that loses its bypass, and only when no other
+    /// unrepresentable rule already declines the mirror — any deliberately
+    /// curated CIDR list still fails closed.
     init?(systemProxySettings settings: [String: Any]) {
         // PAC files and WPAD evaluate a script per URL; they cannot be
         // expressed as static ProxyConfiguration values, so the system keeps
