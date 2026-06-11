@@ -151,10 +151,7 @@ struct NotesTreePanelView: NSViewRepresentable {
         }
 
         func outlineView(_ outlineView: NSOutlineView, rowViewForItem item: Any) -> NSTableRowView? {
-            let rowView = NotesTreeRowView()
-            rowView.indentLevel = outlineView.level(forItem: item)
-            rowView.indentationWidth = outlineView.indentationPerLevel
-            return rowView
+            NotesTreeRowView()
         }
 
         func outlineView(_ outlineView: NSOutlineView, shouldExpandItem item: Any) -> Bool {

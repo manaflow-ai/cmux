@@ -216,16 +216,8 @@ final class NotesTreeCellView: NSTableCellView, NSTextFieldDelegate {
 }
 
 /// Notes row: the Files-explorer selection treatment plus a subtle hover
-/// highlight (VSCode-style), styled by ``FileExplorerStyle``. Nested rows
-/// draw indent guides (one thin vertical line per ancestor level) so it
-/// stays readable which session/folder a row is filed under.
+/// highlight (VSCode-style), styled by ``FileExplorerStyle``.
 final class NotesTreeRowView: FileExplorerRowView {
-    /// Outline depth of this row (0 = top level). Drives the indent guides.
-    var indentLevel = 0 {
-        didSet { if oldValue != indentLevel { needsDisplay = true } }
-    }
-    var indentationWidth: CGFloat = 16
-
     private var isHovered = false {
         didSet { if oldValue != isHovered { needsDisplay = true } }
     }
@@ -257,12 +249,10 @@ final class NotesTreeRowView: FileExplorerRowView {
     override func prepareForReuse() {
         super.prepareForReuse()
         isHovered = false
-        indentLevel = 0
     }
 
     override func drawBackground(in dirtyRect: NSRect) {
         super.drawBackground(in: dirtyRect)
-        drawIndentGuides()
         guard isHovered, !isSelected else { return }
         let style = FileExplorerStyle.current
         let inset = style.selectionInset
@@ -270,24 +260,5 @@ final class NotesTreeRowView: FileExplorerRowView {
         let path = NSBezierPath(roundedRect: rect, xRadius: style.selectionRadius, yRadius: style.selectionRadius)
         style.hoverColor.setFill()
         path.fill()
-    }
-
-    /// One vertical hairline per ancestor level, aligned under that
-    /// ancestor's disclosure chevron, spanning the full row height so the
-    /// lines connect across rows into continuous guides. Anchored off the
-    /// cell's actual x (the outline's real indentation result) rather than
-    /// a constant, so alignment holds across explorer styles and insets:
-    /// the ancestor at depth d-1 starts one indent unit per remaining level
-    /// to the left, and its chevron is centered in the slot before its cell.
-    private func drawIndentGuides() {
-        guard indentLevel > 0, indentationWidth > 0 else { return }
-        guard let cell = subviews.first(where: { $0 is NSTableCellView }) else { return }
-        let cellX = cell.frame.minX
-        NSColor.labelColor.withAlphaComponent(0.2).setFill()
-        for depth in 1...indentLevel {
-            let x = cellX - indentationWidth * CGFloat(indentLevel - depth + 1) - indentationWidth / 2
-            guard x > 0 else { continue }
-            NSRect(x: round(x), y: 0, width: 1, height: bounds.height).fill()
-        }
     }
 }
