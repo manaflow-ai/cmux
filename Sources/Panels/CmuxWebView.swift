@@ -394,6 +394,7 @@ final class CmuxWebView: WKWebView {
     /// BrowserPanelView updates this as pane focus state changes.
     var allowsFirstResponderAcquisition: Bool = true
     private var pointerFocusAllowanceDepth: Int = 0
+    private var webKitKeyDownForwardingDepth = 0
     private var pasteAsPlainTextTargetAvailable = false
     private var lastPasteAsPlainTextPerformKeyEventTimestamp: TimeInterval?
 #if DEBUG
@@ -522,6 +523,8 @@ final class CmuxWebView: WKWebView {
     }
 
     private func forwardKeyDownToWebKit(_ event: NSEvent) {
+        webKitKeyDownForwardingDepth += 1
+        defer { webKitKeyDownForwardingDepth -= 1 }
 #if DEBUG
         if let keyDownSuperDispatchForTesting = Self.keyDownSuperDispatchForTesting {
             keyDownSuperDispatchForTesting(self, event)
@@ -765,6 +768,13 @@ final class CmuxWebView: WKWebView {
             )
         }
 #endif
+        if webKitKeyDownForwardingDepth > 0 {
+#if DEBUG
+            route = "webKitReentry"
+#endif
+            return
+        }
+
         if let decision = AppDelegate.shared?.handleBrowserFocusModeKeyEvent(
             event,
             webView: self,
