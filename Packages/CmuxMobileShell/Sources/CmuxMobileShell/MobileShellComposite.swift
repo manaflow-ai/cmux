@@ -404,6 +404,11 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     private let identityProvider: (any MobileIdentityProviding)?
     private let reachability: any ReachabilityProviding
     private let deliveredNotificationClearer: any DeliveredNotificationClearing
+    /// Durable outbox for phone→Mac dismissals (see
+    /// ``PendingNotificationDismissQueue``): ids are enqueued before the RPC is
+    /// attempted, removed only on confirmed delivery, and re-flushed on every
+    /// successful (re)subscribe.
+    private let pendingDismissQueue: PendingNotificationDismissQueue
     private let pairingHintDefaults: UserDefaults
     let clientID: String
     /// Delivers the email path of Send Feedback (`/api/feedback`). `nil` when the
@@ -570,6 +575,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         identityProvider: (any MobileIdentityProviding)? = nil,
         reachability: any ReachabilityProviding = ReachabilityService(),
         deliveredNotificationClearer: any DeliveredNotificationClearing = SystemDeliveredNotificationClearer(),
+        pendingDismissQueue: PendingNotificationDismissQueue = PendingNotificationDismissQueue(),
         pairingHintDefaults: UserDefaults = .standard,
         analytics: any AnalyticsEmitting = NoopAnalytics(),
         diagnosticLog: DiagnosticLog? = nil,
@@ -584,6 +590,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         self.identityProvider = identityProvider
         self.reachability = reachability
         self.deliveredNotificationClearer = deliveredNotificationClearer
+        self.pendingDismissQueue = pendingDismissQueue
         self.pairingHintDefaults = pairingHintDefaults
         self.analytics = analytics
         self.diagnosticLog = diagnosticLog
@@ -817,15 +824,22 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// read and clears its own banner; its store then emits `notification.dismissed`
     /// back, which is a harmless no-op for the already-removed phone banner.
     ///
-    /// Fire-and-forget against the authoritative Mac store. Carries only opaque
-    /// notification UUIDs, never terminal content, so it is safe regardless of
-    /// the Mac's phone-forward hideContent setting.
+    /// Fire-and-forget against the authoritative Mac store, but durable: the ids
+    /// are enqueued in ``PendingNotificationDismissQueue`` BEFORE the RPC is
+    /// attempted and removed only after it succeeds, so a dismiss that races a
+    /// dead/absent attach channel is retried by ``flushPendingNotificationDismisses()``
+    /// on the next successful (re)subscribe instead of being dropped.
+    ///
+    /// Carries only opaque notification UUIDs, never terminal content, so it is
+    /// safe regardless of the Mac's phone-forward hideContent setting.
     /// - Parameter ids: The stable notification ids the user dismissed.
     public func dismissNotification(ids: [String]) async {
         let trimmed = ids
             .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
             .filter { !$0.isEmpty }
-        guard !trimmed.isEmpty, let client = remoteClient else { return }
+        guard !trimmed.isEmpty else { return }
+        pendingDismissQueue.enqueue(trimmed)
+        guard let client = remoteClient else { return }
         do {
             let request = try MobileCoreRPCClient.requestData(
                 method: "notification.dismiss",
@@ -835,9 +849,20 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                 ]
             )
             _ = try await client.sendRequest(request)
+            pendingDismissQueue.remove(trimmed)
         } catch {
+            // Left in the queue; the next successful (re)subscribe re-sends.
             mobileShellLog.error("notification dismiss sync failed count=\(trimmed.count, privacy: .public) error=\(String(describing: error), privacy: .public)")
         }
+    }
+
+    /// Re-send every dismissal still waiting in the durable outbox (a swipe that
+    /// happened while detached, backgrounded, or before any scene existed). The
+    /// Mac ignores ids it does not know, so replaying stale entries is harmless.
+    func flushPendingNotificationDismisses() async {
+        let pending = pendingDismissQueue.pendingIDs
+        guard !pending.isEmpty else { return }
+        await dismissNotification(ids: pending)
     }
 
     /// Clear delivered banners on this phone in response to a Mac-side dismiss
@@ -862,11 +887,15 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         deliveredNotificationClearer.setBadgeCount(max(0, count))
     }
 
-    /// Kick off one foreground/connect reconcile sweep (lane 3 of dismiss-sync)
-    /// against `client`. Fire-and-forget; failures are non-fatal because the
-    /// next (re)subscribe runs another sweep.
+    /// Kick off one foreground/connect dismiss-sync pass against `client`:
+    /// first flush the durable phone→Mac dismiss outbox (so the Mac's store
+    /// reflects every swipe that happened while detached), then run the
+    /// reconcile sweep (lane 3) whose answer therefore already includes them.
+    /// Fire-and-forget; failures are non-fatal because the next (re)subscribe
+    /// runs another pass.
     private func scheduleNotificationReconcile(client: MobileCoreRPCClient) {
         Task { [weak self] in
+            await self?.flushPendingNotificationDismisses()
             await self?.reconcileNotificationsWithMac(client: client)
         }
     }

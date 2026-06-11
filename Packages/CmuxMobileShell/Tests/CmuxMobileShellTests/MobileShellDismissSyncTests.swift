@@ -45,11 +45,14 @@ private final class RecordingDeliveredNotificationClearer: DeliveredNotification
 @MainActor
 @Suite struct MobileShellDismissSyncTests {
     private func makeStore(
-        clearer: any DeliveredNotificationClearing
+        clearer: any DeliveredNotificationClearing,
+        pendingDismissQueue: PendingNotificationDismissQueue =
+            PendingNotificationDismissQueue(defaults: UserDefaults(suiteName: "dismiss-queue-\(UUID().uuidString)")!)
     ) -> MobileShellComposite {
         MobileShellComposite(
             workspaces: [],
             deliveredNotificationClearer: clearer,
+            pendingDismissQueue: pendingDismissQueue,
             pairingHintDefaults: UserDefaults(suiteName: "dismiss-sync-\(UUID().uuidString)")!
         )
     }
@@ -79,6 +82,39 @@ private final class RecordingDeliveredNotificationClearer: DeliveredNotification
         store.clearDeliveredNotifications(ids: ["", "   "])
 
         #expect(clearer.clearedIDs.isEmpty)
+    }
+
+    // MARK: - Durable phone→Mac dismiss outbox
+
+    /// A swipe while the attach channel is down (no remote client) must not be
+    /// dropped: the id is parked in the durable outbox so the next successful
+    /// (re)subscribe can flush it to the Mac.
+    @Test func dismissWithoutChannelParksIDsInDurableOutbox() async {
+        let queue = PendingNotificationDismissQueue(
+            defaults: UserDefaults(suiteName: "dismiss-queue-\(UUID().uuidString)")!
+        )
+        let store = makeStore(
+            clearer: RecordingDeliveredNotificationClearer(),
+            pendingDismissQueue: queue
+        )
+
+        await store.dismissNotification(ids: [" n-1 ", "", "n-2"])
+
+        #expect(queue.pendingIDs == ["n-1", "n-2"])
+    }
+
+    @Test func dismissWithNoUsableIDsLeavesOutboxEmpty() async {
+        let queue = PendingNotificationDismissQueue(
+            defaults: UserDefaults(suiteName: "dismiss-queue-\(UUID().uuidString)")!
+        )
+        let store = makeStore(
+            clearer: RecordingDeliveredNotificationClearer(),
+            pendingDismissQueue: queue
+        )
+
+        await store.dismissNotification(ids: ["", "   "])
+
+        #expect(queue.pendingIDs.isEmpty)
     }
 
     // MARK: - Badge
