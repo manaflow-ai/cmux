@@ -41,7 +41,7 @@ public final class MobileDisplaySettings {
     /// through to the injected ``UserDefaults``.
     public var workspacePreviewLineCount: Int {
         didSet {
-            let clamped = Self.clampedWorkspacePreviewLineCount(workspacePreviewLineCount)
+            let clamped = clampedWorkspacePreviewLineCount(workspacePreviewLineCount)
             // Assigning inside didSet does not re-trigger the observer.
             if clamped != workspacePreviewLineCount { workspacePreviewLineCount = clamped }
             defaults.set(clamped, forKey: Self.workspacePreviewLineCountKey)
@@ -57,12 +57,19 @@ public final class MobileDisplaySettings {
         self.defaults = defaults
         self.wrapWorkspaceTitles = defaults.bool(forKey: Self.wrapWorkspaceTitlesKey)
         let storedPreviewLines = defaults.object(forKey: Self.workspacePreviewLineCountKey) as? Int
-        self.workspacePreviewLineCount = Self.clampedWorkspacePreviewLineCount(
+        self.workspacePreviewLineCount = clampedWorkspacePreviewLineCount(
             storedPreviewLines ?? Self.defaultWorkspacePreviewLineCount
         )
     }
+}
 
-    private static func clampedWorkspacePreviewLineCount(_ count: Int) -> Int {
-        min(max(count, workspacePreviewLineCountRange.lowerBound), workspacePreviewLineCountRange.upperBound)
-    }
+/// Clamps a stored or assigned preview line count to the supported range.
+/// `@MainActor` because the range constant lives on the `@MainActor` settings
+/// class; both call sites (`init`, `didSet`) are already isolated.
+@MainActor
+private func clampedWorkspacePreviewLineCount(_ count: Int) -> Int {
+    min(
+        max(count, MobileDisplaySettings.workspacePreviewLineCountRange.lowerBound),
+        MobileDisplaySettings.workspacePreviewLineCountRange.upperBound
+    )
 }
