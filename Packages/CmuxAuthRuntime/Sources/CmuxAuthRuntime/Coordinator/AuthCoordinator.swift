@@ -331,7 +331,7 @@ public final class AuthCoordinator {
            ),
            credentials.email.isEmpty == false {
             authLog.debug("Starting auto-login")
-            await performAutoLogin(credentials)
+            await performAutoLogin(credentials, generation: generation, storeWriteHighWater: storeWriteHighWater)
             return
         }
         #endif
@@ -347,14 +347,22 @@ public final class AuthCoordinator {
 
         if launch.includesDevAuth, let creds = debugCredentials {
             authLog.debug("Auto-login with persisted debug credentials")
-            await performAutoLogin(creds)
+            await performAutoLogin(creds, generation: generation, storeWriteHighWater: storeWriteHighWater)
             return
         }
 
         clearAuthState()
     }
 
-    private func performAutoLogin(_ credentials: CMUXAuthAutoLoginCredentials) async {
+    /// Run the launch/dev auto-login, capturing the same staleness context as
+    /// the validation flows (`generation` / `storeWriteHighWater` from the
+    /// caller's entry) so its failure cleanup cannot wipe a session
+    /// established after the auto-login began.
+    private func performAutoLogin(
+        _ credentials: CMUXAuthAutoLoginCredentials,
+        generation: UInt64,
+        storeWriteHighWater: UInt64
+    ) async {
         do {
             try await signInWithPassword(
                 email: credentials.email,
@@ -362,9 +370,17 @@ public final class AuthCoordinator {
                 setLoading: false
             )
         } catch {
+            // A cancellation means a competing session transition won:
+            // sign-out cancelled this auto-login's exchange, or a newer
+            // sign-in/clear bumped the epoch and the completion dropped
+            // itself. The winner owns all session state; clearing here would
+            // wipe the NEWER session, not the failed auto-login.
+            if error is CancellationError || (error as? AuthError) == .cancelled {
+                authLog.info("Auto-login superseded by a newer session transition; leaving state untouched")
+                return
+            }
             authLog.error("Auto-login failed: \(error.localizedDescription, privacy: .private)")
-            await clearPersistedStackSession()
-            clearAuthState()
+            await clearStaleSessionState(generation: generation, storeWriteHighWater: storeWriteHighWater)
         }
     }
 
