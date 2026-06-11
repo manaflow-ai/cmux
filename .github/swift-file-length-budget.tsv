@@ -41,7 +41,7 @@
 2513	cmuxTests/CommandPaletteSearchEngineTests.swift
 2509	Sources/KeyboardShortcutSettings.swift
 2327	cmuxTests/CJKIMEInputTests.swift
-2290	Sources/FileExplorerView.swift
+2316	Sources/FileExplorerView.swift
 2260	Sources/TerminalWindowPortal.swift
 2209	Sources/Mobile/MobileHostService.swift
 2138	Sources/SessionPersistence.swift
@@ -76,10 +76,10 @@
 1156	cmuxTests/SidebarOrderingTests.swift
 1144	Sources/VaultAgentProcessScanner.swift
 1139	cmuxTests/PiVaultAgentPersistenceTests.swift
+1118	cmuxTests/FileExplorerStoreTests.swift
 1107	Sources/AppDelegate+CmuxSSHURL.swift
 1096	Sources/GhosttyConfig.swift
 1084	cmuxTests/AgentHibernationTests.swift
-1068	cmuxTests/FileExplorerStoreTests.swift
 1058	cmuxUITests/BonsplitTabDragUITests.swift
 1021	cmuxUITests/TerminalCmdClickUITests.swift
 1006	cmuxTests/CmuxSSHURLRequestTests.swift
