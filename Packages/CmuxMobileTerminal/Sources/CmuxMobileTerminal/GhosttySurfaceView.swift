@@ -961,7 +961,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
             // dismisses the composer here (the composer survives a keyboard-down), so
             // this is now purely diagnostic.
             if self.composerActive {
-                let frOwner = TerminalInputTextView.responderIdentity(of: currentFirstResponderForDiagnostics())
+                let frOwner = TerminalInputTextView.responderIdentity(of: CurrentResponderProbe().current())
                 self.diagnosticLog?.record(DiagnosticEvent(
                     .composerKeyboardToggleWhilePresented,
                     ms: UInt32(max(0, self.keyboardHeight)),
@@ -1236,7 +1236,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         // is complete no matter how the keyboard went down. Pure diagnostics; the hide
         // behavior below is unchanged.
         if composerActive {
-            let frOwner = TerminalInputTextView.responderIdentity(of: currentFirstResponderForDiagnostics())
+            let frOwner = TerminalInputTextView.responderIdentity(of: CurrentResponderProbe().current())
             MobileDebugLog.anchormux(
                 "composer.keyboardHideWhilePresented prevKeyboardHeight=\(Int(keyboardHeight)) frOwner=\(frOwner.rawValue) proxyIsFR=\(inputProxy.isFirstResponder ? 1 : 0)"
             )
@@ -1499,7 +1499,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         // same sink the round-4 composer flag/appear/focus events use. With these,
         // a captured trace shows whether the composer ever ends up active with the
         // FR owned by no terminal/composer responder and keyboardHeight 0.
-        let frOwner = TerminalInputTextView.responderIdentity(of: currentFirstResponderForDiagnostics())
+        let frOwner = TerminalInputTextView.responderIdentity(of: CurrentResponderProbe().current())
         diagnosticLog?.record(DiagnosticEvent(
             .composerActiveTransition,
             ms: UInt32(max(0, keyboardHeight)),

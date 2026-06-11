@@ -1,17 +1,6 @@
 #if canImport(UIKit)
 import UIKit
 
-/// Holds the responder captured during a ``currentFirstResponderForDiagnostics()``
-/// probe.
-///
-/// The `sendAction(to: nil)` walk is synchronous and main-thread-only, and the
-/// captured pointer is read immediately after on the same call, so the single
-/// stored slot never races. `nonisolated(unsafe)` is acceptable here: writes and
-/// reads are confined to the main actor's synchronous `sendAction` round-trip in
-/// ``currentFirstResponderForDiagnostics()``, and this is DEBUG-only diagnostic
-/// scaffolding.
-private nonisolated(unsafe) weak var diagnosticCapturedFirstResponder: UIResponder?
-
 /// Resolves the current `UIResponder` first responder for DEBUG input
 /// instrumentation.
 ///
@@ -24,28 +13,44 @@ private nonisolated(unsafe) weak var diagnosticCapturedFirstResponder: UIRespond
 ///
 /// This is a DEBUG-only diagnostic aid for the composer-dock instrumentation;
 /// it never drives behavior. `@MainActor` because it touches
-/// `UIApplication.shared.sendAction` on the main thread. Returns the current
-/// first responder, or `nil` if there is none.
+/// `UIApplication.shared.sendAction` on the main thread. An injectable value
+/// type so call sites construct it where they probe.
 @MainActor
-func currentFirstResponderForDiagnostics() -> UIResponder? {
-    diagnosticCapturedFirstResponder = nil
-    UIApplication.shared.sendAction(
-        #selector(UIResponder.cmuxDiagnosticCaptureFirstResponder(_:)),
-        to: nil,
-        from: nil,
-        for: nil
-    )
-    let captured = diagnosticCapturedFirstResponder
-    diagnosticCapturedFirstResponder = nil
-    return captured
+struct CurrentResponderProbe {
+    /// Holds the responder captured during a ``current()`` probe.
+    ///
+    /// The `sendAction(to: nil)` walk is synchronous and main-thread-only, and
+    /// the captured pointer is read immediately after on the same call, so the
+    /// single stored slot never races. `nonisolated(unsafe)` is acceptable
+    /// here: writes and reads are confined to the main actor's synchronous
+    /// `sendAction` round-trip in ``current()``, and this is DEBUG-only
+    /// diagnostic scaffolding.
+    fileprivate nonisolated(unsafe) static weak var captured: UIResponder?
+
+    /// Creates a probe.
+    init() {}
+
+    /// Returns the current first responder, or `nil` if there is none.
+    func current() -> UIResponder? {
+        Self.captured = nil
+        UIApplication.shared.sendAction(
+            #selector(UIResponder.cmuxDiagnosticCaptureFirstResponder(_:)),
+            to: nil,
+            from: nil,
+            for: nil
+        )
+        let captured = Self.captured
+        Self.captured = nil
+        return captured
+    }
 }
 
 private extension UIResponder {
     /// Records `self` as the captured first responder. Invoked by UIKit's
-    /// responder-chain walk during ``currentFirstResponderForDiagnostics()``;
-    /// only the actual first responder receives it.
+    /// responder-chain walk during ``CurrentResponderProbe/current()``; only
+    /// the actual first responder receives it.
     @objc func cmuxDiagnosticCaptureFirstResponder(_ sender: Any?) {
-        diagnosticCapturedFirstResponder = self
+        CurrentResponderProbe.captured = self
     }
 }
 #endif
