@@ -12,7 +12,13 @@ public enum MobileWorkspaceListItem: Identifiable, Equatable, Sendable {
     /// A collapsible group header. The associated group's anchor workspace is
     /// represented by this header and is never emitted as a separate
     /// ``workspace`` item.
-    case groupHeader(MobileWorkspaceGroupPreview)
+    ///
+    /// `hasUnread` is the header's aggregate unread state, mirroring the Mac
+    /// sidebar header badge: while the group is expanded it reflects only the
+    /// anchor workspace (visible member rows carry their own dots); while
+    /// collapsed it reflects the whole group, anchor included, so hidden
+    /// member activity is never silently swallowed.
+    case groupHeader(MobileWorkspaceGroupPreview, hasUnread: Bool)
     /// A workspace row. `indented` is `true` for non-anchor members nested under
     /// a group header, so the view can inset them.
     case workspace(MobileWorkspacePreview, indented: Bool)
@@ -22,7 +28,7 @@ public enum MobileWorkspaceListItem: Identifiable, Equatable, Sendable {
     /// never collide even though both wrap UUID-backed ids.
     public var id: String {
         switch self {
-        case .groupHeader(let group):
+        case .groupHeader(let group, _):
             return "group.\(group.id.rawValue)"
         case .workspace(let workspace, _):
             return "workspace.\(workspace.id.rawValue)"
@@ -59,6 +65,20 @@ public enum MobileWorkspaceListItem: Identifiable, Equatable, Sendable {
         guard !workspaces.isEmpty else { return [] }
         let groupsByID = Dictionary(groups.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
 
+        // Aggregate unread state per group up front (membership can be
+        // non-contiguous, so this cannot be folded into the emit loop).
+        // Mirrors the Mac header badge: anchor-only while expanded, whole
+        // group (anchor included) while collapsed.
+        var anchorUnreadByGroupID: [MobileWorkspaceGroupPreview.ID: Bool] = [:]
+        var anyMemberUnreadByGroupID: [MobileWorkspaceGroupPreview.ID: Bool] = [:]
+        for workspace in workspaces {
+            guard let groupID = workspace.groupID, let group = groupsByID[groupID] else { continue }
+            anyMemberUnreadByGroupID[groupID, default: false] = anyMemberUnreadByGroupID[groupID, default: false] || workspace.hasUnread
+            if group.anchorWorkspaceID == workspace.id {
+                anchorUnreadByGroupID[groupID] = workspace.hasUnread
+            }
+        }
+
         var items: [MobileWorkspaceListItem] = []
         items.reserveCapacity(workspaces.count + groups.count)
         var lastEmittedGroupID: MobileWorkspaceGroupPreview.ID?
@@ -74,7 +94,10 @@ public enum MobileWorkspaceListItem: Identifiable, Equatable, Sendable {
             if groupID != lastEmittedGroupID {
                 lastEmittedGroupID = groupID
                 if let groupID, let group = groupsByID[groupID], !emittedHeaders.contains(groupID) {
-                    items.append(.groupHeader(group))
+                    let hasUnread = group.isCollapsed
+                        ? anyMemberUnreadByGroupID[groupID, default: false]
+                        : anchorUnreadByGroupID[groupID, default: false]
+                    items.append(.groupHeader(group, hasUnread: hasUnread))
                     emittedHeaders.insert(groupID)
                     collapsedByGroupID[groupID] = group.isCollapsed
                 }

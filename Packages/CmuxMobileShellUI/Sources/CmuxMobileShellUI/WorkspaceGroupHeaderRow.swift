@@ -11,6 +11,11 @@ import SwiftUI
 /// so this split is what keeps the anchor's terminals reachable from the phone.
 struct WorkspaceGroupHeaderRow: View {
     let group: MobileWorkspaceGroupPreview
+    /// Aggregate unread state for the header dot, computed by
+    /// `MobileWorkspaceListItem.items`: the anchor's unread while expanded,
+    /// the whole group's (anchor included) while collapsed, mirroring the Mac
+    /// sidebar header badge so collapsing a group never hides activity.
+    let hasUnread: Bool
     let navigationStyle: WorkspaceNavigationStyle
     /// Whether the anchor workspace is the current selection (sidebar style only).
     let isAnchorSelected: Bool
@@ -100,8 +105,18 @@ struct WorkspaceGroupHeaderRow: View {
 
     var body: some View {
         HStack(spacing: 6) {
+            // Same leading unread gutter as workspace rows (dot hidden when
+            // read) so headers and top-level rows keep their columns aligned.
+            WorkspaceUnreadDot(isUnread: hasUnread)
             chevron
             anchorTarget
+                // The dot itself is accessibility-hidden; VoiceOver hears the
+                // unread state on the anchor target, like workspace rows.
+                .accessibilityValue(
+                    hasUnread
+                        ? L10n.string("mobile.workspace.unread", defaultValue: "Unread")
+                        : ""
+                )
         }
         .padding(.vertical, 2)
         .padding(.horizontal, 4)

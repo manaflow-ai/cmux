@@ -211,9 +211,10 @@ struct WorkspaceListView: View {
     private var groupedRows: some View {
         ForEach(groupedListItems) { item in
             switch item {
-            case .groupHeader(let group):
+            case .groupHeader(let group, let hasUnread):
                 WorkspaceGroupHeaderRow(
                     group: group,
+                    hasUnread: hasUnread,
                     navigationStyle: navigationStyle,
                     isAnchorSelected: navigationStyle == .sidebar
                         && selectedWorkspaceID == group.anchorWorkspaceID,
