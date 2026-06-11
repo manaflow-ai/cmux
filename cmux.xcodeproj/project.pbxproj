@@ -406,6 +406,7 @@
 		C34670040000000000000001 /* KeyboardShortcutTestSettingsIsolation.swift in Sources */ = {isa = PBXBuildFile; fileRef = C34670040000000000000002 /* KeyboardShortcutTestSettingsIsolation.swift */; };
 		DA7A10CA710E000000000003 /* Localizable.xcstrings in Resources */ = {isa = PBXBuildFile; fileRef = DA7A10CA710E000000000001 /* Localizable.xcstrings */; };
 		53750022A0B1C2D3E4F50022 /* MacAuthComposition.swift in Sources */ = {isa = PBXBuildFile; fileRef = 53750023A0B1C2D3E4F50023 /* MacAuthComposition.swift */; };
+		D1F0A00500000000000000E1 /* MacPresenceDecisionCache.swift in Sources */ = {isa = PBXBuildFile; fileRef = D1F0A00500000000000000E2 /* MacPresenceDecisionCache.swift */; };
 		D1F0A00200000000000000B1 /* MacPresenceMonitor.swift in Sources */ = {isa = PBXBuildFile; fileRef = D1F0A00200000000000000B2 /* MacPresenceMonitor.swift */; };
 		2F0C05000000000000000002 /* MainWindowFocusController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2F0C05000000000000000001 /* MainWindowFocusController.swift */; };
 		B37A00000000000000000005 /* MainWindowFocusTypes.swift in Sources */ = {isa = PBXBuildFile; fileRef = B37A00000000000000000006 /* MainWindowFocusTypes.swift */; };
@@ -465,6 +466,7 @@
 		BB49DF25341706C2A892C27C /* PanelOwnedNativeViewSession.swift in Sources */ = {isa = PBXBuildFile; fileRef = CE314D9700F6F1C8D4A2FE11 /* PanelOwnedNativeViewSession.swift */; };
 		C44550000000000000000001 /* PanelOwnedNativeViewSessionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C44550000000000000000002 /* PanelOwnedNativeViewSessionTests.swift */; };
 		A5001425 /* PDFPreviewChromeDebugWindowController.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001424 /* PDFPreviewChromeDebugWindowController.swift */; };
+		D1F0A00400000000000000D1 /* PhoneForwardingMode.swift in Sources */ = {isa = PBXBuildFile; fileRef = D1F0A00400000000000000D2 /* PhoneForwardingMode.swift */; };
 		D1F0A00100000000000000A1 /* PhonePushClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = D1F0A00100000000000000A2 /* PhonePushClient.swift */; };
 		D1F0A00300000000000000C1 /* PhonePushPresenceGateTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D1F0A00300000000000000C2 /* PhonePushPresenceGateTests.swift */; };
 		B3575000000000000000000A /* PiVaultAgentPersistenceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B35750000000000000000009 /* PiVaultAgentPersistenceTests.swift */; };
@@ -514,6 +516,7 @@
 		FE003107 /* RovoDevTranscriptPreview.swift in Sources */ = {isa = PBXBuildFile; fileRef = FE003007 /* RovoDevTranscriptPreview.swift */; };
 		F5300002A1B2C3D4E5F60718 /* RovoDevTranscriptPreviewTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F5300003A1B2C3D4E5F60718 /* RovoDevTranscriptPreviewTests.swift */; };
 		E8BA79E246754A8B99A0B823 /* ScreenIdentity.swift in Sources */ = {isa = PBXBuildFile; fileRef = 47D5AA7D29C94F5CA865B2BF /* ScreenIdentity.swift */; };
+		D1F0A00600000000000000F1 /* ScreenLockObserver.swift in Sources */ = {isa = PBXBuildFile; fileRef = D1F0A00600000000000000F2 /* ScreenLockObserver.swift */; };
 		3865A0013865A0013865A001 /* SearchIndex.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3865B0013865B0013865B001 /* SearchIndex.swift */; };
 		3865A0043865A0043865A004 /* SearchIndexTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3865B0043865B0043865B004 /* SearchIndexTests.swift */; };
 		C0DEF0C20000000000000001 /* SemanticVersion.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DEF0C20000000000000002 /* SemanticVersion.swift */; };
@@ -1173,6 +1176,7 @@
 		C34670040000000000000002 /* KeyboardShortcutTestSettingsIsolation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KeyboardShortcutTestSettingsIsolation.swift; sourceTree = "<group>"; };
 		DA7A10CA710E000000000001 /* Localizable.xcstrings */ = {isa = PBXFileReference; lastKnownFileType = text.json.xcstrings; path = Localizable.xcstrings; sourceTree = "<group>"; };
 		53750023A0B1C2D3E4F50023 /* MacAuthComposition.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = MacAuthComposition.swift; sourceTree = "<group>"; };
+		D1F0A00500000000000000E2 /* MacPresenceDecisionCache.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MacPresenceDecisionCache.swift; sourceTree = "<group>"; };
 		D1F0A00200000000000000B2 /* MacPresenceMonitor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MacPresenceMonitor.swift; sourceTree = "<group>"; };
 		2F0C05000000000000000001 /* MainWindowFocusController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MainWindowFocusController.swift; sourceTree = "<group>"; };
 		B37A00000000000000000006 /* MainWindowFocusTypes.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MainWindowFocusTypes.swift; sourceTree = "<group>"; };
@@ -1231,6 +1235,7 @@
 		CE314D9700F6F1C8D4A2FE11 /* PanelOwnedNativeViewSession.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/PanelOwnedNativeViewSession.swift; sourceTree = "<group>"; };
 		C44550000000000000000002 /* PanelOwnedNativeViewSessionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PanelOwnedNativeViewSessionTests.swift; sourceTree = "<group>"; };
 		A5001424 /* PDFPreviewChromeDebugWindowController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/PDFPreviewChromeDebugWindowController.swift; sourceTree = "<group>"; };
+		D1F0A00400000000000000D2 /* PhoneForwardingMode.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PhoneForwardingMode.swift; sourceTree = "<group>"; };
 		D1F0A00100000000000000A2 /* PhonePushClient.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = PhonePushClient.swift; sourceTree = "<group>"; };
 		D1F0A00300000000000000C2 /* PhonePushPresenceGateTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PhonePushPresenceGateTests.swift; sourceTree = "<group>"; };
 		B35750000000000000000009 /* PiVaultAgentPersistenceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PiVaultAgentPersistenceTests.swift; sourceTree = "<group>"; };
@@ -1276,6 +1281,7 @@
 		FE003007 /* RovoDevTranscriptPreview.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RovoDevTranscriptPreview.swift; sourceTree = "<group>"; };
 		F5300003A1B2C3D4E5F60718 /* RovoDevTranscriptPreviewTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RovoDevTranscriptPreviewTests.swift; sourceTree = "<group>"; };
 		47D5AA7D29C94F5CA865B2BF /* ScreenIdentity.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/ScreenIdentity.swift; sourceTree = "<group>"; };
+		D1F0A00600000000000000F2 /* ScreenLockObserver.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScreenLockObserver.swift; sourceTree = "<group>"; };
 		3865B0013865B0013865B001 /* SearchIndex.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Search/SearchIndex.swift; sourceTree = "<group>"; };
 		3865B0043865B0043865B004 /* SearchIndexTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SearchIndexTests.swift; sourceTree = "<group>"; };
 		C0DEF0C20000000000000002 /* SemanticVersion.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SemanticVersion.swift; sourceTree = "<group>"; };
@@ -1685,6 +1691,7 @@
 			children = (
 				9CEC6EF35B71AE59FA45BA69 /* VMClient.swift */,
 				D1F0A00100000000000000A2 /* PhonePushClient.swift */,
+				D1F0A00400000000000000D2 /* PhoneForwardingMode.swift */,
 				DE71CE000000000000000003 /* DeviceRegistryClient.swift */,
 				9CEC6F0035B71AE59FA45BA7 /* VMClientSocketCommands.swift */,
 			);
@@ -1940,6 +1947,8 @@
 				2F0C05000000000000000001 /* MainWindowFocusController.swift */,
 				A5001091 /* NotificationsPage.swift */,
 				D1F0A00200000000000000B2 /* MacPresenceMonitor.swift */,
+				D1F0A00500000000000000E2 /* MacPresenceDecisionCache.swift */,
+				D1F0A00600000000000000F2 /* ScreenLockObserver.swift */,
 				A5001092 /* TerminalNotificationStore.swift */,
 				A5001097 /* TerminalNotificationPolicy.swift */,
 				F1A0C0DE0000000000000001 /* FindTextFieldSupport.swift */,
@@ -2961,6 +2970,7 @@
 				A5F10011A1B2C3D4E5F60719 /* KeyboardShortcutSettingsFileStore.swift in Sources */,
 				C1713004C1713004C1713004 /* KeyboardShortcutSettingsLookup.swift in Sources */,
 				53750022A0B1C2D3E4F50022 /* MacAuthComposition.swift in Sources */,
+				D1F0A00500000000000000E1 /* MacPresenceDecisionCache.swift in Sources */,
 				D1F0A00200000000000000B1 /* MacPresenceMonitor.swift in Sources */,
 				2F0C05000000000000000002 /* MainWindowFocusController.swift in Sources */,
 				B37A00000000000000000005 /* MainWindowFocusTypes.swift in Sources */,
@@ -3002,6 +3012,7 @@
 				A5001405 /* PanelContentView.swift in Sources */,
 				BB49DF25341706C2A892C27C /* PanelOwnedNativeViewSession.swift in Sources */,
 				A5001425 /* PDFPreviewChromeDebugWindowController.swift in Sources */,
+				D1F0A00400000000000000D1 /* PhoneForwardingMode.swift in Sources */,
 				D1F0A00100000000000000A1 /* PhonePushClient.swift in Sources */,
 				A5001540 /* PortScanner.swift in Sources */,
 				A5001521 /* PostHogAnalytics.swift in Sources */,
@@ -3031,6 +3042,7 @@
 				FE003105 /* RovoDevIndex.swift in Sources */,
 				FE003107 /* RovoDevTranscriptPreview.swift in Sources */,
 				E8BA79E246754A8B99A0B823 /* ScreenIdentity.swift in Sources */,
+				D1F0A00600000000000000F1 /* ScreenLockObserver.swift in Sources */,
 				3865A0013865A0013865A001 /* SearchIndex.swift in Sources */,
 				C0DEF0C20000000000000001 /* SemanticVersion.swift in Sources */,
 				5E2701020000000000000001 /* SentryEventScrubber.swift in Sources */,
