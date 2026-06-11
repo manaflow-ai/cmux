@@ -21,7 +21,7 @@ enum PreferredEditorSettings {
     static func open(_ url: URL) {
         if CmuxUITestCapture.appendLineIfConfigured(
             envKey: "CMUX_UI_TEST_CAPTURE_OPEN_PATH",
-            line: url.path
+            line: url.path(percentEncoded: false)
         ) {
             return
         }
@@ -37,19 +37,18 @@ enum PreferredEditorSettings {
         process.environment = launchEnvironment()
         process.standardOutput = FileHandle.nullDevice
         process.standardError = FileHandle.nullDevice
+        // Fall back on failure without blocking a thread for the editor's
+        // lifetime (e.g. command not found exits 127 but /bin/sh itself
+        // succeeds; a waiting editor like `code -w` can run for hours).
+        process.terminationHandler = { process in
+            guard process.terminationStatus != 0 else { return }
+            preferredEditorLogger.error(
+                "preferred editor command \(command, privacy: .public) exited \(process.terminationStatus, privacy: .public) for \(path, privacy: .private); falling back to the OS default handler"
+            )
+            Task { @MainActor in NSWorkspace.shared.open(url) }
+        }
         do {
             try process.run()
-            // Check exit status on a background thread; fall back on failure
-            // (e.g. command not found exits 127 but /bin/sh itself succeeds)
-            DispatchQueue.global(qos: .userInitiated).async {
-                process.waitUntilExit()
-                if process.terminationStatus != 0 {
-                    preferredEditorLogger.error(
-                        "preferred editor command \(command, privacy: .public) exited \(process.terminationStatus, privacy: .public) for \(path, privacy: .private); falling back to the OS default handler"
-                    )
-                    DispatchQueue.main.async { NSWorkspace.shared.open(url) }
-                }
-            }
         } catch {
             preferredEditorLogger.error(
                 "failed to launch preferred editor command \(command, privacy: .public): \(error.localizedDescription, privacy: .public); falling back to the OS default handler"
