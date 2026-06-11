@@ -1,4 +1,4 @@
-type WebviewKind = "agent-session" | "diff" | "editor";
+import { bootSurface, type WebviewKind } from "./surfaceBoot";
 
 function resolveWebviewKind(): WebviewKind {
   if (
@@ -27,15 +27,23 @@ if (!rootElement) {
 // viewer pulls in `@pierre/diffs`, the agent session pulls in its editor UI,
 // the editor pulls in Monaco, and none pays for the others. Shared vendor code
 // (React, the router) is hoisted by Rollup into chunks all surfaces reuse.
+//
+// `bootSurface` guarantees a failed import/mount never leaves a blank pane: it
+// auto-reloads once (self-healing a restored page whose scheme token lapsed)
+// and otherwise renders a visible retry instead of nothing. See surfaceBoot.ts.
 const webviewKind = resolveWebviewKind();
-if (webviewKind === "agent-session") {
-  void import("./surfaces/agentSessionSurface").then((surface) => {
-    surface.mountAgentSessionSurface(rootElement);
-  });
-} else if (webviewKind === "editor") {
-  void import("./surfaces/editorSurface").then((surface) => surface.mountEditorSurface(rootElement));
-} else {
-  void import("./surfaces/diffSurface").then((surface) => {
-    surface.mountDiffSurface(rootElement);
-  });
-}
+const load =
+  webviewKind === "agent-session"
+    ? () => import("./surfaces/agentSessionSurface").then((s) => s.mountAgentSessionSurface)
+    : webviewKind === "editor"
+      ? () => import("./surfaces/editorSurface").then((s) => s.mountEditorSurface)
+      : () => import("./surfaces/diffSurface").then((s) => s.mountDiffSurface);
+
+void bootSurface({
+  root: rootElement,
+  kind: webviewKind,
+  load,
+  reload: () => window.location.reload(),
+  storage: window.sessionStorage,
+  onError: (message, error) => console.error(message, error),
+});
