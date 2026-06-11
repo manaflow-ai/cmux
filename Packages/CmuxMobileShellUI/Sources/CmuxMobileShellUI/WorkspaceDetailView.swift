@@ -276,13 +276,19 @@ struct WorkspaceDetailView: View {
 
         #if canImport(UIKit)
         Section {
-            Button(action: openTextSheetFromMenu) {
-                Label(
-                    L10n.string("mobile.terminal.viewAsText", defaultValue: "View as Text"),
-                    systemImage: "doc.plaintext"
-                )
+            // Only while the terminal pane is showing: in browser mode the
+            // terminal surface is dismantled (nothing to capture) and the
+            // sheet modifier lives on `detailContent`, so the armed flag
+            // would pop the sheet later when the browser closes.
+            if activeBrowser == nil {
+                Button(action: openTextSheetFromMenu) {
+                    Label(
+                        L10n.string("mobile.terminal.viewAsText", defaultValue: "View as Text"),
+                        systemImage: "doc.plaintext"
+                    )
+                }
+                .accessibilityIdentifier("MobileViewAsTextMenuItem")
             }
-            .accessibilityIdentifier("MobileViewAsTextMenuItem")
 
             #if DEBUG
             Button(action: copyDebugLogsFromMenu) {
