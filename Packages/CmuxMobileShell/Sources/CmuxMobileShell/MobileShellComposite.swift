@@ -257,10 +257,16 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// bumps that happen while the view is mounted; an explicit open (or a
     /// terminal switch while composing) bumps the token BEFORE the new composer
     /// view mounts, so the view's `onAppear` consumes this flag instead
-    /// (``consumePendingComposerFocusRequest()``). Default-open presentations
+    /// (``consumePendingComposerFocusRequest(for:)``). Default-open presentations
     /// never set it, which is exactly what keeps the keyboard down for them.
     /// Not observed: a handshake with the field, not view state.
     @ObservationIgnored private var composerFocusRequestPending = false
+    /// The terminal the pending ``composerFocusRequest`` targets (the selected
+    /// terminal at the moment the request was issued). Consumption is keyed on
+    /// it: during a terminal switch the OUTGOING composer view is still mounted
+    /// and observes the same token, so an unkeyed pending bit could be consumed
+    /// by the dying view and the incoming terminal's field would never focus.
+    @ObservationIgnored private var composerFocusRequestTerminalID: String?
     /// Whether the composer's text field currently holds first responder,
     /// mirrored from the view's `@FocusState` via
     /// ``composerFieldFocusChanged(_:)``. Read on terminal switches to decide
@@ -308,6 +314,12 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             // request, so a mere switch never pops the keyboard.
             if composerFieldIsFocused, isComposerPresented {
                 requestComposerFieldFocus()
+            } else {
+                // Any switch that does not arm a new handshake invalidates a
+                // stale unconsumed one, so a plain switch back to a terminal
+                // can never pop the keyboard off an old request.
+                composerFocusRequestPending = false
+                composerFocusRequestTerminalID = nil
             }
         }
     }
@@ -2180,23 +2192,34 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         composerFieldIsFocused = focused
     }
 
-    /// Consume the one-shot "focus the composer field" handshake, returning
-    /// whether a request was pending. The composer view calls this from
-    /// `onAppear` (a mount that follows an explicit open or a mid-compose
-    /// terminal switch) and from its `onChange` of ``composerFocusRequest`` (a
-    /// bump while already mounted), so a request is honored exactly once and a
-    /// later default-open remount never re-pops the keyboard.
-    public func consumePendingComposerFocusRequest() -> Bool {
-        defer { composerFocusRequestPending = false }
-        return composerFocusRequestPending
+    /// Consume the one-shot "focus the composer field" handshake for the
+    /// composer serving `terminalID`, returning whether a pending request
+    /// targeted that terminal. The composer view calls this from `onAppear` (a
+    /// mount that follows an explicit open or a mid-compose terminal switch)
+    /// and from its `onChange` of ``composerFocusRequest`` (a bump while
+    /// already mounted), so a request is honored exactly once and a later
+    /// default-open remount never re-pops the keyboard.
+    ///
+    /// Keyed on the target terminal: during a terminal switch the outgoing
+    /// composer view is still mounted and observes the same token bump, so a
+    /// mismatched consume returns `false` and leaves the request armed for the
+    /// incoming terminal's mount.
+    public func consumePendingComposerFocusRequest(for terminalID: String) -> Bool {
+        guard composerFocusRequestPending, composerFocusRequestTerminalID == terminalID else {
+            return false
+        }
+        composerFocusRequestPending = false
+        composerFocusRequestTerminalID = nil
+        return true
     }
 
     /// Ask the composer field to take focus: bump the token the mounted view
     /// observes and arm the pending flag a not-yet-mounted view consumes on
-    /// appear.
+    /// appear, keyed to the currently selected terminal.
     private func requestComposerFieldFocus() {
         composerFocusRequest &+= 1
         composerFocusRequestPending = true
+        composerFocusRequestTerminalID = selectedTerminalID?.rawValue
     }
 
     /// Single mutation path for the per-terminal presented state (the dismissed

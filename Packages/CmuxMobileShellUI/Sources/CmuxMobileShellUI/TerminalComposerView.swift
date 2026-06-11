@@ -31,14 +31,20 @@ import SwiftUI
 /// is gone because there is only one layout system (the surface).
 struct TerminalComposerView: View {
     @Bindable var store: CMUXMobileShellStore
+    /// The terminal this composer serves. Focus-request consumption is keyed on
+    /// it: during a terminal switch the outgoing composer is still mounted and
+    /// observes the same token, so only the view whose terminal matches the
+    /// request's target may consume it and focus.
+    let terminalID: String
     /// Asks the host to re-measure and re-size the surface's composer band. Fired
     /// whenever the field's content changes (the only driver of this view's height);
     /// the host measures the ideal height via `sizeThatFits` and animates the band.
     let requestHeightRemeasure: () -> Void
     @FocusState private var isFieldFocused: Bool
 
-    init(store: CMUXMobileShellStore, requestHeightRemeasure: @escaping () -> Void) {
+    init(store: CMUXMobileShellStore, terminalID: String, requestHeightRemeasure: @escaping () -> Void) {
         self.store = store
+        self.terminalID = terminalID
         self.requestHeightRemeasure = requestHeightRemeasure
     }
 
@@ -85,7 +91,7 @@ struct TerminalComposerView: View {
             // user was mid-compose). A default-open presentation arrives with no
             // pending request, so the field shows WITHOUT summoning the keyboard
             // — iMessage's input bar, visible but unfocused until tapped.
-            if store.consumePendingComposerFocusRequest() {
+            if store.consumePendingComposerFocusRequest(for: terminalID) {
                 focusField()
             }
         }
@@ -112,9 +118,11 @@ struct TerminalComposerView: View {
             // composer — the reveal-after-hide case, where the chrome and draft are
             // already back but the terminal proxy holds first responder. Driving
             // `@FocusState` here keeps it the single source of truth (the surface
-            // never touches the hosted UITextField directly). Consume the pending
-            // handshake too, so a later remount does not honor this request twice.
-            _ = store.consumePendingComposerFocusRequest()
+            // never touches the hosted UITextField directly). Consuming the keyed
+            // handshake guards the focus: an outgoing composer observing the same
+            // token during a terminal switch does not match the request's target,
+            // leaves it armed for the incoming mount, and must not focus itself.
+            guard store.consumePendingComposerFocusRequest(for: terminalID) else { return }
             focusField()
         }
     }

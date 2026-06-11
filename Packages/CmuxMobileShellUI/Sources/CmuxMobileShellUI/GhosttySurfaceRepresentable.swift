@@ -181,7 +181,7 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
         /// sizes the surface band.
         @MainActor
         private func makeComposerController(store: CMUXMobileShellStore) -> UIHostingController<TerminalComposerView> {
-            let view = TerminalComposerView(store: store) { [weak self] in
+            let view = TerminalComposerView(store: store, terminalID: surfaceID) { [weak self] in
                 // Content changed (a line added/removed, or cleared after send): live
                 // grows/shrinks animate. `setComposerBandHeight` is idempotent on
                 // unchanged heights, so a no-op change is harmless.
