@@ -5421,6 +5421,11 @@ final class TerminalSurface: Identifiable, ObservableObject {
     /// used tabs stay warm. Seeded at creation.
     private(set) var rendererLastVisibleAt: TimeInterval = Date().timeIntervalSince1970
 
+    /// Authoritative on-screen flag, driven by `setVisibleInUI` (the same signal
+    /// that drives Ghostty occlusion). The reclamation controller never releases
+    /// a surface whose portal is visible.
+    private var rendererPortalVisible = false
+
     /// Whether the runtime Ghostty surface exists and has not begun teardown.
     ///
     /// Use this as a quick availability check. Before passing `surface` to
@@ -7207,11 +7212,30 @@ final class TerminalSurface: Identifiable, ObservableObject {
     }
 
     /// Whether this surface currently holds realized GPU renderer resources.
-    /// Read by `RendererRealizationController` to skip already-released surfaces.
-    var isRendererRealized: Bool { rendererRealized }
+    /// Read by `RendererRealizationController` to skip surfaces with nothing to
+    /// release. Requires a live runtime surface — the `rendererRealized` flag
+    /// defaults to `true` even before `createSurface`, so gate on `surface`.
+    var isRendererRealized: Bool { surface != nil && rendererRealized }
 
-    /// Stamp the LRU "last visible" timestamp. Called when the surface becomes
-    /// visible in the UI so the reclamation controller keeps recent tabs warm.
+    /// Whether this surface's portal is currently visible in the UI. This is the
+    /// authoritative on-screen signal (the same one that drives occlusion via
+    /// `setVisibleInUI`), so the reclamation controller never releases a visible
+    /// surface even if higher-level layout bookkeeping is momentarily stale.
+    var isRendererPortalVisible: Bool { rendererPortalVisible }
+
+    /// Record the portal visibility transition for reclamation. Called from
+    /// `setVisibleInUI`. Becoming visible also stamps the LRU timestamp so
+    /// recently-used tabs stay warm.
+    func setRendererPortalVisible(_ visible: Bool) {
+        rendererPortalVisible = visible
+        if visible {
+            noteBecameVisibleForRendererReclamation()
+        }
+    }
+
+    /// Stamp the LRU "last visible" timestamp. The reclamation controller also
+    /// calls this each pass for surfaces that are currently visible so a
+    /// continuously-visible tab keeps a fresh timestamp and stays in the warm set.
     func noteBecameVisibleForRendererReclamation() {
         rendererLastVisibleAt = Date().timeIntervalSince1970
     }
@@ -7219,10 +7243,12 @@ final class TerminalSurface: Identifiable, ObservableObject {
     /// Release the runtime surface's GPU renderer (Metal swap chain / IOSurface)
     /// while keeping its PTY/io thread and terminal state alive. Driven by
     /// `RendererRealizationController` for offscreen, idle surfaces. Idempotent:
-    /// no-ops if there is no runtime surface or it is already released.
+    /// no-ops if there is no runtime surface, it is already released, or the
+    /// surface is currently visible (a hard safety net so we never blank an
+    /// on-screen terminal regardless of how the caller picked it).
     func releaseRenderer() {
 #if os(macOS)
-        guard let surface, rendererRealized else { return }
+        guard let surface, rendererRealized, !rendererPortalVisible else { return }
         rendererRealized = false
         ghostty_surface_set_renderer_realized(surface, false)
 #endif
@@ -14062,14 +14088,15 @@ final class GhosttySurfaceScrollView: NSView {
 
     func setVisibleInUI(_ visible: Bool) {
         let wasVisible = surfaceView.isVisibleInUI
-        // Re-realize the GPU renderer BEFORE marking the surface visible/occluded
-        // or kicking any draw, so we never draw into a swap chain that
-        // RendererRealizationController released while this surface was offscreen.
-        // realizeRenderer() is idempotent (no-op if there is no runtime surface or
-        // it is already realized), and stamping the LRU keeps recent tabs warm.
+        // Record portal visibility for renderer reclamation. When becoming
+        // visible, re-realize the GPU renderer BEFORE marking the surface
+        // visible/occluded or kicking any draw, so we never draw into a swap
+        // chain that RendererRealizationController released while this surface was
+        // offscreen. realizeRenderer() is idempotent (no-op if there is no runtime
+        // surface or it is already realized).
+        surfaceView.terminalSurface?.setRendererPortalVisible(visible)
         if visible {
             surfaceView.terminalSurface?.realizeRenderer()
-            surfaceView.terminalSurface?.noteBecameVisibleForRendererReclamation()
         }
         surfaceView.setVisibleInUI(visible)
         isHidden = !visible

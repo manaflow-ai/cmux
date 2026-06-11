@@ -12,8 +12,20 @@ When we change the fork, update this document and the parent submodule SHA.
 
 ## Current fork changes
 
-The fork was refreshed from upstream `main` again on May 1, 2026.
-Current cmux pinned fork head: `34cbf180d`, merging the surface registry
+Current cmux pinned fork head: `858e257f0`, which adds the Darwin-only
+`ghostty_surface_set_renderer_realized` C API (a `display_realized` renderer-thread
+mailbox message that drives `displayUnrealized()`/`displayRealized()`) on top of
+`34cbf180d`. cmux uses it to release an occluded terminal's GPU renderer
+resources (Metal swap chain / IOSurface) while keeping its PTY alive, then
+rebuild them on re-show. See manaflow-ai/ghostty branch
+`feat-renderer-realized-offscreen` and
+https://github.com/manaflow-ai/cmux/issues/4607. The prebuilt archive is
+published at
+https://github.com/manaflow-ai/ghostty/releases/tag/xcframework-858e257f030a09529895111e696885e4395afdc9-crashsubdir-cmux-crash-v1
+and pinned in `scripts/ghosttykit-checksums.txt`.
+
+The prior head was refreshed from upstream `main` on May 1, 2026.
+Earlier cmux pinned fork head: `34cbf180d`, merging the surface registry
 serialization for https://github.com/manaflow-ai/cmux/issues/5458 (`e5c962a72`,
 landed on cmux `main`) into the iOS render bounded-acquire line (`f78189ac1`)
 combined with the cmd-click link refresh under mouse reporting (`df789cd4b`,

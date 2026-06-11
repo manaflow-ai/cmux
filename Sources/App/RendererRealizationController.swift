@@ -113,24 +113,25 @@ final class RendererRealizationController {
     func evaluate(now: Date) {
         let settings = RendererRealizationSettings.values()
         guard settings.enabled else { return }
-        guard let appDelegate = AppDelegate.shared else { return }
 
-        let records = appDelegate.rendererRealizationRecords()
+        // Iterate the global registry rather than re-deriving per-workspace
+        // visibility: each TerminalSurface carries its own authoritative
+        // on-screen flag (driven by setVisibleInUI, the same signal that drives
+        // occlusion), so we never misclassify a visible surface as offscreen.
+        let surfaces = TerminalSurfaceRegistry.shared.allSurfaces()
 
-        // Stamp currently-visible surfaces so they rank at the top of the warm
-        // set (a continuously-visible surface might otherwise carry a stale
-        // timestamp). The planner also protects visible surfaces explicitly.
-        for record in records where record.isVisible {
-            record.surface.noteBecameVisibleForRendererReclamation()
+        // Keep currently-visible surfaces ranked at the top of the warm set.
+        for surface in surfaces where surface.isRendererPortalVisible {
+            surface.noteBecameVisibleForRendererReclamation()
         }
 
-        let inputs = records.compactMap { record -> RendererRealizationPlannerInput? in
-            guard record.surface.hasLiveSurface else { return nil }
+        let inputs = surfaces.compactMap { surface -> RendererRealizationPlannerInput? in
+            guard surface.hasLiveSurface else { return nil }
             return RendererRealizationPlannerInput(
-                surfaceId: record.surface.id,
-                isVisible: record.isVisible,
-                isRealized: record.surface.isRendererRealized,
-                lastVisibleAt: record.surface.rendererLastVisibleAt
+                surfaceId: surface.id,
+                isVisible: surface.isRendererPortalVisible,
+                isRealized: surface.isRendererRealized,
+                lastVisibleAt: surface.rendererLastVisibleAt
             )
         }
 
@@ -140,46 +141,8 @@ final class RendererRealizationController {
             now: now.timeIntervalSince1970
         )
         guard !selected.isEmpty else { return }
-        for record in records where selected.contains(record.surface.id) {
-            record.surface.releaseRenderer()
+        for surface in surfaces where selected.contains(surface.id) {
+            surface.releaseRenderer()
         }
-    }
-}
-
-extension AppDelegate {
-    /// Every live terminal surface across all windows/workspaces, tagged with
-    /// whether it is currently visible. Mirrors the visibility derivation in
-    /// `agentHibernationRecords` but covers all terminals, not just resumable
-    /// agents.
-    @MainActor
-    func rendererRealizationRecords() -> [(surface: TerminalSurface, isVisible: Bool)] {
-        var records: [(surface: TerminalSurface, isVisible: Bool)] = []
-        var seenManagers: Set<ObjectIdentifier> = []
-
-        func visit(tabManager manager: TabManager, visibleWorkspaceId: UUID?) {
-            let managerId = ObjectIdentifier(manager)
-            guard seenManagers.insert(managerId).inserted else { return }
-            for workspace in manager.tabs {
-                let workspaceIsVisible = visibleWorkspaceId == workspace.id
-                let visiblePanelIds = workspaceIsVisible
-                    ? workspace.agentHibernationVisiblePanelIdsForCurrentLayout()
-                    : []
-                for (panelId, panel) in workspace.panels {
-                    guard let terminalPanel = panel as? TerminalPanel else { continue }
-                    let isVisible = workspaceIsVisible && visiblePanelIds.contains(panelId)
-                    records.append((surface: terminalPanel.surface, isVisible: isVisible))
-                }
-            }
-        }
-
-        for context in mainWindowContexts.values {
-            let visibleWorkspaceId = context.window?.isVisible == true ? context.tabManager.selectedTabId : nil
-            visit(tabManager: context.tabManager, visibleWorkspaceId: visibleWorkspaceId)
-        }
-        if let tabManager {
-            visit(tabManager: tabManager, visibleWorkspaceId: nil)
-        }
-
-        return records
     }
 }
