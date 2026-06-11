@@ -416,7 +416,11 @@ jobs:
           # convergence, etc.) are a real CI gate, not just compiled.
           # Scoped to packages that build headlessly via SwiftPM (no GhosttyKit /
           # app-target dependency). Add a package here once its `swift test`
-          # is confirmed to resolve standalone.
+          # is confirmed to resolve standalone. CmuxTerminalCore is the one
+          # GhosttyKit-referencing exception: its binaryTarget only needs the
+          # xcframework present at the repo root (downloaded earlier in this
+          # job), and its test runner links a C stub for the @_silgen_name
+          # symbol instead of the GhosttyKit archive.
           PACKAGES=(
             CMUXAuthCore
             CmuxAuthRuntime
@@ -428,6 +432,7 @@ jobs:
             CmuxSettings
             CmuxSettingsUI
             CmuxSocketControl
+            CmuxTerminalCore
             CmuxUpdater
             CMUXAgentLaunch
           )
