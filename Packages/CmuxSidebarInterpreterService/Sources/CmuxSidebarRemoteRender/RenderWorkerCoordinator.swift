@@ -3,6 +3,7 @@ import CmuxSidebarInterpreterClient
 import CmuxSwiftRender
 import CmuxSwiftRenderUI
 import Observation
+import QuartzCore
 import SwiftUI
 
 /// The render worker's main-actor state machine: owns the offscreen surface
@@ -66,7 +67,8 @@ final class RenderWorkerCoordinator {
 
     private func debugLog(_ message: @autoclosure () -> String) {
         guard debugEnabled else { return }
-        FileHandle.standardError.write(Data("render-worker: \(message())\n".utf8))
+        let timestamp = String(format: "%.3f", CACurrentMediaTime() * 1000)
+        FileHandle.standardError.write(Data("render-worker: [t=\(timestamp)ms] \(message())\n".utf8))
     }
 
     /// Applies one host message. Called from a single FIFO consumer, so
@@ -155,7 +157,8 @@ final class RenderWorkerCoordinator {
         let size = NSSize(width: geometry.width, height: geometry.height)
         window.setContentSize(size)
         hosting.frame = NSRect(origin: .zero, size: size)
-        pump()
+        debugLog("geometry applied \(Int(geometry.width))x\(Int(geometry.height))@\(geometry.scale)")
+        pump(reason: "geometry")
     }
 
     /// Re-arms Observation on the model so disk reloads (kqueue → model state
@@ -221,7 +224,8 @@ final class RenderWorkerCoordinator {
             }
         }
         hosting.rootView = currentContent(state: displayState)
-        pump()
+        debugLog("rootView republished (scene refresh)")
+        pump(reason: "refresh")
     }
 
     private func currentContent(state: CustomSidebarModel.State? = nil) -> RemoteWorkerRootView {
@@ -235,6 +239,9 @@ final class RenderWorkerCoordinator {
             ),
             onTapTargetsChange: { [weak self] targets in
                 self?.tapTargets = targets
+                self?.debugLog(
+                    "tap targets updated count=\(targets.count) maxX=\(Int(targets.map(\.frame.maxX).max() ?? 0))"
+                )
             }
         )
     }
@@ -242,8 +249,9 @@ final class RenderWorkerCoordinator {
     /// Forces the offscreen view tree through layout and commits the layer
     /// tree to the window server. The explicit flush is the worker's display
     /// driver — there is no on-screen window to drive one.
-    private func pump() {
+    private func pump(reason: StaticString = "message") {
         guard let window, let hosting else { return }
+        let start = CACurrentMediaTime()
         window.layoutIfNeeded()
         hosting.layoutSubtreeIfNeeded()
         if let layer = hosting.layer, geometry.scale != 1 {
@@ -259,6 +267,9 @@ final class RenderWorkerCoordinator {
             remoteContext.layer = layer
         }
         CATransaction.flush()
+        debugLog(
+            "pump committed reason=\(reason) bounds=\(Int(hosting.bounds.width))x\(Int(hosting.bounds.height)) took=\(String(format: "%.2f", (CACurrentMediaTime() - start) * 1000))ms"
+        )
     }
 
     // MARK: - Input
