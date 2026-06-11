@@ -88,6 +88,9 @@ jobs:
       - name: Validate Swift file length budget
         run: python3 scripts/swift_file_length_budget.py --budget .github/swift-file-length-budget.tsv
 
+      - name: Validate ObservableObject ban
+        run: python3 scripts/lint_no_observable_object.py
+
   remote-daemon-tests:
     runs-on: ubuntu-latest
     steps:

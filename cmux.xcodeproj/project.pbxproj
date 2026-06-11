@@ -1816,6 +1816,7 @@
 		8F1C943466D472AA33A9B97E /* WorkspaceRemoteDaemonRPCClient+StreamsAndPTY.swift in Sources */ = {isa = PBXBuildFile; fileRef = 026B2EBAE84AF5262B4C21B2 /* WorkspaceRemoteDaemonRPCClient+StreamsAndPTY.swift */; };
 		AEB4B8559CE1E4B2FC72DC1D /* WorkspaceRemoteDaemonRPCClient+Transport.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0C560B52713D898F9C705B53 /* WorkspaceRemoteDaemonRPCClient+Transport.swift */; };
 		9B113AB68A5B50748CF1D5D9 /* WorkspaceRemoteDaemonRPCClient+Wire.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8593B17345CA32E0654CD6B2 /* WorkspaceRemoteDaemonRPCClient+Wire.swift */; };
+		30E404EC0AAE24D5992949B4 /* WorkspaceRemoteDaemonRPCClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = E4411768E8299DFDD993E0CE /* WorkspaceRemoteDaemonRPCClient.swift */; };
 		A41E9DAA74C20EF4189B18EA /* WorkspaceRemoteDaemonRPCSupport.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7E6B6ED321F95E040656787B /* WorkspaceRemoteDaemonRPCSupport.swift */; };
 		EB2B6AD7C763D23584ECC5B9 /* WorkspaceRemoteModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = FB7B386FDD182AE1F1D97102 /* WorkspaceRemoteModels.swift */; };
 		914BBD2FA549BC5BDDAD45BA /* WorkspaceRemoteProxyBroker.swift in Sources */ = {isa = PBXBuildFile; fileRef = 349B96FCCFB2B5C96D224E0C /* WorkspaceRemoteProxyBroker.swift */; };
@@ -1828,6 +1829,7 @@
 		3E49CFC045B1976DE60FA467 /* WorkspaceRemoteSessionController+PTYBridge.swift in Sources */ = {isa = PBXBuildFile; fileRef = C29089AD5A0D473B4FA98F3D /* WorkspaceRemoteSessionController+PTYBridge.swift */; };
 		341817B757CD64E3DD7BC5DC /* WorkspaceRemoteSessionController+RelayScripts.swift in Sources */ = {isa = PBXBuildFile; fileRef = 33C19888C4D884451C7DFF66 /* WorkspaceRemoteSessionController+RelayScripts.swift */; };
 		D811FBD967AC1A52DEDAC175 /* WorkspaceRemoteSessionController+ReverseRelay.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0208AB73FA0496248E571186 /* WorkspaceRemoteSessionController+ReverseRelay.swift */; };
+		F65D25F6B113BA73402AC883 /* WorkspaceRemoteSessionController.swift in Sources */ = {isa = PBXBuildFile; fileRef = CB24407B0DBC5C9D6831B50A /* WorkspaceRemoteSessionController.swift */; };
 		E30770000000000000000002 /* WorkspaceRemoteSSHBatchCommandBuilder.swift in Sources */ = {isa = PBXBuildFile; fileRef = E30770000000000000000001 /* WorkspaceRemoteSSHBatchCommandBuilder.swift */; };
 		BF74A13EF415EF02E25655CF /* WorkspaceRemoteSSHCleanupTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 13F04C76D3ECAD4567E34A5F /* WorkspaceRemoteSSHCleanupTests.swift */; };
 		A84FB3701206273DCF2EB6A9 /* WorkspaceRenameShortcutDefaultsTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9C805CF33307D857CC3A34C0 /* WorkspaceRenameShortcutDefaultsTests.swift */; };
@@ -3683,6 +3685,7 @@
 		026B2EBAE84AF5262B4C21B2 /* WorkspaceRemoteDaemonRPCClient+StreamsAndPTY.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "WorkspaceRemoteDaemonRPCClient+StreamsAndPTY.swift"; sourceTree = "<group>"; };
 		0C560B52713D898F9C705B53 /* WorkspaceRemoteDaemonRPCClient+Transport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "WorkspaceRemoteDaemonRPCClient+Transport.swift"; sourceTree = "<group>"; };
 		8593B17345CA32E0654CD6B2 /* WorkspaceRemoteDaemonRPCClient+Wire.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "WorkspaceRemoteDaemonRPCClient+Wire.swift"; sourceTree = "<group>"; };
+		E4411768E8299DFDD993E0CE /* WorkspaceRemoteDaemonRPCClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceRemoteDaemonRPCClient.swift; sourceTree = "<group>"; };
 		7E6B6ED321F95E040656787B /* WorkspaceRemoteDaemonRPCSupport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceRemoteDaemonRPCSupport.swift; sourceTree = "<group>"; };
 		FB7B386FDD182AE1F1D97102 /* WorkspaceRemoteModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceRemoteModels.swift; sourceTree = "<group>"; };
 		349B96FCCFB2B5C96D224E0C /* WorkspaceRemoteProxyBroker.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceRemoteProxyBroker.swift; sourceTree = "<group>"; };
@@ -3695,6 +3698,7 @@
 		C29089AD5A0D473B4FA98F3D /* WorkspaceRemoteSessionController+PTYBridge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "WorkspaceRemoteSessionController+PTYBridge.swift"; sourceTree = "<group>"; };
 		33C19888C4D884451C7DFF66 /* WorkspaceRemoteSessionController+RelayScripts.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "WorkspaceRemoteSessionController+RelayScripts.swift"; sourceTree = "<group>"; };
 		0208AB73FA0496248E571186 /* WorkspaceRemoteSessionController+ReverseRelay.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "WorkspaceRemoteSessionController+ReverseRelay.swift"; sourceTree = "<group>"; };
+		CB24407B0DBC5C9D6831B50A /* WorkspaceRemoteSessionController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceRemoteSessionController.swift; sourceTree = "<group>"; };
 		E30770000000000000000001 /* WorkspaceRemoteSSHBatchCommandBuilder.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceRemoteSSHBatchCommandBuilder.swift; sourceTree = "<group>"; };
 		13F04C76D3ECAD4567E34A5F /* WorkspaceRemoteSSHCleanupTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceRemoteSSHCleanupTests.swift; sourceTree = "<group>"; };
 		9C805CF33307D857CC3A34C0 /* WorkspaceRenameShortcutDefaultsTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceRenameShortcutDefaultsTests.swift; sourceTree = "<group>"; };
@@ -4258,6 +4262,8 @@
 				A5001511 /* UITestRecorder.swift */,
 				A5001520 /* PostHogAnalytics.swift */,
 				A5001416 /* Workspace.swift */,
+				CB24407B0DBC5C9D6831B50A /* WorkspaceRemoteSessionController.swift */,
+				E4411768E8299DFDD993E0CE /* WorkspaceRemoteDaemonRPCClient.swift */,
 				9B1E654D21D8E02D4FBD2E7D /* Workspace+SurfaceTabBarCommands.swift */,
 				DA7D249003153AFA6DA7CA40 /* Workspace+BonsplitTabBarDelegate.swift */,
 				527DE1BB342247953EA9F956 /* Workspace+TabSelection.swift */,
@@ -7061,6 +7067,7 @@
 				8F1C943466D472AA33A9B97E /* WorkspaceRemoteDaemonRPCClient+StreamsAndPTY.swift in Sources */,
 				AEB4B8559CE1E4B2FC72DC1D /* WorkspaceRemoteDaemonRPCClient+Transport.swift in Sources */,
 				9B113AB68A5B50748CF1D5D9 /* WorkspaceRemoteDaemonRPCClient+Wire.swift in Sources */,
+				30E404EC0AAE24D5992949B4 /* WorkspaceRemoteDaemonRPCClient.swift in Sources */,
 				A41E9DAA74C20EF4189B18EA /* WorkspaceRemoteDaemonRPCSupport.swift in Sources */,
 				EB2B6AD7C763D23584ECC5B9 /* WorkspaceRemoteModels.swift in Sources */,
 				914BBD2FA549BC5BDDAD45BA /* WorkspaceRemoteProxyBroker.swift in Sources */,
@@ -7073,6 +7080,7 @@
 				3E49CFC045B1976DE60FA467 /* WorkspaceRemoteSessionController+PTYBridge.swift in Sources */,
 				341817B757CD64E3DD7BC5DC /* WorkspaceRemoteSessionController+RelayScripts.swift in Sources */,
 				D811FBD967AC1A52DEDAC175 /* WorkspaceRemoteSessionController+ReverseRelay.swift in Sources */,
+				F65D25F6B113BA73402AC883 /* WorkspaceRemoteSessionController.swift in Sources */,
 				E30770000000000000000002 /* WorkspaceRemoteSSHBatchCommandBuilder.swift in Sources */,
 				619D509BC9B1EA946CBD6A8A /* WorkspaceRuntimeSettings.swift in Sources */,
 				6E5426D436591C385A9166CB /* WorkspaceSettings.swift in Sources */,
