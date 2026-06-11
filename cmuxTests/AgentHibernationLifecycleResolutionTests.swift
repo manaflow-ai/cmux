@@ -19,12 +19,15 @@ import Testing
         #expect(Lifecycle.resolved(from: [Lifecycle](), fallback: .needsInput) == .needsInput)
     }
 
-    /// The core fix: a definitive `idle` must not be masked by an `unknown`
-    /// source. Previously `unknown` outranked `idle`, so any agent that also
-    /// reported an indeterminate status never hibernated.
-    @Test func resolvedPrefersIdleOverUnknown() {
-        #expect(Lifecycle.resolved(from: [.unknown, .idle], fallback: nil) == .idle)
-        #expect(Lifecycle.resolved(from: [.idle, .unknown], fallback: nil) == .idle)
+    /// `unknown` from any source blocks `idle` — a stale `.idle` key on the same
+    /// panel must not make it hibernation-eligible while another key is in an
+    /// indeterminate state. In practice each panel has one agent key at a time
+    /// (the other is cleared at session end), so `preservingDefinitive` in
+    /// `setAgentLifecycle` already prevents a `.unknown` SessionStart from
+    /// overwriting a legitimate `.idle` for the same key.
+    @Test func resolvedUnknownBlocksIdle() {
+        #expect(Lifecycle.resolved(from: [.unknown, .idle], fallback: nil) == .unknown)
+        #expect(Lifecycle.resolved(from: [.idle, .unknown], fallback: nil) == .unknown)
     }
 
     @Test func resolvedKeepsBusyAndBlockedAboveIdle() {

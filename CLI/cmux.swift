@@ -447,7 +447,7 @@ private struct ClaudeHookSessionRecord: Codable {
     var updatedAt: TimeInterval
     // Only advances when agentLifecycle is set to a definitive value (.idle/.running/.needsInput).
     // Unlike updatedAt, does NOT advance on .unknown SessionStart upserts.
-    var lifecycleUpdatedAt: TimeInterval?
+    var lifecycleUpdatedAt: TimeInterval? = nil
 }
 
 private struct ClaudeHookActiveSessionRecord: Codable {
