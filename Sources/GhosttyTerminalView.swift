@@ -7256,8 +7256,14 @@ final class TerminalSurface: Identifiable, ObservableObject {
         // This self-heals a stale wrapper whose runtime surface was freed
         // out-of-band rather than passing a dangling pointer to Ghostty.
         guard let surface = liveSurfaceForGhosttyAccess(reason: "renderer.release") else { return }
-        rendererRealized = false
-        ghostty_surface_set_renderer_realized(surface, false)
+        // Only advance our mirror state when the message was actually enqueued
+        // (a `.forever` push can still drop on a spurious wakeup while the
+        // mailbox is full). If it dropped, keep `rendererRealized = true` so the
+        // controller retries on its next pass rather than desyncing from
+        // Ghostty's still-realized swap chain.
+        if ghostty_surface_set_renderer_realized(surface, false) {
+            rendererRealized = false
+        }
 #endif
     }
 
@@ -7275,8 +7281,13 @@ final class TerminalSurface: Identifiable, ObservableObject {
         // createSurface re-creates a fresh realized surface, so we never
         // double-realize a defunct swap chain.
         guard let surface = liveSurfaceForGhosttyAccess(reason: "renderer.realize") else { return }
-        rendererRealized = true
-        ghostty_surface_set_renderer_realized(surface, true)
+        // Only advance our mirror state on a successful enqueue (see
+        // releaseRenderer). If it dropped, `rendererRealized` stays false; the
+        // controller's safety net re-realizes any visible-but-unrealized surface
+        // on its next pass so a re-shown terminal cannot stay blank.
+        if ghostty_surface_set_renderer_realized(surface, true) {
+            rendererRealized = true
+        }
 #endif
     }
 

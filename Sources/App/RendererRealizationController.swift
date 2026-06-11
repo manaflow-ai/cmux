@@ -82,9 +82,17 @@ final class RendererRealizationController {
         // occlusion), so we never misclassify a visible surface as offscreen.
         let surfaces = TerminalSurfaceRegistry.shared.allSurfaces()
 
-        // Keep currently-visible surfaces ranked at the top of the warm set.
+        // Keep currently-visible surfaces ranked at the top of the warm set, and
+        // re-realize any that are visible but not realized. setVisibleInUI
+        // normally realizes on re-show, but its enqueue can drop (a `.forever`
+        // mailbox push can fail on a spurious wakeup while full), which would
+        // leave a visible terminal drawing into a defunct swap chain. This pass
+        // self-heals that within one tick. realizeRenderer is idempotent.
         for surface in surfaces where surface.isRendererPortalVisible {
             surface.noteBecameVisibleForRendererReclamation()
+            if surface.hasLiveSurface, !surface.isRendererRealized {
+                surface.realizeRenderer()
+            }
         }
 
         let inputs = surfaces.compactMap { surface -> RendererRealizationPlannerInput? in
