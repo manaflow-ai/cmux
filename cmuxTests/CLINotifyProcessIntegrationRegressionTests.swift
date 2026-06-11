@@ -715,6 +715,77 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         )
     }
 
+    func testClaudeStaleStopFromClosedPaneStaysStaleWhenSurfaceResolutionFallsBack() throws {
+        let context = try makeClaudeHookContext(name: "claude-stale-stop-fallback")
+        defer { context.cleanup() }
+
+        let staleSessionId = "stale-session"
+        let closedSurfaceId = "99999999-9999-9999-9999-999999999999"
+        let activeSessionId = "active-session"
+        let activeSurfaceId = "88888888-8888-8888-8888-888888888888"
+        let now = Date().timeIntervalSince1970
+        let store: [String: Any] = [
+            "version": 1,
+            "sessions": [
+                staleSessionId: [
+                    "sessionId": staleSessionId,
+                    "workspaceId": context.workspaceId,
+                    "surfaceId": closedSurfaceId,
+                    "cwd": context.root.path,
+                    "agentLifecycle": "running",
+                    "startedAt": now,
+                    "updatedAt": now,
+                ],
+                activeSessionId: [
+                    "sessionId": activeSessionId,
+                    "workspaceId": context.workspaceId,
+                    "surfaceId": activeSurfaceId,
+                    "cwd": context.root.path,
+                    "agentLifecycle": "running",
+                    "startedAt": now,
+                    "updatedAt": now,
+                ],
+            ],
+            "activeSessionsByWorkspace": [
+                context.workspaceId: [
+                    "sessionId": activeSessionId,
+                    "updatedAt": now,
+                ],
+            ],
+        ]
+        try JSONSerialization.data(withJSONObject: store, options: [.prettyPrinted])
+            .write(
+                to: context.root.appendingPathComponent("claude-hook-sessions.json"),
+                options: .atomic
+            )
+
+        // The stale session's pane is closed: it is not in surface.list, so
+        // surface resolution falls back to the focused surface (a third pane).
+        // The cross-surface staleness gate must not treat that borrowed pane as
+        // the hook's own surface — the late Stop has to stay stale.
+        let result = runClaudeHookListingSurfaces(
+            context: context,
+            surfaceIds: [context.surfaceId, activeSurfaceId],
+            arguments: ["hooks", "claude", "stop"],
+            standardInput: #"{"session_id":"\#(staleSessionId)","cwd":"\#(context.root.path)","hook_event_name":"Stop","last_assistant_message":"late stop"}"#,
+            extraEnvironment: ["CMUX_SURFACE_ID": closedSurfaceId]
+        )
+        XCTAssertFalse(result.timedOut, result.stderr)
+        XCTAssertEqual(result.status, 0, result.stderr)
+
+        let staleRecord = try readClaudeHookSession(staleSessionId, context: context)
+        XCTAssertEqual(
+            staleRecord["surfaceId"] as? String,
+            closedSurfaceId,
+            "A stale hook resolved to a fallback surface must not retarget the session record to a pane it never owned"
+        )
+        XCTAssertEqual(
+            staleRecord["agentLifecycle"] as? String,
+            "running",
+            "A late Stop from a closed pane must stay stale when surface resolution fell back to another pane"
+        )
+    }
+
     func testClaudeParentPaneStopAppliesAfterForkedSessionPromoted() throws {
         let context = try makeClaudeHookContext(name: "claude-fork-parent-stop")
         defer { context.cleanup() }
