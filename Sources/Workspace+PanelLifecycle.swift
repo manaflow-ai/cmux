@@ -261,6 +261,23 @@ extension Workspace {
         recomputeListeningPorts()
     }
 
+    /// Status keys that currently have a coupled agent PID / ownership record,
+    /// i.e. statuses backed by a live (or recently pinged) agent process. The
+    /// status cap ranks these ahead of plain telemetry so a noisy flood of
+    /// distinct keys can't evict an active agent status that kept its original
+    /// insertion timestamp because its `set_status --pid` re-pings were display
+    /// no-ops (#5845).
+    func statusKeysWithCoupledAgentRuntime() -> Set<String> {
+        var keys = Set<String>()
+        for pidKey in agentPIDs.keys {
+            keys.insert(agentStatusKey(forAgentPIDKey: pidKey))
+        }
+        for pidKey in agentPIDPanelIdsByKey.keys {
+            keys.insert(agentStatusKey(forAgentPIDKey: pidKey))
+        }
+        return keys
+    }
+
     /// Clears the agent PID runtime state coupled to status keys that the sidebar
     /// status cap is about to evict. `set_status --pid` records PIDs under keys
     /// derived from the status key (`agentStatusKey(forAgentPIDKey:)`), so evicting

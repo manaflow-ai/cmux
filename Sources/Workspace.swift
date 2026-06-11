@@ -14474,16 +14474,22 @@ final class Workspace: Identifiable, ObservableObject {
     static let maxSidebarStatusEntries = 200
     static let maxSidebarMetadataBlocks = 200
 
-    /// Evicts the lowest-priority, then oldest, status entries once the cap is
-    /// exceeded so retention follows the same priority/timestamp ordering as
-    /// `sidebarStatusEntriesInDisplayOrder()`: high-priority and recent entries
-    /// survive. Ranking and the keep-set are both keyed by the dictionary's
-    /// storage key (not `entry.key`) so the two can never diverge.
+    /// Evicts status entries once the cap is exceeded. Statuses backed by a live
+    /// coupled agent PID are retained first (so an actively re-pinged agent
+    /// status that kept its original insertion timestamp can't be aged out by a
+    /// flood of newer distinct keys), then the rest follow the same
+    /// priority/timestamp ordering as `sidebarStatusEntriesInDisplayOrder()`.
+    /// Ranking and the keep-set are both keyed by the dictionary's storage key
+    /// (not `entry.key`) so the two can never diverge.
     private func trimSidebarStatusEntriesIfNeeded() {
         guard statusEntries.count > Self.maxSidebarStatusEntries else { return }
+        let liveAgentStatusKeys = statusKeysWithCoupledAgentRuntime()
         let kept = Set(
             statusEntries
                 .sorted { lhs, rhs in
+                    let lhsLive = liveAgentStatusKeys.contains(lhs.key)
+                    let rhsLive = liveAgentStatusKeys.contains(rhs.key)
+                    if lhsLive != rhsLive { return lhsLive }
                     if lhs.value.priority != rhs.value.priority { return lhs.value.priority > rhs.value.priority }
                     if lhs.value.timestamp != rhs.value.timestamp { return lhs.value.timestamp > rhs.value.timestamp }
                     return lhs.key < rhs.key

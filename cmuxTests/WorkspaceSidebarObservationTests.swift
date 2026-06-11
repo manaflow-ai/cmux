@@ -150,20 +150,18 @@ final class WorkspaceSidebarObservationTests: XCTestCase {
         let workspace = Workspace()
         let cap = 200
 
-        // The oldest status key carries an agent PID and will be evicted first.
-        workspace.statusEntries["key_0"] = SidebarStatusEntry(
-            key: "key_0",
-            value: "value_0",
-            timestamp: Date(timeIntervalSince1970: 0)
-        )
-        _ = workspace.recordAgentPID(key: "key_0", pid: 4242, panelId: nil, refreshPorts: false)
-        XCTAssertEqual(
-            workspace.agentPIDs["key_0"],
-            4242,
-            "Precondition: the status key should have a coupled agent PID"
-        )
-
-        for index in 1..<(cap * 3) {
+        // Every key is backed by a live agent PID, so the cap must still evict
+        // the oldest and purge its coupled agent PID state. PIDs are recorded
+        // first so all keys count as live when the cap trims.
+        for index in 0...cap {
+            _ = workspace.recordAgentPID(
+                key: "key_\(index)",
+                pid: pid_t(4000 + index),
+                panelId: nil,
+                refreshPorts: false
+            )
+        }
+        for index in 0...cap {
             workspace.statusEntries["key_\(index)"] = SidebarStatusEntry(
                 key: "key_\(index)",
                 value: "value_\(index)",
@@ -171,6 +169,7 @@ final class WorkspaceSidebarObservationTests: XCTestCase {
             )
         }
 
+        XCTAssertLessThanOrEqual(workspace.statusEntries.count, cap)
         XCTAssertNil(
             workspace.statusEntries["key_0"],
             "The oldest status entry must be evicted once the cap is exceeded"
@@ -219,6 +218,43 @@ final class WorkspaceSidebarObservationTests: XCTestCase {
         XCTAssertNil(
             workspace.agentPIDs["victim"],
             "A PID for a status key that did not survive the cap must not be recorded"
+        )
+    }
+
+    // `set_status key Running --pid=...` re-pings are display no-ops, so a live
+    // agent status keeps its original (old) insertion timestamp. A pure
+    // timestamp cap would evict it under a flood of newer distinct keys, hiding a
+    // live agent. Statuses backed by a coupled agent PID must be retained (#5845).
+    func testStatusCapRetainsLiveAgentBackedStatusOverNewerKeys() {
+        let workspace = Workspace()
+        let cap = 200
+
+        // Oldest possible timestamp, but backed by a live agent PID.
+        workspace.statusEntries["claude_code"] = SidebarStatusEntry(
+            key: "claude_code",
+            value: "Running",
+            timestamp: Date(timeIntervalSince1970: 0)
+        )
+        _ = workspace.recordAgentPID(key: "claude_code", pid: 9001, panelId: nil, refreshPorts: false)
+
+        // Flood with newer, distinct, non-agent telemetry keys.
+        for index in 0..<(cap * 2) {
+            workspace.statusEntries["key_\(index)"] = SidebarStatusEntry(
+                key: "key_\(index)",
+                value: "value_\(index)",
+                timestamp: Date(timeIntervalSince1970: TimeInterval(index + 100))
+            )
+        }
+
+        XCTAssertLessThanOrEqual(workspace.statusEntries.count, cap)
+        XCTAssertNotNil(
+            workspace.statusEntries["claude_code"],
+            "A live agent-backed status must survive the cap even with an older timestamp"
+        )
+        XCTAssertEqual(
+            workspace.agentPIDs["claude_code"],
+            9001,
+            "The retained live status must keep its coupled agent PID"
         )
     }
 }
