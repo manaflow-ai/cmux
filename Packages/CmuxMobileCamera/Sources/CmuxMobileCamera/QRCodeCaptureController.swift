@@ -67,13 +67,20 @@ public final class QRCodeCaptureController: UIViewController {
     }
 
     private func configureSession() {
-        guard let videoDevice = AVCaptureDevice.default(for: .video),
+        guard let videoDevice = Self.bestCameraDevice(),
               let videoInput = try? AVCaptureDeviceInput(device: videoDevice),
               captureSession.canAddInput(videoInput) else {
             showUnavailable()
             return
         }
         captureSession.addInput(videoInput)
+        // More pixels give the detector more modules to resolve; 1080p is
+        // ample for a pairing code at arm's length without 4K's latency and
+        // heat. Falls back to the device default when unsupported.
+        if captureSession.canSetSessionPreset(.hd1920x1080) {
+            captureSession.sessionPreset = .hd1920x1080
+        }
+        Self.tuneForScreenQRScanning(videoDevice)
 
         let metadataOutput = AVCaptureMetadataOutput()
         guard captureSession.canAddOutput(metadataOutput) else {
@@ -83,6 +90,13 @@ public final class QRCodeCaptureController: UIViewController {
         captureSession.addOutput(metadataOutput)
         metadataOutput.setMetadataObjectsDelegate(receiver, queue: .main)
         metadataOutput.metadataObjectTypes = [.qr]
+        // rectOfInterest is deliberately left at its default, the full
+        // frame. It is expressed in normalized landscape-oriented capture
+        // coordinates, not view coordinates: anyone scoping it to an
+        // on-screen viewfinder must convert through the preview layer's
+        // metadataOutputRectConverted(fromLayerRect:), or the scan region
+        // will not be where the box is drawn and codes that look centered
+        // will not decode.
 
         let layer = AVCaptureVideoPreviewLayer(session: captureSession)
         layer.videoGravity = .resizeAspectFill
@@ -90,6 +104,59 @@ public final class QRCodeCaptureController: UIViewController {
         view.layer.addSublayer(layer)
         previewLayer = layer
         isConfigured = true
+    }
+
+    /// The camera closest to what the system Camera app uses for QR
+    /// scanning: a virtual multi-lens device switches constituent cameras
+    /// automatically, including to the close-focusing ultra-wide. A bare
+    /// wide-angle on recent Pro phones cannot focus nearer than roughly
+    /// 20 cm — exactly where people hold the phone to a code on a Mac
+    /// screen — so it hunts while the Camera app quietly switches lenses.
+    private static func bestCameraDevice() -> AVCaptureDevice? {
+        let preferredTypes: [AVCaptureDevice.DeviceType] = [
+            .builtInTripleCamera,
+            .builtInDualWideCamera,
+            .builtInDualCamera,
+            .builtInWideAngleCamera,
+        ]
+        for deviceType in preferredTypes {
+            if let device = AVCaptureDevice.default(deviceType, for: .video, position: .back) {
+                return device
+            }
+        }
+        return AVCaptureDevice.default(for: .video)
+    }
+
+    /// Focus and exposure tuning for a code shown on a backlit screen at
+    /// arm's length: continuous autofocus restricted to the near range (less
+    /// hunting at infinity), smooth autofocus off (a video-recording nicety
+    /// that slows refocus snaps), continuous exposure, and low-light boost
+    /// for dim rooms. Best-effort: every step is capability-guarded, and
+    /// defaults still scan if the lock fails. No torch on purpose — the Mac
+    /// screen is its own light source, and a torch reflecting off glossy
+    /// glass washes the code out.
+    private static func tuneForScreenQRScanning(_ device: AVCaptureDevice) {
+        do {
+            try device.lockForConfiguration()
+        } catch {
+            return
+        }
+        defer { device.unlockForConfiguration() }
+        if device.isFocusModeSupported(.continuousAutoFocus) {
+            device.focusMode = .continuousAutoFocus
+        }
+        if device.isAutoFocusRangeRestrictionSupported {
+            device.autoFocusRangeRestriction = .near
+        }
+        if device.isSmoothAutoFocusSupported {
+            device.isSmoothAutoFocusEnabled = false
+        }
+        if device.isExposureModeSupported(.continuousAutoExposure) {
+            device.exposureMode = .continuousAutoExposure
+        }
+        if device.isLowLightBoostSupported {
+            device.automaticallyEnablesLowLightBoostWhenAvailable = true
+        }
     }
 
     private func startSession() {
