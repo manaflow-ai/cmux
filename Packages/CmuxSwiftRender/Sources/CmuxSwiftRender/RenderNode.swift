@@ -72,13 +72,6 @@ public struct RenderNode: Codable, Sendable, Equatable {
         case linearGradient
         case radialGradient
         case angularGradient
-        /// SPIKE STUB (not for merge): `TextField("placeholder", text: $name)`.
-        /// ``text`` is the placeholder, ``binding`` the `$`-stripped binding
-        /// name. The static IR has no binding concept, so the in-process
-        /// bridge backs this with view-local state purely to prove input
-        /// fidelity (typing, focus ring) through the in-process mount; the
-        /// typed value never round-trips into the interpreter environment.
-        case textField
     }
 
     public var kind: Kind
@@ -100,9 +93,6 @@ public struct RenderNode: Codable, Sendable, Equatable {
     public var action: ButtonAction?
     /// Drag-and-drop reorder spec for `.reorderable` nodes.
     public var reorder: ReorderSpec?
-    /// SPIKE STUB (not for merge): the `$`-stripped binding identifier of a
-    /// `.textField` node (`$name` -> `"name"`).
-    public var binding: String?
 
     public init(
         kind: Kind,
@@ -116,8 +106,7 @@ public struct RenderNode: Codable, Sendable, Equatable {
         children: [RenderNode] = [],
         modifiers: [RenderModifier] = [],
         action: ButtonAction? = nil,
-        reorder: ReorderSpec? = nil,
-        binding: String? = nil
+        reorder: ReorderSpec? = nil
     ) {
         self.kind = kind
         self.text = text
@@ -131,6 +120,5 @@ public struct RenderNode: Codable, Sendable, Equatable {
         self.modifiers = modifiers
         self.action = action
         self.reorder = reorder
-        self.binding = binding
     }
 }
