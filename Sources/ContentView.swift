@@ -6003,6 +6003,8 @@ struct ContentView: View {
             return String(localized: "commandPalette.kind.project", defaultValue: "Project")
         case .extensionBrowser:
             return String(localized: "sidebar.extensions.browser.title", defaultValue: "Sidebar Extensions")
+        case .agentUsage:
+            return String(localized: "commandPalette.kind.agentUsage", defaultValue: "Usage")
         }
     }
 
@@ -6024,6 +6026,8 @@ struct ContentView: View {
             return ["project", "xcode", "build", "settings", "schemes", "targets"]
         case .extensionBrowser:
             return ["sidebar", "extensions", "extensionkit", "browser"]
+        case .agentUsage:
+            return ["usage", "tokens", "cost", "claude", "codex", "agent"]
         }
     }
 
@@ -6872,6 +6876,14 @@ struct ContentView: View {
                 shortcutHint: "⌘⇧L",
                 keywords: ["new", "browser", "tab", "web"],
                 when: { !$0.bool(CommandPaletteContextKeys.browserDisabled) }
+            )
+        )
+        contributions.append(
+            CommandPaletteCommandContribution(
+                commandId: "palette.openAgentUsage",
+                title: constant(String(localized: "command.openAgentUsage.title", defaultValue: "Show Agent Usage (Claude Code / Codex)")),
+                subtitle: constant(String(localized: "command.openAgentUsage.subtitle", defaultValue: "Usage")),
+                keywords: ["agent", "usage", "tokens", "cost", "claude", "codex", "spend"]
             )
         )
         contributions.append(
@@ -8048,6 +8060,15 @@ struct ContentView: View {
             DispatchQueue.main.async {
                 _ = AppDelegate.shared?.openBrowserAndFocusAddressBar()
             }
+        }
+        registry.register(commandId: "palette.openAgentUsage") {
+            guard let workspace = tabManager.selectedWorkspace,
+                  let paneId = workspace.bonsplitController.focusedPaneId ?? workspace.bonsplitController.allPaneIds.first else {
+                NSSound.beep()
+                return
+            }
+            workspace.clearSplitZoom()
+            _ = workspace.openOrFocusAgentUsageSurface(inPane: paneId, focus: true)
         }
         registry.register(commandId: "palette.closeTab") {
             tabManager.closeCurrentPanelWithConfirmation()
@@ -11678,6 +11699,8 @@ struct VerticalTabsSidebar: View {
         case .project:
             return .project
         case .extensionBrowser:
+            return .unknown
+        case .agentUsage:
             return .unknown
         }
     }
