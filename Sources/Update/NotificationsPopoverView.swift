@@ -15,8 +15,8 @@ private enum NotificationsPopoverMetrics {
 }
 
 struct NotificationsPopoverView: View {
-    @ObservedObject var notificationStore: TerminalNotificationStore
-    @ObservedObject private var keyboardShortcutSettingsObserver = KeyboardShortcutSettingsObserver.shared
+    let notificationStore: TerminalNotificationStore
+    private let keyboardShortcutSettingsObserver = KeyboardShortcutSettingsObserver.shared
     let onDismiss: () -> Void
 
     @AppStorage("cmux.notifications.popover.width")

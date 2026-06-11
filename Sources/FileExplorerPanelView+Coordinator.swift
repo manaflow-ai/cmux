@@ -1,6 +1,7 @@
 import AppKit
 import Bonsplit
 import Combine
+import Observation
 import SwiftUI
 
 
@@ -17,6 +18,9 @@ extension FileExplorerPanelView {
         weak var outlineView: NSOutlineView?
         private var lastRootNodeCount: Int = -1
         private var observationCancellable: AnyCancellable?
+        /// Pumped by Observation tracking whenever the store changes; replaces
+        /// the store's former `objectWillChange` as the debounce upstream.
+        private let storeDidChange = PassthroughSubject<Void, Never>()
         private var styleObserver: Any?
         private var isUpdatingOutlineProgrammatically = false
 
@@ -81,13 +85,40 @@ extension FileExplorerPanelView {
         }
 
         private func observeStore() {
-            observationCancellable = store.objectWillChange
+            observationCancellable = storeDidChange
                 .debounce(for: .milliseconds(50), scheduler: RunLoop.main)
                 .sink { [weak self] _ in
                     Task { @MainActor [weak self] in
                         self?.reloadIfNeeded()
                     }
                 }
+            armStoreObservation()
+        }
+
+        /// Re-arms Observation tracking on the store's display-relevant state.
+        /// Tracks exactly the properties that were `@Published` before the
+        /// `@Observable` migration, plus `revision`, which the store bumps where
+        /// it used to fire `objectWillChange` manually (node-graph and load
+        /// bookkeeping mutations Observation cannot see). Like
+        /// `objectWillChange`, notifications fire on will-set; the debounced
+        /// sink reads the settled state afterwards.
+        private func armStoreObservation() {
+            withObservationTracking { [weak self] in
+                guard let self else { return }
+                let store = self.store
+                _ = store.revision
+                _ = store.contentRevision
+                _ = store.rootPath
+                _ = store.rootNodes
+                _ = store.isRootLoading
+                _ = store.gitStatusByPath
+                _ = store.rootStatusMessage
+            } onChange: { [weak self] in
+                self?.storeDidChange.send()
+                Task { @MainActor [weak self] in
+                    self?.armStoreObservation()
+                }
+            }
         }
 
         @MainActor

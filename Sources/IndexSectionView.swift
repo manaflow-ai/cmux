@@ -187,7 +187,7 @@ struct SectionReorderGap: View, Equatable {
     /// the gap from reading drag state itself.
     let isValidDrop: Bool
     /// Closure bundle — the gap never sees `SessionIndexStore` or
-    /// `SessionDragCoordinator` directly, so it cannot `@ObservedObject` them.
+    /// `SessionDragCoordinator` directly, so it cannot observe them.
     let actions: SectionGapActions
     @State private var isDropTarget: Bool = false
 

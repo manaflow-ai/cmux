@@ -6,7 +6,6 @@ import WebKit
 import ObjectiveC.runtime
 import Bonsplit
 import UserNotifications
-import Combine
 
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
@@ -18,8 +17,8 @@ import Combine
 // MARK: - Workspace creation
 @MainActor
 final class WorkspaceCreationWorkingDirectoryInheritanceTests: XCTestCase {
-    private final class DetachedWorkspaceTestPanel: Panel {
-        let objectWillChange = ObservableObjectPublisher()
+    @Observable
+    fileprivate final class DetachedWorkspaceTestPanel: Panel {
         let id: UUID
         let panelType: PanelType = .terminal
         let displayTitle = "Detached"

@@ -1,5 +1,6 @@
 import XCTest
 import AppKit
+import Observation
 import SwiftUI
 import UniformTypeIdentifiers
 import WebKit
@@ -43,26 +44,38 @@ extension WorkspacePanelGitBranchTests {
             return
         }
 
-        var publishCount = 0
-        let cancellable = workspace.objectWillChange.sink { _ in
-            publishCount += 1
+        // `Workspace` is `@Observable` (no `objectWillChange`); assert on the
+        // git-facing tracked state the update can mutate instead.
+        final class ChangeFlag: @unchecked Sendable { var didChange = false }
+
+        func trackGitState(_ flag: ChangeFlag) {
+            withObservationTracking {
+                _ = workspace.panelGitBranches
+                _ = workspace.gitBranch
+                _ = workspace.pullRequest
+                _ = workspace.panelPullRequests
+            } onChange: {
+                flag.didChange = true
+            }
         }
-        defer { cancellable.cancel() }
+
+        let firstUpdateFlag = ChangeFlag()
+        trackGitState(firstUpdateFlag)
 
         workspace.updatePanelGitBranch(panelId: panelId, branch: "main", isDirty: false)
-        let baselinePublishCount = publishCount
 
-        XCTAssertGreaterThan(
-            baselinePublishCount,
-            0,
+        XCTAssertTrue(
+            firstUpdateFlag.didChange,
             "Expected the first focused branch update to publish workspace changes"
         )
 
+        let identicalUpdateFlag = ChangeFlag()
+        trackGitState(identicalUpdateFlag)
+
         workspace.updatePanelGitBranch(panelId: panelId, branch: "main", isDirty: false)
 
-        XCTAssertEqual(
-            publishCount,
-            baselinePublishCount,
+        XCTAssertFalse(
+            identicalUpdateFlag.didChange,
             "Expected identical focused branch refreshes to avoid extra workspace publishes"
         )
     }
@@ -76,13 +89,26 @@ extension WorkspacePanelGitBranchTests {
 
         workspace.updatePanelGitBranch(panelId: panelId, branch: "feature/sidebar-pr", isDirty: false)
 
-        var publishCount = 0
-        let cancellable = workspace.objectWillChange.sink { _ in
-            publishCount += 1
+        // `Workspace` is `@Observable` (no `objectWillChange`); assert on the
+        // pull-request-facing tracked state the update can mutate instead.
+        final class ChangeFlag: @unchecked Sendable { var didChange = false }
+
+        func trackPullRequestState(_ flag: ChangeFlag) {
+            withObservationTracking {
+                _ = workspace.panelPullRequests
+                _ = workspace.pullRequest
+                _ = workspace.panelGitBranches
+                _ = workspace.gitBranch
+            } onChange: {
+                flag.didChange = true
+            }
         }
-        defer { cancellable.cancel() }
 
         let pullRequestURL = URL(string: "https://github.com/manaflow-ai/cmux/pull/2388")!
+
+        let firstUpdateFlag = ChangeFlag()
+        trackPullRequestState(firstUpdateFlag)
+
         workspace.updatePanelPullRequest(
             panelId: panelId,
             number: 2388,
@@ -91,14 +117,15 @@ extension WorkspacePanelGitBranchTests {
             status: .open,
             branch: "feature/sidebar-pr"
         )
-        let baselinePublishCount = publishCount
 
-        XCTAssertGreaterThan(
-            baselinePublishCount,
-            0,
+        XCTAssertTrue(
+            firstUpdateFlag.didChange,
             "Expected the first focused pull request update to publish workspace changes"
         )
 
+        let identicalUpdateFlag = ChangeFlag()
+        trackPullRequestState(identicalUpdateFlag)
+
         workspace.updatePanelPullRequest(
             panelId: panelId,
             number: 2388,
@@ -108,9 +135,8 @@ extension WorkspacePanelGitBranchTests {
             branch: "feature/sidebar-pr"
         )
 
-        XCTAssertEqual(
-            publishCount,
-            baselinePublishCount,
+        XCTAssertFalse(
+            identicalUpdateFlag.didChange,
             "Expected identical focused pull request refreshes to avoid extra workspace publishes"
         )
     }

@@ -1,6 +1,5 @@
 import AppKit
 import Bonsplit
-import Combine
 import SwiftUI
 
 
@@ -96,14 +95,14 @@ private struct MinimalModeTitlebarButtonHitRegionView: NSViewRepresentable {
 }
 
 struct HiddenTitlebarSidebarControlsView: View {
-    @ObservedObject var notificationStore: TerminalNotificationStore
+    let notificationStore: TerminalNotificationStore
     let onToggleSidebar: () -> Void
     let onToggleNotifications: (NSView?) -> Void
     let onNewTab: () -> Void
     let onFocusHistoryBack: () -> Void
     let onFocusHistoryForward: () -> Void
-    @StateObject private var viewModel = TitlebarControlsViewModel()
-    @ObservedObject private var popoverVisibilityState = NotificationsPopoverVisibilityState.shared
+    @State private var viewModel = TitlebarControlsViewModel()
+    private let popoverVisibilityState = NotificationsPopoverVisibilityState.shared
     @State private var isHoveringHost = false
     @State private var isHoveringWindowChrome = false
     @State private var hostWindowNumber: Int?
@@ -217,7 +216,7 @@ struct HiddenTitlebarSidebarControlsView: View {
             alignment: .leading
         )
         .background(MinimalModeTitlebarButtonHitRegionView(config: style.config))
-        .onReceive(MinimalModeSidebarChromeHoverState.shared.$hoveredWindowNumber) { hoveredWindowNumber in
+        .onChange(of: MinimalModeSidebarChromeHoverState.shared.hoveredWindowNumber, initial: true) { _, hoveredWindowNumber in
             isHoveringWindowChrome = hostWindowNumber == hoveredWindowNumber
             #if DEBUG
             _ = CmuxUITestCapture.mutateJSONObjectIfConfigured(envKey: "CMUX_UI_TEST_BONSPLIT_TAB_DRAG_PATH") { payload in

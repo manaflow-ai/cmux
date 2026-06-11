@@ -2,11 +2,11 @@ import Bonsplit
 import SwiftUI
 
 struct NotificationsPage: View {
-    @EnvironmentObject var notificationStore: TerminalNotificationStore
-    @EnvironmentObject var tabManager: TabManager
+    @Environment(TerminalNotificationStore.self) var notificationStore
+    @Environment(TabManager.self) var tabManager
     @Binding var selection: SidebarSelection
     @FocusState private var focusedNotificationId: UUID?
-    @ObservedObject private var keyboardShortcutSettingsObserver = KeyboardShortcutSettingsObserver.shared
+    private let keyboardShortcutSettingsObserver = KeyboardShortcutSettingsObserver.shared
     @AppStorage(PhonePushSettings.forwardEnabledKey) private var forwardToPhone = false
     @AppStorage(PhonePushSettings.hideContentKey) private var hidePhoneNotificationContent = false
 

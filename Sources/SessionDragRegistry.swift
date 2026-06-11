@@ -1,9 +1,9 @@
 import AppKit
 import Bonsplit
 import CMUXAgentLaunch
-import Combine
 import Darwin
 import Foundation
+import Observation
 import os
 import SQLite3
 
@@ -37,11 +37,12 @@ final class SessionDragRegistry {
 // MARK: - Store
 
 /// Owns the "which section is currently being dragged" bit, separate from
-/// `SessionIndexStore`. Isolating this means drag start/end does not emit
-/// `objectWillChange` on the data store, so rows and gaps don't re-render
-/// every time a drag begins or clears.
+/// `SessionIndexStore`. Isolating this means drag start/end does not
+/// invalidate views observing the data store, so rows and gaps don't
+/// re-render every time a drag begins or clears.
 @MainActor
-final class SessionDragCoordinator: ObservableObject {
-    @Published var draggedKey: SectionKey? = nil
+@Observable
+final class SessionDragCoordinator {
+    var draggedKey: SectionKey? = nil
 }
 

@@ -1,5 +1,5 @@
 import AppKit
-import Combine
+import Observation
 import SwiftUI
 
 struct MinimalModeSidebarControlActionProxyView: NSViewRepresentable {
@@ -74,7 +74,6 @@ final class MinimalModeSidebarControlActionView: NSView {
     }
     var telemetryPrefix = "minimalSidebarClickProxy"
     var onAction: ((MinimalModeSidebarControlActionSlot, NSView, NSPoint) -> Void)?
-    private var cancellables: Set<AnyCancellable> = []
     private let buttons: [MinimalModeSidebarControlActionSlot: MinimalModeSidebarControlButton]
 
     override init(frame frameRect: NSRect) {
@@ -258,15 +257,35 @@ final class MinimalModeSidebarControlActionView: NSView {
     }
 
     private func observeRevealState() {
-        MinimalModeSidebarChromeHoverState.shared.$hoveredWindowNumber
-            .receive(on: DispatchQueue.main)
-            .sink { [weak self] _ in self?.syncButtons() }
-            .store(in: &cancellables)
+        observeChromeHoverState()
+        observePopoverVisibilityState()
+        // The former Combine `$shownWindowNumbers` subscription emitted the current
+        // value on subscribe; observation tracking does not, so sync once here.
+        syncButtons()
+    }
 
-        NotificationsPopoverVisibilityState.shared.$shownWindowNumbers
-            .receive(on: DispatchQueue.main)
-            .sink { [weak self] _ in self?.syncButtons() }
-            .store(in: &cancellables)
+    private func observePopoverVisibilityState() {
+        withObservationTracking {
+            _ = NotificationsPopoverVisibilityState.shared.shownWindowNumbers
+        } onChange: { [weak self] in
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                self.syncButtons()
+                self.observePopoverVisibilityState()
+            }
+        }
+    }
+
+    private func observeChromeHoverState() {
+        withObservationTracking {
+            _ = MinimalModeSidebarChromeHoverState.shared.hoveredWindowNumber
+        } onChange: { [weak self] in
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                self.syncButtons()
+                self.observeChromeHoverState()
+            }
+        }
     }
 
     private func syncButtons() {

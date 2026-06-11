@@ -135,10 +135,11 @@ extension Workspace {
     /// main actor (it runs `sysctl(KERN_PROCARGS2)` per live record for live-PID filtering,
     /// which is too expensive to do synchronously during SwiftUI menu evaluation) and a
     /// single load serves every workspace. The Workspace subscribes to the shared store's
-    /// `objectWillChange` in its initializer so that when a refresh lands, this workspace's
-    /// own `objectWillChange` fires, ContentView re-renders, and bonsplit's TabBarView re-
-    /// evaluates the menu state on the same frame — Fork Conversation appears the moment
-    /// the index is loaded without requiring a second right-click.
+    /// `indexDidChange` in its initializer so that when a refresh lands, this workspace's
+    /// tracked `sharedAgentIndexRevision` bumps, `WorkspaceContentView` re-renders, and
+    /// bonsplit's TabBarView re-evaluates the menu state on the same frame — Fork
+    /// Conversation appears the moment the index is loaded without requiring a second
+    /// right-click.
     func forkableAgentSnapshot(forPanelId panelId: UUID) -> SessionRestorableAgentSnapshot? {
         if let snapshot = restoredAgentSnapshotsByPanelId[panelId] {
             return snapshot

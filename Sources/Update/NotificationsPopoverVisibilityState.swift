@@ -1,6 +1,6 @@
 import AppKit
 import Bonsplit
-import Combine
+import Observation
 import SwiftUI
 
 
@@ -14,11 +14,12 @@ private enum NotificationsPopoverVisibilityUserInfoKey {
     static let windowNumber = "windowNumber"
 }
 
-final class NotificationsPopoverVisibilityState: ObservableObject {
+@Observable
+final class NotificationsPopoverVisibilityState {
     static let shared = NotificationsPopoverVisibilityState()
 
-    @Published private(set) var isShown = false
-    @Published private(set) var shownWindowNumbers: Set<Int> = []
+    private(set) var isShown = false
+    private(set) var shownWindowNumbers: Set<Int> = []
     private var shownPopoverIDs: Set<ObjectIdentifier> = []
     private var shownPopoverWindowNumbers: [ObjectIdentifier: Int] = [:]
     private var sourceLessShown = false

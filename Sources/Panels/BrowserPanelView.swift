@@ -6,8 +6,8 @@ import ObjectiveC
 
 /// View for rendering a browser panel with address bar
 struct BrowserPanelView: View {
-    @ObservedObject var panel: BrowserPanel
-    @ObservedObject var browserProfileStore = BrowserProfileStore.shared
+    var panel: BrowserPanel
+    var browserProfileStore = BrowserProfileStore.shared
     let paneId: PaneID
     let isFocused: Bool
     let isVisibleInUI: Bool
@@ -33,7 +33,7 @@ struct BrowserPanelView: View {
     @AppStorage(BrowserImportHintSettings.variantKey) var browserImportHintVariantRaw = BrowserImportHintSettings.defaultVariant.rawValue
     @AppStorage(BrowserImportHintSettings.showOnBlankTabsKey) var showBrowserImportHintOnBlankTabs = BrowserImportHintSettings.defaultShowOnBlankTabs
     @AppStorage(BrowserImportHintSettings.dismissedKey) var isBrowserImportHintDismissed = BrowserImportHintSettings.defaultDismissed
-    @ObservedObject var keyboardShortcutSettingsObserver = KeyboardShortcutSettingsObserver.shared
+    let keyboardShortcutSettingsObserver = KeyboardShortcutSettingsObserver.shared
     @State var omnibarSuggestionRefreshScheduler = OmnibarSuggestionRefreshScheduler()
     @State var omnibarSuggestionRefreshConsumerTask: Task<Void, Never>?
     @State var suggestionTask: Task<Void, Never>?
@@ -126,7 +126,14 @@ struct BrowserPanelView: View {
         .onReceive(NotificationCenter.default.publisher(for: .browserMoveOmnibarSelection)) { notification in
             handleMoveOmnibarSelection(notification)
         }
-        .onReceive(panel.historyStore.$entries) { _ in
+        // `entries` is observation-tracked (`@Observable` BrowserHistoryStore);
+        // reading it here makes SwiftUI re-evaluate on history changes, replacing
+        // the former `.onReceive(historyStore.$entries)` Combine subscription.
+        // The `$entries` initial-value emission was a no-op at first install
+        // (addressBarFocused starts false), and the re-subscription emission on
+        // a history-store swap is covered by `handleProfileChange()`, which
+        // already calls `refreshSuggestions()` when the address bar is focused.
+        .onChange(of: panel.historyStore.entries) { _ in
             handleHistoryEntriesChange()
         }
         .onReceive(NotificationCenter.default.publisher(for: .browserDidBlurAddressBar)) { notification in

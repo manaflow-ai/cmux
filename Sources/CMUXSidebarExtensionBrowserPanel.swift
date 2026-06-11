@@ -3,7 +3,8 @@ import AppKit
 import SwiftUI
 
 @MainActor
-final class CMUXSidebarExtensionBrowserPanel: NSObject, Panel, ObservableObject {
+@Observable
+final class CMUXSidebarExtensionBrowserPanel: NSObject, Panel {
     let id = UUID()
     let panelType: PanelType = .extensionBrowser
     let browserViewController: NSViewController

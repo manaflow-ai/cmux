@@ -2,6 +2,7 @@ import SwiftUI
 import Foundation
 import AppKit
 import Bonsplit
+import Observation
 
 enum TmuxOverlayExperimentTarget: String, CaseIterable, Codable, Sendable {
     case surface
@@ -101,12 +102,13 @@ struct TmuxWorkspacePaneOverlayRenderState: Equatable {
     let flashReason: WorkspaceAttentionFlashReason?
 }
 
+@Observable
 @MainActor
-final class TmuxWorkspacePaneOverlayModel: ObservableObject {
-    @Published private(set) var unreadRects: [CGRect] = []
-    @Published private(set) var flashRect: CGRect?
-    @Published private(set) var flashStartedAt: Date?
-    @Published private(set) var flashReason: WorkspaceAttentionFlashReason?
+final class TmuxWorkspacePaneOverlayModel {
+    private(set) var unreadRects: [CGRect] = []
+    private(set) var flashRect: CGRect?
+    private(set) var flashStartedAt: Date?
+    private(set) var flashReason: WorkspaceAttentionFlashReason?
 
     private var currentWorkspaceId: UUID?
     private var lastFlashTokenByWorkspaceId: [UUID: UInt64] = [:]
@@ -157,7 +159,9 @@ struct WorkspaceContentView: View {
         let forceInitialApply: Bool
     }
 
-    @ObservedObject var workspace: Workspace
+    // `Workspace` is `@Observable`: a plain reference is enough, body reads
+    // register dependencies via Observation tracking.
+    var workspace: Workspace
     let isWorkspaceVisible: Bool
     let isWorkspaceInputActive: Bool
     let isFullScreen: Bool
@@ -174,7 +178,7 @@ struct WorkspaceContentView: View {
     @AppStorage(WorkspacePresentationModeSettings.modeKey)
     private var workspacePresentationMode = WorkspacePresentationModeSettings.defaultMode.rawValue
     @Environment(\.colorScheme) private var colorScheme
-    @EnvironmentObject var notificationStore: TerminalNotificationStore
+    @Environment(TerminalNotificationStore.self) var notificationStore
 
     private var isMinimalMode: Bool {
         WorkspacePresentationModeSettings.mode(for: workspacePresentationMode) == .minimal
@@ -192,6 +196,11 @@ struct WorkspaceContentView: View {
     }
 
     var body: some View {
+        // Depend on the shared agent-index revision so a background index refresh
+        // re-renders this view (and bonsplit's TabBarView re-evaluates Fork
+        // Conversation availability). Replaces the former `objectWillChange`
+        // forward in `Workspace.init`.
+        let _ = workspace.sharedAgentIndexRevision
         let appearance = PanelAppearance.fromConfig(config)
         let isSplit = workspace.bonsplitController.allPaneIds.count > 1 ||
             workspace.panels.count > 1
@@ -756,9 +765,11 @@ extension WorkspaceContentView {
 
 /// View shown for empty panes
 struct EmptyPanelView: View {
-    @ObservedObject var workspace: Workspace
+    // `Workspace` is `@Observable`: a plain reference is enough, body reads
+    // register dependencies via Observation tracking.
+    var workspace: Workspace
     let paneId: PaneID
-    @ObservedObject private var keyboardShortcutSettingsObserver = KeyboardShortcutSettingsObserver.shared
+    private let keyboardShortcutSettingsObserver = KeyboardShortcutSettingsObserver.shared
 
     private struct ShortcutHint: View {
         let text: String

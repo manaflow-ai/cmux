@@ -27,19 +27,42 @@ enum FilePreviewInteraction {
 }
 
 @MainActor
-final class FilePreviewPanel: Panel, ObservableObject, FilePreviewTextEditingPanel {
+@Observable
+final class FilePreviewPanel: Panel, FilePreviewTextEditingPanel {
     let id: UUID
     let panelType: PanelType = .filePreview
     let filePath: String
     private(set) var workspaceId: UUID
-    @Published private(set) var displayTitle: String
-    @Published private(set) var displayIcon: String?
-    @Published private(set) var isFileUnavailable = false
-    @Published private(set) var textContent = ""
-    @Published private(set) var isDirty = false
-    @Published private(set) var isSaving = false
-    @Published private(set) var focusFlashToken = 0
-    @Published private(set) var previewMode: FilePreviewMode
+
+    /// Fires after `displayTitle`, `isDirty`, or `displayIcon` changes.
+    /// Replaces the former CombineLatest over the `$`-projections in
+    /// `Workspace.installFilePreviewPanelSubscription`; subscribers
+    /// `prepend(())` to replicate the projections' initial emission.
+    @ObservationIgnored let tabChromeDidChange = PassthroughSubject<Void, Never>()
+
+    private(set) var displayTitle: String {
+        didSet {
+            guard oldValue != displayTitle else { return }
+            tabChromeDidChange.send()
+        }
+    }
+    private(set) var displayIcon: String? {
+        didSet {
+            guard oldValue != displayIcon else { return }
+            tabChromeDidChange.send()
+        }
+    }
+    private(set) var isFileUnavailable = false
+    private(set) var textContent = ""
+    private(set) var isDirty = false {
+        didSet {
+            guard oldValue != isDirty else { return }
+            tabChromeDidChange.send()
+        }
+    }
+    private(set) var isSaving = false
+    private(set) var focusFlashToken = 0
+    private(set) var previewMode: FilePreviewMode
 
     let nativeViewSessions = FilePreviewNativeViewSessions()
 
@@ -49,7 +72,9 @@ final class FilePreviewPanel: Panel, ObservableObject, FilePreviewTextEditingPan
     private var textLoadGeneration = 0
     private var saveGeneration = 0
     private var activeSaveGeneration: Int?
-    private weak var textView: NSTextView?
+    // Written from FilePreviewTextEditor.makeNSView/updateNSView on every
+    // SwiftUI pass; never `@Published`, so keep it untracked.
+    @ObservationIgnored private weak var textView: NSTextView?
     private let focusCoordinator: FilePreviewFocusCoordinator
     private let textLoader: @Sendable (URL) async -> FilePreviewTextLoader.Result
 

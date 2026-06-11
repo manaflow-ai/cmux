@@ -125,7 +125,7 @@ extension TabManager {
                         cont.resume(returning: value)
                     }
 
-                    cancellable = tab.$panels
+                    cancellable = tab.panelsPublisher
                         .map { $0.count }
                         .removeDuplicates()
                         .sink { count in
@@ -392,7 +392,7 @@ extension TabManager {
                 self.uiTestCancellables.removeAll()
             }
 
-            tab.$panels
+            tab.panelsPublisher
                 .map { $0.count }
                 .removeDuplicates()
                 .sink { [weak self, weak tab] count in
@@ -421,7 +421,7 @@ extension TabManager {
                 }
                 .store(in: &uiTestCancellables)
 
-            $tabs
+            tabsPublisher
                 .map { $0.contains(where: { $0.id == tab.id }) }
                 .removeDuplicates()
                 .sink { alive in

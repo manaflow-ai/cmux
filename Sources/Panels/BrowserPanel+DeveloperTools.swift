@@ -52,10 +52,12 @@ extension BrowserPanel {
 
     private func setPreferredDeveloperToolsPresentation(_ next: DeveloperToolsPresentation) {
         guard preferredDeveloperToolsPresentation != next else { return }
+        // `preferredDeveloperToolsPresentation` is `@ObservationIgnored`
+        // DevTools bookkeeping (never `@Published`; no view body reads it), so
+        // this mutation fires no change notification. The pre-migration
+        // deferred `objectWillChange.send()` existed only to keep the notify
+        // out of in-progress view updates; with no observing body it is moot.
         preferredDeveloperToolsPresentation = next
-        DispatchQueue.main.async { [weak self] in
-            self?.objectWillChange.send()
-        }
     }
 
     func setPreferredDeveloperToolsVisible(_ next: Bool) {

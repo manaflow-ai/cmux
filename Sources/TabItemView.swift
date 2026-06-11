@@ -69,7 +69,7 @@ struct TabItemView: View, Equatable {
     let onContextMenuAppear: () -> Void
     let onContextMenuDisappear: () -> Void
     @State var workspaceSnapshotStorage: SidebarWorkspaceSnapshotBuilder.Snapshot?
-    @StateObject var contextMenuState = SidebarTabItemContextMenuState()
+    @State var contextMenuState = SidebarTabItemContextMenuState()
     @State var rowInteractionState = SidebarWorkspaceRowInteractionState()
     @State var rowHeight: CGFloat = 1
     @State var workspaceFinderDirectoryCache = WorkspaceFinderDirectoryCache()

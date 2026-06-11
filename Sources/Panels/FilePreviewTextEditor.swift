@@ -1,4 +1,5 @@
 import AppKit
+import Observation
 import SwiftUI
 
 @MainActor
@@ -12,8 +13,11 @@ protocol FilePreviewTextEditingPanel: AnyObject {
     func saveTextContent() -> Task<Void, Never>?
 }
 
-struct FilePreviewTextEditor<PanelModel>: NSViewRepresentable where PanelModel: ObservableObject & FilePreviewTextEditingPanel {
-    @ObservedObject var panel: PanelModel
+struct FilePreviewTextEditor<PanelModel>: NSViewRepresentable where PanelModel: Observable & FilePreviewTextEditingPanel {
+    // `PanelModel` is `@Observable`; reading `panel.textContent` in
+    // `updateNSView` registers observation, so the representable refreshes on
+    // panel text changes just as `@ObservedObject` did.
+    var panel: PanelModel
     let isVisibleInUI: Bool
     let themeBackgroundColor: NSColor
     let themeForegroundColor: NSColor

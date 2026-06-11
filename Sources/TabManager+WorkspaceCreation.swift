@@ -84,8 +84,9 @@ extension TabManager {
         let sourceWorkspace = selectedWorkspace
         let capturedTabs = tabs
         // Snapshot the selected tab from the pinned workspace instead of rereading the
-        // @Published selectedTabId storage after the inheritance helpers. The arm64 Nightly
-        // Cmd+N crash is in PublishedSubject.value.getter on that second getter read.
+        // selectedTabId storage after the inheritance helpers. The arm64 Nightly Cmd+N
+        // crash was in PublishedSubject.value.getter on that second getter read (from
+        // the pre-@Observable era when selectedTabId was @Published).
         let capturedSelectedTabId = sourceWorkspace?.id
         // Keep both the source workspace and the pre-creation workspace array alive for the
         // entire creation path. Release ARC can otherwise drop retains early across the
@@ -114,7 +115,7 @@ extension TabManager {
             )
             // Resolve placement against the pre-creation snapshot before Workspace init
             // boots terminal state. The ssh/new-workspace path can otherwise crash while
-            // reading @Published placement state from existing workspaces mid-creation.
+            // reading observed placement state from existing workspaces mid-creation.
             let insertIndex = newTabInsertIndex(snapshot: snapshot, placementOverride: placementOverride)
             let ordinal = Self.nextPortOrdinal
             Self.nextPortOrdinal += 1
@@ -226,7 +227,7 @@ extension TabManager {
             }
         }
 
-        panelsCancellable = workspace.$panels
+        panelsCancellable = workspace.panelsPublisher
             .map { _ in () }
             .sink { _ in
                 Task { @MainActor in

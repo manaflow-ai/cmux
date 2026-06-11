@@ -1,5 +1,5 @@
 import Foundation
-import Combine
+import Observation
 import WebKit
 import AppKit
 import Bonsplit
@@ -45,7 +45,8 @@ func browserIsTemporaryHistoryURL(_ url: URL?) -> Bool {
 }
 
 @MainActor
-final class BrowserHistoryStore: ObservableObject {
+@Observable
+final class BrowserHistoryStore {
     static let shared = BrowserHistoryStore()
 
     struct Entry: Codable, Identifiable, Hashable {
@@ -102,16 +103,17 @@ final class BrowserHistoryStore: ObservableObject {
     // suggestion cache here is the one enforced invalidation point. Setting it
     // to nil both frees the retained Entry/URL strings promptly (so clearing
     // history does not leave browsing history resident in the cache) and forces
-    // a rebuild on next use. It must stay `@Published` for SwiftUI observation.
+    // a rebuild on next use. It must stay observation-tracked (`@Observable`)
+    // for SwiftUI observation.
     // Do not add a writer that bypasses this setter (e.g. an unsafe-buffer bulk
     // write or an external `Binding<[Entry]>`) without dropping the cache.
-    @Published private(set) var entries: [Entry] = [] {
+    private(set) var entries: [Entry] = [] {
         didSet { cachedSuggestionCandidates = nil }
     }
 
     private let fileURL: URL?
-    private var didLoad: Bool = false
-    private var saveTask: Task<Void, Never>?
+    @ObservationIgnored private var didLoad: Bool = false
+    @ObservationIgnored private var saveTask: Task<Void, Never>?
     private let maxEntries: Int = 5000
     private let saveDebounceNanoseconds: UInt64 = 120_000_000
 
@@ -140,7 +142,7 @@ final class BrowserHistoryStore: ObservableObject {
     // beachball). `nil` means "not built / just invalidated"; it is rebuilt only
     // when `entries` changes (via the didSet above), so steady-state typing
     // reuses it and pays only the cheap substring scoring in `suggestionScore`.
-    private var cachedSuggestionCandidates: [SuggestionCandidate]?
+    @ObservationIgnored private var cachedSuggestionCandidates: [SuggestionCandidate]?
 
     /// Number of suggestion candidates currently resident in the cache, or 0
     /// when the cache has been invalidated. Used by tests to verify that

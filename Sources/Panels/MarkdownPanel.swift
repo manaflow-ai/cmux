@@ -13,7 +13,8 @@ enum MarkdownPanelDisplayMode: String, CaseIterable, Identifiable {
 /// A panel that renders a markdown file with live file-watching.
 /// When the file changes on disk, the content is automatically reloaded.
 @MainActor
-final class MarkdownPanel: Panel, ObservableObject, FilePreviewTextEditingPanel {
+@Observable
+final class MarkdownPanel: Panel, FilePreviewTextEditingPanel {
     let id: UUID
     let panelType: PanelType = .markdown
 
@@ -23,50 +24,66 @@ final class MarkdownPanel: Panel, ObservableObject, FilePreviewTextEditingPanel 
     /// The workspace this panel belongs to.
     private(set) var workspaceId: UUID
 
+    /// Fires after `displayTitle` or `isDirty` changes. Replaces the former
+    /// CombineLatest over the `$`-projections in
+    /// `Workspace.installMarkdownPanelSubscription`; subscribers `prepend(())`
+    /// to replicate the projections' initial emission.
+    @ObservationIgnored let tabChromeDidChange = PassthroughSubject<Void, Never>()
+
     /// Current markdown content read from the file.
-    @Published private(set) var content: String = ""
+    private(set) var content: String = ""
 
     /// Current raw text shown by the TextEdit mode.
-    @Published private(set) var textContent: String = ""
+    private(set) var textContent: String = ""
 
     /// Whether TextEdit mode has unsaved changes.
-    @Published private(set) var isDirty: Bool = false
+    private(set) var isDirty: Bool = false {
+        didSet {
+            guard oldValue != isDirty else { return }
+            tabChromeDidChange.send()
+        }
+    }
 
     /// Whether TextEdit mode is saving to disk.
-    @Published private(set) var isSaving: Bool = false
+    private(set) var isSaving: Bool = false
 
     /// The current view mode for this markdown panel. New panels default to preview.
-    @Published private(set) var displayMode: MarkdownPanelDisplayMode = .preview
+    private(set) var displayMode: MarkdownPanelDisplayMode = .preview
 
     /// Title shown in the tab bar (filename).
-    @Published private(set) var displayTitle: String = ""
+    private(set) var displayTitle: String = "" {
+        didSet {
+            guard oldValue != displayTitle else { return }
+            tabChromeDidChange.send()
+        }
+    }
 
     /// SF Symbol icon for the tab bar.
     var displayIcon: String? { "doc.richtext" }
 
     /// Whether the file has been deleted or is unreadable.
-    @Published private(set) var isFileUnavailable: Bool = false
+    private(set) var isFileUnavailable: Bool = false
 
     /// Token incremented to trigger focus flash animation.
-    @Published private(set) var focusFlashToken: Int = 0
+    private(set) var focusFlashToken: Int = 0
 
     /// Body font size for the preview renderer, in points. Drives the
     /// WKWebView `pageZoom` so `--font-size` and Cmd-+/Cmd-- scale the rendered
     /// document the way browser zoom scales a browser surface. Per-panel and
     /// transient; the persistent default lives in `MarkdownFontSizeSettings`.
-    @Published private(set) var fontSize: Double
+    private(set) var fontSize: Double
 
     /// Body prose font family for the preview renderer, as an installed
     /// font-family name. Empty string means the System default (the GitHub
     /// stack). Applied as an inline `font-family` on the rendered content; code
     /// blocks stay monospace. Per-panel; the persistent default lives in
     /// `MarkdownFontFamily`.
-    @Published private(set) var fontFamily: String
+    private(set) var fontFamily: String
 
     /// Maximum width for the rendered markdown content column, in CSS pixels.
     /// Per-panel and transient; the persistent default lives in
     /// `MarkdownMaxWidthSettings`.
-    @Published private(set) var maxContentWidth: Double
+    private(set) var maxContentWidth: Double
 
     /// Stable markdown renderer state. Keep this panel-owned so split/tab
     /// layout churn does not recreate the WKWebView and flash existing content.
@@ -76,16 +93,23 @@ final class MarkdownPanel: Panel, ObservableObject, FilePreviewTextEditingPanel 
 
     // Watches `filePath` (file + ancestor-directory recovery) via CmuxFileWatch.
     private var fileWatcher: FileWatcher?
-    private var fileWatchTask: Task<Void, Never>?
+    // Accessed from deinit, so it must stay a stored property: the Observable
+    // macro would otherwise make it a MainActor-isolated computed property
+    // that a nonisolated deinit cannot read.
+    @ObservationIgnored private var fileWatchTask: Task<Void, Never>?
     private var originalTextContent: String = ""
     private var textEncoding: String.Encoding = .utf8
     private var saveGeneration: Int = 0
     private var activeSaveGeneration: Int?
     private var pendingSearchNeedle: String?
-    private weak var textView: NSTextView?
+    // Written from FilePreviewTextEditor.makeNSView/updateNSView on every
+    // SwiftUI pass; never `@Published`, so keep it untracked.
+    @ObservationIgnored private weak var textView: NSTextView?
     private var isClosed: Bool = false
     // NotificationCenter token; removal is thread-safe so deinit can drop it.
-    private nonisolated(unsafe) var typographyDefaultsObserver: NSObjectProtocol?
+    // `@ObservationIgnored` keeps it stored so the `nonisolated(unsafe)`
+    // deinit access keeps compiling under the Observable macro.
+    @ObservationIgnored private nonisolated(unsafe) var typographyDefaultsObserver: NSObjectProtocol?
     // The typography default this viewer is currently tracking. While the panel
     // still matches it, a default change (Set as Default / cmux.json reload) is
     // adopted; once the user customizes the panel it diverges and is left alone.

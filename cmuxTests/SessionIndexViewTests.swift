@@ -1,5 +1,5 @@
 import AppKit
-import Combine
+import Observation
 import SQLite3
 import SwiftUI
 import XCTest
@@ -231,16 +231,14 @@ final class SessionIndexViewTests: XCTestCase {
 
     func testCurrentDirectorySetterDoesNotPublishEqualValue() {
         let store = SessionIndexStore()
-        var emittedValues: [String?] = []
-        let cancellable = store.$currentDirectory
-            .dropFirst()
-            .sink { emittedValues.append($0) }
-        defer { cancellable.cancel() }
+        let recorder = CurrentDirectoryChangeRecorder()
+        recorder.startTracking(store)
 
         store.setCurrentDirectoryIfChanged("/foo")
         store.setCurrentDirectoryIfChanged("/foo")
 
-        XCTAssertEqual(emittedValues, ["/foo"])
+        XCTAssertEqual(recorder.changeCount, 1)
+        XCTAssertEqual(store.currentDirectory, "/foo")
     }
 
     func testDirectoryOrderBackfillUsesLatestModifiedForDuplicateDirectories() {
@@ -591,6 +589,29 @@ private extension SessionAgent {
             // future test reaches this branch, point them at the missing
             // helper instead of silently returning a misleading default.
             fatalError("defaultSpecificsForTesting does not support .registered SessionAgent; extend the helper when adding registered-agent coverage")
+        }
+    }
+}
+
+/// Counts Observation change notifications for `SessionIndexStore.currentDirectory`.
+/// Replaces the pre-@Observable `store.$currentDirectory.dropFirst().sink` probe:
+/// `withObservationTracking`'s `onChange` fires once per registration at willSet,
+/// so it re-arms synchronously (the store is @MainActor, mutations happen on the
+/// main actor) to keep counting subsequent mutations. Like the old `.dropFirst()`
+/// sink, no initial-value emission is counted — only real mutations.
+@MainActor
+private final class CurrentDirectoryChangeRecorder {
+    private(set) var changeCount = 0
+
+    func startTracking(_ store: SessionIndexStore) {
+        withObservationTracking {
+            _ = store.currentDirectory
+        } onChange: { [weak self, weak store] in
+            MainActor.assumeIsolated {
+                guard let self, let store else { return }
+                self.changeCount += 1
+                self.startTracking(store)
+            }
         }
     }
 }

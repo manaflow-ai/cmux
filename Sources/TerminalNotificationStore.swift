@@ -1,5 +1,6 @@
 import AppKit
 import Foundation
+import Observation
 import os
 import UserNotifications
 import Bonsplit
@@ -220,7 +221,8 @@ struct TerminalNotification: Identifiable, Hashable {
 }
 
 @MainActor
-final class TerminalNotificationStore: ObservableObject {
+@Observable
+final class TerminalNotificationStore {
     struct TabSurfaceKey: Hashable {
         let tabId: UUID
         let surfaceId: UUID?
@@ -244,59 +246,88 @@ final class TerminalNotificationStore: ObservableObject {
         case settingsTest = "settings_test"
     }
 
-    @Published var notifications: [TerminalNotification] = [] {
+    var notifications: [TerminalNotification] = [] {
         didSet {
             indexes = Self.buildIndexes(for: notifications)
             refreshUnreadPresentation()
             if !suppressNotificationDiffPublishing { CmuxEventBus.shared.publishNotificationChanges(oldValue: oldValue, newValue: notifications) }
         }
     }
-    @Published var notificationMenuSnapshot = NotificationMenuSnapshotBuilder.make(notifications: [])
+    var notificationMenuSnapshot = NotificationMenuSnapshotBuilder.make(notifications: []) {
+        didSet {
+            let snapshot = notificationMenuSnapshot
+            for continuation in menuSnapshotContinuations.values {
+                continuation.yield(snapshot)
+            }
+        }
+    }
     // Workspace-level unread drives sidebar workspace badges; pane-level manual
     // unread remains owned by Workspace.manualUnreadPanelIds.
-    @Published var manualUnreadWorkspaceIds: Set<UUID> = [] {
+    var manualUnreadWorkspaceIds: Set<UUID> = [] {
         didSet { refreshUnreadPresentation() }
     }
-    @Published var panelDerivedUnreadWorkspaceIds: Set<UUID> = [] {
+    var panelDerivedUnreadWorkspaceIds: Set<UUID> = [] {
         didSet { refreshUnreadPresentation() }
     }
-    @Published var restoredUnreadWorkspaceIds: Set<UUID> = [] {
+    var restoredUnreadWorkspaceIds: Set<UUID> = [] {
         didSet { refreshUnreadPresentation() }
     }
-    @Published var focusedReadIndicatorByTabId: [UUID: UUID] = [:]
-    @Published var authorizationState: NotificationAuthorizationState = .unknown
-    var suppressNotificationDiffPublishing = false
+    var focusedReadIndicatorByTabId: [UUID: UUID] = [:]
+    var authorizationState: NotificationAuthorizationState = .unknown
+    @ObservationIgnored var suppressNotificationDiffPublishing = false
+
+    /// Live `notificationMenuSnapshot` consumers (replacement for the former
+    /// `$notificationMenuSnapshot` Combine projection), keyed per subscription.
+    @ObservationIgnored private var menuSnapshotContinuations: [UUID: AsyncStream<NotificationMenuSnapshot>.Continuation] = [:]
+
+    /// Async replacement for the former `$notificationMenuSnapshot` Combine
+    /// projection. Mirrors `@Published`'s CurrentValueSubject-like semantics:
+    /// the current snapshot is emitted at subscription time, followed by every
+    /// subsequent change (delivered after the property is set, like the old
+    /// `.receive(on: DispatchQueue.main)` hop).
+    func notificationMenuSnapshotUpdates() -> AsyncStream<NotificationMenuSnapshot> {
+        let id = UUID()
+        let (stream, continuation) = AsyncStream.makeStream(of: NotificationMenuSnapshot.self)
+        menuSnapshotContinuations[id] = continuation
+        continuation.onTermination = { [weak self] _ in
+            Task { @MainActor in
+                self?.menuSnapshotContinuations.removeValue(forKey: id)
+            }
+        }
+        continuation.yield(notificationMenuSnapshot)
+        return stream
+    }
 
     let center = UNUserNotificationCenter.current()
-    var hasRequestedAutomaticAuthorization = false
-    var hasDeferredAuthorizationRequest = false
-    var hasPromptedForSettings = false
-    private var userDefaultsObserver: NSObjectProtocol?
+    @ObservationIgnored var hasRequestedAutomaticAuthorization = false
+    @ObservationIgnored var hasDeferredAuthorizationRequest = false
+    @ObservationIgnored var hasPromptedForSettings = false
+    @ObservationIgnored private var userDefaultsObserver: NSObjectProtocol?
     let settingsPromptWindowRetryDelay: TimeInterval = 0.5
     let settingsPromptWindowRetryLimit = 20
-    var notificationSettingsWindowProvider: () -> NSWindow? = {
+    @ObservationIgnored var notificationSettingsWindowProvider: () -> NSWindow? = {
         NSApp.keyWindow ?? NSApp.mainWindow
     }
-    var notificationSettingsAlertFactory: () -> NSAlert = {
+    @ObservationIgnored var notificationSettingsAlertFactory: () -> NSAlert = {
         NSAlert()
     }
-    var notificationSettingsScheduler: (_ delay: TimeInterval, _ block: @escaping () -> Void) -> Void = {
+    @ObservationIgnored var notificationSettingsScheduler: (_ delay: TimeInterval, _ block: @escaping () -> Void) -> Void = {
         delay,
         block in
         DispatchQueue.main.asyncAfter(deadline: .now() + delay) {
             block()
         }
     }
-    var notificationSettingsURLOpener: (URL) -> Void = { url in
+    @ObservationIgnored var notificationSettingsURLOpener: (URL) -> Void = { url in
         NSWorkspace.shared.open(url)
     }
-    var notificationDeliveryHandler: (TerminalNotificationStore, TerminalNotification, TerminalNotificationPolicyEffects) -> Void = {
+    @ObservationIgnored var notificationDeliveryHandler: (TerminalNotificationStore, TerminalNotification, TerminalNotificationPolicyEffects) -> Void = {
         store,
         notification,
         effects in
         store.scheduleUserNotification(notification, effects: effects)
     }
-    var suppressedNotificationFeedbackHandler: (TerminalNotificationStore, TerminalNotification, TerminalNotificationPolicyEffects) -> Void = {
+    @ObservationIgnored var suppressedNotificationFeedbackHandler: (TerminalNotificationStore, TerminalNotification, TerminalNotificationPolicyEffects) -> Void = {
         store,
         notification,
         effects in
@@ -308,8 +339,11 @@ final class TerminalNotificationStore: ObservableObject {
     }
 
     static let notificationHookFailureThrottle: TimeInterval = 300
-    var lastNotificationDateByCooldownKey: [String: Date] = [:]
-    var lastNotificationHookFailureDateByKey: [NotificationHookFailureThrottleKey: Date] = [:]
+    @ObservationIgnored var lastNotificationDateByCooldownKey: [String: Date] = [:]
+    @ObservationIgnored var lastNotificationHookFailureDateByKey: [NotificationHookFailureThrottleKey: Date] = [:]
+    // Tracked on purpose: views read derived state (`unreadCount`,
+    // `hasUnreadNotification(forTabId:surfaceId:)`, ...) that is computed from
+    // `indexes`, and `indexes` is rebuilt in `notifications.didSet`.
     var indexes = NotificationIndexes()
 
     private init() {

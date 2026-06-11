@@ -1,5 +1,6 @@
 import AppKit
 import Combine
+import Observation
 import WebKit
 import XCTest
 
@@ -137,12 +138,23 @@ extension MarkdownPanelTests {
         XCTAssertFalse(panel.isFileUnavailable)
 
         let reloaded = expectation(description: "markdown file change reloaded")
-        let cancellable = panel.$content.dropFirst().sink { content in
-            if content == updatedContent {
-                reloaded.fulfill()
+        // `MarkdownPanel` is `@Observable`; re-register observation of
+        // `panel.content` until the file-watch reload lands the updated text
+        // (replaces the former `$content.dropFirst()` Combine subscription).
+        @MainActor func observeContentReload() {
+            withObservationTracking {
+                _ = panel.content
+            } onChange: {
+                Task { @MainActor in
+                    if panel.content == updatedContent {
+                        reloaded.fulfill()
+                    } else {
+                        observeContentReload()
+                    }
+                }
             }
         }
-        defer { cancellable.cancel() }
+        observeContentReload()
 
         try updatedContent.write(to: fileURL, atomically: true, encoding: .utf8)
 

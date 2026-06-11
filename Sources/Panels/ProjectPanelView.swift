@@ -7,7 +7,7 @@ import SwiftUI
 /// Renders the project chrome (project name, scheme/configuration pickers,
 /// tab strip) and dispatches into the per-tab subviews.
 struct ProjectPanelView: View {
-    @ObservedObject var panel: ProjectPanel
+    var panel: ProjectPanel
     let isFocused: Bool
     let onRequestPanelFocus: () -> Void
 

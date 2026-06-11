@@ -11,7 +11,7 @@ import UniformTypeIdentifiers
 
 // MARK: - Panel View & Content Representables
 struct FilePreviewPanelView: View {
-    @ObservedObject var panel: FilePreviewPanel
+    var panel: FilePreviewPanel
     let isFocused: Bool
     let isVisibleInUI: Bool
     let portalPriority: Int

@@ -3,19 +3,25 @@ import Combine
 import SwiftUI
 
 @MainActor
-final class RightSidebarToolPanel: Panel, ObservableObject {
+@Observable
+final class RightSidebarToolPanel: Panel {
     let id: UUID
     let panelType: PanelType = .rightSidebarTool
     let mode: RightSidebarMode
 
-    @Published private(set) var focusFlashToken: Int = 0
+    private(set) var focusFlashToken: Int = 0
 
     private weak var workspace: Workspace?
-    private weak var fileExplorerContainerView: FileExplorerContainerView?
-    private weak var sessionIndexFocusAnchorView: RightSidebarToolFocusAnchorView?
-    private var fileExplorerStoreStorage: FileExplorerStore?
-    private var fileExplorerStateStorage: FileExplorerState?
-    private var sessionIndexStoreStorage: SessionIndexStore?
+    // Written from view callbacks during SwiftUI updates; never `@Published`.
+    @ObservationIgnored private weak var fileExplorerContainerView: FileExplorerContainerView?
+    @ObservationIgnored private weak var sessionIndexFocusAnchorView: RightSidebarToolFocusAnchorView?
+    // Memoized lazily inside the `fileExplorerStore` / `fileExplorerState` /
+    // `sessionIndexStore` getters, which run during view body evaluation.
+    // `@ObservationIgnored` keeps that first-access write untracked (these
+    // were never `@Published`), so body evaluation does not invalidate itself.
+    @ObservationIgnored private var fileExplorerStoreStorage: FileExplorerStore?
+    @ObservationIgnored private var fileExplorerStateStorage: FileExplorerState?
+    @ObservationIgnored private var sessionIndexStoreStorage: SessionIndexStore?
     private var workspaceObservationCancellable: AnyCancellable?
 
     init(workspace: Workspace, mode: RightSidebarMode) {
@@ -168,11 +174,11 @@ final class RightSidebarToolPanel: Panel, ObservableObject {
 
     private func observeWorkspaceRootChanges(_ workspace: Workspace) {
         workspaceObservationCancellable = Publishers.MergeMany(
-            workspace.$currentDirectory.map { _ in () }.eraseToAnyPublisher(),
-            workspace.$remoteConfiguration.map { _ in () }.eraseToAnyPublisher(),
-            workspace.$remoteConnectionState.map { _ in () }.eraseToAnyPublisher(),
-            workspace.$remoteConnectionDetail.map { _ in () }.eraseToAnyPublisher(),
-            workspace.$remoteDaemonStatus.map { _ in () }.eraseToAnyPublisher()
+            workspace.currentDirectoryPublisher.map { _ in () }.eraseToAnyPublisher(),
+            workspace.remoteConfigurationPublisher.map { _ in () }.eraseToAnyPublisher(),
+            workspace.remoteConnectionStatePublisher.map { _ in () }.eraseToAnyPublisher(),
+            workspace.remoteConnectionDetailPublisher.map { _ in () }.eraseToAnyPublisher(),
+            workspace.remoteDaemonStatusPublisher.map { _ in () }.eraseToAnyPublisher()
         )
         .sink { [weak self, weak workspace] _ in
             Task { @MainActor in
@@ -231,8 +237,8 @@ final class RightSidebarToolPanel: Panel, ObservableObject {
 }
 
 struct RightSidebarToolPanelView: View {
-    @ObservedObject var panel: RightSidebarToolPanel
-    @EnvironmentObject private var tabManager: TabManager
+    var panel: RightSidebarToolPanel
+    @Environment(TabManager.self) private var tabManager
     let isFocused: Bool
     let isVisibleInUI: Bool
     let appearance: PanelAppearance

@@ -1,7 +1,6 @@
 import AppKit
 import CmuxSocketControl
 import Bonsplit
-import Combine
 @_spi(CmuxHostTransport) import CmuxExtensionKit
 import CmuxSidebarProviderKit
 import CmuxExtensionSidebarExamples
@@ -301,7 +300,8 @@ enum SidebarDragFailsafePolicy {
 }
 
 @MainActor
-final class SidebarDragFailsafeMonitor: ObservableObject {
+@Observable
+final class SidebarDragFailsafeMonitor {
     private static let escapeKeyCode: UInt16 = 53
     private var pendingClearWorkItem: DispatchWorkItem?
     var appResignObserver: NSObjectProtocol?

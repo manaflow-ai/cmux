@@ -1,5 +1,4 @@
 import AppKit
-import Combine
 import Foundation
 
 @MainActor
@@ -16,7 +15,7 @@ final class MenuBarExtraController: NSObject, NSMenuDelegate {
     private let onCheckForUpdates: () -> Void
     private let onOpenPreferences: () -> Void
     private let onQuitApp: () -> Void
-    private var notificationMenuSnapshotCancellable: AnyCancellable?
+    private var notificationMenuSnapshotTask: Task<Void, Never>?
     private let buildHintTitle: String?
 
     private let stateHintItem = NSMenuItem(title: String(localized: "statusMenu.noUnread", defaultValue: "No unread notifications"), action: nil, keyEquivalent: "")
@@ -70,13 +69,21 @@ final class MenuBarExtraController: NSObject, NSMenuDelegate {
             button.toolTip = "cmux"
         }
 
-        notificationMenuSnapshotCancellable = notificationStore.$notificationMenuSnapshot
-            .receive(on: DispatchQueue.main)
-            .sink { [weak self] snapshot in
+        // Replacement for the former `notificationStore.$notificationMenuSnapshot`
+        // Combine subscription: the stream emits the current snapshot at
+        // subscription time and then every change, delivered asynchronously on
+        // the main actor (matching the old `.receive(on: DispatchQueue.main)`).
+        notificationMenuSnapshotTask = Task { [weak self, notificationStore] in
+            for await snapshot in notificationStore.notificationMenuSnapshotUpdates() {
                 self?.refreshUI(snapshot: snapshot)
             }
+        }
 
         refreshUI()
+    }
+
+    deinit {
+        notificationMenuSnapshotTask?.cancel()
     }
 
     private func buildMenu() {
@@ -151,8 +158,8 @@ final class MenuBarExtraController: NSObject, NSMenuDelegate {
     }
 
     func removeFromMenuBar() {
-        notificationMenuSnapshotCancellable?.cancel()
-        notificationMenuSnapshotCancellable = nil
+        notificationMenuSnapshotTask?.cancel()
+        notificationMenuSnapshotTask = nil
         statusItem.menu = nil
         NSStatusBar.system.removeStatusItem(statusItem)
     }

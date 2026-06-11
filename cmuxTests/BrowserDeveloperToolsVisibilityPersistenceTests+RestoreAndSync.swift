@@ -1,6 +1,7 @@
 import XCTest
 import Combine
 import AppKit
+import Observation
 import SwiftUI
 import UniformTypeIdentifiers
 import WebKit
@@ -197,17 +198,23 @@ extension BrowserDeveloperToolsVisibilityPersistenceTests {
         panel.syncDeveloperToolsPreferenceFromInspector()
         waitForDeveloperToolsTransitions()
 
-        var publishCount = 0
-        let cancellable = panel.objectWillChange.sink {
-            publishCount += 1
+        // `BrowserPanel` is `@Observable` (no `objectWillChange`); assert no
+        // change notification fires for the DevTools-intent state the sync
+        // can mutate (`preferredDeveloperToolsVisible` /
+        // `preferredDeveloperToolsPresentation`).
+        final class ChangeFlag: @unchecked Sendable { var didChange = false }
+        let flag = ChangeFlag()
+        withObservationTracking {
+            _ = panel.preferredDeveloperToolsVisible
+            _ = panel.preferredDeveloperToolsPresentation
+        } onChange: {
+            flag.didChange = true
         }
-        defer { _ = cancellable }
 
         panel.syncDeveloperToolsPreferenceFromInspector()
 
-        XCTAssertEqual(
-            publishCount,
-            0,
+        XCTAssertFalse(
+            flag.didChange,
             "Repeated hidden-inspector syncs should not republish the same hidden DevTools intent"
         )
     }

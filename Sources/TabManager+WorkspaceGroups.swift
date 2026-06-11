@@ -332,7 +332,7 @@ extension TabManager {
         workspaceGroups[index].name = trimmed
         // The group's name is the single source of truth for its anchor's
         // displayed title (see `resolvedWorkspaceDisplayTitle(for:)`). The
-        // sidebar re-reads `group.name` via the @Published array, but the
+        // sidebar re-reads `group.name` via the observed array, but the
         // imperatively-cached window-chrome surfaces (custom title bar,
         // toolbar command label) need an explicit nudge, and NSWindow.title
         // is refreshed inline here.

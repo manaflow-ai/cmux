@@ -1,5 +1,5 @@
 import Foundation
-import Combine
+import Observation
 import Bonsplit
 import OSLog
 
@@ -125,14 +125,15 @@ enum ClosedWindowRestoreValidation {
 }
 
 @MainActor
-final class ClosedItemHistoryStore: ObservableObject {
+@Observable
+final class ClosedItemHistoryStore {
     static let shared = ClosedItemHistoryStore(
         capacity: nil,
         fileURL: defaultHistoryFileURL()
     )
 
-    @Published private(set) var revision: UInt64 = 0
-    @Published private var records: [ClosedItemHistoryRecord] = []
+    private(set) var revision: UInt64 = 0
+    private var records: [ClosedItemHistoryRecord] = []
     private let capacity: Int?
     private let fileURL: URL?
     private let persistsRecordsSynchronously: Bool

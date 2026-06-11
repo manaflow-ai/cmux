@@ -6,6 +6,7 @@ import AppKit
 import Metal
 import QuartzCore
 import Combine
+import Observation
 import CoreText
 import Darwin
 import Carbon.HIToolbox
@@ -36,13 +37,28 @@ func recordAgentHibernationTerminalInput(workspaceId: UUID, panelId: UUID) {
     }
 }
 
-final class TerminalSurface: Identifiable, ObservableObject {
-    final class SearchState: ObservableObject {
-        @Published var needle: String
-        @Published var selected: UInt?
-        @Published var total: UInt?
+@Observable
+final class TerminalSurface: Identifiable {
+    @Observable
+    final class SearchState {
+        var needle: String {
+            didSet { needleSubject.send(needle) }
+        }
+        var selected: UInt?
+        var total: UInt?
+
+        /// Combine mirror of `needle` feeding the find-debounce pipeline in
+        /// `TerminalSurface.searchState`'s `didSet`. A `CurrentValueSubject`
+        /// replays the current value on subscribe, matching the former
+        /// `$needle` projection's initial emission.
+        @ObservationIgnored private let needleSubject: CurrentValueSubject<String, Never>
+
+        var needlePublisher: AnyPublisher<String, Never> {
+            needleSubject.eraseToAnyPublisher()
+        }
 
         init(needle: String = "") {
+            self.needleSubject = CurrentValueSubject(needle)
             self.needle = needle
             self.selected = nil
             self.total = nil
@@ -66,11 +82,18 @@ final class TerminalSurface: Identifiable, ObservableObject {
         }
     }
 
-    var surface: ghostty_surface_t?
-    weak var attachedView: GhosttyNSView?
+    // `@ObservationIgnored` below preserves the pre-`@Observable` contract:
+    // only `searchState` and `keyboardCopyModeActive` were `@Published`, so
+    // they stay the only observation-tracked properties. The rest are runtime
+    // bookkeeping mutated from AppKit layout/portal attach (which runs inside
+    // SwiftUI view updates), per-keystroke/socket hot paths, and `deinit`;
+    // tracking them would add registrar work on those paths and risk
+    // mid-update invalidation without any view depending on them.
+    @ObservationIgnored var surface: ghostty_surface_t?
+    @ObservationIgnored weak var attachedView: GhosttyNSView?
 
     let id: UUID
-    var tabId: UUID
+    @ObservationIgnored var tabId: UUID
     /// Port ordinal for CMUX_PORT range assignment. Captured at construction so
     /// every runtime startup path uses the same immutable workspace port range.
     let portOrdinal: Int
@@ -89,11 +112,11 @@ final class TerminalSurface: Identifiable, ObservableObject {
     let initialCommand: String?
     let tmuxStartCommand: String?
     let initialInput: String?
-    var nextRuntimeInitialInput: String?
+    @ObservationIgnored var nextRuntimeInitialInput: String?
     let initialEnvironmentOverrides: [String: String]
     var requestedWorkingDirectory: String? { workingDirectory }
     let focusPlacement: TerminalSurfaceFocusPlacement
-    var additionalEnvironment: [String: String]
+    @ObservationIgnored var additionalEnvironment: [String: String]
     var respawnInitialEnvironmentOverrides: [String: String] {
         initialEnvironmentOverrides
     }
@@ -104,37 +127,37 @@ final class TerminalSurface: Identifiable, ObservableObject {
     }
     let hostedView: GhosttySurfaceScrollView
     let surfaceView: GhosttyNSView
-    var lastPixelWidth: UInt32 = 0
-    var lastPixelHeight: UInt32 = 0
-    var lastUncappedPixelWidth: UInt32 = 0
-    var lastUncappedPixelHeight: UInt32 = 0
-    var lastXScale: CGFloat = 0
-    var lastYScale: CGFloat = 0
-    var mobileViewportCellLimit: (columns: Int, rows: Int)?
+    @ObservationIgnored var lastPixelWidth: UInt32 = 0
+    @ObservationIgnored var lastPixelHeight: UInt32 = 0
+    @ObservationIgnored var lastUncappedPixelWidth: UInt32 = 0
+    @ObservationIgnored var lastUncappedPixelHeight: UInt32 = 0
+    @ObservationIgnored var lastXScale: CGFloat = 0
+    @ObservationIgnored var lastYScale: CGFloat = 0
+    @ObservationIgnored var mobileViewportCellLimit: (columns: Int, rows: Int)?
     let debugMetadataLock = NSLock()
     let createdAt: Date = Date()
-    var runtimeSurfaceCreatedAt: Date?
-    var teardownRequestedAt: Date?
-    var teardownRequestReason: String?
+    @ObservationIgnored var runtimeSurfaceCreatedAt: Date?
+    @ObservationIgnored var teardownRequestedAt: Date?
+    @ObservationIgnored var teardownRequestReason: String?
     // Main-thread only. Public socket send entrypoints are MainActor-isolated
     // before reading `surface` or mutating this pending queue.
-    var pendingSocketInputQueue: [PendingSocketInput] = []
-    var pendingSocketInputBytes: Int = 0
+    @ObservationIgnored var pendingSocketInputQueue: [PendingSocketInput] = []
+    @ObservationIgnored var pendingSocketInputBytes: Int = 0
     let maxPendingSocketInputBytes = 1_048_576
-    var backgroundSurfaceStartQueued = false
-    var runtimeSurfaceSuspendedForAgentHibernation = false
-    var headlessStartupWindow: NSWindow?
-    var surfaceCallbackContext: Unmanaged<GhosttySurfaceCallbackContext>?
-    var claudeCommandShim: ClaudeCommandShim?
-    var claudeCommandShimInstallTask: Task<ClaudeCommandShim?, Never>?
-    var claudeCommandShimInstallCompleted = false
+    @ObservationIgnored var backgroundSurfaceStartQueued = false
+    @ObservationIgnored var runtimeSurfaceSuspendedForAgentHibernation = false
+    @ObservationIgnored var headlessStartupWindow: NSWindow?
+    @ObservationIgnored var surfaceCallbackContext: Unmanaged<GhosttySurfaceCallbackContext>?
+    @ObservationIgnored var claudeCommandShim: ClaudeCommandShim?
+    @ObservationIgnored var claudeCommandShimInstallTask: Task<ClaudeCommandShim?, Never>?
+    @ObservationIgnored var claudeCommandShimInstallCompleted = false
     /// Heap-allocated userdata for the libghostty PTY tee callback (cmux
     /// fork extension). Installed in `createSurface` after
     /// `ghostty_surface_new` succeeds; released alongside
     /// `surfaceCallbackContext` whenever we tear down or rebuild the
     /// surface. The Mac sync server reads the tee'd bytes to broadcast
     /// raw PTY output to paired iPhones (`MobileTerminalByteTee`).
-    var mobileByteTeeContext: Unmanaged<MobileTerminalByteTeeUserdata>?
+    @ObservationIgnored var mobileByteTeeContext: Unmanaged<MobileTerminalByteTeeUserdata>?
     /// The desired focus state for the Ghostty C surface. May be set before the
     /// C surface exists (e.g. during layout restoration); `createSurface`
     /// reapplies this value once the runtime surface exists, then keeps using it
@@ -144,14 +167,14 @@ final class TerminalSurface: Identifiable, ObservableObject {
     /// Start unfocused and only opt into focus when the workspace/AppKit focus
     /// path explicitly requests it so background panes do not keep a focused
     /// state unless the workspace focus path requests it.
-    var desiredFocusState: Bool = false
-    private(set) var clipboardReadGeneration = 0
+    @ObservationIgnored var desiredFocusState: Bool = false
+    @ObservationIgnored private(set) var clipboardReadGeneration = 0
 #if DEBUG
-    var needsConfirmCloseOverrideForTesting: Bool?
-    var runtimeSurfaceFreedOutOfBandForTesting = false
-    var runtimeSurfaceCreateAttemptCountForTesting = 0
+    @ObservationIgnored var needsConfirmCloseOverrideForTesting: Bool?
+    @ObservationIgnored var runtimeSurfaceFreedOutOfBandForTesting = false
+    @ObservationIgnored var runtimeSurfaceCreateAttemptCountForTesting = 0
     let debugForceRefreshCountLock = NSLock()
-    var debugForceRefreshCountValue = 0
+    @ObservationIgnored var debugForceRefreshCountValue = 0
     @MainActor
     static var runtimeSurfaceFreeOverrideForTesting: (@Sendable (ghostty_surface_t) -> Void)?
 #endif
@@ -167,17 +190,25 @@ final class TerminalSurface: Identifiable, ObservableObject {
         let inWindow: Bool
         let area: CGFloat
     }
-    var portalLifecycleState: PortalLifecycleState = .live
-    var portalLifecycleGeneration: UInt64 = 1
-    var activePortalHostLease: PortalHostLease?
-    @Published var searchState: SearchState? = nil {
+    @ObservationIgnored var portalLifecycleState: PortalLifecycleState = .live
+    @ObservationIgnored var portalLifecycleGeneration: UInt64 = 1
+    @ObservationIgnored var activePortalHostLease: PortalHostLease?
+    /// Fires on every `searchState` assignment with the new value. Replaces
+    /// the former `$searchState` projection (`TerminalPanel` syncs its own
+    /// `searchState` from it); subscribers needing the projection's
+    /// initial-value emission `prepend(searchState)` at subscribe time.
+    @ObservationIgnored let searchStateEdits = PassthroughSubject<SearchState?, Never>()
+    var searchState: SearchState? = nil {
 	        didSet {
+	            // Mirror the former `$searchState` willSet-time publish before
+	            // the handler logic below runs.
+	            searchStateEdits.send(searchState)
 	            if let searchState {
 	                hostedView.cancelFocusRequest()
 #if DEBUG
                 cmuxDebugLog("find.searchState created tab=\(tabId.uuidString.prefix(5)) surface=\(id.uuidString.prefix(5))")
 #endif
-                searchNeedleCancellable = searchState.$needle
+                searchNeedleCancellable = searchState.needlePublisher
                     .removeDuplicates()
                     .map { needle -> AnyPublisher<String, Never> in
                         if needle.isEmpty || needle.count >= 3 {
@@ -205,9 +236,9 @@ final class TerminalSurface: Identifiable, ObservableObject {
             }
         }
     }
-    @Published private(set) var keyboardCopyModeActive: Bool = false
-    private(set) var lastSearchNeedle = ""
-    private var searchNeedleCancellable: AnyCancellable?
+    private(set) var keyboardCopyModeActive: Bool = false
+    @ObservationIgnored private(set) var lastSearchNeedle = ""
+    @ObservationIgnored private var searchNeedleCancellable: AnyCancellable?
     var currentKeyStateIndicatorText: String? { surfaceView.currentKeyStateIndicatorText }
 
     init(

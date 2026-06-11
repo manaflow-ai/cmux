@@ -1,7 +1,6 @@
 import AppKit
 import CmuxSocketControl
 import Bonsplit
-import Combine
 @_spi(CmuxHostTransport) import CmuxExtensionKit
 import CmuxSidebarProviderKit
 import CmuxExtensionSidebarExamples
@@ -95,7 +94,8 @@ enum SidebarDragAutoScrollPlanner {
 }
 
 @MainActor
-final class SidebarDragAutoScrollController: ObservableObject {
+@Observable
+final class SidebarDragAutoScrollController {
     weak var scrollView: NSScrollView?
     var timer: Timer?
     private var activePlan: SidebarAutoScrollPlan?

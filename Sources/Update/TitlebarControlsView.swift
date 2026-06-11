@@ -1,11 +1,13 @@
 import AppKit
 import Bonsplit
 import Combine
+import Observation
 import SwiftUI
 
 
 // MARK: - Titlebar controls SwiftUI view
-final class TitlebarControlsViewModel: ObservableObject {
+@Observable
+final class TitlebarControlsViewModel {
     weak var notificationsAnchorView: NSView?
 }
 
@@ -23,22 +25,22 @@ private enum TitlebarControlIconStyle {
 }
 
 struct TitlebarControlsView: View {
-    @ObservedObject var notificationStore: TerminalNotificationStore
-    @ObservedObject var viewModel: TitlebarControlsViewModel
+    let notificationStore: TerminalNotificationStore
+    let viewModel: TitlebarControlsViewModel
     let onToggleSidebar: () -> Void
     let onToggleNotifications: () -> Void
     let onNewTab: () -> Void
     let onFocusHistoryBack: () -> Void
     let onFocusHistoryForward: () -> Void
     let visibilityMode: TitlebarControlsVisibilityMode
-    @ObservedObject private var popoverVisibilityState = NotificationsPopoverVisibilityState.shared
+    private let popoverVisibilityState = NotificationsPopoverVisibilityState.shared
     @AppStorage("titlebarControlsStyle") private var styleRawValue = TitlebarControlsStyle.classic.rawValue
     @State private var shortcutRefreshTick = 0
     @State private var appearanceRefreshTick = 0
     @State private var isHoveringControls = false
     @State private var hostWindowNumber: Int?
     @State private var focusHistoryAvailabilityRevision: UInt64 = 0
-    @StateObject private var modifierKeyMonitor = TitlebarShortcutHintModifierMonitor()
+    @State private var modifierKeyMonitor = TitlebarShortcutHintModifierMonitor()
     private let titlebarShortcutHintXOffset = ShortcutHintDebugSettings.defaultTitlebarHintX
     private let titlebarShortcutHintYOffset = ShortcutHintDebugSettings.defaultTitlebarHintY
     private let alwaysShowShortcutHints = ShortcutHintDebugSettings.alwaysShowHints()
@@ -438,8 +440,9 @@ private struct TitlebarSidebarGlyphShape: Shape {
 }
 
 @MainActor
-private final class TitlebarShortcutHintModifierMonitor: ObservableObject {
-    @Published private(set) var isModifierPressed = false {
+@Observable
+private final class TitlebarShortcutHintModifierMonitor {
+    private(set) var isModifierPressed = false {
         didSet {
             guard oldValue != isModifierPressed else { return }
             NotificationCenter.default.post(

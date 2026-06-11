@@ -1,9 +1,9 @@
 import AppKit
 import Bonsplit
 import CMUXAgentLaunch
-import Combine
 import Darwin
 import Foundation
+import Observation
 import os
 import SQLite3
 
@@ -13,21 +13,22 @@ nonisolated let sessionIndexLogger = Logger(
 )
 
 @MainActor
-final class SessionIndexStore: ObservableObject {
-    @Published private(set) var entries: [SessionEntry] = [] {
+@Observable
+final class SessionIndexStore {
+    private(set) var entries: [SessionEntry] = [] {
         didSet {
             guard entries != oldValue else { return }
             invalidateSectionsCache()
         }
     }
-    @Published private(set) var isLoading: Bool = false
-    @Published var scopeToCurrentDirectory: Bool = false {
+    private(set) var isLoading: Bool = false
+    var scopeToCurrentDirectory: Bool = false {
         didSet {
             guard scopeToCurrentDirectory != oldValue else { return }
             invalidateSectionsCache()
         }
     }
-    @Published var currentDirectory: String? = nil {
+    var currentDirectory: String? = nil {
         didSet {
             guard scopeToCurrentDirectory, currentDirectory != oldValue else { return }
             invalidateSectionsCache()
@@ -39,7 +40,7 @@ final class SessionIndexStore: ObservableObject {
         currentDirectory = next
     }
 
-    @Published var grouping: SessionGrouping {
+    var grouping: SessionGrouping {
         didSet {
             guard grouping != oldValue else { return }
             UserDefaults.standard.set(grouping.rawValue, forKey: Self.groupingKey)
@@ -55,7 +56,7 @@ final class SessionIndexStore: ObservableObject {
     }
 
     /// Persisted order for agent sections.
-    @Published var agentOrder: [SessionAgent] {
+    var agentOrder: [SessionAgent] {
         didSet {
             guard !Self.agentOrderPresentationEqual(agentOrder, oldValue) else { return }
             Self.persistAgentOrder(agentOrder)
@@ -64,7 +65,7 @@ final class SessionIndexStore: ObservableObject {
     }
 
     /// Persisted order for directory sections (absolute paths; "" means "no folder").
-    @Published var directoryOrder: [String] {
+    var directoryOrder: [String] {
         didSet {
             guard directoryOrder != oldValue else { return }
             Self.persistDirectoryOrder(directoryOrder)
@@ -75,9 +76,13 @@ final class SessionIndexStore: ObservableObject {
     private static let groupingKey = "sessionIndex.grouping"
     private static let agentOrderDefaultsKey = "sessionIndex.agentOrder"
     private static let directoryOrderDefaultsKey = "sessionIndex.directoryOrder"
-    var sectionsCacheRevision: UInt64 = 0
-    var cachedSectionsRevision: UInt64?
-    var cachedSections: [IndexSection] = []
+    // Cache bookkeeping is deliberately unobserved (it was not `@Published`
+    // pre-@Observable): `sectionsForCurrentGrouping()` writes it from inside
+    // view-body computations, and tracked writes there would re-invalidate the
+    // very views being rendered.
+    @ObservationIgnored var sectionsCacheRevision: UInt64 = 0
+    @ObservationIgnored var cachedSectionsRevision: UInt64?
+    @ObservationIgnored var cachedSections: [IndexSection] = []
 
     init() {
         self.agentOrder = Self.loadAgentOrder()
@@ -87,7 +92,7 @@ final class SessionIndexStore: ObservableObject {
     }
 
     /// Extend `directoryOrder` with any cwds seen in `entries` that aren't
-    /// already tracked. Kept out of the view-body path: it mutates `@Published`
+    /// already tracked. Kept out of the view-body path: it mutates observable
     /// state and must only run in response to real data changes (new scan
     /// results, grouping switch) — not on every SwiftUI update tick.
     private func backfillDirectoryOrderFromEntries() {
@@ -203,7 +208,7 @@ final class SessionIndexStore: ObservableObject {
         UserDefaults.standard.set(order, forKey: directoryOrderDefaultsKey)
     }
 
-    private var loadTask: Task<Void, Never>?
+    @ObservationIgnored private var loadTask: Task<Void, Never>?
 
     func reload() {
         loadTask?.cancel()
@@ -233,13 +238,15 @@ final class SessionIndexStore: ObservableObject {
 
     // MARK: - Directory snapshot cache
 
-    var directorySnapshotCache: [String: DirectorySnapshot] = [:]
-    var directorySnapshotLRU: [String] = []
+    // Unobserved cache state (was not `@Published` pre-@Observable); consumers
+    // read snapshots through explicit load calls, never via observation.
+    @ObservationIgnored var directorySnapshotCache: [String: DirectorySnapshot] = [:]
+    @ObservationIgnored var directorySnapshotLRU: [String] = []
     /// Bumped on every `reload()`. Snapshot builds capture this at start;
     /// if it changes before the build completes (reload raced with an
     /// in-flight build), the build's result is discarded instead of
     /// being written back into the cache — otherwise the stale
     /// pre-reload result would repopulate the cache after invalidation
     /// and be reused on the next popover open.
-    var directorySnapshotGeneration: Int = 0
+    @ObservationIgnored var directorySnapshotGeneration: Int = 0
 }

@@ -2,18 +2,20 @@ import Combine
 import CmuxFileWatch
 import CmuxSocketControl
 import Foundation
+import Observation
 import os
 
 nonisolated let cmuxSettingsFileStoreLogger = Logger(subsystem: "com.cmuxterm.app", category: "SettingsStore")
 
 @MainActor
-final class KeyboardShortcutSettingsObserver: ObservableObject {
+@Observable
+final class KeyboardShortcutSettingsObserver {
     static let shared = KeyboardShortcutSettingsObserver()
 
-    @Published private(set) var revision: UInt64 = 0
+    private(set) var revision: UInt64 = 0
 
-    private var settingsCancellable: AnyCancellable?
-    private var recorderCancellable: AnyCancellable?
+    @ObservationIgnored private var settingsCancellable: AnyCancellable?
+    @ObservationIgnored private var recorderCancellable: AnyCancellable?
 
     private init(notificationCenter: NotificationCenter = .default) {
         settingsCancellable = notificationCenter.publisher(for: KeyboardShortcutSettings.didChangeNotification).receive(on: DispatchQueue.main).sink { [weak self] _ in self?.revision &+= 1 }

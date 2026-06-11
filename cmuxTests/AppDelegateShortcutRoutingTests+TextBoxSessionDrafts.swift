@@ -2,6 +2,7 @@ import XCTest
 import AppKit
 import Carbon.HIToolbox
 import Combine
+import Observation
 import SwiftUI
 
 #if canImport(cmux_DEV)
@@ -202,21 +203,33 @@ extension AppDelegateShortcutRoutingTests {
         let originalTextView = TextBoxInputTextView(frame: NSRect(x: 0, y: 0, width: 320, height: 30))
         originalTextView.string = "preserve this"
 
-        var objectWillChangeCount = 0
-        let cancellable = terminalPanel.objectWillChange.sink {
-            objectWillChangeCount += 1
+        // `TerminalPanel` is `@Observable` (no `objectWillChange`); assert no
+        // change notification fires for any view-facing (formerly
+        // `@Published`) panel state during unmount preservation.
+        final class ChangeFlag: @unchecked Sendable { var didChange = false }
+        let flag = ChangeFlag()
+        withObservationTracking {
+            _ = terminalPanel.title
+            _ = terminalPanel.directory
+            _ = terminalPanel.tmuxLayoutReport
+            _ = terminalPanel.isTextBoxActive
+            _ = terminalPanel.textBoxContent
+            _ = terminalPanel.textBoxAttachments
+            _ = terminalPanel.searchState
+            _ = terminalPanel.viewReattachToken
+            _ = terminalPanel.agentHibernationState
+        } onChange: {
+            flag.didChange = true
         }
 
         terminalPanel.preserveTextBoxContentForUnmount(from: originalTextView)
 
         let draft = try XCTUnwrap(terminalPanel.sessionTextBoxDraftSnapshot())
         XCTAssertEqual(textBoxSessionDraftPartSummaries(draft.parts), [.text("preserve this")])
-        XCTAssertEqual(
-            objectWillChangeCount,
-            0,
+        XCTAssertFalse(
+            flag.didChange,
             "TextBox unmount preservation runs from NSViewRepresentable.dismantleNSView and must not publish during SwiftUI teardown"
         )
-        withExtendedLifetime(cancellable) {}
     }
 
     func testTerminalPanelCloseDisposesTextBoxAttachmentDrafts() throws {

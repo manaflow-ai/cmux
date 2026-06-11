@@ -1,10 +1,11 @@
-import Combine
 import CoreGraphics
 import Foundation
+import Observation
 
-final class SidebarState: ObservableObject {
-    @Published var isVisible: Bool
-    @Published var persistedWidth: CGFloat
+@Observable
+final class SidebarState {
+    var isVisible: Bool
+    var persistedWidth: CGFloat
 
     init(isVisible: Bool = true, persistedWidth: CGFloat = CGFloat(SessionPersistencePolicy.defaultSidebarWidth)) {
         self.isVisible = isVisible

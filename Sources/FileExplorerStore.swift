@@ -1,7 +1,7 @@
 import AppKit
 import CmuxFileWatch
-import Combine
 import Foundation
+import Observation
 import QuartzCore
 import SwiftUI
 
@@ -55,50 +55,68 @@ enum FileExplorerSelectionRestoration {
 /// All access must happen on the main thread. Properties are not marked @MainActor
 /// because NSOutlineView data source/delegate methods are called on the main thread
 /// but are not annotated @MainActor.
-final class FileExplorerStore: ObservableObject {
-    @Published var rootPath: String = ""
-    @Published var rootNodes: [FileExplorerNode] = []
-    @Published private(set) var isRootLoading: Bool = false
-    @Published private(set) var gitStatusByPath: [String: GitFileStatus] = [:]
-    @Published private(set) var contentRevision = 0
-    @Published private(set) var rootStatusMessage: String?
+@Observable
+final class FileExplorerStore {
+    var rootPath: String = ""
+    var rootNodes: [FileExplorerNode] = []
+    private(set) var isRootLoading: Bool = false
+    private(set) var gitStatusByPath: [String: GitFileStatus] = [:]
+    private(set) var contentRevision = 0
+    private(set) var rootStatusMessage: String?
 
-    var provider: FileExplorerProvider?
+    /// Monotonic counter bumped wherever this store previously fired
+    /// `objectWillChange` for mutations Observation cannot see (contents of
+    /// `FileExplorerNode` reference objects and load bookkeeping). Observers
+    /// (e.g. the outline-view coordinator) read it so those mutations still
+    /// invalidate.
+    private(set) var revision = 0
+
+    // Everything below was never `@Published` pre-migration, so mutating it
+    // fired no `objectWillChange` and could not invalidate any SwiftUI view.
+    // `@ObservationIgnored` keeps that exact contract: these properties are
+    // read synchronously from observation-tracked scopes (e.g. the outline
+    // coordinator's `reloadIfNeeded` / `updateHeader` called from
+    // `FileExplorerPanelView.updateNSView`), and tracking them would widen the
+    // representable's invalidation trigger set beyond the old
+    // `@ObservedObject` behavior (undebounced reload sweeps on every
+    // selection move or expand of a loaded node).
+
+    @ObservationIgnored var provider: FileExplorerProvider?
 
     /// Whether hidden files are shown. Set from FileExplorerState externally.
-    var showHiddenFiles: Bool = false
+    @ObservationIgnored var showHiddenFiles: Bool = false
 
     /// Watches the root directory for filesystem changes (local only).
-    private var directoryWatcher: FileWatcher?
-    private var directoryWatchTask: Task<Void, Never>?
-    private var directoryWatchPath: String?
+    @ObservationIgnored private var directoryWatcher: FileWatcher?
+    @ObservationIgnored private var directoryWatchTask: Task<Void, Never>?
+    @ObservationIgnored private var directoryWatchPath: String?
 
     /// Paths that are logically expanded (persisted across provider changes)
-    private(set) var expandedPaths: Set<String> = []
+    @ObservationIgnored private(set) var expandedPaths: Set<String> = []
 
     /// Stable navigation selection. The outline view mirrors this path after reloads.
-    private(set) var selectedPath: String?
+    @ObservationIgnored private(set) var selectedPath: String?
 
     /// Stable multi-selection. `selectedPath` remains the keyboard/navigation anchor.
-    private(set) var selectedPaths: Set<String> = []
+    @ObservationIgnored private(set) var selectedPaths: Set<String> = []
 
     /// Folder path whose first child should be selected once its async load completes.
-    private var pendingDescendIntoFirstChildPath: String?
+    @ObservationIgnored private var pendingDescendIntoFirstChildPath: String?
 
     /// Paths currently being loaded
-    private(set) var loadingPaths: Set<String> = []
+    @ObservationIgnored private(set) var loadingPaths: Set<String> = []
 
     /// In-flight load tasks keyed by path
-    private var loadTasks: [String: Task<Void, Never>] = [:]
+    @ObservationIgnored private var loadTasks: [String: Task<Void, Never>] = [:]
 
     /// Cache of path -> node for quick lookup
-    private var nodesByPath: [String: FileExplorerNode] = [:]
+    @ObservationIgnored private var nodesByPath: [String: FileExplorerNode] = [:]
 
     /// Prefetch debounce: path -> work item
-    private var prefetchWorkItems: [String: DispatchWorkItem] = [:]
+    @ObservationIgnored private var prefetchWorkItems: [String: DispatchWorkItem] = [:]
 
-    private var remoteHomeResolutionTask: Task<Void, Never>?
-    private var remoteHomeResolutionKey: String?
+    @ObservationIgnored private var remoteHomeResolutionTask: Task<Void, Never>?
+    @ObservationIgnored private var remoteHomeResolutionKey: String?
 
     var displayRootPath: String {
         if let sshProvider = provider as? SSHFileExplorerProvider {
@@ -281,7 +299,7 @@ final class FileExplorerStore: ObservableObject {
         if node.children == nil, loadTasks[node.path] == nil, !loadingPaths.contains(node.path) {
             node.isLoading = true
             node.error = nil
-            objectWillChange.send()
+            revision &+= 1
             let nodePath = node.path
             let task = Task { [weak self] in
                 guard let self else { return }
@@ -296,7 +314,7 @@ final class FileExplorerStore: ObservableObject {
         if pendingDescendIntoFirstChildPath == node.path {
             pendingDescendIntoFirstChildPath = nil
         }
-        objectWillChange.send()
+        revision &+= 1
     }
 
     func isExpanded(_ node: FileExplorerNode) -> Bool {
@@ -373,7 +391,7 @@ final class FileExplorerStore: ObservableObject {
         if !silent {
             loadingPaths.insert(path)
             parentNode?.error = nil
-            objectWillChange.send()
+            revision &+= 1
         }
 
         do {
@@ -409,12 +427,12 @@ final class FileExplorerStore: ObservableObject {
             }
             loadingPaths.remove(path)
             loadTasks.removeValue(forKey: path)
-            objectWillChange.send()
+            revision &+= 1
 
             // Auto-expand children that were previously expanded
             for child in children where child.isDirectory && expandedPaths.contains(child.path) {
                 child.isLoading = true
-                objectWillChange.send()
+                revision &+= 1
                 let childPath = child.path
                 let childTask = Task { [weak self] in
                     guard let self else { return }
@@ -433,7 +451,7 @@ final class FileExplorerStore: ObservableObject {
                 }
                 loadingPaths.remove(path)
                 loadTasks.removeValue(forKey: path)
-                objectWillChange.send()
+                revision &+= 1
             }
         }
     }

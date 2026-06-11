@@ -22,25 +22,25 @@ import WebKit
 
 struct VerticalTabsSidebar: View {
     var updateViewModel: UpdateStateModel
-    @ObservedObject var fileExplorerState: FileExplorerState
+    var fileExplorerState: FileExplorerState
     let windowId: UUID
     let onSendFeedback: () -> Void
     let onToggleSidebar: () -> Void
     let onNewTab: () -> Void
     let observedWindow: NSWindow?
-    @EnvironmentObject var tabManager: TabManager
-    @EnvironmentObject var notificationStore: TerminalNotificationStore
-    @EnvironmentObject var cmuxConfigStore: CmuxConfigStore
+    @Environment(TabManager.self) var tabManager
+    @Environment(TerminalNotificationStore.self) var notificationStore
+    @Environment(CmuxConfigStore.self) var cmuxConfigStore
     @Binding var selection: SidebarSelection
     @Binding var selectedTabIds: Set<UUID>
     @Binding var lastSidebarSelectionIndex: Int?
     @State var modifierKeyMonitor = WindowScopedShortcutHintModifierMonitor(activation: .commandOnly)
-    @StateObject var dragAutoScrollController = SidebarDragAutoScrollController()
-    @StateObject private var dragFailsafeMonitor = SidebarDragFailsafeMonitor()
-    @StateObject var tabItemSettingsStore = SidebarTabItemSettingsStore(
+    @State var dragAutoScrollController = SidebarDragAutoScrollController()
+    @State private var dragFailsafeMonitor = SidebarDragFailsafeMonitor()
+    @State var tabItemSettingsStore = SidebarTabItemSettingsStore(
         initialSidebarFontSize: GhosttyConfig.load().sidebarFontSize
     )
-    @ObservedObject var keyboardShortcutSettingsObserver = KeyboardShortcutSettingsObserver.shared
+    let keyboardShortcutSettingsObserver = KeyboardShortcutSettingsObserver.shared
     @State var dragState = SidebarDragState()
     // Bonsplit tab drags arrive through AppKit pasteboard callbacks, not
     // `SidebarDragState`, so they need a separate transient collection flag.

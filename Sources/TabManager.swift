@@ -9,6 +9,7 @@ import CoreVideo
 import Combine
 import CoreServices
 import Darwin
+import Observation
 import OSLog
 
 // MARK: - Tab Type Alias for Backwards Compatibility
@@ -18,7 +19,8 @@ typealias Tab = Workspace
 let tabManagerLogger = Logger(subsystem: "com.cmuxterm.app", category: "TabManager")
 
 @MainActor
-class TabManager: ObservableObject {
+@Observable
+class TabManager {
     enum WorkspacePullRequestSnapshot: Equatable {
         case deferred
         case unsupportedRepository
@@ -61,18 +63,57 @@ class TabManager: ObservableObject {
     /// Used to apply title updates to the correct window instead of NSApp.keyWindow.
     weak var window: NSWindow?
 
-    @Published var tabs: [Workspace] = []
+    var tabs: [Workspace] = [] {
+        didSet { tabsSubject.send(tabs) }
+    }
     /// Named groupings of workspaces shown as collapsible sections in the sidebar.
     /// Group order in this array defines section order in the sidebar.
     /// Each member workspace stores its `groupId` on the `Workspace` model.
-    @Published var workspaceGroups: [WorkspaceGroup] = []
+    var workspaceGroups: [WorkspaceGroup] = []
     /// Set by `restoreSessionSnapshot` to suppress side-effects (like auto-
     /// expanding a group on focus) that would mutate restored state mid-restore.
     var isRestoringSessionSnapshot: Bool = false
-    @Published var isWorkspaceCycleHot: Bool = false
-    @Published var pendingBackgroundWorkspaceLoadIds: Set<UUID> = []
-    @Published var mountedBackgroundWorkspaceLoadIds: Set<UUID> = []
-    @Published var debugPinnedWorkspaceLoadIds: Set<UUID> = []
+    var isWorkspaceCycleHot: Bool = false
+    var pendingBackgroundWorkspaceLoadIds: Set<UUID> = [] {
+        didSet { pendingBackgroundWorkspaceLoadIdsSubject.send(pendingBackgroundWorkspaceLoadIds) }
+    }
+    var mountedBackgroundWorkspaceLoadIds: Set<UUID> = [] {
+        didSet { mountedBackgroundWorkspaceLoadIdsSubject.send(mountedBackgroundWorkspaceLoadIds) }
+    }
+    var debugPinnedWorkspaceLoadIds: Set<UUID> = [] {
+        didSet { debugPinnedWorkspaceLoadIdsSubject.send(debugPinnedWorkspaceLoadIds) }
+    }
+
+    // MARK: Combine mirrors of the former `@Published` projections
+    //
+    // `@Observable` has no `$property` Combine projections. These
+    // `CurrentValueSubject`s mirror the properties that still have Combine
+    // subscribers (fed from each property's `didSet`) and replay the current
+    // value on subscribe, matching the former `$property` initial emission.
+    // Timing note: `@Published` emitted on `willSet`; these emit on `didSet`,
+    // so subscribers observe the already-updated TabManager state. Like
+    // `@Published`, they emit on every assignment (no equality filtering).
+    @ObservationIgnored private let tabsSubject = CurrentValueSubject<[Workspace], Never>([])
+    @ObservationIgnored private let selectedTabIdSubject = CurrentValueSubject<UUID?, Never>(nil)
+    @ObservationIgnored private let pendingBackgroundWorkspaceLoadIdsSubject = CurrentValueSubject<Set<UUID>, Never>([])
+    @ObservationIgnored private let mountedBackgroundWorkspaceLoadIdsSubject = CurrentValueSubject<Set<UUID>, Never>([])
+    @ObservationIgnored private let debugPinnedWorkspaceLoadIdsSubject = CurrentValueSubject<Set<UUID>, Never>([])
+
+    var tabsPublisher: AnyPublisher<[Workspace], Never> {
+        tabsSubject.eraseToAnyPublisher()
+    }
+    var selectedTabIdPublisher: AnyPublisher<UUID?, Never> {
+        selectedTabIdSubject.eraseToAnyPublisher()
+    }
+    var pendingBackgroundWorkspaceLoadIdsPublisher: AnyPublisher<Set<UUID>, Never> {
+        pendingBackgroundWorkspaceLoadIdsSubject.eraseToAnyPublisher()
+    }
+    var mountedBackgroundWorkspaceLoadIdsPublisher: AnyPublisher<Set<UUID>, Never> {
+        mountedBackgroundWorkspaceLoadIdsSubject.eraseToAnyPublisher()
+    }
+    var debugPinnedWorkspaceLoadIdsPublisher: AnyPublisher<Set<UUID>, Never> {
+        debugPinnedWorkspaceLoadIdsSubject.eraseToAnyPublisher()
+    }
 
     /// Global monotonically increasing counter for CMUX_PORT ordinal assignment.
     /// Static so port ranges don't overlap across multiple windows (each window has its own TabManager).
@@ -86,7 +127,7 @@ class TabManager: ObservableObject {
     nonisolated static let workspacePullRequestRefreshBatchLimit = 3
     nonisolated static let mobileHostBackgroundWorkDeferralInterval: TimeInterval = 2.0
     nonisolated static let mobileHostBackgroundWorkQuietInterval: TimeInterval = 60.0
-    @Published var selectedTabId: UUID? {
+    var selectedTabId: UUID? {
         willSet {
 #if DEBUG
             guard newValue != selectedTabId else {
@@ -115,6 +156,10 @@ class TabManager: ObservableObject {
 #endif
         }
         didSet {
+            // Mirror every assignment (including same-value re-assignments,
+            // which the guard below filters out for side effects) so the
+            // Combine bridge matches the former `$selectedTabId` projection.
+            selectedTabIdSubject.send(selectedTabId)
             guard selectedTabId != oldValue else { return }
             if !isRestoringSessionSnapshot {
                 expandWorkspaceGroupForSelectionIfNeeded()
@@ -204,7 +249,12 @@ class TabManager: ObservableObject {
     let panelTitleUpdateCoalescer = NotificationBurstCoalescer(delay: 1.0 / 30.0)
     var recentlyClosedBrowsers = RecentlyClosedBrowserStack(capacity: 20)
     var workspaceGitProbeStateByKey: [WorkspaceGitProbeKey: WorkspaceGitProbeState] = [:]
-    var workspaceGitProbeTasksByKey: [WorkspaceGitProbeKey: Task<Void, Never>] = [:]
+    // Task/timer bookkeeping accessed from `deinit` stays `@ObservationIgnored`:
+    // the nonisolated deinit may only touch stored properties, and the
+    // `@Observable` macro would otherwise rewrite these into tracked computed
+    // properties. None of them feed SwiftUI, so ignoring them preserves the
+    // pre-migration (non-`@Published`) behavior exactly.
+    @ObservationIgnored var workspaceGitProbeTasksByKey: [WorkspaceGitProbeKey: Task<Void, Never>] = [:]
     var workspaceGitTrackedDirectoryByKey: [WorkspaceGitProbeKey: String] = [:]
     var workspaceGitCleanIndexSignatureByKey: [WorkspaceGitProbeKey: String] = [:]
     var workspaceGitCleanIndexContentSignatureByKey: [WorkspaceGitProbeKey: String] = [:]
@@ -215,9 +265,9 @@ class TabManager: ObservableObject {
     var workspaceGitMetadataWatcherDescriptorRequestsByKey: [WorkspaceGitProbeKey: WorkspaceGitMetadataWatcherDescriptorRequest] = [:]
     var workspaceGitMetadataWatcherDescriptorGeneration: UInt64 = 0
     var workspaceGitSnapshotRequestsByDirectory: [String: [WorkspaceGitSnapshotProbeRequest]] = [:]
-    var workspaceGitSnapshotTasksByDirectory: [String: Task<Void, Never>] = [:]
+    @ObservationIgnored var workspaceGitSnapshotTasksByDirectory: [String: Task<Void, Never>] = [:]
     var workspaceGitSnapshotDirectoryByProbeKey: [WorkspaceGitProbeKey: String] = [:]
-    var workspaceGitMetadataFallbackTask: Task<Void, Never>?
+    @ObservationIgnored var workspaceGitMetadataFallbackTask: Task<Void, Never>?
     var lastSidebarGitMetadataWatchEnabled = SidebarWorkspaceDetailDefaults.watchGitStatusValue(defaults: .standard)
     var lastSidebarPullRequestPollingEnabled = SidebarWorkspaceDetailDefaults.pullRequestPollingEnabled(defaults: .standard)
     var workspacePullRequestProbeStateByKey: [WorkspaceGitProbeKey: WorkspaceGitProbeState] = [:]
@@ -225,11 +275,11 @@ class TabManager: ObservableObject {
     var workspacePullRequestLastTerminalStateRefreshAtByKey: [WorkspaceGitProbeKey: Date] = [:]
     var workspacePullRequestTransientFailureCountByKey: [WorkspaceGitProbeKey: Int] = [:]
     var workspacePullRequestRepoCacheBySlug: [String: WorkspacePullRequestRepoCacheEntry] = [:]
-    var workspacePullRequestPollTask: Task<Void, Never>?
-    var workspacePullRequestRefreshTask: Task<Void, Never>?
+    @ObservationIgnored var workspacePullRequestPollTask: Task<Void, Never>?
+    @ObservationIgnored var workspacePullRequestRefreshTask: Task<Void, Never>?
     var workspacePullRequestFollowUpShouldBypassRepoCache = false
 
-    @Published var focusHistoryRevision: UInt64 = 0 {
+    var focusHistoryRevision: UInt64 = 0 {
         didSet {
             guard focusHistoryRevision != oldValue else { return }
             NotificationCenter.default.post(name: .tabManagerFocusHistoryRevisionDidChange, object: self)
@@ -246,13 +296,13 @@ class TabManager: ObservableObject {
     let maxHistorySize = 50
     var selectionSideEffectsGeneration: UInt64 = 0
     var workspaceCycleGeneration: UInt64 = 0
-    var workspaceCycleCooldownTask: Task<Void, Never>?
+    @ObservationIgnored var workspaceCycleCooldownTask: Task<Void, Never>?
     var pendingWorkspaceUnfocusTarget: (tabId: UUID, panelId: UUID)?
     var sidebarSelectedWorkspaceIds: Set<UUID> = []
     var currentWindowTabBarLeadingInset: CGFloat?
     var closeConfirmationInFlight = false
     var confirmCloseHandler: ((String, String, Bool) -> Bool)?
-    var agentPIDSweepTimer: DispatchSourceTimer?
+    @ObservationIgnored var agentPIDSweepTimer: DispatchSourceTimer?
 #if DEBUG
     var debugWorkspaceSwitchCounter: UInt64 = 0
     var debugWorkspaceSwitchId: UInt64 = 0

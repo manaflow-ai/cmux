@@ -668,10 +668,10 @@ extension Workspace {
         tmuxLayoutSnapshot = snapshot
         // Every order/membership mutation (same-pane reorder, cross-pane move,
         // split, close) routes through here. A pure reorder mutates only
-        // bonsplit's internal state, which is not `@Published`, so observers
+        // bonsplit's internal state, which is not observable, so observers
         // would miss it. Bump `paneLayoutVersion` only when the ordered panel-id
         // sequence actually changed, so divider drags and selection-only events
-        // (also routed here) do not fire `objectWillChange` app-wide.
+        // (also routed here) do not invalidate `paneLayoutVersion` observers.
         let currentOrder = orderedPanelIds
         if currentOrder != lastOrderedPanelIds {
             lastOrderedPanelIds = currentOrder

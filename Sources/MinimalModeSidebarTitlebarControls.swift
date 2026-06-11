@@ -1,5 +1,6 @@
 import AppKit
 import Bonsplit
+import Observation
 import SwiftUI
 
 
@@ -66,10 +67,11 @@ enum MinimalModeSidebarControlActionSlot: Int, CaseIterable {
     }
 }
 
-final class MinimalModeSidebarChromeHoverState: ObservableObject {
+@Observable
+final class MinimalModeSidebarChromeHoverState {
     static let shared = MinimalModeSidebarChromeHoverState()
 
-    @Published private(set) var hoveredWindowNumber: Int?
+    private(set) var hoveredWindowNumber: Int?
 
     private init() {}
 

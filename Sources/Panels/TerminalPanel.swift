@@ -31,7 +31,8 @@ enum AgentHibernationResumePreparation: Equatable {
 /// TerminalPanel wraps an existing TerminalSurface and conforms to the Panel protocol.
 /// This allows TerminalSurface to be used within the bonsplit-based layout system.
 @MainActor
-final class TerminalPanel: Panel, ObservableObject {
+@Observable
+final class TerminalPanel: Panel {
     private enum TextBoxInputFocusIntent: Equatable {
         case hidden
         case terminal
@@ -48,22 +49,27 @@ final class TerminalPanel: Panel, ObservableObject {
     private(set) var workspaceId: UUID
 
     /// Published title from the terminal process
-    @Published private(set) var title: String = "Terminal"
+    private(set) var title: String = "Terminal"
 
     /// Published directory from the terminal
-    @Published private(set) var directory: String = ""
+    private(set) var directory: String = ""
 
-    @Published private(set) var tmuxLayoutReport: TmuxPaneLayoutReport?
-    @Published var isTextBoxActive: Bool = false
-    @Published var textBoxContent: String = ""
-    @Published var textBoxAttachments: [TextBoxAttachment] = []
-    weak var textBoxInputView: TextBoxInputTextView?
+    private(set) var tmuxLayoutReport: TmuxPaneLayoutReport?
+    var isTextBoxActive: Bool = false
+    var textBoxContent: String = ""
+    var textBoxAttachments: [TextBoxAttachment] = []
+    // These caches are written from NSViewRepresentable makeNSView/dismantle
+    // (view registration and unmount preservation). They were never
+    // `@Published`; `@ObservationIgnored` keeps them untracked so SwiftUI
+    // construction/teardown cannot invalidate views mid-update, preserving the
+    // pre-@Observable contract documented in `preserveTextBoxContentForUnmount`.
+    @ObservationIgnored weak var textBoxInputView: TextBoxInputTextView?
     private var shouldFocusTextBoxWhenAvailable = false
     private var shouldOpenTextBoxFilePickerWhenAvailable = false
     private var shouldHideTextBoxOnNextEscape = false
     private var textBoxInputFocusIntent: TextBoxInputFocusIntent = .hidden
-    private var preservedTextBoxAttributedContent: NSAttributedString?
-    private var restoredTextBoxDraft: SessionTextBoxInputDraftSnapshot?
+    @ObservationIgnored private var preservedTextBoxAttributedContent: NSAttributedString?
+    @ObservationIgnored private var restoredTextBoxDraft: SessionTextBoxInputDraftSnapshot?
     private var isClosingPanel = false
     private var didDiscardTextBoxContentForClose = false
 #if DEBUG
@@ -85,7 +91,7 @@ final class TerminalPanel: Panel, ObservableObject {
 #endif
 
     /// Search state for find functionality
-    @Published var searchState: TerminalSurface.SearchState? {
+    var searchState: TerminalSurface.SearchState? {
         didSet {
             surface.searchState = searchState
         }
@@ -96,9 +102,9 @@ final class TerminalPanel: Panel, ObservableObject {
     ///
     /// Without this, certain pane-close sequences can leave terminal views detached
     /// (hostedView.window == nil) until the user switches workspaces.
-    @Published var viewReattachToken: UInt64 = 0
+    var viewReattachToken: UInt64 = 0
 
-    @Published private(set) var agentHibernationState: AgentHibernationPanelState?
+    private(set) var agentHibernationState: AgentHibernationPanelState?
 
     var onRequestWorkspacePaneFlash: ((WorkspaceAttentionFlashReason) -> Void)?
     var onRequestAgentHibernationResume: ((Bool) -> Bool)?
@@ -143,8 +149,11 @@ final class TerminalPanel: Panel, ObservableObject {
         self.workspaceId = workspaceId
         self.surface = surface
 
-        // Subscribe to surface's search state changes
-        surface.$searchState
+        // Subscribe to surface's search state changes. `prepend` replays the
+        // current value at subscribe time, matching the former `$searchState`
+        // projection's initial emission.
+        surface.searchStateEdits
+            .prepend(surface.searchState)
             .sink { [weak self] state in
                 if self?.searchState !== state {
                     self?.searchState = state

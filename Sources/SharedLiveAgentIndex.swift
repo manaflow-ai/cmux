@@ -8,6 +8,7 @@ import Combine
 import CryptoKit
 import Darwin
 import Network
+import Observation
 import CoreText
 
 
@@ -24,20 +25,39 @@ import CoreText
 /// long fallback TTL for pull access. This replaced a 1s pull TTL that reloaded
 /// near-continuously while the sidebar was visible, because each load outlasts a 1s TTL.
 ///
-/// `ObservableObject` conformance lets each workspace forward `objectWillChange` when a
-/// reload lands so ContentView re-renders and bonsplit's TabBarView picks up the new
+/// `@Observable` tracks `index` for SwiftUI reads, and `indexDidChange` lets each
+/// workspace forward a reload landing into its tracked `sharedAgentIndexRevision`
+/// so `WorkspaceContentView` re-renders and bonsplit's TabBarView picks up the new
 /// snapshot on the same frame.
 @MainActor
-final class SharedLiveAgentIndex: ObservableObject {
+@Observable
+final class SharedLiveAgentIndex {
     static let shared = SharedLiveAgentIndex()
 
-    @Published private(set) var index: RestorableAgentSessionIndex?
-    private var loadedAt: Date?
-    private var refreshTask: Task<Void, Never>?
+    /// Fires after a reload lands and `index` is updated. Replaces the implicit
+    /// `objectWillChange` (which `@Observable` does not provide) that workspaces
+    /// subscribed to in `Workspace.init`; each workspace now forwards it into its
+    /// tracked `sharedAgentIndexRevision` counter instead.
+    /// Passthrough like `objectWillChange`: no initial emission on subscribe; the old
+    /// subject fired on will-set while this fires on did-set, which is equivalent here
+    /// because the forward only schedules a re-render that reads the settled value.
+    @ObservationIgnored let indexDidChange = PassthroughSubject<Void, Never>()
+
+    private(set) var index: RestorableAgentSessionIndex? {
+        didSet { indexDidChange.send() }
+    }
+    // Internal bookkeeping below is @ObservationIgnored: pre-migration these were
+    // non-@Published and invisible to SwiftUI. snapshot() runs during view-body
+    // evaluation (bonsplit TabBarView -> canForkAgentConversationFromPanel), so tracking
+    // them would register spurious view dependencies and mutate tracked state mid-body
+    // (scheduleRefreshIfStale -> startReload / ensureWatchingHookStoreDirectory).
+    // Only `index` is Observation-tracked.
+    @ObservationIgnored private var loadedAt: Date?
+    @ObservationIgnored private var refreshTask: Task<Void, Never>?
     // A hook-store change arrived while a reload was in flight; reload again after.
-    private var changePending = false
+    @ObservationIgnored private var changePending = false
     // Holds a pending rate-limited reload when changes arrive faster than the floor.
-    private var deferredReloadTask: Task<Void, Never>?
+    @ObservationIgnored private var deferredReloadTask: Task<Void, Never>?
 
     // The directory watcher is the primary freshness mechanism; pull access only needs an
     // occasional safety refresh.
@@ -45,7 +65,7 @@ final class SharedLiveAgentIndex: ObservableObject {
     // Floor between event-driven reloads so a chatty agent cannot thrash the ~1.6s loader.
     private static let minEventReloadInterval: TimeInterval = 2.0
 
-    private var directoryWatchSource: DispatchSourceFileSystemObject?
+    @ObservationIgnored private var directoryWatchSource: DispatchSourceFileSystemObject?
     private let watchQueue = DispatchQueue(label: "com.cmuxterm.app.sharedLiveAgentIndexWatch")
 
     private init() {}
@@ -87,8 +107,9 @@ final class SharedLiveAgentIndex: ObservableObject {
                 RestorableAgentSessionIndex.load()
             }.value
             guard let self else { return }
-            // Assigning to `@Published` fires objectWillChange, which subscribed
-            // workspaces forward as their own objectWillChange so SwiftUI re-renders.
+            // Assigning `index` notifies Observation tracking and fires `indexDidChange`
+            // (via didSet), which subscribed workspaces forward into their tracked
+            // `sharedAgentIndexRevision` so SwiftUI re-renders.
             self.index = newIndex
             self.loadedAt = Date()
             self.refreshTask = nil

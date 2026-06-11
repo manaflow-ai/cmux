@@ -23,7 +23,8 @@ import WebKit
 // MARK: - Main content, sidebar panels, right sidebar layout
 extension ContentView {
     private var sidebarView: some View {
-        VerticalTabsSidebar(
+        @Bindable var sidebarSelectionState = sidebarSelectionState
+        return VerticalTabsSidebar(
             updateViewModel: updateViewModel,
             fileExplorerState: fileExplorerState,
             windowId: windowId,
@@ -45,6 +46,7 @@ extension ContentView {
     }
 
     private func terminalContent(appearance: WindowAppearanceSnapshot) -> some View {
+        @Bindable var sidebarSelectionState = sidebarSelectionState
         let mountedWorkspaceIdSet = Set(mountedWorkspaceIds)
         let mountedWorkspaces = tabManager.tabs.filter { mountedWorkspaceIdSet.contains($0.id) }
         let selectedWorkspaceId = tabManager.selectedTabId

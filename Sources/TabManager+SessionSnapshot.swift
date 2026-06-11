@@ -403,7 +403,7 @@ extension TabManager {
         updateWorkspaceGitMetadataFallbackTimer()
         resetWorkspacePullRequestRefreshState()
 
-        // Clear non-@Published state without touching tabs/selectedTabId yet.
+        // Clear bookkeeping state without touching tabs/selectedTabId yet.
         lastFocusedPanelByTab.removeAll()
         pendingPanelTitleUpdates.removeAll()
         focusHistory.removeAll()
@@ -418,7 +418,7 @@ extension TabManager {
         selectionSideEffectsGeneration &+= 1
         recentlyClosedBrowsers = RecentlyClosedBrowserStack(capacity: 20)
 
-        // Build the new workspace list locally to avoid intermediate @Published
+        // Build the new workspace list locally to avoid intermediate observable
         // emissions (empty tabs, nil selectedTabId) that can leave SwiftUI's
         // mountedWorkspaceIds empty and cause a frozen blank launch state (#399).
         var newTabs: [Workspace] = []
@@ -451,7 +451,7 @@ extension TabManager {
             newTabs.append(fallback)
         }
 
-        // Determine selection before mutating @Published properties.
+        // Determine selection before mutating observed properties.
         let newSelectedId: UUID?
         if let selectedWorkspaceIndex = snapshot.selectedWorkspaceIndex,
            newTabs.indices.contains(selectedWorkspaceIndex) {
@@ -460,7 +460,7 @@ extension TabManager {
             newSelectedId = newTabs.first?.id
         }
 
-        // Single atomic assignment of @Published properties so SwiftUI observers
+        // Single atomic assignment of the observed properties so SwiftUI observers
         // never see an intermediate state with empty tabs or nil selection.
         tabs = newTabs
         let restoredGroups: [WorkspaceGroup] = {

@@ -1,6 +1,7 @@
 import AppKit
 import Bonsplit
 import CMUXAgentVault
+import Observation
 import SQLite3
 import SwiftUI
 import UniformTypeIdentifiers
@@ -9,7 +10,7 @@ import UniformTypeIdentifiers
 // MARK: - Session transcript preview popover
 private struct SessionTranscriptPreviewView: View {
     let entry: SessionEntry
-    @ObservedObject var sizeModel: SessionTranscriptPopoverSizeModel
+    let sizeModel: SessionTranscriptPopoverSizeModel
     let onResize: (CGSize) -> Void
     let onDismiss: () -> Void
 
@@ -161,8 +162,9 @@ private enum SessionTranscriptPreviewLayout {
     }
 }
 
-private final class SessionTranscriptPopoverSizeModel: ObservableObject {
-    @Published var size: CGSize
+@Observable
+private final class SessionTranscriptPopoverSizeModel {
+    var size: CGSize
 
     init(size: CGSize = SessionTranscriptPreviewLayout.defaultSize) {
         self.size = size

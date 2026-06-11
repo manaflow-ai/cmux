@@ -22,7 +22,8 @@ import WebKit
 
 // MARK: - Selected workspace directory observer
 @MainActor
-final class SelectedWorkspaceDirectoryObserver: ObservableObject {
+@Observable
+final class SelectedWorkspaceDirectoryObserver {
     struct Snapshot: Equatable {
         let workspaceId: UUID?
         let currentDirectory: String?
@@ -32,14 +33,14 @@ final class SelectedWorkspaceDirectoryObserver: ObservableObject {
         let remoteDaemonStatus: WorkspaceRemoteDaemonStatus?
     }
 
-    @Published private(set) var directoryChangeGeneration: UInt64 = 0
-    weak var tabManager: TabManager?
-    private var cancellable: AnyCancellable?
+    private(set) var directoryChangeGeneration: UInt64 = 0
+    @ObservationIgnored weak var tabManager: TabManager?
+    @ObservationIgnored private var cancellable: AnyCancellable?
 
     func wire(tabManager: TabManager) {
         guard self.tabManager !== tabManager || cancellable == nil else { return }
         self.tabManager = tabManager
-        cancellable = tabManager.$selectedTabId
+        cancellable = tabManager.selectedTabIdPublisher
             .map { [weak tabManager] tabId -> Workspace? in
                 guard let tabId, let tabManager else { return nil }
                 return tabManager.tabs.first(where: { $0.id == tabId })
@@ -59,13 +60,13 @@ final class SelectedWorkspaceDirectoryObserver: ObservableObject {
                     )
                     .eraseToAnyPublisher()
                 }
-                return workspace.$currentDirectory
+                return workspace.currentDirectoryPublisher
                     .combineLatest(
-                        workspace.$remoteConfiguration,
-                        workspace.$remoteConnectionState,
-                        workspace.$remoteConnectionDetail
+                        workspace.remoteConfigurationPublisher,
+                        workspace.remoteConnectionStatePublisher,
+                        workspace.remoteConnectionDetailPublisher
                     )
-                    .combineLatest(workspace.$remoteDaemonStatus)
+                    .combineLatest(workspace.remoteDaemonStatusPublisher)
                     .map { values, remoteDaemonStatus in
                         let (
                             currentDirectory,

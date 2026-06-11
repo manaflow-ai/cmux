@@ -147,11 +147,12 @@ struct AboutTitlebarDebugOptions: Equatable {
     }
 }
 
+@Observable
 @MainActor
-final class AboutTitlebarDebugStore: ObservableObject {
+final class AboutTitlebarDebugStore {
     static let shared = AboutTitlebarDebugStore()
 
-    @Published var aboutOptions = AboutTitlebarDebugOptions.defaults(for: .about) {
+    var aboutOptions = AboutTitlebarDebugOptions.defaults(for: .about) {
         didSet { applyToOpenWindows(for: .about) }
     }
 
@@ -306,7 +307,7 @@ final class AboutTitlebarDebugWindowController: NSWindowController, NSWindowDele
 }
 
 private struct AboutTitlebarDebugView: View {
-    @ObservedObject private var store = AboutTitlebarDebugStore.shared
+    private let store = AboutTitlebarDebugStore.shared
 
     var body: some View {
         ScrollView {

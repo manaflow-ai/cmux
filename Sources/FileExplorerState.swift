@@ -1,30 +1,32 @@
 import AppKit
+import Observation
 import SwiftUI
 
 // MARK: - State (visibility toggle)
 
-final class FileExplorerState: ObservableObject {
+@Observable
+final class FileExplorerState {
     private static let modeKey = "rightSidebar.mode"
 
-    @Published var isVisible: Bool {
+    var isVisible: Bool {
         didSet { UserDefaults.standard.set(isVisible, forKey: "fileExplorer.isVisible") }
     }
-    @Published var width: CGFloat {
+    var width: CGFloat {
         didSet { UserDefaults.standard.set(Double(width), forKey: "fileExplorer.width") }
     }
 
     /// Proportion of sidebar height allocated to the tab list (0.0-1.0).
     /// The file explorer gets the remaining space below.
-    @Published var dividerPosition: CGFloat {
+    var dividerPosition: CGFloat {
         didSet { UserDefaults.standard.set(Double(dividerPosition), forKey: "fileExplorer.dividerPosition") }
     }
 
     /// Whether hidden files (dotfiles) are shown in the tree.
-    @Published var showHiddenFiles: Bool {
+    var showHiddenFiles: Bool {
         didSet { UserDefaults.standard.set(showHiddenFiles, forKey: "fileExplorer.showHidden") }
     }
 
-    @Published private var storedMode: RightSidebarMode
+    private var storedMode: RightSidebarMode
 
     /// Active mode for the right sidebar (file tree, search, sessions, or enabled beta modes).
     var mode: RightSidebarMode {

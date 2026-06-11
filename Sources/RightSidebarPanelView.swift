@@ -171,10 +171,10 @@ enum RightSidebarKeyboardNavigation {
 
 /// Right sidebar root view. Hosts a segmented mode picker plus the active panel.
 struct RightSidebarPanelView: View {
-    @ObservedObject var tabManager: TabManager
-    @ObservedObject var fileExplorerStore: FileExplorerStore
-    @ObservedObject var fileExplorerState: FileExplorerState
-    @ObservedObject var sessionIndexStore: SessionIndexStore
+    var tabManager: TabManager
+    var fileExplorerStore: FileExplorerStore
+    var fileExplorerState: FileExplorerState
+    var sessionIndexStore: SessionIndexStore
     let titlebarHeight: CGFloat
     let workspaceId: UUID?
     let onResumeSession: ((SessionEntry) -> Void)?
@@ -188,8 +188,8 @@ struct RightSidebarPanelView: View {
     }
     @State private var focusShortcutHintMonitor = WindowScopedShortcutHintModifierMonitor(activation: .commandOnly)
     @State private var closeShortcutHintMonitor = WindowScopedShortcutHintModifierMonitor(activation: .commandOnly)
-    @StateObject private var dockStore = DockControlsStore()
-    @ObservedObject private var keyboardShortcutSettingsObserver = KeyboardShortcutSettingsObserver.shared
+    @State private var dockStore = DockControlsStore()
+    private let keyboardShortcutSettingsObserver = KeyboardShortcutSettingsObserver.shared
     private let alwaysShowShortcutHints = ShortcutHintDebugSettings.alwaysShowHints()
     private let closeShortcutHintXOffset = ShortcutHintDebugSettings.defaultRightSidebarCloseHintX
     private let closeShortcutHintYOffset = ShortcutHintDebugSettings.defaultRightSidebarCloseHintY

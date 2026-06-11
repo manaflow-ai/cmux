@@ -11,14 +11,14 @@ extension CmuxConfigStore {
         trackingCancellables.removeAll()
         self.tabManager = tabManager
 
-        tabManager.$selectedTabId
+        tabManager.selectedTabIdPublisher
             .compactMap { [weak tabManager] tabId -> Workspace? in
                 guard let tabId, let tabManager else { return nil }
                 return tabManager.tabs.first(where: { $0.id == tabId })
             }
             .removeDuplicates(by: { $0.id == $1.id })
             .map { workspace -> AnyPublisher<String?, Never> in
-                workspace.$surfaceTabBarDirectory.eraseToAnyPublisher()
+                workspace.surfaceTabBarDirectoryPublisher
             }
             .switchToLatest()
             .removeDuplicates()
@@ -27,7 +27,7 @@ extension CmuxConfigStore {
             }
             .store(in: &trackingCancellables)
 
-        tabManager.$tabs
+        tabManager.tabsPublisher
             .receive(on: DispatchQueue.main)
             .sink { [weak self] _ in
                 self?.applySurfaceTabBarButtonsToCurrentManager()

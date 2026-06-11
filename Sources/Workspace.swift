@@ -8,6 +8,7 @@ import Combine
 import CryptoKit
 import Darwin
 import Network
+import Observation
 import CoreText
 
 #if DEBUG
@@ -281,7 +282,8 @@ final class WorkspaceRemoteSessionController {
 /// Workspace represents a sidebar tab.
 /// Each workspace contains one BonsplitController that manages split panes and nested surfaces.
 @MainActor
-final class Workspace: Identifiable, ObservableObject {
+@Observable
+final class Workspace: Identifiable {
     enum BrowserPanelCreationPolicy {
         case userInitiated
         case automationPreload
@@ -301,19 +303,28 @@ final class Workspace: Identifiable, ObservableObject {
     )
 
     let id: UUID
-    @Published var title: String
-    @Published var customTitle: String?
-    @Published var customDescription: String?
-    @Published var isPinned: Bool = false
+    var title: String {
+        didSet { titleSubject.send(title) }
+    }
+    var customTitle: String?
+    var customDescription: String? {
+        didSet { customDescriptionSubject.send(customDescription) }
+    }
+    var isPinned: Bool = false {
+        didSet { isPinnedSubject.send(isPinned) }
+    }
     /// Identifier of the WorkspaceGroup this workspace belongs to, or nil if ungrouped.
     /// The group entity itself lives in `TabManager.workspaceGroups`.
-    @Published var groupId: UUID?
-    @Published var customColor: String?  // hex string, e.g. "#C0392B"
+    var groupId: UUID?
+    var customColor: String? {  // hex string, e.g. "#C0392B"
+        didSet { customColorSubject.send(customColor) }
+    }
     // Legacy in-memory state for old helpers/tests. Product UI, rendering, and
     // session persistence no longer honor per-workspace scrollbar overrides.
-    @Published var terminalScrollBarHidden: Bool = false
-    @Published var currentDirectory: String {
+    var terminalScrollBarHidden: Bool = false
+    var currentDirectory: String {
         didSet {
+            currentDirectorySubject.send(currentDirectory)
             let oldDirectory = oldValue.trimmingCharacters(in: .whitespacesAndNewlines)
             let newDirectory = currentDirectory.trimmingCharacters(in: .whitespacesAndNewlines)
             guard oldDirectory != newDirectory else { return }
@@ -330,9 +341,13 @@ final class Workspace: Identifiable, ObservableObject {
             )
         }
     }
-    @Published var extensionSidebarProjectRootPath: String?
+    var extensionSidebarProjectRootPath: String? {
+        didSet { extensionSidebarProjectRootPathSubject.send(extensionSidebarProjectRootPath) }
+    }
     var extensionSidebarProjectRootRefreshID: UInt64 = 0
-    @Published var surfaceTabBarDirectory: String?
+    var surfaceTabBarDirectory: String? {
+        didSet { surfaceTabBarDirectorySubject.send(surfaceTabBarDirectory) }
+    }
     var preferredBrowserProfileID: UUID?
 
     /// Ordinal for CMUX_PORT range assignment (monotonically increasing per app session)
@@ -352,17 +367,22 @@ final class Workspace: Identifiable, ObservableObject {
     var surfaceTabBarButtonGlobalConfigPath: String?
 
     /// Mapping from bonsplit TabID to our Panel instances
-    @Published var panels: [UUID: any Panel] = [:]
+    var panels: [UUID: any Panel] = [:] {
+        didSet { panelsSubject.send(panels) }
+    }
 
     /// Monotonic counter bumped only when the spatial (left-to-right, top-to-bottom)
     /// order of panels changes without the panel *set* changing — i.e. a pure
     /// drag-reorder of tabs within or across panes. Membership changes already
-    /// fire `$panels`; pure reorders mutate only `bonsplitController` state, which
-    /// is not `@Published`, so observers (e.g. the mobile workspace-list observer)
-    /// would otherwise never learn about a reorder. We gate the bump on an actual
-    /// change of `orderedPanelIds` so that divider drags and selection-only events
-    /// (which also flow through `didChangeGeometry`) do not fire `objectWillChange`.
-    @Published var paneLayoutVersion: Int = 0
+    /// fire the `panels` observation/bridge; pure reorders mutate only
+    /// `bonsplitController` state, which is not observable, so observers (e.g. the
+    /// mobile workspace-list observer) would otherwise never learn about a reorder.
+    /// We gate the bump on an actual change of `orderedPanelIds` so that divider
+    /// drags and selection-only events (which also flow through
+    /// `didChangeGeometry`) do not invalidate observers needlessly.
+    var paneLayoutVersion: Int = 0 {
+        didSet { paneLayoutVersionSubject.send(paneLayoutVersion) }
+    }
 
     /// Snapshot of `orderedPanelIds` from the last geometry notification, used to
     /// gate `paneLayoutVersion` bumps to genuine reorder events.
@@ -393,17 +413,23 @@ final class Workspace: Identifiable, ObservableObject {
     // layout/size synchronization.
 
     /// Published directory for each panel
-    @Published var panelDirectories: [UUID: String] = [:]
-    @Published var panelTitles: [UUID: String] = [:]
-    @Published var panelCustomTitles: [UUID: String] = [:]
-    @Published var pinnedPanelIds: Set<UUID> = []
-    @Published var manualUnreadPanelIds: Set<UUID> = [] {
+    var panelDirectories: [UUID: String] = [:] {
+        didSet { panelDirectoriesSubject.send(panelDirectories) }
+    }
+    var panelTitles: [UUID: String] = [:] {
+        didSet { panelTitlesSubject.send(panelTitles) }
+    }
+    var panelCustomTitles: [UUID: String] = [:] {
+        didSet { panelCustomTitlesSubject.send(panelCustomTitles) }
+    }
+    var pinnedPanelIds: Set<UUID> = []
+    var manualUnreadPanelIds: Set<UUID> = [] {
         didSet {
             guard manualUnreadPanelIds != oldValue else { return }
             syncPanelDerivedWorkspaceUnread()
         }
     }
-    @Published var restoredUnreadPanelIndicators: [UUID: RestoredPanelUnreadIndicator] = [:] {
+    var restoredUnreadPanelIndicators: [UUID: RestoredPanelUnreadIndicator] = [:] {
         didSet {
             guard restoredUnreadPanelIndicators != oldValue else { return }
             syncPanelDerivedWorkspaceUnread()
@@ -412,40 +438,79 @@ final class Workspace: Identifiable, ObservableObject {
     var restoredUnreadPanelIds: Set<UUID> {
         Set(restoredUnreadPanelIndicators.keys)
     }
-    @Published var tmuxLayoutSnapshot: LayoutSnapshot?
-    @Published var tmuxWorkspaceFlashPanelId: UUID?
-    @Published var tmuxWorkspaceFlashReason: WorkspaceAttentionFlashReason?
-    @Published var tmuxWorkspaceFlashToken: UInt64 = 0
+    var tmuxLayoutSnapshot: LayoutSnapshot?
+    var tmuxWorkspaceFlashPanelId: UUID?
+    var tmuxWorkspaceFlashReason: WorkspaceAttentionFlashReason?
+    var tmuxWorkspaceFlashToken: UInt64 = 0
     var manualUnreadMarkedAt: [UUID: Date] = [:]
-    @Published var statusEntries: [String: SidebarStatusEntry] = [:]
-    @Published var metadataBlocks: [String: SidebarMetadataBlock] = [:]
-    @Published var latestConversationMessage: String?
-    @Published var latestSubmittedMessage: String?
-    @Published var latestSubmittedAt: Date?
-    @Published var logEntries: [SidebarLogEntry] = []
-    @Published var progress: SidebarProgressState?
-    @Published var gitBranch: SidebarGitBranchState?
-    @Published var panelGitBranches: [UUID: SidebarGitBranchState] = [:]
-    @Published var pullRequest: SidebarPullRequestState?
-    @Published var panelPullRequests: [UUID: SidebarPullRequestState] = [:]
-    @Published var surfaceListeningPorts: [UUID: [Int]] = [:]
+    var statusEntries: [String: SidebarStatusEntry] = [:] {
+        didSet { statusEntriesSubject.send(statusEntries) }
+    }
+    var metadataBlocks: [String: SidebarMetadataBlock] = [:] {
+        didSet { metadataBlocksSubject.send(metadataBlocks) }
+    }
+    var latestConversationMessage: String? {
+        didSet { latestConversationMessageSubject.send(latestConversationMessage) }
+    }
+    var latestSubmittedMessage: String? {
+        didSet { latestSubmittedMessageSubject.send(latestSubmittedMessage) }
+    }
+    var latestSubmittedAt: Date? {
+        didSet { latestSubmittedAtSubject.send(latestSubmittedAt) }
+    }
+    var logEntries: [SidebarLogEntry] = [] {
+        didSet { logEntriesSubject.send(logEntries) }
+    }
+    var progress: SidebarProgressState? {
+        didSet { progressSubject.send(progress) }
+    }
+    var gitBranch: SidebarGitBranchState? {
+        didSet { gitBranchSubject.send(gitBranch) }
+    }
+    var panelGitBranches: [UUID: SidebarGitBranchState] = [:] {
+        didSet { panelGitBranchesSubject.send(panelGitBranches) }
+    }
+    var pullRequest: SidebarPullRequestState? {
+        didSet { pullRequestSubject.send(pullRequest) }
+    }
+    var panelPullRequests: [UUID: SidebarPullRequestState] = [:] {
+        didSet { panelPullRequestsSubject.send(panelPullRequests) }
+    }
+    var surfaceListeningPorts: [UUID: [Int]] = [:]
     var agentListeningPorts: [Int] = []
-    @Published var remoteConfiguration: WorkspaceRemoteConfiguration?
-    @Published var remoteConnectionState: WorkspaceRemoteConnectionState = .disconnected
-    @Published var remoteConnectionDetail: String?
-    @Published var remoteDaemonStatus: WorkspaceRemoteDaemonStatus = WorkspaceRemoteDaemonStatus()
-    @Published var remoteDetectedPorts: [Int] = []
-    @Published var remoteForwardedPorts: [Int] = []
-    @Published var remotePortConflicts: [Int] = []
-    @Published var remoteProxyEndpoint: BrowserProxyEndpoint?
-    @Published var remoteHeartbeatCount: Int = 0
-    @Published var remoteLastHeartbeatAt: Date?
-    @Published var listeningPorts: [Int] = []
-    @Published var activeRemoteTerminalSessionCount: Int = 0
+    var remoteConfiguration: WorkspaceRemoteConfiguration? {
+        didSet { remoteConfigurationSubject.send(remoteConfiguration) }
+    }
+    var remoteConnectionState: WorkspaceRemoteConnectionState = .disconnected {
+        didSet { remoteConnectionStateSubject.send(remoteConnectionState) }
+    }
+    var remoteConnectionDetail: String? {
+        didSet { remoteConnectionDetailSubject.send(remoteConnectionDetail) }
+    }
+    var remoteDaemonStatus: WorkspaceRemoteDaemonStatus = WorkspaceRemoteDaemonStatus() {
+        didSet { remoteDaemonStatusSubject.send(remoteDaemonStatus) }
+    }
+    var remoteDetectedPorts: [Int] = []
+    var remoteForwardedPorts: [Int] = []
+    var remotePortConflicts: [Int] = []
+    var remoteProxyEndpoint: BrowserProxyEndpoint?
+    var remoteHeartbeatCount: Int = 0
+    var remoteLastHeartbeatAt: Date?
+    var listeningPorts: [Int] = [] {
+        didSet { listeningPortsSubject.send(listeningPorts) }
+    }
+    var activeRemoteTerminalSessionCount: Int = 0 {
+        didSet { activeRemoteTerminalSessionCountSubject.send(activeRemoteTerminalSessionCount) }
+    }
     var surfaceTTYNames: [UUID: String] = [:]
-    var remoteSessionController: WorkspaceRemoteSessionController?
+    // Accessed from `deinit`, so this must stay stored (`@ObservationIgnored`):
+    // the Observable macro would otherwise turn it into a MainActor-isolated
+    // computed property that a nonisolated deinit cannot touch. It is internal
+    // session bookkeeping that was never `@Published`.
+    @ObservationIgnored var remoteSessionController: WorkspaceRemoteSessionController?
     var pendingRemoteForegroundAuthToken: String?
-    var activeRemoteSessionControllerID: UUID?
+    // Stored (not macro-computed) because deinit clears it; see note above.
+    @ObservationIgnored var activeRemoteSessionControllerID: UUID?
     var remoteLastErrorFingerprint: String?
     var remoteLastDaemonErrorFingerprint: String?
     var remoteLastPortConflictFingerprint: String?
@@ -499,56 +564,182 @@ final class Workspace: Identifiable, ObservableObject {
     }
     var restoredAgentResumeStatesByPanelId: [UUID: RestoredAgentResumeState] = [:]
     var invalidatedRestoredAgentFingerprintsByPanelId: [UUID: Int] = [:]
-    var pendingTerminalInputObserversByPanelId: [UUID: [WorkspacePendingTerminalInputObserver]] = [:]
+    // Accessed from `deinit` (observer teardown), so this must stay stored
+    // (`@ObservationIgnored`): the Observable macro would otherwise turn it
+    // into a MainActor-isolated computed property that a nonisolated deinit
+    // cannot touch. It was never `@Published`.
+    @ObservationIgnored var pendingTerminalInputObserversByPanelId: [UUID: [WorkspacePendingTerminalInputObserver]] = [:]
+
+    // MARK: Combine mirrors of the former `@Published` projections
+    //
+    // `@Observable` has no `$property` Combine projections. These
+    // `CurrentValueSubject`s mirror the properties that still have Combine
+    // subscribers (fed from each property's `didSet`, plus a one-shot
+    // `syncCombineBridgeSubjects()` at the end of `init` because property
+    // observers do not fire for assignments made directly inside the
+    // initializer) and replay the current value on subscribe, matching the
+    // former `$property` initial emission. Timing note: `@Published` emitted
+    // on `willSet`; these emit on `didSet`, so subscribers observe the
+    // already-updated Workspace state. Like `@Published`, they emit on every
+    // assignment (no equality filtering); the sidebar observation publishers
+    // below keep their `.dropFirst()`/`.removeDuplicates()` downstream exactly
+    // as before.
+    @ObservationIgnored private let titleSubject = CurrentValueSubject<String, Never>("")
+    @ObservationIgnored private let customDescriptionSubject = CurrentValueSubject<String?, Never>(nil)
+    @ObservationIgnored private let isPinnedSubject = CurrentValueSubject<Bool, Never>(false)
+    @ObservationIgnored private let customColorSubject = CurrentValueSubject<String?, Never>(nil)
+    @ObservationIgnored private let latestConversationMessageSubject = CurrentValueSubject<String?, Never>(nil)
+    @ObservationIgnored private let latestSubmittedMessageSubject = CurrentValueSubject<String?, Never>(nil)
+    @ObservationIgnored private let latestSubmittedAtSubject = CurrentValueSubject<Date?, Never>(nil)
+    @ObservationIgnored private let currentDirectorySubject = CurrentValueSubject<String, Never>("")
+    @ObservationIgnored private let extensionSidebarProjectRootPathSubject = CurrentValueSubject<String?, Never>(nil)
+    @ObservationIgnored private let panelsSubject = CurrentValueSubject<[UUID: any Panel], Never>([:])
+    @ObservationIgnored private let panelDirectoriesSubject = CurrentValueSubject<[UUID: String], Never>([:])
+    @ObservationIgnored private let panelTitlesSubject = CurrentValueSubject<[UUID: String], Never>([:])
+    @ObservationIgnored private let panelCustomTitlesSubject = CurrentValueSubject<[UUID: String], Never>([:])
+    @ObservationIgnored private let paneLayoutVersionSubject = CurrentValueSubject<Int, Never>(0)
+    @ObservationIgnored private let surfaceTabBarDirectorySubject = CurrentValueSubject<String?, Never>(nil)
+    @ObservationIgnored private let statusEntriesSubject = CurrentValueSubject<[String: SidebarStatusEntry], Never>([:])
+    @ObservationIgnored private let metadataBlocksSubject = CurrentValueSubject<[String: SidebarMetadataBlock], Never>([:])
+    @ObservationIgnored private let logEntriesSubject = CurrentValueSubject<[SidebarLogEntry], Never>([])
+    @ObservationIgnored private let progressSubject = CurrentValueSubject<SidebarProgressState?, Never>(nil)
+    @ObservationIgnored private let gitBranchSubject = CurrentValueSubject<SidebarGitBranchState?, Never>(nil)
+    @ObservationIgnored private let panelGitBranchesSubject = CurrentValueSubject<[UUID: SidebarGitBranchState], Never>([:])
+    @ObservationIgnored private let pullRequestSubject = CurrentValueSubject<SidebarPullRequestState?, Never>(nil)
+    @ObservationIgnored private let panelPullRequestsSubject = CurrentValueSubject<[UUID: SidebarPullRequestState], Never>([:])
+    @ObservationIgnored private let remoteConfigurationSubject = CurrentValueSubject<WorkspaceRemoteConfiguration?, Never>(nil)
+    @ObservationIgnored private let remoteConnectionStateSubject = CurrentValueSubject<WorkspaceRemoteConnectionState, Never>(.disconnected)
+    @ObservationIgnored private let remoteConnectionDetailSubject = CurrentValueSubject<String?, Never>(nil)
+    @ObservationIgnored private let remoteDaemonStatusSubject = CurrentValueSubject<WorkspaceRemoteDaemonStatus, Never>(WorkspaceRemoteDaemonStatus())
+    @ObservationIgnored private let activeRemoteTerminalSessionCountSubject = CurrentValueSubject<Int, Never>(0)
+    @ObservationIgnored private let listeningPortsSubject = CurrentValueSubject<[Int], Never>([])
+
+    var panelsPublisher: AnyPublisher<[UUID: any Panel], Never> {
+        panelsSubject.eraseToAnyPublisher()
+    }
+    var titlePublisher: AnyPublisher<String, Never> {
+        titleSubject.eraseToAnyPublisher()
+    }
+    var isPinnedPublisher: AnyPublisher<Bool, Never> {
+        isPinnedSubject.eraseToAnyPublisher()
+    }
+    var currentDirectoryPublisher: AnyPublisher<String, Never> {
+        currentDirectorySubject.eraseToAnyPublisher()
+    }
+    var panelDirectoriesPublisher: AnyPublisher<[UUID: String], Never> {
+        panelDirectoriesSubject.eraseToAnyPublisher()
+    }
+    var panelTitlesPublisher: AnyPublisher<[UUID: String], Never> {
+        panelTitlesSubject.eraseToAnyPublisher()
+    }
+    var panelCustomTitlesPublisher: AnyPublisher<[UUID: String], Never> {
+        panelCustomTitlesSubject.eraseToAnyPublisher()
+    }
+    var paneLayoutVersionPublisher: AnyPublisher<Int, Never> {
+        paneLayoutVersionSubject.eraseToAnyPublisher()
+    }
+    var surfaceTabBarDirectoryPublisher: AnyPublisher<String?, Never> {
+        surfaceTabBarDirectorySubject.eraseToAnyPublisher()
+    }
+    var remoteConfigurationPublisher: AnyPublisher<WorkspaceRemoteConfiguration?, Never> {
+        remoteConfigurationSubject.eraseToAnyPublisher()
+    }
+    var remoteConnectionStatePublisher: AnyPublisher<WorkspaceRemoteConnectionState, Never> {
+        remoteConnectionStateSubject.eraseToAnyPublisher()
+    }
+    var remoteConnectionDetailPublisher: AnyPublisher<String?, Never> {
+        remoteConnectionDetailSubject.eraseToAnyPublisher()
+    }
+    var remoteDaemonStatusPublisher: AnyPublisher<WorkspaceRemoteDaemonStatus, Never> {
+        remoteDaemonStatusSubject.eraseToAnyPublisher()
+    }
+
+    /// Property observers do not fire for assignments made directly inside
+    /// `init`, so the bridge subjects are synced once at the end of `init`.
+    /// No external subscriber can exist before `init` returns, so this never
+    /// produces a visible duplicate emission.
+    private func syncCombineBridgeSubjects() {
+        titleSubject.send(title)
+        customDescriptionSubject.send(customDescription)
+        isPinnedSubject.send(isPinned)
+        customColorSubject.send(customColor)
+        latestConversationMessageSubject.send(latestConversationMessage)
+        latestSubmittedMessageSubject.send(latestSubmittedMessage)
+        latestSubmittedAtSubject.send(latestSubmittedAt)
+        currentDirectorySubject.send(currentDirectory)
+        extensionSidebarProjectRootPathSubject.send(extensionSidebarProjectRootPath)
+        panelsSubject.send(panels)
+        panelDirectoriesSubject.send(panelDirectories)
+        panelTitlesSubject.send(panelTitles)
+        panelCustomTitlesSubject.send(panelCustomTitles)
+        paneLayoutVersionSubject.send(paneLayoutVersion)
+        surfaceTabBarDirectorySubject.send(surfaceTabBarDirectory)
+        statusEntriesSubject.send(statusEntries)
+        metadataBlocksSubject.send(metadataBlocks)
+        logEntriesSubject.send(logEntries)
+        progressSubject.send(progress)
+        gitBranchSubject.send(gitBranch)
+        panelGitBranchesSubject.send(panelGitBranches)
+        pullRequestSubject.send(pullRequest)
+        panelPullRequestsSubject.send(panelPullRequests)
+        remoteConfigurationSubject.send(remoteConfiguration)
+        remoteConnectionStateSubject.send(remoteConnectionState)
+        remoteConnectionDetailSubject.send(remoteConnectionDetail)
+        remoteDaemonStatusSubject.send(remoteDaemonStatus)
+        activeRemoteTerminalSessionCountSubject.send(activeRemoteTerminalSessionCount)
+        listeningPortsSubject.send(listeningPorts)
+    }
 
     private func sidebarObservationSignal<Value: Equatable>(
-        _ publisher: Published<Value>.Publisher
+        _ subject: CurrentValueSubject<Value, Never>
     ) -> AnyPublisher<Void, Never> {
-        publisher
+        subject
             .dropFirst()
             .removeDuplicates()
             .map { _ in () }
             .eraseToAnyPublisher()
     }
 
+    @ObservationIgnored
     lazy var sidebarImmediateObservationPublisher: AnyPublisher<Void, Never> = {
         let publishers: [AnyPublisher<Void, Never>] = [
-            sidebarObservationSignal($title),
-            sidebarObservationSignal($customDescription),
-            sidebarObservationSignal($isPinned),
-            sidebarObservationSignal($customColor),
-            sidebarObservationSignal($latestConversationMessage),
-            sidebarObservationSignal($latestSubmittedMessage),
-            sidebarObservationSignal($latestSubmittedAt),
+            sidebarObservationSignal(titleSubject),
+            sidebarObservationSignal(customDescriptionSubject),
+            sidebarObservationSignal(isPinnedSubject),
+            sidebarObservationSignal(customColorSubject),
+            sidebarObservationSignal(latestConversationMessageSubject),
+            sidebarObservationSignal(latestSubmittedMessageSubject),
+            sidebarObservationSignal(latestSubmittedAtSubject),
         ]
 
         return Publishers.MergeMany(publishers).eraseToAnyPublisher()
     }()
 
+    @ObservationIgnored
     lazy var sidebarObservationPublisher: AnyPublisher<Void, Never> = {
         let publishers: [AnyPublisher<Void, Never>] = [
-            sidebarObservationSignal($currentDirectory),
-            sidebarObservationSignal($extensionSidebarProjectRootPath),
-            $panels
+            sidebarObservationSignal(currentDirectorySubject),
+            sidebarObservationSignal(extensionSidebarProjectRootPathSubject),
+            panelsSubject
                 .map(SidebarPanelObservationState.init)
                 .dropFirst()
                 .removeDuplicates()
                 .map { _ in () }
                 .eraseToAnyPublisher(),
-            sidebarObservationSignal($panelDirectories),
-            sidebarObservationSignal($statusEntries),
-            sidebarObservationSignal($metadataBlocks),
-            sidebarObservationSignal($logEntries),
-            sidebarObservationSignal($progress),
-            sidebarObservationSignal($gitBranch),
-            sidebarObservationSignal($panelGitBranches),
-            sidebarObservationSignal($pullRequest),
-            sidebarObservationSignal($panelPullRequests),
-            sidebarObservationSignal($remoteConfiguration),
-            sidebarObservationSignal($remoteConnectionState),
-            sidebarObservationSignal($remoteConnectionDetail),
-            sidebarObservationSignal($activeRemoteTerminalSessionCount),
-            sidebarObservationSignal($listeningPorts),
+            sidebarObservationSignal(panelDirectoriesSubject),
+            sidebarObservationSignal(statusEntriesSubject),
+            sidebarObservationSignal(metadataBlocksSubject),
+            sidebarObservationSignal(logEntriesSubject),
+            sidebarObservationSignal(progressSubject),
+            sidebarObservationSignal(gitBranchSubject),
+            sidebarObservationSignal(panelGitBranchesSubject),
+            sidebarObservationSignal(pullRequestSubject),
+            sidebarObservationSignal(panelPullRequestsSubject),
+            sidebarObservationSignal(remoteConfigurationSubject),
+            sidebarObservationSignal(remoteConnectionStateSubject),
+            sidebarObservationSignal(remoteConnectionDetailSubject),
+            sidebarObservationSignal(activeRemoteTerminalSessionCountSubject),
+            sidebarObservationSignal(listeningPortsSubject),
         ]
 
         return Publishers.MergeMany(publishers).eraseToAnyPublisher()
@@ -718,15 +909,32 @@ final class Workspace: Identifiable, ObservableObject {
         tmuxLayoutSnapshot = bonsplitController.layoutSnapshot()
         scheduleExtensionSidebarProjectRootRefresh(for: currentDirectory)
 
-        // Forward shared agent-index refreshes as our own objectWillChange so the bonsplit
-        // tab-bar re-evaluates the Fork Conversation availability the moment a background
-        // refresh lands.
-        sharedLiveAgentIndexCancellable = SharedLiveAgentIndex.shared.objectWillChange.sink { [weak self] _ in
-            self?.objectWillChange.send()
+        // Property observers do not fire for assignments made directly inside
+        // this initializer, so bring the Combine bridge subjects in line with
+        // the just-initialized property values.
+        syncCombineBridgeSubjects()
+
+        // Forward shared agent-index refreshes into `sharedAgentIndexRevision` so the
+        // bonsplit tab-bar re-evaluates the Fork Conversation availability the moment a
+        // background refresh lands. `indexDidChange` is the index's explicit did-set
+        // subject. Workspace itself is `@Observable` (no `objectWillChange` to forward
+        // into), so `WorkspaceContentView` reads the tracked revision in its body and
+        // re-renders when it bumps. `indexDidChange` only fires from MainActor-isolated
+        // didSet, so `assumeIsolated` is safe here.
+        sharedLiveAgentIndexCancellable = SharedLiveAgentIndex.shared.indexDidChange.sink { [weak self] _ in
+            MainActor.assumeIsolated {
+                self?.sharedAgentIndexRevision &+= 1
+            }
         }
     }
 
-    private var sharedLiveAgentIndexCancellable: AnyCancellable?
+    @ObservationIgnored private var sharedLiveAgentIndexCancellable: AnyCancellable?
+
+    /// Bumped when the process-wide `SharedLiveAgentIndex` lands a refresh. Replaces
+    /// the former `objectWillChange.send()` forward: `WorkspaceContentView` reads this
+    /// tracked counter so SwiftUI re-renders it (and bonsplit's TabBarView re-evaluates
+    /// Fork Conversation availability) when the shared index refreshes.
+    private(set) var sharedAgentIndexRevision: Int = 0
 
     deinit {
         for registrations in pendingTerminalInputObserversByPanelId.values {

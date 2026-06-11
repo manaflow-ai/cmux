@@ -1,5 +1,5 @@
 import Foundation
-import Combine
+import Observation
 import WebKit
 import AppKit
 import Bonsplit
@@ -55,15 +55,16 @@ struct BrowserProfileClearOutcome: Sendable {
 }
 
 @MainActor
-final class BrowserProfileStore: ObservableObject {
+@Observable
+final class BrowserProfileStore {
     static let shared = BrowserProfileStore()
 
     private static let profilesDefaultsKey = "browserProfiles.v1"
     private static let lastUsedProfileDefaultsKey = "browserProfiles.lastUsed"
     private static let builtInDefaultProfileID = UUID(uuidString: "52B43C05-4A1D-45D3-8FD5-9EF94952E445")!
 
-    @Published private(set) var profiles: [BrowserProfileDefinition] = []
-    @Published private(set) var lastUsedProfileID: UUID = builtInDefaultProfileID
+    private(set) var profiles: [BrowserProfileDefinition] = []
+    private(set) var lastUsedProfileID: UUID = builtInDefaultProfileID
 
     private let defaults: UserDefaults
     private var dataStores: [UUID: WKWebsiteDataStore] = [:]

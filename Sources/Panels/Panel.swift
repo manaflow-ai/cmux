@@ -1,5 +1,5 @@
 import Foundation
-import Combine
+import Observation
 import AppKit
 
 /// Type of panel content
@@ -269,7 +269,7 @@ enum FocusFlashPattern {
 
 /// Protocol for all panel types (terminal, browser, etc.)
 @MainActor
-public protocol Panel: AnyObject, Identifiable, ObservableObject where ID == UUID {
+public protocol Panel: AnyObject, Identifiable, Observable where ID == UUID {
     /// Unique identifier for this panel
     var id: UUID { get }
 

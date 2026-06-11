@@ -97,8 +97,8 @@ enum FileExplorerPanelPlacement: Equatable {
 /// The entire file explorer panel as one AppKit view hierarchy.
 /// Contains the header bar (path + controls) and NSOutlineView, with no SwiftUI intermediaries.
 struct FileExplorerPanelView: NSViewRepresentable {
-    @ObservedObject var store: FileExplorerStore
-    @ObservedObject var state: FileExplorerState
+    var store: FileExplorerStore
+    var state: FileExplorerState
     let onOpenFilePreview: (String) -> Void
     var presentation: FileExplorerPanelPresentation = .files
     var placement: FileExplorerPanelPlacement = .rightSidebar
@@ -124,6 +124,27 @@ struct FileExplorerPanelView: NSViewRepresentable {
     }
 
     func updateNSView(_ container: FileExplorerContainerView, context: Context) {
+        // Pin this representable's observation dependencies to exactly the
+        // store's pre-migration `objectWillChange` trigger set: the six former
+        // `@Published` properties plus `revision` (the replacement for the
+        // manual `objectWillChange.send()` sites). `updateNSView` participates
+        // in SwiftUI observation tracking, and the synchronous
+        // `updateHeader` / `reloadIfNeeded` calls below read additional store
+        // state (`expandedPaths`, `selectedPath(s)`, `provider`); those
+        // properties are `@ObservationIgnored` on the store so the reads stay
+        // untracked, keeping parity with the old `@ObservedObject` behavior
+        // where mutating them never invalidated this view. Reading the
+        // tracked set explicitly here also keeps the trigger set independent
+        // of incidental control flow inside `reloadIfNeeded` (e.g.
+        // `gitStatusByPath` is only read when rows exist).
+        _ = store.revision
+        _ = store.contentRevision
+        _ = store.rootPath
+        _ = store.rootNodes
+        _ = store.isRootLoading
+        _ = store.gitStatusByPath
+        _ = store.rootStatusMessage
+
         context.coordinator.store = store
         context.coordinator.state = state
         context.coordinator.onOpenFilePreview = onOpenFilePreview

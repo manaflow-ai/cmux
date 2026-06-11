@@ -1,7 +1,6 @@
 import AppKit
 import CmuxSocketControl
 import Bonsplit
-import Combine
 @_spi(CmuxHostTransport) import CmuxExtensionKit
 import CmuxSidebarProviderKit
 import CmuxExtensionSidebarExamples
@@ -132,15 +131,19 @@ extension String {
 }
 
 @MainActor
-final class SidebarTabItemSettingsStore: ObservableObject {
-    @Published private(set) var snapshot: SidebarTabItemSettingsSnapshot
+@Observable
+final class SidebarTabItemSettingsStore {
+    private(set) var snapshot: SidebarTabItemSettingsSnapshot
 
     let defaults: UserDefaults
     private let sidebarFontSizeProvider: () async -> CGFloat
     var sidebarFontSize: CGFloat
-    private var sidebarFontSizeLoadTask: Task<Void, Never>?
-    private var defaultsObserver: NSObjectProtocol?
-    private var ghosttyConfigObserver: NSObjectProtocol?
+    // Implementation-detail storage stays untracked so the nonisolated deinit
+    // can keep touching plain stored properties (the @Observable macro would
+    // otherwise turn these into main-actor-isolated computed accessors).
+    @ObservationIgnored private var sidebarFontSizeLoadTask: Task<Void, Never>?
+    @ObservationIgnored private var defaultsObserver: NSObjectProtocol?
+    @ObservationIgnored private var ghosttyConfigObserver: NSObjectProtocol?
 
     init(
         defaults: UserDefaults = .standard,
@@ -148,11 +151,12 @@ final class SidebarTabItemSettingsStore: ObservableObject {
         sidebarFontSizeProvider: @escaping () async -> CGFloat = SidebarFontSizeProvider.loadFromGhosttyConfig
     ) {
         self.defaults = defaults
-        self.sidebarFontSize = GhosttyConfig.clampedSidebarFontSize(initialSidebarFontSize)
+        let clampedSidebarFontSize = GhosttyConfig.clampedSidebarFontSize(initialSidebarFontSize)
+        self.sidebarFontSize = clampedSidebarFontSize
         self.sidebarFontSizeProvider = sidebarFontSizeProvider
         self.snapshot = SidebarTabItemSettingsSnapshot(
             defaults: defaults,
-            sidebarFontSize: sidebarFontSize
+            sidebarFontSize: clampedSidebarFontSize
         )
         defaultsObserver = NotificationCenter.default.addObserver(
             forName: UserDefaults.didChangeNotification,
@@ -210,7 +214,8 @@ enum SidebarTrailingAccessoryWidthPolicy {
     static let closeButtonWidth: CGFloat = 16
 }
 
-final class SidebarTabItemContextMenuState: ObservableObject {
+@Observable
+final class SidebarTabItemContextMenuState {
     var hasDeferredWorkspaceObservationInvalidation = false
     var pendingWorkspaceSnapshot: SidebarWorkspaceSnapshotBuilder.Snapshot?
 }

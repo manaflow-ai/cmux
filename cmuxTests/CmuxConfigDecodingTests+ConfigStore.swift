@@ -1,4 +1,4 @@
-import Combine
+import Observation
 import XCTest
 
 #if canImport(cmux_DEV)
@@ -89,12 +89,30 @@ extension CmuxConfigDecodingTests {
 
         let didAutoReload = expectation(description: "cmux.json should not hot reload")
         didAutoReload.isInverted = true
-        var cancellable: AnyCancellable?
-        cancellable = store.$loadedActions.dropFirst().sink { actions in
-            if actions.contains(where: { $0.id == "second" }) {
-                didAutoReload.fulfill()
+        // `CmuxConfigStore` is `@Observable` (no `$loadedActions` Combine
+        // publisher); re-register observation of `store.loadedActions` until an
+        // action with id "second" appears, replacing the former
+        // `$loadedActions.dropFirst()` sink. Like `.dropFirst()`, no
+        // initial-value emission — `onChange` only fires on mutation. The token
+        // replaces `cancellable.cancel()` so the explicit `loadAll()` below
+        // cannot fulfill the inverted expectation after the wait.
+        final class ObservationToken: @unchecked Sendable { var isCancelled = false }
+        let autoReloadToken = ObservationToken()
+        @MainActor func observeAutoReload() {
+            withObservationTracking {
+                _ = store.loadedActions
+            } onChange: {
+                Task { @MainActor in
+                    guard !autoReloadToken.isCancelled else { return }
+                    if store.loadedActions.contains(where: { $0.id == "second" }) {
+                        didAutoReload.fulfill()
+                    } else {
+                        observeAutoReload()
+                    }
+                }
             }
         }
+        observeAutoReload()
 
         try """
         {
@@ -111,7 +129,7 @@ extension CmuxConfigDecodingTests {
         store.loadAll()
         XCTAssertNil(store.resolvedAction(id: "first"))
         XCTAssertNotNil(store.resolvedAction(id: "second"))
-        cancellable?.cancel()
+        autoReloadToken.isCancelled = true
     }
 
     @MainActor
@@ -193,12 +211,23 @@ extension CmuxConfigDecodingTests {
 
         let loaded = expectation(description: "created local cmux config is loaded")
         loaded.assertForOverFulfill = false
-        var cancellable: AnyCancellable?
-        cancellable = store.$loadedActions.dropFirst().sink { actions in
-            if actions.contains(where: { $0.id == "created" }) {
-                loaded.fulfill()
+        // `CmuxConfigStore` is `@Observable`; re-register observation of
+        // `store.loadedActions` until the file watcher loads the "created"
+        // action (replaces the former `$loadedActions.dropFirst()` sink).
+        @MainActor func observeCreatedAction() {
+            withObservationTracking {
+                _ = store.loadedActions
+            } onChange: {
+                Task { @MainActor in
+                    if store.loadedActions.contains(where: { $0.id == "created" }) {
+                        loaded.fulfill()
+                    } else {
+                        observeCreatedAction()
+                    }
+                }
             }
         }
+        observeCreatedAction()
 
         try FileManager.default.createDirectory(at: configDirectory, withIntermediateDirectories: true)
         try """
@@ -210,7 +239,6 @@ extension CmuxConfigDecodingTests {
         """.write(to: configURL, atomically: true, encoding: .utf8)
 
         await fulfillment(of: [loaded], timeout: 3)
-        cancellable?.cancel()
     }
 
     @MainActor
@@ -236,12 +264,24 @@ extension CmuxConfigDecodingTests {
 
         let loaded = expectation(description: "created legacy cmux config is loaded")
         loaded.assertForOverFulfill = false
-        var cancellable: AnyCancellable?
-        cancellable = store.$loadedActions.dropFirst().sink { actions in
-            if actions.contains(where: { $0.id == "legacy-created" }) {
-                loaded.fulfill()
+        // `CmuxConfigStore` is `@Observable`; re-register observation of
+        // `store.loadedActions` until the file watcher loads the
+        // "legacy-created" action (replaces the former
+        // `$loadedActions.dropFirst()` sink).
+        @MainActor func observeLegacyCreatedAction() {
+            withObservationTracking {
+                _ = store.loadedActions
+            } onChange: {
+                Task { @MainActor in
+                    if store.loadedActions.contains(where: { $0.id == "legacy-created" }) {
+                        loaded.fulfill()
+                    } else {
+                        observeLegacyCreatedAction()
+                    }
+                }
             }
         }
+        observeLegacyCreatedAction()
 
         try """
         {
@@ -252,7 +292,6 @@ extension CmuxConfigDecodingTests {
         """.write(to: legacyConfigURL, atomically: true, encoding: .utf8)
 
         await fulfillment(of: [loaded], timeout: 3)
-        cancellable?.cancel()
     }
 
 }

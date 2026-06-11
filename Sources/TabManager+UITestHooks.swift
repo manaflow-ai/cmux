@@ -40,7 +40,7 @@ extension TabManager {
                 }
             }
 
-            cancellable = tab.$panels
+            cancellable = tab.panelsPublisher
                 .map { _ in () }
                 .sink { _ in evaluate() }
 
@@ -96,7 +96,7 @@ extension TabManager {
                 }
             }
 
-            panelsCancellable = tab.$panels
+            panelsCancellable = tab.panelsPublisher
                 .map { _ in () }
                 .sink { _ in
                     Task { @MainActor in

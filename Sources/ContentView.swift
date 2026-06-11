@@ -22,12 +22,12 @@ import WebKit
 struct ContentView: View {
     var updateViewModel: UpdateStateModel
     let windowId: UUID
-    @EnvironmentObject var tabManager: TabManager
-    @EnvironmentObject var notificationStore: TerminalNotificationStore
-    @EnvironmentObject var sidebarState: SidebarState
-    @EnvironmentObject var sidebarSelectionState: SidebarSelectionState
-    @EnvironmentObject var cmuxConfigStore: CmuxConfigStore
-    @EnvironmentObject var fileExplorerState: FileExplorerState
+    @Environment(TabManager.self) var tabManager
+    @Environment(TerminalNotificationStore.self) var notificationStore
+    @Environment(SidebarState.self) var sidebarState
+    @Environment(SidebarSelectionState.self) var sidebarSelectionState
+    @Environment(CmuxConfigStore.self) var cmuxConfigStore
+    @Environment(FileExplorerState.self) var fileExplorerState
     @Environment(\.colorScheme) var colorScheme
     @AppStorage("titlebarControlsStyle") private var titlebarControlsStyleRawValue = TitlebarControlsStyle.classic.rawValue
     @AppStorage(SessionPersistencePolicy.sidebarMinimumWidthKey) var sidebarMinimumWidthSetting = SessionPersistencePolicy.defaultMinimumSidebarWidth
@@ -45,10 +45,10 @@ struct ContentView: View {
     @State var titlebarText: String = ""
     @State var isFullScreen: Bool = false
     @State var observedWindow: NSWindow?
-    @StateObject var fullscreenControlsViewModel = TitlebarControlsViewModel()
-    @StateObject var fileExplorerStore = FileExplorerStore()
-    @StateObject var sessionIndexStore = SessionIndexStore()
-    @StateObject private var selectedWorkspaceDirectoryObserver = SelectedWorkspaceDirectoryObserver()
+    @State var fullscreenControlsViewModel = TitlebarControlsViewModel()
+    @State var fileExplorerStore = FileExplorerStore()
+    @State var sessionIndexStore = SessionIndexStore()
+    @State private var selectedWorkspaceDirectoryObserver = SelectedWorkspaceDirectoryObserver()
     @State var commandPaletteOverlayRenderModel = CommandPaletteOverlayRenderModel()
     @State private var backgroundWorkspacePrimeCoordinator = BackgroundWorkspacePrimeCoordinator()
     @State var fileExplorerWidth: CGFloat = 220
@@ -298,11 +298,11 @@ struct ContentView: View {
             await backgroundWorkspacePrimeCoordinator.primePendingBackgroundWorkspaces(tabManager: tabManager)
         })
 
-        view = AnyView(view.onReceive(tabManager.$debugPinnedWorkspaceLoadIds) { _ in
+        view = AnyView(view.onReceive(tabManager.debugPinnedWorkspaceLoadIdsPublisher) { _ in
             reconcileMountedWorkspaceIds()
         })
 
-        view = AnyView(view.onReceive(tabManager.$mountedBackgroundWorkspaceLoadIds) { _ in
+        view = AnyView(view.onReceive(tabManager.mountedBackgroundWorkspaceLoadIdsPublisher) { _ in
             reconcileMountedWorkspaceIds()
         })
 
@@ -432,7 +432,7 @@ struct ContentView: View {
             }
         })
 
-        view = AnyView(view.onReceive(tabManager.$tabs) { tabs in
+        view = AnyView(view.onReceive(tabManager.tabsPublisher) { tabs in
             let existingIds = Set(tabs.map { $0.id })
             if let retiringWorkspaceId, !existingIds.contains(retiringWorkspaceId) {
                 self.retiringWorkspaceId = nil

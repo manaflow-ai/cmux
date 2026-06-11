@@ -3,38 +3,47 @@ import CmuxFileWatch
 import Combine
 import CryptoKit
 import Foundation
+import Observation
 
+@Observable
 @MainActor
-final class CmuxConfigStore: ObservableObject {
+final class CmuxConfigStore {
     static let defaultNewWorkspaceContextMenu: [CmuxConfigContextMenuItem] = [
         .action(CmuxConfigContextMenuActionItem(action: CmuxSurfaceTabBarBuiltInAction.newWorkspace.configID)),
         .action(CmuxConfigContextMenuActionItem(action: CmuxSurfaceTabBarBuiltInAction.cloudVM.configID)),
     ]
 
-    @Published var loadedCommands: [CmuxCommandDefinition] = []
-    @Published var loadedActions: [CmuxResolvedConfigAction] = []
-    @Published var newWorkspaceCommandName: String?
-    @Published var newWorkspaceActionID: String?
-    @Published var newWorkspaceContextMenuItems: [CmuxResolvedConfigContextMenuItem] = []
+    var loadedCommands: [CmuxCommandDefinition] = []
+    var loadedActions: [CmuxResolvedConfigAction] = []
+    var newWorkspaceCommandName: String?
+    var newWorkspaceActionID: String?
+    var newWorkspaceContextMenuItems: [CmuxResolvedConfigContextMenuItem] = []
     /// Resolved per-cwd workspace group customization, keyed by the JSON cwd key.
     /// Use `resolveWorkspaceGroupConfig(forCwd:)` to find the best match for an
     /// anchor workspace's cwd. Empty when no `workspaceGroups.byCwd` block is
     /// configured.
-    @Published var workspaceGroupConfigs: [CmuxResolvedWorkspaceGroupConfig] = []
-    @Published var surfaceTabBarButtons: [CmuxSurfaceTabBarButton] = CmuxSurfaceTabBarButton.defaults
-    @Published var notificationHooks: [CmuxResolvedNotificationHook] = []
-    @Published var configurationIssues: [CmuxConfigIssue] = []
-    @Published var configRevision: UInt64 = 0
+    var workspaceGroupConfigs: [CmuxResolvedWorkspaceGroupConfig] = []
+    var surfaceTabBarButtons: [CmuxSurfaceTabBarButton] = CmuxSurfaceTabBarButton.defaults
+    var notificationHooks: [CmuxResolvedNotificationHook] = []
+    var configurationIssues: [CmuxConfigIssue] = []
+    var configRevision: UInt64 = 0
+
+    // The properties below are internal bookkeeping that was never `@Published`
+    // under the previous `ObservableObject` conformance, so views never
+    // re-rendered on their mutation. `@ObservationIgnored` preserves those
+    // exact invalidation semantics and keeps cache writes (which can happen
+    // from helpers invoked during view-body evaluation, e.g. `parseConfig`)
+    // from registering as tracked mutations.
 
     /// Which config file each command came from, keyed by command id.
-    var commandSourcePaths: [String: String] = [:]
-    var actionLookup: [String: CmuxResolvedConfigAction] = [:]
-    var surfaceTabBarButtonSourcePath: String?
-    var surfaceTabBarCommandSourcePaths: [String: String] = [:]
-    var newWorkspaceActionSourcePath: String?
+    @ObservationIgnored var commandSourcePaths: [String: String] = [:]
+    @ObservationIgnored var actionLookup: [String: CmuxResolvedConfigAction] = [:]
+    @ObservationIgnored var surfaceTabBarButtonSourcePath: String?
+    @ObservationIgnored var surfaceTabBarCommandSourcePaths: [String: String] = [:]
+    @ObservationIgnored var newWorkspaceActionSourcePath: String?
 
-    var localConfigPath: String?
-    weak var tabManager: TabManager?
+    @ObservationIgnored var localConfigPath: String?
+    @ObservationIgnored weak var tabManager: TabManager?
     let globalConfigPath: String
     let fileWatchingEnabled: Bool
 
@@ -87,24 +96,24 @@ final class CmuxConfigStore: ObservableObject {
         let issue: CmuxConfigIssue?
     }
 
-    var surfaceTabBarWorkspaceCommands: [String: CmuxResolvedCommand] = [:]
-    var resolvedNewWorkspaceCommandCache: CmuxResolvedCommand?
-    var resolvedNewWorkspaceActionCache: CmuxResolvedConfigAction?
-    var parsedConfigCache: [String: ParsedConfigCacheEntry] = [:]
-    private var lifetimeCancellables = Set<AnyCancellable>()
-    var trackingCancellables = Set<AnyCancellable>()
+    @ObservationIgnored var surfaceTabBarWorkspaceCommands: [String: CmuxResolvedCommand] = [:]
+    @ObservationIgnored var resolvedNewWorkspaceCommandCache: CmuxResolvedCommand?
+    @ObservationIgnored var resolvedNewWorkspaceActionCache: CmuxResolvedConfigAction?
+    @ObservationIgnored var parsedConfigCache: [String: ParsedConfigCacheEntry] = [:]
+    @ObservationIgnored private var lifetimeCancellables = Set<AnyCancellable>()
+    @ObservationIgnored var trackingCancellables = Set<AnyCancellable>()
     // The local config still uses a bespoke DispatchSource watcher because it
     // performs search-directory *path re-resolution* (not just reload-on-change).
     // The global config and hook files use CmuxFileWatch.FileWatcher.
-    var localFileWatchSource: DispatchSourceFileSystemObject?
-    var localFileDescriptor: Int32 = -1
-    var localConfigSearchDirectory: String?
-    var hookWatchers: [String: FileWatcher] = [:]
-    var hookWatchTasks: [String: Task<Void, Never>] = [:]
-    var localFallbackDirectoryWatchSource: DispatchSourceFileSystemObject?
-    var localFallbackDirectoryDescriptor: Int32 = -1
-    var globalWatcher: FileWatcher?
-    var globalWatchTask: Task<Void, Never>?
+    @ObservationIgnored var localFileWatchSource: DispatchSourceFileSystemObject?
+    @ObservationIgnored var localFileDescriptor: Int32 = -1
+    @ObservationIgnored var localConfigSearchDirectory: String?
+    @ObservationIgnored var hookWatchers: [String: FileWatcher] = [:]
+    @ObservationIgnored var hookWatchTasks: [String: Task<Void, Never>] = [:]
+    @ObservationIgnored var localFallbackDirectoryWatchSource: DispatchSourceFileSystemObject?
+    @ObservationIgnored var localFallbackDirectoryDescriptor: Int32 = -1
+    @ObservationIgnored var globalWatcher: FileWatcher?
+    @ObservationIgnored var globalWatchTask: Task<Void, Never>?
     let watchQueue = DispatchQueue(label: "com.cmux.config-file-watch")
 
     static let maxReattachAttempts = 5

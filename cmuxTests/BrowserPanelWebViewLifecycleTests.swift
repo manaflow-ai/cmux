@@ -233,12 +233,15 @@ final class BrowserPanelWebViewLifecycleTests: XCTestCase {
         XCTAssertEqual(discardedPayload["last_discard_reason"] as? String, "test.discard")
         XCTAssertNotNil(discardedPayload["discarded_at"] as? String)
 
+        // `BrowserPanel` is `@Observable`; `onWebViewLifecycleStateChange` is
+        // fed from `webViewLifecycleState.didSet` (the former `$` projection's
+        // per-assignment emissions, minus the initial replay, which this
+        // assertion never relied on).
         var observedStates: [BrowserWebViewLifecycleState] = []
-        var cancellable: AnyCancellable?
-        cancellable = panel.$webViewLifecycleState.sink { state in
+        panel.onWebViewLifecycleStateChange = { state in
             observedStates.append(state)
         }
-        defer { cancellable?.cancel() }
+        defer { panel.onWebViewLifecycleStateChange = nil }
 
         XCTAssertTrue(panel.restoreDiscardedWebViewIfNeeded(reason: "test.restore"))
         XCTAssertTrue(panel.shouldRenderWebView)
@@ -277,12 +280,13 @@ final class BrowserPanelWebViewLifecycleTests: XCTestCase {
         let reasonAfterFirst = panel.webViewLastVisibilityChangeReason
         let changeAtAfterFirst = panel.webViewLastVisibilityChangeAt
 
+        // didSet-fed hook matches the former `$webViewLifecycleState.dropFirst()`
+        // exactly: one delivery per assignment, no initial replay.
         var observedStates: [BrowserWebViewLifecycleState] = []
-        var cancellable: AnyCancellable?
-        cancellable = panel.$webViewLifecycleState.dropFirst().sink { state in
+        panel.onWebViewLifecycleStateChange = { state in
             observedStates.append(state)
         }
-        defer { cancellable?.cancel() }
+        defer { panel.onWebViewLifecycleStateChange = nil }
 
         // Simulate `.onAppear` re-firing many times in one commit storm.
         for index in 0..<32 {
@@ -327,12 +331,13 @@ final class BrowserPanelWebViewLifecycleTests: XCTestCase {
         XCTAssertTrue(panel.discardHiddenWebViewForMemory(reason: "test.discard", now: discardedAt))
         XCTAssertEqual(panel.webViewLifecycleState, .discarded)
 
+        // didSet-fed hook; the former `$` projection's initial replay (the
+        // current `.discarded` value) is not needed by this assertion.
         var observedStates: [BrowserWebViewLifecycleState] = []
-        var cancellable: AnyCancellable?
-        cancellable = panel.$webViewLifecycleState.sink { state in
+        panel.onWebViewLifecycleStateChange = { state in
             observedStates.append(state)
         }
-        defer { cancellable?.cancel() }
+        defer { panel.onWebViewLifecycleStateChange = nil }
 
         panel.goBack()
 

@@ -191,12 +191,12 @@ extension AppDelegate {
 #endif
 
         let root = ContentView(updateViewModel: updateViewModel, windowId: windowId)
-            .environmentObject(tabManager)
-            .environmentObject(notificationStore)
-            .environmentObject(sidebarState)
-            .environmentObject(sidebarSelectionState)
-            .environmentObject(fileExplorerState)
-            .environmentObject(cmuxConfigStore)
+            .environment(tabManager)
+            .environment(notificationStore)
+            .environment(sidebarState)
+            .environment(sidebarSelectionState)
+            .environment(fileExplorerState)
+            .environment(cmuxConfigStore)
             // AppKit hosts this ContentView in its own NSHostingView, which does
             // not inherit the App scene's SwiftUI environment. Inject the
             // settings runtime so `@LiveSetting` can resolve the stores it

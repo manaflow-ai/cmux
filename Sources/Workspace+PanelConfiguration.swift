@@ -79,20 +79,23 @@ extension Workspace {
     }
 
     func installBrowserPanelSubscription(_ browserPanel: BrowserPanel) {
-        let browserTabState = Publishers.CombineLatest4(
-            browserPanel.$pageTitle.removeDuplicates(), browserPanel.$currentURL.removeDuplicates(),
-            browserPanel.$isLoading.removeDuplicates(), browserPanel.$faviconPNGData.removeDuplicates(by: { $0 == $1 })
-        )
-        let subscription = browserTabState
-        .combineLatest(browserPanel.$isMuted.removeDuplicates())
+        // `BrowserPanel` is `@Observable`; `tabChromeDidChange` fires from the
+        // didSet of pageTitle/currentURL/isLoading/faviconPNGData/isMuted.
+        // `prepend(())` replays one initial emission like the former
+        // CombineLatest of `$`-projections; state is read live from the panel
+        // at delivery time on the main queue, as before.
+        let subscription = browserPanel.tabChromeDidChange
+        .prepend(())
         .receive(on: DispatchQueue.main)
-        .sink { [weak self, weak browserPanel] output in
-            let ((_, _, isLoading, favicon), isMuted) = output
+        .sink { [weak self, weak browserPanel] in
             guard let self = self,
                   let browserPanel = browserPanel,
                   let tabId = self.surfaceIdFromPanelId(browserPanel.id) else { return }
             self.publishBrowserOpenTabSuggestion(for: browserPanel)
             guard let existing = self.bonsplitController.tab(tabId) else { return }
+            let isLoading = browserPanel.isLoading
+            let favicon = browserPanel.faviconPNGData
+            let isMuted = browserPanel.isMuted
             let nextTitle = browserPanel.displayTitle
             if self.panelTitles[browserPanel.id] != nextTitle {
                 self.panelTitles[browserPanel.id] = nextTitle
@@ -155,16 +158,19 @@ extension Workspace {
     }
 
     func installMarkdownPanelSubscription(_ markdownPanel: MarkdownPanel) {
-        let subscription = Publishers.CombineLatest(
-            markdownPanel.$displayTitle.removeDuplicates(),
-            markdownPanel.$isDirty.removeDuplicates()
-        )
+        // `MarkdownPanel` is `@Observable`; `tabChromeDidChange` fires from the
+        // didSet of displayTitle/isDirty. `prepend(())` replays one initial
+        // emission like the former CombineLatest of `$`-projections.
+        let subscription = markdownPanel.tabChromeDidChange
+            .prepend(())
             .receive(on: DispatchQueue.main)
-            .sink { [weak self, weak markdownPanel] newTitle, isDirty in
+            .sink { [weak self, weak markdownPanel] in
                 guard let self,
                       let markdownPanel,
                       let tabId = self.surfaceIdFromPanelId(markdownPanel.id) else { return }
                 guard let existing = self.bonsplitController.tab(tabId) else { return }
+                let newTitle = markdownPanel.displayTitle
+                let isDirty = markdownPanel.isDirty
 
                 if self.panelTitles[markdownPanel.id] != newTitle {
                     self.panelTitles[markdownPanel.id] = newTitle
@@ -184,20 +190,20 @@ extension Workspace {
     }
 
     func installFilePreviewPanelSubscription(_ filePreviewPanel: FilePreviewPanel) {
-        let titleAndDirty = Publishers.CombineLatest(
-            filePreviewPanel.$displayTitle.removeDuplicates(),
-            filePreviewPanel.$isDirty.removeDuplicates()
-        )
-        let subscription = Publishers.CombineLatest(
-            titleAndDirty,
-            filePreviewPanel.$displayIcon.removeDuplicates()
-        )
+        // `FilePreviewPanel` is `@Observable`; `tabChromeDidChange` fires from
+        // the didSet of displayTitle/isDirty/displayIcon. `prepend(())` replays
+        // one initial emission like the former CombineLatest of
+        // `$`-projections.
+        let subscription = filePreviewPanel.tabChromeDidChange
+        .prepend(())
         .receive(on: DispatchQueue.main)
-        .sink { [weak self, weak filePreviewPanel] titleAndDirty, displayIcon in
+        .sink { [weak self, weak filePreviewPanel] in
             guard let self,
                   let filePreviewPanel,
                   let tabId = self.surfaceIdFromPanelId(filePreviewPanel.id) else { return }
-            let (newTitle, isDirty) = titleAndDirty
+            let newTitle = filePreviewPanel.displayTitle
+            let isDirty = filePreviewPanel.isDirty
+            let displayIcon = filePreviewPanel.displayIcon
             guard let existing = self.bonsplitController.tab(tabId) else { return }
 
             if self.panelTitles[filePreviewPanel.id] != newTitle {

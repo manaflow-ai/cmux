@@ -9,7 +9,7 @@ private let mobileWorkspaceObserverLog = Logger(subsystem: "dev.cmux", category:
 /// shape of the workspace list materially changes. Replaces per-RPC emit hooks
 /// Any mutation surface (UI new-tab, keyboard shortcut, drag-reorder,
 /// debug-cli, session restore, etc.) automatically syncs because we observe
-/// the `@Published` source of truth instead of trying to catch every caller.
+/// the `tabs` source of truth (via its Combine mirror) instead of trying to catch every caller.
 @MainActor
 final class MobileWorkspaceListObserver {
     private weak var tabManager: TabManager?
@@ -40,7 +40,7 @@ final class MobileWorkspaceListObserver {
         lastSummaryHash = initial
         emitIfNeeded(force: true)
 
-        tabsCancellable = tabManager.$tabs
+        tabsCancellable = tabManager.tabsPublisher
             .throttle(for: .milliseconds(throttleMilliseconds), scheduler: RunLoop.main, latest: true)
             .sink { [weak self] tabs in
                 guard let self else { return }
@@ -53,7 +53,7 @@ final class MobileWorkspaceListObserver {
         // Selection changes (Mac user clicks a different sidebar tab) need
         // to push to iPhone too. iPhone's selectedWorkspaceID drives which
         // terminal it displays.
-        selectionCancellable = tabManager.$selectedTabId
+        selectionCancellable = tabManager.selectedTabIdPublisher
             .throttle(for: .milliseconds(throttleMilliseconds), scheduler: RunLoop.main, latest: true)
             .sink { [weak self] _ in
                 self?.emitIfNeeded(force: false)
@@ -74,22 +74,22 @@ final class MobileWorkspaceListObserver {
         // updates without changing the terminal set.
         for workspace in tabs where perWorkspaceCancellables[workspace.id] == nil {
             let publishers: [AnyPublisher<Void, Never>] = [
-                workspace.$panels.map { _ in () }.eraseToAnyPublisher(),
-                workspace.$panelTitles.map { _ in () }.eraseToAnyPublisher(),
+                workspace.panelsPublisher.map { _ in () }.eraseToAnyPublisher(),
+                workspace.panelTitlesPublisher.map { _ in () }.eraseToAnyPublisher(),
                 // Renaming a terminal sets `panelCustomTitles` (not `panelTitles`),
                 // so without this a terminal rename never re-emits to the phone.
-                workspace.$panelCustomTitles.map { _ in () }.eraseToAnyPublisher(),
-                workspace.$title.map { _ in () }.eraseToAnyPublisher(),
+                workspace.panelCustomTitlesPublisher.map { _ in () }.eraseToAnyPublisher(),
+                workspace.titlePublisher.map { _ in () }.eraseToAnyPublisher(),
                 // Pin/unpin is iOS-facing (the phone shows a Pinned section), and
                 // a pure pin toggle need not change the panel set or title, so
                 // without this the phone never learns the workspace was pinned.
-                workspace.$isPinned.map { _ in () }.eraseToAnyPublisher(),
-                workspace.$currentDirectory.map { _ in () }.eraseToAnyPublisher(),
-                workspace.$panelDirectories.map { _ in () }.eraseToAnyPublisher(),
+                workspace.isPinnedPublisher.map { _ in () }.eraseToAnyPublisher(),
+                workspace.currentDirectoryPublisher.map { _ in () }.eraseToAnyPublisher(),
+                workspace.panelDirectoriesPublisher.map { _ in () }.eraseToAnyPublisher(),
                 // Pure drag-reorders change spatial order without changing the panel
-                // set; bonsplit selection state is not `@Published`, so this counter
+                // set; bonsplit selection state has no Combine bridge, so this counter
                 // is the only signal the observer gets for a reorder.
-                workspace.$paneLayoutVersion.map { _ in () }.eraseToAnyPublisher(),
+                workspace.paneLayoutVersionPublisher.map { _ in () }.eraseToAnyPublisher(),
             ]
             let merged = Publishers.MergeMany(publishers)
                 .throttle(for: .milliseconds(throttleMilliseconds), scheduler: RunLoop.main, latest: true)
