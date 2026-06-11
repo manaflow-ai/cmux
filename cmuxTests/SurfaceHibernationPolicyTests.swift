@@ -896,6 +896,82 @@ struct SurfaceHibernationPolicyTests {
         )
     }
 
+    @MainActor
+    @Test
+    func seededPendingClearsOnPromptRedrawWithoutCommand() {
+        let wasTracking = AgentHibernationTrackingGate.isEnabled()
+        AgentHibernationTrackingGate.setEnabled(true)
+        defer { AgentHibernationTrackingGate.setEnabled(wasTracking) }
+        let controller = AgentHibernationController.shared
+        let workspaceId = UUID()
+        let panelId = UUID()
+        let base = Date()
+
+        controller.debugSeedPendingCommandLineForTesting(
+            workspaceId: workspaceId,
+            panelId: panelId,
+            recordedAt: base
+        )
+        // Empty Enter (or ^C) at the prompt: precmd fires with no preexec.
+        controller.recordShellActivityTransition(
+            workspaceId: workspaceId,
+            panelId: panelId,
+            state: .promptIdle,
+            recordedAt: base.addingTimeInterval(1)
+        )
+
+        let state = controller.debugPendingCommandLineStateForTesting(
+            workspaceId: workspaceId,
+            panelId: panelId
+        )
+        #expect(
+            state.pendingAt == nil,
+            "A prompt redraw with no command since the seed proves the line emptied; the shell must requalify"
+        )
+    }
+
+    @MainActor
+    @Test
+    func inputBackedPendingSurvivesPromptRedrawWithoutCommand() {
+        let wasTracking = AgentHibernationTrackingGate.isEnabled()
+        AgentHibernationTrackingGate.setEnabled(true)
+        defer { AgentHibernationTrackingGate.setEnabled(wasTracking) }
+        let controller = AgentHibernationController.shared
+        let workspaceId = UUID()
+        let panelId = UUID()
+        let base = Date()
+
+        controller.debugSeedPendingCommandLineForTesting(
+            workspaceId: workspaceId,
+            panelId: panelId,
+            recordedAt: base
+        )
+        // Real typed text replaces the seed: typed-ahead input reappears at
+        // the next prompt, so a redraw without a command must not clear it.
+        controller.recordTerminalInput(
+            workspaceId: workspaceId,
+            panelId: panelId,
+            recordedAt: base.addingTimeInterval(1),
+            armsPendingCommandLine: true,
+            pendingPromptSurvivals: 0
+        )
+        controller.recordShellActivityTransition(
+            workspaceId: workspaceId,
+            panelId: panelId,
+            state: .promptIdle,
+            recordedAt: base.addingTimeInterval(2)
+        )
+
+        let state = controller.debugPendingCommandLineStateForTesting(
+            workspaceId: workspaceId,
+            panelId: panelId
+        )
+        #expect(
+            state.pendingAt != nil,
+            "Observed input must keep the guard until a command consumes the line"
+        )
+    }
+
     // MARK: - Replay-hook installation evidence
 
     @Test

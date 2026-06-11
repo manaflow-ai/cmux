@@ -55,6 +55,10 @@ final class AgentHibernationController {
     private var activityByPanel: [AgentHibernationPanelKey: TimeInterval] = [:]
     private var terminalInputByPanel: [AgentHibernationPanelKey: TimeInterval] = [:]
     private var pendingCommandLineByPanel: [AgentHibernationPanelKey: TimeInterval] = [:]
+    /// Pending entries that came from pre-tracking seeding rather than
+    /// observed input; only these may clear on a prompt redraw without a
+    /// command (empty Enter, ^C).
+    private var seededPendingPanelKeys: Set<AgentHibernationPanelKey> = []
     private var pendingPromptSurvivalsByPanel: [AgentHibernationPanelKey: Int] = [:]
     private var lastCommandStartByPanel: [AgentHibernationPanelKey: TimeInterval] = [:]
     private var seenLivePanelKeys: Set<AgentHibernationPanelKey> = []
@@ -144,6 +148,10 @@ final class AgentHibernationController {
         // outcomes are unobservable here.
         if armsPendingCommandLine {
             pendingCommandLineByPanel[key] = recordedAt.timeIntervalSince1970
+            // Observed input replaces a pre-tracking seed: from here on only
+            // a command consuming the line may clear the guard, because text
+            // typed at (or ahead of) a prompt reappears editable.
+            seededPendingPanelKeys.remove(key)
         }
         // A batched payload such as "cmd1\ncmd2\npartial" runs one command
         // per settling character and only then leaves text editable, so the
@@ -192,10 +200,22 @@ final class AgentHibernationController {
                 } else {
                     pendingPromptSurvivalsByPanel[key] = survivals - 1
                 }
-            } else if let pendingAt = pendingCommandLineByPanel[key],
-                      let commandStartAt = lastCommandStartByPanel[key],
-                      pendingAt <= commandStartAt {
-                pendingCommandLineByPanel.removeValue(forKey: key)
+            } else if let pendingAt = pendingCommandLineByPanel[key] {
+                if let commandStartAt = lastCommandStartByPanel[key], pendingAt <= commandStartAt {
+                    pendingCommandLineByPanel.removeValue(forKey: key)
+                    seededPendingPanelKeys.remove(key)
+                } else if seededPendingPanelKeys.contains(key) {
+                    // A prompt redraw with no command since the seed means
+                    // the user pressed Enter on an empty line or ^C'd
+                    // whatever it held — either way the pre-tracking text
+                    // the seed guarded against is gone. Without this,
+                    // surfaces created while hibernation was disabled would
+                    // stay exempt forever after re-enabling. Input-backed
+                    // pending never takes this branch: recording it removes
+                    // the seed marker.
+                    pendingCommandLineByPanel.removeValue(forKey: key)
+                    seededPendingPanelKeys.remove(key)
+                }
             }
         case .unknown:
             break
@@ -215,6 +235,18 @@ final class AgentHibernationController {
     ) -> (pendingAt: TimeInterval?, survivals: Int?) {
         let key = AgentHibernationPanelKey(workspaceId: workspaceId, panelId: panelId)
         return (pendingCommandLineByPanel[key], pendingPromptSurvivalsByPanel[key])
+    }
+
+    /// Mirrors the pre-tracking seeding evaluate() performs for surfaces
+    /// created while tracking was off.
+    func debugSeedPendingCommandLineForTesting(
+        workspaceId: UUID,
+        panelId: UUID,
+        recordedAt: Date
+    ) {
+        let key = AgentHibernationPanelKey(workspaceId: workspaceId, panelId: panelId)
+        pendingCommandLineByPanel[key] = recordedAt.timeIntervalSince1970
+        seededPendingPanelKeys.insert(key)
     }
 #endif
 
@@ -315,8 +347,11 @@ final class AgentHibernationController {
             if let trackingEnabledAt, record.runtimeSurfaceCreatedAt < trackingEnabledAt {
                 // The surface predates tracking: its prompt may hold typed
                 // text we never saw. Treat it as pending until a prompt
-                // transition proves the command line settled.
+                // transition proves the command line settled. The seed marker
+                // lets a later prompt redraw with no command (empty Enter,
+                // ^C) clear this, which real typed-ahead input must never do.
                 pendingCommandLineByPanel[record.key] = nowTime
+                seededPendingPanelKeys.insert(record.key)
             }
         }
         let liveRestorableCount = records.filter { record in
@@ -561,6 +596,7 @@ final class AgentHibernationController {
         activityByPanel.removeAll(keepingCapacity: false)
         terminalInputByPanel.removeAll(keepingCapacity: false)
         pendingCommandLineByPanel.removeAll(keepingCapacity: false)
+        seededPendingPanelKeys.removeAll(keepingCapacity: false)
         pendingPromptSurvivalsByPanel.removeAll(keepingCapacity: false)
         lastCommandStartByPanel.removeAll(keepingCapacity: false)
         seenLivePanelKeys.removeAll(keepingCapacity: false)
@@ -576,6 +612,7 @@ final class AgentHibernationController {
         activityByPanel = activityByPanel.filter { currentKeys.contains($0.key) }
         terminalInputByPanel = terminalInputByPanel.filter { currentKeys.contains($0.key) }
         pendingCommandLineByPanel = pendingCommandLineByPanel.filter { currentKeys.contains($0.key) }
+        seededPendingPanelKeys = seededPendingPanelKeys.filter { currentKeys.contains($0) }
         pendingPromptSurvivalsByPanel = pendingPromptSurvivalsByPanel.filter { currentKeys.contains($0.key) }
         lastCommandStartByPanel = lastCommandStartByPanel.filter { currentKeys.contains($0.key) }
         seenLivePanelKeys = seenLivePanelKeys.filter { currentKeys.contains($0) }

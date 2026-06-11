@@ -10265,9 +10265,6 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             super.keyDown(with: event)
             return
         }
-        recordDirectAgentHibernationTerminalInput(
-            armsPendingCommandLine: event.characters.map(terminalInputCanLeavePromptText) ?? false
-        )
 #if DEBUG
         ensureSurfaceMs = (ProcessInfo.processInfo.systemUptime - ensureSurfaceStart) * 1000.0
 #endif
@@ -10310,6 +10307,15 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
 #if DEBUG
         keyboardCopyModeMs = (ProcessInfo.processInfo.systemUptime - keyboardCopyModeStart) * 1000.0
 #endif
+        // Past the consumption branches (sidebar shortcut, find escape, copy
+        // mode) every remaining path delivers this event to the terminal, so
+        // only now does it count as terminal input: a consumed key never
+        // reaches the shell, and recording it would arm a pending
+        // command-line guard no shell transition can ever clear (and reset
+        // the panel's idle clock for input the shell never saw).
+        recordDirectAgentHibernationTerminalInput(
+            armsPendingCommandLine: event.characters.map(terminalInputCanLeavePromptText) ?? false
+        )
 #if DEBUG
         recordKeyLatency(path: "keyDown", event: event)
 #endif
