@@ -3471,6 +3471,12 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     /// later-enqueued `disposeSurface` free of the same pointer — the same
     /// lifetime argument `visibleTerminalSnapshot()` relies on.
     ///
+    /// The read is bounded at the source: iOS surfaces are created with
+    /// `scrollback-limit = 2000000` (see `GhosttyRuntime.applyiOSDefaults`),
+    /// so the SCREEN range can never materialize more than ~2MB of text no
+    /// matter how long the session ran. The sheet's 5000-line budget is then
+    /// applied off-main on top of that hard cap.
+    ///
     /// - Returns: The surface's screen text, or nil when no terminal surface
     ///   is on screen or the read fails.
     public static func copyableTerminalText() async -> String? {
