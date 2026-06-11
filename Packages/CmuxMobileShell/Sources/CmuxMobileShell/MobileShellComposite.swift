@@ -340,6 +340,14 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// exactly the order they were issued from the main actor. Not observed: it
     /// sequences async work, not view state.
     @ObservationIgnored private var draftOperationTail: Task<Void, Never>?
+    /// Latest unflushed keystroke draft per terminal (see
+    /// ``persistCurrentDraft()``). Keystroke saves coalesce here: each edit
+    /// overwrites the terminal's entry and at most ONE flush task per terminal
+    /// is queued on the pipeline, reading the entry at execution time. A typing
+    /// burst behind a slow store therefore retains one latest snapshot per
+    /// terminal instead of one snapshot per edit. Not observed: it buffers
+    /// writes, not view state.
+    @ObservationIgnored private var pendingDraftSaveTextByTerminalID: [String: String] = [:]
     /// The terminal id we are switching away from, captured in
     /// ``selectedTerminalID``'s `willSet` so its draft is saved under the right key.
     @ObservationIgnored private var draftedOutgoingTerminalID: MobileTerminalPreview.ID?
@@ -642,6 +650,10 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         if let draftStore {
             enqueueDraftOperation { await draftStore.clearAllDrafts() }
         }
+        // Drop unflushed keystroke snapshots too: an armed flush that runs
+        // before the wipe would only write text the wipe then deletes, but the
+        // buffer itself must not carry one account's text into the next.
+        pendingDraftSaveTextByTerminalID = [:]
         clearPairingError()
         activeTicket = nil
         activeRoute = nil
@@ -2970,8 +2982,10 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// or superseded drafts never win over newer state, and nothing written
     /// before sign-out survives the sign-out wipe.
     ///
-    /// Operations are tiny (one actor dictionary access); only the tail task is
-    /// retained, so the chain does not grow under typing bursts.
+    /// Operations are tiny (one actor dictionary access) and keystroke saves
+    /// coalesce before they reach the pipeline (see ``persistCurrentDraft()``),
+    /// so the chain stays short and bounded under typing bursts; only the tail
+    /// task is retained.
     @discardableResult
     private func enqueueDraftOperation(
         _ operation: @escaping @Sendable () async -> Void
@@ -2994,10 +3008,32 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// Save the live ``terminalInputText`` under the currently selected
     /// terminal. Called from the field's `didSet`. A no-op when there is no
     /// selected terminal (nothing to key the draft to) or no draft store wired.
+    ///
+    /// Saves COALESCE per terminal: the edit overwrites the terminal's entry in
+    /// ``pendingDraftSaveTextByTerminalID`` and queues a flush only when none is
+    /// already queued for that terminal. The flush reads the LATEST entry when
+    /// it executes, so a typing burst behind a slow store applies as one save of
+    /// the final text instead of queuing every intermediate snapshot (whose
+    /// retained memory would otherwise grow as edits × draft size). Barrier
+    /// operations (the switch save/load, the post-send clear, the sign-out wipe)
+    /// still order strictly after any queued flush via the shared FIFO.
     private func persistCurrentDraft() {
         guard let draftStore, let terminalID = selectedTerminalID?.rawValue else { return }
-        let text = terminalInputText
-        enqueueDraftOperation { await draftStore.saveDraft(text, forTerminalID: terminalID) }
+        let flushAlreadyQueued = pendingDraftSaveTextByTerminalID[terminalID] != nil
+        pendingDraftSaveTextByTerminalID[terminalID] = terminalInputText
+        guard !flushAlreadyQueued else { return }
+        enqueueDraftOperation { [weak self] in
+            guard let text = await self?.takePendingDraftSave(forTerminalID: terminalID) else { return }
+            await draftStore.saveDraft(text, forTerminalID: terminalID)
+        }
+    }
+
+    /// Dequeue the latest unflushed keystroke draft for `terminalID`, clearing
+    /// its entry so the next edit arms a fresh flush. Called by the queued flush
+    /// at execution time, so it always saves the newest text.
+    private func takePendingDraftSave(forTerminalID terminalID: String) -> String? {
+        defer { pendingDraftSaveTextByTerminalID[terminalID] = nil }
+        return pendingDraftSaveTextByTerminalID[terminalID]
     }
 
     /// Swap the composer draft when the selected terminal changes: save the
