@@ -424,6 +424,9 @@ final class CmuxSettingsFileStore {
         if let value = jsonBool(section["menuBarOnly"]) {
             snapshot.managedUserDefaults[MenuBarOnlySettings.menuBarOnlyKey] = .bool(value)
         }
+        if let value = jsonBool(section["preventSystemSleep"]) {
+            snapshot.managedUserDefaults[MacSleepPreventionSettings.preventSystemSleepKey] = .bool(value)
+        }
         if let raw = jsonString(section["newWorkspacePlacement"]) {
             guard let placement = NewWorkspacePlacement(rawValue: raw) else {
                 logInvalid("app.newWorkspacePlacement", sourcePath: sourcePath)

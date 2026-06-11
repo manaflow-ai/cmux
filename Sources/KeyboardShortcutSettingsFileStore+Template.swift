@@ -61,6 +61,7 @@ extension CmuxSettingsFileStore {
                     "appearance": AppearanceSettings.defaultMode.rawValue,
                     "appIcon": AppIconSettings.defaultMode.rawValue,
                     "menuBarOnly": MenuBarOnlySettings.defaultMenuBarOnly,
+                    "preventSystemSleep": MacSleepPreventionSettings.defaultPreventSystemSleep,
                     "newWorkspacePlacement": WorkspacePlacementSettings.defaultPlacement.rawValue,
                     "forkConversationDefaultDestination": AgentConversationForkDefaultSettings.defaultDestination.rawValue,
                     "workspaceInheritWorkingDirectory": WorkspaceWorkingDirectoryInheritanceSettings.defaultValue,

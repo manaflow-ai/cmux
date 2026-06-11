@@ -14,6 +14,24 @@ Default: `always` for stable and nightly builds. DEV builds always behave as `ne
 
 The older boolean `app.warnBeforeQuit` still works as a fallback when `app.confirmQuit` is not set. `true` maps to `always`; `false` maps to `never`.
 
+## `app.preventSystemSleep`
+
+Keeps the Mac awake while cmux is running, so terminals, agents, servers, and other work can keep running. cmux uses the macOS IOKit `NoIdleSleep` power assertion directly, not the `caffeinate` command. The assertion is released when cmux quits or the setting is turned off. The display can still sleep.
+
+From the cmux menu bar item, **Lock Screen and Prevent Sleep** first turns this setting on, then locks the user session through the macOS login window (`CGSession -suspend`). That locks the screen without allowing idle system sleep to stop running work.
+
+Default: `false`.
+
+```json
+{
+  "app": {
+    "preventSystemSleep": true
+  }
+}
+```
+
+You can also toggle this from the cmux menu bar item or command palette.
+
 ## `app.forkConversationDefaultDestination`
 
 Controls what the tab right-click `Fork Conversation` item does. The submenu still exposes every destination.

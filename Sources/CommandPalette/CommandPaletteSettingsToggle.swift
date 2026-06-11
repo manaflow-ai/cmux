@@ -285,6 +285,17 @@ enum CommandPaletteSettingsToggleCommands {
                 isAvailable: { defaults in !MenuBarOnlySettings.isEnabled(defaults: defaults) }
             ),
             CommandPaletteSettingToggleDescriptor(
+                commandId: commandIdPrefix + "preventSystemSleep",
+                settingsKey: "app.preventSystemSleep",
+                title: {
+                    String(localized: "settings.app.preventSystemSleep", defaultValue: "Prevent System Sleep")
+                },
+                sectionTitle: app,
+                keywords: ["app.preventSystemSleep", "keep", "awake", "prevent", "sleep", "never", "power"],
+                defaultValue: MacSleepPreventionSettings.defaultPreventSystemSleep,
+                defaultsKey: MacSleepPreventionSettings.preventSystemSleepKey
+            ),
+            CommandPaletteSettingToggleDescriptor(
                 commandId: commandIdPrefix + "unreadPaneRing",
                 settingsKey: "notifications.unreadPaneRing",
                 title: {

@@ -5,7 +5,7 @@ import Foundation
 @MainActor
 final class MenuBarExtraController: NSObject, NSMenuDelegate {
     private let statusItem: NSStatusItem
-    private let menu = NSMenu(title: "cmux")
+    let menu = NSMenu(title: "cmux")
     private let notificationStore: TerminalNotificationStore
     private let onShowGlobalSearch: (NSStatusBarButton, (() -> Void)?) -> Void
     private let onShowMainWindow: () -> Void
@@ -16,6 +16,7 @@ final class MenuBarExtraController: NSObject, NSMenuDelegate {
     private let onCheckForUpdates: () -> Void
     private let onOpenPreferences: () -> Void
     private let onQuitApp: () -> Void
+    let sleepPreventionController: MacSleepPreventionControlling
     private var notificationMenuSnapshotCancellable: AnyCancellable?
     private let buildHintTitle: String?
 
@@ -24,6 +25,7 @@ final class MenuBarExtraController: NSObject, NSMenuDelegate {
     private let globalSearchItem = NSMenuItem(title: String(localized: "statusMenu.searchAllWindows", defaultValue: "Search All Windows..."), action: nil, keyEquivalent: "")
     private let showMainWindowItem = NSMenuItem(title: String(localized: "statusMenu.showCmux", defaultValue: "Show cmux"), action: nil, keyEquivalent: "")
     private let taskManagerItem = NSMenuItem(title: String(localized: "statusMenu.taskManager", defaultValue: "Task Manager..."), action: nil, keyEquivalent: "")
+    let preventSystemSleepItem = NSMenuItem(title: String(localized: "statusMenu.preventSystemSleep", defaultValue: "Prevent System Sleep"), action: nil, keyEquivalent: "")
     private let notificationListSeparator = NSMenuItem.separator()
     private let notificationSectionSeparator = NSMenuItem.separator()
     private let showNotificationsItem = NSMenuItem(title: String(localized: "statusMenu.showNotifications", defaultValue: "Show Notifications"), action: nil, keyEquivalent: "")
@@ -45,7 +47,8 @@ final class MenuBarExtraController: NSObject, NSMenuDelegate {
         onOpenTaskManager: @escaping () -> Void,
         onCheckForUpdates: @escaping () -> Void,
         onOpenPreferences: @escaping () -> Void,
-        onQuitApp: @escaping () -> Void
+        onQuitApp: @escaping () -> Void,
+        sleepPreventionController: MacSleepPreventionControlling? = nil
     ) {
         self.notificationStore = notificationStore
         self.onShowGlobalSearch = onShowGlobalSearch
@@ -57,6 +60,7 @@ final class MenuBarExtraController: NSObject, NSMenuDelegate {
         self.onCheckForUpdates = onCheckForUpdates
         self.onOpenPreferences = onOpenPreferences
         self.onQuitApp = onQuitApp
+        self.sleepPreventionController = sleepPreventionController ?? MacSleepPreventionController.shared
         self.buildHintTitle = MenuBarBuildHintFormatter.menuTitle()
         self.statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
         super.init()
@@ -104,6 +108,8 @@ final class MenuBarExtraController: NSObject, NSMenuDelegate {
         taskManagerItem.target = self
         taskManagerItem.action = #selector(taskManagerAction)
         menu.addItem(taskManagerItem)
+
+        addSleepPreventionMenuItems()
 
         menu.addItem(notificationListSeparator)
         notificationSectionSeparator.isHidden = true
@@ -162,6 +168,7 @@ final class MenuBarExtraController: NSObject, NSMenuDelegate {
     }
 
     private func refreshUI(snapshot: NotificationMenuSnapshot) {
+        sleepPreventionController.syncToSettings()
         let actualUnreadCount = snapshot.unreadCount
 
         let displayedUnreadCount: Int
@@ -173,6 +180,7 @@ final class MenuBarExtraController: NSObject, NSMenuDelegate {
 
         stateHintItem.title = snapshot.stateHintTitle
         showMainWindowItem.isHidden = !MenuBarOnlySettings.shouldShowMainWindowMenuItem()
+        preventSystemSleepItem.state = sleepPreventionController.isEnabled ? .on : .off
 
         applyShortcut(KeyboardShortcutSettings.menuShortcut(for: .globalSearch), to: globalSearchItem)
         applyShortcut(KeyboardShortcutSettings.menuShortcut(for: .showNotifications), to: showNotificationsItem)

@@ -68,6 +68,7 @@ enum SettingsSearchAliasIndex {
         "app:dock-badge": localized("settings.search.alias.setting.app.dock-badge", defaultValue: "notifications.dockBadge badge dock unread count icon notifications red bubble"),
         "app:menu-bar-only": localized("settings.search.alias.setting.app.menu-bar-only", defaultValue: "app.menuBarOnly menubar menu bar dockless hide dock app switcher cmd-tab command-tab"),
         "app:show-menu-bar": localized("settings.search.alias.setting.app.show-menu-bar", defaultValue: "notifications.showInMenuBar menubar menu bar status item tray extra"),
+        "app:prevent-system-sleep": localized("settings.search.alias.setting.app.prevent-system-sleep", defaultValue: "app.preventSystemSleep keep awake prevent sleep never sleep lock screen caffeinate power menu bar"),
         "app:unread-pane-ring": localized("settings.search.alias.setting.app.unread-pane-ring", defaultValue: "notifications.unreadPaneRing blue border unread ring notification pane outline"),
         "app:pane-flash": localized("settings.search.alias.setting.app.pane-flash", defaultValue: "notifications.paneFlash flash blink highlight pane notification pulse"),
         "app:desktop-notifications": localized("settings.search.alias.setting.app.desktop-notifications", defaultValue: "macos desktop notifications system settings permission alerts notify test"),

@@ -10,7 +10,7 @@ import UniformTypeIdentifiers
 /// First Click, File Drops, Open Files With, Open Supported Files in
 /// cmux, Terminal Config link, Open Markdown in cmux Viewer,
 /// Markdown Viewer typography, iMessage Mode, Reorder on Notification, Dock Badge, Menu Bar
-/// Only, Show in Menu Bar, Unread Pane Ring, Pane Flash, Desktop
+/// Only, Show in Menu Bar, Prevent System Sleep, Unread Pane Ring, Pane Flash, Desktop
 /// Notifications, Notification Sound, Notification Command, Send
 /// anonymous telemetry, Warn Before Quit, Warn Before Closing Tab /
 /// X Button / Hide Tab Close Button, Rename Selects Existing Name,
@@ -44,6 +44,7 @@ public struct AppSection: View {
     @State private var dockBadge: DefaultsValueModel<Bool>
     @State private var menuBarOnly: DefaultsValueModel<Bool>
     @State private var showInMenuBar: DefaultsValueModel<Bool>
+    @State private var preventSleep: DefaultsValueModel<Bool>
     @State private var paneRing: DefaultsValueModel<Bool>
     @State private var paneFlash: DefaultsValueModel<Bool>
     @State private var soundName: DefaultsValueModel<String>
@@ -88,6 +89,7 @@ public struct AppSection: View {
         _dockBadge = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.notifications.dockBadge))
         _menuBarOnly = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.app.menuBarOnly))
         _showInMenuBar = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.notifications.showInMenuBar))
+        _preventSleep = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.app.preventSystemSleep))
         _paneRing = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.notifications.unreadPaneRing))
         _paneFlash = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.notifications.paneFlash))
         _soundName = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.notifications.sound))
@@ -455,6 +457,18 @@ public struct AppSection: View {
                     .controlSize(.small)
             }
             .disabled(menuBarOnly.current)
+            SettingsCardDivider()
+
+            // Prevent System Sleep
+            SettingsCardRow(
+                configurationReview: .json("app.preventSystemSleep"),
+                String(localized: "settings.app.preventSystemSleep", defaultValue: "Prevent System Sleep"),
+                subtitle: String(localized: "settings.app.preventSystemSleep.subtitle", defaultValue: "Keep the Mac awake while cmux is running. The display can still sleep; the menu bar can lock the screen and keep work running.")
+            ) {
+                Toggle("", isOn: Binding(get: { preventSleep.current }, set: { preventSleep.set($0) }))
+                    .labelsHidden()
+                    .controlSize(.small)
+            }
             SettingsCardDivider()
 
             // Unread Pane Ring

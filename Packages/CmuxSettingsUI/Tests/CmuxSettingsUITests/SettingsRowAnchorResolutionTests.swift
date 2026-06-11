@@ -49,6 +49,7 @@ struct SettingsRowAnchorResolutionTests {
         "app.openMarkdownInCmuxViewer",
         "app.openSupportedFilesInCmux",
         "app.preferredEditor",
+        "app.preventSystemSleep",
         "app.renameSelectsExistingName",
         "app.reorderOnNotification",
         "app.sendAnonymousTelemetry",
