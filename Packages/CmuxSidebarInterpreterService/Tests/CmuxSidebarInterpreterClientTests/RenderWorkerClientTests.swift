@@ -104,7 +104,7 @@ import Testing
         }
 
         // Let the ack watchdog expire and discard the (simulated) hung worker.
-        let discarded = await waitForContextReset(client)
+        let discarded = await waitForContextReset(client, after: firstContext)
         #expect(discarded, "expected hung worker to be discarded after ack timeout")
 
         // Tick like the host until the fresh worker announces itself.
@@ -128,13 +128,16 @@ import Testing
 
     private func waitForContextReset(
         _ client: RenderWorkerClient,
+        after initialContext: UInt32,
         deadline: Duration = .seconds(5)
     ) async -> Bool {
         let clock = ContinuousClock()
         let end = clock.now.advanced(by: deadline)
+        var sawInitialContext = false
         while clock.now < end {
             let contextId = await MainActor.run { client.contextCache.contextId }
-            if contextId == nil { return true }
+            if contextId == initialContext { sawInitialContext = true }
+            if sawInitialContext, contextId == nil { return true }
             try? await Task.sleep(for: .milliseconds(50))
         }
         return false
