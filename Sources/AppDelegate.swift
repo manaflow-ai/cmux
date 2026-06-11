@@ -17245,6 +17245,12 @@ private extension NSWindow {
             return true
         }
         if shortcutRoutingShouldBypassForPrintableOptionText(event: event) {
+            if firstResponderWebView != nil, cmuxBrowserWebKitKeyDownDispatchIsActive() {
+#if DEBUG
+                cmuxDebugLog("  → printable Option text reentry during WebKit keyDown; leaving unhandled")
+#endif
+                return false
+            }
             let textInputTarget: NSResponder? = firstResponderGhosttyView
                 ?? firstResponderWebView
                 ?? self.firstResponder
@@ -17448,6 +17454,12 @@ private extension NSWindow {
             firstResponderHasMarkedText: firstResponderHasMarkedText,
             flags: event.modifierFlags
         ) {
+            if cmuxBrowserWebKitKeyDownDispatchIsActive() {
+#if DEBUG
+                cmuxDebugLog("  → browser Return/Enter reentry during WebKit keyDown; leaving unhandled")
+#endif
+                return false
+            }
             // Forwarding keyDown can re-enter performKeyEquivalent in WebKit/AppKit internals.
             // On re-entry, fall back to normal dispatch to avoid an infinite loop.
             if cmuxBrowserReturnForwardingDepth > 0 {
@@ -17474,6 +17486,12 @@ private extension NSWindow {
             firstResponderHasMarkedText: firstResponderHasMarkedText,
             flags: event.modifierFlags
         ) {
+            if cmuxBrowserWebKitKeyDownDispatchIsActive() {
+#if DEBUG
+                cmuxDebugLog("  → browser arrow reentry during WebKit keyDown; leaving unhandled")
+#endif
+                return false
+            }
             if let focusedOmnibarField = AppDelegate.shared?.focusedBrowserOmnibarField(for: event, in: self),
                browserOmnibarPanelId(for: self.firstResponder) == nil,
                focusedOmnibarField.window === self {
