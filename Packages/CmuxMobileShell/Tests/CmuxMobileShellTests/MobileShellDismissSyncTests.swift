@@ -3,6 +3,7 @@ import CmuxMobileRPC
 import CmuxMobileShellModel
 import Foundation
 import Testing
+import UserNotifications
 @testable import CmuxMobileShell
 
 /// Records the ids passed to `removeDelivered` and the counts passed to
@@ -177,6 +178,38 @@ private final class RecordingDeliveredNotificationClearer: DeliveredNotification
 
         #expect(clearer.clearedIDs == [["n-9"]])
         #expect(clearer.badgeCounts.isEmpty)
+    }
+
+    // MARK: - Mac-id mapping for delivered banners
+
+    /// The clearer must address delivered banners by the authoritative
+    /// `cmux.notificationId` payload key, not by trusting that the request
+    /// identifier equals the Mac id (collapse-id equivalence is observed OS
+    /// behavior, not a contract).
+    @Test func macNotificationIDPrefersPayloadKeyOverRequestIdentifier() {
+        let content = UNMutableNotificationContent()
+        content.userInfo = ["cmux": ["notificationId": " mac-id-1 "]]
+        let request = UNNotificationRequest(
+            identifier: "os-assigned-identifier",
+            content: content,
+            trigger: nil
+        )
+
+        #expect(SystemDeliveredNotificationClearer.macNotificationID(for: request) == "mac-id-1")
+    }
+
+    /// Without the payload key (older Macs), the request identifier is the only
+    /// candidate: it matches when it happens to be the collapse-id and is a
+    /// harmless non-match (the Mac ignores unknown ids) otherwise.
+    @Test func macNotificationIDFallsBackToRequestIdentifier() {
+        let content = UNMutableNotificationContent()
+        let request = UNNotificationRequest(
+            identifier: "legacy-collapse-id",
+            content: content,
+            trigger: nil
+        )
+
+        #expect(SystemDeliveredNotificationClearer.macNotificationID(for: request) == "legacy-collapse-id")
     }
 
     // MARK: - Event payload decoding

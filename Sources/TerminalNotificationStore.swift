@@ -955,11 +955,13 @@ final class TerminalNotificationStore: ObservableObject {
     /// ``PhonePushClient/forward(_:badgeCount:)`` throttles per tab/surface, so
     /// dismissing the old banner unconditionally could strand the phone with no
     /// banner at all for a still-unread notification when the replacement push
-    /// was dropped. The store stashes the superseded ids here and emits the
-    /// dismiss only after a replacement push is queued, making clear+replace
-    /// atomic from the phone's perspective. Until then the phone keeps the
-    /// older (stale-text) banner — the pre-existing throttle behavior — and the
-    /// reconcile sweep still classifies the ids correctly because they are
+    /// was dropped. When a replacement forward is expected, the store stashes
+    /// the superseded ids here and emits the dismiss only after the push is
+    /// queued, making clear+replace atomic from the phone's perspective; when
+    /// no replacement will be forwarded at all, `recordNotification` emits the
+    /// dismiss immediately instead of stashing. While deferred, the phone keeps
+    /// the older (stale-text) banner — the pre-existing throttle behavior — and
+    /// the reconcile sweep still classifies the ids correctly because they are
     /// tombstoned at supersede time.
     private var supersededPhoneDismissBuffer = SupersededPhoneDismissBuffer()
 
@@ -1799,20 +1801,33 @@ final class TerminalNotificationStore: ObservableObject {
             center.removeDeliveredNotificationsOffMain(withIdentifiers: idsToClear)
             center.removePendingNotificationRequestsOffMain(withIdentifiers: idsToClear)
             // A newer notification for this tab+surface superseded the old one
-            // and its Mac banner was just cleared. The superseded entries
-            // already left the store, so tombstone them now for the reconcile
-            // sweep — but DEFER the phone-banner dismiss until the replacement
-            // banner push is actually queued (see
-            // ``deliverNotificationSideEffects``): the phone must never lose
-            // its only banner to a dismissal whose replacement was throttled.
-            recordDismissTombstones(ids: idsToClear.compactMap { UUID(uuidString: $0) })
-            supersededPhoneDismissBuffer.stash(
-                ids: idsToClear,
-                forKey: SupersededPhoneDismissBuffer.key(
-                    tabId: notification.tabId,
-                    surfaceId: notification.surfaceId
+            // and its Mac banner was just cleared. When a replacement banner
+            // push is expected, DEFER the phone-banner dismiss until that push
+            // is actually queued (see ``deliverNotificationSideEffects``): the
+            // phone must never lose its only banner to a dismissal whose
+            // replacement was throttled. When no replacement will be forwarded
+            // (suppressed/focused, non-desktop effects, forwarding off), emit
+            // the dismiss immediately — nothing is coming to replace the
+            // banner, and the Mac is not showing one either, so deferring
+            // would just leave the stale banner stuck until a later forward.
+            let replacementWillForward = !shouldSuppressExternalDelivery
+                && effects.desktop
+                && PhonePushClient.isForwardingEnabled
+            if replacementWillForward {
+                // The superseded entries already left the store; tombstone them
+                // now so the reconcile sweep stays correct while the dismiss is
+                // deferred.
+                recordDismissTombstones(ids: idsToClear.compactMap { UUID(uuidString: $0) })
+                supersededPhoneDismissBuffer.stash(
+                    ids: idsToClear,
+                    forKey: SupersededPhoneDismissBuffer.key(
+                        tabId: notification.tabId,
+                        surfaceId: notification.surfaceId
+                    )
                 )
-            )
+            } else {
+                emitNotificationsDismissed(ids: idsToClear)
+            }
         }
         deliverNotificationSideEffects(
             notification,
