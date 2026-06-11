@@ -65,6 +65,11 @@ public struct PullRequestProbeService: Sendable {
     static let repoPageLimit = 2
     /// Per-request timeout for GitHub API calls and the `gh auth token` probe.
     static let probeTimeout: TimeInterval = 5.0
+    /// Max distinct hosts probed for a token in one fetch, bounding the `gh`
+    /// subprocess fan-out from a repo config carrying many remote hosts.
+    static let maxTokenProbeHosts = 8
+    /// Max concurrent `gh auth token` child processes per fetch.
+    static let maxConcurrentTokenProbes = 4
     /// Merged PRs older than this no longer earn a badge.
     static let mergedBadgeStaleAfter: TimeInterval = 14 * 24 * 60 * 60
     /// How often a panel showing a terminal (merged/closed) PR is re-checked.

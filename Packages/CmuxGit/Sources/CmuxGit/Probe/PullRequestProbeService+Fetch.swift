@@ -391,22 +391,46 @@ extension PullRequestProbeService {
     }
 
     /// Resolves auth tokens for all hosts needed in the current fetch.
+    ///
+    /// Because remote parsing now accepts any host, a crafted repo config could
+    /// carry many distinct remote hosts. The probe count is capped (``github.com``
+    /// is always probed first) and concurrency is bounded so the hot sidebar poll
+    /// path cannot fork an unbounded number of `gh` child processes.
     nonisolated func authTokensByHost(for hosts: Set<GitHubHost>) async -> [GitHubHost: String] {
-        await withTaskGroup(
+        let orderedHosts = hosts.sorted {
+            if $0.isDotCom != $1.isDotCom { return $0.isDotCom }
+            return $0.authority < $1.authority
+        }
+        let probeHosts = Array(orderedHosts.prefix(Self.maxTokenProbeHosts))
+        if probeHosts.count < orderedHosts.count {
+            debugLog("workspace.prRefresh.token.truncate probed=\(probeHosts.count) total=\(orderedHosts.count)")
+        }
+
+        return await withTaskGroup(
             of: (GitHubHost, String?).self,
             returning: [GitHubHost: String].self
         ) { group in
-            for host in hosts {
+            var collected: [GitHubHost: String] = [:]
+            var nextIndex = 0
+
+            func addProbe() {
+                guard nextIndex < probeHosts.count else { return }
+                let host = probeHosts[nextIndex]
+                nextIndex += 1
                 group.addTask {
                     (host, await self.authToken(for: host))
                 }
             }
 
-            var collected: [GitHubHost: String] = [:]
-            for await (host, token) in group {
+            for _ in 0..<min(Self.maxConcurrentTokenProbes, probeHosts.count) {
+                addProbe()
+            }
+
+            while let (host, token) = await group.next() {
                 if let token {
                     collected[host] = token
                 }
+                addProbe()
             }
             return collected
         }

@@ -74,6 +74,15 @@ import Testing
         #expect(reference?.slug == "acme/widgets")
     }
 
+    @Test func authorityMatchesAPIOriginAcrossPortsAndIPv6() {
+        #expect(GitHubHost(hostname: "ghe.example.com").authority == "ghe.example.com")
+        #expect(GitHubHost(hostname: "ghe.example.com", port: 8443).authority == "ghe.example.com:8443")
+        #expect(GitHubHost(hostname: "::1").authority == "[::1]")
+        #expect(GitHubHost(hostname: "::1", port: 8443).authority == "[::1]:8443")
+        // Default ports normalize away, so the authority stays portless.
+        #expect(GitHubHost(hostname: "ghe.example.com", port: 443).authority == "ghe.example.com")
+    }
+
     @Test func apiURLAppendsEndpointRelativeToBase() {
         let dotCom = GitHubHost.dotCom.apiURL(endpoint: "repos/acme/widgets/pulls?state=all")
         let enterprise = GitHubHost(hostname: "ghe.example.com")

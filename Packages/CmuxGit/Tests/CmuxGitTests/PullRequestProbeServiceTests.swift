@@ -178,6 +178,33 @@ import CmuxProcess
         ])
     }
 
+    @Test func enterprisePortQualifiedHostUsesOriginConsistentTokenLookup() async {
+        // The credential lookup must match the origin requests target, so a
+        // non-default-port host asks gh for `host:port`, not the bare hostname.
+        let recorder = CommandRunnerRecorder(stdout: "stored-host-token\n")
+        let service = PullRequestProbeService(commandRunner: recorder, environment: [:])
+
+        let token = await service.authToken(for: GitHubHost(hostname: "ghe.example.com", port: 8443))
+
+        #expect(token == "stored-host-token")
+        #expect(await recorder.invocations.map(\.arguments) == [
+            ["auth", "token", "--hostname", "ghe.example.com:8443"],
+        ])
+    }
+
+    @Test func authTokensByHostCapsTokenProbeFanOut() async {
+        // A repo config with many distinct hosts must not fork an unbounded
+        // number of gh processes; the probe count is capped.
+        let recorder = CommandRunnerRecorder(stdout: "stored-host-token\n")
+        let service = PullRequestProbeService(commandRunner: recorder, environment: [:])
+        let hosts = Set((0..<40).map { GitHubHost(hostname: "ghe-\($0).example.com") })
+
+        let tokens = await service.authTokensByHost(for: hosts)
+
+        #expect(tokens.count == PullRequestProbeService.maxTokenProbeHosts)
+        #expect(await recorder.invocations.count == PullRequestProbeService.maxTokenProbeHosts)
+    }
+
     @Test func authTokenRefusesAmbientEnterpriseTokenForUnverifiedHost() async {
         // `gh auth token --hostname <anything>` returns GH_ENTERPRISE_TOKEN for
         // any non-github.com host, so a remote pointing at an attacker host must

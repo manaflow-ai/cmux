@@ -31,6 +31,18 @@ public struct GitHubHost: Hashable, Sendable {
     /// `api.github.com`, even when a clone URL carried a proxy port.
     public var isDotCom: Bool { hostname == "github.com" }
 
+    /// The `host[:port]` authority for this host, IPv6-bracketed.
+    ///
+    /// Used as both the REST API origin and the `gh auth token --hostname`
+    /// argument so credential lookup stays consistent with the origin that
+    /// requests target: a token stored for `ghe.example.com` is never sent to a
+    /// different `ghe.example.com:8443` origin.
+    public var authority: String {
+        let encodedHost = hostname.contains(":") ? "[\(hostname)]" : hostname
+        guard let port else { return encodedHost }
+        return "\(encodedHost):\(port)"
+    }
+
     /// The REST API base URL for this host.
     ///
     /// `github.com` maps to `https://api.github.com/`; enterprise hosts map to
@@ -41,9 +53,7 @@ public struct GitHubHost: Hashable, Sendable {
             return URL(string: "https://api.github.com/")
         }
 
-        let encodedHost = hostname.contains(":") ? "[\(hostname)]" : hostname
-        let portSuffix = port.map { ":\($0)" } ?? ""
-        return URL(string: "https://\(encodedHost)\(portSuffix)/api/v3/")
+        return URL(string: "https://\(authority)/api/v3/")
     }
 
     /// Builds an absolute API URL for an endpoint path relative to ``apiBaseURL``.
@@ -61,10 +71,13 @@ public struct GitHubHost: Hashable, Sendable {
 
     /// Looks up a GitHub CLI token for this host.
     ///
+    /// The lookup uses ``authority`` (host and any non-default port), not the
+    /// bare hostname, so the credential matches the origin requests target.
+    ///
     /// - Parameter runner: The shell-out closure that invokes `gh`.
     /// - Returns: The trimmed token, or `nil` when no token is available.
     public func authToken(using runner: TokenCommandRunner) async -> String? {
-        let raw = await runner("gh", ["auth", "token", "--hostname", hostname])
+        let raw = await runner("gh", ["auth", "token", "--hostname", authority])
         let trimmed = raw?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         return trimmed.isEmpty ? nil : trimmed
     }
