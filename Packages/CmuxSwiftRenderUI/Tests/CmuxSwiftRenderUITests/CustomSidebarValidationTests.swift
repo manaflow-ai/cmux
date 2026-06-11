@@ -68,7 +68,7 @@ struct CustomSidebarValidationTests {
         let directory = examplesDirectory()
         let report = validator.validate(directory: directory, dataContext: Self.richSidebarContext)
 
-        #expect(report.names == ["finder", "status-board"])
+        #expect(report.names.sorted() == ["finder", "status-board"])
         #expect(report.validCount == 2)
         #expect(report.errorCount == 0)
     }

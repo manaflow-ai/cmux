@@ -3,6 +3,9 @@
 These are vibe-coded cmux sidebars that run as interpreted SwiftUI-style files.
 They do not need Xcode, signing, or a build step.
 
+The examples intentionally keep their labels inline because interpreted
+sidebars do not have a localization catalog yet.
+
 Install one by copying it into your custom sidebar directory:
 
 ```bash

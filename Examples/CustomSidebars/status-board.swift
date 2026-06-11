@@ -146,13 +146,15 @@ VStack(alignment: .leading, spacing: 6) {
   .padding(4)
   Divider()
 
-  let urgent = workspaces.filter { laneOf($0) == "urgent" }.sorted { urgencyRank($0) > urgencyRank($1) }
-  let review = workspaces.filter { laneOf($0) == "review" }.sorted { $0.unread > $1.unread }
-  let wip = workspaces.filter { laneOf($0) == "wip" }.sorted { $0.unread > $1.unread }
-  let research = workspaces.filter { laneOf($0) == "research" }.sorted { $0.unread > $1.unread }
-  let done = workspaces.filter { laneOf($0) == "done" }
+  // Bound live renders so large workspace lists do not repeatedly classify every row each tick.
+  let boardWorkspaces = workspaces.prefix(80)
+  let urgent = boardWorkspaces.filter { laneOf($0) == "urgent" }.sorted { urgencyRank($0) > urgencyRank($1) }
+  let review = boardWorkspaces.filter { laneOf($0) == "review" }.sorted { $0.unread > $1.unread }
+  let wip = boardWorkspaces.filter { laneOf($0) == "wip" }.sorted { $0.unread > $1.unread }
+  let research = boardWorkspaces.filter { laneOf($0) == "research" }.sorted { $0.unread > $1.unread }
+  let done = boardWorkspaces.filter { laneOf($0) == "done" }
 
-  lane(urgent, "exclamationmark.triangle.fill", "Bugs urgent need help", "#F7768E", clock.epoch)
+  lane(urgent, "exclamationmark.triangle.fill", "Urgent bugs", "#F7768E", clock.epoch)
   Divider()
   lane(review, "eye.fill", "In review", "#7AA2F7", clock.epoch)
   Divider()
