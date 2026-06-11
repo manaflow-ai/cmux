@@ -3884,6 +3884,17 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         renderGridLivenessListenerID = nil
     }
 
+    #if DEBUG
+    /// Test-only: run one liveness evaluation for the currently armed watchdog
+    /// generation, exactly as a `DispatchSourceTimer` tick would. Lets package
+    /// tests drive the silence check deterministically against an injected
+    /// clock instead of waiting on the wall-clock tick cadence.
+    func debugRunRenderGridLivenessCheckForTesting() {
+        guard let listenerID = renderGridLivenessListenerID else { return }
+        checkRenderGridLiveness(listenerID: listenerID)
+    }
+    #endif
+
     /// One watchdog tick on the main actor: if the subscription generation still
     /// matches, the store is connected, and the stream has been silent past the
     /// threshold, tear down + re-subscribe + replay via the existing resync path.
