@@ -9,29 +9,28 @@ internal import UserNotifications
 /// request identifier is only the `apns-collapse-id` by observed OS behavior,
 /// not a documented contract, so every operation maps through the
 /// authoritative `cmux.notificationId` payload key (with the request
-/// identifier as fallback for pushes that predate the key). Clearing and badge
-/// writes are best-effort fire-and-forget that never block the caller; the
-/// delivered-id read is the only awaited call (it feeds the reconcile sweep).
-/// This is the default the app composition root supplies to
+/// identifier as fallback for pushes that predate the key). Clearing and the
+/// delivered-id read are awaited (a background push wake must finish removal
+/// before reporting completion to iOS); the badge write is best-effort
+/// fire-and-forget. This is the default the app composition root supplies to
 /// ``MobileShellComposite``.
 public struct SystemDeliveredNotificationClearer: DeliveredNotificationClearing {
     /// Creates a clearer over the shared notification center.
     public init() {}
 
-    public func removeDelivered(ids: [String]) {
+    public func removeDelivered(ids: [String]) async {
         guard !ids.isEmpty else { return }
         let targets = Set(ids)
-        // Fire-and-forget: resolve the Mac ids to the actual delivered request
-        // identifiers first, because removeDeliveredNotifications matches only
-        // on request identifiers.
-        Task {
-            let center = UNUserNotificationCenter.current()
-            let matching = await center.deliveredNotifications()
-                .filter { targets.contains(Self.macNotificationID(for: $0.request)) }
-                .map(\.request.identifier)
-            guard !matching.isEmpty else { return }
-            center.removeDeliveredNotifications(withIdentifiers: matching)
-        }
+        // Resolve the Mac ids to the actual delivered request identifiers
+        // first, because removeDeliveredNotifications matches only on request
+        // identifiers. Awaited (not fire-and-forget) so a background push wake
+        // cannot report completion to iOS before the removal ran.
+        let center = UNUserNotificationCenter.current()
+        let matching = await center.deliveredNotifications()
+            .filter { targets.contains(Self.macNotificationID(for: $0.request)) }
+            .map(\.request.identifier)
+        guard !matching.isEmpty else { return }
+        center.removeDeliveredNotifications(withIdentifiers: matching)
     }
 
     public func deliveredIdentifiers() async -> [String] {

@@ -871,12 +871,12 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// maps them to the matching delivered banners via their
     /// `cmux.notificationId` payload key.
     /// - Parameter ids: The notification ids the Mac dismissed.
-    public func clearDeliveredNotifications(ids: [String]) {
+    public func clearDeliveredNotifications(ids: [String]) async {
         let trimmed = ids
             .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
             .filter { !$0.isEmpty }
         guard !trimmed.isEmpty else { return }
-        deliveredNotificationClearer.removeDelivered(ids: trimmed)
+        await deliveredNotificationClearer.removeDelivered(ids: trimmed)
     }
 
     /// SET the app-icon badge to the Mac's authoritative unread total. Always an
@@ -921,7 +921,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             let data = try await client.sendRequest(request)
             guard remoteClient === client else { return }
             let response = try MobileNotificationReconcileResponse.decode(data)
-            applyNotificationReconcile(response)
+            await applyNotificationReconcile(response)
             MobileDebugLog.anchormux(
                 "notif.reconcile delivered=\(deliveredIDs.count) handled=\(response.handledIDs.count) unread=\(response.unreadCount.map(String.init) ?? "nil")"
             )
@@ -935,9 +935,9 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// Apply a reconcile result: clear the banners the Mac reports handled and
     /// SET the badge to its authoritative count. Split from the transport so the
     /// behavior is unit-testable through the injected clearing seam.
-    func applyNotificationReconcile(_ response: MobileNotificationReconcileResponse) {
+    func applyNotificationReconcile(_ response: MobileNotificationReconcileResponse) async {
         if !response.handledIDs.isEmpty {
-            clearDeliveredNotifications(ids: response.handledIDs)
+            await clearDeliveredNotifications(ids: response.handledIDs)
         }
         if let unreadCount = response.unreadCount {
             applyAuthoritativeUnreadBadge(unreadCount)
@@ -3943,7 +3943,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                 } else if event.topic == "notification.dismissed" {
                     // The Mac dismissed/cleared notifications; clear the matching
                     // mirrored banners on this phone.
-                    self.handleNotificationDismissedEvent(event)
+                    await self.handleNotificationDismissedEvent(event)
                 } else if event.topic == "notification.badge" {
                     // The Mac's unread count changed; SET the app-icon badge to
                     // the authoritative total.
@@ -4576,7 +4576,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         deliverTerminalBytes(bytes, surfaceID: renderGrid.surfaceID)
     }
 
-    private func handleNotificationDismissedEvent(_ event: MobileEventEnvelope) {
+    private func handleNotificationDismissedEvent(_ event: MobileEventEnvelope) async {
         guard
             let json = event.payloadJSON,
             let payload = MobileNotificationDismissedEvent.decode(json)
@@ -4584,7 +4584,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             return
         }
         if !payload.ids.isEmpty {
-            clearDeliveredNotifications(ids: payload.ids)
+            await clearDeliveredNotifications(ids: payload.ids)
         }
         if let unreadCount = payload.unreadCount {
             applyAuthoritativeUnreadBadge(unreadCount)

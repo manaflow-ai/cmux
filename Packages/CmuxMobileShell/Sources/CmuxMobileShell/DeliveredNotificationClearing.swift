@@ -20,9 +20,11 @@ public import Foundation
 /// ``SystemDeliveredNotificationClearer/macNotificationID(for:)``).
 public protocol DeliveredNotificationClearing: Sendable {
     /// Remove the delivered notifications carrying the given Mac notification
-    /// ids, if present. Best-effort fire-and-forget.
+    /// ids, if present. Awaitable so a background push wake can finish the
+    /// removal BEFORE reporting completion to iOS — returning early lets the
+    /// system suspend the process with the work undone.
     /// - Parameter ids: The stable Mac-side notification ids to clear.
-    func removeDelivered(ids: [String])
+    func removeDelivered(ids: [String]) async
 
     /// The Mac notification ids of all currently delivered notifications, for
     /// the foreground reconcile sweep.
