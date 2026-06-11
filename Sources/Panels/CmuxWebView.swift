@@ -57,6 +57,23 @@ enum BrowserFocusModeKeyDecision: Equatable {
     case consume
 }
 
+private var cmuxBrowserWebKitKeyDownDispatchDepth = 0
+
+func cmuxBrowserWebKitKeyDownDispatchIsActive() -> Bool {
+    cmuxBrowserWebKitKeyDownDispatchDepth > 0
+}
+
+func cmuxWithBrowserWebKitKeyDownDispatch<T>(_ body: () -> T) -> T {
+    cmuxBrowserWebKitKeyDownDispatchDepth += 1
+    defer {
+        cmuxBrowserWebKitKeyDownDispatchDepth = max(
+            0,
+            cmuxBrowserWebKitKeyDownDispatchDepth - 1
+        )
+    }
+    return body()
+}
+
 enum BrowserImageCopyPasteboardBuilder {
     private static let pngPasteboardType = NSPasteboard.PasteboardType(UTType.png.identifier)
     private static let tiffPasteboardType = NSPasteboard.PasteboardType(UTType.tiff.identifier)
@@ -651,7 +668,7 @@ final class CmuxWebView: WKWebView {
                 let isReturnKey = event.keyCode == 36 || event.keyCode == 76
                 if (normalizedFlags.isEmpty && event.keyCode == 53) ||
                     (isReturnKey && !normalizedFlags.contains(.command)) {
-                    super.keyDown(with: event)
+                    forwardKeyDownToWebKit(event)
                     return finish(true)
                 }
                 let result = super.performKeyEquivalent(with: event)
@@ -764,7 +781,7 @@ final class CmuxWebView: WKWebView {
 #if DEBUG
                 route = "focusModeWebView"
 #endif
-                super.keyDown(with: event)
+                forwardKeyDownToWebKit(event)
                 return
             case .consume:
 #if DEBUG
@@ -797,7 +814,7 @@ final class CmuxWebView: WKWebView {
 #if DEBUG
             route = "inlineVSCode"
 #endif
-            super.keyDown(with: event)
+            forwardKeyDownToWebKit(event)
             return
         }
 
@@ -811,7 +828,13 @@ final class CmuxWebView: WKWebView {
             return
         }
 
-        super.keyDown(with: event)
+        forwardKeyDownToWebKit(event)
+    }
+
+    private func forwardKeyDownToWebKit(_ event: NSEvent) {
+        cmuxWithBrowserWebKitKeyDownDispatch {
+            super.keyDown(with: event)
+        }
     }
 
     // MARK: - Focus on click

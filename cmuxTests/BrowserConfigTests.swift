@@ -18,11 +18,20 @@ import Network
 var cmuxUnitTestInspectorAssociationKey: UInt8 = 0
 var cmuxUnitTestInspectorOverrideInstalled = false
 var cmuxUnitTestWKWebViewPerformKeyEquivalentOverrideInstalled = false
+var cmuxUnitTestCmuxWebViewKeyDownOverrideInstalled = false
 var cmuxUnitTestWKWebViewPerformKeyEquivalentHook: ((WKWebView, NSEvent) -> Bool?)?
+var cmuxUnitTestCmuxWebViewKeyDownHook: ((CmuxWebView, NSEvent) -> Bool)?
 
 extension CmuxWebView {
     @objc func cmuxUnitTestInspector() -> NSObject? {
         objc_getAssociatedObject(self, &cmuxUnitTestInspectorAssociationKey) as? NSObject
+    }
+
+    @objc func cmuxUnitTest_keyDown(with event: NSEvent) {
+        if cmuxUnitTestCmuxWebViewKeyDownHook?(self, event) == true {
+            return
+        }
+        cmuxUnitTest_keyDown(with: event)
     }
 }
 
@@ -98,6 +107,21 @@ func installCmuxUnitTestWKWebViewPerformKeyEquivalentOverride() {
     }
 
     cmuxUnitTestWKWebViewPerformKeyEquivalentOverrideInstalled = true
+}
+
+func installCmuxUnitTestCmuxWebViewKeyDownOverride() {
+    guard !cmuxUnitTestCmuxWebViewKeyDownOverrideInstalled else { return }
+
+    let originalSelector = #selector(CmuxWebView.keyDown(with:))
+    let swizzledSelector = #selector(CmuxWebView.cmuxUnitTest_keyDown(with:))
+
+    guard let originalMethod = class_getInstanceMethod(CmuxWebView.self, originalSelector),
+          let swizzledMethod = class_getInstanceMethod(CmuxWebView.self, swizzledSelector) else {
+        fatalError("Unable to locate CmuxWebView keyDown methods for swizzling")
+    }
+
+    method_exchangeImplementations(originalMethod, swizzledMethod)
+    cmuxUnitTestCmuxWebViewKeyDownOverrideInstalled = true
 }
 
 private final class BrowserMarkedTextProbeTextView: NSTextView {
@@ -606,6 +630,128 @@ final class CmuxWebViewKeyEquivalentTests: XCTestCase {
 
         XCTAssertFalse(webView.performKeyEquivalent(with: event!))
         XCTAssertFalse(spy.invoked)
+    }
+
+    @MainActor
+    func testPrintableOptionTextRoutesToBrowserKeyDownOnce() {
+        withHookedBrowserKeyDownWindow { window, _, keyDownEvents in
+            guard let event = makeKeyDownEvent(
+                key: "å",
+                modifiers: [.option],
+                keyCode: 0,
+                windowNumber: window.windowNumber
+            ) else {
+                XCTFail("Failed to construct printable Option event")
+                return
+            }
+
+            XCTAssertTrue(window.performKeyEquivalent(with: event))
+            XCTAssertEqual(keyDownEvents().map(\.keyCode), [0])
+        }
+    }
+
+    @MainActor
+    func testPrintableOptionTextDoesNotReenterBrowserKeyDownDuringWebKitKeyDownDispatch() {
+        withHookedBrowserKeyDownWindow { window, _, keyDownEvents in
+            guard let event = makeKeyDownEvent(
+                key: "å",
+                modifiers: [.option],
+                keyCode: 0,
+                windowNumber: window.windowNumber
+            ) else {
+                XCTFail("Failed to construct printable Option event")
+                return
+            }
+
+            let handled = cmuxWithBrowserWebKitKeyDownDispatch {
+                window.performKeyEquivalent(with: event)
+            }
+
+            XCTAssertFalse(handled)
+            XCTAssertTrue(keyDownEvents().isEmpty)
+        }
+    }
+
+    @MainActor
+    func testBrowserReturnDoesNotReenterBrowserKeyDownDuringWebKitKeyDownDispatch() {
+        withHookedBrowserKeyDownWindow { window, _, keyDownEvents in
+            guard let event = makeKeyDownEvent(
+                key: "\r",
+                modifiers: [],
+                keyCode: 36,
+                windowNumber: window.windowNumber
+            ) else {
+                XCTFail("Failed to construct Return event")
+                return
+            }
+
+            let handled = cmuxWithBrowserWebKitKeyDownDispatch {
+                window.performKeyEquivalent(with: event)
+            }
+
+            XCTAssertFalse(handled)
+            XCTAssertTrue(keyDownEvents().isEmpty)
+        }
+    }
+
+    @MainActor
+    func testBrowserArrowDoesNotReenterBrowserKeyDownDuringWebKitKeyDownDispatch() {
+        withHookedBrowserKeyDownWindow { window, _, keyDownEvents in
+            guard let event = makeKeyDownEvent(
+                key: "\u{F701}",
+                modifiers: [],
+                keyCode: 125,
+                windowNumber: window.windowNumber
+            ) else {
+                XCTFail("Failed to construct Down Arrow event")
+                return
+            }
+
+            let handled = cmuxWithBrowserWebKitKeyDownDispatch {
+                window.performKeyEquivalent(with: event)
+            }
+
+            XCTAssertFalse(handled)
+            XCTAssertTrue(keyDownEvents().isEmpty)
+        }
+    }
+
+    @MainActor
+    private func withHookedBrowserKeyDownWindow(
+        _ body: (NSWindow, CmuxWebView, () -> [NSEvent]) -> Void
+    ) {
+        _ = NSApplication.shared
+        AppDelegate.installWindowResponderSwizzlesForTesting()
+        installCmuxUnitTestCmuxWebViewKeyDownOverride()
+
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 640, height: 420),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        let container = NSView(frame: window.contentRect(forFrameRect: window.frame))
+        window.contentView = container
+
+        let webView = CmuxWebView(frame: container.bounds, configuration: WKWebViewConfiguration())
+        webView.autoresizingMask = [.width, .height]
+        container.addSubview(webView)
+
+        var keyDownEvents: [NSEvent] = []
+        cmuxUnitTestCmuxWebViewKeyDownHook = { currentWebView, event in
+            guard currentWebView === webView else { return false }
+            keyDownEvents.append(event)
+            return true
+        }
+
+        window.makeKeyAndOrderFront(nil)
+        defer {
+            cmuxUnitTestCmuxWebViewKeyDownHook = nil
+            window.orderOut(nil)
+        }
+
+        XCTAssertTrue(window.makeFirstResponder(webView))
+        body(window, webView, { keyDownEvents })
     }
 
     @MainActor
