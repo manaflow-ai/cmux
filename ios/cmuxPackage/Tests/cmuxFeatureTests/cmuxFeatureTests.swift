@@ -2110,6 +2110,12 @@ final class TerminalOutputCollector {
 
     await store.submitTerminalRawInput(Data("y".utf8), surfaceID: "live-terminal")
     _ = try await waitForRequestCount("mobile.terminal.replay", count: 2, router: router)
+    // The request-count wait only proves the second replay REQUEST was sent;
+    // its response still flows back through the transport asynchronously.
+    // Poll for delivery like the sibling tests do, then assert content.
+    for _ in 0..<200 where collector.lines.count < 2 {
+        try await Task.sleep(nanoseconds: 1_000_000)
+    }
 
     let oldGridText = try terminalRenderGridReplacementText(seq: 4, text: "old")
     let currentGridText = try terminalRenderGridReplacementText(seq: 12, text: "current")
