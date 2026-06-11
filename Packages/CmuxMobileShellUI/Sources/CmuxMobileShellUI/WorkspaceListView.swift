@@ -124,8 +124,11 @@ struct WorkspaceListView: View {
             Section {
                 if rendersGroupedSections {
                     groupedRows
-                } else if filter.isActive && filteredWorkspaces.isEmpty && !workspaces.isEmpty {
-                    // The filter (not the Mac) emptied the list; offer the way back.
+                } else if filter.isActive && trimmedQuery.isEmpty && filteredWorkspaces.isEmpty && !workspaces.isEmpty {
+                    // The filter alone (not the Mac, and not a search query)
+                    // emptied the list; offer the way back. While searching, the
+                    // standard empty search result is shown instead, since "Show
+                    // All" would not resolve a query that matches nothing.
                     WorkspaceListFilterEmptyRow(filter: filter) { filter = .all }
                         .listRowSeparator(.hidden)
                 } else {

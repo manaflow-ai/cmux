@@ -733,6 +733,13 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         rawTerminalInputBuffer.clear()
         reportedViewportSizesByTerminalKey = [:]
         workspaces = PreviewMobileHost.workspaces
+        // Group sections are account-scoped like `pairedMacs`/`registryDevices`
+        // above: the placeholder workspaces are ungrouped, and the previous
+        // account's group names must not survive into the next session. (Plain
+        // disconnect intentionally keeps groups together with the last-known
+        // workspace snapshot for the offline view; the next full list response
+        // replaces both wholesale.)
+        workspaceGroups = []
         selectedWorkspaceID = workspaces.first?.id
         selectedTerminalID = workspaces.first?.terminals.first?.id
         // Selection resets above are done; allow draft saving again so a
