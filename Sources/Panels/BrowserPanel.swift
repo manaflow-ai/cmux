@@ -2750,6 +2750,19 @@ final class CmuxDiffViewerURLSchemeHandler: NSObject, WKURLSchemeHandler {
     /// Extracts the diff viewer `(token, requestPath)` from a live diff viewer
     /// URL, accepting both the custom scheme (`cmux-diff-viewer://<token>/<path>`)
     /// and the local HTTP server form (`http://127.0.0.1:<port>/<token>/<path>#cmux-diff-viewer`).
+    /// Whether a URL fragment marks a diff-viewer/editor page served over the
+    /// local HTTP server. The page's hash router rewrites the fragment to a
+    /// leading-slash form (`/cmux-diff-viewer`) after load, so a restored
+    /// `webView.url` carries that variant rather than the bare scheme name the
+    /// page was opened with. Tolerate both (and any router suffix) so HTTP-
+    /// served editor/diff surfaces persist + restore via the port-independent
+    /// custom scheme instead of a now-dead server port.
+    static func fragmentMarksDiffViewer(_ fragment: String?) -> Bool {
+        guard var fragment else { return false }
+        while fragment.hasPrefix("/") { fragment.removeFirst() }
+        return fragment == scheme || fragment.hasPrefix(scheme + "/")
+    }
+
     static func diffViewerComponents(from url: URL?) -> (token: String, requestPath: String)? {
         guard let url else { return nil }
         if url.scheme == scheme, let token = url.host, isValidToken(token) {
@@ -2758,7 +2771,7 @@ final class CmuxDiffViewerURLSchemeHandler: NSObject, WKURLSchemeHandler {
         }
         if (url.scheme == "http" || url.scheme == "https"),
            url.host == "127.0.0.1",
-           url.fragment == Self.scheme {
+           Self.fragmentMarksDiffViewer(url.fragment) {
             let rawPath = URLComponents(url: url, resolvingAgainstBaseURL: false)?.percentEncodedPath ?? url.path
             let parts = rawPath.split(separator: "/", omittingEmptySubsequences: true).map(String.init)
             guard parts.count >= 2, isValidToken(parts[0]) else { return nil }
