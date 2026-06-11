@@ -41,6 +41,7 @@ public enum ShortcutAction: String, CaseIterable, Sendable, Hashable, SettingCod
     case switchRightSidebarToSessions
     case switchRightSidebarToFeed
     case switchRightSidebarToDock
+    case switchRightSidebarToNotes
     case triggerFlash
 
     // MARK: Navigation
@@ -150,7 +151,7 @@ extension ShortcutAction {
              .showNotifications, .jumpToUnread, .toggleUnread, .markOldestUnreadAndJumpNext,
              .focusRightSidebar, .switchRightSidebarToFiles, .switchRightSidebarToFind,
              .switchRightSidebarToSessions, .switchRightSidebarToFeed,
-             .switchRightSidebarToDock, .triggerFlash:
+             .switchRightSidebarToDock, .switchRightSidebarToNotes, .triggerFlash:
             return .workspace
         case .nextSurface, .prevSurface, .selectSurfaceByNumber, .nextSidebarTab,
              .prevSidebarTab, .focusHistoryBack, .focusHistoryForward,
@@ -224,7 +225,8 @@ extension ShortcutAction {
     public var defaultFocusWhenClause: ShortcutWhenClause {
         switch self {
         case .switchRightSidebarToFiles, .switchRightSidebarToFind,
-             .switchRightSidebarToSessions, .switchRightSidebarToFeed, .switchRightSidebarToDock:
+             .switchRightSidebarToSessions, .switchRightSidebarToFeed, .switchRightSidebarToDock,
+             .switchRightSidebarToNotes:
             return .atom(.sidebarFocus)
         case .renameTab, .renameWorkspace:
             return .and(.not(.atom(.browserFocus)), .not(.atom(.sidebarFocus)))
@@ -256,7 +258,7 @@ extension ShortcutAction {
     /// `handleCustomShortcut`; a drift test asserts the two stay aligned.
     public var hasPriorityShortcutRouting: Bool {
         switch self {
-        case .switchRightSidebarToFiles, .switchRightSidebarToFind,
+        case .switchRightSidebarToFiles, .switchRightSidebarToNotes, .switchRightSidebarToFind,
              .switchRightSidebarToSessions, .switchRightSidebarToFeed, .switchRightSidebarToDock:
             return true
         default:
@@ -294,6 +296,7 @@ extension ShortcutAction {
         case .switchRightSidebarToSessions: return "Show Sidebar Vault"
         case .switchRightSidebarToFeed: return "Show Sidebar Feed"
         case .switchRightSidebarToDock: return "Show Sidebar Dock"
+        case .switchRightSidebarToNotes: return "Show Sidebar Notes"
         case .triggerFlash: return "Flash Focused Panel"
         case .nextSurface: return "Next Surface"
         case .prevSurface: return "Previous Surface"

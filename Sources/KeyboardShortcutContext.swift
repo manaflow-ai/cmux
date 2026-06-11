@@ -109,7 +109,7 @@ extension KeyboardShortcutSettings.Action {
     /// test asserts the two stay aligned.
     var hasPriorityShortcutRouting: Bool {
         switch self {
-        case .switchRightSidebarToFiles, .switchRightSidebarToFind,
+        case .switchRightSidebarToFiles, .switchRightSidebarToNotes, .switchRightSidebarToFind,
              .switchRightSidebarToSessions, .switchRightSidebarToFeed, .switchRightSidebarToDock:
             return true
         default:
