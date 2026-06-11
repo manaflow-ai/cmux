@@ -6,8 +6,9 @@ import Observation
 
 /// Drives the in-app iOS pairing window. Gates pairing on the Mac being signed
 /// in (authorization is a Stack same-account check), then turns on the
-/// pairing host, mints a short-lived attach ticket, and exposes the QR payload
-/// plus Tailscale reachability for the view.
+/// pairing host, mints an attach ticket, and exposes the QR payload plus
+/// Tailscale reachability for the view. The displayed code never expires and
+/// is never regenerated on a timer; Refresh Code re-mints on demand.
 ///
 /// Reads auth state from the app's shared ``CmuxAuthRuntime/AuthCoordinator``
 /// (via `AppDelegate`); the browser sign-in is fire-and-forget and completion
@@ -59,11 +60,6 @@ final class MobilePairingModel {
 
     private let host: MobileHostService
     private let ticketTTL: TimeInterval
-    /// Periodically re-mints the ticket so the displayed QR always carries
-    /// fresh routes (Tailscale addresses can change while the window sits
-    /// open). The QR itself never expires; this is route freshness, not an
-    /// expiry countdown. Cancelled on every refresh and when the window closes.
-    private var autoRefreshTask: Task<Void, Never>?
     /// Observes the host's connection status while a code is shown, flipping the
     /// render state between `.ready` and `.connected`. Cancelled on each refresh.
     private var connectionObservationTask: Task<Void, Never>?
@@ -79,7 +75,10 @@ final class MobilePairingModel {
     ///     instance. (Resolved in the `@MainActor` init body rather than as a
     ///     default argument, since default args are evaluated nonisolated and
     ///     `MobileHostService.shared` is main-actor isolated.)
-    ///   - ticketTTL: Attach-ticket lifetime in seconds. Defaults to 600.
+    ///   - ticketTTL: Lifetime of the minted attach token in seconds. Defaults
+    ///     to 600. Covers only the RPC/v1 fallback token the mint produces as a
+    ///     side effect; the displayed v2 pairing QR carries no token and never
+    ///     expires.
     init(host: MobileHostService? = nil, ticketTTL: TimeInterval = 600) {
         self.host = host ?? .shared
         self.ticketTTL = ticketTTL
@@ -91,7 +90,6 @@ final class MobilePairingModel {
     /// and mints a fresh attach ticket. Safe to call repeatedly (Refresh button,
     /// or the view re-running it when auth state settles).
     func refresh() async {
-        autoRefreshTask?.cancel()
         refreshGeneration &+= 1
         let generation = refreshGeneration
         state = .loading
@@ -167,7 +165,6 @@ final class MobilePairingModel {
                     manualEntry: CmxManualPairingEntry.best(in: status.routes)
                 )
             )
-            scheduleExpiryRefresh()
             observeConnections()
         } catch MobileAttachTicketStoreError.noRoutes, MobileAttachTicketStoreError.routeUnavailable {
             state = .needsTailscale
@@ -188,33 +185,21 @@ final class MobilePairingModel {
         AppDelegate.shared?.auth?.browserSignIn.beginSignIn()
     }
 
-    /// Cancels the pending expiry re-mint. Call when the window closes.
-    func stopAutoRefresh() {
-        autoRefreshTask?.cancel()
-        autoRefreshTask = nil
+    /// Cancels the connection observation. Call when the window closes.
+    ///
+    /// There is deliberately no timer to cancel: the displayed code never
+    /// expires and is never regenerated behind the user's back. If a
+    /// Tailscale address changes while the window sits open (rare), the
+    /// Refresh Code button re-mints on demand.
+    func stopObserving() {
         connectionObservationTask?.cancel()
         connectionObservationTask = nil
-    }
-
-    /// Schedules a periodic re-mint so long-open windows keep showing current
-    /// routes. The code itself never expires; a phone can scan a stale window
-    /// and still pair as long as the routes in it remain reachable.
-    private func scheduleExpiryRefresh() {
-        autoRefreshTask?.cancel()
-        // Bounded, cancellable, duration-driven deadline. Not a poll; cancelled
-        // on the next refresh or on window close.
-        let delay = max(1, ticketTTL - 30)
-        autoRefreshTask = Task { [weak self] in
-            try? await ContinuousClock().sleep(for: .seconds(delay))
-            guard let self, !Task.isCancelled else { return }
-            await self.refresh()
-        }
     }
 
     /// Watches the mobile host's connection status while a code is displayed and
     /// flips between `.ready` (QR shown, waiting) and `.connected` (a phone has
     /// attached). Cancelled and superseded on each ``refresh()`` via the generation
-    /// guard, and on ``stopAutoRefresh()``.
+    /// guard, and on ``stopObserving()``.
     private func observeConnections() {
         connectionObservationTask?.cancel()
         let generation = refreshGeneration
