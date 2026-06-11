@@ -304,7 +304,7 @@ public final class MobilePushCoordinator {
             .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
             .filter { !$0.isEmpty }
         guard !trimmed.isEmpty else { return }
-        deliveredNotificationClearer.removeDelivered(ids: trimmed)
+        await deliveredNotificationClearer.removeDelivered(ids: trimmed)
     }
 }
 #endif

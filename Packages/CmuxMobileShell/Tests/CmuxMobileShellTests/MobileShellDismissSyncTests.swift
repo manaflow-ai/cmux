@@ -21,8 +21,8 @@ private final class RecordingDeliveredNotificationClearer: DeliveredNotification
 
     nonisolated init() {}
 
-    nonisolated func removeDelivered(ids: [String]) {
-        MainActor.assumeIsolated {
+    nonisolated func removeDelivered(ids: [String]) async {
+        await MainActor.run {
             clearedIDs.append(ids)
         }
     }
@@ -58,29 +58,29 @@ private final class RecordingDeliveredNotificationClearer: DeliveredNotification
         )
     }
 
-    @Test func clearsDeliveredBannersForDismissedIDs() {
+    @Test func clearsDeliveredBannersForDismissedIDs() async {
         let clearer = RecordingDeliveredNotificationClearer()
         let store = makeStore(clearer: clearer)
 
-        store.clearDeliveredNotifications(ids: ["n-1", "n-2"])
+        await store.clearDeliveredNotifications(ids: ["n-1", "n-2"])
 
         #expect(clearer.clearedIDs == [["n-1", "n-2"]])
     }
 
-    @Test func trimsAndDropsBlankIDsBeforeClearing() {
+    @Test func trimsAndDropsBlankIDsBeforeClearing() async {
         let clearer = RecordingDeliveredNotificationClearer()
         let store = makeStore(clearer: clearer)
 
-        store.clearDeliveredNotifications(ids: ["  n-3  ", "", "   "])
+        await store.clearDeliveredNotifications(ids: ["  n-3  ", "", "   "])
 
         #expect(clearer.clearedIDs == [["n-3"]])
     }
 
-    @Test func noOpsWhenNoUsableIDs() {
+    @Test func noOpsWhenNoUsableIDs() async {
         let clearer = RecordingDeliveredNotificationClearer()
         let store = makeStore(clearer: clearer)
 
-        store.clearDeliveredNotifications(ids: ["", "   "])
+        await store.clearDeliveredNotifications(ids: ["", "   "])
 
         #expect(clearer.clearedIDs.isEmpty)
     }
@@ -141,40 +141,40 @@ private final class RecordingDeliveredNotificationClearer: DeliveredNotification
 
     // MARK: - Reconcile sweep
 
-    @Test func reconcileClearsHandledBannersAndSetsBadge() throws {
+    @Test func reconcileClearsHandledBannersAndSetsBadge() async throws {
         let clearer = RecordingDeliveredNotificationClearer()
         let store = makeStore(clearer: clearer)
         let response = try MobileNotificationReconcileResponse.decode(Data("""
         {"handled_ids": ["n-1", "n-3"], "unread_count": 2}
         """.utf8))
 
-        store.applyNotificationReconcile(response)
+        await store.applyNotificationReconcile(response)
 
         #expect(clearer.clearedIDs == [["n-1", "n-3"]])
         #expect(clearer.badgeCounts == [2])
     }
 
-    @Test func reconcileWithNothingHandledOnlySetsBadge() throws {
+    @Test func reconcileWithNothingHandledOnlySetsBadge() async throws {
         let clearer = RecordingDeliveredNotificationClearer()
         let store = makeStore(clearer: clearer)
         let response = try MobileNotificationReconcileResponse.decode(Data("""
         {"handled_ids": [], "unread_count": 0}
         """.utf8))
 
-        store.applyNotificationReconcile(response)
+        await store.applyNotificationReconcile(response)
 
         #expect(clearer.clearedIDs.isEmpty)
         #expect(clearer.badgeCounts == [0])
     }
 
-    @Test func reconcileFromOlderMacWithoutCountLeavesBadgeAlone() throws {
+    @Test func reconcileFromOlderMacWithoutCountLeavesBadgeAlone() async throws {
         let clearer = RecordingDeliveredNotificationClearer()
         let store = makeStore(clearer: clearer)
         let response = try MobileNotificationReconcileResponse.decode(Data("""
         {"handled_ids": ["n-9"]}
         """.utf8))
 
-        store.applyNotificationReconcile(response)
+        await store.applyNotificationReconcile(response)
 
         #expect(clearer.clearedIDs == [["n-9"]])
         #expect(clearer.badgeCounts.isEmpty)
