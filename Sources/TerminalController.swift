@@ -19872,7 +19872,7 @@ class TerminalController {
             ) else {
                 // Still update PID tracking even if the status display hasn't changed.
                 if let pidValue {
-                    tab.recordAgentPID(key: key, pid: pidValue, panelId: panelResolution.panelId)
+                    tab.recordAgentPIDForSurvivingStatusKey(key, pid: pidValue, panelId: panelResolution.panelId)
                 }
                 return
             }
@@ -19887,7 +19887,10 @@ class TerminalController {
                 timestamp: Date()
             )
             if let pidValue {
-                tab.recordAgentPID(key: key, pid: pidValue, panelId: panelResolution.panelId)
+                // Only track the PID if the status entry survived the status cap;
+                // otherwise a low-priority key that self-evicts on insert would
+                // orphan the coupled agent PID state (#5845).
+                tab.recordAgentPIDForSurvivingStatusKey(key, pid: pidValue, panelId: panelResolution.panelId)
             }
         }
         return "OK"
