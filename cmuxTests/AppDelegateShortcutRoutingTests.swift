@@ -11785,38 +11785,36 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
     }
 
     func testAutoFocusModeEntersOnPanelFocusWhenEnabled() {
-        let defaults = UserDefaults(suiteName: "test.autoFocusMode.\(UUID().uuidString)")!
+        let suiteName = "test.autoFocusMode.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
         defaults.set(true, forKey: BrowserAutoFocusModeSettings.enabledKey)
         XCTAssertTrue(BrowserAutoFocusModeSettings.isEnabled(defaults: defaults))
-        defaults.removePersistentDomain(forName: defaults.suiteName ?? "")
+        defaults.removePersistentDomain(forName: suiteName)
     }
 
     func testAutoFocusModeDefaultsToDisabled() {
-        let defaults = UserDefaults(suiteName: "test.autoFocusMode.\(UUID().uuidString)")!
+        let suiteName = "test.autoFocusMode.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
         XCTAssertFalse(BrowserAutoFocusModeSettings.isEnabled(defaults: defaults))
-        defaults.removePersistentDomain(forName: defaults.suiteName ?? "")
+        defaults.removePersistentDomain(forName: suiteName)
     }
 
-    func testAutoFocusModeEntersFocusModeOnPanelFocus() {
+    // The autoFocusMode gate itself (`autoFocusModeEnabled && !isBrowserFocusModeActive`)
+    // lives in BrowserPanelView.handlePanelFocusChange, a private SwiftUI view method that
+    // is not reachable from unit tests. These tests cover the panel-level activation path
+    // it delegates to; the view wiring is validated manually in the dev build.
+    func testFocusModeActivationViaAutoFocusPath() {
         guard let harness = makeBrowserFocusModeHarness() else { return }
         defer { closeWindow(withId: harness.windowId) }
 
-        UserDefaults.standard.set(true, forKey: BrowserAutoFocusModeSettings.enabledKey)
-        defer { UserDefaults.standard.removeObject(forKey: BrowserAutoFocusModeSettings.enabledKey) }
-
-        // Simulate panel focus: setBrowserFocusModeActive is called by handlePanelFocusChange.
-        // Call it directly to verify the panel accepts the activation when autoFocusMode is on.
         let activated = harness.panel.setBrowserFocusModeActive(true, reason: "autoFocusMode.panelFocus", focusWebView: false)
-        XCTAssertTrue(activated, "Expected focus mode to activate when autoFocusMode is enabled")
+        XCTAssertTrue(activated, "Expected focus mode to activate without an explicit web view focus request")
         XCTAssertTrue(harness.panel.isBrowserFocusModeActive)
     }
 
     func testAutoFocusModeDoesNotDoubleActivateWhenAlreadyActive() {
         guard let harness = makeBrowserFocusModeHarness() else { return }
         defer { closeWindow(withId: harness.windowId) }
-
-        UserDefaults.standard.set(true, forKey: BrowserAutoFocusModeSettings.enabledKey)
-        defer { UserDefaults.standard.removeObject(forKey: BrowserAutoFocusModeSettings.enabledKey) }
 
         harness.panel.setBrowserFocusModeActive(true, reason: "autoFocusMode.setup", focusWebView: false)
         XCTAssertTrue(harness.panel.isBrowserFocusModeActive)
