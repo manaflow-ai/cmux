@@ -18327,7 +18327,8 @@ struct SidebarTabDropDelegate: DropDelegate {
         if dragState.dragRestoreSnapshot == nil {
             dragState.dragRestoreSnapshot = tabManager.captureSidebarDragRestoreSnapshot()
         }
-        let didReorder = withAnimation(SidebarGroupAnimation.liveReorder) {
+        let orderBeforeReorder = tabManager.tabs.map(\.id)
+        _ = withAnimation(SidebarGroupAnimation.liveReorder) {
             tabManager.reorderSidebarWorkspace(
                 tabId: draggedTabId,
                 toIndex: targetIndex,
@@ -18337,10 +18338,13 @@ struct SidebarTabDropDelegate: DropDelegate {
         }
         // Anchor the loop-breaker to where the pointer is now and what it
         // hovers: the upcoming self-induced re-fires arrive with this same
-        // location + target and are skipped. Only a reorder that actually
-        // moved can self-induce re-fires — a clamped no-op must not arm the
-        // breaker, or later genuine hovers over the same row get suppressed.
-        if didReorder {
+        // location + target and are skipped. Only an actual row shift can
+        // self-induce re-fires, and the reorder's Bool is not that proof —
+        // `reorderWorkspace` reports true for clamped no-ops (the planner
+        // index differs but clamping lands on fromIndex). Compare the order
+        // itself so a no-op never arms the breaker and suppresses later
+        // genuine hovers over the same row.
+        if tabManager.tabs.map(\.id) != orderBeforeReorder {
             dragState.lastLiveReorderMouseLocation = mouseLocation
             dragState.lastLiveReorderTargetTabId = targetTabId
         }
