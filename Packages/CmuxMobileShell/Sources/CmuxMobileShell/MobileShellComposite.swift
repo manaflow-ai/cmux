@@ -473,8 +473,13 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     private var renderGridLivenessTimer: (any DispatchSourceTimer)?
     private var renderGridLivenessListenerID: UUID?
     /// The in-flight liveness probe spawned by a silence-threshold crossing.
-    /// Single-flight: ticks while a probe is pending are no-ops.
+    /// Single-flight: ticks while a probe is pending are no-ops. The paired
+    /// `renderGridLivenessProbeID` is the slot's ownership token: only the
+    /// probe holding it may clear the slot, so a cancelled probe from an older
+    /// generation completing late cannot free or clobber a newer generation's
+    /// in-flight slot.
     private var renderGridLivenessProbeTask: Task<Void, Never>?
+    private var renderGridLivenessProbeID: UUID?
     private var lastTerminalEventAt: Date?
     private var terminalSubscriptionRefreshTask: Task<Void, Never>?
     private var createWorkspaceTask: Task<Void, Never>?
@@ -3969,6 +3974,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         renderGridLivenessListenerID = nil
         renderGridLivenessProbeTask?.cancel()
         renderGridLivenessProbeTask = nil
+        renderGridLivenessProbeID = nil
     }
 
     /// Single ownership point for the liveness clock the watchdog reads.
@@ -4030,6 +4036,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         let probeTimeoutNanoseconds = runtime?.livenessProbeTimeoutNanoseconds
             ?? 3_000_000_000
         let topics = terminalOutputTransport.eventTopics
+        let probeID = UUID()
+        renderGridLivenessProbeID = probeID
         renderGridLivenessProbeTask = Task { @MainActor [weak self] in
             let ack = await self?.probeEventSubscriptionLiveness(
                 client: client,
@@ -4037,7 +4045,12 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                 timeoutNanoseconds: probeTimeoutNanoseconds
             ) ?? .failed
             guard let self else { return }
+            // Only the probe that owns the single-flight slot may clear it; a
+            // superseded probe completing late returns without touching the
+            // newer generation's in-flight slot.
+            guard self.renderGridLivenessProbeID == probeID else { return }
             self.renderGridLivenessProbeTask = nil
+            self.renderGridLivenessProbeID = nil
             guard !Task.isCancelled,
                   self.renderGridLivenessListenerID == listenerID,
                   self.terminalEventListenerID == listenerID,
@@ -4060,6 +4073,10 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                     for surfaceID in self.terminalByteContinuationsBySurfaceID.keys {
                         self.requestTerminalReplay(surfaceID: surfaceID)
                     }
+                    // The same registration carries `workspace.updated`, so
+                    // workspace create/rename/delete events emitted during the
+                    // gap were missed too; re-fetch the authoritative list.
+                    self.scheduleWorkspaceListRefreshFromEvent()
                 } else {
                     MobileDebugLog.anchormux("sync.liveness probe_ok silentMs=\(Int(silent * 1000))")
                 }

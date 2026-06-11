@@ -517,6 +517,8 @@ private func makeConnectedStore(
 
     // The host loses the registration while the RPC channel stays healthy.
     await router.dropSubscription()
+    let workspaceListsBeforeRepair = await router.count(of: "mobile.workspace.list")
+        + router.count(of: "workspace.list")
     clock.advance(by: 10)
     store.debugRunRenderGridLivenessCheckForTesting()
 
@@ -527,6 +529,14 @@ private func makeConnectedStore(
     )
     let hostStatusCount = await router.count(of: "mobile.host.status")
     #expect(hostStatusCount == 1, "the repair must not restart the listener; the phone-side stream is intact")
+    // workspace.updated events were missed during the gap too: the repair must
+    // re-fetch the authoritative workspace list.
+    let workspaceRefetched = try await pollUntil {
+        let current = await router.count(of: "mobile.workspace.list")
+            + router.count(of: "workspace.list")
+        return current > workspaceListsBeforeRepair
+    }
+    #expect(workspaceRefetched, "the repaired subscription also carries workspace.updated, so the workspace list must be re-fetched")
 
     // The repaired stream delivers straight into the still-mounted sink.
     let event = try renderGridEventFrame(surfaceID: "live-terminal", seq: 11, text: "repaired")
