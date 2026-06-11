@@ -22312,8 +22312,11 @@ class TerminalController {
 
         applyMobileViewportReport(params: params, terminalPanel: terminalPanel)
 
-        let surface = terminalPanel.surface
-        guard surface.sendText(text) else {
+        // Send through the TerminalPanel explicit-input wrappers (not the raw
+        // surface): they run `resumeForExplicitInputIfNeeded()` first, waking a
+        // hibernated agent terminal the same way local typing does, so a mobile
+        // composer submit cannot write into a cold surface.
+        guard terminalPanel.sendText(text) else {
             return .err(code: "surface_unavailable", message: Self.terminalSurfaceUnavailableMessage, data: ["surface_id": surfaceId.uuidString])
         }
 
@@ -22327,7 +22330,7 @@ class TerminalController {
         var submitted = false
         var submitError: String?
         if let submitKeyName {
-            let keyResult = surface.sendNamedKey(submitKeyName)
+            let keyResult = terminalPanel.sendNamedKeyResult(submitKeyName)
             if keyResult.accepted {
                 submitted = true
             } else {
@@ -22344,7 +22347,7 @@ class TerminalController {
             }
         }
 
-        surface.forceRefresh(reason: "mobileHost.terminalPaste")
+        terminalPanel.surface.forceRefresh(reason: "mobileHost.terminalPaste")
 
         #if DEBUG
         cmuxDebugLog(
