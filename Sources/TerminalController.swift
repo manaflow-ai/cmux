@@ -22342,6 +22342,8 @@ class TerminalController {
                 case .processExited:
                     submitError = "process_exited"
                 case .unknownKey, .sent, .queued:
+                    // .sent / .queued are accepted results and unreachable in this
+                    // else-branch; grouped here only to keep the switch exhaustive.
                     submitError = "unknown_key"
                 }
             }

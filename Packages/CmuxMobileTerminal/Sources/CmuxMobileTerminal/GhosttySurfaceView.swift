@@ -1176,28 +1176,32 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     /// edge (up) or above the home indicator (down).
     private weak var dockedToolbar: UIView?
     /// Whether the iMessage-style composer is currently open. The surface owns the
-    /// whole bottom dock (terminal grid / composer band / toolbar / keyboard) in ONE
+    /// whole bottom dock (terminal grid / toolbar / composer band / keyboard) in ONE
     /// coordinate system, so `composerActive` only drives the first-responder
     /// handover that keeps the keyboard up across the toggle. It deliberately does
     /// NOT gate the toolbar's visibility (the bar stays visible while composing) and
     /// does NOT alter the keyboard occupancy math: the composer band is reserved
-    /// SEPARATELY (``composerBandHeight``) above the toolbar, never by reparenting the
-    /// toolbar into a second layout system.
+    /// SEPARATELY (``composerBandHeight``) above the keyboard edge, never by
+    /// reparenting the toolbar into a second layout system.
     private var composerActive = false
     /// The composer band: a surface-owned container the host installs the SwiftUI
     /// compose field into (via a `UIHostingController` in
     /// `GhosttySurfaceRepresentable`, which can see both layers; the terminal package
-    /// cannot import the UI package). The surface positions it itself — directly above
-    /// the docked toolbar, below the terminal grid — and reserves its height in the
-    /// grid, so the compose field, the toolbar, and the keyboard all live in the
-    /// surface's single coordinate system. Replaces the round-5/6
-    /// `safeAreaInset`-plus-toolbar-handoff that fought the surface's frame math.
+    /// cannot import the UI package). The surface positions it itself — pinned
+    /// directly above the keyboard (iMessage's field-nearest-keyboard layout), with
+    /// the docked toolbar riding its top edge and the terminal grid above that — and
+    /// reserves its height in the grid, so the compose field, the toolbar, and the
+    /// keyboard all live in the surface's single coordinate system (see
+    /// ``bottomDockFrames()`` for the `terminal / toolbar / composer / keyboard`
+    /// stack). Replaces the round-5/6 `safeAreaInset`-plus-toolbar-handoff that
+    /// fought the surface's frame math.
     private let composerContainer = UIView()
-    /// Height (points) the open composer band reserves above the docked toolbar. Fed
+    /// Height (points) the open composer band reserves above the keyboard edge. Fed
     /// by the host from the hosted compose field's intrinsic content size
     /// (``setComposerBandHeight(_:animated:)``); 0 while the composer is closed. The
-    /// grid reservation adds this so a field-grow pushes ONLY the terminal up — the
-    /// toolbar and keyboard below it never move.
+    /// grid reservation adds this so a field-grow pushes the toolbar and terminal
+    /// above it upward while the band stays pinned to the keyboard — the keyboard
+    /// itself never moves.
     private var composerBandHeight: CGFloat = 0
     /// True once SwiftUI has dismantled the hosting representable for this
     /// surface. A dismantled surface performs no render, output, or
