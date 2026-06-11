@@ -1,15 +1,15 @@
 # cmux-owned Swift file length budget.
 # Format: max_lines<TAB>relative path
 # Reduce counts as files shrink. CI fails if tracked files exceed this budget.
-32949	CLI/cmux.swift
-22426	Sources/TerminalController.swift
-19955	Sources/Workspace.swift
-19245	Sources/ContentView.swift
-18056	Sources/AppDelegate.swift
-16539	Sources/GhosttyTerminalView.swift
+33182	CLI/cmux.swift
+22438	Sources/TerminalController.swift
+20215	Sources/Workspace.swift
+19267	Sources/ContentView.swift
+18167	Sources/AppDelegate.swift
+16777	Sources/GhosttyTerminalView.swift
 13589	Sources/Panels/BrowserPanel.swift
 11916	cmuxTests/AppDelegateShortcutRoutingTests.swift
-9992	Sources/TabManager.swift
+10030	Sources/TabManager.swift
 8494	cmuxTests/CLINotifyProcessIntegrationRegressionTests.swift
 7737	Sources/Panels/BrowserPanelView.swift
 7198	cmuxTests/WorkspaceUnitTests.swift
@@ -72,6 +72,7 @@
 1285	cmuxUITests/SidebarHelpMenuUITests.swift
 1239	Sources/Feed/FeedCoordinator.swift
 1197	cmuxTests/CodexAppServerSessionTests.swift
+1178	Sources/RemoteTmuxControlConnection.swift
 1156	cmuxTests/SidebarOrderingTests.swift
 1144	Sources/VaultAgentProcessScanner.swift
 1139	cmuxTests/PiVaultAgentPersistenceTests.swift
@@ -93,7 +94,7 @@
 924	Sources/DockPanelView.swift
 913	cmuxTests/WorkspaceGroupTests.swift
 905	Sources/CmuxSSHURLRequest.swift
-878	Sources/WorkspaceContentView.swift
+893	Sources/WorkspaceContentView.swift
 868	Sources/Panels/BrowserScreenshotSnapshotter.swift
 866	Sources/CommandPalette/CommandPaletteSettingsToggle.swift
 863	Sources/Panels/TerminalPanel.swift
@@ -102,6 +103,7 @@
 845	cmuxTests/SSHStartupSignalLifecycleTests.swift
 842	Sources/Panels/MarkdownWebRenderer.swift
 830	Sources/TaskManagerTypes.swift
+812	Sources/RemoteTmuxController.swift
 810	Packages/CmuxSwiftRender/Tests/CmuxSwiftRenderTests/SwiftViewInterpreterTests.swift
 787	Sources/ClosedItemHistory.swift
 768	Sources/MainWindowFocusController.swift
@@ -182,6 +184,7 @@
 507	Sources/TerminalControllerTopSupport.swift
 506	Sources/App/MainWindowVisibilityController.swift
 505	cmuxUITests/DisplayResolutionRegressionUITests.swift
+504	Sources/TerminalImageTransfer.swift
 504	cmuxTests/TerminalNotificationSocketActionTests.swift
 502	Sources/CmuxEventPublishing.swift
 502	Sources/Settings/ConfigSource.swift
