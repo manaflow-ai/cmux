@@ -1,3 +1,4 @@
+import CmuxSidebarInterpreterClient
 import CmuxSwiftRender
 import CmuxSwiftRenderUI
 import SwiftUI
