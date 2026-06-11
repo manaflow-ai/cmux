@@ -233,9 +233,14 @@ jobs:
           XCODEBUILD_ARGS+=(test)
           selected_tests_passed_despite_xcodebuild_status() {
             local log_path="$1"
+            # The negative grep must catch BOTH XCTest failure output and Swift
+            # Testing failure output (✘ markers): the final "Failing tests:"
+            # section is not always flushed into the tee'd log, and without the
+            # ✘ patterns a real Swift Testing failure exiting 65 was
+            # misclassified as a runner cleanup failure and turned the job green.
             grep -Eq "Test Suite 'Selected tests' passed|Test Suite 'cmuxUITests' passed" "$log_path" &&
               grep -Eq "Executed [1-9][0-9]* tests, with 0 failures \\(0 unexpected\\)" "$log_path" &&
-              ! grep -Eq "Test Suite '.*' failed|Test Case '.*' failed|Assertion Failure|Failing tests:|with [1-9][0-9]* failures|with [0-9]+ failures \\([1-9][0-9]* unexpected\\)" "$log_path"
+              ! grep -Eq "Test Suite '.*' failed|Test Case '.*' failed|Assertion Failure|Failing tests:|with [1-9][0-9]* failures|with [0-9]+ failures \\([1-9][0-9]* unexpected\\)|✘ Test|✘ Suite" "$log_path"
           }
           for attempt in 1 2; do
             LOG_PATH="/tmp/cmux-ios-${{ matrix.family }}-attempt-${attempt}.log"
