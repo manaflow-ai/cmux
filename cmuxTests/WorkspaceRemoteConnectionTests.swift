@@ -6946,3 +6946,27 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
         )
     }
 }
+
+final class SshpassImagePasteDetectionTests: XCTestCase {
+    func testSshpassSeparatePassword() {
+        let s = TerminalSSHSessionDetector.parseSshpassCommandLine(
+            ["sshpass", "-p", "secretPass123", "ssh", "-o", "StrictHostKeyChecking=no", "root@187.77.175.242"])
+        XCTAssertNotNil(s, "debe detectar sesion sshpass")
+        XCTAssertEqual(s?.destination, "root@187.77.175.242")
+        XCTAssertEqual(s?.password, "secretPass123")
+    }
+    func testSshpassInlinePassword() {
+        let s = TerminalSSHSessionDetector.parseSshpassCommandLine(
+            ["sshpass", "-pInlinePass", "ssh", "ec2-user@1.2.3.4"])
+        XCTAssertEqual(s?.destination, "ec2-user@1.2.3.4")
+        XCTAssertEqual(s?.password, "InlinePass")
+    }
+    func testSshpassWithIdentityAndPort() {
+        let s = TerminalSSHSessionDetector.parseSshpassCommandLine(
+            ["sshpass", "-p", "pw", "ssh", "-i", "/k.pem", "-p", "2222", "user@host.example"])
+        XCTAssertEqual(s?.destination, "user@host.example")
+        XCTAssertEqual(s?.password, "pw")
+        XCTAssertEqual(s?.identityFile, "/k.pem")
+        XCTAssertEqual(s?.port, 2222)
+    }
+}
