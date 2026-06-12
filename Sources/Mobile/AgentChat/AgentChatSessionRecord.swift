@@ -35,6 +35,20 @@ struct AgentChatSessionRecord: Sendable {
     /// The agent process id, for liveness sweeps.
     var pid: Int?
 
+    /// Adopts terminal/transcript bindings from a hook-store entry. The
+    /// store is rewritten by every hook event, so its non-nil fields are
+    /// fresher than the record's (panel UUIDs change across app
+    /// relaunches; never keep a stale binding over a present one).
+    ///
+    /// - Parameter entry: The store entry to adopt from.
+    mutating func adoptBindings(from entry: AgentChatHookSessionStore.Entry) {
+        surfaceID = entry.surfaceID ?? surfaceID
+        workspaceID = entry.workspaceID ?? workspaceID
+        transcriptPath = entry.transcriptPath ?? transcriptPath
+        workingDirectory = entry.workingDirectory ?? workingDirectory
+        pid = entry.pid ?? pid
+    }
+
     /// The wire descriptor for this record.
     var descriptor: ChatSessionDescriptor {
         ChatSessionDescriptor(

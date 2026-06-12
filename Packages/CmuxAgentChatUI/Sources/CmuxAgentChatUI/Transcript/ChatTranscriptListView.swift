@@ -24,7 +24,6 @@ public struct ChatTranscriptListView: View {
     @Environment(\.chatTheme) private var theme
 
     #if os(iOS)
-    @State private var scrollPosition = ScrollPosition(edge: .bottom)
     @State private var isAtBottom = true
     #endif
     @State private var containerWidth: CGFloat = 0
@@ -64,38 +63,35 @@ public struct ChatTranscriptListView: View {
 
     public var body: some View {
         #if os(iOS)
-        scrollContent
-            .scrollPosition($scrollPosition)
-            .defaultScrollAnchor(.bottom)
-            .scrollDismissesKeyboard(.interactively)
-            .onScrollGeometryChange(for: Bool.self) { geometry in
-                let distanceFromBottom = geometry.contentSize.height
-                    - geometry.containerSize.height
-                    - geometry.contentOffset.y
-                return distanceFromBottom <= 80
-            } action: { _, nearBottom in
-                isAtBottom = nearBottom
-            }
-            // Composite key: a failed pending row pinned at the tail keeps
-            // `last?.id` stable while agent messages insert above it, so
-            // follow on count changes too.
-            .onChange(of: FollowKey(count: rows.count, lastID: rows.last?.id)) {
-                guard isAtBottom else { return }
-                scrollPosition.scrollTo(edge: .bottom)
-            }
-            .overlay(alignment: .bottomTrailing) {
-                if !isAtBottom {
-                    ChatScrollToBottomButton {
-                        withAnimation(.snappy(duration: 0.25)) {
-                            scrollPosition.scrollTo(edge: .bottom)
-                        }
-                    }
-                    .padding(.trailing, 12)
-                    .padding(.bottom, 8)
-                    .transition(.opacity.combined(with: .scale(scale: 0.8)))
+        // ScrollViewReader (not ScrollPosition): `ScrollPosition.scrollTo`
+        // silently no-ops on this content (verified empirically on device
+        // geometry — offset never moved), which killed both the pill and
+        // tail-follow. The proxy + row-id path scrolls reliably.
+        ScrollViewReader { proxy in
+            scrollContent
+                .defaultScrollAnchor(.bottom)
+                .scrollDismissesKeyboard(.interactively)
+                // Composite key: a failed pending row pinned at the tail
+                // keeps `last?.id` stable while agent messages insert
+                // above it, so follow on count changes too.
+                .onChange(of: FollowKey(count: rows.count, lastID: rows.last?.id)) {
+                    guard isAtBottom else { return }
+                    proxy.scrollTo(Self.bottomAnchorID, anchor: .bottom)
                 }
-            }
-            .animation(.snappy(duration: 0.2), value: isAtBottom)
+                .overlay(alignment: .bottomTrailing) {
+                    if !isAtBottom {
+                        ChatScrollToBottomButton {
+                            withAnimation(.snappy(duration: 0.25)) {
+                                proxy.scrollTo(Self.bottomAnchorID, anchor: .bottom)
+                            }
+                        }
+                        .padding(.trailing, 12)
+                        .padding(.bottom, 8)
+                        .transition(.opacity.combined(with: .scale(scale: 0.8)))
+                    }
+                }
+                .animation(.snappy(duration: 0.2), value: isAtBottom)
+        }
         #else
         ScrollViewReader { proxy in
             scrollContent
@@ -113,6 +109,8 @@ public struct ChatTranscriptListView: View {
         let count: Int
         let lastID: String?
     }
+
+    private static let bottomAnchorID = "chat.bottom.anchor"
 
     private var scrollContent: some View {
         ScrollView {
@@ -150,6 +148,19 @@ public struct ChatTranscriptListView: View {
                     ChatTypingIndicatorView(agentState: agentState)
                         .padding(.top, theme.intraGroupSpacing)
                 }
+                // Fixed trailing anchor, doing double duty: a stable
+                // scroll target for tail-follow (scrolling to the last
+                // row's id undershoots from lazy height estimation), and a
+                // semantic at-bottom detector — its materialization is the
+                // truth, where scroll-geometry inset math proved
+                // unreliable across inset configurations.
+                Color.clear
+                    .frame(height: 1)
+                    .id(Self.bottomAnchorID)
+                    #if os(iOS)
+                    .onAppear { isAtBottom = true }
+                    .onDisappear { isAtBottom = false }
+                    #endif
             }
             .scrollTargetLayout()
             .padding(.horizontal, theme.horizontalMargin)

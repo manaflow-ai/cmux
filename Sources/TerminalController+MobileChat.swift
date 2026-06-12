@@ -85,6 +85,13 @@ extension TerminalController {
                 return result
             }
         }
+        if !attachments.isEmpty, !text.isEmpty,
+           let terminalPanel = mobileChatTerminalPanel(sessionID: sessionID) {
+            // Separate the pasted image path from the prompt so the agent
+            // detects the path and the transcript echo is "<path> <text>"
+            // (the shape the client's pending-row reconcile matches).
+            _ = terminalPanel.surface.sendInputResult(" ")
+        }
         guard !text.isEmpty else {
             // Attachment-only send: the image path is sitting pasted at the
             // agent's prompt; submit it so the send actually reaches the
@@ -146,7 +153,7 @@ extension TerminalController {
     /// Workspace/surface params for a chat session's bound terminal, in the
     /// shape the existing mobile terminal handlers expect.
     private func mobileChatTerminalParams(sessionID: String) -> [String: Any]? {
-        guard let record = AgentChatTranscriptService.shared.sessionRecord(sessionID: sessionID),
+        guard let record = mobileChatResolvableRecord(sessionID: sessionID),
               let workspaceID = record.workspaceID,
               let surfaceID = record.surfaceID else {
             return nil
@@ -154,10 +161,40 @@ extension TerminalController {
         return ["workspace_id": workspaceID, "surface_id": surfaceID]
     }
 
+    /// The session record, with its terminal binding verified against live
+    /// panels. A stale binding (panel UUIDs regenerate across app
+    /// relaunches) is refreshed once from the hook store, which every hook
+    /// event rewrites with the current panel.
+    private func mobileChatResolvableRecord(sessionID: String) -> AgentChatSessionRecord? {
+        let service = AgentChatTranscriptService.shared
+        guard var record = service.sessionRecord(sessionID: sessionID) else { return nil }
+        if !mobileChatBindingResolves(record) {
+            #if DEBUG
+            cmuxDebugLog("mobile.chat binding stale session=\(sessionID.prefix(8)) surface=\(record.surfaceID?.prefix(8) ?? "nil"); refreshing from hook store")
+            #endif
+            record = service.refreshSessionBindings(sessionID: sessionID) ?? record
+        }
+        return record
+    }
+
+    private func mobileChatBindingResolves(_ record: AgentChatSessionRecord) -> Bool {
+        guard let workspaceID = record.workspaceID, let surfaceID = record.surfaceID else { return false }
+        let params: [String: Any] = ["workspace_id": workspaceID, "surface_id": surfaceID]
+        guard let resolved = mobileResolveWorkspaceAndSurface(params: params, requireTerminal: true),
+              let surfaceId = resolved.surfaceId,
+              resolved.workspace.terminalPanel(for: surfaceId) != nil else {
+            return false
+        }
+        return true
+    }
+
     private func mobileChatTerminalPanel(sessionID: String) -> TerminalPanel? {
         guard let terminalParams = mobileChatTerminalParams(sessionID: sessionID),
               let resolved = mobileResolveWorkspaceAndSurface(params: terminalParams, requireTerminal: true),
               let surfaceId = resolved.surfaceId else {
+            #if DEBUG
+            cmuxDebugLog("mobile.chat terminal unresolved session=\(sessionID.prefix(8))")
+            #endif
             return nil
         }
         return resolved.workspace.terminalPanel(for: surfaceId)

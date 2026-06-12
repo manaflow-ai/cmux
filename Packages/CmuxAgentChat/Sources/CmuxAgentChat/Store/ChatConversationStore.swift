@@ -296,7 +296,23 @@ public final class ChatConversationStore {
                 return
             }
             let missed = page.messages.filter { $0.seq > newestKnown }
-            if missed.count == page.messages.count, page.hasMore, !missed.isEmpty {
+            let pageIDs = Set(page.messages.map(\.id))
+            let windowIDs = Set(messages.map(\.id))
+            let pageHasUnknownContent = page.messages.contains { !windowIDs.contains($0.id) }
+            if missed.isEmpty, pageHasUnknownContent {
+                // The page carries content at-or-below the window tail that
+                // the window doesn't have. Reachable when a post-reset live
+                // append beat this resync (the window holds one fresh
+                // message; the page is the authoritative rewritten
+                // history). Adopt the page plus any window suffix beyond
+                // its end.
+                let pageEndSeq = page.messages.last?.seq ?? -1
+                let suffix = messages.filter { !pageIDs.contains($0.id) && $0.seq > pageEndSeq }
+                reconcilePending(against: page.messages)
+                messages = page.messages + suffix
+                hasMoreHistory = page.hasMore
+                reproject()
+            } else if missed.count == page.messages.count, page.hasMore, !missed.isEmpty {
                 // The entire newest page is beyond the window tail: the
                 // disconnect outlasted a full page and the gap can never be
                 // filled by tail-append. Re-anchor the window on the page.
@@ -359,12 +375,12 @@ public final class ChatConversationStore {
         case .reset:
             // The transcript was truncated/replaced on the Mac (tailer
             // re-read from scratch). The window's seq space is void; clear
-            // and re-anchor from fresh history.
+            // and re-anchor from fresh history. Delivered pendings die with
+            // the old transcript (their echo is gone), but failed rows keep
+            // their retry and in-flight sends may still land in the new
+            // transcript and reconcile normally.
             messages = []
-            pending.removeAll { item in
-                if case .failed = item.delivery { return false }
-                return true
-            }
+            pending.removeAll { $0.delivery == .delivered }
             hasMoreHistory = false
             reproject()
             Task { await resyncTail() }

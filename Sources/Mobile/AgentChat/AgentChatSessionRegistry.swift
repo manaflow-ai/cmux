@@ -59,6 +59,23 @@ final class AgentChatSessionRegistry {
         records[sessionID]
     }
 
+    /// Re-reads the hook store for one session and adopts its bindings,
+    /// for callers that just failed to resolve the recorded terminal (an
+    /// app relaunch regenerates panel UUIDs; the store is rewritten by
+    /// every hook event and is the authority).
+    ///
+    /// - Parameter sessionID: The session to refresh.
+    /// - Returns: The refreshed record, or `nil` when unknown.
+    @discardableResult
+    func refreshBindingsFromHookStore(sessionID: String) -> AgentChatSessionRecord? {
+        guard let record = records[sessionID] else { return nil }
+        guard let entry = hookStore.entry(agentSource: record.agentKind.sourceName, sessionID: sessionID) else {
+            return record
+        }
+        update(sessionID: sessionID) { $0.adoptBindings(from: entry) }
+        return records[sessionID]
+    }
+
     /// Applies a mutation to a record and notifies the change callback
     /// with the previous value.
     ///
@@ -151,11 +168,7 @@ final class AgentChatSessionRegistry {
            lastConsult.map({ event.receivedAt.timeIntervalSince($0) > 30 }) ?? true {
             hookStoreConsultedAt[sessionID] = event.receivedAt
             if let entry = hookStore.entry(agentSource: event.source, sessionID: sessionID) {
-                record.surfaceID = record.surfaceID ?? entry.surfaceID
-                record.workspaceID = record.workspaceID ?? entry.workspaceID
-                record.transcriptPath = record.transcriptPath ?? entry.transcriptPath
-                record.workingDirectory = record.workingDirectory ?? entry.workingDirectory
-                record.pid = record.pid ?? entry.pid
+                record.adoptBindings(from: entry)
             }
         }
         record.lastActivityAt = event.receivedAt

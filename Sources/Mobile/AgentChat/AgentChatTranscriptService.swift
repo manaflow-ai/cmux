@@ -88,6 +88,13 @@ final class AgentChatTranscriptService {
         registry.record(sessionID: sessionID)
     }
 
+    /// Re-adopts one session's terminal bindings from the hook store; see
+    /// ``AgentChatSessionRegistry/refreshBindingsFromHookStore(sessionID:)``.
+    @discardableResult
+    func refreshSessionBindings(sessionID: String) -> AgentChatSessionRecord? {
+        registry.refreshBindingsFromHookStore(sessionID: sessionID)
+    }
+
     /// Serves one history page, starting the session's tailer on demand.
     ///
     /// - Parameters:
