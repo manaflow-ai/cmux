@@ -79,16 +79,33 @@ public struct ChatPendingBubbleView: View {
     private var deliveryLine: some View {
         switch pending.delivery {
         case .queued:
-            Image(systemName: "clock")
-                .font(.caption2)
-                .foregroundStyle(.tertiary)
-                .accessibilityLabel(
-                    String(
-                        localized: "chat.pending.queued.accessibility",
-                        defaultValue: "Queued",
-                        bundle: .module
+            HStack(spacing: 8) {
+                Image(systemName: "clock")
+                    .font(.caption2)
+                    .foregroundStyle(.tertiary)
+                    .accessibilityLabel(
+                        String(
+                            localized: "chat.pending.queued.accessibility",
+                            defaultValue: "Queued until the agent is free",
+                            bundle: .module
+                        )
                     )
-                )
+                // A queued send waits for the agent to go idle; if it never
+                // does (e.g. a stuck task), the user can still cancel.
+                Button {
+                    actions.discardPending(pending.id)
+                } label: {
+                    Text(String(localized: "chat.pending.cancel", defaultValue: "Cancel", bundle: .module))
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                        .padding(.vertical, 14)
+                        .padding(.horizontal, 8)
+                        .contentShape(.rect)
+                }
+                .buttonStyle(.plain)
+                .padding(.vertical, -14)
+                .padding(.horizontal, -8)
+            }
         case .sending:
             ChatPendingPulseGlyph()
                 .accessibilityLabel(

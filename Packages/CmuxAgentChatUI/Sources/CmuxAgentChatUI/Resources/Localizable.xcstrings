@@ -358,6 +358,23 @@
         }
       }
     },
+    "chat.pending.cancel" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Cancel"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "キャンセル"
+          }
+        }
+      }
+    },
     "chat.pending.delivered.accessibility" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -415,13 +432,13 @@
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Queued"
+            "value" : "Queued until the agent is free"
           }
         },
         "ja" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "送信待ち"
+            "value" : "エージェントが空くまで送信待ち"
           }
         }
       }

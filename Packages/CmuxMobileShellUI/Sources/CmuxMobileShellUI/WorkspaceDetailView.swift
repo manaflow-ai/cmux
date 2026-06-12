@@ -43,6 +43,10 @@ struct WorkspaceDetailView: View {
     /// the agent chat inline in place of the terminal. The toolbar button
     /// flips this; there is no cover and no Done button.
     @State private var isChatMode = false
+    /// The session chat mode was entered on, pinned so a newer session
+    /// sorting first cannot swap the conversation out from under the user
+    /// mid-read. Cleared when chat mode turns off.
+    @State private var pinnedChatSessionID: String?
     @State private var chatSessions: [ChatSessionDescriptor] = []
     /// Per-session composer drafts, surviving toggles back to the terminal.
     @State private var chatDrafts: [String: String] = [:]
@@ -58,9 +62,14 @@ struct WorkspaceDetailView: View {
     }
 
     #if os(iOS)
-    /// The session chat mode opens: the most attention-worthy live one.
+    /// The session chat mode opens: the most attention-worthy live one,
+    /// or the pinned session while chat mode is on.
     private var chosenChatSession: ChatSessionDescriptor? {
-        ChatSessionDescriptor.openable(chatSessions).first
+        if let pinnedChatSessionID,
+           let pinned = chatSessions.first(where: { $0.id == pinnedChatSessionID }) {
+            return pinned
+        }
+        return ChatSessionDescriptor.openable(chatSessions).first
     }
     #endif
 
@@ -90,7 +99,10 @@ struct WorkspaceDetailView: View {
                 get: { chatDrafts[session.id] ?? "" },
                 set: { chatDrafts[session.id] = $0 }
             ),
-            onExitChat: { isChatMode = false }
+            onExitChat: {
+                isChatMode = false
+                pinnedChatSessionID = nil
+            }
         )
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .mobileTerminalNavigationChrome()
@@ -111,6 +123,7 @@ struct WorkspaceDetailView: View {
         if isChatMode || !chatSessions.isEmpty {
             Button {
                 isChatMode.toggle()
+                pinnedChatSessionID = isChatMode ? chosenChatSession?.id : nil
             } label: {
                 Image(systemName: isChatMode
                     ? "bubble.left.and.bubble.right.fill"
@@ -135,6 +148,7 @@ struct WorkspaceDetailView: View {
         // terminal rather than showing an empty chat.
         if isChatMode, chosenChatSession == nil {
             isChatMode = false
+            pinnedChatSessionID = nil
         }
     }
     #endif
