@@ -4753,8 +4753,7 @@ final class BrowserPanel: Panel, ObservableObject {
         let store = webView.configuration.websiteDataStore
         guard let endpoint = remoteProxyEndpoint else {
             // Local panes mirror an active system proxy with loopback excluded
-            // (issue #5888); empty when no faithful mirror exists. Remote panes
-            // keep the empty fallback while their cmuxd endpoint is pending/lost.
+            // (#5888); remote panes keep [] while their endpoint is pending/lost.
             store.proxyConfigurations = usesRemoteWorkspaceProxy
                 ? [] : BrowserSystemProxyMirror.currentProxyConfigurations()
             return
@@ -6118,7 +6117,9 @@ final class BrowserPanel: Panel, ObservableObject {
     }
 
     private func resumePendingRemoteNavigationIfNeeded() {
-        guard remoteProxyEndpoint != nil,
+        // Resume on endpoint arrival, or directly once the pane turned local
+        // (a stranded queue pins the hidden pane as non-discardable forever).
+        guard remoteProxyEndpoint != nil || !usesRemoteWorkspaceProxy,
               let navigation = pendingRemoteNavigation else {
             return
         }
