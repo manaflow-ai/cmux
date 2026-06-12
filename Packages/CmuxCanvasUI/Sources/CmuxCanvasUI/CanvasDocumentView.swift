@@ -18,6 +18,14 @@ final class CanvasDocumentView: NSView {
         }
     }
 
+    /// Canvas fill, resolved by the host through ``CanvasTheme``.
+    var canvasBackground: NSColor = .windowBackgroundColor {
+        didSet {
+            guard canvasBackground != oldValue else { return }
+            needsDisplay = true
+        }
+    }
+
     override var isFlipped: Bool { true }
     override var isOpaque: Bool { true }
 
@@ -32,7 +40,7 @@ final class CanvasDocumentView: NSView {
     }
 
     override func draw(_ dirtyRect: NSRect) {
-        GhosttyBackgroundTheme.currentColor().withSystemEffect(.none).setFill()
+        canvasBackground.setFill()
         dirtyRect.fill()
 
         // Dots are aligned to canvas space so they stay put when the document

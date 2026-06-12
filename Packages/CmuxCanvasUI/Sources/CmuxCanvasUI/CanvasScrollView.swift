@@ -4,7 +4,7 @@ import AppKit
 /// panning. Using the real scroll machinery is what makes the canvas feel
 /// native — trackpad momentum, rubber-banding, interruptible deceleration,
 /// and pinch magnification all come from AppKit, driven by real scroll
-/// events.
+/// events. Colors come from the host through ``CanvasTheme``.
 @MainActor
 final class CanvasScrollView: NSScrollView {
     init(documentView: CanvasDocumentView) {
@@ -22,7 +22,6 @@ final class CanvasScrollView: NSScrollView {
         minMagnification = 0.1
         maxMagnification = 1.0
         drawsBackground = true
-        backgroundColor = GhosttyBackgroundTheme.currentColor()
         contentView.postsBoundsChangedNotifications = true
     }
 

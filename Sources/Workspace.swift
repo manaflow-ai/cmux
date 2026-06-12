@@ -3,6 +3,7 @@ import SwiftUI
 import AppKit
 import Bonsplit
 import CMUXAgentLaunch
+import CmuxCanvasUI
 import CmuxSocketControl
 import Combine
 import CryptoKit
@@ -10626,7 +10627,7 @@ final class Workspace: Identifiable, ObservableObject {
 
     /// Durable canvas-layout state (pane frames, z-order). Lives on the
     /// workspace so it survives canvas view remounts and workspace switches.
-    let canvasModel = WorkspaceCanvasModel()
+    let canvasModel = CanvasModel(metricsProvider: { CanvasLayoutSettings.currentMetrics() })
     private struct SurfaceTabBarExecutableButton {
         let button: CmuxSurfaceTabBarButton
         let builtInAction: CmuxSurfaceTabBarBuiltInAction?

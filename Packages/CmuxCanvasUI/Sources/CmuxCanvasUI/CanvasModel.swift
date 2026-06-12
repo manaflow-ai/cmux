@@ -1,43 +1,47 @@
-import Foundation
-import CmuxCanvas
+public import Foundation
+public import CoreGraphics
+public import CmuxCanvas
 
 /// The durable canvas state for one workspace.
 ///
-/// Owned by `Workspace` so the layout survives view remounts and workspace
-/// switches; the canvas view reads and mutates it through this model only.
-/// All geometry math is delegated to the pure `CmuxCanvas` package.
+/// Owned by the host (cmux's `Workspace`) so the layout survives view
+/// remounts and workspace switches; the canvas view reads and mutates it
+/// through this model only. All geometry math is delegated to the pure
+/// `CmuxCanvas` package.
 @MainActor
-final class WorkspaceCanvasModel {
-    /// Reads the current user-configured metrics. Injected so tests can pin values.
+public final class CanvasModel {
+    /// Reads the current user-configured metrics. Injected by the host so the
+    /// package owns no settings storage and tests can pin values.
     private let metricsProvider: () -> CanvasMetrics
 
     /// The canvas layout (frames + z-order), keyed by panel UUID.
-    private(set) var layout = CanvasLayout()
+    public private(set) var layout = CanvasLayout()
 
-    /// Monotonic revision so the view layer can cheaply detect changes.
-    private(set) var revision: UInt64 = 0
+    /// Monotonic revision so callers can cheaply detect changes.
+    public private(set) var revision: UInt64 = 0
 
-    /// The attached canvas view, when one is mounted. Lets action executors
-    /// drive viewport operations (reveal, overview) through a narrow seam.
-    weak var viewport: (any CanvasViewportControlling)?
+    /// The attached canvas view, when one is mounted. Lets the host's action
+    /// executors drive viewport operations (reveal, overview) through a
+    /// narrow seam.
+    public weak var viewport: (any CanvasViewportControlling)?
 
     /// The default size for a brand-new pane that has no seed frame.
-    static let defaultPaneSize = CanvasSize(width: 640, height: 420)
+    public static let defaultPaneSize = CanvasSize(width: 640, height: 420)
 
-    init(metricsProvider: @escaping () -> CanvasMetrics = { CanvasLayoutSettings.currentMetrics() }) {
+    public init(metricsProvider: @escaping () -> CanvasMetrics) {
         self.metricsProvider = metricsProvider
     }
 
     /// The metrics every canvas operation should use right now.
     var metrics: CanvasMetrics { metricsProvider() }
 
-    /// Reconciles the canvas with the workspace's current panel set.
+    /// Reconciles the canvas with the host's current panel set.
     ///
     /// New panels are placed near the focused pane at the canonical gap;
     /// panels that no longer exist leave the canvas. Returns the IDs of
     /// panes that were newly added, so the caller can reveal them.
     @discardableResult
-    func syncPanes(panelIds: [UUID], focusedPanelId: UUID?) -> [UUID] {
+    public func syncPanes(panelIds: [UUID], focusedPanelId: UUID?) -> [UUID] {
         var changed = false
         let idSet = Set(panelIds)
         for paneID in layout.paneIDs where !idSet.contains(paneID.rawValue) {
@@ -64,10 +68,10 @@ final class WorkspaceCanvasModel {
         return added
     }
 
-    /// Seeds pane frames from the current split layout so entering canvas
+    /// Seeds pane frames from the host's split layout so entering canvas
     /// mode preserves what the user sees. Only panes without a canvas frame
     /// are seeded; an existing canvas arrangement is never overwritten.
-    func seedFromSplitFrames(_ frames: [UUID: CGRect]) {
+    public func seedFromSplitFrames(_ frames: [UUID: CGRect]) {
         var changed = false
         for (panelId, rect) in frames {
             let paneID = CanvasPaneID(rawValue: panelId)
@@ -79,18 +83,18 @@ final class WorkspaceCanvasModel {
     }
 
     /// The frame of a pane, in canvas coordinates.
-    func frame(of panelId: UUID) -> CGRect? {
+    public func frame(of panelId: UUID) -> CGRect? {
         layout.frame(of: CanvasPaneID(rawValue: panelId))?.cgRect
     }
 
     /// Replaces a pane frame (gesture commit or socket command).
-    func setFrame(_ frame: CGRect, for panelId: UUID) {
+    public func setFrame(_ frame: CGRect, for panelId: UUID) {
         layout.setFrame(CanvasRect(frame), for: CanvasPaneID(rawValue: panelId))
         revision &+= 1
     }
 
     /// Raises a pane to the front of the z-order.
-    func bringToFront(_ panelId: UUID) {
+    public func bringToFront(_ panelId: UUID) {
         layout.bringToFront(CanvasPaneID(rawValue: panelId))
         revision &+= 1
     }
@@ -125,11 +129,16 @@ final class WorkspaceCanvasModel {
 
     /// Replaces the whole layout with persisted frames (already in z-order,
     /// back to front). Used by session restore.
-    func restoreFrames(_ ordered: [(id: UUID, frame: CGRect)]) {
+    public func restoreFrames(_ ordered: [(id: UUID, frame: CGRect)]) {
         layout = CanvasLayout(panes: ordered.map { entry in
             CanvasPane(id: CanvasPaneID(rawValue: entry.id), frame: CanvasRect(entry.frame))
         })
         revision &+= 1
+    }
+
+    /// The layout in persistence order (z-order, back to front).
+    public var persistablePanes: [(panelId: UUID, frame: CGRect)] {
+        layout.panes.map { ($0.id.rawValue, $0.frame.cgRect) }
     }
 
     private func gestureMetrics(snapping: Bool) -> CanvasMetrics {
@@ -143,7 +152,7 @@ final class WorkspaceCanvasModel {
     /// Applies an alignment command to the given panes (or all panes when
     /// fewer than two are passed) and returns whether anything changed.
     @discardableResult
-    func applyAlignment(
+    public func applyAlignment(
         _ command: CanvasAlignmentCommand,
         to panelIds: [UUID],
         reference: UUID?
@@ -162,27 +171,14 @@ final class WorkspaceCanvasModel {
     }
 
     /// The neighboring pane in a spatial direction from the given pane.
-    func pane(_ direction: CanvasDirection, from panelId: UUID) -> UUID? {
+    public func pane(_ direction: CanvasDirection, from panelId: UUID) -> UUID? {
         CanvasSpatialNavigator()
             .pane(direction, from: CanvasPaneID(rawValue: panelId), in: layout)?
             .rawValue
     }
 
     /// The smallest rect containing every pane, in canvas coordinates.
-    var contentBounds: CGRect? {
+    public var contentBounds: CGRect? {
         layout.contentBounds?.cgRect
-    }
-
-    /// Restores a persisted layout (panes in z-order, back to front).
-    func restore(panes: [(panelId: UUID, frame: CGRect)]) {
-        layout = CanvasLayout(panes: panes.map { pane in
-            CanvasPane(id: CanvasPaneID(rawValue: pane.panelId), frame: CanvasRect(pane.frame))
-        })
-        revision &+= 1
-    }
-
-    /// The layout in persistence order (z-order, back to front).
-    var persistablePanes: [(panelId: UUID, frame: CGRect)] {
-        layout.panes.map { ($0.id.rawValue, $0.frame.cgRect) }
     }
 }

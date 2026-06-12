@@ -1,4 +1,5 @@
 import CmuxCanvas
+import CmuxCanvasUI
 import CmuxControlSocket
 import Foundation
 

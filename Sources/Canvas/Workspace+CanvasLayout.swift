@@ -2,6 +2,7 @@ import Foundation
 import AppKit
 import Bonsplit
 import CmuxCanvas
+import CmuxCanvasUI
 
 /// Canvas-layout behavior for `Workspace`. The workspace stays the owner of
 /// panels, focus, and bonsplit bookkeeping; canvas mode only changes how the

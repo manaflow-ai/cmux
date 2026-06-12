@@ -1,13 +1,16 @@
 import SwiftUI
 import AppKit
 import Bonsplit
+import CmuxCanvasUI
 
 /// SwiftUI host for a workspace's canvas layout.
 ///
 /// This is the single legacy-observing boundary: it watches the
 /// `ObservableObject` workspace, projects panels into value snapshots
-/// (`CanvasPaneDescriptor`), and hands them to the AppKit canvas through an
-/// `NSViewRepresentable`. The canvas itself never observes stores.
+/// (`CanvasPaneDescriptor`), and hands them to the `CmuxCanvasUI` package
+/// through an `NSViewRepresentable`. The canvas itself never observes
+/// stores, and the package never sees panel types — content crosses the
+/// seam as `CanvasPaneContentMount` witnesses.
 struct WorkspaceCanvasHostView: View {
     @ObservedObject var workspace: Workspace
     let isWorkspaceVisible: Bool
@@ -26,20 +29,31 @@ struct WorkspaceCanvasHostView: View {
 
     private var descriptors: [CanvasPaneDescriptor] {
         let focusedPanelId = workspace.focusedPanelId
+        let closeActionLabel = String(localized: "canvas.pane.close.help", defaultValue: "Close Pane")
         return workspace.orderedPanelIds.compactMap { panelId in
             guard let panel = workspace.panels[panelId] else { return nil }
             return CanvasPaneDescriptor(
                 id: panelId,
-                title: panel.displayTitle,
-                iconSystemName: panel.displayIcon ?? Self.defaultIcon(for: panel.panelType),
-                isFocused: isWorkspaceInputActive && focusedPanelId == panelId,
-                makeContent: { [weak workspace] in
-                    Self.makeContent(
-                        panel: panel,
-                        workspace: workspace,
-                        isWorkspaceVisible: isWorkspaceVisible,
-                        portalPriority: portalPriority,
-                        appearance: appearance
+                chrome: CanvasPaneChrome(
+                    title: panel.displayTitle,
+                    iconSystemName: panel.displayIcon ?? Self.defaultIcon(for: panel.panelType),
+                    isFocused: isWorkspaceInputActive && focusedPanelId == panelId,
+                    closeActionLabel: closeActionLabel
+                ),
+                makeMount: { [weak workspace] container in
+                    CanvasPaneContentMount(
+                        content: Self.makeContent(
+                            panel: panel,
+                            workspace: workspace,
+                            isWorkspaceVisible: isWorkspaceVisible,
+                            portalPriority: portalPriority,
+                            appearance: appearance
+                        ),
+                        panelId: panelId,
+                        container: container,
+                        onFocusPanel: { [weak workspace] panelId in
+                            workspace?.focusPanel(panelId)
+                        }
                     )
                 }
             )
@@ -90,9 +104,9 @@ struct WorkspaceCanvasHostView: View {
     }
 }
 
-/// Bridges descriptor snapshots into the AppKit canvas. `updateNSView` is the
-/// one place SwiftUI state flows into the canvas, so no store observation
-/// exists below this point.
+/// Bridges descriptor snapshots into the package's AppKit canvas.
+/// `updateNSView` is the one place SwiftUI state flows into the canvas, so
+/// no store observation exists below this point.
 private struct CanvasRootRepresentable: NSViewRepresentable {
     let workspace: Workspace
     let descriptors: [CanvasPaneDescriptor]
@@ -101,7 +115,7 @@ private struct CanvasRootRepresentable: NSViewRepresentable {
 
     func makeNSView(context: Context) -> CanvasRootView {
         let workspace = workspace
-        let view = CanvasRootView(
+        return CanvasRootView(
             model: workspace.canvasModel,
             callbacks: CanvasHostCallbacks(
                 onFocusPanel: { [weak workspace] panelId in
@@ -119,9 +133,12 @@ private struct CanvasRootRepresentable: NSViewRepresentable {
                 onLayoutChanged: { [weak workspace] in
                     workspace?.noteCanvasLayoutChanged()
                 }
-            )
+            ),
+            themeProvider: {
+                let background = GhosttyBackgroundTheme.currentColor()
+                return CanvasTheme(canvasBackground: background, paneBackground: background)
+            }
         )
-        return view
     }
 
     func updateNSView(_ nsView: CanvasRootView, context: Context) {

@@ -1,4 +1,5 @@
 import AppKit
+import CmuxCanvasUI
 
 /// How a panel's content view mounts into a canvas pane.
 ///
@@ -13,9 +14,12 @@ enum CanvasPaneContent {
     case hosted(NSView)
 }
 
-/// Owns the mounted content of one canvas pane and its teardown.
+/// Owns the mounted content of one canvas pane and its teardown. This is the
+/// app-side witness of the `CmuxCanvasUI` content seam: the package drives
+/// lifecycle through ``CanvasPaneContentMounting`` without seeing panel
+/// types.
 @MainActor
-final class CanvasPaneContentMount {
+final class CanvasPaneContentMount: CanvasPaneContentMounting {
     let panelId: UUID
     private let content: CanvasPaneContent
     private weak var container: NSView?

@@ -24,29 +24,39 @@ final class CanvasPaneView: NSView {
     let contentContainer = NSView()
 
     private let titleBarHost: NSHostingView<CanvasPaneTitleBarView>
-    private var chrome = Chrome(title: "", iconSystemName: nil, isFocused: false)
+    private var chrome = CanvasPaneChrome(
+        title: "",
+        iconSystemName: nil,
+        isFocused: false,
+        closeActionLabel: ""
+    )
     private var activeDragRegion: CanvasPaneHitRegion?
     private var dragStartedMoving = false
     private var dragStartDocumentPoint: CGPoint = .zero
+
+    /// Pane fill behind the content, resolved by the host through
+    /// ``CanvasTheme``.
+    var paneBackground: NSColor = .windowBackgroundColor {
+        didSet {
+            guard paneBackground != oldValue else { return }
+            applyChromeColors()
+        }
+    }
 
     private static let resizeBandWidth: CGFloat = 6
     private static let cornerBandWidth: CGFloat = 12
     private static let cornerRadius: CGFloat = 9
     private static let dragActivationDistance: CGFloat = 2
 
-    /// Snapshot of the chrome inputs so updates can skip no-op re-renders.
-    struct Chrome: Equatable {
-        var title: String
-        var iconSystemName: String?
-        var isFocused: Bool
-    }
-
     init(panelId: UUID) {
         self.panelId = panelId
         self.titleBarHost = NSHostingView(rootView: CanvasPaneTitleBarView(
-            title: "",
-            iconSystemName: nil,
-            isFocused: false,
+            chrome: CanvasPaneChrome(
+                title: "",
+                iconSystemName: nil,
+                isFocused: false,
+                closeActionLabel: ""
+            ),
             onClose: {}
         ))
         super.init(frame: .zero)
@@ -82,13 +92,11 @@ final class CanvasPaneView: NSView {
     override var isFlipped: Bool { true }
 
     /// Updates the title strip and focus ring. No-op when nothing changed.
-    func updateChrome(_ chrome: Chrome) {
+    func updateChrome(_ chrome: CanvasPaneChrome) {
         guard chrome != self.chrome else { return }
         self.chrome = chrome
         titleBarHost.rootView = CanvasPaneTitleBarView(
-            title: chrome.title,
-            iconSystemName: chrome.iconSystemName,
-            isFocused: chrome.isFocused,
+            chrome: chrome,
             onClose: { [weak self] in
                 guard let self else { return }
                 self.delegate?.paneViewDidRequestClose(self)
@@ -102,7 +110,7 @@ final class CanvasPaneView: NSView {
             ? NSColor.controlAccentColor.cgColor
             : NSColor.separatorColor.cgColor
         layer?.borderWidth = chrome.isFocused ? 2 : 1
-        layer?.backgroundColor = GhosttyBackgroundTheme.currentColor().cgColor
+        layer?.backgroundColor = paneBackground.cgColor
     }
 
     override func viewDidChangeEffectiveAppearance() {

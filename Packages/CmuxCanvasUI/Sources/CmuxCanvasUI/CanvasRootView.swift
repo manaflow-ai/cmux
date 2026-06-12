@@ -1,22 +1,25 @@
-import AppKit
+public import AppKit
 import CmuxCanvas
 
 /// The AppKit root of the canvas layout: owns the scroll view, document,
 /// pane views, content mounts, guides, drag/resize sessions, document
 /// sizing, and the explicit offscreen-pane lifecycle.
 ///
-/// The SwiftUI layer feeds it value snapshots (`CanvasPaneDescriptor`)
-/// through `sync`; all durable geometry lives in `WorkspaceCanvasModel`.
+/// The host's SwiftUI layer feeds it value snapshots (`CanvasPaneDescriptor`)
+/// through `sync`; all durable geometry lives in ``CanvasModel``. Panel
+/// content and theming stay host-owned behind ``CanvasPaneContentMounting``
+/// and ``CanvasTheme``.
 @MainActor
-final class CanvasRootView: NSView {
-    private let model: WorkspaceCanvasModel
+public final class CanvasRootView: NSView {
+    private let model: CanvasModel
     private let callbacks: CanvasHostCallbacks
+    private let themeProvider: () -> CanvasTheme
     private let scrollView: CanvasScrollView
     private let documentView = CanvasDocumentView()
     private let guidesView = CanvasGuidesView()
 
     private var paneViews: [UUID: CanvasPaneView] = [:]
-    private var mounts: [UUID: CanvasPaneContentMount] = [:]
+    private var mounts: [UUID: any CanvasPaneContentMounting] = [:]
     private var renderingByPanelId: [UUID: Bool] = [:]
     private var isWorkspaceVisible = true
     /// Canvas coordinates of the document view's (0,0).
@@ -40,11 +43,17 @@ final class CanvasRootView: NSView {
         var lastFrame: CGRect
     }
 
-    init(model: WorkspaceCanvasModel, callbacks: CanvasHostCallbacks) {
+    public init(
+        model: CanvasModel,
+        callbacks: CanvasHostCallbacks,
+        themeProvider: @escaping () -> CanvasTheme
+    ) {
         self.model = model
         self.callbacks = callbacks
+        self.themeProvider = themeProvider
         self.scrollView = CanvasScrollView(documentView: documentView)
         super.init(frame: .zero)
+        applyTheme()
 
         scrollView.translatesAutoresizingMaskIntoConstraints = false
         addSubview(scrollView)
@@ -72,13 +81,27 @@ final class CanvasRootView: NSView {
     }
 
     @available(*, unavailable)
-    required init?(coder: NSCoder) {
+    public required init?(coder: NSCoder) {
         nil
+    }
+
+    private func applyTheme() {
+        let theme = themeProvider()
+        scrollView.backgroundColor = theme.canvasBackground
+        documentView.canvasBackground = theme.canvasBackground
+        for paneView in paneViews.values {
+            paneView.paneBackground = theme.paneBackground
+        }
+    }
+
+    public override func viewDidChangeEffectiveAppearance() {
+        super.viewDidChangeEffectiveAppearance()
+        applyTheme()
     }
 
     /// Releases mounted content (terminals go back to the portal system) and
     /// observers. Called when the workspace leaves canvas mode.
-    func teardown() {
+    public func teardown() {
         for (_, mount) in mounts {
             mount.unmount()
         }
@@ -97,8 +120,8 @@ final class CanvasRootView: NSView {
 
     // MARK: Sync
 
-    /// Reconciles the canvas against the workspace's current panel set.
-    func sync(descriptors: [CanvasPaneDescriptor], focusedPanelId: UUID?, isWorkspaceVisible: Bool) {
+    /// Reconciles the canvas against the host's current panel set.
+    public func sync(descriptors: [CanvasPaneDescriptor], focusedPanelId: UUID?, isWorkspaceVisible: Bool) {
         self.isWorkspaceVisible = isWorkspaceVisible
         let added = model.syncPanes(
             panelIds: descriptors.map(\.id),
@@ -114,20 +137,15 @@ final class CanvasRootView: NSView {
             paneViews[panelId] = nil
         }
 
+        applyTheme()
         for descriptor in descriptors {
             if paneViews[descriptor.id] == nil {
                 let paneView = CanvasPaneView(panelId: descriptor.id)
                 paneView.delegate = self
+                paneView.paneBackground = themeProvider().paneBackground
                 documentView.addSubview(paneView)
                 paneViews[descriptor.id] = paneView
-                mounts[descriptor.id] = CanvasPaneContentMount(
-                    content: descriptor.makeContent(),
-                    panelId: descriptor.id,
-                    container: paneView.contentContainer,
-                    onFocusPanel: { [weak self] panelId in
-                        self?.callbacks.onFocusPanel(panelId)
-                    }
-                )
+                mounts[descriptor.id] = descriptor.makeMount(paneView.contentContainer)
             }
             paneViews[descriptor.id]?.updateChrome(descriptor.chrome)
         }
@@ -220,7 +238,7 @@ final class CanvasRootView: NSView {
         updateLifecycle()
     }
 
-    override func layout() {
+    public override func layout() {
         super.layout()
         recomputeDocumentGeometry()
         applyAllPaneFrames()
@@ -275,7 +293,7 @@ final class CanvasRootView: NSView {
 // MARK: - CanvasViewportControlling
 
 extension CanvasRootView: CanvasViewportControlling {
-    func modelDidChangeExternally(animated: Bool) {
+    public func modelDidChangeExternally(animated: Bool) {
         applyZOrder()
         recomputeDocumentGeometry()
         if animated {
@@ -296,7 +314,7 @@ extension CanvasRootView: CanvasViewportControlling {
         callbacks.onLayoutChanged()
     }
 
-    func revealPane(_ panelId: UUID, animated: Bool) {
+    public func revealPane(_ panelId: UUID, animated: Bool) {
         guard let frame = model.frame(of: panelId) else { return }
         let docFrame = documentRect(fromCanvas: frame)
         let visible = scrollView.contentView.documentVisibleRect
@@ -310,7 +328,7 @@ extension CanvasRootView: CanvasViewportControlling {
         setClipOrigin(origin.cgPoint, animated: animated)
     }
 
-    func toggleOverview() {
+    public func toggleOverview() {
         if let restore = overviewRestore {
             overviewRestore = nil
             NSAnimationContext.runAnimationGroup { context in
