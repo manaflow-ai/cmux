@@ -56,11 +56,11 @@ private final class FakeCanvasControlCommandContext: ControlCommandContext {
         actionResolution
     }
 
-    var lastZoomDirection: String?
+    var lastZoomDirection: ControlCanvasZoomDirection?
 
     func controlCanvasZoom(
         routing: ControlRoutingSelectors,
-        direction: String
+        direction: ControlCanvasZoomDirection
     ) -> ControlCanvasActionResolution {
         lastZoomDirection = direction
         return actionResolution
@@ -214,7 +214,7 @@ struct ControlCommandCoordinatorCanvasTests {
             Issue.record("expected ok")
             return
         }
-        #expect(context.lastZoomDirection == "in")
+        #expect(context.lastZoomDirection == .zoomIn)
     }
 
     @Test func notCanvasModeMapsToInvalidState() {

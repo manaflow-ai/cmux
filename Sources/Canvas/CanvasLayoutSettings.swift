@@ -16,7 +16,9 @@ enum CanvasLayoutSettings {
     static let paneGapRange: ClosedRange<Double> = 0...64
 
     static func paneGap(defaults: UserDefaults = .standard) -> Double {
-        guard let value = defaults.object(forKey: paneGapKey) as? Double else {
+        // The settings catalog writes this key as Int (canvas.paneGap);
+        // accept any numeric representation.
+        guard let value = (defaults.object(forKey: paneGapKey) as? NSNumber)?.doubleValue else {
             return defaultPaneGap
         }
         return value.clamped(to: paneGapRange)

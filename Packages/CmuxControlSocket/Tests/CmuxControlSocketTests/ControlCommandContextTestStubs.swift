@@ -95,7 +95,7 @@ extension ControlCanvasContext {
     ) -> ControlCanvasActionResolution { .tabManagerUnavailable }
     func controlCanvasZoom(
         routing: ControlRoutingSelectors,
-        direction: String
+        direction: ControlCanvasZoomDirection
     ) -> ControlCanvasActionResolution { .tabManagerUnavailable }
 }
 

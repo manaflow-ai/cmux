@@ -44,10 +44,9 @@ public protocol ControlCanvasContext: AnyObject {
         routing: ControlRoutingSelectors
     ) -> ControlCanvasActionResolution
 
-    /// Zooms the canvas viewport for `canvas.zoom`. `direction` is `"in"`,
-    /// `"out"`, or `"reset"` (validated by the coordinator).
+    /// Zooms the canvas viewport for `canvas.zoom`.
     func controlCanvasZoom(
         routing: ControlRoutingSelectors,
-        direction: String
+        direction: ControlCanvasZoomDirection
     ) -> ControlCanvasActionResolution
 }

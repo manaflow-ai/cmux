@@ -148,8 +148,8 @@ extension ControlCommandCoordinator {
 
     /// `canvas.zoom` — step the viewport magnification (`in`/`out`/`reset`).
     func canvasZoom(_ params: [String: JSONValue]) -> ControlCallResult {
-        guard let direction = string(params, "direction"),
-              ["in", "out", "reset"].contains(direction) else {
+        guard let raw = string(params, "direction"),
+              let direction = ControlCanvasZoomDirection(rawValue: raw) else {
             return .err(
                 code: "invalid_params",
                 message: "direction must be in, out, or reset",
