@@ -109,6 +109,32 @@ enum TerminalScrollBarSettings {
     }
 }
 
+enum TerminalCommandHistoryPanelSettings {
+    static let enabledKey = "terminal.commandHistoryPanel"
+    static let defaultEnabled = true
+    static let didChangeNotification = Notification.Name("cmux.terminalCommandHistoryPanelSettingsDidChange")
+
+    static func isEnabled(defaults: UserDefaults = .standard) -> Bool {
+        defaults.object(forKey: enabledKey) as? Bool ?? defaultEnabled
+    }
+
+    static func setEnabled(
+        _ enabled: Bool,
+        defaults: UserDefaults = .standard,
+        notificationCenter: NotificationCenter = .default
+    ) {
+        let wasEnabled = isEnabled(defaults: defaults)
+        defaults.set(enabled, forKey: enabledKey)
+        if wasEnabled != enabled {
+            notifyDidChange(notificationCenter: notificationCenter)
+        }
+    }
+
+    static func notifyDidChange(notificationCenter: NotificationCenter = .default) {
+        notificationCenter.post(name: didChangeNotification, object: nil)
+    }
+}
+
 enum TerminalTextBoxInputSettings {
     static let showOnNewTerminalsKey = "terminal.showTextBoxOnNewTerminals"
     static let focusOnNewTerminalsKey = "terminal.focusTextBoxOnNewTerminals"

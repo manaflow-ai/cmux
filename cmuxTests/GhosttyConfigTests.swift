@@ -5032,6 +5032,148 @@ final class ZshShellIntegrationHandoffTests: XCTestCase {
         XCTAssertTrue(output.contains("133;A;redraw=last;cl=line"), output)
     }
 
+    func testZshPreexecReportsCommandHistoryPayload() throws {
+        let fileManager = FileManager.default
+        let root = fileManager.temporaryDirectory
+            .appendingPathComponent("cmux-zsh-command-history-\(UUID().uuidString)")
+        try fileManager.createDirectory(at: root, withIntermediateDirectories: true)
+        let socketPath = root.appendingPathComponent("cmux-test.sock")
+        let socketFD = try bindUnixSocket(at: socketPath.path)
+        defer {
+            Darwin.close(socketFD)
+            unlink(socketPath.path)
+            try? fileManager.removeItem(at: root)
+        }
+
+        let command = "printf 'hello world'"
+        let payload = Data(command.utf8).base64EncodedString()
+        let output = try runInteractiveZsh(
+            cmuxLoadGhosttyIntegration: false,
+            cmuxLoadShellIntegration: true,
+            command: """
+            _cmux_send_bg() { print -r -- "$1" }
+            _cmux_preexec "\(command)"
+            """,
+            extraEnvironment: [
+                "CMUX_SOCKET_PATH": socketPath.path,
+                "CMUX_TAB_ID": "11111111-1111-1111-1111-111111111111",
+                "CMUX_PANEL_ID": "22222222-2222-2222-2222-222222222222",
+            ]
+        )
+
+        XCTAssertTrue(
+            output.contains("report_command_history --tab=11111111-1111-1111-1111-111111111111 --panel=22222222-2222-2222-2222-222222222222 --encoding=base64 -- \(payload)"),
+            output
+        )
+    }
+
+    func testZshPrecmdReportsCommandHistorySnapshotPayload() throws {
+        let fileManager = FileManager.default
+        let root = fileManager.temporaryDirectory
+            .appendingPathComponent("cmux-zsh-command-history-snapshot-\(UUID().uuidString)")
+        try fileManager.createDirectory(at: root, withIntermediateDirectories: true)
+        let socketPath = root.appendingPathComponent("cmux-test.sock")
+        let socketFD = try bindUnixSocket(at: socketPath.path)
+        defer {
+            Darwin.close(socketFD)
+            unlink(socketPath.path)
+            try? fileManager.removeItem(at: root)
+        }
+
+        let snapshot = "git status\nnpm test"
+        let payload = Data(snapshot.utf8).base64EncodedString()
+        let output = try runInteractiveZsh(
+            cmuxLoadGhosttyIntegration: false,
+            cmuxLoadShellIntegration: true,
+            command: """
+            _cmux_send_bg() { print -r -- "$1" }
+            fc() { print -r -- "git status"; print -r -- "npm test"; }
+            _cmux_report_command_history_snapshot
+            """,
+            extraEnvironment: [
+                "CMUX_SOCKET_PATH": socketPath.path,
+                "CMUX_TAB_ID": "11111111-1111-1111-1111-111111111111",
+                "CMUX_PANEL_ID": "22222222-2222-2222-2222-222222222222",
+            ]
+        )
+
+        XCTAssertTrue(
+            output.contains("report_command_history_snapshot --tab=11111111-1111-1111-1111-111111111111 --panel=22222222-2222-2222-2222-222222222222 --shell=zsh --encoding=base64 -- \(payload)"),
+            output
+        )
+    }
+
+    func testBashPreexecReportsCommandHistoryPayload() throws {
+        let fileManager = FileManager.default
+        let root = fileManager.temporaryDirectory
+            .appendingPathComponent("cmux-bash-command-history-\(UUID().uuidString)")
+        try fileManager.createDirectory(at: root, withIntermediateDirectories: true)
+        let socketPath = root.appendingPathComponent("cmux-test.sock")
+        let socketFD = try bindUnixSocket(at: socketPath.path)
+        defer {
+            Darwin.close(socketFD)
+            unlink(socketPath.path)
+            try? fileManager.removeItem(at: root)
+        }
+
+        let command = "printf 'hello world'"
+        let payload = Data(command.utf8).base64EncodedString()
+        let result = try runInteractiveBash(
+            cmuxLoadShellIntegration: true,
+            command: """
+            _cmux_send_bg() { printf '%s\\n' "$1"; }
+            _cmux_preexec_command "\(command)"
+            """,
+            extraEnvironment: [
+                "CMUX_SOCKET_PATH": socketPath.path,
+                "CMUX_TAB_ID": "11111111-1111-1111-1111-111111111111",
+                "CMUX_PANEL_ID": "22222222-2222-2222-2222-222222222222",
+            ]
+        )
+
+        XCTAssertTrue(
+            result.stdout.contains("report_command_history --tab=11111111-1111-1111-1111-111111111111 --panel=22222222-2222-2222-2222-222222222222 --encoding=base64 -- \(payload)"),
+            result.stdout
+        )
+    }
+
+    func testBashPromptReportsCommandHistorySnapshotPayload() throws {
+        let fileManager = FileManager.default
+        let root = fileManager.temporaryDirectory
+            .appendingPathComponent("cmux-bash-command-history-snapshot-\(UUID().uuidString)")
+        try fileManager.createDirectory(at: root, withIntermediateDirectories: true)
+        let socketPath = root.appendingPathComponent("cmux-test.sock")
+        let socketFD = try bindUnixSocket(at: socketPath.path)
+        defer {
+            Darwin.close(socketFD)
+            unlink(socketPath.path)
+            try? fileManager.removeItem(at: root)
+        }
+
+        let snapshot = "git status\nnpm test"
+        let payload = Data(snapshot.utf8).base64EncodedString()
+        let result = try runInteractiveBash(
+            cmuxLoadShellIntegration: true,
+            command: """
+            _cmux_send_bg() { printf '%s\\n' "$1"; }
+            history -c
+            history -s "git status"
+            history -s "npm test"
+            _cmux_report_command_history_snapshot
+            """,
+            extraEnvironment: [
+                "CMUX_SOCKET_PATH": socketPath.path,
+                "CMUX_TAB_ID": "11111111-1111-1111-1111-111111111111",
+                "CMUX_PANEL_ID": "22222222-2222-2222-2222-222222222222",
+            ]
+        )
+
+        XCTAssertTrue(
+            result.stdout.contains("report_command_history_snapshot --tab=11111111-1111-1111-1111-111111111111 --panel=22222222-2222-2222-2222-222222222222 --shell=bash --encoding=base64 -- \(payload)"),
+            result.stdout
+        )
+    }
+
     func testShellIntegrationWinchGuardDoesNotPrintSpacerLineOnResize() throws {
         let output = try runInteractiveZsh(
             cmuxLoadGhosttyIntegration: false,

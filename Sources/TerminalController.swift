@@ -1657,6 +1657,12 @@ class TerminalController {
         case "report_shell_state":
             return reportShellState(args)
 
+        case "report_command_history":
+            return reportCommandHistory(args)
+
+        case "report_command_history_snapshot":
+            return reportCommandHistorySnapshot(args)
+
         case "report_pr_action":
             return reportPullRequestAction(args)
 
@@ -16599,6 +16605,8 @@ class TerminalController {
           report_tty <tty_name> [--tab=X] [--panel=Y] - Register TTY for batched port scanning
           ports_kick [--tab=X] [--panel=Y] [--reason=command|refresh] - Request batched port scan for panel
           report_shell_state <prompt|running> [--tab=X] [--panel=Y] - Report whether the shell is idle at a prompt or running a command
+          report_command_history --encoding=base64 [--tab=X] [--panel=Y] -- <payload> - Record an executed command for the cmux history menu
+          report_command_history_snapshot --encoding=base64 [--shell=X] [--tab=X] [--panel=Y] -- <payload> - Replace the panel history menu with the shell-native history list
           report_pr_action <merge|close|reopen|create|checkout|ready|edit|view> [--target=X] [--tab=X] [--panel=Y] - Hint that a PR-affecting command completed in the panel
           report_pwd <path> [--tab=X] [--panel=Y] - Report current working directory
           clear_ports [--tab=X] [--panel=Y] - Clear listening ports
@@ -20693,6 +20701,172 @@ class TerminalController {
             tabManager.updateSurfaceShellActivity(tabId: tab.id, surfaceId: surfaceId, state: state)
         }
         return result
+    }
+
+    private func reportCommandHistory(_ args: String) -> String {
+        guard tabManager != nil else { return "ERROR: TabManager not available" }
+        let parsed = parseOptions(args)
+        let usage = "report_command_history --encoding=base64 [--tab=X] [--panel=Y] -- <payload>"
+        let encoding = (parsed.options["encoding"] ?? "base64")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
+        guard encoding == "base64" else {
+            return "ERROR: Unsupported command history encoding '\(encoding)' — usage: \(usage)"
+        }
+        guard let payload = parsed.positional.first, !payload.isEmpty else {
+            return "ERROR: Missing command history payload — usage: \(usage)"
+        }
+        guard let data = Data(base64Encoded: payload),
+              let command = String(data: data, encoding: .utf8) else {
+            return "ERROR: Invalid command history payload — expected base64 UTF-8"
+        }
+        guard !command.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            return "ERROR: Empty command history payload"
+        }
+
+        var result = "OK"
+        v2MainSync {
+            guard let tab = resolveTabForReport(args) else {
+                result = parsed.options["tab"] != nil ? "ERROR: Tab not found" : "ERROR: No tab selected"
+                return
+            }
+
+            let validSurfaceIds = Set(tab.panels.keys)
+            tab.pruneSurfaceMetadata(validSurfaceIds: validSurfaceIds)
+
+            let panelArg = parsed.options["panel"] ?? parsed.options["surface"]
+            let surfaceId: UUID
+            if let panelArg {
+                if panelArg.isEmpty {
+                    result = "ERROR: Missing panel id — usage: \(usage)"
+                    return
+                }
+                guard let parsedId = UUID(uuidString: panelArg) else {
+                    result = "ERROR: Invalid panel id '\(panelArg)'"
+                    return
+                }
+                surfaceId = parsedId
+            } else {
+                guard let focused = tab.focusedPanelId else {
+                    result = "ERROR: Missing panel id (no focused surface)"
+                    return
+                }
+                surfaceId = focused
+            }
+
+            guard validSurfaceIds.contains(surfaceId) else {
+                result = "ERROR: Panel not found '\(surfaceId.uuidString)'"
+                return
+            }
+
+            let cwd = tab.panelDirectories[surfaceId]
+            let recorded = TerminalCommandHistoryStore.shared.record(
+                workspaceId: tab.id,
+                panelId: surfaceId,
+                command: command,
+                cwd: cwd,
+                shell: nil
+            )
+#if DEBUG
+            cmuxDebugLog(
+                "history.record workspace=\(tab.id.uuidString.prefix(5)) panel=\(surfaceId.uuidString.prefix(5)) " +
+                "recorded=\(recorded ? 1 : 0) commandLen=\(command.count)"
+            )
+#endif
+        }
+        return result
+    }
+
+    private func reportCommandHistorySnapshot(_ args: String) -> String {
+        guard tabManager != nil else { return "ERROR: TabManager not available" }
+        let parsed = parseOptions(args)
+        let usage = "report_command_history_snapshot --encoding=base64 [--shell=X] [--tab=X] [--panel=Y] -- <payload>"
+        let encoding = (parsed.options["encoding"] ?? "base64")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
+        guard encoding == "base64" else {
+            return "ERROR: Unsupported command history snapshot encoding '\(encoding)' — usage: \(usage)"
+        }
+        guard let payload = parsed.positional.first, !payload.isEmpty else {
+            return "ERROR: Missing command history snapshot payload — usage: \(usage)"
+        }
+        guard let data = Data(base64Encoded: payload) else {
+            return "ERROR: Invalid command history snapshot payload — expected base64"
+        }
+        let snapshot = String(decoding: data, as: UTF8.self)
+
+        let snapshotEntries = Self.parseCommandHistorySnapshotEntries(snapshot)
+
+        var result = "OK"
+        v2MainSync {
+            guard let tab = resolveTabForReport(args) else {
+                result = parsed.options["tab"] != nil ? "ERROR: Tab not found" : "ERROR: No tab selected"
+                return
+            }
+
+            let validSurfaceIds = Set(tab.panels.keys)
+            tab.pruneSurfaceMetadata(validSurfaceIds: validSurfaceIds)
+
+            let panelArg = parsed.options["panel"] ?? parsed.options["surface"]
+            let surfaceId: UUID
+            if let panelArg {
+                if panelArg.isEmpty {
+                    result = "ERROR: Missing panel id — usage: \(usage)"
+                    return
+                }
+                guard let parsedId = UUID(uuidString: panelArg) else {
+                    result = "ERROR: Invalid panel id '\(panelArg)'"
+                    return
+                }
+                surfaceId = parsedId
+            } else {
+                guard let focused = tab.focusedPanelId else {
+                    result = "ERROR: Missing panel id (no focused surface)"
+                    return
+                }
+                surfaceId = focused
+            }
+
+            guard validSurfaceIds.contains(surfaceId) else {
+                result = "ERROR: Panel not found '\(surfaceId.uuidString)'"
+                return
+            }
+
+            TerminalCommandHistoryStore.shared.replaceShellHistorySnapshot(
+                workspaceId: tab.id,
+                panelId: surfaceId,
+                entries: snapshotEntries,
+                shell: parsed.options["shell"]
+            )
+#if DEBUG
+            cmuxDebugLog(
+                "history.snapshot workspace=\(tab.id.uuidString.prefix(5)) panel=\(surfaceId.uuidString.prefix(5)) " +
+                "commands=\(snapshotEntries.count) shell=\(parsed.options["shell"] ?? "")"
+            )
+#endif
+        }
+        return result
+    }
+
+    private static func parseCommandHistorySnapshotEntries(_ snapshot: String) -> [TerminalCommandHistorySnapshotEntry] {
+        snapshot
+            .split(separator: "\n", omittingEmptySubsequences: true)
+            .compactMap { rawLine in
+                let line = String(rawLine)
+                if let tabIndex = line.firstIndex(of: "\t") {
+                    let timestampText = String(line[..<tabIndex])
+                    let command = String(line[line.index(after: tabIndex)...])
+                    if let timestamp = Double(timestampText),
+                       !command.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                        return TerminalCommandHistorySnapshotEntry(
+                            command: command,
+                            startedAt: Date(timeIntervalSince1970: timestamp)
+                        )
+                    }
+                }
+                guard !line.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return nil }
+                return TerminalCommandHistorySnapshotEntry(command: line)
+            }
     }
 
     private func reportPullRequestAction(_ args: String) -> String {

@@ -90,6 +90,7 @@ extension CmuxSettingsFileStore {
         "workspaceGroups.newWorkspacePlacement",
         "terminal.showScrollBar",
         "terminal.copyOnSelect",
+        "terminal.commandHistoryPanel",
         "terminal.autoResumeAgentSessions",
         "terminal.showTextBoxOnNewTerminals",
         "terminal.focusTextBoxOnNewTerminals",

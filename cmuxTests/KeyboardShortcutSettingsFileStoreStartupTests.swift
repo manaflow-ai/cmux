@@ -1040,6 +1040,62 @@ final class KeyboardShortcutSettingsFileStoreStartupTests: XCTestCase {
         XCTAssertEqual(defaults.object(forKey: key) as? Bool, false)
     }
 
+    func testSettingsFileStoreAppliesTerminalCommandHistoryPanelSettingAndNotification() throws {
+        let defaults = UserDefaults.standard
+        let key = TerminalCommandHistoryPanelSettings.enabledKey
+
+        try preservingDefaults(keys: [
+            key,
+            settingsFileBackupsDefaultsKey,
+            importedManagedDefaultsKey,
+        ]) {
+            defaults.removeObject(forKey: key)
+            defaults.removeObject(forKey: settingsFileBackupsDefaultsKey)
+            defaults.removeObject(forKey: importedManagedDefaultsKey)
+
+            let directoryURL = try makeTemporaryDirectory()
+            defer { try? FileManager.default.removeItem(at: directoryURL) }
+
+            let settingsFileURL = directoryURL.appendingPathComponent("cmux.json", isDirectory: false)
+            try writeSettingsFile(
+                """
+                {
+                  "terminal": {
+                    "commandHistoryPanel": false
+                  }
+                }
+                """,
+                to: settingsFileURL
+            )
+
+            let notificationCenter = NotificationCenter()
+            var notificationCount = 0
+            let observer = notificationCenter.addObserver(
+                forName: TerminalCommandHistoryPanelSettings.didChangeNotification,
+                object: nil,
+                queue: nil
+            ) { _ in
+                notificationCount += 1
+            }
+            defer { notificationCenter.removeObserver(observer) }
+
+            let store = KeyboardShortcutSettingsFileStore(
+                primaryPath: settingsFileURL.path,
+                fallbackPath: nil,
+                additionalFallbackPaths: [],
+                notificationCenter: notificationCenter,
+                startWatching: false
+            )
+
+            XCTAssertEqual(defaults.object(forKey: key) as? Bool, false)
+            XCTAssertEqual(notificationCount, 0)
+
+            store.applyDeferredManagedDefaultSideEffects()
+
+            XCTAssertEqual(notificationCount, 1)
+        }
+    }
+
     func testSettingsFileStoreAppliesTerminalTextBoxMaxLinesSetting() throws {
         let defaults = UserDefaults.standard
         try preservingDefaults(keys: [

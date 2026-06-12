@@ -65,6 +65,32 @@ final class CommandPaletteSettingsToggleTests: XCTestCase {
         }
     }
 
+    func testTerminalCommandHistoryPanelTogglePostsChangeNotification() throws {
+        try withTemporaryDefaults { defaults in
+            let descriptor = try XCTUnwrap(
+                CommandPaletteSettingsToggleCommands.descriptor(
+                    commandId: "palette.toggleSetting.terminalCommandHistoryPanel"
+                )
+            )
+            let notificationCenter = NotificationCenter()
+            var didNotify = false
+            let token = notificationCenter.addObserver(
+                forName: TerminalCommandHistoryPanelSettings.didChangeNotification,
+                object: nil,
+                queue: nil
+            ) { _ in
+                didNotify = true
+            }
+            defer { notificationCenter.removeObserver(token) }
+
+            XCTAssertTrue(descriptor.isOn(defaults))
+            descriptor.toggle(defaults: defaults, notificationCenter: notificationCenter)
+
+            XCTAssertEqual(defaults.object(forKey: TerminalCommandHistoryPanelSettings.enabledKey) as? Bool, false)
+            XCTAssertTrue(didNotify)
+        }
+    }
+
     func testShowMenuBarCommandIsUnavailableWhenMenuBarOnlyIsEnabled() throws {
         try withTemporaryDefaults { defaults in
             let descriptor = try XCTUnwrap(

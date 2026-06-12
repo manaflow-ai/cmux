@@ -16,6 +16,7 @@ public struct TerminalSection: View {
     @State private var fontSaveTask: Task<Void, Never>?
     @State private var scrollBar: DefaultsValueModel<Bool>
     @State private var copyOnSelect: DefaultsValueModel<Bool>
+    @State private var commandHistoryPanel: DefaultsValueModel<Bool>
     @State private var autoResume: DefaultsValueModel<Bool>
     @State private var hibernation: DefaultsValueModel<Bool>
     @State private var idleSeconds: DefaultsValueModel<Double>
@@ -33,6 +34,7 @@ public struct TerminalSection: View {
         _surfaceTabBarFont = State(initialValue: hostActions.surfaceTabBarFontSize())
         _scrollBar = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.terminal.showScrollBar))
         _copyOnSelect = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.terminal.copyOnSelect))
+        _commandHistoryPanel = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.terminal.commandHistoryPanel))
         _autoResume = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.terminal.autoResumeAgentSessions))
         _hibernation = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.terminal.agentHibernationEnabled))
         _idleSeconds = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.terminal.agentHibernationIdleSeconds))
@@ -140,6 +142,19 @@ public struct TerminalSection: View {
                     .labelsHidden()
                     .controlSize(.small)
                     .accessibilityIdentifier("SettingsTerminalScrollBarToggle")
+            }
+            SettingsCardDivider()
+            SettingsCardRow(
+                configurationReview: .json("terminal.commandHistoryPanel"),
+                String(localized: "settings.terminal.commandHistoryPanel", defaultValue: "Command History Panel"),
+                subtitle: commandHistoryPanel.current
+                    ? String(localized: "settings.terminal.commandHistoryPanel.subtitleOn", defaultValue: "Up and Down open a searchable history panel filtered by the command prefix you've typed.")
+                    : String(localized: "settings.terminal.commandHistoryPanel.subtitleOff", defaultValue: "Up and Down are sent directly to the shell, restoring the native command-line history behavior.")
+            ) {
+                Toggle("", isOn: Binding(get: { commandHistoryPanel.current }, set: { commandHistoryPanel.set($0) }))
+                    .labelsHidden()
+                    .controlSize(.small)
+                    .accessibilityIdentifier("SettingsTerminalCommandHistoryPanelToggle")
             }
             SettingsCardDivider()
             SettingsCardRow(

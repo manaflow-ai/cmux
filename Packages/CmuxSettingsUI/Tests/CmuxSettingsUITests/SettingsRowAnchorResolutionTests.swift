@@ -104,6 +104,7 @@ struct SettingsRowAnchorResolutionTests {
         "terminal.agentHibernation.idleSeconds",
         "terminal.agentHibernation.maxLiveTerminals",
         "terminal.autoResumeAgentSessions",
+        "terminal.commandHistoryPanel",
         "terminal.copyOnSelect",
         "terminal.resumeCommands",
         "terminal.focusTextBoxOnNewTerminals",

@@ -756,6 +756,61 @@ _cmux_report_shell_activity_state() {
     _cmux_send_bg "report_shell_state $state --tab=$CMUX_TAB_ID --panel=$CMUX_PANEL_ID"
 }
 
+_cmux_report_command_history() {
+    local cmd="$1"
+    [[ -n "$cmd" ]] || return 0
+    [[ -S "$CMUX_SOCKET_PATH" ]] || return 0
+    [[ -n "$CMUX_TAB_ID" ]] || return 0
+    [[ -n "$CMUX_PANEL_ID" ]] || return 0
+    command -v base64 >/dev/null 2>&1 || return 0
+    local payload
+    payload="$(printf '%s' "$cmd" | base64 | tr -d '\n' 2>/dev/null)" || return 0
+    [[ -n "$payload" ]] || return 0
+    _cmux_send_bg "report_command_history --tab=$CMUX_TAB_ID --panel=$CMUX_PANEL_ID --encoding=base64 -- $payload"
+}
+
+_cmux_report_command_history_snapshot() {
+    [[ -S "$CMUX_SOCKET_PATH" ]] || return 0
+    [[ -n "$CMUX_TAB_ID" ]] || return 0
+    [[ -n "$CMUX_PANEL_ID" ]] || return 0
+    command -v base64 >/dev/null 2>&1 || return 0
+    local LC_ALL=C
+    local LANG=C
+    local limit="${CMUX_HISTORY_SNAPSHOT_LIMIT:-500}"
+    case "$limit" in
+        ''|*[!0-9]*) limit=500 ;;
+    esac
+    (( limit > 0 )) || limit=500
+    local snapshot payload
+    if [[ -n "${HISTFILE:-}" && -r "$HISTFILE" ]]; then
+        snapshot="$(
+            tail -n "$limit" "$HISTFILE" 2>/dev/null | while IFS= read -r line; do
+                if [[ "$line" == ': '*:*';'* ]]; then
+                    local rest="${line#: }"
+                    local timestamp="${rest%%:*}"
+                    local after_timestamp="${rest#*:}"
+                    local command="${after_timestamp#*;}"
+                    case "$timestamp" in
+                        ''|*[!0-9]*)
+                            print -r -- "$line"
+                            ;;
+                        *)
+                            print -r -- "$timestamp	$command"
+                            ;;
+                    esac
+                else
+                    print -r -- "$line"
+                fi
+            done
+        )" || snapshot=""
+    fi
+    [[ -n "$snapshot" ]] || snapshot="$(fc -ln -$limit 2>/dev/null)" || return 0
+    [[ -n "$snapshot" ]] || return 0
+    payload="$(printf '%s' "$snapshot" | base64 | tr -d '\n' 2>/dev/null)" || return 0
+    [[ -n "$payload" ]] || return 0
+    _cmux_send_bg "report_command_history_snapshot --tab=$CMUX_TAB_ID --panel=$CMUX_PANEL_ID --shell=zsh --encoding=base64 -- $payload"
+}
+
 _cmux_reset_terminal_keyboard_protocols() {
     [[ -t 1 || -n "${CMUX_TEST_FORCE_KEYBOARD_RESET:-}${CMUX_TEST_FORCE_KITTY_RESET:-}" ]] || return 0
     # A crashed TUI may leave keyboard protocol state pushed. At a fresh shell
@@ -1585,6 +1640,7 @@ _cmux_preexec() {
     fi
 
     _CMUX_CMD_START="$(_cmux_now)"
+    _cmux_report_command_history "$cmd"
     _cmux_report_shell_activity_state running
     _cmux_record_pr_command_hint "$cmd"
 
@@ -1626,6 +1682,7 @@ _cmux_precmd() {
     if [[ -n "$CMUX_PANEL_ID" ]]; then
         _cmux_reset_terminal_keyboard_protocols
         _cmux_report_shell_activity_state prompt
+        _cmux_report_command_history_snapshot
     fi
 
     if [[ -z "$_CMUX_TTY_NAME" ]]; then

@@ -490,6 +490,7 @@ enum SettingsSearchIndex {
         "sidebar-font-size": settingID(for: .sidebarAppearance, idSuffix: "font-size"),
         "surface-tab-bar-font-size": settingID(for: .terminal, idSuffix: "tab-bar-font-size"),
         "terminal.showScrollBar": settingID(for: .terminal, idSuffix: "scrollbar"),
+        "terminal.commandHistoryPanel": settingID(for: .terminal, idSuffix: "command-history-panel"),
         "terminal.showTextBoxOnNewTerminals": settingID(for: .textBox, idSuffix: "show-textbox-new-terminals"),
         "terminal.focusTextBoxOnNewTerminals": settingID(for: .textBox, idSuffix: "focus-textbox-new-terminals"),
         "terminal.textBoxMaxLines": settingID(for: .textBox, idSuffix: "textbox-max-lines"),

@@ -414,6 +414,32 @@ enum CommandPaletteSettingsToggleCommands {
                 }
             ),
             CommandPaletteSettingToggleDescriptor(
+                commandId: commandIdPrefix + "terminalCommandHistoryPanel",
+                settingsKey: "terminal.commandHistoryPanel",
+                title: {
+                    String(
+                        localized: "settings.terminal.commandHistoryPanel",
+                        defaultValue: "Command History Panel"
+                    )
+                },
+                sectionTitle: terminal,
+                keywords: [
+                    "terminal.commandHistoryPanel",
+                    "terminal",
+                    "history",
+                    "command",
+                    "up",
+                    "down",
+                    "shell",
+                    "prefix",
+                ],
+                defaultValue: TerminalCommandHistoryPanelSettings.defaultEnabled,
+                defaultsKey: TerminalCommandHistoryPanelSettings.enabledKey,
+                didSet: { _, _, notificationCenter in
+                    TerminalCommandHistoryPanelSettings.notifyDidChange(notificationCenter: notificationCenter)
+                }
+            ),
+            CommandPaletteSettingToggleDescriptor(
                 commandId: commandIdPrefix + "autoResumeAgentSessions",
                 settingsKey: "terminal.autoResumeAgentSessions",
                 title: {

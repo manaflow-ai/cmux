@@ -12538,6 +12538,12 @@ final class Workspace: Identifiable, ObservableObject {
         let previousState = panelShellActivityStates[panelId] ?? .unknown
         guard previousState != state else { return }
         panelShellActivityStates[panelId] = state
+        switch state {
+        case .promptIdle:
+            TerminalCommandHistoryStore.shared.markPromptIdle(workspaceId: id, panelId: panelId)
+        case .commandRunning, .unknown:
+            TerminalCommandHistoryStore.shared.markCommandRunning(workspaceId: id, panelId: panelId)
+        }
         if let restoredAgent = restoredAgentSnapshotsByPanelId[panelId] {
             updateRestoredAgentResumeState(
                 panelId: panelId,

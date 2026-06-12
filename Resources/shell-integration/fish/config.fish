@@ -212,6 +212,40 @@ if test "$_cmux_integration_enabled" != 0
         _cmux_send_bg "report_shell_state $state --tab=$CMUX_TAB_ID --panel=$CMUX_PANEL_ID"
     end
 
+    function _cmux_report_command_history --argument-names cmd
+        test -n "$cmd"; or return 0
+        _cmux_socket_is_unix; or return 0
+        test -n "$CMUX_TAB_ID"; or return 0
+        test -n "$CMUX_PANEL_ID"; or return 0
+        command -q base64; or return 0
+        set -l payload (printf '%s' "$cmd" | base64 | string collect | string replace -a (printf '\n') '')
+        test -n "$payload"; or return 0
+        _cmux_send_bg "report_command_history --tab=$CMUX_TAB_ID --panel=$CMUX_PANEL_ID --encoding=base64 -- $payload"
+    end
+
+    function _cmux_report_command_history_snapshot
+        _cmux_socket_is_unix; or return 0
+        test -n "$CMUX_TAB_ID"; or return 0
+        test -n "$CMUX_PANEL_ID"; or return 0
+        command -q base64; or return 0
+        set -l limit 500
+        if set -q CMUX_HISTORY_SNAPSHOT_LIMIT; and string match -qr '^[0-9]+$' -- "$CMUX_HISTORY_SNAPSHOT_LIMIT"; and test "$CMUX_HISTORY_SNAPSHOT_LIMIT" -gt 0
+            set limit "$CMUX_HISTORY_SNAPSHOT_LIMIT"
+        end
+        set -l snapshot
+        if command -q tail
+            set snapshot (history --max=$limit --show-time='%s	' 2>/dev/null | tail -r | string collect)
+            test -n "$snapshot"; or set snapshot (history --max=$limit 2>/dev/null | tail -r | string collect)
+        else
+            set snapshot (history --max=$limit --show-time='%s	' 2>/dev/null | string collect)
+            test -n "$snapshot"; or set snapshot (history --max=$limit 2>/dev/null | string collect)
+        end
+        test -n "$snapshot"; or return 0
+        set -l payload (printf '%s' "$snapshot" | base64 | string collect | string replace -a (printf '\n') '')
+        test -n "$payload"; or return 0
+        _cmux_send_bg "report_command_history_snapshot --tab=$CMUX_TAB_ID --panel=$CMUX_PANEL_ID --shell=fish --encoding=base64 -- $payload"
+    end
+
     function _cmux_reset_terminal_keyboard_protocols
         isatty stdout; or test -n "$CMUX_TEST_FORCE_KEYBOARD_RESET$CMUX_TEST_FORCE_KITTY_RESET"; or return 0
         printf '\033[>m\033[<8u'
@@ -229,8 +263,9 @@ if test "$_cmux_integration_enabled" != 0
         end
     end
 
-    function _cmux_preexec --on-event fish_preexec
+    function _cmux_preexec --on-event fish_preexec --argument-names cmd
         _cmux_report_tty_once
+        _cmux_report_command_history "$cmd"
         _cmux_report_shell_activity_state running
         _cmux_ports_kick command
     end
@@ -239,6 +274,7 @@ if test "$_cmux_integration_enabled" != 0
         _cmux_reset_terminal_keyboard_protocols
         _cmux_report_tty_once
         _cmux_report_shell_activity_state prompt
+        _cmux_report_command_history_snapshot
         set -l now (_cmux_now)
         if test (math "$now - $_CMUX_PORTS_LAST_RUN") -ge 5
             _cmux_ports_kick refresh

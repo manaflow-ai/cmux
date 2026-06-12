@@ -14,6 +14,12 @@ public struct TerminalCatalogSection: SettingCatalogSection {
         userDefaultsKey: "terminal.copyOnSelect"
     )
 
+    public let commandHistoryPanel = DefaultsKey<Bool>(
+        id: "terminal.commandHistoryPanel",
+        defaultValue: true,
+        userDefaultsKey: "terminal.commandHistoryPanel"
+    )
+
     public let autoResumeAgentSessions = DefaultsKey<Bool>(
         id: "terminal.autoResumeAgentSessions",
         defaultValue: true,

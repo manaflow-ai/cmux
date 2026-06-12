@@ -569,6 +569,46 @@ _cmux_report_shell_activity_state() {
     _cmux_send_bg "report_shell_state $state --tab=$CMUX_TAB_ID --panel=$CMUX_PANEL_ID"
 }
 
+_cmux_report_command_history() {
+    local cmd="$1"
+    [[ -n "$cmd" ]] || return 0
+    [[ -S "$CMUX_SOCKET_PATH" ]] || return 0
+    [[ -n "$CMUX_TAB_ID" ]] || return 0
+    [[ -n "$CMUX_PANEL_ID" ]] || return 0
+    command -v base64 >/dev/null 2>&1 || return 0
+    local payload
+    payload="$(printf '%s' "$cmd" | base64 | tr -d '\n' 2>/dev/null)" || return 0
+    [[ -n "$payload" ]] || return 0
+    _cmux_send_bg "report_command_history --tab=$CMUX_TAB_ID --panel=$CMUX_PANEL_ID --encoding=base64 -- $payload"
+}
+
+_cmux_report_command_history_snapshot() {
+    [[ -S "$CMUX_SOCKET_PATH" ]] || return 0
+    [[ -n "$CMUX_TAB_ID" ]] || return 0
+    [[ -n "$CMUX_PANEL_ID" ]] || return 0
+    command -v base64 >/dev/null 2>&1 || return 0
+    local limit="${CMUX_HISTORY_SNAPSHOT_LIMIT:-500}"
+    case "$limit" in
+        ''|*[!0-9]*) limit=500 ;;
+    esac
+    (( limit > 0 )) || limit=500
+    local snapshot payload
+    snapshot="$(
+        HISTTIMEFORMAT=$'%s\t' builtin history "$limit" 2>/dev/null |
+        while IFS= read -r line; do
+            if [[ "$line" =~ ^[[:space:]]*[0-9]+[[:space:]]+([0-9]+)[[:space:]]+(.*)$ ]]; then
+                printf '%s\t%s\n' "${BASH_REMATCH[1]}" "${BASH_REMATCH[2]}"
+            elif [[ "$line" =~ ^[[:space:]]*[0-9]+[[:space:]]+(.*)$ ]]; then
+                printf '%s\n' "${BASH_REMATCH[1]}"
+            fi
+        done
+    )" || return 0
+    [[ -n "$snapshot" ]] || return 0
+    payload="$(printf '%s' "$snapshot" | base64 | tr -d '\n' 2>/dev/null)" || return 0
+    [[ -n "$payload" ]] || return 0
+    _cmux_send_bg "report_command_history_snapshot --tab=$CMUX_TAB_ID --panel=$CMUX_PANEL_ID --shell=bash --encoding=base64 -- $payload"
+}
+
 _cmux_reset_terminal_keyboard_protocols() {
     [[ -t 1 || -n "${CMUX_TEST_FORCE_KEYBOARD_RESET:-}${CMUX_TEST_FORCE_KITTY_RESET:-}" ]] || return 0
     # A crashed TUI may leave keyboard protocol state pushed. At a fresh shell
@@ -1371,6 +1411,7 @@ _cmux_preexec_command() {
     _cmux_socket_is_unix && cmux_has_unix_socket=1
     (( cmux_has_unix_socket )) || _cmux_has_port_scan_transport || return 0
     [[ -n "$CMUX_TAB_ID" ]] || return 0
+    _cmux_report_command_history "$cmd"
     _cmux_record_pr_command_hint "$cmd"
 
     if [[ -z "$_CMUX_TTY_NAME" ]]; then
@@ -1448,6 +1489,7 @@ _cmux_prompt_command() {
     if [[ -n "$CMUX_PANEL_ID" ]]; then
         _cmux_reset_terminal_keyboard_protocols
         _cmux_report_shell_activity_state prompt
+        _cmux_report_command_history_snapshot
     fi
     _cmux_report_tty_once
 

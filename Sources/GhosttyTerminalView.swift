@@ -8341,6 +8341,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     fileprivate private(set) var keyboardCopyModeActive = false
     private var wordPathHoverActive = false
     private var keyboardCopyModeConsumedKeyUps: Set<UInt16> = []
+    private var commandHistoryConsumedKeyUps: Set<UInt16> = []
     private var imeConsumedKeyUps: Set<UInt16> = []
     private var keyboardCopyModeInputState = TerminalKeyboardCopyModeInputState()
     private var keyboardCopyModeCursor: TerminalKeyboardCopyModeCursor?
@@ -9903,6 +9904,11 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         recordKeyLatency(path: "performKeyEquivalent", event: event)
 #endif
 
+        if handleTerminalCommandHistoryKeyIfNeeded(event) {
+            commandHistoryConsumedKeyUps.insert(event.keyCode)
+            return true
+        }
+
 #if DEBUG
         cmuxWriteChildExitProbe(
             [
@@ -10012,6 +10018,235 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         return false
     }
 
+    private func handleTerminalCommandHistoryKeyIfNeeded(_ event: NSEvent) -> Bool {
+        guard TerminalCommandHistoryPanelSettings.isEnabled() else {
+            TerminalCommandHistoryStore.shared.closeMenu()
+            return false
+        }
+
+        guard let key = terminalCommandHistoryKeyEvent(for: event),
+              let terminalSurface else {
+            return false
+        }
+
+        let shellState = terminalCommandHistoryShellState(for: terminalSurface)
+        let historyCount = TerminalCommandHistoryStore.shared
+            .recentCommands(workspaceId: terminalSurface.tabId, panelId: terminalSurface.id)
+            .count
+        let promptPrefix = TerminalCommandHistoryStore.shared.currentPromptInput(
+            workspaceId: terminalSurface.tabId,
+            panelId: terminalSurface.id
+        )
+        let matchingHistoryCount = TerminalCommandHistoryStore.shared
+            .recentCommands(
+                workspaceId: terminalSurface.tabId,
+                panelId: terminalSurface.id,
+                matchingPrefix: promptPrefix ?? ""
+            )
+            .count
+        let cleanPrompt = TerminalCommandHistoryStore.shared.isPromptInputClean(
+            workspaceId: terminalSurface.tabId,
+            panelId: terminalSurface.id
+        )
+        let result = TerminalCommandHistoryStore.shared.handleKey(
+            key,
+            workspaceId: terminalSurface.tabId,
+            panelId: terminalSurface.id,
+            shellState: shellState,
+            hasMarkedText: hasMarkedText(),
+            searchVisible: terminalSurface.searchState != nil,
+            keyboardCopyModeActive: keyboardCopyModeActive,
+            modifierFlags: event.modifierFlags.intersection(.deviceIndependentFlagsMask)
+        )
+#if DEBUG
+        let resultLabel: String = {
+            switch result {
+            case .passThrough:
+                return "passThrough"
+            case .consume:
+                return "consume"
+            case .accept:
+                return "accept"
+            }
+        }()
+        cmuxDebugLog(
+            "history.key key=\(key) result=\(resultLabel) surface=\(terminalSurface.id.uuidString.prefix(5)) " +
+            "shell=\(shellState) clean=\(cleanPrompt ? 1 : 0) count=\(historyCount) " +
+            "prefixLen=\(promptPrefix?.count ?? -1) prefix=\(promptPrefix ?? "<unreliable>") matches=\(matchingHistoryCount) " +
+            "marked=\(hasMarkedText() ? 1 : 0) search=\(terminalSurface.searchState != nil ? 1 : 0) " +
+            "copy=\(keyboardCopyModeActive ? 1 : 0) mods=\(event.modifierFlags.rawValue)"
+        )
+#endif
+
+        switch result {
+        case .passThrough:
+            return false
+        case .consume:
+            return true
+        case .accept(let accepted):
+            sendAcceptedCommandHistoryCommand(accepted, to: terminalSurface)
+            return true
+        }
+    }
+
+    fileprivate func sendAcceptedCommandHistoryCommand(
+        _ accepted: TerminalCommandHistoryAcceptedCommand,
+        to terminalSurface: TerminalSurface
+    ) {
+        unmarkText()
+        let input = accepted.needsInputReplacement
+            ? "\u{15}" + accepted.command + "\r"
+            : accepted.command + "\r"
+        _ = terminalSurface.sendInputResult(input)
+    }
+
+    private func terminalCommandHistoryKeyEvent(for event: NSEvent) -> TerminalCommandHistoryKeyEvent? {
+        switch event.keyCode {
+        case 126:
+            return .up
+        case 125:
+            return .down
+        case 53:
+            return .escape
+        case 36, 76:
+            return .enter
+        default:
+            return nil
+        }
+    }
+
+    private func terminalCommandHistoryShellState(for surface: TerminalSurface) -> Workspace.PanelShellActivityState {
+        let managers = [
+            AppDelegate.shared?.tabManagerFor(tabId: surface.tabId),
+            AppDelegate.shared?.tabManager,
+        ].compactMap { $0 }
+
+        for manager in managers {
+            guard let workspace = manager.tabs.first(where: { $0.id == surface.tabId }) else { continue }
+            return workspace.panelShellActivityStates[surface.id] ?? .unknown
+        }
+        return .unknown
+    }
+
+    private func updateTerminalCommandHistoryPromptInputIfNeeded(_ event: NSEvent) {
+        guard TerminalCommandHistoryPanelSettings.isEnabled() else {
+            return
+        }
+
+        guard let terminalSurface,
+              TerminalCommandHistoryStore.shared.currentPromptInput(
+                workspaceId: terminalSurface.tabId,
+                panelId: terminalSurface.id
+              ) != nil else {
+            return
+        }
+
+        if hasMarkedText() {
+            // IME marked text is preedit state, not committed shell input. Keep
+            // the prompt tracker reliable until insertText commits real text.
+            return
+        }
+
+        let flags = event.modifierFlags
+            .intersection(.deviceIndependentFlagsMask)
+            .subtracting([.numericPad, .function, .capsLock])
+
+        if flags.contains(.command) {
+            let chars = (event.charactersIgnoringModifiers ?? event.characters ?? "").lowercased()
+            if chars == "v" {
+                TerminalCommandHistoryStore.shared.markPromptInputUnreliable(
+                    workspaceId: terminalSurface.tabId,
+                    panelId: terminalSurface.id
+                )
+            }
+            return
+        }
+
+        if flags.contains(.control) || flags.contains(.option) {
+            return
+        }
+
+        switch event.keyCode {
+        case 51:
+            TerminalCommandHistoryStore.shared.deletePromptInputBackward(
+                workspaceId: terminalSurface.tabId,
+                panelId: terminalSurface.id
+            )
+            return
+        case 48, 117, 115, 116, 119, 121, 123, 124, 125, 126:
+            TerminalCommandHistoryStore.shared.markPromptInputUnreliable(
+                workspaceId: terminalSurface.tabId,
+                panelId: terminalSurface.id
+            )
+            return
+        case 36, 53, 76:
+            return
+        default:
+            return
+        }
+    }
+
+    private func appendTerminalCommandHistoryCommittedText(
+        _ text: String,
+        replacementRange: NSRange,
+        markedTextLengthBeforeInsert: Int
+    ) {
+        guard TerminalCommandHistoryPanelSettings.isEnabled() else {
+            return
+        }
+
+        guard let terminalSurface,
+              !text.isEmpty,
+              TerminalCommandHistoryStore.shared.currentPromptInput(
+                workspaceId: terminalSurface.tabId,
+                panelId: terminalSurface.id
+              ) != nil else {
+            return
+        }
+
+        guard Self.shouldTrackTerminalCommandHistoryCommittedText(
+            text,
+            replacementRange: replacementRange,
+            markedTextLengthBeforeInsert: markedTextLengthBeforeInsert
+        ) else {
+            TerminalCommandHistoryStore.shared.markPromptInputUnreliable(
+                workspaceId: terminalSurface.tabId,
+                panelId: terminalSurface.id
+            )
+            return
+        }
+
+        TerminalCommandHistoryStore.shared.appendPromptInputText(
+            text,
+            workspaceId: terminalSurface.tabId,
+            panelId: terminalSurface.id
+        )
+    }
+
+    static func shouldTrackTerminalCommandHistoryCommittedText(
+        _ text: String,
+        replacementRange: NSRange,
+        markedTextLengthBeforeInsert: Int
+    ) -> Bool {
+        guard !text.isEmpty,
+              text.unicodeScalars.allSatisfy({ scalar in
+                  scalar.value >= 0x20 && scalar.value != 0x7F
+              }) else {
+            return false
+        }
+
+        if replacementRange.location == NSNotFound {
+            return true
+        }
+
+        guard markedTextLengthBeforeInsert > 0,
+              replacementRange.location >= 0,
+              replacementRange.length >= 0 else {
+            return false
+        }
+        return NSMaxRange(replacementRange) <= markedTextLengthBeforeInsert
+    }
+
     override func keyDown(with event: NSEvent) {
 #if DEBUG
         let typingTimingStart = CmuxTypingTiming.start()
@@ -10081,6 +10316,10 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             terminalSurface.searchState = nil
             beginFindEscapeSuppression(); return
         }
+        if handleTerminalCommandHistoryKeyIfNeeded(event) {
+            commandHistoryConsumedKeyUps.insert(event.keyCode)
+            return
+        }
 #if DEBUG
         let keyboardCopyModeStart = ProcessInfo.processInfo.systemUptime
 #endif
@@ -10097,6 +10336,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
 #if DEBUG
         recordKeyLatency(path: "keyDown", event: event)
 #endif
+        updateTerminalCommandHistoryPromptInputIfNeeded(event)
 
 #if DEBUG
         cmuxWriteChildExitProbe(
@@ -10514,6 +10754,9 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         }
 
         if keyboardCopyModeConsumedKeyUps.remove(event.keyCode) != nil {
+            return
+        }
+        if commandHistoryConsumedKeyUps.remove(event.keyCode) != nil {
             return
         }
         if imeConsumedKeyUps.remove(event.keyCode) != nil {
@@ -12347,6 +12590,250 @@ private final class TerminalViewportBorderOverlayView: NSView {
     }
 }
 
+private struct TerminalCommandHistoryOverlay: View {
+    let menu: TerminalCommandHistoryMenuState
+    let onSelect: (TerminalCommandHistoryItem) -> Void
+    let onClose: () -> Void
+    @Environment(\.colorScheme) private var colorScheme
+
+    private let rowHeight: CGFloat = 30
+    private let bottomPromptReserve: CGFloat = 62
+
+    var body: some View {
+        GeometryReader { proxy in
+            VStack(spacing: 0) {
+                Spacer(minLength: 0)
+                panelBody
+                    .frame(maxWidth: .infinity)
+                    .frame(height: panelHeight(for: proxy.size))
+                    .padding(.horizontal, 1)
+                    .padding(.bottom, bottomPromptReserve)
+            }
+            .frame(width: proxy.size.width, height: proxy.size.height)
+        }
+        .background(Color.clear)
+        .accessibilityIdentifier("TerminalCommandHistoryMenu")
+    }
+
+    private var panelBody: some View {
+        VStack(spacing: 0) {
+            header
+            Divider().overlay(separatorColor)
+            if menu.items.isEmpty {
+                emptyState
+            } else {
+                ScrollViewReader { proxy in
+                    ScrollView(.vertical) {
+                        LazyVStack(spacing: 0) {
+                            ForEach(Array(menu.items.enumerated()), id: \.element.id) { index, item in
+                                row(item: item, isSelected: index == menu.selectedIndex)
+                                    .id(item.id)
+                            }
+                        }
+                    }
+                    .scrollIndicators(.visible)
+                    .onAppear { scrollSelectionIntoView(proxy) }
+                    .onChange(of: menu.selectedIndex) { _, _ in
+                        scrollSelectionIntoView(proxy)
+                    }
+                }
+            }
+            Divider().overlay(separatorColor)
+            footer
+        }
+        .background(panelBackground)
+        .clipShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
+        .overlay {
+            RoundedRectangle(cornerRadius: 6, style: .continuous)
+                .stroke(borderColor, lineWidth: 1)
+        }
+        .shadow(color: Color.black.opacity(colorScheme == .dark ? 0.30 : 0.14), radius: 18, x: 0, y: -2)
+    }
+
+    private var header: some View {
+        HStack {
+            Text("HISTORY")
+                .font(.system(size: 12, weight: .semibold, design: .monospaced))
+                .foregroundStyle(secondaryTextColor)
+                .tracking(0.8)
+            if !menu.promptPrefix.isEmpty {
+                Text(menu.promptPrefix)
+                    .font(.system(size: 12, weight: .medium, design: .monospaced))
+                    .foregroundStyle(primaryTextColor)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 3)
+                    .background(chipBackground)
+                    .clipShape(RoundedRectangle(cornerRadius: 5, style: .continuous))
+            }
+            Spacer()
+            Button {
+                onClose()
+            } label: {
+                Image(systemName: "xmark.circle.fill")
+                    .font(.system(size: 14, weight: .semibold))
+                    .symbolRenderingMode(.hierarchical)
+                    .foregroundStyle(secondaryTextColor)
+                    .frame(width: 24, height: 24)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .help("Close history")
+            .accessibilityLabel("Close history")
+        }
+        .padding(.leading, 16)
+        .padding(.trailing, 10)
+        .frame(height: 34)
+        .background(headerBackground)
+    }
+
+    private func row(item: TerminalCommandHistoryItem, isSelected: Bool) -> some View {
+        Button {
+            onSelect(item)
+        } label: {
+            HStack(spacing: 10) {
+                Image(systemName: "chevron.right.square.fill")
+                    .font(.system(size: 15, weight: .regular))
+                    .symbolRenderingMode(.hierarchical)
+                    .foregroundStyle(isSelected ? selectedAccentColor : secondaryTextColor)
+                    .frame(width: 18)
+
+                Text(item.command)
+                    .font(.system(size: 16, weight: .regular, design: .monospaced))
+                    .foregroundStyle(primaryTextColor)
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+
+                Spacer(minLength: 16)
+
+                Text(relativeTime(for: item.startedAt))
+                    .font(.system(size: 14, weight: .regular))
+                    .foregroundStyle(isSelected ? secondaryTextColor : tertiaryTextColor)
+                    .lineLimit(1)
+            }
+            .padding(.horizontal, 16)
+            .frame(height: rowHeight)
+            .contentShape(Rectangle())
+            .background(isSelected ? selectedRowBackground : Color.clear)
+        }
+        .buttonStyle(.plain)
+    }
+
+    private var emptyState: some View {
+        VStack(spacing: 6) {
+            Text("No matching history")
+                .font(.system(size: 14, weight: .medium))
+                .foregroundStyle(primaryTextColor)
+            if !menu.promptPrefix.isEmpty {
+                Text("No command starts with \"\(menu.promptPrefix)\"")
+                    .font(.system(size: 12))
+                    .foregroundStyle(secondaryTextColor)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+            }
+        }
+        .frame(maxWidth: .infinity)
+        .frame(height: 82)
+    }
+
+    private var footer: some View {
+        HStack(spacing: 8) {
+            keycap("↑")
+            keycap("↓")
+            Text("to navigate")
+                .foregroundStyle(secondaryTextColor)
+            keycap("esc")
+                .padding(.leading, 10)
+            Text("to dismiss")
+                .foregroundStyle(secondaryTextColor)
+            Spacer()
+        }
+        .font(.system(size: 13, weight: .medium))
+        .padding(.horizontal, 16)
+        .frame(height: 36)
+        .background(headerBackground)
+    }
+
+    private func keycap(_ text: String) -> some View {
+        Text(text)
+            .font(.system(size: 12, weight: .bold, design: .rounded))
+            .foregroundStyle(primaryTextColor)
+            .padding(.horizontal, text.count > 1 ? 7 : 6)
+            .frame(height: 22)
+            .background(keycapBackground)
+            .clipShape(RoundedRectangle(cornerRadius: 5, style: .continuous))
+    }
+
+    private func panelHeight(for size: CGSize) -> CGFloat {
+        let listHeight = menu.items.isEmpty ? 82 : CGFloat(min(menu.items.count, 10)) * rowHeight
+        let desired = 34 + listHeight + 36
+        let available = max(132, size.height - bottomPromptReserve - 18)
+        return min(max(160, desired), min(390, available))
+    }
+
+    private func scrollSelectionIntoView(_ proxy: ScrollViewProxy) {
+        guard let selected = menu.selectedItem else { return }
+        DispatchQueue.main.async {
+            withAnimation(.easeOut(duration: 0.12)) {
+                proxy.scrollTo(selected.id, anchor: .center)
+            }
+        }
+    }
+
+    private var panelBackground: Color {
+        Color(nsColor: colorScheme == .dark ? .windowBackgroundColor : .controlBackgroundColor)
+            .opacity(colorScheme == .dark ? 0.97 : 0.98)
+    }
+
+    private var headerBackground: Color {
+        Color(nsColor: .separatorColor)
+            .opacity(colorScheme == .dark ? 0.10 : 0.07)
+    }
+
+    private var selectedRowBackground: Color {
+        Color.accentColor.opacity(colorScheme == .dark ? 0.24 : 0.16)
+    }
+
+    private var selectedAccentColor: Color {
+        Color.accentColor.opacity(colorScheme == .dark ? 0.95 : 0.85)
+    }
+
+    private var chipBackground: Color {
+        Color.accentColor.opacity(colorScheme == .dark ? 0.18 : 0.10)
+    }
+
+    private var keycapBackground: Color {
+        Color(nsColor: .separatorColor).opacity(colorScheme == .dark ? 0.28 : 0.20)
+    }
+
+    private var borderColor: Color {
+        Color(nsColor: .separatorColor).opacity(colorScheme == .dark ? 0.65 : 0.85)
+    }
+
+    private var separatorColor: Color {
+        Color(nsColor: .separatorColor).opacity(colorScheme == .dark ? 0.72 : 0.90)
+    }
+
+    private var primaryTextColor: Color {
+        Color(nsColor: .labelColor)
+    }
+
+    private var secondaryTextColor: Color {
+        Color(nsColor: .secondaryLabelColor)
+    }
+
+    private var tertiaryTextColor: Color {
+        Color(nsColor: .tertiaryLabelColor)
+    }
+
+    private func relativeTime(for date: Date) -> String {
+        let formatter = RelativeDateTimeFormatter()
+        formatter.unitsStyle = .full
+        return formatter.localizedString(for: date, relativeTo: Date())
+    }
+}
+
 final class GhosttySurfaceScrollView: NSView {
     enum FlashStyle {
         case navigation
@@ -12415,6 +12902,8 @@ final class GhosttySurfaceScrollView: NSView {
     private let imageTransferIndicatorSpinner: NSProgressIndicator
     private let imageTransferCancelButton: NSButton
     private var searchOverlayHostingView: NSHostingView<SurfaceSearchOverlay>?
+    private var commandHistoryOverlayHostingView: NSHostingView<TerminalCommandHistoryOverlay>?
+    private var commandHistoryOverlayCancellable: AnyCancellable?
     private var deferredSearchOverlayMutationWorkItem: DispatchWorkItem?
     private var imageTransferIndicatorShowWorkItem: DispatchWorkItem?
     private var activeImageTransferOperation: TerminalImageTransferOperation?
@@ -12960,6 +13449,27 @@ final class GhosttySurfaceScrollView: NSView {
             self?.handleTerminalScrollBarPreferenceChange()
         })
 
+        observers.append(NotificationCenter.default.addObserver(
+            forName: TerminalCommandHistoryPanelSettings.didChangeNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            self?.handleTerminalCommandHistoryPanelPreferenceChange()
+        })
+
+        observers.append(NotificationCenter.default.addObserver(
+            forName: UserDefaults.didChangeNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            self?.handleTerminalCommandHistoryPanelPreferenceChange()
+        })
+
+        commandHistoryOverlayCancellable = TerminalCommandHistoryStore.shared.$activeMenu
+            .receive(on: RunLoop.main)
+            .sink { [weak self] _ in
+                self?.syncCommandHistoryOverlay()
+            }
     }
 
     required init?(coder: NSCoder) {
@@ -12977,6 +13487,7 @@ final class GhosttySurfaceScrollView: NSView {
         observers.forEach { NotificationCenter.default.removeObserver($0) }
         windowObservers.forEach { NotificationCenter.default.removeObserver($0) }
         deferredSearchOverlayMutationWorkItem?.cancel()
+        commandHistoryOverlayCancellable?.cancel()
         imageTransferIndicatorShowWorkItem?.cancel()
         dropZoneOverlayView.removeFromSuperview()
         cancelFocusRequest()
@@ -13111,6 +13622,9 @@ final class GhosttySurfaceScrollView: NSView {
         _ = setFrameIfNeeded(notificationRingOverlayView, to: bounds)
         _ = setFrameIfNeeded(flashOverlayView, to: bounds)
         if let overlay = searchOverlayHostingView {
+            _ = setFrameIfNeeded(overlay, to: bounds)
+        }
+        if let overlay = commandHistoryOverlayHostingView {
             _ = setFrameIfNeeded(overlay, to: bounds)
         }
         bringPaneDropTargetToFrontIfNeeded()
@@ -13757,6 +14271,71 @@ final class GhosttySurfaceScrollView: NSView {
                 generation: mutationGeneration,
                 force: true
             )
+        }
+    }
+
+    private func syncCommandHistoryOverlay() {
+        if !Thread.isMainThread {
+            DispatchQueue.main.async { [weak self] in
+                self?.syncCommandHistoryOverlay()
+            }
+            return
+        }
+
+        guard TerminalCommandHistoryPanelSettings.isEnabled(),
+              let terminalSurface = surfaceView.terminalSurface,
+              let menu = TerminalCommandHistoryStore.shared.activeMenu,
+              menu.matches(workspaceId: terminalSurface.tabId, panelId: terminalSurface.id) else {
+            commandHistoryOverlayHostingView?.removeFromSuperview()
+            commandHistoryOverlayHostingView = nil
+            return
+        }
+
+        let rootView = TerminalCommandHistoryOverlay(
+            menu: menu,
+            onSelect: { [weak self] item in
+                guard let terminalSurface = self?.surfaceView.terminalSurface,
+                      terminalSurface.tabId == menu.workspaceId,
+                      terminalSurface.id == menu.panelId else {
+                    TerminalCommandHistoryStore.shared.closeMenu()
+                    return
+                }
+                let accepted = TerminalCommandHistoryStore.shared.accept(item: item)
+                self?.surfaceView.sendAcceptedCommandHistoryCommand(accepted, to: terminalSurface)
+            },
+            onClose: {
+                TerminalCommandHistoryStore.shared.closeMenu()
+            }
+        )
+
+        if let overlay = commandHistoryOverlayHostingView {
+            overlay.rootView = rootView
+            if overlay.superview !== self {
+                overlay.removeFromSuperview()
+                overlay.frame = bounds
+                overlay.autoresizingMask = [.width, .height]
+                addSubview(overlay, positioned: .above, relativeTo: nil)
+            }
+            _ = setFrameIfNeeded(overlay, to: bounds)
+            return
+        }
+
+        let overlay = NSHostingView(rootView: rootView)
+        overlay.frame = bounds
+        overlay.autoresizingMask = [.width, .height]
+        overlay.wantsLayer = true
+        overlay.layer?.backgroundColor = NSColor.clear.cgColor
+        commandHistoryOverlayHostingView = overlay
+        addSubview(overlay, positioned: .above, relativeTo: nil)
+        _ = setFrameIfNeeded(overlay, to: bounds)
+    }
+
+    private func handleTerminalCommandHistoryPanelPreferenceChange() {
+        if TerminalCommandHistoryPanelSettings.isEnabled() {
+            syncCommandHistoryOverlay()
+        } else {
+            TerminalCommandHistoryStore.shared.closeMenu()
+            syncCommandHistoryOverlay()
         }
     }
 
@@ -15794,6 +16373,7 @@ extension GhosttyNSView: NSTextInputClient {
             return
         }
         markedSelectedRange = normalizedMarkedSelectionRange(selectedRange, markedLength: markedText.length)
+        previewTerminalCommandHistoryMarkedTextIfNeeded()
 
         // If we're not in a keyDown event, sync preedit immediately.
         // This can happen due to external events like changing keyboard layouts
@@ -15802,6 +16382,29 @@ extension GhosttyNSView: NSTextInputClient {
             syncPreedit()
             invalidateTextInputCoordinates(selectionChanged: true)
         }
+    }
+
+    private func previewTerminalCommandHistoryMarkedTextIfNeeded() {
+        guard TerminalCommandHistoryPanelSettings.isEnabled(),
+              let terminalSurface,
+              !markedText.string.isEmpty,
+              TerminalCommandHistoryStore.shared.currentPromptInput(
+                workspaceId: terminalSurface.tabId,
+                panelId: terminalSurface.id
+              ) != nil,
+              Self.shouldTrackTerminalCommandHistoryCommittedText(
+                markedText.string,
+                replacementRange: NSRange(location: NSNotFound, length: 0),
+                markedTextLengthBeforeInsert: 0
+              ) else {
+            return
+        }
+
+        TerminalCommandHistoryStore.shared.previewPromptInputText(
+            markedText.string,
+            workspaceId: terminalSurface.tabId,
+            panelId: terminalSurface.id
+        )
     }
 
     func unmarkText() {
@@ -15981,6 +16584,8 @@ extension GhosttyNSView: NSTextInputClient {
             return
         }
 
+        let markedTextLengthBeforeInsert = markedText.length
+
         // Clear marked text since we're inserting
         unmarkText()
 
@@ -16000,6 +16605,11 @@ extension GhosttyNSView: NSTextInputClient {
 
         // If we have an accumulator, we're in a keyDown event - accumulate the text
         if keyTextAccumulator != nil {
+            appendTerminalCommandHistoryCommittedText(
+                chars,
+                replacementRange: replacementRange,
+                markedTextLengthBeforeInsert: markedTextLengthBeforeInsert
+            )
             keyTextAccumulator?.append(chars)
             return
         }
@@ -16026,6 +16636,11 @@ extension GhosttyNSView: NSTextInputClient {
         guard !sanitizedChars.isEmpty else { return }
 
         // Otherwise send directly to the terminal
+        appendTerminalCommandHistoryCommittedText(
+            sanitizedChars,
+            replacementRange: replacementRange,
+            markedTextLengthBeforeInsert: markedTextLengthBeforeInsert
+        )
         recordDirectAgentHibernationTerminalInput()
         sendTextToSurface(
             sanitizedChars,

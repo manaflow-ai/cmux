@@ -555,6 +555,12 @@ final class CmuxSettingsFileStore {
             logInvalid("terminal.copyOnSelect", sourcePath: sourcePath)
         }
 
+        if let value = jsonBool(section["commandHistoryPanel"]) {
+            snapshot.managedUserDefaults[TerminalCommandHistoryPanelSettings.enabledKey] = .bool(value)
+        } else if section.keys.contains("commandHistoryPanel") {
+            logInvalid("terminal.commandHistoryPanel", sourcePath: sourcePath)
+        }
+
         if let value = jsonBool(section["autoResumeAgentSessions"]) {
             snapshot.managedUserDefaults[AgentSessionAutoResumeSettings.autoResumeAgentSessionsKey] = .bool(value)
         } else if section.keys.contains("autoResumeAgentSessions") {
@@ -1671,6 +1677,10 @@ final class CmuxSettingsFileStore {
 
                 if change.defaultsKey == TerminalCopyOnSelectSettings.copyOnSelectKey {
                     TerminalCopyOnSelectSettings.notifyDidChange(notificationCenter: notificationCenter)
+                }
+
+                if change.defaultsKey == TerminalCommandHistoryPanelSettings.enabledKey {
+                    TerminalCommandHistoryPanelSettings.notifyDidChange(notificationCenter: notificationCenter)
                 }
 
                 if change.defaultsKey == AgentSessionAutoResumeSettings.autoResumeAgentSessionsKey {

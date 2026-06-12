@@ -140,6 +140,551 @@ final class TerminalControllerSocketSecurityTests: XCTestCase {
 #endif
     }
 
+    func testTerminalCommandHistoryStoreRecordsDedupesAndCapsPerPanel() throws {
+        let workspaceId = UUID()
+        let firstPanelId = UUID()
+        let secondPanelId = UUID()
+        let store = TerminalCommandHistoryStore(maxEntriesPerPanel: 3)
+
+        XCTAssertFalse(store.record(workspaceId: workspaceId, panelId: firstPanelId, command: "   "))
+        XCTAssertTrue(store.record(workspaceId: workspaceId, panelId: firstPanelId, command: " pwd "))
+        XCTAssertFalse(store.record(workspaceId: workspaceId, panelId: firstPanelId, command: "pwd"))
+        XCTAssertTrue(store.record(workspaceId: workspaceId, panelId: secondPanelId, command: "echo other"))
+        XCTAssertTrue(store.record(workspaceId: workspaceId, panelId: firstPanelId, command: "echo one"))
+        XCTAssertTrue(store.record(workspaceId: workspaceId, panelId: firstPanelId, command: "echo two"))
+        XCTAssertTrue(store.record(workspaceId: workspaceId, panelId: firstPanelId, command: "echo three"))
+
+        XCTAssertEqual(
+            store.recentCommands(workspaceId: workspaceId, panelId: firstPanelId).map(\.command),
+            ["echo three", "echo two", "echo one"]
+        )
+        XCTAssertEqual(
+            store.recentCommands(workspaceId: workspaceId, panelId: secondPanelId).map(\.command),
+            ["echo other"]
+        )
+    }
+
+    func testTerminalCommandHistoryUsesShellSnapshotAndPromptPrefix() throws {
+        let workspaceId = UUID()
+        let panelId = UUID()
+        let store = TerminalCommandHistoryStore(maxEntriesPerPanel: 5)
+
+        store.replaceShellHistorySnapshot(
+            workspaceId: workspaceId,
+            panelId: panelId,
+            commands: [
+                "ls",
+                "git status",
+                "npm run build",
+                "pwd",
+                "git status",
+                "git switch main",
+                "git status --short",
+            ],
+            shell: "zsh"
+        )
+        store.markPromptIdle(workspaceId: workspaceId, panelId: panelId)
+        store.appendPromptInputText("git", workspaceId: workspaceId, panelId: panelId)
+
+        XCTAssertEqual(
+            store.handleKey(
+                .up,
+                workspaceId: workspaceId,
+                panelId: panelId,
+                shellState: .promptIdle,
+                hasMarkedText: false,
+                searchVisible: false,
+                keyboardCopyModeActive: false,
+                modifierFlags: []
+            ),
+            .consume
+        )
+        XCTAssertEqual(
+            store.activeMenu?.items.map(\.command),
+            ["git status --short", "git switch main", "git status"]
+        )
+        XCTAssertEqual(store.activeMenu?.promptPrefix, "git")
+
+        XCTAssertEqual(
+            store.handleKey(
+                .enter,
+                workspaceId: workspaceId,
+                panelId: panelId,
+                shellState: .promptIdle,
+                hasMarkedText: false,
+                searchVisible: false,
+                keyboardCopyModeActive: false,
+                modifierFlags: []
+            ),
+            .accept(
+                TerminalCommandHistoryAcceptedCommand(
+                    command: "git status --short",
+                    replacementPrefix: "git"
+                )
+            )
+        )
+    }
+
+    func testTerminalCommandHistoryFiltersByTypedPrefixCharacters() throws {
+        let workspaceId = UUID()
+        let panelId = UUID()
+        let store = TerminalCommandHistoryStore()
+
+        store.replaceShellHistorySnapshot(
+            workspaceId: workspaceId,
+            panelId: panelId,
+            commands: ["ls", "pwd", "printf test", "pnpm install"],
+            shell: "zsh"
+        )
+        store.markPromptIdle(workspaceId: workspaceId, panelId: panelId)
+        store.appendPromptInputText("pw", workspaceId: workspaceId, panelId: panelId)
+
+        XCTAssertEqual(store.activeMenu?.promptPrefix, "pw")
+        XCTAssertEqual(store.activeMenu?.items.map(\.command), ["pwd"])
+
+        store.closeMenu()
+        XCTAssertEqual(
+            store.handleKey(
+                .up,
+                workspaceId: workspaceId,
+                panelId: panelId,
+                shellState: .promptIdle,
+                hasMarkedText: false,
+                searchVisible: false,
+                keyboardCopyModeActive: false,
+                modifierFlags: []
+            ),
+            .consume
+        )
+        XCTAssertEqual(store.activeMenu?.promptPrefix, "pw")
+        XCTAssertEqual(store.activeMenu?.items.map(\.command), ["pwd"])
+    }
+
+    func testTerminalCommandHistoryTracksPrintableIMECommitReplacingMarkedText() throws {
+        XCTAssertTrue(
+            GhosttyNSView.shouldTrackTerminalCommandHistoryCommittedText(
+                "pw",
+                replacementRange: NSRange(location: 0, length: 2),
+                markedTextLengthBeforeInsert: 2
+            )
+        )
+
+        XCTAssertFalse(
+            GhosttyNSView.shouldTrackTerminalCommandHistoryCommittedText(
+                "pw",
+                replacementRange: NSRange(location: 0, length: 2),
+                markedTextLengthBeforeInsert: 0
+            )
+        )
+
+        XCTAssertFalse(
+            GhosttyNSView.shouldTrackTerminalCommandHistoryCommittedText(
+                "\u{1b}",
+                replacementRange: NSRange(location: NSNotFound, length: 0),
+                markedTextLengthBeforeInsert: 0
+            )
+        )
+    }
+
+    func testTerminalCommandHistoryPreviewsIMEPreeditPrefixWithoutCommittingIt() throws {
+        let workspaceId = UUID()
+        let panelId = UUID()
+        let store = TerminalCommandHistoryStore()
+
+        store.replaceShellHistorySnapshot(
+            workspaceId: workspaceId,
+            panelId: panelId,
+            commands: ["ls", "pwd", "printf test"],
+            shell: "zsh"
+        )
+        store.markPromptIdle(workspaceId: workspaceId, panelId: panelId)
+        store.previewPromptInputText("pw", workspaceId: workspaceId, panelId: panelId)
+
+        XCTAssertEqual(store.currentPromptInput(workspaceId: workspaceId, panelId: panelId), "")
+        XCTAssertEqual(store.activeMenu?.promptPrefix, "pw")
+        XCTAssertEqual(store.activeMenu?.items.map(\.command), ["pwd"])
+    }
+
+    func testTerminalCommandHistorySnapshotPreservesRecordedExecutionTime() throws {
+        let workspaceId = UUID()
+        let panelId = UUID()
+        let store = TerminalCommandHistoryStore()
+        let executedAt = Date(timeIntervalSince1970: 1_700_000_000)
+        let capturedAt = Date(timeIntervalSince1970: 1_800_000_000)
+
+        XCTAssertTrue(
+            store.record(
+                workspaceId: workspaceId,
+                panelId: panelId,
+                command: "pwd",
+                startedAt: executedAt
+            )
+        )
+        store.replaceShellHistorySnapshot(
+            workspaceId: workspaceId,
+            panelId: panelId,
+            commands: ["ls", "pwd"],
+            shell: "zsh",
+            capturedAt: capturedAt
+        )
+
+        let items = store.recentCommands(workspaceId: workspaceId, panelId: panelId)
+        XCTAssertEqual(items.first(where: { $0.command == "pwd" })?.startedAt, executedAt)
+        XCTAssertEqual(items.first(where: { $0.command == "ls" })?.startedAt, capturedAt)
+    }
+
+    func testTerminalCommandHistoryKeyPolicyOnlyConsumesTrackablePromptArrows() throws {
+        let workspaceId = UUID()
+        let panelId = UUID()
+        let store = TerminalCommandHistoryStore()
+        XCTAssertTrue(store.record(workspaceId: workspaceId, panelId: panelId, command: "ls -la"))
+        store.markPromptIdle(workspaceId: workspaceId, panelId: panelId)
+
+        XCTAssertEqual(
+            store.handleKey(
+                .up,
+                workspaceId: workspaceId,
+                panelId: panelId,
+                shellState: .promptIdle,
+                hasMarkedText: false,
+                searchVisible: false,
+                keyboardCopyModeActive: false,
+                modifierFlags: []
+            ),
+            .consume
+        )
+        XCTAssertEqual(store.activeMenu?.selectedItem?.command, "ls -la")
+
+        store.closeMenu()
+        store.markPromptIdle(workspaceId: workspaceId, panelId: panelId)
+        XCTAssertEqual(
+            store.handleKey(
+                .up,
+                workspaceId: workspaceId,
+                panelId: panelId,
+                shellState: .promptIdle,
+                hasMarkedText: false,
+                searchVisible: false,
+                keyboardCopyModeActive: false,
+                modifierFlags: [.function, .numericPad]
+            ),
+            .consume
+        )
+
+        store.closeMenu()
+        store.markPromptInputUnreliable(workspaceId: workspaceId, panelId: panelId)
+        XCTAssertEqual(
+            store.handleKey(
+                .up,
+                workspaceId: workspaceId,
+                panelId: panelId,
+                shellState: .promptIdle,
+                hasMarkedText: false,
+                searchVisible: false,
+                keyboardCopyModeActive: false,
+                modifierFlags: []
+            ),
+            .consume
+        )
+        XCTAssertEqual(store.activeMenu?.selectedItem?.command, "ls -la")
+
+        store.closeMenu()
+        store.markPromptIdle(workspaceId: workspaceId, panelId: panelId)
+        store.appendPromptInputText("ls", workspaceId: workspaceId, panelId: panelId)
+        XCTAssertEqual(
+            store.handleKey(
+                .up,
+                workspaceId: workspaceId,
+                panelId: panelId,
+                shellState: .promptIdle,
+                hasMarkedText: false,
+                searchVisible: false,
+                keyboardCopyModeActive: false,
+                modifierFlags: []
+            ),
+            .consume
+        )
+        XCTAssertEqual(store.activeMenu?.selectedItem?.command, "ls -la")
+
+        store.closeMenu()
+        store.markPromptIdle(workspaceId: workspaceId, panelId: panelId)
+        XCTAssertEqual(
+            store.handleKey(
+                .down,
+                workspaceId: workspaceId,
+                panelId: panelId,
+                shellState: .promptIdle,
+                hasMarkedText: false,
+                searchVisible: false,
+                keyboardCopyModeActive: false,
+                modifierFlags: []
+            ),
+            .consume
+        )
+        XCTAssertEqual(store.activeMenu?.selectedItem?.command, "ls -la")
+
+        store.closeMenu()
+        store.markPromptIdle(workspaceId: workspaceId, panelId: panelId)
+        store.appendPromptInputText("no-match", workspaceId: workspaceId, panelId: panelId)
+        XCTAssertEqual(
+            store.handleKey(
+                .up,
+                workspaceId: workspaceId,
+                panelId: panelId,
+                shellState: .promptIdle,
+                hasMarkedText: false,
+                searchVisible: false,
+                keyboardCopyModeActive: false,
+                modifierFlags: []
+            ),
+            .consume
+        )
+        XCTAssertEqual(store.activeMenu?.items.map(\.command), [])
+
+        store.closeMenu()
+        store.markPromptIdle(workspaceId: workspaceId, panelId: panelId)
+        XCTAssertEqual(
+            store.handleKey(
+                .up,
+                workspaceId: workspaceId,
+                panelId: panelId,
+                shellState: .commandRunning,
+                hasMarkedText: false,
+                searchVisible: false,
+                keyboardCopyModeActive: false,
+                modifierFlags: []
+            ),
+            .passThrough
+        )
+        XCTAssertEqual(
+            store.handleKey(
+                .up,
+                workspaceId: workspaceId,
+                panelId: panelId,
+                shellState: .promptIdle,
+                hasMarkedText: true,
+                searchVisible: false,
+                keyboardCopyModeActive: false,
+                modifierFlags: []
+            ),
+            .passThrough
+        )
+        XCTAssertEqual(
+            store.handleKey(
+                .up,
+                workspaceId: workspaceId,
+                panelId: panelId,
+                shellState: .promptIdle,
+                hasMarkedText: false,
+                searchVisible: true,
+                keyboardCopyModeActive: false,
+                modifierFlags: []
+            ),
+            .passThrough
+        )
+        XCTAssertEqual(
+            store.handleKey(
+                .up,
+                workspaceId: workspaceId,
+                panelId: panelId,
+                shellState: .promptIdle,
+                hasMarkedText: false,
+                searchVisible: false,
+                keyboardCopyModeActive: true,
+                modifierFlags: []
+            ),
+            .passThrough
+        )
+        XCTAssertEqual(
+            store.handleKey(
+                .up,
+                workspaceId: workspaceId,
+                panelId: panelId,
+                shellState: .promptIdle,
+                hasMarkedText: false,
+                searchVisible: false,
+                keyboardCopyModeActive: false,
+                modifierFlags: [.shift]
+            ),
+            .passThrough
+        )
+    }
+
+    func testTerminalCommandHistoryMenuNavigationAndAccept() throws {
+        let workspaceId = UUID()
+        let panelId = UUID()
+        let store = TerminalCommandHistoryStore()
+        XCTAssertTrue(store.record(workspaceId: workspaceId, panelId: panelId, command: "first"))
+        XCTAssertTrue(store.record(workspaceId: workspaceId, panelId: panelId, command: "second"))
+        store.markPromptIdle(workspaceId: workspaceId, panelId: panelId)
+
+        XCTAssertEqual(
+            store.handleKey(
+                .up,
+                workspaceId: workspaceId,
+                panelId: panelId,
+                shellState: .promptIdle,
+                hasMarkedText: false,
+                searchVisible: false,
+                keyboardCopyModeActive: false,
+                modifierFlags: []
+            ),
+            .consume
+        )
+        XCTAssertEqual(store.activeMenu?.selectedItem?.command, "second")
+
+        XCTAssertEqual(
+            store.handleKey(
+                .down,
+                workspaceId: workspaceId,
+                panelId: panelId,
+                shellState: .promptIdle,
+                hasMarkedText: false,
+                searchVisible: false,
+                keyboardCopyModeActive: false,
+                modifierFlags: []
+            ),
+            .consume
+        )
+        XCTAssertEqual(store.activeMenu?.selectedItem?.command, "first")
+
+        XCTAssertEqual(
+            store.handleKey(
+                .down,
+                workspaceId: workspaceId,
+                panelId: panelId,
+                shellState: .promptIdle,
+                hasMarkedText: false,
+                searchVisible: false,
+                keyboardCopyModeActive: false,
+                modifierFlags: []
+            ),
+            .consume
+        )
+        XCTAssertEqual(store.activeMenu?.selectedItem?.command, "first")
+
+        XCTAssertEqual(
+            store.handleKey(
+                .enter,
+                workspaceId: workspaceId,
+                panelId: panelId,
+                shellState: .promptIdle,
+                hasMarkedText: false,
+                searchVisible: false,
+                keyboardCopyModeActive: false,
+                modifierFlags: []
+            ),
+            .accept(
+                TerminalCommandHistoryAcceptedCommand(
+                    command: "first",
+                    replacementPrefix: ""
+                )
+            )
+        )
+        XCTAssertNil(store.activeMenu)
+    }
+
+    func testReportCommandHistoryDecodesBase64AndStoresForPanel() throws {
+        let tabManager = TabManager()
+        let workspace = tabManager.addWorkspace(select: true, eagerLoadTerminal: false)
+        let panelId = try XCTUnwrap(workspace.focusedPanelId)
+        let command = "printf 'hello world'\\nprintf done"
+        let payload = Data(command.utf8).base64EncodedString()
+        TerminalCommandHistoryStore.shared.removeAll()
+        TerminalController.shared.setActiveTabManager(tabManager)
+        defer {
+            TerminalController.shared.setActiveTabManager(nil)
+            TerminalCommandHistoryStore.shared.removeAll()
+        }
+
+        let response = TerminalController.shared.handleSocketLine(
+            "report_command_history --tab=\(workspace.id.uuidString) --panel=\(panelId.uuidString) --encoding=base64 -- \(payload)"
+        )
+
+        XCTAssertEqual(response, "OK")
+        XCTAssertEqual(
+            TerminalCommandHistoryStore.shared.recentCommands(workspaceId: workspace.id, panelId: panelId).map(\.command),
+            [command]
+        )
+    }
+
+    func testReportCommandHistoryRejectsInvalidPayloadAndPanel() throws {
+        let tabManager = TabManager()
+        let workspace = tabManager.addWorkspace(select: true, eagerLoadTerminal: false)
+        TerminalCommandHistoryStore.shared.removeAll()
+        TerminalController.shared.setActiveTabManager(tabManager)
+        defer {
+            TerminalController.shared.setActiveTabManager(nil)
+            TerminalCommandHistoryStore.shared.removeAll()
+        }
+
+        let invalidPayload = TerminalController.shared.handleSocketLine(
+            "report_command_history --tab=\(workspace.id.uuidString) --panel=\(try XCTUnwrap(workspace.focusedPanelId).uuidString) --encoding=base64 -- !!!"
+        )
+        XCTAssertTrue(invalidPayload.hasPrefix("ERROR: Invalid command history payload"), invalidPayload)
+
+        let unknownPanel = TerminalController.shared.handleSocketLine(
+            "report_command_history --tab=\(workspace.id.uuidString) --panel=\(UUID().uuidString) --encoding=base64 -- \(Data("pwd".utf8).base64EncodedString())"
+        )
+        XCTAssertTrue(unknownPanel.hasPrefix("ERROR: Panel not found"), unknownPanel)
+    }
+
+    func testReportCommandHistorySnapshotReplacesPanelHistory() throws {
+        let tabManager = TabManager()
+        let workspace = tabManager.addWorkspace(select: true, eagerLoadTerminal: false)
+        let panelId = try XCTUnwrap(workspace.focusedPanelId)
+        let snapshot = "ls\ngit status\npm test\ngit status\ngit switch main"
+        let payload = Data(snapshot.utf8).base64EncodedString()
+        TerminalCommandHistoryStore.shared.removeAll()
+        TerminalController.shared.setActiveTabManager(tabManager)
+        defer {
+            TerminalController.shared.setActiveTabManager(nil)
+            TerminalCommandHistoryStore.shared.removeAll()
+        }
+
+        let response = TerminalController.shared.handleSocketLine(
+            "report_command_history_snapshot --tab=\(workspace.id.uuidString) --panel=\(panelId.uuidString) --shell=zsh --encoding=base64 -- \(payload)"
+        )
+
+        XCTAssertEqual(response, "OK")
+        XCTAssertEqual(
+            TerminalCommandHistoryStore.shared.recentCommands(workspaceId: workspace.id, panelId: panelId).map(\.command),
+            ["git switch main", "git status", "npm test", "ls"]
+        )
+        XCTAssertEqual(
+            TerminalCommandHistoryStore.shared.recentCommands(
+                workspaceId: workspace.id,
+                panelId: panelId,
+                matchingPrefix: "git"
+            ).map(\.command),
+            ["git switch main", "git status"]
+        )
+    }
+
+    func testReportCommandHistorySnapshotParsesEpochTimestamps() throws {
+        let tabManager = TabManager()
+        let workspace = tabManager.addWorkspace(select: true, eagerLoadTerminal: false)
+        let panelId = try XCTUnwrap(workspace.focusedPanelId)
+        let snapshot = "1700000000\tpwd\n1800000000\tgit status"
+        let payload = Data(snapshot.utf8).base64EncodedString()
+        TerminalCommandHistoryStore.shared.removeAll()
+        TerminalController.shared.setActiveTabManager(tabManager)
+        defer {
+            TerminalController.shared.setActiveTabManager(nil)
+            TerminalCommandHistoryStore.shared.removeAll()
+        }
+
+        let response = TerminalController.shared.handleSocketLine(
+            "report_command_history_snapshot --tab=\(workspace.id.uuidString) --panel=\(panelId.uuidString) --shell=zsh --encoding=base64 -- \(payload)"
+        )
+
+        XCTAssertEqual(response, "OK")
+        let commands = TerminalCommandHistoryStore.shared
+            .recentCommands(workspaceId: workspace.id, panelId: panelId)
+        XCTAssertEqual(commands.first(where: { $0.command == "pwd" })?.startedAt, Date(timeIntervalSince1970: 1_700_000_000))
+        XCTAssertEqual(commands.first(where: { $0.command == "git status" })?.startedAt, Date(timeIntervalSince1970: 1_800_000_000))
+    }
+
     func testDebugTextBoxEndpointsRejectBlankSurfaceID() throws {
 #if DEBUG
         TerminalController.shared.setActiveTabManager(TabManager())

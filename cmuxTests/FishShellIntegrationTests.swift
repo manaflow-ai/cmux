@@ -112,7 +112,7 @@ struct FishShellIntegrationTests {
             end
             set -g _CMUX_TTY_NAME ttys777
             set -g _CMUX_TTY_REPORTED 0
-            _cmux_preexec
+            _cmux_preexec "printf 'fish history'"
             _cmux_prompt
             printf 'USER_CONFIG=%s\\n' "$CMUX_USER_FISH_CONFIG_SOURCED"
             printf 'USER_CONFD=%s\\n' "$CMUX_USER_FISH_CONFD_SOURCED"
@@ -149,6 +149,11 @@ struct FishShellIntegrationTests {
         )
         expectTrue(
             result.stdout.contains("report_shell_state running --tab=11111111-1111-1111-1111-111111111111 --panel=22222222-2222-2222-2222-222222222222"),
+            result.stdout
+        )
+        let historyPayload = Data("printf 'fish history'".utf8).base64EncodedString()
+        expectTrue(
+            result.stdout.contains("report_command_history --tab=11111111-1111-1111-1111-111111111111 --panel=22222222-2222-2222-2222-222222222222 --encoding=base64 -- \(historyPayload)"),
             result.stdout
         )
         expectTrue(
