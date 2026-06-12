@@ -57,7 +57,7 @@
 1720	Sources/RestorableAgentSession.swift
 1693	cmuxTests/WorkspacePullRequestSidebarTests.swift
 1652	cmuxTests/CMUXCLIErrorOutputRegressionTests.swift
-1643	cmuxUITests/BrowserPaneNavigationKeybindUITests.swift
+1677	cmuxUITests/BrowserPaneNavigationKeybindUITests.swift
 1574	cmuxTests/MarkdownPanelTests.swift
 1560	cmuxTests/TextBoxMentionCompletionTests.swift
 1498	cmuxTests/OmnibarAndToolsTests.swift
