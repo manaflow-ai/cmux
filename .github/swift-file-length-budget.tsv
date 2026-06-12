@@ -39,7 +39,7 @@
 2545	cmuxTests/WorkspaceManualUnreadTests.swift
 2544	cmuxTests/CommandPaletteSearchEngineTests.swift
 2516	Sources/KeyboardShortcutSettings.swift
-2371	Sources/Mobile/MobileHostService.swift
+2377	Sources/Mobile/MobileHostService.swift
 2327	cmuxTests/CJKIMEInputTests.swift
 2314	Sources/FileExplorerView.swift
 2260	Sources/TerminalWindowPortal.swift

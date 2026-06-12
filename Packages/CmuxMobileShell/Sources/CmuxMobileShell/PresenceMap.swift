@@ -18,20 +18,18 @@ public struct PresenceMap: Equatable, Sendable {
         }
     }
 
-    /// Instances keyed by ``Self/key(deviceId:tag:)``. `deviceId` is a
-    /// fixed-format UUID, so the `":"`-joined composite key is unambiguous
-    /// even though tags may contain `":"`.
-    private var instancesByKey: [String: PresenceInstance] = [:]
+    /// Instances grouped by device id, then keyed by tag, so a device-row
+    /// rollup only ever touches that device's own instances. The device tree
+    /// recomputes every visible row's summary whenever a heartbeat mutates
+    /// the map, so the rollup must stay O(instances of one device), never
+    /// O(all instances on the team).
+    private var instancesByDevice: [String: [String: PresenceInstance]] = [:]
 
     public init() {}
 
     /// Whether any presence data has been received yet. The device tree only
     /// overrides its registry-derived "last seen" hints once a snapshot exists.
-    public var isEmpty: Bool { instancesByKey.isEmpty }
-
-    private static func key(deviceId: String, tag: String) -> String {
-        "\(deviceId):\(tag)"
-    }
+    public var isEmpty: Bool { instancesByDevice.isEmpty }
 
     /// Apply one stream frame. A snapshot replaces the whole map (the protocol
     /// is snapshot-first on every (re)subscribe, which is also how a dropped
@@ -39,39 +37,38 @@ public struct PresenceMap: Equatable, Sendable {
     public mutating func apply(_ update: PresenceUpdate) {
         switch update {
         case .snapshot(let snapshot):
-            var next: [String: PresenceInstance] = [:]
+            var next: [String: [String: PresenceInstance]] = [:]
             for device in snapshot.devices {
                 for instance in device.instances {
-                    next[Self.key(deviceId: instance.deviceId, tag: instance.tag)] = instance
+                    next[instance.deviceId, default: [:]][instance.tag] = instance
                 }
             }
-            instancesByKey = next
+            instancesByDevice = next
         case .online(let instance), .routes(let instance), .offline(let instance, _):
-            instancesByKey[Self.key(deviceId: instance.deviceId, tag: instance.tag)] = instance
+            instancesByDevice[instance.deviceId, default: [:]][instance.tag] = instance
         case .seen(let deviceId, let tag, let lastSeenAt):
-            let key = Self.key(deviceId: deviceId, tag: tag)
-            guard var instance = instancesByKey[key] else { return }
+            guard var instance = instancesByDevice[deviceId]?[tag] else { return }
             instance.lastSeenAt = lastSeenAt
-            instancesByKey[key] = instance
+            instancesByDevice[deviceId]?[tag] = instance
         }
     }
 
     /// The live presence record for one app instance, if known.
     public func instance(deviceId: String, tag: String) -> PresenceInstance? {
-        instancesByKey[Self.key(deviceId: deviceId, tag: tag)]
+        instancesByDevice[deviceId]?[tag]
     }
 
     /// Roll the device's instances up for a device row, or `nil` when the
     /// presence service has never seen this device (the row then falls back to
     /// its registry "last seen" hint).
     public func deviceSummary(deviceId: String) -> DeviceSummary? {
+        guard let instances = instancesByDevice[deviceId], !instances.isEmpty else { return nil }
         var online = false
-        var lastSeenMs: Double?
-        for instance in instancesByKey.values where instance.deviceId == deviceId {
+        var lastSeenMs = -Double.infinity
+        for instance in instances.values {
             online = online || instance.online
-            lastSeenMs = max(lastSeenMs ?? instance.lastSeenAt, instance.lastSeenAt)
+            lastSeenMs = max(lastSeenMs, instance.lastSeenAt)
         }
-        guard let lastSeenMs else { return nil }
         return DeviceSummary(
             online: online,
             lastSeenAt: Date(timeIntervalSince1970: lastSeenMs / 1000)

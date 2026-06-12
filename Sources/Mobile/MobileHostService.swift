@@ -1615,16 +1615,22 @@ final class MobileHostService {
     }
 
     private func handleNetworkPathChange() {
+        // The cached Tailscale hosts (and any in-flight resolution) may describe
+        // the previous network; drop them on EVERY path observation so no later
+        // refresh can be satisfied from, or raced by, old-path state. This must
+        // happen before the no-port early return: the monitor's first
+        // observation can land mid-bind, advancing its dedup baseline, and the
+        // `.ready` publish that follows would otherwise be free to reuse a
+        // TTL-fresh cache from the previous network with no further path
+        // callback coming to correct it.
+        routeResolver.invalidateResolvedTailscaleHostCache()
         guard let port = listenerPort else {
             // Mid-bind (no port yet): the `.ready` handler publishes against the
-            // current path when the bind completes, so nothing is lost.
+            // current path when the bind completes, and the invalidation above
+            // guarantees it resolves freshly.
             return
         }
         let generation = listenerGeneration
-        // The cached Tailscale hosts (and any in-flight resolution) may describe
-        // the previous network; drop them so the fresh resolution below cannot
-        // be satisfied from, or raced by, old-path state.
-        routeResolver.invalidateResolvedTailscaleHostCache()
         // Same two-phase publish as the listener-ready handler: immediate routes
         // from interface scan now, DNS-resolved hosts when they land.
         routeResolver.refreshTailscaleRoutes(onResolvedHosts: { [weak self] hosts in
