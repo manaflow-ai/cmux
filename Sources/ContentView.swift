@@ -6071,14 +6071,10 @@ struct ContentView: View {
             return .unsupported
         }
         switch snapshot.kind {
-        case .claude, .codex, .pi, .factory:
+        case .claude, .codex, .pi, .factory, .custom:
             return .supportedWithoutProbe
         case .opencode:
             return snapshot.launchCommand?.launcher == "omo" || isRemoteTerminal ? .supportedWithoutProbe : .requiresProbe
-        case .custom:
-            // Custom registrations only produce a forkCommand when the
-            // registration declares a fork template (guarded above).
-            return .supportedWithoutProbe
         default:
             return .unsupported
         }
