@@ -175,15 +175,24 @@ export async function POST(request: Request) {
       }
 
       const name = firstName(session?.customer_details?.name);
+      // Stripe delivers webhooks at least once and retries after a transient
+      // failure (including one observed after Resend already accepted the
+      // message), so key the send by the checkout session id. Resend
+      // deduplicates identical sends for 24h, so redelivery of the same
+      // purchase will not send a second welcome email.
+      const idempotencyKey = `founders-welcome/${session?.id ?? event.id ?? customerEmail}`;
       const resend = new Resend(config.resendApiKey);
-      const { error } = await resend.emails.send({
-        from: `Austin Wang <${config.fromEmail}>`,
-        to: [customerEmail],
-        cc: FOUNDER_CC,
-        replyTo: REPLY_TO,
-        subject: EMAIL_SUBJECT,
-        text: buildBody(name),
-      });
+      const { error } = await resend.emails.send(
+        {
+          from: `Austin Wang <${config.fromEmail}>`,
+          to: [customerEmail],
+          cc: FOUNDER_CC,
+          replyTo: REPLY_TO,
+          subject: EMAIL_SUBJECT,
+          text: buildBody(name),
+        },
+        { idempotencyKey },
+      );
 
       if (error) {
         recordSpanError(span, error);
@@ -208,9 +217,11 @@ function jsonError(message: string, status: number): Response {
 }
 
 type StripeEvent = {
+  id?: string;
   type?: string;
   data?: {
     object?: {
+      id?: string;
       metadata?: Record<string, string> | null;
       customer_details?: {
         email?: string | null;
