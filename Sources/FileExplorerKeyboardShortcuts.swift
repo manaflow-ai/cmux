@@ -41,7 +41,15 @@ extension FileExplorerSearchResultsTableView {
     }
 }
 
-private extension NSEvent {
+extension FileExplorerSearchField {
+    func handleOpenSelectionShortcut(_ event: NSEvent) -> Bool {
+        guard event.isFileExplorerOpenSelectionShortcut else { return false }
+        onCommit?()
+        return true
+    }
+}
+
+extension NSEvent {
     var isFileExplorerOpenSelectionShortcut: Bool {
         KeyboardShortcutSettings.Action.fileExplorerOpenSelectionActions.contains { action in
             KeyboardShortcutSettings.shortcut(for: action).matches(event: self) &&
