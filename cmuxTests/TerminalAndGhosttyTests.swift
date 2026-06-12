@@ -2751,6 +2751,31 @@ final class PanelAppearanceBackgroundTests: XCTestCase {
 }
 
 
+final class GhosttyUnshiftedCodepointTests: XCTestCase {
+    func testCommandAwareLayoutTranslationWinsForCommandShortcutKeys() {
+        // Fixtures deliberately differ from the expected "=" so the test only
+        // passes via the command-aware layout branch. Without that precedence,
+        // every fallback path (no-command layout lookup, charactersIgnoringModifiers,
+        // characters) returns ";" and the assertion fails.
+        let codepoint = ghosttyUnshiftedCodepoint(
+            keyCode: 24,
+            modifierFlags: [.command],
+            charactersIgnoringModifiers: ";",
+            characters: ";",
+            layoutCharacterProvider: { keyCode, modifierFlags in
+                guard keyCode == 24 else { return nil }
+                return modifierFlags.contains(.command) ? "=" : ";"
+            }
+        )
+
+        XCTAssertEqual(
+            codepoint,
+            "=".unicodeScalars.first?.value,
+            "Command-aware keyboard layouts should preserve the command shortcut character Ghostty binds against"
+        )
+    }
+}
+
 final class GhosttyResponderResolutionTests: XCTestCase {
     private final class FocusProbeView: NSView {
         override var acceptsFirstResponder: Bool { true }
