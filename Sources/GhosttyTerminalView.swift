@@ -242,6 +242,36 @@ func cmuxGhosttyModifierActionForFlagsChanged(
 
     return sidePressed ? GHOSTTY_ACTION_PRESS : GHOSTTY_ACTION_RELEASE
 }
+
+// Decision wrapper around `cmuxGhosttyModifierActionForFlagsChanged` that
+// captures the IME composition state so `flagsChanged(with:)` does not have
+// to make policy decisions inline. Tests target this seam directly because
+// `flagsChanged(with:)` itself requires a live `GhosttyNSView` + Ghostty
+// surface that cannot be constructed in a unit test harness.
+struct CmuxFlagsChangedDecision: Equatable {
+    let action: ghostty_input_action_e
+    let composing: Bool
+}
+
+func cmuxFlagsChangedDecision(
+    keyCode: UInt16,
+    modifierFlagsRawValue: UInt,
+    hasMarkedText: Bool
+) -> CmuxFlagsChangedDecision? {
+    // Always forward modifier press/release events. macOS does not deliver
+    // `keyUp` for modifier-only events, so dropping them while an IME
+    // composition is active leaves Ghostty with a phantom held modifier
+    // after `unmarkText` commits the composition (#2949).
+    //
+    // The IME composition state is forwarded as `composing` so Ghostty can
+    // suppress side effects on its side if it wants, while the modifier
+    // edge itself is never lost.
+    guard let action = cmuxGhosttyModifierActionForFlagsChanged(
+        keyCode: keyCode,
+        modifierFlagsRawValue: modifierFlagsRawValue
+    ) else { return nil }
+    return CmuxFlagsChangedDecision(action: action, composing: hasMarkedText)
+}
 #endif
 
 private func cmuxRuntimeReadClipboardCallback(
@@ -10661,22 +10691,22 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             return
         }
 
-        if !hasMarkedText(),
-           let action = cmuxGhosttyModifierActionForFlagsChanged(
+        if let decision = cmuxFlagsChangedDecision(
             keyCode: event.keyCode,
-            modifierFlagsRawValue: event.modifierFlags.rawValue
-           ) {
+            modifierFlagsRawValue: event.modifierFlags.rawValue,
+            hasMarkedText: hasMarkedText()
+        ) {
             // `flagsChanged` carries modifier-only state, not textual key input.
             // Building this via `ghosttyKeyEvent(for:surface:)` would fall through
             // to `unshiftedCodepointFromEvent`, which probes AppKit character APIs
             // that are not safe for modifier-only events.
             var keyEvent = ghostty_input_key_s()
-            keyEvent.action = action
+            keyEvent.action = decision.action
             keyEvent.keycode = UInt32(event.keyCode)
             keyEvent.mods = modsFromEvent(event)
             keyEvent.consumed_mods = GHOSTTY_MODS_NONE
             keyEvent.text = nil
-            keyEvent.composing = false
+            keyEvent.composing = decision.composing
             keyEvent.unshifted_codepoint = 0
             _ = sendGhosttyKey(surface, keyEvent)
         }
