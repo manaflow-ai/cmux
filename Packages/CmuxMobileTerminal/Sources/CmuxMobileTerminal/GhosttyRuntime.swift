@@ -182,7 +182,15 @@ public final class GhosttyRuntime {
     }
 
     private static func applyiOSDefaults(_ config: ghostty_config_t) {
+        // scrollback-limit: bound the mirror surface's local scrollback page
+        // memory (ghostty defaults to 10MB per surface). On iOS the user-facing
+        // scroll path forwards to the Mac's real surface, so local scrollback
+        // exists only to feed local reads (the "View as Text" copy sheet's
+        // GHOSTTY_POINT_SCREEN read). 2MB comfortably covers that sheet's
+        // 5000-line budget while keeping the worst-case read (which runs on
+        // the serial output queue) and per-surface memory phone-sized.
         let monokai = """
+        scrollback-limit = 2000000
         font-family = Menlo
         font-size = 10
         window-padding-balance = false

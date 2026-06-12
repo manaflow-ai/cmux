@@ -5,6 +5,7 @@
 # extension or instantiated value with injected dependencies) and delete its
 # line. Never add entries for new code; new offenders must be fixed or carry a
 # reviewed inline "lint:allow namespace-type — <why>" justification.
+Packages/CMUXAgentLaunch/Sources/CMUXAgentLaunch/AgentLaunchCaptureTrust.swift:AgentLaunchCaptureTrust
 Packages/CMUXAgentLaunch/Sources/CMUXAgentLaunch/AgentLaunchEnvironmentPolicy.swift:AgentLaunchEnvironmentPolicy
 Packages/CMUXAgentLaunch/Sources/CMUXAgentLaunch/AgentLaunchEnvironmentPolicy.swift:ClaudeConfigDirectoryPath
 Packages/CMUXAgentLaunch/Sources/CMUXAgentLaunch/AgentLaunchSanitizer.swift:AgentLaunchSanitizer
