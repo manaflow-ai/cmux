@@ -25872,6 +25872,70 @@ struct CMUXCLI {
             ?? fallbackPID.flatMap { self.processArguments(for: pid_t($0)) }
     }
 
+    private func codexForkSessionParentId(env: [String: String], fallbackPID: Int?) -> String? {
+        guard let arguments = codexRawLaunchArguments(env: env, fallbackPID: fallbackPID) else {
+            return nil
+        }
+        var index = 0
+        while index < arguments.count {
+            let argument = arguments[index]
+            if argument == "--" {
+                return nil
+            }
+            if argument == "fork" {
+                return codexForkSessionIdentifier(in: arguments, after: index)
+            }
+            index += 1
+        }
+        return nil
+    }
+
+    private func codexRawLaunchArguments(env: [String: String], fallbackPID: Int?) -> [String]? {
+        decodeNULSeparatedBase64(env["CMUX_AGENT_LAUNCH_ARGV_B64"])
+            ?? fallbackPID.flatMap { self.processArguments(for: pid_t($0)) }
+    }
+
+    private func codexForkSessionIdentifier(in arguments: [String], after forkIndex: Int) -> String? {
+        var index = forkIndex + 1
+        while index < arguments.count {
+            let argument = arguments[index]
+            if argument == "--" {
+                return nil
+            }
+            if !argument.hasPrefix("-") || argument == "-" {
+                return normalizedHookValue(argument)
+            }
+            index += codexForkOptionWidth(arguments, index: index)
+        }
+        return nil
+    }
+
+    private func codexForkOptionWidth(_ arguments: [String], index: Int) -> Int {
+        guard index < arguments.count else {
+            return 1
+        }
+        let argument = arguments[index]
+        if argument.contains("=") {
+            return 1
+        }
+        switch argument {
+        case "-c", "--config",
+            "--enable", "--disable",
+            "--remote", "--remote-auth-token-env",
+            "-i", "--image",
+            "-m", "--model",
+            "--local-provider",
+            "-p", "--profile",
+            "-s", "--sandbox",
+            "-C", "--cd",
+            "--add-dir",
+            "-a", "--ask-for-approval":
+            return index + 1 < arguments.count ? 2 : 1
+        default:
+            return 1
+        }
+    }
+
     private func agentLaunchCommandFromEnvironment(
         _ env: [String: String],
         fallbackPID: Int?,
@@ -28650,6 +28714,9 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
             ?? normalizedHookValue(env["PWD"])
         let sessionId = resolvedAgentHookSessionId(def: def, input: input, env: env, cwd: hookCwd)
         let action = Self.subcommandActions[subcommand] ?? .noop
+        let isCodexForkParentLifecycle = def.name == "codex"
+            && !sessionId.isEmpty
+            && codexForkSessionParentId(env: env, fallbackPID: inferredPID) == sessionId
 #if DEBUG
         agentHookDebugLog(
             "agentHook.start agent=\(def.name) subcommand=\(subcommand) session=\(agentHookDebugShort(sessionId)) inputSession=\(agentHookDebugShort(input.sessionId)) rawBytes=\(rawInput.utf8.count) hasCwd=\(hookCwd == nil ? 0 : 1) envWorkspace=\(env["CMUX_WORKSPACE_ID"] == nil ? 0 : 1) envSurface=\(env["CMUX_SURFACE_ID"] == nil ? 0 : 1) directWorkspace=\(directWorkspaceArg == nil ? 0 : 1) directSurface=\(directSurfaceArg == nil ? 0 : 1) invalidDirect=\(hasUnusableDirectBinding ? 1 : 0) processBinding=\(processBindingDebugState()) socketName=\(agentHookDebugSocketName(client.socketPath))",
@@ -28913,6 +28980,11 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
             let workspaceId = target.workspaceId
             let surfaceId = target.surfaceId
             sendAgentFeedTelemetryUnlessSuppressed(workspaceId: workspaceId)
+            if isCodexForkParentLifecycle {
+                telemetry.breadcrumb("codex-hook.session-start.fork-parent-skipped")
+                print("{}")
+                return
+            }
             let pid = inferredPID
             let suppressVisibleMutations = shouldSuppressNestedAgentVisibleMutations(currentAgentPID: pid, env: env)
             let launchCommand = agentLaunchCommandFromEnvironment(
@@ -29742,6 +29814,11 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
             sendAgentFeedTelemetryUnlessSuppressed(workspaceId: workspaceId)
 
         case .sessionEnd:
+            if isCodexForkParentLifecycle {
+                telemetry.breadcrumb("codex-hook.session-end.fork-parent-skipped")
+                print("{}")
+                return
+            }
             if def.name == "codex", !sessionId.isEmpty {
                 retireCodexMonitorLeases(sessionId: sessionId, turnId: nil, env: env)
             }
