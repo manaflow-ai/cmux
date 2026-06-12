@@ -180,9 +180,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     public var workspaces: [MobileWorkspacePreview] {
         didSet { workspaceTopologyVersion &+= 1 }
     }
-    /// Bumped on every ``workspaces`` mutation: a cheap "workspace/terminal
-    /// lists may have changed" signal (e.g. for retrying a parked notification
-    /// deep link) that avoids allocating ID arrays per body evaluation.
+    /// Bumped on every ``workspaces`` mutation: a cheap "lists may have
+    /// changed" signal (e.g. for retrying a parked notification deep link).
     public private(set) var workspaceTopologyVersion: UInt64 = 0
     /// Whether the connected Mac advertises the `workspace.actions.v1` capability
     /// (rename/pin over the mobile RPC). `false` until host status is read, and
@@ -4207,15 +4206,6 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                 _ = self.disconnectForAuthorizationFailureIfNeeded(error)
             }
         }
-    }
-
-    func workspaceID(forTerminalID terminalID: String) -> MobileWorkspacePreview.ID? {
-        for workspace in workspaces {
-            if workspace.terminals.contains(where: { $0.id.rawValue == terminalID }) {
-                return workspace.id
-            }
-        }
-        return nil
     }
 
     private func handleTerminalRenderGridEvent(_ event: MobileEventEnvelope) {

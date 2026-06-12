@@ -49,4 +49,14 @@ extension CMUXMobileShellStore {
         }
         return workspace.terminals.contains(where: { $0.id.rawValue == surfaceID })
     }
+
+    /// The workspace whose terminal list contains `terminalID`, if any.
+    func workspaceID(forTerminalID terminalID: String) -> MobileWorkspacePreview.ID? {
+        for workspace in workspaces {
+            if workspace.terminals.contains(where: { $0.id.rawValue == terminalID }) {
+                return workspace.id
+            }
+        }
+        return nil
+    }
 }
