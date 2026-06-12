@@ -1412,6 +1412,23 @@
         }
       }
     },
+    "mobile.pairing.loopbackRejected": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This code points at the Mac itself (localhost), so your iPhone can't use it. Set up Tailscale on the Mac, then scan a fresh code."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このコードは Mac 自身（localhost）を指しているため、iPhone からは使えません。Mac に Tailscale を設定してから、新しいコードをスキャンしてください。"
+          }
+        }
+      }
+    },
     "mobile.pairing.navigationTitle": {
       "extractionState": "manual",
       "localizations": {
@@ -5573,6 +5590,125 @@
           "stringUnit": {
             "state": "translated",
             "value": "ページダウン"
+          }
+        }
+      }
+    },
+    "mobile.terminal.viewAsText": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "View as Text"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "テキストとして表示"
+          }
+        }
+      }
+    },
+    "mobile.textSheet.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Terminal Text"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ターミナルのテキスト"
+          }
+        }
+      }
+    },
+    "mobile.textSheet.done": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Done"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "完了"
+          }
+        }
+      }
+    },
+    "mobile.textSheet.copyAll": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Copy All"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "すべてコピー"
+          }
+        }
+      }
+    },
+    "mobile.textSheet.copied": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Copied"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "コピーしました"
+          }
+        }
+      }
+    },
+    "mobile.textSheet.empty": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No terminal text available"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "表示できるターミナルテキストがありません"
+          }
+        }
+      }
+    },
+    "mobile.textSheet.truncated": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Showing the last %d lines."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "最新の%d行を表示しています。"
           }
         }
       }

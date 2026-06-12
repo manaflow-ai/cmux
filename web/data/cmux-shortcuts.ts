@@ -76,6 +76,15 @@ export const shortcutCategories: ShortcutCategory[] = [
       { id: "toggleSidebar", combos: [["⌘", "B"]], description: { en: "Toggle left sidebar", ja: "左サイドバーを切り替え" } },
       { id: "toggleFileExplorer", combos: [["⌘", "⌥", "B"]], description: { en: "Toggle right sidebar", ja: "右サイドバーを切り替え" } },
       { id: "newTab", combos: [["⌘", "N"]], description: { en: "New workspace", ja: "新規ワークスペース" } },
+      {
+        id: "newBrowserWorkspace",
+        combos: [["⌥", "⌘", "N"]],
+        description: { en: "New browser workspace", ja: "新規ブラウザワークスペース" },
+        note: {
+          en: "like New Workspace, but the first surface is a browser pane with the address bar focused",
+          ja: "新規ワークスペースと同様ですが、最初のサーフェスがブラウザペインになり、アドレスバーにフォーカスします",
+        },
+      },
       { id: "openFolder", combos: [["⌘", "O"]], description: { en: "Open folder", ja: "フォルダを開く" } },
       {
         id: "goToWorkspace",
