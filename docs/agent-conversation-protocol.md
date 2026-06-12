@@ -86,42 +86,36 @@ Reads the frame from the positional argument or stdin. Accepts either a ready ho
 
 ### Claude Code hook config cmux injects at launch
 
-Claude Code merges extra settings per launch via `claude --settings <file-or-json>`; hooks configured there receive the native payload on stdin (which includes `session_id` and `tool_use_id`). cmux must NOT write to the user's `~/.claude/settings.json`. At agent launch, the launcher (Swift side, follow-up) writes a managed settings file and passes `--settings`; the file's exact content, with `<emit>` the absolute path to the staged `cmuxd-remote` binary and `<sock>` the ingest socket path for the daemon backing this cmux instance:
+Claude Code loads extra settings per launch via `claude --settings <file-or-json>`; hooks configured there receive the native payload on stdin (which includes `session_id` and `tool_use_id`). cmux must NOT write to the user's `~/.claude/settings.json`.
+
+The launch side lives in two pieces:
+
+1. **The app (Swift, `Sources/AgentChat/AgentHookLaunchEnvironment.swift`)** exports two managed environment variables into every terminal surface: `CMUX_AGENT_HOOK_EMIT_BIN` (the staged `cmuxd-remote` binary from the checksum-verified remote-daemons cache, via `AgentDaemonBinaryLocator`) and `CMUX_AGENT_HOOK_SOCKET` (this instance's ingest socket path). When no daemon binary is cached, neither variable is set and injection is skipped entirely; agent launches never depend on this feature. Because a cached daemon predating the verb falls through to its CLI dispatch when invoked as `agent-hook-emit` (it would stall and fail every Claude hook), injection additionally requires provenance that provably carries the verb: the explicit `CMUX_REMOTE_DAEMON_BINARY` dev override on any build, or, on stable release builds only, a cached binary at the app's exact release version (same-SHA artifacts) or newer; debug, nightly, and staging builds share marketing versions with stable artifacts from other SHAs and inject only with the override. The relay resolution is cached for the app session (a miss is re-probed at most every 30 seconds, so the first `cmux ssh` enables injection for new terminals without a restart). The same socket path is pinned into the environment of the `cmuxd-remote serve --stdio` child the chat surface spawns, so the listener and the emitters always agree.
+2. **The Claude launch wrapper (`Resources/bin/cmux-claude-wrapper`)**, which already owns cmux's per-launch `--settings` payload, merges one extra hook entry per event into that payload when both variables are present and the emit binary is executable:
 
 ```json
-{
-  "hooks": {
-    "UserPromptSubmit": [
-      { "hooks": [{ "type": "command", "command": "'<emit>' agent-hook-emit --socket '<sock>'", "timeout": 5 }] }
-    ],
-    "PreToolUse": [
-      { "matcher": "*", "hooks": [{ "type": "command", "command": "'<emit>' agent-hook-emit --socket '<sock>'", "timeout": 5 }] }
-    ],
-    "PostToolUse": [
-      { "matcher": "*", "hooks": [{ "type": "command", "command": "'<emit>' agent-hook-emit --socket '<sock>'", "timeout": 5 }] }
-    ],
-    "Stop": [
-      { "hooks": [{ "type": "command", "command": "'<emit>' agent-hook-emit --socket '<sock>'", "timeout": 5 }] }
-    ],
-    "Notification": [
-      { "matcher": "*", "hooks": [{ "type": "command", "command": "'<emit>' agent-hook-emit --socket '<sock>'", "timeout": 5 }] }
-    ],
-    "PermissionRequest": [
-      { "matcher": "*", "hooks": [{ "type": "command", "command": "'<emit>' agent-hook-emit --socket '<sock>'", "timeout": 5 }] }
-    ]
-  }
-}
+{ "type": "command", "command": "\"$CMUX_AGENT_HOOK_EMIT_BIN\" agent-hook-emit --socket \"$CMUX_AGENT_HOOK_SOCKET\"", "timeout": 5 }
 ```
 
-Both paths must be single-quoted in the command string (DerivedData paths contain spaces). The same one-liner serves every event because the verb reads `hook_event_name` from stdin.
+for `UserPromptSubmit`, `PreToolUse`, `PostToolUse`, `Stop`, `Notification`, and `PermissionRequest`. The env references are expanded by the shell Claude runs hook commands with (the wrapper's existing `CMUX_CLAUDE_HOOK_CMUX_BIN` convention), which keeps DerivedData paths with spaces safe without quoting games. The high-frequency tool hooks (`PreToolUse`, `PostToolUse`) carry `"async": true` so they never add latency to tool calls; the merge layer tolerates a `PostToolUse` frame overtaking its `PreToolUse`. The same one-liner serves every event because the verb reads `hook_event_name` from stdin.
 
-### Codex notify source
+The merge happens inside the single `--settings` value the wrapper already injects because Claude's `--settings` is last-wins, not cumulative (verified on 2.1.175: `claude --settings '{invalid' --settings '{}' -p hi` succeeds, while the reversed order fails on the invalid value), so passing a second `--settings` would clobber cmux's existing hook payload. For the same reason a user-supplied `--settings` on the command line wins over cmux's entirely; the wrapper passes it through untouched (user settings are never clobbered; cmux's injection is lost for that launch).
 
-Codex has no per-event hooks. Its `notify` program (`~/.codex/config.toml`) is invoked once per completed turn with the payload appended as the final argv argument, which matches the emit verb's positional input. The config cmux would inject at launch (Swift side, follow-up; daemon translation is done):
+Idempotency: the wrapper composes the settings inline on every exec, so resume/fork relaunches re-inject the same configuration with no files to clean up or merge.
 
-```toml
-notify = ["<emit>", "agent-hook-emit", "--socket", "<sock>"]
+#### Ingest socket path scheme (tagged builds)
+
+`AgentHookLaunchEnvironment.ingestSocketPath` derives the per-instance path from the bundle identifier variant (the same classification the control socket uses): stable release builds use the documented default `/tmp/cmuxd-agentconv-<uid>/ingest.sock`; every other variant is scoped to `/tmp/cmuxd-agentconv-<uid>-<variant>[-<slug>]/ingest.sock` (e.g. `-debug-my-tag`, `-nightly`, `-staging-rc1`) so a tagged dev build's hooks and daemon never cross-talk with the user's stable app. An explicit `CMUX_AGENT_HOOK_SOCKET` in the app's own environment overrides the derivation (tests, operators).
+
+### Codex notify config cmux injects at launch
+
+Codex has no hook system, but `notify` in `~/.codex/config.toml` names a program argv that Codex invokes with an `agent-turn-complete` JSON payload appended as the final argument. `Resources/bin/cmux-codex-wrapper` (installed as a shell function by the cmux shell integration, like the Claude wrapper) injects it per launch, never writing the user's config:
+
 ```
+codex -c notify=["<emit>","agent-hook-emit","--socket","<sock>","--provider","codex"] ...
+```
+
+The emit verb recognizes the Codex payload shape and translates it to a `Stop` frame (`thread-id` is the session id). Injection is skipped when the user already has a notifier: their own `-c`/`--config` `notify` override on the command line, or an uncommented `notify` key in config.toml (cmux's persistent Codex integration never sets one, so a present key is always user-chosen). It is also skipped outside cmux terminals, when `CMUX_CODEX_HOOKS_DISABLED=1`, and when the env vars or emit binary are missing. The opencode plugin is a follow-up; it will emit ready-made frames with its own `provider`.
 
 The verb recognizes Codex's `agent-turn-complete` shape (kebab-case, from codex-rs `legacy_notify.rs`):
 

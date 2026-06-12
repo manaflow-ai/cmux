@@ -19,8 +19,20 @@ struct AgentDaemonBinaryLocator {
     /// status UI), so it must be localized and free of implementation
     /// internals; technical specifics go to the debug log instead.
     enum Outcome: Sendable {
-        case found(URL)
+        case found(URL, Provenance)
         case unavailable(detail: String)
+    }
+
+    /// Where a found binary came from. Consumers that shell out to verbs the
+    /// `hello` capability handshake cannot vouch for (the launch-side
+    /// `agent-hook-emit` injection) gate on this: an old cached daemon
+    /// invoked with an unknown verb falls through to its CLI path and fails
+    /// hooks, so only binaries provably carrying the verb may be injected.
+    enum Provenance: Equatable, Sendable {
+        /// `CMUX_REMOTE_DAEMON_BINARY` dev override (explicit opt-in).
+        case explicitOverride
+        /// The checksum-verified `remote-daemons` cache, at `version`.
+        case cached(version: String)
     }
 
     private let fileManager: FileManager
@@ -37,7 +49,7 @@ struct AgentDaemonBinaryLocator {
     func locate() -> Outcome {
         if let override = explicitOverrideURL() {
             if isExecutableFile(override) {
-                return .found(override)
+                return .found(override, .explicitOverride)
             }
 #if DEBUG
             cmuxDebugLog("agentChat.locator.overrideInvalid path=\(override.path)")
@@ -48,14 +60,14 @@ struct AgentDaemonBinaryLocator {
             ))
         }
         let (goOS, goArch) = hostPlatform()
-        let version = appVersionString()
+        let version = Self.appVersionString()
         if let exact = try? Workspace.remoteDaemonCachedBinaryURL(
             version: version, goOS: goOS, goArch: goArch, fileManager: fileManager
         ), isExecutableFile(exact) {
-            return .found(exact)
+            return .found(exact, .cached(version: version))
         }
-        if let fallback = newestCachedBinary(goOS: goOS, goArch: goArch, excludingVersion: version) {
-            return .found(fallback)
+        if let (fallback, fallbackVersion) = newestCachedBinary(goOS: goOS, goArch: goArch, excludingVersion: version) {
+            return .found(fallback, .cached(version: fallbackVersion))
         }
 #if DEBUG
         cmuxDebugLog("agentChat.locator.noCachedBinary platform=\(goOS)-\(goArch) version=\(version)")
@@ -96,7 +108,9 @@ struct AgentDaemonBinaryLocator {
 
     /// Scans the cache root for the newest other version holding a runnable
     /// binary for this platform.
-    private func newestCachedBinary(goOS: String, goArch: String, excludingVersion: String) -> URL? {
+    private func newestCachedBinary(
+        goOS: String, goArch: String, excludingVersion: String
+    ) -> (url: URL, version: String)? {
         guard let anyVersion = try? Workspace.remoteDaemonCachedBinaryURL(
             version: "x", goOS: goOS, goArch: goArch, fileManager: fileManager
         ) else { return nil }
@@ -111,7 +125,7 @@ struct AgentDaemonBinaryLocator {
             if let url = try? Workspace.remoteDaemonCachedBinaryURL(
                 version: version, goOS: goOS, goArch: goArch, fileManager: fileManager
             ), isExecutableFile(url) {
-                return url
+                return (url, version)
             }
         }
         return nil
@@ -132,7 +146,7 @@ struct AgentDaemonBinaryLocator {
 #endif
     }
 
-    private func appVersionString() -> String {
+    static func appVersionString() -> String {
         (Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String) ?? "dev"
     }
 }
