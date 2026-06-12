@@ -26146,11 +26146,29 @@ struct CMUXCLI {
         fallbackKind: String,
         cwd: String?
     ) -> AgentHookLaunchCommandRecord? {
-        let envArguments = decodeNULSeparatedBase64(env["CMUX_AGENT_LAUNCH_ARGV_B64"])
-        let processArguments = fallbackPID.flatMap { self.processArguments(for: pid_t($0)) }
+        // `CMUX_AGENT_LAUNCH_*` leaks to every descendant of an agent process, so an
+        // agent started from inside another agent's session inherits the ANCESTOR's
+        // launch capture (codex under claude carries claude's argv). Trust the env
+        // capture only when its launcher describes this hook's agent kind; otherwise
+        // fall back to the agent's own process argv and kind.
+        let envLauncher = normalizedHookValue(env["CMUX_AGENT_LAUNCH_KIND"])
+        let envCaptureIsTrusted = AgentLaunchCaptureTrust.launcherDescribesKind(
+            envLauncher,
+            kind: fallbackKind
+        )
+        let envArguments = envCaptureIsTrusted
+            ? decodeNULSeparatedBase64(env["CMUX_AGENT_LAUNCH_ARGV_B64"])
+            : nil
+        var processArguments = fallbackPID.flatMap { self.processArguments(for: pid_t($0)) }
+        if let candidate = processArguments,
+           AgentLaunchCaptureTrust.argvLooksLikeShellWrapper(candidate) {
+            // The PID fallback resolved to a shell dispatcher (e.g. the hook's own
+            // `sh -c …` wrapper), not the agent. That argv is not a launch.
+            processArguments = nil
+        }
         let arguments = envArguments ?? processArguments
-        let launcher = normalizedHookValue(env["CMUX_AGENT_LAUNCH_KIND"]) ?? fallbackKind
-        let workingDirectory = normalizedHookValue(env["CMUX_AGENT_LAUNCH_CWD"])
+        let launcher = envCaptureIsTrusted ? (envLauncher ?? fallbackKind) : fallbackKind
+        let workingDirectory = (envCaptureIsTrusted ? normalizedHookValue(env["CMUX_AGENT_LAUNCH_CWD"]) : nil)
             ?? normalizedHookValue(cwd)
             ?? normalizedHookValue(env["PWD"])
         let environment = selectedAgentLaunchEnvironment(from: env, kind: launcher)
@@ -26182,7 +26200,8 @@ struct CMUXCLI {
             return environmentOnlyRecord()
         }
 
-        let executablePath = normalizedHookValue(env["CMUX_AGENT_LAUNCH_EXECUTABLE"]) ?? arguments.first
+        let executablePath = (envCaptureIsTrusted ? normalizedHookValue(env["CMUX_AGENT_LAUNCH_EXECUTABLE"]) : nil)
+            ?? arguments.first
         guard let sanitizedArguments = sanitizedAgentLaunchArguments(
             arguments,
             launcher: launcher,

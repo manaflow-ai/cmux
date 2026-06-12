@@ -1,9 +1,9 @@
 # cmux-owned Swift file length budget.
 # Format: max_lines<TAB>relative path
 # Reduce counts as files shrink. CI fails if tracked files exceed this budget.
-33535	CLI/cmux.swift
+33554	CLI/cmux.swift
 20570	Sources/Workspace.swift
-19276	Sources/ContentView.swift
+19287	Sources/ContentView.swift
 18228	Sources/AppDelegate.swift
 16777	Sources/GhosttyTerminalView.swift
 14808	Sources/TerminalController.swift
@@ -15,8 +15,8 @@
 7291	cmuxTests/WorkspaceUnitTests.swift
 6948	cmuxTests/WorkspaceRemoteConnectionTests.swift
 6542	cmuxTests/GhosttyConfigTests.swift
+6329	cmuxTests/SessionPersistenceTests.swift
 6299	cmuxTests/TerminalAndGhosttyTests.swift
-6220	cmuxTests/SessionPersistenceTests.swift
 6153	CLI/cmux_open.swift
 6071	Sources/TextBoxInput.swift
 5482	cmuxTests/BrowserConfigTests.swift
@@ -42,9 +42,9 @@
 2516	Sources/KeyboardShortcutSettings.swift
 2340	Sources/Mobile/MobileHostService.swift
 2327	cmuxTests/CJKIMEInputTests.swift
-2288	Sources/FileExplorerView.swift
+2314	Sources/FileExplorerView.swift
 2260	Sources/TerminalWindowPortal.swift
-2138	Sources/SessionPersistence.swift
+2198	Sources/SessionPersistence.swift
 2123	cmuxTests/ShortcutAndCommandPaletteTests.swift
 2117	cmuxTests/CmuxConfigTests.swift
 1996	Sources/KeyboardShortcutSettingsFileStore.swift
@@ -52,8 +52,8 @@
 1860	cmuxTests/NotificationAndMenuBarTests.swift
 1793	Sources/SessionIndexStore.swift
 1751	Sources/WindowDragHandleView.swift
+1744	Sources/RestorableAgentSession.swift
 1721	cmuxTests/TerminalControllerSocketSecurityTests.swift
-1720	Sources/RestorableAgentSession.swift
 1693	cmuxTests/WorkspacePullRequestSidebarTests.swift
 1677	cmuxUITests/BrowserPaneNavigationKeybindUITests.swift
 1652	cmuxTests/CMUXCLIErrorOutputRegressionTests.swift
@@ -77,11 +77,12 @@
 1156	cmuxTests/SidebarOrderingTests.swift
 1144	Sources/VaultAgentProcessScanner.swift
 1139	cmuxTests/PiVaultAgentPersistenceTests.swift
+1126	cmuxTests/FileExplorerStoreTests.swift
 1107	Sources/AppDelegate+CmuxSSHURL.swift
 1096	Sources/GhosttyConfig.swift
 1093	cmuxUITests/BonsplitTabDragUITests.swift
 1084	cmuxTests/AgentHibernationTests.swift
-1068	cmuxTests/FileExplorerStoreTests.swift
+1084	cmuxTests/RestorableAgentSessionIndexTests.swift
 1021	cmuxUITests/TerminalCmdClickUITests.swift
 1006	cmuxTests/CmuxSSHURLRequestTests.swift
 1000	cmuxTests/CmuxTopSnapshotScopeTests.swift
@@ -90,7 +91,6 @@
 944	Sources/App/ShortcutRoutingSupport.swift
 939	Sources/App/TerminalDirectoryOpenSupport.swift
 937	Sources/TextBoxMentionIndexStore.swift
-937	cmuxTests/RestorableAgentSessionIndexTests.swift
 924	Sources/DockPanelView.swift
 918	Sources/RemoteTmuxController.swift
 913	cmuxTests/WorkspaceGroupTests.swift
