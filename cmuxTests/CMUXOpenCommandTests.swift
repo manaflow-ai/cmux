@@ -386,6 +386,14 @@ final class CMUXOpenCommandTests: XCTestCase {
         XCTAssertEqual((try XCTUnwrap(scrollTop["second"] as? [String: Any]))["key"] as? String, "g")
         let fileSearch = try XCTUnwrap(shortcuts["diffViewerOpenFileSearch"] as? [String: Any])
         XCTAssertEqual(fileSearch["unbound"] as? Bool, true)
+        let nextHunk = try XCTUnwrap(shortcuts["diffViewerNextHunk"] as? [String: Any])
+        XCTAssertEqual((try XCTUnwrap(nextHunk["first"] as? [String: Any]))["key"] as? String, "n")
+        let prevHunk = try XCTUnwrap(shortcuts["diffViewerPrevHunk"] as? [String: Any])
+        XCTAssertEqual((try XCTUnwrap(prevHunk["first"] as? [String: Any]))["key"] as? String, "p")
+        let nextFile = try XCTUnwrap(shortcuts["diffViewerNextFile"] as? [String: Any])
+        XCTAssertEqual((try XCTUnwrap(nextFile["first"] as? [String: Any]))["key"] as? String, "]")
+        let prevFile = try XCTUnwrap(shortcuts["diffViewerPrevFile"] as? [String: Any])
+        XCTAssertEqual((try XCTUnwrap(prevFile["first"] as? [String: Any]))["key"] as? String, "[")
         let files = try diffViewerAllowedFiles(for: rawURL, from: params)
         XCTAssertTrue(html.contains("Review diff"), html)
         XCTAssertTrue(html.contains("<script id=\"cmux-diff-viewer-config\" type=\"application/json\">"), html)
@@ -941,6 +949,104 @@ final class CMUXOpenCommandTests: XCTestCase {
         )
 
         try assertFriendlyLastTurnEmptyState(html: result.html)
+    }
+
+    func testDiffCommandUnstagedIncludesUntrackedFiles() throws {
+        let cliPath = try bundledCLIPath()
+        let rootURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        let repoURL = rootURL.appendingPathComponent("repo", isDirectory: true)
+        let trackedURL = repoURL.appendingPathComponent("story.txt")
+        try FileManager.default.createDirectory(at: repoURL, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: rootURL) }
+
+        try runGit(["init"], in: repoURL)
+        try runGit(["checkout", "-b", "main"], in: repoURL)
+        try runGit(["config", "user.name", "cmux tests"], in: repoURL)
+        try runGit(["config", "user.email", "cmux@example.invalid"], in: repoURL)
+        try ".gitignore\nignored.txt\n".write(
+            to: repoURL.appendingPathComponent(".gitignore"),
+            atomically: true,
+            encoding: .utf8
+        )
+        try "one\n".write(to: trackedURL, atomically: true, encoding: .utf8)
+        try runGit(["add", "."], in: repoURL)
+        try runGit(["commit", "-m", "initial"], in: repoURL)
+
+        try "one\ntwo\n".write(to: trackedURL, atomically: true, encoding: .utf8)
+        try "brand new content\n".write(
+            to: repoURL.appendingPathComponent("untracked.txt"),
+            atomically: true,
+            encoding: .utf8
+        )
+        try "ignored content\n".write(
+            to: repoURL.appendingPathComponent("ignored.txt"),
+            atomically: true,
+            encoding: .utf8
+        )
+
+        let unstaged = try runDiffCLIAndReadHTML(
+            cliPath: cliPath,
+            arguments: ["diff", "--unstaged"],
+            currentDirectoryURL: repoURL
+        )
+        XCTAssertTrue(unstaged.patch.contains("+two"), unstaged.patch)
+        XCTAssertTrue(unstaged.patch.contains("untracked.txt"), unstaged.patch)
+        XCTAssertTrue(unstaged.patch.contains("+brand new content"), unstaged.patch)
+        XCTAssertTrue(unstaged.patch.contains("new file mode"), unstaged.patch)
+        XCTAssertFalse(unstaged.patch.contains("ignored content"), unstaged.patch)
+    }
+
+    func testDiffCommandHonorsPersistedViewerPreferences() throws {
+        let cliPath = try bundledCLIPath()
+        let rootURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        let repoURL = rootURL.appendingPathComponent("repo", isDirectory: true)
+        let trackedURL = repoURL.appendingPathComponent("story.txt")
+        try FileManager.default.createDirectory(at: repoURL, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: rootURL) }
+
+        try runGit(["init"], in: repoURL)
+        try runGit(["checkout", "-b", "main"], in: repoURL)
+        try runGit(["config", "user.name", "cmux tests"], in: repoURL)
+        try runGit(["config", "user.email", "cmux@example.invalid"], in: repoURL)
+        try "one\n".write(to: trackedURL, atomically: true, encoding: .utf8)
+        try runGit(["add", "story.txt"], in: repoURL)
+        try runGit(["commit", "-m", "initial"], in: repoURL)
+        try "one\ntwo\n".write(to: trackedURL, atomically: true, encoding: .utf8)
+
+        let prefsURL = rootURL.appendingPathComponent("diff-viewer-prefs.json")
+        try """
+        {"layout":"split","wordWrap":true,"diffIndicators":"classic","bogus":"x","lineNumbers":"nope"}
+        """.write(to: prefsURL, atomically: true, encoding: .utf8)
+
+        // Persisted preferences seed the layout and the viewerOptions payload;
+        // invalid values and unknown keys are dropped.
+        let persisted = try runDiffCLIAndReadHTML(
+            cliPath: cliPath,
+            arguments: ["diff", "--unstaged"],
+            environmentOverrides: ["CMUX_DIFF_VIEWER_PREFS_PATH": prefsURL.path],
+            currentDirectoryURL: repoURL
+        )
+        XCTAssertTrue(persisted.html.contains("\"layout\":\"split\""), persisted.html)
+        XCTAssertTrue(persisted.html.contains("\"layoutSource\":\"default\""), persisted.html)
+        let persistedPayload = try diffViewerPayload(from: persisted.html)
+        let viewerOptions = try XCTUnwrap(persistedPayload["viewerOptions"] as? [String: Any])
+        XCTAssertEqual(viewerOptions["wordWrap"] as? Bool, true)
+        XCTAssertEqual(viewerOptions["diffIndicators"] as? String, "classic")
+        XCTAssertNil(viewerOptions["bogus"])
+        XCTAssertNil(viewerOptions["lineNumbers"])
+        XCTAssertNil(viewerOptions["layout"])
+
+        // An explicit --layout flag still wins over the persisted preference.
+        let explicit = try runDiffCLIAndReadHTML(
+            cliPath: cliPath,
+            arguments: ["diff", "--unstaged", "--layout", "unified"],
+            environmentOverrides: ["CMUX_DIFF_VIEWER_PREFS_PATH": prefsURL.path],
+            currentDirectoryURL: repoURL
+        )
+        XCTAssertTrue(explicit.html.contains("\"layout\":\"unified\""), explicit.html)
+        XCTAssertTrue(explicit.html.contains("\"layoutSource\":\"explicit\""), explicit.html)
     }
 
     func testDiffCommandSupportsGitSourcesAndSurfaceScopedLastTurn() throws {
