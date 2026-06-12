@@ -15,6 +15,11 @@
 # already has a notify program configured (their own -c override or an
 # uncommented `notify` key in config.toml) so cmux never replaces a
 # user-chosen notifier.
+#
+# Daemon-side decoding of Codex's agent-turn-complete payload ships with the
+# stacked codex-hooks branch (manaflow-ai/cmux PR 5957). Until that lands,
+# an emit relay without the decoder accepts the frame and drops it with exit
+# 0, so this injection is safe to ship first and starts flowing on upgrade.
 
 find_real_codex() {
     local self_dir
