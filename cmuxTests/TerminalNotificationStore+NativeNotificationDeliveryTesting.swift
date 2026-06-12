@@ -1,5 +1,11 @@
 import UserNotifications
 
+#if canImport(cmux_DEV)
+@testable import cmux_DEV
+#elseif canImport(cmux)
+@testable import cmux
+#endif
+
 extension TerminalNotificationStore {
     func configureNotificationAuthorizationHandlerForTesting(
         _ handler: @escaping (@escaping (Bool) -> Void) -> Void
@@ -18,9 +24,7 @@ extension TerminalNotificationStore {
     }
 
     func resetUserNotificationSchedulerForTesting() {
-        nativeNotificationDeliveryHooks.scheduler = { request, completion in
-            UNUserNotificationCenter.current().add(request, withCompletionHandler: completion)
-        }
+        nativeNotificationDeliveryHooks.scheduler = NativeNotificationDeliveryHooks().scheduler
     }
 
     func configureNotificationCommandRunnerForTesting(
@@ -30,8 +34,6 @@ extension TerminalNotificationStore {
     }
 
     func resetNotificationCommandRunnerForTesting() {
-        nativeNotificationDeliveryHooks.commandRunner = { title, subtitle, body in
-            NotificationSoundSettings.runCustomCommand(title: title, subtitle: subtitle, body: body)
-        }
+        nativeNotificationDeliveryHooks.commandRunner = NativeNotificationDeliveryHooks().commandRunner
     }
 }

@@ -684,7 +684,7 @@
 		A5A5A501A1B2C3D4E5F60718 /* TerminalNotificationQueue.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5A5A502A1B2C3D4E5F60718 /* TerminalNotificationQueue.swift */; };
 		A5A5A503A1B2C3D4E5F60718 /* TerminalNotificationQueueTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5A5A504A1B2C3D4E5F60718 /* TerminalNotificationQueueTests.swift */; };
 		A5E380700000000000000001 /* TerminalNotificationSocketActionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5E380700000000000000002 /* TerminalNotificationSocketActionTests.swift */; };
-		596100000000000000000005 /* TerminalNotificationStore+NativeNotificationDeliveryTesting.swift in Sources */ = {isa = PBXBuildFile; fileRef = 596100000000000000000006 /* TerminalNotificationStore+NativeNotificationDeliveryTesting.swift */; };
+		596100000000000000000007 /* TerminalNotificationStore+NativeNotificationDeliveryTesting.swift in Sources */ = {isa = PBXBuildFile; fileRef = 596100000000000000000006 /* TerminalNotificationStore+NativeNotificationDeliveryTesting.swift */; };
 		A5001095 /* TerminalNotificationStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001092 /* TerminalNotificationStore.swift */; };
 		D0B10000A1B2C3D4E5F60001 /* TerminalPaneDropTargetView.swift in Sources */ = {isa = PBXBuildFile; fileRef = D0B10001A1B2C3D4E5F60001 /* TerminalPaneDropTargetView.swift */; };
 		A5001401 /* TerminalPanel.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001411 /* TerminalPanel.swift */; };
@@ -2065,7 +2065,6 @@
 				D1F0A00600000000000000F2 /* ScreenLockObserver.swift */,
 				A5001092 /* TerminalNotificationStore.swift */,
 				596100000000000000000004 /* NativeNotificationDeliveryHooks.swift */,
-				596100000000000000000006 /* TerminalNotificationStore+NativeNotificationDeliveryTesting.swift */,
 				A5001097 /* TerminalNotificationPolicy.swift */,
 				F1A0C0DE0000000000000001 /* FindTextFieldSupport.swift */,
 				A5A5A502A1B2C3D4E5F60718 /* TerminalNotificationQueue.swift */,
@@ -2426,6 +2425,7 @@
 				B09C007F42697761B5F1A2AB /* OmnibarAndToolsTests.swift */,
 				D2C075029771815DD5DA1332 /* NotificationAndMenuBarTests.swift */,
 				596100000000000000000002 /* NativeNotificationFallbackCommandTests.swift */,
+				596100000000000000000006 /* TerminalNotificationStore+NativeNotificationDeliveryTesting.swift */,
 				4E5F60720000000000000002 /* NotificationSoundSettingsTests.swift */,
 				42092CDB2109E250F7F2A76E /* TabManagerUnitTests.swift */,
 				D7C0DE00000000000000A104 /* CmuxWebViewContextMenuLinkCaptureTests.swift */,
@@ -3271,7 +3271,6 @@
 				A5C41101A1B2C3D4E5F60718 /* TerminalNotificationCallerResolver.swift in Sources */,
 				A5001096 /* TerminalNotificationPolicy.swift in Sources */,
 				A5A5A501A1B2C3D4E5F60718 /* TerminalNotificationQueue.swift in Sources */,
-				596100000000000000000005 /* TerminalNotificationStore+NativeNotificationDeliveryTesting.swift in Sources */,
 				A5001095 /* TerminalNotificationStore.swift in Sources */,
 				D0B10000A1B2C3D4E5F60001 /* TerminalPaneDropTargetView.swift in Sources */,
 				A5001401 /* TerminalPanel.swift in Sources */,
@@ -3610,6 +3609,7 @@
 				A5A5A505A1B2C3D4E5F60718 /* TerminalNotificationDirectInteractionTests.swift in Sources */,
 				A5A5A503A1B2C3D4E5F60718 /* TerminalNotificationQueueTests.swift in Sources */,
 				A5E380700000000000000001 /* TerminalNotificationSocketActionTests.swift in Sources */,
+				596100000000000000000007 /* TerminalNotificationStore+NativeNotificationDeliveryTesting.swift in Sources */,
 				C0DE53360000000000000001 /* TerminalSearchOverlayMouseReleaseTests.swift in Sources */,
 				C0DE7B300000000000000001 /* TextBoxMentionCompletionTests.swift in Sources */,
 				F50030040000000000000001 /* TitlebarInteractiveControlTests.swift in Sources */,
