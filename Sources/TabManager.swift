@@ -3750,6 +3750,48 @@ class TabManager: ObservableObject {
         return min(lower, upper)...max(lower, upper)
     }
 
+    /// Commits a gesture-driven drag of a NON-ANCHOR workspace row: the slot
+    /// (`toIndex`) and the group membership (`desiredGroupId`) were both
+    /// resolved live during the drag (position by Y, membership by X at
+    /// boundary slots), so membership is written EXPLICITLY instead of being
+    /// re-inferred from neighbors — the inference cannot express the
+    /// boundary-slot cases ("last slot but outside the group" vs "last slot
+    /// inside" share an array position). Writing membership before the move
+    /// also lets a member leave its group: the member-run clamp consults the
+    /// (already updated) groupId, so a row leaving is unclamped and a row
+    /// joining is clamped into its NEW group's run.
+    @discardableResult
+    func applyGestureDragReorder(
+        tabId: UUID,
+        toIndex targetIndex: Int,
+        desiredGroupId: UUID?
+    ) -> Bool {
+        guard let tab = tabs.first(where: { $0.id == tabId }),
+              !isWorkspaceGroupAnchor(tabId) else { return false }
+        let resolvedGroupId = desiredGroupId.flatMap { gid in
+            workspaceGroups.contains(where: { $0.id == gid }) ? gid : nil
+        }
+        let membershipChanged = tab.groupId != resolvedGroupId
+        if membershipChanged {
+            tab.groupId = resolvedGroupId
+        }
+        let moved = reorderWorkspace(tabId: tabId, toIndex: targetIndex, isDragOperation: false)
+        if membershipChanged {
+            // The reorder's own normalize is skipped on clamped no-op moves
+            // (early `return true`), and a membership flip at an unchanged
+            // index still needs the group invariants re-established —
+            // otherwise a row that just left its group would sit ungrouped
+            // INSIDE the group's contiguous run. Idempotent when the reorder
+            // already normalized.
+            if !workspaceGroups.isEmpty {
+                syncWorkspaceGroupsOrderToAnchorOrder()
+                normalizeWorkspaceGroupContiguity()
+            }
+            postWorkspaceOrderDidChange(movedWorkspaceIds: [tabId])
+        }
+        return moved || membershipChanged
+    }
+
     @discardableResult
     func reorderSidebarWorkspace(
         tabId: UUID,

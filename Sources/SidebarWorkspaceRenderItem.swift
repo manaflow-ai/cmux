@@ -122,7 +122,8 @@ enum SidebarWorkspaceRenderItem {
         _ items: [SidebarWorkspaceRenderItem],
         draggedWorkspaceId: UUID?,
         dropIndicator: SidebarDropIndicator?,
-        reorderWorkspaceIds: [UUID]
+        reorderWorkspaceIds: [UUID],
+        draggedMembershipGroupId: UUID? = nil
     ) -> [SidebarWorkspaceRenderItem] {
         guard let draggedWorkspaceId,
               let dropIndicator,
@@ -160,17 +161,20 @@ enum SidebarWorkspaceRenderItem {
             blocksById[block.workspaceId] = block.items
         }
         let reordered = nextReorderIds.flatMap { blocksById[$0] ?? [] }
-        return applyingDraggedMembership(reordered, draggedWorkspaceId: draggedWorkspaceId)
+        return applyingDraggedMembership(
+            reordered,
+            draggedWorkspaceId: draggedWorkspaceId,
+            membership: draggedMembershipGroupId
+        )
     }
 
-    /// Recomputes the dragged workspace's effective group membership from its
-    /// new neighbors in the preview list, matching the vertical-position rule
-    /// used at commit (`TabManager.applyDragInferredGroupMembership`): a member
-    /// only when sandwiched between two rows of the SAME group. Keeps the live
-    /// indent preview in sync with where the drop will actually land.
+    /// Applies the membership the drag RESOLVED for the dragged row (interior
+    /// slots force it, boundary slots follow the pointer's X axis) so the
+    /// preview indent always matches what the drop will commit.
     private static func applyingDraggedMembership(
         _ renderItems: [SidebarWorkspaceRenderItem],
-        draggedWorkspaceId: UUID
+        draggedWorkspaceId: UUID,
+        membership: UUID?
     ) -> [SidebarWorkspaceRenderItem] {
         guard let draggedIndex = renderItems.firstIndex(where: { item in
             if case .workspace(let workspace, _) = item { return workspace.id == draggedWorkspaceId }
@@ -178,37 +182,10 @@ enum SidebarWorkspaceRenderItem {
         }) else {
             return renderItems
         }
-        let beforeGroup = draggedIndex > renderItems.startIndex
-            ? groupIdentity(renderItems[draggedIndex - 1])
-            : nil
-        let afterGroup = draggedIndex < renderItems.index(before: renderItems.endIndex)
-            ? groupIdentity(renderItems[draggedIndex + 1])
-            : nil
-        // Mirror the commit rule exactly: matching neighbors decide the
-        // membership; the AMBIGUOUS case (one neighbor in, one out — the
-        // first/last in-group slot) keeps the COMMITTED membership, the same
-        // bias `applyDragInferredGroupMembership` applies. Forcing nil here
-        // made the preview unindent at group-edge slots and snap back on drop.
-        let committedGroupId: UUID? = {
-            if case .workspace(let workspace, _) = renderItems[draggedIndex] { return workspace.groupId }
-            return nil
-        }()
-        let membership: UUID? = (beforeGroup == afterGroup) ? beforeGroup : committedGroupId
         guard renderItems[draggedIndex].effectiveGroupId != membership else { return renderItems }
         var result = renderItems
         result[draggedIndex] = result[draggedIndex].withEffectiveGroupId(membership)
         return result
-    }
-
-    /// The group a render item counts as for neighbor-membership purposes: the
-    /// group a header anchors, or a workspace row's effective group.
-    private static func groupIdentity(_ item: SidebarWorkspaceRenderItem) -> UUID? {
-        switch item {
-        case .groupHeader(let group, _):
-            return group.id
-        case .workspace(_, let effectiveGroupId):
-            return effectiveGroupId
-        }
     }
 
     /// The id order after moving the dragged workspace to the indicator slot,

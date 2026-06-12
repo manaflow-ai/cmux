@@ -39,11 +39,12 @@ extension VerticalTabsSidebar {
     ///   - startLocationY: the gesture's start Y in the reorder list space.
     ///     Trustworthy only on the begin event (it re-converts with current
     ///     geometry on later events).
-    ///   - translationHeight: the gesture's vertical pointer travel.
+    ///   - translation: the gesture's pointer travel. Height drives the slot,
+    ///     width drives boundary-slot group membership (the outliner X axis).
     func sidebarReorderGestureChanged(
         draggedId: UUID,
         startLocationY: CGFloat,
-        translationHeight: CGFloat,
+        translation: CGSize,
         renderContext: WorkspaceListRenderContext
     ) {
         // Escape cancelled this drag mid-gesture. The DragGesture itself stays
@@ -51,8 +52,8 @@ extension VerticalTabsSidebar {
         // this latch the next event would re-begin the cancelled drag.
         guard dragState.cancelledReorderTabId != draggedId else { return }
         let cursorY = (dragState.draggedTabId == draggedId)
-            ? dragState.reorderTranslationBaseY + translationHeight + dragState.autoScrollAccumulatedDelta
-            : startLocationY + translationHeight
+            ? dragState.reorderTranslationBaseY + translation.height + dragState.autoScrollAccumulatedDelta
+            : startLocationY + translation.height
         if dragState.draggedTabId != draggedId {
             let usesTopLevelRows = tabManager.sidebarReorderUsesTopLevelRows(
                 forDraggedWorkspaceId: draggedId,
@@ -70,23 +71,11 @@ extension VerticalTabsSidebar {
                 usesTopLevelRows: usesTopLevelRows,
                 renderContext: renderContext
             )
-            // Commit-side clamp (grouped members stay inside their group's
-            // run) plus its visual mirror for the live gap, and the headers a
-            // non-anchor row could be dropped INTO via their center zone.
-            let legalInsertionRange = tabManager.sidebarReorderLegalInsertionRange(
-                forDraggedWorkspaceId: draggedId,
-                usesTopLevelRows: usesTopLevelRows
-            )
+            // Membership-resolution inputs: each band's group identity, which
+            // bands are headers, and the headers a non-anchor row could be
+            // dropped INTO via their center zone.
             let draggedWorkspace = renderContext.workspaceById[draggedId]
             let draggedGroupId = draggedWorkspace?.groupId
-            let memberClampBandIds: Set<UUID>? = legalInsertionRange.flatMap { _ in
-                guard let draggedGroupId else { return nil }
-                return Set(
-                    renderContext.tabs
-                        .filter { $0.groupId == draggedGroupId }
-                        .map(\.id)
-                )
-            }
             let draggedIsAnchor = renderContext.workspaceGroups
                 .contains { $0.anchorWorkspaceId == draggedId }
             let dropIntoCandidates: Set<UUID> = draggedIsAnchor
@@ -96,6 +85,10 @@ extension VerticalTabsSidebar {
                         .filter { $0.id != draggedGroupId }
                         .map(\.anchorWorkspaceId)
                 )
+            let bandGroupIdById: [UUID: UUID?] = Dictionary(
+                uniqueKeysWithValues: renderContext.tabs.map { ($0.id, $0.groupId) }
+            )
+            let headerBandIds = Set(renderContext.workspaceGroups.map(\.anchorWorkspaceId))
             let frame = dragState.rowFramesInList[draggedId]
             let grabOffsetY = frame.map { startLocationY - $0.minY } ?? 0
             #if DEBUG
@@ -112,16 +105,18 @@ extension VerticalTabsSidebar {
                 reorderIds: reorderIds,
                 pinnedIds: pinnedIds,
                 scopeBandComposition: composition,
-                legalInsertionRange: legalInsertionRange,
-                memberClampBandIds: memberClampBandIds,
                 dropIntoGroupCandidateAnchorIds: dropIntoCandidates,
+                bandGroupIdById: bandGroupIdById,
+                headerBandIds: headerBandIds,
+                draggedCommittedGroupId: draggedGroupId,
+                draggedIsAnchor: draggedIsAnchor,
                 draggedRowFrame: frame,
                 grabOffsetY: grabOffsetY,
                 translationBaseY: startLocationY,
                 cursorY: cursorY
             )
         } else {
-            dragState.updateReorder(cursorY: cursorY)
+            dragState.updateReorder(cursorY: cursorY, translationWidth: translation.width)
         }
         dragAutoScrollController.updateFromDragLocation()
     }
@@ -160,15 +155,35 @@ extension VerticalTabsSidebar {
             return
         }
         let usesTopLevelRows = dragState.dropIndicatorUsesTopLevelRows
+        if usesTopLevelRows {
+            #if DEBUG
+            cmuxDebugLog("sidebar.reorder.end id=\(draggedId.uuidString.prefix(5)) target=\(targetIndex) topLevel=true")
+            #endif
+            withAnimation(Self.sidebarReorderAnimation) {
+                _ = tabManager.reorderSidebarWorkspace(
+                    tabId: draggedId,
+                    toIndex: targetIndex,
+                    isDragOperation: true,
+                    usesTopLevelRows: true
+                )
+            }
+            return
+        }
+        // Membership was resolved live (interior slots force it, boundary
+        // slots followed the pointer's X) and is committed explicitly so the
+        // drop lands exactly what the preview showed.
+        let membership = dragState.previewMembershipGroupId
         #if DEBUG
-        cmuxDebugLog("sidebar.reorder.end id=\(draggedId.uuidString.prefix(5)) target=\(targetIndex) topLevel=\(usesTopLevelRows)")
+        cmuxDebugLog(
+            "sidebar.reorder.end id=\(draggedId.uuidString.prefix(5)) target=\(targetIndex) " +
+            "membership=\(membership?.uuidString.prefix(5) ?? "nil")"
+        )
         #endif
         withAnimation(Self.sidebarReorderAnimation) {
-            _ = tabManager.reorderSidebarWorkspace(
+            _ = tabManager.applyGestureDragReorder(
                 tabId: draggedId,
                 toIndex: targetIndex,
-                isDragOperation: true,
-                usesTopLevelRows: usesTopLevelRows
+                desiredGroupId: membership
             )
         }
     }
@@ -197,22 +212,22 @@ extension VerticalTabsSidebar {
 /// `"sidebarReorderList"` space so its location aligns with the measured row
 /// frames. A non-zero `minimumDistance` lets a plain click still select the row.
 struct SidebarReorderDragModifier: ViewModifier {
-    let onChanged: (_ startLocation: CGPoint, _ translationHeight: CGFloat) -> Void
-    let onEnded: (_ startLocation: CGPoint, _ translationHeight: CGFloat) -> Void
+    let onChanged: (_ startLocation: CGPoint, _ translation: CGSize) -> Void
+    let onEnded: (_ startLocation: CGPoint, _ translation: CGSize) -> Void
 
     func body(content: Content) -> some View {
         content.gesture(
             DragGesture(minimumDistance: 6, coordinateSpace: .named(SidebarReorderListCoordinateSpace.name))
-                .onChanged { value in onChanged(value.startLocation, value.translation.height) }
-                .onEnded { value in onEnded(value.startLocation, value.translation.height) }
+                .onChanged { value in onChanged(value.startLocation, value.translation) }
+                .onEnded { value in onEnded(value.startLocation, value.translation) }
         )
     }
 }
 
 extension View {
     func sidebarReorderDrag(
-        onChanged: @escaping (_ startLocation: CGPoint, _ translationHeight: CGFloat) -> Void,
-        onEnded: @escaping (_ startLocation: CGPoint, _ translationHeight: CGFloat) -> Void
+        onChanged: @escaping (_ startLocation: CGPoint, _ translation: CGSize) -> Void,
+        onEnded: @escaping (_ startLocation: CGPoint, _ translation: CGSize) -> Void
     ) -> some View {
         modifier(SidebarReorderDragModifier(onChanged: onChanged, onEnded: onEnded))
     }
@@ -225,8 +240,8 @@ extension View {
 struct SidebarReorderRowModifier: ViewModifier {
     let enabled: Bool
     let workspaceId: UUID
-    let onChanged: (_ startLocation: CGPoint, _ translationHeight: CGFloat) -> Void
-    let onEnded: (_ startLocation: CGPoint, _ translationHeight: CGFloat) -> Void
+    let onChanged: (_ startLocation: CGPoint, _ translation: CGSize) -> Void
+    let onEnded: (_ startLocation: CGPoint, _ translation: CGSize) -> Void
 
     @ViewBuilder
     func body(content: Content) -> some View {

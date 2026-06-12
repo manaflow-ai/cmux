@@ -57,8 +57,8 @@ struct SidebarWorkspaceGroupHeaderView: View, Equatable {
     let isFirstRow: Bool
     let topDropIndicatorVisible: Bool
     /// Reorder gesture callbacks dispatched into the shared reorder helpers.
-    let onReorderChanged: (CGPoint, CGFloat) -> Void
-    let onReorderEnded: (CGPoint, CGFloat) -> Void
+    let onReorderChanged: (CGPoint, CGSize) -> Void
+    let onReorderEnded: (CGPoint, CGSize) -> Void
     /// False for the floating follower copy.
     let isReorderEnabled: Bool
     let onToggleCollapsed: () -> Void
