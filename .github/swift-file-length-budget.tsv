@@ -2,7 +2,8 @@
 # Format: max_lines<TAB>relative path
 # Reduce counts as files shrink. CI fails if tracked files exceed this budget.
 33266	CLI/cmux.swift
-22842	Sources/TerminalController.swift
+518	Packages/CmuxControlSocket/Sources/CmuxControlSocket/Coordinator/Surface/ControlCommandCoordinator+Surface.swift
+14778	Sources/TerminalController.swift
 19974	Sources/Workspace.swift
 19205	Sources/ContentView.swift
 18021	Sources/AppDelegate.swift
@@ -186,3 +187,11 @@
 504	cmuxTests/TerminalNotificationSocketActionTests.swift
 502	Sources/CmuxEventPublishing.swift
 502	Sources/Settings/ConfigSource.swift
+611	Sources/TerminalController+ControlPaneContext.swift
+533	Packages/CmuxControlSocket/Sources/CmuxControlSocket/Coordinator/Pane/ControlCommandCoordinator+Pane.swift
+852	Packages/CmuxControlSocket/Sources/CmuxControlSocket/Coordinator/Workspace/ControlCommandCoordinator+Workspace.swift
+756	Sources/TerminalController+ControlWorkspaceContext.swift
+645	Packages/CmuxControlSocket/Sources/CmuxControlSocket/Coordinator/Browser/ControlCommandCoordinator+BrowserAutomationActions.swift
+642	Packages/CmuxControlSocket/Sources/CmuxControlSocket/Coordinator/Browser/ControlCommandCoordinator+Browser3.swift
+595	Packages/CmuxControlSocket/Sources/CmuxControlSocket/Coordinator/Browser/ControlCommandCoordinator+BrowserAutomation.swift
+563	Packages/CmuxControlSocket/Sources/CmuxControlSocket/Coordinator/Browser/ControlCommandCoordinator+BrowserAutomationFind.swift
