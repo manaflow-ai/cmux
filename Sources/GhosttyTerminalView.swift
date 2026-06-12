@@ -8327,6 +8327,10 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     ])
     private static let tabTransferPasteboardType = NSPasteboard.PasteboardType("com.splittabbar.tabtransfer")
     private static let sidebarTabReorderPasteboardType = NSPasteboard.PasteboardType("com.cmux.sidebar-tab-reorder")
+    private static let rightShiftModifierFlag = NSEvent.ModifierFlags(rawValue: UInt(NX_DEVICERSHIFTKEYMASK))
+    private static let rightControlModifierFlag = NSEvent.ModifierFlags(rawValue: UInt(NX_DEVICERCTLKEYMASK))
+    private static let rightOptionModifierFlag = NSEvent.ModifierFlags(rawValue: UInt(NX_DEVICERALTKEYMASK))
+    private static let rightCommandModifierFlag = NSEvent.ModifierFlags(rawValue: UInt(NX_DEVICERCMDKEYMASK))
 
     private enum WordPathResolutionSource: String {
         case quicklook
@@ -10304,27 +10308,10 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
 
         // Translate mods to respect Ghostty config (e.g., macos-option-as-alt)
         let translationModsGhostty = ghostty_surface_key_translation_mods(surface, modsFromEvent(event))
-        var translationMods = event.modifierFlags
-        for flag in [NSEvent.ModifierFlags.shift, .control, .option, .command] {
-            let hasFlag: Bool
-            switch flag {
-            case .shift:
-                hasFlag = (translationModsGhostty.rawValue & GHOSTTY_MODS_SHIFT.rawValue) != 0
-            case .control:
-                hasFlag = (translationModsGhostty.rawValue & GHOSTTY_MODS_CTRL.rawValue) != 0
-            case .option:
-                hasFlag = (translationModsGhostty.rawValue & GHOSTTY_MODS_ALT.rawValue) != 0
-            case .command:
-                hasFlag = (translationModsGhostty.rawValue & GHOSTTY_MODS_SUPER.rawValue) != 0
-            default:
-                hasFlag = translationMods.contains(flag)
-            }
-            if hasFlag {
-                translationMods.insert(flag)
-            } else {
-                translationMods.remove(flag)
-            }
-        }
+        let translationMods = translatedModifierFlags(
+            from: translationModsGhostty,
+            fallback: event.modifierFlags
+        )
 
         let translationEvent: NSEvent
         if translationMods == event.modifierFlags {
@@ -10749,11 +10736,16 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     }
 
     private func modsFromFlags(_ flags: NSEvent.ModifierFlags) -> ghostty_input_mods_e {
+        let rawFlags = flags.rawValue
         var mods = GHOSTTY_MODS_NONE.rawValue
         if flags.contains(.shift) { mods |= GHOSTTY_MODS_SHIFT.rawValue }
         if flags.contains(.control) { mods |= GHOSTTY_MODS_CTRL.rawValue }
         if flags.contains(.option) { mods |= GHOSTTY_MODS_ALT.rawValue }
         if flags.contains(.command) { mods |= GHOSTTY_MODS_SUPER.rawValue }
+        if rawFlags & Self.rightShiftModifierFlag.rawValue != 0 { mods |= GHOSTTY_MODS_SHIFT_RIGHT.rawValue }
+        if rawFlags & Self.rightControlModifierFlag.rawValue != 0 { mods |= GHOSTTY_MODS_CTRL_RIGHT.rawValue }
+        if rawFlags & Self.rightOptionModifierFlag.rawValue != 0 { mods |= GHOSTTY_MODS_ALT_RIGHT.rawValue }
+        if rawFlags & Self.rightCommandModifierFlag.rawValue != 0 { mods |= GHOSTTY_MODS_SUPER_RIGHT.rawValue }
         return ghostty_input_mods_e(rawValue: mods)
     }
 
@@ -10764,9 +10756,45 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         var mods = GHOSTTY_MODS_NONE.rawValue
         // Only include Shift and Option as potentially consumed
         // Control and Command are never consumed for text translation
-        if flags.contains(.shift) { mods |= GHOSTTY_MODS_SHIFT.rawValue }
-        if flags.contains(.option) { mods |= GHOSTTY_MODS_ALT.rawValue }
+        if flags.contains(.shift) {
+            mods |= GHOSTTY_MODS_SHIFT.rawValue
+            if flags.rawValue & Self.rightShiftModifierFlag.rawValue != 0 {
+                mods |= GHOSTTY_MODS_SHIFT_RIGHT.rawValue
+            }
+        }
+        if flags.contains(.option) {
+            mods |= GHOSTTY_MODS_ALT.rawValue
+            if flags.rawValue & Self.rightOptionModifierFlag.rawValue != 0 {
+                mods |= GHOSTTY_MODS_ALT_RIGHT.rawValue
+            }
+        }
         return ghostty_input_mods_e(rawValue: mods)
+    }
+
+    private func translatedModifierFlags(
+        from ghosttyMods: ghostty_input_mods_e,
+        fallback: NSEvent.ModifierFlags
+    ) -> NSEvent.ModifierFlags {
+        var flags = fallback
+
+        func set(_ appKitFlag: NSEvent.ModifierFlags, when ghosttyFlag: ghostty_input_mods_e) {
+            if ghosttyMods.rawValue & ghosttyFlag.rawValue != 0 {
+                flags.insert(appKitFlag)
+            } else {
+                flags.remove(appKitFlag)
+            }
+        }
+
+        set(.shift, when: GHOSTTY_MODS_SHIFT)
+        set(.control, when: GHOSTTY_MODS_CTRL)
+        set(.option, when: GHOSTTY_MODS_ALT)
+        set(.command, when: GHOSTTY_MODS_SUPER)
+        set(Self.rightShiftModifierFlag, when: GHOSTTY_MODS_SHIFT_RIGHT)
+        set(Self.rightControlModifierFlag, when: GHOSTTY_MODS_CTRL_RIGHT)
+        set(Self.rightOptionModifierFlag, when: GHOSTTY_MODS_ALT_RIGHT)
+        set(Self.rightCommandModifierFlag, when: GHOSTTY_MODS_SUPER_RIGHT)
+
+        return flags
     }
 
     func beginFindEscapeSuppression() {
@@ -10858,27 +10886,10 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
 
         // Translate mods to respect Ghostty config (e.g., macos-option-as-alt).
         let translationModsGhostty = ghostty_surface_key_translation_mods(surface, modsFromEvent(event))
-        var translationMods = event.modifierFlags
-        for flag in [NSEvent.ModifierFlags.shift, .control, .option, .command] {
-            let hasFlag: Bool
-            switch flag {
-            case .shift:
-                hasFlag = (translationModsGhostty.rawValue & GHOSTTY_MODS_SHIFT.rawValue) != 0
-            case .control:
-                hasFlag = (translationModsGhostty.rawValue & GHOSTTY_MODS_CTRL.rawValue) != 0
-            case .option:
-                hasFlag = (translationModsGhostty.rawValue & GHOSTTY_MODS_ALT.rawValue) != 0
-            case .command:
-                hasFlag = (translationModsGhostty.rawValue & GHOSTTY_MODS_SUPER.rawValue) != 0
-            default:
-                hasFlag = translationMods.contains(flag)
-            }
-            if hasFlag {
-                translationMods.insert(flag)
-            } else {
-                translationMods.remove(flag)
-            }
-        }
+        let translationMods = translatedModifierFlags(
+            from: translationModsGhostty,
+            fallback: event.modifierFlags
+        )
 
         keyEvent.consumed_mods = consumedModsFromFlags(translationMods)
         keyEvent.text = nil
