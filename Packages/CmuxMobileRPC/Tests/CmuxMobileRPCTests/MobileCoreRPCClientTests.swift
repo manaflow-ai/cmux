@@ -187,4 +187,75 @@ import Testing
         #expect(decoded.macDeviceID == "mac-1")
         #expect(decoded.routes.first?.kind == .tailscale)
     }
+
+    /// A QR-style unscoped ticket (empty ids, no token, no expiry) over the
+    /// given route, mirroring what `CmxPairingQRCode.decode` produces.
+    private func qrPairingTicket(route: CmxAttachRoute) throws -> CmxAttachTicket {
+        try CmxAttachTicket(
+            workspaceID: "",
+            terminalID: nil,
+            macDeviceID: "",
+            macDisplayName: nil,
+            routes: [route],
+            expiresAt: nil,
+            authToken: nil
+        )
+    }
+
+    /// Sends one `mobile.host.status` probe through a recording transport and
+    /// returns the frame that hit the wire. The probe's response is never
+    /// produced, so the in-flight task is cancelled once the frame is captured.
+    private func sentHostStatusProbe(
+        route: CmxAttachRoute,
+        stackAccessToken: String?
+    ) async throws -> RecordedRPCRequest? {
+        let transport = QueuedCancellationProbeTransport()
+        let runtime = TestMobileSyncRuntime(
+            transportFactory: QueuedCancellationProbeTransportFactory(transport: transport),
+            stackAccessToken: stackAccessToken
+        )
+        let client = MobileCoreRPCClient(
+            runtime: runtime,
+            route: route,
+            ticket: try qrPairingTicket(route: route),
+            allowsStackAuthFallback: true
+        )
+        let request = try MobileCoreRPCClient.requestData(method: "mobile.host.status")
+        let task = Task { try await client.sendRequest(request) }
+        let sent = try await transport.waitForSentRequestCount(1)
+        task.cancel()
+        _ = try? await task.value
+        #expect(sent.map(\.method) == ["mobile.host.status"])
+        return sent.first
+    }
+
+    @Test func hostStatusProbeCarriesStackTokenOnTrustedRoute() async throws {
+        // The status probe is unauthenticated by design, but the host reports
+        // its identity (`mac_device_id`, `mac_display_name`) only to a
+        // verified same-account caller, so the client attaches the Stack
+        // token whenever it has one and the route is trusted to carry it
+        // (Tailscale rides the WireGuard tunnel).
+        let route = try hostPortRoute(kind: .tailscale, host: "100.64.0.5", port: 58465)
+        let probe = try await sentHostStatusProbe(route: route, stackAccessToken: "test-stack-token")
+        #expect(probe?.stackAccessToken == "test-stack-token")
+        #expect(probe?.attachToken == nil)
+    }
+
+    @Test func hostStatusProbeStaysTokenlessWhenTokenUnavailable() async throws {
+        // Signed-out probe: a failing token provider must not fail the
+        // request. The probe still goes out (reachability needs no auth) and
+        // the host simply answers identity-free.
+        let route = try hostPortRoute(kind: .tailscale, host: "100.64.0.5", port: 58465)
+        let probe = try await sentHostStatusProbe(route: route, stackAccessToken: nil)
+        #expect(probe?.hasAuth == false)
+    }
+
+    @Test func hostStatusProbeNeverSendsStackTokenOnUntrustedRoute() async throws {
+        // A manually-entered plain-LAN host is dialed over unencrypted TCP;
+        // the account bearer token must never ride it, even opportunistically.
+        // The probe itself still goes out tokenless instead of throwing.
+        let route = try hostPortRoute(kind: .tailscale, host: "192.168.1.20", port: 58465)
+        let probe = try await sentHostStatusProbe(route: route, stackAccessToken: "test-stack-token")
+        #expect(probe?.hasAuth == false)
+    }
 }
