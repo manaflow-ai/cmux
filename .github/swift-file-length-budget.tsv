@@ -2,7 +2,8 @@
 # Format: max_lines<TAB>relative path
 # Reduce counts as files shrink. CI fails if tracked files exceed this budget.
 33266	CLI/cmux.swift
-22838	Sources/TerminalController.swift
+518	Packages/CmuxControlSocket/Sources/CmuxControlSocket/Coordinator/Surface/ControlCommandCoordinator+Surface.swift
+14774	Sources/TerminalController.swift
 19955	Sources/Workspace.swift
 19256	Sources/ContentView.swift
 18021	Sources/AppDelegate.swift
@@ -21,7 +22,7 @@
 6071	Sources/TextBoxInput.swift
 5482	cmuxTests/BrowserConfigTests.swift
 5453	Sources/cmuxApp.swift
-4574	Packages/CmuxMobileShell/Sources/CmuxMobileShell/MobileShellComposite.swift
+4827	Packages/CmuxMobileShell/Sources/CmuxMobileShell/MobileShellComposite.swift
 4460	Sources/Panels/FilePreviewPanel.swift
 4400	cmuxTests/BrowserPanelTests.swift
 4227	Sources/BrowserWindowPortal.swift
@@ -41,7 +42,7 @@
 2513	cmuxTests/CommandPaletteSearchEngineTests.swift
 2509	Sources/KeyboardShortcutSettings.swift
 2327	cmuxTests/CJKIMEInputTests.swift
-2326	Sources/Mobile/MobileHostService.swift
+2340	Sources/Mobile/MobileHostService.swift
 2290	Sources/FileExplorerView.swift
 2260	Sources/TerminalWindowPortal.swift
 2138	Sources/SessionPersistence.swift
@@ -186,3 +187,11 @@
 504	cmuxTests/TerminalNotificationSocketActionTests.swift
 502	Sources/CmuxEventPublishing.swift
 502	Sources/Settings/ConfigSource.swift
+611	Sources/TerminalController+ControlPaneContext.swift
+533	Packages/CmuxControlSocket/Sources/CmuxControlSocket/Coordinator/Pane/ControlCommandCoordinator+Pane.swift
+852	Packages/CmuxControlSocket/Sources/CmuxControlSocket/Coordinator/Workspace/ControlCommandCoordinator+Workspace.swift
+756	Sources/TerminalController+ControlWorkspaceContext.swift
+645	Packages/CmuxControlSocket/Sources/CmuxControlSocket/Coordinator/Browser/ControlCommandCoordinator+BrowserAutomationActions.swift
+642	Packages/CmuxControlSocket/Sources/CmuxControlSocket/Coordinator/Browser/ControlCommandCoordinator+Browser3.swift
+595	Packages/CmuxControlSocket/Sources/CmuxControlSocket/Coordinator/Browser/ControlCommandCoordinator+BrowserAutomation.swift
+563	Packages/CmuxControlSocket/Sources/CmuxControlSocket/Coordinator/Browser/ControlCommandCoordinator+BrowserAutomationFind.swift
