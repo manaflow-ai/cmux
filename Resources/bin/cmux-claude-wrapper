@@ -250,6 +250,79 @@ pick_subrouter_claude_profile_for_fresh_launch() {
     normalize_claude_config_dir
 }
 
+subrouter_claude_routing_active() {
+    case "${ANTHROPIC_AUTH_TOKEN:-}" in
+        subrouter) return 0 ;;
+    esac
+    case "${ANTHROPIC_BASE_URL:-}" in
+        *subrouter*) return 0 ;;
+    esac
+    claude_config_dir_is_subrouter_managed
+}
+
+anthropic_custom_headers_has() {
+    local header_name="$1"
+    local line
+    while IFS= read -r line || [[ -n "$line" ]]; do
+        case "$line" in
+            "$header_name":*) return 0 ;;
+        esac
+    done <<<"${ANTHROPIC_CUSTOM_HEADERS:-}"
+    return 1
+}
+
+sanitize_subrouter_header_value() {
+    local value="$1"
+    value="${value//$'\r'/}"
+    value="${value//$'\n'/}"
+    printf '%s' "$value"
+}
+
+append_anthropic_custom_header() {
+    local header_name="$1"
+    local header_value
+    header_value="$(sanitize_subrouter_header_value "$2")"
+    [[ -n "$header_value" ]] || return 0
+    anthropic_custom_headers_has "$header_name" && return 0
+
+    if [[ -n "${ANTHROPIC_CUSTOM_HEADERS:-}" ]]; then
+        export ANTHROPIC_CUSTOM_HEADERS="${ANTHROPIC_CUSTOM_HEADERS}"$'\n'"$header_name: $header_value"
+    else
+        export ANTHROPIC_CUSTOM_HEADERS="$header_name: $header_value"
+    fi
+}
+
+extract_claude_explicit_session_key() {
+    local -a args=("$@")
+    local index arg next
+    for ((index = 0; index < ${#args[@]}; index++)); do
+        arg="${args[$index]}"
+        case "$arg" in
+            --resume=*|--session-id=*)
+                printf '%s' "${arg#*=}"
+                return 0
+                ;;
+            --resume|-r|--session-id)
+                if (( index + 1 < ${#args[@]} )); then
+                    next="${args[$((index + 1))]}"
+                    if [[ -n "$next" && "$next" != -* ]]; then
+                        printf '%s' "$next"
+                        return 0
+                    fi
+                fi
+                ;;
+        esac
+    done
+    return 1
+}
+
+configure_subrouter_claude_headers() {
+    local session_key="$1"
+    subrouter_claude_routing_active || return 0
+    append_anthropic_custom_header "X-Subrouter-Session" "$session_key"
+    append_anthropic_custom_header "X-Subrouter-Agent" "claude"
+}
+
 clear_inherited_claude_auth_selection_env() {
     if [[ "${IN_CMUX:-0}" == "1" ]]; then
         local key
@@ -538,6 +611,15 @@ done
 if [[ "$SKIP_SUBROUTER_PROFILE_PICK" == false ]]; then
     pick_subrouter_claude_profile_for_fresh_launch
 fi
+SESSION_ID=""
+SUBROUTER_CLAUDE_SESSION_KEY="$(extract_claude_explicit_session_key "$@" || true)"
+if [[ "$SKIP_SESSION_ID" == false ]]; then
+    SESSION_ID="$(uuidgen | tr '[:upper:]' '[:lower:]')"
+    SUBROUTER_CLAUDE_SESSION_KEY="$SESSION_ID"
+elif [[ -z "$SUBROUTER_CLAUDE_SESSION_KEY" ]]; then
+    SUBROUTER_CLAUDE_SESSION_KEY="cmux-claude-$(uuidgen | tr '[:upper:]' '[:lower:]')"
+fi
+configure_subrouter_claude_headers "$SUBROUTER_CLAUDE_SESSION_KEY"
 
 # Export the wrapper's PID. Because we exec claude below, this PID becomes
 # the actual claude process PID, which hooks use for stale-session detection.
@@ -579,6 +661,5 @@ HOOKS_JSON='{"preferredNotifChannel":"notifications_disabled","hooks":{"SessionS
 if [[ "$SKIP_SESSION_ID" == true ]]; then
     exec "$REAL_CLAUDE" --settings "$HOOKS_JSON" "$@"
 else
-    SESSION_ID="$(uuidgen | tr '[:upper:]' '[:lower:]')"
     exec "$REAL_CLAUDE" --session-id "$SESSION_ID" --settings "$HOOKS_JSON" "$@"
 fi
