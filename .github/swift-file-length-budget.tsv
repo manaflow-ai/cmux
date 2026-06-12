@@ -11,7 +11,7 @@
 11916	cmuxTests/AppDelegateShortcutRoutingTests.swift
 9992	Sources/TabManager.swift
 8494	cmuxTests/CLINotifyProcessIntegrationRegressionTests.swift
-7801	Sources/Panels/BrowserPanelView.swift
+7797	Sources/Panels/BrowserPanelView.swift
 7198	cmuxTests/WorkspaceUnitTests.swift
 6948	cmuxTests/WorkspaceRemoteConnectionTests.swift
 6542	cmuxTests/GhosttyConfigTests.swift

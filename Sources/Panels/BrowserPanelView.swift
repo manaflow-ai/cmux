@@ -3733,10 +3733,6 @@ func omnibarReduce(state: inout OmnibarState, event: OmnibarEvent) -> OmnibarEff
             state.selectedSuggestionIndex = 0
             state.selectedSuggestionID = items[0].id
             state.selectionIsExplicit = false
-        } else if let previousSelectedID,
-                  let idx = items.firstIndex(where: { $0.id == previousSelectedID }) {
-            state.selectedSuggestionIndex = idx
-            state.selectedSuggestionID = items[idx].id
         } else {
             state.selectedSuggestionIndex = min(max(0, state.selectedSuggestionIndex), items.count - 1)
             state.selectedSuggestionID = items[state.selectedSuggestionIndex].id
