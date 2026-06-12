@@ -3265,6 +3265,8 @@ private final class RightSidebarToggleAccessoryViewController: NSTitlebarAccesso
     private weak var observedFileExplorerState: FileExplorerState?
     private var lastAppliedContentSize: NSSize = .zero
     private var lastAppliedYOffset: CGFloat = .nan
+    private var bindRetriesRemaining = 40
+    private var isBindRetryScheduled = false
 
     init() {
         let containerView = NSView()
@@ -3379,10 +3381,18 @@ private final class RightSidebarToggleAccessoryViewController: NSTitlebarAccesso
     /// move into the sidebar the way the left sidebar toggle reads as part of
     /// the open left sidebar.
     private func bindSidebarVisibilityIfNeeded() {
+        guard observedFileExplorerState == nil else { return }
+        // The window context can register after the accessory attaches
+        // (notably during session restore with the sidebar already open), so
+        // unresolved lookups retry briefly instead of waiting for an
+        // interaction-driven layout pass.
         guard let window = view.window,
-              let state = AppDelegate.shared?.contextForMainTerminalWindow(window, reindex: false)?.fileExplorerState
-        else { return }
-        guard state !== observedFileExplorerState else { return }
+              let state = AppDelegate.shared?.contextForMainTerminalWindow(window)?.fileExplorerState
+        else {
+            scheduleBindRetryIfNeeded()
+            return
+        }
+        bindRetriesRemaining = 0
         observedFileExplorerState = state
         sidebarVisibilityCancellable = state.$isVisible
             .removeDuplicates()
@@ -3390,6 +3400,19 @@ private final class RightSidebarToggleAccessoryViewController: NSTitlebarAccesso
             .sink { [weak self] sidebarVisible in
                 self?.setToggleHidden(sidebarVisible)
             }
+    }
+
+    private func scheduleBindRetryIfNeeded() {
+        guard bindRetriesRemaining > 0, !isBindRetryScheduled else { return }
+        bindRetriesRemaining -= 1
+        isBindRetryScheduled = true
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) { [weak self] in
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                self.isBindRetryScheduled = false
+                self.bindSidebarVisibilityIfNeeded()
+            }
+        }
     }
 
     private func setToggleHidden(_ hidden: Bool) {
