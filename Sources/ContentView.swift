@@ -2731,7 +2731,7 @@ struct ContentView: View {
             fileExplorerStore.applyWorkspaceRoot(.none)
             return
         }
-        fileExplorerStore.applyWorkspaceRoot(.local(path: dir))
+        fileExplorerStore.applyWorkspaceRoot(.local(workspaceId: tab.id, path: dir))
     }
 
     private var shouldSyncFileExplorerStore: Bool {
@@ -15006,27 +15006,6 @@ private struct SidebarScrollViewResolver: NSViewRepresentable {
     func updateNSView(_ nsView: SidebarScrollViewResolverView, context: Context) {
         nsView.onResolve = onResolve
         nsView.resolveScrollView()
-    }
-}
-
-private final class SidebarScrollViewResolverView: NSView {
-    var onResolve: ((NSScrollView?) -> Void)?
-
-    override func viewDidMoveToSuperview() {
-        super.viewDidMoveToSuperview()
-        resolveScrollView()
-    }
-
-    override func viewDidMoveToWindow() {
-        super.viewDidMoveToWindow()
-        resolveScrollView()
-    }
-
-    func resolveScrollView() {
-        DispatchQueue.main.async { [weak self] in
-            guard let self else { return }
-            onResolve?(self.enclosingScrollView)
-        }
     }
 }
 
