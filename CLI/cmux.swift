@@ -22147,16 +22147,22 @@ struct CMUXCLI {
             // Startup/resume SessionStart remains non-visible; /clear is a
             // new active boundary and must keep the sidebar Running before
             // any late pre-clear Stop can write Idle.
-            let shouldRegisterPID =
-                shouldPromoteActiveSession ||
-                isForkSessionLaunch ||
-                shouldApplyClaudeHookVisibleMutation(
-                    sessionStore: sessionStore,
-                    parsedInput: parsedInput,
-                    workspaceId: workspaceId,
-                    surfaceId: resolvedSurface.isAuthoritative ? surfaceId : nil,
-                    telemetry: telemetry
-                )
+            // Fork launches register their PID only with an authoritative
+            // surface: the hook reports the PARENT session id (which is often
+            // the workspace-active session), and the pre-prompt fork SessionEnd
+            // cleanup clears only authoritative targets, so a fallback-pane
+            // registration would leave a stale agent PID on a pane the fork
+            // never owned.
+            let shouldRegisterPID = isForkSessionLaunch
+                ? resolvedSurface.isAuthoritative
+                : shouldPromoteActiveSession ||
+                    shouldApplyClaudeHookVisibleMutation(
+                        sessionStore: sessionStore,
+                        parsedInput: parsedInput,
+                        workspaceId: workspaceId,
+                        surfaceId: resolvedSurface.isAuthoritative ? surfaceId : nil,
+                        telemetry: telemetry
+                    )
             if shouldRegisterPID, let claudePid, !suppressVisibleMutations {
                 _ = try? sendV1Command(
                     "set_agent_pid \(Self.claudeCodeStatusKey) \(claudePid) --tab=\(workspaceId)\(socketPanelOption(surfaceId))",
