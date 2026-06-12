@@ -3954,10 +3954,14 @@ extension CMUXCLI {
                     try? writeDiffViewerEmptyStatePage(message: error.message, page: page, sourceSet: sourceSet)
                     completion.completedPageURLs.insert(page.url)
                     return completion
-                } catch is EmptyDiffSourceError {
+                } catch {
+                    // A fallback candidate that cannot be read (empty, or e.g.
+                    // last-turn without a workspace/surface context) is skipped;
+                    // only the originally selected source's own failure may
+                    // surface. Otherwise `cmux diff --unstaged` in a clean repo
+                    // outside a cmux terminal dead-ends on a raw last-turn
+                    // context error instead of the friendly empty state (#5246).
                     continue
-                } catch let fallbackError {
-                    throw fallbackError
                 }
             }
             // No source has changes: render the selected source's friendly empty
