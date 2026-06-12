@@ -1077,7 +1077,7 @@ struct FileSearchControllerTests {
         throw WaitTimeout()
     }
 
-    private static func hasRipgrep() -> Bool {
+    private nonisolated static func hasRipgrep() -> Bool {
         RipgrepExecutableResolver.resolve(configuredPath: nil) != nil
     }
 
