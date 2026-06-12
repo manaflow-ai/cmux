@@ -19,7 +19,7 @@
 6220	cmuxTests/SessionPersistenceTests.swift
 6153	CLI/cmux_open.swift
 6071	Sources/TextBoxInput.swift
-5503	cmuxTests/BrowserConfigTests.swift
+5504	cmuxTests/BrowserConfigTests.swift
 5448	Sources/cmuxApp.swift
 4827	Packages/CmuxMobileShell/Sources/CmuxMobileShell/MobileShellComposite.swift
 4460	Sources/Panels/FilePreviewPanel.swift
