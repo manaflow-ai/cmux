@@ -7869,8 +7869,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
 
         // If a keyboard event identifies a specific window but that context
-        // can't be resolved, do not fall back to another window.
-        if shortcutEventHasAddressableWindow(event) {
+        // can't be resolved, do not fall back to another window unless Single
+        // Window Mode is explicitly choosing reuse over automatic window creation.
+        if shortcutEventHasAddressableWindow(event),
+           !SingleWindowModeSettings.isEnabled() {
 #if DEBUG
             logWorkspaceCreationRouting(
                 phase: "choose",
@@ -7881,6 +7883,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             )
 #endif
             return nil
+        }
+        if shortcutEventHasAddressableWindow(event) {
+#if DEBUG
+            logWorkspaceCreationRouting(
+                phase: "choose",
+                source: debugSource,
+                reason: "single_window_event_context_fallback",
+                event: event,
+                chosenContext: nil
+            )
+#endif
         }
 
         if let keyWindow = NSApp.keyWindow,
@@ -13012,12 +13025,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
 
         let hasEventWindowContext = shortcutEventHasAddressableWindow(event)
+        let shouldAllowSingleWindowWorkspaceShortcutFallback =
+            hasEventWindowContext
+            && SingleWindowModeSettings.isEnabled()
+            && matchConfiguredShortcut(event: event, action: .newTab)
         let didSynchronizeShortcutContext = synchronizeShortcutRoutingContext(event: event)
         if hasEventWindowContext && !didSynchronizeShortcutContext {
+            if shouldAllowSingleWindowWorkspaceShortcutFallback {
 #if DEBUG
-            cmuxDebugLog("handleCustomShortcut: unresolved event window context; bypassing app shortcut handling")
+                cmuxDebugLog("handleCustomShortcut: unresolved event window context; allowing single-window workspace fallback")
 #endif
-            return false
+            } else {
+#if DEBUG
+                cmuxDebugLog("handleCustomShortcut: unresolved event window context; bypassing app shortcut handling")
+#endif
+                return false
+            }
         }
         if cmuxCloseFocusedTerminalFindForEscape(event: event, appDelegate: self) { return true }
         if matchConfiguredShortcut(event: event, action: .find) {

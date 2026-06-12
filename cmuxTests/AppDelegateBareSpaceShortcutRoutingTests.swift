@@ -13,6 +13,17 @@ final class AppDelegateBareSpaceShortcutRoutingTests: XCTestCase {
     private var actionsWithPersistedShortcut: Set<KeyboardShortcutSettings.Action> = []
     private var originalSettingsFileStore: KeyboardShortcutSettingsFileStore!
 
+    private func makeMainWindow(id: UUID) -> NSWindow {
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 500, height: 320),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        window.identifier = NSUserInterfaceItemIdentifier("cmux.main.\(id.uuidString)")
+        return window
+    }
+
     override func setUp() {
         super.setUp()
         executionTimeAllowance = 30
@@ -129,6 +140,68 @@ final class AppDelegateBareSpaceShortcutRoutingTests: XCTestCase {
         XCTAssertEqual(manager.tabs.count, initialCount + 1, "Bare Space chord should dispatch on the second stroke")
     }
 
+    func testSingleWindowModeRoutesAutomaticWorkspaceFallbackToExistingWindow() throws {
+        _ = NSApplication.shared
+        let previousShared = AppDelegate.shared
+        let appDelegate = AppDelegate()
+        let defaults = UserDefaults.standard
+        let previousSingleWindowModeValue = defaults.object(forKey: SingleWindowModeSettings.key)
+        defer {
+            AppDelegate.shared = previousShared
+            restoreDefaultsValue(
+                previousSingleWindowModeValue,
+                forKey: SingleWindowModeSettings.key,
+                defaults: defaults
+            )
+        }
+
+        defaults.set(true, forKey: SingleWindowModeSettings.key)
+
+        let windowId = UUID()
+        let window = makeMainWindow(id: windowId)
+        defer {
+            TerminalController.shared.setActiveTabManager(nil)
+            appDelegate.unregisterMainWindowContextForTesting(windowId: windowId)
+            window.close()
+        }
+
+        let manager = TabManager(autoWelcomeIfNeeded: false)
+        appDelegate.registerMainWindow(
+            window,
+            windowId: windowId,
+            tabManager: manager,
+            sidebarState: SidebarState(),
+            sidebarSelectionState: SidebarSelectionState(),
+            fileExplorerState: FileExplorerState()
+        )
+        TerminalController.shared.setActiveTabManager(manager)
+
+        let existingWorkspaceCount = manager.tabs.count
+        let existingWindowCount = appDelegate.listMainWindowSummaries().count
+        let event = try XCTUnwrap(makeKeyDownEvent(
+            key: "n",
+            keyCode: 45,
+            windowNumber: Int.max,
+            modifiers: [.command]
+        ))
+
+#if DEBUG
+        XCTAssertTrue(
+            appDelegate.debugHandleCustomShortcut(event: event),
+            "Single Window Mode should let Cmd+N route unresolved window events to an existing window"
+        )
+#else
+        XCTFail("debugHandleCustomShortcut is only available in DEBUG")
+#endif
+
+        XCTAssertEqual(appDelegate.listMainWindowSummaries().count, existingWindowCount)
+        XCTAssertEqual(
+            manager.tabs.count,
+            existingWorkspaceCount + 1,
+            "Single Window Mode should route automatic workspace creation to the existing window"
+        )
+    }
+
     func testCreateMainWindowUsesPersistedGeometryWhenNoSourceWindow() throws {
         let previousShared = AppDelegate.shared
         let appDelegate = AppDelegate()
@@ -189,12 +262,13 @@ final class AppDelegateBareSpaceShortcutRoutingTests: XCTestCase {
     private func makeKeyDownEvent(
         key: String,
         keyCode: UInt16,
-        windowNumber: Int
+        windowNumber: Int,
+        modifiers: NSEvent.ModifierFlags = []
     ) -> NSEvent? {
         NSEvent.keyEvent(
             with: .keyDown,
             location: .zero,
-            modifierFlags: [],
+            modifierFlags: modifiers,
             timestamp: ProcessInfo.processInfo.systemUptime,
             windowNumber: windowNumber,
             context: nil,

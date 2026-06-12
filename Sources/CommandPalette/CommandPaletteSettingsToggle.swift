@@ -142,6 +142,20 @@ enum CommandPaletteSettingsToggleCommands {
                 defaultsKey: WorkspaceWorkingDirectoryInheritanceSettings.key
             ),
             CommandPaletteSettingToggleDescriptor(
+                commandId: commandIdPrefix + "singleWindowMode",
+                settingsKey: "app.singleWindowMode",
+                title: {
+                    String(
+                        localized: "settings.app.singleWindowMode",
+                        defaultValue: "Single Window Mode"
+                    )
+                },
+                sectionTitle: app,
+                keywords: ["app.singleWindowMode", "single", "window", "workspace", "fallback", "automatic"],
+                defaultValue: SingleWindowModeSettings.defaultValue,
+                defaultsKey: SingleWindowModeSettings.key
+            ),
+            CommandPaletteSettingToggleDescriptor(
                 commandId: commandIdPrefix + "keepWorkspaceOpenWhenClosingLastSurface",
                 settingsKey: "app.keepWorkspaceOpenWhenClosingLastSurface",
                 title: {

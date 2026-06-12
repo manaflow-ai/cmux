@@ -5,8 +5,9 @@ import UniformTypeIdentifiers
 
 /// **App** section — mirrors the legacy in-app section row-for-row
 /// inside a single `SettingsCard`: Language, Appearance, App Icon,
-/// New Workspace Placement, Inherit Working Directory, Minimal Mode,
-/// Keep Workspace Open When Closing Last Surface, Focus Pane on
+/// New Workspace Placement, Inherit Working Directory, Single Window
+/// Mode, Minimal Mode, Keep Workspace Open When Closing Last Surface,
+/// Focus Pane on
 /// First Click, File Drops, Open Files With, Open Supported Files in
 /// cmux, Terminal Config link, Open Markdown in cmux Viewer,
 /// Markdown Viewer typography, iMessage Mode, Reorder on Notification, Dock Badge, Menu Bar
@@ -28,6 +29,7 @@ public struct AppSection: View {
     @State private var appIcon: DefaultsValueModel<AppIconMode>
     @State private var placement: DefaultsValueModel<WorkspacePlacement>
     @State private var inheritDir: DefaultsValueModel<Bool>
+    @State private var singleWindowMode: DefaultsValueModel<Bool>
     @State private var minimalMode: DefaultsValueModel<WorkspacePresentationMode>
     @State private var keepWorkspaceOpen: DefaultsValueModel<Bool>
     @State private var firstClick: DefaultsValueModel<Bool>
@@ -72,6 +74,7 @@ public struct AppSection: View {
         _appIcon = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.app.appIcon))
         _placement = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.app.newWorkspacePlacement))
         _inheritDir = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.app.workspaceInheritWorkingDirectory))
+        _singleWindowMode = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.app.singleWindowMode))
         _minimalMode = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.app.presentationMode))
         _keepWorkspaceOpen = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.app.keepWorkspaceOpenWhenClosingLastSurface))
         _firstClick = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.app.focusPaneOnFirstClick))
@@ -196,6 +199,24 @@ public struct AppSection: View {
                     .labelsHidden()
                     .controlSize(.small)
                     .accessibilityIdentifier("SettingsWorkspaceInheritWorkingDirectoryToggle")
+            }
+            SettingsCardDivider()
+
+            // Single Window Mode
+            SettingsCardRow(
+                configurationReview: .json("app.singleWindowMode"),
+                String(localized: "settings.app.singleWindowMode", defaultValue: "Single Window Mode"),
+                subtitle: singleWindowMode.current
+                    ? String(localized: "settings.app.singleWindowMode.subtitleOn", defaultValue: "Automatic workspace requests reuse an existing main window. New windows only come from New Window commands.")
+                    : String(localized: "settings.app.singleWindowMode.subtitleOff", defaultValue: "cmux may create a new window when a workspace target cannot be resolved.")
+            ) {
+                Toggle("", isOn: Binding(get: { singleWindowMode.current }, set: { singleWindowMode.set($0) }))
+                    .labelsHidden()
+                    .controlSize(.small)
+                    .accessibilityIdentifier("SettingsSingleWindowModeToggle")
+                    .accessibilityLabel(
+                        String(localized: "settings.app.singleWindowMode", defaultValue: "Single Window Mode")
+                    )
             }
             SettingsCardDivider()
 

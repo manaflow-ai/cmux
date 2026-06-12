@@ -767,7 +767,8 @@
           "warnBeforeQuit": "用于退出确认的旧布尔回退值。新配置请使用 app.confirmQuit。",
           "warnBeforeClosingTabXButton": "使用标签关闭按钮关闭标签前显示确认。",
           "hideTabCloseButton": "在窗格标签栏中隐藏标签关闭按钮。",
-          "forkConversationDefaultDestination": "标签页上下文菜单中主要 Fork Conversation 操作的默认目标。子菜单仍会显示所有目标。"
+          "forkConversationDefaultDestination": "标签页上下文菜单中主要 Fork Conversation 操作的默认目标。子菜单仍会显示所有目标。",
+          "singleWindowMode": "启用后，自动 workspace 请求会复用现有主窗口，而不是创建回退窗口。显式 New Window 命令仍会创建窗口。"
         },
         "terminal": {
           "copyOnSelect": "确认选择后，将所选终端文本复制到系统剪贴板，包括通过双击和三击选择的单词和整行。",

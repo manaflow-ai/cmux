@@ -67,6 +67,7 @@ function buildSettingsFileExample(t: ConfigurationTranslation) {
   //   "confirmQuit": "always",
   //   "openSupportedFilesInCmux": true,
   //   "workspaceInheritWorkingDirectory": true,
+  //   "singleWindowMode": false,
   //   "iMessageMode": true
   // },
 

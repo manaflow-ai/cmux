@@ -289,6 +289,12 @@
           "default": true,
           "description": "When true, new workspaces inherit the current workspace working directory. When false, new workspaces leave the working directory unset so Ghostty's working-directory setting can provide the default."
         },
+        "singleWindowMode": {
+          "type": "boolean",
+          "default": false,
+          "descriptionKey": "schemaDescriptions.app.singleWindowMode",
+          "description": "When true, automatic workspace requests reuse an existing main window instead of creating a fallback window. Explicit New Window commands still create windows."
+        },
         "minimalMode": {
           "type": "boolean",
           "default": false,

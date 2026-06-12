@@ -38,6 +38,16 @@ public struct AppCatalogSection: SettingCatalogSection {
         userDefaultsKey: "workspaceInheritWorkingDirectory"
     )
 
+    /// Boolean setting for Single Window Mode. Defaults to `false`;
+    /// when enabled, automatic workspace requests reuse an existing
+    /// main window instead of creating fallback windows, while
+    /// explicit New Window commands still create windows.
+    public let singleWindowMode = DefaultsKey<Bool>(
+        id: "app.singleWindowMode",
+        defaultValue: false,
+        userDefaultsKey: "singleWindowMode"
+    )
+
     public let presentationMode = DefaultsKey<WorkspacePresentationMode>(
         id: "app.minimalMode",
         defaultValue: .standard,

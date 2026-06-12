@@ -416,6 +416,18 @@ enum WorkspaceWorkingDirectoryInheritanceSettings {
     }
 }
 
+enum SingleWindowModeSettings {
+    static let key = "singleWindowMode"
+    static let defaultValue = false
+
+    static func isEnabled(defaults: UserDefaults = .standard) -> Bool {
+        guard defaults.object(forKey: key) != nil else {
+            return defaultValue
+        }
+        return defaults.bool(forKey: key)
+    }
+}
+
 struct WorkspaceTabColorEntry: Equatable, Identifiable {
     let name: String
     let hex: String

@@ -1224,6 +1224,52 @@ final class KeyboardShortcutSettingsFileStoreTests: XCTestCase {
         XCTAssertFalse(WorkspaceWorkingDirectoryInheritanceSettings.isEnabled())
     }
 
+    func testSettingsFileStoreParsesSingleWindowModeSetting() throws {
+        let defaults = UserDefaults.standard
+        let managedKey = SingleWindowModeSettings.key
+        let previousValue = defaults.object(forKey: managedKey)
+        let previousBackups = defaults.data(forKey: settingsFileBackupsDefaultsKey)
+        defer {
+            if let previousValue {
+                defaults.set(previousValue, forKey: managedKey)
+            } else {
+                defaults.removeObject(forKey: managedKey)
+            }
+
+            if let previousBackups {
+                defaults.set(previousBackups, forKey: settingsFileBackupsDefaultsKey)
+            } else {
+                defaults.removeObject(forKey: settingsFileBackupsDefaultsKey)
+            }
+        }
+
+        defaults.removeObject(forKey: managedKey)
+        defaults.removeObject(forKey: settingsFileBackupsDefaultsKey)
+
+        let directoryURL = try makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directoryURL) }
+
+        let settingsFileURL = directoryURL.appendingPathComponent("cmux.json", isDirectory: false)
+        try writeSettingsFile(
+            """
+            {
+              "app": {
+                "singleWindowMode": true
+              }
+            }
+            """,
+            to: settingsFileURL
+        )
+
+        _ = KeyboardShortcutSettingsFileStore(
+            primaryPath: settingsFileURL.path,
+            fallbackPath: nil,
+            startWatching: false
+        )
+
+        XCTAssertTrue(SingleWindowModeSettings.isEnabled())
+    }
+
     func testSettingsFileStoreParsesSidebarWorkspaceTitleWrapSetting() throws {
         let defaults = UserDefaults.standard
         let managedKey = SidebarWorkspaceTitleWrapSettings.key

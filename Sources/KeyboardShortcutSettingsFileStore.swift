@@ -443,6 +443,11 @@ final class CmuxSettingsFileStore {
         } else if section.keys.contains("workspaceInheritWorkingDirectory") {
             logInvalid("app.workspaceInheritWorkingDirectory", sourcePath: sourcePath)
         }
+        if let value = jsonBool(section["singleWindowMode"]) {
+            snapshot.managedUserDefaults[SingleWindowModeSettings.key] = .bool(value)
+        } else if section.keys.contains("singleWindowMode") {
+            logInvalid("app.singleWindowMode", sourcePath: sourcePath)
+        }
         if let value = jsonBool(section["minimalMode"]) {
             let mode = value ? WorkspacePresentationModeSettings.Mode.minimal : .standard
             snapshot.managedUserDefaults[WorkspacePresentationModeSettings.modeKey] = .string(mode.rawValue)
