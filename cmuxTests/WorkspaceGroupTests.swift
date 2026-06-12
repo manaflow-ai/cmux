@@ -219,7 +219,7 @@ struct WorkspaceGroupTests {
                 switch item {
                 case .groupHeader(let group, _) where group.anchorWorkspaceId == workspaceId:
                     return item.id
-                case .workspace(let workspace) where workspace.id == workspaceId:
+                case .workspace(let workspace, _) where workspace.id == workspaceId:
                     return item.id
                 default:
                     continue
@@ -792,7 +792,7 @@ struct WorkspaceGroupTests {
         #expect(items.allSatisfy { !deletedRowIds.contains($0.id) })
         // The unrelated outsider survives as a plain workspace row.
         #expect(items.contains { item in
-            if case .workspace(let ws) = item, ws.id == outsiderId { return true }
+            if case .workspace(let ws, _) = item, ws.id == outsiderId { return true }
             return false
         })
     }
@@ -1041,7 +1041,7 @@ struct WorkspaceGroupTests {
             return nil
         }
         let workspaceRowIds: [UUID] = items.compactMap {
-            if case let .workspace(workspace) = $0 { return workspace.id }
+            if case let .workspace(workspace, _) = $0 { return workspace.id }
             return nil
         }
         #expect(headerGroupIds.contains(groupId))
