@@ -11,6 +11,9 @@ public struct TerminalSection: View {
     private let catalog: SettingCatalog
     private let hostActions: SettingsHostActions
 
+    @State private var terminalFont: SettingsFontSize
+    @State private var terminalFontSaveFailed = false
+    @State private var terminalFontSaveTask: Task<Void, Never>?
     @State private var surfaceTabBarFont: SettingsFontSize
     @State private var fontSaveFailed = false
     @State private var fontSaveTask: Task<Void, Never>?
@@ -33,6 +36,7 @@ public struct TerminalSection: View {
         self.jsonStore = jsonStore
         self.catalog = catalog
         self.hostActions = hostActions
+        _terminalFont = State(initialValue: hostActions.terminalFontSize())
         _surfaceTabBarFont = State(initialValue: hostActions.surfaceTabBarFontSize())
         _scrollBar = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.terminal.showScrollBar))
         _copyOnSelect = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.terminal.copyOnSelect))
@@ -61,6 +65,16 @@ public struct TerminalSection: View {
         fontSaveTask = Task {
             let saved = await hostActions.setSurfaceTabBarFontSize(points)
             if !Task.isCancelled { fontSaveFailed = !saved }
+        }
+    }
+
+    /// Persists a new terminal font size, cancelling any in-flight save so a
+    /// rapid sequence of slider releases only reflects the latest value.
+    private func saveTerminalFontSize(_ points: Double) {
+        terminalFontSaveTask?.cancel()
+        terminalFontSaveTask = Task {
+            let saved = await hostActions.setTerminalFontSize(points)
+            if !Task.isCancelled { terminalFontSaveFailed = !saved }
         }
     }
 
@@ -93,6 +107,48 @@ public struct TerminalSection: View {
     @ViewBuilder
     private var mainCard: some View {
         SettingsCard {
+            SettingsCardRow(
+                configurationReview: .settingsOnly,
+                String(localized: "settings.terminal.fontSize", defaultValue: "Terminal Font Size"),
+                subtitle: String(localized: "settings.terminal.fontSize.subtitle", defaultValue: "Sets the base font size of terminal text. The Cmd +/- zoom shortcut adjusts the live size on top of this."),
+                controlWidth: 250
+            ) {
+                VStack(alignment: .trailing, spacing: 4) {
+                    HStack(spacing: 8) {
+                        Slider(
+                            value: Binding(get: { terminalFont.points }, set: { terminalFont.points = $0 }),
+                            in: terminalFont.minimum...terminalFont.maximum,
+                            step: 0.5
+                        ) { editing in
+                            if !editing { saveTerminalFontSize(terminalFont.points) }
+                        }
+                        .frame(width: 130)
+                        .accessibilityIdentifier("SettingsTerminalFontSizeSlider")
+
+                        Text(String.localizedStringWithFormat(String(localized: "settings.fontSize.valuePoints", defaultValue: "%@ pt"), hostActions.formattedFontSize(terminalFont.points)))
+                            .font(.system(size: 12, weight: .medium, design: .rounded))
+                            .monospacedDigit()
+                            .frame(width: 44, alignment: .trailing)
+
+                        Button(String(localized: "settings.terminal.fontSize.reset", defaultValue: "Reset")) {
+                            terminalFont.points = terminalFont.defaultValue
+                            saveTerminalFontSize(terminalFont.points)
+                        }
+                        .buttonStyle(.bordered)
+                        .controlSize(.small)
+                        .disabled(terminalFont.isDefault)
+                    }
+
+                    if terminalFontSaveFailed {
+                        Text(String(localized: "settings.terminal.fontSize.saveFailed", defaultValue: "Couldn't save terminal font size. Please try again."))
+                            .font(.caption)
+                            .foregroundStyle(.red)
+                            .multilineTextAlignment(.trailing)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                }
+            }
+            SettingsCardDivider()
             SettingsCardRow(
                 configurationReview: .settingsOnly,
                 String(localized: "settings.terminal.tabBarFontSize", defaultValue: "Tab Bar Font Size"),

@@ -100,6 +100,20 @@ public protocol SettingsHostActions: AnyObject {
     @discardableResult
     func setSurfaceTabBarFontSize(_ points: Double) async -> Bool
 
+    /// The current terminal font size with its range + default. Backed by the
+    /// Ghostty config file (`font-size`). This sets the base terminal font; the
+    /// live Cmd +/- zoom is handled inside libghostty and is not bounded here.
+    func terminalFontSize() -> SettingsFontSize
+
+    /// Persists a new terminal font size (in points) and reloads. The host
+    /// clamps to the valid range.
+    ///
+    /// - Returns: `true` if the value was written and reloaded, `false` if
+    ///   persistence failed. See ``setSidebarFontSize(_:)`` for how callers
+    ///   should react to a `false` result and why this is `async`.
+    @discardableResult
+    func setTerminalFontSize(_ points: Double) async -> Bool
+
     /// Formats a point size for display next to a font-size slider
     /// (e.g. `12`, `13.5`), trimming trailing zeros.
     func formattedFontSize(_ points: Double) -> String
@@ -161,16 +175,22 @@ public extension SettingsHostActions {
     }
 
     func sidebarFontSize() -> SettingsFontSize {
-        SettingsFontSize(points: 12.5, minimum: 10, maximum: 20, defaultValue: 12.5)
+        SettingsFontSize(points: 12.5, minimum: 4, maximum: 48, defaultValue: 12.5)
     }
 
     func setSidebarFontSize(_ points: Double) async -> Bool { true }
 
     func surfaceTabBarFontSize() -> SettingsFontSize {
-        SettingsFontSize(points: 11, minimum: 8, maximum: 14, defaultValue: 11)
+        SettingsFontSize(points: 11, minimum: 4, maximum: 48, defaultValue: 11)
     }
 
     func setSurfaceTabBarFontSize(_ points: Double) async -> Bool { true }
+
+    func terminalFontSize() -> SettingsFontSize {
+        SettingsFontSize(points: 12, minimum: 4, maximum: 72, defaultValue: 12)
+    }
+
+    func setTerminalFontSize(_ points: Double) async -> Bool { true }
 
     func formattedFontSize(_ points: Double) -> String {
         let scaled = (points * 100).rounded()

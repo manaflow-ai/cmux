@@ -199,6 +199,26 @@ final class HostSettingsActions: SettingsHostActions {
         )
     }
 
+    func terminalFontSize() -> SettingsFontSize {
+        // See ``sidebarFontSize()`` — uses the cached config to avoid main-actor disk I/O.
+        // Sets the base Ghostty `font-size`; the live Cmd +/- zoom is handled inside
+        // libghostty and is not bounded by these limits.
+        SettingsFontSize(
+            points: Double(GhosttyConfig.load().fontSize),
+            minimum: CmuxGhosttyConfigSettingEditor.minTerminalFontSize,
+            maximum: CmuxGhosttyConfigSettingEditor.maxTerminalFontSize,
+            defaultValue: CmuxGhosttyConfigSettingEditor.defaultTerminalFontSize
+        )
+    }
+
+    func setTerminalFontSize(_ points: Double) async -> Bool {
+        await persistFontSize(
+            key: CmuxGhosttyConfigSettingEditor.terminalFontSizeKey,
+            points: CmuxGhosttyConfigSettingEditor.clampedTerminalFontSize(points),
+            reloadSource: "settings.terminal.fontSize"
+        )
+    }
+
     func formattedFontSize(_ points: Double) -> String {
         CmuxGhosttyConfigSettingEditor.formattedFontSize(points)
     }

@@ -19,9 +19,12 @@ struct GhosttyConfig {
     static let defaultSurfaceTabBarFontSize = CGFloat(CmuxGhosttyConfigSettingEditor.defaultSurfaceTabBarFontSize)
     static let minSurfaceTabBarFontSize = CGFloat(CmuxGhosttyConfigSettingEditor.minSurfaceTabBarFontSize)
     static let maxSurfaceTabBarFontSize = CGFloat(CmuxGhosttyConfigSettingEditor.maxSurfaceTabBarFontSize)
+    static let defaultTerminalFontSize = CGFloat(CmuxGhosttyConfigSettingEditor.defaultTerminalFontSize)
+    static let minTerminalFontSize = CGFloat(CmuxGhosttyConfigSettingEditor.minTerminalFontSize)
+    static let maxTerminalFontSize = CGFloat(CmuxGhosttyConfigSettingEditor.maxTerminalFontSize)
 
     var fontFamily: String = "Menlo"
-    var fontSize: CGFloat = 12
+    var fontSize: CGFloat = Self.defaultTerminalFontSize
     var surfaceTabBarFontSize: CGFloat = Self.defaultSurfaceTabBarFontSize
     var sidebarFontSize: CGFloat = Self.defaultSidebarFontSize
     var theme: String?
@@ -401,8 +404,8 @@ struct GhosttyConfig {
                 case "font-family":
                     fontFamily = value
                 case "font-size":
-                    if let size = Double(value) {
-                        fontSize = CGFloat(size)
+                    if let size = Double(value), size.isFinite {
+                        fontSize = Self.clampedTerminalFontSize(CGFloat(size))
                     }
                 case "surface-tab-bar-font-size":
                     if let size = Double(value), size.isFinite {
@@ -679,6 +682,10 @@ struct GhosttyConfig {
 
     static func clampedSurfaceTabBarFontSize(_ value: CGFloat) -> CGFloat {
         CGFloat(CmuxGhosttyConfigSettingEditor.clampedSurfaceTabBarFontSize(Double(value)))
+    }
+
+    static func clampedTerminalFontSize(_ value: CGFloat) -> CGFloat {
+        CGFloat(CmuxGhosttyConfigSettingEditor.clampedTerminalFontSize(Double(value)))
     }
 
     private static func parseBackgroundBlur(_ value: String) -> GhosttyBackgroundBlur? {
