@@ -6,7 +6,10 @@ import Foundation
 /// The UI host maps `UIKeyCommand.input*` constants onto these cases so the
 /// byte-encoding in ``TerminalKeyEncoder`` stays free of UIKit and testable
 /// on any platform.
-public enum TerminalSpecialKey: Hashable, Sendable {
+///
+/// `Codable` (synthesized by case name) lets a ``CustomToolbarAction`` that
+/// sends a special key persist which key it targets.
+public enum TerminalSpecialKey: Hashable, Sendable, Codable {
     /// The Up arrow key.
     case upArrow
     /// The Down arrow key.

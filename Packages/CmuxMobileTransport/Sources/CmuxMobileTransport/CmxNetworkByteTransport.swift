@@ -295,8 +295,22 @@ public actor CmxNetworkByteTransport: CmxByteTransport {
             cancelConnectTimeout()
             state = .ready
             resumeConnectContinuations()
-        case .waiting:
-            break
+        case let .waiting(errorDescription, kind):
+            // Network.framework parks a dial it intends to retry in `.waiting`
+            // instead of `.failed` — including connection-refused and
+            // host-unreachable, which for our single-address connect are
+            // definitive answers, not transient congestion. Left alone, a
+            // dead first route (stale Tailscale IP, a code pointing at a
+            // machine with no listener) sits in `.waiting` until the connect
+            // timeout and adds the whole timeout to scan→pair latency before
+            // the caller's next route is tried. Fail the *initial* connect
+            // fast on those definitive kinds; once `ready`, waiting events
+            // are transient network churn and stay ignored (the RPC layer's
+            // liveness watchdog owns mid-stream recovery).
+            guard case .connecting = state, waitingKindFailsConnect(kind) else {
+                break
+            }
+            failTransport(.connectionFailed(errorDescription, kind))
         case let .failed(errorDescription, kind):
             failTransport(.connectionFailed(errorDescription, kind))
         case .cancelled:
@@ -719,6 +733,30 @@ private extension NWError {
             return .secureChannelFailed
         default:
             return .generic
+        }
+    }
+}
+private extension CmxNetworkByteTransport {
+    /// Whether a `.waiting` reason is definitive enough to fail the initial
+    /// connect immediately.
+    ///
+    /// Only connection-refused qualifies: an RST proves the host is reachable
+    /// and nothing is listening on the port, which will not improve within
+    /// our connect window, and callers race multiple routes, so surfacing it
+    /// now lets the next route start immediately (this was the scan-to-pair
+    /// latency bug: a dead route parked `.waiting` for the full timeout).
+    /// Every other kind stays parked under the bounded connect timeout
+    /// because it can genuinely recover while the path is still converging:
+    /// host/network-unreachable and DNS failures occur transiently while a
+    /// Tailscale/VPN link comes up, permission-denied covers the
+    /// Local Network privacy prompt the very first dial triggers, and
+    /// secure-channel/timeout/generic waits are likewise retry states.
+    func waitingKindFailsConnect(_ kind: CmxConnectFailureKind) -> Bool {
+        switch kind {
+        case .connectionRefused:
+            return true
+        case .hostUnreachable, .dnsFailed, .permissionDenied, .secureChannelFailed, .timedOut, .generic:
+            return false
         }
     }
 }

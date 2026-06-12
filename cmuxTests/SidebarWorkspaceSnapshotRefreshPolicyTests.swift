@@ -106,6 +106,7 @@ final class SidebarWorkspaceSnapshotRefreshPolicyTests: XCTestCase {
             remoteWorkspaceSidebarText: nil,
             remoteConnectionStatusText: remoteConnectionStatusText,
             remoteStateHelpText: "",
+            showsRemoteReconnectAffordance: false,
             copyableSidebarSSHError: nil,
             latestConversationMessage: latestConversationMessage,
             metadataEntries: [],
@@ -204,6 +205,51 @@ final class SidebarSelectedWorkspaceScrollPolicyTests: XCTestCase {
                 oldWorkspaceIds: ["a", "b"],
                 newWorkspaceIds: ["a", "c"]
             )
+        )
+    }
+
+    func testScrollTargetIsSelfWithoutGroup() {
+        let workspaceId = UUID()
+        XCTAssertEqual(
+            SidebarSelectedWorkspaceScrollPolicy.scrollTargetWorkspaceId(
+                selectedWorkspaceId: workspaceId,
+                group: nil
+            ),
+            workspaceId
+        )
+    }
+
+    func testScrollTargetIsSelfInExpandedGroup() {
+        let workspaceId = UUID()
+        XCTAssertEqual(
+            SidebarSelectedWorkspaceScrollPolicy.scrollTargetWorkspaceId(
+                selectedWorkspaceId: workspaceId,
+                group: makeGroup(isCollapsed: false, anchorWorkspaceId: UUID())
+            ),
+            workspaceId
+        )
+    }
+
+    func testScrollTargetIsGroupAnchorWhenGroupIsCollapsed() {
+        let anchorId = UUID()
+        XCTAssertEqual(
+            SidebarSelectedWorkspaceScrollPolicy.scrollTargetWorkspaceId(
+                selectedWorkspaceId: UUID(),
+                group: makeGroup(isCollapsed: true, anchorWorkspaceId: anchorId)
+            ),
+            anchorId
+        )
+    }
+
+    private func makeGroup(isCollapsed: Bool, anchorWorkspaceId: UUID) -> WorkspaceGroup {
+        WorkspaceGroup(
+            id: UUID(),
+            name: "group",
+            isCollapsed: isCollapsed,
+            isPinned: false,
+            anchorWorkspaceId: anchorWorkspaceId,
+            customColor: nil,
+            iconSymbol: nil
         )
     }
 }

@@ -906,7 +906,7 @@ final class DockKeyboardFocusView: NSView {
     override func keyDown(with event: NSEvent) { if !handleModeShortcut(event) { super.keyDown(with: event) } }
 
     private func handleModeShortcut(_ event: NSEvent) -> Bool {
-        guard let mode = RightSidebarMode.modeShortcut(for: event) else { return false }
+        guard let mode = AppDelegate.shared?.rightSidebarModeShortcut(for: event) else { return false }
         _ = AppDelegate.shared?.focusRightSidebarInActiveMainWindow(mode: mode, focusFirstItem: true, preferredWindow: window)
         return true
     }
