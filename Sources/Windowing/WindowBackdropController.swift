@@ -127,9 +127,17 @@ extension WindowAppearanceSnapshot {
         )
     }
 
-    func windowRootBackdropSnapshot(surfaceBackgroundColor _: NSColor?) -> Self {
+    func windowRootBackdropResolution(surfaceBackgroundColor color: NSColor?) -> (
+        snapshot: Self,
+        source: String,
+        overrideHex: String
+    ) {
         // OSC 11 is pane-local state; the shared root remains the workspace backdrop.
-        self
+        (
+            snapshot: self,
+            source: color == nil ? "defaultBackground" : "defaultBackground(surfaceOverrideLocal)",
+            overrideHex: color?.hexString() ?? "nil"
+        )
     }
 
     var appKitWindowMutationID: String {
