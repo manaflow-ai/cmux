@@ -758,6 +758,11 @@ final class FileExplorerStore: ObservableObject {
     private var directoryWatchTask: Task<Void, Never>?
     private var directoryWatchPath: String?
 
+    /// The root path the currently displayed `rootNodes` were listed from.
+    /// `reload()` keeps the tree visible for same-root refreshes and only
+    /// blanks it when this differs from `rootPath`.
+    private var loadedTreeRootPath: String?
+
     /// Paths that are logically expanded (persisted across provider changes)
     private(set) var expandedPaths: Set<String> = []
 
@@ -943,10 +948,21 @@ final class FileExplorerStore: ObservableObject {
         #endif
         contentRevision &+= 1
         cancelAllLoads()
-        rootNodes = []
-        nodesByPath = [:]
+        // A same-root refresh (directory watcher, manual reload) keeps the
+        // current tree visible and swaps it atomically when the fresh listing
+        // arrives. Blanking the tree here made every watcher event flash an
+        // empty sidebar + spinner before the relisted content came back.
+        // Only a root change (or losing the provider) shows stale content from
+        // the wrong directory, so only then is the tree dropped eagerly.
+        if loadedTreeRootPath != rootPath || rootPath.isEmpty || provider == nil {
+            rootNodes = []
+            nodesByPath = [:]
+            loadedTreeRootPath = nil
+        }
         guard !rootPath.isEmpty, provider != nil else { return }
-        isRootLoading = true
+        if rootNodes.isEmpty {
+            isRootLoading = true
+        }
         let path = rootPath
         let task = Task { [weak self] in
             guard let self else { return }
@@ -1060,6 +1076,12 @@ final class FileExplorerStore: ObservableObject {
             let entries = try await provider.listDirectory(path: path, showHidden: showHiddenFiles)
             try Task.checkCancellation()
             let children = entries.map { entry in
+                // Reuse the existing node for an unchanged path so NSOutlineView
+                // items stay valid across same-root refreshes (reused directory
+                // nodes keep their loaded subtree instead of re-listing it).
+                if let existing = nodesByPath[entry.path], existing.isDirectory == entry.isDirectory {
+                    return existing
+                }
                 let node = FileExplorerNode(name: entry.name, path: entry.path, isDirectory: entry.isDirectory)
                 nodesByPath[entry.path] = node
                 return node
@@ -1080,6 +1102,7 @@ final class FileExplorerStore: ObservableObject {
                 }
             } else {
                 rootNodes = children
+                loadedTreeRootPath = path
                 isRootLoading = false
                 setRootStatusMessage(nil)
                 if selectedPath == nil {
