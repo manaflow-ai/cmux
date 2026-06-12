@@ -10131,6 +10131,13 @@ final class Workspace: Identifiable, ObservableObject {
     /// were `@Published`, so no observer hooks are required.
     private let surfaceRegistry = SurfaceRegistryModel<PendingTabSelectionRequest>()
 
+    /// The split-layout sub-model (CmuxPanes): owns the split/detach
+    /// choreography bookkeeping (programmatic-split flag, detaching surface
+    /// ids, captured transfer payloads, detach-close transaction count). The
+    /// legacy accessors below forward here. None of the moved properties
+    /// were `@Published`, so no observer hooks are required.
+    private let splitLayout = SplitLayoutModel<DetachedSurfaceTransfer>()
+
     /// Legacy Combine bridge for the remaining `workspace.$panels`
     /// subscribers. Driven exclusively from `panelsWillChange(to:)`, so it
     /// emits the new value during willSet and replays the current value on
@@ -10172,8 +10179,12 @@ final class Workspace: Identifiable, ObservableObject {
     var panelSubscriptions: [UUID: AnyCancellable] = [:]
     private var agentSessionPanelCallbackIds: Set<UUID> = []
 
-    /// When true, suppresses auto-creation in didSplitPane (programmatic splits handle their own panels)
-    private var isProgrammaticSplit = false
+    /// When true, suppresses auto-creation in didSplitPane (programmatic splits handle their own panels);
+    /// stored in the split-layout sub-model.
+    private var isProgrammaticSplit: Bool {
+        get { splitLayout.isProgrammaticSplit }
+        set { splitLayout.isProgrammaticSplit = newValue }
+    }
     private var debugStressPreloadSelectionDepth = 0
 
     /// Last terminal panel used as an inheritance source (typically last focused terminal).
@@ -11159,10 +11170,25 @@ final class Workspace: Identifiable, ObservableObject {
         set { surfaceRegistry.nonFocusSplitFocusReassertGeneration = newValue }
     }
 
-    private var detachingTabIds: Set<TabID> = []
-    private var pendingDetachedSurfaces: [TabID: DetachedSurfaceTransfer] = [:]
-    private var activeDetachCloseTransactions: Int = 0
-    private var isDetachingCloseTransaction: Bool { activeDetachCloseTransactions > 0 }
+    /// Surface ids currently being detached; stored in the split-layout
+    /// sub-model.
+    private var detachingTabIds: Set<TabID> {
+        get { splitLayout.detachingTabIds }
+        set { splitLayout.detachingTabIds = newValue }
+    }
+    /// Captured detach transfer payloads; stored in the split-layout
+    /// sub-model.
+    private var pendingDetachedSurfaces: [TabID: DetachedSurfaceTransfer] {
+        get { splitLayout.pendingDetachedSurfaces }
+        set { splitLayout.pendingDetachedSurfaces = newValue }
+    }
+    /// Open detach-close transaction count; stored in the split-layout
+    /// sub-model.
+    private var activeDetachCloseTransactions: Int {
+        get { splitLayout.activeDetachCloseTransactions }
+        set { splitLayout.activeDetachCloseTransactions = newValue }
+    }
+    private var isDetachingCloseTransaction: Bool { splitLayout.isDetachingCloseTransaction }
     private var pendingRemoteSurfaceTTYName: String?
     private var pendingRemoteSurfaceTTYSurfaceId: UUID?
     private var pendingRemoteSurfacePortKickReason: WorkspaceRemoteSessionController.PortScanKickReason?
