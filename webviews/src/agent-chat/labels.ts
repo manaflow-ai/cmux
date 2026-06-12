@@ -49,6 +49,16 @@ export const agentChatLabels = {
   noToolPayload: "No input or output recorded.",
   imageAttachmentSingular: "1 image attachment",
 
+  // Rich tool rows (toolRows.tsx).
+  showLess: "Show less",
+  newFileBadge: "new",
+  deletedFileBadge: "deleted",
+  exitPrefix: "exit ",
+  noCommandOutput: "No output.",
+  noFilePreview: "No preview recorded.",
+  searchQueryFallback: "Web search",
+  diffFallbackTitle: "File change",
+
   // Pending-request banner.
   waitingForInput: "Agent is waiting for your input",
   waitingForPermission: "Agent is waiting for permission",
@@ -70,4 +80,16 @@ export const agentChatLabels = {
 
 export function imageAttachmentLabel(count: number): string {
   return count === 1 ? agentChatLabels.imageAttachmentSingular : `${count} image attachments`;
+}
+
+export function showMoreLinesLabel(count: number): string {
+  return count === 1 ? "Show 1 more line" : `Show ${count} more lines`;
+}
+
+export function unchangedLinesLabel(count: number): string {
+  return count === 1 ? "1 unchanged line" : `${count} unchanged lines`;
+}
+
+export function exitCodeLabel(code: number): string {
+  return `${agentChatLabels.exitPrefix}${code}`;
 }

@@ -1,20 +1,16 @@
 // Timeline row components for the /agent-chat surface, one renderer per
 // `ItemType` family. Expand/collapse is plain per-row component state; markdown
 // goes through the shared sanitizing renderer from the agent-session surface.
+// Tool-shaped items route through the rich renderers in toolRows.tsx (diffs,
+// structured command output, file previews, search results).
 
 import { useState } from "react";
 import { renderMarkdownHTML } from "../../agent-session/shared/markdown";
-import { agentChatLabels, imageAttachmentLabel } from "../labels";
+import { agentChatLabels } from "../labels";
 import type { PendingRequest } from "../conversationStore";
 import type { ConversationItem } from "../protocol";
-import {
-  formatToolInput,
-  isToolItemType,
-  statusGlyph,
-  toolItemTitle,
-  toolTypeGlyph,
-  toolTypeLabel,
-} from "./display";
+import { isToolItemType } from "./display";
+import { RichToolRow, StatusIndicator, rowDataProps } from "./toolRows";
 
 export function ItemRow({ item }: { item: ConversationItem }) {
   if (item.type === "user_message") {
@@ -30,17 +26,9 @@ export function ItemRow({ item }: { item: ConversationItem }) {
     return <PlanRow item={item} />;
   }
   if (isToolItemType(item.type)) {
-    return <ToolRow item={item} />;
+    return <RichToolRow item={item} />;
   }
   return <SystemRow item={item} />;
-}
-
-function rowDataProps(item: ConversationItem) {
-  return {
-    "data-item-id": item.id,
-    "data-item-type": item.type,
-    "data-item-status": item.status,
-  };
 }
 
 function UserMessageRow({ item }: { item: ConversationItem }) {
@@ -106,55 +94,6 @@ function PlanRow({ item }: { item: ConversationItem }) {
   );
 }
 
-function ToolRow({ item }: { item: ConversationItem }) {
-  const [expanded, setExpanded] = useState(false);
-  const input = formatToolInput(item.input);
-  const outputText = item.output?.text ?? "";
-  const imageCount = item.output?.image_ids?.length ?? 0;
-  const failed = item.status === "failed" || item.output?.is_error === true;
-  return (
-    <div className="agent-chat-row agent-chat-tool-row" {...rowDataProps(item)}>
-      <button
-        type="button"
-        className="agent-chat-disclosure agent-chat-tool-summary"
-        aria-expanded={expanded}
-        onClick={() => setExpanded((current) => !current)}
-      >
-        <StatusIndicator status={item.status} />
-        <span className="agent-chat-badge agent-chat-tool-badge">
-          <span aria-hidden="true">{toolTypeGlyph(item.type)}</span> {toolTypeLabel(item.type)}
-        </span>
-        <span className="agent-chat-tool-title">{toolItemTitle(item)}</span>
-        <span className="agent-chat-disclosure-chevron" aria-hidden="true">
-          {expanded ? "▾" : "▸"}
-        </span>
-      </button>
-      {expanded ? (
-        <div className="agent-chat-tool-detail">
-          {input !== "" ? (
-            <pre className="agent-chat-mono agent-chat-tool-input">{input}</pre>
-          ) : null}
-          {outputText !== "" ? (
-            <pre
-              className={`agent-chat-mono agent-chat-tool-output${failed ? " is-error" : ""}`}
-            >
-              {outputText}
-            </pre>
-          ) : null}
-          {imageCount > 0 ? (
-            <div className="agent-chat-tool-images">
-              {imageAttachmentLabel(imageCount)}
-            </div>
-          ) : null}
-          {input === "" && outputText === "" && imageCount === 0 ? (
-            <div className="agent-chat-tool-images">{agentChatLabels.noToolPayload}</div>
-          ) : null}
-        </div>
-      ) : null}
-    </div>
-  );
-}
-
 function SystemRow({ item }: { item: ConversationItem }) {
   const label =
     item.type === "context_compaction"
@@ -172,32 +111,6 @@ function SystemRow({ item }: { item: ConversationItem }) {
       <span className="agent-chat-system-label">{label}</span>
       {item.text ? <span className="agent-chat-system-text">{item.text}</span> : null}
     </div>
-  );
-}
-
-export function StatusIndicator({ status }: { status: ConversationItem["status"] }) {
-  if (status === "in_progress") {
-    return (
-      <output className="agent-chat-status is-in-progress" data-status={status}>
-        <span className="agent-chat-spinner" aria-hidden="true" />
-        <span className="agent-chat-visually-hidden">{agentChatLabels.statusInProgress}</span>
-      </output>
-    );
-  }
-  return (
-    <span
-      className={`agent-chat-status is-${status}`}
-      data-status={status}
-      aria-label={
-        status === "failed"
-          ? agentChatLabels.statusFailed
-          : status === "declined"
-            ? agentChatLabels.statusDeclined
-            : agentChatLabels.statusCompleted
-      }
-    >
-      {statusGlyph(status)}
-    </span>
   );
 }
 
