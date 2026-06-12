@@ -645,6 +645,44 @@ final class BrowserPanelInitialNavigationTests: XCTestCase {
         XCTAssertFalse(panel.shouldRenderWebViewForSessionSnapshot())
     }
 
+    func testOpenCurrentPageInDefaultBrowserUsesPanelURLSource() throws {
+        let url = try XCTUnwrap(URL(string: "https://github.com/manaflow-ai/cmux/pull/719"))
+        let panel = BrowserPanel(
+            workspaceId: UUID(),
+            initialURL: url,
+            renderInitialNavigation: false
+        )
+        var openedURLs: [URL] = []
+        panel.configureDefaultBrowserOpenerForTesting { url in
+            openedURLs.append(url)
+            return true
+        }
+        defer { panel.resetDefaultBrowserOpenerForTesting() }
+
+        XCTAssertTrue(panel.canOpenCurrentPageInDefaultBrowser)
+        XCTAssertTrue(panel.openCurrentPageInDefaultBrowser())
+        XCTAssertEqual(openedURLs, [url])
+    }
+
+    func testOpenCurrentPageInDefaultBrowserRejectsNonWebURL() throws {
+        let url = URL(fileURLWithPath: "/tmp/cmux/local.html")
+        let panel = BrowserPanel(
+            workspaceId: UUID(),
+            initialURL: url,
+            renderInitialNavigation: false
+        )
+        var openedURLs: [URL] = []
+        panel.configureDefaultBrowserOpenerForTesting { url in
+            openedURLs.append(url)
+            return true
+        }
+        defer { panel.resetDefaultBrowserOpenerForTesting() }
+
+        XCTAssertFalse(panel.canOpenCurrentPageInDefaultBrowser)
+        XCTAssertFalse(panel.openCurrentPageInDefaultBrowser())
+        XCTAssertTrue(openedURLs.isEmpty)
+    }
+
     func testDiffViewerURLIsNotPersistedForSessionRestore() throws {
         let schemeURL = try XCTUnwrap(URL(string: "\(CmuxDiffViewerURLSchemeHandler.scheme)://token/index.html"))
         let schemePanel = BrowserPanel(
@@ -736,6 +774,22 @@ final class BrowserPanelDiffViewerSchemeTests: XCTestCase {
         )
 
         XCTAssertNotNil(config.urlSchemeHandler(forURLScheme: CmuxDiffViewerURLSchemeHandler.scheme))
+    }
+
+    func testConfiguredBrowserWebViewsShareProcessPool() {
+        let firstConfig = WKWebViewConfiguration()
+        let secondConfig = WKWebViewConfiguration()
+
+        BrowserPanel.configureWebViewConfiguration(
+            firstConfig,
+            websiteDataStore: .nonPersistent()
+        )
+        BrowserPanel.configureWebViewConfiguration(
+            secondConfig,
+            websiteDataStore: .nonPersistent()
+        )
+
+        XCTAssertTrue(firstConfig.processPool === secondConfig.processPool)
     }
 
     func testDiffViewerSchemeLoadsSameOriginModuleFromAllowlist() throws {

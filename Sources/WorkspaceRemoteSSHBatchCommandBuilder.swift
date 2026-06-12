@@ -15,9 +15,9 @@ enum WorkspaceRemoteSSHBatchCommandBuilder {
            !slot.isEmpty {
             serveArguments += ["--persistent", "--slot", slot]
         }
-        let daemonCommand = ([remotePath] + serveArguments)
-            .map(shellSingleQuoted)
-            .joined(separator: " ")
+        let daemonCommand = (
+            [remoteDaemonPathShellExpression(remotePath)] + serveArguments.map(shellSingleQuoted)
+        ).joined(separator: " ")
         let script = "exec \(daemonCommand)"
         let command = "sh -c \(shellSingleQuoted(script))"
         return ["-T"]
@@ -147,6 +147,14 @@ enum WorkspaceRemoteSSHBatchCommandBuilder {
             .first
             .map(String.init)?
             .lowercased()
+    }
+
+    static func remoteDaemonPathShellExpression(_ remotePath: String) -> String {
+        let trimmedRemotePath = remotePath.trimmingCharacters(in: .whitespacesAndNewlines)
+        if trimmedRemotePath.hasPrefix("/") {
+            return shellSingleQuoted(trimmedRemotePath)
+        }
+        return "\"$HOME\"/\(shellSingleQuoted(trimmedRemotePath))"
     }
 
     private static func shellSingleQuoted(_ value: String) -> String {
