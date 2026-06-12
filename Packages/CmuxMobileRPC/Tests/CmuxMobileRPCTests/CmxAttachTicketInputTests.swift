@@ -41,12 +41,14 @@ import Testing
 
         let decoded = try CmxAttachTicketInput.decode(url)
         #expect(decoded.macDeviceID == "mac-1")
-        #expect(decoded.macDisplayName == "Studio")
         #expect(decoded.workspaceID == "")
         #expect(decoded.routes == ticket.routes)
-        #expect(decoded.expiresAt == ticket.expiresAt)
-        // The compact QR grammar intentionally drops the auth token.
+        // The compact QR grammar intentionally drops the auth token (it
+        // authorizes nothing), the display name (read post-handshake from
+        // `mobile.host.status`), and the expiry (a pairing QR never expires).
         #expect(decoded.authToken == nil)
+        #expect(decoded.macDisplayName == nil)
+        #expect(decoded.expiresAt == nil)
     }
 
     @Test func decodesLegacyFullKeyPayloadAttachURL() throws {
@@ -77,15 +79,35 @@ import Testing
         }
     }
 
-    @Test func expiredCompactTicketIsRejected() throws {
-        // Validation still runs on the compact path.
-        let json = """
+    @Test func staleQRCodesStillDecodeInBothGrammars() throws {
+        // A QR keeps pairing however long it sat on the Mac's screen: the
+        // host authorizes by Stack account, not ticket age. Both a
+        // first-revision compact payload (explicit `e` expiry long past) and
+        // a legacy full-key payload with a past `expiresAt` must decode.
+        let firstRevisionCompact = """
         {"v":1,"d":"mac-1","e":1000,"r":[{"i":"tailscale","k":"tailscale","e":{"t":"host_port","h":"100.64.0.5","p":8443}}]}
         """
-        let url = attachURL(payload: Data(json.utf8))
-        #expect(throws: CmxAttachTicketError.expired) {
-            try CmxAttachTicketInput.decode(url)
-        }
+        let compactDecoded = try CmxAttachTicketInput.decode(
+            attachURL(payload: Data(firstRevisionCompact.utf8))
+        )
+        #expect(compactDecoded.macDeviceID == "mac-1")
+        // The stale expiry is dropped outright on the compact path.
+        #expect(compactDecoded.expiresAt == nil)
+        #expect(!compactDecoded.isExpired(at: Date()))
+
+        let legacy = """
+        {"version":1,"workspaceID":"","terminalID":null,"macDeviceID":"mac-1",\
+        "macDisplayName":null,"routes":[{"id":"tailscale","kind":"tailscale",\
+        "endpoint":{"type":"host_port","host":"100.64.0.5","port":8443},\
+        "priority":0}],"expiresAt":"2001-01-01T00:00:00Z"}
+        """
+        let legacyDecoded = try CmxAttachTicketInput.decode(
+            attachURL(payload: Data(legacy.utf8))
+        )
+        #expect(legacyDecoded.macDeviceID == "mac-1")
+        // Legacy payloads keep their expiry as data for token consumers.
+        #expect(legacyDecoded.expiresAt == Date(timeIntervalSince1970: 978_307_200))
+        #expect(legacyDecoded.isExpired(at: Date()))
     }
 
     @Test func garbagePayloadIsRejected() {
@@ -93,5 +115,58 @@ import Testing
         #expect(throws: Error.self) {
             try CmxAttachTicketInput.decode(url)
         }
+    }
+
+    @Test func decodesMinimalPairingCodeURL() throws {
+        // New-phone-scans-new-QR: the minimal v2 grammar (bare routes, no
+        // payload blob) routes through the same input decoder as everything
+        // else the scanner or a deep link can hand us.
+        let decoded = try CmxAttachTicketInput.decode(
+            "cmux-ios://attach?v=2&r=lawrences-mac.tail1234.ts.net:58465&r=100.64.0.5:58465"
+        )
+        #expect(decoded.workspaceID == "")
+        #expect(decoded.macDeviceID == "")
+        #expect(decoded.macDisplayName == nil)
+        #expect(decoded.expiresAt == nil)
+        #expect(decoded.authToken == nil)
+        #expect(decoded.routes.count == 2)
+        #expect(decoded.routes.map(\.id) == ["tailscale", "tailscale_2"])
+        #expect(decoded.routes.allSatisfy { $0.kind == .tailscale })
+    }
+
+    @Test func minimalPairingCodeRejectsLoopback() {
+        // A scanned v2 code must never point the phone at itself. The legacy
+        // v1 payload grammar is intentionally NOT gated: the dev/simulator
+        // auto-pair flow injects loopback attach URLs in that grammar.
+        #expect(throws: MobileSyncPairingPayloadError.loopbackRouteRejected) {
+            try CmxAttachTicketInput.decode("cmux-ios://attach?v=2&r=127.0.0.1:58465")
+        }
+        #expect(throws: MobileSyncPairingPayloadError.loopbackRouteRejected) {
+            try CmxAttachTicketInput.decode("cmux-ios://attach?v=2&r=localhost:58465")
+        }
+    }
+
+    @Test func legacyLoopbackPayloadStillDecodesForDevInjection() throws {
+        // The simulator/dev auto-pair path (CMUX_DOGFOOD_ATTACH_URL) builds a
+        // legacy full-key payload with a loopback route; it must keep working.
+        let ticket = try CmxAttachTicket(
+            workspaceID: "",
+            terminalID: nil,
+            macDeviceID: "dev-mac",
+            macDisplayName: nil,
+            routes: [
+                try CmxAttachRoute(
+                    id: "debug_loopback",
+                    kind: .debugLoopback,
+                    endpoint: .hostPort(host: "127.0.0.1", port: 58465)
+                ),
+            ],
+            authToken: "dev-token"
+        )
+        let encoder = JSONEncoder()
+        encoder.dateEncodingStrategy = .iso8601
+        let decoded = try CmxAttachTicketInput.decode(attachURL(payload: try encoder.encode(ticket)))
+        #expect(decoded.routes == ticket.routes)
+        #expect(decoded.authToken == "dev-token")
     }
 }

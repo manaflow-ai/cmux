@@ -65,6 +65,7 @@ extension SocketTransport {
         let fd = socket(AF_UNIX, SOCK_STREAM, 0)
         guard fd >= 0 else { return .occupiedOrIndeterminate }
         defer { close(fd) }
+        _ = configureCloseOnExec(fd)
 
         let originalFlags = fcntl(fd, F_GETFL, 0)
         guard originalFlags >= 0 else { return .occupiedOrIndeterminate }

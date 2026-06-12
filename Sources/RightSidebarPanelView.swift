@@ -55,6 +55,12 @@ extension RightSidebarMode {
     }
 }
 
+nonisolated enum RightSidebarContentMountPolicy {
+    static func shouldMountContent(isRightSidebarVisible: Bool, hasMountedContent: Bool) -> Bool {
+        isRightSidebarVisible || hasMountedContent
+    }
+}
+
 nonisolated enum FileExplorerRootSyncPolicy {
     static func shouldSyncFileExplorerStore(isRightSidebarVisible: Bool, mode: RightSidebarMode) -> Bool {
         guard isRightSidebarVisible else { return false }
@@ -188,6 +194,7 @@ struct RightSidebarPanelView: View {
     @State private var focusShortcutHintMonitor = WindowScopedShortcutHintModifierMonitor(activation: .commandOnly)
     @State private var closeShortcutHintMonitor = WindowScopedShortcutHintModifierMonitor(activation: .commandOnly)
     @StateObject private var dockStore = DockControlsStore()
+    @State private var hasMountedRightSidebarContent = false
     @ObservedObject private var keyboardShortcutSettingsObserver = KeyboardShortcutSettingsObserver.shared
     private let alwaysShowShortcutHints = ShortcutHintDebugSettings.alwaysShowHints()
     private let closeShortcutHintXOffset = ShortcutHintDebugSettings.defaultRightSidebarCloseHintX
@@ -236,6 +243,7 @@ struct RightSidebarPanelView: View {
             modeShortcutHintMonitor.start()
             focusShortcutHintMonitor.start()
             closeShortcutHintMonitor.start()
+            if fileExplorerState.isVisible { hasMountedRightSidebarContent = true }
             fileExplorerState.refreshModeAvailability()
             synchronizeDockLifecycle()
         }
@@ -249,6 +257,7 @@ struct RightSidebarPanelView: View {
             synchronizeDockLifecycle(mode: mode)
         }
         .onChange(of: fileExplorerState.isVisible) { _, visible in
+            if visible { hasMountedRightSidebarContent = true }
             synchronizeDockLifecycle(isRightSidebarVisible: visible)
         }
         .onChange(of: dockRootDirectory) { _, newValue in
@@ -418,30 +427,34 @@ struct RightSidebarPanelView: View {
 
     @ViewBuilder
     private var contentForMode: some View {
-        switch fileExplorerState.mode {
-        case .files:
-            FileExplorerPanelView(
-                store: fileExplorerStore,
-                state: fileExplorerState,
-                onOpenFilePreview: onOpenFilePreview,
-                presentation: .files
-            )
-        case .find:
-            FileExplorerPanelView(
-                store: fileExplorerStore,
-                state: fileExplorerState,
-                onOpenFilePreview: onOpenFilePreview,
-                presentation: .find
-            )
-        case .sessions:
-            SessionIndexView(store: sessionIndexStore, onResume: onResumeSession)
-                .onAppear {
-                    sessionIndexStore.setCurrentDirectoryIfChanged(sessionIndexDirectory)
-                }
-        case .feed:
-            FeedPanelView()
-        case .dock:
-            DockPanelView(rootDirectory: dockRootDirectory, workspaceId: workspaceId, store: dockStore)
+        if RightSidebarContentMountPolicy.shouldMountContent(isRightSidebarVisible: fileExplorerState.isVisible, hasMountedContent: hasMountedRightSidebarContent) {
+            switch fileExplorerState.mode {
+            case .files:
+                FileExplorerPanelView(
+                    store: fileExplorerStore,
+                    state: fileExplorerState,
+                    onOpenFilePreview: onOpenFilePreview,
+                    presentation: .files
+                )
+            case .find:
+                FileExplorerPanelView(
+                    store: fileExplorerStore,
+                    state: fileExplorerState,
+                    onOpenFilePreview: onOpenFilePreview,
+                    presentation: .find
+                )
+            case .sessions:
+                SessionIndexView(store: sessionIndexStore, onResume: onResumeSession)
+                    .onAppear {
+                        sessionIndexStore.setCurrentDirectoryIfChanged(sessionIndexDirectory)
+                    }
+            case .feed:
+                FeedPanelView()
+            case .dock:
+                DockPanelView(rootDirectory: dockRootDirectory, workspaceId: workspaceId, store: dockStore)
+            }
+        } else {
+            Color.clear
         }
     }
 

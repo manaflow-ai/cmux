@@ -63,11 +63,13 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     private static let terminalOutputCapabilityTimeoutNanoseconds: UInt64 = 750_000_000
 
     /// How long the render-grid stream may stay silent (no event of any topic)
-    /// before the liveness watchdog assumes the push subscription is dead and
-    /// forces a re-subscribe + replay. Picked at the low end of the acceptable
-    /// 8-12s window so a wedged stream recovers in a few seconds instead of the
-    /// transport's ~85s timeout, while staying well above any normal inter-event
-    /// gap on a busy shell.
+    /// before the liveness watchdog suspects the push subscription is dead and
+    /// runs a bounded host probe; only a failed probe forces the
+    /// re-subscribe + replay (silence alone is the normal state of an idle
+    /// terminal). Picked at the low end of the acceptable 8-12s window so a
+    /// wedged stream recovers in a few seconds instead of the transport's ~85s
+    /// timeout, while staying well above any normal inter-event gap on a busy
+    /// shell.
     private static let renderGridLivenessSilenceThreshold: TimeInterval = 9
     /// Cadence of the liveness watchdog tick. It only reads a timestamp and
     /// compares against the threshold, so a short interval is cheap; it does not
@@ -177,7 +179,12 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         return Self.attachTicketIsUnexpired(activeTicket, now: runtime?.now() ?? Date())
     }
     public var pairingCode: String
-    public var workspaces: [MobileWorkspacePreview]
+    public var workspaces: [MobileWorkspacePreview] {
+        didSet { workspaceTopologyVersion &+= 1 }
+    }
+    /// Bumped on every ``workspaces`` mutation: a cheap "lists may have
+    /// changed" signal (e.g. for retrying a parked notification deep link).
+    public private(set) var workspaceTopologyVersion: UInt64 = 0
     /// Whether the connected Mac advertises the `workspace.actions.v1` capability
     /// (rename/pin over the mobile RPC). `false` until host status is read, and
     /// for older Macs that lack the handler, so the UI can hide rename/pin rather
@@ -189,13 +196,181 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// route falls back to email rather than failing with `method_not_found`
     /// under client/server version skew.
     public private(set) var supportsDogfoodFeedback: Bool = false
-    public var terminalInputText: String
+    /// The composer's live draft for the currently selected terminal.
+    ///
+    /// Edits are persisted per-terminal through the FIFO draft pipeline on every
+    /// change (see `didSet`), so the draft survives terminal switches; loads set
+    /// `isLoadingDraft` so the restore is not re-saved under the wrong terminal
+    /// key.
+    public var terminalInputText: String {
+        didSet {
+            #if DEBUG
+            // COMPOSER: record every draft change so a captured trace shows whether
+            // the draft was cleared at the store (b == 1) during a keyboard-dismiss
+            // cycle, vs. only disappearing from the view. `didSet` does not fire on
+            // the `init` assignment, so this is safe to read `diagnosticLog`.
+            diagnosticLog?.record(DiagnosticEvent(
+                .composerInputTextChanged,
+                a: terminalInputText.utf8.count,
+                b: terminalInputText.isEmpty ? 1 : 0
+            ))
+            #endif
+            // Persist the live edit under the CURRENT terminal so it survives a
+            // terminal switch. Skipped while a draft is being loaded (the load is
+            // the saved value, re-saving it is redundant and would race the
+            // per-terminal key swap) and when the value is unchanged.
+            guard !isLoadingDraft, terminalInputText != oldValue else { return }
+            // A user edit claims field ownership for the selected terminal: the
+            // live input is now authoritative, so a still-in-flight stored-draft
+            // load must not apply over it (see ``applyLoadedDraft``).
+            draftLoadPendingTerminalID = nil
+            persistCurrentDraft()
+        }
+    }
+    /// Whether the iMessage-style composer is shown above the terminal, observed
+    /// by the terminal screen to present ``terminalInputText`` for multi-line
+    /// editing.
+    ///
+    /// OPEN BY DEFAULT per terminal: like iMessage showing its input bar in every
+    /// conversation, the composer is presented for any selected terminal the user
+    /// has not explicitly dismissed (``composerDismissedTerminalIDs`` records the
+    /// exception, not the rule). Presented does NOT mean focused — the keyboard
+    /// comes up only when the user taps the field or an explicit open/reveal
+    /// requests focus (``composerFocusRequest``). Derived from observable stored
+    /// state (`selectedTerminalID` + the dismissed set), so views tracking it
+    /// re-render on terminal switches and explicit toggles alike.
+    public var isComposerPresented: Bool {
+        guard let terminalID = selectedTerminalID?.rawValue else { return false }
+        return !composerDismissedTerminalIDs.contains(terminalID)
+    }
+    /// Terminal IDs whose composer the user explicitly dismissed (the band's
+    /// chevron, or a genuine close from the compose button). Session-only: a
+    /// relaunch returns every terminal to the default-open composer. Stored (not
+    /// `@ObservationIgnored`) so ``isComposerPresented`` is observable through it.
+    private var composerDismissedTerminalIDs: Set<String> = []
+    /// Monotonic focus-request token for the iMessage-style composer field.
+    ///
+    /// The composer's text field owns its first responder via SwiftUI `@FocusState`,
+    /// which neither the terminal surface nor the representable coordinator can set
+    /// directly. When the surface needs the field re-focused without re-presenting the
+    /// composer — the reveal-after-hide case, where the chrome and draft are already
+    /// back but the terminal proxy stole first responder — it bumps this token through
+    /// ``presentAndFocusComposer()``. ``TerminalComposerView`` observes the change and
+    /// drives `isFieldFocused = true`, keeping `@FocusState` the single source of truth
+    /// for who holds the keyboard.
+    public private(set) var composerFocusRequest: Int = 0
+    /// True while a ``composerFocusRequest`` has been issued but not yet consumed
+    /// by the composer field. The field's `onChange` of the token only observes
+    /// bumps that happen while the view is mounted; an explicit open (or a
+    /// terminal switch while composing) bumps the token BEFORE the new composer
+    /// view mounts, so the view's `onAppear` consumes this flag instead
+    /// (``consumePendingComposerFocusRequest(for:)``). Default-open presentations
+    /// never set it, which is exactly what keeps the keyboard down for them.
+    /// Not observed: a handshake with the field, not view state.
+    @ObservationIgnored private var composerFocusRequestPending = false
+    /// The terminal the pending ``composerFocusRequest`` targets (the selected
+    /// terminal at the moment the request was issued). Consumption is keyed on
+    /// it: during a terminal switch the OUTGOING composer view is still mounted
+    /// and observes the same token, so an unkeyed pending bit could be consumed
+    /// by the dying view and the incoming terminal's field would never focus.
+    @ObservationIgnored private var composerFocusRequestTerminalID: String?
+    /// Whether the composer's text field currently holds first responder,
+    /// mirrored from the view's `@FocusState` via
+    /// ``composerFieldFocusChanged(_:)``. Read on terminal switches to decide
+    /// whether the incoming terminal's composer should re-take focus (keeping the
+    /// keyboard up across a switch mid-compose) — without it, every switch would
+    /// either pop the keyboard (always refocus) or drop it (never refocus).
+    /// Cleared explicitly on dismiss because the unmounting field does not
+    /// reliably deliver its final unfocus change. Not observed: bookkeeping for
+    /// the switch decision, not view state.
+    @ObservationIgnored private var composerFieldIsFocused = false
+    /// Guards ``submitComposerInput()`` against re-entrancy. A quick double tap
+    /// on Send would otherwise start two sends that both capture the same text
+    /// (the field is cleared only on ack), pasting the message to the agent
+    /// twice. Not observed: it gates an async flow, not view state.
+    @ObservationIgnored private var isSubmittingComposerInput = false
     public var selectedWorkspaceID: MobileWorkspacePreview.ID? {
         didSet {
             syncSelectedTerminalForWorkspace()
         }
     }
-    public var selectedTerminalID: MobileTerminalPreview.ID?
+    /// The terminal whose surface (and composer draft) is currently shown.
+    ///
+    /// Changing it swaps the composer draft: `willSet` captures the outgoing
+    /// terminal's draft before the id lands, `didSet` persists it under the old
+    /// key and loads the incoming terminal's saved draft.
+    public var selectedTerminalID: MobileTerminalPreview.ID? {
+        willSet {
+            // Capture the draft of the terminal we are leaving BEFORE the new id
+            // lands, so `swapDraft(from:to:)` can persist it under the correct
+            // (old) key. A no-op when the id is unchanged.
+            guard newValue != selectedTerminalID else { return }
+            draftedOutgoingTerminalID = selectedTerminalID
+            draftedOutgoingText = terminalInputText
+        }
+        didSet {
+            guard selectedTerminalID != oldValue else { return }
+            swapDraft(from: draftedOutgoingTerminalID, outgoingText: draftedOutgoingText, to: selectedTerminalID)
+            draftedOutgoingTerminalID = nil
+            draftedOutgoingText = ""
+            // Switching terminals rebuilds the surface (and the composer view with
+            // it). When the user was actively composing — the field held first
+            // responder at the moment of the switch — ask the incoming terminal's
+            // composer to re-take focus so the keyboard hands over in place
+            // instead of dropping. A default-open-but-unfocused composer issues no
+            // request, so a mere switch never pops the keyboard.
+            if composerFieldIsFocused, isComposerPresented {
+                requestComposerFieldFocus()
+            } else {
+                // Any switch that does not arm a new handshake invalidates a
+                // stale unconsumed one, so a plain switch back to a terminal
+                // can never pop the keyboard off an old request.
+                composerFocusRequestPending = false
+                composerFocusRequestTerminalID = nil
+            }
+        }
+    }
+
+    /// The per-terminal composer-draft seam. `nil` in previews/tests that do not
+    /// exercise drafts; every draft hook is then a no-op and the in-memory
+    /// ``terminalInputText`` behaves exactly as before. Injected from the app
+    /// composition root.
+    private let draftStore: (any TerminalDraftStoring)?
+
+    /// True while a saved draft is being loaded INTO ``terminalInputText``, so
+    /// its `didSet` does not immediately re-save the just-loaded value (which
+    /// would also race the key swap). Not observed: it gates a write, not view
+    /// state.
+    @ObservationIgnored private var isLoadingDraft = false
+    /// Tail of the FIFO draft pipeline (see ``enqueueDraftOperation(_:)``).
+    /// Every draft-store operation chains onto this so store effects apply in
+    /// exactly the order they were issued from the main actor. Not observed: it
+    /// sequences async work, not view state.
+    @ObservationIgnored private var draftOperationTail: Task<Void, Never>?
+    /// Latest unflushed keystroke draft per terminal (see
+    /// ``persistCurrentDraft()``). Keystroke saves coalesce here: each edit
+    /// overwrites the terminal's entry and at most ONE flush task per terminal
+    /// is queued on the pipeline, reading the entry at execution time. A typing
+    /// burst behind a slow store therefore retains one latest snapshot per
+    /// terminal instead of one snapshot per edit. Not observed: it buffers
+    /// writes, not view state.
+    @ObservationIgnored private var pendingDraftSaveTextByTerminalID: [String: String] = [:]
+    /// The terminal id we are switching away from, captured in
+    /// ``selectedTerminalID``'s `willSet` so its draft is saved under the right key.
+    @ObservationIgnored private var draftedOutgoingTerminalID: MobileTerminalPreview.ID?
+    /// The draft text of the terminal we are switching away from, captured with
+    /// ``draftedOutgoingTerminalID``.
+    @ObservationIgnored private var draftedOutgoingText: String = ""
+    /// The terminal whose stored-draft load is still in flight while the field
+    /// shows the transient cleared placeholder. While this matches a terminal,
+    /// the visible field does NOT represent that terminal's draft yet, so a
+    /// switch away from it must not persist the placeholder over its real
+    /// stored draft (the fast A -> B -> C switch erased B's untouched draft).
+    /// Consumed when the load applies; cleared by a user edit, which claims
+    /// field ownership for the selected terminal (live input wins over a late
+    /// load, so deleted text cannot resurrect). Not observed: bookkeeping, not
+    /// view state.
+    @ObservationIgnored private var draftLoadPendingTerminalID: MobileTerminalPreview.ID?
 
     /// Surface IDs whose next window attach must NOT grab the keyboard.
     ///
@@ -271,6 +446,21 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     }
     private var terminalEventListenerTask: Task<Void, Never>?
     private var terminalEventListenerID: UUID?
+    /// Recovers the Mac's identity post-handshake for tickets that arrived
+    /// without one (the minimal v2 pairing QR). Owned separately from the
+    /// short capability probe; see ``scheduleHostIdentityAdoptionIfNeeded(client:)``.
+    /// Cancelled on disconnect via ``cancelRemoteOperationTasks()``.
+    private var hostIdentityAdoptionTask: Task<Void, Never>?
+    /// Tail of the serialized paired-Mac store write chain; see
+    /// ``performSerializedPairedMacWrite(ifStillCurrent:_:)``.
+    private var pairedMacWriteChain: Task<Void, Never>?
+    /// The in-flight `mobile.events.subscribe` (reason `start`) ack for the
+    /// current listener generation. It runs concurrently with the consumer
+    /// loop (the ack is a server-side enable handshake, not a delivery
+    /// precondition: a prior generation's server subscription keeps pushing
+    /// across re-subscribes) so events arriving during the round-trip are
+    /// consumed, not buffered invisibly behind the await.
+    private var terminalSubscriptionStartTask: Task<Void, Never>?
     // Liveness watchdog for the render-grid push subscription. The `for await`
     // listener loop blocks indefinitely if the underlying connection half-dies
     // (network blip, Mac stops pushing, background/foreground cycle): the
@@ -279,9 +469,22 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     // of render-grid deltas. The transport's own timeout (~85s) is far too slow.
     // A `DispatchSourceTimer` ticks independently of the (potentially wedged)
     // stream and compares "now" against the last received event to detect
-    // prolonged silence, then tears down + re-subscribes + replays.
+    // prolonged silence. Silence alone is NOT death: a healthy idle terminal
+    // pushes nothing (the Mac dedupes unchanged render-grid frames), so a
+    // silence-threshold crossing first runs a bounded idempotent
+    // `mobile.events.subscribe` probe (same stream id, current topics) and
+    // only tears down + re-subscribes + replays when the host fails to answer
+    // it.
     private var renderGridLivenessTimer: (any DispatchSourceTimer)?
     private var renderGridLivenessListenerID: UUID?
+    /// The in-flight liveness probe spawned by a silence-threshold crossing.
+    /// Single-flight: ticks while a probe is pending are no-ops. The paired
+    /// `renderGridLivenessProbeID` is the slot's ownership token: only the
+    /// probe holding it may clear the slot, so a cancelled probe from an older
+    /// generation completing late cannot free or clobber a newer generation's
+    /// in-flight slot.
+    private var renderGridLivenessProbeTask: Task<Void, Never>?
+    private var renderGridLivenessProbeID: UUID?
     private var lastTerminalEventAt: Date?
     private var terminalSubscriptionRefreshTask: Task<Void, Never>?
     private var createWorkspaceTask: Task<Void, Never>?
@@ -359,9 +562,11 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         analytics: any AnalyticsEmitting = NoopAnalytics(),
         diagnosticLog: DiagnosticLog? = nil,
         feedbackEmailSubmitter: (any MobileFeedbackEmailSubmitting)? = nil,
-        feedbackStampProvider: @escaping @MainActor () -> MobileFeedbackStamp = { MobileShellComposite.emptyFeedbackStamp }
+        feedbackStampProvider: @escaping @MainActor () -> MobileFeedbackStamp = { MobileShellComposite.emptyFeedbackStamp },
+        draftStore: (any TerminalDraftStoring)? = nil
     ) {
         self.runtime = runtime
+        self.draftStore = draftStore
         self.pairedMacStore = pairedMacStore
         self.deviceRegistry = deviceRegistry
         self.identityProvider = identityProvider
@@ -419,7 +624,9 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     isolated deinit {
         networkPathObservationTask?.cancel()
         terminalEventListenerTask?.cancel()
+        terminalSubscriptionStartTask?.cancel()
         renderGridLivenessTimer?.cancel()
+        renderGridLivenessProbeTask?.cancel()
         terminalSubscriptionRefreshTask?.cancel()
         createWorkspaceTask?.cancel()
         createTerminalTask?.cancel()
@@ -468,7 +675,32 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         macConnectionStatus = .unavailable
         connectedHostName = ""
         pairingCode = ""
+        // Wipe every saved draft so the next account never sees the previous
+        // user's unsent text. Guard the in-memory clear (and the selection resets
+        // below) so the per-terminal draft hooks do not write partial state into a
+        // store we are about to empty wholesale.
+        isLoadingDraft = true
         terminalInputText = ""
+        // Enqueued on the FIFO draft pipeline so every save issued before this
+        // point is applied first and then wiped; a pending keystroke save can
+        // never land after the wipe and leak into the next account's session.
+        if let draftStore {
+            enqueueDraftOperation { await draftStore.clearAllDrafts() }
+        }
+        // Drop unflushed keystroke snapshots too: an armed flush that runs
+        // before the wipe would only write text the wipe then deletes, but the
+        // buffer itself must not carry one account's text into the next.
+        pendingDraftSaveTextByTerminalID = [:]
+        // Per-terminal composer dismissals are this user's session UI state; the
+        // next account starts with the default-open composer everywhere. Clear
+        // the focus mirror BEFORE the selection resets below so the terminal
+        // switch they trigger cannot arm a stale focus request, and drop any
+        // already-armed handshake (the selection reset's didSet only clears it
+        // when the terminal id actually changes).
+        composerDismissedTerminalIDs = []
+        composerFieldIsFocused = false
+        composerFocusRequestPending = false
+        composerFocusRequestTerminalID = nil
         clearPairingError()
         activeTicket = nil
         activeRoute = nil
@@ -492,6 +724,9 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         workspaces = PreviewMobileHost.workspaces
         selectedWorkspaceID = workspaces.first?.id
         selectedTerminalID = workspaces.first?.terminals.first?.id
+        // Selection resets above are done; allow draft saving again so a
+        // subsequent sign-in restores drafts normally.
+        isLoadingDraft = false
     }
 
     public func resumeForegroundRefresh() {
@@ -1563,7 +1798,41 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         return nil
     }
 
-    private func persistPairedMacFromTicket(_ ticket: CmxAttachTicket) async {
+    /// Runs one paired-Mac store mutation on the serialized write chain.
+    ///
+    /// All `markActive` writes go through here so they execute strictly in
+    /// submission order, and `ifStillCurrent` is re-evaluated at EXECUTION
+    /// time (after every earlier write has fully landed), not at submission.
+    /// That closes the check-then-await race: a stale status-adoption task
+    /// either observes it lost currency and skips, or it is still current
+    /// and any newer connection's write is queued strictly behind it and
+    /// overwrites the active mark. The chain is deliberately not cancelled
+    /// on disconnect; in-flight writes complete or skip via their own check.
+    private func performSerializedPairedMacWrite(
+        ifStillCurrent: (() -> Bool)?,
+        _ operation: @escaping @MainActor () async -> Void
+    ) async {
+        let previous = pairedMacWriteChain
+        let task = Task { @MainActor in
+            await previous?.value
+            if let ifStillCurrent, !ifStillCurrent() { return }
+            await operation()
+        }
+        pairedMacWriteChain = task
+        await task.value
+    }
+
+    /// Persists `ticket` as the active paired Mac.
+    ///
+    /// The write runs on the serialized paired-Mac chain. The status-driven
+    /// identity adoption passes `ifStillCurrent` so a stale reply cannot
+    /// commit `markActive: true` for an old Mac after the user has started
+    /// pairing a new one; the connect path leaves it `nil` (its write is for
+    /// the connection it just established).
+    private func persistPairedMacFromTicket(
+        _ ticket: CmxAttachTicket,
+        ifStillCurrent: (() -> Bool)? = nil
+    ) async {
         guard let pairedMacStore else { return }
         guard !ticket.macDeviceID.isEmpty else { return }
         // Strip routes that we can't reconnect to without server-side state
@@ -1571,21 +1840,184 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         guard ticket.macDeviceID != "manual-ticket-request",
               !ticket.macDeviceID.hasPrefix("manual-") else { return }
         let stackUserID = identityProvider?.currentUserID
-        do {
-            try await pairedMacStore.upsert(
-                macDeviceID: ticket.macDeviceID,
-                displayName: ticket.macDisplayName,
-                routes: ticket.routes,
-                markActive: true,
-                stackUserID: stackUserID
-            )
-            // A real, reconnectable Mac is now the active paired Mac: record the
-            // persisted hint so the next launch shows RestoringSessionView during
-            // the reconnect window instead of the empty add-device sheet.
-            hasKnownPairedMac = true
-        } catch {
-            mobileShellLog.error("paired mac store upsert failed: \(String(describing: error), privacy: .public)")
+        // The compact pairing QR carries no display name; the name arrives
+        // post-handshake via `mobile.host.status`. Until it does, keep any
+        // name we already know for this Mac instead of clobbering it with
+        // nil (the store's upsert overwrites the column unconditionally).
+        // The lookup runs inside the serialized write chain so it cannot
+        // read a name that a queued fresher write is about to replace, and
+        // it prefers the current user's record for this Mac before falling
+        // back to any account's record stored on this device.
+        let ticketDisplayName = ticket.macDisplayName
+        await performSerializedPairedMacWrite(ifStillCurrent: ifStillCurrent) { [weak self] in
+            guard let self else { return }
+            var displayName = ticketDisplayName
+            if displayName == nil {
+                let knownMacs = (try? await pairedMacStore.loadAll(stackUserID: nil)) ?? []
+                let matches = knownMacs.filter { $0.macDeviceID == ticket.macDeviceID }
+                displayName = (matches.first { $0.stackUserID == stackUserID } ?? matches.first)?
+                    .displayName
+            }
+            do {
+                try await pairedMacStore.upsert(
+                    macDeviceID: ticket.macDeviceID,
+                    displayName: displayName,
+                    routes: ticket.routes,
+                    markActive: true,
+                    stackUserID: stackUserID
+                )
+                // A real, reconnectable Mac is now the active paired Mac: record
+                // the persisted hint so the next launch shows RestoringSessionView
+                // during the reconnect window instead of the empty add-device sheet.
+                self.hasKnownPairedMac = true
+            } catch {
+                mobileShellLog.error("paired mac store upsert failed: \(String(describing: error), privacy: .public)")
+            }
         }
+    }
+
+    /// Recovers the Mac's identity for a connection whose ticket arrived
+    /// without a device id (the minimal v2 pairing QR), as its own
+    /// `mobile.host.status` request with the default RPC timeout.
+    ///
+    /// Identity recovery must not depend on the terminal-output capability
+    /// probe's 750ms best-effort timeout: the probe is allowed to fail fast
+    /// (the terminal just falls back to raw bytes), but the status report is
+    /// the ONLY path that persists a freshly QR-paired Mac, so a slow tailnet
+    /// link that times the probe out must not cost the paired-Mac record and
+    /// reconnect-on-launch. The probe applies identity itself when it
+    /// succeeds (no extra request in the common case) and calls this when it
+    /// cannot, so the recovery request runs with the full RPC timeout. Both
+    /// feed the same guarded
+    /// ``applyHostReportedIdentity(client:deviceID:displayName:)`` path.
+    private func scheduleHostIdentityAdoptionIfNeeded(client: MobileCoreRPCClient) {
+        guard activeTicket?.macDeviceID.isEmpty == true else { return }
+        hostIdentityAdoptionTask?.cancel()
+        hostIdentityAdoptionTask = Task { @MainActor [weak self] in
+            guard let self, !Task.isCancelled, self.remoteClient === client else { return }
+            let data: Data
+            do {
+                data = try await client.sendRequest(
+                    MobileCoreRPCClient.requestData(method: "mobile.host.status", params: [:])
+                )
+            } catch {
+                // The connection (or a reconnect) re-schedules adoption; a
+                // failed status here means the connection itself is in
+                // trouble and its own recovery paths take over.
+                mobileShellLog.error("host identity status request failed: \(String(describing: error), privacy: .private)")
+                return
+            }
+            guard !Task.isCancelled,
+                  let payload = try? MobileHostStatusResponse.decode(data) else { return }
+            await self.applyHostReportedIdentity(
+                client: client,
+                deviceID: payload.macDeviceID,
+                displayName: payload.macDisplayName
+            )
+        }
+    }
+
+    /// Adopts the identity (`mac_device_id`, `mac_display_name`) reported by
+    /// `mobile.host.status`. The minimal pairing QR carries neither, so this
+    /// post-handshake report is what makes a QR-paired Mac identifiable: the
+    /// device id keys the paired-Mac record (launch reconnect, host switcher)
+    /// and the name replaces the placeholder in the UI.
+    ///
+    /// `client` is the connection the status reply belongs to. Every state
+    /// read/mutation re-checks `remoteClient === client` after a suspension,
+    /// so a stale reply (the user re-paired while the request was in flight)
+    /// can never adopt the OLD Mac's identity onto the NEW connection's
+    /// empty-id ticket or persist a mixed paired-Mac record.
+    private func applyHostReportedIdentity(
+        client: MobileCoreRPCClient,
+        deviceID: String?,
+        displayName: String?
+    ) async {
+        guard remoteClient === client else { return }
+        if let reportedID = deviceID?.trimmingCharacters(in: .whitespacesAndNewlines),
+           !reportedID.isEmpty,
+           let ticket = activeTicket,
+           ticket.macDeviceID.isEmpty,
+           let adopted = try? CmxAttachTicket(
+               version: ticket.version,
+               workspaceID: ticket.workspaceID,
+               terminalID: ticket.terminalID,
+               macDeviceID: reportedID,
+               macDisplayName: ticket.macDisplayName,
+               routes: ticket.routes,
+               expiresAt: ticket.expiresAt,
+               authToken: ticket.authToken
+           ) {
+            activeTicket = adopted
+            // The connection is now attributable to a real Mac: persist it so
+            // reconnect-on-launch and the host switcher have a record (the
+            // empty-id ticket was skipped by the connect-time persist).
+            await persistPairedMacFromTicket(
+                adopted,
+                ifStillCurrent: { [weak self] in self?.remoteClient === client }
+            )
+        }
+        guard remoteClient === client else { return }
+        await applyHostReportedDisplayName(
+            displayName,
+            ifStillCurrent: { [weak self] in self?.remoteClient === client }
+        )
+    }
+
+    /// Adopts the Mac name reported by `mobile.host.status`. The pairing QR
+    /// no longer carries the name, so this post-handshake report is what
+    /// replaces the placeholder in the UI and fills in the paired-Mac store
+    /// for freshly paired Macs. The caller has verified the reply belongs to
+    /// the current connection; `ticket` is captured once here so the store
+    /// write stays internally consistent, and `ifStillCurrent` is re-checked
+    /// immediately before that write so a connection change during the name
+    /// application cannot mark a stale Mac active.
+    private func applyHostReportedDisplayName(
+        _ reportedName: String?,
+        ifStillCurrent: (() -> Bool)? = nil
+    ) async {
+        guard let name = reportedName?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !name.isEmpty,
+              let ticket = activeTicket else {
+            return
+        }
+        // The host's report is fresher than whatever the ticket carried (it
+        // reflects the Mac-side pairing-name setting, including renames), so
+        // it always wins over the device-id placeholder or a stale name.
+        connectedHostName = name
+        guard let pairedMacStore,
+              !ticket.macDeviceID.isEmpty,
+              ticket.macDeviceID != "manual-ticket-request",
+              !ticket.macDeviceID.hasPrefix("manual-") else {
+            return
+        }
+        let stackUserID = identityProvider?.currentUserID
+        await performSerializedPairedMacWrite(ifStillCurrent: ifStillCurrent) {
+            do {
+                try await pairedMacStore.upsert(
+                    macDeviceID: ticket.macDeviceID,
+                    displayName: name,
+                    routes: ticket.routes,
+                    markActive: true,
+                    stackUserID: stackUserID
+                )
+            } catch {
+                mobileShellLog.error("paired mac display-name upsert failed: \(String(describing: error), privacy: .public)")
+            }
+        }
+    }
+
+    /// `true` on a physical iPhone/iPad; `false` in the simulator and in
+    /// macOS-hosted package tests. Drives the loopback-pairing rejection:
+    /// the simulator's 127.0.0.1 is the host Mac and dev auto-pair depends
+    /// on it, while a physical device dialing loopback only ever reaches
+    /// itself.
+    private static var isPhysicalDevice: Bool {
+        #if os(iOS) && !targetEnvironment(simulator)
+        true
+        #else
+        false
+        #endif
     }
 
     private static func manualHostRoute(host: String, port: Int) throws -> CmxAttachRoute {
@@ -1609,9 +2041,31 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         let ticket: CmxAttachTicket
         do {
             ticket = try CmxAttachTicketInput.decode(rawURL)
+            // The v2 grammar rejects loopback inside the decoder; the legacy
+            // grammars must keep decoding loopback for the simulator dev flow
+            // (where 127.0.0.1 IS the host Mac). On a physical phone no
+            // grammar may pair to loopback: the route would dial the phone
+            // itself, and loopback is Stack-auth-trusted, so the bearer token
+            // would be handed to whatever local process answers. Pure policy,
+            // unit tested for both device values; only this wiring is
+            // compile-time.
+            if MobileShellRouteAuthPolicy.ticketRejectsLoopbackRoutes(
+                ticket.routes,
+                isPhysicalDevice: Self.isPhysicalDevice
+            ) {
+                throw MobileSyncPairingPayloadError.loopbackRouteRejected
+            }
         } catch {
             guard isCurrentPairingAttempt(attemptID) else { return .superseded }
-            applyPairingFailure(.invalidCode, phase: "validation")
+            if case MobileSyncPairingPayloadError.loopbackRouteRejected = error {
+                // A scanned/pasted code that only points back at the Mac
+                // itself (127.0.0.1) would make the phone dial itself. Name
+                // the actual fix (Tailscale on the Mac) instead of the
+                // generic invalid-code copy.
+                applyPairingFailure(.loopbackRejected, phase: "validation")
+            } else {
+                applyPairingFailure(.invalidCode, phase: "validation")
+            }
             connectionState = .disconnected
             macConnectionStatus = .unavailable
             clearRemoteConnectionContext()
@@ -1619,11 +2073,14 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         }
 
         // Offline preflight: fail fast instead of stacking per-route connect
-        // timeouts into the opaque ~60s wait. Skipped when a free local ticket
-        // guard fails so `connect()` classifies it (expired QR scanned offline
-        // says "expired" not "offline"; undialable routes say `no_supported_route`).
+        // timeouts into the opaque ~60s wait. Skipped only when no route is
+        // dialable so `connect()` classifies that as `no_supported_route`.
+        // Ticket expiry deliberately does NOT gate this: a stale QR is a valid
+        // pairing input now (expiry is enforced solely where the RPC attach
+        // token is used), so an expired legacy code scanned offline must say
+        // "offline", not crawl the route loop's stacked timeouts.
         let candidateRoutes = Self.supportedRoutes(for: ticket, supportedKinds: runtime?.supportedRouteKinds ?? [])
-        if !candidateRoutes.isEmpty, Self.attachTicketIsUnexpired(ticket, now: runtime?.now() ?? Date()) {
+        if !candidateRoutes.isEmpty {
             switch await failPairingIfOffline(attemptID: attemptID, phase: "preflight", routes: candidateRoutes) {
             case .failedOffline: return .failed
             case .superseded: return .superseded
@@ -1891,6 +2348,10 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         selectedTerminalID = id
     }
 
+    /// One-shot "actually navigate" deep-link intent; API in
+    /// `MobileShellComposite+DeeplinkNavigation.swift` (storage must live here).
+    public internal(set) var deeplinkWorkspaceNavigationRequest: DeeplinkWorkspaceNavigationRequest?
+
     /// Selects `id` as a chrome action (the terminal picker), so the surface
     /// that comes up does not grab the keyboard.
     ///
@@ -1969,6 +2430,201 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             "had_attachment": .bool(false),
         ])
         await sendRemoteTerminalInput(text + "\r")
+    }
+
+    /// Show or hide the iMessage-style composer from the input accessory bar.
+    ///
+    /// With the composer open by default, the OPEN branch is reached only after
+    /// the user explicitly dismissed it on this terminal and tapped compose again
+    /// — an unambiguous "I want to compose" intent, so it also requests field
+    /// focus (the default-open presentation deliberately does not).
+    /// - Parameter terminalID: The terminal whose composer the caller is acting
+    ///   on (the surface's own id). The focus handshake is keyed to it so the
+    ///   composer view serving that terminal — and only it — consumes the
+    ///   request. `nil` falls back to the selected terminal; the rendered
+    ///   terminal can diverge from the selection (the detail view falls back to
+    ///   the workspace's first terminal), so callers that know their surface
+    ///   should always pass it.
+    public func toggleComposer(forTerminalID terminalID: String? = nil) {
+        if isComposerPresented {
+            setComposerPresented(false)
+        } else {
+            setComposerPresented(true)
+            requestComposerFieldFocus(forTerminalID: terminalID)
+        }
+    }
+
+    /// Ensure the composer is presented and ask its field to take focus, without ever
+    /// dismissing it.
+    ///
+    /// Drives the reveal-and-focus path: the surface invokes this when the user taps
+    /// the compose button (or reveals the chrome) while a composer is already
+    /// logically presented but suppressed or unfocused. The presented state is only
+    /// ever raised here (never dismissed), so a still-presented composer and its
+    /// draft are preserved; the focus token is always bumped so the field re-focuses
+    /// even when the presented flag did not change.
+    /// - Parameter terminalID: The terminal whose composer should take focus
+    ///   (the requesting surface's own id); `nil` falls back to the selected
+    ///   terminal. See ``toggleComposer(forTerminalID:)`` for why the explicit
+    ///   id matters.
+    public func presentAndFocusComposer(forTerminalID terminalID: String? = nil) {
+        setComposerPresented(true)
+        requestComposerFieldFocus(forTerminalID: terminalID)
+    }
+
+    /// Explicitly dismiss the iMessage-style composer for the selected terminal,
+    /// recording the dismissal for the session. This is the explicit-close API
+    /// (hosts and tests); the user-facing closes go through ``toggleComposer()``.
+    /// The keyboard collapsing never dismisses the composer (Round 8): the band
+    /// survives a keyboard-down and only the chevron / compose toggle closes it.
+    /// Idempotent: a no-op when the composer is already closed.
+    public func dismissComposer() {
+        guard isComposerPresented else { return }
+        setComposerPresented(false)
+    }
+
+    /// Mirror of the composer field's `@FocusState`, reported by
+    /// ``TerminalComposerView`` on every focus change. See
+    /// ``composerFieldIsFocused`` for what reads it.
+    public func composerFieldFocusChanged(_ focused: Bool) {
+        composerFieldIsFocused = focused
+    }
+
+    /// Consume the one-shot "focus the composer field" handshake for the
+    /// composer serving `terminalID`, returning whether a pending request
+    /// targeted that terminal. The composer view calls this from `onAppear` (a
+    /// mount that follows an explicit open or a mid-compose terminal switch)
+    /// and from its `onChange` of ``composerFocusRequest`` (a bump while
+    /// already mounted), so a request is honored exactly once and a later
+    /// default-open remount never re-pops the keyboard.
+    ///
+    /// Keyed on the target terminal: during a terminal switch the outgoing
+    /// composer view is still mounted and observes the same token bump, so a
+    /// mismatched consume returns `false` and leaves the request armed for the
+    /// incoming terminal's mount.
+    public func consumePendingComposerFocusRequest(for terminalID: String) -> Bool {
+        guard composerFocusRequestPending, composerFocusRequestTerminalID == terminalID else {
+            return false
+        }
+        composerFocusRequestPending = false
+        composerFocusRequestTerminalID = nil
+        return true
+    }
+
+    /// Ask the composer field to take focus: bump the token the mounted view
+    /// observes and arm the pending flag a not-yet-mounted view consumes on
+    /// appear, keyed to `terminalID` (`nil` = the currently selected terminal).
+    /// Callers acting on a concrete surface pass that surface's id so the
+    /// request always matches the composer view that will consume it, even
+    /// when the rendered terminal and the store selection diverge.
+    private func requestComposerFieldFocus(forTerminalID terminalID: String? = nil) {
+        composerFocusRequest &+= 1
+        composerFocusRequestPending = true
+        composerFocusRequestTerminalID = terminalID ?? selectedTerminalID?.rawValue
+    }
+
+    /// Single mutation path for the per-terminal presented state (the dismissed
+    /// set): both explicit transitions land here so the DEBUG diagnostic records
+    /// every flag change, exactly like the old stored property's `didSet`. A
+    /// no-op without a selected terminal (there is nothing to compose to) or
+    /// when the state already matches.
+    private func setComposerPresented(_ presented: Bool) {
+        guard let terminalID = selectedTerminalID?.rawValue,
+              presented != isComposerPresented else { return }
+        if presented {
+            composerDismissedTerminalIDs.remove(terminalID)
+        } else {
+            composerDismissedTerminalIDs.insert(terminalID)
+            // The band (and its field) unmounts with the dismissal; the dying
+            // field does not reliably deliver a final unfocus change, so clear
+            // the mirror here to never leave a stale "field owns the keyboard".
+            composerFieldIsFocused = false
+        }
+        #if DEBUG
+        // COMPOSER: record every flag change (mutated by `toggleComposer`,
+        // `dismissComposer`, and `presentAndFocusComposer`). An unexpected
+        // `a == 0` during a bare keyboard dismiss is the "flag toggled off"
+        // cause of the disappearing draft.
+        diagnosticLog?.record(DiagnosticEvent(
+            .composerPresentedChanged,
+            a: presented ? 1 : 0
+        ))
+        #endif
+    }
+
+    /// Submit the composer's text to the selected terminal as a bracketed paste
+    /// plus a single Return, then clear the field while keeping the composer
+    /// open. Unlike ``submitTerminalInput()``, this delivers a multi-line block
+    /// as one paste + one submit (via `terminal.paste`) so interior newlines do
+    /// not fragment into multiple submissions in a TUI agent.
+    ///
+    /// The field is cleared only after the Mac acknowledges the paste. If the
+    /// send fails (no connection, or an older host that does not implement
+    /// `terminal.paste` and answers `method_not_found`), the composed text is
+    /// kept so the user can retry instead of silently losing the message.
+    public func submitComposerInput() async {
+        let text = terminalInputText
+        guard !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
+        guard remoteClient != nil else { return }
+        // Reject a re-entrant send (e.g. a double tap on Send) so the same text
+        // is not pasted twice. The flag is set/cleared on the main actor around
+        // the await, so no second call can slip past it.
+        guard !isSubmittingComposerInput else { return }
+        isSubmittingComposerInput = true
+        defer { isSubmittingComposerInput = false }
+        // Capture which terminal this text is for: if the user switches terminals
+        // while the ack is in flight, the switch persists the outgoing text as the
+        // SUBMITTED terminal's draft, and the sent text must be cleared from that
+        // key, not from whatever terminal is selected when the ack returns.
+        let submittedTerminalID = selectedTerminalID
+        let sent = await sendRemoteTerminalPaste(text, submitKey: "return")
+        guard sent else { return }
+        await reconcileComposerDraftAfterSend(sentText: text, submittedTerminalID: submittedTerminalID)
+    }
+
+    /// Clear the sent text from wherever it now lives after a successful
+    /// composer send: the visible field when the submitted terminal is still
+    /// selected, or the submitted terminal's STORED draft when the user switched
+    /// terminals while the ack was in flight (the switch persists the outgoing
+    /// text under the submitted terminal's key, and without this it would
+    /// resurrect on switch-back and invite a duplicate submission). In both
+    /// places the clear is conditional on the value still being exactly the sent
+    /// text, so anything newer the user typed is never discarded.
+    ///
+    /// Internal (not private) so tests can drive the post-ack reconciliation
+    /// directly with a controlled draft store and selection.
+    func reconcileComposerDraftAfterSend(
+        sentText: String,
+        submittedTerminalID: MobileTerminalPreview.ID?
+    ) async {
+        if selectedTerminalID == submittedTerminalID {
+            // Only clear if the field still holds exactly what we sent, so a value
+            // the user typed while the send was in flight is not discarded. The
+            // field's `didSet` persists the clear, removing the stored draft too.
+            if terminalInputText == sentText {
+                terminalInputText = ""
+            }
+        } else if let submittedTerminalID, let draftStore {
+            // Selection moved mid-flight. Clear the submitted terminal's stored
+            // draft only when it is still exactly the sent text, so a newer draft
+            // (typed after Send, before the switch) is preserved. Enqueued (and
+            // awaited) on the FIFO draft pipeline so the check runs after the
+            // terminal switch's own save of the outgoing text, and the
+            // check-then-clear pair is atomic with respect to other operations.
+            let terminalID = submittedTerminalID.rawValue
+            let sent = sentText
+            await enqueueDraftOperation {
+                if await draftStore.draft(forTerminalID: terminalID) == sent {
+                    await draftStore.clearDraft(forTerminalID: terminalID)
+                }
+            }.value
+            // The user may have switched back during the awaits and had the sent
+            // text restored into the field; clear that too so already-sent text
+            // never resurrects.
+            if selectedTerminalID == submittedTerminalID, terminalInputText == sentText {
+                terminalInputText = ""
+            }
+        }
     }
 
     public func sendTerminalRawInput(_ text: String) {
@@ -2087,18 +2743,13 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             clearRemoteConnectionContext()
             return .noSupportedRoute
         }
-        guard Self.attachTicketIsUnexpired(ticket, now: runtime?.now() ?? Date()) else {
-            connectionError = MobilePairingFailureCategory.ticketExpired.message
-            connectionErrorGuidance = MobilePairingFailureCategory.ticketExpired.guidance
-            connectionState = .disconnected
-            macConnectionStatus = .unavailable
-            clearRemoteConnectionContext()
-            throw MobileShellConnectionError.attachTicketExpired
-        }
-
+        // No connect-time expiry gate: a pairing QR never expires (new QRs
+        // carry no expiry at all), and the host authorizes by Stack account,
+        // not ticket age. Expiry still gates the RPC-minted attach token at
+        // its point of use (`MobileCoreRPCClient.requestDataWithAuth`).
         activeTicket = ticket
         activeRoute = firstRoute
-        connectedHostName = ticket.macDisplayName ?? ticket.macDeviceID
+        connectedHostName = placeholderHostName(for: ticket, firstRoute: firstRoute)
         replaceRemoteClient(with: nil)
 
         guard let runtime else {
@@ -2137,6 +2788,18 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                     guard generation == connectionGeneration, isSignedIn else { return nil }
                     replaceRemoteClient(with: client)
                     startTerminalRefreshPolling()
+                    // The connect seam guarantees identity recovery for an
+                    // anonymous (v2 QR) ticket on every supported runtime, not
+                    // just push-event ones: when the event-listener task starts,
+                    // its status probe performs the recovery (one shared status
+                    // request); when the runtime has no server-push events that
+                    // task never runs, so recovery is scheduled directly here.
+                    // Without this, pairing succeeded but the Mac was never
+                    // persisted (no reconnect-on-launch, no host switcher entry).
+                    // The schedule is a no-op for tickets that carry a device id.
+                    if !(runtime.supportsServerPushEvents) {
+                        scheduleHostIdentityAdoptionIfNeeded(client: client)
+                    }
                     clearPairingError()
                     await persistPairedMacFromTicket(ticket)
                     applyRemoteWorkspaceList(response, preferActiveTicketTarget: workspaceListRequest.preferActiveTicketTarget)
@@ -2188,7 +2851,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     }
 
     private static func attachTicketIsUnexpired(_ ticket: CmxAttachTicket, now: Date) -> Bool {
-        ticket.expiresAt > now
+        !ticket.isExpired(at: now)
     }
 
     private static func initialWorkspaceListParams(for ticket: CmxAttachTicket) -> [String: Any] {
@@ -2322,6 +2985,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     }
 
     private func cancelRemoteOperationTasks() {
+        hostIdentityAdoptionTask?.cancel()
+        hostIdentityAdoptionTask = nil
         terminalSubscriptionRefreshTask?.cancel()
         terminalSubscriptionRefreshTask = nil
         createWorkspaceTask?.cancel()
@@ -2601,6 +3266,138 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         selectedTerminalID = selectedWorkspace.preferredTerminal?.id
     }
 
+    // MARK: - Per-terminal composer drafts
+
+    /// Enqueue one draft-store operation on a strictly ordered (FIFO) pipeline.
+    ///
+    /// All draft persistence is fire-and-forget from the caller's point of view,
+    /// but independent unstructured `Task`s are NOT ordered relative to each
+    /// other: an older keystroke save could reach the store actor after a newer
+    /// save, a post-send clear, or the sign-out wipe, resurrecting stale (or
+    /// another account's) text. Chaining every operation onto the previous one
+    /// makes store effects apply in exactly the order they were issued from the
+    /// main actor, which restores the two invariants the store exists for: sent
+    /// or superseded drafts never win over newer state, and nothing written
+    /// before sign-out survives the sign-out wipe.
+    ///
+    /// Operations are tiny (one actor dictionary access) and keystroke saves
+    /// coalesce before they reach the pipeline (see ``persistCurrentDraft()``),
+    /// so the chain stays short and bounded under typing bursts; only the tail
+    /// task is retained.
+    @discardableResult
+    private func enqueueDraftOperation(
+        _ operation: @escaping @Sendable () async -> Void
+    ) -> Task<Void, Never> {
+        let previous = draftOperationTail
+        let task = Task {
+            await previous?.value
+            await operation()
+        }
+        draftOperationTail = task
+        return task
+    }
+
+    /// Wait until every draft operation enqueued so far has been applied to the
+    /// store. Test seam: lets tests assert on store contents without sleeping.
+    func drainDraftOperationsForTesting() async {
+        await draftOperationTail?.value
+    }
+
+    /// Save the live ``terminalInputText`` under the currently selected
+    /// terminal. Called from the field's `didSet`. A no-op when there is no
+    /// selected terminal (nothing to key the draft to) or no draft store wired.
+    ///
+    /// Saves COALESCE per terminal: the edit overwrites the terminal's entry in
+    /// ``pendingDraftSaveTextByTerminalID`` and queues a flush only when none is
+    /// already queued for that terminal. The flush reads the LATEST entry when
+    /// it executes, so a typing burst behind a slow store applies as one save of
+    /// the final text instead of queuing every intermediate snapshot (whose
+    /// retained memory would otherwise grow as edits × draft size). Barrier
+    /// operations (the switch save/load, the post-send clear, the sign-out wipe)
+    /// still order strictly after any queued flush via the shared FIFO.
+    private func persistCurrentDraft() {
+        guard let draftStore, let terminalID = selectedTerminalID?.rawValue else { return }
+        let flushAlreadyQueued = pendingDraftSaveTextByTerminalID[terminalID] != nil
+        pendingDraftSaveTextByTerminalID[terminalID] = terminalInputText
+        guard !flushAlreadyQueued else { return }
+        enqueueDraftOperation { [weak self] in
+            guard let text = await self?.takePendingDraftSave(forTerminalID: terminalID) else { return }
+            await draftStore.saveDraft(text, forTerminalID: terminalID)
+        }
+    }
+
+    /// Dequeue the latest unflushed keystroke draft for `terminalID`, clearing
+    /// its entry so the next edit arms a fresh flush. Called by the queued flush
+    /// at execution time, so it always saves the newest text.
+    private func takePendingDraftSave(forTerminalID terminalID: String) -> String? {
+        defer { pendingDraftSaveTextByTerminalID[terminalID] = nil }
+        return pendingDraftSaveTextByTerminalID[terminalID]
+    }
+
+    /// Swap the composer draft when the selected terminal changes: save the
+    /// outgoing terminal's text under its own key, then load the incoming
+    /// terminal's saved draft into ``terminalInputText``.
+    ///
+    /// The load is guarded by ``isLoadingDraft`` so the field's `didSet` does not
+    /// re-save the just-loaded value (and so the load can't race the key swap).
+    /// While the incoming draft is fetched asynchronously the field is cleared, so
+    /// the previous terminal's text never bleeds into a terminal that has no draft.
+    /// - Parameters:
+    ///   - outgoingID: The terminal being switched away from, or `nil`.
+    ///   - outgoingText: That terminal's draft text at the moment of the switch.
+    ///   - incomingID: The terminal being switched to, or `nil`.
+    private func swapDraft(
+        from outgoingID: MobileTerminalPreview.ID?,
+        outgoingText: String,
+        to incomingID: MobileTerminalPreview.ID?
+    ) {
+        guard let draftStore else { return }
+        // The field represents the outgoing terminal's draft only when no load
+        // is still pending for it. During a fast A -> B -> C switch, B's load
+        // has not applied yet and the field is the transient cleared
+        // placeholder, not B's draft; persisting it would erase B's real stored
+        // draft. (A user edit clears the pending marker, so an edited field is
+        // always authoritative and still saved.)
+        let outgoingFieldIsAuthoritative = outgoingID != nil && draftLoadPendingTerminalID != outgoingID
+        draftLoadPendingTerminalID = incomingID
+        // Clear the field synchronously so the old terminal's text is not briefly
+        // shown under the new terminal while its draft loads. Guarded so this
+        // clear is not itself saved.
+        if !terminalInputText.isEmpty {
+            isLoadingDraft = true
+            terminalInputText = ""
+            isLoadingDraft = false
+        }
+        enqueueDraftOperation { [weak self] in
+            if let outgoingID, outgoingFieldIsAuthoritative {
+                await draftStore.saveDraft(outgoingText, forTerminalID: outgoingID.rawValue)
+            }
+            guard let incomingID else { return }
+            let restored = await draftStore.draft(forTerminalID: incomingID.rawValue) ?? ""
+            await self?.applyLoadedDraft(restored, forTerminalID: incomingID)
+        }
+    }
+
+    /// Apply a draft fetched off the main actor back into ``terminalInputText``.
+    ///
+    /// Applied only if this load is still the pending one — a fast re-switch
+    /// repoints ``draftLoadPendingTerminalID`` at the newer incoming terminal,
+    /// and a user edit clears it entirely (live input wins, even when the user
+    /// deleted everything: a late load must not resurrect deleted text into the
+    /// deliberately emptied field). The selected-terminal and empty-field
+    /// guards stay as defense in depth for the same races. The restore write is
+    /// guarded so it is not re-saved. An empty restored draft is a no-op.
+    private func applyLoadedDraft(_ draft: String, forTerminalID terminalID: MobileTerminalPreview.ID) {
+        guard draftLoadPendingTerminalID == terminalID else { return }
+        draftLoadPendingTerminalID = nil
+        guard selectedTerminalID == terminalID,
+              terminalInputText.isEmpty,
+              !draft.isEmpty else { return }
+        isLoadingDraft = true
+        terminalInputText = draft
+        isLoadingDraft = false
+    }
+
     private func viewportKey(
         workspaceID: MobileWorkspacePreview.ID,
         terminalID: MobileTerminalPreview.ID
@@ -2723,6 +3520,84 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         }
     }
 
+    /// - Returns: `true` when the Mac acknowledged the paste, `false` when there
+    ///   is no selected workspace/terminal or the send failed.
+    @discardableResult
+    private func sendRemoteTerminalPaste(_ text: String, submitKey: String) async -> Bool {
+        guard let workspaceID = selectedWorkspace?.id,
+              let terminalID = selectedTerminalID else {
+            #if DEBUG
+            mobileShellLog.info("skip remote terminal paste selectedWorkspace=\(self.selectedWorkspace == nil ? 0 : 1, privacy: .public) selectedTerminal=\(self.selectedTerminalID == nil ? 0 : 1, privacy: .public)")
+            #endif
+            return false
+        }
+        return await sendRemoteTerminalPaste(text, submitKey: submitKey, workspaceID: workspaceID, terminalID: terminalID)
+    }
+
+    /// Deliver a composed block to the Mac surface via `terminal.paste`: a
+    /// bracketed paste (so multi-line text is inserted as one literal block)
+    /// followed by an optional submit key. Mirrors ``sendRemoteTerminalInput(_:workspaceID:terminalID:)``
+    /// but takes the dedicated paste path instead of the raw `terminal.input`
+    /// path, which rewrites newlines to carriage returns.
+    ///
+    /// - Returns: `true` when the Mac acknowledged the paste, `false` on any
+    ///   failure (no client, a stale generation, or an RPC error such as
+    ///   `method_not_found` from an older host). Callers use this to keep the
+    ///   composer text on failure instead of clearing it optimistically.
+    @discardableResult
+    private func sendRemoteTerminalPaste(
+        _ text: String,
+        submitKey: String,
+        workspaceID: MobileWorkspacePreview.ID,
+        terminalID: MobileTerminalPreview.ID
+    ) async -> Bool {
+        guard let client = remoteClient else {
+            #if DEBUG
+            mobileShellLog.info("skip remote terminal paste remoteClient=0")
+            #endif
+            return false
+        }
+        let generation = connectionGeneration
+        do {
+            #if DEBUG
+            mobileShellLog.debug("send remote terminal paste byteCount=\(text.utf8.count, privacy: .public) submit=\(submitKey, privacy: .public) workspace=\(workspaceID.rawValue, privacy: .private) terminal=\(terminalID.rawValue, privacy: .private)")
+            #endif
+            let key = viewportKey(workspaceID: workspaceID, terminalID: terminalID)
+            var params: [String: Any] = [
+                "workspace_id": workspaceID.rawValue,
+                "surface_id": terminalID.rawValue,
+                "text": text,
+                "submit_key": submitKey,
+                "client_id": clientID,
+            ]
+            if let viewportSize = reportedViewportSizesByTerminalKey[key] {
+                params["viewport_columns"] = viewportSize.columns
+                params["viewport_rows"] = viewportSize.rows
+            }
+            let responseData = try await client.sendRequest(
+                MobileCoreRPCClient.requestData(
+                    method: "terminal.paste",
+                    params: params
+                )
+            )
+            // The Mac acked the paste: the text is applied regardless of whether a
+            // reconnect superseded this client while the request was in flight.
+            // Only the per-connection response bookkeeping is generation-guarded;
+            // returning failure here would keep the composer draft and a retry
+            // would paste the same block twice.
+            if isCurrentRemoteOperation(client: client, generation: generation) {
+                handleTerminalInputResponse(responseData, surfaceID: terminalID.rawValue)
+            }
+            return true
+        } catch {
+            guard generation == connectionGeneration else { return false }
+            guard !disconnectForAuthorizationFailureIfNeeded(error) else { return false }
+            markMacConnectionUnavailableIfNeeded(after: error)
+            applyOperationalError(error)
+            return false
+        }
+    }
+
     /// Forward an image the user pasted on the phone to the currently selected
     /// remote terminal. The bytes travel as base64 in `terminal.paste_image`; the
     /// Mac writes them to a temp file and injects the path into the terminal so
@@ -2787,11 +3662,27 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         "ios-terminal-events-\(clientID)"
     }
 
+    /// Outcome of a `mobile.events.subscribe` round-trip.
+    private enum TerminalEventSubscriptionAck {
+        case failed
+        /// The host registered (or re-asserted) the subscription.
+        /// `alreadySubscribed == false` means this acknowledgement INSTALLED
+        /// the registration, so events emitted while it was absent were never
+        /// delivered; `nil` means the host predates the field (treat as
+        /// already active).
+        case subscribed(alreadySubscribed: Bool?)
+
+        var isSubscribed: Bool {
+            if case .subscribed = self { return true }
+            return false
+        }
+    }
+
     private func requestTerminalEventSubscription(
         client: MobileCoreRPCClient,
         reason: String,
         topics: [String]
-    ) async -> Bool {
+    ) async -> TerminalEventSubscriptionAck {
         let requestData: Data
         do {
             requestData = try MobileCoreRPCClient.requestData(
@@ -2803,12 +3694,20 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             )
         } catch {
             mobileShellLog.error("subscribe payload encode failed: \(String(describing: error), privacy: .private)")
-            return false
+            return .failed
         }
         let responseData: Data
         do {
             responseData = try await client.sendRequest(requestData)
         } catch {
+            if Task.isCancelled {
+                // A superseding generation (resync, disconnect) cancelled this
+                // request; the session layer surfaces that cancellation as
+                // `requestTimedOut`. Not a host failure: stay quiet so the log
+                // does not report a self-inflicted cancel as a wire timeout.
+                mobileShellLog.info("subscribe cancelled reason=\(reason, privacy: .public)")
+                return .failed
+            }
             mobileShellLog.error("subscribe failed reason=\(reason, privacy: .public): \(String(describing: error), privacy: .private)")
             // Event-stream (re)subscribe is the view-only/foreground-resume path.
             // A definitive auth failure here (RPC layer already tried a
@@ -2817,17 +3716,17 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             if remoteClient === client {
                 _ = disconnectForAuthorizationFailureIfNeeded(error)
             }
-            return false
+            return .failed
         }
         let response = try? MobileEventSubscribeResponse.decode(responseData)
         guard let streamID = response?.streamID, !streamID.isEmpty else {
             mobileShellLog.error("subscribe response missing stream_id reason=\(reason, privacy: .public)")
-            return false
+            return .failed
         }
         #if DEBUG
         mobileShellLog.info("subscribe active reason=\(reason, privacy: .public) streamID=\(streamID, privacy: .public)")
         #endif
-        return true
+        return .subscribed(alreadySubscribed: response?.alreadySubscribed)
     }
 
     private func resolveTerminalOutputTransport(client: MobileCoreRPCClient) async -> TerminalOutputTransport {
@@ -2837,23 +3736,49 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                 MobileCoreRPCClient.requestData(method: "mobile.host.status", params: [:]),
                 timeoutNanoseconds: Self.terminalOutputCapabilityTimeoutNanoseconds
             )
+            // The status round-trip suspends, and a reconnect/new pairing can
+            // install a different `remoteClient` (and a fresh `activeTicket`)
+            // in the meantime. A stale response must not mutate the current
+            // connection's transport state, and above all must not adopt the
+            // OLD Mac's identity onto the NEW connection's empty-id ticket
+            // (which would persist the wrong paired-Mac record). The stale
+            // listener task tears itself down via its own `remoteClient`
+            // guards; returning the fallback here is inert.
+            guard remoteClient === client else { return fallback }
             guard let payload = try? MobileHostStatusResponse.decode(data) else {
                 terminalOutputTransport = fallback
                 supportsWorkspaceActions = false
                 supportsDogfoodFeedback = false
+                scheduleHostIdentityAdoptionIfNeeded(client: client)
                 return fallback
             }
             supportsWorkspaceActions = payload.capabilities.contains(Self.workspaceActionsCapability)
             supportsDogfoodFeedback = payload.capabilities.contains(Self.dogfoodFeedbackCapability)
+            await applyHostReportedIdentity(
+                client: client,
+                deviceID: payload.macDeviceID,
+                displayName: payload.macDisplayName
+            )
+            // A decoded status can still be identity-free: the probe's token
+            // attach is best-effort, and the host withholds identity from an
+            // unverified caller. If the v2 QR ticket is still anonymous after
+            // applying, run the dedicated recovery (it re-asks the token
+            // provider and no-ops once an identity is adopted).
+            scheduleHostIdentityAdoptionIfNeeded(client: client)
             let transport: TerminalOutputTransport = payload.capabilities.contains(Self.terminalRenderGridCapability) ||
                 payload.terminalFidelity == "render_grid" ? .renderGrid : .rawBytes
             terminalOutputTransport = transport
             MobileDebugLog.anchormux("sync.transport=\(transport == .renderGrid ? "render_grid" : "raw_bytes")")
             return transport
         } catch {
+            guard remoteClient === client else { return fallback }
             terminalOutputTransport = fallback
             supportsWorkspaceActions = false
             supportsDogfoodFeedback = false
+            // The probe is best-effort for the terminal transport, but a
+            // freshly QR-paired Mac still needs its identity recovered, with
+            // a real timeout instead of the probe's 750ms.
+            scheduleHostIdentityAdoptionIfNeeded(client: client)
             MobileDebugLog.anchormux("sync.transport=raw_bytes reason=status_failed")
             return fallback
         }
@@ -2905,19 +3830,21 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             let outputTransport = await self?.resolveTerminalOutputTransport(client: client) ?? .rawBytes
             let topics = outputTransport.eventTopics
             let stream = await client.subscribe(to: Set(topics))
-            let subscribed = await self?.requestTerminalEventSubscription(
+            // Kick off the server-side enable handshake CONCURRENTLY with
+            // consumption. The old structure awaited the ack here, which
+            // parked the consumer loop while events from a still-active prior
+            // server subscription piled up unconsumed in `stream`'s buffer;
+            // the liveness watchdog (stamped only at consumption) then read a
+            // healthy establishing stream as silence and false-fired, and its
+            // resync cancelled this very ack (surfacing a bogus
+            // `requestTimedOut`). Consuming from the start keeps the liveness
+            // clock coupled to actual event arrival.
+            self?.beginTerminalEventSubscriptionStart(
                 client: client,
-                reason: "start",
-                topics: topics
-            ) ?? false
-            guard subscribed else {
-                MobileDebugLog.anchormux("sync.subscribe_failed reason=start")
-                self?.diagnosticLog?.record(DiagnosticEvent(.error))
-                self?.markMacConnectionUnavailable()
-                return
-            }
-            self?.markMacConnectionHealthy()
-            MobileDebugLog.anchormux("sync.subscribe_ok topics=\(topics.count) transport=\(outputTransport)")
+                listenerID: listenerID,
+                topics: topics,
+                transport: outputTransport
+            )
             // Keep the listener alive without keeping the shell store alive.
             for await event in stream {
                 guard !Task.isCancelled else { return }
@@ -2925,7 +3852,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                 guard self.remoteClient === client, self.connectionState == .connected else { return }
                 // Any yielded envelope proves the transport is still pushing, so
                 // it resets the liveness window (not just render_grid events).
-                self.lastTerminalEventAt = self.runtime?.now() ?? Date()
+                self.recordTerminalEventStreamLiveness()
                 self.markMacConnectionHealthy()
                 if event.topic == "workspace.updated" {
                     self.scheduleWorkspaceListRefreshFromEvent()
@@ -2943,11 +3870,63 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         }
     }
 
+    /// Run the `mobile.events.subscribe` (reason `start`) handshake for one
+    /// listener generation, concurrently with that generation's consumer loop.
+    ///
+    /// Success and failure are only acted on while the generation is still
+    /// current: a superseded or cancelled handshake exits silently so a stale
+    /// generation can never mark the connection unavailable underneath a
+    /// fresh, healthy one (the bisected false-fire loop did exactly that via
+    /// its self-cancelled ack).
+    private func beginTerminalEventSubscriptionStart(
+        client: MobileCoreRPCClient,
+        listenerID: UUID,
+        topics: [String],
+        transport: TerminalOutputTransport
+    ) {
+        guard terminalEventListenerID == listenerID else { return }
+        terminalSubscriptionStartTask?.cancel()
+        terminalSubscriptionStartTask = Task { @MainActor [weak self] in
+            let ack = await self?.requestTerminalEventSubscription(
+                client: client,
+                reason: "start",
+                topics: topics
+            ) ?? .failed
+            guard let self else { return }
+            guard !Task.isCancelled, self.terminalEventListenerID == listenerID else { return }
+            self.terminalSubscriptionStartTask = nil
+            guard ack.isSubscribed else {
+                MobileDebugLog.anchormux("sync.subscribe_failed reason=start")
+                self.diagnosticLog?.record(DiagnosticEvent(.error))
+                self.stopTerminalRefreshPolling()
+                self.markMacConnectionUnavailable()
+                return
+            }
+            self.markMacConnectionHealthy()
+            MobileDebugLog.anchormux("sync.subscribe_ok topics=\(topics.count) transport=\(transport)")
+        }
+    }
+
     private func handleTerminalEventStreamEnded(listenerID: UUID, client: MobileCoreRPCClient) {
         guard !Task.isCancelled,
               terminalEventListenerID == listenerID,
               remoteClient === client,
               connectionState == .connected else {
+            return
+        }
+        if terminalSubscriptionStartTask != nil {
+            // The stream ended while this generation's enable handshake was
+            // still in flight: the transport dropped before the subscription
+            // ever delivered. Restarting here would supersede the generation
+            // and silently swallow the handshake's failure verdict (its ack
+            // guard sees a newer listenerID), so a closed transport would
+            // loop `reconnecting` forever. Converge instead: a stream that
+            // dies before its handshake completes IS a failed start.
+            mobileShellLog.info("terminal event stream ended before subscribe ack, marking unavailable")
+            MobileDebugLog.anchormux("sync.stream_ended before subscribe ack; failed start")
+            diagnosticLog?.record(DiagnosticEvent(.error))
+            stopTerminalRefreshPolling()
+            markMacConnectionUnavailable()
             return
         }
         mobileShellLog.info("terminal event stream ended, restarting")
@@ -2970,14 +3949,17 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// ticks independently and, on each tick, hops to the main actor to compare
     /// `lastTerminalEventAt` against `renderGridLivenessSilenceThreshold`. While
     /// events keep arriving, `lastTerminalEventAt` stays fresh and every tick is a
-    /// no-op, so an actively-streaming connection never triggers recovery; only a
-    /// genuinely silent stream crosses the threshold.
+    /// no-op. A threshold crossing is treated as a SUSPICION, not a verdict: an
+    /// idle terminal pushes no events, so the tick first re-asserts the
+    /// subscription with a bounded idempotent `mobile.events.subscribe`
+    /// round-trip and only recovers when that probe fails (see
+    /// ``checkRenderGridLiveness(listenerID:)``).
     private func startRenderGridLivenessWatchdog(listenerID: UUID) {
         stopRenderGridLivenessWatchdog(listenerID: nil)
         renderGridLivenessListenerID = listenerID
         // Reset the window so a freshly-armed subscription gets the full silence
         // budget before it can be judged dead.
-        lastTerminalEventAt = runtime?.now() ?? Date()
+        recordTerminalEventStreamLiveness()
         // DispatchSourceTimer is the allowed low-level primitive for periodic
         // event delivery. It fires on the MAIN queue on purpose: the handler is
         // inferred @MainActor (it touches main-actor store state), and a timer on
@@ -3014,28 +3996,174 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         renderGridLivenessTimer?.cancel()
         renderGridLivenessTimer = nil
         renderGridLivenessListenerID = nil
+        renderGridLivenessProbeTask?.cancel()
+        renderGridLivenessProbeTask = nil
+        renderGridLivenessProbeID = nil
     }
+
+    /// Single ownership point for the liveness clock the watchdog reads.
+    ///
+    /// Stamped by (1) every envelope the listener loop actually consumes,
+    /// (2) a successful host probe (positive proof the channel is alive while
+    /// the terminal is merely idle), and (3) the arming of a new watchdog
+    /// generation, as the clean generation reset. The watchdog compares this
+    /// single record against `renderGridLivenessSilenceThreshold`. The only
+    /// other write is `resetTerminalOutputTracking` clearing it to nil when
+    /// the connection context is torn down entirely.
+    private func recordTerminalEventStreamLiveness() {
+        lastTerminalEventAt = runtime?.now() ?? Date()
+    }
+
+    #if DEBUG
+    /// Test-only: run one liveness evaluation for the currently armed watchdog
+    /// generation, exactly as a `DispatchSourceTimer` tick would. Lets package
+    /// tests drive the silence check deterministically against an injected
+    /// clock instead of waiting on the wall-clock tick cadence.
+    func debugRunRenderGridLivenessCheckForTesting() {
+        guard let listenerID = renderGridLivenessListenerID else { return }
+        checkRenderGridLiveness(listenerID: listenerID)
+    }
+    #endif
 
     /// One watchdog tick on the main actor: if the subscription generation still
     /// matches, the store is connected, and the stream has been silent past the
-    /// threshold, tear down + re-subscribe + replay via the existing resync path.
+    /// threshold, verify the silence with a bounded host probe and only tear
+    /// down + re-subscribe + replay (via the existing resync path) when the
+    /// probe fails.
+    ///
+    /// The probe step exists because silence is ambiguous: a healthy idle
+    /// terminal emits nothing (the Mac dedupes unchanged render-grid frames by
+    /// row signature and stateSeq), which is indistinguishable by wall clock
+    /// from the half-dead transport this watchdog was built to catch. Treating
+    /// silence alone as death made the watchdog tear down and full-grid-replay
+    /// every healthy idle subscription every ~10.5s, forever (the 2026-06-10
+    /// Release-sim bisect finding).
+    ///
+    /// The probe is an idempotent `mobile.events.subscribe` for the SAME
+    /// stream id and current topics, not a generic ping: a completed
+    /// round-trip proves the transport the events ride on is alive AND that
+    /// the server-side registration is (re)installed, and the host's
+    /// subscription tracker re-evaluates producer demand on every replace. A
+    /// generic `mobile.host.status` answer could mask a dropped registration
+    /// behind a live RPC channel forever. Unlike the resync recovery, the
+    /// probe restarts nothing: no listener teardown, no replay, no stream
+    /// interruption.
     private func checkRenderGridLiveness(listenerID: UUID) {
         guard renderGridLivenessListenerID == listenerID else { return }
-        guard remoteClient != nil, connectionState == .connected else { return }
+        guard let client = remoteClient, connectionState == .connected else { return }
         guard terminalEventListenerID == listenerID else { return }
         let now = runtime?.now() ?? Date()
         let last = lastTerminalEventAt ?? now
         let silent = now.timeIntervalSince(last)
         guard silent >= Self.renderGridLivenessSilenceThreshold else { return }
-        let silentMs = Int(silent * 1000)
-        MobileDebugLog.anchormux("sync.liveness re-subscribe silentMs=\(silentMs)")
-        diagnosticLog?.record(DiagnosticEvent(.livenessResubscribe, ms: UInt32(clamping: silentMs)))
-        mobileShellLog.info("render-grid stream silent for \(silentMs, privacy: .public)ms, re-subscribing")
-        // resyncTerminalOutput(restartEventStream: true) stops the wedged listener
-        // (which cancels this watchdog via stopTerminalRefreshPolling) and starts a
-        // fresh subscription + watchdog, then replays every surface so the phone
-        // catches up on the deltas it missed while the stream was silent.
-        resyncTerminalOutput(reason: "liveness", restartEventStream: true)
+        guard renderGridLivenessProbeTask == nil else { return }
+        let probeTimeoutNanoseconds = runtime?.livenessProbeTimeoutNanoseconds
+            ?? 3_000_000_000
+        let topics = terminalOutputTransport.eventTopics
+        let probeID = UUID()
+        renderGridLivenessProbeID = probeID
+        renderGridLivenessProbeTask = Task { @MainActor [weak self] in
+            let ack = await self?.probeEventSubscriptionLiveness(
+                client: client,
+                topics: topics,
+                timeoutNanoseconds: probeTimeoutNanoseconds
+            ) ?? .failed
+            guard let self else { return }
+            // Only the probe that owns the single-flight slot may clear it; a
+            // superseded probe completing late returns without touching the
+            // newer generation's in-flight slot.
+            guard self.renderGridLivenessProbeID == probeID else { return }
+            self.renderGridLivenessProbeTask = nil
+            self.renderGridLivenessProbeID = nil
+            guard !Task.isCancelled,
+                  self.renderGridLivenessListenerID == listenerID,
+                  self.terminalEventListenerID == listenerID,
+                  self.remoteClient === client,
+                  self.connectionState == .connected else { return }
+            if case .subscribed(let alreadySubscribed) = ack {
+                // The host accepted the re-subscribe over the event channel:
+                // the stream is healthy. Count the round-trip as the liveness
+                // evidence so the silence window restarts from this proof.
+                self.recordTerminalEventStreamLiveness()
+                // The round-trip is also positive proof of the client/host
+                // connection itself; recover the visible status if a prior
+                // transient RPC failure marked it unavailable, since an idle
+                // terminal may never emit another event to flip it back.
+                self.markMacConnectionHealthy()
+                if alreadySubscribed == false {
+                    // The registration had been LOST host-side (the probe just
+                    // reinstalled it), so render-grid deltas emitted during the
+                    // gap were never delivered and delta continuity is broken.
+                    // Replay the mounted surfaces to catch up. The phone-side
+                    // listener stream is intact (registration loss is a
+                    // host-side condition), so no listener restart is needed.
+                    MobileDebugLog.anchormux("sync.liveness probe_repaired silentMs=\(Int(silent * 1000))")
+                    mobileShellLog.info("liveness probe reinstalled a lost event subscription, replaying mounted surfaces")
+                    for surfaceID in self.terminalByteContinuationsBySurfaceID.keys {
+                        self.requestTerminalReplay(surfaceID: surfaceID)
+                    }
+                    // The same registration carries `workspace.updated`, so
+                    // workspace create/rename/delete events emitted during the
+                    // gap were missed too; re-fetch the authoritative list.
+                    self.scheduleWorkspaceListRefreshFromEvent()
+                } else {
+                    MobileDebugLog.anchormux("sync.liveness probe_ok silentMs=\(Int(silent * 1000))")
+                }
+                return
+            }
+            // Events may have resumed while the probe was in flight; a fresh
+            // stamp means the stream already proved itself, so no recovery.
+            let recheckNow = self.runtime?.now() ?? Date()
+            let recheckLast = self.lastTerminalEventAt ?? recheckNow
+            guard recheckNow.timeIntervalSince(recheckLast) >= Self.renderGridLivenessSilenceThreshold else {
+                return
+            }
+            let silentMs = Int(recheckNow.timeIntervalSince(recheckLast) * 1000)
+            MobileDebugLog.anchormux("sync.liveness re-subscribe silentMs=\(silentMs)")
+            self.diagnosticLog?.record(DiagnosticEvent(.livenessResubscribe, ms: UInt32(clamping: silentMs)))
+            mobileShellLog.info("render-grid stream silent for \(silentMs, privacy: .public)ms and subscription probe failed, re-subscribing")
+            // resyncTerminalOutput(restartEventStream: true) stops the wedged
+            // listener (which cancels this watchdog via stopTerminalRefreshPolling)
+            // and starts a fresh subscription + watchdog, then replays every
+            // surface so the phone catches up on the deltas it missed while the
+            // stream was dead.
+            self.resyncTerminalOutput(reason: "liveness", restartEventStream: true)
+        }
+    }
+
+    /// Bounded positive-liveness probe: re-assert the event subscription and
+    /// only count a completed round-trip as alive. Any failure (timeout,
+    /// closed connection, rpc rejection) reports dead and lets the watchdog
+    /// run its recovery.
+    ///
+    /// The deadline bounds the WHOLE attempt, including any Stack token work
+    /// that precedes the wire write inside `sendRequest`; an unbounded hang
+    /// there would otherwise pin the single-flight probe slot and disable the
+    /// watchdog for the rest of the generation.
+    private func probeEventSubscriptionLiveness(
+        client: MobileCoreRPCClient,
+        topics: [String],
+        timeoutNanoseconds: UInt64
+    ) async -> TerminalEventSubscriptionAck {
+        let probe = Task { @MainActor [weak self] in
+            await self?.requestTerminalEventSubscription(
+                client: client,
+                reason: "liveness_probe",
+                topics: topics
+            ) ?? .failed
+        }
+        // Bounded deadline via a one-shot DispatchSourceTimer — the same
+        // sanctioned primitive the watchdog tick uses — with cancellation
+        // wired to the probe's lifecycle. Cancelling the probe task surfaces
+        // inside requestTerminalEventSubscription as a cancelled request ->
+        // .failed.
+        let deadline = DispatchSource.makeTimerSource(queue: .main)
+        deadline.schedule(deadline: .now() + .nanoseconds(Int(clamping: timeoutNanoseconds)))
+        deadline.setEventHandler { probe.cancel() }
+        deadline.resume()
+        let ack = await probe.value
+        deadline.cancel()
+        return ack
     }
 
     private func resyncTerminalOutput(
@@ -3331,15 +4459,6 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         }
     }
 
-    private func workspaceID(forTerminalID terminalID: String) -> MobileWorkspacePreview.ID? {
-        for workspace in workspaces {
-            if workspace.terminals.contains(where: { $0.id.rawValue == terminalID }) {
-                return workspace.id
-            }
-        }
-        return nil
-    }
-
     private func handleTerminalRenderGridEvent(_ event: MobileEventEnvelope) {
         guard let json = event.payloadJSON else {
             return
@@ -3484,6 +4603,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         terminalEventListenerTask?.cancel()
         terminalEventListenerTask = nil
         terminalEventListenerID = nil
+        terminalSubscriptionStartTask?.cancel()
+        terminalSubscriptionStartTask = nil
         stopRenderGridLivenessWatchdog(listenerID: nil)
     }
 
@@ -3681,5 +4802,26 @@ private extension MobileWorkspacePreview {
 
     var hasReadyTerminal: Bool {
         terminals.contains(where: \.isReady)
+    }
+}
+private extension MobileShellComposite {
+    /// The name shown for the Mac until `mobile.host.status` reports the real
+    /// one: the ticket's display name, then its device id, then the dialed
+    /// route's host (a minimal v2 pairing code carries neither name nor id,
+    /// so the Tailscale hostname is the best available placeholder).
+    func placeholderHostName(
+        for ticket: CmxAttachTicket,
+        firstRoute: CmxAttachRoute
+    ) -> String {
+        if let name = ticket.macDisplayName, !name.isEmpty {
+            return name
+        }
+        if !ticket.macDeviceID.isEmpty {
+            return ticket.macDeviceID
+        }
+        if case let .hostPort(host, _) = firstRoute.endpoint {
+            return host
+        }
+        return ""
     }
 }

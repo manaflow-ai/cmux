@@ -2,6 +2,7 @@ import AppKit
 import CmuxSocketControl
 import Bonsplit
 import Combine
+import CmuxSidebarInterpreterClient
 @_spi(CmuxHostTransport) import CmuxExtensionKit
 import CmuxSidebarProviderKit
 import CmuxExtensionSidebarExamples
@@ -1060,7 +1061,14 @@ struct ContentView: View {
     var updateViewModel: UpdateStateModel
     let windowId: UUID
     @EnvironmentObject var tabManager: TabManager
-    @EnvironmentObject var notificationStore: TerminalNotificationStore
+    // ContentView observes the coalesced unread projection, NOT the notification
+    // store. Reading `notificationStore` directly here would re-render the entire
+    // content view + sidebar on every notification publish (terminal/agent
+    // activity), which reconstructs every workspace row and starves the main
+    // thread (issue #2586 class; surfaced as scroll lag). `notificationStore`
+    // stays available as an unobserved singleton for actions and pass-down.
+    @EnvironmentObject var sidebarUnread: SidebarUnreadModel
+    var notificationStore: TerminalNotificationStore { .shared }
     @EnvironmentObject var sidebarState: SidebarState
     @EnvironmentObject var sidebarSelectionState: SidebarSelectionState
     @EnvironmentObject var cmuxConfigStore: CmuxConfigStore
@@ -1082,6 +1090,7 @@ struct ContentView: View {
     @State private var titlebarText: String = ""
     @State private var isFullScreen: Bool = false
     @State private var observedWindow: NSWindow?
+    @State private var sidebarRenderWorkerClient: RenderWorkerClient?
     @StateObject private var fullscreenControlsViewModel = TitlebarControlsViewModel()
     @StateObject private var fileExplorerStore = FileExplorerStore()
     @StateObject private var sessionIndexStore = SessionIndexStore()
@@ -1345,7 +1354,7 @@ struct ContentView: View {
         let contentView = window.contentView
 
         let unreadRects: [CGRect]
-        let isWorkspaceManuallyUnread = notificationStore.hasManualUnread(forTabId: workspace.id)
+        let isWorkspaceManuallyUnread = sidebarUnread.hasManualUnread(forWorkspaceId: workspace.id)
         let workspaceManualUnreadPanelId = workspace.representativePanelIdForWorkspaceManualUnread()
         if let layoutSnapshot, let contentView {
             unreadRects = layoutSnapshot.panes.compactMap { pane in
@@ -1357,8 +1366,8 @@ struct ContentView: View {
                 }
 
                 let shouldShowUnread = Workspace.shouldShowUnreadIndicator(
-                    hasUnreadNotification: notificationStore.hasVisibleNotificationIndicator(
-                        forTabId: workspace.id,
+                    hasUnreadNotification: sidebarUnread.hasVisibleNotificationIndicator(
+                        forWorkspaceId: workspace.id,
                         surfaceId: panelId
                     ),
                     hasPanelUnreadIndicator: workspace.manualUnreadPanelIds.contains(panelId) ||
@@ -2027,8 +2036,7 @@ struct ContentView: View {
             },
             observedWindow: observedWindow,
             selection: $sidebarSelectionState.selection,
-            selectedTabIds: $selectedTabIds,
-            lastSidebarSelectionIndex: $lastSidebarSelectionIndex
+            selectedTabIds: $selectedTabIds, lastSidebarSelectionIndex: $lastSidebarSelectionIndex, sidebarRenderWorkerClient: $sidebarRenderWorkerClient
         )
         .frame(width: sidebarWidth)
         .frame(maxHeight: .infinity, alignment: .topLeading)
@@ -2179,9 +2187,9 @@ struct ContentView: View {
     }
 
     private func terminalContentWithRightSidebarPanel(appearance: WindowAppearanceSnapshot) -> some View {
-        // File explorer is always in the view tree. Visibility is controlled by
-        // frame width (0 when hidden), avoiding SwiftUI view insertion/removal
-        // and all associated transition animations.
+        // The right-sidebar shell remains in the view tree so its frame can
+        // animate without SwiftUI insertion/removal. Cold hidden launches defer
+        // heavy mode content until the sidebar has been shown at least once.
         return HStack(spacing: 0) {
             terminalContentWithSidebarDropOverlay(appearance: appearance)
             rightSidebarPanelWithBackdrop(appearance: appearance)
@@ -2723,7 +2731,7 @@ struct ContentView: View {
             fileExplorerStore.applyWorkspaceRoot(.none)
             return
         }
-        fileExplorerStore.applyWorkspaceRoot(.local(path: dir))
+        fileExplorerStore.applyWorkspaceRoot(.local(workspaceId: tab.id, path: dir))
     }
 
     private var shouldSyncFileExplorerStore: Bool {
@@ -6375,6 +6383,17 @@ struct ContentView: View {
             } else {
                 supportsFork = false
             }
+#if DEBUG
+            cmuxDebugLog(
+                "palette.forkProbe panel=\(panelId.uuidString.prefix(5)) " +
+                    "indexSnapshot=\(indexSnapshot != nil ? 1 : 0) " +
+                    "fallbackSnapshot=\(fallbackSnapshot != nil ? 1 : 0) " +
+                    "kind=\(snapshot?.kind.rawValue ?? "none") " +
+                    "session=\(snapshot.map { String($0.sessionId.prefix(8)) } ?? "none") " +
+                    "launcher=\(snapshot?.launchCommand?.launcher ?? "none") " +
+                    "supportsFork=\(supportsFork ? 1 : 0)"
+            )
+#endif
             guard !Task.isCancelled else { return }
 
             await MainActor.run {
@@ -6646,11 +6665,11 @@ struct ContentView: View {
             )
             snapshot.setBool(
                 CommandPaletteContextKeys.workspaceCanMarkRead,
-                notificationStore.canMarkWorkspaceRead(forTabIds: [workspace.id])
+                sidebarUnread.canMarkWorkspaceRead(forWorkspaceIds: [workspace.id])
             )
             snapshot.setBool(
                 CommandPaletteContextKeys.workspaceCanMarkUnread,
-                notificationStore.canMarkWorkspaceUnread(forTabIds: [workspace.id])
+                sidebarUnread.canMarkWorkspaceUnread(forWorkspaceIds: [workspace.id])
             )
         }
 
@@ -6694,7 +6713,7 @@ struct ContentView: View {
             snapshot.setBool(CommandPaletteContextKeys.panelCanMoveToNewWorkspace, workspace.panels.count > 1)
             let hasUnread = workspace.manualUnreadPanelIds.contains(panelId) ||
                 workspace.restoredUnreadPanelIds.contains(panelId) ||
-                notificationStore.hasUnreadNotification(forTabId: workspace.id, surfaceId: panelId)
+                sidebarUnread.hasUnreadNotification(forWorkspaceId: workspace.id, surfaceId: panelId)
             snapshot.setBool(CommandPaletteContextKeys.panelHasUnread, hasUnread)
 
             if panelIsTerminal {
@@ -6792,6 +6811,15 @@ struct ContentView: View {
                 title: constant(String(localized: "command.newWorkspace.title", defaultValue: "New Workspace")),
                 subtitle: constant(String(localized: "command.newWorkspace.subtitle", defaultValue: "Workspace")),
                 keywords: ["create", "new", "workspace"]
+            )
+        )
+        contributions.append(
+            CommandPaletteCommandContribution(
+                commandId: "palette.newBrowserWorkspace",
+                title: constant(String(localized: "command.newBrowserWorkspace.title", defaultValue: "New Browser Workspace")),
+                subtitle: constant(String(localized: "command.newBrowserWorkspace.subtitle", defaultValue: "Workspace")),
+                keywords: ["create", "new", "browser", "workspace", "web"],
+                when: { !$0.bool(CommandPaletteContextKeys.browserDisabled) }
             )
         )
         contributions.append(
@@ -8000,6 +8028,16 @@ struct ContentView: View {
                 debugSource: "palette.newWorkspace"
             )
         }
+        registry.register(commandId: "palette.newBrowserWorkspace") {
+            // Let command-palette dismissal complete first so omnibar focus
+            // is not blocked by the palette visibility guard.
+            DispatchQueue.main.async {
+                _ = AppDelegate.shared?.performNewBrowserWorkspaceAction(
+                    tabManager: tabManager,
+                    debugSource: "palette.newBrowserWorkspace"
+                )
+            }
+        }
         registry.register(commandId: "palette.openFolder") {
             // Defer so the command palette dismisses before the modal sheet appears.
             DispatchQueue.main.async {
@@ -8305,7 +8343,7 @@ struct ContentView: View {
             }
             let hasUnread = panelContext.workspace.manualUnreadPanelIds.contains(panelContext.panelId) ||
                 panelContext.workspace.restoredUnreadPanelIds.contains(panelContext.panelId) ||
-                notificationStore.hasUnreadNotification(forTabId: panelContext.workspace.id, surfaceId: panelContext.panelId)
+                sidebarUnread.hasUnreadNotification(forWorkspaceId: panelContext.workspace.id, surfaceId: panelContext.panelId)
             if hasUnread {
                 panelContext.workspace.markPanelRead(panelContext.panelId)
             } else {
@@ -10610,11 +10648,17 @@ struct VerticalTabsSidebar: View {
     let onNewTab: () -> Void
     let observedWindow: NSWindow?
     @EnvironmentObject var tabManager: TabManager
-    @EnvironmentObject var notificationStore: TerminalNotificationStore
+    // Observe the coalesced unread projection instead of the notification store
+    // so notification churn (terminal/agent activity) no longer reconstructs
+    // every workspace row. The store stays available as an unobserved singleton
+    // for context-menu actions and pass-down. See SidebarUnreadModel / #2586.
+    @EnvironmentObject var sidebarUnread: SidebarUnreadModel
+    var notificationStore: TerminalNotificationStore { .shared }
     @EnvironmentObject var cmuxConfigStore: CmuxConfigStore
     @Binding var selection: SidebarSelection
     @Binding var selectedTabIds: Set<UUID>
     @Binding var lastSidebarSelectionIndex: Int?
+    @Binding var sidebarRenderWorkerClient: RenderWorkerClient?
     @State var modifierKeyMonitor = WindowScopedShortcutHintModifierMonitor(activation: .commandOnly)
     @StateObject var dragAutoScrollController = SidebarDragAutoScrollController()
     @StateObject private var dragFailsafeMonitor = SidebarDragFailsafeMonitor()
@@ -10652,6 +10696,7 @@ struct VerticalTabsSidebar: View {
     private var selectedExtensionSidebarProviderId = CmuxExtensionSidebarSelection.defaultProviderId
     @LiveSetting(\.betaFeatures.extensions) private var extensionsExperimentalEnabled
     @LiveSetting(\.betaFeatures.customSidebars) private var customSidebarsExperimentalEnabled
+    @LiveSetting(\.customSidebars.renderer) private var customSidebarRenderer
 
     // The provider to actually render. Built-in views are always honored; only
     // the hosted-extension selection falls back to the default workspaces
@@ -10707,7 +10752,7 @@ struct VerticalTabsSidebar: View {
             "workspaceCount": .int(tabManager.tabs.count),
             "selectedTitle": .string(selectedWorkspace?.customTitle ?? selectedWorkspace?.title ?? ""),
             "selectedId": .string(selectedId?.uuidString ?? ""),
-            "unreadTotal": .int(notificationStore.unreadCount),
+            "unreadTotal": .int(sidebarUnread.totalUnreadCount),
             "clock": clock,
         ]
     }
@@ -10727,7 +10772,7 @@ struct VerticalTabsSidebar: View {
             "directory": .string(workspace.currentDirectory),
             "ports": .array(workspace.listeningPorts.map { .int($0) }),
             "portCount": .int(workspace.listeningPorts.count),
-            "unread": .int(notificationStore.unreadCount(forTabId: workspace.id)),
+            "unread": .int(sidebarUnread.unreadCount(forWorkspaceId: workspace.id)),
             "tabs": .array(customSidebarSurfaceValues(workspace, focusedPanelId: focusedPanelId)),
             "tabCount": .int(workspace.bonsplitController.allPaneIds.reduce(0) { $0 + workspace.bonsplitController.tabs(inPane: $1).count }),
         ]
@@ -11397,21 +11442,26 @@ struct VerticalTabsSidebar: View {
             // Periodic tick so the custom sidebar re-renders live (clock,
             // countdowns, and refreshed workspace/data context), mirroring the
             // default sidebar's TimelineView. No banned timers involved.
-            // Fully out-of-process: the render worker interprets AND renders
-            // the file; this view only hosts the worker's remote layer and
-            // forwards input, so no file-derived view code runs in the host.
+            // The surface mounts the in-process renderer by default (native
+            // hover/focus/keyboard, same-frame resize); the
+            // `customSidebars.renderer` setting switches it to the
+            // out-of-process worker for untrusted sources (no file-derived
+            // view code runs in the host). The @LiveSetting's initial value
+            // lags one store round-trip on remount, so a non-default choice
+            // can mount the other renderer for one tick before flipping;
+            // harmless (the host shuts the short-lived client down on
+            // unmount).
             TimelineView(.periodic(from: .now, by: 1)) { timeline in
-                // No .id(customSidebarURL): the worker swaps files in place on
-                // the next scene message, so remounting the surface would only
-                // flash the previous sidebar's pixels during the switch.
-                RemoteCustomSidebarHost(
+                CustomSidebarSurface(
                     fileURL: customSidebarURL,
                     dataContext: customSidebarDataContext(now: timeline.date),
                     dispatch: makeCmuxSidebarActionDispatch(),
                     contentInsets: CustomSidebarContentInsets(
                         top: SidebarWorkspaceScrollInsets.workspaceList.top,
                         bottom: SidebarWorkspaceScrollInsets.workspaceList.bottom
-                    )
+                    ),
+                    rendersInProcess: customSidebarRenderer == .inProcess,
+                    client: $sidebarRenderWorkerClient
                 )
             }
             .mask(
@@ -11871,11 +11921,8 @@ struct VerticalTabsSidebar: View {
             branchSummary: workspace.sidebarGitBranchesInDisplayOrder().first?.branch,
             remoteDisplayTarget: workspace.remoteDisplayTarget,
             remoteConnectionState: workspace.remoteConnectionState.rawValue,
-            unreadCount: notificationStore.unreadCount(forTabId: workspace.id),
-            latestNotificationText: notificationStore.latestNotification(forTabId: workspace.id).flatMap {
-                let text = $0.body.isEmpty ? $0.title : $0.body
-                return text.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty
-            },
+            unreadCount: sidebarUnread.unreadCount(forWorkspaceId: workspace.id),
+            latestNotificationText: sidebarUnread.latestNotificationText(forWorkspaceId: workspace.id),
             latestSubmittedMessage: workspace.latestSubmittedMessage,
             latestSubmittedAt: workspace.latestSubmittedAt,
             listeningPorts: workspace.listeningPorts,
@@ -12650,16 +12697,10 @@ struct VerticalTabsSidebar: View {
             in: tabManager,
             target: contextMenuPinTarget
         )
-        let liveUnreadCount = notificationStore.unreadCount(forTabId: tab.id)
-        let liveLatestNotificationText: String? = {
-            guard showsSidebarNotificationMessage,
-                  let notification = notificationStore.latestNotification(forTabId: tab.id) else {
-                return nil
-            }
-            let text = notification.body.isEmpty ? notification.title : notification.body
-            let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
-            return trimmed.isEmpty ? nil : trimmed
-        }()
+        let liveUnreadCount = sidebarUnread.unreadCount(forWorkspaceId: tab.id)
+        let liveLatestNotificationText: String? = showsSidebarNotificationMessage
+            ? sidebarUnread.latestNotificationText(forWorkspaceId: tab.id)
+            : nil
         let liveShowsModifierShortcutHints = modifierKeyMonitor.isModifierPressed
         let resolvedShowsModifierShortcutHints = SidebarShortcutHintFreezePolicy.resolved(
             live: liveShowsModifierShortcutHints,
@@ -14976,27 +15017,6 @@ private struct SidebarScrollViewResolver: NSViewRepresentable {
     func updateNSView(_ nsView: SidebarScrollViewResolverView, context: Context) {
         nsView.onResolve = onResolve
         nsView.resolveScrollView()
-    }
-}
-
-private final class SidebarScrollViewResolverView: NSView {
-    var onResolve: ((NSScrollView?) -> Void)?
-
-    override func viewDidMoveToSuperview() {
-        super.viewDidMoveToSuperview()
-        resolveScrollView()
-    }
-
-    override func viewDidMoveToWindow() {
-        super.viewDidMoveToWindow()
-        resolveScrollView()
-    }
-
-    func resolveScrollView() {
-        DispatchQueue.main.async { [weak self] in
-            guard let self else { return }
-            onResolve?(self.enclosingScrollView)
-        }
     }
 }
 
