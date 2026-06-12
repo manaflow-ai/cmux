@@ -78,18 +78,33 @@ mkdir -p "$CACHE_ROOT"
 
 echo "==> cmux-iroh build key: $IROH_KEY"
 
+# Owner-aware lock: a cold four-target cargo build can legitimately exceed any
+# fixed timeout, so a lock whose owner process is still alive is never broken
+# (unlike a bare mkdir+timeout lock, which could delete a live builder's lock
+# and race the cache install). Only pid-less or dead-owner locks go stale.
 LOCK_TIMEOUT=600
 LOCK_START=$SECONDS
 while ! mkdir "$LOCK_DIR" 2>/dev/null; do
-  if (( SECONDS - LOCK_START > LOCK_TIMEOUT )); then
-    echo "==> Lock stale (>${LOCK_TIMEOUT}s), removing and retrying..."
-    rmdir "$LOCK_DIR" 2>/dev/null || rm -rf "$LOCK_DIR"
+  OWNER_PID="$(cat "$LOCK_DIR/pid" 2>/dev/null || true)"
+  if [[ -n "$OWNER_PID" ]] && kill -0 "$OWNER_PID" 2>/dev/null; then
+    # Owner is alive: wait for it however long its build takes.
+    LOCK_START=$SECONDS
+    echo "==> Waiting for cmux-iroh cache lock (held by pid $OWNER_PID)..."
+  elif [[ -n "$OWNER_PID" ]]; then
+    echo "==> Lock owner (pid $OWNER_PID) is gone, removing stale lock..."
+    rm -rf "$LOCK_DIR"
     continue
+  elif (( SECONDS - LOCK_START > LOCK_TIMEOUT )); then
+    echo "==> Lock has no live owner after ${LOCK_TIMEOUT}s, removing..."
+    rm -rf "$LOCK_DIR"
+    continue
+  else
+    echo "==> Waiting for cmux-iroh cache lock for $IROH_KEY..."
   fi
-  echo "==> Waiting for cmux-iroh cache lock for $IROH_KEY..."
   sleep 1
 done
-trap 'rmdir "$LOCK_DIR" >/dev/null 2>&1 || true' EXIT
+echo "$$" > "$LOCK_DIR/pid"
+trap 'rm -rf "$LOCK_DIR" >/dev/null 2>&1 || true' EXIT
 
 if [[ -d "$CACHE_XCFRAMEWORK" ]]; then
   echo "==> Reusing cached $FRAMEWORK_NAME"
@@ -134,7 +149,7 @@ else
   TMP_DIR="$(mktemp -d "$CACHE_ROOT/.cmux-iroh-tmp.XXXXXX")"
   cleanup_tmp() {
     rm -rf "$TMP_DIR"
-    rmdir "$LOCK_DIR" >/dev/null 2>&1 || true
+    rm -rf "$LOCK_DIR" >/dev/null 2>&1 || true
   }
   trap cleanup_tmp EXIT
 
