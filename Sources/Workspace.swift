@@ -15786,13 +15786,15 @@ final class Workspace: Identifiable, ObservableObject {
         return toolPanel
     }
 
+    /// Focuses the existing Agent Usage panel (the first one in sidebar/tab
+    /// order, so reuse is deterministic) or creates one in `paneId`.
     @discardableResult
     func openOrFocusAgentUsageSurface(
         inPane paneId: PaneID,
         focus: Bool = true
     ) -> AgentUsagePanel? {
-        for (existingId, panel) in panels {
-            guard let usagePanel = panel as? AgentUsagePanel else { continue }
+        for existingId in sidebarOrderedPanelIds() {
+            guard let usagePanel = panels[existingId] as? AgentUsagePanel else { continue }
             if focus {
                 focusPanel(existingId)
             }

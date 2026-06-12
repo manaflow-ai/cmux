@@ -115,6 +115,18 @@ final class AgentUsageModelTests: XCTestCase {
         XCTAssertEqual(events[1].tokens.output, 40)
     }
 
+    func testParseCodexSessionCountsFullTotalAfterCounterReset() {
+        let lines = [
+            #"{"timestamp":"2026-06-10T08:00:10.000Z","type":"event_msg","payload":{"type":"token_count","info":{"total_token_usage":{"input_tokens":1000,"cached_input_tokens":0,"output_tokens":50,"total_tokens":1050}}}}"#,
+            #"{"timestamp":"2026-06-10T08:01:00.000Z","type":"event_msg","payload":{"type":"token_count","info":{"total_token_usage":{"input_tokens":300,"cached_input_tokens":0,"output_tokens":20,"total_tokens":320}}}}"#,
+        ]
+        let events = AgentUsageLogParser.parseCodexSession(lines: lines).events
+
+        XCTAssertEqual(events.count, 2)
+        XCTAssertEqual(events[1].tokens.input, 300, "A cumulative counter reset must count the new total, not clamp to zero")
+        XCTAssertEqual(events[1].tokens.output, 20)
+    }
+
     func testParseCodexSessionExtractsLatestRateLimits() throws {
         let lines = [
             #"{"timestamp":"2026-06-10T08:00:10.000Z","type":"event_msg","payload":{"type":"token_count","info":{"total_token_usage":{"input_tokens":100,"cached_input_tokens":0,"output_tokens":10,"total_tokens":110}},"rate_limits":{"primary":{"used_percent":12.5,"window_minutes":300,"resets_in_seconds":14400},"secondary":{"used_percent":3.0,"window_minutes":10080,"resets_in_seconds":500000}}}}"#,

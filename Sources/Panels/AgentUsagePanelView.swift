@@ -1,5 +1,8 @@
 import SwiftUI
 
+/// Pane-hosted dashboard view for `AgentUsagePanel`. Handles the panel chrome
+/// (theme background, attention flash ring, tap-to-focus) and delegates the
+/// content to `AgentUsageContentView`.
 struct AgentUsagePanelView: View {
     @ObservedObject var panel: AgentUsagePanel
     let isFocused: Bool
@@ -25,6 +28,9 @@ struct AgentUsagePanelView: View {
             }
     }
 
+    /// Replays the shared attention flash pattern. Mirrors the scheduling in
+    /// `RightSidebarToolPanelView`, the codebase's reference implementation
+    /// for the flash ring.
     private func triggerFocusFlashAnimation() {
         focusFlashAnimationGeneration &+= 1
         let generation = focusFlashAnimationGeneration
@@ -45,6 +51,8 @@ struct AgentUsagePanelView: View {
     }
 }
 
+/// Header plus dashboard body; owns the store observation so the chrome layer
+/// above doesn't re-render on every snapshot change.
 private struct AgentUsageContentView: View {
     @ObservedObject var store: AgentUsageStore
 
@@ -63,12 +71,11 @@ private struct AgentUsageContentView: View {
             }
         }
         .onAppear {
-            if store.snapshot == nil {
-                store.refresh()
-            }
+            store.refreshIfStale()
         }
     }
 
+    /// 30pt header bar: title, last-updated stamp, refresh control.
     private var header: some View {
         HStack(spacing: 8) {
             Image(systemName: "chart.bar.xaxis")
@@ -103,6 +110,7 @@ private struct AgentUsageContentView: View {
         .frame(height: 30)
     }
 
+    /// Shown before the first scan completes.
     private var loadingState: some View {
         VStack(spacing: 8) {
             ProgressView()
@@ -114,6 +122,7 @@ private struct AgentUsageContentView: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
+    /// Shown when no transcripts produced usage inside the scan window.
     private var emptyState: some View {
         VStack(spacing: 8) {
             Image(systemName: "chart.bar.xaxis")
@@ -160,6 +169,7 @@ private struct AgentUsageReportView: View {
         }
     }
 
+    /// Four stat cards: total tokens, input/output, cache read/write, est. cost.
     private var totalsSection: some View {
         HStack(spacing: 12) {
             AgentUsageStatCard(
@@ -181,6 +191,7 @@ private struct AgentUsageReportView: View {
         }
     }
 
+    /// Plan-limit window cards in a two-column grid.
     private var windowsSection: some View {
         VStack(alignment: .leading, spacing: 6) {
             Text(String(localized: "agentUsage.section.windows", defaultValue: "Plan Limit Windows"))
@@ -197,6 +208,7 @@ private struct AgentUsageReportView: View {
         }
     }
 
+    /// Per-model totals across the scan window.
     private var modelsSection: some View {
         VStack(alignment: .leading, spacing: 6) {
             Text(String(localized: "agentUsage.section.models", defaultValue: "By Model (Last 30 Days)"))
@@ -215,6 +227,7 @@ private struct AgentUsageReportView: View {
         }
     }
 
+    /// Daily rollups, newest day first, with per-model sub-rows.
     private var daysSection: some View {
         VStack(alignment: .leading, spacing: 6) {
             Text(String(localized: "agentUsage.section.daily", defaultValue: "Daily Usage"))
@@ -234,6 +247,8 @@ private struct AgentUsageReportView: View {
     }
 }
 
+/// One plan-limit window card: provider-reported windows render a progress
+/// bar with the reported percentage; estimated windows render tokens and cost.
 private struct AgentUsageRateWindowCard: View {
     let window: AgentUsageRateWindow
 
@@ -277,16 +292,9 @@ private struct AgentUsageRateWindowCard: View {
             }
             if let percent = window.usedPercent {
                 let fraction = min(max(percent / 100, 0), 1)
-                GeometryReader { proxy in
-                    ZStack(alignment: .leading) {
-                        Capsule()
-                            .fill(Color.primary.opacity(0.08))
-                        Capsule()
-                            .fill(percent >= 90 ? Color.red : (percent >= 70 ? Color.orange : Color.accentColor))
-                            .frame(width: proxy.size.width * fraction)
-                    }
-                }
-                .frame(height: 6)
+                ProgressView(value: fraction)
+                    .progressViewStyle(.linear)
+                    .tint(percent >= 90 ? Color.red : (percent >= 70 ? Color.orange : Color.accentColor))
                 Text(
                     String(
                         format: String(localized: "agentUsage.window.usedPercent", defaultValue: "%d%% used"),
@@ -322,6 +330,7 @@ private struct AgentUsageRateWindowCard: View {
     }
 }
 
+/// Small labeled stat card used in the totals row.
 private struct AgentUsageStatCard: View {
     let title: String
     let value: String
@@ -343,6 +352,7 @@ private struct AgentUsageStatCard: View {
     }
 }
 
+/// One row of the per-model totals list.
 private struct AgentUsageModelRow: View {
     let model: AgentUsageModelRollup
 
@@ -371,6 +381,7 @@ private struct AgentUsageModelRow: View {
     }
 }
 
+/// One day group of the daily usage list, with per-model sub-rows.
 private struct AgentUsageDayRow: View {
     let day: AgentUsageDayRollup
 
@@ -414,23 +425,18 @@ private struct AgentUsageDayRow: View {
     }
 }
 
+/// Locale-aware display formatting for the dashboard's numbers.
 enum AgentUsageFormat {
+    /// Formats a token count compactly (e.g. "233.54M") using the user's
+    /// locale conventions for digits, separators, and unit abbreviations.
     static func tokens(_ count: Int) -> String {
-        let value = Double(count)
-        switch value {
-        case 1_000_000_000...:
-            return String(format: "%.2fB", value / 1_000_000_000)
-        case 1_000_000...:
-            return String(format: "%.2fM", value / 1_000_000)
-        case 10_000...:
-            return String(format: "%.1fK", value / 1_000)
-        default:
-            return "\(count)"
-        }
+        count.formatted(.number.notation(.compactName).precision(.fractionLength(0...2)))
     }
 
+    /// Formats an estimated cost as USD currency using the user's locale
+    /// conventions; the estimate is inherently denominated in USD.
     static func cost(_ cost: Double?) -> String {
         guard let cost else { return "—" }
-        return String(format: "$%.2f", cost)
+        return cost.formatted(.currency(code: "USD"))
     }
 }
