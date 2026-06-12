@@ -39,4 +39,30 @@ import Testing
         #expect(settingsPrimary.displayName == primary.label)
         #expect(settingsFinderAlias.displayName == finderAlias.label)
     }
+
+    @Test func openSelectionShortcutsStayOutOfAppWideBareStartCache() throws {
+        try withIsolatedShortcutSettings {
+            #expect(!KeyboardShortcutBareStartCache.hasConfiguredBareShortcutStart(key: "\r"))
+
+            KeyboardShortcutSettings.setShortcut(
+                StoredShortcut(key: "↓", command: false, shift: false, option: false, control: false),
+                for: .fileExplorerOpenSelection
+            )
+
+            #expect(!KeyboardShortcutBareStartCache.hasConfiguredBareShortcutStart(key: "↓"))
+        }
+    }
+
+    private func withIsolatedShortcutSettings(_ body: () throws -> Void) rethrows {
+        let originalSettingsFileStore = KeyboardShortcutSettings.installIsolatedTestFileStore(
+            prefix: "cmux-file-explorer-shortcut-settings"
+        )
+        KeyboardShortcutSettings.resetAll()
+        defer {
+            KeyboardShortcutSettings.resetAll()
+            KeyboardShortcutSettings.settingsFileStore = originalSettingsFileStore
+        }
+
+        try body()
+    }
 }

@@ -1771,10 +1771,7 @@ final class FileExplorerSearchResultsTableView: NSTableView {
             onMoveSelection?(delta)
             return
         }
-        if event.keyCode == 36 || event.keyCode == 76 {
-            onCommit?()
-            return
-        }
+        if handleOpenSelectionShortcut(event) { return }
         if RightSidebarKeyboardNavigation.isPlainPrintableText(event) {
             return
         }
@@ -1782,6 +1779,7 @@ final class FileExplorerSearchResultsTableView: NSTableView {
     }
 
     override func performKeyEquivalent(with event: NSEvent) -> Bool {
+        if handleOpenSelectionShortcut(event) { return true }
         if let delta = RightSidebarKeyboardNavigation.moveDelta(for: event) {
             onMoveSelection?(delta)
             return true

@@ -26,20 +26,32 @@ extension FileExplorerPanelView.Coordinator {
 
 extension FileExplorerNSOutlineView {
     func handleOpenSelectionShortcut(_ event: NSEvent) -> Bool {
-        guard Self.isOpenSelectionShortcut(event) else { return false }
+        guard event.isFileExplorerOpenSelectionShortcut else { return false }
         endQuickSearch()
         fileExplorerCoordinator?.openSelectedNode(in: self)
         return true
     }
+}
 
-    private static func isOpenSelectionShortcut(_ event: NSEvent) -> Bool {
-        openSelectionShortcutActions.contains { action in
+extension FileExplorerSearchResultsTableView {
+    func handleOpenSelectionShortcut(_ event: NSEvent) -> Bool {
+        guard event.isFileExplorerOpenSelectionShortcut else { return false }
+        onCommit?()
+        return true
+    }
+}
+
+private extension NSEvent {
+    var isFileExplorerOpenSelectionShortcut: Bool {
+        KeyboardShortcutSettings.Action.fileExplorerOpenSelectionActions.contains { action in
             KeyboardShortcutSettings.shortcut(for: action).matches(event: event) &&
                 (AppDelegate.shared?.shortcutWhenClauseAllows(action: action, event: event) ?? true)
         }
     }
+}
 
-    private static var openSelectionShortcutActions: [KeyboardShortcutSettings.Action] {
+private extension KeyboardShortcutSettings.Action {
+    static var fileExplorerOpenSelectionActions: [Self] {
         [.fileExplorerOpenSelection, .fileExplorerOpenSelectionFinderAlias]
     }
 }
