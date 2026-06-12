@@ -12556,12 +12556,16 @@ final class Workspace: Identifiable, ObservableObject {
             if surfaceTabBarDirectory != trimmed {
                 surfaceTabBarDirectory = trimmed
             }
-            let nextOrigin: CurrentDirectoryOrigin = isRemoteWorkspace ? .remoteReport : .localKnown
             if currentDirectory != trimmed {
                 currentDirectory = trimmed
             }
-            if currentDirectoryOrigin != nextOrigin {
-                currentDirectoryOrigin = nextOrigin
+            // Only live shell cwd reports prove the path was observed remotely; replayed snapshot
+            // metadata may carry a stale local-seed path for an SSH workspace (issue #5360).
+            if source == .liveReport {
+                let nextOrigin: CurrentDirectoryOrigin = isRemoteWorkspace ? .remoteReport : .localKnown
+                if currentDirectoryOrigin != nextOrigin {
+                    currentDirectoryOrigin = nextOrigin
+                }
             }
         }
         return true
