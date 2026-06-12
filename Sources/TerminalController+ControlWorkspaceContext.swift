@@ -747,4 +747,3 @@ extension TerminalController: ControlWorkspaceContext {
         return .string(uuid.uuidString)
     }
 }
-
