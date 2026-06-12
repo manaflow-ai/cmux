@@ -2,17 +2,17 @@
 # Format: max_lines<TAB>relative path
 # Reduce counts as files shrink. CI fails if tracked files exceed this budget.
 33266	CLI/cmux.swift
-19960	Sources/Workspace.swift
-19253	Sources/ContentView.swift
-18023	Sources/AppDelegate.swift
-16539	Sources/GhosttyTerminalView.swift
-14774	Sources/TerminalController.swift
+19961	Sources/Workspace.swift
+19254	Sources/ContentView.swift
+18024	Sources/AppDelegate.swift
+16540	Sources/GhosttyTerminalView.swift
+14775	Sources/TerminalController.swift
 13608	Sources/Panels/BrowserPanel.swift
 11916	cmuxTests/AppDelegateShortcutRoutingTests.swift
 9345	cmuxTests/CLINotifyProcessIntegrationRegressionTests.swift
 7737	Sources/Panels/BrowserPanelView.swift
-7515	Sources/TabManager.swift
-7205	cmuxTests/WorkspaceUnitTests.swift
+7206	cmuxTests/WorkspaceUnitTests.swift
+7146	Sources/TabManager.swift
 6948	cmuxTests/WorkspaceRemoteConnectionTests.swift
 6543	cmuxTests/GhosttyConfigTests.swift
 6299	cmuxTests/TerminalAndGhosttyTests.swift
@@ -20,7 +20,7 @@
 6153	CLI/cmux_open.swift
 6071	Sources/TextBoxInput.swift
 5485	cmuxTests/BrowserConfigTests.swift
-5453	Sources/cmuxApp.swift
+5454	Sources/cmuxApp.swift
 4827	Packages/CmuxMobileShell/Sources/CmuxMobileShell/MobileShellComposite.swift
 4460	Sources/Panels/FilePreviewPanel.swift
 4400	cmuxTests/BrowserPanelTests.swift
@@ -111,12 +111,12 @@
 760	Packages/CMUXAgentLaunch/Tests/CMUXAgentLaunchTests/AgentLaunchSanitizerTests.swift
 757	Packages/CmuxAuthRuntime/Sources/CmuxAuthRuntime/Coordinator/AuthCoordinator.swift
 756	Sources/Panels/AgentSessionWebRendererCoordinator.swift
-750	Sources/TerminalController+ControlWorkspaceContext.swift
 752	cmuxUITests/CloseWorkspaceCmdDUITests.swift
+751	Sources/TerminalController+ControlWorkspaceContext.swift
 739	Sources/App/MenuBarExtraController.swift
 738	Packages/CMUXProjectModel/Sources/CMUXProjectModel/XcodeProjectAdapter.swift
 716	Sources/TaskManagerSnapshot.swift
-714	Sources/AppleScriptSupport.swift
+715	Sources/AppleScriptSupport.swift
 708	Sources/TerminalSSHSessionDetector.swift
 705	CLI/CMUXCLI+Config.swift
 705	cmuxUITests/BrowserOmnibarSuggestionsUITests.swift

@@ -1,6 +1,7 @@
 import AppKit
 import CmuxAuthRuntime
 import CmuxControlSocket
+import CmuxPanes
 import CmuxSettings
 import CmuxSocketControl
 import CmuxSwiftRenderUI

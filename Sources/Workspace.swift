@@ -4,6 +4,7 @@ import AppKit
 import Bonsplit
 import CMUXAgentLaunch
 import CmuxBrowser
+import CmuxPanes
 import CmuxSocketControl
 import Combine
 import CryptoKit

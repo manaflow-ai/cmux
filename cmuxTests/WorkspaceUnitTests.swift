@@ -5,6 +5,7 @@ import UniformTypeIdentifiers
 import WebKit
 import ObjectiveC.runtime
 import Bonsplit
+import CmuxPanes
 import CmuxSettings
 import CmuxSidebar
 import UserNotifications

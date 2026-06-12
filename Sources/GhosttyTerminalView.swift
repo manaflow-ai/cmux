@@ -1,4 +1,5 @@
 import Foundation
+import CmuxPanes
 import CmuxTerminalCopyMode
 import CmuxSocketControl
 import SwiftUI

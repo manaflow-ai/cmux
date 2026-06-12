@@ -1,4 +1,5 @@
 import AppKit
+import CmuxPanes
 import CmuxSocketControl
 import Bonsplit
 import Combine

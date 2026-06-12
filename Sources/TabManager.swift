@@ -6,6 +6,7 @@ import CmuxBrowser
 import CmuxFileWatch
 import CmuxGit
 import CmuxNotifications
+import CmuxPanes
 import CmuxProcess
 import CmuxSettings
 import CmuxSidebar
@@ -408,6 +409,9 @@ class TabManager: ObservableObject {
     // FocusHistoryHosting and republishes its revision bumps through
     // `focusHistoryRevision` above.
     let focusHistoryNavigation: any FocusHistoryNavigating = FocusHistoryModel()
+    // Stateless split-geometry application (equalize/resize divider moves);
+    // the pure planning lives in CmuxPanes' ExternalTreeNode extensions.
+    let paneLayout = PaneLayoutService()
     private var shouldRecordFocusHistory: Bool {
         focusHistoryNavigation.shouldRecordFocusHistory
     }
@@ -4829,27 +4833,13 @@ class TabManager: ObservableObject {
             return false
         }
 
-        var candidates: [ResizeSplitCandidate] = []
-        let trace = resizeSplitCollectCandidates(
-            node: tab.bonsplitController.treeSnapshot(),
+        return paneLayout.resizeSplit(
+            in: tab.bonsplitController.treeSnapshot(),
             targetPaneId: paneUUID.uuidString,
-            candidates: &candidates
+            direction: direction,
+            amountPixels: amount,
+            controller: tab.bonsplitController
         )
-        guard trace.containsTarget else { return false }
-
-        let orientationMatches = candidates.filter { $0.orientation == direction.splitOrientation }
-        guard !orientationMatches.isEmpty else { return false }
-
-        guard let candidate = orientationMatches.first(where: {
-            $0.paneInFirstChild == direction.requiresPaneInFirstChild
-        }) else {
-            return false
-        }
-
-        let delta = CGFloat(amount) / candidate.axisPixels
-        let requested = candidate.dividerPosition + (direction.dividerDeltaSign * delta)
-        let clamped = min(max(requested, 0.1), 0.9)
-        return tab.bonsplitController.setDividerPosition(clamped, forSplit: candidate.splitId, fromExternal: true)
     }
 
     /// Toggle zoom on a panel.
@@ -4864,68 +4854,6 @@ class TabManager: ObservableObject {
         guard let tab = selectedWorkspace,
               let focusedPanelId = tab.focusedPanelId else { return false }
         return tab.toggleSplitZoom(panelId: focusedPanelId)
-    }
-
-    private struct ResizeSplitCandidate {
-        let splitId: UUID
-        let orientation: String
-        let paneInFirstChild: Bool
-        let dividerPosition: CGFloat
-        let axisPixels: CGFloat
-    }
-
-    private struct ResizeSplitTrace {
-        let containsTarget: Bool
-        let bounds: CGRect
-    }
-
-    private func resizeSplitCollectCandidates(
-        node: ExternalTreeNode,
-        targetPaneId: String,
-        candidates: inout [ResizeSplitCandidate]
-    ) -> ResizeSplitTrace {
-        switch node {
-        case .pane(let pane):
-            let bounds = CGRect(
-                x: pane.frame.x,
-                y: pane.frame.y,
-                width: pane.frame.width,
-                height: pane.frame.height
-            )
-            return ResizeSplitTrace(containsTarget: pane.id == targetPaneId, bounds: bounds)
-
-        case .split(let split):
-            let first = resizeSplitCollectCandidates(
-                node: split.first,
-                targetPaneId: targetPaneId,
-                candidates: &candidates
-            )
-            let second = resizeSplitCollectCandidates(
-                node: split.second,
-                targetPaneId: targetPaneId,
-                candidates: &candidates
-            )
-
-            let combinedBounds = first.bounds.union(second.bounds)
-            let containsTarget = first.containsTarget || second.containsTarget
-
-            if containsTarget,
-               let splitUUID = UUID(uuidString: split.id) {
-                let orientation = split.orientation.lowercased()
-                let axisPixels: CGFloat = orientation == "horizontal"
-                    ? combinedBounds.width
-                    : combinedBounds.height
-                candidates.append(ResizeSplitCandidate(
-                    splitId: splitUUID,
-                    orientation: orientation,
-                    paneInFirstChild: first.containsTarget,
-                    dividerPosition: CGFloat(split.dividerPosition),
-                    axisPixels: max(axisPixels, 1)
-                ))
-            }
-
-            return ResizeSplitTrace(containsTarget: containsTarget, bounds: combinedBounds)
-        }
     }
 
     /// Close a surface/panel
