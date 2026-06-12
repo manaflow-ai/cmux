@@ -22,7 +22,9 @@ extension CmuxWebView {
 
     /// Test seam: synthetic (`isTrusted == false`) contextmenu events are
     /// ignored so page JavaScript cannot plant a decoy link, but unit tests
-    /// have no way to produce a trusted DOM event, so they opt back in.
+    /// have no way to produce a trusted DOM event, so they opt back in. The
+    /// flag is baked into the injected script at install time (set it before
+    /// creating the web view); the production bridge path never consults it.
     static var contextMenuLinkCaptureAcceptsUntrustedEventsForTesting = false
 
     /// Isolated content world for the context-menu link capture hook. Both the
@@ -36,14 +38,17 @@ extension CmuxWebView {
     /// under the cursor the moment a `contextmenu` event fires. Purely passive
     /// capture-phase listener, same fingerprinting-safety reasoning as the
     /// media-playback hook in `BrowserPanel+MediaPlayback.swift`.
-    private static let contextMenuLinkCaptureBootstrapScriptSource = """
+    private static func contextMenuLinkCaptureBootstrapScriptSource(
+        acceptUntrustedEvents: Bool
+    ) -> String {
+        """
     (() => {
       try {
-        const post = (href, trusted) => {
+        const acceptUntrusted = \(acceptUntrustedEvents ? "true" : "false");
+        const post = (href) => {
           try {
             window.webkit.messageHandlers["\(contextMenuLinkCaptureMessageHandlerName)"].postMessage({
-              href: typeof href === "string" ? href : "",
-              trusted: trusted === true
+              href: typeof href === "string" ? href : ""
             });
           } catch (_) {}
         };
@@ -64,11 +69,17 @@ extension CmuxWebView {
           return "";
         };
         window.addEventListener("contextmenu", (event) => {
-          post(linkForEvent(event), event.isTrusted);
+          // Synthetic contextmenu events dispatched by page JavaScript carry
+          // isTrusted == false. Dropping them here, before the postMessage
+          // IPC hop, both keeps a page from planting a decoy link and keeps a
+          // dispatch loop from flooding the native bridge with messages.
+          if (!event.isTrusted && !acceptUntrusted) return;
+          post(linkForEvent(event));
         }, true);
       } catch (_) {}
     })();
     """
+    }
 
     private static let sharedContextMenuLinkCaptureMessageHandler = ContextMenuLinkCaptureMessageHandler()
 
@@ -89,7 +100,9 @@ extension CmuxWebView {
 
         userContentController.addUserScript(
             WKUserScript(
-                source: Self.contextMenuLinkCaptureBootstrapScriptSource,
+                source: Self.contextMenuLinkCaptureBootstrapScriptSource(
+                    acceptUntrustedEvents: Self.contextMenuLinkCaptureAcceptsUntrustedEventsForTesting
+                ),
                 injectionTime: .atDocumentStart,
                 forMainFrameOnly: false,
                 in: Self.contextMenuLinkCaptureContentWorld
@@ -108,7 +121,7 @@ extension CmuxWebView {
         )
     }
 
-    func noteContextMenuCapturedLink(_ url: URL?) {
+    fileprivate func noteContextMenuCapturedLink(_ url: URL?) {
         contextMenuCapturedLink = ContextMenuCapturedLink(
             url: url,
             uptime: ProcessInfo.processInfo.systemUptime
@@ -277,9 +290,13 @@ private final class ContextMenuLinkCaptureMessageHandler: NSObject, WKScriptMess
     ) {
         guard let webView = message.webView as? CmuxWebView else { return }
         let body = message.body as? [String: Any]
-        let trusted = body?["trusted"] as? Bool ?? false
         let href = body?["href"] as? String ?? ""
         let url = href.isEmpty ? nil : URL(string: href)
+        // Only the injected script can post here (the handler lives in an
+        // isolated content world page JavaScript cannot reach), and that
+        // script already drops synthetic (isTrusted == false) events, so
+        // every message is a real right-click report.
+        //
         // WebKit delivers script messages on the main thread (same pattern as
         // BrowserMediaPlaybackMessageHandler). Apply the capture synchronously
         // instead of hopping through a `Task` so it stays ordered with the
@@ -287,12 +304,6 @@ private final class ContextMenuLinkCaptureMessageHandler: NSObject, WKScriptMess
         // must not run after `rightMouseDown` clears the capture and repopulate
         // it for the menu the new click opens.
         MainActor.assumeIsolated {
-            // Synthetic contextmenu events dispatched by page JavaScript carry
-            // isTrusted == false; recording them would let a page substitute a
-            // decoy link for the one the user right-clicked.
-            guard trusted || CmuxWebView.contextMenuLinkCaptureAcceptsUntrustedEventsForTesting else {
-                return
-            }
             webView.noteContextMenuCapturedLink(url)
         }
     }
