@@ -12,13 +12,13 @@
 9345	cmuxTests/CLINotifyProcessIntegrationRegressionTests.swift
 7737	Sources/Panels/BrowserPanelView.swift
 7207	cmuxTests/WorkspaceUnitTests.swift
-7158	Sources/TabManager.swift
 6948	cmuxTests/WorkspaceRemoteConnectionTests.swift
 6543	cmuxTests/GhosttyConfigTests.swift
 6299	cmuxTests/TerminalAndGhosttyTests.swift
 6220	cmuxTests/SessionPersistenceTests.swift
 6153	CLI/cmux_open.swift
 6071	Sources/TextBoxInput.swift
+6065	Sources/TabManager.swift
 5485	cmuxTests/BrowserConfigTests.swift
 5454	Sources/cmuxApp.swift
 4827	Packages/CmuxMobileShell/Sources/CmuxMobileShell/MobileShellComposite.swift
@@ -145,6 +145,7 @@
 614	cmuxTests/SessionIndexViewTests.swift
 613	Sources/PortScanner.swift
 611	Sources/TerminalController+ControlPaneContext.swift
+606	Packages/CmuxWorkspaces/Sources/CmuxWorkspaces/Coordinators/WorkspaceGroupCoordinator.swift
 599	Packages/CMUXAgentLaunch/Sources/CMUXAgentLaunch/AgentLaunchSanitizerPrimaryPolicies.swift
 599	Sources/SettingsNavigation.swift
 596	cmuxTests/CmuxEventBusTests.swift
@@ -167,6 +168,7 @@
 551	Packages/CmuxSettingsUI/Sources/CmuxSettingsUI/Sections/BrowserSection.swift
 547	Packages/CmuxSocketControl/Sources/CmuxSocketControl/SocketControlSettings.swift
 546	Sources/Windowing/WindowGlassEffect.swift
+540	Packages/CmuxWorkspaces/Sources/CmuxWorkspaces/Coordinators/WorkspaceReorderCoordinator.swift
 539	CLI/CodexTeamsApprovalBridge.swift
 538	CLI/CMUXCLI+Themes.swift
 536	cmuxTests/CmuxConfigContextMenuTests.swift

@@ -13,9 +13,17 @@ let package = Package(
             targets: ["CmuxWorkspaces"]
         ),
     ],
+    dependencies: [
+        // WorkspaceGroupNewPlacement (the typed setting value for new
+        // in-group workspace placement) is owned by CmuxSettings.
+        .package(path: "../CmuxSettings"),
+    ],
     targets: [
         .target(
             name: "CmuxWorkspaces",
+            dependencies: [
+                .product(name: "CmuxSettings", package: "CmuxSettings"),
+            ],
             swiftSettings: [
                 .swiftLanguageMode(.v6),
                 .enableUpcomingFeature("ExistentialAny"),

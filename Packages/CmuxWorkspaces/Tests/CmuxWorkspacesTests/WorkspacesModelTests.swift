@@ -7,11 +7,18 @@ private final class StubTab: WorkspaceTabRepresenting {
     let id: UUID
     var groupId: UUID?
     var isPinned: Bool
+    var currentDirectory: String
 
-    init(id: UUID = UUID(), groupId: UUID? = nil, isPinned: Bool = false) {
+    init(
+        id: UUID = UUID(),
+        groupId: UUID? = nil,
+        isPinned: Bool = false,
+        currentDirectory: String = "/tmp"
+    ) {
         self.id = id
         self.groupId = groupId
         self.isPinned = isPinned
+        self.currentDirectory = currentDirectory
     }
 }
 
