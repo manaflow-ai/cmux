@@ -1000,8 +1000,6 @@ class TerminalController {
             return v2Ok(id: request.id, result: v2AuthStatusPayload(timedOut: false))
         case "feedback.submit":
             return v2Result(id: request.id, v2FeedbackSubmit(params: request.params))
-        case "chat.sessions.dump":
-            return v2Result(id: request.id, v2ChatSessionsDump())
         case "feed.push":
             return v2Result(id: request.id, v2FeedPush(params: request.params))
         case "feed.permission.reply":
@@ -1941,6 +1939,8 @@ class TerminalController {
             return v2Result(id: id, self.v2BrowserInputKeyboard(params: params))
         case "browser.input_touch":
             return v2Result(id: id, self.v2BrowserInputTouch(params: params))
+        case "chat.sessions.dump":
+            return v2Result(id: id, self.v2ChatSessionsDump())
 
         // Markdown/files/projects: markdown.open, file.open (forwards to the
         // still-shared v2FileOpen), and project.* handled by ControlCommandCoordinator.
