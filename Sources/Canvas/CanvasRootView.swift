@@ -324,18 +324,29 @@ extension CanvasRootView: CanvasViewportControlling {
         }
         guard let content = model.contentBounds else { return }
         overviewRestore = (scrollView.magnification, scrollView.contentView.bounds.origin)
-        let viewportSize = scrollView.frame.size
-        let fit = CanvasViewportMath().magnificationToFit(
+        let viewportSize = scrollView.contentSize
+        let fit = CGFloat(CanvasViewportMath().magnificationToFit(
             CanvasRect(content),
             in: CanvasSize(viewportSize),
             padding: Self.overviewPadding,
             range: Double(scrollView.minMagnification)...Double(scrollView.maxMagnification)
-        )
+        ))
+        // Anchor explicitly: after magnification `fit`, the clip's bounds are
+        // viewport/fit in document coordinates; centering the content means
+        // origin = contentCenter - clipSize/2. setMagnification(centeredAt:)
+        // alone lands off-center when the magnification change is large.
         let docCenter = documentRect(fromCanvas: content).canvasCenter
+        let clipSize = CGSize(width: viewportSize.width / fit, height: viewportSize.height / fit)
+        let targetOrigin = CGPoint(
+            x: docCenter.x - clipSize.width / 2,
+            y: docCenter.y - clipSize.height / 2
+        )
         NSAnimationContext.runAnimationGroup { context in
             context.duration = 0.3
             context.allowsImplicitAnimation = true
-            scrollView.animator().setMagnification(CGFloat(fit), centeredAt: docCenter)
+            scrollView.animator().magnification = fit
+            scrollView.contentView.animator().setBoundsOrigin(targetOrigin)
+            scrollView.reflectScrolledClipView(scrollView.contentView)
         }
     }
 }
