@@ -1345,7 +1345,7 @@ final class BrowserPaneNavigationKeybindUITests: XCTestCase {
     }
 
     private func waitForSocketPong(timeout: TimeInterval) -> Bool {
-        waitForCondition(timeout: timeout) {
+        waitForControlSocketReady(socketPath: socketPath, pingTimeout: timeout) {
             self.socketCommand("ping") == "PONG"
         }
     }

@@ -673,7 +673,57 @@
       "automatic": "自动",
       "paneIdSocket": "Pane ID（socket API）",
       "panelIdInternal": "Panel ID（内部）",
-      "metaTitle": "概念"
+      "metaTitle": "概念",
+      "workspaceGroups": "工作区分组",
+      "workspaceGroupsDesc": "将相关的工作区归入侧边栏中可折叠的命名分组。每个分组由一个锚点工作区拥有，并且可以被固定、重命名，以及设置自己的图标和颜色。可以直接从分组的标题栏在分组内创建新的工作区。",
+      "workspaceGroupsLink": "阅读完整的工作区分组指南"
+    },
+    "workspaceGroups": {
+      "metaTitle": "工作区分组",
+      "metaDescription": "在 cmux 侧边栏中将工作区嵌套到可折叠的命名分组中。锚点模型、如何创建和管理分组，以及 workspace-group CLI。",
+      "title": "工作区分组",
+      "intro": "工作区分组让你能够将工作区嵌入侧边栏中可折叠的命名分组。每个分组都有一个隐式的锚点工作区、一个用于在分组内创建新工作区的可自定义 + 按钮，以及用于重命名、固定、取消分组和编辑配置的右键操作。",
+      "concepts": "核心概念",
+      "anchorTitle": "锚点工作区",
+      "anchorDesc": "每个分组都恰好由一个称为锚点的工作区拥有。侧边栏中的分组标题栏就是锚点的呈现形式——锚点没有单独的行。点击标题名称区域会聚焦到锚点的面板；点击箭头则切换折叠状态。",
+      "anchorNew": "创建分组时，锚点始终是全新的。它们永远不会从已有的工作区提升而来。锚点的工作目录：在对选中项进行分组时继承自第一个选中的工作区，在通过 CLI 创建而未指定 --cwd 时则继承自当前活动的工作区。",
+      "anchorClose": "关闭锚点工作区会解散该分组：其余每个成员都会变成未分组的工作区并保留在标签页列表中。除了锚点本身，不会关闭其他任何内容。在此操作发生前，应用会显示一个带有“不再询问”开关的确认对话框。",
+      "identityTitle": "分组标识",
+      "identityDesc": "一个分组拥有名称、图标（一个 SF Symbol，默认为 folder.fill）以及一个可选的自定义颜色。这些与锚点工作区自身的自定义设置相互独立。锚点的颜色和图标在创建时取自分组，但之后两者可以各自变化。",
+      "pinningTitle": "固定",
+      "pinningDesc": "分组可以独立于单个工作区的固定状态进行固定。被固定的顶级行，无论是单个工作区还是分组，都会排在未固定的行之上。在每个层级内，分组和工作区会保持你拖动它们时形成的顺序。",
+      "layoutIntro": "侧边栏自上而下排列顶级行：",
+      "layoutItem1": "已固定的顶级行（工作区和分组）。",
+      "layoutItem2": "未固定的顶级行（工作区和分组）。",
+      "creatingTitle": "创建分组",
+      "creatingIntro": "可以通过两种方式创建分组：键盘快捷键或工作区右键菜单。两者都会在所选项上方插入一个新的锚点工作区，并将所选工作区移入该分组。分组创建后，你可以从分组标题处管理它并向其中添加工作区（参见下方的“管理分组”）。",
+      "keyboardTitle": "通过键盘（{shortcut}）",
+      "keyboardDesc": "在侧边栏中选中两个或更多工作区，然后按 {shortcut}。一个全新的锚点工作区会插入在选中项的上方，所有选中的工作区都会成为它的子项。分组会被自动命名为 Group 1、Group 2，依此类推——你随时可以通过标题栏右键菜单重命名它。",
+      "keyboardNote": "{shortcut} 与 React Grab 的默认快捷键冲突。分组处理程序只有在侧边栏中明确多选了至少两个工作区时才会占用该组合键，因此在单选以及浏览器或终端环境中 React Grab 仍会触发。如果你不希望两者共用一个按键，可在 设置 → 键盘 中重新绑定它。",
+      "keyboardSingle": "单标签分组无法通过快捷键创建。请使用工作区右键菜单中的 New Group from Workspace 项来创建。",
+      "contextMenuTitle": "通过工作区右键菜单",
+      "contextMenuDesc": "在侧边栏中右键单击任意工作区并选择 New Group from Workspace，或在选中多个工作区时选择 New Group from Selection。这与快捷键使用相同的自动命名行为。",
+      "managingTitle": "管理分组",
+      "managingIntro": "分组创建后，可以通过其标题的右键菜单以及标题上的 + 按钮来管理分组并向其中添加工作区。这两者都不会创建新分组。",
+      "headerMenuTitle": "通过分组标题栏右键菜单",
+      "headerMenuDesc": "右键单击现有分组标题，可使用 Rename Group…、Pin Group / Unpin Group、Edit Group Config…（会打开 ~/.config/cmux/cmux.json）、Open Workspace Groups Docs、Ungroup (Keep Workspaces) 以及 Delete Group (Close Workspaces)。Delete 是破坏性操作，会提示确认；取消分组会保留工作区，仅移除容器。",
+      "plusButtonTitle": "通过分组标题栏上的 + 按钮",
+      "plusButtonDesc": "将鼠标悬停在分组标题上即可显示末尾的 + 按钮。单击它可在分组中以锚点工作目录创建一个新工作区。右键单击它可使用 New Workspace in Group、Edit Group Config… 以及 Open Workspace Groups Docs。",
+      "plusButtonNote": "当活动工作区是某个分组的锚点或成员时，按 {shortcut} 同样会在该分组内创建新工作区。默认放置方式为 After current（在当前之后）：从普通分组成员触发时，新工作区会紧接在活动成员之后；从锚点或标题栏触发时，则会落在分组的顶部。",
+      "cliTitle": "CLI",
+      "cliDesc": "所有分组操作都可以通过 cmux workspace-group 子命令编写脚本。带连字符的形式将率先推出；一旦更广泛的 cmux workspace 命令命名空间上线，cmux workspace group 将成为规范形式，而带连字符的形式将永久保留为别名。",
+      "cliSubcommandsTitle": "子命令",
+      "cliCreateNote": "create 会返回一个分组句柄（默认为 workspace_group:N）。传入 --json 可获取完整的结构化数据。",
+      "cliFlagsNote": "向 set-color 或 set-icon 传入空值可清除分组的颜色或图标。delete 是不可逆的：它会关闭每一个成员工作区。",
+      "cliExamplesTitle": "示例",
+      "cliExampleGroup": "将当前选中的工作区归入一个命名分组：",
+      "cliExampleNew": "在已有分组内创建一个新工作区，例如接入一个 worktree 脚本：",
+      "cliExampleList": "列出聚焦窗口中的分组：",
+      "configTitle": "配置",
+      "configNote": "每个分组的配置位于 ~/.config/cmux/cmux.json 中的 workspaceGroups 键下，以锚点工作区的工作目录作为键。请参阅配置参考，了解所支持的键，包括全局新建工作区放置位置，以及每个目录的颜色、图标、放置位置和右键菜单操作。",
+      "configLinkText": "workspaceGroups 配置参考",
+      "persistenceTitle": "持久化",
+      "persistenceDesc": "分组名称、锚点、固定状态、折叠状态、颜色和图标会与你的工作区一起保存，并在重新启动时恢复。分组归属信息存储在每个工作区上。"
     },
     "configuration": {
       "title": "配置",
@@ -742,12 +792,20 @@
         },
         "diffViewer": {
           "defaultLayout": "Default layout for newly opened diff viewers. The toolbar layout toggle persists the user's last choice; an explicit `cmux diff --layout` option overrides both."
+        },
+        "shortcuts": {
+          "when": "每个操作可选的上下文谓词（VS Code 风格的 `when` 子句），按 cmux 操作 id 索引。每个值都是基于上下文键的布尔表达式，可用 !、&&、|| 和括号组合。布尔键：sidebarFocus、browserFocus、markdownFocus、terminalFocus、commandPaletteVisible、terminalFindVisible。类型化键支持比较：字符串 sidebarMode（files、find、sessions、feed 或 dock）以及整数 paneCount 和 workspaceCount。比较运算符为 ==、!=、=~（正则表达式）、<、<=、>、>= 和 `in [a, b]`；未知或不存在的键按 false 处理。也接受布尔字面量 true 和 false；`key == false` 等同于 `!key`。只有当子句成立时，该操作的快捷键才会触发，也只会在这种情况下与其他快捷键冲突。示例：{ \"selectWorkspaceByNumber\": \"!sidebarFocus\" } 让 Ctrl+1–9 在右侧边栏未聚焦时选择工作区；{ \"selectSurfaceByNumber\": \"sidebarMode == 'find' && paneCount > 1\" } 在工作区有多个窗格时将绑定限定在查找侧边栏。"
         }
       },
       "exampleMarkdownFontSize": "Default body font size (points) for newly opened markdown viewers.",
       "exampleMarkdownFontSizeZoom": "Zoom a viewer live with Cmd-+ / Cmd-- / Cmd-0.",
       "exampleMarkdownFontFamily": "Default body font family. Empty keeps the system markdown font stack.",
-      "exampleMarkdownMaxWidth": "Default maximum reading column width, in CSS pixels."
+      "exampleMarkdownMaxWidth": "Default maximum reading column width, in CSS pixels.",
+      "shortcutsWhenIntro": "每个操作可选的上下文谓词（VS Code 风格的 when 子句），按 cmux 操作 id 索引。只有当其子句成立时，绑定才会触发，也只会在这种情况下与同一按键上的其他绑定冲突。省略子句即保留操作的内置上下文。子句可用的词汇：",
+      "shortcutsWhenBooleanKeys": "布尔键。未知或不存在的键按 false 处理；也接受字面量 true 和 false。",
+      "shortcutsWhenTypedKeys": "用于比较的类型化键：右侧边栏的当前模式（字符串），以及窗格和工作区数量（整数）。",
+      "shortcutsWhenOperators": "布尔运算符、类型化比较、正则匹配和列表成员判断。比较的结合优先级高于 && 和 ||。",
+      "shortcutsWhenExample": "例如，下面的配置让 Ctrl+1–9 在右侧边栏未聚焦时选择工作区（把 Ctrl+1–5 留给侧边栏模式切换器），并在工作区有多个窗格时将表面选择限定在查找侧边栏："
     },
     "customCommands": {
       "title": "自定义命令",
@@ -1148,6 +1206,7 @@
     "navItems": {
       "gettingStarted": "入门指南",
       "concepts": "核心概念",
+      "workspaceGroups": "工作区分组",
       "configuration": "配置",
       "sessionRestore": "会话恢复",
       "customCommands": "自定义命令",
@@ -1429,5 +1488,10 @@
     "downloadLight": "下载浅色图标",
     "downloadDark": "下载深色图标",
     "brandPage": "品牌素材"
+  },
+  "afterSignIn": {
+    "title": "已登录 cmux",
+    "body": "如果 cmux 没有自动打开，请使用下面的按钮。",
+    "button": "返回 cmux"
   }
 }

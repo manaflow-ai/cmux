@@ -121,6 +121,18 @@ public final class UpdateStateModel {
         detectedUpdateItem = nil
         detectedUpdateVersion = version
     }
+
+    /// Overrides the state with a synthetic error so the matching error popover can be previewed
+    /// from the debug menu. DEBUG-only.
+    public func debugShowUpdateError(_ scenario: DebugUpdateErrorScenario) {
+        setOverrideState(.error(.init(
+            error: scenario.error,
+            retry: { [weak self] in self?.setOverrideState(nil) },
+            dismiss: { [weak self] in self?.setOverrideState(nil) },
+            technicalDetails: "debug scenario: \(scenario.rawValue)",
+            feedURLString: "https://github.com/manaflow-ai/cmux/releases/latest/download/appcast.xml"
+        )))
+    }
     #endif
 
     /// Dismisses a detected available update, replying `.dismiss` to Sparkle for whichever of
@@ -298,188 +310,97 @@ public final class UpdateStateModel {
         return String(localized: "update.available.withVersion", defaultValue: "Update Available: \(version)")
     }
 
-    // MARK: - Error formatting
-
-    /// A short, user-facing title for an update error.
-    public static func userFacingErrorTitle(for error: any Swift.Error) -> String {
-        let nsError = error as NSError
-        if let networkError = networkError(from: nsError) {
-            switch networkError.code {
-            case NSURLErrorNotConnectedToInternet:
-                return String(localized: "update.error.noInternet.title", defaultValue: "No Internet Connection")
-            case NSURLErrorTimedOut:
-                return String(localized: "update.error.timedOut.title", defaultValue: "Update Timed Out")
-            case NSURLErrorCannotFindHost:
-                return String(localized: "update.error.serverNotFound.title", defaultValue: "Server Not Found")
-            case NSURLErrorCannotConnectToHost:
-                return String(localized: "update.error.serverUnreachable.title", defaultValue: "Server Unreachable")
-            case NSURLErrorNetworkConnectionLost:
-                return String(localized: "update.error.connectionLost.title", defaultValue: "Connection Lost")
-            case NSURLErrorSecureConnectionFailed,
-                 NSURLErrorServerCertificateUntrusted,
-                 NSURLErrorServerCertificateHasBadDate,
-                 NSURLErrorServerCertificateHasUnknownRoot,
-                 NSURLErrorServerCertificateNotYetValid:
-                return String(localized: "update.error.secureConnectionFailed.title", defaultValue: "Secure Connection Failed")
-            default:
-                break
-            }
-        }
-        if nsError.domain == SUSparkleErrorDomain {
-            switch nsError.code {
-            case 4005:
-                return String(localized: "update.error.permissionError.title", defaultValue: "Updater Permission Error")
-            case 2001:
-                return String(localized: "update.error.downloadFailed.title", defaultValue: "Couldn't Download Update")
-            case 1000, 1002:
-                return String(localized: "update.error.feedError.title", defaultValue: "Update Feed Error")
-            case 4:
-                return String(localized: "update.error.invalidFeed.title", defaultValue: "Invalid Update Feed")
-            case 3:
-                return String(localized: "update.error.insecureFeed.title", defaultValue: "Insecure Update Feed")
-            case 1, 2, 3001, 3002:
-                return String(localized: "update.error.signatureError.title", defaultValue: "Update Signature Error")
-            case 1003, 1005:
-                return String(localized: "update.error.appLocation.title", defaultValue: "App Location Issue")
-            default:
-                break
-            }
-        }
-        return String(localized: "update.error.failed.title", defaultValue: "Update Failed")
-    }
-
-    /// A user-facing explanatory message for an update error.
-    public static func userFacingErrorMessage(for error: any Swift.Error) -> String {
-        let nsError = error as NSError
-        if let networkError = networkError(from: nsError) {
-            switch networkError.code {
-            case NSURLErrorNotConnectedToInternet:
-                return String(localized: "update.error.noInternet.message", defaultValue: "cmux can’t reach the update server. Check your internet connection and try again.")
-            case NSURLErrorTimedOut:
-                return String(localized: "update.error.timedOut.message", defaultValue: "The update server took too long to respond. Try again in a moment.")
-            case NSURLErrorCannotFindHost:
-                return String(localized: "update.error.serverNotFound.message", defaultValue: "The update server can’t be found. Check your connection or try again later.")
-            case NSURLErrorCannotConnectToHost:
-                return String(localized: "update.error.serverUnreachable.message", defaultValue: "cmux couldn’t connect to the update server. Check your connection or try again later.")
-            case NSURLErrorNetworkConnectionLost:
-                return String(localized: "update.error.connectionLost.message", defaultValue: "The network connection was lost while checking for updates. Try again.")
-            case NSURLErrorSecureConnectionFailed,
-                 NSURLErrorServerCertificateUntrusted,
-                 NSURLErrorServerCertificateHasBadDate,
-                 NSURLErrorServerCertificateHasUnknownRoot,
-                 NSURLErrorServerCertificateNotYetValid:
-                return String(localized: "update.error.secureConnectionFailed.message", defaultValue: "A secure connection to the update server couldn’t be established. Try again later.")
-            default:
-                break
-            }
-        }
-        if nsError.domain == SUSparkleErrorDomain {
-            switch nsError.code {
-            case 2001:
-                return String(localized: "update.error.feedDownload.message", defaultValue: "cmux couldn't download the update feed. Check your connection and try again.")
-            case 1000, 1002:
-                return String(localized: "update.error.feedRead.message", defaultValue: "The update feed could not be read. Please try again later.")
-            case 4:
-                return String(localized: "update.error.invalidFeed.message", defaultValue: "The update feed URL is invalid. Please contact support.")
-            case 3:
-                return String(localized: "update.error.insecureFeed.message", defaultValue: "The update feed is insecure. Please contact support.")
-            case 1, 2, 3001, 3002:
-                return String(localized: "update.error.signatureError.message", defaultValue: "The update's signature could not be verified. Please try again later.")
-            case 1003, 1005, 4005:
-                return String(localized: "update.error.permissionError.message", defaultValue: "Move cmux into Applications and relaunch to enable updates.")
-            default:
-                break
-            }
-        }
-        // Catch-all: keep user-facing copy in cmux terms; raw vendor descriptions, domains, and
-        // codes stay in `errorDetails` (the copyable Details block + the update log), not here.
-        return String(localized: "update.error.failed.message", defaultValue: "Something went wrong while checking for updates. Try again, or check the update log for details.")
-    }
-
-    /// Builds the multi-line technical detail block shown in the error popover.
-    ///
-    /// - Parameters:
-    ///   - error: The error to describe.
-    ///   - technicalDetails: Extra detail captured at failure time, if any.
-    ///   - feedURLString: The feed URL in effect at failure time, if any.
-    ///   - logPath: The path of the update log file (from ``UpdateLogging/logPath()``), appended
-    ///     so users can find the full trace.
-    /// - Returns: A newline-separated detail block.
-    public static func errorDetails(for error: any Swift.Error,
-                                    technicalDetails: String?,
-                                    feedURLString: String?,
-                                    logPath: String) -> String {
-        let nsError = error as NSError
-        var lines: [String] = []
-        lines.append("Message: \(nsError.localizedDescription)")
-        lines.append("Domain: \(nsError.domain)")
-        if nsError.domain == SUSparkleErrorDomain,
-           let sparkleName = sparkleErrorCodeName(for: nsError.code) {
-            lines.append("Code: \(sparkleName) (\(nsError.code))")
-        } else {
-            lines.append("Code: \(nsError.code)")
-        }
-
-        if let url = nsError.userInfo[NSURLErrorFailingURLErrorKey] as? URL {
-            lines.append("URL: \(url.absoluteString)")
-        } else if let urlString = nsError.userInfo[NSURLErrorFailingURLStringErrorKey] as? String {
-            lines.append("URL: \(urlString)")
-        }
-
-        if let failure = nsError.userInfo[NSLocalizedFailureReasonErrorKey] as? String,
-           !failure.isEmpty {
-            lines.append("Failure: \(failure)")
-        }
-        if let recovery = nsError.userInfo[NSLocalizedRecoverySuggestionErrorKey] as? String,
-           !recovery.isEmpty {
-            lines.append("Recovery: \(recovery)")
-        }
-
-        if let feedURLString, !feedURLString.isEmpty {
-            lines.append("Feed: \(feedURLString)")
-        }
-
-        if let technicalDetails, !technicalDetails.isEmpty {
-            lines.append("Debug: \(technicalDetails)")
-        }
-
-        lines.append("Log: \(logPath)")
-        return lines.joined(separator: "\n")
-    }
-
-    private static func networkError(from error: NSError) -> NSError? {
-        if error.domain == NSURLErrorDomain {
-            return error
-        }
-        if let underlying = error.userInfo[NSUnderlyingErrorKey] as? NSError,
-           underlying.domain == NSURLErrorDomain {
-            return underlying
-        }
-        return nil
-    }
-
-    private static func sparkleErrorCodeName(for code: Int) -> String? {
-        switch code {
-        case 1: return "SUNoPublicDSAFoundError"
-        case 2: return "SUInsufficientSigningError"
-        case 3: return "SUInsecureFeedURLError"
-        case 4: return "SUInvalidFeedURLError"
-        case 1000: return "SUAppcastParseError"
-        case 1001: return "SUNoUpdateError"
-        case 1002: return "SUAppcastError"
-        case 1003: return "SURunningFromDiskImageError"
-        case 1005: return "SURunningTranslocated"
-        case 2001: return "SUDownloadError"
-        case 3001: return "SUSignatureError"
-        case 3002: return "SUValidationError"
-        default:
-            return nil
-        }
-    }
-
     /// Normalizes a Sparkle display version into a trimmed, non-empty string, or `nil`.
     public static func normalizedDetectedUpdateVersion(from version: String) -> String? {
         let trimmed = version.trimmingCharacters(in: .whitespacesAndNewlines)
         return trimmed.isEmpty ? nil : trimmed
     }
 }
+
+#if DEBUG
+/// A synthetic update-error scenario that the debug menu can inject so every error popover
+/// variant (title, message, and whether the manual-download button shows) can be previewed
+/// without reproducing the real failure.
+///
+/// Cases map one-to-one to the branches in ``UpdateStateModel/userFacingErrorTitle(for:)`` /
+/// ``UpdateStateModel/userFacingErrorMessage(for:)`` / ``UpdateStateModel/manualDownloadURL(for:)``.
+public enum DebugUpdateErrorScenario: String, CaseIterable, Hashable, Sendable {
+    /// 4005 wrapping the internal IPC-timeout (the wedged-launchd case): "Couldn't Start Updater".
+    case installerAgentFailure
+    /// 4010 `SUAgentInvalidationError`: also "Couldn't Start Updater".
+    case agentInvalidation
+    /// Plain 4005 with no agent signal: "Updater Permission Error" + recovery message + download.
+    case genericInstallFailure
+    /// 4005 wrapping `SUAuthenticationFailure` (4001): must NOT be treated as an agent failure.
+    case installFailureWrappingAuth
+    /// 2001 `SUDownloadError`: "Couldn't Download Update", offers download.
+    case downloadFailure
+    /// 1003 `SURunningFromDiskImageError`: keeps "Move into Applications", no download button.
+    case diskImageTranslocation
+    /// 3001 `SUSignatureError`: signature copy, deliberately no download button.
+    case signatureError
+    /// Offline `NSURLError`: "No Internet Connection".
+    case noInternet
+
+    /// The label shown for this scenario in the debug menu.
+    public var menuTitle: String {
+        switch self {
+        case .installerAgentFailure: return "Installer Agent Failure (4005 + timeout)"
+        case .agentInvalidation: return "Agent Invalidation (4010)"
+        case .genericInstallFailure: return "Generic Install Failure (4005)"
+        case .installFailureWrappingAuth: return "Install Failure / Auth (4005→4001)"
+        case .downloadFailure: return "Download Failure (2001)"
+        case .diskImageTranslocation: return "Disk Image / Translocated (1003)"
+        case .signatureError: return "Signature Error (3001)"
+        case .noInternet: return "No Internet"
+        }
+    }
+
+    /// Builds the synthetic error for this scenario.
+    var error: NSError {
+        switch self {
+        case .installerAgentFailure:
+            let underlying = NSError(domain: SUSparkleErrorDomain, code: 10, userInfo: [
+                NSLocalizedDescriptionKey: "Timeout: agent connection was never initiated",
+            ])
+            return NSError(domain: SUSparkleErrorDomain, code: 4005, userInfo: [
+                NSLocalizedDescriptionKey: "An error occurred while running the updater. Please try again later.",
+                NSLocalizedFailureReasonErrorKey: "The remote port connection was invalidated from the updater.",
+                NSUnderlyingErrorKey: underlying,
+            ])
+        case .agentInvalidation:
+            return NSError(domain: SUSparkleErrorDomain, code: 4010, userInfo: [
+                NSLocalizedDescriptionKey: "The updater agent was invalidated.",
+            ])
+        case .genericInstallFailure:
+            return NSError(domain: SUSparkleErrorDomain, code: 4005, userInfo: [
+                NSLocalizedDescriptionKey: "The installation failed.",
+            ])
+        case .installFailureWrappingAuth:
+            let underlying = NSError(domain: SUSparkleErrorDomain, code: 4001, userInfo: [
+                NSLocalizedDescriptionKey: "Authorization failed.",
+            ])
+            return NSError(domain: SUSparkleErrorDomain, code: 4005, userInfo: [
+                NSLocalizedDescriptionKey: "An error occurred while installing the update.",
+                NSUnderlyingErrorKey: underlying,
+            ])
+        case .downloadFailure:
+            return NSError(domain: SUSparkleErrorDomain, code: 2001, userInfo: [
+                NSLocalizedDescriptionKey: "The update download failed.",
+            ])
+        case .diskImageTranslocation:
+            return NSError(domain: SUSparkleErrorDomain, code: 1003, userInfo: [
+                NSLocalizedDescriptionKey: "Running from a disk image.",
+            ])
+        case .signatureError:
+            return NSError(domain: SUSparkleErrorDomain, code: 3001, userInfo: [
+                NSLocalizedDescriptionKey: "The update signature is invalid.",
+            ])
+        case .noInternet:
+            return NSError(domain: NSURLErrorDomain, code: NSURLErrorNotConnectedToInternet, userInfo: [
+                NSLocalizedDescriptionKey: "The Internet connection appears to be offline.",
+            ])
+        }
+    }
+}
+#endif
