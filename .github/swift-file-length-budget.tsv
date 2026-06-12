@@ -1,10 +1,10 @@
 # cmux-owned Swift file length budget.
 # Format: max_lines<TAB>relative path
 # Reduce counts as files shrink. CI fails if tracked files exceed this budget.
-33266	CLI/cmux.swift
+33285	CLI/cmux.swift
 22838	Sources/TerminalController.swift
 19955	Sources/Workspace.swift
-19256	Sources/ContentView.swift
+19267	Sources/ContentView.swift
 18021	Sources/AppDelegate.swift
 16539	Sources/GhosttyTerminalView.swift
 13608	Sources/Panels/BrowserPanel.swift
@@ -40,8 +40,8 @@
 2527	Sources/TerminalNotificationStore.swift
 2513	cmuxTests/CommandPaletteSearchEngineTests.swift
 2509	Sources/KeyboardShortcutSettings.swift
-2327	cmuxTests/CJKIMEInputTests.swift
 2340	Sources/Mobile/MobileHostService.swift
+2327	cmuxTests/CJKIMEInputTests.swift
 2290	Sources/FileExplorerView.swift
 2260	Sources/TerminalWindowPortal.swift
 2138	Sources/SessionPersistence.swift
@@ -52,8 +52,8 @@
 1860	cmuxTests/NotificationAndMenuBarTests.swift
 1793	Sources/SessionIndexStore.swift
 1751	Sources/WindowDragHandleView.swift
+1737	Sources/RestorableAgentSession.swift
 1721	cmuxTests/TerminalControllerSocketSecurityTests.swift
-1720	Sources/RestorableAgentSession.swift
 1693	cmuxTests/WorkspacePullRequestSidebarTests.swift
 1652	cmuxTests/CMUXCLIErrorOutputRegressionTests.swift
 1643	cmuxUITests/BrowserPaneNavigationKeybindUITests.swift
@@ -79,6 +79,7 @@
 1107	Sources/AppDelegate+CmuxSSHURL.swift
 1096	Sources/GhosttyConfig.swift
 1084	cmuxTests/AgentHibernationTests.swift
+1074	cmuxTests/RestorableAgentSessionIndexTests.swift
 1068	cmuxTests/FileExplorerStoreTests.swift
 1058	cmuxUITests/BonsplitTabDragUITests.swift
 1021	cmuxUITests/TerminalCmdClickUITests.swift
@@ -89,7 +90,6 @@
 944	Sources/App/ShortcutRoutingSupport.swift
 939	Sources/App/TerminalDirectoryOpenSupport.swift
 937	Sources/TextBoxMentionIndexStore.swift
-937	cmuxTests/RestorableAgentSessionIndexTests.swift
 924	Sources/DockPanelView.swift
 913	cmuxTests/WorkspaceGroupTests.swift
 905	Sources/CmuxSSHURLRequest.swift
