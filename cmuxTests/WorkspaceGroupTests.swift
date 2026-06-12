@@ -877,12 +877,6 @@ struct WorkspaceGroupTests {
         #expect(RenderableSystemSymbol.clampedRasterPointSize(11) == 11)
     }
 
-    // Regression for #5404: renaming a group must update the name shown in
-    // window chrome (the custom title bar / NSWindow title / toolbar label),
-    // not just the sidebar header. The chrome derives a grouped anchor's
-    // displayed name from `resolvedWorkspaceDisplayTitle(for:)`, which must
-    // track the group's `name` — the single source of truth — rather than the
-    // anchor's own (stale) title that was merely seeded at creation.
     @Test func renamingGroupUpdatesAnchorDisplayTitle() throws {
         let manager = makeTabManager()
         let groupId = try #require(
