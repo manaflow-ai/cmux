@@ -238,6 +238,7 @@ function Timeline({ state }: { state: ConversationState }) {
   const realBoundaries = new Set(state.turnStarts);
   const firstRealBoundary =
     state.turnStarts.length > 0 ? Math.min(...state.turnStarts) : Number.POSITIVE_INFINITY;
+  const provider = state.session?.provider ?? null;
   const rows: ReactNode[] = [];
   state.items.forEach((item, index) => {
     const isBoundary =
@@ -245,7 +246,7 @@ function Timeline({ state }: { state: ConversationState }) {
     if (isBoundary && index > 0) {
       rows.push(<TurnSeparator key={`turn-${item.id}`} />);
     }
-    rows.push(<ItemRow key={item.id} item={item} />);
+    rows.push(<ItemRow key={item.id} item={item} provider={provider} />);
   });
 
   return (
