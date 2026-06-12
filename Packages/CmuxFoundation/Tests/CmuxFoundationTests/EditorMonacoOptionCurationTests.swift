@@ -1,20 +1,17 @@
 import Foundation
 import Testing
 
-#if canImport(cmux_DEV)
-@testable import cmux_DEV
-#elseif canImport(cmux)
-@testable import cmux
-#endif
+@testable import CmuxFoundation
 
-/// Behavioral coverage for `CMUXCLI.curateEditorMonacoOptions`: the pure mapping
-/// from a cmux.json `editor` object to the Monaco options subset injected into
-/// the `cmux edit` webview. The curation is the security + correctness boundary
-/// — only an allowlist of viewer/edit-safe options is forwarded, with type and
-/// enum validation; dangerous model-level keys are always dropped.
-struct EditorMonacoOptionsCurationTests {
+/// Behavioral coverage for ``EditorMonacoOptionCuration/curate(_:)``: the pure
+/// mapping from a cmux.json `editor` object to the Monaco options subset
+/// injected into the `cmux edit` webview. The curation is the security +
+/// correctness boundary — only an allowlist of viewer/edit-safe options is
+/// forwarded, with type and enum validation; dangerous model-level keys are
+/// always dropped.
+struct EditorMonacoOptionCurationTests {
     @Test func forwardsValidScalarOptions() {
-        let out = CMUXCLI.curateEditorMonacoOptions([
+        let out = EditorMonacoOptionCuration.curate([
             "wordWrap": "on",
             "tabSize": 2,
             "insertSpaces": false,
@@ -31,8 +28,7 @@ struct EditorMonacoOptionsCurationTests {
     }
 
     @Test func dropsDangerousAndUnknownKeys() {
-        let out = CMUXCLI.curateEditorMonacoOptions([
-            // Model-level / unsafe — must never be forwarded.
+        let out = EditorMonacoOptionCuration.curate([
             "model": ["foo": "bar"],
             "value": "malicious",
             "language": "javascript",
@@ -40,9 +36,7 @@ struct EditorMonacoOptionsCurationTests {
             "readOnly": false,
             "automaticLayout": true,
             "domReadOnly": false,
-            // Not in the allowlist.
             "totallyMadeUp": 42,
-            // One valid key so the dict isn't empty for an unrelated reason.
             "wordWrap": "off",
         ])
         #expect(out["model"] == nil)
@@ -57,12 +51,12 @@ struct EditorMonacoOptionsCurationTests {
     }
 
     @Test func rejectsOutOfEnumAndOutOfRangeValues() {
-        let out = CMUXCLI.curateEditorMonacoOptions([
-            "wordWrap": "diagonal",     // not a valid enum value
-            "lineNumbers": 5,            // wrong type
-            "tabSize": 999,              // out of range (max 64)
-            "cursorStyle": "spiral",     // not a valid enum value
-            "letterSpacing": 999,        // out of range
+        let out = EditorMonacoOptionCuration.curate([
+            "wordWrap": "diagonal",
+            "lineNumbers": 5,
+            "tabSize": 999,
+            "cursorStyle": "spiral",
+            "letterSpacing": 999,
         ])
         #expect(out["wordWrap"] == nil)
         #expect(out["lineNumbers"] == nil)
@@ -73,7 +67,7 @@ struct EditorMonacoOptionsCurationTests {
     }
 
     @Test func curatesNestedObjects() {
-        let out = CMUXCLI.curateEditorMonacoOptions([
+        let out = EditorMonacoOptionCuration.curate([
             "minimap": ["enabled": false, "side": "left", "bogus": "x"],
             "bracketPairColorization": ["enabled": true],
             "stickyScroll": ["enabled": true, "maxLineCount": 3],
@@ -93,13 +87,12 @@ struct EditorMonacoOptionsCurationTests {
     }
 
     @Test func curatesRulersArray() {
-        let out = CMUXCLI.curateEditorMonacoOptions(["rulers": [80, 120, -3, 0, "x"]])
-        // Only positive integers survive; junk is filtered.
+        let out = EditorMonacoOptionCuration.curate(["rulers": [80, 120, -3, 0, "x"]])
         #expect(out["rulers"] as? [Int] == [80, 120])
     }
 
     @Test func emptyConfigYieldsEmptyOptions() {
-        #expect(CMUXCLI.curateEditorMonacoOptions([:]).isEmpty)
-        #expect(CMUXCLI.curateEditorMonacoOptions(["onlyUnknown": true]).isEmpty)
+        #expect(EditorMonacoOptionCuration.curate([:]).isEmpty)
+        #expect(EditorMonacoOptionCuration.curate(["onlyUnknown": true]).isEmpty)
     }
 }

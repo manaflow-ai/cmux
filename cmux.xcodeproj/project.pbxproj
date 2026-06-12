@@ -280,7 +280,6 @@
 		D0C0D0C0D0C0D0C0D0C0D001 /* DockPanelView.swift in Sources */ = {isa = PBXBuildFile; fileRef = D0C0D0C0D0C0D0C0D0C0D002 /* DockPanelView.swift */; };
 		D0B10014A1B2C3D4E5F60001 /* DragOverlayRoutingPolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = D0B10015A1B2C3D4E5F60001 /* DragOverlayRoutingPolicy.swift */; };
 		D3622100A1B2C3D4E5F60718 /* EditableTextViewArrowKeyForwardingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D3622101A1B2C3D4E5F60718 /* EditableTextViewArrowKeyForwardingTests.swift */; };
-		C135190000000000000000C1 /* EditorMonacoOptionsCurationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C135190000000000000000C2 /* EditorMonacoOptionsCurationTests.swift */; };
 		A500ES01 /* EditorSaveBridge.swift in Sources */ = {isa = PBXBuildFile; fileRef = A500ES00 /* EditorSaveBridge.swift */; };
 		C135190000000000000000B1 /* EditorSaveRegistryExpiryTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C135190000000000000000B2 /* EditorSaveRegistryExpiryTests.swift */; };
 		C135190000000000000000D1 /* EditorViewStateSidecarTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C135190000000000000000D2 /* EditorViewStateSidecarTests.swift */; };
@@ -1019,7 +1018,6 @@
 		D0C0D0C0D0C0D0C0D0C0D002 /* DockPanelView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DockPanelView.swift; sourceTree = "<group>"; };
 		D0B10015A1B2C3D4E5F60001 /* DragOverlayRoutingPolicy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DragOverlayRoutingPolicy.swift; sourceTree = "<group>"; };
 		D3622101A1B2C3D4E5F60718 /* EditableTextViewArrowKeyForwardingTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EditableTextViewArrowKeyForwardingTests.swift; sourceTree = "<group>"; };
-		C135190000000000000000C2 /* EditorMonacoOptionsCurationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EditorMonacoOptionsCurationTests.swift; sourceTree = "<group>"; };
 		A500ES00 /* EditorSaveBridge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/EditorSaveBridge.swift; sourceTree = "<group>"; };
 		C135190000000000000000B2 /* EditorSaveRegistryExpiryTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EditorSaveRegistryExpiryTests.swift; sourceTree = "<group>"; };
 		C135190000000000000000D2 /* EditorViewStateSidecarTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EditorViewStateSidecarTests.swift; sourceTree = "<group>"; };
@@ -2096,7 +2094,6 @@
 				DEBDADADADADADADAD000004 /* DebugDogfoodCredentialResolverTests.swift */,
 				C135190000000000000000A2 /* PreferredEditorSettingsTests.swift */,
 				C135190000000000000000B2 /* EditorSaveRegistryExpiryTests.swift */,
-				C135190000000000000000C2 /* EditorMonacoOptionsCurationTests.swift */,
 				C135190000000000000000D2 /* EditorViewStateSidecarTests.swift */,
 				C135190000000000000000B2 /* SidebarWorkspaceGroupConfigOpenerTests.swift */,
 				A11EAE000000000000000001 /* WorkspaceAppearanceConfigResolutionTests.swift */,
@@ -3216,7 +3213,6 @@
 				DEBDADADADADADADAD000003 /* DebugDogfoodCredentialResolverTests.swift in Sources */,
 				DE71CE000000000000000002 /* DeviceRegistryClientTests.swift in Sources */,
 				D3622100A1B2C3D4E5F60718 /* EditableTextViewArrowKeyForwardingTests.swift in Sources */,
-				C135190000000000000000C1 /* EditorMonacoOptionsCurationTests.swift in Sources */,
 				C135190000000000000000B1 /* EditorSaveRegistryExpiryTests.swift in Sources */,
 				C135190000000000000000D1 /* EditorViewStateSidecarTests.swift in Sources */,
 				E50320010000000000000001 /* ExtensionWorktreeSpawnArgsTests.swift in Sources */,
