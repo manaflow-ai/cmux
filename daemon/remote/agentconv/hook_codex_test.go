@@ -28,9 +28,39 @@ func TestHookMergeCodexNotifyTurnCompleted(t *testing.T) {
 		t.Fatalf("next codex notify stop = %+v, want turn.completed turn-def", events)
 	}
 
+	// Non-consecutive redelivery of an old turn id is dropped too.
+	if events := merger.consumeHookFrame(frame); len(events) != 0 {
+		t.Fatalf("non-consecutive duplicate codex notify emitted %+v", events)
+	}
+
 	// A Stop with neither an active turn nor a provider turn id stays a no-op.
 	if events := merger.consumeHookFrame(HookFrame{Provider: ProviderCodex, SessionID: "sess-codex", Hook: HookStop}); len(events) != 0 {
 		t.Fatalf("bare stop emitted %+v", events)
+	}
+}
+
+// A redelivered notification for an already-completed turn is not progress
+// evidence: a request opened after the original completion must stay pending.
+func TestHookMergeCodexDuplicateNotifyKeepsRequestsPending(t *testing.T) {
+	parser := newCodexParser("/tmp/sess-codex.jsonl")
+	merger := newHookMerger(parser.conv())
+
+	stop := HookFrame{Provider: ProviderCodex, SessionID: "sess-codex", Hook: HookStop, TurnID: "turn-1"}
+	if events := merger.consumeHookFrame(stop); len(events) != 1 {
+		t.Fatalf("first stop = %+v", events)
+	}
+	opened := merger.consumeHookFrame(HookFrame{Provider: ProviderCodex, SessionID: "sess-codex", Hook: HookNotification, Detail: "Codex is waiting for input"})
+	if len(opened) != 1 || opened[0].Type != EventRequestOpened {
+		t.Fatalf("request open = %+v", opened)
+	}
+	// Duplicate of turn-1 arrives late: full no-op, request stays pending.
+	if events := merger.consumeHookFrame(stop); len(events) != 0 {
+		t.Fatalf("duplicate stop after request opened emitted %+v", events)
+	}
+	// A genuinely new completion is progress and resolves it.
+	events := merger.consumeHookFrame(HookFrame{Provider: ProviderCodex, SessionID: "sess-codex", Hook: HookStop, TurnID: "turn-2"})
+	if len(events) != 2 || events[0].Type != EventRequestResolved || events[1].Type != EventTurnCompleted {
+		t.Fatalf("next stop = %+v", events)
 	}
 }
 

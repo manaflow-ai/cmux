@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 )
 
 // Fixture index dbs are built with the same driver the reader uses, against
@@ -74,6 +75,13 @@ func TestCodexIndexServesListing(t *testing.T) {
 	// On disk but not in the index: an index-served listing must not contain
 	// it (this is what proves the glob was not used).
 	writeCodexRolloutFile(t, codexDir, "2026-06-03", "2026-06-03T10-00-00", "sess-unindexed", "/tmp/project-a", "not indexed")
+	// File mtimes drive the cross-provider sort; pin them.
+	if err := os.Chtimes(pathA, time.Unix(1000, 0), time.Unix(1000, 0)); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chtimes(pathB, time.Unix(2000, 0), time.Unix(2000, 0)); err != nil {
+		t.Fatal(err)
+	}
 	buildCodexIndexFixture(t, codexDir, []codexThreadRow{
 		{id: "sess-a", rolloutPath: pathA, cwd: "/tmp/project-a", title: "work in a", updatedAt: 100},
 		{id: "sess-b", rolloutPath: pathB, cwd: "/tmp/project-b", title: "", updatedAt: 200},
@@ -83,28 +91,18 @@ func TestCodexIndexServesListing(t *testing.T) {
 	roots := Roots{CodexDir: codexDir}
 	all := ListSessions(roots, ListQuery{Provider: ProviderCodex})
 	got := codexSessionIDs(all)
-	if len(got) != 2 || got[0] != "sess-b" && got[1] != "sess-b" {
-		t.Fatalf("index listing = %v, want exactly sess-a and sess-b", got)
+	// Exactly the indexed sessions whose transcript exists, newest first:
+	// sess-unindexed (on disk, not indexed) proves the glob was not used,
+	// sess-gone (indexed, transcript deleted) must be skipped.
+	if len(got) != 2 || got[0] != "sess-b" || got[1] != "sess-a" {
+		t.Fatalf("index listing = %v, want [sess-b sess-a]", got)
 	}
-	for _, ref := range all {
-		switch ref.SessionID {
-		case "sess-unindexed":
-			t.Error("glob result leaked into an index-served listing")
-		case "sess-gone":
-			t.Error("index row with deleted transcript was listed")
-		case "sess-a":
-			if ref.Title != "work in a" || ref.Cwd != "/tmp/project-a" || ref.TranscriptPath != pathA {
-				t.Errorf("sess-a ref = %+v", ref)
-			}
-		case "sess-b":
-			// Empty title in the index falls back to the transcript head.
-			if ref.Title != "work in b" {
-				t.Errorf("sess-b title = %q, want transcript-head fallback", ref.Title)
-			}
-			if ref.UpdatedAt == "" {
-				t.Error("sess-b missing updated_at")
-			}
-		}
+	if ref := all[1]; ref.Title != "work in a" || ref.Cwd != "/tmp/project-a" || ref.TranscriptPath != pathA {
+		t.Errorf("sess-a ref = %+v", ref)
+	}
+	// Empty title in the index falls back to the transcript head.
+	if ref := all[0]; ref.Title != "work in b" || ref.UpdatedAt == "" {
+		t.Errorf("sess-b ref = %+v, want transcript-head title and updated_at", ref)
 	}
 
 	narrowed := ListSessions(roots, ListQuery{Provider: ProviderCodex, Cwd: "/tmp/project-a"})

@@ -69,11 +69,31 @@ type hookMerger struct {
 	// pendingRequests preserves open order for implicit resolution.
 	pendingRequests []pendingRequest
 	activeTurnID    string
-	// lastExternalTurnID deduplicates provider-reported turn completions
-	// (frames carrying their own turn_id, with no observed turn.started).
-	lastExternalTurnID string
-	turnCounter        int
-	requestCounter     int
+	// seenExternalTurnIDs deduplicates provider-reported turn completions
+	// (frames carrying their own turn_id, with no observed turn.started),
+	// bounded FIFO so non-consecutive redeliveries are dropped too.
+	seenExternalTurnIDs   map[string]bool
+	seenExternalTurnOrder []string
+	turnCounter           int
+	requestCounter        int
+}
+
+const maxSeenExternalTurns = 64
+
+func (m *hookMerger) externalTurnSeen(turnID string) bool {
+	return m.seenExternalTurnIDs[turnID]
+}
+
+func (m *hookMerger) markExternalTurnSeen(turnID string) {
+	if m.seenExternalTurnIDs == nil {
+		m.seenExternalTurnIDs = map[string]bool{}
+	}
+	m.seenExternalTurnIDs[turnID] = true
+	m.seenExternalTurnOrder = append(m.seenExternalTurnOrder, turnID)
+	if len(m.seenExternalTurnOrder) > maxSeenExternalTurns {
+		delete(m.seenExternalTurnIDs, m.seenExternalTurnOrder[0])
+		m.seenExternalTurnOrder = m.seenExternalTurnOrder[1:]
+	}
 }
 
 func newHookMerger(conversation *conversation) *hookMerger {
@@ -117,17 +137,24 @@ func (m *hookMerger) consumeHookFrame(frame HookFrame) []Event {
 			Prompt: frame.Prompt,
 		})
 	case HookStop:
-		events := m.resolveAllPending()
 		if m.activeTurnID == "" {
+			if frame.TurnID != "" && m.externalTurnSeen(frame.TurnID) {
+				// A redelivered notification for an already-completed turn is
+				// not new progress evidence: it must not resolve requests
+				// opened since, and not re-emit the completion.
+				return nil
+			}
+			events := m.resolveAllPending()
 			// No observed turn.started. A frame carrying the provider's own
 			// turn id (Codex notify, which only fires at turn end) still
-			// proves a turn completed; repeats of the same id are dropped.
-			if frame.TurnID == "" || frame.TurnID == m.lastExternalTurnID {
+			// proves a turn completed.
+			if frame.TurnID == "" {
 				return events
 			}
-			m.lastExternalTurnID = frame.TurnID
+			m.markExternalTurnSeen(frame.TurnID)
 			return append(events, Event{Type: EventTurnCompleted, TurnID: frame.TurnID})
 		}
+		events := m.resolveAllPending()
 		turnID := m.activeTurnID
 		m.activeTurnID = ""
 		return append(events, Event{Type: EventTurnCompleted, TurnID: turnID})
