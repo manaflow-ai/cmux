@@ -1576,38 +1576,47 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         let candidates = instances.filter { $0.platform.lowercased() != "ios" }
         guard !candidates.isEmpty else { return }
         let stackUserID = identityProvider?.currentUserID
+        // Every await below suspends the main actor, so re-check after
+        // each one that the frame's user is still the signed-in user: a
+        // stale presence frame from a previous account must never write
+        // routes into, or kick reconnects for, the next session (mirrors
+        // refreshRegistryDevices' account-switch guard).
+        let userIsCurrent: () -> Bool = { [weak self] in
+            guard let self else { return false }
+            return self.isSignedIn && self.identityProvider?.currentUserID == stackUserID
+        }
+        // Serialized on the paired-Mac write chain: a (re)subscribe delivers
+        // a snapshot immediately followed by online/routes events for the
+        // same device, and two concurrent deliveries would race their
+        // pairedMacStore upserts and could each kick a reconnect. The chain
+        // appends synchronously on the main actor, so deliveries execute
+        // strictly in arrival order.
         Task { @MainActor [weak self] in
             guard let self else { return }
-            // Every await below suspends the main actor, so re-check after
-            // each one that the frame's user is still the signed-in user: a
-            // stale presence frame from a previous account must never write
-            // routes into, or kick reconnects for, the next session (mirrors
-            // refreshRegistryDevices' account-switch guard).
-            let userIsCurrent: () -> Bool = { [weak self] in
-                guard let self else { return false }
-                return self.isSignedIn && self.identityProvider?.currentUserID == stackUserID
-            }
-            guard userIsCurrent() else { return }
-            if self.pairedMacs.isEmpty {
-                // A presence frame can land before the first paired-Mac load
-                // (snapshot arrives fast on launch); resolve the pairing list
-                // before deciding these devices are unknown.
-                await self.loadPairedMacs()
-            }
-            var onlineDeviceIds: Set<String> = []
-            for instance in candidates {
+            await self.performSerializedPairedMacWrite(ifStillCurrent: userIsCurrent) {
+                [weak self] in
+                guard let self else { return }
+                if self.pairedMacs.isEmpty {
+                    // A presence frame can land before the first paired-Mac
+                    // load (snapshot arrives fast on launch); resolve the
+                    // pairing list before deciding these devices are unknown.
+                    await self.loadPairedMacs()
+                }
+                var onlineDeviceIds: Set<String> = []
+                for instance in candidates {
+                    guard userIsCurrent() else { return }
+                    if instance.online { onlineDeviceIds.insert(instance.deviceId) }
+                    await self.applyPushedRoutes(from: instance, stackUserID: stackUserID)
+                }
                 guard userIsCurrent() else { return }
-                if instance.online { onlineDeviceIds.insert(instance.deviceId) }
-                await self.applyPushedRoutes(from: instance, stackUserID: stackUserID)
-            }
-            guard userIsCurrent() else { return }
-            // The Mac this phone wants is online and we are not connected:
-            // reconnect now (routes above are already persisted), instead of
-            // waiting for the user to pull Retry.
-            if self.connectionState != .connected,
-               let activeMacID = self.pairedMacs.first(where: { $0.isActive })?.macDeviceID,
-               onlineDeviceIds.contains(activeMacID) {
-                self.recoverMobileConnection(trigger: .presencePush)
+                // The Mac this phone wants is online and we are not
+                // connected: reconnect now (routes above are already
+                // persisted), instead of waiting for the user to pull Retry.
+                if self.connectionState != .connected,
+                   let activeMacID = self.pairedMacs.first(where: { $0.isActive })?.macDeviceID,
+                   onlineDeviceIds.contains(activeMacID) {
+                    self.recoverMobileConnection(trigger: .presencePush)
+                }
             }
         }
     }
