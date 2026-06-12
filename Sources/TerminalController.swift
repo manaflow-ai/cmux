@@ -21988,11 +21988,9 @@ class TerminalController {
         // the iOS client uses to show or hide rename/pin.
         let capabilities = MobileHostService.mobileHostCapabilities
         guard includePrivateMetadata else {
-            return .ok([
-                "routes": status.routes.map(\.mobileHostJSONObject),
-                "terminal_fidelity": "render_grid",
-                "capabilities": capabilities,
-            ])
+            return .ok(MobileHostService.publicStatusPayload(
+                routesPayload: status.routes.map(\.mobileHostJSONObject)
+            ))
         }
 
         let tabManager = v2ResolveTabManager(params: params)
