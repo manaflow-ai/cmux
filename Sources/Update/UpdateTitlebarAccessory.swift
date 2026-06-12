@@ -3,9 +3,41 @@ import Bonsplit
 import Combine
 import SwiftUI
 
-final class NonDraggableHostingView<Content: View>: NSHostingView<Content> {
-    override var mouseDownCanMoveWindow: Bool { false }
+final class TitlebarAccessoryContainerView: NSView {
+    fileprivate static func shouldResolveWindowDragHit(eventType: NSEvent.EventType?) -> Bool {
+        eventType == nil || eventType == .leftMouseDown
+    }
+
+    override var mouseDownCanMoveWindow: Bool { true }
+
+    override func hitTest(_ point: NSPoint) -> NSView? {
+        guard bounds.contains(point) else { return nil }
+        guard Self.shouldResolveWindowDragHit(eventType: NSApp.currentEvent?.type) else {
+            return super.hitTest(point)
+        }
+        return super.hitTest(point) ?? self
+    }
 }
+
+final class TitlebarAccessoryHostingView<Content: View>: NSHostingView<Content> {
+    override var mouseDownCanMoveWindow: Bool { true }
+
+    override func hitTest(_ point: NSPoint) -> NSView? {
+        guard bounds.contains(point) else { return nil }
+        guard TitlebarAccessoryContainerView.shouldResolveWindowDragHit(eventType: NSApp.currentEvent?.type) else {
+            return super.hitTest(point)
+        }
+        guard let window else { return self }
+
+        let locationInWindow = convert(point, to: nil)
+        guard !isMinimalModeTitlebarControlHit(window: window, locationInWindow: locationInWindow) else {
+            return super.hitTest(point)
+        }
+        return self
+    }
+}
+
+typealias NonDraggableHostingView<Content: View> = TitlebarAccessoryHostingView<Content>
 
 enum TitlebarControlsStyle: Int, CaseIterable, Identifiable {
     case classic
@@ -1880,8 +1912,8 @@ enum TitlebarWindowGeometryNotifications {
 }
 
 final class TitlebarControlsAccessoryViewController: NSTitlebarAccessoryViewController, NSPopoverDelegate {
-    private let hostingView: NonDraggableHostingView<TitlebarControlsView>
-    private let containerView: NSView
+    private let hostingView: TitlebarAccessoryHostingView<TitlebarControlsView>
+    private let containerView: TitlebarAccessoryContainerView
     private let notificationStore: TerminalNotificationStore
     private lazy var notificationsPopover: NSPopover = makeNotificationsPopover()
     private var pendingSizeUpdate = false
@@ -1897,7 +1929,7 @@ final class TitlebarControlsAccessoryViewController: NSTitlebarAccessoryViewCont
     private var showsWorkspaceTitlebar: Bool { !WorkspacePresentationModeSettings.isMinimal() }
 
     init(notificationStore: TerminalNotificationStore) {
-        let containerView = NSView()
+        let containerView = TitlebarAccessoryContainerView()
         self.containerView = containerView
         self.notificationStore = notificationStore
         let toggleSidebar = { [weak containerView] in
@@ -1913,7 +1945,7 @@ final class TitlebarControlsAccessoryViewController: NSTitlebarAccessoryViewCont
         let focusHistoryForward = { [weak containerView] in
             _ = AppDelegate.shared?.activeTabManagerForCommands(preferredWindow: containerView?.window)?.navigateForward()
         }
-        hostingView = NonDraggableHostingView(
+        hostingView = TitlebarAccessoryHostingView(
             rootView: TitlebarControlsView(
                 notificationStore: notificationStore,
                 viewModel: viewModel,
