@@ -10746,7 +10746,7 @@ final class SidebarDragState {
         }
 
         updateSpringLoad(bands: bands, cursorY: cursorY)
-        resolveMembership(bands: bands, cursorY: cursorY, translationWidth: translationWidth)
+        resolveMembership(bands: bands, probeY: probeY, translationWidth: translationWidth)
     }
 
     /// Spring-loaded collapsed groups: parking the CURSOR over a collapsed
@@ -10799,7 +10799,7 @@ final class SidebarDragState {
     /// it on a purely vertical drag.
     private func resolveMembership(
         bands: [SidebarReorderIndicatorResolver.Band],
-        cursorY: CGFloat,
+        probeY: CGFloat,
         translationWidth: CGFloat
     ) {
         guard let draggedTabId, !draggedIsAnchor, !dropIndicatorUsesTopLevelRows else { return }
@@ -10877,36 +10877,30 @@ final class SidebarDragState {
         }
 
         // Moving boundary slot: TWO stacked hitboxes share this insertion
-        // position. While the cursor is still over the boundary-adjacent row
-        // that donated the candidate (its lower half resolved this slot) the
-        // drop is INSIDE the group ("last member" / "tucked under the
-        // header"); once the cursor passes that row's bottom edge into the
-        // gap or the next row's top half, the drop is OUTSIDE ("first row
-        // after the group"). Deterministic from Y — no horizontal nudge
-        // needed — with a small hysteresis band at the edge so jitter does
-        // not flicker the indent.
+        // position, measured with the SAME probe (the follower's leading
+        // edge) that drives the slot — one reference point for both, so the
+        // gap and the indent always flip together. While the probe is still
+        // over the boundary-adjacent row's run (its lower half plus half the
+        // gap) the drop is INSIDE the group ("last member" / "tucked under
+        // the header"); past the gap midpoint it is OUTSIDE ("first row
+        // after the group"). A small hysteresis band keeps jitter from
+        // flickering the indent.
         boundarySlotKey = nil
         let currentlyIn = previewMembershipGroupId == candidate
         let isIn: Bool
         if prevGroup != nil, let prevBand {
-            // Split at the MIDPOINT of the space between the boundary row's
-            // bottom and the next row's top: the IN hitbox covers the
-            // boundary row's lower half PLUS half the gap, the OUT hitbox the
-            // other half of the gap plus the next row's top half — two
-            // comparably-sized zones instead of a knife edge at the row's
-            // bottom pixel.
             let edgeY: CGFloat
             if let nextBand {
                 edgeY = (prevBand.maxY + nextBand.minY) / 2
             } else {
                 edgeY = prevBand.maxY
             }
-            isIn = currentlyIn ? cursorY <= edgeY + 3 : cursorY <= edgeY - 3
+            isIn = currentlyIn ? probeY <= edgeY + 3 : probeY <= edgeY - 3
         } else if let nextBand {
             // Candidate donated by the row BELOW the slot — mirror the rule
             // on that row's top edge.
             let edgeY = prevBand.map { ($0.maxY + nextBand.minY) / 2 } ?? nextBand.minY
-            isIn = currentlyIn ? cursorY >= edgeY - 3 : cursorY >= edgeY + 3
+            isIn = currentlyIn ? probeY >= edgeY - 3 : probeY >= edgeY + 3
         } else {
             isIn = currentlyIn
         }
