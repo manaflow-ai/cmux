@@ -25,13 +25,17 @@
 //! module) and must stay in sync with this file.
 
 use std::{
+    collections::HashMap,
     ffi::{CStr, CString, c_char},
     io,
     net::SocketAddr,
     os::raw::c_int,
     ptr,
     str::FromStr,
-    sync::OnceLock,
+    sync::{
+        Arc, Mutex as StdMutex, OnceLock, PoisonError,
+        atomic::{AtomicUsize, Ordering},
+    },
     time::Duration,
 };
 
@@ -41,7 +45,7 @@ use iroh::{
         Connection, ConnectionError, ReadError, RecvStream, SendStream, WriteError, presets,
     },
 };
-use tokio::{runtime::Runtime, sync::Mutex};
+use tokio::{runtime::Runtime, sync::Mutex as TokioMutex};
 
 /// ALPN for the cmux mobile-host protocol lane.
 const ALPN: &[u8] = b"dev.cmux.mobile.terminal/0";
@@ -188,14 +192,105 @@ fn parse_secret_key(secret_key: *const u8, secret_key_len: usize) -> Result<Secr
     Ok(SecretKey::from_bytes(&key))
 }
 
+/// Opaque endpoint handle. The pointer value is a key into a process-global
+/// registry, never a real address: in-flight blocking calls hold their own
+/// `Arc` to the underlying endpoint, so `cmux_iroh_endpoint_close` from
+/// another thread can never free memory a blocked call still uses (it instead
+/// wakes blocked accepts). Calls on a closed/unknown handle report
+/// `InvalidArgument`.
 pub struct CmuxIrohEndpoint {
+    _opaque: [u8; 0],
+}
+
+/// Opaque connection handle; same registry-key model as [`CmuxIrohEndpoint`].
+pub struct CmuxIrohConnection {
+    _opaque: [u8; 0],
+}
+
+struct EndpointInner {
     endpoint: Endpoint,
 }
 
-pub struct CmuxIrohConnection {
+struct ConnectionInner {
     connection: Connection,
-    send: Mutex<SendStream>,
-    recv: Mutex<RecvStream>,
+    send: TokioMutex<SendStream>,
+    recv: TokioMutex<RecvStream>,
+}
+
+fn next_handle_id() -> usize {
+    // Start at 1 so a handle value never collides with null.
+    static NEXT: AtomicUsize = AtomicUsize::new(1);
+    NEXT.fetch_add(1, Ordering::Relaxed)
+}
+
+fn endpoint_registry() -> &'static StdMutex<HashMap<usize, Arc<EndpointInner>>> {
+    static REGISTRY: OnceLock<StdMutex<HashMap<usize, Arc<EndpointInner>>>> = OnceLock::new();
+    REGISTRY.get_or_init(|| StdMutex::new(HashMap::new()))
+}
+
+fn connection_registry() -> &'static StdMutex<HashMap<usize, Arc<ConnectionInner>>> {
+    static REGISTRY: OnceLock<StdMutex<HashMap<usize, Arc<ConnectionInner>>>> = OnceLock::new();
+    REGISTRY.get_or_init(|| StdMutex::new(HashMap::new()))
+}
+
+fn register_endpoint(inner: EndpointInner) -> *mut CmuxIrohEndpoint {
+    let id = next_handle_id();
+    endpoint_registry()
+        .lock()
+        .unwrap_or_else(PoisonError::into_inner)
+        .insert(id, Arc::new(inner));
+    id as *mut CmuxIrohEndpoint
+}
+
+fn lookup_endpoint(handle: *const CmuxIrohEndpoint) -> Result<Arc<EndpointInner>, FfiError> {
+    endpoint_registry()
+        .lock()
+        .unwrap_or_else(PoisonError::into_inner)
+        .get(&(handle as usize))
+        .cloned()
+        .ok_or_else(|| {
+            FfiError::new(
+                CmuxIrohErrorKind::InvalidArgument,
+                "unknown or closed endpoint handle",
+            )
+        })
+}
+
+fn take_endpoint(handle: *mut CmuxIrohEndpoint) -> Option<Arc<EndpointInner>> {
+    endpoint_registry()
+        .lock()
+        .unwrap_or_else(PoisonError::into_inner)
+        .remove(&(handle as usize))
+}
+
+fn register_connection(inner: ConnectionInner) -> *mut CmuxIrohConnection {
+    let id = next_handle_id();
+    connection_registry()
+        .lock()
+        .unwrap_or_else(PoisonError::into_inner)
+        .insert(id, Arc::new(inner));
+    id as *mut CmuxIrohConnection
+}
+
+fn lookup_connection(handle: *const CmuxIrohConnection) -> Result<Arc<ConnectionInner>, FfiError> {
+    connection_registry()
+        .lock()
+        .unwrap_or_else(PoisonError::into_inner)
+        .get(&(handle as usize))
+        .cloned()
+        .ok_or_else(|| {
+            FfiError::new(
+                CmuxIrohErrorKind::InvalidArgument,
+                "unknown or closed connection handle",
+            )
+        })
+}
+
+fn take_connection(handle: *mut CmuxIrohConnection) -> Option<Arc<ConnectionInner>> {
+    connection_registry()
+        .lock()
+        .unwrap_or_else(PoisonError::into_inner)
+        .remove(&(handle as usize))
 }
 
 /// Generates a fresh Ed25519 secret key into the caller's buffer.
@@ -268,7 +363,7 @@ pub unsafe extern "C" fn cmux_iroh_endpoint_bind(
     clear_error(err_kind, err_buf, err_cap);
     let result = bind_impl(secret_key, secret_key_len, enable_relay, accept_connections);
     match result {
-        Ok(endpoint) => Box::into_raw(Box::new(CmuxIrohEndpoint { endpoint })),
+        Ok(endpoint) => register_endpoint(EndpointInner { endpoint }),
         Err(error) => {
             report_error(err_kind, err_buf, err_cap, &error);
             ptr::null_mut()
@@ -307,36 +402,24 @@ fn bind_impl(
 }
 
 /// Returns the endpoint's `EndpointId` (z-base-32) as a heap string.
-/// Free with `cmux_iroh_string_free`. Null if `endpoint` is null.
-///
-/// # Safety
-///
-/// `endpoint`, when non-null, must be a live pointer returned by
-/// `cmux_iroh_endpoint_bind` that has not been closed.
+/// Free with `cmux_iroh_string_free`. Null if the handle is null, unknown, or
+/// closed.
 #[unsafe(no_mangle)]
 #[must_use]
-pub unsafe extern "C" fn cmux_iroh_endpoint_id(endpoint: *const CmuxIrohEndpoint) -> *mut c_char {
-    // SAFETY: caller guarantees `endpoint` is null or live.
-    let Some(endpoint) = (unsafe { endpoint.as_ref() }) else {
+pub extern "C" fn cmux_iroh_endpoint_id(endpoint: *const CmuxIrohEndpoint) -> *mut c_char {
+    let Ok(endpoint) = lookup_endpoint(endpoint) else {
         return ptr::null_mut();
     };
     string_to_c(endpoint.endpoint.id().to_string())
 }
 
 /// Returns a `CmxAttachRoute`-shaped JSON object for this endpoint
-/// (id, direct addrs, relay URL). Free with `cmux_iroh_string_free`.
-///
-/// # Safety
-///
-/// `endpoint`, when non-null, must be a live pointer returned by
-/// `cmux_iroh_endpoint_bind` that has not been closed.
+/// (id, direct addrs, relay URL). Free with `cmux_iroh_string_free`. Null if
+/// the handle is null, unknown, or closed.
 #[unsafe(no_mangle)]
 #[must_use]
-pub unsafe extern "C" fn cmux_iroh_endpoint_route_json(
-    endpoint: *const CmuxIrohEndpoint,
-) -> *mut c_char {
-    // SAFETY: caller guarantees `endpoint` is null or live.
-    let Some(endpoint) = (unsafe { endpoint.as_ref() }) else {
+pub extern "C" fn cmux_iroh_endpoint_route_json(endpoint: *const CmuxIrohEndpoint) -> *mut c_char {
+    let Ok(endpoint) = lookup_endpoint(endpoint) else {
         return ptr::null_mut();
     };
     let addr = endpoint.endpoint.addr();
@@ -371,8 +454,7 @@ pub unsafe extern "C" fn cmux_iroh_endpoint_route_json(
 ///
 /// # Safety
 ///
-/// - `endpoint`, when non-null, must be live (see `cmux_iroh_endpoint_bind`).
-/// - Error out-params as on `cmux_iroh_endpoint_bind`.
+/// Error out-params as on `cmux_iroh_endpoint_bind`.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn cmux_iroh_endpoint_online(
     endpoint: *mut CmuxIrohEndpoint,
@@ -382,14 +464,7 @@ pub unsafe extern "C" fn cmux_iroh_endpoint_online(
     err_cap: usize,
 ) -> c_int {
     clear_error(err_kind, err_buf, err_cap);
-    // SAFETY: caller guarantees `endpoint` is null or live.
-    let result = match unsafe { endpoint.as_ref() } {
-        Some(endpoint) => online_impl(endpoint, timeout_ms),
-        None => Err(FfiError::new(
-            CmuxIrohErrorKind::InvalidArgument,
-            "null endpoint",
-        )),
-    };
+    let result = lookup_endpoint(endpoint).and_then(|endpoint| online_impl(&endpoint, timeout_ms));
     match result {
         Ok(()) => 0,
         Err(error) => {
@@ -399,7 +474,7 @@ pub unsafe extern "C" fn cmux_iroh_endpoint_online(
     }
 }
 
-fn online_impl(endpoint: &CmuxIrohEndpoint, timeout_ms: u64) -> Result<(), FfiError> {
+fn online_impl(endpoint: &EndpointInner, timeout_ms: u64) -> Result<(), FfiError> {
     runtime()?
         .block_on(async {
             tokio::time::timeout(
@@ -418,11 +493,12 @@ fn online_impl(endpoint: &CmuxIrohEndpoint, timeout_ms: u64) -> Result<(), FfiEr
 
 /// Accepts one incoming connection and its first bidirectional stream.
 /// Blocks up to `timeout_ms`. Returns null on failure/timeout.
+/// `cmux_iroh_endpoint_close` from another thread wakes a blocked accept,
+/// which then reports `EndpointClosed`.
 ///
 /// # Safety
 ///
-/// - `endpoint`, when non-null, must be live (see `cmux_iroh_endpoint_bind`).
-/// - Error out-params as on `cmux_iroh_endpoint_bind`.
+/// Error out-params as on `cmux_iroh_endpoint_bind`.
 #[unsafe(no_mangle)]
 #[must_use]
 pub unsafe extern "C" fn cmux_iroh_endpoint_accept(
@@ -433,19 +509,12 @@ pub unsafe extern "C" fn cmux_iroh_endpoint_accept(
     err_cap: usize,
 ) -> *mut CmuxIrohConnection {
     clear_error(err_kind, err_buf, err_cap);
-    // SAFETY: caller guarantees `endpoint` is null or live.
-    let result = match unsafe { endpoint.as_ref() } {
-        Some(endpoint) => accept_impl(endpoint, timeout_ms),
-        None => Err(FfiError::new(
-            CmuxIrohErrorKind::InvalidArgument,
-            "null endpoint",
-        )),
-    };
+    let result = lookup_endpoint(endpoint).and_then(|endpoint| accept_impl(&endpoint, timeout_ms));
     finish_connection(result, err_kind, err_buf, err_cap)
 }
 
 fn accept_impl(
-    endpoint: &CmuxIrohEndpoint,
+    endpoint: &EndpointInner,
     timeout_ms: u64,
 ) -> Result<(Connection, SendStream, RecvStream), FfiError> {
     runtime()?.block_on(async {
@@ -478,7 +547,6 @@ fn accept_impl(
 ///
 /// # Safety
 ///
-/// - `endpoint`, when non-null, must be live (see `cmux_iroh_endpoint_bind`).
 /// - `endpoint_id` and `relay_url`, when non-null, must be NUL-terminated C
 ///   strings.
 /// - `direct_addrs`, when non-null, must point at `direct_addr_count`
@@ -527,13 +595,7 @@ unsafe fn connect_impl(
     direct_addr_count: usize,
     timeout_ms: u64,
 ) -> Result<(Connection, SendStream, RecvStream), FfiError> {
-    // SAFETY: caller guarantees `endpoint` is null or live.
-    let Some(endpoint) = (unsafe { endpoint.as_ref() }) else {
-        return Err(FfiError::new(
-            CmuxIrohErrorKind::InvalidArgument,
-            "null endpoint",
-        ));
-    };
+    let endpoint = lookup_endpoint(endpoint)?;
     let Some(id_str) = c_to_str(endpoint_id) else {
         return Err(FfiError::new(
             CmuxIrohErrorKind::InvalidArgument,
@@ -631,15 +693,12 @@ pub unsafe extern "C" fn cmux_iroh_connection_recv(
     err_cap: usize,
 ) -> isize {
     clear_error(err_kind, err_buf, err_cap);
-    // SAFETY: caller guarantees `connection` is null or live.
-    let Some(connection) = (unsafe { connection.as_ref() }) else {
-        report_error(
-            err_kind,
-            err_buf,
-            err_cap,
-            &FfiError::new(CmuxIrohErrorKind::InvalidArgument, "null connection"),
-        );
-        return -1;
+    let connection = match lookup_connection(connection) {
+        Ok(connection) => connection,
+        Err(error) => {
+            report_error(err_kind, err_buf, err_cap, &error);
+            return -1;
+        }
     };
     if buf.is_null() || cap == 0 {
         report_error(
@@ -655,7 +714,7 @@ pub unsafe extern "C" fn cmux_iroh_connection_recv(
     }
     // SAFETY: `buf` is non-null and the caller guarantees `cap` writable bytes.
     let slice = unsafe { std::slice::from_raw_parts_mut(buf, cap) };
-    match recv_impl(connection, slice, timeout_ms) {
+    match recv_impl(&connection, slice, timeout_ms) {
         Ok(read) => isize::try_from(read).unwrap_or(isize::MAX),
         Err(error) => {
             report_error(err_kind, err_buf, err_cap, &error);
@@ -665,7 +724,7 @@ pub unsafe extern "C" fn cmux_iroh_connection_recv(
 }
 
 fn recv_impl(
-    connection: &CmuxIrohConnection,
+    connection: &ConnectionInner,
     buf: &mut [u8],
     timeout_ms: u64,
 ) -> Result<usize, FfiError> {
@@ -727,15 +786,12 @@ pub unsafe extern "C" fn cmux_iroh_connection_send(
     err_cap: usize,
 ) -> c_int {
     clear_error(err_kind, err_buf, err_cap);
-    // SAFETY: caller guarantees `connection` is null or live.
-    let Some(connection) = (unsafe { connection.as_ref() }) else {
-        report_error(
-            err_kind,
-            err_buf,
-            err_cap,
-            &FfiError::new(CmuxIrohErrorKind::InvalidArgument, "null connection"),
-        );
-        return -1;
+    let connection = match lookup_connection(connection) {
+        Ok(connection) => connection,
+        Err(error) => {
+            report_error(err_kind, err_buf, err_cap, &error);
+            return -1;
+        }
     };
     if len == 0 {
         return 0;
@@ -752,7 +808,7 @@ pub unsafe extern "C" fn cmux_iroh_connection_send(
     // SAFETY: `bytes` is non-null and the caller guarantees `len` readable
     // bytes.
     let slice = unsafe { std::slice::from_raw_parts(bytes, len) };
-    match send_impl(connection, slice, timeout_ms) {
+    match send_impl(&connection, slice, timeout_ms) {
         Ok(()) => 0,
         Err(error) => {
             report_error(err_kind, err_buf, err_cap, &error);
@@ -761,11 +817,7 @@ pub unsafe extern "C" fn cmux_iroh_connection_send(
     }
 }
 
-fn send_impl(
-    connection: &CmuxIrohConnection,
-    bytes: &[u8],
-    timeout_ms: u64,
-) -> Result<(), FfiError> {
+fn send_impl(connection: &ConnectionInner, bytes: &[u8], timeout_ms: u64) -> Result<(), FfiError> {
     let result = runtime()?.block_on(async {
         let mut send = connection.send.lock().await;
         if timeout_ms == 0 {
@@ -806,19 +858,16 @@ fn send_impl(
 /// skipped and `Connection::close` fires immediately, which also forces the
 /// stalled `write_all` to return `ConnectionLost`.
 ///
-/// # Safety
-///
-/// `connection`, when non-null, must be a live pointer returned by this
-/// library; it must not be used after this call, and no other call may be in
-/// flight on this handle when close runs (use bounded recv/send timeouts to
-/// regain control first).
+/// Safe to call concurrently with in-flight recv/send on the same handle:
+/// handles are registry keys and in-flight calls hold their own reference, so
+/// close never frees memory another call is using. The forced QUIC close
+/// errors blocked recv/send out (`ConnectionLost`). Idempotent: closing an
+/// unknown or already-closed handle is a no-op.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn cmux_iroh_connection_close(connection: *mut CmuxIrohConnection) {
-    if connection.is_null() {
+pub extern "C" fn cmux_iroh_connection_close(connection: *mut CmuxIrohConnection) {
+    let Some(connection) = take_connection(connection) else {
         return;
-    }
-    // SAFETY: caller passes ownership of a live connection pointer.
-    let connection = unsafe { Box::from_raw(connection) };
+    };
     let Ok(runtime) = runtime() else {
         return;
     };
@@ -833,19 +882,18 @@ pub unsafe extern "C" fn cmux_iroh_connection_close(connection: *mut CmuxIrohCon
     });
 }
 
-/// Closes the endpoint and frees its handle. Null is a no-op.
+/// Closes the endpoint and releases its handle. Null is a no-op.
 ///
-/// # Safety
-///
-/// `endpoint`, when non-null, must be a live pointer returned by
-/// `cmux_iroh_endpoint_bind`; it must not be used after this call.
+/// Safe to call concurrently with in-flight calls on the same handle (registry
+/// keys, see [`CmuxIrohEndpoint`]); a blocked `cmux_iroh_endpoint_accept` is
+/// woken and reports `EndpointClosed`, which makes close the sanctioned way to
+/// stop an accept loop. Idempotent: closing an unknown or already-closed
+/// handle is a no-op.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn cmux_iroh_endpoint_close(endpoint: *mut CmuxIrohEndpoint) {
-    if endpoint.is_null() {
+pub extern "C" fn cmux_iroh_endpoint_close(endpoint: *mut CmuxIrohEndpoint) {
+    let Some(endpoint) = take_endpoint(endpoint) else {
         return;
-    }
-    // SAFETY: caller passes ownership of a live endpoint pointer.
-    let endpoint = unsafe { Box::from_raw(endpoint) };
+    };
     let Ok(runtime) = runtime() else {
         return;
     };
@@ -877,11 +925,11 @@ fn finish_connection(
     err_cap: usize,
 ) -> *mut CmuxIrohConnection {
     match result {
-        Ok((connection, send, recv)) => Box::into_raw(Box::new(CmuxIrohConnection {
+        Ok((connection, send, recv)) => register_connection(ConnectionInner {
             connection,
-            send: Mutex::new(send),
-            recv: Mutex::new(recv),
-        })),
+            send: TokioMutex::new(send),
+            recv: TokioMutex::new(recv),
+        }),
         Err(error) => {
             report_error(err_kind, err_buf, err_cap, &error);
             ptr::null_mut()
@@ -1040,19 +1088,19 @@ mod ffi_seam_tests {
             take_string(unsafe { cmux_iroh_secret_key_endpoint_id(key.as_ptr(), key.len()) });
 
         let endpoint = bind(&key, false);
-        let bound = take_string(unsafe { cmux_iroh_endpoint_id(endpoint) });
+        let bound = take_string(cmux_iroh_endpoint_id(endpoint));
         assert_eq!(
             bound, derived,
             "bound endpoint must use the caller-provided key"
         );
 
-        let route = take_string(unsafe { cmux_iroh_endpoint_route_json(endpoint) });
+        let route = take_string(cmux_iroh_endpoint_route_json(endpoint));
         let parsed: serde_json::Value = serde_json::from_str(&route).expect("route JSON parses");
         assert_eq!(parsed["kind"], "iroh");
         assert_eq!(parsed["endpoint"]["type"], "peer");
         assert_eq!(parsed["endpoint"]["id"], derived.as_str());
 
-        unsafe { cmux_iroh_endpoint_close(endpoint) };
+        cmux_iroh_endpoint_close(endpoint);
     }
 
     #[test]
@@ -1078,7 +1126,7 @@ mod ffi_seam_tests {
         assert!(connection.is_null());
         assert_eq!(err.kind(), CmuxIrohErrorKind::InvalidArgument as i32);
 
-        unsafe { cmux_iroh_endpoint_close(endpoint) };
+        cmux_iroh_endpoint_close(endpoint);
     }
 
     #[test]
@@ -1093,8 +1141,8 @@ mod ffi_seam_tests {
         let listener = bind(&listener_key, true);
         let dialer = bind(&dialer_key, false);
 
-        let listener_id = take_string(unsafe { cmux_iroh_endpoint_id(listener) });
-        let route = take_string(unsafe { cmux_iroh_endpoint_route_json(listener) });
+        let listener_id = take_string(cmux_iroh_endpoint_id(listener));
+        let route = take_string(cmux_iroh_endpoint_route_json(listener));
         let parsed: serde_json::Value = serde_json::from_str(&route).expect("route JSON parses");
         let direct_addrs: Vec<String> = parsed["endpoint"]["direct_addrs"]
             .as_array()
@@ -1180,7 +1228,7 @@ mod ffi_seam_tests {
                 err.message()
             );
 
-            unsafe { cmux_iroh_connection_close(connection) };
+            cmux_iroh_connection_close(connection);
         });
 
         let id_cstr = CString::new(listener_id).expect("cstring");
@@ -1253,11 +1301,11 @@ mod ffi_seam_tests {
         }
         assert_eq!(echoed, payload, "echoed bytes must match");
 
-        unsafe { cmux_iroh_connection_close(connection) };
+        cmux_iroh_connection_close(connection);
         accept_thread.join().expect("accept thread joins cleanly");
 
-        unsafe { cmux_iroh_endpoint_close(dialer) };
-        unsafe { cmux_iroh_endpoint_close(listener) };
+        cmux_iroh_endpoint_close(dialer);
+        cmux_iroh_endpoint_close(listener);
     }
 
     #[test]
@@ -1305,8 +1353,8 @@ mod ffi_seam_tests {
         let listener = bind(&listener_key, true);
         let dialer = bind(&dialer_key, false);
 
-        let listener_id = take_string(unsafe { cmux_iroh_endpoint_id(listener) });
-        let route = take_string(unsafe { cmux_iroh_endpoint_route_json(listener) });
+        let listener_id = take_string(cmux_iroh_endpoint_id(listener));
+        let route = take_string(cmux_iroh_endpoint_route_json(listener));
         let parsed: serde_json::Value = serde_json::from_str(&route).expect("route JSON parses");
         let direct_addrs: Vec<String> = parsed["endpoint"]["direct_addrs"]
             .as_array()
@@ -1359,7 +1407,7 @@ mod ffi_seam_tests {
                 )
             };
             assert_eq!(read, 0, "dialer close reads as EOF");
-            unsafe { cmux_iroh_connection_close(connection) };
+            cmux_iroh_connection_close(connection);
         });
 
         let id_cstr = CString::new(listener_id).expect("cstring");
@@ -1420,10 +1468,211 @@ mod ffi_seam_tests {
             assert_eq!(err.kind(), CmuxIrohErrorKind::Timeout as i32);
         }
 
-        unsafe { cmux_iroh_connection_close(connection) };
+        cmux_iroh_connection_close(connection);
         accept_thread.join().expect("accept thread joins cleanly");
-        unsafe { cmux_iroh_endpoint_close(dialer) };
-        unsafe { cmux_iroh_endpoint_close(listener) };
+        cmux_iroh_endpoint_close(dialer);
+        cmux_iroh_endpoint_close(listener);
+    }
+
+    #[test]
+    fn endpoint_close_unblocks_blocked_accept() {
+        let key = generate_key();
+        let listener = bind(&key, true);
+
+        let (started_tx, started_rx) = std::sync::mpsc::channel::<()>();
+        let listener_ptr = ListenerPtr(listener);
+        let accept_thread = std::thread::spawn(move || {
+            let listener = listener_ptr;
+            started_tx.send(()).expect("signal accept start");
+            let mut err = ErrOut::new();
+            let connection = unsafe {
+                cmux_iroh_endpoint_accept(
+                    listener.0,
+                    30_000,
+                    &raw mut err.kind,
+                    err.buf.as_mut_ptr(),
+                    ERR_CAP,
+                )
+            };
+            // Close either wakes the blocked accept (EndpointClosed) or, if it
+            // won the race before accept started, invalidates the handle
+            // (InvalidArgument). Both return promptly; a 30s join would mean
+            // close failed to unblock accept.
+            assert!(connection.is_null());
+            assert!(
+                err.kind() == CmuxIrohErrorKind::EndpointClosed as i32
+                    || err.kind() == CmuxIrohErrorKind::InvalidArgument as i32,
+                "unexpected kind {} ({})",
+                err.kind(),
+                err.message()
+            );
+        });
+
+        started_rx.recv().expect("accept thread started");
+        cmux_iroh_endpoint_close(listener);
+        accept_thread.join().expect("accept thread joins promptly");
+
+        // The handle is gone: further calls fail cleanly, double close no-ops.
+        assert!(cmux_iroh_endpoint_id(listener).is_null());
+        cmux_iroh_endpoint_close(listener);
+    }
+
+    #[test]
+    #[allow(
+        clippy::too_many_lines,
+        reason = "one deliberate scenario: blocked recv, concurrent same-handle close, prompt clean return"
+    )]
+    fn connection_close_during_blocked_recv_returns_promptly() {
+        let listener_key = generate_key();
+        let dialer_key = generate_key();
+        let listener = bind(&listener_key, true);
+        let dialer = bind(&dialer_key, false);
+
+        let listener_id = take_string(cmux_iroh_endpoint_id(listener));
+        let route = take_string(cmux_iroh_endpoint_route_json(listener));
+        let parsed: serde_json::Value = serde_json::from_str(&route).expect("route JSON parses");
+        let direct_addrs: Vec<String> = parsed["endpoint"]["direct_addrs"]
+            .as_array()
+            .expect("direct_addrs is an array")
+            .iter()
+            .map(|value| value.as_str().expect("addr is a string").to_owned())
+            .collect();
+
+        // Listener side: accept, read until EOF, then close. Reading the FIN
+        // lets the dialer's graceful close drain resolve promptly.
+        let listener_ptr = ListenerPtr(listener);
+        let accept_thread = std::thread::spawn(move || {
+            let listener = listener_ptr;
+            let mut err = ErrOut::new();
+            let connection = unsafe {
+                cmux_iroh_endpoint_accept(
+                    listener.0,
+                    30_000,
+                    &raw mut err.kind,
+                    err.buf.as_mut_ptr(),
+                    ERR_CAP,
+                )
+            };
+            assert!(!connection.is_null(), "accept: {}", err.message());
+            loop {
+                let mut buf = [0u8; 16];
+                let mut err = ErrOut::new();
+                let read = unsafe {
+                    cmux_iroh_connection_recv(
+                        connection,
+                        buf.as_mut_ptr(),
+                        buf.len(),
+                        30_000,
+                        &raw mut err.kind,
+                        err.buf.as_mut_ptr(),
+                        ERR_CAP,
+                    )
+                };
+                if read <= 0 {
+                    break;
+                }
+            }
+            cmux_iroh_connection_close(connection);
+        });
+
+        let id_cstr = CString::new(listener_id).expect("cstring");
+        let addr_cstrs: Vec<CString> = direct_addrs
+            .iter()
+            .map(|addr| CString::new(addr.as_str()).expect("cstring"))
+            .collect();
+        let addr_ptrs: Vec<*const c_char> = addr_cstrs.iter().map(|addr| addr.as_ptr()).collect();
+        let mut err = ErrOut::new();
+        let connection = unsafe {
+            cmux_iroh_endpoint_connect(
+                dialer,
+                id_cstr.as_ptr(),
+                ptr::null(),
+                addr_ptrs.as_ptr(),
+                addr_ptrs.len(),
+                30_000,
+                &raw mut err.kind,
+                err.buf.as_mut_ptr(),
+                ERR_CAP,
+            )
+        };
+        assert!(!connection.is_null(), "connect: {}", err.message());
+
+        let opener = [0x42u8; 1];
+        let mut err = ErrOut::new();
+        let rc = unsafe {
+            cmux_iroh_connection_send(
+                connection,
+                opener.as_ptr(),
+                opener.len(),
+                30_000,
+                &raw mut err.kind,
+                err.buf.as_mut_ptr(),
+                ERR_CAP,
+            )
+        };
+        assert_eq!(rc, 0, "opener send: {}", err.message());
+
+        // Block a recv with no timeout on the dialer handle, then close that
+        // same handle from this thread. The registry keeps the connection
+        // alive for the in-flight recv (no use-after-free) and the QUIC close
+        // forces it to return.
+        let (started_tx, started_rx) = std::sync::mpsc::channel::<()>();
+        let conn_ptr = ConnPtr(connection);
+        let recv_thread = std::thread::spawn(move || {
+            let connection = conn_ptr;
+            started_tx.send(()).expect("signal recv start");
+            let mut buf = [0u8; 16];
+            let mut err = ErrOut::new();
+            let read = unsafe {
+                cmux_iroh_connection_recv(
+                    connection.0,
+                    buf.as_mut_ptr(),
+                    buf.len(),
+                    0,
+                    &raw mut err.kind,
+                    err.buf.as_mut_ptr(),
+                    ERR_CAP,
+                )
+            };
+            // Local close surfaces as ConnectionLost; losing the race to the
+            // registry removal surfaces as InvalidArgument; a FIN that beat
+            // the close would surface as EOF. All are prompt, none are UB.
+            assert!(
+                read == 0
+                    || (read == -1
+                        && (err.kind() == CmuxIrohErrorKind::ConnectionLost as i32
+                            || err.kind() == CmuxIrohErrorKind::InvalidArgument as i32)),
+                "unexpected recv result {read} kind {} ({})",
+                err.kind(),
+                err.message()
+            );
+        });
+
+        started_rx.recv().expect("recv thread started");
+        cmux_iroh_connection_close(connection);
+        recv_thread.join().expect("recv thread joins promptly");
+
+        // Closed handle: further calls fail cleanly, double close no-ops.
+        let mut buf = [0u8; 4];
+        let mut err = ErrOut::new();
+        let read = unsafe {
+            cmux_iroh_connection_recv(
+                connection,
+                buf.as_mut_ptr(),
+                buf.len(),
+                100,
+                &raw mut err.kind,
+                err.buf.as_mut_ptr(),
+                ERR_CAP,
+            )
+        };
+        assert_eq!(read, -1);
+        assert_eq!(err.kind(), CmuxIrohErrorKind::InvalidArgument as i32);
+        cmux_iroh_connection_close(connection);
+
+        accept_thread.join().expect("accept thread joins");
+        cmux_iroh_endpoint_close(dialer);
+        cmux_iroh_endpoint_close(listener);
     }
 
     /// Raw endpoint pointer that may cross threads: the underlying iroh endpoint
@@ -1431,4 +1680,9 @@ mod ffi_seam_tests {
     /// (Swift actors) to serialize per-handle usage sensibly.
     struct ListenerPtr(*mut CmuxIrohEndpoint);
     unsafe impl Send for ListenerPtr {}
+
+    /// Raw connection handle crossing threads; same registry-key reasoning as
+    /// [`ListenerPtr`].
+    struct ConnPtr(*mut CmuxIrohConnection);
+    unsafe impl Send for ConnPtr {}
 }

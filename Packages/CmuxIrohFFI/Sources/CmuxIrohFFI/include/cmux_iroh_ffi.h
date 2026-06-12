@@ -13,6 +13,12 @@
 extern "C" {
 #endif
 
+// Opaque handles. The pointer values are keys into a process-global registry,
+// never real addresses: in-flight blocking calls hold their own reference to
+// the underlying object, so closing a handle from another thread can never
+// free memory a blocked call still uses (it wakes blocked calls instead).
+// Calls on a closed/unknown handle report CMUX_IROH_ERROR_INVALID_ARGUMENT;
+// close on a closed/unknown handle is a no-op.
 typedef struct CmuxIrohEndpoint CmuxIrohEndpoint;
 typedef struct CmuxIrohConnection CmuxIrohConnection;
 
@@ -77,6 +83,8 @@ int cmux_iroh_endpoint_online(
 
 // Accepts one incoming connection and its first bidirectional stream.
 // Blocks up to timeout_ms. Returns null on failure/timeout.
+// cmux_iroh_endpoint_close from another thread wakes a blocked accept, which
+// then reports CMUX_IROH_ERROR_ENDPOINT_CLOSED.
 CmuxIrohConnection *cmux_iroh_endpoint_accept(
     CmuxIrohEndpoint *endpoint,
     uint64_t timeout_ms,
@@ -124,13 +132,17 @@ int cmux_iroh_connection_send(
     char *err_buf,
     size_t err_cap);
 
-// Closes the connection and frees its handle. Null is a no-op. Bounded even
-// when a send is stalled on flow control (the graceful drain is skipped and
-// the QUIC close forces the stalled write to return). No other call may be
-// in flight on this handle when close runs.
+// Closes the connection and releases its handle. Idempotent; safe to call
+// concurrently with in-flight recv/send on the same handle (they are forced
+// to return, reporting CMUX_IROH_ERROR_CONNECTION_LOST). Bounded even when a
+// send is stalled on flow control (the graceful drain is skipped and the
+// QUIC close forces the stalled write to return).
 void cmux_iroh_connection_close(CmuxIrohConnection *connection);
 
-// Closes the endpoint and frees its handle. Null is a no-op.
+// Closes the endpoint and releases its handle. Idempotent; safe to call
+// concurrently with in-flight calls on the same handle. The sanctioned way
+// to stop an accept loop: a blocked accept wakes and reports
+// CMUX_IROH_ERROR_ENDPOINT_CLOSED.
 void cmux_iroh_endpoint_close(CmuxIrohEndpoint *endpoint);
 
 // Frees a string returned by this library. Null is a no-op.
