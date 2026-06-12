@@ -79,8 +79,10 @@ public final class ControlCommandCoordinator {
         if let result = handleSystem(request) { return result }
         if let result = handleProject(request) { return result }
         if let result = handleDebug(request) { return result }
-        if let result = handleBrowser(request) { return result }
-        if let result = handleBrowserAutomation(request) { return result }
+        // The v2 browser.* domain stays app-side: PR 5778 moved its
+        // JS-evaluating methods onto the socket-worker lane (nonisolated
+        // bodies + v2MainSync), which the @MainActor coordinator seam cannot
+        // host; re-lift it against that architecture in a follow-up.
         // handleSidebarV1 / handleBrowserPanelV1 are V1 string-command handlers;
         // the app's v1 dispatcher calls them directly with (command:args:).
         return nil

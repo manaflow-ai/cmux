@@ -5,9 +5,11 @@ import Foundation
 /// Bridges `AVCaptureMetadataOutput`'s delegate callbacks into a
 /// ``QRCodeScanStream``.
 ///
-/// Filters detected metadata to QR codes whose string value satisfies the
-/// injected `accepts` predicate, fires at most once (the first accepted code),
-/// and yields that code into the stream. The capture session delivers callbacks
+/// Considers every detection in the frame (via ``QRCodeFrameSelection``, so a
+/// foreign code or non-QR detection ordered first cannot mask the pairing
+/// code), filters to QR codes whose string value satisfies the injected
+/// `accepts` predicate, fires at most once (the first accepted code), and
+/// yields that code into the stream. The capture session delivers callbacks
 /// on the main queue, so this type is `@MainActor`-isolated.
 @MainActor
 final class QRCodeMetadataReceiver: NSObject, AVCaptureMetadataOutputObjectsDelegate {
@@ -30,13 +32,18 @@ final class QRCodeMetadataReceiver: NSObject, AVCaptureMetadataOutputObjectsDele
         didOutput metadataObjects: [AVMetadataObject],
         from connection: AVCaptureConnection
     ) {
-        guard let metadata = metadataObjects.first as? AVMetadataMachineReadableCodeObject,
-              metadata.type == .qr,
-              let value = metadata.stringValue else {
-            return
+        let candidates = metadataObjects.map { object in
+            QRCodeFrameCandidate(
+                isQRCode: object.type == .qr,
+                stringValue: (object as? AVMetadataMachineReadableCodeObject)?.stringValue
+            )
         }
         MainActor.assumeIsolated {
-            guard !didScan, accepts(value) else { return }
+            guard !didScan,
+                  let value = QRCodeFrameSelection().firstAcceptedCode(in: candidates, accepts: accepts)
+            else {
+                return
+            }
             didScan = true
             stream.yield(value)
         }

@@ -53,12 +53,18 @@ final class MobileAttachTicketStore {
     }
 
     func payload(for ticket: CmxAttachTicket) throws -> [String: Any] {
-        [
+        var payload: [String: Any] = [
             "ticket": try Self.jsonObject(ticket),
             "attach_url": try attachURL(for: ticket).absoluteString,
-            "expires_at": ISO8601DateFormatter().string(from: ticket.expiresAt),
             "routes": ticket.routes.map(\.mobileHostJSONObject)
         ]
+        // `expires_at` describes the minted attach token's lifetime (tickets
+        // from `createTicket` always carry one). The QR payload itself encodes
+        // no expiry; a displayed pairing code never goes stale.
+        if let expiresAt = ticket.expiresAt {
+            payload["expires_at"] = ISO8601DateFormatter().string(from: expiresAt)
+        }
+        return payload
     }
 
     func validTicket(authToken: String?, now: Date = Date()) -> CmxAttachTicket? {
@@ -75,7 +81,7 @@ final class MobileAttachTicketStore {
             return nil
         }
         guard let record = recordsByAuthToken[authToken],
-              record.ticket.expiresAt > now else {
+              !record.ticket.isExpired(at: now) else {
             return nil
         }
         return MobileAttachTicketAuthorization(
@@ -97,7 +103,7 @@ final class MobileAttachTicketStore {
         guard let authToken = authToken?.trimmingCharacters(in: .whitespacesAndNewlines),
               !authToken.isEmpty,
               var record = recordsByAuthToken[authToken],
-              record.ticket.expiresAt > now else {
+              !record.ticket.isExpired(at: now) else {
             return
         }
 
@@ -113,12 +119,22 @@ final class MobileAttachTicketStore {
     }
 
     private func attachURL(for ticket: CmxAttachTicket) throws -> URL {
-        // Compact short-key payload: smaller JSON means a lower QR version
-        // (fewer, larger modules), which scans faster from a Mac screen. The
-        // ticket's auth token is intentionally not part of the QR payload:
-        // the host's sole authorization gate is the owner's Stack access
-        // token (`MobileHostService.authorizationError(for:)`), so the token
-        // only inflated the QR. The full ticket (including the token) still
+        // Preferred form: the minimal v2 pairing-code grammar — bare Tailscale
+        // `host:port` routes in the URL query, nothing else. Everything the
+        // older grammars carried has a better channel: the auth token never
+        // authorized anything (the owner's Stack access token is the host's
+        // sole gate, `MobileHostService.authorizationError(for:)`), the
+        // display name and device id arrive post-handshake from
+        // `mobile.host.status`, and a pairing QR never expires. A DEBUG Mac's
+        // dev loopback route is dropped outright (a scanned code must never
+        // point a phone at itself). The much shorter plain-text URL also
+        // drops the QR several versions, so the code scans faster.
+        if let pairingURL = CmxPairingQRCode().encode(ticket), let url = URL(string: pairingURL) {
+            return url
+        }
+        // Fallback for tickets the minimal grammar cannot express (workspace-
+        // scoped, custom routes, loopback-only dev tickets): the compact
+        // short-key v1 payload. The full ticket (including the token) still
         // rides in `payload(for:)["ticket"]` for RPC consumers.
         let data = try CmxAttachTicketCompactCoder().encode(ticket)
         let payload = Self.base64URLEncode(data)
@@ -129,7 +145,7 @@ final class MobileAttachTicketStore {
     }
 
     private func pruneExpired(now: Date) {
-        recordsByAuthToken = recordsByAuthToken.filter { $0.value.ticket.expiresAt > now }
+        recordsByAuthToken = recordsByAuthToken.filter { !$0.value.ticket.isExpired(at: now) }
     }
 
     private static func jsonObject<T: Encodable>(_ value: T) throws -> Any {
