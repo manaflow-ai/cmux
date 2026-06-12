@@ -20,6 +20,10 @@ struct MobilePairingConnectionTransitionTests {
         )
     }
 
+    private func makeManualOnly() -> MobilePairingModel.ManualOnly {
+        MobilePairingModel.ManualOnly(macName: "Test Mac", port: 58465)
+    }
+
     @Test("A phone attaching above the baseline flips a displayed ticket to connected")
     func readyFlipsToConnectedOnAttach() {
         let ready = makeReady()
@@ -82,6 +86,28 @@ struct MobilePairingConnectionTransitionTests {
             baselineConnectionCount: 1
         )
         #expect(next == .connected(ready))
+    }
+
+    @Test("Manual-only pairing flips to connected when a phone attaches")
+    func manualOnlyFlipsToConnectedOnAttach() {
+        let manual = makeManualOnly()
+        let next = MobilePairingModel.connectionTransition(
+            from: .manualOnly(manual),
+            activeConnectionCount: 1,
+            baselineConnectionCount: 0
+        )
+        #expect(next == .connectedManual(manual))
+    }
+
+    @Test("Manual connected flips back when the connection drops")
+    func manualConnectedFlipsBackWhenConnectionsDrop() {
+        let manual = makeManualOnly()
+        let next = MobilePairingModel.connectionTransition(
+            from: .connectedManual(manual),
+            activeConnectionCount: 0,
+            baselineConnectionCount: 0
+        )
+        #expect(next == .manualOnly(manual))
     }
 
     @Test("Preparing is unaffected by connection-count changes")

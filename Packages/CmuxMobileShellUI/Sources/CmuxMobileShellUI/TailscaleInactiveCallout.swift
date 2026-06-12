@@ -66,12 +66,12 @@ struct TailscaleInactiveCallout: View {
         case .pairing:
             return L10n.string(
                 "mobile.tailscale.pairingHelp",
-                defaultValue: "QR pairing usually needs both devices on the same Tailscale network. Turn Tailscale on first, or pair by host and port on a trusted local network."
+                defaultValue: "QR pairing usually needs both devices on the same Tailscale network. Turn Tailscale on first, or pair by host and port over your own VPN or a trusted LAN."
             )
         case .disconnected:
             return L10n.string(
                 "mobile.tailscale.disconnectedHelp",
-                defaultValue: "Your Mac may be unreachable because Tailscale is off here. Turn it on, then try again."
+                defaultValue: "If this Mac uses Tailscale, turn it on here. Otherwise pair by host and port over your VPN or LAN."
             )
         }
     }

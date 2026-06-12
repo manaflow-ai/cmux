@@ -142,7 +142,8 @@ public struct CmxAttachRoute: Codable, Equatable, Sendable {
         }
 
         switch (kind, endpoint) {
-        case (.tailscale, .hostPort), (.debugLoopback, .hostPort), (.iroh, .peer), (.websocket, .url):
+        case (.tailscale, .hostPort), (.trustedNetwork, .hostPort), (.debugLoopback, .hostPort),
+             (.iroh, .peer), (.websocket, .url):
             break
         default:
             throw CmxAttachRouteError.endpointMismatch(kind: kind, endpoint: endpoint)

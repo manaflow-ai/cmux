@@ -17,7 +17,7 @@ struct TestMobileSyncRuntime: MobileSyncRuntime {
 
     init(
         transportFactory: any CmxByteTransportFactory,
-        supportedRouteKinds: [CmxAttachTransportKind] = [.tailscale, .iroh, .websocket, .debugLoopback],
+        supportedRouteKinds: [CmxAttachTransportKind] = [.tailscale, .trustedNetwork, .iroh, .websocket, .debugLoopback],
         stackAccessToken: String? = "test-stack-token",
         rpcRequestTimeoutNanoseconds: UInt64 = 30 * 1_000_000_000,
         pairingRequestTimeoutNanoseconds: UInt64 = 30 * 1_000_000_000,

@@ -68,6 +68,11 @@ import Testing
             endpoint: .hostPort(host: "100.64.1.2", port: 49831)
         ),
         CmxAttachRoute(
+            id: "trusted_network",
+            kind: .trustedNetwork,
+            endpoint: .hostPort(host: "10.42.0.5", port: 49832)
+        ),
+        CmxAttachRoute(
             id: "iroh",
             kind: .iroh,
             endpoint: .peer(

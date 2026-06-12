@@ -58,12 +58,12 @@ struct OnboardingPage: Sendable {
                 "mobile.onboarding.connectTitle",
                 defaultValue: "A private link to your Mac"
             ),
-            // Honest about the path: the phone reaches the Mac directly, the
-            // recommended way is Tailscale (which the standard QR pairing needs),
-            // and same-Wi-Fi manual pairing exists but is unencrypted.
+            // Honest about the path: the phone reaches the Mac directly. QR
+            // pairing uses Tailscale auto-discovery, while manual host/port
+            // pairing can use any user-managed VPN or trusted LAN route.
             body: L10n.string(
                 "mobile.onboarding.connectBody",
-                defaultValue: "Your phone has to reach your Mac over the network. The simplest private path is Tailscale: both devices join the same tailnet and connect directly, with no cloud relay. On the same Wi-Fi you can instead type the Mac's local address by hand, but that link is unencrypted, so Tailscale is recommended."
+                defaultValue: "Your phone has to reach your Mac over the network. Tailscale is the easiest private path and enables QR pairing. If you already use another VPN or a trusted LAN, type the Mac's host or IP address and port by hand."
             )
         )
     }
@@ -73,20 +73,20 @@ struct OnboardingPage: Sendable {
             systemImage: "point.3.connected.trianglepath.dotted",
             title: L10n.string(
                 "mobile.onboarding.tailscaleTitle",
-                defaultValue: "Put both devices on Tailscale"
+                defaultValue: "Use a private network"
             ),
             body: L10n.string(
                 "mobile.onboarding.tailscaleBody",
-                defaultValue: "Tailscale is a free app that gives your devices a private network. Do this once, on both the phone and the Mac."
+                defaultValue: "Tailscale is a free option, but cmux also works over your own VPN or trusted LAN when you enter the Mac's host and port manually."
             ),
             checklist: [
                 L10n.string(
                     "mobile.onboarding.tailscaleStep1",
-                    defaultValue: "Install Tailscale on this phone and on your Mac."
+                    defaultValue: "Put this phone and your Mac on Tailscale, your VPN, or the same trusted LAN."
                 ),
                 L10n.string(
                     "mobile.onboarding.tailscaleStep2",
-                    defaultValue: "Sign both in to the same Tailscale account so they share one tailnet."
+                    defaultValue: "Confirm the phone can reach the Mac's hostname or IP address."
                 ),
                 L10n.string(
                     "mobile.onboarding.tailscaleStep3",

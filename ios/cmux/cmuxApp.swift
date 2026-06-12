@@ -14,11 +14,12 @@ struct cmuxApp: App {
         // `debugLoopback` (127.0.0.1) backs the UI-test mock Mac. Enable it on
         // the simulator and on DEBUG device builds so on-device XCUITests can
         // attach to an in-runner mock host; release device builds keep only
-        // real transports.
+        // real transports. `trustedNetwork` backs user-entered VPN/LAN hosts and
+        // is available in every build.
         #if targetEnvironment(simulator) || DEBUG
-        let supportedKinds: [CmxAttachTransportKind] = [.debugLoopback, .tailscale]
+        let supportedKinds: [CmxAttachTransportKind] = [.debugLoopback, .tailscale, .trustedNetwork]
         #else
-        let supportedKinds: [CmxAttachTransportKind] = [.tailscale]
+        let supportedKinds: [CmxAttachTransportKind] = [.tailscale, .trustedNetwork]
         #endif
         let networkFactory = CmxNetworkByteTransportFactory(supportedKinds: supportedKinds)
         let registrations = supportedKinds.map { kind in
