@@ -14802,7 +14802,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         return false
     }
 
-    private func matchConfiguredShortcut(event: NSEvent, shortcut: StoredShortcut) -> Bool {
+    func matchConfiguredShortcut(event: NSEvent, shortcut: StoredShortcut) -> Bool {
         guard !shortcut.isUnbound else { return false }
         if let prefix = activeConfiguredShortcutChordPrefixForCurrentEvent {
             guard let secondStroke = shortcut.secondStroke,
@@ -14813,55 +14813,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
         guard !shortcut.hasChord else { return false }
         return matchShortcutStroke(event: event, stroke: shortcut.firstStroke)
-    }
-
-    private func matchConfiguredShortcut(event: NSEvent, action: KeyboardShortcutSettings.Action) -> Bool {
-        if !shortcutWhenClauseAllows(action: action, event: event) { return false }
-        guard matchConfiguredShortcut(event: event, shortcut: KeyboardShortcutSettings.shortcut(for: action)) else {
-            return false
-        }
-        if factoryDefaultShortcutYieldsToUserBinding(event: event, action: action) { return false }
-        return true
-    }
-
-    /// A factory-default binding never shadows a user-configured binding on the
-    /// same keystroke. User customizations are a sparse overlay over compiled
-    /// defaults, so a release that ships a new default chord (e.g. the Focus
-    /// Back/Forward Global pair on ⌥⌘[ / ⌥⌘]) must lose to whatever the user
-    /// already put on that chord — the dispatch chain's source order must not
-    /// decide. Yielding here lets the chain fall through to the user's action.
-    private func factoryDefaultShortcutYieldsToUserBinding(
-        event: NSEvent,
-        action: KeyboardShortcutSettings.Action
-    ) -> Bool {
-        guard !KeyboardShortcutSettings.isUserCustomized(action) else { return false }
-        for other in KeyboardShortcutSettings.Action.allCases where other != action {
-            guard KeyboardShortcutSettings.isUserCustomized(other),
-                  let userShortcut = KeyboardShortcutSettings.shortcutIfBound(for: other),
-                  matchConfiguredShortcut(event: event, shortcut: userShortcut),
-                  shortcutWhenClauseAllows(action: other, event: event) else {
-                continue
-            }
-            return true
-        }
-        return false
-    }
-
-    /// Whether `action`'s effective `when` clause (its `shortcuts.when` override,
-    /// or its built-in context default) is satisfied by the event's focus state.
-    /// Gates every focus-scoped shortcut, including the numbered workspace/surface
-    /// handlers that previously ignored context (issue #5189).
-    func shortcutWhenClauseAllows(action: KeyboardShortcutSettings.Action, event: NSEvent) -> Bool {
-        KeyboardShortcutSettings.effectiveWhenClause(for: action)
-            .evaluate(shortcutEventFocusContext(event).shortcutContext)
-    }
-
-    /// Resolves a right-sidebar mode shortcut after applying the action's
-    /// effective `when` clause.
-    func rightSidebarModeShortcut(for event: NSEvent) -> RightSidebarMode? {
-        RightSidebarMode.modeShortcut(for: event) { [self] action in
-            shortcutWhenClauseAllows(action: action, event: event)
-        }
     }
 
     fileprivate func shouldForwardBrowserSurfaceShortcutToTerminal(_ event: NSEvent) -> Bool {

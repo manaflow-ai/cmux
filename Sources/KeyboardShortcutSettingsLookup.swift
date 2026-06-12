@@ -117,6 +117,26 @@ extension KeyboardShortcutSettings {
         setShortcut(.unbound, for: action)
     }
 
+}
+
+extension KeyboardShortcutSettings.Action {
+    func tooltip(_ base: String) -> String {
+        "\(base) (\(displayedShortcutString(for: KeyboardShortcutSettings.shortcut(for: self))))"
+    }
+
+    func displayedShortcutString(for shortcut: StoredShortcut) -> String {
+        if shortcut.isUnbound {
+            return shortcut.displayString
+        }
+        if usesNumberedDigitMatching {
+            return shortcut.numberedDisplayString
+        }
+        return shortcut.displayString
+    }
+}
+
+extension KeyboardShortcutSettings {
+
     static func settingsFileManagedSubtitle(for action: Action) -> String? {
         guard isManagedBySettingsFile(action) else { return nil }
         return String(localized: "settings.shortcuts.managedByFile", defaultValue: "Managed in cmux.json")

@@ -497,10 +497,6 @@ enum KeyboardShortcutSettings {
             }
         }
 
-        func tooltip(_ base: String) -> String {
-            "\(base) (\(displayedShortcutString(for: KeyboardShortcutSettings.shortcut(for: self))))"
-        }
-
         var usesNumberedDigitMatching: Bool {
             switch self {
             case .selectSurfaceByNumber, .selectWorkspaceByNumber:
@@ -534,16 +530,6 @@ enum KeyboardShortcutSettings {
             default:
                 return false
             }
-        }
-
-        func displayedShortcutString(for shortcut: StoredShortcut) -> String {
-            if shortcut.isUnbound {
-                return shortcut.displayString
-            }
-            if usesNumberedDigitMatching {
-                return shortcut.numberedDisplayString
-            }
-            return shortcut.displayString
         }
 
         func conflicts(
