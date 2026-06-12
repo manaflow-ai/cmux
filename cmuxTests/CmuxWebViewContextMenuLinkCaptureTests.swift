@@ -1,6 +1,6 @@
 import AppKit
+import Testing
 import WebKit
-import XCTest
 
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
@@ -9,21 +9,20 @@ import XCTest
 #endif
 
 @MainActor
-final class CmuxWebViewContextMenuLinkCaptureTests: XCTestCase {
-    override func tearDown() {
-        CmuxWebView.contextMenuLinkCaptureAcceptsUntrustedEventsForTesting = false
-        super.tearDown()
-    }
-
+@Suite(.serialized)
+struct CmuxWebViewContextMenuLinkCaptureTests {
     // Regression test: "Open Link in Default Browser" must open the link the
     // user actually right-clicked (the DOM contextmenu target), not whatever a
     // later elementFromPoint hit test finds at the AppKit event coordinates.
     // The two diverge under page zoom and inside iframes, which opened the
     // wrong link.
-    func testOpenLinkInDefaultBrowserOpensTheLinkUnderTheRightClick() async throws {
+    @Test
+    func openLinkInDefaultBrowserOpensTheLinkUnderTheRightClick() async throws {
         // Tests can only dispatch synthetic (untrusted) contextmenu events;
-        // a real right-click produces a trusted one.
+        // a real right-click produces a trusted one. The flag is baked into
+        // the injected script when the web view is created.
         CmuxWebView.contextMenuLinkCaptureAcceptsUntrustedEventsForTesting = true
+        defer { CmuxWebView.contextMenuLinkCaptureAcceptsUntrustedEventsForTesting = false }
         let webView = try await makeLoadedTwoLinkWebView()
 
         // The DOM contextmenu event lands on #clicked, like a real right-click
@@ -42,14 +41,15 @@ final class CmuxWebViewContextMenuLinkCaptureTests: XCTestCase {
             webView,
             menuEventLocation: NSPoint(x: 50, y: 550)
         )
-        XCTAssertEqual(openedURL?.absoluteString, "https://example.test/clicked")
+        #expect(openedURL?.absoluteString == "https://example.test/clicked")
     }
 
     // Regression test: a synthetic contextmenu event dispatched by page
     // JavaScript (isTrusted == false) must not be able to plant a decoy link.
     // With the capture ignored, the action falls back to the coordinate hit
     // test at the real menu event point, which is on #decoy here.
-    func testSyntheticContextMenuEventCannotPlantDecoyLink() async throws {
+    @Test
+    func syntheticContextMenuEventCannotPlantDecoyLink() async throws {
         let webView = try await makeLoadedTwoLinkWebView()
 
         _ = try await webView.evaluateJavaScript(
@@ -64,7 +64,7 @@ final class CmuxWebViewContextMenuLinkCaptureTests: XCTestCase {
             webView,
             menuEventLocation: NSPoint(x: 60, y: 60)
         )
-        XCTAssertEqual(openedURL?.absoluteString, "https://example.test/decoy")
+        #expect(openedURL?.absoluteString == "https://example.test/decoy")
     }
 
     // Regression test: WKWebView is a flipped view on macOS, so view-local
@@ -72,22 +72,23 @@ final class CmuxWebViewContextMenuLinkCaptureTests: XCTestCase {
     // fallback hit test vertically, which resolved links on the opposite side
     // of the page (observed live: right-clicking the top link resolved the
     // bottom link).
-    func testCssViewportPointDoesNotReflipFlippedViewCoordinates() {
+    @Test
+    func cssViewportPointDoesNotReflipFlippedViewCoordinates() {
         _ = NSApplication.shared
         let webView = CmuxWebView(
             frame: NSRect(x: 0, y: 0, width: 800, height: 600),
             configuration: WKWebViewConfiguration()
         )
-        XCTAssertTrue(webView.isFlipped)
+        #expect(webView.isFlipped)
 
         let css = webView.cssViewportPoint(for: NSPoint(x: 10, y: 10))
-        XCTAssertEqual(css.x, 10, accuracy: 0.001)
-        XCTAssertEqual(css.y, 10, accuracy: 0.001)
+        #expect(abs(css.x - 10) < 0.001)
+        #expect(abs(css.y - 10) < 0.001)
 
         webView.pageZoom = 2
         let zoomed = webView.cssViewportPoint(for: NSPoint(x: 10, y: 10))
-        XCTAssertEqual(zoomed.x, 5, accuracy: 0.001)
-        XCTAssertEqual(zoomed.y, 5, accuracy: 0.001)
+        #expect(abs(zoomed.x - 5) < 0.001)
+        #expect(abs(zoomed.y - 5) < 0.001)
     }
 
     // MARK: - Harness
@@ -101,8 +102,7 @@ final class CmuxWebViewContextMenuLinkCaptureTests: XCTestCase {
             configuration: WKWebViewConfiguration()
         )
 
-        let loaded = expectation(description: "context menu test page loaded")
-        let loadDelegate = ContextMenuLinkTestNavigationDelegate(expectation: loaded)
+        let loadDelegate = ContextMenuLinkTestNavigationDelegate()
         webView.navigationDelegate = loadDelegate
         webView.loadHTMLString(
             """
@@ -115,8 +115,13 @@ final class CmuxWebViewContextMenuLinkCaptureTests: XCTestCase {
             """,
             baseURL: URL(string: "https://example.test/links")
         )
-        await fulfillment(of: [loaded], timeout: 10)
-        XCTAssertNil(loadDelegate.error)
+        let deadline = Date().addingTimeInterval(10)
+        while !loadDelegate.finished, Date() < deadline {
+            try await Task.sleep(nanoseconds: 50_000_000)
+        }
+        #expect(loadDelegate.finished, "context menu test page did not load")
+        #expect(loadDelegate.error == nil)
+        webView.navigationDelegate = nil
         return webView
     }
 
@@ -131,13 +136,13 @@ final class CmuxWebViewContextMenuLinkCaptureTests: XCTestCase {
         openLinkItem.identifier = NSUserInterfaceItemIdentifier("WKMenuItemIdentifierOpenLink")
         menu.addItem(openLinkItem)
 
-        var openedURL: URL?
+        let opened = OpenedURLBox()
         webView.contextMenuDefaultBrowserOpener = { url in
-            openedURL = url
+            opened.url = url
             return true
         }
 
-        let rightMouseDown = try XCTUnwrap(
+        let rightMouseDown = try #require(
             NSEvent.mouseEvent(
                 with: .rightMouseDown,
                 location: menuEventLocation,
@@ -152,37 +157,38 @@ final class CmuxWebViewContextMenuLinkCaptureTests: XCTestCase {
         )
         webView.willOpenMenu(menu, with: rightMouseDown)
 
-        let item = try XCTUnwrap(menu.items.first { $0.title == "Open Link in Default Browser" })
-        let action = try XCTUnwrap(item.action)
+        let item = try #require(menu.items.first { $0.title == "Open Link in Default Browser" })
+        let action = try #require(item.action)
         _ = NSApp.sendAction(action, to: item.target, from: item)
 
         let deadline = Date().addingTimeInterval(5)
-        while openedURL == nil, Date() < deadline {
+        while opened.url == nil, Date() < deadline {
             try await Task.sleep(nanoseconds: 50_000_000)
         }
-        return openedURL
+        return opened.url
     }
 }
 
+@MainActor
+private final class OpenedURLBox {
+    var url: URL?
+}
+
 private final class ContextMenuLinkTestNavigationDelegate: NSObject, WKNavigationDelegate {
-    let expectation: XCTestExpectation
+    var finished = false
     var error: Error?
 
-    init(expectation: XCTestExpectation) {
-        self.expectation = expectation
-    }
-
     func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
-        expectation.fulfill()
+        finished = true
     }
 
     func webView(_ webView: WKWebView, didFail navigation: WKNavigation!, withError error: Error) {
         self.error = error
-        expectation.fulfill()
+        finished = true
     }
 
     func webView(_ webView: WKWebView, didFailProvisionalNavigation navigation: WKNavigation!, withError error: Error) {
         self.error = error
-        expectation.fulfill()
+        finished = true
     }
 }
