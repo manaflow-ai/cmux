@@ -8966,9 +8966,17 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             return false
         }
 
-        // First principles: derive pixel size from AppKit's backing conversion for the current
-        // window/screen. Avoid updating Ghostty while detached from a window.
-        let backingSize = convertToBacking(NSRect(origin: .zero, size: size)).size
+        // Derive pixel size from the window's backing scale, NOT from
+        // convertToBacking: that conversion folds in ancestor transforms
+        // (the canvas layout's NSScrollView magnification), which would
+        // re-typeset the terminal at a shrunken pixel grid while zooming and
+        // render duplicated rows. Terminals keep their logical pixel density
+        // and scale visually under magnification; in split mode the two
+        // formulas are identical.
+        let backingSize = CGSize(
+            width: size.width * max(1.0, window.backingScaleFactor),
+            height: size.height * max(1.0, window.backingScaleFactor)
+        )
         guard backingSize.width > 0, backingSize.height > 0 else {
 #if DEBUG
             let signature = "zeroBacking-\(Int(backingSize.width))x\(Int(backingSize.height))"
@@ -9057,10 +9065,8 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     }
 
     func expectedPixelSize(for pointsSize: CGSize) -> CGSize {
-        let backing = convertToBacking(NSRect(origin: .zero, size: pointsSize)).size
-        if backing.width > 0, backing.height > 0 {
-            return backing
-        }
+        // Mirrors the surface-size derivation: window backing scale only, so
+        // ancestor magnification (canvas zoom) never re-typesets the grid.
         let scale = max(1.0, window?.backingScaleFactor ?? layer?.contentsScale ?? 1.0)
         return CGSize(width: pointsSize.width * scale, height: pointsSize.height * scale)
     }
