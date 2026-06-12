@@ -2751,6 +2751,43 @@ final class PanelAppearanceBackgroundTests: XCTestCase {
 }
 
 
+final class TerminalCommandHoverSuppressionPolicyTests: XCTestCase {
+    func testRecentDragKeepsCommandHoverSuppressedUntilPointerMoves() {
+        XCTAssertTrue(
+            cmuxShouldSuppressTerminalCommandPathHover(
+                modifierFlags: [.command],
+                selectionActive: false,
+                recentSelectionDragCompleted: true
+            ),
+            "Cmd+C immediately after a drag-selection should stay on the copy path even if the live selection probe has not caught up yet"
+        )
+        XCTAssertTrue(
+            cmuxTerminalSelectionCopyIntentAvailable(
+                selectionActive: false,
+                recentSelectionDragCompleted: true
+            ),
+            "The edit menu should keep Copy enabled during the post-drag copy-intent window"
+        )
+    }
+
+    func testSuppressesOnlyWhenCommandOrSelectionCopyIntentIsPresent() {
+        XCTAssertFalse(
+            cmuxShouldSuppressTerminalCommandPathHover(
+                modifierFlags: [],
+                selectionActive: true,
+                recentSelectionDragCompleted: true
+            )
+        )
+        XCTAssertFalse(
+            cmuxTerminalSelectionCopyIntentAvailable(
+                selectionActive: false,
+                recentSelectionDragCompleted: false
+            )
+        )
+    }
+}
+
+
 final class GhosttyResponderResolutionTests: XCTestCase {
     private final class FocusProbeView: NSView {
         override var acceptsFirstResponder: Bool { true }
