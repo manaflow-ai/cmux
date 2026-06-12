@@ -90,18 +90,14 @@ export const shortcutCategories: ShortcutCategory[] = [
         combos: [["⌘", "["]],
         description: { en: "Focus back", ja: "フォーカスを戻す" },
         note: {
-          en: "cmux uses Cmd+[ and Cmd+] for focus history by default. Unbind Focus Back/Forward in Settings to let browser or terminal shortcuts handle those keys.",
-          ja: "cmux は標準で Cmd+[ と Cmd+] をフォーカス履歴に使います。ブラウザまたはターミナル側で使うには、設定で Focus Back/Forward の割り当てを解除します。",
+          en: "Works in every pane, including browser panes; browser page back/forward live on Cmd+Opt+[ and Cmd+Opt+].",
+          ja: "ブラウザペインを含むすべてのペインで有効。ブラウザのページ移動は Cmd+Opt+[ と Cmd+Opt+] です。",
         },
       },
       {
         id: "focusHistoryForward",
         combos: [["⌘", "]"]],
         description: { en: "Focus forward", ja: "フォーカスを進める" },
-        note: {
-          en: "cmux uses Cmd+[ and Cmd+] for focus history by default. Unbind Focus Back/Forward in Settings to let browser or terminal shortcuts handle those keys.",
-          ja: "cmux は標準で Cmd+[ と Cmd+] をフォーカス履歴に使います。ブラウザまたはターミナル側で使うには、設定で Focus Back/Forward の割り当てを解除します。",
-        },
       },
       { id: "selectWorkspaceByNumber", combos: [["⌘", "1…9"]], description: { en: "Select workspace 1…9", ja: "ワークスペース1…9を選択" } },
       { id: "renameWorkspace", combos: [["⌘", "⇧", "R"]], description: { en: "Rename workspace", ja: "ワークスペース名を変更" } },
@@ -174,8 +170,21 @@ export const shortcutCategories: ShortcutCategory[] = [
     shortcuts: [
       { id: "openBrowser", combos: [["⌘", "⇧", "L"]], description: { en: "Open browser", ja: "ブラウザを開く" } },
       { id: "focusBrowserAddressBar", combos: [["⌘", "L"]], description: { en: "Focus address bar", ja: "アドレスバーにフォーカス" } },
-      { id: "browserBack", combos: [["⌘", "["]], description: { en: "Back", ja: "戻る" } },
-      { id: "browserForward", combos: [["⌘", "]"]], description: { en: "Forward", ja: "進む" } },
+      {
+        id: "browserBack",
+        combos: [["⌘", "⌥", "["]],
+        description: { en: "Back", ja: "戻る" },
+        note: {
+          en: "Focused browser; beeps when there is no page to go back to. cmux keeps Cmd+[ and Cmd+] on focus history in every pane. For Safari-style Cmd+[ page navigation instead, set { \"shortcuts\": { \"bindings\": { \"browserBack\": \"cmd+[\", \"browserForward\": \"cmd+]\" }, \"when\": { \"focusHistoryBack\": \"!browserFocus\", \"focusHistoryForward\": \"!browserFocus\" } } } in cmux.json.",
+          ja: "フォーカス中のブラウザ。戻るページがない場合はビープ音。cmux では Cmd+[ と Cmd+] はすべてのペインでフォーカス履歴です。Safari と同じ Cmd+[ のページ移動にするには、cmux.json に { \"shortcuts\": { \"bindings\": { \"browserBack\": \"cmd+[\", \"browserForward\": \"cmd+]\" }, \"when\": { \"focusHistoryBack\": \"!browserFocus\", \"focusHistoryForward\": \"!browserFocus\" } } } を設定します。",
+        },
+      },
+      {
+        id: "browserForward",
+        combos: [["⌘", "⌥", "]"]],
+        description: { en: "Forward", ja: "進む" },
+        note: { en: "focused browser; beeps when there is no page to go forward to", ja: "フォーカス中のブラウザ。進むページがない場合はビープ音" },
+      },
       {
         id: "browserReload",
         combos: [["⌘", "R"]],

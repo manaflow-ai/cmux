@@ -20,6 +20,17 @@ extension KeyboardShortcutSettings {
         return shortcut.isUnbound ? nil : shortcut
     }
 
+    /// Whether the user has stored their own value for `action` (settings file
+    /// or legacy UserDefaults), as opposed to riding the factory default.
+    /// User-stored values are a sparse overlay over compiled defaults; runtime
+    /// routing uses this to keep a factory-default binding from shadowing a
+    /// user-configured one on the same keystroke.
+    static func isUserCustomized(_ action: Action) -> Bool {
+        if settingsFileStore.override(for: action) != nil { return true }
+        guard let data = UserDefaults.standard.data(forKey: action.defaultsKey) else { return false }
+        return (try? JSONDecoder().decode(StoredShortcut.self, from: data)) != nil
+    }
+
     static func shortcut(for action: Action) -> StoredShortcut {
         shortcutIfBound(for: action) ?? .unbound
     }
@@ -40,16 +51,17 @@ extension KeyboardShortcutSettings {
             return .unbound
         }
 
-        let shortcut = shortcut(for: action)
+        // A static menu key equivalent would bypass these actions' built-in
+        // browser-focus gate (same hazard as issue #5189, but for a built-in
+        // clause): the View menu's Back/Forward call into the focused browser
+        // as a silent no-op when none is focused, so a menu equivalent there
+        // would eat the chord whenever the keyDown router leaves it unhandled.
+        // The keyDown router remains the sole dispatcher for both.
         switch action {
-        case .browserBack
-            where !shortcut.isUnbound && shortcut == KeyboardShortcutSettings.shortcut(for: .focusHistoryBack):
-            return .unbound
-        case .browserForward
-            where !shortcut.isUnbound && shortcut == KeyboardShortcutSettings.shortcut(for: .focusHistoryForward):
+        case .browserBack, .browserForward:
             return .unbound
         default:
-            return shortcut
+            return shortcut(for: action)
         }
     }
 
@@ -77,6 +89,26 @@ extension KeyboardShortcutSettings {
     static func unbindShortcut(for action: Action) {
         setShortcut(.unbound, for: action)
     }
+
+}
+
+extension KeyboardShortcutSettings.Action {
+    func tooltip(_ base: String) -> String {
+        "\(base) (\(displayedShortcutString(for: KeyboardShortcutSettings.shortcut(for: self))))"
+    }
+
+    func displayedShortcutString(for shortcut: StoredShortcut) -> String {
+        if shortcut.isUnbound {
+            return shortcut.displayString
+        }
+        if usesNumberedDigitMatching {
+            return shortcut.numberedDisplayString
+        }
+        return shortcut.displayString
+    }
+}
+
+extension KeyboardShortcutSettings {
 
     static func settingsFileManagedSubtitle(for action: Action) -> String? {
         guard isManagedBySettingsFile(action) else { return nil }

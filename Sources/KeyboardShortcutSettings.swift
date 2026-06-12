@@ -419,9 +419,13 @@ enum KeyboardShortcutSettings {
             case .focusBrowserAddressBar:
                 return StoredShortcut(key: "l", command: true, shift: false, option: false, control: false)
             case .browserBack:
-                return StoredShortcut(key: "[", command: true, shift: false, option: false, control: false)
+                // ⌥⌘[ instead of Safari's ⌘[: cmux keeps one meaning per chord
+                // in every pane, and ⌘[ / ⌘] are focus history app-wide. The
+                // shortcut docs carry a recipe for users who want Safari-style
+                // ⌘[ page-back in browser panes.
+                return StoredShortcut(key: "[", command: true, shift: false, option: true, control: false)
             case .browserForward:
-                return StoredShortcut(key: "]", command: true, shift: false, option: false, control: false)
+                return StoredShortcut(key: "]", command: true, shift: false, option: true, control: false)
             case .browserReload:
                 return StoredShortcut(key: "r", command: true, shift: false, option: false, control: false)
             case .browserZoomIn:
@@ -489,10 +493,6 @@ enum KeyboardShortcutSettings {
             }
         }
 
-        func tooltip(_ base: String) -> String {
-            "\(base) (\(displayedShortcutString(for: KeyboardShortcutSettings.shortcut(for: self))))"
-        }
-
         var usesNumberedDigitMatching: Bool {
             switch self {
             case .selectSurfaceByNumber, .selectWorkspaceByNumber:
@@ -526,16 +526,6 @@ enum KeyboardShortcutSettings {
             default:
                 return false
             }
-        }
-
-        func displayedShortcutString(for shortcut: StoredShortcut) -> String {
-            if shortcut.isUnbound {
-                return shortcut.displayString
-            }
-            if usesNumberedDigitMatching {
-                return shortcut.numberedDisplayString
-            }
-            return shortcut.displayString
         }
 
         func conflicts(

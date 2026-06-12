@@ -13574,7 +13574,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             guard let focusedBrowserPanel = shortcutEventBrowserPanel(event) else {
                 return false
             }
-            focusedBrowserPanel.goBack()
+            // Consume with a beep at the history boundary: a silent no-op reads
+            // as a dead key, and falling through would jump focus elsewhere.
+            if focusedBrowserPanel.canGoBack {
+                focusedBrowserPanel.goBack()
+            } else {
+                NSSound.beep()
+            }
             return true
         }
 
@@ -13582,7 +13588,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             guard let focusedBrowserPanel = shortcutEventBrowserPanel(event) else {
                 return false
             }
-            focusedBrowserPanel.goForward()
+            if focusedBrowserPanel.canGoForward {
+                focusedBrowserPanel.goForward()
+            } else {
+                NSSound.beep()
+            }
             return true
         }
 
@@ -14787,7 +14797,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         return false
     }
 
-    private func matchConfiguredShortcut(event: NSEvent, shortcut: StoredShortcut) -> Bool {
+    func matchConfiguredShortcut(event: NSEvent, shortcut: StoredShortcut) -> Bool {
         guard !shortcut.isUnbound else { return false }
         if let prefix = activeConfiguredShortcutChordPrefixForCurrentEvent {
             guard let secondStroke = shortcut.secondStroke,
@@ -14798,28 +14808,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
         guard !shortcut.hasChord else { return false }
         return matchShortcutStroke(event: event, stroke: shortcut.firstStroke)
-    }
-
-    private func matchConfiguredShortcut(event: NSEvent, action: KeyboardShortcutSettings.Action) -> Bool {
-        if !shortcutWhenClauseAllows(action: action, event: event) { return false }
-        return matchConfiguredShortcut(event: event, shortcut: KeyboardShortcutSettings.shortcut(for: action))
-    }
-
-    /// Whether `action`'s effective `when` clause (its `shortcuts.when` override,
-    /// or its built-in context default) is satisfied by the event's focus state.
-    /// Gates every focus-scoped shortcut, including the numbered workspace/surface
-    /// handlers that previously ignored context (issue #5189).
-    func shortcutWhenClauseAllows(action: KeyboardShortcutSettings.Action, event: NSEvent) -> Bool {
-        KeyboardShortcutSettings.effectiveWhenClause(for: action)
-            .evaluate(shortcutEventFocusContext(event).shortcutContext)
-    }
-
-    /// Resolves a right-sidebar mode shortcut after applying the action's
-    /// effective `when` clause.
-    func rightSidebarModeShortcut(for event: NSEvent) -> RightSidebarMode? {
-        RightSidebarMode.modeShortcut(for: event) { [self] action in
-            shortcutWhenClauseAllows(action: action, event: event)
-        }
     }
 
     fileprivate func shouldForwardBrowserSurfaceShortcutToTerminal(_ event: NSEvent) -> Bool {
