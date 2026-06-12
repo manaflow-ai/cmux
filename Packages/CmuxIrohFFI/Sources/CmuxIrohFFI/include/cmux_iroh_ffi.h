@@ -73,7 +73,7 @@ char *cmux_iroh_endpoint_id(const CmuxIrohEndpoint *endpoint);
 char *cmux_iroh_endpoint_route_json(const CmuxIrohEndpoint *endpoint);
 
 // Waits until the endpoint has a home relay connection. 0 on success, -1 on
-// failure/timeout.
+// failure/timeout. timeout_ms == 0 waits indefinitely (close unblocks it).
 int cmux_iroh_endpoint_online(
     CmuxIrohEndpoint *endpoint,
     uint64_t timeout_ms,
@@ -82,9 +82,9 @@ int cmux_iroh_endpoint_online(
     size_t err_cap);
 
 // Accepts one incoming connection and its first bidirectional stream.
-// Blocks up to timeout_ms. Returns null on failure/timeout.
-// cmux_iroh_endpoint_close from another thread wakes a blocked accept, which
-// then reports CMUX_IROH_ERROR_ENDPOINT_CLOSED.
+// Blocks up to timeout_ms; timeout_ms == 0 blocks indefinitely. Returns null
+// on failure/timeout. cmux_iroh_endpoint_close from another thread wakes a
+// blocked accept, which then reports CMUX_IROH_ERROR_ENDPOINT_CLOSED.
 CmuxIrohConnection *cmux_iroh_endpoint_accept(
     CmuxIrohEndpoint *endpoint,
     uint64_t timeout_ms,
@@ -94,6 +94,8 @@ CmuxIrohConnection *cmux_iroh_endpoint_accept(
 
 // Dials endpoint_id (optionally with relay URL / direct addr hints) and opens
 // one bidirectional stream. With no hints, n0 discovery resolves the id.
+// timeout_ms == 0 blocks indefinitely (close unblocks it). Null or invalid
+// direct_addrs entries fail fast as CMUX_IROH_ERROR_INVALID_ARGUMENT.
 CmuxIrohConnection *cmux_iroh_endpoint_connect(
     CmuxIrohEndpoint *endpoint,
     const char *endpoint_id,
@@ -122,7 +124,8 @@ intptr_t cmux_iroh_connection_recv(
 // until QUIC flow control accepts the bytes; a nonzero timeout reports
 // CMUX_IROH_ERROR_TIMEOUT on expiry. After a send timeout an unknown prefix
 // of the bytes is in flight, so the only safe continuation is
-// cmux_iroh_connection_close.
+// cmux_iroh_connection_close, which then abandons the stream (no FIN) so the
+// truncated write cannot read as a clean end of stream on the peer.
 int cmux_iroh_connection_send(
     CmuxIrohConnection *connection,
     const uint8_t *bytes,

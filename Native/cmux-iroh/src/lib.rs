@@ -27,6 +27,7 @@
 use std::{
     collections::HashMap,
     ffi::{CStr, CString, c_char},
+    future::Future,
     io,
     net::SocketAddr,
     os::raw::c_int,
@@ -34,7 +35,7 @@ use std::{
     str::FromStr,
     sync::{
         Arc, Mutex as StdMutex, OnceLock, PoisonError,
-        atomic::{AtomicUsize, Ordering},
+        atomic::{AtomicBool, AtomicUsize, Ordering},
     },
     time::Duration,
 };
@@ -112,6 +113,22 @@ fn runtime() -> Result<&'static Runtime, FfiError> {
                 format!("tokio runtime failed to build: {error}"),
             )
         })
+}
+
+/// Bounds `future` by `timeout_ms` when nonzero; `0` means wait indefinitely
+/// (the close calls are the sanctioned way to unblock an indefinite wait).
+async fn with_optional_timeout<T>(
+    timeout_ms: u64,
+    what: &str,
+    future: impl Future<Output = T>,
+) -> Result<T, FfiError> {
+    if timeout_ms == 0 {
+        Ok(future.await)
+    } else {
+        tokio::time::timeout(Duration::from_millis(timeout_ms), future)
+            .await
+            .map_err(|_| FfiError::new(CmuxIrohErrorKind::Timeout, format!("{what} timed out")))
+    }
 }
 
 /// Writes `message` into the caller-provided error buffer, truncating to fit.
@@ -215,6 +232,10 @@ struct ConnectionInner {
     connection: Connection,
     send: TokioMutex<SendStream>,
     recv: TokioMutex<RecvStream>,
+    /// Set when a send timed out: an unknown prefix of the caller's bytes is
+    /// in flight, so close must abandon the stream instead of finishing it
+    /// (a FIN would present the truncated write as a clean end of stream).
+    send_poisoned: AtomicBool,
 }
 
 fn next_handle_id() -> usize {
@@ -451,6 +472,7 @@ pub extern "C" fn cmux_iroh_endpoint_route_json(endpoint: *const CmuxIrohEndpoin
 
 /// Waits until the endpoint has a home relay connection (so dial-by-id from
 /// elsewhere can reach it). 0 on success, -1 on failure/timeout.
+/// `timeout_ms == 0` waits indefinitely (close unblocks it).
 ///
 /// # Safety
 ///
@@ -475,26 +497,17 @@ pub unsafe extern "C" fn cmux_iroh_endpoint_online(
 }
 
 fn online_impl(endpoint: &EndpointInner, timeout_ms: u64) -> Result<(), FfiError> {
-    runtime()?
-        .block_on(async {
-            tokio::time::timeout(
-                Duration::from_millis(timeout_ms.max(1)),
-                endpoint.endpoint.online(),
-            )
-            .await
-        })
-        .map_err(|_| {
-            FfiError::new(
-                CmuxIrohErrorKind::Timeout,
-                "timed out waiting for relay connection",
-            )
-        })
+    runtime()?.block_on(with_optional_timeout(
+        timeout_ms,
+        "waiting for relay connection",
+        endpoint.endpoint.online(),
+    ))
 }
 
 /// Accepts one incoming connection and its first bidirectional stream.
-/// Blocks up to `timeout_ms`. Returns null on failure/timeout.
-/// `cmux_iroh_endpoint_close` from another thread wakes a blocked accept,
-/// which then reports `EndpointClosed`.
+/// Blocks up to `timeout_ms`; `timeout_ms == 0` blocks indefinitely. Returns
+/// null on failure/timeout. `cmux_iroh_endpoint_close` from another thread
+/// wakes a blocked accept, which then reports `EndpointClosed`.
 ///
 /// # Safety
 ///
@@ -518,7 +531,7 @@ fn accept_impl(
     timeout_ms: u64,
 ) -> Result<(Connection, SendStream, RecvStream), FfiError> {
     runtime()?.block_on(async {
-        tokio::time::timeout(Duration::from_millis(timeout_ms.max(1)), async {
+        with_optional_timeout(timeout_ms, "accept", async {
             let incoming = endpoint.endpoint.accept().await.ok_or_else(|| {
                 FfiError::new(CmuxIrohErrorKind::EndpointClosed, "endpoint closed")
             })?;
@@ -536,14 +549,14 @@ fn accept_impl(
             })?;
             Ok((connection, send, recv))
         })
-        .await
-        .map_err(|_| FfiError::new(CmuxIrohErrorKind::Timeout, "accept timed out"))?
+        .await?
     })
 }
 
 /// Dials `endpoint_id` (optionally with relay URL / direct addr hints) and
 /// opens one bidirectional stream. With no hints, n0 discovery resolves the
-/// id. Returns null on failure/timeout.
+/// id. Returns null on failure/timeout; `timeout_ms == 0` blocks
+/// indefinitely (close unblocks it).
 ///
 /// # Safety
 ///
@@ -616,7 +629,10 @@ unsafe fn connect_impl(
             // `direct_addr_count` entries.
             let raw = unsafe { *direct_addrs.add(index) };
             let Some(addr_str) = c_to_str(raw) else {
-                continue;
+                return Err(FfiError::new(
+                    CmuxIrohErrorKind::InvalidArgument,
+                    format!("direct addr {index} is null or not valid UTF-8"),
+                ));
             };
             let addr = SocketAddr::from_str(addr_str).map_err(|error| {
                 FfiError::new(
@@ -643,7 +659,7 @@ unsafe fn connect_impl(
     };
 
     runtime()?.block_on(async {
-        tokio::time::timeout(Duration::from_millis(timeout_ms.max(1)), async {
+        with_optional_timeout(timeout_ms, "connect", async {
             let connection = endpoint
                 .endpoint
                 .connect(addr, ALPN)
@@ -662,8 +678,7 @@ unsafe fn connect_impl(
             })?;
             Ok((connection, send, recv))
         })
-        .await
-        .map_err(|_| FfiError::new(CmuxIrohErrorKind::Timeout, "connect timed out"))?
+        .await?
     })
 }
 
@@ -732,13 +747,7 @@ fn recv_impl(
         let mut recv = connection.recv.lock().await;
         // RecvStream::read is cancel-safe: dropping the future on timeout
         // consumes no data, so a bounded receive can simply be retried.
-        if timeout_ms == 0 {
-            Ok(recv.read(buf).await)
-        } else {
-            tokio::time::timeout(Duration::from_millis(timeout_ms), recv.read(buf))
-                .await
-                .map_err(|_| FfiError::new(CmuxIrohErrorKind::Timeout, "recv timed out"))
-        }
+        with_optional_timeout(timeout_ms, "recv", recv.read(buf)).await
     })?;
     match result {
         Ok(Some(read)) => Ok(read),
@@ -767,7 +776,9 @@ fn recv_impl(
 /// A nonzero timeout bounds the wait (a peer that stops reading stalls flow
 /// control indefinitely otherwise) and reports `Timeout` on expiry. A timed
 /// out send leaves the stream with an unknown number of bytes written, so the
-/// only safe continuation is `cmux_iroh_connection_close`.
+/// only safe continuation is `cmux_iroh_connection_close`, which then
+/// abandons the stream (no FIN) instead of finishing it so the truncated
+/// write cannot read as a clean end of stream.
 ///
 /// # Safety
 ///
@@ -820,16 +831,18 @@ pub unsafe extern "C" fn cmux_iroh_connection_send(
 fn send_impl(connection: &ConnectionInner, bytes: &[u8], timeout_ms: u64) -> Result<(), FfiError> {
     let result = runtime()?.block_on(async {
         let mut send = connection.send.lock().await;
-        if timeout_ms == 0 {
-            Ok(send.write_all(bytes).await)
-        } else {
-            // write_all is NOT cancel-safe: on timeout an unknown prefix of
-            // `bytes` is in flight. The doc comment requires callers to close
-            // the connection after a send timeout.
-            tokio::time::timeout(Duration::from_millis(timeout_ms), send.write_all(bytes))
-                .await
-                .map_err(|_| FfiError::new(CmuxIrohErrorKind::Timeout, "send timed out"))
+        // write_all is NOT cancel-safe: on timeout an unknown prefix of
+        // `bytes` is in flight. Poison the stream so close abandons it
+        // instead of finishing it (the doc comment requires callers to close
+        // after a send timeout).
+        let result = with_optional_timeout(timeout_ms, "send", send.write_all(bytes)).await;
+        if matches!(
+            &result,
+            Err(error) if error.kind == CmuxIrohErrorKind::Timeout
+        ) {
+            connection.send_poisoned.store(true, Ordering::Relaxed);
         }
+        result
     })?;
     result.map_err(|error| match error {
         WriteError::ConnectionLost(_) => FfiError::new(
@@ -872,8 +885,13 @@ pub extern "C" fn cmux_iroh_connection_close(connection: *mut CmuxIrohConnection
         return;
     };
     runtime.block_on(async {
-        if let Ok(mut send) =
-            tokio::time::timeout(Duration::from_secs(5), connection.send.lock()).await
+        // After a timed-out send the stream carries a truncated write, so the
+        // graceful FIN+drain would present it to the peer as a clean end of
+        // stream; abandon the stream and let the connection close signal the
+        // abort instead.
+        if !connection.send_poisoned.load(Ordering::Relaxed)
+            && let Ok(mut send) =
+                tokio::time::timeout(Duration::from_secs(5), connection.send.lock()).await
             && send.finish().is_ok()
         {
             let _ = tokio::time::timeout(Duration::from_secs(5), send.stopped()).await;
@@ -929,6 +947,7 @@ fn finish_connection(
             connection,
             send: TokioMutex::new(send),
             recv: TokioMutex::new(recv),
+            send_poisoned: AtomicBool::new(false),
         }),
         Err(error) => {
             report_error(err_kind, err_buf, err_cap, &error);
@@ -1125,6 +1144,32 @@ mod ffi_seam_tests {
         };
         assert!(connection.is_null());
         assert_eq!(err.kind(), CmuxIrohErrorKind::InvalidArgument as i32);
+
+        // A null entry inside direct_addrs is a caller bug, not a hint to
+        // silently drop: it must fail fast as InvalidArgument.
+        let valid_key = generate_key();
+        let valid_id = take_string(unsafe {
+            cmux_iroh_secret_key_endpoint_id(valid_key.as_ptr(), valid_key.len())
+        });
+        let id_cstr = CString::new(valid_id).expect("cstring");
+        let addrs_with_null: [*const c_char; 1] = [ptr::null()];
+        let mut err = ErrOut::new();
+        let connection = unsafe {
+            cmux_iroh_endpoint_connect(
+                endpoint,
+                id_cstr.as_ptr(),
+                ptr::null(),
+                addrs_with_null.as_ptr(),
+                addrs_with_null.len(),
+                1_000,
+                &raw mut err.kind,
+                err.buf.as_mut_ptr(),
+                ERR_CAP,
+            )
+        };
+        assert!(connection.is_null());
+        assert_eq!(err.kind(), CmuxIrohErrorKind::InvalidArgument as i32);
+        assert!(err.message().contains("direct addr"), "{}", err.message());
 
         cmux_iroh_endpoint_close(endpoint);
     }
