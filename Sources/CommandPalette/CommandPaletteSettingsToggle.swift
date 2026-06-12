@@ -462,6 +462,36 @@ enum CommandPaletteSettingsToggleCommands {
                 }
             ),
             CommandPaletteSettingToggleDescriptor(
+                commandId: commandIdPrefix + "rendererRealization",
+                settingsKey: "terminal.rendererRealization.enabled",
+                title: {
+                    String(
+                        localized: "settings.terminal.rendererRealization",
+                        defaultValue: "Reclaim Offscreen Terminal Memory"
+                    )
+                },
+                sectionTitle: terminal,
+                keywords: [
+                    "terminal.rendererRealization.enabled",
+                    "terminal",
+                    "renderer",
+                    "reclaim",
+                    "offscreen",
+                    "memory",
+                    "iosurface",
+                    "gpu",
+                    "idle",
+                ],
+                isOn: { defaults in RendererRealizationSettings.isEnabled(defaults: defaults) },
+                setOn: { newValue, defaults, notificationCenter in
+                    RendererRealizationSettings.setValues(
+                        enabled: newValue,
+                        defaults: defaults,
+                        notificationCenter: notificationCenter
+                    )
+                }
+            ),
+            CommandPaletteSettingToggleDescriptor(
                 commandId: commandIdPrefix + "hideAllSidebarDetails",
                 settingsKey: "sidebar.hideAllDetails",
                 title: {

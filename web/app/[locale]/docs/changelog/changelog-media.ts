@@ -26,6 +26,37 @@ export interface VersionMedia {
 }
 
 export const changelogMedia: Record<string, VersionMedia> = {
+  "0.64.15": {
+    title:
+      "Diff Viewer Review Comments, Rebindable ⌘1-9 + Shortcut When-Clauses, In-Process Custom Sidebars, iOS Terminal Composer",
+    features: [
+      {
+        title: "Review Comments in the Diff Viewer",
+        description:
+          "Comment on changed lines in the diff viewer, persisted per repo. Attach the comment set to a terminal TextBox to hand structured review feedback straight to an agent.",
+      },
+      {
+        title: "Rebindable Shortcuts with When-Clauses",
+        description:
+          "The Select Workspace and Surface 1…9 shortcuts (⌘1-9) can finally be rebound, and every shortcut supports VS Code-style `when` context clauses so a binding only applies where you want it.",
+      },
+      {
+        title: "Custom Sidebars, In-Process by Default",
+        description:
+          "Custom sidebars now render in-process by default with a dedicated Settings section, instant toggling, live-resize repaint, and example sidebars to start from.",
+      },
+      {
+        title: "iOS Beta: Composer, Toolbar, Multi-Mac",
+        description:
+          "An iMessage-style terminal composer with per-terminal drafts, a customizable terminal toolbar, a multi-Mac host switcher, clipboard image paste, and notification forwarding only while you're away from the Mac.",
+      },
+      {
+        title: "Stability Under Load",
+        description:
+          "Fixes for the macOS 26 launch hang, a macOS 27 beta launch crash, SSH typing lag, sidebar livelocks with many workspaces, white-on-white light themes, and a UI freeze when closing tabs.",
+      },
+    ],
+  },
   "0.64.14": {
     title:
       "iPhone Companion App (Beta), Cross-Window Workspace Drag, Out-of-Process Custom Sidebars",

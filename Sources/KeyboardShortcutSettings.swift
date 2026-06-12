@@ -73,6 +73,7 @@ enum KeyboardShortcutSettings {
         // Titlebar / primary UI
         case toggleSidebar
         case newTab
+        case newBrowserWorkspace
         case openFolder
         case reopenPreviousSession
         case goToWorkspace
@@ -175,6 +176,7 @@ enum KeyboardShortcutSettings {
             case .quit: return String(localized: "menu.quitCmux", defaultValue: "Quit cmux")
             case .toggleSidebar: return String(localized: "shortcut.toggleLeftSidebar.label", defaultValue: "Toggle Left Sidebar")
             case .newTab: return String(localized: "shortcut.newWorkspace.label", defaultValue: "New Workspace")
+            case .newBrowserWorkspace: return String(localized: "shortcut.newBrowserWorkspace.label", defaultValue: "New Browser Workspace")
             case .openFolder: return String(localized: "shortcut.openFolder.label", defaultValue: "Open Folder")
             case .reopenPreviousSession: return String(localized: "shortcut.reopenPreviousSession.label", defaultValue: "Restore Previous App Launch")
             case .goToWorkspace: return String(localized: "menu.file.goToWorkspace", defaultValue: "Go to Workspace…")
@@ -301,6 +303,11 @@ enum KeyboardShortcutSettings {
                 return StoredShortcut(key: "b", command: true, shift: false, option: false, control: false)
             case .newTab:
                 return StoredShortcut(key: "n", command: true, shift: false, option: false, control: false)
+            case .newBrowserWorkspace:
+                // Option+Cmd+N: sits next to New Workspace (Cmd+N) and New Window
+                // (Cmd+Shift+N) without colliding with any cmux default or an
+                // AppKit-reserved keystroke.
+                return StoredShortcut(key: "n", command: true, shift: false, option: true, control: false)
             case .openFolder:
                 return StoredShortcut(key: "o", command: true, shift: false, option: false, control: false)
             case .reopenPreviousSession:

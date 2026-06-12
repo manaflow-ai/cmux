@@ -34,6 +34,7 @@ extension ShortcutAction {
         case .quit: return ShortcutStroke(key: "q", command: true)
         case .toggleSidebar: return ShortcutStroke(key: "b", command: true)
         case .newTab: return ShortcutStroke(key: "n", command: true)
+        case .newBrowserWorkspace: return ShortcutStroke(key: "n", command: true, option: true)
         case .openFolder: return ShortcutStroke(key: "o", command: true)
         case .reopenPreviousSession: return ShortcutStroke(key: "o", command: true, shift: true)
         case .goToWorkspace: return ShortcutStroke(key: "p", command: true)
