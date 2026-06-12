@@ -96,7 +96,6 @@ public struct ChatTranscriptListView: View {
                         .transition(.opacity.combined(with: .scale(scale: 0.8)))
                     }
                 }
-                .animation(.snappy(duration: 0.2), value: isAtBottom)
         }
         #else
         ScrollViewReader { proxy in
@@ -177,7 +176,14 @@ public struct ChatTranscriptListView: View {
                     // viewport beyond the screen), which would hide the
                     // pill and steal scroll while the user reads.
                     .onScrollVisibilityChange(threshold: 0.5) { visible in
-                        isAtBottom = visible
+                        // Animate HERE, scoped to what depends on isAtBottom (the
+                        // pill transition). A container-level .animation(value:)
+                        // modifier animated every animatable attribute of the
+                        // whole lazy subtree on each mid-scroll flip and wedged
+                        // the update graph (user-reported freeze).
+                        withAnimation(.snappy(duration: 0.2)) {
+                            isAtBottom = visible
+                        }
                     }
                     #endif
             }
