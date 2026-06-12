@@ -47,10 +47,13 @@ final class MobilePairingWindowController {
         // larger for scanning at a distance.
         window.styleMask = [.titled, .closable, .miniaturizable, .resizable]
         window.isReleasedWhenClosed = false
-        // Wide enough that the full-width QR renders large out of the box;
-        // the 460pt default read as too small to scan in dogfood.
-        window.setContentSize(NSSize(width: 540, height: 720))
-        window.contentMinSize = NSSize(width: 380, height: 480)
+        // Tall enough that the title, the manual-entry block, and the whole QR
+        // are visible without scrolling out of the box; the 540x720 default
+        // clipped the heading and pushed Copy IP/Port below the fold in
+        // dogfood. The minimum keeps the QR plus the manual block usable on
+        // small screens.
+        window.setContentSize(NSSize(width: 560, height: 800))
+        window.contentMinSize = NSSize(width: 480, height: 600)
         window.center()
         self.window = window
         window.makeKeyAndOrderFront(nil)
