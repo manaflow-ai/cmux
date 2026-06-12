@@ -262,6 +262,10 @@ struct PanelAppearance {
         !usesClearContentBackground
     }
 
+    var contentColorScheme: ColorScheme {
+        cmuxReadableColorScheme(for: backgroundColor)
+    }
+
     static func fromConfig(_ config: GhosttyConfig) -> PanelAppearance {
         fromConfig(config, usesTransparentWindow: cmuxShouldUseTransparentBackgroundWindow())
     }

@@ -97,13 +97,20 @@ enum FileExplorerPanelPlacement: Equatable {
 /// The entire file explorer panel as one AppKit view hierarchy.
 /// Contains the header bar (path + controls) and NSOutlineView, with no SwiftUI intermediaries.
 struct FileExplorerPanelView: NSViewRepresentable {
+    @Environment(\.colorScheme) private var colorScheme
+
     @ObservedObject var store: FileExplorerStore
     @ObservedObject var state: FileExplorerState
     let onOpenFilePreview: (String) -> Void
     var presentation: FileExplorerPanelPresentation = .files
     var placement: FileExplorerPanelPlacement = .rightSidebar
+    var preferredColorScheme: ColorScheme?
     var onFocus: (() -> Void)?
     var onContainerChange: ((FileExplorerContainerView?) -> Void)?
+
+    private var effectiveColorScheme: ColorScheme {
+        preferredColorScheme ?? colorScheme
+    }
 
     func makeCoordinator() -> Coordinator {
         Coordinator(
@@ -118,6 +125,7 @@ struct FileExplorerPanelView: NSViewRepresentable {
 
     func makeNSView(context: Context) -> FileExplorerContainerView {
         let container = FileExplorerContainerView(coordinator: context.coordinator, presentation: presentation)
+        container.updateColorScheme(effectiveColorScheme)
         context.coordinator.containerView = container
         context.coordinator.onContainerChange?(container)
         return container
@@ -131,6 +139,7 @@ struct FileExplorerPanelView: NSViewRepresentable {
         context.coordinator.onFocus = onFocus
         context.coordinator.onContainerChange = onContainerChange
         context.coordinator.onContainerChange?(container)
+        container.updateColorScheme(effectiveColorScheme)
         container.updateHeader(store: store)
         container.updatePresentation(presentation)
         context.coordinator.reloadIfNeeded()
@@ -324,7 +333,8 @@ struct FileExplorerPanelView: NSViewRepresentable {
             }
 
             let gitStatus = store.gitStatusByPath[node.path]
-            cellView.configure(with: node, gitStatus: gitStatus)
+            let colorScheme = containerView?.colorScheme ?? .light
+            cellView.configure(with: node, gitStatus: gitStatus, colorScheme: colorScheme)
             cellView.onHover = { [weak self] isHovering in
                 guard let self else { return }
                 if isHovering {
@@ -737,6 +747,7 @@ final class FileExplorerContainerView: NSView {
     private let coordinator: FileExplorerPanelView.Coordinator
     private let searchDebounceDelayMilliseconds = 200
     private let searchBarVisibleHeight: CGFloat = 48
+    private(set) var colorScheme: ColorScheme = .light
 
 #if DEBUG
     private var debugLastSearchTextChangeUptime: TimeInterval = 0
@@ -997,6 +1008,19 @@ final class FileExplorerContainerView: NSView {
         guard coordinator.placement == .rightSidebar else { return }
         guard let window else { return }
         AppDelegate.shared?.keyboardFocusCoordinator(for: window)?.registerFileExplorerHost(self)
+    }
+
+    func updateColorScheme(_ nextColorScheme: ColorScheme) {
+        let colorSchemeChanged = colorScheme != nextColorScheme
+        colorScheme = nextColorScheme
+        appearance = NSAppearance(named: nextColorScheme == .dark ? .darkAqua : .aqua)
+        headerView.updateColorScheme(nextColorScheme)
+        searchStatusLabel.textColor = FileExplorerColors.secondaryTextColor(for: nextColorScheme)
+        emptyLabel.textColor = FileExplorerColors.secondaryTextColor(for: nextColorScheme)
+        if colorSchemeChanged {
+            outlineView.reloadData()
+            searchResultsView.reloadData()
+        }
     }
 
     override func layout() {
@@ -1610,7 +1634,7 @@ extension FileExplorerContainerView: NSSearchFieldDelegate, NSTableViewDataSourc
         } else {
             cellView = FileExplorerSearchResultCellView(identifier: identifier)
         }
-        cellView.configure(with: searchSnapshot.results[row])
+        cellView.configure(with: searchSnapshot.results[row], colorScheme: colorScheme)
         return cellView
     }
 
@@ -1855,10 +1879,28 @@ private final class FileExplorerSearchResultCellView: NSTableCellView {
         ])
     }
 
-    func configure(with result: FileSearchResult) {
+    func configure(with result: FileSearchResult, colorScheme: ColorScheme) {
+        pathLabel.textColor = .labelColor
+        previewLabel.textColor = FileExplorerColors.secondaryTextColor(for: colorScheme)
         pathLabel.stringValue = "\(result.relativePath):\(result.lineNumber)"
         previewLabel.stringValue = result.preview.isEmpty ? " " : result.preview
         toolTip = "\(result.path):\(result.lineNumber):\(result.columnNumber)"
+    }
+}
+
+// MARK: - Colors
+
+private enum FileExplorerColors {
+    static func secondaryTextColor(for colorScheme: ColorScheme) -> NSColor {
+        colorScheme == .dark
+            ? .labelColor.withAlphaComponent(0.76)
+            : .secondaryLabelColor
+    }
+
+    static func secondaryIconTint(for colorScheme: ColorScheme) -> NSColor {
+        colorScheme == .dark
+            ? .labelColor.withAlphaComponent(0.68)
+            : .secondaryLabelColor
     }
 }
 
@@ -1870,6 +1912,7 @@ final class FileExplorerHeaderView: NSView {
     private let pathLabel = NSTextField(labelWithString: "")
     private var displayPath = ""
     private var quickSearchQuery: String?
+    private var colorScheme: ColorScheme = .light
 
     override init(frame: NSRect) {
         super.init(frame: frame)
@@ -1882,11 +1925,11 @@ final class FileExplorerHeaderView: NSView {
 
     private func setupViews() {
         iconView.translatesAutoresizingMaskIntoConstraints = false
-        iconView.contentTintColor = .secondaryLabelColor
+        iconView.contentTintColor = FileExplorerColors.secondaryIconTint(for: colorScheme)
 
         pathLabel.translatesAutoresizingMaskIntoConstraints = false
         pathLabel.font = .systemFont(ofSize: 11, weight: .medium)
-        pathLabel.textColor = .secondaryLabelColor
+        pathLabel.textColor = FileExplorerColors.secondaryTextColor(for: colorScheme)
         pathLabel.lineBreakMode = .byTruncatingMiddle
         pathLabel.maximumNumberOfLines = 1
         pathLabel.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
@@ -1907,6 +1950,13 @@ final class FileExplorerHeaderView: NSView {
             pathLabel.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -8),
         ])
         applyHeaderState()
+    }
+
+    func updateColorScheme(_ nextColorScheme: ColorScheme) {
+        guard colorScheme != nextColorScheme else { return }
+        colorScheme = nextColorScheme
+        iconView.contentTintColor = FileExplorerColors.secondaryIconTint(for: nextColorScheme)
+        pathLabel.textColor = FileExplorerColors.secondaryTextColor(for: nextColorScheme)
     }
 
     func update(displayPath: String) {
@@ -2018,7 +2068,7 @@ final class FileExplorerCellView: NSTableCellView {
         nameLabelTrailingToLoadingConstraint.isActive = false
     }
 
-    func configure(with node: FileExplorerNode, gitStatus: GitFileStatus? = nil) {
+    func configure(with node: FileExplorerNode, gitStatus: GitFileStatus? = nil, colorScheme: ColorScheme) {
         assert(Thread.isMainThread, "AppKit image updates must run on the main thread")
         let style = FileExplorerStyle.current
         nameLabel.stringValue = node.name
@@ -2070,7 +2120,7 @@ final class FileExplorerCellView: NSTableCellView {
             nameLabel.textColor = .systemRed
             nameLabel.toolTip = error
         } else if let gitStatus {
-            nameLabel.textColor = style.gitColor(for: gitStatus)
+            nameLabel.textColor = style.gitColor(for: gitStatus, colorScheme: colorScheme)
             nameLabel.toolTip = node.path
         } else {
             nameLabel.textColor = .labelColor
