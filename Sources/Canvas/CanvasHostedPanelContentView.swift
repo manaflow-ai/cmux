@@ -36,5 +36,9 @@ struct CanvasHostedPanelContentView: View {
             onAutoResumeAgentHibernation: {},
             onTriggerFlash: {}
         )
+        // Window-portal content (webviews) floats above the pane's layer
+        // border; this inset keeps the focus ring visible around it.
+        .padding(.horizontal, 2)
+        .padding(.bottom, 2)
     }
 }

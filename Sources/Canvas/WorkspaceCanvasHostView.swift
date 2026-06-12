@@ -101,7 +101,7 @@ struct WorkspaceCanvasHostView: View {
                 }
             )
         ))
-        return .hosted(hosted)
+        return .hosted(panel, hosted)
     }
 }
 
@@ -134,10 +134,18 @@ private struct CanvasRootRepresentable: NSViewRepresentable {
                 onLayoutChanged: { [weak workspace] in
                     workspace?.noteCanvasLayoutChanged()
                 },
-                onViewportGeometryChanged: { window in
+                onViewportGeometryChanged: { [weak workspace] window in
                     // Window-portal-hosted content (browser webviews) tracks
                     // anchor geometry; canvas scrolls/zooms/drags move anchors
-                    // without any split-layout event, so nudge the portal.
+                    // without any split-layout event. Sync each browser anchor
+                    // synchronously so webviews track pane geometry within the
+                    // same frame, then schedule the coalesced settle-up pass.
+                    if let workspace {
+                        for panel in workspace.panels.values {
+                            guard let browserPanel = panel as? BrowserPanel else { continue }
+                            BrowserWindowPortalRegistry.synchronizeForAnchor(browserPanel.portalAnchorView)
+                        }
+                    }
                     guard let window else { return }
                     BrowserWindowPortalRegistry.scheduleExternalGeometrySynchronize(for: window)
                 }

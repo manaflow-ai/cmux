@@ -10,8 +10,10 @@ import CmuxCanvasUI
 enum CanvasPaneContent {
     /// A terminal surface hosted directly as an AppKit subview.
     case terminal(TerminalPanel)
-    /// Any other panel kind, hosted through an `NSHostingView`.
-    case hosted(NSView)
+    /// Any other panel kind, hosted through an `NSHostingView`. Carries the
+    /// panel so the mount can drive panel-level lifecycle (browser webview
+    /// visibility / hidden-discard restore).
+    case hosted(any Panel, NSView)
 }
 
 /// Owns the mounted content of one canvas pane and its teardown. This is the
@@ -59,8 +61,11 @@ final class CanvasPaneContentMount: CanvasPaneContentMounting {
                 self.onFocusPanel?(self.panelId)
             }
             view = hostedView
-        case .hosted(let hostedView):
+        case .hosted(let panel, let hostedView):
             view = hostedView
+            // Canvas drives panel-level webview lifecycle: mounting makes the
+            // browser visible (and restores a hidden-discarded webview).
+            (panel as? BrowserPanel)?.noteWebViewVisibility(true, reason: "canvas.mount")
         }
 
         view.translatesAutoresizingMaskIntoConstraints = true
@@ -82,8 +87,13 @@ final class CanvasPaneContentMount: CanvasPaneContentMounting {
         switch content {
         case .terminal(let panel):
             panel.surface.setOcclusion(rendering)
-        case .hosted:
-            break
+        case .hosted(let panel, _):
+            // Offscreen browsers may hidden-discard their webview; coming
+            // back into the render region restores it.
+            (panel as? BrowserPanel)?.noteWebViewVisibility(
+                rendering,
+                reason: rendering ? "canvas.render" : "canvas.occlude"
+            )
         }
     }
 
@@ -96,7 +106,8 @@ final class CanvasPaneContentMount: CanvasPaneContentMounting {
             hostedView.setFocusHandler(nil)
             panel.surface.setOcclusion(true)
             hostedView.removeFromSuperview()
-        case .hosted(let view):
+        case .hosted(let panel, let view):
+            (panel as? BrowserPanel)?.noteWebViewVisibility(false, reason: "canvas.unmount")
             view.removeFromSuperview()
         }
         onFocusPanel = nil
