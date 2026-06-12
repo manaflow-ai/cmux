@@ -207,7 +207,7 @@ import Testing
             (host: "proxy.example.com", port: 65536),
         ]
         for endpoint in invalidEndpoints {
-            let settings = webProxySettings(host: endpoint.host, port: endpoint.port)
+            let settings = socksProxySettings(host: endpoint.host, port: endpoint.port)
             #expect(
                 BrowserSystemProxyMirror(systemProxySettings: settings) == nil,
                 "host=\(endpoint.host) port=\(endpoint.port)"
@@ -218,10 +218,8 @@ import Testing
     @Test("A missing port is not mirrored")
     func missingPortIsNotMirrored() {
         let settings: [String: Any] = [
-            kCFNetworkProxiesHTTPEnable as String: 1,
-            kCFNetworkProxiesHTTPProxy as String: "proxy.example.com",
-            kCFNetworkProxiesHTTPSEnable as String: 1,
-            kCFNetworkProxiesHTTPSProxy as String: "proxy.example.com",
+            kCFNetworkProxiesSOCKSEnable as String: 1,
+            kCFNetworkProxiesSOCKSProxy as String: "socks.example.com",
         ]
         #expect(BrowserSystemProxyMirror(systemProxySettings: settings) == nil)
     }
