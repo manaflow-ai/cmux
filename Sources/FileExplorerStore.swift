@@ -1062,23 +1062,6 @@ final class FileExplorerStore: ObservableObject {
 
     // MARK: - Private
 
-    @MainActor
-    /// Drops `nodesByPath` entries no longer reachable from the fresh root
-    /// listing. Same-root reloads keep the map (for node reuse), so without
-    /// this, deleted paths would pin stale nodes — and a path deleted and
-    /// later re-created would resurface its old subtree.
-    private func pruneUnreachableNodes(from roots: [FileExplorerNode]) {
-        var reachable = Set<String>()
-        var stack = roots
-        while let node = stack.popLast() {
-            reachable.insert(node.path)
-            if let children = node.children {
-                stack.append(contentsOf: children)
-            }
-        }
-        nodesByPath = nodesByPath.filter { reachable.contains($0.key) }
-    }
-
     private func loadChildren(for parentNode: FileExplorerNode?, at path: String, silent: Bool = false) async {
         guard let provider else { return }
 
@@ -1130,7 +1113,22 @@ final class FileExplorerStore: ObservableObject {
                     selectedPath = children.first?.path
                     selectedPaths = selectedPath.map { Set([$0]) } ?? []
                 }
-                pruneUnreachableNodes(from: children)
+                // Drop nodesByPath entries no longer reachable from the fresh
+                // root listing. Same-root reloads keep the map (for node
+                // reuse), so without this, deleted paths would pin stale
+                // nodes — and a path deleted and later re-created would
+                // resurface its old subtree. Inline (not a method) so it
+                // shares this function's isolation under default-MainActor
+                // builds.
+                var reachable = Set<String>()
+                var stack = children
+                while let node = stack.popLast() {
+                    reachable.insert(node.path)
+                    if let nodeChildren = node.children {
+                        stack.append(contentsOf: nodeChildren)
+                    }
+                }
+                nodesByPath = nodesByPath.filter { reachable.contains($0.key) }
             }
             loadingPaths.remove(path)
             loadTasks.removeValue(forKey: path)
