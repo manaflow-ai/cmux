@@ -8,6 +8,8 @@ protocol CanvasPaneViewDelegate: AnyObject {
     func paneView(_ view: CanvasPaneView, mouseDownAt documentPoint: CGPoint, region: CanvasPaneHitRegion)
     func paneView(_ view: CanvasPaneView, draggedTo documentPoint: CGPoint, modifiers: NSEvent.ModifierFlags)
     func paneViewDidEndDrag(_ view: CanvasPaneView)
+    func paneView(_ view: CanvasPaneView, tabStripDraggedBy translation: CGSize, modifiers: NSEvent.ModifierFlags)
+    func paneViewTabStripDragEnded(_ view: CanvasPaneView)
     func paneView(_ view: CanvasPaneView, didSelectTab panelId: UUID)
     func paneView(_ view: CanvasPaneView, didCloseTab panelId: UUID)
     func paneViewDidRequestFocus(_ view: CanvasPaneView)
@@ -54,7 +56,9 @@ final class CanvasPaneView: NSView {
         self.titleBarHost = NSHostingView(rootView: CanvasPaneTitleBarView(
             chrome: CanvasPaneChrome(tabs: [], selectedTabId: nil, isFocused: false, closeActionLabel: ""),
             onSelectTab: { _ in },
-            onCloseTab: { _ in }
+            onCloseTab: { _ in },
+            onTabStripDrag: { _ in },
+            onTabStripDragEnded: {}
         ))
         super.init(frame: .zero)
 
@@ -101,6 +105,18 @@ final class CanvasPaneView: NSView {
             onCloseTab: { [weak self] panelId in
                 guard let self else { return }
                 self.delegate?.paneView(self, didCloseTab: panelId)
+            },
+            onTabStripDrag: { [weak self] translation in
+                guard let self else { return }
+                self.delegate?.paneView(
+                    self,
+                    tabStripDraggedBy: translation,
+                    modifiers: NSEvent.modifierFlags
+                )
+            },
+            onTabStripDragEnded: { [weak self] in
+                guard let self else { return }
+                self.delegate?.paneViewTabStripDragEnded(self)
             }
         )
         applyChromeColors()

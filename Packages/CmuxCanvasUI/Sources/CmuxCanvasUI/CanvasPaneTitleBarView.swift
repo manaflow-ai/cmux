@@ -10,6 +10,12 @@ struct CanvasPaneTitleBarView: View {
     let chrome: CanvasPaneChrome
     let onSelectTab: (UUID) -> Void
     let onCloseTab: (UUID) -> Void
+    /// Pane-drag relay for drags that start on a tab pill (pills consume
+    /// mouse-down, so the AppKit title-bar drag path never sees them).
+    /// Translation is in pane-local points, which equals document points at
+    /// any magnification because the strip renders inside the scaled space.
+    let onTabStripDrag: (CGSize) -> Void
+    let onTabStripDragEnded: () -> Void
 
     static let height: CGFloat = 28
 
@@ -26,6 +32,11 @@ struct CanvasPaneTitleBarView: View {
                         closeActionLabel: chrome.closeActionLabel,
                         onSelect: { onSelectTab(tab.id) },
                         onClose: { onCloseTab(tab.id) }
+                    )
+                    .simultaneousGesture(
+                        DragGesture(minimumDistance: 4)
+                            .onChanged { onTabStripDrag($0.translation) }
+                            .onEnded { _ in onTabStripDragEnded() }
                     )
                 }
             }
