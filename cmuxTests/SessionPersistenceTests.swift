@@ -192,6 +192,94 @@ final class SessionPersistenceTests: XCTestCase {
         XCTAssertEqual(visibleFrame.y, 25, accuracy: 0.001)
     }
 
+    @MainActor
+    func testLoadRepairsAndPersistsPoisonedAgentHookShellWrapperResumeBinding() throws {
+        let tempDir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-session-tests-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+
+        let snapshotURL = tempDir.appendingPathComponent("session.json", isDirectory: false)
+        let source = Workspace()
+        let sourcePanelId = try XCTUnwrap(source.focusedPanelId)
+        let sessionId = "codex-load-repair-session"
+        let bindingIndex = SurfaceResumeBindingIndex(bindingsByPanel: [
+            SurfaceResumeBindingIndex.PanelKey(workspaceId: source.id, panelId: sourcePanelId): SurfaceResumeBindingSnapshot(
+                name: "Codex",
+                kind: "codex",
+                command: "{ cd -- '/tmp/right' 2>/dev/null || [ ! -d '/tmp/right' ]; } && 'bash' 'resume' '\(sessionId)'",
+                cwd: "/tmp/right",
+                checkpointId: sessionId,
+                source: "agent-hook",
+                autoResume: true,
+                updatedAt: 10
+            ),
+        ])
+        let workspaceSnapshot = source.sessionSnapshot(
+            includeScrollback: false,
+            surfaceResumeBindingIndex: bindingIndex
+        )
+        let appSnapshot = makeSnapshot(workspaceSnapshot: workspaceSnapshot)
+        XCTAssertTrue(SessionPersistenceStore.save(appSnapshot, fileURL: snapshotURL))
+
+        let loaded = try XCTUnwrap(SessionPersistenceStore.load(fileURL: snapshotURL))
+        let loadedBinding = loaded.windows.first?.tabManager.workspaces.first?.panels.first?.terminal?.resumeBinding
+        XCTAssertNil(loadedBinding)
+
+        let persistedData = try Data(contentsOf: snapshotURL)
+        let persisted = try JSONDecoder().decode(AppSessionSnapshot.self, from: persistedData)
+        let persistedBinding = persisted.windows.first?.tabManager.workspaces.first?.panels.first?.terminal?.resumeBinding
+        XCTAssertNil(persistedBinding)
+    }
+
+    @MainActor
+    func testLoadRepairsWrongForkAgentLaunchCommandAndRecoversWorkingDirectory() throws {
+        let tempDir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-session-tests-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+
+        let snapshotURL = tempDir.appendingPathComponent("session.json", isDirectory: false)
+        let source = Workspace()
+        let sourcePanelId = try XCTUnwrap(source.focusedPanelId)
+        source.updatePanelDirectory(panelId: sourcePanelId, directory: "/tmp/right")
+        var workspaceSnapshot = source.sessionSnapshot(includeScrollback: false)
+        let panelIndex = try XCTUnwrap(workspaceSnapshot.panels.firstIndex { $0.id == sourcePanelId })
+        var panel = workspaceSnapshot.panels[panelIndex]
+        var terminal = try XCTUnwrap(panel.terminal)
+        terminal.workingDirectory = "/tmp/right"
+        terminal.agent = SessionRestorableAgentSnapshot(
+            kind: .codex,
+            sessionId: "codex-load-repair-session",
+            workingDirectory: "/tmp/wrong",
+            launchCommand: AgentLaunchCommandSnapshot(
+                launcher: "claude",
+                executablePath: "/usr/local/bin/claude",
+                arguments: ["/usr/local/bin/claude", "--resume", "claude-session"],
+                workingDirectory: "/tmp/wrong",
+                environment: nil,
+                capturedAt: 123,
+                source: "process"
+            )
+        )
+        panel.directory = "/tmp/right"
+        panel.terminal = terminal
+        workspaceSnapshot.panels[panelIndex] = panel
+        let appSnapshot = makeSnapshot(workspaceSnapshot: workspaceSnapshot)
+        XCTAssertTrue(SessionPersistenceStore.save(appSnapshot, fileURL: snapshotURL))
+
+        let loaded = try XCTUnwrap(SessionPersistenceStore.load(fileURL: snapshotURL))
+        let loadedAgent = try XCTUnwrap(
+            loaded.windows.first?.tabManager.workspaces.first?.panels.first?.terminal?.agent
+        )
+        XCTAssertNil(loadedAgent.launchCommand)
+        XCTAssertEqual(loadedAgent.workingDirectory, "/tmp/right")
+        XCTAssertEqual(
+            loadedAgent.resumeCommand,
+            "{ cd -- '/tmp/right' 2>/dev/null || [ ! -d '/tmp/right' ]; } && 'codex' 'resume' 'codex-load-repair-session'"
+        )
+    }
+
     func testLoadReopenSessionSnapshotRequiresPreviousSnapshotFile() throws {
         let tempDir = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-session-tests-\(UUID().uuidString)", isDirectory: true)
@@ -1877,6 +1965,23 @@ final class SessionPersistenceTests: XCTestCase {
 
         return AppSessionSnapshot(
             version: version,
+            createdAt: Date().timeIntervalSince1970,
+            windows: [window]
+        )
+    }
+
+    private func makeSnapshot(workspaceSnapshot: SessionWorkspaceSnapshot) -> AppSessionSnapshot {
+        let window = SessionWindowSnapshot(
+            frame: SessionRectSnapshot(x: 10, y: 20, width: 900, height: 700),
+            display: nil,
+            tabManager: SessionTabManagerSnapshot(
+                selectedWorkspaceIndex: 0,
+                workspaces: [workspaceSnapshot]
+            ),
+            sidebar: SessionSidebarSnapshot(isVisible: true, selection: .tabs, width: 240)
+        )
+        return AppSessionSnapshot(
+            version: SessionSnapshotSchema.currentVersion,
             createdAt: Date().timeIntervalSince1970,
             windows: [window]
         )

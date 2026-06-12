@@ -694,7 +694,7 @@ struct SessionRestorableAgentSnapshot: Codable, Sendable {
         AgentResumeCommandBuilder.resumeShellCommand(
             kind: kind,
             sessionId: sessionId,
-            launchCommand: trustedLaunchCommandForResume,
+            launchCommand: trustedLaunchCommandForSessionRestore,
             workingDirectory: workingDirectory,
             registrationOverride: registration
         )
@@ -704,19 +704,48 @@ struct SessionRestorableAgentSnapshot: Codable, Sendable {
         AgentResumeCommandBuilder.forkShellCommand(
             kind: kind,
             sessionId: sessionId,
-            launchCommand: trustedLaunchCommandForResume,
+            launchCommand: trustedLaunchCommandForSessionRestore,
             workingDirectory: workingDirectory,
             registrationOverride: registration
         )
     }
 
-    private var trustedLaunchCommandForResume: AgentLaunchCommandSnapshot? {
+    var trustedLaunchCommandForSessionRestore: AgentLaunchCommandSnapshot? {
         guard let launchCommand else { return nil }
         guard AgentLaunchCaptureTrust.launcherDescribesKind(launchCommand.launcher, kind: kind.rawValue),
               !AgentLaunchCaptureTrust.argvLooksLikeShellWrapper(launchCommand.arguments) else {
             return nil
         }
         return launchCommand
+    }
+
+    func repairedForSessionRestore(fallbackWorkingDirectory: String?) -> SessionRestorableAgentSnapshot {
+        let trustedLaunchCommand = trustedLaunchCommandForSessionRestore
+        var repaired = self
+        repaired.launchCommand = trustedLaunchCommand
+
+        let fallbackWorkingDirectory = Self.normalizedWorkingDirectory(fallbackWorkingDirectory)
+        if trustedLaunchCommand == nil {
+            if repaired.workingDirectory == nil
+                || Self.normalizedWorkingDirectory(repaired.workingDirectory)
+                    == Self.normalizedWorkingDirectory(launchCommand?.workingDirectory) {
+                repaired.workingDirectory = fallbackWorkingDirectory
+            }
+        } else if repaired.workingDirectory == nil {
+            repaired.workingDirectory = Self.normalizedWorkingDirectory(
+                trustedLaunchCommand?.workingDirectory
+            ) ?? fallbackWorkingDirectory
+        }
+
+        return repaired
+    }
+
+    private static func normalizedWorkingDirectory(_ workingDirectory: String?) -> String? {
+        guard let trimmed = workingDirectory?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !trimmed.isEmpty else {
+            return nil
+        }
+        return ((trimmed as NSString).expandingTildeInPath as NSString).standardizingPath
     }
 
     func resumeStartupInput(
@@ -750,7 +779,7 @@ struct SessionRestorableAgentSnapshot: Codable, Sendable {
                   // the current directory (no cd), so the post-exit shell must not force the launch dir.
                   workingDirectory: registration?.cwd == .ignore
                       ? nil
-                      : (workingDirectory ?? trustedLaunchCommandForResume?.workingDirectory)
+                      : (workingDirectory ?? trustedLaunchCommandForSessionRestore?.workingDirectory)
               ) else {
             return nil
         }
