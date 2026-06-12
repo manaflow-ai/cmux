@@ -11,23 +11,20 @@ import Network
 /// including `http://localhost:PORT` — follows the macOS system proxy and
 /// fails whenever that proxy is not running on this Mac (Clash/Surge global
 /// mode, LAN proxy box). Mirroring an active system proxy into explicit
-/// configurations keeps normal traffic on the proxy while loopback connects
-/// directly, matching Chromium's implicit proxy-bypass rules.
+/// configurations keeps normal traffic on a faithfully representable proxy
+/// while loopback connects directly, matching Chromium's implicit proxy-bypass
+/// rules.
 /// https://github.com/manaflow-ai/cmux/issues/5888
 struct BrowserSystemProxyMirror: Equatable {
     /// A system proxy expressible as a Network.framework `ProxyConfiguration`.
     ///
-    /// `ProxyConfiguration` models only HTTP CONNECT and SOCKSv5 proxies, and
-    /// it routes every non-excluded connection the same way. The mirror
-    /// therefore only claims a configuration it can represent faithfully:
-    /// `httpCONNECT` requires the HTTP and HTTPS web proxies to be enabled
-    /// with the identical endpoint (the global-proxy-tool shape), and
-    /// `socksV5` requires SOCKS with no web proxy enabled at all. Anything
-    /// else (PAC file, WPAD auto-discovery, HTTP-only, HTTPS-only, or split
-    /// web-proxy endpoints) is never mirrored; the browser then keeps
-    /// WebKit's default system-proxy behavior.
+    /// `ProxyConfiguration` routes every non-excluded connection the same way.
+    /// The mirror therefore only claims SOCKSv5 settings with no web proxy
+    /// enabled. HTTP and HTTPS system web proxies are ordinary forward-proxy
+    /// settings; Network.framework's HTTP CONNECT configuration is not a
+    /// faithful replacement for that policy, so those settings are never
+    /// mirrored and WebKit keeps its default system-proxy behavior.
     enum Proxy: Equatable {
-        case httpCONNECT(host: String, port: UInt16)
         case socksV5(host: String, port: UInt16)
     }
 
@@ -81,32 +78,16 @@ struct BrowserSystemProxyMirror: Equatable {
             return nil
         }
 
-        let httpConfigured = Self.isEnabled(kCFNetworkProxiesHTTPEnable, in: settings)
-        let httpsConfigured = Self.isEnabled(kCFNetworkProxiesHTTPSEnable, in: settings)
-        if httpConfigured || httpsConfigured {
-            // A single CONNECT configuration routes both http and https the
-            // same way, so it only faithfully represents the system policy
-            // when the HTTP and HTTPS web proxies are both enabled and point
-            // at the identical endpoint — the shape global-proxy tools
-            // (Clash/mihomo/Surge) write. HTTP-only, HTTPS-only, and split
-            // endpoints are declined instead of rerouting traffic contrary
-            // to the user's settings.
-            guard let http = Self.endpoint(
-                in: settings,
-                enableKey: kCFNetworkProxiesHTTPEnable,
-                hostKey: kCFNetworkProxiesHTTPProxy,
-                portKey: kCFNetworkProxiesHTTPPort
-            ), let https = Self.endpoint(
-                in: settings,
-                enableKey: kCFNetworkProxiesHTTPSEnable,
-                hostKey: kCFNetworkProxiesHTTPSProxy,
-                portKey: kCFNetworkProxiesHTTPSPort
-            ), http.host.lowercased() == https.host.lowercased(),
-               http.port == https.port else {
-                return nil
-            }
-            proxy = .httpCONNECT(host: https.host, port: https.port)
-        } else if let socks = Self.endpoint(
+        // System web proxies are forward-proxy settings. Mapping them to
+        // `ProxyConfiguration(httpCONNECTProxy:)` would force CONNECT
+        // semantics for ordinary HTTP loads and can lose system-managed proxy
+        // authentication, so leave WebKit on its native system-proxy path.
+        guard !Self.isEnabled(kCFNetworkProxiesHTTPEnable, in: settings),
+              !Self.isEnabled(kCFNetworkProxiesHTTPSEnable, in: settings) else {
+            return nil
+        }
+
+        if let socks = Self.endpoint(
             in: settings,
             enableKey: kCFNetworkProxiesSOCKSEnable,
             hostKey: kCFNetworkProxiesSOCKSProxy,
@@ -235,20 +216,14 @@ extension BrowserSystemProxyMirror {
         let host: String
         let port: UInt16
         switch proxy {
-        case .httpCONNECT(let proxyHost, let proxyPort), .socksV5(let proxyHost, let proxyPort):
+        case .socksV5(let proxyHost, let proxyPort):
             host = proxyHost
             port = proxyPort
         }
         guard let nwPort = NWEndpoint.Port(rawValue: port) else { return [] }
         let endpoint = NWEndpoint.hostPort(host: NWEndpoint.Host(host), port: nwPort)
 
-        var configuration: ProxyConfiguration
-        switch proxy {
-        case .httpCONNECT:
-            configuration = ProxyConfiguration(httpCONNECTProxy: endpoint)
-        case .socksV5:
-            configuration = ProxyConfiguration(socksv5Proxy: endpoint)
-        }
+        var configuration = ProxyConfiguration(socksv5Proxy: endpoint)
         configuration.excludedDomains = excludedDomains
         return [configuration]
     }
