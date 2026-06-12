@@ -41,12 +41,13 @@ struct BrowserSystemProxyMirror: Equatable {
     /// Hosts that always connect directly, mirroring Chromium's implicit
     /// proxy-bypass rules: localhost (and subdomains), the canonical
     /// IPv4/IPv6 loopback literals, mDNS `.local` names, and the link-local
-    /// instance-metadata endpoint (`169.254.169.254` can carry cloud
-    /// credentials, and the broader `169.254/16` system bypass is not
-    /// representable — see `init?(systemProxySettings:)`). Entries are
-    /// domain suffixes, so `"local"` covers `*.local`.
+    /// credential-bearing metadata endpoints (`169.254.169.254` IMDS and
+    /// `169.254.170.2` ECS task credentials; the broader `169.254/16`
+    /// system bypass is not representable — see
+    /// `init?(systemProxySettings:)`). Entries are domain suffixes, so
+    /// `"local"` covers `*.local`.
     static let implicitExclusions: [String] = [
-        "localhost", "127.0.0.1", "::1", "local", "169.254.169.254",
+        "localhost", "127.0.0.1", "::1", "local", "169.254.169.254", "169.254.170.2",
     ]
 
     /// Maps a `CFNetworkCopySystemProxySettings()` dictionary to an explicit

@@ -232,7 +232,7 @@ import Testing
             BrowserSystemProxyMirror(systemProxySettings: webProxySettings())
         )
         #expect(mirror.excludedDomains == BrowserSystemProxyMirror.implicitExclusions)
-        for host in ["localhost", "127.0.0.1", "::1", "local", "169.254.169.254"] {
+        for host in ["localhost", "127.0.0.1", "::1", "local", "169.254.169.254", "169.254.170.2"] {
             #expect(mirror.excludedDomains.contains(host))
         }
     }
