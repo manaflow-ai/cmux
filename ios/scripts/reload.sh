@@ -139,6 +139,20 @@ DISPLAY_NAME="cmux DEV $TAG"
 BUNDLE_ID="dev.cmux.ios.$TAG_SLUG"
 DERIVED_DATA="$HOME/Library/Developer/Xcode/DerivedData/cmux-ios-$TAG_SLUG"
 DESTINATION="platform=iOS Simulator,name=$SIMULATOR_NAME"
+CMUX_DEV_AUTH_ORIGIN_MODE="${CMUX_DEV_AUTH_ORIGIN:-auto}"
+CMUX_AUTH_ENVIRONMENT="production"
+case "$CMUX_DEV_AUTH_ORIGIN_MODE" in
+  local|development|dev)
+    CMUX_AUTH_ENVIRONMENT="development"
+    ;;
+  auto|production|prod|"")
+    CMUX_AUTH_ENVIRONMENT="production"
+    ;;
+  *)
+    echo "error: CMUX_DEV_AUTH_ORIGIN must be auto, local, or production (got '$CMUX_DEV_AUTH_ORIGIN_MODE')" >&2
+    exit 2
+    ;;
+esac
 
 # Dev-build identity baked into the app's Info.plist (CMUXGitSHA / CMUXDevTag),
 # surfaced in-app under Settings > About so a dogfood build is tellable. The
@@ -408,6 +422,7 @@ reload_simulator() {
     PRODUCT_DISPLAY_NAME="$DISPLAY_NAME" \
     CMUX_GIT_SHA="$GIT_SHA" \
     CMUX_DEV_TAG="$TAG" \
+    CMUX_AUTH_ENVIRONMENT="$CMUX_AUTH_ENVIRONMENT" \
     EXCLUDED_SOURCE_FILE_NAMES=Info.plist \
     CODE_SIGNING_ALLOWED=NO \
     SWIFT_OPTIMIZATION_LEVEL=-O \
@@ -509,6 +524,7 @@ reload_device() {
     PRODUCT_DISPLAY_NAME="$DISPLAY_NAME"
     CMUX_GIT_SHA="$GIT_SHA"
     CMUX_DEV_TAG="$TAG"
+    CMUX_AUTH_ENVIRONMENT="$CMUX_AUTH_ENVIRONMENT"
     EXCLUDED_SOURCE_FILE_NAMES=Info.plist
     CODE_SIGNING_ALLOWED=YES
     CODE_SIGN_STYLE=Automatic

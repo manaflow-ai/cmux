@@ -16,6 +16,10 @@
 	<string>$(CMUX_DEV_TAG)</string>
 	<key>CMUXGitSHA</key>
 	<string>$(CMUX_GIT_SHA)</string>
+	<key>CMUXAuthEnvironment</key>
+	<string>$(CMUX_AUTH_ENVIRONMENT)</string>
+	<key>ApiBaseURL</key>
+	<string>$(CMUX_API_BASE_URL)</string>
 	<key>CFBundleName</key>
 	<string>$(PRODUCT_NAME)</string>
 	<key>CFBundlePackageType</key>
