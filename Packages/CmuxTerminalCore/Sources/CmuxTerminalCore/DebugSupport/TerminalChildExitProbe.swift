@@ -1,5 +1,5 @@
 #if DEBUG
-import Foundation
+public import Foundation
 
 /// UI-test scaffolding that journals child-exit keyboard handling to a probe
 /// file.
@@ -10,16 +10,24 @@ import Foundation
 /// assert on the exact path a keystroke took. Compiled only for DEBUG and
 /// inert unless the environment opts in.
 ///
-/// Static members are justified here: the probe is process-wide test
-/// scaffolding keyed off the process environment, with no instance state.
-public struct TerminalChildExitProbe {
-    private init() {}
+/// The probe is an instantiated value because opting in is decided by its one
+/// real dependency, the process environment: production call sites read the
+/// live environment, tests inject their own dictionary.
+public struct TerminalChildExitProbe: Sendable {
+    private let environment: [String: String]
+
+    /// Creates a probe that reads opt-in state from `environment`.
+    ///
+    /// - Parameter environment: The environment to consult; defaults to the
+    ///   live process environment.
+    public init(environment: [String: String] = ProcessInfo.processInfo.environment) {
+        self.environment = environment
+    }
 
     /// The probe file path, or `nil` unless the UI-test environment opts in.
-    public static func probePath() -> String? {
-        let env = ProcessInfo.processInfo.environment
-        guard env["CMUX_UI_TEST_CHILD_EXIT_KEYBOARD_SETUP"] == "1",
-              let path = env["CMUX_UI_TEST_CHILD_EXIT_KEYBOARD_PATH"],
+    public func probePath() -> String? {
+        guard environment["CMUX_UI_TEST_CHILD_EXIT_KEYBOARD_SETUP"] == "1",
+              let path = environment["CMUX_UI_TEST_CHILD_EXIT_KEYBOARD_PATH"],
               !path.isEmpty else {
             return nil
         }
@@ -30,7 +38,7 @@ public struct TerminalChildExitProbe {
     /// file is missing or malformed.
     ///
     /// - Parameter path: The probe file path.
-    public static func load(at path: String) -> [String: String] {
+    public func load(at path: String) -> [String: String] {
         guard let data = try? Data(contentsOf: URL(fileURLWithPath: path)),
               let object = try? JSONSerialization.jsonObject(with: data) as? [String: String] else {
             return [:]
@@ -44,7 +52,7 @@ public struct TerminalChildExitProbe {
     /// - Parameters:
     ///   - updates: Values written over the existing payload.
     ///   - increments: Counters added to the existing numeric values.
-    public static func write(_ updates: [String: String], increments: [String: Int] = [:]) {
+    public func write(_ updates: [String: String], increments: [String: Int] = [:]) {
         guard let path = probePath() else { return }
         var payload = load(at: path)
         for (key, by) in increments {

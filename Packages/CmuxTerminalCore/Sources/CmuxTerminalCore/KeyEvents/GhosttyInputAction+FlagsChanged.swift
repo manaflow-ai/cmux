@@ -2,15 +2,7 @@ import AppKit
 public import GhosttyKit
 import Carbon.HIToolbox
 
-/// Stateless translation from AppKit keyboard events to ghosty input actions.
-///
-/// Static members are justified here: the translation is a pure function of
-/// the event payload with no configuration or state, and the plan isolates it
-/// as one utility type so the surface view, IME path, and tests share a single
-/// source of truth.
-public struct GhosttyKeyEventTranslation {
-    private init() {}
-
+extension ghostty_input_action_e {
     /// Resolves whether a `flagsChanged` event is a modifier press or release.
     ///
     /// `flagsChanged` is used for both modifier presses and releases on macOS.
@@ -19,6 +11,10 @@ public struct GhosttyKeyEventTranslation {
     /// device-side masks distinguish left/right siblings of the same modifier
     /// so releasing one side while the other stays held reports a release for
     /// the released key.
+    ///
+    /// A static factory on the action type itself: the translation is a pure
+    /// function of the event payload, so the surface view, IME path, and
+    /// tests share this one source of truth.
     ///
     /// - Parameters:
     ///   - keyCode: The virtual key code from the `flagsChanged` event.

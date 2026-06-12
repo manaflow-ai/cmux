@@ -5,7 +5,7 @@ The terminal domain's core leaf: pure and Sendable terminal logic with no view d
 ## Layout
 
 - `Interop/` — `GhosttyRuntimeCInterop`, the one sanctioned seam for `@_silgen_name` libghostty bindings.
-- `KeyEvents/` — `GhosttyKeyEventTranslation` (flagsChanged press/release resolution) and the `NSEvent.ModifierFlags` adapter for `CmuxTerminalCopyMode`.
+- `KeyEvents/` — `ghostty_input_action_e.modifierActionForFlagsChanged` (flagsChanged press/release resolution) and the `NSEvent.ModifierFlags` adapter for `CmuxTerminalCopyMode`.
 - `PathResolution/` — `TerminalPathResolver`, the path heuristics behind cmd-click QuickLook and terminal file-link opening.
 - `LinkRouting/` — `TerminalLinkRouter` and `TerminalOpenURLTarget`, routing terminal links to the embedded browser or the system through the `BrowserHostNormalizing` seam.
 - `SurfaceCallbacks/` — `GhosttySurfaceCallbackContext`, the retained userdata for libghostty callbacks, behind the `TerminalSurfaceControlling`/`TerminalSurfaceHosting` seams.
