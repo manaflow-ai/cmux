@@ -244,17 +244,19 @@ class TerminalController {
     private var browserDownloadObserver: NSObjectProtocol?
 
     func cleanupSurfaceState(surfaceIds: [UUID]) {
-        for surfaceId in Set(surfaceIds) {
+        let surfaceIdSet = Set(surfaceIds)
+        guard !surfaceIdSet.isEmpty else { return }
+        for surfaceId in surfaceIdSet {
             v2BrowserFrameSelectorBySurface.removeValue(forKey: surfaceId)
             v2BrowserInitScriptsBySurface.removeValue(forKey: surfaceId)
             v2BrowserInitStylesBySurface.removeValue(forKey: surfaceId)
             v2BrowserDialogQueueBySurface.removeValue(forKey: surfaceId)
             v2BrowserDownloadEventsBySurface.removeValue(forKey: surfaceId)
             v2BrowserUnsupportedNetworkRequestsBySurface.removeValue(forKey: surfaceId)
-            v2BrowserElementRefs = v2BrowserElementRefs.filter { $0.value.surfaceId != surfaceId }
 
             controlCommandCoordinator.removeRef(kind: .surface, uuid: surfaceId)
         }
+        v2BrowserElementRefs = v2BrowserElementRefs.filter { !surfaceIdSet.contains($0.value.surfaceId) }
     }
 
     /// Bridges the package server's event closures back to the controller.
@@ -4044,16 +4046,7 @@ class TerminalController {
 
             @MainActor
             func closeWorkspaces(_ workspaces: [Workspace]) -> Int {
-                var closed = 0
-                for candidate in workspaces where candidate.id != workspace.id {
-                    let existedBefore = tabManager.tabs.contains(where: { $0.id == candidate.id })
-                    guard existedBefore else { continue }
-                    tabManager.closeWorkspace(candidate)
-                    if !tabManager.tabs.contains(where: { $0.id == candidate.id }) {
-                        closed += 1
-                    }
-                }
-                return closed
+                tabManager.closeWorkspaces(workspaces.filter { $0.id != workspace.id })
             }
 
             @MainActor

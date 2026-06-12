@@ -7,6 +7,7 @@ import ObjectiveC.runtime
 import Bonsplit
 import UserNotifications
 import CmuxGit
+import Combine
 
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
@@ -1126,6 +1127,43 @@ final class TabManagerCloseWorkspacesWithConfirmationTests: XCTestCase {
         XCTAssertEqual(prompts.first?.message, expectedMessage)
         XCTAssertEqual(prompts.first?.acceptCmdD, false)
         XCTAssertEqual(manager.tabs.map(\.title), ["Gamma"])
+    }
+
+    func testCloseWorkspacesWithConfirmationPublishesOneWorkspaceListMutation() {
+        ClosedItemHistoryStore.shared.removeAll()
+        defer { ClosedItemHistoryStore.shared.removeAll() }
+
+        let manager = TabManager()
+        let first = manager.tabs[0]
+        let second = manager.addWorkspace()
+        let third = manager.addWorkspace()
+        let fourth = manager.addWorkspace()
+        let fifth = manager.addWorkspace()
+        manager.selectWorkspace(third)
+
+        var prompts = 0
+        manager.confirmCloseHandler = { _, _, _ in
+            prompts += 1
+            return true
+        }
+
+        var publishedTabCounts: [Int] = []
+        let cancellable = manager.$tabs.dropFirst().sink { tabs in
+            publishedTabCounts.append(tabs.count)
+        }
+
+        manager.closeWorkspacesWithConfirmation([second.id, third.id, fourth.id], allowPinned: true)
+        withExtendedLifetime(cancellable) {}
+
+        XCTAssertEqual(prompts, 1)
+        XCTAssertEqual(publishedTabCounts, [2])
+        XCTAssertEqual(manager.tabs.map(\.id), [first.id, fifth.id])
+        XCTAssertEqual(
+            manager.selectedTabId,
+            fifth.id,
+            "Selection should match the same-index survivor after the selected workspace is batch-closed"
+        )
+        XCTAssertEqual(ClosedItemHistoryStore.shared.menuSnapshot().totalItemCount, 3)
     }
 
     func testCloseWorkspacesWithConfirmationKeepsWorkspacesWhenCancelled() {

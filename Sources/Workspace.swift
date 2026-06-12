@@ -15907,25 +15907,45 @@ final class Workspace: Identifiable, ObservableObject {
 
     /// Tear down all panels in this workspace, freeing their Ghostty surfaces.
     /// Called before TabManager removes the workspace so child processes receive SIGHUP even if ARC deallocation is delayed.
-    func teardownAllPanels() {
+    func teardownAllPanels(
+        clearNotifications: Bool = true,
+        cleanupControllerSurfaceState: Bool = true
+    ) {
         portalRenderingEnabled = false
         clearLayoutFollowUp()
         hideAllTerminalPortalViews()
         hideAllBrowserPortalViews()
+        if clearNotifications {
+            AppDelegate.shared?.notificationStore?.clearNotifications(forTabId: id)
+        }
         let panelEntries = Array(panels)
+        var cleanupSurfaceIds: [UUID] = []
+        if cleanupControllerSurfaceState {
+            cleanupSurfaceIds.reserveCapacity(panelEntries.count * 2)
+        }
         for (panelId, panel) in panelEntries {
+            let tabId = surfaceIdFromPanelId(panelId)
+            if cleanupControllerSurfaceState {
+                cleanupSurfaceIds.append(panelId)
+                if let tabId {
+                    cleanupSurfaceIds.append(tabId.uuid)
+                }
+            }
             discardClosedPanelLifecycleState(
                 panelId: panelId,
-                tabId: surfaceIdFromPanelId(panelId),
+                tabId: tabId,
                 paneId: paneId(forPanelId: panelId),
                 panel: panel,
                 origin: "workspace_teardown",
                 closePanel: true,
                 publishSurfaceClosedEvent: true,
-                clearSurfaceNotifications: true,
+                clearSurfaceNotifications: false,
                 requestTransferredRemoteCleanup: true,
-                cleanupControllerSurfaceState: true
+                cleanupControllerSurfaceState: false
             )
+        }
+        if !cleanupSurfaceIds.isEmpty {
+            TerminalController.shared.cleanupSurfaceState(surfaceIds: cleanupSurfaceIds)
         }
         pruneSurfaceMetadata(validSurfaceIds: [])
         syncRemotePortScanTTYs()
