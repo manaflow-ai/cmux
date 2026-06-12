@@ -6012,6 +6012,87 @@ final class GhosttyModifierFlagsChangedActionTests: XCTestCase {
 }
 
 
+final class GhosttyInputModifierMappingTests: XCTestCase {
+    func testRightOptionCarriesGhosttyRightAltSideBit() {
+        let flags = NSEvent.ModifierFlags(
+            rawValue: NSEvent.ModifierFlags.option.rawValue | UInt(NX_DEVICERALTKEYMASK)
+        )
+        let mods = cmuxGhosttyInputMods(from: flags)
+
+        XCTAssertEqual(
+            mods.rawValue & GHOSTTY_MODS_ALT.rawValue,
+            GHOSTTY_MODS_ALT.rawValue
+        )
+        XCTAssertEqual(
+            mods.rawValue & GHOSTTY_MODS_ALT_RIGHT.rawValue,
+            GHOSTTY_MODS_ALT_RIGHT.rawValue
+        )
+    }
+
+    func testLeftOptionDoesNotCarryGhosttyRightAltSideBit() {
+        let flags = NSEvent.ModifierFlags(
+            rawValue: NSEvent.ModifierFlags.option.rawValue | UInt(NX_DEVICELALTKEYMASK)
+        )
+        let mods = cmuxGhosttyInputMods(from: flags)
+
+        XCTAssertEqual(
+            mods.rawValue & GHOSTTY_MODS_ALT.rawValue,
+            GHOSTTY_MODS_ALT.rawValue
+        )
+        XCTAssertEqual(
+            mods.rawValue & GHOSTTY_MODS_ALT_RIGHT.rawValue,
+            GHOSTTY_MODS_NONE.rawValue
+        )
+    }
+
+    func testRightSideDeviceBitsAreMappedForShiftControlAndCommand() {
+        let rightShift = cmuxGhosttyInputMods(from: NSEvent.ModifierFlags(
+            rawValue: NSEvent.ModifierFlags.shift.rawValue | UInt(NX_DEVICERSHIFTKEYMASK)
+        ))
+        XCTAssertEqual(rightShift.rawValue & GHOSTTY_MODS_SHIFT.rawValue, GHOSTTY_MODS_SHIFT.rawValue)
+        XCTAssertEqual(rightShift.rawValue & GHOSTTY_MODS_SHIFT_RIGHT.rawValue, GHOSTTY_MODS_SHIFT_RIGHT.rawValue)
+
+        let rightControl = cmuxGhosttyInputMods(from: NSEvent.ModifierFlags(
+            rawValue: NSEvent.ModifierFlags.control.rawValue | UInt(NX_DEVICERCTLKEYMASK)
+        ))
+        XCTAssertEqual(rightControl.rawValue & GHOSTTY_MODS_CTRL.rawValue, GHOSTTY_MODS_CTRL.rawValue)
+        XCTAssertEqual(rightControl.rawValue & GHOSTTY_MODS_CTRL_RIGHT.rawValue, GHOSTTY_MODS_CTRL_RIGHT.rawValue)
+
+        let rightCommand = cmuxGhosttyInputMods(from: NSEvent.ModifierFlags(
+            rawValue: NSEvent.ModifierFlags.command.rawValue | UInt(NX_DEVICERCMDKEYMASK)
+        ))
+        XCTAssertEqual(rightCommand.rawValue & GHOSTTY_MODS_SUPER.rawValue, GHOSTTY_MODS_SUPER.rawValue)
+        XCTAssertEqual(rightCommand.rawValue & GHOSTTY_MODS_SUPER_RIGHT.rawValue, GHOSTTY_MODS_SUPER_RIGHT.rawValue)
+    }
+
+    func testCapsLockIsNotForwardedToGhosttyInputMods() {
+        let mods = cmuxGhosttyInputMods(from: [.capsLock])
+
+        XCTAssertEqual(
+            mods.rawValue & GHOSTTY_MODS_CAPS.rawValue,
+            GHOSTTY_MODS_NONE.rawValue
+        )
+    }
+
+    func testCommandHoverSuppressionClearsRightCommandSideBit() {
+        let flags = NSEvent.ModifierFlags(
+            rawValue: NSEvent.ModifierFlags.command.rawValue | UInt(NX_DEVICERCMDKEYMASK)
+        )
+        let effectiveFlags = cmuxGhosttyModifierFlagsByRemovingCommand(from: flags)
+        let mods = cmuxGhosttyInputMods(from: effectiveFlags)
+
+        XCTAssertEqual(
+            mods.rawValue & GHOSTTY_MODS_SUPER.rawValue,
+            GHOSTTY_MODS_NONE.rawValue
+        )
+        XCTAssertEqual(
+            mods.rawValue & GHOSTTY_MODS_SUPER_RIGHT.rawValue,
+            GHOSTTY_MODS_NONE.rawValue
+        )
+    }
+}
+
+
 final class TerminalControllerSocketListenerHealthTests: XCTestCase {
     private let transport = SocketTransport()
 
