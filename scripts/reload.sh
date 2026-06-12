@@ -505,6 +505,47 @@ if [[ -z "$TAG" ]]; then
   exit 1
 fi
 
+# --- cmuxterm-hq local-reload guard ------------------------------------------
+# In a cmuxterm-hq-managed checkout (one that ships a ./scripts/reload-cloud.sh
+# shim, or a Mac with a macfleet builder manifest), a LOCAL reload steals the
+# user's CPU and window focus. Agents must build on the fleet with
+# ./scripts/reload-cloud.sh instead. The cloud paths set CMUX_RELOAD_CLOUD=1 to
+# bypass this (the remote build and the no-fleet local fallback). A human who
+# really wants a local build sets CMUX_RELOAD_LOCAL_OK=1, or touches
+# ~/.cmux-reload-guard/allow-local (also honored by the background reload guard).
+if [[ -z "${CMUX_RELOAD_CLOUD:-}" && -z "${CMUX_RELOAD_LOCAL_OK:-}" ]]; then
+  _hqdir="$(cd "$(dirname "${BASH_SOURCE[0]}")" 2>/dev/null && pwd || true)"
+  _hq=0
+  if [[ -e "${_hqdir}/reload-cloud.sh" || -f "$HOME/.config/macfleet/hosts.json" ]]; then _hq=1; fi
+  # A cloud build runs reload.sh inside the builder's overlay work dir; never
+  # block there (belt-and-braces for the CMUX_RELOAD_CLOUD env bypass).
+  case "$PWD" in *cmux-job/reload-cloud/*) _hq=0 ;; esac
+  _allow="$HOME/.cmux-reload-guard/allow-local"
+  if [[ "$_hq" == "1" && -f "$_allow" ]]; then
+    _am="$(stat -f %m "$_allow" 2>/dev/null || echo 0)"
+    if [[ "$_am" =~ ^[0-9]+$ ]] && (( $(date +%s) - _am < 14400 )); then _hq=0; fi
+  fi
+  if [[ "$_hq" == "1" ]]; then
+    {
+      echo "=================================================================="
+      echo "  LOCAL reload is BLOCKED in this cmuxterm-hq checkout."
+      echo
+      echo "  Local builds steal the user's CPU and window focus. Build on the"
+      echo "  fleet instead (same tag, same app path, same deeplink):"
+      echo
+      echo "      ./scripts/reload-cloud.sh --tag ${TAG}"
+      echo
+      echo "  Need a live instance? add --launch (cloud build, opens locally):"
+      echo "      ./scripts/reload-cloud.sh --tag ${TAG} --launch"
+      echo
+      echo "  Force a local build anyway:"
+      echo "      CMUX_RELOAD_LOCAL_OK=1 ./scripts/reload.sh --tag ${TAG}"
+      echo "=================================================================="
+    } >&2
+    exit 3
+  fi
+fi
+
 if [[ -n "$TAG" ]]; then
   TAG_ID="$(sanitize_bundle "$TAG")"
   TAG_SLUG="$(sanitize_path "$TAG")"
