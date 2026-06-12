@@ -1335,14 +1335,30 @@ private final class ClaudeHookSessionStore {
         record: ClaudeHookSessionRecord,
         turnId: String?
     ) -> Bool {
-        guard let workspaceId = normalizeOptional(record.workspaceId),
-              let active = state.activeSessionsByWorkspace[workspaceId],
-              active.sessionId == record.sessionId,
-              let activeTurnId = normalizeOptional(active.turnId),
-              let incomingTurnId = normalizeOptional(turnId) else {
+        guard let incomingTurnId = normalizeOptional(turnId) else {
             return false
         }
-        return activeTurnId != incomingTurnId
+        // Consult the pane-scoped slot alongside the workspace slot: once a
+        // sibling pane takes the single workspace-active slot, only the
+        // surface slot still proves that this session is mid-turn in its own
+        // pane and a stale SessionEnd from an older turn must not consume it.
+        // https://github.com/manaflow-ai/cmux/issues/5908
+        var activeRecords: [ClaudeHookActiveSessionRecord] = []
+        if let workspaceId = normalizeOptional(record.workspaceId),
+           let active = state.activeSessionsByWorkspace[workspaceId] {
+            activeRecords.append(active)
+        }
+        if let surfaceId = normalizeOptional(record.surfaceId),
+           let active = state.activeSessionsBySurface[surfaceId] {
+            activeRecords.append(active)
+        }
+        return activeRecords.contains { active in
+            guard active.sessionId == record.sessionId,
+                  let activeTurnId = normalizeOptional(active.turnId) else {
+                return false
+            }
+            return activeTurnId != incomingTurnId
+        }
     }
 
     private func clearActiveSessionIfMatching(
