@@ -53,6 +53,10 @@ enum NotificationSoundSettings {
     private static let activePlaybackSoundsLock = NSLock()
     private static var activePlaybackSounds: [ObjectIdentifier: NSSound] = [:]
     private static let activePlaybackSoundDelegate = ActivePlaybackSoundDelegate()
+    private static let dndAssertionQueue = DispatchQueue(
+        label: "com.cmuxterm.notification-dnd-assertion",
+        qos: .utility
+    )
     private static let notificationSoundSupportedExtensions: Set<String> = [
         "aif",
         "aiff",
@@ -287,9 +291,88 @@ enum NotificationSoundSettings {
         playSoundFile(at: url)
     }
 
-    static func playSelectedSound(defaults: UserDefaults = .standard) {
-        let value = defaults.string(forKey: key) ?? defaultValue
-        playSound(value: value, defaults: defaults)
+    /// Live Do Not Disturb assertion store written by the Focus daemon.
+    ///
+    /// DEBUG builds honor `CMUX_DEBUG_DND_ASSERTIONS_PATH` so a tagged dev app
+    /// can be driven end-to-end against fixture files instead of the real
+    /// (TCC-protected) store.
+    static let defaultAssertionsFileURL: URL = {
+#if DEBUG
+        if let override = ProcessInfo.processInfo.environment["CMUX_DEBUG_DND_ASSERTIONS_PATH"],
+           !override.isEmpty {
+            return URL(fileURLWithPath: override, isDirectory: false)
+        }
+#endif
+        return FileManager.default
+            .homeDirectoryForCurrentUser
+            .appendingPathComponent("Library/DoNotDisturb/DB/Assertions.json", isDirectory: false)
+    }()
+
+    /// Whether a macOS Focus / Do Not Disturb mode is currently active.
+    ///
+    /// The `UNUserNotificationCenter` sound path is gated by the OS for Focus
+    /// and per-app authorization. This direct `NSSound` fallback (used when the
+    /// system would not deliver the banner) is not, so it otherwise punches
+    /// through Focus and through a user who has turned notifications off. A
+    /// Focus is active when `storeAssertionRecords` holds at least one
+    /// assertion. Fails open: any read or parse error returns `false` so sound
+    /// keeps working.
+    static func isSuppressedByActiveFocus(
+        assertionsFileURL: URL = defaultAssertionsFileURL
+    ) -> Bool {
+        guard
+            let data = try? Data(contentsOf: assertionsFileURL),
+            let root = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+            let entries = root["data"] as? [[String: Any]]
+        else {
+            return false
+        }
+        return entries.contains { entry in
+            if let records = entry["storeAssertionRecords"] as? [Any] {
+                return !records.isEmpty
+            }
+            return false
+        }
+    }
+
+    /// Plays the user-selected notification sound unless an active macOS
+    /// Focus / Do Not Disturb mode should silence it.
+    ///
+    /// The Focus check reads the assertion store, which is disk I/O, so it
+    /// runs on the background assertion queue and playback hops back to the
+    /// main queue. The state is read fresh for every play: a cached snapshot
+    /// would let the first sound after the user enables a Focus punch
+    /// through, which is the exact bug this gate exists to fix. Notification
+    /// sounds are low-frequency (cooldown-throttled), so one small file read
+    /// per play on a utility queue is cheap.
+    ///
+    /// `completion` runs on the main queue with whether the sound was allowed
+    /// to play. It exists so tests can observe the gate decision; production
+    /// callers pass nothing.
+    static func playSelectedSound(
+        defaults: UserDefaults = .standard,
+        assertionsFileURL: URL = defaultAssertionsFileURL,
+        completion: ((_ didPlay: Bool) -> Void)? = nil
+    ) {
+        dndAssertionQueue.async {
+            let suppressed = isSuppressedByActiveFocus(assertionsFileURL: assertionsFileURL)
+#if DEBUG
+            // storeReadable distinguishes "no Focus active" from "assertion
+            // store unreadable (no Full Disk Access)", which look identical
+            // through the fail-open gate.
+            let storeReadable = (try? Data(contentsOf: assertionsFileURL)) != nil
+            cmuxDebugLog(
+                "notification.sound.focusGate suppressed=\(suppressed ? 1 : 0) storeReadable=\(storeReadable ? 1 : 0)"
+            )
+#endif
+            DispatchQueue.main.async {
+                if !suppressed {
+                    let value = defaults.string(forKey: key) ?? defaultValue
+                    playSound(value: value, defaults: defaults)
+                }
+                completion?(!suppressed)
+            }
+        }
     }
 
     static func previewSound(value: String, defaults: UserDefaults = .standard) {
@@ -1065,7 +1148,7 @@ final class TerminalNotificationStore: ObservableObject {
 
     func requestAuthorizationFromSettings() {
         logAuthorization("settings request tapped state=\(authorizationState.statusLabel)")
-        ensureAuthorization(origin: .settingsButton) { _ in }
+        ensureAuthorization(origin: .settingsButton) { _, _ in }
     }
 
     func openNotificationSettings() {
@@ -1087,7 +1170,7 @@ final class TerminalNotificationStore: ObservableObject {
 
     func sendSettingsTestNotification() {
         logAuthorization("settings test tapped state=\(authorizationState.statusLabel)")
-        ensureAuthorization(origin: .settingsTest) { [weak self] authorized in
+        ensureAuthorization(origin: .settingsTest) { [weak self] authorized, _ in
             guard let self, authorized else { return }
 
             let content = UNMutableNotificationContent()
@@ -1122,7 +1205,7 @@ final class TerminalNotificationStore: ObservableObject {
         logAuthorization("app became active deferred=\(hasDeferredAuthorizationRequest)")
         if hasDeferredAuthorizationRequest {
             hasDeferredAuthorizationRequest = false
-            ensureAuthorization(origin: .settingsButton) { _ in }
+            ensureAuthorization(origin: .settingsButton) { _, _ in }
             return
         }
         refreshAuthorizationStatus()
@@ -1663,7 +1746,7 @@ final class TerminalNotificationStore: ObservableObject {
             "Notification hook failed hookId=\(failure.hookId, privacy: .public) sourcePath=\(failure.sourcePath ?? "<unknown>", privacy: .private) message=\(failure.message, privacy: .private)"
         )
 
-        ensureAuthorization(origin: .notificationDelivery) { [weak self] authorized in
+        ensureAuthorization(origin: .notificationDelivery) { [weak self] authorized, _ in
             guard let self, authorized else { return }
             let title = String(
                 localized: "notificationHook.failure.title",
@@ -2050,7 +2133,7 @@ final class TerminalNotificationStore: ObservableObject {
             return
         }
 
-        ensureAuthorization(origin: .notificationDelivery) { [weak self] authorized in
+        ensureAuthorization(origin: .notificationDelivery) { [weak self] authorized, effectiveAuthorizationState in
             guard let self else { return }
             let content = UNMutableNotificationContent()
             content.title = self.resolvedNotificationTitle(for: notification)
@@ -2061,7 +2144,7 @@ final class TerminalNotificationStore: ObservableObject {
                     title: content.title,
                     subtitle: content.subtitle,
                     body: content.body,
-                    effects: effects
+                    effects: Self.fallbackEffects(effects, authorizationState: effectiveAuthorizationState)
                 )
                 return
             }
@@ -2140,9 +2223,15 @@ final class TerminalNotificationStore: ObservableObject {
         }
     }
 
+    /// `completion` receives the decision plus the effective authorization
+    /// state behind it. The state matters for the just-prompted-and-declined
+    /// case: `authorizationState` is refreshed asynchronously there, so a
+    /// caller reading the property would still see `.notDetermined` and play
+    /// the fallback sound for the very notification whose prompt the user
+    /// just denied.
     private func ensureAuthorization(
         origin: AuthorizationRequestOrigin,
-        _ completion: @escaping (Bool) -> Void
+        _ completion: @escaping (Bool, NotificationAuthorizationState) -> Void
     ) {
         if origin == .notificationDelivery,
            let cachedDecision = Self.cachedDeliveryAuthorizationDecision(
@@ -2152,7 +2241,7 @@ final class TerminalNotificationStore: ObservableObject {
             if !cachedDecision, authorizationState == .notDetermined {
                 hasDeferredAuthorizationRequest = true
             }
-            completion(cachedDecision)
+            completion(cachedDecision, authorizationState)
             return
         }
 
@@ -2160,7 +2249,7 @@ final class TerminalNotificationStore: ObservableObject {
         center.getNotificationSettings { [weak self] settings in
             DispatchQueue.main.async {
                 guard let self else {
-                    completion(false)
+                    completion(false, .unknown)
                     return
                 }
 
@@ -2170,13 +2259,13 @@ final class TerminalNotificationStore: ObservableObject {
                 )
                 switch settings.authorizationStatus {
                 case .authorized, .provisional, .ephemeral:
-                    completion(true)
+                    completion(true, self.authorizationState)
                 case .denied:
                     if origin != .notificationDelivery {
                         self.logAuthorization("ensure denied origin=\(origin.rawValue) prompting_settings")
                         self.promptToEnableNotifications()
                     }
-                    completion(false)
+                    completion(false, .denied)
                 case .notDetermined:
                     if Self.shouldDeferAutomaticAuthorizationRequest(
                         origin: origin,
@@ -2185,13 +2274,13 @@ final class TerminalNotificationStore: ObservableObject {
                     ) {
                         self.logAuthorization("ensure deferred origin=\(origin.rawValue)")
                         self.hasDeferredAuthorizationRequest = true
-                        completion(false)
+                        completion(false, .notDetermined)
                     } else {
                         self.requestAuthorizationIfNeeded(origin: origin, completion)
                     }
                 @unknown default:
                     self.logAuthorization("ensure unknown status origin=\(origin.rawValue)")
-                    completion(false)
+                    completion(false, .unknown)
                 }
             }
         }
@@ -2199,7 +2288,7 @@ final class TerminalNotificationStore: ObservableObject {
 
     private func requestAuthorizationIfNeeded(
         origin: AuthorizationRequestOrigin,
-        _ completion: @escaping (Bool) -> Void
+        _ completion: @escaping (Bool, NotificationAuthorizationState) -> Void
     ) {
         let isAutomaticRequest = origin == .notificationDelivery
         guard Self.shouldRequestAuthorization(
@@ -2209,7 +2298,7 @@ final class TerminalNotificationStore: ObservableObject {
             logAuthorization(
                 "request blocked origin=\(origin.rawValue) automatic=\(isAutomaticRequest) hasRequestedAutomatic=\(hasRequestedAutomaticAuthorization)"
             )
-            completion(false)
+            completion(false, authorizationState)
             return
         }
         if isAutomaticRequest {
@@ -2229,7 +2318,14 @@ final class TerminalNotificationStore: ObservableObject {
                 self.logAuthorization(
                     "request callback origin=\(origin.rawValue) granted=\(granted) error=\(error?.localizedDescription ?? "nil") mapped=\(self.authorizationState.statusLabel)"
                 )
-                completion(granted)
+                // A non-grant without an error is the user answering the
+                // prompt with a live denial, even while authorizationState is
+                // still refreshing. A request error is not a user decision,
+                // so it reports .unknown and the fallback sound stays on
+                // (fail-open).
+                let effectiveState: NotificationAuthorizationState =
+                    granted ? .authorized : (error == nil ? .denied : .unknown)
+                completion(granted, effectiveState)
             }
         }
     }

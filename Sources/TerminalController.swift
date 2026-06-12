@@ -13419,6 +13419,10 @@ class TerminalController {
             result = v2MobileTerminalMouse(params: request.params)
         case "workspace.action":
             result = v2MobileWorkspaceAction(params: request.params)
+        case "workspace.group.collapse":
+            result = v2MobileWorkspaceGroupSetCollapsed(params: request.params, isCollapsed: true)
+        case "workspace.group.expand":
+            result = v2MobileWorkspaceGroupSetCollapsed(params: request.params, isCollapsed: false)
         case "dogfood.feedback.submit":
             result = await v2MobileDogfoodFeedbackSubmit(params: request.params)
         default:
@@ -13803,170 +13807,14 @@ class TerminalController {
         }
     }
 
-    func v2MobileWorkspaceList(
-        params: [String: Any],
-        tabManager resolvedTabManager: TabManager? = nil,
-        createdWorkspaceID: String? = nil,
-        createdTerminalID: String? = nil
-    ) -> V2CallResult {
-        let requestedWorkspaceID = v2UUID(params, "workspace_id")
-        if v2HasNonNullParam(params, "workspace_id"), requestedWorkspaceID == nil {
-            return .err(code: "invalid_params", message: "Missing or invalid workspace_id", data: nil)
-        }
-        let requestedTerminalID: UUID?
-        switch mobileTerminalAliasUUID(params: params) {
-        case .missing:
-            requestedTerminalID = nil
-        case let .value(terminalID):
-            requestedTerminalID = terminalID
-        case .invalid:
-            return .err(code: "invalid_params", message: "Missing or invalid terminal_id", data: nil)
-        case .conflict:
-            return .err(code: "invalid_params", message: "Conflicting terminal identifiers", data: nil)
-        }
-
-        // The phone shows workspaces from *every* open Mac window. Enumerate all
-        // registered main windows and flatten their workspaces into one list,
-        // but only when the caller has not named a specific target. When a
-        // `workspace_id`, `window_id`, terminal alias, or an explicit
-        // `resolvedTabManager` (the create/terminal-create paths pass one) is
-        // present, keep today's single-window scoped behavior so those requests
-        // resolve exactly the named target.
-        let scopeToSingleWindow = resolvedTabManager != nil
-            || requestedWorkspaceID != nil
-            || v2HasNonNullParam(params, "window_id")
-            || requestedTerminalID != nil
-
-        // `is_selected` has no single answer across multiple windows. Mark only
-        // the frontmost/key window's selected workspace as selected; in the old
-        // single-window path this is exactly the one selected workspace. Using
-        // `currentScriptableMainWindow()` (not `isKeyWindow`) means a backgrounded
-        // app, where no window is key, still reports the same selection the old
-        // path would have, instead of marking nothing selected.
-        let selectedWorkspaceID = scopeToSingleWindow
-            ? nil
-            : AppDelegate.shared?.currentScriptableMainWindow()?.tabManager.selectedTabId
-
-        let workspaces: [[String: Any]]
-        if scopeToSingleWindow {
-            guard let tabManager = resolvedTabManager ?? v2ResolveTabManager(params: params) else {
-                return .err(code: "unavailable", message: "Workspace context is unavailable", data: nil)
-            }
-            let visibleWorkspaces = requestedWorkspaceID.map { workspaceID in
-                tabManager.tabs.filter { $0.id == workspaceID }
-            } ?? tabManager.tabs
-            if let requestedWorkspaceID, visibleWorkspaces.isEmpty {
-                return .err(
-                    code: "not_found",
-                    message: "Workspace not found",
-                    data: ["workspace_id": requestedWorkspaceID.uuidString]
-                )
-            }
-            let scopedWorkspaces = visibleWorkspaces.map { workspace in
-                mobileWorkspacePayload(
-                    workspace: workspace,
-                    isSelected: workspace.id == tabManager.selectedTabId,
-                    requestedTerminalID: requestedTerminalID
-                )
-            }
-            if let requestedTerminalID,
-               !scopedWorkspaces.contains(where: { workspace in
-                   guard let terminals = workspace["terminals"] as? [[String: Any]] else { return false }
-                   return terminals.contains { ($0["id"] as? String) == requestedTerminalID.uuidString }
-               }) {
-                return .err(
-                    code: "not_found",
-                    message: "Terminal not found",
-                    data: ["surface_id": requestedTerminalID.uuidString]
-                )
-            }
-            workspaces = scopedWorkspaces
-        } else {
-            guard let app = AppDelegate.shared else {
-                return .err(code: "unavailable", message: "Workspace context is unavailable", data: nil)
-            }
-            var flattened: [[String: Any]] = []
-            // `listMainWindowSummaries()` already dedupes window ids, but guard
-            // against the same window or workspace appearing twice anyway: a
-            // workspace lives in exactly one window, and ids are globally unique.
-            var seenWindowIDs: Set<UUID> = []
-            var seenWorkspaceIDs: Set<UUID> = []
-            for summary in app.listMainWindowSummaries() {
-                guard seenWindowIDs.insert(summary.windowId).inserted else { continue }
-                guard let windowTabManager = app.tabManagerFor(windowId: summary.windowId) else { continue }
-                for workspace in windowTabManager.tabs where seenWorkspaceIDs.insert(workspace.id).inserted {
-                    flattened.append(
-                        mobileWorkspacePayload(
-                            workspace: workspace,
-                            isSelected: workspace.id == selectedWorkspaceID,
-                            requestedTerminalID: requestedTerminalID
-                        )
-                    )
-                }
-            }
-            workspaces = flattened
-        }
-
-        var payload: [String: Any] = [
-            "workspaces": workspaces
-        ]
-        if let createdWorkspaceID {
-            payload["created_workspace_id"] = createdWorkspaceID
-        }
-        if let createdTerminalID {
-            payload["created_terminal_id"] = createdTerminalID
-        }
-        return .ok(payload)
-    }
-
-    /// Serializes one workspace into the iOS-facing mobile workspace list shape.
-    ///
-    /// Shared by the single-window (scoped) and all-windows enumeration branches
-    /// of `v2MobileWorkspaceList` so the two never diverge. When
-    /// `requestedTerminalID` is non-nil the terminals array is filtered to that
-    /// one terminal (only the scoped branch passes it; the all-windows branch
-    /// always passes nil, so it lists every terminal). The scoped
-    /// terminal-not-found check is enforced by the caller after the list is built.
-    private func mobileWorkspacePayload(
-        workspace: Workspace,
-        isSelected: Bool,
-        requestedTerminalID: UUID?
-    ) -> [String: Any] {
-        let terminals = mobileTerminalPanels(in: workspace).compactMap { terminal -> [String: Any]? in
-            if let requestedTerminalID, terminal.id != requestedTerminalID {
-                return nil
-            }
-            return [
-                "id": terminal.id.uuidString,
-                "title": workspace.panelTitle(panelId: terminal.id) ?? terminal.displayTitle,
-                "current_directory": v2OrNull(
-                    mobileNonEmpty(workspace.panelDirectories[terminal.id])
-                        ?? mobileNonEmpty(terminal.directory)
-                        ?? mobileNonEmpty(terminal.requestedWorkingDirectory)
-                ),
-                "is_ready": terminal.surface.surface != nil,
-                "is_focused": terminal.id == workspace.focusedPanelId
-            ]
-        }
-
-        return [
-            "id": workspace.id.uuidString,
-            "title": workspace.title,
-            "current_directory": v2OrNull(mobileNonEmpty(workspace.currentDirectory)),
-            "is_selected": isSelected,
-            "is_pinned": workspace.isPinned,
-            "terminals": terminals
-        ]
-    }
-
-    private enum MobileTerminalAliasUUID {
+    enum MobileTerminalAliasUUID {
         case missing
         case value(UUID)
         case invalid
         case conflict
     }
 
-    private func mobileTerminalAliasUUID(params: [String: Any]) -> MobileTerminalAliasUUID {
+    func mobileTerminalAliasUUID(params: [String: Any]) -> MobileTerminalAliasUUID {
         var selected: UUID?
         var sawAlias = false
         for key in ["surface_id", "terminal_id", "tab_id"] {
@@ -14784,7 +14632,7 @@ class TerminalController {
         return (tabManager, workspace, surfaceId)
     }
 
-    private func mobileTerminalPanels(in workspace: Workspace) -> [TerminalPanel] {
+    func mobileTerminalPanels(in workspace: Workspace) -> [TerminalPanel] {
         // Use the workspace's spatial (left-to-right, top-to-bottom) panel order
         // so the phone's terminal dropdown matches the on-screen bonsplit layout,
         // rather than focused-first/UUID order. `is_focused` in the payload still
@@ -14792,7 +14640,7 @@ class TerminalController {
         orderedPanels(in: workspace).compactMap { $0 as? TerminalPanel }
     }
 
-    private func mobileNonEmpty(_ raw: String?) -> String? {
+    func mobileNonEmpty(_ raw: String?) -> String? {
         let trimmed = raw?.trimmingCharacters(in: .whitespacesAndNewlines)
         return trimmed?.isEmpty == false ? trimmed : nil
     }
