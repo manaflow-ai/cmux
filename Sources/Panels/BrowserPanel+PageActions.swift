@@ -261,7 +261,7 @@ extension BrowserPanel {
     }
 
     @discardableResult
-    func applyPageZoom(_ candidate: CGFloat) -> Bool {
+    private func applyPageZoom(_ candidate: CGFloat) -> Bool {
         let clamped = max(minPageZoom, min(maxPageZoom, candidate))
         if abs(webView.pageZoom - clamped) < 0.0001 {
             return false

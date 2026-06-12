@@ -202,10 +202,10 @@ enum BrowserWebAuthnTransport: String {
 
 struct BrowserWebAuthnTransportSummary {
     let containsBluetooth: Bool
-    let containsHybrid: Bool
-    let containsInternal: Bool
-    let containsSecurityKeyTransport: Bool
-    let containsUnspecifiedTransport: Bool
+    private let containsHybrid: Bool
+    private let containsInternal: Bool
+    private let containsSecurityKeyTransport: Bool
+    private let containsUnspecifiedTransport: Bool
 
     init(descriptors: [BrowserWebAuthnCredentialDescriptor]) {
         var containsBluetooth = false

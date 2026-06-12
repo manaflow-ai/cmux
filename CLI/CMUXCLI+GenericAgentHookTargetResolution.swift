@@ -40,7 +40,7 @@ extension CMUXCLI {
         }) ? candidate : nil
     }
 
-    func resolveDefaultSurfaceId(workspaceId: String, ctx: GenericAgentHookContext) -> String? {
+    private func resolveDefaultSurfaceId(workspaceId: String, ctx: GenericAgentHookContext) -> String? {
         try? resolveSurfaceId(nil, workspaceId: workspaceId, client: ctx.client)
     }
 

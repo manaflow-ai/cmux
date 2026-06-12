@@ -102,7 +102,7 @@ extension CMUXCLI {
         }
     }
 
-    func isTransientEventStreamError(_ error: Error) -> Bool {
+    private func isTransientEventStreamError(_ error: Error) -> Bool {
         if let cliError = error as? CLIError {
             let message = cliError.message.lowercased()
             let transientMarkers = [
@@ -133,7 +133,7 @@ extension CMUXCLI {
             || description.contains("timed out")
     }
 
-    func waitBeforeReconnectingEventStream() {
+    private func waitBeforeReconnectingEventStream() {
         let deadline = Date(timeIntervalSinceNow: 1.0)
         var didFire = false
         let timer = Timer(timeInterval: 1.0, repeats: false) { _ in

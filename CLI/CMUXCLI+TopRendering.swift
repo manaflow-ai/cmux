@@ -37,7 +37,7 @@ extension CMUXCLI {
         return String(output).trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
-    func topIndexAfterEscapeSequence(in scalars: [Unicode.Scalar], from startIndex: Int) -> Int {
+    private func topIndexAfterEscapeSequence(in scalars: [Unicode.Scalar], from startIndex: Int) -> Int {
         var index = startIndex + 1
         guard index < scalars.count else { return index }
 

@@ -284,8 +284,8 @@ final class CMUXSidebarExtensionHostXPC {
 private final class CMUXSidebarHostXPCObject: NSObject, CMUXSidebarHostXPC {
     @MainActor var snapshotProvider: () -> CmuxSidebarSnapshot
     @MainActor var actionHandler: (CmuxSidebarAction) -> CmuxSidebarActionResult
-    @MainActor var onAcceptedAction: () -> Void
-    @MainActor var isCurrentGeneration: () -> Bool
+    @MainActor private var onAcceptedAction: () -> Void
+    @MainActor private var isCurrentGeneration: () -> Bool
 
     @MainActor
     init(

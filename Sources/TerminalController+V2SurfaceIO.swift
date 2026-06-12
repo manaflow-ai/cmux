@@ -726,7 +726,7 @@ extension TerminalController {
     /// freshly-attached device gets the live screen immediately, and deeper
     /// history is a follow-up (incremental scrollback paging on scroll-to-top).
     /// Tune up to trade replay payload size for more attach-time history.
-    nonisolated static let mobileReplayScrollbackLineBudget = 1
+    private nonisolated static let mobileReplayScrollbackLineBudget = 1
 
     func mobileTerminalRenderGridFrame(
         terminalPanel: TerminalPanel,

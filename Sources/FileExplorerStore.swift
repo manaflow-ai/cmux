@@ -186,7 +186,7 @@ final class FileExplorerStore {
         updateDirectoryWatcher()
     }
 
-    func refreshGitStatus() {
+    private func refreshGitStatus() {
         guard !rootPath.isEmpty else {
             gitStatusByPath = [:]
             return

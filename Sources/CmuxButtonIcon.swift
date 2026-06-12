@@ -105,7 +105,7 @@ enum CmuxButtonIcon: Codable, Sendable, Hashable {
         return preparedImage.fingerprint
     }
 
-    func resolvingRelativeImagePath(relativeToConfig configSourcePath: String?) -> CmuxButtonIcon {
+    private func resolvingRelativeImagePath(relativeToConfig configSourcePath: String?) -> CmuxButtonIcon {
         guard case .imagePath(let path) = self else { return self }
         return .imagePath(Self.resolvePath(path, relativeToConfig: configSourcePath))
     }

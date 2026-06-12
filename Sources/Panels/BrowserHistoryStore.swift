@@ -17,7 +17,7 @@ import Security
 
 
 // MARK: - Browser history store
-func normalizedBrowserHistoryNamespace(bundleIdentifier: String) -> String {
+private func normalizedBrowserHistoryNamespace(bundleIdentifier: String) -> String {
     if bundleIdentifier.hasPrefix("com.cmuxterm.app.debug.") {
         return "com.cmuxterm.app.debug"
     }

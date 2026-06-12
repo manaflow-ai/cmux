@@ -24,7 +24,7 @@ enum FeedButtonDebugSettings {
         ) ?? .solid
     }
 
-    static var palettePreset: FeedButtonDebugPalettePreset {
+    private static var palettePreset: FeedButtonDebugPalettePreset {
         FeedButtonDebugPalettePreset(
             rawValue: defaults.string(forKey: paletteKey) ?? FeedButtonDebugPalettePreset.system.rawValue
         ) ?? .system

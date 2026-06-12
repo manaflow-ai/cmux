@@ -119,7 +119,7 @@ enum AppearanceSettings {
         return (systemAppearance ?? .current(defaults: defaults)).prefersDark ? .dark : .light
     }
 
-    static func systemNSAppearance(defaults: UserDefaults = .standard) -> NSAppearance? {
+    private static func systemNSAppearance(defaults: UserDefaults = .standard) -> NSAppearance? {
         NSAppearance(named: SystemAppearance.current(defaults: defaults).prefersDark ? .darkAqua : .aqua)
     }
 

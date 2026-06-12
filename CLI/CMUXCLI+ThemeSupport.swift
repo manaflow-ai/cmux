@@ -388,7 +388,7 @@ extension CMUXCLI {
         return bundleSlug.isEmpty ? nil : bundleSlug
     }
 
-    func currentCmuxAppBundleIdentifier() -> String? {
+    private func currentCmuxAppBundleIdentifier() -> String? {
         if let bundleIdentifier = ProcessInfo.processInfo.environment["CMUX_BUNDLE_ID"]?.trimmingCharacters(in: .whitespacesAndNewlines),
            !bundleIdentifier.isEmpty {
             return bundleIdentifier

@@ -18,7 +18,7 @@ import Security
 
 // MARK: - Browser focus mode
 extension BrowserPanel {
-    var canEnterBrowserFocusMode: Bool {
+    private var canEnterBrowserFocusMode: Bool {
         shouldRenderWebView &&
             browserInteractiveModalHostWindow(for: webView) != nil &&
             !webView.isHiddenOrHasHiddenAncestor &&
@@ -100,12 +100,12 @@ extension BrowserPanel {
         }
     }
 
-    func clearBrowserFocusModeEscapeArms(reason: String) {
+    private func clearBrowserFocusModeEscapeArms(reason: String) {
         clearBrowserFocusModeExitArm(reason: reason)
         lastBrowserFocusModePlainEscapeEventFingerprint = nil
     }
 
-    func clearBrowserFocusModeExitArm(reason: String) {
+    private func clearBrowserFocusModeExitArm(reason: String) {
         guard isBrowserFocusModeExitArmed || browserFocusModeExitArmedAt != nil else { return }
         browserFocusModeExitArmedAt = nil
         isBrowserFocusModeExitArmed = false

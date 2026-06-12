@@ -175,7 +175,7 @@ enum AuthEnvironment {
     }
 
     /// The website origin used for the after-sign-in handler.
-    static var afterSignInOrigin: URL {
+    private static var afterSignInOrigin: URL {
         resolvedURL(
             environmentKey: "CMUX_AUTH_WWW_ORIGIN",
             fallback: defaultWebOrigin

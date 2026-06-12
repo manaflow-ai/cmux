@@ -45,7 +45,7 @@ enum RosettaNativeRelaunch {
     /// Reads `sysctl.proc_translated`. The key is absent on Intel Macs and on
     /// older systems, which `sysctlbyname` reports as a failure; that case is
     /// treated as "not translated".
-    static func isProcessTranslated() -> Bool {
+    private static func isProcessTranslated() -> Bool {
         var value: Int32 = 0
         var size = MemoryLayout<Int32>.size
         let result = sysctlbyname("sysctl.proc_translated", &value, &size, nil, 0)

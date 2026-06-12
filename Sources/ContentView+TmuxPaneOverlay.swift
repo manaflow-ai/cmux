@@ -56,7 +56,7 @@ extension ContentView {
         return rectInContent
     }
 
-    static func preferredTmuxWorkspacePaneWindowOverlayRect(
+    private static func preferredTmuxWorkspacePaneWindowOverlayRect(
         exactRect: CGRect?,
         paneRect: CGRect?
     ) -> CGRect? {

@@ -17,7 +17,7 @@ enum MinimalModeTitlebarDebugSettings {
 
     static let horizontalInsetRange: ClosedRange<Double> = 0...180
     static let topInsetRange: ClosedRange<Double> = -8...32
-    static let leftControlsXOffsetRange: ClosedRange<Double> = (
+    private static let leftControlsXOffsetRange: ClosedRange<Double> = (
         horizontalInsetRange.lowerBound - defaultLeftControlsLeadingInset
     )...(
         horizontalInsetRange.upperBound - defaultLeftControlsLeadingInset

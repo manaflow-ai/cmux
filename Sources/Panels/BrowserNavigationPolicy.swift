@@ -154,7 +154,7 @@ func browserNavigationShouldFallbackNilTargetToNewTab(
     navigationType != .other
 }
 
-func browserNavigationHasSimpleUserActivation(
+private func browserNavigationHasSimpleUserActivation(
     currentEventType: NSEvent.EventType? = NSApp.currentEvent?.type
 ) -> Bool {
     switch currentEventType {

@@ -130,7 +130,7 @@ extension FilePreviewPDFContainerView {
         }
     }
 
-    func splitViewWillResizeSubviews(_ notification: Notification) {
+    private func splitViewWillResizeSubviews(_ notification: Notification) {
         guard !isApplyingSidebarWidth,
               isSidebarVisible,
               !sidebarHost.isHidden,
@@ -149,7 +149,7 @@ extension FilePreviewPDFContainerView {
         )
     }
 
-    func splitViewDidResizeSubviews(_ notification: Notification) {
+    private func splitViewDidResizeSubviews(_ notification: Notification) {
         guard isSidebarVisible, !sidebarHost.isHidden else { return }
         let sidebarWidth = sidebarHost.frame.width
         guard sidebarWidth >= minimumSidebarWidthForCurrentMode() else { return }

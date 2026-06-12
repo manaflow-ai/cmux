@@ -50,7 +50,7 @@ extension ContentView {
         hasVisibleResults && commandPaletteListScope(for: oldQuery) != commandPaletteListScope(for: newQuery)
     }
 
-    nonisolated static func commandPaletteListIdentity(for query: String) -> String {
+    private nonisolated static func commandPaletteListIdentity(for query: String) -> String {
         commandPaletteListScope(for: query).rawValue
     }
 

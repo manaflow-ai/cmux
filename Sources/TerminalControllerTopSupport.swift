@@ -10,7 +10,7 @@ extension TerminalController {
         "workspace:\(workspaceId.uuidString):tag:\(v2TopEscapedTagKey(key))"
     }
 
-    func v2TopEscapedTagKey(_ key: String) -> String {
+    private func v2TopEscapedTagKey(_ key: String) -> String {
         var allowed = CharacterSet.alphanumerics
         allowed.insert(charactersIn: "-._~")
         return key.addingPercentEncoding(withAllowedCharacters: allowed) ?? ""
@@ -88,7 +88,7 @@ extension TerminalController {
         return allPIDs
     }
 
-    nonisolated func v2AnnotateTopWorkspace(
+    private nonisolated func v2AnnotateTopWorkspace(
         _ workspace: inout [String: Any],
         processSnapshot: CmuxTopProcessSnapshot,
         browserPIDOccurrences: [Int: Int],
@@ -133,7 +133,7 @@ extension TerminalController {
         return workspacePIDs
     }
 
-    nonisolated func v2AnnotateTopPane(
+    private nonisolated func v2AnnotateTopPane(
         _ pane: inout [String: Any],
         processSnapshot: CmuxTopProcessSnapshot,
         browserPIDOccurrences: [Int: Int],
@@ -162,7 +162,7 @@ extension TerminalController {
         return panePIDs
     }
 
-    nonisolated func v2AnnotateTopSurface(
+    private nonisolated func v2AnnotateTopSurface(
         _ surface: inout [String: Any],
         processSnapshot: CmuxTopProcessSnapshot,
         browserPIDOccurrences: [Int: Int],
@@ -213,7 +213,7 @@ extension TerminalController {
         return surfacePIDs
     }
 
-    nonisolated func v2AnnotateTopWebView(
+    private nonisolated func v2AnnotateTopWebView(
         _ webview: inout [String: Any],
         processSnapshot: CmuxTopProcessSnapshot,
         browserPIDOccurrences: [Int: Int],
@@ -242,7 +242,7 @@ extension TerminalController {
         return pids
     }
 
-    nonisolated func v2AnnotateTopTag(
+    private nonisolated func v2AnnotateTopTag(
         _ tag: inout [String: Any],
         processSnapshot: CmuxTopProcessSnapshot,
         includeProcesses: Bool
@@ -266,7 +266,7 @@ extension TerminalController {
         return pids
     }
 
-    nonisolated func v2TopInt(_ raw: Any?) -> Int? {
+    private nonisolated func v2TopInt(_ raw: Any?) -> Int? {
         if let value = raw as? Int {
             return value
         }
@@ -279,7 +279,7 @@ extension TerminalController {
         return nil
     }
 
-    nonisolated func v2TopIntArray(_ raw: Any?) -> [Int] {
+    private nonisolated func v2TopIntArray(_ raw: Any?) -> [Int] {
         if let values = raw as? [Int] {
             return values
         }
@@ -287,13 +287,13 @@ extension TerminalController {
         return values.compactMap(v2TopInt)
     }
 
-    nonisolated func v2TopString(_ raw: Any?) -> String? {
+    private nonisolated func v2TopString(_ raw: Any?) -> String? {
         guard let value = raw as? String else { return nil }
         let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
         return trimmed.isEmpty ? nil : trimmed
     }
 
-    nonisolated func v2TopUUID(_ raw: Any?) -> UUID? {
+    private nonisolated func v2TopUUID(_ raw: Any?) -> UUID? {
         if let value = raw as? UUID {
             return value
         }

@@ -37,7 +37,7 @@ enum CmdClickMarkdownRouteSettings {
 
     /// Cheap extension check. Safe to call off the main thread before any
     /// filesystem probe so remote/non-markdown paths can be filtered early.
-    static func isMarkdownPath(_ path: String) -> Bool {
+    private static func isMarkdownPath(_ path: String) -> Bool {
         let ext = (path as NSString).pathExtension.lowercased()
         return ext == "md" || ext == "markdown" || ext == "mkd" || ext == "mdx"
     }

@@ -39,7 +39,7 @@ func browserOmnibarShouldBypassShortcutRoutingForMarkedText(
     return !browserOmnibarNormalizedModifierFlags(flags).contains(.command)
 }
 
-func browserOmnibarNormalizedModifierFlags(_ flags: NSEvent.ModifierFlags) -> NSEvent.ModifierFlags {
+private func browserOmnibarNormalizedModifierFlags(_ flags: NSEvent.ModifierFlags) -> NSEvent.ModifierFlags {
     flags
         .intersection(.deviceIndependentFlagsMask)
         .subtracting([.numericPad, .function, .capsLock])

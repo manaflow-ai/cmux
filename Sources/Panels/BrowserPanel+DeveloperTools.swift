@@ -674,7 +674,7 @@ extension BrowserPanel {
         (preferredAttachedDeveloperToolsWidth, preferredAttachedDeveloperToolsWidthFraction)
     }
 
-    func scheduleDeveloperToolsRestoreRetry() {
+    private func scheduleDeveloperToolsRestoreRetry() {
         guard preferredDeveloperToolsVisible else { return }
         guard developerToolsRestoreRetryWorkItem == nil else { return }
         guard developerToolsRestoreRetryAttempt < developerToolsRestoreRetryMaxAttempts else { return }
@@ -705,7 +705,7 @@ extension BrowserPanel {
         return false
     }
 
-    func hasSideDockedDeveloperToolsLayout() -> Bool {
+    private func hasSideDockedDeveloperToolsLayout() -> Bool {
         guard let container = webView.superview else { return false }
         return Self.visibleDescendants(in: container)
             .filter { Self.isVisibleSideDockInspectorCandidate($0) && Self.isInspectorView($0) }
@@ -714,7 +714,7 @@ extension BrowserPanel {
             }
     }
 
-    func hasSideDockedInspectorSibling(startingAt inspectorLeaf: NSView, root: NSView) -> Bool {
+    private func hasSideDockedInspectorSibling(startingAt inspectorLeaf: NSView, root: NSView) -> Bool {
         var current: NSView? = inspectorLeaf
 
         while let inspectorView = current, inspectorView !== root {
@@ -752,14 +752,14 @@ extension BrowserPanel {
         cmuxIsWebInspectorObject(view)
     }
 
-    static func isVisibleSideDockInspectorCandidate(_ view: NSView) -> Bool {
+    private static func isVisibleSideDockInspectorCandidate(_ view: NSView) -> Bool {
         !view.isHidden &&
             view.alphaValue > 0 &&
             view.frame.width > 1 &&
             view.frame.height > 1
     }
 
-    static func isVisibleSideDockSiblingCandidate(_ view: NSView) -> Bool {
+    private static func isVisibleSideDockSiblingCandidate(_ view: NSView) -> Bool {
         !view.isHidden &&
             view.alphaValue > 0 &&
             view.frame.width > 1 &&

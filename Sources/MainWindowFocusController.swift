@@ -166,7 +166,7 @@ final class MainWindowFocusController {
         }
     }
 
-    func allowsBonsplitTabShortcutHints(workspaceId: UUID) -> Bool {
+    private func allowsBonsplitTabShortcutHints(workspaceId: UUID) -> Bool {
         guard tabManager?.selectedTabId == workspaceId else { return false }
         switch intent {
         case .rightSidebar:

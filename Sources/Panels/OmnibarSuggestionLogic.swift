@@ -67,7 +67,7 @@ func omnibarSuggestionTitle(for suggestion: OmnibarSuggestion) -> String? {
     }
 }
 
-func omnibarSuggestionMatchesTypedPrefix(
+private func omnibarSuggestionMatchesTypedPrefix(
     typedText: String,
     suggestionCompletion: String,
     suggestionTitle: String? = nil
@@ -123,11 +123,11 @@ func omnibarSingleCharacterQuery(for query: String) -> String? {
     return trimmed
 }
 
-func omnibarStrippedURL(_ value: String) -> String {
+private func omnibarStrippedURL(_ value: String) -> String {
     return stripHTTPSchemeAndWWWPrefix(value)
 }
 
-func omnibarScoringCandidate(_ value: String) -> String {
+private func omnibarScoringCandidate(_ value: String) -> String {
     let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
     guard !trimmed.isEmpty else { return "" }
 

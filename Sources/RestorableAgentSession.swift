@@ -98,14 +98,14 @@ nonisolated struct SurfaceResumeBindingIndex: Sendable {
         bindingsByPanel[PanelKey(workspaceId: workspaceId, panelId: panelId)] ?? bindingsByPanelId[panelId]
     }
 
-    static func loadProcessDetectedBindingsSynchronously(
+    private static func loadProcessDetectedBindingsSynchronously(
         fileManager: FileManager = .default
     ) -> SurfaceResumeBindingIndex {
         let detectedBindings = processDetectedTmuxBindings(fileManager: fileManager)
         return SurfaceResumeBindingIndex(bindingsByPanel: detectedBindings.mapValues(\.binding))
     }
 
-    static func loadIncludingProcessDetectedBindings(
+    private static func loadIncludingProcessDetectedBindings(
         fileManager: FileManager = .default
     ) async -> SurfaceResumeBindingIndex {
         await Task.detached(priority: .utility) {
@@ -159,7 +159,7 @@ struct ProcessDetectedResumeIndexes: Sendable {
 }
 
 private extension CmuxTopProcessArguments {
-    func environmentUUID(forKey key: String) -> UUID? {
+    private func environmentUUID(forKey key: String) -> UUID? {
         guard let rawValue = environment[key]?.trimmingCharacters(in: .whitespacesAndNewlines),
               !rawValue.isEmpty else {
             return nil

@@ -21,7 +21,7 @@ extension CMUXCLI {
     static let codexTeamsMaxAutoDepth = 2
     private static let codexTeamsReconcileInterval: TimeInterval = 1
     private static let codexTeamsMaxCachedApprovalItems = 500
-    static let codexTeamsApprovalMethods: Set<String> = [
+    private static let codexTeamsApprovalMethods: Set<String> = [
         "item/commandExecution/requestApproval",
         "item/fileChange/requestApproval",
         "item/permissions/requestApproval"

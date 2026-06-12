@@ -17,7 +17,7 @@ enum WindowGlassEffect {
 
     static let backgroundViewIdentifier = NSUserInterfaceItemIdentifier("cmux.windowGlassBackground")
     static let rootViewIdentifier = NSUserInterfaceItemIdentifier("cmux.windowGlassRoot")
-    static let foregroundContainerIdentifier = NSUserInterfaceItemIdentifier("cmux.windowGlassForeground")
+    private static let foregroundContainerIdentifier = NSUserInterfaceItemIdentifier("cmux.windowGlassForeground")
 
     private final class OriginalContentLayoutState: NSObject {
         let translatesAutoresizingMaskIntoConstraints: Bool

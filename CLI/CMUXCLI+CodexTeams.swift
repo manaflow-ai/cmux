@@ -453,7 +453,7 @@ extension CMUXCLI {
             .joined(separator: ":") ?? ""
     }
 
-    static func validateCodexTeamsWorkingDirectory(
+    private static func validateCodexTeamsWorkingDirectory(
         commandArgs: [String],
         baseDirectory: String
     ) throws {

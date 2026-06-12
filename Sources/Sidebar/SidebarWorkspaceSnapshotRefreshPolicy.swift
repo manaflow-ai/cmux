@@ -6,7 +6,7 @@ extension SidebarWorkspaceSnapshotBuilder.Snapshot {
         let customColorHex: String?
     }
 
-    var contextMenuImmediateFields: ContextMenuImmediateFields {
+    private var contextMenuImmediateFields: ContextMenuImmediateFields {
         ContextMenuImmediateFields(
             title: title,
             customDescription: customDescription,

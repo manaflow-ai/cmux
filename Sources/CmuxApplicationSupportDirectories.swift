@@ -254,7 +254,7 @@ enum CmuxGhosttyConfigSettingEditor {
         return latestValue
     }
 
-    static func updatedContents(_ contents: String, setting key: String, value: String) -> String {
+    private static func updatedContents(_ contents: String, setting key: String, value: String) -> String {
         var lines = contents.components(separatedBy: "\n")
         if contents.hasSuffix("\n") {
             lines.removeLast()

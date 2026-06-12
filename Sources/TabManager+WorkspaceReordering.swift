@@ -345,7 +345,7 @@ extension TabManager {
         return nil
     }
 
-    func workspaceBatchReorderPlan(
+    private func workspaceBatchReorderPlan(
         orderedWorkspaceIds: [UUID]
     ) -> Result<[WorkspaceReorderPlanItem], WorkspaceBatchReorderError> {
         var seen = Set<UUID>()

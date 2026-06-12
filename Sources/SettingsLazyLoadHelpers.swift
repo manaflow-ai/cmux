@@ -34,7 +34,7 @@ struct SettingsLazyLoadMarker: View {
 }
 
 extension View {
-    func settingsLazyLoadTrigger(_ trigger: SettingsLazyLoadTrigger) -> some View {
+    private func settingsLazyLoadTrigger(_ trigger: SettingsLazyLoadTrigger) -> some View {
         background(SettingsLazyLoadMarker(trigger: trigger))
     }
 }

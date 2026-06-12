@@ -23,7 +23,7 @@ enum CmuxModalAlertPresentation {
 /// per-window variant. This is the single source of truth for that match so
 /// the identifier scheme only has to change in one place.
 @MainActor
-func isCmuxMainWindow(_ window: NSWindow) -> Bool {
+private func isCmuxMainWindow(_ window: NSWindow) -> Bool {
     guard let raw = window.identifier?.rawValue else { return false }
     return raw == "cmux.main" || raw.hasPrefix("cmux.main.")
 }

@@ -2,11 +2,11 @@ import Foundation
 import CMUXAgentLaunch
 
 extension CMUXCLI {
-    func hermesAgentShellCommand(_ script: String) -> String {
+    private func hermesAgentShellCommand(_ script: String) -> String {
         "sh -c \(shellQuote(script))"
     }
 
-    func hermesAgentEvents(def: AgentHookDef) -> [HermesAgentHookConfig.Event] {
+    private func hermesAgentEvents(def: AgentHookDef) -> [HermesAgentHookConfig.Event] {
         var events = def.events.map { event in
             HermesAgentHookConfig.Event(
                 name: event.agentEvent,

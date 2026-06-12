@@ -47,7 +47,7 @@ private actor OpenCodeVersionProbeCache {
 }
 
 enum AgentForkSupport {
-    static let minimumOpenCodeForkVersion = SemanticVersion(major: 1, minor: 14, patch: 50)
+    private static let minimumOpenCodeForkVersion = SemanticVersion(major: 1, minor: 14, patch: 50)
     private static let commandOutputTimeoutNanoseconds: Int64 = 3_000_000_000
     private static let commandTerminateTimeoutNanoseconds: Int64 = 500_000_000
     private static let openCodeVersionProbeCache = OpenCodeVersionProbeCache()

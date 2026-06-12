@@ -68,7 +68,7 @@ enum CmuxExtensionSidebarSelection {
     /// One provider descriptor per `<name>.swift`/`<name>.json` file in the
     /// sidebars directory (`.swift` preferred when both exist), titled by the
     /// file's base name.
-    static var customSidebarDescriptors: [CmuxSidebarProviderDescriptor] {
+    private static var customSidebarDescriptors: [CmuxSidebarProviderDescriptor] {
         guard let entries = try? FileManager.default.contentsOfDirectory(
             at: customSidebarsDirectory,
             includingPropertiesForKeys: nil
@@ -112,7 +112,7 @@ enum CmuxExtensionSidebarSelection {
     /// Servers, Last Prompt, Super Compact, Browser Stack). These ship
     /// independently of the experimental Extensions feature, so they stay in
     /// the switcher menu regardless of the beta flag.
-    static var builtInDescriptors: [CmuxSidebarProviderDescriptor] {
+    private static var builtInDescriptors: [CmuxSidebarProviderDescriptor] {
         [.defaultWorkspaces] + providers.map { $0.descriptor }
     }
 
@@ -133,7 +133,7 @@ enum CmuxExtensionSidebarSelection {
         builtInDescriptors + [hostedExtensionsDescriptor] + customSidebarDescriptors
     }
 
-    static var hostedExtensionsDescriptor: CmuxSidebarProviderDescriptor {
+    private static var hostedExtensionsDescriptor: CmuxSidebarProviderDescriptor {
         let selectedName = UserDefaults.standard.string(forKey: selectedExtensionNameDefaultsKey)?.nilIfEmpty
         return CmuxSidebarProviderDescriptor(
             id: hostedExtensionsProviderId,

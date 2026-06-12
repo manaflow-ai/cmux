@@ -220,7 +220,7 @@ enum ClaudeConfigurationRoot {
         return preferredConfigDir
     }
 
-    nonisolated static func isLikelyConfigured(
+    private nonisolated static func isLikelyConfigured(
         _ configDir: String,
         fileManager: FileManager = .default
     ) -> Bool {
@@ -445,7 +445,7 @@ struct SessionEntry: Identifiable, Hashable {
     /// and may grow further). Those extra types have no `--sandbox` equivalent
     /// and must never be forwarded as `-s`, or Codex rejects the resumed command
     /// (see https://github.com/manaflow-ai/cmux/issues/5262).
-    static let codexCLISandboxModes: Set<String> = [
+    private static let codexCLISandboxModes: Set<String> = [
         "read-only",
         "workspace-write",
         "danger-full-access",
@@ -460,7 +460,7 @@ struct SessionEntry: Identifiable, Hashable {
     /// disabled`. Sandbox types with no CLI equivalent (`disabled`, `managed`,
     /// future values) are dropped instead of emitted as an invalid `-s`; valid
     /// values pass through unchanged.
-    static func codexApprovalSandboxArguments(
+    private static func codexApprovalSandboxArguments(
         approvalPolicy: String?,
         sandboxMode: String?
     ) -> [String] {

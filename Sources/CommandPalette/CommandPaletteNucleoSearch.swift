@@ -55,7 +55,7 @@ final class CommandPaletteNucleoSearchLibrary: @unchecked Sendable {
         dlclose(handle)
     }
 
-    static func loadDefault() -> CommandPaletteNucleoSearchLibrary? {
+    private static func loadDefault() -> CommandPaletteNucleoSearchLibrary? {
         for path in defaultLibraryPaths() where FileManager.default.fileExists(atPath: path) {
             if let library = load(path: path) {
                 return library

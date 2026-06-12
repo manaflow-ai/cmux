@@ -229,7 +229,7 @@ private struct AboutPropertyRow: View {
 private struct AboutVisualEffectBackground: NSViewRepresentable {
     let material: NSVisualEffectView.Material
     let blendingMode: NSVisualEffectView.BlendingMode
-    let isEmphasized: Bool
+    private let isEmphasized: Bool
 
     init(
         material: NSVisualEffectView.Material,

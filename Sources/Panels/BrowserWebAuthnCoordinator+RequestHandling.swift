@@ -8,7 +8,7 @@ import WebKit
 
 
 // MARK: - Native WebAuthn Request Handling, Replies & Capabilities
-func browserWebAuthnAdvertisedPlatformPasskeyAvailability(
+private func browserWebAuthnAdvertisedPlatformPasskeyAvailability(
     authorizationState: ASAuthorizationWebBrowserPublicKeyCredentialManager.AuthorizationState,
     deviceConfiguredForPasskeys: Bool?,
     callerMayPromptForPlatformAuthorization: Bool
@@ -162,7 +162,7 @@ extension BrowserWebAuthnCoordinator {
         return requests
     }
 
-    func performAuthorization(
+    private func performAuthorization(
         requests: [ASAuthorizationRequest],
         window: NSWindow?,
         prefersImmediatelyAvailableCredentials: Bool
@@ -511,7 +511,7 @@ extension BrowserWebAuthnCoordinator {
         return credential
     }
 
-    func assertionReply(
+    private func assertionReply(
         credentialID: Data,
         clientDataJSON: Data,
         authenticatorData: Data,
@@ -541,14 +541,14 @@ extension BrowserWebAuthnCoordinator {
         ]
     }
 
-    func securityKeyTransportValues(
+    private func securityKeyTransportValues(
         from registration: ASAuthorizationSecurityKeyPublicKeyCredentialRegistration
     ) -> [String] {
         guard #available(macOS 14.5, *) else { return [] }
         return registration.transports.map(\.rawValue)
     }
 
-    func appIDExtensionResults(
+    private func appIDExtensionResults(
         from assertion: ASAuthorizationSecurityKeyPublicKeyCredentialAssertion
     ) -> [String: Any] {
         guard #available(macOS 14.5, *), assertion.appID else { return [:] }
@@ -600,7 +600,7 @@ extension BrowserWebAuthnCoordinator {
         ]
     }
 
-    func capabilityPayload(
+    private func capabilityPayload(
         for state: ASAuthorizationWebBrowserPublicKeyCredentialManager.AuthorizationState,
         bluetoothState: BrowserBluetoothAuthorizationState,
         callerMayPromptForPlatformAuthorization: Bool
@@ -642,21 +642,21 @@ extension BrowserWebAuthnCoordinator {
         return payload
     }
 
-    var supportsPlatformCredentialRequests: Bool {
+    private var supportsPlatformCredentialRequests: Bool {
         if #available(macOS 13.5, *) {
             return true
         }
         return false
     }
 
-    var supportsSecurityKeyCredentialRequests: Bool {
+    private var supportsSecurityKeyCredentialRequests: Bool {
         if #available(macOS 14.4, *) {
             return true
         }
         return false
     }
 
-    func deviceConfiguredForPasskeys() -> Bool? {
+    private func deviceConfiguredForPasskeys() -> Bool? {
         let selector = NSSelectorFromString("isDeviceConfiguredForPasskeys")
         let managerClass: AnyClass = ASAuthorizationWebBrowserPublicKeyCredentialManager.self
 
@@ -672,7 +672,7 @@ extension BrowserWebAuthnCoordinator {
         return getter(managerClass, selector)
     }
 
-    func fallbackReply() -> [String: Any] {
+    private func fallbackReply() -> [String: Any] {
         [
             "ok": true,
             "useWebKitFallback": true,

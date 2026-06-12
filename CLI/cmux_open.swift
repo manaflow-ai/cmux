@@ -75,7 +75,7 @@ enum CMUXDiffViewerLocalization {
         return bundle.localizedString(forKey: key, value: defaultValue, table: nil)
     }
 
-    static func localizationBundle(
+    private static func localizationBundle(
         mainBundle: Bundle = .main,
         executableURL: URL? = CLIExecutableLocator.currentExecutableURL()
     ) -> Bundle {

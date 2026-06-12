@@ -34,7 +34,7 @@ enum ProcessPipeAvailableRead: Equatable, Sendable {
 }
 
 enum ProcessPipeReader {
-    static let defaultChunkSize = 64 * 1024
+    private static let defaultChunkSize = 64 * 1024
 
     static func readAvailableData(
         from fileHandle: FileHandle,

@@ -157,7 +157,7 @@ enum PiSessionLocator {
         return trimmed.isEmpty ? nil : trimmed
     }
 
-    static func newestJSONLFile(in directory: String, fileManager: FileManager = .default) -> URL? {
+    private static func newestJSONLFile(in directory: String, fileManager: FileManager = .default) -> URL? {
         var isDirectory: ObjCBool = false
         guard fileManager.fileExists(atPath: directory, isDirectory: &isDirectory),
               isDirectory.boolValue,

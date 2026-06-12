@@ -190,7 +190,7 @@ extension BrowserPanel {
     /// Applies a per-frame playback report from the injected hook, aggregating
     /// across the main frame and any iframes. Reports from a superseded webview
     /// generation are dropped.
-    func handleMediaPlaybackReport(
+    private func handleMediaPlaybackReport(
         _ report: BrowserMediaPlaybackReport,
         fromWebViewInstanceID instanceID: UUID
     ) {

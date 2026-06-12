@@ -29,7 +29,7 @@ enum CommandPaletteSwitcherSearchSettings {
     static let searchAllSurfacesKey = "commandPalette.switcherSearchAllSurfaces"
     static let defaultSearchAllSurfaces = false
 
-    static func searchAllSurfacesEnabled(defaults: UserDefaults = .standard) -> Bool {
+    private static func searchAllSurfacesEnabled(defaults: UserDefaults = .standard) -> Bool {
         if defaults.object(forKey: searchAllSurfacesKey) == nil {
             return defaultSearchAllSurfaces
         }

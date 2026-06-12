@@ -94,11 +94,11 @@ extension MobileHostService {
     ///
     /// Used to refuse local connections in release builds, where no legitimate
     /// client ever connects via `127.0.0.1`/`::1`.
-    nonisolated static func isLoopbackConnection(_ connection: NWConnection) -> Bool {
+    private nonisolated static func isLoopbackConnection(_ connection: NWConnection) -> Bool {
         isLoopbackEndpoint(connection.endpoint) || isLoopbackEndpoint(connection.currentPath?.remoteEndpoint)
     }
 
-    nonisolated static func isLoopbackEndpoint(_ endpoint: NWEndpoint?) -> Bool {
+    private nonisolated static func isLoopbackEndpoint(_ endpoint: NWEndpoint?) -> Bool {
         guard case let .hostPort(host, _)? = endpoint else { return false }
         switch host {
         case let .ipv4(address):

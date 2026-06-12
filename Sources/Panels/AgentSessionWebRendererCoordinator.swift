@@ -333,7 +333,7 @@ final class AgentSessionWebRendererCoordinator: NSObject, WKNavigationDelegate, 
         return candidate == expected
     }
 
-    nonisolated static func normalizedTrustedFileURL(_ url: URL?) -> URL? {
+    private nonisolated static func normalizedTrustedFileURL(_ url: URL?) -> URL? {
         guard let url, url.isFileURL else {
             return nil
         }

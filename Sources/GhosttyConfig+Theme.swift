@@ -18,7 +18,7 @@ extension GhosttyConfig {
         )
     }
 
-    static func cmuxDefaultThemeName(preferredColorScheme: ColorSchemePreference) -> String {
+    private static func cmuxDefaultThemeName(preferredColorScheme: ColorSchemePreference) -> String {
         switch preferredColorScheme {
         case .light:
             return cmuxDefaultLightThemeName

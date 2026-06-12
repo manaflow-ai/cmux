@@ -318,7 +318,7 @@ struct NotificationMenuSnapshot: Equatable {
 }
 
 enum NotificationMenuSnapshotBuilder {
-    static let defaultInlineNotificationLimit = 6
+    private static let defaultInlineNotificationLimit = 6
 
     static func make(
         notifications: [TerminalNotification],
@@ -362,8 +362,8 @@ enum MenuBarBadgeLabelFormatter {
 }
 
 enum MenuBarNotificationLineFormatter {
-    static let defaultMaxMenuTextWidth: CGFloat = 280
-    static let defaultMaxMenuTextLines = 3
+    private static let defaultMaxMenuTextWidth: CGFloat = 280
+    private static let defaultMaxMenuTextLines = 3
 
     static func plainTitle(notification: TerminalNotification, tabTitle: String?) -> String {
         let dot = notification.isRead ? "  " : "● "

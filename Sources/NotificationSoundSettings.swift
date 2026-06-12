@@ -124,7 +124,7 @@ enum NotificationSoundSettings {
         }
     }
 
-    static func isSilent(defaults: UserDefaults = .standard) -> Bool {
+    private static func isSilent(defaults: UserDefaults = .standard) -> Bool {
         return (defaults.string(forKey: key) ?? defaultValue) == "none"
     }
 
@@ -246,12 +246,12 @@ enum NotificationSoundSettings {
         return URL(fileURLWithPath: (path as NSString).expandingTildeInPath)
     }
 
-    static func playCustomFileSound(defaults: UserDefaults = .standard) {
+    private static func playCustomFileSound(defaults: UserDefaults = .standard) {
         guard let url = customFileURL(defaults: defaults) else { return }
         playSoundFile(at: url)
     }
 
-    static func playCustomFileSound(path: String) {
+    private static func playCustomFileSound(path: String) {
         guard let normalizedPath = normalizedCustomFilePath(path) else { return }
         let url = URL(fileURLWithPath: (normalizedPath as NSString).expandingTildeInPath)
         playSoundFile(at: url)

@@ -1,7 +1,7 @@
 import Foundation
 
 extension CMUXCLI {
-    func tmuxBooleanValue(_ raw: Any?) -> Bool? {
+    private func tmuxBooleanValue(_ raw: Any?) -> Bool? {
         if let bool = raw as? Bool {
             return bool
         }
@@ -21,7 +21,7 @@ extension CMUXCLI {
         }
     }
 
-    func tmuxDictionaryValue(_ raw: Any?) -> [String: Any]? {
+    private func tmuxDictionaryValue(_ raw: Any?) -> [String: Any]? {
         if let dictionary = raw as? [String: Any] {
             return dictionary
         }
@@ -31,7 +31,7 @@ extension CMUXCLI {
         return nil
     }
 
-    func tmuxHudConfigDictionaryDisablesHud(_ dictionary: [String: Any], allowTopLevelHUDKeys: Bool) -> Bool {
+    private func tmuxHudConfigDictionaryDisablesHud(_ dictionary: [String: Any], allowTopLevelHUDKeys: Bool) -> Bool {
         if allowTopLevelHUDKeys {
             if tmuxBooleanValue(dictionary["enabled"]) == false {
                 return true
@@ -73,7 +73,7 @@ extension CMUXCLI {
         return false
     }
 
-    func tmuxHudConfigFileDisablesHud(_ url: URL, allowTopLevelHUDKeys: Bool) -> Bool {
+    private func tmuxHudConfigFileDisablesHud(_ url: URL, allowTopLevelHUDKeys: Bool) -> Bool {
         guard let data = try? Data(contentsOf: url),
               let object = try? JSONSerialization.jsonObject(with: data, options: []),
               let dictionary = object as? [String: Any] else {
@@ -115,7 +115,7 @@ extension CMUXCLI {
         return false
     }
 
-    func tmuxCommandTextContainsWord(_ commandText: String, word: String) -> Bool {
+    private func tmuxCommandTextContainsWord(_ commandText: String, word: String) -> Bool {
         let escapedWord = NSRegularExpression.escapedPattern(for: word)
         let pattern = "(^|[^A-Za-z0-9_-])\(escapedWord)([^A-Za-z0-9_-]|$)"
         return commandText.range(of: pattern, options: [.regularExpression, .caseInsensitive]) != nil
@@ -138,7 +138,7 @@ extension CMUXCLI {
         return lowered.contains("omx") || lowered.contains("oh-my-codex")
     }
 
-    func tmuxDebugDiagnosticsEnabled() -> Bool {
+    private func tmuxDebugDiagnosticsEnabled() -> Bool {
         let environment = ProcessInfo.processInfo.environment
         return tmuxBooleanValue(environment["CMUX_DEBUG"]) == true
             || tmuxBooleanValue(environment["CMUX_TMUX_DEBUG"]) == true

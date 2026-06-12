@@ -25,7 +25,7 @@ final class TextBoxMentionCompletionController {
     @ObservationIgnored
     var onStateChanged: (() -> Void)?
 
-    var hasSuggestions: Bool {
+    private var hasSuggestions: Bool {
         !suggestions.isEmpty
     }
 

@@ -351,7 +351,7 @@ actor MobileHostConnection {
     }
 
     /// Check whether this connection has any subscriber registered for `topic`.
-    func isSubscribed(to topic: String) -> Bool {
+    private func isSubscribed(to topic: String) -> Bool {
         for (_, topics) in subscriptions where topics.contains(topic) {
             return true
         }

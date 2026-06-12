@@ -82,7 +82,7 @@ func isCommandPaletteFocusStealingTerminalOrBrowserResponder(_ responder: NSResp
     return false
 }
 
-func isCommandPaletteFocusStealingTerminalOrBrowserView(_ view: NSView) -> Bool {
+private func isCommandPaletteFocusStealingTerminalOrBrowserView(_ view: NSView) -> Bool {
     if view is GhosttyNSView || view is GhosttySurfaceScrollView || view is WKWebView {
         return true
     }

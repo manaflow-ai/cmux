@@ -50,7 +50,7 @@ final class TextBoxFilePanelFocusRestorer {
     }
 
     @discardableResult
-    func restoreFocusNow() -> Bool {
+    private func restoreFocusNow() -> Bool {
         guard let textView,
               let window = textView.window ?? parentWindow else {
             return false
@@ -154,7 +154,7 @@ private struct TextBoxSendButtonStyle: ButtonStyle {
 private struct TextBoxAttachmentChip: View {
     let attachment: TextBoxAttachment
     let foreground: Color
-    let onRemove: () -> Void
+    private let onRemove: () -> Void
 
     var body: some View {
         HStack(spacing: 4) {

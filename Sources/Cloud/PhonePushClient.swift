@@ -35,7 +35,7 @@ final class PhonePushClient {
         self.auth = auth
     }
 
-    static var isForwardingEnabled: Bool {
+    private static var isForwardingEnabled: Bool {
         UserDefaults.standard.bool(forKey: PhonePushSettings.forwardEnabledKey)
     }
 

@@ -155,7 +155,7 @@ final class PaneDropZoneOverlayAnimator {
 
     deinit {}
 
-    static func applyStyle(to view: NSView) {
+    private static func applyStyle(to view: NSView) {
         view.wantsLayer = true
         view.layer?.backgroundColor = cmuxAccentNSColor().withAlphaComponent(0.25).cgColor
         view.layer?.borderColor = cmuxAccentNSColor().cgColor

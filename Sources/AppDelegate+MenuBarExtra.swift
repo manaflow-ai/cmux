@@ -302,7 +302,7 @@ extension AppDelegate {
         return windows
     }
 
-    func showNotificationsPopoverFromMenuBar() {
+    private func showNotificationsPopoverFromMenuBar() {
         let context: MainWindowContext? = {
             if let keyWindow = NSApp.keyWindow,
                let keyContext = contextForMainTerminalWindow(keyWindow) {

@@ -4,7 +4,7 @@ struct AgentExecutableResolver {
     var environment: [String: String]
     var fileManager: FileManager
     var bundleResourceURL: URL?
-    var extraSearchDirectories: [String]
+    private var extraSearchDirectories: [String]
     var includeStandardSearchDirectories: Bool
     var configuredExecutablePaths: [AgentSessionProviderID: String]
 
@@ -59,7 +59,7 @@ struct AgentExecutableResolver {
         return [.claude: claudePath]
     }
 
-    func resolvedSearchDirectories() -> [String] {
+    private func resolvedSearchDirectories() -> [String] {
         var directories: [String] = []
         let pathValue = environment["PATH"] ?? ""
         directories.append(contentsOf: pathValue.split(separator: ":").map(String.init))

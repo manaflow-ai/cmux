@@ -172,7 +172,7 @@ final class FileExplorerCellView: NSTableCellView {
 /// NSOutlineView subclass that disables expand/collapse animations and adds leading margin.
 final class FileExplorerNSOutlineView: NSOutlineView {
     /// Leading margin applied to disclosure triangles and content.
-    static let leadingMargin: CGFloat = 8
+    private static let leadingMargin: CGFloat = 8
     var onQuickSearchChanged: ((String?) -> Void)?
     private var quickSearchActive = false
     private var quickSearchQuery = ""

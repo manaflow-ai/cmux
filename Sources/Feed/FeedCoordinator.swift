@@ -59,7 +59,7 @@ final class FeedCoordinator: @unchecked Sendable {
     /// item for that PID as `.expired`, and cancels the source.
     /// Idempotent: subsequent calls with the same PID no-op.
     @MainActor
-    func armPidWatcher(ppid: Int) {
+    private func armPidWatcher(ppid: Int) {
         guard ppid > 0, pidWatchers[ppid] == nil else { return }
         let src = DispatchSource.makeProcessSource(
             identifier: pid_t(ppid),
@@ -413,7 +413,7 @@ private extension FeedCoordinator {
     /// Notification eligibility is derived only from the waiter table so
     /// resolved/timed-out requests cannot enqueue stale banners while the main
     /// queue, policy hooks, or notification center catches up.
-    func postNotificationIfStillAwaiting(event: WorkstreamEvent, requestId: String) {
+    private func postNotificationIfStillAwaiting(event: WorkstreamEvent, requestId: String) {
         Task { @MainActor [weak self] in
             guard let self, self.isAwaitingDecision(requestId: requestId) else {
                 return
@@ -558,7 +558,7 @@ private extension FeedCoordinator {
     }
 
     @MainActor
-    func deliverFeedNotificationIfStillAwaiting(
+    private func deliverFeedNotificationIfStillAwaiting(
         requestId: String,
         event: WorkstreamEvent,
         categoryId: String,
@@ -646,7 +646,7 @@ private extension FeedCoordinator {
     }
 
     @MainActor
-    func addNotificationIfStillAwaiting(
+    private func addNotificationIfStillAwaiting(
         center: UNUserNotificationCenter,
         request: UNNotificationRequest,
         requestId: String,
@@ -686,7 +686,7 @@ private extension FeedCoordinator {
     }
 
     @MainActor
-    func runFallbackEffectsIfStillAwaiting(
+    private func runFallbackEffectsIfStillAwaiting(
         requestId: String,
         title: String,
         subtitle: String,
@@ -706,7 +706,7 @@ private extension FeedCoordinator {
         }
     }
 
-    func cancelNotification(requestId: String) {
+    private func cancelNotification(requestId: String) {
         let identifier = "feed.\(requestId)"
         let center = UNUserNotificationCenter.current()
         center.removePendingNotificationRequestsOffMain(withIdentifiers: [identifier])
@@ -800,7 +800,7 @@ enum FeedSocketEncoding {
         }
     }
 
-    static func decisionDict(_ decision: WorkstreamDecision) -> [String: Any] {
+    private static func decisionDict(_ decision: WorkstreamDecision) -> [String: Any] {
         switch decision {
         case .permission(let mode):
             return ["kind": "permission", "mode": mode.rawValue]

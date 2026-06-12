@@ -69,7 +69,7 @@ final class ConfiguredGroupActionAsyncWorkspaceObserver {
         return watcher.id
     }
 
-    static func disposePending(tabManager: TabManager, observerId: UUID) {
+    private static func disposePending(tabManager: TabManager, observerId: UUID) {
         let key = ObjectIdentifier(tabManager)
         guard pending[key]?.id == observerId else { return }
         pending[key]?.dispose()

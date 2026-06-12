@@ -76,7 +76,7 @@ extension CMUXCLI {
         return nil
     }
 
-    func buildInteractiveRemoteShellCommand(
+    private func buildInteractiveRemoteShellCommand(
         remoteRelayPort: Int,
         shellFeatures: String,
         terminfoSource: String? = nil

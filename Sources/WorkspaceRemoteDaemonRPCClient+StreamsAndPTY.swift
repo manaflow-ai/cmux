@@ -71,7 +71,7 @@ extension WorkspaceRemoteDaemonRPCClient {
         }
     }
 
-    func unregisterStream(streamID: String) {
+    private func unregisterStream(streamID: String) {
         let trimmedStreamID = streamID.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmedStreamID.isEmpty else { return }
         _ = stateQueue.sync {
@@ -229,7 +229,7 @@ extension WorkspaceRemoteDaemonRPCClient {
         return result["sessions"] as? [[String: Any]] ?? []
     }
 
-    func unregisterPTY(sessionID: String, attachmentID: String, attachmentToken: String? = nil) {
+    private func unregisterPTY(sessionID: String, attachmentID: String, attachmentToken: String? = nil) {
         let key = Self.ptySubscriptionKey(
             sessionID: sessionID,
             attachmentID: attachmentID,

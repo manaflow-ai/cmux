@@ -333,7 +333,7 @@ extension CmuxEventBus {
         }
     }
 
-    func publishNotificationCreated(
+    private func publishNotificationCreated(
         _ notification: TerminalNotification,
         delivery: String,
         replacedNotificationIds: [String]
@@ -348,7 +348,7 @@ extension CmuxEventBus {
         )
     }
 
-    func publishNotificationRead(ids: [String], workspaceId: UUID?, surfaceId: UUID?) {
+    private func publishNotificationRead(ids: [String], workspaceId: UUID?, surfaceId: UUID?) {
         guard !ids.isEmpty else { return }
         publish(
             name: "notification.read",
@@ -363,7 +363,7 @@ extension CmuxEventBus {
         )
     }
 
-    func publishNotificationRemoved(_ notification: TerminalNotification) {
+    private func publishNotificationRemoved(_ notification: TerminalNotification) {
         publishNotificationLifecycle(
             name: "notification.removed",
             notification: notification

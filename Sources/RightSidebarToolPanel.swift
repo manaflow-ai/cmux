@@ -79,7 +79,7 @@ final class RightSidebarToolPanel: Panel {
         sessionIndexFocusAnchorView = anchor
     }
 
-    func syncWorkspaceRoot(from workspace: Workspace) {
+    private func syncWorkspaceRoot(from workspace: Workspace) {
         switch mode {
         case .files, .find:
             guard let store = fileExplorerStoreStorage else { return }

@@ -16,7 +16,7 @@ struct BrowserPaneDragTransfer: Equatable {
     let sourcePaneId: UUID
     let sourceProcessId: Int32
     let kind: String?
-    let isFilePreviewTransfer: Bool
+    private let isFilePreviewTransfer: Bool
 
     init(
         tabId: UUID,

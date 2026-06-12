@@ -156,7 +156,7 @@ extension TerminalController {
         v2StrictIntAny(params[key])
     }
 
-    nonisolated func v2StrictIntAny(_ raw: Any?) -> Int? {
+    private nonisolated func v2StrictIntAny(_ raw: Any?) -> Int? {
         guard let raw else { return nil }
 
         if let numberValue = raw as? NSNumber {

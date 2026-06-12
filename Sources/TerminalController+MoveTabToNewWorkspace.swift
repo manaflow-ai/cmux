@@ -76,7 +76,7 @@ extension TerminalController {
 }
 
 extension TerminalController {
-    nonisolated static let explicitFocusParamV2Methods: Set<String> = [
+    private nonisolated static let explicitFocusParamV2Methods: Set<String> = [
         "workspace.create",
         "workspace.move_to_window",
         "surface.split",

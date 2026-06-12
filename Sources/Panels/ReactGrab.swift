@@ -317,7 +317,7 @@ extension BrowserPanel {
         }
     }
 
-    func injectReactGrab() async {
+    private func injectReactGrab() async {
         #if DEBUG
         cmuxDebugLog("reactGrab.inject.start")
         #endif
@@ -441,7 +441,7 @@ extension BrowserPanel {
     }
 
     @discardableResult
-    func refreshReactGrabBridgeSessionToken() async -> Bool {
+    private func refreshReactGrabBridgeSessionToken() async -> Bool {
         do {
             let result = try await evaluateJavaScript(reactGrabBridgeSessionRefreshScript())
             return (result as? Bool) ?? false

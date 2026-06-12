@@ -27,7 +27,7 @@ enum BrowserInsecureHTTPSettings {
         "0.0.0.0",
         "*.localtest.me",
     ]
-    static let defaultAllowlistText = defaultAllowlistPatterns.joined(separator: "\n")
+    private static let defaultAllowlistText = defaultAllowlistPatterns.joined(separator: "\n")
 
     static func normalizedAllowlistPatterns(defaults: UserDefaults = .standard) -> [String] {
         normalizedAllowlistPatterns(rawValue: defaults.string(forKey: allowlistKey))

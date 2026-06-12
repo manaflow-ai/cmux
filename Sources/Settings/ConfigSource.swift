@@ -2,7 +2,7 @@ import Foundation
 
 struct ConfigSourceEnvironment {
     let homeDirectoryURL: URL
-    let previewDirectoryURL: URL
+    private let previewDirectoryURL: URL
     let fileManager: FileManager
     let currentBundleIdentifier: String?
 
@@ -45,7 +45,7 @@ struct ConfigSourceEnvironment {
         existingRegularFileURL(in: standaloneGhosttyDisplayCandidates) ?? standaloneGhosttyDisplayCandidates[0]
     }
 
-    var standaloneGhosttyDisplayCandidates: [URL] {
+    private var standaloneGhosttyDisplayCandidates: [URL] {
         [
             homeDirectoryURL
                 .appendingPathComponent(".config", isDirectory: true)

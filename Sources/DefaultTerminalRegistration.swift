@@ -119,7 +119,7 @@ enum DefaultTerminalUserAction {
     private static var inFlightRegistration: RegistrationOperation?
 
     @discardableResult
-    static func registerAsDefault() async throws -> Bool {
+    private static func registerAsDefault() async throws -> Bool {
         if let operation = inFlightRegistration {
             do {
                 try await operation.task.value

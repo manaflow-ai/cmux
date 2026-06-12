@@ -113,15 +113,15 @@ final class CmuxEventBus: @unchecked Sendable {
     static let protocolName = "cmux-events"
     static let protocolVersion = 1
     static let defaultHeartbeatIntervalSeconds: TimeInterval = 15
-    static let defaultRetainedEventLimit = 4_096
-    static let defaultMaxEventLineBytes = 16 * 1024
-    static let defaultMaxEventLogBytes: UInt64 = 16 * 1024 * 1024
-    static let defaultMaxPendingEventLogLines = CmuxEventLogWriter.defaultMaxPendingLines
-    static let defaultMaxPendingEventsPerSubscription = 1_024
-    static let maxSanitizedStringBytes = 8 * 1024
-    static let maxSanitizedArrayItems = 256
-    static let maxSanitizedObjectEntries = 256
-    static let maxSanitizedDepth = 12
+    private static let defaultRetainedEventLimit = 4_096
+    private static let defaultMaxEventLineBytes = 16 * 1024
+    private static let defaultMaxEventLogBytes: UInt64 = 16 * 1024 * 1024
+    private static let defaultMaxPendingEventLogLines = CmuxEventLogWriter.defaultMaxPendingLines
+    private static let defaultMaxPendingEventsPerSubscription = 1_024
+    private static let maxSanitizedStringBytes = 8 * 1024
+    private static let maxSanitizedArrayItems = 256
+    private static let maxSanitizedObjectEntries = 256
+    private static let maxSanitizedDepth = 12
     private static let isoFormatter: ISO8601DateFormatter = { let formatter = ISO8601DateFormatter(); formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]; return formatter }()
     private static let isoFormatterLock = NSLock()
 
@@ -335,7 +335,7 @@ final class CmuxEventBus: @unchecked Sendable {
     }
     #endif
 
-    static func defaultEventLogURL() -> URL {
+    private static func defaultEventLogURL() -> URL {
         FileManager.default.homeDirectoryForCurrentUser
             .appendingPathComponent(".cmuxterm", isDirectory: true)
             .appendingPathComponent("events.jsonl")
@@ -360,7 +360,7 @@ final class CmuxEventBus: @unchecked Sendable {
         return number.compare(NSNumber(value: int64)) == .orderedSame ? int64 : nil
     }
 
-    static func sanitizedJSONValue(_ value: Any) -> Any {
+    private static func sanitizedJSONValue(_ value: Any) -> Any {
         sanitizedJSONValue(value, depth: 0)
     }
 

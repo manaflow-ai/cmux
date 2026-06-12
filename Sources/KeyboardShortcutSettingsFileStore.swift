@@ -39,12 +39,12 @@ final class CmuxSettingsFileStore {
         return (home as NSString).appendingPathComponent(".config/cmux/cmux.json")
     }
 
-    static var defaultFallbackPath: String? {
+    private static var defaultFallbackPath: String? {
         let home = FileManager.default.homeDirectoryForCurrentUser.path
         return (home as NSString).appendingPathComponent(".config/cmux/settings.json")
     }
 
-    static var defaultApplicationSupportFallbackPath: String? {
+    private static var defaultApplicationSupportFallbackPath: String? {
         guard let appSupport = FileManager.default.urls(
             for: .applicationSupportDirectory,
             in: .userDomainMask

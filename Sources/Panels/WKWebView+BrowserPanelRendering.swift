@@ -44,7 +44,7 @@ extension WKWebView {
         }
     }
 
-    var cmuxBrowserPanelRequiresRenderingStateReattach: Bool {
+    private var cmuxBrowserPanelRequiresRenderingStateReattach: Bool {
         cmuxBrowserPanelNeedsRenderingStateReattach
     }
 

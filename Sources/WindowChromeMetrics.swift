@@ -5,8 +5,8 @@ enum WindowChromeMetrics {
     static let appTitlebarHeight: CGFloat = sharedChromeBarHeight
     static let bonsplitTabBarHeight: CGFloat = sharedChromeBarHeight
     static let secondaryTitlebarHeight: CGFloat = sharedChromeBarHeight
-    static let minimumTitlebarHeight: CGFloat = sharedChromeBarHeight
-    static let maximumTitlebarHeight: CGFloat = 72
+    private static let minimumTitlebarHeight: CGFloat = sharedChromeBarHeight
+    private static let maximumTitlebarHeight: CGFloat = 72
     static let defaultTitlebarHeight: CGFloat = sharedChromeBarHeight
 
     static func clampedTitlebarHeight(_ height: CGFloat) -> CGFloat {
@@ -47,7 +47,7 @@ enum RightSidebarChromeMetrics {
 }
 
 enum SidebarWorkspaceListMetrics {
-    static let firstRowTopOffset: CGFloat = MinimalModeChromeMetrics.titlebarHeight + 2
+    private static let firstRowTopOffset: CGFloat = MinimalModeChromeMetrics.titlebarHeight + 2
     static let rowVerticalPadding: CGFloat = 8
     static let topScrimHeight: CGFloat = firstRowTopOffset + 20
     static let bottomScrimHeight: CGFloat = topScrimHeight

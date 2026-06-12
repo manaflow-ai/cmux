@@ -76,7 +76,7 @@ extension TabItemView {
         }
     }
 
-    func promptNewWorkspaceGroup(workspaceIds: [UUID]) {
+    private func promptNewWorkspaceGroup(workspaceIds: [UUID]) {
         guard !workspaceIds.isEmpty else { return }
         tabManager.createWorkspaceGroup(name: "", childWorkspaceIds: workspaceIds)
     }

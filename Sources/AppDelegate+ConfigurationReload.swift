@@ -244,7 +244,7 @@ extension AppDelegate {
         }
     }
 
-    func reloadGhosttyConfigurationForCmuxThemeSource(_ source: String) {
+    private func reloadGhosttyConfigurationForCmuxThemeSource(_ source: String) {
         if GhosttySurfaceConfigurationRefresh.shouldDebounceCmuxThemeReload(source: source) {
             cmuxThemePreviewReloadGeneration += 1
             let generation = cmuxThemePreviewReloadGeneration

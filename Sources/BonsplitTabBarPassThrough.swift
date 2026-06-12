@@ -58,7 +58,7 @@ enum BonsplitTabBarPassThrough {
         return (windowPoint, decision.result, decision.registryHit)
     }
 
-    static func hasBonsplitTabBarBackground(at windowPoint: NSPoint, in view: NSView) -> Bool {
+    private static func hasBonsplitTabBarBackground(at windowPoint: NSPoint, in view: NSView) -> Bool {
         guard !view.isHidden, view.alphaValue > 0 else { return false }
 
         // NSView subviews are not clipped to parent bounds by default, and the
@@ -79,7 +79,7 @@ enum BonsplitTabBarPassThrough {
         return false
     }
 
-    static func hasUnderlyingBonsplitTabBarBackground(
+    private static func hasUnderlyingBonsplitTabBarBackground(
         at windowPoint: NSPoint,
         below portalHost: NSView
     ) -> Bool {

@@ -213,7 +213,7 @@ final class TerminalPanel: Panel {
         surface.updateWorkspaceId(newWorkspaceId)
     }
 
-    func updateTmuxLayoutReport(_ report: TmuxPaneLayoutReport?) {
+    private func updateTmuxLayoutReport(_ report: TmuxPaneLayoutReport?) {
         guard tmuxLayoutReport != report else { return }
         tmuxLayoutReport = report
     }
@@ -731,7 +731,7 @@ final class TerminalPanel: Panel {
         surface.needsConfirmClose()
     }
 
-    func shouldPersistScrollbackForSessionSnapshot() -> Bool {
+    private func shouldPersistScrollbackForSessionSnapshot() -> Bool {
         // Session restore only replays terminal output into a fresh shell. If Ghostty
         // says we are not safely at a prompt, replaying that state later is misleading.
         !surface.needsConfirmClose()

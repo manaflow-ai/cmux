@@ -61,13 +61,13 @@ final class PostHogAnalytics {
         }
     }
 
-    func trackDailyActive(reason: String) {
+    private func trackDailyActive(reason: String) {
         dispatchAsyncOnWorkQueue { [weak self] in
             self?.trackDailyActiveOnWorkQueue(reason: reason, flush: true)
         }
     }
 
-    func trackHourlyActive(reason: String) {
+    private func trackHourlyActive(reason: String) {
         dispatchAsyncOnWorkQueue { [weak self] in
             self?.trackHourlyActiveOnWorkQueue(reason: reason, flush: true)
         }

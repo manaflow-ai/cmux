@@ -41,7 +41,7 @@ extension RestorableAgentSessionIndex {
         }.value
     }
 
-    static func loadIncludingProcessDetectedSnapshotsSynchronously(
+    private static func loadIncludingProcessDetectedSnapshotsSynchronously(
         homeDirectory: String = NSHomeDirectory(),
         fileManager: FileManager = .default
     ) -> RestorableAgentSessionIndex {

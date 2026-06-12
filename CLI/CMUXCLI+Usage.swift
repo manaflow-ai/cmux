@@ -219,7 +219,7 @@ extension CMUXCLI {
     }
 
 #if DEBUG
-    func debugUsageTextForTesting() -> String {
+    private func debugUsageTextForTesting() -> String {
         usage()
     }
 

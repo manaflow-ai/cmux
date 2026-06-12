@@ -7,7 +7,7 @@ struct CommandPaletteSettingToggleDescriptor: Sendable {
     let sectionTitle: @Sendable () -> String
     let keywords: [String]
     let isOn: @Sendable (UserDefaults) -> Bool
-    let setOn: @Sendable (Bool, UserDefaults, NotificationCenter) -> Void
+    private let setOn: @Sendable (Bool, UserDefaults, NotificationCenter) -> Void
     let isAvailable: @Sendable (UserDefaults) -> Bool
 
     init(

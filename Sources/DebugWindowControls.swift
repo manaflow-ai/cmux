@@ -20,7 +20,7 @@ private enum DebugWindowConfigSnapshot {
         pasteboard.setString(combinedPayload(defaults: defaults), forType: .string)
     }
 
-    static func combinedPayload(defaults: UserDefaults = .standard) -> String {
+    private static func combinedPayload(defaults: UserDefaults = .standard) -> String {
         let sidebarPayload = """
         sidebarPreset=\(stringValue(defaults, key: "sidebarPreset", fallback: SidebarPresetOption.nativeSidebar.rawValue))
         sidebarMaterial=\(stringValue(defaults, key: "sidebarMaterial", fallback: SidebarMaterialOption.sidebar.rawValue))

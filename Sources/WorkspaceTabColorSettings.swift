@@ -87,7 +87,7 @@ enum WorkspaceTabColorSettings {
         persistPaletteMap(palette, defaults: defaults)
     }
 
-    static func removeColor(named name: String, defaults: UserDefaults = .standard) {
+    private static func removeColor(named name: String, defaults: UserDefaults = .standard) {
         guard let normalizedName = normalizedColorName(name) else { return }
         var palette = editablePaletteMap(defaults: defaults)
         palette.removeValue(forKey: normalizedName)
@@ -143,7 +143,7 @@ enum WorkspaceTabColorSettings {
         return "#" + body.uppercased()
     }
 
-    static func displayColor(
+    private static func displayColor(
         hex: String,
         colorScheme: ColorScheme,
         forceBright: Bool = false

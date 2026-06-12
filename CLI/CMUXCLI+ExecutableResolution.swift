@@ -20,14 +20,14 @@ extension CMUXCLI {
         return candidate.hasPrefix(bundledBinDirectory + "/")
     }
 
-    func isCmuxClaudeWrapper(at path: String) -> Bool {
+    private func isCmuxClaudeWrapper(at path: String) -> Bool {
         guard let data = FileManager.default.contents(atPath: path) else { return false }
         let prefixData = data.prefix(512)
         guard let prefix = String(data: prefixData, encoding: .utf8) else { return false }
         return prefix.contains("cmux claude wrapper - injects hooks and session tracking")
     }
 
-    func isCmuxClaudeCommandShim(at path: String) -> Bool {
+    private func isCmuxClaudeCommandShim(at path: String) -> Bool {
         let candidate = URL(fileURLWithPath: path, isDirectory: false)
             .standardizedFileURL
             .path
@@ -125,7 +125,7 @@ extension CMUXCLI {
         return directories.joined(separator: ":")
     }
 
-    func claudeTeamsHasExplicitTeammateMode(commandArgs: [String]) -> Bool {
+    private func claudeTeamsHasExplicitTeammateMode(commandArgs: [String]) -> Bool {
         commandArgs.contains { arg in
             arg == "--teammate-mode" || arg.hasPrefix("--teammate-mode=")
         }

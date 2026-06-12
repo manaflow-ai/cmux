@@ -43,7 +43,7 @@ struct OmnibarSuggestion: Identifiable, Hashable {
         }
     }
 
-    var primaryText: String {
+    private var primaryText: String {
         switch kind {
         case .search(let engineName, let q):
             return "Search \(engineName) for \"\(q)\""

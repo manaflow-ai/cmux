@@ -34,11 +34,11 @@ extension CMUXCLI {
         }
     }
 
-    func tmuxShellQuote(_ value: String) -> String {
+    private func tmuxShellQuote(_ value: String) -> String {
         "'" + value.replacingOccurrences(of: "'", with: "'\"'\"'") + "'"
     }
 
-    func tmuxShellCommandBody(commandTokens: [String], cwd: String?) -> String? {
+    private func tmuxShellCommandBody(commandTokens: [String], cwd: String?) -> String? {
         let trimmedCwd = cwd?.trimmingCharacters(in: .whitespacesAndNewlines)
         let commandText = commandTokens.joined(separator: " ").trimmingCharacters(in: .whitespacesAndNewlines)
         guard (trimmedCwd?.isEmpty == false) || !commandText.isEmpty else {
@@ -65,7 +65,7 @@ extension CMUXCLI {
         return commandText.isEmpty ? nil : commandText
     }
 
-    func tmuxShellWords(_ commandText: String) -> [String] {
+    private func tmuxShellWords(_ commandText: String) -> [String] {
         var words: [String] = []
         var current = ""
         var inSingleQuote = false
@@ -106,7 +106,7 @@ extension CMUXCLI {
         return words
     }
 
-    func tmuxLooksLikeShellAssignment(_ token: String) -> Bool {
+    private func tmuxLooksLikeShellAssignment(_ token: String) -> Bool {
         guard let equalsIndex = token.firstIndex(of: "="), equalsIndex != token.startIndex else {
             return false
         }
@@ -294,7 +294,7 @@ extension CMUXCLI {
         return surfaces.first { ($0["id"] as? String) == surfaceId }?["pane_id"] as? String
     }
 
-    func tmuxSpecialKeyText(_ token: String) -> String? {
+    private func tmuxSpecialKeyText(_ token: String) -> String? {
         switch token.lowercased() {
         case "enter", "c-m", "kpenter":
             return "\r"

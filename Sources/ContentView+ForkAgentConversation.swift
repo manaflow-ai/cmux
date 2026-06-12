@@ -356,7 +356,7 @@ enum AgentConversationForkDestination: String, CaseIterable, Identifiable, Senda
         }
     }
 
-    var settingsTitle: String {
+    private var settingsTitle: String {
         switch self {
         case .right:
             return String(localized: "forkConversation.destination.right", defaultValue: "Right Split")

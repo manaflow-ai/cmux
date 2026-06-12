@@ -80,7 +80,7 @@ extension ContentView {
         return resultIDs[resolvedIndex]
     }
 
-    static func commandPalettePendingActivationRequestID(
+    private static func commandPalettePendingActivationRequestID(
         _ pendingActivation: CommandPalettePendingActivation?
     ) -> UInt64? {
         switch pendingActivation {
@@ -190,7 +190,7 @@ extension ContentView {
         return hasher.finalize()
     }
 
-    static func combineCommandPaletteSwitcherSearchMetadata(
+    private static func combineCommandPaletteSwitcherSearchMetadata(
         _ metadata: CommandPaletteSwitcherSearchMetadata,
         into hasher: inout Hasher
     ) {

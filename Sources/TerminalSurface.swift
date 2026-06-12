@@ -380,7 +380,7 @@ final class TerminalSurface: Identifiable {
         }
     }
 
-    func prepareNextRuntimeInitialInput(_ input: String?) {
+    private func prepareNextRuntimeInitialInput(_ input: String?) {
         let trimmedInput = input?.isEmpty == false ? input : nil
         nextRuntimeInitialInput = trimmedInput
     }

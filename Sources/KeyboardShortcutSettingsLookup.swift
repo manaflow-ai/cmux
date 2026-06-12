@@ -48,7 +48,7 @@ extension KeyboardShortcutSettings {
         setShortcut(.unbound, for: action)
     }
 
-    static func settingsFileManagedSubtitle(for action: Action) -> String? {
+    private static func settingsFileManagedSubtitle(for action: Action) -> String? {
         guard isManagedBySettingsFile(action) else { return nil }
         return String(localized: "settings.shortcuts.managedByFile", defaultValue: "Managed in cmux.json")
     }

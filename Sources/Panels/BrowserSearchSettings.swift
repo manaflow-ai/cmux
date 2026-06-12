@@ -77,7 +77,7 @@ enum BrowserSearchEngine: String, CaseIterable, Identifiable {
         }
     }
 
-    var searchURLTemplate: String? {
+    private var searchURLTemplate: String? {
         switch self {
         case .google:
             return "https://www.google.com/search?q={query}"

@@ -328,7 +328,7 @@ enum SurfaceResumeApprovalStore {
         return record.hasValidSignature(secret: signingSecret)
     }
 
-    static func defaultSigningSecret(fileManager: FileManager = .default) -> Data? {
+    private static func defaultSigningSecret(fileManager: FileManager = .default) -> Data? {
         let env = ProcessInfo.processInfo.environment
         if let encoded = env["CMUX_SURFACE_RESUME_APPROVAL_SECRET_B64"],
            let data = Data(base64Encoded: encoded),

@@ -2,17 +2,17 @@ import AppKit
 
 struct AgentSessionWebTheme: Equatable {
     let isDark: Bool
-    let pageBackground: String
-    let surfaceBackground: String
-    let surfaceElevatedBackground: String
-    let inputBackground: String
+    private let pageBackground: String
+    private let surfaceBackground: String
+    private let surfaceElevatedBackground: String
+    private let inputBackground: String
     let border: String
-    let borderStrong: String
+    private let borderStrong: String
     let text: String
-    let mutedText: String
-    let softText: String
+    private let mutedText: String
+    private let softText: String
     let accent: String
-    let accentSoft: String
+    private let accentSoft: String
     let danger: String
     let shadow: String
 

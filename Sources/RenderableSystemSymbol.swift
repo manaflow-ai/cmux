@@ -1,8 +1,8 @@
 import AppKit
 
 enum RenderableSystemSymbol {
-    static let defaultWorkspaceGroupIcon = "folder.fill"
-    static let defaultSurfaceTabIcon = "doc.text"
+    private static let defaultWorkspaceGroupIcon = "folder.fill"
+    private static let defaultSurfaceTabIcon = "doc.text"
     @MainActor
     private static var renderabilityCache: [String: Bool] = [:]
 
@@ -40,7 +40,7 @@ enum RenderableSystemSymbol {
     }
 
     @MainActor
-    static func isRenderable(_ symbol: String) -> Bool {
+    private static func isRenderable(_ symbol: String) -> Bool {
         if let cached = renderabilityCache[symbol] {
             return cached
         }

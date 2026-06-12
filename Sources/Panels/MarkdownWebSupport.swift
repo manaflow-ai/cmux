@@ -137,7 +137,7 @@ extension NSColor {
         return overlay.withAlphaComponent(result)
     }
 
-    var markdownRelativeLuminance: Double {
+    private var markdownRelativeLuminance: Double {
         let color = usingColorSpace(.sRGB) ?? self
         var red: CGFloat = 0
         var green: CGFloat = 0
@@ -156,7 +156,7 @@ extension NSColor {
         return (0.2126 * linear(red)) + (0.7152 * linear(green)) + (0.0722 * linear(blue))
     }
 
-    func markdownContrastRatio(with other: NSColor) -> Double {
+    private func markdownContrastRatio(with other: NSColor) -> Double {
         let first = markdownRelativeLuminance
         let second = other.markdownRelativeLuminance
         let lighter = max(first, second)

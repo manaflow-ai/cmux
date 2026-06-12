@@ -257,7 +257,7 @@ extension TabManager {
         }
     }
 
-    func requestBackgroundWorkspaceLoad(for workspaceId: UUID) {
+    private func requestBackgroundWorkspaceLoad(for workspaceId: UUID) {
         guard !pendingBackgroundWorkspaceLoadIds.contains(workspaceId) else { return }
         var updated = pendingBackgroundWorkspaceLoadIds
         updated.insert(workspaceId)
@@ -488,7 +488,7 @@ extension TabManager {
         }
     }
 
-    func preferredWorkingDirectoryForNewTab(
+    private func preferredWorkingDirectoryForNewTab(
         workspace: Workspace?
     ) -> String? {
         guard let workspace else {

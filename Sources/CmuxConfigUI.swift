@@ -264,7 +264,7 @@ extension CmuxButtonIcon {
         return image
     }
 
-    static func contextMenuIconSize(for sourceSize: NSSize) -> NSSize {
+    private static func contextMenuIconSize(for sourceSize: NSSize) -> NSSize {
         let maximumDimension = contextMenuIconMaximumDimension
         guard sourceSize.width.isFinite,
               sourceSize.height.isFinite,

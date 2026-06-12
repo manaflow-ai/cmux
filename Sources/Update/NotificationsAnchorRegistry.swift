@@ -36,7 +36,7 @@ final class NotificationsAnchorRegistry {
 }
 
 @MainActor
-func notificationsPopoverAnchorIsVisible(_ view: NSView) -> Bool {
+private func notificationsPopoverAnchorIsVisible(_ view: NSView) -> Bool {
     var current: NSView? = view
     while let candidate = current {
         if candidate.isHidden || candidate.alphaValue <= 0 {

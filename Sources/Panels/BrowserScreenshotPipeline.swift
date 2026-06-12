@@ -163,7 +163,7 @@ enum BrowserScreenshotPasteboardWriter {
         }
     }
 
-    static func pasteboardItem(for image: NSImage) throws -> NSPasteboardItem {
+    private static func pasteboardItem(for image: NSImage) throws -> NSPasteboardItem {
         guard let tiffData = image.tiffRepresentation,
               let bitmap = NSBitmapImageRep(data: tiffData),
               let pngData = bitmap.representation(using: .png, properties: [:]) else {

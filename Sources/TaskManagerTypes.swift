@@ -528,7 +528,7 @@ struct CmuxTaskManagerCodingAgentDefinition: Equatable {
     let id: String
     let displayName: String
     let assetName: String?
-    let launchKinds: [String]
+    private let launchKinds: [String]
     let directBasenames: [String]
     let argumentNeedles: [String]
 

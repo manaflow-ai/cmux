@@ -215,7 +215,7 @@ extension WorkspaceRemoteSessionController {
         return trimmed
     }
 
-    static func remoteCLIWrapperScript() -> String {
+    private static func remoteCLIWrapperScript() -> String {
         """
         #!/bin/sh
         set -eu
@@ -241,7 +241,7 @@ extension WorkspaceRemoteSessionController {
         """
     }
 
-    static func remoteCLIWrapperInstallScript(daemonRemotePath: String) -> String {
+    private static func remoteCLIWrapperInstallScript(daemonRemotePath: String) -> String {
         let trimmedRemotePath = daemonRemotePath.trimmingCharacters(in: .whitespacesAndNewlines)
         let daemonPathExpression = remoteDaemonPathShellExpression(trimmedRemotePath)
         return """
@@ -256,7 +256,7 @@ extension WorkspaceRemoteSessionController {
         """
     }
 
-    static func remoteRelayMetadataInstallScript(
+    private static func remoteRelayMetadataInstallScript(
         daemonRemotePath: String,
         relayPort: Int,
         relayID: String,

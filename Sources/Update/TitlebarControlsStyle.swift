@@ -131,25 +131,25 @@ func titlebarControlPressedScale(isPressed _: Bool) -> CGFloat {
 
 enum TitlebarControlsLayoutMetrics {
     static let outerLeadingPadding: CGFloat = TitlebarControlsHitRegions.outerLeadingPadding
-    static let hintTrailingBaseInset: CGFloat = 8
+    private static let hintTrailingBaseInset: CGFloat = 8
     /// Leading inset the controls content sits at inside the accessory; must match the
     /// `.padding(.leading, …)` applied to `controlsGroup` in the view body.
     static let hintLeadingPadding: CGFloat = HeaderChromeControlMetrics.titlebarControlsLeadingPadding
     /// Extra trailing room past the rightmost pill for its capsule stroke and shadow.
-    static let hintShadowMargin: CGFloat = 4
+    private static let hintShadowMargin: CGFloat = 4
 
     static func hintTrailingInset(titlebarShortcutHintXOffset: Double = ShortcutHintDebugSettings.defaultTitlebarHintX) -> CGFloat {
         max(0, ShortcutHintDebugSettings.clamped(titlebarShortcutHintXOffset))
             + hintTrailingBaseInset
     }
 
-    static func buttonRowWidth(config: TitlebarControlsStyleConfig) -> CGFloat {
+    private static func buttonRowWidth(config: TitlebarControlsStyleConfig) -> CGFloat {
         let buttonCount = CGFloat(TitlebarShortcutHintActionSlot.allCases.count)
         let gapCount = max(0, buttonCount - 1)
         return (buttonCount * config.buttonSize) + (gapCount * config.spacing)
     }
 
-    static func buttonCenterX(
+    private static func buttonCenterX(
         for slot: TitlebarShortcutHintActionSlot,
         config: TitlebarControlsStyleConfig
     ) -> CGFloat {

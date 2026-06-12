@@ -238,8 +238,8 @@ struct SidebarWorkspaceRowFramePreferenceKey: PreferenceKey {
 enum SidebarDragLifecycleNotification {
     static let stateDidChange = Notification.Name("cmux.sidebarDragStateDidChange")
     static let requestClear = Notification.Name("cmux.sidebarDragRequestClear")
-    static let tabIdKey = "tabId"
-    static let reasonKey = "reason"
+    private static let tabIdKey = "tabId"
+    private static let reasonKey = "reason"
 
     static func postStateDidChange(tabId: UUID?, reason: String) {
         var userInfo: [AnyHashable: Any] = [reasonKey: reason]

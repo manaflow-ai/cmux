@@ -177,7 +177,7 @@ extension Workspace {
         resetBrowserPanelsForContextChange(reason: reason)
     }
 
-    func resetBrowserPanelsForContextChange(reason: String) {
+    private func resetBrowserPanelsForContextChange(reason: String) {
         let browserPanels = panels.values.compactMap { $0 as? BrowserPanel }
         guard !browserPanels.isEmpty else { return }
 

@@ -3,7 +3,7 @@ import Foundation
 
 enum WorkspaceTitlebarSettings {
     static let showTitlebarKey = "workspaceTitlebarVisible"
-    static let defaultShowTitlebar = true
+    private static let defaultShowTitlebar = true
 
     static func isVisible(defaults: UserDefaults = .standard) -> Bool {
         if defaults.object(forKey: showTitlebarKey) == nil {
@@ -158,7 +158,7 @@ enum TerminalCopyOnSelectSettings {
         defaults.object(forKey: copyOnSelectKey) as? Bool
     }
 
-    static func ghosttyCopyOnSelectValue(defaults: UserDefaults = .standard) -> String? {
+    private static func ghosttyCopyOnSelectValue(defaults: UserDefaults = .standard) -> String? {
         guard let enabled = storedValue(defaults: defaults) else { return nil }
         return enabled ? "clipboard" : "false"
     }
@@ -311,7 +311,7 @@ enum AgentHibernationSettings {
         min(max(value, 1), 256)
     }
 
-    static func sanitizedConfirmationSeconds(_ value: TimeInterval) -> TimeInterval {
+    private static func sanitizedConfirmationSeconds(_ value: TimeInterval) -> TimeInterval {
         guard value.isFinite else { return defaultConfirmationSeconds }
         return min(max(value.rounded(), 5), 60 * 60)
     }

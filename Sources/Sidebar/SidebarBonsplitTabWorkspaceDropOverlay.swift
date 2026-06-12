@@ -253,7 +253,7 @@ final class SidebarBonsplitTabWorkspaceDropView: NSView {
 #endif
     }
 
-    func clearPendingDrop() {
+    private func clearPendingDrop() {
         pendingDrop = nil
         isRequestingWorkspaceDropTargets = false
         workspaceDropTargetRequestId &+= 1

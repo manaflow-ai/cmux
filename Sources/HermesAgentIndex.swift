@@ -52,7 +52,7 @@ extension SessionIndexStore {
     }
 
     #if DEBUG
-    nonisolated static func loadHermesAgentEntriesForTesting(
+    private nonisolated static func loadHermesAgentEntriesForTesting(
         stateDBPath: String,
         needle: String = "",
         cwdFilter: String? = nil,

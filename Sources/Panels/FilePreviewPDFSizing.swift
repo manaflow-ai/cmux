@@ -3,7 +3,7 @@ import PDFKit
 
 enum FilePreviewPDFSizing {
     static let thumbnailMaximumSize = CGSize(width: 190, height: 106)
-    static let thumbnailHorizontalPadding: CGFloat = 22
+    private static let thumbnailHorizontalPadding: CGFloat = 22
     static let defaultSidebarWidth: CGFloat = 128
     static let minimumThumbnailSidebarWidth: CGFloat = 104
     static let minimumSidebarWidth: CGFloat = 112
@@ -66,7 +66,7 @@ enum FilePreviewPDFSizing {
         return min(max(proposedWidth, minimumWidth), maximumWidthForContainer)
     }
 
-    static func thumbnailSize(for page: PDFPage) -> CGSize {
+    private static func thumbnailSize(for page: PDFPage) -> CGSize {
         let pageBounds = page.bounds(for: .cropBox)
         guard pageBounds.width > 0, pageBounds.height > 0 else {
             return thumbnailMaximumSize

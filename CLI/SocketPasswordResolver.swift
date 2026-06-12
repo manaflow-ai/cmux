@@ -57,7 +57,7 @@ enum SocketPasswordResolver {
         return normalized(value)
     }
 
-    static func keychainServices(
+    private static func keychainServices(
         socketPath: String,
         environment: [String: String] = ProcessInfo.processInfo.environment
     ) -> [String] {

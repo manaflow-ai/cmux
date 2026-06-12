@@ -31,9 +31,9 @@ enum BrowserLinkOpenSettings {
     static let defaultInterceptTerminalOpenCommandInCmuxBrowser: Bool = true
 
     static let browserHostWhitelistKey = "browserHostWhitelist"
-    static let defaultBrowserHostWhitelist: String = ""
+    private static let defaultBrowserHostWhitelist: String = ""
     static let browserExternalOpenPatternsKey = "browserExternalOpenPatterns"
-    static let defaultBrowserExternalOpenPatterns: String = ""
+    private static let defaultBrowserExternalOpenPatterns: String = ""
 
     static func openTerminalLinksInCmuxBrowser(defaults: UserDefaults = .standard) -> Bool {
         guard BrowserAvailabilitySettings.isEnabled(defaults: defaults) else { return false }
@@ -174,7 +174,7 @@ enum BrowserLinkOpenSettings {
 enum BrowserAvailabilitySettings {
     static let disabledKey = "browserDisabledOverride"
     static let didChangeNotification = Notification.Name("cmux.browserAvailabilityDidChange")
-    static let defaultDisabled = false
+    private static let defaultDisabled = false
 
     static func isDisabled(defaults: UserDefaults = .standard) -> Bool {
         defaults.synchronize()

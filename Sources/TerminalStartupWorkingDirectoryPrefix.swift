@@ -3,7 +3,7 @@ import CMUXAgentLaunch
 
 
 nonisolated enum TerminalStartupWorkingDirectoryPrefix {
-    static func optionalChangeDirectoryPrefix(for workingDirectory: String?) -> String? {
+    private static func optionalChangeDirectoryPrefix(for workingDirectory: String?) -> String? {
         guard let workingDirectory = normalized(workingDirectory) else { return nil }
         let quoted = TerminalStartupShellQuoting.singleQuoted(workingDirectory)
         return "{ cd -- \(quoted) 2>/dev/null || [ ! -d \(quoted) ]; } && "

@@ -23,8 +23,8 @@ import WebKit
 // MARK: - Feedback composer client, attachments, bridge
 enum FeedbackComposerSettings {
     static let storedEmailKey = "sidebarHelpFeedbackEmail"
-    static let endpointEnvironmentKey = "CMUX_FEEDBACK_API_URL"
-    static let defaultEndpoint = "https://cmux.com/api/feedback"
+    private static let endpointEnvironmentKey = "CMUX_FEEDBACK_API_URL"
+    private static let defaultEndpoint = "https://cmux.com/api/feedback"
     static let maxMessageLength = 4_000
     static let maxAttachmentCount = 10
     // Keep the multipart body below Vercel's 4.5 MB request limit.

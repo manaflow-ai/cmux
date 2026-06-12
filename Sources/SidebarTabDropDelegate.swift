@@ -28,7 +28,7 @@ import WebKit
 /// `tabManager.workspaceGroups` from inside the contextMenu builder.
 enum SidebarTabDragPayload {
     static let typeIdentifier = "com.cmux.sidebar-tab-reorder"
-    static let dropContentType = UTType(exportedAs: typeIdentifier)
+    private static let dropContentType = UTType(exportedAs: typeIdentifier)
     static let dropContentTypes: [UTType] = [dropContentType]
     static let prefix = "cmux.sidebar-tab."
 
@@ -49,7 +49,7 @@ enum SidebarTabDragPayload {
 
 enum BonsplitTabDragPayload {
     static let typeIdentifier = "com.splittabbar.tabtransfer"
-    static let dropContentType = UTType(exportedAs: typeIdentifier)
+    private static let dropContentType = UTType(exportedAs: typeIdentifier)
     static let dropContentTypes: [UTType] = [dropContentType]
     private static let currentProcessId = Int32(ProcessInfo.processInfo.processIdentifier)
 

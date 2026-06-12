@@ -73,7 +73,7 @@ extension CMUXCLI {
         )) == true
     }
 
-    func hasOtherRunningSession(workspaceId: String, ctx: GenericAgentHookContext) -> Bool {
+    private func hasOtherRunningSession(workspaceId: String, ctx: GenericAgentHookContext) -> Bool {
         (try? ctx.store.hasRunningSession(
             workspaceId: workspaceId,
             surfaceId: nil,

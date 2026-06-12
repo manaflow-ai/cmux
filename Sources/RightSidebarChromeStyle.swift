@@ -2,7 +2,7 @@ import SwiftUI
 
 enum HeaderChromeIconStyle {
     static let opacity = 0.86
-    static let hoveredOpacity = 0.96
+    private static let hoveredOpacity = 0.96
     static let pressedOpacity = 1.0
     static let disabledOpacity = 0.34
     static let weight: Font.Weight = .regular

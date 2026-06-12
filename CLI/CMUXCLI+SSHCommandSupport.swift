@@ -16,7 +16,7 @@ extension CMUXCLI {
         "/bin/sh -c " + shellQuote(shellScript)
     }
 
-    internal func openSSHCommandOptionValue(_ command: String) -> String {
+    private func openSSHCommandOptionValue(_ command: String) -> String {
         command.replacingOccurrences(of: "%", with: "%%")
     }
 

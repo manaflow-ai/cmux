@@ -71,7 +71,7 @@ final class BrowserPopupPanel: NSPanel {
 @MainActor
 final class BrowserPopupWindowController: NSObject, NSWindowDelegate {
 
-    static let maxNestingDepth = 3
+    private static let maxNestingDepth = 3
 
     let webView: CmuxWebView
     private let browserContext: BrowserPopupBrowserContext
@@ -253,11 +253,11 @@ final class BrowserPopupWindowController: NSObject, NSWindowDelegate {
 
     // MARK: - Child popup tracking
 
-    func addChildPopup(_ child: BrowserPopupWindowController) {
+    private func addChildPopup(_ child: BrowserPopupWindowController) {
         childPopups.append(child)
     }
 
-    func removeChildPopup(_ child: BrowserPopupWindowController) {
+    private func removeChildPopup(_ child: BrowserPopupWindowController) {
         childPopups.removeAll { $0 === child }
     }
 
