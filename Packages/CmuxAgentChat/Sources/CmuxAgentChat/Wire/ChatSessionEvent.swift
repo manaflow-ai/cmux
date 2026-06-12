@@ -1,0 +1,68 @@
+/// A live update to one session's conversation, pushed by the host.
+public enum ChatSessionEvent: Sendable, Equatable {
+    /// New messages were appended to the transcript tail.
+    case appended([ChatMessage])
+    /// Previously-delivered messages changed in place (a tool result
+    /// arrived, a permission request was resolved). Receivers replace by
+    /// ``ChatMessage/id``.
+    case updated([ChatMessage])
+    /// The session's live activity state changed.
+    case stateChanged(ChatAgentState)
+    /// The session's descriptor changed (title, terminal binding, ...).
+    case descriptorChanged(ChatSessionDescriptor)
+}
+
+extension ChatSessionEvent: Codable {
+    private enum CodingKeys: String, CodingKey {
+        case event
+        case messages
+        case state
+        case descriptor
+    }
+
+    private enum EventName: String {
+        case appended
+        case updated
+        case stateChanged = "state_changed"
+        case descriptorChanged = "descriptor_changed"
+    }
+
+    public init(from decoder: any Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        let raw = try container.decode(String.self, forKey: .event)
+        switch EventName(rawValue: raw) {
+        case .appended:
+            self = .appended(try container.decode([ChatMessage].self, forKey: .messages))
+        case .updated:
+            self = .updated(try container.decode([ChatMessage].self, forKey: .messages))
+        case .stateChanged:
+            self = .stateChanged(try container.decode(ChatAgentState.self, forKey: .state))
+        case .descriptorChanged:
+            self = .descriptorChanged(try container.decode(ChatSessionDescriptor.self, forKey: .descriptor))
+        case .none:
+            throw DecodingError.dataCorruptedError(
+                forKey: .event,
+                in: container,
+                debugDescription: "Unknown chat session event: \(raw)"
+            )
+        }
+    }
+
+    public func encode(to encoder: any Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        switch self {
+        case .appended(let messages):
+            try container.encode(EventName.appended.rawValue, forKey: .event)
+            try container.encode(messages, forKey: .messages)
+        case .updated(let messages):
+            try container.encode(EventName.updated.rawValue, forKey: .event)
+            try container.encode(messages, forKey: .messages)
+        case .stateChanged(let state):
+            try container.encode(EventName.stateChanged.rawValue, forKey: .event)
+            try container.encode(state, forKey: .state)
+        case .descriptorChanged(let descriptor):
+            try container.encode(EventName.descriptorChanged.rawValue, forKey: .event)
+            try container.encode(descriptor, forKey: .descriptor)
+        }
+    }
+}
