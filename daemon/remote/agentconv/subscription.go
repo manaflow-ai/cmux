@@ -77,12 +77,30 @@ func Open(config Config) (*Subscription, SessionRef, error) {
 	if err := reader.seekForSnapshot(config.MaxSnapshotBytes); err != nil {
 		return nil, SessionRef{}, err
 	}
+	headSkipped := reader.offset > 0
 	lines, _, err := reader.readNewLines()
 	if err != nil {
 		return nil, SessionRef{}, err
 	}
 	for _, line := range lines {
 		parser.consumeLine(line)
+	}
+	if headSkipped {
+		// The snapshot cap cut off the transcript head, which is where Codex
+		// writes its session_meta line: a tail-only replay would report an
+		// empty session id/cwd/title. Recover them with the same bounded head
+		// scan discovery uses; fields the tail replay already produced win.
+		conversation := parser.conv()
+		head := scanTranscriptHead(config.Provider, config.TranscriptPath)
+		if conversation.session.SessionID == "" {
+			conversation.session.SessionID = head.SessionID
+		}
+		if conversation.session.Cwd == "" {
+			conversation.session.Cwd = head.Cwd
+		}
+		if conversation.session.Title == "" {
+			conversation.session.Title = head.Title
+		}
 	}
 	session := snapshotSessionRef(parser, config.TranscriptPath)
 
