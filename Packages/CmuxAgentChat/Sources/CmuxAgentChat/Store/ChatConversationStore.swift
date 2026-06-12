@@ -123,19 +123,23 @@ public final class ChatConversationStore {
                 // Reconnect: merge whatever the window missed while down.
                 await resyncTail()
             }
+            let streamStartedAt = now()
             var receivedEvent = false
             for await event in stream {
                 receivedEvent = true
-                if backoff != .zero { backoff = .zero }
                 apply(event)
             }
             isConnected = false
             guard !Task.isCancelled else { return }
-            // A stream that died without delivering anything means the
-            // connection is unhealthy; back off before resubscribing so a
-            // dead Mac doesn't spin subscribe+history RPCs at full speed.
-            // Cancellable sleep; reset on the first delivered event.
-            if !receivedEvent {
+            // Back off before resubscribing unless the stream was healthy
+            // (delivered something AND survived a while): a flapping
+            // connection that pushes one frame per subscribe must not spin
+            // subscribe+resync RPCs at full speed. Cancellable sleep.
+            let streamWasHealthy = receivedEvent
+                && now().timeIntervalSince(streamStartedAt) > 5
+            if streamWasHealthy {
+                backoff = .zero
+            } else {
                 backoff = min(max(backoff * 2, .milliseconds(500)), .seconds(16))
                 await idleSleep(backoff)
             }
@@ -294,7 +298,15 @@ public final class ChatConversationStore {
                 return
             }
             let missed = page.messages.filter { $0.seq > newestKnown }
-            if !missed.isEmpty {
+            if missed.count == page.messages.count, page.hasMore, !missed.isEmpty {
+                // The entire newest page is beyond the window tail: the
+                // disconnect outlasted a full page and the gap can never be
+                // filled by tail-append. Re-anchor the window on the page.
+                reconcilePending(against: page.messages)
+                messages = page.messages
+                hasMoreHistory = true
+                reproject()
+            } else if !missed.isEmpty {
                 reconcilePending(against: missed)
                 appendToWindow(missed)
             }
@@ -319,7 +331,19 @@ public final class ChatConversationStore {
         switch event {
         case .appended(let newMessages):
             reconcilePending(against: newMessages)
-            appendToWindow(newMessages)
+            // A live append whose seq regresses below the window tail means
+            // the transcript was truncated/replaced and the tailer reset;
+            // appending would corrupt window ordering. Re-anchor instead.
+            if let tail = messages.last?.seq,
+               let incoming = newMessages.first?.seq,
+               incoming <= tail,
+               !newMessages.contains(where: { knownWindowIDs.contains($0.id) }) {
+                messages = newMessages
+                hasMoreHistory = true
+                reproject()
+            } else {
+                appendToWindow(newMessages)
+            }
         case .updated(let changed):
             var didChange = false
             for message in changed {
@@ -337,6 +361,10 @@ public final class ChatConversationStore {
         case .unknown:
             break
         }
+    }
+
+    private var knownWindowIDs: Set<String> {
+        Set(messages.map(\.id))
     }
 
     private func appendToWindow(_ newMessages: [ChatMessage]) {
@@ -359,11 +387,24 @@ public final class ChatConversationStore {
     private func reconcilePending(against newMessages: [ChatMessage]) {
         guard !pending.isEmpty else { return }
         for message in newMessages where message.role == .user {
+            let index: Int?
             switch message.kind {
             case .prose(let prose):
                 let echoed = prose.text.trimmingCharacters(in: .whitespacesAndNewlines)
-                let index = pending.firstIndex { item in
+                index = pending.firstIndex { item in
+                    // A failed send keeps its retry row no matter what
+                    // echoes; only in-flight/delivered rows reconcile.
+                    if case .failed = item.delivery { return false }
+                    if item.text.isEmpty {
+                        // Attachment-only send: the Mac pastes the staged
+                        // image path, so the echo is a lone path line.
+                        return !echoed.contains("\n") && echoed.hasPrefix("/")
+                    }
                     if item.text == echoed { return true }
+                    // Attachments are pasted as file paths ahead of the
+                    // prompt, so a text+image echo is "<path> <text>";
+                    // match on the suffix.
+                    if item.attachmentCount > 0, echoed.hasSuffix(item.text) { return true }
                     // The transcript copy may be budget-truncated ("…"
                     // suffix); match on the echoed prefix so long prompts
                     // still reconcile.
@@ -371,25 +412,25 @@ public final class ChatConversationStore {
                        item.text.hasPrefix(echoed.dropLast()) {
                         return true
                     }
-                    // Bracketed multi-line sends echo as Claude Code's
-                    // paste placeholder, not the literal text; match it to
-                    // the oldest delivered multi-line pending.
+                    // Bracketed sends can echo as Claude Code's paste
+                    // placeholder rather than the literal text; multi-line
+                    // and long single-line prompts both collapse to it.
                     if Self.isPastePlaceholder(echoed) {
-                        return item.text.contains("\n")
+                        return item.text.contains("\n") || item.text.count > 256
                     }
                     return false
                 }
-                if let index {
-                    pending.remove(at: index)
-                }
             case .attachment:
-                // Attachment-only sends have no text to echo; the image
-                // path arriving as a user attachment message is the echo.
-                if let index = pending.firstIndex(where: { $0.text.isEmpty }) {
-                    pending.remove(at: index)
+                // Fixture/demo path: attachment echoes arrive typed.
+                index = pending.firstIndex { item in
+                    if case .failed = item.delivery { return false }
+                    return item.text.isEmpty
                 }
             default:
-                continue
+                index = nil
+            }
+            if let index {
+                pending.remove(at: index)
             }
         }
     }

@@ -124,6 +124,13 @@ final class AgentChatSessionRegistry {
             title: nil,
             pid: nil
         )
+        if event.hookEventName == .sessionStart {
+            // A resumed session (claude --resume reuses session ids) runs
+            // under a NEW process; the old pid would make the liveness
+            // sweep re-end the live session. Drop it and re-consult.
+            record.pid = nil
+            hookStoreConsultedAt[sessionID] = nil
+        }
         if let workspaceID = event.workspaceId, !workspaceID.isEmpty {
             record.workspaceID = workspaceID
         }

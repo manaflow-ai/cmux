@@ -89,7 +89,10 @@ private actor GatedChatEventSource: ChatEventSource {
 /// A `ChatEventSource` whose `send` succeeds without echoing, with a
 /// manual `emit` so tests control the transcript echo's exact shape.
 private actor SilentSendEventSource: ChatEventSource {
+    struct SendError: Error {}
+
     private var continuation: AsyncStream<ChatSessionEvent>.Continuation?
+    private var failSends = false
 
     func history(sessionID: String, beforeSeq: Int?, limit: Int) async throws -> ChatHistoryPage {
         ChatHistoryPage(messages: [], hasMore: false)
@@ -103,7 +106,13 @@ private actor SilentSendEventSource: ChatEventSource {
         continuation?.yield(event)
     }
 
-    func send(text: String, attachments: [ChatOutboundAttachment], sessionID: String) async throws {}
+    func setSendFailure(_ fail: Bool) {
+        failSends = fail
+    }
+
+    func send(text: String, attachments: [ChatOutboundAttachment], sessionID: String) async throws {
+        if failSends { throw SendError() }
+    }
 
     func interrupt(sessionID: String, hard: Bool) async throws {}
 
@@ -488,6 +497,91 @@ struct ChatConversationStoreTests {
         )
         await source.emit(.appended([echo]))
         #expect(await TestPoller.waitUntil { Self.pendingItems(store.rows).isEmpty })
+    }
+
+    @Test("a failed send's retry row survives other sends' echoes")
+    func failedPendingSurvivesForeignEchoes() async {
+        let source = SilentSendEventSource()
+        let store = Self.makeStore(source: source)
+        let runTask = Task { await store.run() }
+        defer { runTask.cancel() }
+        #expect(await TestPoller.waitUntil { store.isConnected })
+
+        await store.send(text: "first\nfailed send")
+        #expect(await TestPoller.waitUntil { Self.pendingItems(store.rows).count == 1 })
+        // Force-fail it through the public surface: SilentSendEventSource
+        // succeeds, so emulate by discarding and re-checking via a failing
+        // echo guard instead: mark failed via retry of a non-failed row is
+        // a no-op, so emit a placeholder echo and verify the FAILED row is
+        // not consumed. First flip the row to failed through a failing
+        // source send.
+        await source.setSendFailure(true)
+        await store.retry(pendingID: Self.pendingItems(store.rows)[0].id)
+        await store.send(text: "second\ndelivered send")
+        await source.setSendFailure(false)
+        await store.retry(pendingID: Self.pendingItems(store.rows)[0].id)
+        _ = await TestPoller.waitUntil { Self.pendingItems(store.rows).count == 2 }
+
+        let echo = ChatMessage(
+            id: "echo-ph",
+            seq: 0,
+            role: .user,
+            timestamp: Self.baseTime,
+            kind: .prose(ChatProse(text: "[Pasted text #1 +2 lines]"))
+        )
+        await source.emit(.appended([echo]))
+        _ = await TestPoller.waitUntil { Self.pendingItems(store.rows).count == 1 }
+        // One non-failed pending was consumed; the failed row remains.
+        let remaining = Self.pendingItems(store.rows)
+        #expect(remaining.count == 1)
+        if case .failed = remaining[0].delivery {} else {
+            Issue.record("expected the failed retry row to survive")
+        }
+    }
+
+    @Test("a path-prefixed echo reconciles a text-plus-image send")
+    func pathPrefixedEchoReconciles() async {
+        let source = SilentSendEventSource()
+        let store = Self.makeStore(source: source)
+        let runTask = Task { await store.run() }
+        defer { runTask.cancel() }
+        #expect(await TestPoller.waitUntil { store.isConnected })
+
+        let attachment = ChatOutboundAttachment(data: Data([0x89]), format: .png)
+        await store.send(text: "what is in this screenshot", attachments: [attachment])
+        #expect(await TestPoller.waitUntil { Self.pendingItems(store.rows).count == 1 })
+
+        let echo = ChatMessage(
+            id: "echo-path",
+            seq: 0,
+            role: .user,
+            timestamp: Self.baseTime,
+            kind: .prose(ChatProse(text: "/tmp/cmux-image-abc.png what is in this screenshot"))
+        )
+        await source.emit(.appended([echo]))
+        #expect(await TestPoller.waitUntil { Self.pendingItems(store.rows).isEmpty })
+    }
+
+    @Test("a seq regression in a live append re-anchors the window instead of corrupting order")
+    func seqRegressionReanchors() async {
+        let source = FixtureChatEventSource(backlog: Self.backlog(count: 6))
+        let store = Self.makeStore(source: source)
+        let runTask = Task { await store.run() }
+        defer { runTask.cancel() }
+        #expect(await TestPoller.waitUntil { store.hasLoadedInitialHistory })
+        #expect(Self.snapshots(store.rows).count == 6)
+
+        // Transcript truncated and rewritten: fresh ids, seqs restart at 0.
+        let rewritten = [
+            ChatMessage(id: "r0", seq: 0, role: .user, timestamp: Self.baseTime, kind: .prose(ChatProse(text: "rewritten"))),
+            ChatMessage(id: "r1", seq: 1, role: .agent, timestamp: Self.baseTime, kind: .prose(ChatProse(text: "ok"))),
+        ]
+        await source.emit(.appended(rewritten))
+        #expect(await TestPoller.waitUntil { Self.snapshots(store.rows).count == 2 })
+        #expect(store.rows.compactMap { row -> Int? in
+            if case .message(let snapshot) = row { return snapshot.message.seq }
+            return nil
+        } == [0, 1])
     }
 
     @Test("a budget-truncated transcript echo still reconciles the pending row")
