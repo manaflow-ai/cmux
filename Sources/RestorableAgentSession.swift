@@ -1019,13 +1019,20 @@ struct RestorableAgentSessionIndex: Sendable {
             }
 
             for record in state.sessions.values {
-                let effectiveRecord = kind == .claude
+                var effectiveRecord = kind == .claude
                     ? resolvedClaudeWorkflowRecord(
                         record,
                         fileManager: fileManager,
                         lookup: claudeTranscriptLookup
                     )
                     : record
+                // Drop untrusted launch captures before ANY derivation: the
+                // working directory below would otherwise inherit the foreign
+                // agent's launch cwd even though the launch command is stripped.
+                effectiveRecord.launchCommand = trustedLaunchCommand(
+                    effectiveRecord.launchCommand,
+                    kind: kind
+                )
                 let normalizedSessionId = effectiveRecord.sessionId.trimmingCharacters(in: .whitespacesAndNewlines)
                 guard !normalizedSessionId.isEmpty,
                       let workspaceId = UUID(uuidString: effectiveRecord.workspaceId),
@@ -1049,7 +1056,7 @@ struct RestorableAgentSessionIndex: Sendable {
                         fileManager: fileManager,
                         lookup: claudeTranscriptLookup
                     ),
-                    launchCommand: trustedLaunchCommand(effectiveRecord.launchCommand, kind: kind),
+                    launchCommand: effectiveRecord.launchCommand,
                     registration: registration
                 )
                 let key = PanelKey(workspaceId: workspaceId, panelId: panelId)

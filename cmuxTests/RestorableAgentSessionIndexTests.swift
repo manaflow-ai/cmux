@@ -929,6 +929,9 @@ final class RestorableAgentSessionIndexTests: XCTestCase {
         let dir = root.appendingPathComponent("repo", isDirectory: true)
         try fm.createDirectory(at: dir, withIntermediateDirectories: true)
 
+        let foreignDir = root.appendingPathComponent("claude-launch-dir", isDirectory: true)
+        try fm.createDirectory(at: foreignDir, withIntermediateDirectories: true)
+
         let ws = UUID()
         let panel = UUID()
         let sid = "66666666-6666-6666-6666-666666666666"
@@ -944,7 +947,7 @@ final class RestorableAgentSessionIndexTests: XCTestCase {
                 "--dangerously-skip-permissions",
                 "--chrome",
             ],
-            "workingDirectory": dir.path,
+            "workingDirectory": foreignDir.path,
             "environment": ["CLAUDE_CONFIG_DIR": "/Users/someone/.claude"],
             "capturedAt": 10,
             "source": "environment",
@@ -959,12 +962,19 @@ final class RestorableAgentSessionIndexTests: XCTestCase {
             RestorableAgentSessionIndex.load(homeDirectory: root.path, fileManager: fm)
                 .snapshot(workspaceId: ws, panelId: panel)
         )
+        XCTAssertEqual(
+            snapshot.workingDirectory,
+            dir.path,
+            "the foreign capture's launch cwd must not leak into the snapshot"
+        )
         let resume = try XCTUnwrap(snapshot.resumeCommand)
         XCTAssertFalse(resume.contains("claude"), "codex resume must not run the claude binary; got: \(resume)")
         XCTAssertTrue(resume.contains("'codex' 'resume' '\(sid)'"), "codex resume must use the bare codex verb; got: \(resume)")
+        XCTAssertFalse(resume.contains(foreignDir.path), "codex resume must not cd into the foreign launch dir; got: \(resume)")
         let fork = try XCTUnwrap(snapshot.forkCommand)
         XCTAssertFalse(fork.contains("claude"), "codex fork must not run the claude binary; got: \(fork)")
         XCTAssertTrue(fork.contains("'codex' 'fork' '\(sid)'"), "codex fork must use the bare codex verb; got: \(fork)")
+        XCTAssertFalse(fork.contains(foreignDir.path), "codex fork must not cd into the foreign launch dir; got: \(fork)")
     }
 
     // When the launch argv falls back to a PID that points at the hook dispatch shell instead of
