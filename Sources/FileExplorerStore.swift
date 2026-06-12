@@ -296,6 +296,12 @@ enum FileExplorerWorkspaceRoot: Equatable {
     )
 }
 
+enum FileExplorerWorkspaceRootIdentity: Equatable {
+    case none
+    case local(workspaceId: UUID)
+    case remoteSSH(workspaceId: UUID, connection: SSHFileExplorerConnection, displayTarget: String)
+}
+
 // MARK: - Local Provider
 
 final class LocalFileExplorerProvider: FileExplorerProvider {
@@ -746,6 +752,7 @@ final class FileExplorerStore: ObservableObject {
     @Published private(set) var gitStatusByPath: [String: GitFileStatus] = [:]
     @Published private(set) var contentRevision = 0
     @Published private(set) var rootStatusMessage: String?
+    @Published private(set) var workspaceRootIdentity: FileExplorerWorkspaceRootIdentity = .none
 
     var provider: FileExplorerProvider?
 
@@ -804,14 +811,16 @@ final class FileExplorerStore: ObservableObject {
         case .none:
             cancelRemoteHomeResolution()
             setRootStatusMessage(nil)
+            setWorkspaceRootIdentity(.none)
             if provider != nil {
                 setProvider(nil, reloadIfAvailable: false)
             }
             setRootPath("")
 
-        case .local(_, let path):
+        case .local(let workspaceId, let path):
             cancelRemoteHomeResolution()
             setRootStatusMessage(nil)
+            setWorkspaceRootIdentity(.local(workspaceId: workspaceId))
             if !(provider is LocalFileExplorerProvider) {
                 setRootPath("")
                 setProvider(LocalFileExplorerProvider(), reloadIfAvailable: false)
@@ -829,6 +838,11 @@ final class FileExplorerStore: ObservableObject {
                 sshTransport: sshTransport
             )
         }
+    }
+
+    private func setWorkspaceRootIdentity(_ identity: FileExplorerWorkspaceRootIdentity) {
+        guard workspaceRootIdentity != identity else { return }
+        workspaceRootIdentity = identity
     }
 
     func setRootPath(_ path: String) {
@@ -1145,6 +1159,8 @@ final class FileExplorerStore: ObservableObject {
         unavailableDetail: String?,
         sshTransport: SSHFileExplorerTransport
     ) {
+        setWorkspaceRootIdentity(.remoteSSH(workspaceId: workspaceId, connection: connection, displayTarget: displayTarget))
+
         let existingProvider = provider as? SSHFileExplorerProvider
         let sshProvider: SSHFileExplorerProvider
         if let existingProvider,

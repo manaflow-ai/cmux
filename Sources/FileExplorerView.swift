@@ -719,6 +719,7 @@ final class FileExplorerContainerView: NSView {
     private(set) var searchSnapshot = FileSearchSnapshot.empty
     private var currentRootPath = ""
     private var currentProviderIsLocal = false
+    private var currentWorkspaceRootIdentity = FileExplorerWorkspaceRootIdentity.none
     private var currentContentRevision = 0
     private let searchDebounceSubject = PassthroughSubject<Int, Never>()
     private var searchDebounceCancellable: AnyCancellable?
@@ -1012,21 +1013,36 @@ final class FileExplorerContainerView: NSView {
     func updateHeader(store: FileExplorerStore) {
         let nextRootPath = store.rootPath
         let nextProviderIsLocal = store.provider is LocalFileExplorerProvider
+        let nextWorkspaceRootIdentity = store.workspaceRootIdentity
         let nextContentRevision = store.contentRevision
+        let workspaceRootChanged = nextWorkspaceRootIdentity != currentWorkspaceRootIdentity
         let searchScopeChanged = nextRootPath != currentRootPath ||
-            nextProviderIsLocal != currentProviderIsLocal
+            nextProviderIsLocal != currentProviderIsLocal ||
+            workspaceRootChanged
         let contentRevisionChanged = nextContentRevision != currentContentRevision
 
         currentRootPath = nextRootPath
         currentProviderIsLocal = nextProviderIsLocal
+        currentWorkspaceRootIdentity = nextWorkspaceRootIdentity
         currentContentRevision = nextContentRevision
         headerView.update(displayPath: store.displayRootPath)
+        if workspaceRootChanged {
+            resetSearchStateForWorkspaceRootChange()
+        }
         if searchScopeChanged {
             pendingSearchRefreshAfterSettled = false
             refreshSearchIfNeeded()
         } else if contentRevisionChanged {
             refreshSearchAfterContentRevisionIfNeeded()
         }
+    }
+
+    private func resetSearchStateForWorkspaceRootChange() {
+        cancelPendingSearchRefresh()
+        pendingSearchRefreshAfterSettled = false
+        searchController.cancel(clear: true)
+        searchField.stringValue = ""
+        applySearchSnapshot(.empty)
     }
 
     func representedRightSidebarMode() -> RightSidebarMode {
