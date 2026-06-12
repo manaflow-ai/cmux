@@ -69,10 +69,13 @@ func listCodexSessionsFromIndex(codexDir, cwdFilter string, limit int) ([]sessio
 	}
 	defer db.Close()
 
-	query := "SELECT id, rollout_path, cwd, title FROM threads"
+	// archived = 0 keeps parity with the glob path: Codex moves archived
+	// rollouts out of sessions/ into archived_sessions/, so the scan never
+	// saw them either.
+	query := "SELECT id, rollout_path, cwd, title FROM threads WHERE archived = 0"
 	var args []any
 	if cwdFilter != "" {
-		query += " WHERE cwd = ?"
+		query += " AND cwd = ?"
 		args = append(args, cwdFilter)
 	}
 	query += " ORDER BY updated_at DESC, id DESC"
@@ -83,13 +86,11 @@ func listCodexSessionsFromIndex(codexDir, cwdFilter string, limit int) ([]sessio
 	defer rows.Close()
 
 	var sessions []sessionWithTime
-	sawRow := false
 	for len(sessions) < limit && rows.Next() {
 		var id, rolloutPath, cwd, title string
 		if err := rows.Scan(&id, &rolloutPath, &cwd, &title); err != nil {
 			return nil, false
 		}
-		sawRow = true
 		// Index rows can outlive their transcript (manual cleanup); a session
 		// whose rollout file is gone cannot be opened, so it is not listed.
 		info, err := os.Stat(rolloutPath)
@@ -116,9 +117,11 @@ func listCodexSessionsFromIndex(codexDir, cwdFilter string, limit int) ([]sessio
 	if err := rows.Err(); err != nil {
 		return nil, false
 	}
-	if !sawRow {
-		// Empty result: either there truly are no sessions or the index has
-		// not been backfilled; the glob scan is ground truth for both.
+	if len(sessions) == 0 {
+		// No usable session came out of the index: no rows (not backfilled,
+		// or truly no sessions), or every indexed rollout_path is gone (a
+		// stale or partially repaired db). The glob scan is ground truth for
+		// all of these; an unusable index must not hide on-disk sessions.
 		return nil, false
 	}
 	return sessions, true
@@ -127,6 +130,13 @@ func listCodexSessionsFromIndex(codexDir, cwdFilter string, limit int) ([]sessio
 // resolveCodexTranscript maps session id → rollout path, preferring the
 // sqlite index (id is the primary key, so the lookup is exact and the cwd
 // hint is unnecessary) and falling back to the sessions/ glob.
+//
+// Unlike the listing, resolution deliberately does NOT filter archived
+// threads: the caller already holds an explicit session id (a pane binding,
+// a sessions.list answer from before the archive), the transcript file still
+// exists under archived_sessions/, and a read-only viewer pointed at it is
+// strictly more useful than "not found". The glob fallback cannot see
+// archived rollouts, so this only adds capability when the index is present.
 func resolveCodexTranscript(codexDir, sessionID, cwd string) (string, bool) {
 	if path, ok := resolveCodexTranscriptFromIndex(codexDir, sessionID); ok {
 		return path, true

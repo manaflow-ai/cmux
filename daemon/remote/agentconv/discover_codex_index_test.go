@@ -60,6 +60,24 @@ func buildCodexIndexFixture(t *testing.T, codexDir string, rows []codexThreadRow
 	}
 }
 
+// writeCodexArchivedRolloutFile mirrors writeCodexRolloutFile but places the
+// transcript under archived_sessions/, where Codex moves archived threads
+// (outside the sessions/ glob).
+func writeCodexArchivedRolloutFile(t *testing.T, codexDir, stamp, sessionID, cwd, firstMessage string) string {
+	t.Helper()
+	dir := filepath.Join(codexDir, "archived_sessions")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(dir, "rollout-"+stamp+"-"+sessionID+".jsonl")
+	content := `{"timestamp":"2026-06-01T10:00:00.000Z","type":"session_meta","payload":{"id":"` + sessionID + `","cwd":"` + cwd + `"}}` + "\n" +
+		`{"timestamp":"2026-06-01T10:00:01.000Z","type":"response_item","payload":{"type":"message","id":"m1","role":"user","content":[{"type":"input_text","text":"` + firstMessage + `"}]}}` + "\n"
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	return path
+}
+
 func codexSessionIDs(refs []SessionRef) []string {
 	ids := make([]string, 0, len(refs))
 	for _, ref := range refs {
@@ -82,18 +100,24 @@ func TestCodexIndexServesListing(t *testing.T) {
 	if err := os.Chtimes(pathB, time.Unix(2000, 0), time.Unix(2000, 0)); err != nil {
 		t.Fatal(err)
 	}
+	// Archived threads keep a readable transcript (Codex moves it under
+	// archived_sessions/) but must not show up in the active listing.
+	archivedPath := writeCodexArchivedRolloutFile(t, codexDir, "2026-06-04T10-00-00", "sess-archived", "/tmp/project-a", "archived work")
 	buildCodexIndexFixture(t, codexDir, []codexThreadRow{
 		{id: "sess-a", rolloutPath: pathA, cwd: "/tmp/project-a", title: "work in a", updatedAt: 100},
 		{id: "sess-b", rolloutPath: pathB, cwd: "/tmp/project-b", title: "", updatedAt: 200},
 		{id: "sess-gone", rolloutPath: filepath.Join(codexDir, "sessions", "2026", "06", "01", "rollout-x-gone.jsonl"), cwd: "/tmp/project-a", title: "deleted transcript", updatedAt: 300},
+		{id: "sess-archived", rolloutPath: archivedPath, cwd: "/tmp/project-a", title: "archived work", updatedAt: 400, archived: true},
 	})
 
 	roots := Roots{CodexDir: codexDir}
 	all := ListSessions(roots, ListQuery{Provider: ProviderCodex})
 	got := codexSessionIDs(all)
-	// Exactly the indexed sessions whose transcript exists, newest first:
-	// sess-unindexed (on disk, not indexed) proves the glob was not used,
-	// sess-gone (indexed, transcript deleted) must be skipped.
+	// Exactly the active indexed sessions whose transcript exists, newest
+	// first: sess-unindexed (on disk, not indexed) proves the glob was not
+	// used, sess-gone (indexed, transcript deleted) must be skipped, and
+	// sess-archived (archived=1, transcript alive) must be filtered like the
+	// sessions/-only glob always did.
 	if len(got) != 2 || got[0] != "sess-b" || got[1] != "sess-a" {
 		t.Fatalf("index listing = %v, want [sess-b sess-a]", got)
 	}
@@ -136,6 +160,13 @@ func TestCodexIndexFallsBackToGlob(t *testing.T) {
 			if _, err := db.Exec(`CREATE TABLE threads (id TEXT PRIMARY KEY)`); err != nil {
 				t.Fatal(err)
 			}
+		},
+		// Rows exist but every rollout_path is gone (stale or partially
+		// repaired db): an unusable index must not hide on-disk sessions.
+		"stale-index": func(t *testing.T, codexDir string) {
+			buildCodexIndexFixture(t, codexDir, []codexThreadRow{
+				{id: "sess-stale", rolloutPath: filepath.Join(codexDir, "missing.jsonl"), cwd: "/tmp/project", title: "stale", updatedAt: 100},
+			})
 		},
 	}
 	for name, corrupt := range cases {
@@ -181,6 +212,25 @@ func TestCodexIndexResolve(t *testing.T) {
 	}
 	if _, ok := ResolveTranscriptPath(roots, ProviderCodex, "sess-unknown", ""); ok {
 		t.Error("resolved an unknown session id")
+	}
+}
+
+// Resolution by explicit id deliberately serves archived threads: the
+// transcript still exists under archived_sessions/ and a read-only viewer
+// pointed at it beats "not found". Only the listing filters archived.
+func TestCodexIndexResolvesArchivedThread(t *testing.T) {
+	codexDir := t.TempDir()
+	archivedPath := writeCodexArchivedRolloutFile(t, codexDir, "2026-06-01T10-00-00", "sess-archived", "/tmp/project", "archived work")
+	buildCodexIndexFixture(t, codexDir, []codexThreadRow{
+		{id: "sess-archived", rolloutPath: archivedPath, cwd: "/tmp/project", title: "archived work", updatedAt: 100, archived: true},
+	})
+	roots := Roots{CodexDir: codexDir}
+	if ids := codexSessionIDs(ListSessions(roots, ListQuery{Provider: ProviderCodex})); len(ids) != 0 {
+		t.Errorf("archived thread leaked into listing: %v", ids)
+	}
+	resolved, ok := ResolveTranscriptPath(roots, ProviderCodex, "sess-archived", "")
+	if !ok || resolved != archivedPath {
+		t.Errorf("archived resolve = %q ok=%v, want %s", resolved, ok, archivedPath)
 	}
 }
 
