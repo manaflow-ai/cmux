@@ -1,11 +1,12 @@
 import Foundation
 import Testing
 
+import CmuxSettings
+
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
 #elseif canImport(cmux)
 @testable import cmux
-import CmuxSettings
 #endif
 
 @MainActor
