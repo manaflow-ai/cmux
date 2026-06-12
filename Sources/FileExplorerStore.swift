@@ -149,6 +149,7 @@ enum FileExplorerStyle: Int, CaseIterable {
     }
 
     func gitColor(for status: GitFileStatus, colorScheme: ColorScheme) -> NSColor {
+        let colors = FileExplorerColors(colorScheme: colorScheme)
         switch self {
         case .liquidGlass:
             switch status {
@@ -156,8 +157,7 @@ enum FileExplorerStyle: Int, CaseIterable {
             case .added: return .systemTeal
             case .deleted: return .systemRed
             case .renamed: return .systemPurple
-            case .untracked:
-                return Self.untrackedTextColor(for: colorScheme, lightFallback: .quaternaryLabelColor)
+            case .untracked: return colors.gitUntrackedTextColor(lightFallback: .quaternaryLabelColor)
             }
         case .highDensity:
             switch status {
@@ -165,8 +165,7 @@ enum FileExplorerStyle: Int, CaseIterable {
             case .added: return .systemGreen
             case .deleted: return .systemRed
             case .renamed: return .systemBlue
-            case .untracked:
-                return Self.untrackedTextColor(for: colorScheme, lightFallback: .tertiaryLabelColor)
+            case .untracked: return colors.gitUntrackedTextColor(lightFallback: .tertiaryLabelColor)
             }
         case .terminalStealth:
             switch status {
@@ -190,18 +189,10 @@ enum FileExplorerStyle: Int, CaseIterable {
             case .added: return .systemGreen
             case .deleted: return .systemRed
             case .renamed: return .systemBlue
-            case .untracked:
-                return Self.untrackedTextColor(for: colorScheme, lightFallback: .tertiaryLabelColor)
+            case .untracked: return colors.gitUntrackedTextColor(lightFallback: .tertiaryLabelColor)
             }
         }
     }
-
-    private static func untrackedTextColor(for colorScheme: ColorScheme, lightFallback: NSColor) -> NSColor {
-        colorScheme == .dark
-            ? .labelColor.withAlphaComponent(0.84)
-            : lightFallback
-    }
-
     static var current: FileExplorerStyle {
         let defaults = UserDefaults.standard
         if defaults.object(forKey: "fileExplorer.style") == nil {

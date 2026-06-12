@@ -1012,14 +1012,21 @@ final class FileExplorerContainerView: NSView {
 
     func updateColorScheme(_ nextColorScheme: ColorScheme) {
         let colorSchemeChanged = colorScheme != nextColorScheme
+        let colors = FileExplorerColors(colorScheme: nextColorScheme)
         colorScheme = nextColorScheme
         appearance = NSAppearance(named: nextColorScheme == .dark ? .darkAqua : .aqua)
         headerView.updateColorScheme(nextColorScheme)
-        searchStatusLabel.textColor = FileExplorerColors.secondaryTextColor(for: nextColorScheme)
-        emptyLabel.textColor = FileExplorerColors.secondaryTextColor(for: nextColorScheme)
+        searchStatusLabel.textColor = colors.secondaryTextColor
+        emptyLabel.textColor = colors.secondaryTextColor
         if colorSchemeChanged {
-            outlineView.reloadData()
-            searchResultsView.reloadData()
+            outlineView.reloadData(
+                forRowIndexes: IndexSet(integersIn: 0..<outlineView.numberOfRows),
+                columnIndexes: IndexSet(integer: 0)
+            )
+            searchResultsView.reloadData(
+                forRowIndexes: IndexSet(integersIn: 0..<searchResultsView.numberOfRows),
+                columnIndexes: IndexSet(integer: 0)
+            )
         }
     }
 
@@ -1834,156 +1841,6 @@ final class FileExplorerSearchResultsTableView: NSTableView {
         guard visibleRows.location < upperBound else { return }
         for row in visibleRows.location..<upperBound {
             rowView(atRow: row, makeIfNecessary: false)?.needsDisplay = true
-        }
-    }
-}
-
-private final class FileExplorerSearchResultCellView: NSTableCellView {
-    private let pathLabel = NSTextField(labelWithString: "")
-    private let previewLabel = NSTextField(labelWithString: "")
-
-    init(identifier: NSUserInterfaceItemIdentifier) {
-        super.init(frame: .zero)
-        self.identifier = identifier
-        setupViews()
-    }
-
-    required init?(coder: NSCoder) {
-        fatalError("init(coder:) has not been implemented")
-    }
-
-    private func setupViews() {
-        pathLabel.translatesAutoresizingMaskIntoConstraints = false
-        pathLabel.font = .systemFont(ofSize: 12, weight: .semibold)
-        pathLabel.textColor = .labelColor
-        pathLabel.lineBreakMode = .byTruncatingMiddle
-        pathLabel.maximumNumberOfLines = 1
-
-        previewLabel.translatesAutoresizingMaskIntoConstraints = false
-        previewLabel.font = .monospacedSystemFont(ofSize: 11, weight: .regular)
-        previewLabel.textColor = .secondaryLabelColor
-        previewLabel.lineBreakMode = .byTruncatingTail
-        previewLabel.maximumNumberOfLines = 1
-
-        addSubview(pathLabel)
-        addSubview(previewLabel)
-
-        NSLayoutConstraint.activate([
-            pathLabel.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 6),
-            pathLabel.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -4),
-            pathLabel.topAnchor.constraint(equalTo: topAnchor, constant: 5),
-
-            previewLabel.leadingAnchor.constraint(equalTo: pathLabel.leadingAnchor),
-            previewLabel.trailingAnchor.constraint(equalTo: pathLabel.trailingAnchor),
-            previewLabel.topAnchor.constraint(equalTo: pathLabel.bottomAnchor, constant: 2),
-        ])
-    }
-
-    func configure(with result: FileSearchResult, colorScheme: ColorScheme) {
-        pathLabel.textColor = .labelColor
-        previewLabel.textColor = FileExplorerColors.secondaryTextColor(for: colorScheme)
-        pathLabel.stringValue = "\(result.relativePath):\(result.lineNumber)"
-        previewLabel.stringValue = result.preview.isEmpty ? " " : result.preview
-        toolTip = "\(result.path):\(result.lineNumber):\(result.columnNumber)"
-    }
-}
-
-// MARK: - Colors
-
-private enum FileExplorerColors {
-    static func secondaryTextColor(for colorScheme: ColorScheme) -> NSColor {
-        colorScheme == .dark
-            ? .labelColor.withAlphaComponent(0.76)
-            : .secondaryLabelColor
-    }
-
-    static func secondaryIconTint(for colorScheme: ColorScheme) -> NSColor {
-        colorScheme == .dark
-            ? .labelColor.withAlphaComponent(0.68)
-            : .secondaryLabelColor
-    }
-}
-
-// MARK: - Header View (AppKit)
-
-/// Pure AppKit header bar with folder icon, path label, and hidden files toggle.
-final class FileExplorerHeaderView: NSView {
-    private let iconView = NSImageView()
-    private let pathLabel = NSTextField(labelWithString: "")
-    private var displayPath = ""
-    private var quickSearchQuery: String?
-    private var colorScheme: ColorScheme = .light
-
-    override init(frame: NSRect) {
-        super.init(frame: frame)
-        setupViews()
-    }
-
-    required init?(coder: NSCoder) {
-        fatalError("init(coder:) has not been implemented")
-    }
-
-    private func setupViews() {
-        iconView.translatesAutoresizingMaskIntoConstraints = false
-        iconView.contentTintColor = FileExplorerColors.secondaryIconTint(for: colorScheme)
-
-        pathLabel.translatesAutoresizingMaskIntoConstraints = false
-        pathLabel.font = .systemFont(ofSize: 11, weight: .medium)
-        pathLabel.textColor = FileExplorerColors.secondaryTextColor(for: colorScheme)
-        pathLabel.lineBreakMode = .byTruncatingMiddle
-        pathLabel.maximumNumberOfLines = 1
-        pathLabel.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
-
-        addSubview(iconView)
-        addSubview(pathLabel)
-
-        NSLayoutConstraint.activate([
-            heightAnchor.constraint(equalToConstant: RightSidebarChromeMetrics.secondaryBarHeight),
-
-            iconView.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 12),
-            iconView.centerYAnchor.constraint(equalTo: centerYAnchor),
-            iconView.widthAnchor.constraint(equalToConstant: 14),
-            iconView.heightAnchor.constraint(equalToConstant: 14),
-
-            pathLabel.leadingAnchor.constraint(equalTo: iconView.trailingAnchor, constant: 4),
-            pathLabel.centerYAnchor.constraint(equalTo: centerYAnchor),
-            pathLabel.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -8),
-        ])
-        applyHeaderState()
-    }
-
-    func updateColorScheme(_ nextColorScheme: ColorScheme) {
-        guard colorScheme != nextColorScheme else { return }
-        colorScheme = nextColorScheme
-        iconView.contentTintColor = FileExplorerColors.secondaryIconTint(for: nextColorScheme)
-        pathLabel.textColor = FileExplorerColors.secondaryTextColor(for: nextColorScheme)
-    }
-
-    func update(displayPath: String) {
-        guard self.displayPath != displayPath else { return }
-        self.displayPath = displayPath
-        applyHeaderState()
-    }
-
-    func updateQuickSearch(query: String?) {
-        guard quickSearchQuery != query else { return }
-        quickSearchQuery = query
-        applyHeaderState()
-    }
-
-    private func applyHeaderState() {
-        assert(Thread.isMainThread, "AppKit image updates must run on the main thread")
-        let config = NSImage.SymbolConfiguration(pointSize: 11, weight: .regular)
-        if let quickSearchQuery {
-            iconView.image = NSImage(systemSymbolName: "magnifyingglass", accessibilityDescription: nil)?
-                .withSymbolConfiguration(config)
-            pathLabel.stringValue = "/" + quickSearchQuery
-            pathLabel.toolTip = pathLabel.stringValue
-        } else {
-            iconView.image = NSImage(systemSymbolName: "folder.fill", accessibilityDescription: nil)?
-                .withSymbolConfiguration(config)
-            pathLabel.stringValue = displayPath
-            pathLabel.toolTip = displayPath
         }
     }
 }
