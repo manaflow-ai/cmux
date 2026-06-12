@@ -124,7 +124,7 @@ nonisolated struct BrowserDownloadFilenameResolver {
         let base = candidate.isEmpty ? fromURL : candidate
         let replaced = base.replacingOccurrences(of: ":", with: "-")
         let safe = replaced.trimmingCharacters(in: .whitespacesAndNewlines)
-        return safe.isEmpty ? "download" : safe
+        return safe.isEmpty ? defaultFilename : safe
     }
 
     private func strippingNonImageExtensions(from filename: String, matching imageType: UTType) -> String {
@@ -140,7 +140,11 @@ nonisolated struct BrowserDownloadFilenameResolver {
     private func baseNameByRemovingFinalExtension(from filename: String) -> String {
         let nsFilename = filename as NSString
         let base = nsFilename.deletingPathExtension
-        return base.isEmpty ? "download" : base
+        return base.isEmpty ? defaultFilename : base
+    }
+
+    private var defaultFilename: String {
+        String(localized: "browser.download.defaultFilename", defaultValue: "download")
     }
 
     private func hasImageExtension(_ filename: String, matching imageType: UTType) -> Bool {
