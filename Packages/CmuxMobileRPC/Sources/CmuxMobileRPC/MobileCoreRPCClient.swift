@@ -258,6 +258,11 @@ public final class MobileCoreRPCClient: MobileSyncing, Sendable {
             return false
         case "workspace.create":
             return false
+        case "workspace.action", "workspace.close":
+            return !ticketCoversWorkspaceRequest(
+                ticket: ticket,
+                workspaceSelection: workspaceSelection.value
+            )
         case "mobile.terminal.create", "terminal.create":
             return false
         case "mobile.terminal.input", "terminal.input",
@@ -305,6 +310,18 @@ public final class MobileCoreRPCClient: MobileSyncing, Sendable {
             return terminalSelection == ticketTerminalID
         }
 
+        return workspaceSelection == ticketWorkspaceID
+    }
+
+    private static func ticketCoversWorkspaceRequest(
+        ticket: CmxAttachTicket,
+        workspaceSelection: String?
+    ) -> Bool {
+        let ticketWorkspaceID = ticket.workspaceID.trimmingCharacters(in: .whitespacesAndNewlines)
+        // Empty workspaceID means the ticket is Mac-wide (general pairing).
+        if ticketWorkspaceID.isEmpty {
+            return true
+        }
         return workspaceSelection == ticketWorkspaceID
     }
 
