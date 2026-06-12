@@ -94,3 +94,37 @@ describe("tokenExpiryMs", () => {
     expect(tokenExpiryMs("not-a-jwt")).toBeNull();
   });
 });
+
+describe("verifyRequest negative cache", () => {
+  const env = {
+    STACK_PROJECT_ID: "proj",
+    STACK_PUBLISHABLE_CLIENT_KEY: "pk",
+    STACK_API_URL: "https://stack.test",
+  };
+
+  it("does not re-hit Stack for a token it already rejected", async () => {
+    const { verifyRequest } = await import("../src/auth");
+    const realFetch = globalThis.fetch;
+    let calls = 0;
+    // Opaque (non-JWT) bearer: tokenExpiryMs is null, so the cheap expiry
+    // short-circuit cannot help and only the negative cache prevents the
+    // per-request Stack subrequest amplification.
+    const token = "opaque-rejected-token-" + Math.random().toString(36).slice(2);
+    globalThis.fetch = (async () => {
+      calls += 1;
+      return new Response("unauthorized", { status: 401 });
+    }) as typeof fetch;
+    try {
+      const make = () =>
+        new Request("https://presence.test/v1/presence/snapshot", {
+          headers: { authorization: `Bearer ${token}` },
+        });
+      expect(await verifyRequest(make(), env)).toBeNull();
+      expect(await verifyRequest(make(), env)).toBeNull();
+      expect(await verifyRequest(make(), env)).toBeNull();
+      expect(calls).toBe(1);
+    } finally {
+      globalThis.fetch = realFetch;
+    }
+  });
+})

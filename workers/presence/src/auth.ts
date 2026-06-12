@@ -33,9 +33,16 @@ export interface AuthedUser {
  * durable state). */
 export const AUTH_CACHE_TTL_MS = 60_000;
 const AUTH_CACHE_MAX_ENTRIES = 1024;
+/** Negative cache window for a token Stack rejected. Bounds the amplification
+ * where an unauthenticated caller forces one Stack subrequest per request by
+ * sending an opaque (non-JWT, so no client-side expiry short-circuit) token;
+ * short enough that a token which legitimately becomes valid is not stranded
+ * for long. */
+export const AUTH_NEGATIVE_CACHE_TTL_MS = 10_000;
 
 interface CacheEntry {
-  user: AuthedUser;
+  /** null marks a verified-failure (negative) entry. */
+  user: AuthedUser | null;
   expiresAt: number;
 }
 
@@ -192,16 +199,26 @@ export async function verifyRequest(request: Request, env: AuthEnv): Promise<Aut
 
   const cacheKey = await sha256Hex(token);
   const cached = authCache.get(cacheKey);
+  // A live entry serves either a verified user or a verified failure (null),
+  // so a rejected token does not re-hit Stack on every request.
   if (cached && cached.expiresAt > now) return cached.user;
   authCache.delete(cacheKey);
 
   const user = await fetchStackUser(env, token);
-  if (!user) return null;
 
   if (authCache.size >= AUTH_CACHE_MAX_ENTRIES) {
     // Drop the oldest insertion; Map preserves insertion order.
     const oldest = authCache.keys().next().value;
     if (oldest !== undefined) authCache.delete(oldest);
+  }
+  if (!user) {
+    // Negative cache: never past the token's own expiry (an expired-token
+    // hash should fall through to the cheap expiry short-circuit next time).
+    const negativeDeadline =
+      expMs === null ? now + AUTH_NEGATIVE_CACHE_TTL_MS
+        : Math.min(now + AUTH_NEGATIVE_CACHE_TTL_MS, expMs);
+    authCache.set(cacheKey, { user: null, expiresAt: negativeDeadline });
+    return null;
   }
   authCache.set(cacheKey, { user, expiresAt: cacheDeadline(now, expMs) });
   return user;
