@@ -10,9 +10,14 @@ import SwiftUI
 /// a row inside the `LazyVStack`/`ForEach`), its per-frame updates repaint just
 /// this one view and never invalidate the list body — the property that keeps
 /// the drag off the https://github.com/manaflow-ai/cmux/issues/2586 thrash path.
-/// Implicit animations are disabled so the follower snaps to the cursor with
-/// zero lag while the list rows animate the gap open underneath it — except the
-/// group-membership indent, which animates on its own axis (see below).
+/// The cursor tracking stays animation-free by construction: `.position` sits
+/// OUTSIDE the indent's `.animation(_:value:)` scope, no other animation
+/// modifier covers it, and `followerCursorY` writes are never wrapped in
+/// `withAnimation` — so the follower snaps to the cursor with zero lag while
+/// the indent/width animate on their own axis. (A blanket
+/// `.transaction { disablesAnimations = true }` used to enforce this, but it
+/// also suppressed the indent animation — disablesAnimations kills
+/// `.animation(_:value:)` downstream — so it must not come back.)
 struct SidebarReorderFollowerView: View {
     let dragState: SidebarDragState
     /// The committed render list, used to find the picked-up row's content
@@ -65,10 +70,6 @@ struct SidebarReorderFollowerView: View {
             .allowsHitTesting(false)
             .accessibilityHidden(true)
             .zIndex(1000)
-            .transaction { transaction in
-                transaction.disablesAnimations = true
-                transaction.animation = nil
-            }
         }
     }
 
