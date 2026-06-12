@@ -17,6 +17,15 @@ import WebKit
 /// anchor at right-click time, which is immune to coordinate skew and works
 /// in every frame. The coordinate-based hit tests remain as fallbacks.
 extension CmuxWebView {
+    /// Value snapshot of the link reported by the contextmenu capture hook
+    /// (`url` is nil when the right-click was not on a link). The backing
+    /// stored property lives in `CmuxWebView.swift` because extensions cannot
+    /// add stored properties.
+    struct ContextMenuCapturedLink {
+        let url: URL?
+        let uptime: TimeInterval
+    }
+
     private static let contextMenuLinkCaptureMessageHandlerName = "cmuxContextMenuLinkCapture"
     private static var contextMenuLinkCaptureInstalledKey: UInt8 = 0
 

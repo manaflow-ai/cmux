@@ -934,12 +934,9 @@ final class CmuxWebView: WKWebView {
     /// The last context-menu point in view coordinates.
     private var lastContextMenuPoint: NSPoint = .zero
     /// Link reported by the contextmenu capture hook for the most recent
-    /// right-click (`url` is nil when the click was not on a link). See
-    /// `CmuxWebView+ContextMenuLinkCapture.swift`.
-    struct ContextMenuCapturedLink {
-        let url: URL?
-        let uptime: TimeInterval
-    }
+    /// right-click (`url` is nil when the click was not on a link). The type
+    /// and its lifecycle live in `CmuxWebView+ContextMenuLinkCapture.swift`;
+    /// only the stored property has to live in the class body.
     var contextMenuCapturedLink: ContextMenuCapturedLink?
     /// Uptime at which the current context menu opened, used to pair the menu
     /// with the contextmenu capture report from the same right-click.
