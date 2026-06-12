@@ -75,10 +75,27 @@ struct AgentDaemonBinaryLocator {
         return URL(fileURLWithPath: path, isDirectory: false).standardizedFileURL
     }
 
+    /// Orders dotted versions numerically per component ("0.10.0" beats
+    /// "0.9.0", which plain lexicographic sorting gets backwards); missing
+    /// components count as 0 and non-numeric components fall back to string
+    /// comparison.
+    static func isVersionNewer(_ lhs: String, _ rhs: String) -> Bool {
+        let left = lhs.split(separator: ".")
+        let right = rhs.split(separator: ".")
+        for index in 0..<max(left.count, right.count) {
+            let leftPart = index < left.count ? left[index] : "0"
+            let rightPart = index < right.count ? right[index] : "0"
+            if leftPart == rightPart { continue }
+            if let leftNumber = Int(leftPart), let rightNumber = Int(rightPart) {
+                return leftNumber > rightNumber
+            }
+            return leftPart > rightPart
+        }
+        return false
+    }
+
     /// Scans the cache root for the newest other version holding a runnable
-    /// binary for this platform. Versions sort newest-first lexicographically
-    /// descending, which is correct for dotted versions of equal arity and an
-    /// acceptable tiebreak otherwise.
+    /// binary for this platform.
     private func newestCachedBinary(goOS: String, goArch: String, excludingVersion: String) -> URL? {
         guard let anyVersion = try? Workspace.remoteDaemonCachedBinaryURL(
             version: "x", goOS: goOS, goArch: goArch, fileManager: fileManager
@@ -90,7 +107,7 @@ struct AgentDaemonBinaryLocator {
         guard let versions = try? fileManager.contentsOfDirectory(atPath: cacheRoot.path) else {
             return nil
         }
-        for version in versions.sorted(by: >) where version != excludingVersion {
+        for version in versions.sorted(by: Self.isVersionNewer) where version != excludingVersion {
             if let url = try? Workspace.remoteDaemonCachedBinaryURL(
                 version: version, goOS: goOS, goArch: goArch, fileManager: fileManager
             ), isExecutableFile(url) {
