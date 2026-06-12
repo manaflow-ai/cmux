@@ -1062,6 +1062,7 @@ final class FileExplorerStore: ObservableObject {
 
     // MARK: - Private
 
+    @MainActor
     private func loadChildren(for parentNode: FileExplorerNode?, at path: String, silent: Bool = false) async {
         guard let provider else { return }
 
@@ -1083,6 +1084,10 @@ final class FileExplorerStore: ObservableObject {
                 if let existing = nodesByPath[entry.path], existing.isDirectory == entry.isDirectory {
                     if existing.isDirectory, !expandedPaths.contains(existing.path) {
                         existing.children = nil
+                        // A canceled in-flight load must not leave a reused
+                        // collapsed node stuck in loading/error state.
+                        existing.isLoading = false
+                        existing.error = nil
                     }
                     return existing
                 }
