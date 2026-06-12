@@ -61,6 +61,11 @@ export function SearchBar({
   onClose: () => void;
 }) {
   const handleKeyDown = (event: ReactKeyboardEvent<HTMLInputElement>) => {
+    // During IME composition Enter confirms the candidate (and Escape cancels
+    // it); intercepting those keys would break Japanese/Chinese/Korean input.
+    if (event.nativeEvent.isComposing || event.keyCode === 229) {
+      return;
+    }
     if (event.key === "Enter") {
       event.preventDefault();
       onStep(event.shiftKey ? -1 : 1);
