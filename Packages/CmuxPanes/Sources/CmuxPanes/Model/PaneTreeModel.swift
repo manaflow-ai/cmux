@@ -54,4 +54,18 @@ public final class PaneTreeModel<Panel> {
     public func attach(host: any PaneTreeHosting<Panel>) {
         self.host = host
     }
+
+    /// Resolves the owning panel id for a bonsplit surface id (legacy
+    /// `Workspace.panelIdFromSurfaceId`).
+    public func panelId(forSurfaceId surfaceId: TabID) -> UUID? {
+        surfaceIdToPanelId[surfaceId]
+    }
+
+    /// Resolves the bonsplit surface id currently mapped to a panel id
+    /// (legacy `Workspace.surfaceIdFromPanelId`). When multiple surfaces map
+    /// to the same panel the match is dictionary-order arbitrary, exactly as
+    /// the legacy `first(where:)` lookup was.
+    public func surfaceId(forPanelId panelId: UUID) -> TabID? {
+        surfaceIdToPanelId.first { $0.value == panelId }?.key
+    }
 }

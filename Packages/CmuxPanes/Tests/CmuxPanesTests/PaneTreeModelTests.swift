@@ -86,4 +86,19 @@ struct PaneTreeModelTests {
         model.lastOrderedPanelIds = [panelId]
         #expect(model.lastOrderedPanelIds == [panelId])
     }
+
+    /// The registry queries resolve through the surface-id mapping exactly
+    /// like the legacy `Workspace.panelIdFromSurfaceId` /
+    /// `surfaceIdFromPanelId` accessors.
+    @Test func registryQueriesResolveTheMapping() {
+        let model = PaneTreeModel<String>()
+        let tabId = TabID()
+        let panelId = UUID()
+        model.surfaceIdToPanelId[tabId] = panelId
+
+        #expect(model.panelId(forSurfaceId: tabId) == panelId)
+        #expect(model.surfaceId(forPanelId: panelId) == tabId)
+        #expect(model.panelId(forSurfaceId: TabID()) == nil)
+        #expect(model.surfaceId(forPanelId: UUID()) == nil)
+    }
 }

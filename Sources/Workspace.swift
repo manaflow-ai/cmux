@@ -10124,6 +10124,13 @@ final class Workspace: Identifiable, ObservableObject {
     /// hooks via `PaneTreeHosting`.
     let paneTree = PaneTreeModel<any Panel>()
 
+    /// The surface-registry sub-model (CmuxWorkspaceCore): owns the
+    /// per-surface registry annotations (tty names, shell-activity states)
+    /// and the transient tab-selection/focus-reassert request state. The
+    /// legacy accessors below forward here. None of the moved properties
+    /// were `@Published`, so no observer hooks are required.
+    private let surfaceRegistry = SurfaceRegistryModel<PendingTabSelectionRequest>()
+
     /// Legacy Combine bridge for the remaining `workspace.$panels`
     /// subscribers. Driven exclusively from `panelsWillChange(to:)`, so it
     /// emits the new value during willSet and replays the current value on
@@ -10302,7 +10309,12 @@ final class Workspace: Identifiable, ObservableObject {
     @Published var remoteLastHeartbeatAt: Date?
     @Published var listeningPorts: [Int] = []
     @Published private(set) var activeRemoteTerminalSessionCount: Int = 0
-    var surfaceTTYNames: [UUID: String] = [:]
+    /// The controlling-terminal device name per panel id; stored in the
+    /// surface-registry sub-model.
+    var surfaceTTYNames: [UUID: String] {
+        get { surfaceRegistry.surfaceTTYNames }
+        set { surfaceRegistry.surfaceTTYNames = newValue }
+    }
     private var remoteSessionController: WorkspaceRemoteSessionController?
     private var pendingRemoteForegroundAuthToken: String?
     fileprivate var activeRemoteSessionControllerID: UUID?
@@ -10336,7 +10348,12 @@ final class Workspace: Identifiable, ObservableObject {
         return formatter
     }()
     nonisolated(unsafe) static var runSSHControlMasterCommandOverrideForTesting: (([String]) -> Void)?
-    var panelShellActivityStates: [UUID: PanelShellActivityState] = [:]
+    /// The shell-activity classification per panel id; stored in the
+    /// surface-registry sub-model.
+    var panelShellActivityStates: [UUID: PanelShellActivityState] {
+        get { surfaceRegistry.panelShellActivityStates }
+        set { surfaceRegistry.panelShellActivityStates = newValue }
+    }
     /// PIDs associated with agent status entries (e.g. claude_code), keyed by status key.
     /// Used for stale-session detection: if the PID is dead, the status entry is cleared.
     var agentPIDs: [String: pid_t] = [:]
@@ -11082,7 +11099,15 @@ final class Workspace: Identifiable, ObservableObject {
     private var pendingPaneClosePanelIds: [UUID: [UUID]] = [:]
     private var pendingPaneCloseHistoryEntries: [UUID: [ClosedPanelHistoryEntry]] = [:]
     private var pendingClosedBrowserRestoreSnapshots: [TabID: ClosedBrowserPanelRestoreSnapshot] = [:]
-    private var isApplyingTabSelection = false
+    /// Re-entrancy guard for the tab-selection apply loop; stored in the
+    /// surface-registry sub-model.
+    private var isApplyingTabSelection: Bool {
+        get { surfaceRegistry.isApplyingTabSelection }
+        set { surfaceRegistry.isApplyingTabSelection = newValue }
+    }
+    /// The pending tab-selection request payload. Stays app-side (it carries
+    /// AppKit hosted-view references); the surface-registry sub-model stores
+    /// it opaquely as its `TabSelectionRequest` generic binding.
     private struct PendingTabSelectionRequest {
         let tabId: TabID
         let pane: PaneID
@@ -11091,7 +11116,12 @@ final class Workspace: Identifiable, ObservableObject {
         let resumeHibernatedAgent: Bool?
         let previousTerminalHostedView: GhosttySurfaceScrollView?
     }
-    private var pendingTabSelection: PendingTabSelectionRequest?
+    /// The coalesced pending tab-selection request; stored in the
+    /// surface-registry sub-model.
+    private var pendingTabSelection: PendingTabSelectionRequest? {
+        get { surfaceRegistry.pendingTabSelection }
+        set { surfaceRegistry.pendingTabSelection = newValue }
+    }
     private var isReconcilingFocusState = false
     private var focusReconcileScheduled = false
 #if DEBUG
@@ -11115,13 +11145,18 @@ final class Workspace: Identifiable, ObservableObject {
     private var agentHibernationAutoResumePresentationVisible = true
     private var isAttemptingLayoutFollowUp = false
     private var isNormalizingPinnedTabOrder = false
-    private var pendingNonFocusSplitFocusReassert: PendingNonFocusSplitFocusReassert?
-    private var nonFocusSplitFocusReassertGeneration: UInt64 = 0
-
-    private struct PendingNonFocusSplitFocusReassert {
-        let generation: UInt64
-        let preferredPanelId: UUID
-        let splitPanelId: UUID
+    /// The pending non-focusing-split focus re-assert request (the value
+    /// type now lives in CmuxWorkspaceCore); stored in the surface-registry
+    /// sub-model.
+    private var pendingNonFocusSplitFocusReassert: PendingNonFocusSplitFocusReassert? {
+        get { surfaceRegistry.pendingNonFocusSplitFocusReassert }
+        set { surfaceRegistry.pendingNonFocusSplitFocusReassert = newValue }
+    }
+    /// Monotonic focus re-assert generation counter; stored in the
+    /// surface-registry sub-model.
+    private var nonFocusSplitFocusReassertGeneration: UInt64 {
+        get { surfaceRegistry.nonFocusSplitFocusReassertGeneration }
+        set { surfaceRegistry.nonFocusSplitFocusReassertGeneration = newValue }
     }
 
     private var detachingTabIds: Set<TabID> = []
@@ -11146,7 +11181,7 @@ final class Workspace: Identifiable, ObservableObject {
 #endif
 
     func panelIdFromSurfaceId(_ surfaceId: TabID) -> UUID? {
-        surfaceIdToPanelId[surfaceId]
+        paneTree.panelId(forSurfaceId: surfaceId)
     }
 
     func markExplicitClose(surfaceId: TabID) {
@@ -11188,7 +11223,7 @@ final class Workspace: Identifiable, ObservableObject {
     }
 
     func surfaceIdFromPanelId(_ panelId: UUID) -> TabID? {
-        surfaceIdToPanelId.first { $0.value == panelId }?.key
+        paneTree.surfaceId(forPanelId: panelId)
     }
 
     private func configureNewTerminalPanel(_ terminalPanel: TerminalPanel) {
