@@ -1578,6 +1578,16 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         let stackUserID = identityProvider?.currentUserID
         Task { @MainActor [weak self] in
             guard let self else { return }
+            // Every await below suspends the main actor, so re-check after
+            // each one that the frame's user is still the signed-in user: a
+            // stale presence frame from a previous account must never write
+            // routes into, or kick reconnects for, the next session (mirrors
+            // refreshRegistryDevices' account-switch guard).
+            let userIsCurrent: () -> Bool = { [weak self] in
+                guard let self else { return false }
+                return self.isSignedIn && self.identityProvider?.currentUserID == stackUserID
+            }
+            guard userIsCurrent() else { return }
             if self.pairedMacs.isEmpty {
                 // A presence frame can land before the first paired-Mac load
                 // (snapshot arrives fast on launch); resolve the pairing list
@@ -1586,9 +1596,11 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             }
             var onlineDeviceIds: Set<String> = []
             for instance in candidates {
+                guard userIsCurrent() else { return }
                 if instance.online { onlineDeviceIds.insert(instance.deviceId) }
                 await self.applyPushedRoutes(from: instance, stackUserID: stackUserID)
             }
+            guard userIsCurrent() else { return }
             // The Mac this phone wants is online and we are not connected:
             // reconnect now (routes above are already persisted), instead of
             // waiting for the user to pull Retry.
