@@ -7257,7 +7257,7 @@ struct CMUXCLI {
             }
             let themes = (payload["themes"] as? [[String: Any]])?.compactMap { $0["name"] as? String } ?? []
             if themes.isEmpty {
-                print("No themes found.")
+                print(String(localized: "cli.workspaceTheme.noThemesFound", defaultValue: "No themes found."))
             } else {
                 for theme in themes {
                     print(theme)
@@ -7282,7 +7282,10 @@ struct CMUXCLI {
         switch subcommand {
         case "get", "current":
             if let unknown = rem1.first(where: { $0.hasPrefix("--") }) {
-                throw CLIError(message: "workspace theme get: unknown flag '\(unknown)'. Known flags: --workspace <id|ref|index>, --window <id|ref|index>")
+                throw CLIError(message: String(
+                    localized: "cli.workspaceTheme.getUnknownFlag",
+                    defaultValue: "workspace theme get: unknown flag '\(unknown)'. Known flags: --workspace <id|ref|index>, --window <id|ref|index>"
+                ))
             }
             let payload = try client.sendV2(method: "workspace.theme.get", params: params)
             printWorkspaceThemePayload(payload, jsonOutput: jsonOutput, idFormat: idFormat)
@@ -7291,20 +7294,33 @@ struct CMUXCLI {
             let (lightOpt, rem2) = parseOption(rem1, name: "--light")
             let (darkOpt, rem3) = parseOption(rem2, name: "--dark")
             if let unknown = rem3.first(where: { $0.hasPrefix("--") }) {
-                throw CLIError(message: "workspace theme set: unknown flag '\(unknown)'. Known flags: --workspace <id|ref|index>, --window <id|ref|index>, --light <theme>, --dark <theme>")
+                throw CLIError(message: String(
+                    localized: "cli.workspaceTheme.setUnknownFlag",
+                    defaultValue: "workspace theme set: unknown flag '\(unknown)'. Known flags: --workspace <id|ref|index>, --window <id|ref|index>, --light <theme>, --dark <theme>"
+                ))
             }
             if lightOpt == nil && darkOpt == nil {
                 let theme = rem3.dropFirst(rem3.first == "--" ? 1 : 0).joined(separator: " ").trimmingCharacters(in: .whitespacesAndNewlines)
                 guard !theme.isEmpty else {
-                    throw CLIError(message: "workspace theme set requires a theme name or --light/--dark")
+                    throw CLIError(message: String(
+                        localized: "cli.workspaceTheme.setRequiresTheme",
+                        defaultValue: "workspace theme set requires a theme name or --light/--dark"
+                    ))
                 }
                 params["theme"] = theme
             } else {
                 guard rem3.isEmpty else {
-                    throw CLIError(message: "workspace theme set: unexpected argument '\(rem3.joined(separator: " "))'")
+                    let argument = rem3.joined(separator: " ")
+                    throw CLIError(message: String(
+                        localized: "cli.workspaceTheme.setUnexpectedArgument",
+                        defaultValue: "workspace theme set: unexpected argument '\(argument)'"
+                    ))
                 }
                 guard lightOpt != nil, darkOpt != nil else {
-                    throw CLIError(message: "workspace theme set requires both --light and --dark when setting conditional themes")
+                    throw CLIError(message: String(
+                        localized: "cli.workspaceTheme.setRequiresLightAndDark",
+                        defaultValue: "workspace theme set requires both --light and --dark when setting conditional themes"
+                    ))
                 }
                 if let lightOpt { params["light"] = lightOpt }
                 if let darkOpt { params["dark"] = darkOpt }
@@ -7314,13 +7330,19 @@ struct CMUXCLI {
 
         case "clear", "reset":
             if let unknown = rem1.first(where: { $0.hasPrefix("--") }) {
-                throw CLIError(message: "workspace theme clear: unknown flag '\(unknown)'. Known flags: --workspace <id|ref|index>, --window <id|ref|index>")
+                throw CLIError(message: String(
+                    localized: "cli.workspaceTheme.clearUnknownFlag",
+                    defaultValue: "workspace theme clear: unknown flag '\(unknown)'. Known flags: --workspace <id|ref|index>, --window <id|ref|index>"
+                ))
             }
             let payload = try client.sendV2(method: "workspace.theme.clear", params: params)
             printWorkspaceThemePayload(payload, jsonOutput: jsonOutput, idFormat: idFormat)
 
         default:
-            throw CLIError(message: "Unknown workspace theme subcommand: \(subcommand). Try: list, get, set, clear")
+            throw CLIError(message: String(
+                localized: "cli.workspaceTheme.unknownSubcommand",
+                defaultValue: "Unknown workspace theme subcommand: \(subcommand). Try: list, get, set, clear"
+            ))
         }
     }
 

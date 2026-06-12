@@ -56,6 +56,10 @@ struct WorkspaceGhosttyThemeSelection: Codable, Equatable, Sendable {
 
     static func normalizedThemeName(_ raw: String?) -> String? {
         let trimmed = raw?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        guard trimmed.rangeOfCharacter(from: .newlines) == nil,
+              trimmed.range(of: "\0") == nil else {
+            return nil
+        }
         return trimmed.isEmpty ? nil : trimmed
     }
 

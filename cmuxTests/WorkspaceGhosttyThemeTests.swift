@@ -14,6 +14,12 @@ struct WorkspaceGhosttyThemeTests {
         #expect(WorkspaceGhosttyThemeSelection(light: nil, dark: "Catppuccin Mocha").configContents() == nil)
     }
 
+    @Test func unsafeThemeNamesAreRejectedBeforeConfigGeneration() {
+        #expect(WorkspaceGhosttyThemeSelection.single("Injected\nfont-size = 200").configContents() == nil)
+        #expect(WorkspaceGhosttyThemeSelection(light: "Safe", dark: "Bad\u{0}Theme").configContents() == nil)
+        #expect(WorkspaceGhosttyThemeSelection.fromRawValue("theme\nfont-size = 200") == nil)
+    }
+
     @Test func concreteConfigContentsResolvesConditionalThemeForColorScheme() {
         let selection = WorkspaceGhosttyThemeSelection(
             light: "Catppuccin Latte",
@@ -43,6 +49,93 @@ struct WorkspaceGhosttyThemeTests {
         )
 
         #expect(names.contains("XDG Test Theme"))
+    }
+
+    @Test func catalogPrefersBundledThemesOverInheritedResourcesDir() throws {
+        let bundleRoot = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-bundle-themes-\(UUID().uuidString)", isDirectory: true)
+        let envRoot = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-env-themes-\(UUID().uuidString)", isDirectory: true)
+        let bundleThemes = bundleRoot
+            .appendingPathComponent("ghostty", isDirectory: true)
+            .appendingPathComponent("themes", isDirectory: true)
+        let envThemes = envRoot.appendingPathComponent("themes", isDirectory: true)
+        try FileManager.default.createDirectory(at: bundleThemes, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: envThemes, withIntermediateDirectories: true)
+        defer {
+            try? FileManager.default.removeItem(at: bundleRoot)
+            try? FileManager.default.removeItem(at: envRoot)
+        }
+
+        try "background = #111111\n".write(
+            to: bundleThemes.appendingPathComponent("Bundled Case Theme", isDirectory: false),
+            atomically: true,
+            encoding: .utf8
+        )
+        try "background = #222222\n".write(
+            to: envThemes.appendingPathComponent("bundled case theme", isDirectory: false),
+            atomically: true,
+            encoding: .utf8
+        )
+        try "background = #333333\n".write(
+            to: envThemes.appendingPathComponent("Env Only Theme", isDirectory: false),
+            atomically: true,
+            encoding: .utf8
+        )
+
+        let names = WorkspaceGhosttyThemeCatalog.availableThemeNames(
+            environment: ["GHOSTTY_RESOURCES_DIR": envRoot.path],
+            bundleResourceURL: bundleRoot
+        )
+
+        #expect(names == ["Bundled Case Theme"])
+    }
+
+    @Test func catalogIncludesSymlinkedThemeFiles() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-symlink-theme-\(UUID().uuidString)", isDirectory: true)
+        let themes = root
+            .appendingPathComponent("ghostty", isDirectory: true)
+            .appendingPathComponent("themes", isDirectory: true)
+        try FileManager.default.createDirectory(at: themes, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let target = root.appendingPathComponent("Target Theme", isDirectory: false)
+        try "background = #123456\n".write(to: target, atomically: true, encoding: .utf8)
+        try FileManager.default.createSymbolicLink(
+            at: themes.appendingPathComponent("Linked Theme", isDirectory: false),
+            withDestinationURL: target
+        )
+
+        let names = WorkspaceGhosttyThemeCatalog.availableThemeNames(
+            environment: ["XDG_DATA_DIRS": root.path],
+            bundleResourceURL: nil
+        )
+
+        #expect(names.contains("Linked Theme"))
+    }
+
+    @Test func validationAllowsExistingAbsoluteThemeFiles() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-absolute-theme-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let themeFile = root.appendingPathComponent("Absolute Theme", isDirectory: false)
+        try "background = #abcdef\n".write(to: themeFile, atomically: true, encoding: .utf8)
+
+        #expect(
+            WorkspaceGhosttyThemeCatalog.validatedThemeName(
+                themeFile.path,
+                availableThemes: ["Bundled Theme"]
+            ) == themeFile.standardizedFileURL.path
+        )
+        #expect(
+            WorkspaceGhosttyThemeCatalog.validatedThemeName(
+                root.path,
+                availableThemes: ["Bundled Theme"]
+            ) == nil
+        )
     }
 
     @Test func sessionRoundTripPreservesWorkspaceThemeSelection() throws {

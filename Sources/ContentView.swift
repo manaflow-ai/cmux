@@ -6822,8 +6822,8 @@ struct ContentView: View {
 
         func workspaceGhosttyThemeCommandTitle(_ themeName: String) -> String {
             String(
-                format: String(localized: "command.workspaceGhosttyTheme.named", defaultValue: "Workspace Theme: %@"),
-                themeName
+                localized: "command.workspaceGhosttyTheme.named",
+                defaultValue: "Workspace Theme: \(themeName)"
             )
         }
 
