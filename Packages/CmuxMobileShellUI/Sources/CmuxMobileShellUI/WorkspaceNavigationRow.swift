@@ -25,20 +25,18 @@ struct WorkspaceNavigationRow: View {
     @State private var isRenaming = false
 
     var body: some View {
-        Button {
+        WorkspaceRow(
+            workspace: workspace,
+            connectionStatus: connectionStatus,
+            isSelected: navigationStyle == .sidebar && isSelected,
+            wrapWorkspaceTitles: wrapWorkspaceTitles
+        )
+        .onTapGesture {
             selectWorkspace(workspace.id)
-        } label: {
-            WorkspaceRow(
-                workspace: workspace,
-                connectionStatus: connectionStatus,
-                isSelected: navigationStyle == .sidebar && isSelected,
-                wrapWorkspaceTitles: wrapWorkspaceTitles
-            )
         }
-        .buttonStyle(.plain)
         .contentShape(Rectangle())
         .contextMenu { contextMenu }
-        .swipeActions(edge: .leading, allowsFullSwipe: false) {
+        .swipeActions(edge: .leading, allowsFullSwipe: true) {
             if let setUnread {
                 Button {
                     setUnread(workspace.id, !workspace.isUnread)
@@ -49,7 +47,7 @@ struct WorkspaceNavigationRow: View {
                 .accessibilityIdentifier("MobileWorkspaceReadStateSwipeButton-\(workspace.id.rawValue)")
             }
         }
-        .swipeActions(edge: .trailing, allowsFullSwipe: false) {
+        .swipeActions(edge: .trailing, allowsFullSwipe: true) {
             if let closeWorkspace {
                 Button(role: .destructive) {
                     closeWorkspace(workspace.id)

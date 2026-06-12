@@ -639,6 +639,49 @@ struct ChatConversationStoreTests {
         } == [0, 1])
     }
 
+    @Test("a send while the agent is working is queued, then flushed on idle")
+    func sendWhileWorkingQueuesThenFlushes() async {
+        // FixtureChatEventSource echoes a delivered send into the
+        // transcript, so a flushed queue shows up as a real user message —
+        // all observed through the synchronous store-state poller.
+        let source = FixtureChatEventSource()
+        let store = Self.makeStore(source: source)
+        let runTask = Task { await store.run() }
+        defer { runTask.cancel() }
+        #expect(await TestPoller.waitUntil { store.isConnected })
+
+        await source.emit(.stateChanged(.working(since: Self.baseTime)))
+        #expect(await TestPoller.waitUntil { store.agentState == .working(since: Self.baseTime) })
+        await store.send(text: "queued while busy")
+
+        // Queued, not delivered: the prompt has not echoed into the transcript.
+        #expect(await TestPoller.waitUntil {
+            Self.pendingItems(store.rows).contains { $0.delivery == .queued }
+        })
+        #expect(!Self.userProseTexts(store.rows).contains("queued while busy"))
+
+        // Idle → the queued send flushes and the fixture echoes it.
+        await source.emit(.stateChanged(.idle))
+        #expect(await TestPoller.waitUntil {
+            Self.userProseTexts(store.rows).contains("queued while busy")
+        })
+        #expect(Self.pendingItems(store.rows).allSatisfy { $0.delivery != .queued })
+    }
+
+    @Test("a send while the agent is idle delivers immediately")
+    func sendWhileIdleDeliversNow() async {
+        let source = FixtureChatEventSource()
+        let store = Self.makeStore(source: source)
+        let runTask = Task { await store.run() }
+        defer { runTask.cancel() }
+        #expect(await TestPoller.waitUntil { store.isConnected })
+
+        await store.send(text: "immediate message")
+        #expect(await TestPoller.waitUntil {
+            Self.userProseTexts(store.rows).contains("immediate message")
+        })
+    }
+
     @Test("a budget-truncated transcript echo still reconciles the pending row")
     func truncatedEchoReconciles() async {
         let source = SilentSendEventSource()

@@ -67,6 +67,7 @@ public final class ChatConversationStore {
     @ObservationIgnored private let maxWindowCount: Int
     @ObservationIgnored private let now: @Sendable () -> Date
     @ObservationIgnored private var pendingCounter = 0
+    @ObservationIgnored private var isFlushingQueue = false
 
     /// Creates a conversation store.
     ///
@@ -130,6 +131,12 @@ public final class ChatConversationStore {
             let streamStartedAt = now()
             for await event in stream {
                 apply(event)
+                // Flush queued sends inline once the agent goes idle —
+                // structured here in the async run loop rather than a
+                // detached Task spawned from the synchronous apply().
+                if case .idle = agentState {
+                    await flushQueuedSends()
+                }
             }
             isConnected = false
             guard !Task.isCancelled else { return }
@@ -189,22 +196,50 @@ public final class ChatConversationStore {
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty || !attachments.isEmpty else { return }
         pendingCounter += 1
+        // While the agent is working, a paste-plus-submit lands the text in
+        // Claude Code's input box but the running task swallows the submit
+        // Enter, stranding it. Queue instead and flush when the agent next
+        // goes idle, so the message is delivered cleanly in turn order.
+        let queueWhileBusy: Bool
+        if case .working = agentState { queueWhileBusy = true } else { queueWhileBusy = false }
         let item = ChatPendingOutbound(
             id: "local-\(pendingCounter)",
             text: trimmed,
             attachments: attachments,
             createdAt: now(),
-            delivery: .sending
+            delivery: queueWhileBusy ? .queued : .sending
         )
         pending.append(item)
         reproject()
+        guard !queueWhileBusy else { return }
+        await deliver(item)
+    }
+
+    /// Sends one pending row through the source, updating its delivery
+    /// state. Shared by immediate sends, queued flushes, and retries.
+    private func deliver(_ item: ChatPendingOutbound) async {
+        updatePending(id: item.id, delivery: .sending)
         do {
-            try await source.send(text: trimmed, attachments: attachments, sessionID: descriptor.id)
+            try await source.send(text: item.text, attachments: item.attachments, sessionID: descriptor.id)
             updatePending(id: item.id, delivery: .delivered)
             lastErrorDescription = nil
         } catch {
             updatePending(id: item.id, delivery: .failed(error.localizedDescription))
             lastErrorDescription = error.localizedDescription
+        }
+    }
+
+    /// Flushes queued sends once the agent is idle, in submission order.
+    /// Re-entrancy is guarded so overlapping idle transitions don't
+    /// double-send.
+    private func flushQueuedSends() async {
+        guard !isFlushingQueue else { return }
+        guard case .idle = agentState else { return }
+        isFlushingQueue = true
+        defer { isFlushingQueue = false }
+        while case .idle = agentState,
+              let next = pending.first(where: { $0.delivery == .queued }) {
+            await deliver(next)
         }
     }
 
@@ -214,16 +249,7 @@ public final class ChatConversationStore {
     public func retry(pendingID: String) async {
         guard let index = pending.firstIndex(where: { $0.id == pendingID }),
               case .failed = pending[index].delivery else { return }
-        let item = pending[index]
-        updatePending(id: pendingID, delivery: .sending)
-        do {
-            try await source.send(text: item.text, attachments: item.attachments, sessionID: descriptor.id)
-            updatePending(id: pendingID, delivery: .delivered)
-            lastErrorDescription = nil
-        } catch {
-            updatePending(id: pendingID, delivery: .failed(error.localizedDescription))
-            lastErrorDescription = error.localizedDescription
-        }
+        await deliver(pending[index])
     }
 
     /// Removes a failed pending send without retrying it.
