@@ -1412,6 +1412,23 @@
         }
       }
     },
+    "mobile.pairing.loopbackRejected": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This code points at the Mac itself (localhost), so your iPhone can't use it. Set up Tailscale on the Mac, then scan a fresh code."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このコードは Mac 自身（localhost）を指しているため、iPhone からは使えません。Mac に Tailscale を設定してから、新しいコードをスキャンしてください。"
+          }
+        }
+      }
+    },
     "mobile.pairing.navigationTitle": {
       "extractionState": "manual",
       "localizations": {

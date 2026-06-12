@@ -124,23 +124,44 @@ import Testing
     }
 }
 
-@Test func attachTicketInitializerRejectsExpiredTicket() throws {
+@Test func attachTicketConstructsWithPastExpiryAndReportsExpired() throws {
+    // Expiry is data for token consumers, not a structural validity gate: a
+    // stale ticket still constructs (a QR scanned long after it was shown must
+    // keep pairing), and `isExpired(at:)` reports its token lifetime.
     let route = try CmxAttachRoute(
         id: "tailscale",
         kind: .tailscale,
         endpoint: .hostPort(host: "100.64.1.2", port: 49831)
     )
 
-    #expect(throws: CmxAttachTicketError.expired) {
-        _ = try CmxAttachTicket(
-            workspaceID: "workspace-1",
-            terminalID: nil,
-            macDeviceID: "mac-1",
-            macDisplayName: nil,
-            routes: [route],
-            expiresAt: Date(timeIntervalSince1970: 1_000)
-        )
-    }
+    let ticket = try CmxAttachTicket(
+        workspaceID: "workspace-1",
+        terminalID: nil,
+        macDeviceID: "mac-1",
+        macDisplayName: nil,
+        routes: [route],
+        expiresAt: Date(timeIntervalSince1970: 1_000)
+    )
+    #expect(ticket.isExpired(at: Date(timeIntervalSince1970: 2_000)))
+    #expect(!ticket.isExpired(at: Date(timeIntervalSince1970: 500)))
+}
+
+@Test func attachTicketWithoutExpiryNeverExpires() throws {
+    let route = try CmxAttachRoute(
+        id: "tailscale",
+        kind: .tailscale,
+        endpoint: .hostPort(host: "100.64.1.2", port: 49831)
+    )
+
+    let ticket = try CmxAttachTicket(
+        workspaceID: "",
+        terminalID: nil,
+        macDeviceID: "mac-1",
+        macDisplayName: nil,
+        routes: [route]
+    )
+    #expect(ticket.expiresAt == nil)
+    #expect(!ticket.isExpired(at: .distantFuture))
 }
 
 @Test func attachRouteDecodesIrohAddressHintsFromExperimentRouteJSON() throws {
@@ -272,7 +293,10 @@ import Testing
     }
 }
 
-@Test func attachTicketDecoderRejectsExpiredTicket() throws {
+@Test func attachTicketDecoderAcceptsExpiredTicketAndPreservesExpiry() throws {
+    // A legacy full-key QR scanned long after it was shown must keep
+    // decoding; expiry is preserved as data for token consumers, not
+    // enforced at decode time.
     let data = Data("""
     {
       "version": 1,
@@ -298,9 +322,39 @@ import Testing
     let decoder = JSONDecoder()
     decoder.dateDecodingStrategy = .iso8601
 
-    #expect(throws: CmxAttachTicketError.expired) {
-        _ = try decoder.decode(CmxAttachTicket.self, from: data)
+    let ticket = try decoder.decode(CmxAttachTicket.self, from: data)
+    #expect(ticket.expiresAt == Date(timeIntervalSince1970: 978_307_200))
+    #expect(ticket.isExpired(at: Date()))
+}
+
+@Test func attachTicketDecoderAcceptsMissingExpiry() throws {
+    let data = Data("""
+    {
+      "version": 1,
+      "workspaceID": "workspace-1",
+      "terminalID": null,
+      "macDeviceID": "mac-1",
+      "macDisplayName": null,
+      "routes": [
+        {
+          "id": "tailscale",
+          "kind": "tailscale",
+          "endpoint": {
+            "type": "host_port",
+            "host": "100.64.1.2",
+            "port": 49831
+          },
+          "priority": 0
+        }
+      ]
     }
+    """.utf8)
+    let decoder = JSONDecoder()
+    decoder.dateDecodingStrategy = .iso8601
+
+    let ticket = try decoder.decode(CmxAttachTicket.self, from: data)
+    #expect(ticket.expiresAt == nil)
+    #expect(!ticket.isExpired(at: Date()))
 }
 
 @Test func attachTicketDecoderRejectsInvalidNestedRoute() throws {
