@@ -34,4 +34,47 @@ struct NativeNotificationDeliveryHooks {
         commandRunner(title, subtitle, body)
     }
 
+    func runLocalFeedback(
+        title: String,
+        subtitle: String,
+        body: String,
+        effects: TerminalNotificationPolicyEffects,
+        runCommand: Bool = true
+    ) {
+        Self.runLocalFeedback(
+            title: title,
+            subtitle: subtitle,
+            body: body,
+            effects: effects,
+            runCommand: runCommand,
+            commandRunner: commandRunner
+        )
+    }
+
+    static func playNativeUnavailableFeedback(effects: TerminalNotificationPolicyEffects) {
+        if effects.sound {
+            NotificationSoundSettings.playSelectedSound()
+        }
+    }
+
+    static func runLocalFeedback(
+        title: String,
+        subtitle: String,
+        body: String,
+        effects: TerminalNotificationPolicyEffects,
+        runCommand: Bool = true,
+        commandRunner: (String, String, String) -> Void = {
+            title,
+            subtitle,
+            body in
+            NotificationSoundSettings.runCustomCommand(title: title, subtitle: subtitle, body: body)
+        }
+    ) {
+        if effects.sound {
+            NotificationSoundSettings.playSelectedSound()
+        }
+        if effects.command, runCommand {
+            commandRunner(title, subtitle, body)
+        }
+    }
 }

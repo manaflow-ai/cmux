@@ -924,7 +924,8 @@ private extension FeedCoordinator {
                             title: title,
                             subtitle: subtitle,
                             body: body,
-                            effects: effects
+                            effects: effects,
+                            runCommand: false
                         )
                     }
                 default:
@@ -933,7 +934,8 @@ private extension FeedCoordinator {
                         title: title,
                         subtitle: subtitle,
                         body: body,
-                        effects: effects
+                        effects: effects,
+                        runCommand: false
                     )
                 }
             }
@@ -965,7 +967,8 @@ private extension FeedCoordinator {
                         title: title,
                         subtitle: subtitle,
                         body: body,
-                        effects: effects
+                        effects: effects,
+                        runCommand: false
                     )
                     return
                 }
@@ -986,19 +989,16 @@ private extension FeedCoordinator {
         title: String,
         subtitle: String,
         body: String,
-        effects: TerminalNotificationPolicyEffects
+        effects: TerminalNotificationPolicyEffects,
+        runCommand: Bool = true
     ) {
         guard isAwaitingDecision(requestId: requestId) else { return }
-        if effects.sound {
-            NotificationSoundSettings.playSelectedSound()
-        }
-        if effects.command {
-            NotificationSoundSettings.runCustomCommand(
-                title: title,
-                subtitle: subtitle,
-                body: body
-            )
-        }
+        NativeNotificationDeliveryHooks.runLocalFeedback(
+            title: title,
+            subtitle: subtitle,
+            body: body,
+            effects: effects, runCommand: runCommand
+        )
     }
 
     func cancelNotification(requestId: String) {

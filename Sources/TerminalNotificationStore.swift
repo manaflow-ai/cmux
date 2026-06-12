@@ -2058,7 +2058,7 @@ final class TerminalNotificationStore: ObservableObject {
             content.subtitle = notification.subtitle
             content.body = notification.body
             guard authorized else {
-                self.playNativeNotificationUnavailableFeedback(effects: effects)
+                NativeNotificationDeliveryHooks.playNativeUnavailableFeedback(effects: effects)
                 return
             }
             content.sound = effects.sound ? NotificationSoundSettings.sound() : nil
@@ -2088,8 +2088,8 @@ final class TerminalNotificationStore: ObservableObject {
                     terminalNotificationLogger.error(
                         "Failed to schedule notification error=\(error.localizedDescription, privacy: .private)"
                     )
-                    Task { @MainActor [weak self] in
-                        self?.playNativeNotificationUnavailableFeedback(effects: effects)
+                    Task { @MainActor in
+                        NativeNotificationDeliveryHooks.playNativeUnavailableFeedback(effects: effects)
                     }
                 } else if effects.command {
                     nativeDeliveryHooks.runCommand(title: content.title, subtitle: content.subtitle, body: content.body)
@@ -2105,22 +2105,12 @@ final class TerminalNotificationStore: ObservableObject {
         for notification: TerminalNotification,
         effects: TerminalNotificationPolicyEffects
     ) {
-        playLocalNotificationFeedback(
+        nativeNotificationDeliveryHooks.runLocalFeedback(
             title: resolvedNotificationTitle(for: notification),
             subtitle: notification.subtitle,
             body: notification.body,
             effects: effects
         )
-    }
-
-    private func playNativeNotificationUnavailableFeedback(
-        effects: TerminalNotificationPolicyEffects
-    ) {
-        // Custom commands can launch osascript notifications, which macOS attributes
-        // to Script Editor instead of cmux. Keep failed native delivery sound-only.
-        if effects.sound {
-            NotificationSoundSettings.playSelectedSound()
-        }
     }
 
     private func playLocalNotificationFeedback(
@@ -2129,12 +2119,12 @@ final class TerminalNotificationStore: ObservableObject {
         body: String,
         effects: TerminalNotificationPolicyEffects
     ) {
-        if effects.sound {
-            NotificationSoundSettings.playSelectedSound()
-        }
-        if effects.command {
-            nativeNotificationDeliveryHooks.runCommand(title: title, subtitle: subtitle, body: body)
-        }
+        nativeNotificationDeliveryHooks.runLocalFeedback(
+            title: title,
+            subtitle: subtitle,
+            body: body,
+            effects: effects
+        )
     }
 
     private func ensureAuthorization(

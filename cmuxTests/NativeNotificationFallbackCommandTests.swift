@@ -79,6 +79,48 @@ struct NativeNotificationFallbackCommandTests {
         #expect(commands.isEmpty)
     }
 
+    @Test
+    func sharedNativeUnavailableFeedbackSuppressesCommandRunner() {
+        var effects = TerminalNotificationPolicyEffects()
+        effects.sound = false
+        effects.command = true
+        var commands: [CommandInvocation] = []
+
+        NativeNotificationDeliveryHooks.runLocalFeedback(
+            title: "Real title",
+            subtitle: "",
+            body: "Real message",
+            effects: effects,
+            runCommand: false
+        ) { title, subtitle, body in
+            commands.append(CommandInvocation(title: title, subtitle: subtitle, body: body))
+        }
+
+        #expect(commands.isEmpty)
+    }
+
+    @Test
+    func sharedDesktopDisabledFeedbackAllowsCommandRunner() {
+        var effects = TerminalNotificationPolicyEffects()
+        effects.desktop = false
+        effects.sound = false
+        effects.command = true
+        var commands: [CommandInvocation] = []
+
+        NativeNotificationDeliveryHooks.runLocalFeedback(
+            title: "Real title",
+            subtitle: "",
+            body: "Real message",
+            effects: effects
+        ) { title, subtitle, body in
+            commands.append(CommandInvocation(title: title, subtitle: subtitle, body: body))
+        }
+
+        #expect(commands == [
+            CommandInvocation(title: "Real title", subtitle: "", body: "Real message"),
+        ])
+    }
+
     private func resetState(originalAppFocusOverride: Bool?) {
         let store = TerminalNotificationStore.shared
         store.replaceNotificationsForTesting([])
