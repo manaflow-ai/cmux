@@ -128,6 +128,35 @@ async function resolveSaveBridge(): Promise<
 }
 
 /**
+ * Loads the Monaco view state (scroll/cursor/selection/folding) persisted to
+ * the native sidecar before the last webview unload. Authorized by the page's
+ * scheme token, so it resolves for read-only files too. Returns null when there
+ * is no saved state, the bridge is absent, or the round-trip fails.
+ */
+async function loadRestoredViewState(): Promise<monaco.editor.ICodeEditorViewState | null> {
+  const handler = (
+    window as unknown as {
+      webkit?: { messageHandlers?: { cmuxEditorSave?: { postMessage: (m: unknown) => Promise<unknown> } } };
+    }
+  ).webkit?.messageHandlers?.cmuxEditorSave;
+  if (!handler || typeof handler.postMessage !== "function") {
+    return null;
+  }
+  try {
+    const reply = (await handler.postMessage({ loadViewState: true })) as
+      | { ok?: unknown; value?: { viewState?: unknown } }
+      | null;
+    if (reply?.ok !== true) {
+      return null;
+    }
+    const viewState = reply.value?.viewState;
+    return viewState ? (viewState as monaco.editor.ICodeEditorViewState) : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
  * Boots the Monaco editor surface: reads its injected config, registers
  * cmux-derived themes, then renders `EditorApp` through the shared router.
  * Loaded as its own lazy chunk so other surfaces never pay for Monaco.
@@ -167,6 +196,9 @@ export async function mountEditorSurface(rootElement: HTMLElement): Promise<void
   // here) are applied AFTER cmux's defaults so the user wins, but `readOnly` is
   // re-applied last so configuration can never make a read-only file editable.
   const userOptions = pickSafeMonacoOptions(config.payload?.editorOptions);
+  // Restore scroll/cursor from before the last webview unload. Resolved before
+  // mount so EditorApp can apply it before first paint.
+  const restoredViewState = await loadRestoredViewState();
   const router = createWebviewsRouter(() => (
     <EditorApp
       filePath={filePath}
@@ -184,6 +216,7 @@ export async function mountEditorSurface(rootElement: HTMLElement): Promise<void
       labels={labels}
       saveController={saveController}
       chrome={{ background: activeTheme.background, foreground: activeTheme.foreground }}
+      restoredViewState={restoredViewState}
     />
   ));
   createRoot(rootElement).render(<RouterProvider router={router} />);
