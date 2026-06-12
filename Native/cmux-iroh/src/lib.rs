@@ -1201,6 +1201,8 @@ mod ffi_seam_tests {
         reason = "one deliberate end-to-end scenario: bind two endpoints, dial, roundtrip, clean close"
     )]
     fn loopback_connect_roundtrip_and_clean_close() {
+        const PAYLOAD: &[u8] = b"cmux iroh ffi seam roundtrip";
+
         let listener_key = generate_key();
         let dialer_key = generate_key();
 
@@ -1242,44 +1244,53 @@ mod ffi_seam_tests {
                 err.message()
             );
 
-            // Echo one message back.
-            let mut buf = [0u8; 64];
-            let mut err = ErrOut::new();
-            let read = unsafe {
-                cmux_iroh_connection_recv(
-                    connection,
-                    buf.as_mut_ptr(),
-                    buf.len(),
-                    30_000,
-                    &raw mut err.kind,
-                    err.buf.as_mut_ptr(),
-                    ERR_CAP,
-                )
-            };
-            assert!(read > 0, "listener should receive bytes: {}", err.message());
-            let read = usize::try_from(read).expect("positive read fits usize");
-            let mut err = ErrOut::new();
-            let rc = unsafe {
-                cmux_iroh_connection_send(
-                    connection,
-                    buf.as_ptr(),
-                    read,
-                    30_000,
-                    &raw mut err.kind,
-                    err.buf.as_mut_ptr(),
-                    ERR_CAP,
-                )
-            };
-            assert_eq!(rc, 0, "echo send should succeed: {}", err.message());
+            // Echo the whole payload back. QUIC delivers a stream, not
+            // messages: one recv may return any fragment of the payload, so
+            // accumulate until the full length has been echoed (a single
+            // read-then-echo here was a latent flake under suite load).
+            let mut echoed_total = 0usize;
+            while echoed_total < PAYLOAD.len() {
+                let mut buf = [0u8; 64];
+                let mut err = ErrOut::new();
+                let read = unsafe {
+                    cmux_iroh_connection_recv(
+                        connection,
+                        buf.as_mut_ptr(),
+                        buf.len(),
+                        30_000,
+                        &raw mut err.kind,
+                        err.buf.as_mut_ptr(),
+                        ERR_CAP,
+                    )
+                };
+                assert!(read > 0, "listener should receive bytes: {}", err.message());
+                let read = usize::try_from(read).expect("positive read fits usize");
+                let mut err = ErrOut::new();
+                let rc = unsafe {
+                    cmux_iroh_connection_send(
+                        connection,
+                        buf.as_ptr(),
+                        read,
+                        30_000,
+                        &raw mut err.kind,
+                        err.buf.as_mut_ptr(),
+                        ERR_CAP,
+                    )
+                };
+                assert_eq!(rc, 0, "echo send should succeed: {}", err.message());
+                echoed_total += read;
+            }
+            assert_eq!(echoed_total, PAYLOAD.len(), "echoed exactly the payload");
 
             // The dialer closes first; recv should then report clean end of
             // stream (0), not an error.
+            let mut eof_buf = [0u8; 64];
             let mut err = ErrOut::new();
             let read = unsafe {
                 cmux_iroh_connection_recv(
                     connection,
-                    buf.as_mut_ptr(),
-                    buf.len(),
+                    eof_buf.as_mut_ptr(),
+                    eof_buf.len(),
                     30_000,
                     &raw mut err.kind,
                     err.buf.as_mut_ptr(),
@@ -1326,7 +1337,7 @@ mod ffi_seam_tests {
         );
         assert_eq!(err.kind(), CmuxIrohErrorKind::None as i32);
 
-        let payload = b"cmux iroh ffi seam roundtrip";
+        let payload = PAYLOAD;
         let mut err = ErrOut::new();
         let rc = unsafe {
             cmux_iroh_connection_send(
