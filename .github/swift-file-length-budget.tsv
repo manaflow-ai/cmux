@@ -77,7 +77,7 @@
 1156	cmuxTests/SidebarOrderingTests.swift
 1144	Sources/VaultAgentProcessScanner.swift
 1139	cmuxTests/PiVaultAgentPersistenceTests.swift
-1118	cmuxTests/FileExplorerStoreTests.swift
+1126	cmuxTests/FileExplorerStoreTests.swift
 1107	Sources/AppDelegate+CmuxSSHURL.swift
 1096	Sources/GhosttyConfig.swift
 1084	cmuxTests/AgentHibernationTests.swift
