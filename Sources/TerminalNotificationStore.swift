@@ -2063,12 +2063,7 @@ final class TerminalNotificationStore: ObservableObject {
             content.subtitle = notification.subtitle
             content.body = notification.body
             guard authorized else {
-                self.playLocalNotificationFeedback(
-                    title: content.title,
-                    subtitle: content.subtitle,
-                    body: content.body,
-                    effects: effects
-                )
+                self.playNativeNotificationUnavailableFeedback(effects: effects)
                 return
             }
             content.sound = effects.sound ? NotificationSoundSettings.sound() : nil
@@ -2099,12 +2094,7 @@ final class TerminalNotificationStore: ObservableObject {
                         "Failed to schedule notification error=\(error.localizedDescription, privacy: .private)"
                     )
                     Task { @MainActor [weak self] in
-                        self?.playLocalNotificationFeedback(
-                            title: content.title,
-                            subtitle: content.subtitle,
-                            body: content.body,
-                            effects: effects
-                        )
+                        self?.playNativeNotificationUnavailableFeedback(effects: effects)
                     }
                 } else if effects.command {
                     NotificationSoundSettings.runCustomCommand(
@@ -2132,6 +2122,16 @@ final class TerminalNotificationStore: ObservableObject {
             body: notification.body,
             effects: effects
         )
+    }
+
+    private func playNativeNotificationUnavailableFeedback(
+        effects: TerminalNotificationPolicyEffects
+    ) {
+        // Custom commands can launch osascript notifications, which macOS attributes
+        // to Script Editor instead of cmux. Keep failed native delivery sound-only.
+        if effects.sound {
+            NotificationSoundSettings.playSelectedSound()
+        }
     }
 
     private func playLocalNotificationFeedback(
