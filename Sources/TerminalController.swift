@@ -13370,8 +13370,6 @@ class TerminalController {
             result = v2MobileWorkspaceList(params: request.params)
         case "workspace.create":
             result = v2MobileWorkspaceCreate(params: request.params)
-        case "workspace.close":
-            result = v2MobileWorkspaceClose(params: request.params)
         case "mobile.terminal.create", "terminal.create":
             result = v2MobileTerminalCreate(params: request.params)
         case "mobile.terminal.input", "terminal.input":
@@ -13608,24 +13606,23 @@ class TerminalController {
 
     /// The `workspace.action` sub-actions the mobile data plane may invoke.
     ///
-    /// Mobile gets pin/unpin/rename and read-state changes only. The other
-    /// sub-actions of ``v2WorkspaceAction(params:)`` (`move_*`, `close_*`,
-    /// `set_color`, `set_description`, …) reorder the global sidebar, destroy
-    /// sibling workspaces, or change Mac-only metadata, so they stay on the
-    /// Mac/automation socket. The action is normalized exactly as
-    /// ``v2ActionKey(_:_:)`` so this gate and the handler can never disagree on
-    /// which action runs.
+    /// Mobile gets pin/unpin/rename only. The other sub-actions of
+    /// ``v2WorkspaceAction(params:)`` (`move_*`, `close_*`, `set_color`,
+    /// `set_description`, `mark_*`, …) reorder the global sidebar or destroy
+    /// sibling workspaces, so they stay on the Mac/automation socket. The action
+    /// is normalized exactly as ``v2ActionKey(_:_:)`` so this gate and the
+    /// handler can never disagree on which action runs.
     /// - Parameter rawAction: The raw `action` param value.
     /// - Returns: `true` when the normalized action is mobile-allowed.
     nonisolated static func mobileAllowsWorkspaceAction(_ rawAction: String?) -> Bool {
         guard let trimmed = rawAction?.trimmingCharacters(in: .whitespacesAndNewlines),
               !trimmed.isEmpty else { return false }
         let normalized = trimmed.lowercased().replacingOccurrences(of: "-", with: "_")
-        return ["pin", "unpin", "rename", "mark_read", "mark_unread"].contains(normalized)
+        return ["pin", "unpin", "rename"].contains(normalized)
     }
 
     /// Mobile-gated wrapper over ``v2WorkspaceAction(params:)``: rejects every
-    /// sub-action except pin/unpin/rename/mark_read/mark_unread before dispatching.
+    /// sub-action except pin/unpin/rename before dispatching.
     private func v2MobileWorkspaceAction(params: [String: Any]) -> V2CallResult {
         let rawAction = v2RawString(params, "action")
         guard Self.mobileAllowsWorkspaceAction(rawAction) else {
@@ -13667,8 +13664,8 @@ class TerminalController {
         let status = MobileHostService.shared.statusSnapshot()
         // Single source of truth shared with the mobile listener's public-status
         // paths, so the advertised capabilities can never drift. Includes
-        // workspace.actions.v1 (the mobile-gated pin/unpin/rename/read-state
-        // handler), which the iOS client uses to show or hide workspace actions.
+        // workspace.actions.v1 (the mobile-gated pin/unpin/rename handler), which
+        // the iOS client uses to show or hide rename/pin.
         let capabilities = MobileHostService.mobileHostCapabilities
         guard includePrivateMetadata else {
             return .ok(MobileHostService.publicStatusPayload(
@@ -13839,7 +13836,6 @@ class TerminalController {
             let scopedWorkspaces = visibleWorkspaces.map { workspace in
                 mobileWorkspacePayload(
                     workspace: workspace,
-                    windowID: v2ResolveWindowId(tabManager: tabManager),
                     isSelected: workspace.id == tabManager.selectedTabId,
                     requestedTerminalID: requestedTerminalID
                 )
@@ -13873,7 +13869,6 @@ class TerminalController {
                     flattened.append(
                         mobileWorkspacePayload(
                             workspace: workspace,
-                            windowID: summary.windowId,
                             isSelected: workspace.id == selectedWorkspaceID,
                             requestedTerminalID: requestedTerminalID
                         )
@@ -13905,7 +13900,6 @@ class TerminalController {
     /// terminal-not-found check is enforced by the caller after the list is built.
     private func mobileWorkspacePayload(
         workspace: Workspace,
-        windowID: UUID?,
         isSelected: Bool,
         requestedTerminalID: UUID?
     ) -> [String: Any] {
@@ -13928,12 +13922,10 @@ class TerminalController {
 
         return [
             "id": workspace.id.uuidString,
-            "window_id": v2OrNull(windowID?.uuidString),
             "title": workspace.title,
             "current_directory": v2OrNull(mobileNonEmpty(workspace.currentDirectory)),
             "is_selected": isSelected,
             "is_pinned": workspace.isPinned,
-            "unread_count": AppDelegate.shared?.notificationStore?.unreadCount(forTabId: workspace.id) ?? 0,
             "terminals": terminals
         ]
     }
@@ -14146,8 +14138,9 @@ class TerminalController {
             return .err(code: "unavailable", message: "Workspace context is unavailable", data: nil)
         }
         var createParams = params
-        createParams["focus"] = true
-        createParams["auto_refresh_metadata"] = true
+        createParams["focus"] = false
+        createParams["eager_load_terminal"] = false
+        createParams["auto_refresh_metadata"] = false
         let createResult = v2WorkspaceCreate(params: createParams, tabManager: tabManager)
         switch createResult {
         case let .ok(payload):
@@ -14164,43 +14157,6 @@ class TerminalController {
             )
         case .err:
             return createResult
-        }
-    }
-
-    private func v2MobileWorkspaceClose(params: [String: Any]) -> V2CallResult {
-        guard let tabManager = v2ResolveTabManager(params: params) else {
-            return .err(code: "unavailable", message: "Workspace context is unavailable", data: nil)
-        }
-        if let error = mobileWorkspaceIDValidationError(params: params) {
-            return error
-        }
-        guard let workspaceID = v2UUID(params, "workspace_id") else {
-            return .err(code: "invalid_params", message: "Missing or invalid workspace_id", data: nil)
-        }
-        let windowID = v2ResolveWindowId(tabManager: tabManager)
-        return v2MainSync {
-            guard let workspace = tabManager.tabs.first(where: { $0.id == workspaceID }) else {
-                return .err(code: "not_found", message: "Workspace not found", data: [
-                    "workspace_id": workspaceID.uuidString,
-                    "workspace_ref": v2Ref(kind: .workspace, uuid: workspaceID)
-                ])
-            }
-            guard tabManager.canCloseWorkspace(workspace) else {
-                return .err(code: "protected", message: workspaceCloseProtectedMessage(), data: [
-                    "window_id": v2OrNull(windowID?.uuidString),
-                    "window_ref": v2Ref(kind: .window, uuid: windowID),
-                    "workspace_id": workspaceID.uuidString,
-                    "workspace_ref": v2Ref(kind: .workspace, uuid: workspaceID),
-                    "pinned": true
-                ])
-            }
-            tabManager.closeWorkspace(workspace)
-            return .ok([
-                "window_id": v2OrNull(windowID?.uuidString),
-                "window_ref": v2Ref(kind: .window, uuid: windowID),
-                "workspace_id": workspaceID.uuidString,
-                "workspace_ref": v2Ref(kind: .workspace, uuid: workspaceID)
-            ])
         }
     }
 
