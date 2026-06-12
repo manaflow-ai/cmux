@@ -113,7 +113,7 @@ describe("verifyRequest negative cache", () => {
     globalThis.fetch = (async () => {
       calls += 1;
       return new Response("unauthorized", { status: 401 });
-    }) as typeof fetch;
+    }) as unknown as typeof fetch;
     try {
       const make = () =>
         new Request("https://presence.test/v1/presence/snapshot", {
