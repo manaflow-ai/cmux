@@ -72,14 +72,16 @@ type rpcResponse struct {
 }
 
 type rpcEvent struct {
-	Event           string `json:"event"`
-	StreamID        string `json:"stream_id,omitempty"`
-	SessionID       string `json:"session_id,omitempty"`
-	AttachmentID    string `json:"attachment_id,omitempty"`
-	AttachmentToken string `json:"attachment_token,omitempty"`
-	DataBase64      string `json:"data_base64,omitempty"`
-	Message         string `json:"message,omitempty"`
-	Error           string `json:"error,omitempty"`
+	Event           string          `json:"event"`
+	StreamID        string          `json:"stream_id,omitempty"`
+	SessionID       string          `json:"session_id,omitempty"`
+	AttachmentID    string          `json:"attachment_id,omitempty"`
+	AttachmentToken string          `json:"attachment_token,omitempty"`
+	DataBase64      string          `json:"data_base64,omitempty"`
+	Message         string          `json:"message,omitempty"`
+	Error           string          `json:"error,omitempty"`
+	SubscriptionID  string          `json:"subscription_id,omitempty"`
+	Payload         json.RawMessage `json:"payload,omitempty"`
 }
 
 type rpcFrameWriter interface {
@@ -101,8 +103,10 @@ type rpcServer struct {
 	mu             sync.Mutex
 	nextStreamID   uint64
 	nextSessionID  uint64
+	nextAgentSubID uint64
 	streams        map[string]*streamState
 	sessions       map[string]*sessionState
+	agentSubs      map[string]*agentSubscriptionState
 	ptyHub         *wsPTYHub
 	ownsPTYHub     bool
 	ptyAttachments map[string]*wsPTYAttachment
@@ -145,7 +149,7 @@ func shouldRunCLIForInvocation(argv0 string, args []string) bool {
 
 func isDaemonEntryCommand(arg string) bool {
 	switch arg {
-	case "version", "serve", "cli":
+	case "version", "serve", "cli", "agent-hook-emit":
 		return true
 	default:
 		return false
@@ -238,6 +242,8 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 		return 0
 	case "cli":
 		return runCLI(args[1:])
+	case "agent-hook-emit":
+		return runAgentHookEmit(args[1:], stdin)
 	default:
 		usage(stderr)
 		return 2
@@ -251,6 +257,7 @@ func usage(w io.Writer) {
 	_, _ = fmt.Fprintln(w, "  cmuxd-remote serve --stdio --persistent --slot <slot>")
 	_, _ = fmt.Fprintln(w, "  cmuxd-remote serve --ws --auth-lease-file <path> [--rpc-auth-lease-file <path>] [--listen 127.0.0.1:7777]")
 	_, _ = fmt.Fprintln(w, "  cmuxd-remote cli <command> [args...]")
+	_, _ = fmt.Fprintln(w, "  cmuxd-remote agent-hook-emit --socket <path> [--provider <id>] [frame-json]")
 }
 
 func runStdioServer(stdin io.Reader, stdout io.Writer) error {
@@ -1312,6 +1319,8 @@ func (s *rpcServer) handleRequest(req rpcRequest) rpcResponse {
 					"pty.session.token",
 					"pty.session.persistent_daemon",
 					"pty.write.notification",
+					"agent.conversation",
+					"agent.conversation.hooks",
 				},
 			},
 		}
@@ -1355,6 +1364,12 @@ func (s *rpcServer) handleRequest(req rpcRequest) rpcResponse {
 		return s.handlePTYClose(req)
 	case "pty.list":
 		return s.handlePTYList(req)
+	case "agent.sessions.list":
+		return s.handleAgentSessionsList(req)
+	case "agent.session.open":
+		return s.handleAgentSessionOpen(req)
+	case "agent.session.close":
+		return s.handleAgentSessionClose(req)
 	default:
 		return rpcResponse{
 			ID: req.ID,
@@ -2396,6 +2411,7 @@ func (s *rpcServer) dropStream(streamID string) {
 }
 
 func (s *rpcServer) closeAll() {
+	s.closeAgentSubscriptions()
 	s.mu.Lock()
 	streams := make([]net.Conn, 0, len(s.streams))
 	for id, state := range s.streams {

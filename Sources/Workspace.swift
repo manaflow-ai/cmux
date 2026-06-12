@@ -699,6 +699,10 @@ extension Workspace {
                 selectedConfigurationName: projectPanel.selectedConfigurationName
             )
             agentSessionSnapshot = nil
+        case .agentChat:
+            // The chat pane is an ephemeral mirror of an agent session; it is
+            // reopened on demand instead of being persisted.
+            return nil
         case .extensionBrowser:
             return nil
         }
@@ -1922,6 +1926,9 @@ extension Workspace {
             }
             applySessionPanelMetadata(snapshot, toPanelId: projectPanel.id)
             return projectPanel.id
+        case .agentChat:
+            // Never snapshotted; nothing to restore.
+            return nil
         case .extensionBrowser:
             return nil
         }
@@ -10947,6 +10954,7 @@ final class Workspace: Identifiable, ObservableObject {
         static let filePreview = "filePreview"
         static let rightSidebarTool = "rightSidebarTool"
         static let agentSession = "agentSession"
+        static let agentChat = "agentChat"
         static let project = "project"
         static let extensionBrowser = "extensionBrowser"
     }
@@ -11992,6 +12000,8 @@ final class Workspace: Identifiable, ObservableObject {
             return SurfaceKind.rightSidebarTool
         case .agentSession:
             return SurfaceKind.agentSession
+        case .agentChat:
+            return SurfaceKind.agentChat
         case .project:
             return SurfaceKind.project
         case .extensionBrowser:
@@ -12645,6 +12655,14 @@ final class Workspace: Identifiable, ObservableObject {
         if states.contains(.unknown) { return .unknown }
         if states.contains(.idle) { return .idle }
         return fallback ?? .unknown
+    }
+
+    /// The in-memory restored-agent snapshot for a panel, used by the agent
+    /// chat presenter as the resolution fallback when the hook-session index
+    /// has no entry keyed by this run's `(workspace, panel)` ids (a freshly
+    /// restored panel's resumed agent has not fired a hook yet).
+    func restoredAgentSnapshotForAgentChat(panelId: UUID) -> SessionRestorableAgentSnapshot? {
+        restoredAgentSnapshotsByPanelId[panelId]
     }
 
     func restorableAgentForHibernation(
@@ -15868,6 +15886,85 @@ final class Workspace: Identifiable, ObservableObject {
         return agentPanel
     }
 
+    /// Opens (or focuses) the agent-chat pane mirroring the given resolved
+    /// session. When no pane mirrors it yet, a new one opens as a split to the
+    /// right of the source panel's pane.
+    @discardableResult
+    func openOrFocusAgentChatSplit(
+        from sourcePanelId: UUID,
+        resolution: AgentChatTranscriptResolver.Resolution
+    ) -> AgentChatPanel? {
+        for (existingId, panel) in panels {
+            guard let chatPanel = panel as? AgentChatPanel else { continue }
+            if chatPanel.mirrors(resolution) {
+#if DEBUG
+                cmuxDebugLog("agentChat.split.focusExisting panel=\(existingId.uuidString.prefix(5))")
+#endif
+                focusPanel(existingId)
+                return chatPanel
+            }
+        }
+
+        guard let sourcePaneId = paneId(forPanelId: sourcePanelId) else {
+#if DEBUG
+            cmuxDebugLog(
+                "agentChat.split.fail reason=noSourcePane panel=\(sourcePanelId.uuidString.prefix(5))"
+            )
+#endif
+            return nil
+        }
+
+        let chatPanel = AgentChatPanel(workspaceId: id, resolution: resolution)
+        panels[chatPanel.id] = chatPanel
+        panelTitles[chatPanel.id] = chatPanel.displayTitle
+
+        let newTab = Bonsplit.Tab(
+            title: chatPanel.displayTitle,
+            icon: RenderableSystemSymbol.resolvedSurfaceTabIcon(chatPanel.displayIcon),
+            kind: SurfaceKind.agentChat,
+            isDirty: false,
+            isLoading: false,
+            isPinned: false
+        )
+        surfaceIdToPanelId[newTab.id] = chatPanel.id
+
+        isProgrammaticSplit = true
+        defer { isProgrammaticSplit = false }
+        guard let newPaneId = bonsplitController.splitPane(
+            sourcePaneId,
+            orientation: .horizontal,
+            withTab: newTab,
+            insertFirst: false
+        ) else {
+            panels.removeValue(forKey: chatPanel.id)
+            panelTitles.removeValue(forKey: chatPanel.id)
+            surfaceIdToPanelId.removeValue(forKey: newTab.id)
+            chatPanel.close()
+#if DEBUG
+            cmuxDebugLog("agentChat.split.fail reason=splitPaneFailed")
+#endif
+            return nil
+        }
+        publishCmuxSplitCreated(
+            newPaneId,
+            sourcePaneId: sourcePaneId,
+            orientation: .horizontal,
+            surfaceId: chatPanel.id,
+            kind: "agent_chat",
+            origin: "agent_chat_split",
+            focused: true
+        )
+        bonsplitController.selectTab(newTab.id)
+        focusPanel(chatPanel.id)
+#if DEBUG
+        cmuxDebugLog(
+            "agentChat.split.opened panel=\(chatPanel.id.uuidString.prefix(5)) " +
+            "pane=\(newPaneId.id.uuidString.prefix(5))"
+        )
+#endif
+        return chatPanel
+    }
+
     @discardableResult
     func splitPaneWithFilePreview(
         targetPane paneId: PaneID,
@@ -16581,6 +16678,9 @@ final class Workspace: Identifiable, ObservableObject {
             if !agentSessionPanelCallbackIds.contains(agentPanel.id) {
                 installAgentSessionPanelSubscription(agentPanel)
             }
+        }
+        if let chatPanel = detached.panel as? AgentChatPanel {
+            chatPanel.updateWorkspaceId(id)
         }
         let didAdoptWorkspaceRemoteTracking = shouldAdoptDetachedWorkspaceRemoteTracking(detached)
         if didAdoptWorkspaceRemoteTracking,

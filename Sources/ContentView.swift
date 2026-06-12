@@ -3143,6 +3143,22 @@ struct ContentView: View {
             toggleCommandPalette()
         })
 
+        view = AnyView(view.onReceive(NotificationCenter.default.publisher(for: .commandPaletteExecuteRequested)) { notification in
+            let requestedWindow = notification.object as? NSWindow
+            guard Self.shouldHandleCommandPaletteRequest(
+                observedWindow: observedWindow,
+                requestedWindow: requestedWindow,
+                keyWindow: NSApp.keyWindow,
+                mainWindow: NSApp.mainWindow
+            ) else { return }
+            guard let commandId = notification.userInfo?["commandId"] as? String else { return }
+            // Same handlers the palette UI dispatches to; this is the
+            // socket-drivable shared action path for palette commands.
+            var handlerRegistry = CommandPaletteHandlerRegistry()
+            registerCommandPaletteHandlers(&handlerRegistry)
+            handlerRegistry.handler(for: commandId)?()
+        })
+
         view = AnyView(view.onReceive(NotificationCenter.default.publisher(for: .commandPaletteRequested)) { notification in
             let requestedWindow = notification.object as? NSWindow
             guard Self.shouldHandleCommandPaletteRequest(
@@ -6007,6 +6023,8 @@ struct ContentView: View {
             return String(localized: "commandPalette.kind.rightSidebarTool", defaultValue: "Tool")
         case .agentSession:
             return String(localized: "commandPalette.kind.agentSession", defaultValue: "Agent")
+        case .agentChat:
+            return String(localized: "commandPalette.kind.agentChat", defaultValue: "Agent Chat")
         case .project:
             return String(localized: "commandPalette.kind.project", defaultValue: "Project")
         case .extensionBrowser:
@@ -6028,6 +6046,8 @@ struct ContentView: View {
             return ["tool", "files", "find", "vault", "sidebar"]
         case .agentSession:
             return ["agent", "codex", "claude", "opencode", "react", "solid"]
+        case .agentChat:
+            return ["agent", "chat", "conversation", "transcript", "claude", "codex"]
         case .project:
             return ["project", "xcode", "build", "settings", "schemes", "targets"]
         case .extensionBrowser:
@@ -11714,6 +11734,9 @@ struct VerticalTabsSidebar: View {
             return .rightSidebarTool
         case .agentSession:
             return .agentSession
+        case .agentChat:
+            // The extension SDK has no dedicated chat kind yet.
+            return .unknown
         case .project:
             return .project
         case .extensionBrowser:

@@ -200,6 +200,28 @@ final class RestorableAgentSessionIndexTests: XCTestCase {
         )
     }
 
+    // Claude Code derives a project directory name by replacing EVERY non-alphanumeric
+    // character with "-" (verified empirically: a session launched in
+    // /private/tmp/cmux_enc_probe.test_dir lands in
+    // ~/.claude/projects/-private-tmp-cmux-enc-probe-test-dir). The Go daemon's
+    // agentconv.EncodeClaudeProjectDir implements the same rule; this pins the Swift
+    // helper to it so sessions launched in directories with underscores, spaces, or
+    // other punctuation are looked up under the directory Claude actually writes.
+    func testEncodeClaudeProjectDirMatchesClaudeCodeEncoding() {
+        let cases: [String: String] = [
+            "/Users/lawrence/fun/cmuxterm-hq": "-Users-lawrence-fun-cmuxterm-hq",
+            "/private/tmp/cmux_enc_probe.test_dir": "-private-tmp-cmux-enc-probe-test-dir",
+            "/Users/x/Library/App Support/C.P": "-Users-x-Library-App-Support-C-P",
+        ]
+        for (input, expected) in cases {
+            XCTAssertEqual(
+                RestorableAgentSessionIndex.encodeClaudeProjectDir(input),
+                expected,
+                "encoding for \(input) must match Claude Code's own project-dir rule"
+            )
+        }
+    }
+
     // A Claude session can start in one directory and `cd` into another (e.g. a repo root then a
     // worktree); the hook-reported `cwd` drifts to the latter, but Claude keeps the transcript in
     // the start directory's project folder. Fork/resume must cd into the directory that actually
@@ -493,12 +515,16 @@ final class RestorableAgentSessionIndexTests: XCTestCase {
         )
     }
 
-    /// Mirrors Claude's external project-directory naming rule ("/" and "." both become "-")
-    /// independently of the production `encodeClaudeProjectDir`, so these regression tests fail if
-    /// that helper regresses instead of masking it by sharing the same code path.
+    /// Claude Code's real project-dir rule (every non-alphanumeric character
+    /// becomes "-"), computed independently of the production helper so a
+    /// regression there fails these tests instead of being masked.
     private func expectedClaudeProjectDirName(_ path: String) -> String {
-        path.replacingOccurrences(of: "/", with: "-")
-            .replacingOccurrences(of: ".", with: "-")
+        String(path.unicodeScalars.map { scalar -> Character in
+            switch scalar {
+            case "a"..."z", "A"..."Z", "0"..."9": return Character(scalar)
+            default: return "-"
+            }
+        })
     }
 
     // A custom Vault agent defaults to cwd: .preserve and can expand {{cwd}} in its resume template,

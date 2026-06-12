@@ -9,6 +9,7 @@ Go remote daemon for `cmux ssh` bootstrap, capability negotiation, and remote pr
 3. `cmuxd-remote serve --stdio --persistent --slot <slot>`
 4. `cmuxd-remote serve --ws --auth-lease-file <path> [--rpc-auth-lease-file <path>] [--listen 127.0.0.1:7777]`
 5. `cmuxd-remote cli <command> [args...]` — relay cmux commands to the local app over the reverse SSH forward
+6. `cmuxd-remote agent-hook-emit --socket <path> [--provider <id>] [frame-json]` — relay one agent hook frame to the daemon's agent-conversation ingest socket (always exits 0; hooks must never break the agent)
 
 `serve --ws` is explicit opt-in for cloud VM images only. The normal `cmux ssh`
 code path uses `serve --stdio --persistent --slot <slot>` over an SSH exec
@@ -41,6 +42,32 @@ When invoked as `cmux` (via wrapper/symlink installed during bootstrap), the bin
 17. `pty.detach`
 18. `pty.close`
 19. `pty.list`
+20. `agent.sessions.list`
+21. `agent.session.open`
+22. `agent.session.close`
+
+## Agent conversation layer
+
+The `agentconv` package normalizes coding-agent session transcripts read off
+the filesystem (`~/.claude/projects`, `~/.codex/sessions`) into a canonical
+conversation event stream; the protocol and provider mapping rules live in
+`docs/agent-conversation-protocol.md` at the repo root. `agent.session.open`
+replays a transcript as a `snapshot` and then tails it, pushing
+`{event: "agent.session.event", subscription_id, payload}` frames until
+`agent.session.close` or connection teardown. The verbs work over plain
+`serve --stdio` with no lease flags; the macOS app spawns this binary as a
+local stdio child to back the in-app agent chat surface. The `hello`
+capability strings are `agent.conversation` and `agent.conversation.hooks`.
+
+While at least one agent subscription is open, the daemon also listens on a
+per-user unix socket (`/tmp/cmuxd-agentconv-<uid>/ingest.sock`, parent dir
+0700, override with `CMUX_AGENT_HOOK_SOCKET`) for newline-JSON hook frames
+pushed by agent hook processes via `agent-hook-emit`. Frames map to live
+`turn.*`, `request.*`, and low-latency `item.*` events on the same canonical
+stream the transcript tail feeds, deduplicated by `tool_use_id`; frames for
+sessions with no open subscription are dropped. The frame schema, mapping,
+dedup rules, and the Claude Code hook config cmux injects at launch are in
+`docs/agent-conversation-protocol.md` ("Hook ingest").
 
 Current integration in cmux:
 1. `workspace.remote.configure` now bootstraps this binary over SSH when missing.

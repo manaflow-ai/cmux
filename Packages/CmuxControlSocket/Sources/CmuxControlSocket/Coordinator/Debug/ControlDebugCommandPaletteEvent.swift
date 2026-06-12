@@ -4,6 +4,9 @@
 public enum ControlDebugCommandPaletteEvent: Sendable, Equatable {
     /// `debug.command_palette.toggle` (`commandPaletteToggleRequested`).
     case toggle
+    /// `debug.command_palette.execute` (`commandPaletteExecuteRequested`,
+    /// carrying the command id in the notification's `userInfo`).
+    case execute(commandID: String)
     /// `debug.command_palette.rename_tab.open`
     /// (`commandPaletteRenameTabRequested`).
     case renameTabOpen

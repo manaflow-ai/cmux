@@ -169,6 +169,11 @@ doneFlags:
 		return 0
 	}
 
+	// Hook relay: needs no cmux app socket, never fails the calling hook.
+	if cmdName == "agent-hook-emit" {
+		return runAgentHookEmit(cmdArgs, os.Stdin)
+	}
+
 	// refreshAddr is set when the address came from socket_addr file (not env/flag),
 	// allowing one stale-address refresh if another workspace has replaced socket_addr.
 	var refreshAddr func() string

@@ -10,6 +10,7 @@ public enum PanelType: String, Codable, Sendable {
     case filePreview = "filepreview"
     case rightSidebarTool
     case agentSession
+    case agentChat
     case project
     case extensionBrowser
 
@@ -30,6 +31,10 @@ public enum PanelType: String, Codable, Sendable {
         }
         if rawValue.lowercased() == Self.agentSession.rawValue.lowercased() {
             self = .agentSession
+            return
+        }
+        if rawValue.lowercased() == Self.agentChat.rawValue.lowercased() {
+            self = .agentChat
             return
         }
         throw DecodingError.dataCorruptedError(

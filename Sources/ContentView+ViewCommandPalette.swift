@@ -19,6 +19,12 @@ extension ContentView {
                 subtitle: constant(String(localized: "command.closeWindow.subtitle", defaultValue: "Window")),
                 keywords: ["task", "manager", "process", "cpu", "memory", "kill"]
             ),
+            CommandPaletteCommandContribution(
+                commandId: "palette.openAgentChat",
+                title: constant(String(localized: "command.openAgentChat.title", defaultValue: "Open Agent Chat")),
+                subtitle: constant(String(localized: "commandPalette.kind.agentSession", defaultValue: "Agent")),
+                keywords: ["agent", "chat", "conversation", "transcript", "claude", "codex", "view"]
+            ),
         ]
     }
 
@@ -28,6 +34,9 @@ extension ContentView {
         }
         registry.register(commandId: "palette.openTaskManager") {
             TaskManagerWindowController.shared.show()
+        }
+        registry.register(commandId: "palette.openAgentChat") {
+            AgentChatPresenter().presentForFocusedPanel()
         }
     }
 }

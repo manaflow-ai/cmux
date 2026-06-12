@@ -44,6 +44,8 @@ extension ControlCommandCoordinator {
             return debugActivateApp()
         case "debug.command_palette.toggle":
             return debugCommandPaletteEvent(.toggle, request.params)
+        case "debug.command_palette.execute":
+            return debugCommandPaletteExecute(request.params)
         case "debug.command_palette.rename_tab.open":
             return debugCommandPaletteEvent(.renameTabOpen, request.params)
         case "debug.command_palette.visible":
@@ -308,6 +310,26 @@ extension ControlCommandCoordinator {
             ]))
         }
         return .ok(.object([:]))
+    }
+
+    /// `debug.command_palette.execute` — execute one palette command by id
+    /// (posts `commandPaletteExecuteRequested` with the id in `userInfo`).
+    func debugCommandPaletteExecute(_ params: [String: JSONValue]) -> ControlCallResult {
+        guard let commandID = string(params, "command_id") else {
+            return .err(code: "invalid_params", message: "Missing command_id", data: nil)
+        }
+        let requestedWindowID = uuid(params, "window_id")
+        let posted = debugContext?.controlDebugPostCommandPaletteEvent(
+            .execute(commandID: commandID),
+            windowID: requestedWindowID
+        ) ?? false
+        if let requestedWindowID, !posted {
+            return .err(code: "not_found", message: "Window not found", data: .object([
+                "window_id": .string(requestedWindowID.uuidString),
+                "window_ref": ref(.window, requestedWindowID),
+            ]))
+        }
+        return .ok(.object(["command_id": .string(commandID)]))
     }
 
     // MARK: - debug.command_palette.* (reads)

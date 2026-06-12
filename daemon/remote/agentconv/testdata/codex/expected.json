@@ -1,0 +1,75 @@
+{
+  "session": {
+    "provider": "codex",
+    "session_id": "sess-codex-1",
+    "transcript_path": "testdata/codex/basic.jsonl",
+    "cwd": "/tmp/project",
+    "title": "Make the tests pass"
+  },
+  "items": [
+    {
+      "id": "codex-line-3",
+      "type": "user_message",
+      "status": "completed",
+      "text": "Make the tests pass",
+      "created_at": "2026-06-09T10:00:02.000Z"
+    },
+    {
+      "id": "codex-line-5",
+      "type": "reasoning",
+      "status": "completed",
+      "text": "Run the suite first.",
+      "created_at": "2026-06-09T10:00:03.000Z"
+    },
+    {
+      "id": "call-1",
+      "type": "command_execution",
+      "status": "completed",
+      "tool_name": "exec_command",
+      "tool_use_id": "call-1",
+      "input": {
+        "cmd": "go test ./..."
+      },
+      "output": {
+        "text": "ok  \tpkg\t0.2s"
+      },
+      "title": "go test ./...",
+      "created_at": "2026-06-09T10:00:04.000Z"
+    },
+    {
+      "id": "call-2",
+      "type": "file_change",
+      "status": "completed",
+      "tool_name": "apply_patch",
+      "tool_use_id": "call-2",
+      "input": "*** Begin Patch\n*** Update File: pkg/auth.go\n@@\n-a\n+b\n*** End Patch",
+      "output": {
+        "text": "Done"
+      },
+      "title": "pkg/auth.go",
+      "created_at": "2026-06-09T10:00:06.000Z"
+    },
+    {
+      "id": "codex-line-10",
+      "type": "assistant_message",
+      "status": "completed",
+      "text": "Tests pass after the patch.",
+      "created_at": "2026-06-09T10:00:08.000Z"
+    },
+    {
+      "id": "codex-line-11",
+      "type": "context_compaction",
+      "status": "completed",
+      "text": "Conversation compacted",
+      "created_at": "2026-06-09T10:00:09.000Z"
+    },
+    {
+      "id": "codex-line-14",
+      "type": "web_search",
+      "status": "completed",
+      "tool_name": "web_search",
+      "title": "golang file tail",
+      "created_at": "2026-06-09T10:00:12.000Z"
+    }
+  ]
+}

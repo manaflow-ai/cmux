@@ -206,13 +206,24 @@ extension TerminalController: ControlDebugContext {
                 return false
             }
             targetWindow = window
+        } else if case .execute = event {
+            // Key/main are nil while the app is background or mid-restore;
+            // fall back to the first cmux main window so socket-driven
+            // execution is deterministic.
+            targetWindow = NSApp.keyWindow ?? NSApp.mainWindow ?? NSApp.windows.first {
+                ($0.identifier?.rawValue ?? "").hasPrefix("cmux.main")
+            }
         } else {
             targetWindow = NSApp.keyWindow ?? NSApp.mainWindow
         }
         let name: Notification.Name
+        var userInfo: [AnyHashable: Any]?
         switch event {
         case .toggle:
             name = .commandPaletteToggleRequested
+        case let .execute(commandID):
+            name = .commandPaletteExecuteRequested
+            userInfo = ["commandId": commandID]
         case .renameTabOpen:
             name = .commandPaletteRenameTabRequested
         case .renameInputInteraction:
@@ -220,7 +231,7 @@ extension TerminalController: ControlDebugContext {
         case .renameInputDeleteBackward:
             name = .commandPaletteRenameInputDeleteBackwardRequested
         }
-        NotificationCenter.default.post(name: name, object: targetWindow)
+        NotificationCenter.default.post(name: name, object: targetWindow, userInfo: userInfo)
         return true
     }
 
