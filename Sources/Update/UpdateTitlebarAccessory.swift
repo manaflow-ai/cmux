@@ -2822,6 +2822,7 @@ final class UpdateTitlebarAccessoryController {
     private var pendingAttachRetries: [ObjectIdentifier: Int] = [:]
     private var startupScanWorkItems: [DispatchWorkItem] = []
     private let controlsIdentifier = NSUserInterfaceItemIdentifier("cmux.titlebarControls")
+    private let rightSidebarToggleIdentifier = NSUserInterfaceItemIdentifier("cmux.titlebarRightSidebarToggle")
     private let controlsControllers = NSHashTable<TitlebarControlsAccessoryViewController>.weakObjects()
     private var lastKnownPresentationMode: WorkspacePresentationModeSettings.Mode = WorkspacePresentationModeSettings.mode()
     private var detachedNotificationsPopover: NSPopover?
@@ -2981,6 +2982,13 @@ final class UpdateTitlebarAccessoryController {
             controlsControllers.add(controls)
         }
 
+        if !window.titlebarAccessoryViewControllers.contains(where: { $0.view.identifier == rightSidebarToggleIdentifier }) {
+            let rightToggle = RightSidebarToggleAccessoryViewController()
+            rightToggle.layoutAttribute = .right
+            rightToggle.view.identifier = rightSidebarToggleIdentifier
+            window.addTitlebarAccessoryViewController(rightToggle)
+        }
+
         attachedWindows.add(window)
         applyAccessoryVisibility(for: window)
 
@@ -3002,7 +3010,8 @@ final class UpdateTitlebarAccessoryController {
         let shouldHide = WorkspacePresentationModeSettings.mode() == .minimal
             || window.styleMask.contains(.fullScreen)
         for accessory in window.titlebarAccessoryViewControllers
-            where accessory.view.identifier == controlsIdentifier {
+            where accessory.view.identifier == controlsIdentifier
+                || accessory.view.identifier == rightSidebarToggleIdentifier {
             accessory.isHidden = shouldHide
             accessory.view.isHidden = shouldHide
             accessory.view.alphaValue = shouldHide ? 0 : 1
@@ -3017,7 +3026,7 @@ final class UpdateTitlebarAccessoryController {
         }
         let matchingIndices = window.titlebarAccessoryViewControllers.indices.reversed().filter { index in
             let id = window.titlebarAccessoryViewControllers[index].view.identifier
-            return id == controlsIdentifier
+            return id == controlsIdentifier || id == rightSidebarToggleIdentifier
         }
         guard !matchingIndices.isEmpty || attachedWindows.contains(window) else { return }
 
@@ -3198,5 +3207,111 @@ final class UpdateTitlebarAccessoryController {
             return
         }
         target.toggleNotificationsPopover(animated: animated)
+    }
+}
+
+// MARK: - Right Sidebar Toggle Accessory
+
+/// Single trailing-edge titlebar button that toggles the right sidebar,
+/// mirroring the left cluster's sidebar toggle. The right sidebar header has
+/// its own close button, but once the sidebar is closed nothing in the chrome
+/// reopens it without the keyboard shortcut.
+private struct RightSidebarToggleTitlebarView: View {
+    let onToggle: () -> Void
+    @AppStorage("titlebarControlsStyle") private var styleRawValue = TitlebarControlsStyle.classic.rawValue
+
+    private var config: TitlebarControlsStyleConfig {
+        (TitlebarControlsStyle(rawValue: styleRawValue) ?? .classic).config
+    }
+
+    var body: some View {
+        TitlebarControlButton(
+            config: config,
+            foregroundColor: TitlebarControlIconStyle.foregroundColor,
+            accessibilityIdentifier: "titlebarControl.toggleRightSidebar",
+            accessibilityLabel: String(
+                localized: "titlebar.rightSidebar.accessibilityLabel",
+                defaultValue: "Toggle Right Sidebar"
+            ),
+            action: onToggle
+        ) {
+            Image(systemName: "sidebar.right")
+                .symbolRenderingMode(.monochrome)
+                .font(.system(size: config.iconSize, weight: TitlebarControlIconStyle.weight))
+                .frame(
+                    width: TitlebarControlIconStyle.iconFrameSize(for: config),
+                    height: TitlebarControlIconStyle.iconFrameSize(for: config)
+                )
+        }
+        .safeHelp(
+            KeyboardShortcutSettings.Action.toggleRightSidebar.tooltip(
+                String(
+                    localized: "titlebar.rightSidebar.tooltip",
+                    defaultValue: "Show or hide the right sidebar"
+                )
+            )
+        )
+        .padding(.horizontal, 6)
+    }
+}
+
+@MainActor
+final class RightSidebarToggleAccessoryViewController: NSTitlebarAccessoryViewController {
+    private let hostingView: NonDraggableHostingView<RightSidebarToggleTitlebarView>
+    private let containerView: NSView
+    private var userDefaultsObserver: NSObjectProtocol?
+
+    init() {
+        let containerView = NSView()
+        self.containerView = containerView
+        let toggle = { [weak containerView] in
+            #if DEBUG
+            cmuxDebugLog("titlebar.toggleRightSidebar")
+            #endif
+            _ = AppDelegate.shared?.toggleRightSidebarInActiveMainWindow(
+                preferredWindow: containerView?.window
+            )
+        }
+        hostingView = NonDraggableHostingView(
+            rootView: RightSidebarToggleTitlebarView(onToggle: toggle)
+        )
+
+        super.init(nibName: nil, bundle: nil)
+
+        view = containerView
+        containerView.translatesAutoresizingMaskIntoConstraints = true
+        hostingView.translatesAutoresizingMaskIntoConstraints = true
+        hostingView.autoresizingMask = []
+        containerView.addSubview(hostingView)
+        applyFittingSize()
+
+        // The button size follows the titlebar controls style; resize when the
+        // style setting changes.
+        userDefaultsObserver = NotificationCenter.default.addObserver(
+            forName: UserDefaults.didChangeNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            Task { @MainActor [weak self] in
+                self?.applyFittingSize()
+            }
+        }
+    }
+
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    deinit {
+        if let userDefaultsObserver {
+            NotificationCenter.default.removeObserver(userDefaultsObserver)
+        }
+    }
+
+    private func applyFittingSize() {
+        let size = hostingView.fittingSize
+        guard size != .zero, containerView.frame.size != size else { return }
+        containerView.setFrameSize(size)
+        hostingView.frame = NSRect(origin: .zero, size: size)
     }
 }
