@@ -76,7 +76,7 @@ extension Workspace {
         let workspaceFields = Publishers.CombineLatest4(
             $currentDirectory,
             $extensionSidebarProjectRootPath,
-            $panels.map(SidebarPanelObservationState.init),
+            panelsPublisher.map(SidebarPanelObservationState.init),
             $panelDirectories
         )
         let metadataFields = Publishers.CombineLatest4(

@@ -10118,8 +10118,28 @@ final class Workspace: Identifiable, ObservableObject {
     private var surfaceTabBarButtonSourcePath: String?
     private var surfaceTabBarButtonGlobalConfigPath: String?
 
+    /// The pane-tree sub-model (CmuxPanes): owns the panel registry, the
+    /// surface-id mapping, and the pane-layout bookkeeping. The legacy
+    /// accessors below forward here; `Workspace` hosts the property-observer
+    /// hooks via `PaneTreeHosting`.
+    let paneTree = PaneTreeModel<any Panel>()
+
+    /// Legacy Combine bridge for the remaining `workspace.$panels`
+    /// subscribers. Driven exclusively from `panelsWillChange(to:)`, so it
+    /// emits the new value during willSet and replays the current value on
+    /// subscribe — the exact `Published.Publisher` semantics those call
+    /// sites were written against. Single seam; delete when the subscribers
+    /// move to @Observable observation.
+    let panelsPublisher = CurrentValueSubject<[UUID: any Panel], Never>([:])
+    /// Legacy Combine bridge for the remaining `$paneLayoutVersion`
+    /// subscribers; same contract as `panelsPublisher`.
+    let paneLayoutVersionPublisher = CurrentValueSubject<Int, Never>(0)
+
     /// Mapping from bonsplit TabID to our Panel instances
-    @Published var panels: [UUID: any Panel] = [:]
+    var panels: [UUID: any Panel] {
+        get { paneTree.panels }
+        set { paneTree.panels = newValue }
+    }
 
     /// Monotonic counter bumped only when the spatial (left-to-right, top-to-bottom)
     /// order of panels changes without the panel *set* changing — i.e. a pure
@@ -10129,11 +10149,17 @@ final class Workspace: Identifiable, ObservableObject {
     /// would otherwise never learn about a reorder. We gate the bump on an actual
     /// change of `orderedPanelIds` so that divider drags and selection-only events
     /// (which also flow through `didChangeGeometry`) do not fire `objectWillChange`.
-    @Published var paneLayoutVersion: Int = 0
+    var paneLayoutVersion: Int {
+        get { paneTree.paneLayoutVersion }
+        set { paneTree.paneLayoutVersion = newValue }
+    }
 
     /// Snapshot of `orderedPanelIds` from the last geometry notification, used to
     /// gate `paneLayoutVersion` bumps to genuine reorder events.
-    private var lastOrderedPanelIds: [UUID] = []
+    private var lastOrderedPanelIds: [UUID] {
+        get { paneTree.lastOrderedPanelIds }
+        set { paneTree.lastOrderedPanelIds = newValue }
+    }
 
     /// Subscriptions for panel updates (e.g., browser title changes)
     var panelSubscriptions: [UUID: AnyCancellable] = [:]
@@ -10757,6 +10783,7 @@ final class Workspace: Identifiable, ObservableObject {
             appearance: appearance
         )
         self.bonsplitController = BonsplitController(configuration: config)
+        paneTree.attach(host: self)
         bonsplitController.contextMenuShortcuts = Self.buildContextMenuShortcuts()
 
         // Remove the default "Welcome" tab that bonsplit creates
@@ -11020,7 +11047,12 @@ final class Workspace: Identifiable, ObservableObject {
     // MARK: - Surface ID to Panel ID Mapping
 
     /// Mapping from bonsplit TabID (surface ID) to panel UUID
-    var surfaceIdToPanelId: [TabID: UUID] = [:]
+    /// Mapping from bonsplit TabID (surface id) to the owning panel id;
+    /// stored in the pane-tree sub-model.
+    var surfaceIdToPanelId: [TabID: UUID] {
+        get { paneTree.surfaceIdToPanelId }
+        set { paneTree.surfaceIdToPanelId = newValue }
+    }
 
     /// Tab IDs that are allowed to close even if they would normally require confirmation.
     /// This is used by app-level confirmation prompts (for example, Close Tab) so the
@@ -16915,7 +16947,7 @@ final class Workspace: Identifiable, ObservableObject {
         ) { _ in
             enqueueAttempt()
         })
-        layoutFollowUpPanelsCancellable = $panels
+        layoutFollowUpPanelsCancellable = panelsPublisher
             .map { _ in () }
             .sink { _ in
                 enqueueAttempt()
@@ -18016,6 +18048,23 @@ final class Workspace: Identifiable, ObservableObject {
 }
 
 // MARK: - BonsplitDelegate
+
+// MARK: - PaneTreeHosting (legacy @Published observer hooks)
+
+extension Workspace: PaneTreeHosting {
+    /// Legacy `@Published panels` willSet: re-emits objectWillChange and the
+    /// Combine bridge at the exact timing `@Published` used.
+    func panelsWillChange(to newValue: [UUID: any Panel]) {
+        objectWillChange.send()
+        panelsPublisher.send(newValue)
+    }
+
+    /// Legacy `@Published paneLayoutVersion` willSet; same contract.
+    func paneLayoutVersionWillChange(to newValue: Int) {
+        objectWillChange.send()
+        paneLayoutVersionPublisher.send(newValue)
+    }
+}
 
 extension Workspace: BonsplitDelegate {
     @MainActor
