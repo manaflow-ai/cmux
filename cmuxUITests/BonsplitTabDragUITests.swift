@@ -324,7 +324,7 @@ final class BonsplitTabDragUITests: XCTestCase {
         )
 
         XCTAssertTrue(
-            ensureForegroundAfterLaunch(app, timeout: launchTimeout) || waitForAnyJSON(atPath: dataPath, timeout: 5.0),
+            ensureAppRunningAfterLaunch(app, timeout: launchTimeout) || waitForAnyJSON(atPath: dataPath, timeout: 5.0),
             "Expected app to launch far enough for UI test setup. data=\(loadJSON(atPath: dataPath) ?? [:])"
         )
 
