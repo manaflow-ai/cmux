@@ -8592,12 +8592,6 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         addSubview(keyboardCopyModeCursorOverlayView, positioned: .above, relativeTo: nil)
     }
 
-    private func effectiveBackgroundColor() -> NSColor {
-        let base = backgroundColor ?? GhosttyApp.shared.defaultBackgroundColor
-        let opacity = GhosttyApp.shared.defaultBackgroundOpacity
-        return base.withAlphaComponent(opacity)
-    }
-
     func applySurfaceBackground() {
         let renderingMode = WindowAppearanceSnapshot.terminalRenderingMode(
             usesHostLayerBackground: GhosttyApp.shared.usesHostLayerBackground
