@@ -161,6 +161,8 @@ final class AgentHibernationController {
         }
         // Synchronous during stop() so the write completes before the process exits.
         // Asynchronous during normal debounced path to avoid blocking the main thread.
+        // timerQueue is used exclusively for file I/O; @MainActor protects all mutable state.
+        // The .sync call is a termination-safety block, not a synchronization primitive.
         if synchronous {
             timerQueue.sync { write() }
         } else {
