@@ -67,6 +67,32 @@ import UniformTypeIdentifiers
         #expect(filename == "logo.png")
     }
 
+    @Test func imageBytesPreserveExplicitSuggestedFilenameBase() throws {
+        let url = try #require(URL(string: "https://cdn.example.test/assets/hash.png"))
+
+        let filename = resolver.suggestedFilename(
+            suggestedFilename: "avatar",
+            response: nil,
+            sourceURL: url,
+            imageType: .png
+        )
+
+        #expect(filename == "avatar.png")
+    }
+
+    @Test func imageBytesReplaceExplicitNonImageSuggestedExtension() throws {
+        let url = try #require(URL(string: "https://cdn.example.test/assets/hash.png"))
+
+        let filename = resolver.suggestedFilename(
+            suggestedFilename: "avatar.txt",
+            response: nil,
+            sourceURL: url,
+            imageType: .png
+        )
+
+        #expect(filename == "avatar.png")
+    }
+
     private static let onePixelPNG = Data([
         0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A,
         0x00, 0x00, 0x00, 0x0D, 0x49, 0x48, 0x44, 0x52,

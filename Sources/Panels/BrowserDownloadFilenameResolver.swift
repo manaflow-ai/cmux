@@ -56,7 +56,6 @@ nonisolated struct BrowserDownloadFilenameResolver {
 
         return imageFilename(
             candidate: safeCandidate,
-            sourceURL: fallbackURL,
             imageType: imageType
         )
     }
@@ -90,7 +89,6 @@ nonisolated struct BrowserDownloadFilenameResolver {
 
     private func imageFilename(
         candidate: String,
-        sourceURL: URL,
         imageType: UTType
     ) -> String {
         if hasImageExtension(candidate, matching: imageType) {
@@ -100,16 +98,6 @@ nonisolated struct BrowserDownloadFilenameResolver {
         let strippedCandidate = strippingNonImageExtensions(from: candidate, matching: imageType)
         if strippedCandidate != candidate {
             return strippedCandidate
-        }
-
-        let urlFilename = sanitizedFilename(sourceURL.lastPathComponent, fallbackURL: nil)
-        if hasImageExtension(urlFilename, matching: imageType) {
-            return urlFilename
-        }
-
-        let strippedURLFilename = strippingNonImageExtensions(from: urlFilename, matching: imageType)
-        if strippedURLFilename != urlFilename {
-            return strippedURLFilename
         }
 
         let filenameExtension = preferredFilenameExtension(for: imageType)
