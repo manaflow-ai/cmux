@@ -1098,6 +1098,59 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         )
     }
 
+    func testClaudeStaleTurnSessionEndDoesNotConsumeSessionAfterAnotherPaneBecameActive() throws {
+        let context = try makeClaudeHookContext(name: "claude-stale-end-multi-pane")
+        defer { context.cleanup() }
+
+        let paneA = "99999999-9999-9999-9999-999999999999"
+        let paneB = context.surfaceId
+        startClaudeHookMockServerAccepting(
+            context: context,
+            surfaceIds: [paneA, paneB],
+            connectionLimit: 32
+        )
+
+        func runHook(_ subcommand: String, stdin: String, surface: String) -> ProcessRunResult {
+            runClaudeHookWithoutServer(
+                context: context,
+                arguments: ["hooks", "claude", subcommand],
+                standardInput: stdin,
+                extraEnvironment: ["CMUX_SURFACE_ID": surface]
+            )
+        }
+
+        // Pane A: session-1 finishes turn-1 and is mid turn-2. Pane B promotes
+        // session-3 into the workspace-active slot.
+        for (subcommand, stdin, surface) in [
+            ("prompt-submit", #"{"session_id":"session-1","turn_id":"turn-1","cwd":"\#(context.root.path)","hook_event_name":"UserPromptSubmit","prompt":"one"}"#, paneA),
+            ("stop", #"{"session_id":"session-1","turn_id":"turn-1","cwd":"\#(context.root.path)","hook_event_name":"Stop","last_assistant_message":"done"}"#, paneA),
+            ("prompt-submit", #"{"session_id":"session-1","turn_id":"turn-2","cwd":"\#(context.root.path)","hook_event_name":"UserPromptSubmit","prompt":"again"}"#, paneA),
+            ("prompt-submit", #"{"session_id":"session-3","turn_id":"turn-3","cwd":"\#(context.root.path)","hook_event_name":"UserPromptSubmit","prompt":"three"}"#, paneB),
+        ] {
+            let result = runHook(subcommand, stdin: stdin, surface: surface)
+            XCTAssertFalse(result.timedOut, result.stderr)
+            XCTAssertEqual(result.status, 0, result.stderr)
+        }
+
+        // A stale SessionEnd for session-1's finished turn-1 must not consume
+        // the record while pane A's surface-active turn is turn-2, even though
+        // the workspace-active slot now belongs to pane B.
+        let staleEnd = runHook(
+            "session-end",
+            stdin: #"{"session_id":"session-1","turn_id":"turn-1","cwd":"\#(context.root.path)","hook_event_name":"SessionEnd"}"#,
+            surface: paneA
+        )
+        XCTAssertFalse(staleEnd.timedOut, staleEnd.stderr)
+        XCTAssertEqual(staleEnd.status, 0, staleEnd.stderr)
+
+        let record = try readClaudeHookSession("session-1", context: context)
+        XCTAssertEqual(
+            record["surfaceId"] as? String,
+            paneA,
+            "A stale turn-mismatched SessionEnd must not consume a session that is still active in its own pane after another pane became workspace-active"
+        )
+    }
+
     func testClaudeParentPaneStopAppliesAfterForkedSessionPromoted() throws {
         let context = try makeClaudeHookContext(name: "claude-fork-parent-stop")
         defer { context.cleanup() }
