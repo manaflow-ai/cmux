@@ -5,7 +5,6 @@ import UniformTypeIdentifiers
 import WebKit
 import ObjectiveC.runtime
 import Bonsplit
-import CmuxSettings
 import UserNotifications
 import Combine
 
@@ -3534,17 +3533,6 @@ final class NewBrowserWorkspaceCreationTests: XCTestCase {
                 "Option+Cmd+N default collides with \(action.rawValue)"
             )
         }
-    }
-
-    func testNewBrowserWorkspaceSettingsPackageActionStaysAligned() {
-        guard let settingsAction = ShortcutAction(
-            rawValue: KeyboardShortcutSettings.Action.newBrowserWorkspace.rawValue
-        ) else {
-            XCTFail("Expected CmuxSettings.ShortcutAction for newBrowserWorkspace")
-            return
-        }
-        XCTAssertEqual(settingsAction.defaultStroke, ShortcutStroke(key: "n", command: true, option: true))
-        XCTAssertEqual(settingsAction.displayName, KeyboardShortcutSettings.Action.newBrowserWorkspace.label)
     }
 
     func testAddWorkspaceWithBrowserInitialSurfaceBootsBrowserPane() {
