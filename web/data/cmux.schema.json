@@ -1098,6 +1098,7 @@
               "quit",
               "toggleSidebar",
               "newTab",
+              "newBrowserWorkspace",
               "openFolder",
               "reopenPreviousSession",
               "goToWorkspace",
