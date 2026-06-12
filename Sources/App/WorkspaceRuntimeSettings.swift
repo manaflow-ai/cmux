@@ -158,15 +158,15 @@ enum TerminalCopyOnSelectSettings {
         defaults.object(forKey: copyOnSelectKey) as? Bool
     }
 
-    static func ghosttyCopyOnSelectValue(defaults: UserDefaults = .standard) -> String? {
+    static func ghosttyCopyOnSelectValue(defaults: UserDefaults = .standard) -> String {
         // cmux's default is intentionally off, but Ghostty defaults copy-on-select
         // to true on macOS. Emit the default too so fresh installs and startup
         // before settings-file hydration do not inherit Ghostty's default.
         isEnabled(defaults: defaults) ? "clipboard" : "false"
     }
 
-    static func ghosttyConfigContents(defaults: UserDefaults = .standard) -> String? {
-        guard let value = ghosttyCopyOnSelectValue(defaults: defaults) else { return nil }
+    static func ghosttyConfigContents(defaults: UserDefaults = .standard) -> String {
+        let value = ghosttyCopyOnSelectValue(defaults: defaults)
         return "copy-on-select = \(value)"
     }
 
@@ -202,11 +202,10 @@ enum TerminalCopyOnSelectSettings {
 }
 
 enum TerminalManagedGhosttySettings {
-    static func ghosttyConfigContents(defaults: UserDefaults = .standard) -> String? {
+    static func ghosttyConfigContents(defaults: UserDefaults = .standard) -> String {
         let lines = [
             TerminalCopyOnSelectSettings.ghosttyConfigContents(defaults: defaults),
-        ].compactMap { $0 }
-        guard !lines.isEmpty else { return nil }
+        ]
         return lines.joined(separator: "\n")
     }
 }

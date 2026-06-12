@@ -2422,7 +2422,7 @@ class GhosttyApp {
     }
 
     private func loadCmuxManagedTerminalSettingsConfig(_ config: ghostty_config_t) {
-        guard let contents = TerminalManagedGhosttySettings.ghosttyConfigContents() else { return }
+        let contents = TerminalManagedGhosttySettings.ghosttyConfigContents()
         loadInlineGhosttyConfig(
             contents,
             into: config,
