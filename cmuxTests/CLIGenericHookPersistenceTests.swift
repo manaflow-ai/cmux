@@ -3422,6 +3422,152 @@ extension CLINotifyProcessIntegrationRegressionTests {
         )
     }
 
+    func testCodexForkParentLifecycleDoesNotStealOrClearParentSession() throws {
+        let cliPath = try bundledCLIPath()
+        let socketPath = makeSocketPath("codex-fork-parent")
+        let listenerFD = try bindUnixSocket(at: socketPath)
+        let state = MockSocketServerState()
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-codex-fork-parent-\(UUID().uuidString)", isDirectory: true)
+        let workspaceId = "11111111-1111-1111-1111-111111111111"
+        let parentSurfaceId = "22222222-2222-2222-2222-222222222222"
+        let forkSurfaceId = "33333333-3333-3333-3333-333333333333"
+        let parentSessionId = "019dad34-d218-7943-b81a-eddac5c87951"
+
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer {
+            Darwin.close(listenerFD)
+            unlink(socketPath)
+            try? FileManager.default.removeItem(at: root)
+        }
+
+        let now = Date().timeIntervalSince1970
+        let storeURL = root.appendingPathComponent("codex-hook-sessions.json", isDirectory: false)
+        let storePayload: [String: Any] = [
+            "version": 1,
+            "sessions": [
+                parentSessionId: [
+                    "sessionId": parentSessionId,
+                    "workspaceId": workspaceId,
+                    "surfaceId": parentSurfaceId,
+                    "cwd": root.path,
+                    "pid": NSNull(),
+                    "runtimeStatus": "idle",
+                    "startedAt": now,
+                    "updatedAt": now,
+                    "launchCommand": [
+                        "launcher": "codex",
+                        "executablePath": "/usr/local/bin/codex",
+                        "arguments": ["/usr/local/bin/codex", "--model", "gpt-5.4"],
+                        "workingDirectory": root.path,
+                        "capturedAt": now,
+                        "source": "test",
+                    ],
+                ],
+            ],
+        ]
+        try JSONSerialization.data(withJSONObject: storePayload, options: [.prettyPrinted, .sortedKeys])
+            .write(to: storeURL, options: .atomic)
+
+        var environment = ProcessInfo.processInfo.environment
+        environment["HOME"] = root.path
+        environment["CMUX_SOCKET_PATH"] = socketPath
+        environment["CMUX_WORKSPACE_ID"] = workspaceId
+        environment["CMUX_SURFACE_ID"] = forkSurfaceId
+        environment["CMUX_AGENT_HOOK_STATE_DIR"] = root.path
+        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+        environment["CMUX_AGENT_LAUNCH_KIND"] = "codex"
+        environment["CMUX_AGENT_LAUNCH_EXECUTABLE"] = "/usr/local/bin/codex"
+        environment["CMUX_AGENT_LAUNCH_CWD"] = root.path
+        environment["CMUX_AGENT_LAUNCH_ARGV_B64"] = base64NULSeparated([
+            "/usr/local/bin/codex",
+            "fork",
+            parentSessionId,
+            "--model",
+            "gpt-5.4",
+        ])
+
+        func startServer() -> XCTestExpectation {
+            startMockServer(listenerFD: listenerFD, state: state) { line in
+                guard let payload = self.jsonObject(line) else { return "OK" }
+                guard let id = payload["id"] as? String, let method = payload["method"] as? String else {
+                    return self.malformedRequestResponse(id: payload["id"] as? String, raw: line)
+                }
+                switch method {
+                case "surface.list":
+                    return self.v2Response(
+                        id: id,
+                        ok: true,
+                        result: [
+                            "surfaces": [
+                                ["id": parentSurfaceId, "ref": "surface:1", "focused": false],
+                                ["id": forkSurfaceId, "ref": "surface:2", "focused": true],
+                            ],
+                        ]
+                    )
+                case "surface.resume.set", "surface.resume.clear", "feed.push":
+                    return self.v2Response(id: id, ok: true, result: ["ok": true])
+                default:
+                    return self.v2Response(
+                        id: id,
+                        ok: false,
+                        error: ["code": "unrecognized_method", "message": "unexpected method: \(method)"]
+                    )
+                }
+            }
+        }
+
+        let sessionStartServerHandled = startServer()
+        let sessionStart = runProcess(
+            executablePath: cliPath,
+            arguments: ["hooks", "codex", "session-start"],
+            environment: environment,
+            standardInput: #"{"session_id":"\#(parentSessionId)","cwd":"\#(root.path)","hook_event_name":"SessionStart"}"#,
+            timeout: 5
+        )
+        wait(for: [sessionStartServerHandled], timeout: 5)
+
+        let sessionEndServerHandled = startServer()
+        let sessionEnd = runProcess(
+            executablePath: cliPath,
+            arguments: ["hooks", "codex", "session-end"],
+            environment: environment,
+            standardInput: #"{"session_id":"\#(parentSessionId)","cwd":"\#(root.path)","hook_event_name":"SessionEnd"}"#,
+            timeout: 5
+        )
+        wait(for: [sessionEndServerHandled], timeout: 5)
+
+        XCTAssertFalse(sessionStart.timedOut, sessionStart.stderr)
+        XCTAssertEqual(sessionStart.status, 0, sessionStart.stderr)
+        XCTAssertFalse(sessionEnd.timedOut, sessionEnd.stderr)
+        XCTAssertEqual(sessionEnd.status, 0, sessionEnd.stderr)
+
+        let storeJSON = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(contentsOf: storeURL)) as? [String: Any])
+        let sessions = try XCTUnwrap(storeJSON["sessions"] as? [String: Any])
+        let parentSession = try XCTUnwrap(sessions[parentSessionId] as? [String: Any])
+        XCTAssertEqual(
+            parentSession["surfaceId"] as? String,
+            parentSurfaceId,
+            "Codex fork parent lifecycle hooks must not rebind the parent session to the fork pane"
+        )
+
+        let resumeMutations = state.snapshot().compactMap { command -> [String: Any]? in
+            guard let payload = self.jsonObject(command),
+                  let method = payload["method"] as? String,
+                  method == "surface.resume.set" || method == "surface.resume.clear" else {
+                return nil
+            }
+            return payload["params"] as? [String: Any]
+        }
+        XCTAssertFalse(
+            resumeMutations.contains {
+                ($0["session_id"] as? String) == parentSessionId
+                    && ($0["surface_id"] as? String) == forkSurfaceId
+            },
+            "Parent-id fork startup/teardown must not publish or clear a resume binding on the fork pane; saw \(resumeMutations)"
+        )
+    }
+
     /// G3 (https://github.com/manaflow-ai/cmux/issues/5333): the codex surface jumble. CMUX_SURFACE_ID
     /// can be leaked into the hook env as the operator's FOCUSED pane rather than the agent's own pane.
     /// When the agent process's controlling TTY is bound to a different, accessible surface in the same
