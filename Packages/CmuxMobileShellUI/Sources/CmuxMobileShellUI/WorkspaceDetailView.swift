@@ -1,3 +1,4 @@
+import CmuxAgentChat
 import CmuxMobileBrowser
 import CmuxMobileDiagnostics
 import CmuxMobileShell
@@ -38,6 +39,13 @@ struct WorkspaceDetailView: View {
     /// workspace selection changes underneath it (e.g. Mac-side sync) while
     /// the sheet is open; the sheet loads its snapshot once per presentation.
     @State private var textSheetSurfaceID: String?
+    /// Chat-mode toggle: when on (and a session exists) the detail renders
+    /// the agent chat inline in place of the terminal. The toolbar button
+    /// flips this; there is no cover and no Done button.
+    @State private var isChatMode = false
+    @State private var chatSessions: [ChatSessionDescriptor] = []
+    /// Per-session composer drafts, surviving toggles back to the terminal.
+    @State private var chatDrafts: [String: String] = [:]
     #endif
 
     private var selectedTerminal: MobileTerminalPreview? {
@@ -49,9 +57,18 @@ struct WorkspaceDetailView: View {
         browserStore.activeBrowser(for: workspace.id.rawValue)
     }
 
+    #if os(iOS)
+    /// The session chat mode opens: the most attention-worthy live one.
+    private var chosenChatSession: ChatSessionDescriptor? {
+        ChatSessionDescriptor.openable(chatSessions).first
+    }
+    #endif
+
     var body: some View {
         #if os(iOS)
-        if let browser = activeBrowser {
+        if isChatMode, let session = chosenChatSession {
+            chatContent(session)
+        } else if let browser = activeBrowser {
             browserContent(browser)
         } else {
             detailContent()
@@ -60,6 +77,67 @@ struct WorkspaceDetailView: View {
         detailContent()
         #endif
     }
+
+    #if os(iOS)
+    /// Agent chat rendered in place of the terminal while chat mode is on.
+    /// Carries the same toolbar so the toggle (now filled) flips back.
+    @ViewBuilder
+    private func chatContent(_ session: ChatSessionDescriptor) -> some View {
+        WorkspaceChatPane(
+            session: session,
+            store: store,
+            draft: Binding(
+                get: { chatDrafts[session.id] ?? "" },
+                set: { chatDrafts[session.id] = $0 }
+            ),
+            onExitChat: { isChatMode = false }
+        )
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .mobileTerminalNavigationChrome()
+        .toolbar {
+            ToolbarItemGroup(placement: .topBarTrailing) {
+                chatToggleButton
+                newWorkspaceToolbarButton
+                terminalPickerToolbarButton
+            }
+        }
+        .task(id: chatRefreshKey) { await refreshChatSessions() }
+    }
+
+    /// Toolbar toggle between terminal and chat. Hidden when the workspace
+    /// has no chat-capable session and not already in chat mode.
+    @ViewBuilder
+    private var chatToggleButton: some View {
+        if isChatMode || !chatSessions.isEmpty {
+            Button {
+                isChatMode.toggle()
+            } label: {
+                Image(systemName: isChatMode
+                    ? "bubble.left.and.bubble.right.fill"
+                    : "bubble.left.and.bubble.right")
+            }
+            .accessibilityLabel(L10n.string("mobile.workspace.agentChat", defaultValue: "Agent Chat"))
+            .accessibilityIdentifier("MobileWorkspaceAgentChatButton")
+            // Toggling off when the chosen session vanished still works
+            // because the button stays shown while isChatMode is true.
+            .disabled(!isChatMode && chosenChatSession == nil)
+        }
+    }
+
+    /// Identity for the session refetch: workspace plus connection epoch.
+    private var chatRefreshKey: String {
+        "\(workspace.id.rawValue)#\(store.connectionState == .connected ? 1 : 0)"
+    }
+
+    private func refreshChatSessions() async {
+        chatSessions = await store.chatSessions(workspaceID: workspace.id.rawValue)
+        // If the session backing chat mode disappeared, fall back to the
+        // terminal rather than showing an empty chat.
+        if isChatMode, chosenChatSession == nil {
+            isChatMode = false
+        }
+    }
+    #endif
 
     #if os(iOS)
     /// The browser pane shown when this workspace has an active browser surface.
@@ -78,11 +156,12 @@ struct WorkspaceDetailView: View {
         .mobileTerminalNavigationChrome()
         .toolbar {
             ToolbarItemGroup(placement: .topBarTrailing) {
-                WorkspaceAgentChatButton(workspace: workspace, store: store)
+                chatToggleButton
                 newWorkspaceToolbarButton
                 terminalPickerToolbarButton
             }
         }
+        .task(id: chatRefreshKey) { await refreshChatSessions() }
     }
     #endif
 
@@ -180,10 +259,13 @@ struct WorkspaceDetailView: View {
         #endif
         .navigationTitle(workspace.name)
         .mobileTerminalNavigationChrome()
+        #if os(iOS)
+        .task(id: chatRefreshKey) { await refreshChatSessions() }
+        #endif
         .toolbar {
             #if os(iOS)
             ToolbarItemGroup(placement: .topBarTrailing) {
-                WorkspaceAgentChatButton(workspace: workspace, store: store)
+                chatToggleButton
                 newWorkspaceToolbarButton
                 terminalPickerToolbarButton
             }
