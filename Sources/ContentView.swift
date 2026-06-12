@@ -2187,9 +2187,9 @@ struct ContentView: View {
     }
 
     private func terminalContentWithRightSidebarPanel(appearance: WindowAppearanceSnapshot) -> some View {
-        // File explorer is always in the view tree. Visibility is controlled by
-        // frame width (0 when hidden), avoiding SwiftUI view insertion/removal
-        // and all associated transition animations.
+        // The right-sidebar shell remains in the view tree so its frame can
+        // animate without SwiftUI insertion/removal. Cold hidden launches defer
+        // heavy mode content until the sidebar has been shown at least once.
         return HStack(spacing: 0) {
             terminalContentWithSidebarDropOverlay(appearance: appearance)
             rightSidebarPanelWithBackdrop(appearance: appearance)

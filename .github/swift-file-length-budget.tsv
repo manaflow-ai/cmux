@@ -80,8 +80,8 @@
 1126	cmuxTests/FileExplorerStoreTests.swift
 1107	Sources/AppDelegate+CmuxSSHURL.swift
 1096	Sources/GhosttyConfig.swift
+1093	cmuxUITests/BonsplitTabDragUITests.swift
 1084	cmuxTests/AgentHibernationTests.swift
-1058	cmuxUITests/BonsplitTabDragUITests.swift
 1021	cmuxUITests/TerminalCmdClickUITests.swift
 1006	cmuxTests/CmuxSSHURLRequestTests.swift
 1000	cmuxTests/CmuxTopSnapshotScopeTests.swift
@@ -125,7 +125,7 @@
 696	cmuxTests/UpdatePillReleaseVisibilityTests.swift
 693	Sources/Panels/BrowserPopupWindowController.swift
 691	cmuxTests/TaskManagerResourcesTests.swift
-685	Sources/RightSidebarPanelView.swift
+699	Sources/RightSidebarPanelView.swift
 683	Packages/CmuxSwiftRender/Sources/CmuxSwiftRender/SwiftViewInterpreter.swift
 683	Sources/Panels/CodexAppServerSession.swift
 681	Sources/Panels/AgentSessionProcessStore.swift
