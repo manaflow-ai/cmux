@@ -12299,13 +12299,16 @@ final class Workspace: Identifiable, ObservableObject {
             ? AgentHibernationLifecycleState.preservingDefinitive(existing: existing, incoming: lifecycle)
             : lifecycle
         agentLifecycleStatesByPanelId[targetPanelId, default: [:]][key] = resolved
-        // Only advance lifecycleChangeAt for definitive (non-unknown) events. An
-        // `.unknown` SessionStart must not push the timestamp past a recent
-        // terminalInputAt, which would clear the hasUnconfirmedTerminalInput guard
-        // and allow premature hibernation mid-turn. Definitive updates (including
-        // repeated `.idle`) still advance lifecycleChangeAt so hasUnconfirmedTerminalInput
+        // Advance lifecycleChangeAt only when the caller's *incoming* lifecycle was
+        // definitive (non-unknown). Using `lifecycle` (the caller's intent) rather than
+        // `resolved` (the post-preservation value) is critical: when --preserve-idle
+        // keeps the existing `.idle` over an incoming `.unknown`, `resolved` is `.idle`
+        // but no new definitive event was emitted by the agent. Advancing the timestamp
+        // there would push lifecycleChangeAt past terminalInputAt, clearing the
+        // hasUnconfirmedTerminalInput guard and allowing premature hibernation mid-turn.
+        // Repeated definitive `.idle` events still advance the timestamp so the guard
         // clears normally after the resumed agent completes its first turn.
-        if resolved != .unknown {
+        if lifecycle != .unknown {
             recordAgentLifecycleChange(panelId: targetPanelId)
         }
     }

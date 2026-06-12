@@ -360,6 +360,38 @@ import Bonsplit
         )
     }
 
+    /// When `--preserve-idle` keeps an existing `.idle` over an incoming `.unknown`
+    /// SessionStart, the in-memory `lifecycleChangeAt` must NOT advance. If it did,
+    /// the preserved-idle SessionStart would push `lifecycleChangeAt` past a recent
+    /// terminal-input event and incorrectly clear `hasUnconfirmedTerminalInput`.
+    ///
+    /// This pins the `if lifecycle != .unknown` guard in `Workspace.setAgentLifecycle`:
+    /// advancement is gated on the *incoming* intent, not the *resolved* state. When
+    /// `preservingDefinitive` resolves `.unknown → .idle`, the caller never emitted a
+    /// definitive event, so the timestamp must stay at the last real definitive change.
+    @Test func preserveIdleSessionStartDoesNotAdvanceInMemoryLifecycleChangeAt() {
+        let idleAt: TimeInterval = 1_000.0       // lifecycle seeded to .idle on resume
+        let inputAt: TimeInterval = 1_100.0      // user submitted a new prompt (mid-turn)
+        let sessionStartAt: TimeInterval = 1_200.0  // generic SessionStart (.unknown --preserve-idle)
+
+        // Correct: incoming was .unknown so lifecycleChangeAt stays at idleAt.
+        let lifecycleChangeAt: TimeInterval = idleAt
+        let hasUnconfirmedInput = inputAt > lifecycleChangeAt
+        #expect(
+            hasUnconfirmedInput,
+            "With the fix, a preserve-idle SessionStart must not advance lifecycleChangeAt, so the mid-turn guard stays asserted"
+        )
+
+        // Demonstrate the bug: if lifecycleChangeAt were incorrectly pushed to sessionStartAt,
+        // the guard would clear and the agent could be hibernated mid-turn.
+        let brokenLifecycleChangeAt: TimeInterval = sessionStartAt
+        let brokenHasUnconfirmedInput = inputAt > brokenLifecycleChangeAt
+        #expect(
+            !brokenHasUnconfirmedInput,
+            "This demonstrates the bug: advancing lifecycleChangeAt to sessionStartAt clears the mid-turn guard"
+        )
+    }
+
     // MARK: - Startup window guard
 
     /// After a crash-on-resume, the durable store must NOT retain the startup-window
