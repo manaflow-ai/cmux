@@ -256,6 +256,33 @@ struct FileExplorerStoreTests {
     }
 
     @Test
+    func testSameRootReloadDropsCachedChildrenOfCollapsedDirectories() async throws {
+        let provider = MockFileExplorerProvider()
+        provider.listings["/home/user/project"] = .success([
+            FileExplorerEntry(name: "dir", path: "/home/user/project/dir", isDirectory: true)
+        ])
+        provider.listings["/home/user/project/dir"] = .success([
+            FileExplorerEntry(name: "old.txt", path: "/home/user/project/dir/old.txt", isDirectory: false)
+        ])
+        let store = FileExplorerStore()
+        store.setProviderForTesting(provider)
+        store.setRootPath("/home/user/project")
+        try await waitFor("root loaded") { store.rootNodes.count == 1 }
+        let dir = try #require(store.rootNodes.first)
+
+        store.expand(node: dir)
+        try await waitFor("children loaded") { dir.children?.count == 1 }
+        store.collapse(node: dir)
+
+        // A collapsed directory must not keep a stale cached subtree across a
+        // same-root reload; the next expand should re-list from the provider.
+        store.reload()
+        try await waitFor("collapsed dir cache dropped") {
+            store.rootNodes.first === dir && dir.children == nil
+        }
+    }
+
+    @Test
     func testDisplayRootPathUsesTilde() {
         let provider = MockFileExplorerProvider(homePath: "/home/user")
         let store = FileExplorerStore()

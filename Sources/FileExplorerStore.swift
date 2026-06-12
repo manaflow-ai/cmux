@@ -1063,6 +1063,22 @@ final class FileExplorerStore: ObservableObject {
     // MARK: - Private
 
     @MainActor
+    /// Drops `nodesByPath` entries no longer reachable from the fresh root
+    /// listing. Same-root reloads keep the map (for node reuse), so without
+    /// this, deleted paths would pin stale nodes — and a path deleted and
+    /// later re-created would resurface its old subtree.
+    private func pruneUnreachableNodes(from roots: [FileExplorerNode]) {
+        var reachable = Set<String>()
+        var stack = roots
+        while let node = stack.popLast() {
+            reachable.insert(node.path)
+            if let children = node.children {
+                stack.append(contentsOf: children)
+            }
+        }
+        nodesByPath = nodesByPath.filter { reachable.contains($0.key) }
+    }
+
     private func loadChildren(for parentNode: FileExplorerNode?, at path: String, silent: Bool = false) async {
         guard let provider else { return }
 
@@ -1077,9 +1093,14 @@ final class FileExplorerStore: ObservableObject {
             try Task.checkCancellation()
             let children = entries.map { entry in
                 // Reuse the existing node for an unchanged path so NSOutlineView
-                // items stay valid across same-root refreshes (reused directory
-                // nodes keep their loaded subtree instead of re-listing it).
+                // items stay valid across same-root refreshes. Expanded
+                // directories keep their subtree (the re-expand pass below
+                // refreshes it); collapsed ones drop cached children so the
+                // next expand re-lists, matching pre-reuse behavior.
                 if let existing = nodesByPath[entry.path], existing.isDirectory == entry.isDirectory {
+                    if existing.isDirectory, !expandedPaths.contains(existing.path) {
+                        existing.children = nil
+                    }
                     return existing
                 }
                 let node = FileExplorerNode(name: entry.name, path: entry.path, isDirectory: entry.isDirectory)
@@ -1109,6 +1130,7 @@ final class FileExplorerStore: ObservableObject {
                     selectedPath = children.first?.path
                     selectedPaths = selectedPath.map { Set([$0]) } ?? []
                 }
+                pruneUnreachableNodes(from: children)
             }
             loadingPaths.remove(path)
             loadTasks.removeValue(forKey: path)
