@@ -143,3 +143,42 @@ describe("highlightSegments", () => {
     expect(segments.map((segment) => segment.text).join("")).toBe(text);
   });
 });
+
+describe("input field coverage and incremental scanning", () => {
+  test("matches the visible tool input fields (paths, queries, patch text)", () => {
+    const lower = normalizeSearchQuery("target");
+    expect(itemMatchesQuery(item("a", { input: { file_path: "/src/target.ts" } }), lower)).toBe(true);
+    expect(itemMatchesQuery(item("b", { input: { path: "/etc/target" } }), lower)).toBe(true);
+    expect(itemMatchesQuery(item("c", { input: { notebook_path: "/nb/target.ipynb" } }), lower)).toBe(true);
+    expect(itemMatchesQuery(item("d", { input: { query: "find the target" } }), lower)).toBe(true);
+    expect(itemMatchesQuery(item("e", { input: { url: "https://target.dev" } }), lower)).toBe(true);
+    expect(itemMatchesQuery(item("f", { input: { patch: "*** Update File: src/target.ts" } }), lower)).toBe(true);
+    expect(itemMatchesQuery(item("g", { input: { irrelevant: "target" } }), lower)).toBe(false);
+  });
+
+  test("computeMatches rescans only changed item objects (identity cache)", () => {
+    const stable = item("a", { text: "needle here" });
+    const original = item("b", { text: "nothing" });
+    let scans: string[] = [];
+    const log = (entry: ConversationItem) => scans.push(entry.id);
+
+    expect(computeMatches([stable, original], "needle", log)).toEqual([0]);
+    expect(scans).toEqual(["a", "b"]);
+
+    // Streamed update replaces only item b; a is a cache hit.
+    scans = [];
+    const updated = item("b", { text: "now has needle" });
+    expect(computeMatches([stable, updated], "needle", log)).toEqual([0, 1]);
+    expect(scans).toEqual(["b"]);
+
+    // Same items, same query: zero scans.
+    scans = [];
+    expect(computeMatches([stable, updated], "needle", log)).toEqual([0, 1]);
+    expect(scans).toEqual([]);
+
+    // A query change re-scans everything once.
+    scans = [];
+    computeMatches([stable, updated], "other", log);
+    expect(scans).toEqual(["a", "b"]);
+  });
+});

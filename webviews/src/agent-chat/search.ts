@@ -96,24 +96,42 @@ function fieldMatches(field: string | undefined, lowerQuery: string): boolean {
   return field.slice(0, MATCH_FIELD_SCAN_CHARS).toLowerCase().includes(lowerQuery);
 }
 
-/** Command string from tool input, when the input carries one cheaply. */
-function inputCommand(input: unknown): string | undefined {
+/**
+ * Input keys whose string values the rich tool rows visibly render: command
+ * lines, file paths (Read/Edit/Write/notebooks), web search queries/URLs, and
+ * Codex apply_patch text (file paths live inside it). Searching for what a
+ * row displays must match that row.
+ */
+const SEARCHED_INPUT_KEYS = [
+  "command",
+  "path",
+  "file_path",
+  "notebook_path",
+  "query",
+  "url",
+  "patch",
+] as const;
+
+function inputMatches(input: unknown, lowerQuery: string): boolean {
   if (typeof input === "string") {
-    return input;
+    return fieldMatches(input, lowerQuery);
   }
   if (typeof input === "object" && input !== null) {
-    const command = (input as Record<string, unknown>).command;
-    if (typeof command === "string") {
-      return command;
+    const record = input as Record<string, unknown>;
+    for (const key of SEARCHED_INPUT_KEYS) {
+      const value = record[key];
+      if (typeof value === "string" && fieldMatches(value, lowerQuery)) {
+        return true;
+      }
     }
   }
-  return undefined;
+  return false;
 }
 
 /**
  * Case-insensitive substring match over the item's renderable text: message /
- * reasoning / plan bodies, tool titles and names, tool output, and the command
- * string when the input carries one.
+ * reasoning / plan bodies, tool titles and names, tool output, and the input
+ * strings the tool rows display (command, paths, queries, patch text).
  */
 export function itemMatchesQuery(item: ConversationItem, lowerQuery: string): boolean {
   if (lowerQuery === "") {
@@ -124,19 +142,43 @@ export function itemMatchesQuery(item: ConversationItem, lowerQuery: string): bo
     fieldMatches(item.title, lowerQuery) ||
     fieldMatches(item.tool_name, lowerQuery) ||
     fieldMatches(item.output?.text, lowerQuery) ||
-    fieldMatches(inputCommand(item.input), lowerQuery)
+    inputMatches(item.input, lowerQuery)
   );
 }
 
-/** Indexes (into `items`) of the items matching `query`, in timeline order. */
-export function computeMatches(items: readonly ConversationItem[], query: string): number[] {
+// Per-item match cache. Conversation items are immutable value snapshots:
+// streamed updates replace only the changed item object, so caching by object
+// identity makes the per-render scan incremental — unchanged items are cache
+// hits and only the item that actually changed (or a query change) pays a
+// scan. This is what keeps an open search from re-lowercasing megabytes of
+// tool output on every streamed event.
+const matchCache = new WeakMap<ConversationItem, { query: string; matched: boolean }>();
+
+/**
+ * Indexes (into `items`) of the items matching `query`, in timeline order.
+ * `onScan` is a test seam reporting cache misses (real scans).
+ */
+export function computeMatches(
+  items: readonly ConversationItem[],
+  query: string,
+  onScan?: (item: ConversationItem) => void,
+): number[] {
   const lowerQuery = normalizeSearchQuery(query);
   if (lowerQuery === "") {
     return [];
   }
   const matches: number[] = [];
   items.forEach((item, index) => {
-    if (itemMatchesQuery(item, lowerQuery)) {
+    const cached = matchCache.get(item);
+    let matched: boolean;
+    if (cached !== undefined && cached.query === lowerQuery) {
+      matched = cached.matched;
+    } else {
+      onScan?.(item);
+      matched = itemMatchesQuery(item, lowerQuery);
+      matchCache.set(item, { query: lowerQuery, matched });
+    }
+    if (matched) {
       matches.push(index);
     }
   });
