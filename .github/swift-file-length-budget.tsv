@@ -21,7 +21,7 @@
 6071	Sources/TextBoxInput.swift
 5482	cmuxTests/BrowserConfigTests.swift
 5448	Sources/cmuxApp.swift
-4574	Packages/CmuxMobileShell/Sources/CmuxMobileShell/MobileShellComposite.swift
+4827	Packages/CmuxMobileShell/Sources/CmuxMobileShell/MobileShellComposite.swift
 4460	Sources/Panels/FilePreviewPanel.swift
 4400	cmuxTests/BrowserPanelTests.swift
 4227	Sources/BrowserWindowPortal.swift
@@ -41,7 +41,7 @@
 2513	cmuxTests/CommandPaletteSearchEngineTests.swift
 2509	Sources/KeyboardShortcutSettings.swift
 2327	cmuxTests/CJKIMEInputTests.swift
-2326	Sources/Mobile/MobileHostService.swift
+2340	Sources/Mobile/MobileHostService.swift
 2290	Sources/FileExplorerView.swift
 2260	Sources/TerminalWindowPortal.swift
 2138	Sources/SessionPersistence.swift
