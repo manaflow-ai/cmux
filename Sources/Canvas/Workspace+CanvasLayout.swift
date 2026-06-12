@@ -19,6 +19,12 @@ extension Workspace {
             canvasModel.seedFromSplitFrames(splitPaneFramesByPanelId())
         }
         layoutMode = mode
+        // The rendered-panel set changes shape with the mode (canvas renders
+        // every panel; splits render selected tabs), so re-derive portal
+        // visibility immediately instead of waiting for the next layout event.
+        reconcileBrowserPortalVisibilityForCurrentRenderedLayout(
+            reason: "workspace.setLayoutMode.\(mode.rawValue)"
+        )
     }
 
     /// Toggles between split and canvas layout.

@@ -132,6 +132,13 @@ private struct CanvasRootRepresentable: NSViewRepresentable {
                 },
                 onLayoutChanged: { [weak workspace] in
                     workspace?.noteCanvasLayoutChanged()
+                },
+                onViewportGeometryChanged: { window in
+                    // Window-portal-hosted content (browser webviews) tracks
+                    // anchor geometry; canvas scrolls/zooms/drags move anchors
+                    // without any split-layout event, so nudge the portal.
+                    guard let window else { return }
+                    BrowserWindowPortalRegistry.scheduleExternalGeometrySynchronize(for: window)
                 }
             ),
             themeProvider: {

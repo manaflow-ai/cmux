@@ -17777,6 +17777,13 @@ final class Workspace: Identifiable, ObservableObject {
 
     private func renderedVisiblePanelIdsForCurrentLayout() -> Set<UUID> {
         guard portalRenderingEnabled else { return [] }
+        // Canvas mode renders every panel in its own pane; bonsplit tab
+        // selection no longer decides what is on screen. Offscreen clipping
+        // is the canvas viewport's job (portal frames clamp to the visible
+        // intersection), so all panels count as rendered.
+        if layoutMode == .canvas {
+            return Set(panels.keys)
+        }
         let renderedPaneIds = bonsplitController.zoomedPaneId.map { [$0] } ?? bonsplitController.allPaneIds
         var visiblePanelIds: Set<UUID> = []
 
@@ -17861,7 +17868,7 @@ final class Workspace: Identifiable, ObservableObject {
 #endif
 
     @discardableResult
-    private func reconcileBrowserPortalVisibilityForCurrentRenderedLayout(reason: String) -> Bool {
+    func reconcileBrowserPortalVisibilityForCurrentRenderedLayout(reason: String) -> Bool {
         let visiblePanelIds = renderedVisiblePanelIdsForCurrentLayout()
         var didChange = false
 

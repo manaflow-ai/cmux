@@ -276,6 +276,7 @@ public final class CanvasRootView: NSView {
 
     private func viewportDidScroll() {
         updateLifecycle()
+        callbacks.onViewportGeometryChanged(window)
     }
 
     public override func layout() {
@@ -283,6 +284,7 @@ public final class CanvasRootView: NSView {
         recomputeDocumentGeometry()
         applyAllPaneFrames()
         updateLifecycle()
+        callbacks.onViewportGeometryChanged(window)
     }
 
     /// Explicit pane lifecycle: panes within the visible rect (plus margin)
@@ -337,7 +339,7 @@ extension CanvasRootView: CanvasViewportControlling {
         applyZOrder()
         recomputeDocumentGeometry()
         if animated {
-            NSAnimationContext.runAnimationGroup { context in
+            NSAnimationContext.runAnimationGroup({ context in
                 context.duration = 0.25
                 context.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
                 context.allowsImplicitAnimation = true
@@ -346,12 +348,16 @@ extension CanvasRootView: CanvasViewportControlling {
                         paneView.animator().frame = documentRect(fromCanvas: frame)
                     }
                 }
-            }
+            }, completionHandler: { [weak self] in
+                guard let self else { return }
+                self.callbacks.onViewportGeometryChanged(self.window)
+            })
         } else {
             applyAllPaneFrames()
         }
         updateLifecycle()
         callbacks.onLayoutChanged()
+        callbacks.onViewportGeometryChanged(window)
     }
 
     public func revealPane(_ panelId: UUID, animated: Bool) {
@@ -503,6 +509,7 @@ extension CanvasRootView: CanvasPaneViewDelegate {
         dragSession = session
         view.frame = documentRect(fromCanvas: session.lastFrame)
         guidesView.setGuides(result.guides)
+        callbacks.onViewportGeometryChanged(window)
     }
 
     func paneViewDidEndDrag(_ view: CanvasPaneView) {
@@ -514,6 +521,7 @@ extension CanvasRootView: CanvasPaneViewDelegate {
         applyAllPaneFrames()
         updateLifecycle()
         callbacks.onLayoutChanged()
+        callbacks.onViewportGeometryChanged(window)
     }
 
     func paneViewDidRequestClose(_ view: CanvasPaneView) {
