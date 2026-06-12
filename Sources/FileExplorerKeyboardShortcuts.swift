@@ -44,8 +44,8 @@ extension FileExplorerSearchResultsTableView {
 private extension NSEvent {
     var isFileExplorerOpenSelectionShortcut: Bool {
         KeyboardShortcutSettings.Action.fileExplorerOpenSelectionActions.contains { action in
-            KeyboardShortcutSettings.shortcut(for: action).matches(event: event) &&
-                (AppDelegate.shared?.shortcutWhenClauseAllows(action: action, event: event) ?? true)
+            KeyboardShortcutSettings.shortcut(for: action).matches(event: self) &&
+                (AppDelegate.shared?.shortcutWhenClauseAllows(action: action, event: self) ?? true)
         }
     }
 }
