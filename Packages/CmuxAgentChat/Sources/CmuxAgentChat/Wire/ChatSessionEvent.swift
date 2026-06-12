@@ -11,6 +11,10 @@ public enum ChatSessionEvent: Sendable, Equatable {
     /// The session's descriptor changed (title, terminal binding, ...).
     case descriptorChanged(ChatSessionDescriptor)
 
+    /// The producing transcript was truncated or replaced; the session's
+    /// seq space restarted and clients must re-anchor from history.
+    case reset
+
     /// An event name this client predates; carried (not dropped) so
     /// consumers can ignore it explicitly.
     case unknown(String)
@@ -29,6 +33,7 @@ extension ChatSessionEvent: Codable {
         case updated
         case stateChanged = "state_changed"
         case descriptorChanged = "descriptor_changed"
+        case reset
     }
 
     public init(from decoder: any Decoder) throws {
@@ -43,6 +48,8 @@ extension ChatSessionEvent: Codable {
             self = .stateChanged(try container.decode(ChatAgentState.self, forKey: .state))
         case .descriptorChanged:
             self = .descriptorChanged(try container.decode(ChatSessionDescriptor.self, forKey: .descriptor))
+        case .reset:
+            self = .reset
         case .none:
             // A newer Mac may push event names this client predates; an
             // explicit ignorable case beats silently dropping the frame at
@@ -66,6 +73,8 @@ extension ChatSessionEvent: Codable {
         case .descriptorChanged(let descriptor):
             try container.encode(EventName.descriptorChanged.rawValue, forKey: .event)
             try container.encode(descriptor, forKey: .descriptor)
+        case .reset:
+            try container.encode(EventName.reset.rawValue, forKey: .event)
         case .unknown(let raw):
             try container.encode(raw, forKey: .event)
         }

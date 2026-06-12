@@ -19,6 +19,9 @@ actor AgentChatTranscriptTailer {
         let updated: [ChatMessage]
         /// First user prompt text, when it just became known.
         let discoveredTitle: String?
+        /// The transcript was truncated/replaced and the seq space
+        /// restarted; clients must re-anchor.
+        var didReset = false
     }
 
     private let sessionID: String
@@ -178,8 +181,9 @@ actor AgentChatTranscriptTailer {
         defer { try? handle.close() }
         let size = (try? handle.seekToEnd()) ?? 0
         if size < byteOffset {
-            // Truncated/replaced: reset and re-read from scratch. Clients
-            // resync through history on their next page or reconnect.
+            // Truncated/replaced: reset and re-read from scratch, then tell
+            // clients explicitly — the seq space restarted, and id-based
+            // heuristics can't always detect that (codex line-N ids repeat).
             byteOffset = 0
             lineCount = 0
             pendingFragment = Data()
@@ -187,6 +191,7 @@ actor AgentChatTranscriptTailer {
             parseState = ChatTranscriptParseState()
             headTruncated = false
             loadInitialTail()
+            await onBatch(Batch(appended: [], updated: [], discoveredTitle: nil, didReset: true))
             return
         }
         guard size > byteOffset else { return }

@@ -140,6 +140,9 @@ final class AgentChatTranscriptService {
     }
 
     private func publishBatch(_ batch: AgentChatTranscriptTailer.Batch, sessionID: String) {
+        if batch.didReset {
+            emit(frame: ChatSessionEventFrame(sessionID: sessionID, event: .reset))
+        }
         if let title = batch.discoveredTitle {
             registry.update(sessionID: sessionID) { $0.title = title }
         }

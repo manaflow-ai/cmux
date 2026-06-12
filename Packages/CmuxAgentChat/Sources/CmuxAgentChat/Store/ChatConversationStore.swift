@@ -124,19 +124,17 @@ public final class ChatConversationStore {
                 await resyncTail()
             }
             let streamStartedAt = now()
-            var receivedEvent = false
             for await event in stream {
-                receivedEvent = true
                 apply(event)
             }
             isConnected = false
             guard !Task.isCancelled else { return }
             // Back off before resubscribing unless the stream was healthy
-            // (delivered something AND survived a while): a flapping
-            // connection that pushes one frame per subscribe must not spin
-            // subscribe+resync RPCs at full speed. Cancellable sleep.
-            let streamWasHealthy = receivedEvent
-                && now().timeIntervalSince(streamStartedAt) > 5
+            // (survived a while): a flapping connection dies in well under
+            // five seconds, while an idle session's stream can legitimately
+            // deliver nothing for hours — liveness, not traffic, is the
+            // health signal. Cancellable sleep.
+            let streamWasHealthy = now().timeIntervalSince(streamStartedAt) > 5
             if streamWasHealthy {
                 backoff = .zero
             } else {
@@ -358,6 +356,18 @@ public final class ChatConversationStore {
         case .descriptorChanged(let descriptor):
             self.descriptor = descriptor
             agentState = descriptor.state
+        case .reset:
+            // The transcript was truncated/replaced on the Mac (tailer
+            // re-read from scratch). The window's seq space is void; clear
+            // and re-anchor from fresh history.
+            messages = []
+            pending.removeAll { item in
+                if case .failed = item.delivery { return false }
+                return true
+            }
+            hasMoreHistory = false
+            reproject()
+            Task { await resyncTail() }
         case .unknown:
             break
         }
@@ -391,20 +401,29 @@ public final class ChatConversationStore {
             switch message.kind {
             case .prose(let prose):
                 let echoed = prose.text.trimmingCharacters(in: .whitespacesAndNewlines)
+                // Two passes: an exact-text match anywhere beats shape
+                // heuristics on an older pending, so "/compact"'s own echo
+                // can't be eaten by an attachment-only pending's path rule.
                 index = pending.firstIndex { item in
-                    // A failed send keeps its retry row no matter what
-                    // echoes; only in-flight/delivered rows reconcile.
-                    if case .failed = item.delivery { return false }
+                    guard item.isReconcilable else { return false }
+                    return item.text == echoed
+                } ?? pending.firstIndex { item in
+                    guard item.isReconcilable else { return false }
                     if item.text.isEmpty {
                         // Attachment-only send: the Mac pastes the staged
-                        // image path, so the echo is a lone path line.
-                        return !echoed.contains("\n") && echoed.hasPrefix("/")
+                        // clipboard-image path, so the echo is a lone
+                        // pasteboard path line (never a user "/command").
+                        return !echoed.contains("\n")
+                            && echoed.hasPrefix("/")
+                            && echoed.contains("clipboard-")
                     }
-                    if item.text == echoed { return true }
                     // Attachments are pasted as file paths ahead of the
-                    // prompt, so a text+image echo is "<path> <text>";
-                    // match on the suffix.
-                    if item.attachmentCount > 0, echoed.hasSuffix(item.text) { return true }
+                    // prompt, so a text+image echo is "<path> <text>".
+                    if item.attachmentCount > 0,
+                       echoed.hasPrefix("/"),
+                       echoed.hasSuffix(" " + item.text) {
+                        return true
+                    }
                     // The transcript copy may be budget-truncated ("…"
                     // suffix); match on the echoed prefix so long prompts
                     // still reconcile.
@@ -423,8 +442,7 @@ public final class ChatConversationStore {
             case .attachment:
                 // Fixture/demo path: attachment echoes arrive typed.
                 index = pending.firstIndex { item in
-                    if case .failed = item.delivery { return false }
-                    return item.text.isEmpty
+                    item.isReconcilable && item.text.isEmpty
                 }
             default:
                 index = nil

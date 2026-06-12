@@ -507,19 +507,15 @@ struct ChatConversationStoreTests {
         defer { runTask.cancel() }
         #expect(await TestPoller.waitUntil { store.isConnected })
 
-        await store.send(text: "first\nfailed send")
-        #expect(await TestPoller.waitUntil { Self.pendingItems(store.rows).count == 1 })
-        // Force-fail it through the public surface: SilentSendEventSource
-        // succeeds, so emulate by discarding and re-checking via a failing
-        // echo guard instead: mark failed via retry of a non-failed row is
-        // a no-op, so emit a placeholder echo and verify the FAILED row is
-        // not consumed. First flip the row to failed through a failing
-        // source send.
+        // The OLDEST pending is the failed one (load-bearing for the
+        // guard: oldest-first matching would otherwise consume it).
         await source.setSendFailure(true)
-        await store.retry(pendingID: Self.pendingItems(store.rows)[0].id)
-        await store.send(text: "second\ndelivered send")
+        await store.send(text: "first\nfailed send")
+        #expect(await TestPoller.waitUntil {
+            Self.pendingItems(store.rows).contains { if case .failed = $0.delivery { return true }; return false }
+        })
         await source.setSendFailure(false)
-        await store.retry(pendingID: Self.pendingItems(store.rows)[0].id)
+        await store.send(text: "second\ndelivered send")
         _ = await TestPoller.waitUntil { Self.pendingItems(store.rows).count == 2 }
 
         let echo = ChatMessage(
@@ -539,6 +535,65 @@ struct ChatConversationStoreTests {
         }
     }
 
+    @Test("a slash-command echo cannot consume an attachment-only pending")
+    func slashCommandEchoDoesNotEatAttachmentPending() async {
+        let source = SilentSendEventSource()
+        let store = Self.makeStore(source: source)
+        let runTask = Task { await store.run() }
+        defer { runTask.cancel() }
+        #expect(await TestPoller.waitUntil { store.isConnected })
+
+        let attachment = ChatOutboundAttachment(data: Data([0x89]), format: .png)
+        await store.send(text: "", attachments: [attachment])
+        await store.send(text: "/compact")
+        _ = await TestPoller.waitUntil { Self.pendingItems(store.rows).count == 2 }
+
+        let slashEcho = ChatMessage(
+            id: "echo-slash",
+            seq: 0,
+            role: .user,
+            timestamp: Self.baseTime,
+            kind: .prose(ChatProse(text: "/compact"))
+        )
+        await source.emit(.appended([slashEcho]))
+        _ = await TestPoller.waitUntil { Self.pendingItems(store.rows).count == 1 }
+        // The exact-text match consumed "/compact"; the attachment-only
+        // pending survives until its clipboard-path echo arrives.
+        #expect(Self.pendingItems(store.rows).first?.text.isEmpty == true)
+
+        let pathEcho = ChatMessage(
+            id: "echo-clip",
+            seq: 1,
+            role: .user,
+            timestamp: Self.baseTime,
+            kind: .prose(ChatProse(text: "/tmp/clipboard-2026-06-12-110000-abc123.png"))
+        )
+        await source.emit(.appended([pathEcho]))
+        #expect(await TestPoller.waitUntil { Self.pendingItems(store.rows).isEmpty })
+    }
+
+    @Test("a reset event clears the window and re-anchors from history")
+    func resetEventReanchors() async {
+        let backlog = Self.backlog(count: 5)
+        let source = FixtureChatEventSource(backlog: backlog)
+        let store = Self.makeStore(source: source)
+        let runTask = Task { await store.run() }
+        defer { runTask.cancel() }
+        #expect(await TestPoller.waitUntil { Self.snapshots(store.rows).count == 5 })
+
+        // Rewrite: fixture backlog replaced, reset pushed, new content lands.
+        await source.emit(.reset)
+        #expect(await TestPoller.waitUntil { Self.snapshots(store.rows).count <= 1 })
+        let rewritten = ChatMessage(
+            id: "rw-0", seq: 0, role: .user, timestamp: Self.baseTime,
+            kind: .prose(ChatProse(text: "fresh transcript"))
+        )
+        await source.emit(.appended([rewritten]))
+        #expect(await TestPoller.waitUntil {
+            Self.userProseTexts(store.rows) == ["fresh transcript"]
+        })
+    }
+
     @Test("a path-prefixed echo reconciles a text-plus-image send")
     func pathPrefixedEchoReconciles() async {
         let source = SilentSendEventSource()
@@ -556,7 +611,7 @@ struct ChatConversationStoreTests {
             seq: 0,
             role: .user,
             timestamp: Self.baseTime,
-            kind: .prose(ChatProse(text: "/tmp/cmux-image-abc.png what is in this screenshot"))
+            kind: .prose(ChatProse(text: "/tmp/clipboard-2026-06-12-110000-abc1.png what is in this screenshot"))
         )
         await source.emit(.appended([echo]))
         #expect(await TestPoller.waitUntil { Self.pendingItems(store.rows).isEmpty })
