@@ -2005,6 +2005,51 @@ final class TitlebarLeadingInsetPassthroughViewTests: XCTestCase {
     }
 }
 
+@MainActor
+final class TitlebarAccessoryDragTests: XCTestCase {
+    func testEmptyAccessoryChromeCanMoveWindow() {
+        _ = NSApplication.shared
+
+        let controller = TitlebarControlsAccessoryViewController(notificationStore: TerminalNotificationStore.shared)
+        let container = controller.view
+        container.frame = NSRect(x: 0, y: 0, width: 180, height: 44)
+
+        let emptyTopRightPoint = NSPoint(x: container.bounds.maxX - 4, y: container.bounds.maxY - 4)
+        guard let hitView = container.hitTest(emptyTopRightPoint) else {
+            XCTFail("Expected empty titlebar accessory chrome to participate in window dragging")
+            return
+        }
+
+        XCTAssertTrue(
+            hitView.mouseDownCanMoveWindow,
+            "Empty titlebar accessory chrome should let AppKit move the window instead of swallowing the mouse-down."
+        )
+    }
+
+    func testAccessoryControlsRemainNonDraggable() {
+        _ = NSApplication.shared
+
+        let controller = TitlebarControlsAccessoryViewController(notificationStore: TerminalNotificationStore.shared)
+        let container = controller.view
+        container.frame = NSRect(x: 0, y: 0, width: 180, height: 44)
+
+        let button = NSButton(frame: NSRect(x: 8, y: 8, width: 24, height: 24))
+        button.isBordered = false
+        container.addSubview(button)
+
+        guard let hitView = container.hitTest(NSPoint(x: 20, y: 20)) else {
+            XCTFail("Expected the accessory button to receive its own hit")
+            return
+        }
+
+        XCTAssertTrue(hitView === button)
+        XCTAssertFalse(
+            hitView.mouseDownCanMoveWindow,
+            "Actual titlebar controls must keep owning clicks instead of starting a window drag."
+        )
+    }
+}
+
 
 @Suite("Custom titlebar leading padding")
 struct CustomTitlebarLeadingPaddingTests {
