@@ -145,6 +145,17 @@ struct WorkstreamStoreTests {
         #expect(store.items.map(\.title).contains("PreCompact"))
         #expect(store.items.map(\.title).contains("PostCompact"))
         #expect(store.items.map(\.title).contains("SubagentStart"))
+        #expect(!store.items.contains { $0.kind == .sessionStart })
+        if let subagentStartItem = store.items.first(where: { $0.title == "SubagentStart" }) {
+            #expect(subagentStartItem.kind == .toolUse)
+            if case .toolUse(let toolName, _) = subagentStartItem.payload {
+                #expect(toolName == "subagent")
+            } else {
+                Issue.record("expected SubagentStart to decode as toolUse telemetry")
+            }
+        } else {
+            Issue.record("expected SubagentStart item")
+        }
     }
 
     @Test("Telemetry payloads preserve prompt, stop, and todo content")

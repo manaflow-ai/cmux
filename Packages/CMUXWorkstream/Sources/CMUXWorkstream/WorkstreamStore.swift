@@ -320,7 +320,7 @@ public final class WorkstreamStore {
         case .sessionStart:
             return (.sessionStart, .sessionStart)
         case .subagentStart:
-            return (.sessionStart, .sessionStart)
+            return (.toolUse, .toolUse(toolName: "subagent", toolInputJSON: toolInput))
         case .sessionEnd:
             return (.sessionEnd, .sessionEnd)
         case .stop, .subagentStop:

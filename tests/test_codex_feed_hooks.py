@@ -146,7 +146,10 @@ class FakeCmuxSocket:
                         "ok": True,
                         "result": result,
                     }
-                    conn.sendall(json.dumps(response).encode("utf-8") + b"\n")
+                    try:
+                        conn.sendall(json.dumps(response).encode("utf-8") + b"\n")
+                    except (BrokenPipeError, ConnectionResetError):
+                        return
 
 
 def monitor_pids_for_session(session_id: str) -> list[int]:
@@ -2106,6 +2109,8 @@ def test_codex_lifecycle_feed_events_stay_telemetry_and_distinct(cli_path: str, 
         event = params["event"]
         if event.get("hook_event_name") != event_name or event.get("_source") != "codex":
             raise AssertionError(f"Codex {event_name} should stay distinct in Feed, got {event!r}")
+        if event_name == "PostToolUse" and event.get("tool_input") != payload["tool_response"]:
+            raise AssertionError(f"Codex PostToolUse should forward tool_response, got {event!r}")
 
 
 def test_claude_subagent_stop_stays_distinct_feed_telemetry(cli_path: str, root: Path) -> None:
