@@ -1072,6 +1072,156 @@ struct WorkspaceGroupTests {
         #expect(manager.selectedTabId == focusedTab.id)
         #expect(manager.sidebarSelectedWorkspaceIds == [focusedTab.id])
     }
+
+    // MARK: - Gesture drag commit (explicit membership)
+
+    @Test func gestureDragJoinsGroupAtInteriorSlot() throws {
+        let manager = makeTabManager()
+        manager.addWorkspace(autoWelcomeIfNeeded: false)
+        manager.addWorkspace(autoWelcomeIfNeeded: false)
+        let originalIds = manager.tabs.map(\.id)
+        let groupId = try #require(manager.createWorkspaceGroup(
+            name: "G",
+            childWorkspaceIds: [originalIds[0], originalIds[1]]
+        ))
+        // tabs: [anchor, m0, m1, w2, w3]
+        let draggedId = manager.tabs[4].id
+        let anchorId = try #require(manager.workspaceGroups.first { $0.id == groupId }).anchorWorkspaceId
+
+        // Join between m0 and m1 (interior slot, index 2 after removal shift).
+        let moved = manager.applyGestureDragReorder(tabId: draggedId, toIndex: 2, desiredGroupId: groupId)
+
+        #expect(moved)
+        #expect(manager.tabs.first { $0.id == draggedId }?.groupId == groupId)
+        let order = manager.tabs.map(\.id)
+        #expect(order[0] == anchorId)
+        #expect(order[1] == originalIds[0])
+        #expect(order[2] == draggedId)
+        #expect(order[3] == originalIds[1])
+    }
+
+    @Test func gestureDragJoinsEmptyGroupFromBelow() throws {
+        let manager = makeTabManager()
+        manager.addWorkspace(autoWelcomeIfNeeded: false)
+        let originalIds = manager.tabs.map(\.id)
+        let groupId = try #require(manager.makeWorkspaceGroupFromWorkspace(anchorWorkspaceId: originalIds[0]))
+        // tabs: [anchor(=w0), w1, w2]
+        let draggedId = originalIds[2]
+
+        let moved = manager.applyGestureDragReorder(tabId: draggedId, toIndex: 1, desiredGroupId: groupId)
+
+        #expect(moved)
+        #expect(manager.tabs.first { $0.id == draggedId }?.groupId == groupId)
+        #expect(manager.tabs.map(\.id)[1] == draggedId)
+    }
+
+    @Test func gestureDragMembershipOnlyLeaveAtUnchangedIndex() throws {
+        let manager = makeTabManager()
+        manager.addWorkspace(autoWelcomeIfNeeded: false)
+        let originalIds = manager.tabs.map(\.id)
+        let groupId = try #require(manager.createWorkspaceGroup(
+            name: "G",
+            childWorkspaceIds: [originalIds[0], originalIds[1]]
+        ))
+        // tabs: [anchor, m0, m1, w2]; pull m1 out in place (last member slot).
+        let draggedId = originalIds[1]
+        let index = try #require(manager.tabs.firstIndex { $0.id == draggedId })
+
+        let changed = manager.applyGestureDragReorder(tabId: draggedId, toIndex: index, desiredGroupId: nil)
+
+        #expect(changed)
+        #expect(manager.tabs.first { $0.id == draggedId }?.groupId == nil)
+        // Contiguity holds: the row sits right after the group's run.
+        let memberIds = manager.tabs.filter { $0.groupId == groupId }.map(\.id)
+        #expect(!memberIds.contains(draggedId))
+        let lastMemberIndex = try #require(manager.tabs.lastIndex { $0.groupId == groupId })
+        let draggedIndex = try #require(manager.tabs.firstIndex { $0.id == draggedId })
+        #expect(draggedIndex > lastMemberIndex)
+    }
+
+    @Test func gestureDragMembershipChangeUnpins() throws {
+        let manager = makeTabManager()
+        manager.addWorkspace(autoWelcomeIfNeeded: false)
+        let originalIds = manager.tabs.map(\.id)
+        let groupId = try #require(manager.createWorkspaceGroup(
+            name: "G",
+            childWorkspaceIds: [originalIds[0]]
+        ))
+        // Pin the member, then drag it out: the pin must not survive and the
+        // row must land where aimed instead of teleporting to the pinned tier.
+        let memberId = originalIds[0]
+        let member = try #require(manager.tabs.first { $0.id == memberId })
+        manager.setPinned(member, pinned: true)
+        let lastIndex = manager.tabs.count - 1
+
+        let changed = manager.applyGestureDragReorder(tabId: memberId, toIndex: lastIndex, desiredGroupId: nil)
+
+        #expect(changed)
+        let moved = try #require(manager.tabs.first { $0.id == memberId })
+        #expect(moved.groupId == nil)
+        #expect(!moved.isPinned)
+        #expect(manager.tabs.firstIndex { $0.id == memberId } == lastIndex)
+    }
+
+    @Test func gestureDragRejectsAnchorsAndDeadGroups() throws {
+        let manager = makeTabManager()
+        manager.addWorkspace(autoWelcomeIfNeeded: false)
+        let originalIds = manager.tabs.map(\.id)
+        let groupId = try #require(manager.makeWorkspaceGroupFromWorkspace(anchorWorkspaceId: originalIds[0]))
+        let anchorId = try #require(manager.workspaceGroups.first { $0.id == groupId }).anchorWorkspaceId
+
+        #expect(manager.applyGestureDragReorder(tabId: anchorId, toIndex: 2, desiredGroupId: nil) == false)
+        // A stale group id resolves to no membership instead of corrupting state.
+        let draggedId = originalIds[2]
+        _ = manager.applyGestureDragReorder(tabId: draggedId, toIndex: 1, desiredGroupId: UUID())
+        #expect(manager.tabs.first { $0.id == draggedId }?.groupId == nil)
+    }
+
+    @Test func dragPreviewItemsKeepsInGroupSlotsWhenCollapsedGroupsExist() throws {
+        let manager = makeTabManager()
+        manager.addWorkspace(autoWelcomeIfNeeded: false)
+        manager.addWorkspace(autoWelcomeIfNeeded: false)
+        manager.addWorkspace(autoWelcomeIfNeeded: false)
+        let originalIds = manager.tabs.map(\.id)
+        // One EXPANDED group (m0, m1) and one COLLAPSED group (m2) — the
+        // collapsed group's hidden member used to flip the preview into
+        // top-level mode and kill the in-group slot preview entirely.
+        let expandedGroupId = try #require(manager.createWorkspaceGroup(
+            name: "Open",
+            childWorkspaceIds: [originalIds[0], originalIds[1]]
+        ))
+        let collapsedGroupId = try #require(manager.createWorkspaceGroup(
+            name: "Closed",
+            childWorkspaceIds: [originalIds[2]]
+        ))
+        manager.toggleWorkspaceGroupCollapsed(groupId: collapsedGroupId)
+        _ = expandedGroupId
+
+        let items = SidebarWorkspaceRenderItem.renderItems(
+            tabs: manager.tabs,
+            groupsById: Dictionary(uniqueKeysWithValues: manager.workspaceGroups.map { ($0.id, $0) })
+        )
+        let draggedId = try #require(manager.tabs.last).id
+        let targetMemberId = originalIds[1]
+        let reorderIds = manager.sidebarReorderWorkspaceIds(forDraggedWorkspaceId: draggedId)
+
+        let preview = SidebarWorkspaceRenderItem.dragPreviewItems(
+            items,
+            draggedWorkspaceId: draggedId,
+            dropIndicator: SidebarDropIndicator(tabId: targetMemberId, edge: .top),
+            reorderWorkspaceIds: reorderIds,
+            topLevelMode: false,
+            draggedMembershipGroupId: expandedGroupId
+        )
+
+        let previewIds = preview.map(\.representedWorkspaceId)
+        let itemIds = items.map(\.representedWorkspaceId)
+        #expect(previewIds != itemIds)
+        let draggedIndex = try #require(previewIds.firstIndex(of: draggedId))
+        let targetIndex = try #require(previewIds.firstIndex(of: targetMemberId))
+        #expect(draggedIndex == targetIndex - 1)
+        #expect(preview[draggedIndex].effectiveGroupId == expandedGroupId)
+    }
 }
 
 /// Covers the gesture-driven reorder hit-testing + hysteresis that

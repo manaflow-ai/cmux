@@ -3774,6 +3774,13 @@ class TabManager: ObservableObject {
         let membershipChanged = tab.groupId != resolvedGroupId
         if membershipChanged {
             tab.groupId = resolvedGroupId
+            // A drag that changes membership expresses a spatial intent that
+            // overrides pinning: keeping the pin would let the pinned-tier
+            // clamp teleport the row to the top of the sidebar (or into the
+            // group's pinned sub-tier) far from the slot the preview showed.
+            if tab.isPinned {
+                tab.isPinned = false
+            }
         }
         let moved = reorderWorkspace(tabId: tabId, toIndex: targetIndex, isDragOperation: false)
         if membershipChanged {
@@ -5181,7 +5188,14 @@ class TabManager: ObservableObject {
               workspace.id != group.anchorWorkspaceId else {
             return nil
         }
-        let memberIndices = tabs.indices.filter { tabs[$0].groupId == groupId }
+        // Exclude the moving row itself from the run bounds: a gesture join
+        // writes the NEW groupId before the move, so the row still sits at
+        // its OLD index — including it would stretch the run toward wherever
+        // the row happened to be and corrupt the clamp for cross-position
+        // joins. The anchor and the OTHER members define the run.
+        let memberIndices = tabs.indices.filter {
+            tabs[$0].groupId == groupId && tabs[$0].id != workspace.id
+        }
         guard let firstIndex = memberIndices.first,
               let lastIndex = memberIndices.last else {
             return nil
@@ -5192,12 +5206,15 @@ class TabManager: ObservableObject {
                 count += 1
             }
         }
+        // Bounds are insertion-style around the remaining run: a row moving
+        // up from below the run targets indices relative to the array WITH
+        // itself removed first, which `workspaceReorderPlan` accounts for.
         let lowerBound = workspace.isPinned
-            ? min(firstIndex + 1, lastIndex)
-            : min(firstIndex + 1 + pinnedMemberCount, lastIndex)
+            ? min(firstIndex + 1, lastIndex + 1)
+            : min(firstIndex + 1 + pinnedMemberCount, lastIndex + 1)
         let upperBound = workspace.isPinned
             ? max(firstIndex + pinnedMemberCount, lowerBound)
-            : lastIndex
+            : lastIndex + 1
         return min(max(clampedTargetIndex, lowerBound), upperBound)
     }
 

@@ -123,6 +123,7 @@ enum SidebarWorkspaceRenderItem {
         draggedWorkspaceId: UUID?,
         dropIndicator: SidebarDropIndicator?,
         reorderWorkspaceIds: [UUID],
+        topLevelMode: Bool,
         draggedMembershipGroupId: UUID? = nil
     ) -> [SidebarWorkspaceRenderItem] {
         guard let draggedWorkspaceId,
@@ -132,7 +133,11 @@ enum SidebarWorkspaceRenderItem {
             return items
         }
 
-        let topLevelMode = Set(reorderWorkspaceIds) != Set(items.map(\.representedWorkspaceId))
+        // The mode is the caller's reorder-scope mode, pinned at drag begin.
+        // It must NOT be inferred from set equality of scope vs visible ids:
+        // a member drag's scope contains members hidden under collapsed
+        // groups, so any collapsed group used to flip the inference to
+        // top-level and the whole in-group slot preview silently died.
         let blocks = dragPreviewBlocks(
             items,
             reorderWorkspaceIds: reorderWorkspaceIds,

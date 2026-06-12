@@ -4,12 +4,12 @@
 32576	CLI/cmux.swift
 22034	Sources/TerminalController.swift
 19875	Sources/Workspace.swift
-19586	Sources/ContentView.swift
+19617	Sources/ContentView.swift
 17920	Sources/AppDelegate.swift
 16503	Sources/GhosttyTerminalView.swift
 13589	Sources/Panels/BrowserPanel.swift
 11756	cmuxTests/AppDelegateShortcutRoutingTests.swift
-10088	Sources/TabManager.swift
+10105	Sources/TabManager.swift
 8494	cmuxTests/CLINotifyProcessIntegrationRegressionTests.swift
 7737	Sources/Panels/BrowserPanelView.swift
 7214	cmuxTests/WorkspaceUnitTests.swift
@@ -69,11 +69,11 @@
 1365	Sources/Feed/FeedButtonStyleDebugWindowController.swift
 1362	Sources/CMUXInstalledExtensionSidebarHostView.swift
 1313	cmuxTests/MobileHostAuthorizationTests.swift
+1293	cmuxTests/WorkspaceGroupTests.swift
 1285	cmuxUITests/SidebarHelpMenuUITests.swift
 1197	cmuxTests/CodexAppServerSessionTests.swift
 1156	cmuxTests/SidebarOrderingTests.swift
 1144	Sources/VaultAgentProcessScanner.swift
-1143	cmuxTests/WorkspaceGroupTests.swift
 1139	cmuxTests/PiVaultAgentPersistenceTests.swift
 1107	Sources/AppDelegate+CmuxSSHURL.swift
 1084	cmuxTests/AgentHibernationTests.swift
@@ -181,6 +181,5 @@
 506	Sources/App/MainWindowVisibilityController.swift
 505	cmuxUITests/DisplayResolutionRegressionUITests.swift
 504	cmuxTests/TerminalNotificationSocketActionTests.swift
-503	Sources/SidebarWorkspaceGroupHeaderView.swift
 502	Sources/CmuxEventPublishing.swift
 502	Sources/Settings/ConfigSource.swift

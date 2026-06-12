@@ -1,7 +1,9 @@
 import SwiftUI
 
 /// The floating copy of the picked-up workspace row that tracks the cursor
-/// during a gesture-driven reorder.
+/// during a gesture-driven reorder. For a group-header drag the follower
+/// carries the WHOLE visible block (header + member rows) so the group reads
+/// as one object traveling with the cursor.
 ///
 /// This is the ONLY view that reads `SidebarDragState.followerCursorY`, the
 /// per-frame cursor position. Because it is a sibling overlay over the list (not
@@ -13,12 +15,17 @@ import SwiftUI
 /// group-membership indent, which animates on its own axis (see below).
 struct SidebarReorderFollowerView: View {
     let dragState: SidebarDragState
-    /// The committed render list, used to find the picked-up row's content.
+    /// The committed render list, used to find the picked-up row's content
+    /// (and, for a header drag, the member rows that follow it).
     let sourceItems: [SidebarWorkspaceRenderItem]
+    /// Spacing between the header and member rows in a group-block follower,
+    /// matching the list's row spacing.
+    let rowSpacing: CGFloat
     /// Extra leading indent previewed for the dragged row at its current
-    /// landing slot (member indent when the slot is inside a group the row is
-    /// not yet a member of, 0 otherwise). Derived by the parent from the
-    /// preview items, so it only changes when the landing slot does.
+    /// landing slot, RELATIVE to its committed indent (positive tucking into
+    /// a group, negative pulling out, 0 unchanged). Derived by the parent
+    /// from the resolved membership, so it only changes when the resolved
+    /// membership does.
     let previewExtraIndent: CGFloat
     let rowContent: (SidebarWorkspaceRenderItem) -> AnyView
 
@@ -28,31 +35,51 @@ struct SidebarReorderFollowerView: View {
            let frame = dragState.draggedRowFrame,
            frame.width > 0,
            frame.height > 0,
-           let item = sourceItems.first(where: { $0.representedWorkspaceId == draggedId }) {
+           let itemIndex = sourceItems.firstIndex(where: { $0.representedWorkspaceId == draggedId }) {
             let topY = cursorY - dragState.grabOffsetY
-            // Parking over a header's drop-into zone also previews membership.
-            let extraIndent = dragState.dropIntoGroupAnchorId != nil
-                ? SidebarWorkspaceGroupingMetrics.memberIndent
-                : previewExtraIndent
-            // The indent is applied INSIDE the fixed-size, position-tracked
-            // container, on its own animation keyed to the indent value: the
-            // row slides right and narrows when the landing slot crosses into
-            // a group (and back out), while Y stays glued to the cursor with
-            // animations disabled.
-            rowContent(item)
-                .padding(.leading, extraIndent)
-                .animation(.snappy(duration: 0.15, extraBounce: 0), value: extraIndent)
-                .frame(width: frame.width, height: frame.height, alignment: .topLeading)
-                .position(x: frame.midX, y: topY + frame.height / 2)
-                .shadow(color: Color.black.opacity(0.18), radius: 11, x: 0, y: 5)
-                .opacity(0.97)
-                .allowsHitTesting(false)
-                .accessibilityHidden(true)
-                .zIndex(1000)
-                .transaction { transaction in
-                    transaction.disablesAnimations = true
-                    transaction.animation = nil
+            let blockItems = followerBlockItems(startingAt: itemIndex)
+            // The indent is applied INSIDE the position-tracked container, on
+            // its own animation keyed to the indent value: the row slides
+            // right and narrows when the landing slot crosses into a group
+            // (and back out), while Y stays glued to the cursor with
+            // animations disabled. The container is sized to the picked-up
+            // row's frame and top-aligned, so a group block overflows below
+            // it without disturbing the cursor anchor math.
+            VStack(alignment: .leading, spacing: rowSpacing) {
+                ForEach(blockItems, id: \.representedWorkspaceId) { item in
+                    rowContent(item)
                 }
+            }
+            .padding(.leading, previewExtraIndent)
+            .animation(.snappy(duration: 0.15, extraBounce: 0), value: previewExtraIndent)
+            .frame(width: frame.width, height: frame.height, alignment: .topLeading)
+            .position(x: frame.midX, y: topY + frame.height / 2)
+            .shadow(color: Color.black.opacity(0.18), radius: 11, x: 0, y: 5)
+            .opacity(0.97)
+            .allowsHitTesting(false)
+            .accessibilityHidden(true)
+            .zIndex(1000)
+            .transaction { transaction in
+                transaction.disablesAnimations = true
+                transaction.animation = nil
+            }
         }
+    }
+
+    /// The dragged item plus, for a group header, the visible member rows
+    /// that follow it in the committed list (capped so enormous groups don't
+    /// turn the per-frame follower into a wall of rows).
+    private func followerBlockItems(startingAt itemIndex: Int) -> [SidebarWorkspaceRenderItem] {
+        let item = sourceItems[itemIndex]
+        guard case .groupHeader(let group, _) = item else { return [item] }
+        var block: [SidebarWorkspaceRenderItem] = [item]
+        var index = itemIndex + 1
+        while index < sourceItems.count, block.count < 7 {
+            guard case .workspace(let workspace, _) = sourceItems[index],
+                  workspace.groupId == group.id else { break }
+            block.append(sourceItems[index])
+            index += 1
+        }
+        return block
     }
 }

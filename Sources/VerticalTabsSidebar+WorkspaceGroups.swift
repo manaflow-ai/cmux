@@ -64,7 +64,6 @@ extension VerticalTabsSidebar {
             isCollapsed: group.isCollapsed,
             isPinned: group.isPinned,
             isAnchorActive: isAnchorActive,
-            isReorderDropTarget: role == .list && dragState.dropIntoGroupAnchorId == group.anchorWorkspaceId,
             memberCount: memberWorkspaceIds.count,
             groupUnreadCount: groupUnreadCount,
             shortcutDigit: shortcutDigit,

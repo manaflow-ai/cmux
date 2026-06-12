@@ -71,20 +71,12 @@ extension VerticalTabsSidebar {
                 usesTopLevelRows: usesTopLevelRows,
                 renderContext: renderContext
             )
-            // Membership-resolution inputs: each band's group identity, which
-            // bands are headers, and the headers a non-anchor row could be
-            // dropped INTO via their center zone.
+            // Membership-resolution inputs: each band's group identity and
+            // which bands are headers.
             let draggedWorkspace = renderContext.workspaceById[draggedId]
             let draggedGroupId = draggedWorkspace?.groupId
             let draggedIsAnchor = renderContext.workspaceGroups
                 .contains { $0.anchorWorkspaceId == draggedId }
-            let dropIntoCandidates: Set<UUID> = draggedIsAnchor
-                ? []
-                : Set(
-                    renderContext.workspaceGroups
-                        .filter { $0.id != draggedGroupId }
-                        .map(\.anchorWorkspaceId)
-                )
             let bandGroupIdById: [UUID: UUID?] = Dictionary(
                 uniqueKeysWithValues: renderContext.tabs.map { ($0.id, $0.groupId) }
             )
@@ -105,7 +97,6 @@ extension VerticalTabsSidebar {
                 reorderIds: reorderIds,
                 pinnedIds: pinnedIds,
                 scopeBandComposition: composition,
-                dropIntoGroupCandidateAnchorIds: dropIntoCandidates,
                 bandGroupIdById: bandGroupIdById,
                 headerBandIds: headerBandIds,
                 draggedCommittedGroupId: draggedGroupId,
@@ -135,20 +126,30 @@ extension VerticalTabsSidebar {
             #endif
             return
         }
-        // Released over a group header's center zone: join that group. The
-        // only drag path INTO a collapsed group, whose members have no rows
-        // to land between.
-        if let anchorId = dragState.dropIntoGroupAnchorId,
-           let group = tabManager.workspaceGroups.first(where: { $0.anchorWorkspaceId == anchorId }) {
-            #if DEBUG
-            cmuxDebugLog("sidebar.reorder.end id=\(draggedId.uuidString.prefix(5)) intoGroup=\(group.id.uuidString.prefix(5))")
-            #endif
-            withAnimation(SidebarGroupAnimation.structure) {
-                tabManager.addWorkspaceToGroup(workspaceId: draggedId, groupId: group.id)
-            }
-            return
-        }
         guard let targetIndex = dragState.gestureReorderTargetIndex() else {
+            // No positional move — but the X axis may have flipped membership
+            // in place (tuck into the group directly above / pull out at the
+            // group's edge without moving). Commit the membership-only drop
+            // at the row's current index.
+            let membership = dragState.previewMembershipGroupId
+            if !dragState.dropIndicatorUsesTopLevelRows,
+               let currentIndex = tabManager.tabs.firstIndex(where: { $0.id == draggedId }),
+               membership != tabManager.tabs[currentIndex].groupId {
+                #if DEBUG
+                cmuxDebugLog(
+                    "sidebar.reorder.end id=\(draggedId.uuidString.prefix(5)) target=inPlace " +
+                    "membership=\(membership?.uuidString.prefix(5) ?? "nil")"
+                )
+                #endif
+                withAnimation(Self.sidebarReorderAnimation) {
+                    _ = tabManager.applyGestureDragReorder(
+                        tabId: draggedId,
+                        toIndex: currentIndex,
+                        desiredGroupId: membership
+                    )
+                }
+                return
+            }
             #if DEBUG
             cmuxDebugLog("sidebar.reorder.end id=\(draggedId.uuidString.prefix(5)) target=nil (noop)")
             #endif
