@@ -11,16 +11,22 @@ public struct CanvasHostCallbacks {
     /// that overlay window-level content on panes (web view portals) re-sync
     /// from this.
     public let onViewportGeometryChanged: (NSWindow?) -> Void
+    /// Fired once when a live scroll or magnify gesture ends, so hosts can
+    /// run a heavier settle-up pass (forced portal refresh) than the
+    /// per-frame geometry callback.
+    public let onViewportSettled: (NSWindow?) -> Void
 
     public init(
         onFocusPanel: @escaping (UUID) -> Void,
         onClosePanel: @escaping (UUID) -> Void,
         onLayoutChanged: @escaping () -> Void,
-        onViewportGeometryChanged: @escaping (NSWindow?) -> Void = { _ in }
+        onViewportGeometryChanged: @escaping (NSWindow?) -> Void = { _ in },
+        onViewportSettled: @escaping (NSWindow?) -> Void = { _ in }
     ) {
         self.onFocusPanel = onFocusPanel
         self.onClosePanel = onClosePanel
         self.onLayoutChanged = onLayoutChanged
         self.onViewportGeometryChanged = onViewportGeometryChanged
+        self.onViewportSettled = onViewportSettled
     }
 }

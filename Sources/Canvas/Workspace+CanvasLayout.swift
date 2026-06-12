@@ -183,3 +183,24 @@ extension Workspace {
         canvasModel.viewport?.modelDidChangeExternally(animated: false)
     }
 }
+
+
+extension Workspace {
+    /// Mirrors canvas pane z-order onto portal-hosted browser webviews so a
+    /// front pane's webview stacks above a back pane's.
+    func syncCanvasBrowserPortalZOrder() {
+        guard layoutMode == .canvas else { return }
+        let zOrder = canvasModel.layout.paneIDs
+        for panel in panels.values {
+            guard let browserPanel = panel as? BrowserPanel,
+                  !browserPanel.canvasInlineHostingActive,
+                  let paneID = canvasModel.paneID(containing: browserPanel.id),
+                  let z = zOrder.firstIndex(of: paneID) else { continue }
+            BrowserWindowPortalRegistry.updateEntryVisibility(
+                for: browserPanel.webView,
+                visibleInUI: true,
+                zPriority: 2 + z
+            )
+        }
+    }
+}

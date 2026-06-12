@@ -132,7 +132,9 @@ private struct CanvasRootRepresentable: NSViewRepresentable {
                     _ = workspace?.closePanel(panelId)
                 },
                 onLayoutChanged: { [weak workspace] in
-                    workspace?.noteCanvasLayoutChanged()
+                    guard let workspace else { return }
+                    workspace.noteCanvasLayoutChanged()
+                    workspace.syncCanvasBrowserPortalZOrder()
                 },
                 onViewportGeometryChanged: { [weak workspace] window in
                     // Window-portal-hosted content (browser webviews) tracks
@@ -149,6 +151,31 @@ private struct CanvasRootRepresentable: NSViewRepresentable {
                     }
                     guard let window else { return }
                     BrowserWindowPortalRegistry.scheduleExternalGeometrySynchronize(for: window)
+                },
+                onViewportSettled: { [weak workspace] window in
+                    // Gesture end: force-refresh every portal-hosted browser so
+                    // content can never rest at a stale frame, and re-derive
+                    // portal z-priorities from canvas z-order so front panes'
+                    // webviews stack above back panes'.
+                    guard let workspace else { return }
+                    let zOrder = workspace.canvasModel.layout.paneIDs
+                    for panel in workspace.panels.values {
+                        guard let browserPanel = panel as? BrowserPanel,
+                              !browserPanel.canvasInlineHostingActive else { continue }
+                        if let paneID = workspace.canvasModel.paneID(containing: browserPanel.id),
+                           let z = zOrder.firstIndex(of: paneID) {
+                            BrowserWindowPortalRegistry.updateEntryVisibility(
+                                for: browserPanel.webView,
+                                visibleInUI: true,
+                                zPriority: 2 + z
+                            )
+                        }
+                        BrowserWindowPortalRegistry.refresh(
+                            webView: browserPanel.webView,
+                            reason: "canvas.viewportSettled"
+                        )
+                    }
+                    _ = window
                 }
             ),
             themeProvider: {

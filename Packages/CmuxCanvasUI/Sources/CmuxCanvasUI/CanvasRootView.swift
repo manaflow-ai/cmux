@@ -32,6 +32,7 @@ public final class CanvasRootView: NSView {
     var dragSession: DragSession?
     var overviewRestore: (magnification: CGFloat, origin: CGPoint)?
     private var clipBoundsObserver: (any NSObjectProtocol)?
+    private var scrollSettleObservers: [any NSObjectProtocol] = []
     private var commandScrollMonitor: Any?
     private var hasPlacedInitialViewport = false
 
@@ -81,6 +82,21 @@ public final class CanvasRootView: NSView {
         ) { [weak self] _ in
             MainActor.assumeIsolated {
                 self?.viewportDidScroll()
+            }
+        }
+        scrollSettleObservers = [
+            NSScrollView.didEndLiveScrollNotification,
+            NSScrollView.didEndLiveMagnifyNotification,
+        ].map { name in
+            NotificationCenter.default.addObserver(
+                forName: name,
+                object: scrollView,
+                queue: nil
+            ) { [weak self] _ in
+                MainActor.assumeIsolated {
+                    guard let self else { return }
+                    self.callbacks.onViewportSettled(self.window)
+                }
             }
         }
         model.viewport = self
@@ -159,6 +175,8 @@ public final class CanvasRootView: NSView {
             NotificationCenter.default.removeObserver(clipBoundsObserver)
         }
         clipBoundsObserver = nil
+        scrollSettleObservers.forEach { NotificationCenter.default.removeObserver($0) }
+        scrollSettleObservers = []
         removeCommandScrollMonitor()
         if model.viewport === self {
             model.viewport = nil
@@ -178,6 +196,13 @@ public final class CanvasRootView: NSView {
         )
         descriptorsByPanelId = Dictionary(uniqueKeysWithValues: descriptors.map { ($0.id, $0) })
 
+        // The focused pane always rides to the front, regardless of which
+        // entrypoint moved focus (click, keyboard, palette, socket).
+        if let focusedPanelId,
+           let focusedPane = model.paneID(containing: focusedPanelId),
+           model.layout.paneIDs.last != focusedPane {
+            model.bringToFront(focusedPanelId)
+        }
         reconcilePanes()
         applyZOrder()
         recomputeDocumentGeometry()
