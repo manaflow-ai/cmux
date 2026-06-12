@@ -8872,7 +8872,6 @@ class BrowserDownloadDelegate: NSObject, WKDownloadDelegate {
         #if DEBUG
         cmuxDebugLog("download.decideDestination file=\(safeFilename)")
         #endif
-        NSLog("BrowserPanel download: temp path=%@", destURL.path)
         completionHandler(destURL)
     }
 
@@ -8886,8 +8885,6 @@ class BrowserDownloadDelegate: NSObject, WKDownloadDelegate {
         #if DEBUG
         cmuxDebugLog("download.finished file=\(info.suggestedFilename)")
         #endif
-        NSLog("BrowserPanel download finished: %@", info.suggestedFilename)
-
         let filenameResolver = BrowserDownloadFilenameResolver()
         Task { @MainActor in
             let imageType = await Task.detached(priority: .utility) {
@@ -8905,11 +8902,12 @@ class BrowserDownloadDelegate: NSObject, WKDownloadDelegate {
                     return
                 }
                 do {
-                    try? FileManager.default.removeItem(at: destURL)
-                    try FileManager.default.moveItem(at: info.tempURL, to: destURL)
-                    NSLog("BrowserPanel download saved: %@", destURL.path)
+                    if FileManager.default.fileExists(atPath: destURL.path) {
+                        _ = try FileManager.default.replaceItemAt(destURL, withItemAt: info.tempURL)
+                    } else {
+                        try FileManager.default.moveItem(at: info.tempURL, to: destURL)
+                    }
                 } catch {
-                    NSLog("BrowserPanel download move failed: %@", error.localizedDescription)
                     try? FileManager.default.removeItem(at: info.tempURL)
                 }
             }
