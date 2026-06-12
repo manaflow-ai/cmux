@@ -15,14 +15,19 @@ extension ControlCommandCoordinator {
         // back to the current window/workspace/focused surface: this verb is
         // focus-intent and opens UI, so a typo'd target would mutate the
         // wrong place and report success (same rule as the resume verbs).
-        for key in ["window_id", "workspace_id", "surface_id", "tab_id"] where hasNonNull(params, key) {
+        for key in ["window_id", "workspace_id", "surface_id", "terminal_id", "tab_id"]
+        where hasNonNull(params, key) {
             if uuid(params, key) == nil {
                 return .err(code: "invalid_params", message: "Missing or invalid \(key)", data: nil)
             }
         }
         let resolution = context?.controlSurfaceAgentChatOpen(
             routing: routing,
-            surfaceID: uuid(params, "surface_id")
+            // The alias-resolved surface selector (surface_id / terminal_id /
+            // tab_id), exactly what routingSelectors computed — forwarding
+            // only surface_id would drop the aliases and fall back to the
+            // focused surface for a caller who targeted explicitly.
+            surfaceID: routing.surfaceID
         ) ?? .tabManagerUnavailable
         switch resolution {
         case .tabManagerUnavailable:

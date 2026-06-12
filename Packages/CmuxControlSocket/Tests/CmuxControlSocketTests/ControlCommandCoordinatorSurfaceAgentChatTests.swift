@@ -136,7 +136,7 @@ extension ControlCommandCoordinatorSurfaceAgentChatTests {
     /// A present-but-malformed explicit selector must fail instead of silently
     /// falling back to the current window/workspace/focused surface
     /// (wrong-target open with success). Same rule as the resume verbs.
-    @Test(arguments: ["window_id", "workspace_id", "surface_id", "tab_id"])
+    @Test(arguments: ["window_id", "workspace_id", "surface_id", "terminal_id", "tab_id"])
     func malformedExplicitSelectorIsInvalidParams(key: String) {
         let (coordinator, context) = makeCoordinator()
         context.routingResolvesTabManager = true
@@ -149,5 +149,25 @@ extension ControlCommandCoordinatorSurfaceAgentChatTests {
         #expect(code == "invalid_params")
         #expect(message == "Missing or invalid \(key)")
         #expect(context.openCallCount == 0)
+    }
+
+    /// The surface aliases other verbs accept (terminal_id, tab_id) must reach
+    /// the seam as the explicit selector, not silently fall back to the
+    /// focused surface.
+    @Test(arguments: ["surface_id", "terminal_id", "tab_id"])
+    func surfaceAliasReachesTheContextSeam(key: String) {
+        let (coordinator, context) = makeCoordinator()
+        context.routingResolvesTabManager = true
+        let target = UUID()
+        context.agentChatResolution = .requested(
+            windowID: nil,
+            workspaceID: UUID(),
+            surfaceID: target
+        )
+        guard case .ok? = coordinator.handle(request([key: .string(target.uuidString)])) else {
+            Issue.record("Expected ok result for \(key)")
+            return
+        }
+        #expect(context.lastSurfaceID == target)
     }
 }
