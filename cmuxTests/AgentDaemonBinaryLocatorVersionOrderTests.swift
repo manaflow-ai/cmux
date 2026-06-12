@@ -1,6 +1,10 @@
 import Testing
 
+#if canImport(cmux_DEV)
+@testable import cmux_DEV
+#elseif canImport(cmux)
 @testable import cmux
+#endif
 
 /// The cached-daemon fallback must pick the newest version numerically:
 /// lexicographic sorting put 0.9.0 ahead of 0.10.0, so a user holding both
