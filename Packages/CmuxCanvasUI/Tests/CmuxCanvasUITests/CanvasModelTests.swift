@@ -75,7 +75,7 @@ struct CanvasModelTests {
             (id: b, frame: CGRect(x: 400, y: 0, width: 300, height: 200)),
         ])
         model.bringToFront(a)
-        #expect(model.persistablePanes.map(\.panelId) == [b, a])
+        #expect(model.persistablePanes.map(\.paneId) == [b, a])
     }
 
     @Test func revisionAdvancesOnMutationOnly() {
@@ -87,6 +87,88 @@ struct CanvasModelTests {
         #expect(model.revision == before)
         model.setFrame(CGRect(x: 5, y: 5, width: 300, height: 200), for: a)
         #expect(model.revision != before)
+    }
+
+    @Test func joinAndBreakRoundTrip() {
+        let model = makeModel()
+        let a = UUID()
+        let b = UUID()
+        model.restoreFrames([
+            (id: a, frame: CGRect(x: 0, y: 0, width: 300, height: 200)),
+            (id: b, frame: CGRect(x: 400, y: 0, width: 300, height: 200)),
+        ])
+
+        #expect(model.joinPanel(b, withPaneContaining: a))
+        // One pane left; both panels resolve to its frame.
+        #expect(model.layout.panes.count == 1)
+        #expect(model.frame(of: a) == model.frame(of: b))
+        #expect(model.layout.selectedPanelId(in: model.paneID(containing: a)!)?.rawValue == b)
+        // Joining again is a no-op.
+        #expect(!model.joinPanel(b, withPaneContaining: a))
+
+        #expect(model.breakOutPanel(b))
+        #expect(model.layout.panes.count == 2)
+        // The new pane does not overlap the source.
+        #expect(!model.frame(of: a)!.intersects(model.frame(of: b)!))
+        // Breaking a lone panel out is a no-op.
+        #expect(!model.breakOutPanel(b))
+    }
+
+    @Test func syncRemovesOnlyDepartedTabFromJoinedPane() {
+        let model = makeModel()
+        let a = UUID()
+        let b = UUID()
+        model.restoreFrames([
+            (id: a, frame: CGRect(x: 0, y: 0, width: 300, height: 200)),
+            (id: b, frame: CGRect(x: 400, y: 0, width: 300, height: 200)),
+        ])
+        model.joinPanel(b, withPaneContaining: a)
+        let frame = model.frame(of: a)
+
+        model.syncPanes(panelIds: [a], focusedPanelId: a)
+
+        // The pane survives with its frame; only the departed tab left.
+        #expect(model.layout.panes.count == 1)
+        #expect(model.frame(of: a) == frame)
+        #expect(model.frame(of: b) == nil)
+    }
+
+    @Test func spatialFocusResolvesNeighborSelectedTab() {
+        let model = makeModel()
+        let a = UUID()
+        let b = UUID()
+        let c = UUID()
+        model.restoreFrames([
+            (id: a, frame: CGRect(x: 0, y: 0, width: 300, height: 200)),
+            (id: b, frame: CGRect(x: 400, y: 0, width: 300, height: 200)),
+            (id: c, frame: CGRect(x: 800, y: 0, width: 300, height: 200)),
+        ])
+        model.joinPanel(c, withPaneContaining: b)
+        model.selectPanel(c)
+
+        // Moving right from `a` lands on the neighbor pane's SELECTED tab.
+        #expect(model.pane(.right, from: a) == c)
+        // And from either tab of the joined pane, left lands back on `a`.
+        #expect(model.pane(.left, from: b) == a)
+        #expect(model.pane(.left, from: c) == a)
+    }
+
+    @Test func persistablePanesRoundTripTabs() {
+        let model = makeModel()
+        let a = UUID()
+        let b = UUID()
+        model.restoreFrames([
+            (id: a, frame: CGRect(x: 0, y: 0, width: 300, height: 200)),
+            (id: b, frame: CGRect(x: 400, y: 0, width: 300, height: 200)),
+        ])
+        model.joinPanel(b, withPaneContaining: a)
+
+        let persisted = model.persistablePanes
+        let restored = makeModel()
+        restored.restorePanes(persisted)
+
+        #expect(restored.layout == model.layout)
+        #expect(restored.layout.selectedPanelId(in: restored.paneID(containing: a)!)?.rawValue == b)
     }
 
     @Test func alignmentDefaultsToAllPanes() {

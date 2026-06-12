@@ -60,23 +60,24 @@ extension Workspace {
 
     // MARK: - Session persistence
 
-    /// Canvas pane frames in z-order for the session snapshot; `nil` when the
-    /// workspace has never entered canvas mode.
+    /// Canvas panes (frames, tabs, selection) in z-order for the session
+    /// snapshot; `nil` when the workspace has never entered canvas mode.
     func canvasSessionPaneSnapshots() -> [SessionCanvasPaneSnapshot]? {
-        let snapshots: [SessionCanvasPaneSnapshot] = canvasModel.layout.paneIDs.compactMap { paneID in
-            guard let frame = canvasModel.frame(of: paneID.rawValue) else { return nil }
-            return SessionCanvasPaneSnapshot(
-                panelId: paneID.rawValue,
-                x: frame.origin.x,
-                y: frame.origin.y,
-                width: frame.width,
-                height: frame.height
+        let snapshots: [SessionCanvasPaneSnapshot] = canvasModel.persistablePanes.map { pane in
+            SessionCanvasPaneSnapshot(
+                panelId: pane.paneId,
+                x: pane.frame.origin.x,
+                y: pane.frame.origin.y,
+                width: pane.frame.width,
+                height: pane.frame.height,
+                panelIds: pane.panelIds,
+                selectedPanelId: pane.selectedPanelId
             )
         }
         return snapshots.isEmpty ? nil : snapshots
     }
 
-    /// Restores canvas frames (remapped onto the freshly minted panel ids)
+    /// Restores canvas panes (remapped onto the freshly minted panel ids)
     /// and the layout mode. Setting `layoutMode` directly skips the
     /// seed-from-splits path, which would overwrite the restored frames.
     func restoreCanvasState(
@@ -84,13 +85,26 @@ extension Workspace {
         oldToNewPanelIds: [UUID: UUID]
     ) {
         if let canvasPanes = snapshot.canvasPanes {
-            let frames: [(id: UUID, frame: CGRect)] = canvasPanes.compactMap { pane in
-                guard let newId = oldToNewPanelIds[pane.panelId], panels[newId] != nil else {
-                    return nil
+            let restored: [CanvasModel.PersistablePane] = canvasPanes.compactMap { pane in
+                // Pre-tab snapshots stored a single panel in `panelId`.
+                let oldPanelIds = pane.panelIds ?? [pane.panelId]
+                let newPanelIds = oldPanelIds.compactMap { oldId -> UUID? in
+                    guard let newId = oldToNewPanelIds[oldId], panels[newId] != nil else { return nil }
+                    return newId
                 }
-                return (newId, CGRect(x: pane.x, y: pane.y, width: pane.width, height: pane.height))
+                guard !newPanelIds.isEmpty else { return nil }
+                let oldSelected = pane.selectedPanelId ?? pane.panelId
+                let newSelected = oldToNewPanelIds[oldSelected].flatMap { newPanelIds.contains($0) ? $0 : nil }
+                return CanvasModel.PersistablePane(
+                    // Pane identity follows its first surviving panel so it
+                    // stays stable across the id remap.
+                    paneId: newPanelIds[0],
+                    frame: CGRect(x: pane.x, y: pane.y, width: pane.width, height: pane.height),
+                    panelIds: newPanelIds,
+                    selectedPanelId: newSelected ?? newPanelIds[0]
+                )
             }
-            canvasModel.restoreFrames(frames)
+            canvasModel.restorePanes(restored)
         }
         if snapshot.layoutMode == WorkspaceLayoutMode.canvas.rawValue {
             layoutMode = .canvas

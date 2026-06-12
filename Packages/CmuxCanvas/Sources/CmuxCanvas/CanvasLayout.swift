@@ -117,4 +117,102 @@ public struct CanvasLayout: Hashable, Codable, Sendable {
         let pane = panes.remove(at: index)
         panes.append(pane)
     }
+
+    // MARK: - Panels (tabs)
+
+    /// All hosted panel identifiers, pane by pane in z-order, tabs left to
+    /// right within each pane.
+    public var allPanelIds: [CanvasPanelID] {
+        panes.flatMap(\.panelIds)
+    }
+
+    /// The pane hosting the given panel, if any.
+    ///
+    /// - Parameter panelId: The panel to look up.
+    /// - Returns: The hosting pane identifier.
+    public func pane(containing panelId: CanvasPanelID) -> CanvasPaneID? {
+        panes.first(where: { $0.contains(panelId) })?.id
+    }
+
+    /// The ordered tabs of a pane, or `nil` for an absent pane.
+    public func panelIds(in id: CanvasPaneID) -> [CanvasPanelID]? {
+        panes.first(where: { $0.id == id })?.panelIds
+    }
+
+    /// The selected tab of a pane, or `nil` for an absent pane.
+    public func selectedPanelId(in id: CanvasPaneID) -> CanvasPanelID? {
+        panes.first(where: { $0.id == id })?.selectedPanelId
+    }
+
+    /// Selects a tab inside the pane hosting it. No-op when no pane hosts it.
+    public mutating func selectPanel(_ panelId: CanvasPanelID) {
+        guard let index = panes.firstIndex(where: { $0.contains(panelId) }) else { return }
+        panes[index].select(panelId)
+    }
+
+    /// Inserts a panel into an existing pane (a join). The panel is removed
+    /// from any pane currently hosting it first, so this is also the move
+    /// primitive. Joining into an absent pane is a no-op.
+    ///
+    /// - Parameters:
+    ///   - panelId: The panel to add.
+    ///   - paneID: The destination pane.
+    ///   - index: Tab position (clamped); `nil` appends.
+    ///   - select: Whether the panel becomes the destination's selected tab.
+    public mutating func addPanel(
+        _ panelId: CanvasPanelID,
+        toPane paneID: CanvasPaneID,
+        at index: Int? = nil,
+        select: Bool = true
+    ) {
+        guard panes.contains(where: { $0.id == paneID }) else { return }
+        if pane(containing: panelId) != paneID {
+            removePanel(panelId)
+        }
+        guard let destination = panes.firstIndex(where: { $0.id == paneID }) else { return }
+        panes[destination].insert(panelId, at: index, select: select)
+    }
+
+    /// Removes a panel from the pane hosting it. A pane that loses its last
+    /// panel is removed from the canvas.
+    ///
+    /// - Parameter panelId: The panel to remove.
+    /// - Returns: The pane that hosted it, or `nil` when no pane did.
+    @discardableResult
+    public mutating func removePanel(_ panelId: CanvasPanelID) -> CanvasPaneID? {
+        guard let index = panes.firstIndex(where: { $0.contains(panelId) }) else { return nil }
+        let paneID = panes[index].id
+        if !panes[index].removePanel(panelId) {
+            panes.remove(at: index)
+        }
+        return paneID
+    }
+
+    /// Breaks a panel out of its pane into a new single-tab pane with the
+    /// given identifier and frame, in front of all existing panes. No-op when
+    /// no pane hosts the panel, or when it is already alone in its pane.
+    ///
+    /// - Parameters:
+    ///   - panelId: The panel to tear out.
+    ///   - newPaneID: Identity for the new pane.
+    ///   - frame: Frame for the new pane, in canvas coordinates.
+    /// - Returns: Whether the break happened.
+    @discardableResult
+    public mutating func breakOutPanel(
+        _ panelId: CanvasPanelID,
+        intoPane newPaneID: CanvasPaneID,
+        frame: CanvasRect
+    ) -> Bool {
+        guard let index = panes.firstIndex(where: { $0.contains(panelId) }),
+              panes[index].panelIds.count > 1,
+              !contains(newPaneID) else { return false }
+        _ = panes[index].removePanel(panelId)
+        panes.append(CanvasPane(
+            id: newPaneID,
+            frame: frame,
+            panelIds: [panelId],
+            selectedPanelId: panelId
+        ))
+        return true
+    }
 }

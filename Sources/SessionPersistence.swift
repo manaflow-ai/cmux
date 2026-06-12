@@ -1792,11 +1792,17 @@ indirect enum SessionWorkspaceLayoutSnapshot: Codable, Sendable {
 /// One canvas pane's persisted geometry, ordered back-to-front so restore
 /// reproduces the z-order.
 struct SessionCanvasPaneSnapshot: Codable, Equatable, Sendable {
+    /// The pane identity (its founding panel's UUID). Pre-tab snapshots
+    /// stored the single hosted panel here.
     var panelId: UUID
     var x: Double
     var y: Double
     var width: Double
     var height: Double
+    /// Ordered tabs. Absent in pre-tab snapshots (treated as `[panelId]`).
+    var panelIds: [UUID]? = nil
+    /// Selected tab. Absent in pre-tab snapshots (treated as `panelId`).
+    var selectedPanelId: UUID? = nil
 }
 
 struct SessionWorkspaceSnapshot: Codable, Sendable {

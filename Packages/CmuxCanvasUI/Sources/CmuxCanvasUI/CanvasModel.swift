@@ -43,17 +43,18 @@ public final class CanvasModel {
     @discardableResult
     public func syncPanes(panelIds: [UUID], focusedPanelId: UUID?) -> [UUID] {
         var changed = false
-        let idSet = Set(panelIds)
-        for paneID in layout.paneIDs where !idSet.contains(paneID.rawValue) {
-            layout.remove(paneID)
+        let idSet = Set(panelIds.map(CanvasPanelID.init(rawValue:)))
+        for panelId in layout.allPanelIds where !idSet.contains(panelId) {
+            layout.removePanel(panelId)
             changed = true
         }
 
         var added: [UUID] = []
         let placer = CanvasPlacer(metrics: metrics)
-        for panelId in panelIds where !layout.contains(CanvasPaneID(rawValue: panelId)) {
+        for panelId in panelIds where layout.pane(containing: CanvasPanelID(rawValue: panelId)) == nil {
             let anchor = focusedPanelId
-                .flatMap { layout.frame(of: CanvasPaneID(rawValue: $0)) }
+                .flatMap { layout.pane(containing: CanvasPanelID(rawValue: $0)) }
+                .flatMap { layout.frame(of: $0) }
                 ?? layout.panes.last?.frame
             let frame = placer.frameForNewPane(
                 size: Self.defaultPaneSize,
@@ -74,29 +75,82 @@ public final class CanvasModel {
     public func seedFromSplitFrames(_ frames: [UUID: CGRect]) {
         var changed = false
         for (panelId, rect) in frames {
-            let paneID = CanvasPaneID(rawValue: panelId)
-            guard !layout.contains(paneID), rect.width > 1, rect.height > 1 else { continue }
-            layout.add(CanvasPane(id: paneID, frame: CanvasRect(rect)))
+            guard layout.pane(containing: CanvasPanelID(rawValue: panelId)) == nil,
+                  rect.width > 1, rect.height > 1 else { continue }
+            layout.add(CanvasPane(id: CanvasPaneID(rawValue: panelId), frame: CanvasRect(rect)))
             changed = true
         }
         if changed { revision &+= 1 }
     }
 
-    /// The frame of a pane, in canvas coordinates.
+    /// The pane hosting the given panel.
+    public func paneID(containing panelId: UUID) -> CanvasPaneID? {
+        layout.pane(containing: CanvasPanelID(rawValue: panelId))
+    }
+
+    /// The frame of the pane hosting the given panel, in canvas coordinates.
     public func frame(of panelId: UUID) -> CGRect? {
-        layout.frame(of: CanvasPaneID(rawValue: panelId))?.cgRect
+        paneID(containing: panelId).flatMap { layout.frame(of: $0)?.cgRect }
     }
 
-    /// Replaces a pane frame (gesture commit or socket command).
+    /// Replaces the frame of the pane hosting the panel (gesture commit or
+    /// socket command). Moving a tab's pane moves all its tabs.
     public func setFrame(_ frame: CGRect, for panelId: UUID) {
-        layout.setFrame(CanvasRect(frame), for: CanvasPaneID(rawValue: panelId))
+        guard let paneID = paneID(containing: panelId) else { return }
+        layout.setFrame(CanvasRect(frame), for: paneID)
         revision &+= 1
     }
 
-    /// Raises a pane to the front of the z-order.
+    /// Raises the pane hosting the panel to the front of the z-order.
     public func bringToFront(_ panelId: UUID) {
-        layout.bringToFront(CanvasPaneID(rawValue: panelId))
+        guard let paneID = paneID(containing: panelId) else { return }
+        layout.bringToFront(paneID)
         revision &+= 1
+    }
+
+    // MARK: - Tabs
+
+    /// Selects the panel as its pane's visible tab.
+    public func selectPanel(_ panelId: UUID) {
+        layout.selectPanel(CanvasPanelID(rawValue: panelId))
+        revision &+= 1
+    }
+
+    /// Moves `panelId` into the pane hosting `targetPanelId` (a join). The
+    /// source pane disappears when it loses its last tab.
+    /// - Returns: Whether the join happened.
+    @discardableResult
+    public func joinPanel(_ panelId: UUID, withPaneContaining targetPanelId: UUID) -> Bool {
+        let source = CanvasPanelID(rawValue: panelId)
+        guard let destination = layout.pane(containing: CanvasPanelID(rawValue: targetPanelId)),
+              layout.pane(containing: source) != nil,
+              layout.pane(containing: source) != destination else { return false }
+        layout.addPanel(source, toPane: destination, select: true)
+        revision &+= 1
+        return true
+    }
+
+    /// Breaks the panel out of its multi-tab pane into a new pane placed
+    /// near the source at the canonical gap.
+    /// - Returns: Whether the break happened.
+    @discardableResult
+    public func breakOutPanel(_ panelId: UUID) -> Bool {
+        let panel = CanvasPanelID(rawValue: panelId)
+        guard let sourcePaneID = layout.pane(containing: panel),
+              layout.panelIds(in: sourcePaneID)?.count ?? 0 > 1,
+              let sourceFrame = layout.frame(of: sourcePaneID) else { return false }
+        let frame = CanvasPlacer(metrics: metrics).frameForNewPane(
+            size: sourceFrame.size,
+            near: sourceFrame,
+            avoiding: layout.panes.map(\.frame)
+        )
+        let didBreak = layout.breakOutPanel(
+            panel,
+            intoPane: CanvasPaneID(rawValue: panelId),
+            frame: frame
+        )
+        if didBreak { revision &+= 1 }
+        return didBreak
     }
 
     /// Snaps a frame being moved. Pure passthrough to the snap engine.
@@ -104,9 +158,10 @@ public final class CanvasModel {
     /// - Parameter snapping: Pass `false` (Command held) to suspend snapping;
     ///   the proposed frame comes back unchanged.
     func snapForMove(proposed: CGRect, movingPanelId: UUID, snapping: Bool) -> CanvasSnapResult {
-        CanvasSnapEngine(metrics: gestureMetrics(snapping: snapping)).snapForMove(
+        let movingPane = paneID(containing: movingPanelId) ?? CanvasPaneID(rawValue: movingPanelId)
+        return CanvasSnapEngine(metrics: gestureMetrics(snapping: snapping)).snapForMove(
             proposed: CanvasRect(proposed),
-            neighbors: layout.frames(excluding: CanvasPaneID(rawValue: movingPanelId))
+            neighbors: layout.frames(excluding: movingPane)
         )
     }
 
@@ -120,25 +175,69 @@ public final class CanvasModel {
         panelId: UUID,
         snapping: Bool
     ) -> CanvasSnapResult {
-        CanvasSnapEngine(metrics: gestureMetrics(snapping: snapping)).snapForResize(
+        let resizingPane = paneID(containing: panelId) ?? CanvasPaneID(rawValue: panelId)
+        return CanvasSnapEngine(metrics: gestureMetrics(snapping: snapping)).snapForResize(
             proposed: CanvasRect(proposed),
             edges: edges,
-            neighbors: layout.frames(excluding: CanvasPaneID(rawValue: panelId))
+            neighbors: layout.frames(excluding: resizingPane)
         )
     }
 
-    /// Replaces the whole layout with persisted frames (already in z-order,
-    /// back to front). Used by session restore.
-    public func restoreFrames(_ ordered: [(id: UUID, frame: CGRect)]) {
-        layout = CanvasLayout(panes: ordered.map { entry in
-            CanvasPane(id: CanvasPaneID(rawValue: entry.id), frame: CanvasRect(entry.frame))
+    /// One persisted pane: identity, frame, ordered tabs, selection.
+    public struct PersistablePane {
+        public let paneId: UUID
+        public let frame: CGRect
+        public let panelIds: [UUID]
+        public let selectedPanelId: UUID
+
+        public init(paneId: UUID, frame: CGRect, panelIds: [UUID], selectedPanelId: UUID) {
+            self.paneId = paneId
+            self.frame = frame
+            self.panelIds = panelIds
+            self.selectedPanelId = selectedPanelId
+        }
+    }
+
+    /// Replaces the whole layout with persisted panes (already in z-order,
+    /// back to front). Used by session restore; panes restored with an empty
+    /// panel list are dropped.
+    public func restorePanes(_ ordered: [PersistablePane]) {
+        layout = CanvasLayout(panes: ordered.compactMap { entry in
+            let panelIds = entry.panelIds.map(CanvasPanelID.init(rawValue:))
+            guard !panelIds.isEmpty else { return nil }
+            return CanvasPane(
+                id: CanvasPaneID(rawValue: entry.paneId),
+                frame: CanvasRect(entry.frame),
+                panelIds: panelIds,
+                selectedPanelId: CanvasPanelID(rawValue: entry.selectedPanelId)
+            )
         })
         revision &+= 1
     }
 
+    /// Replaces the whole layout with persisted single-tab frames. Used by
+    /// session restore of pre-tab snapshots and by tests.
+    public func restoreFrames(_ ordered: [(id: UUID, frame: CGRect)]) {
+        restorePanes(ordered.map { entry in
+            PersistablePane(
+                paneId: entry.id,
+                frame: entry.frame,
+                panelIds: [entry.id],
+                selectedPanelId: entry.id
+            )
+        })
+    }
+
     /// The layout in persistence order (z-order, back to front).
-    public var persistablePanes: [(panelId: UUID, frame: CGRect)] {
-        layout.panes.map { ($0.id.rawValue, $0.frame.cgRect) }
+    public var persistablePanes: [PersistablePane] {
+        layout.panes.map { pane in
+            PersistablePane(
+                paneId: pane.id.rawValue,
+                frame: pane.frame.cgRect,
+                panelIds: pane.panelIds.map(\.rawValue),
+                selectedPanelId: pane.selectedPanelId.rawValue
+            )
+        }
     }
 
     private func gestureMetrics(snapping: Bool) -> CanvasMetrics {
@@ -170,11 +269,14 @@ public final class CanvasModel {
         return true
     }
 
-    /// The neighboring pane in a spatial direction from the given pane.
+    /// The selected panel of the neighboring pane in a spatial direction
+    /// from the pane hosting the given panel.
     public func pane(_ direction: CanvasDirection, from panelId: UUID) -> UUID? {
-        CanvasSpatialNavigator()
-            .pane(direction, from: CanvasPaneID(rawValue: panelId), in: layout)?
-            .rawValue
+        guard let sourcePane = paneID(containing: panelId),
+              let neighbor = CanvasSpatialNavigator().pane(direction, from: sourcePane, in: layout) else {
+            return nil
+        }
+        return layout.selectedPanelId(in: neighbor)?.rawValue
     }
 
     /// The smallest rect containing every pane, in canvas coordinates.
