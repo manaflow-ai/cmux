@@ -33,9 +33,12 @@ public enum AgentLaunchCaptureTrust {
         return wrapperLaunchersByKind[normalizedKind]?.contains(normalizedLauncher) == true
     }
 
-    /// True when a captured argv describes a shell dispatcher (`sh -c …`) rather
-    /// than an agent launch. This happens when the launch-capture PID fallback
-    /// resolves to the hook's own dispatch shell instead of the agent process.
+    /// True when a captured argv describes a shell dispatcher (`sh -c …`,
+    /// `zsh -lc …`) rather than an agent launch. This happens when the
+    /// launch-capture PID fallback resolves to the hook's own dispatch shell
+    /// instead of the agent process. Requires both a shell argv[0] basename and
+    /// a command-string flag, so an agent that merely shares a shell's name
+    /// (e.g. a wrapper script named `fish`) is not misclassified.
     public static func argvLooksLikeShellWrapper(_ arguments: [String]) -> Bool {
         guard let argv0 = arguments.first?.trimmingCharacters(in: .whitespacesAndNewlines),
               !argv0.isEmpty else {
@@ -43,6 +46,15 @@ public enum AgentLaunchCaptureTrust {
         }
         let name = (argv0 as NSString).lastPathComponent.lowercased()
         let shells: Set<String> = ["sh", "bash", "zsh", "dash", "fish", "csh", "tcsh", "ksh"]
-        return shells.contains(name)
+        guard shells.contains(name) else { return false }
+        guard arguments.count >= 2 else { return false }
+        // A combined short option whose letters are shell mode flags and that
+        // includes `c` (-c, -lc, -ic, -lic, …): the command-string form.
+        let flag = arguments[1]
+        guard flag.hasPrefix("-"), !flag.hasPrefix("--") else { return false }
+        let letters = flag.dropFirst()
+        return !letters.isEmpty
+            && letters.contains("c")
+            && letters.allSatisfy { "cilms".contains($0) }
     }
 }

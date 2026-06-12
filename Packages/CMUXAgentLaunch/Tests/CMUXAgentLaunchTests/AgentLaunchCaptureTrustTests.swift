@@ -32,7 +32,13 @@ final class AgentLaunchCaptureTrustTests: XCTestCase {
     func testShellWrapperArgvDetection() {
         XCTAssertTrue(AgentLaunchCaptureTrust.argvLooksLikeShellWrapper(["sh", "-c", "eval x"]))
         XCTAssertTrue(AgentLaunchCaptureTrust.argvLooksLikeShellWrapper(["/bin/zsh", "-lc", "codex"]))
+        XCTAssertTrue(AgentLaunchCaptureTrust.argvLooksLikeShellWrapper(["/bin/zsh", "-lic", "codex"]))
         XCTAssertFalse(AgentLaunchCaptureTrust.argvLooksLikeShellWrapper(["/usr/local/bin/codex", "--yolo"]))
         XCTAssertFalse(AgentLaunchCaptureTrust.argvLooksLikeShellWrapper([]))
+        // An agent that merely shares a shell's basename must stay trusted.
+        XCTAssertFalse(AgentLaunchCaptureTrust.argvLooksLikeShellWrapper(["/Users/alice/.local/bin/fish", "--resume", "x"]))
+        XCTAssertFalse(AgentLaunchCaptureTrust.argvLooksLikeShellWrapper(["sh"]))
+        // `--chrome` is a long option, not a shell command-string flag.
+        XCTAssertFalse(AgentLaunchCaptureTrust.argvLooksLikeShellWrapper(["zsh", "--chrome"]))
     }
 }
