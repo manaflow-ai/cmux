@@ -142,7 +142,8 @@ private struct CanvasRootRepresentable: NSViewRepresentable {
                     // same frame, then schedule the coalesced settle-up pass.
                     if let workspace {
                         for panel in workspace.panels.values {
-                            guard let browserPanel = panel as? BrowserPanel else { continue }
+                            guard let browserPanel = panel as? BrowserPanel,
+                                  !browserPanel.canvasInlineHostingActive else { continue }
                             BrowserWindowPortalRegistry.synchronizeForAnchor(browserPanel.portalAnchorView)
                         }
                     }

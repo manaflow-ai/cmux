@@ -64,8 +64,13 @@ final class CanvasPaneContentMount: CanvasPaneContentMounting {
         case .hosted(let panel, let hostedView):
             view = hostedView
             // Canvas drives panel-level webview lifecycle: mounting makes the
-            // browser visible (and restores a hidden-discarded webview).
-            (panel as? BrowserPanel)?.noteWebViewVisibility(true, reason: "canvas.mount")
+            // browser visible (and restores a hidden-discarded webview), and
+            // marks the webview inline-hosted so portal reconcilers leave it
+            // to the pane hierarchy.
+            if let browserPanel = panel as? BrowserPanel {
+                browserPanel.canvasInlineHostingActive = true
+                browserPanel.noteWebViewVisibility(true, reason: "canvas.mount")
+            }
         }
 
         view.translatesAutoresizingMaskIntoConstraints = true
@@ -107,7 +112,10 @@ final class CanvasPaneContentMount: CanvasPaneContentMounting {
             panel.surface.setOcclusion(true)
             hostedView.removeFromSuperview()
         case .hosted(let panel, let view):
-            (panel as? BrowserPanel)?.noteWebViewVisibility(false, reason: "canvas.unmount")
+            if let browserPanel = panel as? BrowserPanel {
+                browserPanel.canvasInlineHostingActive = false
+                browserPanel.noteWebViewVisibility(false, reason: "canvas.unmount")
+            }
             view.removeFromSuperview()
         }
         onFocusPanel = nil

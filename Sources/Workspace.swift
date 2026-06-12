@@ -17889,6 +17889,9 @@ final class Workspace: Identifiable, ObservableObject {
 
         for panel in panels.values {
             guard let browserPanel = panel as? BrowserPanel else { continue }
+            // Canvas-inline-hosted webviews live in the pane hierarchy; portal
+            // rebinds/refreshes here would steal them back into the portal.
+            if browserPanel.canvasInlineHostingActive { continue }
             let shouldBeVisible = visiblePanelIds.contains(browserPanel.id)
             let anchorView = browserPanel.portalAnchorView
             let snapshot = BrowserWindowPortalRegistry.debugSnapshot(for: browserPanel.webView)
