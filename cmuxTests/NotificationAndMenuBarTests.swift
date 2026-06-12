@@ -609,97 +609,8 @@ final class NotificationDockBadgeTests: XCTestCase {
         TerminalNotificationStore.shared.resetNotificationSettingsPromptHooksForTesting()
         TerminalNotificationStore.shared.replaceNotificationsForTesting([])
         TerminalNotificationStore.shared.resetNotificationDeliveryHandlerForTesting()
-        TerminalNotificationStore.shared.resetNotificationAuthorizationHandlerForTesting()
-        TerminalNotificationStore.shared.resetUserNotificationSchedulerForTesting()
         TerminalNotificationStore.shared.resetSuppressedNotificationFeedbackHandlerForTesting()
         super.tearDown()
-    }
-
-    private func assertNotificationCommandDoesNotRunWhenNativeDeliveryUnavailable(
-        configureNativeDelivery: (TerminalNotificationStore) -> Void,
-        file: StaticString = #filePath,
-        line: UInt = #line
-    ) throws {
-        guard let appDelegate = AppDelegate.shared else {
-            XCTFail("AppDelegate.shared must be set for this test", file: file, line: line)
-            return
-        }
-        let manager = TabManager()
-        let store = TerminalNotificationStore.shared
-        let defaults = UserDefaults.standard
-        let commandOutputURL = FileManager.default.temporaryDirectory
-            .appendingPathComponent("cmux-native-notification-fallback-\(UUID().uuidString).txt", isDirectory: false)
-
-        let originalTabManager = appDelegate.tabManager
-        let originalNotificationStore = appDelegate.notificationStore
-        let originalAppFocusOverride = AppFocusState.overrideIsFocused
-        let hadSoundValue = defaults.object(forKey: NotificationSoundSettings.key) != nil
-        let originalSoundValue = defaults.object(forKey: NotificationSoundSettings.key)
-        let hadCommandValue = defaults.object(forKey: NotificationSoundSettings.customCommandKey) != nil
-        let originalCommandValue = defaults.object(forKey: NotificationSoundSettings.customCommandKey)
-
-        store.replaceNotificationsForTesting([])
-        store.resetNotificationDeliveryHandlerForTesting()
-        store.resetSuppressedNotificationFeedbackHandlerForTesting()
-        appDelegate.tabManager = manager
-        appDelegate.notificationStore = store
-        AppFocusState.overrideIsFocused = false
-        defaults.set("none", forKey: NotificationSoundSettings.key)
-        defaults.set(
-            "printf '%s\\n%s' \"$CMUX_NOTIFICATION_TITLE\" \"$CMUX_NOTIFICATION_BODY\" > '\(commandOutputURL.path)'",
-            forKey: NotificationSoundSettings.customCommandKey
-        )
-        configureNativeDelivery(store)
-
-        defer {
-            store.replaceNotificationsForTesting([])
-            store.resetNotificationAuthorizationHandlerForTesting()
-            store.resetUserNotificationSchedulerForTesting()
-            store.resetNotificationDeliveryHandlerForTesting()
-            store.resetSuppressedNotificationFeedbackHandlerForTesting()
-            appDelegate.tabManager = originalTabManager
-            appDelegate.notificationStore = originalNotificationStore
-            AppFocusState.overrideIsFocused = originalAppFocusOverride
-            if hadSoundValue {
-                defaults.set(originalSoundValue, forKey: NotificationSoundSettings.key)
-            } else {
-                defaults.removeObject(forKey: NotificationSoundSettings.key)
-            }
-            if hadCommandValue {
-                defaults.set(originalCommandValue, forKey: NotificationSoundSettings.customCommandKey)
-            } else {
-                defaults.removeObject(forKey: NotificationSoundSettings.customCommandKey)
-            }
-            try? FileManager.default.removeItem(at: commandOutputURL)
-        }
-
-        guard let workspace = manager.selectedWorkspace,
-              let terminalPanel = workspace.focusedTerminalPanel else {
-            XCTFail("Expected selected workspace with a focused terminal panel", file: file, line: line)
-            return
-        }
-
-        store.addNotification(
-            tabId: workspace.id,
-            surfaceId: terminalPanel.id,
-            title: "Real title",
-            subtitle: "",
-            body: "Real message"
-        )
-
-        let commandStarted = XCTNSPredicateExpectation(
-            predicate: NSPredicate { _, _ in
-                FileManager.default.fileExists(atPath: commandOutputURL.path)
-            },
-            object: NSObject()
-        )
-        XCTAssertEqual(
-            XCTWaiter().wait(for: [commandStarted], timeout: 2.0),
-            .timedOut,
-            "Custom notification command should not run when native desktop delivery is unavailable",
-            file: file,
-            line: line
-        )
     }
 
     func testNotificationClickActionRoundTripsAndIsStored() {
@@ -1347,33 +1258,6 @@ final class NotificationDockBadgeTests: XCTestCase {
             ?? Bundle.main.object(forInfoDictionaryKey: "CFBundleName") as? String
             ?? "cmux"
         XCTAssertEqual(output.components(separatedBy: "\n"), [expectedTitle, "Focused subtitle", "Focused body"])
-    }
-
-    func testDeniedNativeNotificationAuthorizationDoesNotRunCustomCommandFallback() throws {
-        var didAttemptSchedule = false
-
-        try assertNotificationCommandDoesNotRunWhenNativeDeliveryUnavailable { store in
-            store.configureNotificationAuthorizationHandlerForTesting { completion in
-                completion(false)
-            }
-            store.configureUserNotificationSchedulerForTesting { _, completion in
-                didAttemptSchedule = true
-                completion(nil)
-            }
-        }
-
-        XCTAssertFalse(didAttemptSchedule)
-    }
-
-    func testFailedNativeNotificationSchedulingDoesNotRunCustomCommandFallback() throws {
-        try assertNotificationCommandDoesNotRunWhenNativeDeliveryUnavailable { store in
-            store.configureNotificationAuthorizationHandlerForTesting { completion in
-                completion(true)
-            }
-            store.configureUserNotificationSchedulerForTesting { _, completion in
-                completion(NSError(domain: "cmuxTests.NotificationScheduling", code: 1))
-            }
-        }
     }
 
     func testNotificationAuthorizationStateMappingCoversKnownUNAuthorizationStatuses() {
