@@ -1562,10 +1562,10 @@ extension FileExplorerContainerView: NSSearchFieldDelegate, NSTableViewDataSourc
 
     func control(_ control: NSControl, textView: NSTextView, doCommandBy commandSelector: Selector) -> Bool {
         guard control === searchField else { return false }
+        if let event = NSApp.currentEvent, searchField.handleOpenSelectionShortcut(event) { return true }
         switch commandSelector {
         case #selector(NSResponder.insertNewline(_:)):
-            openSelectedSearchResult()
-            return true
+            return false
         case #selector(NSResponder.cancelOperation(_:)):
             closeSearchAndFocusOutline()
             return true
@@ -1702,11 +1702,11 @@ final class FileExplorerSearchField: NSSearchField {
             onCancel?()
             return
         }
+        if handleOpenSelectionShortcut(event) { return }
         if let delta = searchFieldMoveDelta(for: event) {
             onMoveSelection?(delta)
             return
         }
-        if handleOpenSelectionShortcut(event) { return }
         super.keyDown(with: event)
     }
 
@@ -1764,6 +1764,7 @@ final class FileExplorerSearchResultsTableView: NSTableView {
                 return
             }
         }
+        if handleOpenSelectionShortcut(event) { return }
         if event.keyCode == 53 {
             onCancel?()
             return
@@ -1772,7 +1773,6 @@ final class FileExplorerSearchResultsTableView: NSTableView {
             onMoveSelection?(delta)
             return
         }
-        if handleOpenSelectionShortcut(event) { return }
         if RightSidebarKeyboardNavigation.isPlainPrintableText(event) {
             return
         }

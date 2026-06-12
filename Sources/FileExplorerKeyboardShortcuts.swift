@@ -43,6 +43,7 @@ extension FileExplorerSearchResultsTableView {
 
 extension FileExplorerSearchField {
     func handleOpenSelectionShortcut(_ event: NSEvent) -> Bool {
+        guard !RightSidebarKeyboardNavigation.isPlainPrintableText(event) else { return false }
         guard event.isFileExplorerOpenSelectionShortcut else { return false }
         onCommit?()
         return true
@@ -52,8 +53,7 @@ extension FileExplorerSearchField {
 extension NSEvent {
     var isFileExplorerOpenSelectionShortcut: Bool {
         KeyboardShortcutSettings.Action.fileExplorerOpenSelectionActions.contains { action in
-            KeyboardShortcutSettings.shortcut(for: action).matches(event: self) &&
-                (AppDelegate.shared?.shortcutWhenClauseAllows(action: action, event: self) ?? true)
+            KeyboardShortcutSettings.shortcut(for: action).matches(event: self)
         }
     }
 }
