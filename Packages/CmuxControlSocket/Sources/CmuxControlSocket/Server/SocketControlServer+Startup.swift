@@ -168,9 +168,9 @@ extension SocketControlServer {
         }
 
         // Create socket
-        let newServerSocket = socket(AF_UNIX, SOCK_STREAM, 0)
+        let (newServerSocket, createSocketErrno) = transport.makeListenerSocket()
         guard newServerSocket >= 0 else {
-            let errnoCode = errno
+            let errnoCode = createSocketErrno ?? EIO
             print("SocketControlServer: Failed to create socket")
             reportSocketListenerFailure(
                 message: "socket.listener.start.failed",

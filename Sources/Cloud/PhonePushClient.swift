@@ -9,6 +9,10 @@ enum PhonePushSettings {
     /// When true, forward a generic message instead of the real title/body so
     /// terminal content never leaves the Mac.
     static let hideContentKey = "forwardNotificationsHideContent"
+    /// WHEN forwards happen once the master gate is on: a
+    /// ``PhoneForwardingMode`` raw value. Missing/unrecognized values fall
+    /// back to ``PhoneForwardingMode/defaultMode`` (only when away).
+    static let forwardModeKey = "forwardNotificationsToPhoneMode"
 }
 
 /// Forwards macOS terminal notifications to the user's iPhone via the cmux web
@@ -27,6 +31,11 @@ final class PhonePushClient {
     /// Per workspace+surface throttle to defend against notification bursts.
     private var lastSentAt: [String: Date] = [:]
     private static let minInterval: TimeInterval = 1.0
+    /// Presence source for the "only when away" mode. Injectable for tests.
+    var presenceMonitor: MacPresenceMonitor = .live()
+    /// Bounds live presence sampling under suppressed (active-Mac) bursts;
+    /// see `MacPresenceDecisionCache` for the staleness invariant.
+    private var presenceCache = MacPresenceDecisionCache()
 
     private init() {}
 
@@ -39,14 +48,57 @@ final class PhonePushClient {
         UserDefaults.standard.bool(forKey: PhonePushSettings.forwardEnabledKey)
     }
 
+    /// The presence gate: `.onlyWhenAway` drops the forward while the Mac is
+    /// actively in use; `.always` ignores presence. Suppressed forwards are
+    /// not queued or retried when the Mac later goes away - the push mirrors
+    /// "what would buzz the phone right now" - and the Mac-side notification
+    /// (unread accounting, notification list) is untouched upstream.
+    nonisolated static func shouldForward(
+        mode: PhoneForwardingMode,
+        presence: MacPresenceMonitor.Decision
+    ) -> Bool {
+        switch mode {
+        case .always:
+            return true
+        case .onlyWhenAway:
+            return !presence.isActive
+        }
+    }
+
     /// Forward a notification if the user opted in. Captures the fields up front
     /// and performs the network call off the caller's critical path.
     func forward(_ notification: TerminalNotification) {
         guard Self.isForwardingEnabled else { return }
 
+        // Read-only burst-throttle check FIRST: a dictionary lookup that
+        // bounds everything downstream (presence sampling and sends) to one
+        // per key per second under notification storms.
         let key = "\(notification.tabId.uuidString):\(notification.surfaceId?.uuidString ?? "")"
         let now = Date()
         if let last = lastSentAt[key], now.timeIntervalSince(last) < Self.minInterval { return }
+
+        // Presence gate, decided per notification at delivery time so the
+        // phone never receives a suppressed push. `.always` skips sampling
+        // entirely (`shouldForward` is constant true there). Forwarding
+        // decisions are always freshly sampled (the user-return transition
+        // gates the very next notification); suppressed bursts are bounded
+        // by the active-decision cache instead of the send throttle, because
+        // suppression must not consume a send slot. See
+        // `MacPresenceDecisionCache` for the explicit staleness invariant.
+        let mode = PhoneForwardingMode.fromDefaults()
+        if mode != .always {
+            let presence = presenceCache.decision(from: presenceMonitor)
+            guard Self.shouldForward(mode: mode, presence: presence) else {
+#if DEBUG
+                cmuxDebugLog("phonepush.suppressed reason=macActive verdict=\(presence.verdict)")
+#endif
+                return
+            }
+        }
+
+        // The throttle slot is consumed only after the gate passes, so a
+        // suppressed notification does not block a forwardable one moments
+        // later.
         lastSentAt[key] = now
 
         let hideContent = UserDefaults.standard.bool(forKey: PhonePushSettings.hideContentKey)

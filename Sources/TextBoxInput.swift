@@ -1259,7 +1259,7 @@ func textBoxCommandShortcutKey(
     return normalizedCharacters(event).lowercased()
 }
 
-private enum TextBoxAgentDetection: CaseIterable {
+enum TextBoxAgentDetection: CaseIterable {
     case claudeCode
     case codex
     case opencode
@@ -2678,6 +2678,11 @@ struct TextBoxInputContainer: View {
     @State private var hasMarkedText = false
     @State private var textViewReference = TextBoxInputViewReference()
     @State private var contentRevision: UInt64 = 0
+    @ObservedObject private var commentPool: DiffCommentSubmissionPool = .shared
+
+    private var pendingCommentCount: Int {
+        commentPool.pendingCount(workspaceId: surface.owningWorkspace()?.id)
+    }
 
     private var textFont: NSFont {
         NSFont.systemFont(ofSize: max(14, terminalFont.pointSize + 2), weight: .regular)
@@ -2714,12 +2719,17 @@ struct TextBoxInputContainer: View {
         let background = Color(nsColor: terminalBackgroundColor)
         let canSend = shouldEnableTextBoxSubmit(
             text: text,
-            attachmentCount: attachments.count,
+            attachmentCount: attachments.count + pendingCommentCount,
             hasPendingAttachmentUpload: hasPendingAttachmentUpload,
             hasMarkedText: hasMarkedText
         )
 
-        HStack(alignment: .bottom, spacing: 6) {
+        VStack(alignment: .leading, spacing: 6) {
+            if pendingCommentCount > 0 {
+                pendingCommentsChip(count: pendingCommentCount, foreground: foreground)
+                    .padding(.top, 6)
+            }
+            HStack(alignment: .bottom, spacing: 6) {
             addFilesButton(foreground: foreground)
                 .offset(x: TextBoxLayout.leadingButtonHorizontalOffset)
                 .padding(.bottom, TextBoxLayout.buttonBottomPadding)
@@ -2772,6 +2782,7 @@ struct TextBoxInputContainer: View {
             sendButton(canSend: canSend, foreground: foreground)
                 .offset(x: TextBoxLayout.trailingButtonHorizontalOffset)
                 .padding(.bottom, TextBoxLayout.buttonBottomPadding)
+            }
         }
         .padding(.horizontal, TextBoxLayout.pillHorizontalPadding)
         .padding(.vertical, TextBoxLayout.pillVerticalPadding)
@@ -2838,6 +2849,95 @@ struct TextBoxInputContainer: View {
         .frame(width: TextBoxLayout.iconButtonSize, height: TextBoxLayout.iconButtonSize)
     }
 
+    @State private var showPendingCommentsPreview = false
+
+    private func pendingCommentsChip(count: Int, foreground: Color) -> some View {
+        HStack(spacing: 5) {
+            Button {
+                showPendingCommentsPreview.toggle()
+            } label: {
+                HStack(spacing: 5) {
+                    Image(systemName: "text.bubble")
+                        .font(.system(size: 11, weight: .medium))
+                    Text(pendingCommentsLabel(count))
+                        .font(.system(size: 12, weight: .medium))
+                        .lineLimit(1)
+                }
+            }
+            .buttonStyle(.plain)
+            .help(String(
+                localized: "textbox.diffComments.preview",
+                defaultValue: "Show comments"
+            ))
+            Button {
+                dismissPendingComments()
+            } label: {
+                Image(systemName: "xmark")
+                    .font(.system(size: 9, weight: .bold))
+                    .frame(width: 16, height: 16)
+                    .background(Circle().fill(foreground.opacity(0.12)))
+            }
+            .buttonStyle(.plain)
+            .help(String(
+                localized: "textbox.diffComments.dismiss",
+                defaultValue: "Dismiss comments without sending"
+            ))
+        }
+        .padding(.leading, 9)
+        .padding(.trailing, 5)
+        .frame(height: 26)
+        .background(
+            Capsule().fill(foreground.opacity(0.10))
+        )
+        .overlay(
+            Capsule().strokeBorder(foreground.opacity(0.18), lineWidth: 1)
+        )
+        .foregroundStyle(foreground.opacity(0.92))
+        .popover(isPresented: $showPendingCommentsPreview, arrowEdge: .top) {
+            pendingCommentsPreview()
+        }
+        .accessibilityLabel(pendingCommentsLabel(count))
+    }
+
+    private func pendingCommentsPreview() -> some View {
+        let entries = surface.owningWorkspace().map {
+            commentPool.entriesByWorkspace[$0.id] ?? []
+        } ?? []
+        return ScrollView {
+            VStack(alignment: .leading, spacing: 10) {
+                ForEach(Array(entries.enumerated()), id: \.offset) { _, entry in
+                    Text(entry.submissionText.trimmingCharacters(in: .whitespacesAndNewlines))
+                        .font(.system(size: 11, design: .monospaced))
+                        .textSelection(.enabled)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                }
+            }
+            .padding(.horizontal, 14)
+            .padding(.top, 14)
+            .padding(.bottom, 12)
+        }
+        .frame(minWidth: 320, idealWidth: 440, maxWidth: 520, maxHeight: 360)
+    }
+
+    private func dismissPendingComments() {
+        guard let workspaceId = surface.owningWorkspace()?.id else { return }
+        let dismissed = DiffCommentSubmissionPool.shared.consumeAll(workspaceId: workspaceId)
+        // Mark consumed so viewer reloads do not resurrect the chip; the
+        // comments stay saved in the diff viewer.
+        for (repoRoot, entries) in Dictionary(grouping: dismissed, by: \.repoRoot) {
+            DiffCommentStore.shared.markConsumed(ids: entries.map(\.commentId), repoRoot: repoRoot)
+        }
+    }
+
+    private func pendingCommentsLabel(_ count: Int) -> String {
+        count == 1
+            ? String(localized: "textbox.diffComments.one", defaultValue: "1 comment")
+            : String(
+                format: String(localized: "textbox.diffComments.many", defaultValue: "%d comments"),
+                count
+            )
+    }
+
     private func submit() {
         let textView = textViewReference.textView
         guard shouldSubmitTextBox(
@@ -2850,9 +2950,21 @@ struct TextBoxInputContainer: View {
 
         let submittedParts = textView?.submissionParts()
             ?? [TextBoxSubmissionPart.text(text.trimmingCharacters(in: .newlines))]
-        guard TextBoxSubmissionFormatter.hasSubmittableContent(submittedParts) else {
+        let poolWorkspaceId = surface.owningWorkspace()?.id
+        let hasTypedContent = TextBoxSubmissionFormatter.hasSubmittableContent(submittedParts)
+        guard hasTypedContent || pendingCommentCount > 0 else {
             NSSound.beep()
             return
+        }
+        // Claim the workspace's pending diff comments: this submission carries
+        // them, and the chip clears from every other TextBox in the workspace.
+        let pendingComments = poolWorkspaceId.map {
+            DiffCommentSubmissionPool.shared.consumeAll(workspaceId: $0)
+        } ?? []
+        var partsToSend = submittedParts
+        if !pendingComments.isEmpty {
+            let bundle = pendingComments.map(\.submissionText).joined(separator: "\n")
+            partsToSend.append(.text(hasTypedContent ? "\n\n" + bundle : bundle))
         }
         let submittedTextView = textView
         let preservedContent = submittedTextView?.attributedContentForPreservation()
@@ -2868,11 +2980,17 @@ struct TextBoxInputContainer: View {
             attachmentCount: 0
         )
         TextBoxSubmit.send(
-            submittedParts,
+            partsToSend,
             via: surface,
             terminalAgentContext: terminalAgentContext
         ) { completionContext in
             guard completionContext.didSubmit else {
+                if let poolWorkspaceId, !pendingComments.isEmpty {
+                    DiffCommentSubmissionPool.shared.restorePending(
+                        pendingComments,
+                        workspaceId: poolWorkspaceId
+                    )
+                }
                 guard TextBoxFailedSubmitRollbackPolicy.shouldRestore(
                     rollbackSnapshot: rollbackSnapshot,
                     currentSnapshot: currentRollbackSnapshot()
@@ -2891,6 +3009,11 @@ struct TextBoxInputContainer: View {
                 }
                 NSSound.beep()
                 return
+            }
+            if !pendingComments.isEmpty {
+                for (repoRoot, entries) in Dictionary(grouping: pendingComments, by: \.repoRoot) {
+                    DiffCommentStore.shared.markConsumed(ids: entries.map(\.commentId), repoRoot: repoRoot)
+                }
             }
             let submittedAttachments = submittedParts.compactMap { part -> TextBoxAttachment? in
                 if case .attachment(let attachment) = part { return attachment }

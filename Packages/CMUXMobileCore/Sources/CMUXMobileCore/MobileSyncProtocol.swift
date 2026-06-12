@@ -25,6 +25,11 @@ public enum MobileSyncPairingPayloadError: Error, Equatable, Sendable {
     case forbiddenSecretField(String)
     case invalidURL
     case invalidPayloadEncoding
+    /// A scanned/pasted pairing code only offered loopback routes. A QR or
+    /// deep link pointing at `127.0.0.1` would make the phone dial itself,
+    /// so it is rejected with a clear error instead of a doomed connect;
+    /// loopback pairing is reserved for the dev-injected attach URL path.
+    case loopbackRouteRejected
 }
 
 public struct MobileSyncPairingPayload: Equatable, Sendable, Codable {
