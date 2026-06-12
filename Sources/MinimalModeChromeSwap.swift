@@ -1,4 +1,5 @@
 import AppKit
+import Observation
 import SwiftUI
 
 // Minimal-mode toggle hot path (https://github.com/manaflow-ai/cmux/issues/5732).
