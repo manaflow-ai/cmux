@@ -120,6 +120,11 @@ else
     exit 1
   fi
 
+  # Slice matrix deliberately mirrors GhosttyKit.xcframework, which the same
+  # iOS app graph already links: macOS universal (the release app is
+  # arm64+x86_64), iOS device arm64, iOS simulator arm64 ONLY. Intel-host iOS
+  # simulator builds are already unsupported repo-wide (GhosttyKit ships no
+  # x86_64 simulator slice), so adding one here would not make them work.
   RUST_TARGETS=(
     aarch64-apple-darwin
     x86_64-apple-darwin
