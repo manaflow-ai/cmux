@@ -2166,13 +2166,21 @@ actor MobileHostConnection {
             guard !topics.isEmpty else {
                 return .failure(MobileHostRPCError(code: "invalid_params", message: "topics is required"))
             }
+            // Report whether this stream id was already registered BEFORE the
+            // idempotent replace. The phone's render-grid liveness probe
+            // re-asserts its subscription on prolonged silence; `false` tells
+            // it the registration had been lost (events emitted in the gap
+            // were never delivered), so it requests a catch-up replay instead
+            // of trusting delta continuity.
+            let alreadySubscribed = subscriptions[streamID] != nil
             subscribe(streamID: streamID, topics: topics)
             #if DEBUG
-            cmuxDebugLog("mobile.subscribe streamID=\(streamID) topics=\(topics.sorted()) connID=\(self.id.uuidString)")
+            cmuxDebugLog("mobile.subscribe streamID=\(streamID) topics=\(topics.sorted()) existing=\(alreadySubscribed) connID=\(self.id.uuidString)")
             #endif
             return .ok([
                 "stream_id": streamID,
                 "topics": Array(topics).sorted(),
+                "already_subscribed": alreadySubscribed,
             ])
         case "mobile.events.unsubscribe":
             let streamID = request.params["stream_id"] as? String ?? ""
@@ -2188,7 +2196,13 @@ actor MobileHostConnection {
 
     private static func isInteractiveMobileRequest(_ method: String) -> Bool {
         switch method {
-        case "mobile.host.status", "mobile.terminal.replay", "terminal.replay":
+        case "mobile.host.status", "mobile.terminal.replay", "terminal.replay",
+             // Subscription management is plumbing, not user interaction: the
+             // phone's render-grid liveness watchdog re-asserts its
+             // subscription on every silence window (~9s when idle), and
+             // counting that as interactive activity starves host work gated
+             // on mobile quiet (e.g. TabManager background git/PR refresh).
+             "mobile.events.subscribe", "mobile.events.unsubscribe":
             return false
         default:
             return true
