@@ -70,13 +70,23 @@ export function StatusIndicator({ status }: { status: ConversationItem["status"]
   );
 }
 
-/** Routes a tool-shaped item to its rich renderer, falling back to generic. */
-export function RichToolRow({ item }: { item: ConversationItem }) {
+/**
+ * Routes a tool-shaped item to its rich renderer, falling back to generic.
+ * `provider` is the session's provider id (value snapshot), used to scope
+ * provider-specific output parsing.
+ */
+export function RichToolRow({
+  item,
+  provider = null,
+}: {
+  item: ConversationItem;
+  provider?: string | null;
+}) {
   if (item.type === "file_change") {
     return <FileChangeRow item={item} />;
   }
   if (item.type === "command_execution") {
-    return <CommandRow item={item} />;
+    return <CommandRow item={item} provider={provider} />;
   }
   if (item.type === "web_search") {
     return <WebSearchRow item={item} />;
@@ -176,13 +186,15 @@ function DiffBlock({ diff }: { diff: FileDiff }) {
           <span className="agent-chat-diff-text">{diffLineText(line)}</span>
         </div>
       ))}
-      {!clamped && diff.truncatedLineCount > 0 ? (
+      {!clamped && (diff.sourceTruncated || diff.truncatedLineCount > 0) ? (
         <div className="agent-chat-diff-line is-hunk">
           <span className="agent-chat-diff-sign" aria-hidden="true">
             {" "}
           </span>
           <span className="agent-chat-diff-text">
-            {moreLinesNotShownLabel(diff.truncatedLineCount)}
+            {diff.sourceTruncated
+              ? agentChatLabels.diffSourceTruncated
+              : moreLinesNotShownLabel(diff.truncatedLineCount)}
           </span>
         </div>
       ) : null}
@@ -205,9 +217,15 @@ function DiffBlock({ diff }: { diff: FileDiff }) {
 // Command executions
 // ---------------------------------------------------------------------------
 
-function CommandRow({ item }: { item: ConversationItem }) {
+function CommandRow({
+  item,
+  provider,
+}: {
+  item: ConversationItem;
+  provider: string | null;
+}) {
   const [expanded, setExpanded] = useState(false);
-  const view = commandExecutionView(item);
+  const view = commandExecutionView(item, provider);
   const failed =
     item.status === "failed" ||
     item.output?.is_error === true ||

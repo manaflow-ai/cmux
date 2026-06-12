@@ -12,7 +12,14 @@ import type { ConversationItem } from "../protocol";
 import { isToolItemType } from "./display";
 import { RichToolRow, StatusIndicator, rowDataProps } from "./toolRows";
 
-export function ItemRow({ item }: { item: ConversationItem }) {
+export function ItemRow({
+  item,
+  provider = null,
+}: {
+  item: ConversationItem;
+  /** Session provider id snapshot, threaded to provider-aware tool rows. */
+  provider?: string | null;
+}) {
   if (item.type === "user_message") {
     return <UserMessageRow item={item} />;
   }
@@ -26,7 +33,7 @@ export function ItemRow({ item }: { item: ConversationItem }) {
     return <PlanRow item={item} />;
   }
   if (isToolItemType(item.type)) {
-    return <RichToolRow item={item} />;
+    return <RichToolRow item={item} provider={provider} />;
   }
   return <SystemRow item={item} />;
 }

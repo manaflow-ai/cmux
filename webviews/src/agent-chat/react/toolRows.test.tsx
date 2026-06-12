@@ -9,8 +9,8 @@ import { renderToStaticMarkup } from "react-dom/server";
 import type { ConversationItem } from "../protocol";
 import { RichToolRow } from "./toolRows";
 
-function render(item: ConversationItem): string {
-  return renderToStaticMarkup(<RichToolRow item={item} />);
+function render(item: ConversationItem, provider: string | null = null): string {
+  return renderToStaticMarkup(<RichToolRow item={item} provider={provider} />);
 }
 
 describe("RichToolRow", () => {
@@ -60,19 +60,22 @@ describe("RichToolRow", () => {
   });
 
   test("command_execution renders the exit badge in the summary", () => {
-    const html = render({
-      id: "t4",
-      type: "command_execution",
-      status: "completed",
-      tool_name: "shell",
-      input: { command: ["bash", "-lc", "ls"] },
-      output: {
-        text: JSON.stringify({
-          output: "file.txt",
-          metadata: { exit_code: 1, duration_seconds: 2.5 },
-        }),
+    const html = render(
+      {
+        id: "t4",
+        type: "command_execution",
+        status: "completed",
+        tool_name: "shell",
+        input: { command: ["bash", "-lc", "ls"] },
+        output: {
+          text: JSON.stringify({
+            output: "file.txt",
+            metadata: { exit_code: 1, duration_seconds: 2.5 },
+          }),
+        },
       },
-    });
+      "codex",
+    );
     expect(html).toContain("agent-chat-exit-badge is-failure");
     expect(html).toContain("exit 1");
     expect(html).toContain("2.5s");

@@ -58,6 +58,7 @@ export const agentChatLabels = {
   noFilePreview: "No preview recorded.",
   searchQueryFallback: "Web search",
   diffFallbackTitle: "File change",
+  diffSourceTruncated: "Change too large to diff fully; later lines not shown",
 
   // Pending-request banner.
   waitingForInput: "Agent is waiting for your input",

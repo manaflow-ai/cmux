@@ -187,6 +187,20 @@ describe("fileChangeDiffs", () => {
     expect(diff.lines).toHaveLength(1000);
     expect(diff.truncatedLineCount).toBe(500);
     expect(diff.addedCount).toBe(1500);
+    expect(diff.sourceTruncated).toBe(false);
+  });
+
+  test("a change past the source cap is flagged instead of looking unchanged", () => {
+    // Identical 200k+ prefix; the only change is in the tail the cap cuts.
+    const prefix = `${"x".repeat(250_000)}\n`;
+    const [diff] = fileChangeDiffs({
+      input: {
+        file_path: "/repo/tail.txt",
+        old_string: `${prefix}old tail`,
+        new_string: `${prefix}new tail`,
+      },
+    });
+    expect(diff.sourceTruncated).toBe(true);
   });
 });
 
@@ -222,20 +236,33 @@ describe("commandExecutionView", () => {
   });
 
   test("Codex argv input unwraps bash -lc and parses the JSON envelope", () => {
-    const view = commandExecutionView({
-      status: "completed",
-      input: { command: ["bash", "-lc", "ls -la"], timeout_ms: 10_000 },
-      output: {
-        text: JSON.stringify({
-          output: "total 0\ndrwxr-xr-x  2 dev  wheel  64 .",
-          metadata: { exit_code: 1, duration_seconds: 0.42 },
-        }),
+    const view = commandExecutionView(
+      {
+        status: "completed",
+        input: { command: ["bash", "-lc", "ls -la"], timeout_ms: 10_000 },
+        output: {
+          text: JSON.stringify({
+            output: "total 0\ndrwxr-xr-x  2 dev  wheel  64 .",
+            metadata: { exit_code: 1, duration_seconds: 0.42 },
+          }),
+        },
       },
-    });
+      "codex",
+    );
     expect(view.command).toBe("ls -la");
     expect(view.output).toBe("total 0\ndrwxr-xr-x  2 dev  wheel  64 .");
     expect(view.exitCode).toBe(1);
     expect(view.durationText).toBe("420ms");
+  });
+
+  test("envelope-shaped stdout from a non-Codex session is never reparsed", () => {
+    const text = JSON.stringify({ output: "hello", metadata: { exit_code: 99 } });
+    const view = commandExecutionView(
+      { status: "completed", input: { command: "cat envelope.json" }, output: { text } },
+      "claude",
+    );
+    expect(view.output).toBe(text);
+    expect(view.exitCode).toBe(0);
   });
 
   test("plain argv joins with spaces", () => {

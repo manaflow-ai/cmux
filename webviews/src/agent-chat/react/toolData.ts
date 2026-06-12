@@ -91,6 +91,13 @@ export interface FileDiff {
   removedCount: number;
   /** Lines dropped by the parse-time cap (0 when the diff is complete). */
   truncatedLineCount: number;
+  /**
+   * True when the provider input exceeded the source-character cap, so the
+   * diff (and its counts) only cover the leading part of the change. The row
+   * must show a truncation marker so a tail-only change never looks like
+   * "no change".
+   */
+  sourceTruncated: boolean;
 }
 
 /** Above this many DP cells the line diff falls back to whole-block del/add. */
@@ -247,18 +254,28 @@ function countDiff(lines: DiffLine[]): { addedCount: number; removedCount: numbe
   return { addedCount, removedCount };
 }
 
-function makeFileDiff(path: string | null, op: FileDiffOp, lines: DiffLine[]): FileDiff {
+function makeFileDiff(
+  path: string | null,
+  op: FileDiffOp,
+  lines: DiffLine[],
+  sourceTruncated = false,
+): FileDiff {
   const counts = countDiff(lines);
   if (lines.length <= MAX_DIFF_LINES) {
-    return { path, op, lines, truncatedLineCount: 0, ...counts };
+    return { path, op, lines, truncatedLineCount: 0, sourceTruncated, ...counts };
   }
   return {
     path,
     op,
     lines: lines.slice(0, MAX_DIFF_LINES),
     truncatedLineCount: lines.length - MAX_DIFF_LINES,
+    sourceTruncated,
     ...counts,
   };
+}
+
+function exceedsSourceCap(...texts: string[]): boolean {
+  return texts.some((text) => text.length > MAX_DIFF_SOURCE_CHARS);
 }
 
 const APPLY_PATCH_MARKER = "*** Begin Patch";
@@ -305,6 +322,10 @@ export function parseApplyPatch(patch: string): FileDiff[] {
     }
   }
   flush();
+  if (diffs.length > 0 && exceedsSourceCap(patch)) {
+    // The cap cut the patch tail, so the last section is incomplete.
+    diffs[diffs.length - 1] = { ...diffs[diffs.length - 1], sourceTruncated: true };
+  }
   return diffs;
 }
 
@@ -358,13 +379,21 @@ export function fileChangeDiffs(item: Pick<ConversationItem, "input" | "title">)
   const oldString = stringField(record, "old_string");
   const newString = stringField(record, "new_string");
   if (oldString !== null && newString !== null) {
-    return [makeFileDiff(path, "edit", computeLineDiff(oldString, newString))];
+    return [
+      makeFileDiff(
+        path,
+        "edit",
+        computeLineDiff(oldString, newString),
+        exceedsSourceCap(oldString, newString),
+      ),
+    ];
   }
 
   const edits = record["edits"];
   if (Array.isArray(edits)) {
     const lines: DiffLine[] = [];
     let editIndex = 0;
+    let truncated = false;
     for (const edit of edits) {
       const editRecord = asRecord(edit);
       const editOld = stringField(editRecord, "old_string");
@@ -376,16 +405,17 @@ export function fileChangeDiffs(item: Pick<ConversationItem, "input" | "title">)
         lines.push({ kind: "hunk", text: "" });
       }
       lines.push(...computeLineDiff(editOld, editNew));
+      truncated = truncated || exceedsSourceCap(editOld, editNew);
       editIndex += 1;
     }
-    return lines.length > 0 ? [makeFileDiff(path, "edit", lines)] : [];
+    return lines.length > 0 ? [makeFileDiff(path, "edit", lines, truncated)] : [];
   }
 
   const content = stringField(record, "content") ?? stringField(record, "new_source");
   if (content !== null) {
     const sourceLines = splitLines(boundedSource(content));
     const lines: DiffLine[] = sourceLines.map((text) => ({ kind: "add", text }));
-    return [makeFileDiff(path, "create", lines)];
+    return [makeFileDiff(path, "create", lines, exceedsSourceCap(content))];
   }
   return [];
 }
@@ -432,9 +462,14 @@ export function formatDurationSeconds(seconds: number): string {
 
 const EXIT_CODE_PATTERN = /\bexit code:?\s+(\d+)\b/i;
 
-/** Builds the structured command view for a command_execution item. */
+/**
+ * Builds the structured command view for a command_execution item. `provider`
+ * is the session's provider id; envelope unwrapping only applies to Codex
+ * sessions so another provider's command stdout is never reinterpreted.
+ */
 export function commandExecutionView(
   item: Pick<ConversationItem, "input" | "output" | "title" | "status">,
+  provider?: string | null,
 ): CommandView {
   const record = asRecord(item.input);
   let command: string | null = null;
@@ -465,9 +500,10 @@ export function commandExecutionView(
   // envelope still reaches us when the inner output is empty, and hook-only
   // or future producers may pass it through verbatim. Parsing it here is the
   // only way to surface exit code/duration until the protocol carries them
-  // as structured ToolOutput fields. Require both envelope fields so a
-  // command that itself prints JSON with an `output` key is not misread.
-  if (output !== null && output.startsWith("{")) {
+  // as structured ToolOutput fields. Two guards keep arbitrary stdout from
+  // being reinterpreted: only Codex sessions are unwrapped at all, and the
+  // text must carry both envelope fields.
+  if (provider === "codex" && output !== null && output.startsWith("{")) {
     try {
       const parsed = asRecord(JSON.parse(output));
       const innerOutput = stringField(parsed, "output");
