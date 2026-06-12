@@ -922,6 +922,8 @@
         "surfaces": "Overflater",
         "surfacesBlurb": "Overflater er faner inne i et panel.",
         "splitPanes": "Delte paneler",
+        "canvas": "Lerret",
+        "canvasBlurb": "En fri 2D-oppsettmodus der ruter flyter på et uendelig lerret som kan panoreres. Justerings- og fordelingskommandoer er tilgjengelige fra kommandopaletten.",
         "browser": "Nettleser",
         "notifications": "Varsler",
         "find": "Finn",

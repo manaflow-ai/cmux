@@ -922,6 +922,8 @@
         "surfaces": "서피스",
         "surfacesBlurb": "서피스는 패널 내의 탭입니다.",
         "splitPanes": "분할 패널",
+        "canvas": "캔버스",
+        "canvasBlurb": "창이 무한히 이동 가능한 캔버스 위에 떠 있는 자유형 2D 레이아웃 모드입니다. 정렬 및 분배 명령은 명령 팔레트에서 사용할 수 있습니다.",
         "browser": "브라우저",
         "notifications": "알림",
         "find": "찾기",

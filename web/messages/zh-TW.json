@@ -922,6 +922,8 @@
         "surfaces": "Surface",
         "surfacesBlurb": "Surface 是窗格內的分頁。",
         "splitPanes": "分割窗格",
+        "canvas": "畫布",
+        "canvasBlurb": "一種自由的二維佈局模式，窗格漂浮在可任意平移的無限畫布上。對齊與分佈指令可在指令面板中使用。",
         "browser": "瀏覽器",
         "notifications": "通知",
         "find": "搜尋",

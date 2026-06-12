@@ -10,4 +10,7 @@ public enum ControlCanvasActionResolution: Sendable, Equatable {
     /// A canvas-only action was requested while the workspace is in splits.
     case notCanvasMode
     case paneNotFound(UUID)
+    /// The action needed a target pane but no surface selector was given and
+    /// the workspace has no focused panel.
+    case noFocusedPane
 }

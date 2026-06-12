@@ -922,6 +922,8 @@
         "surfaces": "Surfaces",
         "surfacesBlurb": "Les surfaces sont des onglets à l'intérieur d'un panneau.",
         "splitPanes": "Panneaux divisés",
+        "canvas": "Canevas",
+        "canvasBlurb": "Un mode de disposition 2D libre où les panneaux flottent sur un canevas infini et déplaçable. Les commandes d'alignement et de répartition sont disponibles depuis la palette de commandes.",
         "browser": "Navigateur",
         "notifications": "Notifications",
         "find": "Recherche",

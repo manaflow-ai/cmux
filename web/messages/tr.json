@@ -922,6 +922,8 @@
         "surfaces": "Yüzeyler",
         "surfacesBlurb": "Yüzeyler, bir panel içindeki sekmelerdir.",
         "splitPanes": "Bölünmüş Paneller",
+        "canvas": "Kanvas",
+        "canvasBlurb": "Bölmelerin sonsuz, kaydırılabilir bir kanvas üzerinde serbestçe durduğu 2B düzen modu. Hizalama ve dağıtma komutlarına komut paletinden erişilebilir.",
         "browser": "Tarayıcı",
         "notifications": "Bildirimler",
         "find": "Bul",

@@ -922,6 +922,8 @@
         "surfaces": "Površine",
         "surfacesBlurb": "Površine su tabovi unutar panela.",
         "splitPanes": "Podijeljeni paneli",
+        "canvas": "Platno",
+        "canvasBlurb": "Slobodni 2D raspored u kojem okna plutaju na beskonačnom platnu koje se može pomicati. Komande za poravnanje i raspoređivanje dostupne su iz komandne palete.",
         "browser": "Preglednik",
         "notifications": "Notifikacije",
         "find": "Pretraga",

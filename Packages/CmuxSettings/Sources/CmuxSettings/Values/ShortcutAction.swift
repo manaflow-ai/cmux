@@ -352,18 +352,30 @@ extension ShortcutAction {
         case .splitBrowserRight: return "Split Browser Right"
         case .splitBrowserDown: return "Split Browser Down"
         case .toggleRightSidebar: return "Toggle Right Sidebar"
-        case .toggleCanvasLayout: return "Toggle Canvas Layout"
-        case .canvasRevealFocusedPane: return "Canvas: Reveal Focused Pane"
-        case .canvasOverview: return "Canvas: Toggle Overview"
-        case .canvasTidy: return "Canvas: Tidy Panes"
-        case .canvasAlignLeft: return "Canvas: Align Left Edges"
-        case .canvasAlignRight: return "Canvas: Align Right Edges"
-        case .canvasAlignTop: return "Canvas: Align Top Edges"
-        case .canvasAlignBottom: return "Canvas: Align Bottom Edges"
-        case .canvasEqualizeWidths: return "Canvas: Equalize Widths"
-        case .canvasEqualizeHeights: return "Canvas: Equalize Heights"
-        case .canvasDistributeHorizontally: return "Canvas: Distribute Horizontally"
-        case .canvasDistributeVertically: return "Canvas: Distribute Vertically"
+        case .toggleCanvasLayout:
+            return String(localized: "shortcut.toggleCanvasLayout.label", defaultValue: "Toggle Canvas Layout")
+        case .canvasRevealFocusedPane:
+            return String(localized: "shortcut.canvasRevealFocusedPane.label", defaultValue: "Canvas: Reveal Focused Pane")
+        case .canvasOverview:
+            return String(localized: "shortcut.canvasOverview.label", defaultValue: "Canvas: Toggle Overview")
+        case .canvasTidy:
+            return String(localized: "shortcut.canvasTidy.label", defaultValue: "Canvas: Tidy Panes")
+        case .canvasAlignLeft:
+            return String(localized: "shortcut.canvasAlignLeft.label", defaultValue: "Canvas: Align Left Edges")
+        case .canvasAlignRight:
+            return String(localized: "shortcut.canvasAlignRight.label", defaultValue: "Canvas: Align Right Edges")
+        case .canvasAlignTop:
+            return String(localized: "shortcut.canvasAlignTop.label", defaultValue: "Canvas: Align Top Edges")
+        case .canvasAlignBottom:
+            return String(localized: "shortcut.canvasAlignBottom.label", defaultValue: "Canvas: Align Bottom Edges")
+        case .canvasEqualizeWidths:
+            return String(localized: "shortcut.canvasEqualizeWidths.label", defaultValue: "Canvas: Equalize Widths")
+        case .canvasEqualizeHeights:
+            return String(localized: "shortcut.canvasEqualizeHeights.label", defaultValue: "Canvas: Equalize Heights")
+        case .canvasDistributeHorizontally:
+            return String(localized: "shortcut.canvasDistributeHorizontally.label", defaultValue: "Canvas: Distribute Horizontally")
+        case .canvasDistributeVertically:
+            return String(localized: "shortcut.canvasDistributeVertically.label", defaultValue: "Canvas: Distribute Vertically")
         case .openDiffViewer: return "Open Diff Viewer"
         case .saveFilePreview: return "Save File Preview"
         case .openBrowser: return "Open Browser"

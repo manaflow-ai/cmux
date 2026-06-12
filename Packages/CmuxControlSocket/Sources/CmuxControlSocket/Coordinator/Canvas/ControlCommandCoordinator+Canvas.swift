@@ -164,6 +164,12 @@ extension ControlCommandCoordinator {
                 message: "Canvas pane not found",
                 data: .object(["surface_id": .string(id.uuidString)])
             )
+        case .noFocusedPane:
+            return .err(
+                code: "invalid_state",
+                message: "No focused pane to target (pass surface_id)",
+                data: nil
+            )
         }
     }
 }

@@ -102,7 +102,7 @@ extension TerminalController: ControlCanvasContext {
         }
         guard ws.layoutMode == .canvas else { return .notCanvasMode }
         guard let target = surfaceID ?? ws.focusedPanelId else {
-            return .paneNotFound(UUID())
+            return .noFocusedPane
         }
         guard ws.canvasModel.frame(of: target) != nil else {
             return .paneNotFound(target)
