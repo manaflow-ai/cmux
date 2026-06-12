@@ -65,6 +65,10 @@ func (s *rpcServer) handleAgentSessionOpen(req rpcRequest) rpcResponse {
 	subscription, session, err := agentconv.Open(agentconv.Config{
 		Provider:       provider,
 		TranscriptPath: transcriptPath,
+		// Providers without a native parser are opened by explicit
+		// transcript_path + session_id; the supplied id must come back in the
+		// open result and snapshot, not just in hook routing.
+		SessionIDHint: stringParam(req.Params, "session_id"),
 	})
 	if err != nil {
 		return rpcResponse{ID: req.ID, OK: false, Error: &rpcError{

@@ -45,20 +45,20 @@ const defaultListLimit = 50
 const headScanBytes = 256 * 1024
 
 func ListSessions(roots Roots, query ListQuery) []SessionRef {
+	limit := query.Limit
+	if limit <= 0 {
+		limit = defaultListLimit
+	}
 	var sessions []sessionWithTime
 	if query.Provider == "" || query.Provider == ProviderClaude {
 		sessions = append(sessions, listClaudeSessions(roots.ClaudeDir, query.Cwd)...)
 	}
 	if query.Provider == "" || query.Provider == ProviderCodex {
-		sessions = append(sessions, listCodexSessions(roots.CodexDir, query.Cwd)...)
+		sessions = append(sessions, listCodexSessions(roots.CodexDir, query.Cwd, limit)...)
 	}
 	sort.Slice(sessions, func(i, j int) bool {
 		return sessions[i].modTime.After(sessions[j].modTime)
 	})
-	limit := query.Limit
-	if limit <= 0 {
-		limit = defaultListLimit
-	}
 	if len(sessions) > limit {
 		sessions = sessions[:limit]
 	}
@@ -132,7 +132,17 @@ func listClaudeSessions(claudeDir, cwdFilter string) []sessionWithTime {
 	return sessions
 }
 
-func listCodexSessions(codexDir, cwdFilter string) []sessionWithTime {
+// listCodexSessions prefers the sqlite session index (~/.codex/state_5.sqlite,
+// see discover_codex_index.go) and falls back to globbing the sessions tree
+// when the index is missing, unreadable, or empty.
+func listCodexSessions(codexDir, cwdFilter string, limit int) []sessionWithTime {
+	if sessions, ok := listCodexSessionsFromIndex(codexDir, cwdFilter, limit); ok {
+		return sessions
+	}
+	return listCodexSessionsFromGlob(codexDir, cwdFilter)
+}
+
+func listCodexSessionsFromGlob(codexDir, cwdFilter string) []sessionWithTime {
 	if codexDir == "" {
 		return nil
 	}
@@ -230,10 +240,7 @@ func ResolveTranscriptPath(roots Roots, provider ProviderID, sessionID, cwd stri
 			return matches[0], true
 		}
 	case ProviderCodex:
-		matches, _ := filepath.Glob(filepath.Join(roots.CodexDir, "sessions", "*", "*", "*", "rollout-*"+sessionID+".jsonl"))
-		if len(matches) > 0 {
-			return matches[len(matches)-1], true
-		}
+		return resolveCodexTranscript(roots.CodexDir, sessionID, cwd)
 	}
 	return "", false
 }

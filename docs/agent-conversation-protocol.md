@@ -52,17 +52,17 @@ The socket accepts newline-delimited JSON hook frames:
 ```json
 {"provider": "claude", "session_id": "<uuid>", "hook": "PreToolUse",
  "tool_name": "Bash", "tool_use_id": "toolu_x", "prompt": "...", "detail": "...",
- "decision": "...", "ts": "2026-06-10T17:00:00Z"}
+ "decision": "...", "turn_id": "...", "ts": "2026-06-10T17:00:00Z"}
 ```
 
-`hook` is one of `UserPromptSubmit` | `PreToolUse` | `PostToolUse` | `Stop` | `Notification` | `PermissionRequest` (unknown kinds are ignored). `detail` is a short human label: the notification message, or a one-line tool title. Frames route to all open subscriptions matching `(provider, session_id)`; frames for sessions with no subscription are dropped (logged once per session).
+`hook` is one of `UserPromptSubmit` | `PreToolUse` | `PostToolUse` | `Stop` | `Notification` | `PermissionRequest` (unknown kinds are ignored). `detail` is a short human label: the notification message, or a one-line tool title. `turn_id` is optional: the provider's own turn identifier when its payload has one (Codex notify); synthesized per subscription otherwise. Frames route to all open subscriptions matching exactly `(provider, session_id)`; frames for sessions with no subscription are dropped (logged once per session).
 
 ### Mapping and dedup
 
 | Hook frame | Canonical event |
 | --- | --- |
 | `UserPromptSubmit` | `turn.started` (synthesized `turn_id`, prompt text) |
-| `Stop` | `turn.completed` (no-op when no turn is active) |
+| `Stop` | `turn.completed` (no-op when no turn is active, unless the frame carries its own `turn_id` — see Codex notify) |
 | `PreToolUse` | `item.started` (tool item, `in_progress`, classified by `tool_name` exactly like the transcript parser) |
 | `PostToolUse` | `item.completed` |
 | `Notification` / `PermissionRequest` | `request.opened`, plus `request.resolved` when the frame carries a `decision` |
@@ -117,13 +117,31 @@ codex -c notify=["<emit>","agent-hook-emit","--socket","<sock>","--provider","co
 
 The emit verb recognizes the Codex payload shape and translates it to a `Stop` frame (`thread-id` is the session id). Injection is skipped when the user already has a notifier: their own `-c`/`--config` `notify` override on the command line, or an uncommented `notify` key in config.toml (cmux's persistent Codex integration never sets one, so a present key is always user-chosen). It is also skipped outside cmux terminals, when `CMUX_CODEX_HOOKS_DISABLED=1`, and when the env vars or emit binary are missing. The opencode plugin is a follow-up; it will emit ready-made frames with its own `provider`.
 
+The verb recognizes Codex's `agent-turn-complete` shape (kebab-case, from codex-rs `legacy_notify.rs`):
+
+```json
+{"type": "agent-turn-complete", "thread-id": "<session uuid>", "turn-id": "...",
+ "cwd": "...", "input-messages": ["..."], "last-assistant-message": "..."}
+```
+
+Mapping (only what the payload supports): `thread-id` → `session_id`, the frame is `hook: "Stop"` with `turn_id` = `turn-id` and `detail` = `last-assistant-message`, producing canonical `turn.completed {turn_id}`. The completion is emitted even though no `turn.started` was observed (notify only fires at turn end); redelivered notifications for the same `turn_id` are dropped. `cwd` and `input-messages` have no canonical destination and are not mapped — message content stays transcript-derived. Payloads without `thread-id` (ancient Codex) or with an unknown `type` are dropped, never guessed at. For Codex, `turn.started`, tool items, and requests remain transcript-derived; notify cannot observe them.
+
+### opencode plugin frames (any non-native provider)
+
+The emit verb passes ready-made frames (input that already has `hook`) through with their own `provider`, and nothing in ingest or merge is limited to claude|codex. Contract for an opencode plugin (or any future agent):
+
+- Write newline-JSON frames to the ingest socket, or invoke `'<emit>' agent-hook-emit --socket '<sock>' '<frame-json>'`.
+- Required fields: `provider: "opencode"`, `session_id`, and a `hook` from the vocabulary above. Tool frames must carry `tool_use_id` (frames without one are dropped as undeduplicatable). `detail` is the short human label; `decision` resolves requests; `turn_id` deduplicates provider-reported turn completions.
+- Tool classification is per provider: claude and codex frames use their native tool-name classifiers; any other provider gets a case-insensitive generic classification (bash/shell/exec → `command_execution`, edit/write/patch → `file_change`, websearch/webfetch → `web_search`, `mcp__` prefix → `mcp_tool_call`, otherwise `dynamic_tool_call`).
+- Frames route by exact `(provider, session_id)`. There is no opencode transcript parser, so `agent.session.open` must pass both `transcript_path` and an explicit `session_id` (the daemon registers the requested id when the transcript yields none); the conversation is then hook-fed, with the transcript only tailed for growth.
+
 The daemon-side capability string for this feature is `agent.conversation.hooks` (in `hello`).
 
 ## Provider mapping notes
 
 Claude Code (`~/.claude/projects/<encoded-cwd>/<uuid>.jsonl`): `user`/`assistant` lines carry `message.content` as a string or block array. `text` → message items, `thinking` → reasoning, `tool_use` → tool item (classified by tool name: Bash → command_execution; Edit/Write/MultiEdit/NotebookEdit → file_change; WebSearch/WebFetch → web_search; `mcp__*` → mcp_tool_call; otherwise dynamic_tool_call). `tool_result` blocks live in `user` lines and fold into their item by `tool_use_id`. Sidechain lines (`isSidechain`), meta lines, and unknown top-level types (`summary`, `queue-operation`, `attachment`, `mode`, ...) are skipped. Malformed lines are skipped, never fatal.
 
-Codex (`~/.codex/sessions/YYYY/MM/DD/rollout-*.jsonl`): `response_item` of type `message`/`reasoning`/`function_call`/`function_call_output` (paired by `call_id`; `shell` → command_execution, `apply_patch` → file_change). `event_msg` duplicates response_item text and is dropped, as is `token_count`. Envelope wrappers (`<permissions>`, `<environment_context>`, `# AGENTS.md` preamble) are stripped from message text. Discovery globs the sessions tree in P1; the sqlite index (`~/.codex/state_5.sqlite`) is a later optimization.
+Codex (`~/.codex/sessions/YYYY/MM/DD/rollout-*.jsonl`): `response_item` of type `message`/`reasoning`/`function_call`/`function_call_output` (paired by `call_id`; `shell` → command_execution, `apply_patch` → file_change). `event_msg` duplicates response_item text and is dropped, as is `token_count`. Envelope wrappers (`<permissions>`, `<environment_context>`, `# AGENTS.md` preamble) are stripped from message text. Discovery prefers Codex's own sqlite session index (`~/.codex/state_5.sqlite`, `threads` table: session id → rollout path, cwd, title, updated_at), opened strictly read-only (`mode=ro`, bounded busy timeout) so a live Codex is never blocked; listing and session_id→path resolution honor the `cwd` narrowing param. The sessions-tree glob remains the fallback when the index is missing, unreadable, locked, or empty.
 
 ## Write path (P2, design constraint now)
 
@@ -132,5 +150,5 @@ Sending a message to a session must respect who owns the live process. If the se
 ## Phases
 
 - **P1 (this):** contract + Go parsers (Claude, Codex) + tailing + `agent.*` verbs + macOS local stdio spawn + read-only `/agent-chat` surface opened from a terminal pane. Iteration 2 added the live hook ingest source (turns, requests, low-latency tool items) for Claude; rendering of requests is display-only (banner, no answer buttons).
-- **P2:** composer (pane PTY inject + background `--resume` for detached sessions), launcher injection of the Claude hook config, Codex `notify`/opencode plugin hook sources.
+- **P2:** composer (pane PTY inject + background `--resume` for detached sessions), launcher injection of the Claude hook config. Daemon-side Codex `notify` translation, opencode/any-provider frame routing, and the Codex sqlite session index landed with this phase; launcher injection of the Codex notify config is the remaining Swift work item.
 - **P3:** answering permission requests, Codex write path, image fetch (`agent.image.get`), iOS consumer, remote hosts over the existing `cmux ssh` daemon channel.
