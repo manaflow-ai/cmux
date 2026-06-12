@@ -133,18 +133,21 @@ struct ControlCommandCoordinatorSurfaceAgentChatTests {
 }
 
 extension ControlCommandCoordinatorSurfaceAgentChatTests {
-    /// A present-but-malformed explicit target must fail instead of silently
-    /// falling back to the focused surface (wrong-target open with success).
-    @Test func malformedSurfaceIDIsInvalidParams() {
+    /// A present-but-malformed explicit selector must fail instead of silently
+    /// falling back to the current window/workspace/focused surface
+    /// (wrong-target open with success). Same rule as the resume verbs.
+    @Test(arguments: ["window_id", "workspace_id", "surface_id", "tab_id"])
+    func malformedExplicitSelectorIsInvalidParams(key: String) {
         let (coordinator, context) = makeCoordinator()
         context.routingResolvesTabManager = true
-        guard case .err(let code, _, _)? = coordinator.handle(
-            request(["surface_id": .string("not-a-uuid")])
+        guard case .err(let code, let message, _)? = coordinator.handle(
+            request([key: .string("not-a-uuid")])
         ) else {
-            Issue.record("Expected an error result")
+            Issue.record("Expected an error result for \(key)")
             return
         }
         #expect(code == "invalid_params")
+        #expect(message == "Missing or invalid \(key)")
         #expect(context.openCallCount == 0)
     }
 }
