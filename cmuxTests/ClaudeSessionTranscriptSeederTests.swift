@@ -96,23 +96,50 @@ final class ClaudeSessionTranscriptSeederTests: XCTestCase {
         XCTAssertEqual(try String(contentsOf: existing, encoding: .utf8), "already-here")
     }
 
-    func testSeedSearchesLaterCandidatesAndSkipsInvalidSessionIds() throws {
-        let emptyRoot = FileManager.default.temporaryDirectory
-            .appendingPathComponent("seeder-empty-\(UUID().uuidString)")
-        defer { try? FileManager.default.removeItem(at: emptyRoot) }
-        try FileManager.default.createDirectory(at: emptyRoot, withIntermediateDirectories: true)
+    func testSeedFromFallbackCandidateLandsInAuthoritativeRoot() throws {
+        let authoritativeRoot = FileManager.default.temporaryDirectory
+            .appendingPathComponent("seeder-auth-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: authoritativeRoot) }
+        try FileManager.default.createDirectory(at: authoritativeRoot, withIntermediateDirectories: true)
         _ = try writeSourceTranscript(in: configRoot)
 
         XCTAssertTrue(
             ClaudeSessionTranscriptSeeder.seedIfNeeded(
                 sessionId: sessionId,
                 targetWorkingDirectory: targetCwd.path,
-                configDirCandidates: [emptyRoot, configRoot]))
+                configDirCandidates: [authoritativeRoot, configRoot]))
+        // The copy must land in the root the resumed claude reads (the first
+        // candidate), not in the fallback root that held the source.
+        let landed = authoritativeRoot
+            .appendingPathComponent("projects")
+            .appendingPathComponent(
+                ClaudeSessionTranscriptSeeder.encodedProjectDirName(forWorkingDirectory: targetCwd.path))
+            .appendingPathComponent("\(sessionId).jsonl")
+        XCTAssertEqual(try String(contentsOf: landed, encoding: .utf8), "origin-transcript")
+        XCTAssertFalse(FileManager.default.fileExists(atPath: targetProjectDir.path))
         XCTAssertFalse(
             ClaudeSessionTranscriptSeeder.seedIfNeeded(
                 sessionId: "../escape",
                 targetWorkingDirectory: targetCwd.path,
                 configDirCandidates: [configRoot]))
+    }
+
+    func testDefaultConfigDirCandidatesMapLegacyPathToPreferredRoot() throws {
+        let home = FileManager.default.temporaryDirectory
+            .appendingPathComponent("seeder-home-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: home) }
+        let legacy = home.appendingPathComponent(".subrouter/codex/claude/_p1")
+        let preferred = home.appendingPathComponent(".codex-accounts/claude/_p1")
+        try FileManager.default.createDirectory(at: legacy, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: preferred, withIntermediateDirectories: true)
+
+        let candidates = ClaudeSessionTranscriptSeeder.defaultConfigDirCandidates(
+            launchEnvironment: ["CLAUDE_CONFIG_DIR": legacy.path],
+            processEnvironment: [:],
+            homeDirectory: home)
+        // The captured legacy path must map to the preferred root the launch
+        // environment policy rewrites it to, mirroring ClaudeConfigDirectoryPath.
+        XCTAssertEqual(candidates.first?.path, preferred.path)
     }
 
     func testSeedReturnsFalseWhenTranscriptMissingEverywhere() {

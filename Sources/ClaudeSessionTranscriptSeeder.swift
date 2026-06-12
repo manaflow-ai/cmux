@@ -1,3 +1,4 @@
+import CMUXAgentLaunch
 import Darwin
 import Foundation
 
@@ -19,20 +20,29 @@ enum ClaudeSessionTranscriptSeeder {
         })
     }
 
-    /// Config dirs to search for the session transcript, most specific first:
-    /// the launch snapshot's captured CLAUDE_CONFIG_DIR (re-applied via `env`
-    /// on resume, so it is the dir the resumed claude will actually read),
-    /// then this process's CLAUDE_CONFIG_DIR, then `~/.claude`.
+    /// Config dirs the session transcript may live in, most specific first.
+    /// The FIRST candidate is authoritative: the launch snapshot's captured
+    /// CLAUDE_CONFIG_DIR (re-applied via `env` on resume) when present, else
+    /// this process's CLAUDE_CONFIG_DIR, else `~/.claude`. Each value goes
+    /// through the same legacy-path preference the launch environment policy
+    /// applies (`ClaudeConfigDirectoryPath.preferredPath`), so the seeded root
+    /// is the root the resumed claude actually reads.
     static func defaultConfigDirCandidates(
         launchEnvironment: [String: String]?,
         processEnvironment: [String: String] = ProcessInfo.processInfo.environment,
-        homeDirectory: URL = FileManager.default.homeDirectoryForCurrentUser
+        homeDirectory: URL = FileManager.default.homeDirectoryForCurrentUser,
+        fileManager: FileManager = .default
     ) -> [URL] {
         var seenPaths = Set<String>()
         var candidates: [URL] = []
         func add(_ path: String?) {
             guard let path, !path.trimmingCharacters(in: .whitespaces).isEmpty else { return }
-            let url = URL(fileURLWithPath: path)
+            let preferred = ClaudeConfigDirectoryPath.preferredPath(
+                path,
+                fileManager: fileManager,
+                homeDirectory: homeDirectory.path
+            )
+            let url = URL(fileURLWithPath: preferred)
             if seenPaths.insert(url.standardizedFileURL.path).inserted {
                 candidates.append(url)
             }
@@ -44,12 +54,14 @@ enum ClaudeSessionTranscriptSeeder {
     }
 
     /// Copies `projects/<source>/<id>.jsonl` (and the optional `<id>/` sidecar
-    /// dir) into `projects/<encoded-target-cwd>/` inside the first candidate
-    /// config dir that has the transcript. No-op when the target project dir
-    /// already has it. A copy rather than a hardlink so concurrent resumes of
-    /// the same id from two cwds cannot interleave appends into one inode.
-    /// Returns true when the transcript is present in the target project dir
-    /// after the call. Best-effort: copy failures must never block the launch.
+    /// dir) into `projects/<encoded-target-cwd>/` of the FIRST candidate (the
+    /// config root the resumed claude reads); later candidates are searched as
+    /// source fallbacks only, never written to. No-op when the authoritative
+    /// target project dir already has the transcript. A copy rather than a
+    /// hardlink so concurrent resumes of the same id from two cwds cannot
+    /// interleave appends into one inode. Returns true when the transcript is
+    /// present in the authoritative target project dir after the call.
+    /// Best-effort: copy failures must never block the launch.
     @discardableResult
     static func seedIfNeeded(
         sessionId: String,
@@ -57,25 +69,33 @@ enum ClaudeSessionTranscriptSeeder {
         configDirCandidates: [URL],
         fileManager: FileManager = .default
     ) -> Bool {
-        guard isPlausibleSessionId(sessionId) else { return false }
+        guard isPlausibleSessionId(sessionId),
+              let targetConfigDir = configDirCandidates.first else {
+            return false
+        }
         let targetName = encodedProjectDirName(forWorkingDirectory: targetWorkingDirectory)
         guard !targetName.isEmpty else { return false }
         let transcriptName = "\(sessionId).jsonl"
+        let targetDir = targetConfigDir
+            .appendingPathComponent("projects")
+            .appendingPathComponent(targetName)
+        let targetTranscript = targetDir.appendingPathComponent(transcriptName)
+        if fileManager.fileExists(atPath: targetTranscript.path) {
+            return true
+        }
 
         for configDir in configDirCandidates {
             let projects = configDir.appendingPathComponent("projects")
-            let targetDir = projects.appendingPathComponent(targetName)
-            let targetTranscript = targetDir.appendingPathComponent(transcriptName)
-            if fileManager.fileExists(atPath: targetTranscript.path) {
-                return true
-            }
             guard let projectDirs = try? fileManager.contentsOfDirectory(
                 at: projects, includingPropertiesForKeys: nil) else {
                 continue
             }
-            for projectDir in projectDirs where projectDir.lastPathComponent != targetName {
+            for projectDir in projectDirs {
                 let sourceTranscript = projectDir.appendingPathComponent(transcriptName)
-                guard isFile(at: sourceTranscript, fileManager: fileManager) else { continue }
+                guard sourceTranscript.standardizedFileURL.path != targetTranscript.standardizedFileURL.path,
+                      isFile(at: sourceTranscript, fileManager: fileManager) else {
+                    continue
+                }
                 do {
                     try fileManager.createDirectory(at: targetDir, withIntermediateDirectories: true)
                     try fileManager.copyItem(at: sourceTranscript, to: targetTranscript)
