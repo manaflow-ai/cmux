@@ -28113,6 +28113,8 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
         "PostCompact",
         "SessionStart",
         "UserPromptSubmit",
+        "SubagentStart",
+        "SubagentStop",
         "Stop",
     ]
 
@@ -28125,6 +28127,8 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
         case "PostCompact": return "post_compact"
         case "SessionStart": return "session_start"
         case "UserPromptSubmit": return "user_prompt_submit"
+        case "SubagentStart": return "subagent_start"
+        case "SubagentStop": return "subagent_stop"
         case "Stop": return "stop"
         default: return nil
         }
@@ -28132,7 +28136,8 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
 
     private static func codexHookEventUsesMatcher(_ eventName: String) -> Bool {
         switch eventName {
-        case "PreToolUse", "PermissionRequest", "PostToolUse", "PreCompact", "PostCompact", "SessionStart":
+        case "PreToolUse", "PermissionRequest", "PostToolUse", "PreCompact", "PostCompact", "SessionStart",
+             "SubagentStart", "SubagentStop":
             return true
         default:
             return false
