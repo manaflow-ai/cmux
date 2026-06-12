@@ -7068,10 +7068,22 @@ final class WorkspaceRemoteSessionController {
                 process: process,
                 stderrPipe: stderrPipe
             ) {
-                let retryDelay = 2.0
+                let retryDelay: TimeInterval
+                let didCleanStaleListener: Bool
+                if Self.reverseRelayStartupFailureIndicatesStaleRemoteListener(
+                    startupFailure,
+                    relayPort: relayPort
+                ) {
+                    didCleanStaleListener = cleanupStaleRemoteRelayListenerLocked(relayPort: relayPort)
+                    retryDelay = didCleanStaleListener ? 0.25 : 2.0
+                } else {
+                    didCleanStaleListener = false
+                    retryDelay = 2.0
+                }
                 let retrySeconds = max(1, Int(retryDelay.rounded()))
                 debugLog(
                     "remote.relay.startFailed relayPort=\(relayPort) " +
+                    "cleanedStaleListener=\(didCleanStaleListener ? 1 : 0) " +
                     "error=\(startupFailure)"
                 )
                 if let relayServer {
@@ -7080,10 +7092,12 @@ final class WorkspaceRemoteSessionController {
                         cliRelayServer = nil
                     }
                 }
-                publishDaemonStatus(
-                    .error,
-                    detail: "Remote SSH relay unavailable: \(startupFailure) (retry in \(retrySeconds)s)"
-                )
+                if !didCleanStaleListener {
+                    publishDaemonStatus(
+                        .error,
+                        detail: "Remote SSH relay unavailable: \(startupFailure) (retry in \(retrySeconds)s)"
+                    )
+                }
                 scheduleReverseRelayRestartLocked(remotePath: remotePath, delay: retryDelay)
                 return
             }
@@ -9344,6 +9358,16 @@ final class WorkspaceRemoteSessionController {
         let stderrData = ProcessPipeReader.readDataToEndOfFileOrEmpty(from: stderrPipe.fileHandleForReading)
         let stderr = String(data: stderrData, encoding: .utf8) ?? ""
         return bestErrorLine(stderr: stderr) ?? "status=\(process.terminationStatus)"
+    }
+
+    static func reverseRelayStartupFailureIndicatesStaleRemoteListener(
+        _ detail: String,
+        relayPort: Int
+    ) -> Bool {
+        guard relayPort > 0 else { return false }
+        let lowered = detail.lowercased()
+        return lowered.contains("remote port forwarding failed")
+            && lowered.contains("listen port \(relayPort)")
     }
 
     private static func meaningfulErrorLine(in text: String) -> String? {
@@ -14012,7 +14036,10 @@ final class Workspace: Identifiable, ObservableObject {
         )
         return SSHPTYAttachStartupCommandBuilder.command(
             sessionID: sessionID,
-            foregroundAuth: foregroundAuth
+            foregroundAuth: foregroundAuth,
+            remoteCommand: remoteConfiguration.relayPort.map(
+                SSHPTYAttachStartupCommandBuilder.restoredRemoteShellCommand(relayPort:)
+            )
         )
     }
 

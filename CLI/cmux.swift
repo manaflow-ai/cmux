@@ -10542,7 +10542,11 @@ struct CMUXCLI {
                 responseTimeout: waitForReady ? 185 : nil
             )
         } catch {
-            throw CLIError(message: "ssh-pty-attach: \(userFacingRemotePTYErrorMessage(error))")
+            let userFacingMessage = userFacingRemotePTYErrorMessage(error)
+            throw CLIError(
+                message: "ssh-pty-attach: \(userFacingMessage)",
+                exitCode: remotePTYErrorIndicatesMissingSession(error) ? 253 : 1
+            )
         }
         var connectedFD: Int32?
         let controlSocketLock = NSLock()
@@ -10781,6 +10785,21 @@ struct CMUXCLI {
             return userFacingRemotePTYErrorMessage(String(describing: error))
         }
         return userFacingRemotePTYErrorMessage(debugString(value) ?? "unknown error")
+    }
+
+    private func remotePTYErrorIndicatesMissingSession(_ value: Any?) -> Bool {
+        if let error = value as? Error {
+            return remotePTYErrorIndicatesMissingSession(String(describing: error))
+        }
+        return remotePTYErrorIndicatesMissingSession(debugString(value) ?? "")
+    }
+
+    private func remotePTYErrorIndicatesMissingSession(_ message: String) -> Bool {
+        let lowered = message.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        guard !lowered.isEmpty else { return false }
+        return lowered.contains("pty_session_not_found") ||
+            (lowered.contains("persistent ssh pty session") && lowered.contains("not running")) ||
+            (lowered.contains("persistent pty session") && lowered.contains("not running"))
     }
 
     private func userFacingRemotePTYErrorMessage(_ message: String) -> String {
