@@ -3119,14 +3119,14 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         // collapsed sidebar, but the selected workspace's live Bonsplit inset is stale.
         sourceWorkspace.bonsplitController.configuration.appearance.tabBarLeadingInset = 0
 
-        guard let newWorkspaceId = appDelegate.addWorkspaceInPreferredMainWindow(debugSource: "test.issue2737") else {
+        guard let createdWorkspace = appDelegate.addWorkspaceInPreferredMainWindow(debugSource: "test.issue2737") else {
             XCTFail("Expected workspace creation to route to the test window")
             return
         }
 
         RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.1))
 
-        guard let newWorkspace = manager.tabs.first(where: { $0.id == newWorkspaceId }) else {
+        guard let newWorkspace = manager.tabs.first(where: { $0.id == createdWorkspace.id }) else {
             XCTFail("Expected new workspace in test window")
             return
         }
