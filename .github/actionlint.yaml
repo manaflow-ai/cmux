@@ -10,3 +10,7 @@ self-hosted-runner:
     - warp-macos-26-arm64-6x
     - depot-macos-latest
     - depot-macos-14
+    # Linux jobs default to Blacksmith via the LINUX_RUNNER repo variable
+    # (fallback below). GitHub-hosted ubuntu minutes are billed; Blacksmith is
+    # not. See docs/macos-ci-runners.md.
+    - blacksmith-4vcpu-ubuntu-2204
