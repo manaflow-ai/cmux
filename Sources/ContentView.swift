@@ -14066,6 +14066,8 @@ private enum SidebarHelpMenuAction {
 
 private struct SidebarFeedbackComposerSheet: View {
     private static let formMaxHeight: CGFloat = 560
+    private static let messageEditorMinHeight: CGFloat = 180
+    private static let messageEditorMaxHeight: CGFloat = 320
 
     @AppStorage(FeedbackComposerSettings.storedEmailKey) private var email = ""
     @Environment(\.dismiss) private var dismiss
@@ -14179,7 +14181,10 @@ private struct SidebarFeedbackComposerSheet: View {
                     accessibilityLabel: String(localized: "sidebar.help.feedback.message", defaultValue: "Message"),
                     accessibilityIdentifier: "SidebarFeedbackMessageEditor"
                 )
-                .frame(minHeight: 180)
+                .frame(
+                    minHeight: Self.messageEditorMinHeight,
+                    maxHeight: Self.messageEditorMaxHeight
+                )
             }
 
             VStack(alignment: .leading, spacing: 8) {
