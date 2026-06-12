@@ -8,7 +8,9 @@ import Bonsplit
 @testable import cmux
 #endif
 
-@Suite struct AgentHibernationTests {
+// Tests that mutate TerminalController.shared and TerminalMutationBus.shared must not
+// run in parallel; .serialized preserves the XCTestCase serial execution contract.
+@Suite(.serialized) struct AgentHibernationTests {
     @Test func lifecycleStateParsingAcceptsShellFriendlyAliases() throws {
         #expect(AgentHibernationLifecycleState.parseCLIValue("IDLE") == .idle)
         #expect(AgentHibernationLifecycleState.parseCLIValue("needsInput") == .needsInput)
