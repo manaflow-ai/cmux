@@ -132,6 +132,9 @@ enum KeyboardShortcutSettings {
         case toggleCanvasLayout
         case canvasRevealFocusedPane
         case canvasOverview
+        case canvasZoomIn
+        case canvasZoomOut
+        case canvasZoomReset
         case canvasTidy
         case canvasAlignLeft
         case canvasAlignRight
@@ -244,6 +247,9 @@ enum KeyboardShortcutSettings {
             case .toggleCanvasLayout: return String(localized: "shortcut.toggleCanvasLayout.label", defaultValue: "Toggle Canvas Layout")
             case .canvasRevealFocusedPane: return String(localized: "shortcut.canvasRevealFocusedPane.label", defaultValue: "Canvas: Reveal Focused Pane")
             case .canvasOverview: return String(localized: "shortcut.canvasOverview.label", defaultValue: "Canvas: Toggle Overview")
+            case .canvasZoomIn: return String(localized: "shortcut.canvasZoomIn.label", defaultValue: "Canvas: Zoom In")
+            case .canvasZoomOut: return String(localized: "shortcut.canvasZoomOut.label", defaultValue: "Canvas: Zoom Out")
+            case .canvasZoomReset: return String(localized: "shortcut.canvasZoomReset.label", defaultValue: "Canvas: Actual Size")
             case .canvasTidy: return String(localized: "shortcut.canvasTidy.label", defaultValue: "Canvas: Tidy Panes")
             case .canvasAlignLeft: return String(localized: "shortcut.canvasAlignLeft.label", defaultValue: "Canvas: Align Left Edges")
             case .canvasAlignRight: return String(localized: "shortcut.canvasAlignRight.label", defaultValue: "Canvas: Align Right Edges")
@@ -426,6 +432,12 @@ enum KeyboardShortcutSettings {
                 return StoredShortcut(key: "r", command: true, shift: false, option: false, control: true)
             case .canvasOverview:
                 return StoredShortcut(key: "o", command: true, shift: false, option: false, control: true)
+            case .canvasZoomIn:
+                return StoredShortcut(key: "=", command: true, shift: false, option: true, control: false)
+            case .canvasZoomOut:
+                return StoredShortcut(key: "-", command: true, shift: false, option: true, control: false)
+            case .canvasZoomReset:
+                return StoredShortcut(key: "0", command: true, shift: false, option: true, control: false)
             case .canvasTidy:
                 return StoredShortcut(key: "t", command: true, shift: false, option: false, control: true)
             case .canvasAlignLeft,

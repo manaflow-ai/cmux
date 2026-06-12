@@ -27,6 +27,7 @@ public final class CanvasRootView: NSView {
     private var dragSession: DragSession?
     private var overviewRestore: (magnification: CGFloat, origin: CGPoint)?
     private var clipBoundsObserver: (any NSObjectProtocol)?
+    private var commandScrollMonitor: Any?
     private var hasPlacedInitialViewport = false
 
     /// Extra viewport fraction kept rendering around the visible rect so
@@ -99,6 +100,44 @@ public final class CanvasRootView: NSView {
         applyTheme()
     }
 
+    // MARK: Command-scroll canvas panning
+
+    /// Pane content (terminals especially) consumes plain scroll events, so
+    /// panning stalls whenever the cursor sits over a pane. Holding Command
+    /// routes the scroll to the canvas regardless of what is underneath —
+    /// the monitor intercepts before hit-testing reaches the content.
+    public override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        if window == nil {
+            removeCommandScrollMonitor()
+        } else {
+            installCommandScrollMonitor()
+        }
+    }
+
+    private func installCommandScrollMonitor() {
+        guard commandScrollMonitor == nil else { return }
+        commandScrollMonitor = NSEvent.addLocalMonitorForEvents(matching: .scrollWheel) { [weak self] event in
+            guard let self,
+                  let window = self.window,
+                  event.window === window,
+                  event.modifierFlags.contains(.command) else {
+                return event
+            }
+            let location = self.convert(event.locationInWindow, from: nil)
+            guard self.bounds.contains(location) else { return event }
+            self.scrollView.scrollWheel(with: event)
+            return nil
+        }
+    }
+
+    private func removeCommandScrollMonitor() {
+        if let commandScrollMonitor {
+            NSEvent.removeMonitor(commandScrollMonitor)
+        }
+        commandScrollMonitor = nil
+    }
+
     /// Releases mounted content (terminals go back to the portal system) and
     /// observers. Called when the workspace leaves canvas mode.
     public func teardown() {
@@ -113,6 +152,7 @@ public final class CanvasRootView: NSView {
             NotificationCenter.default.removeObserver(clipBoundsObserver)
         }
         clipBoundsObserver = nil
+        removeCommandScrollMonitor()
         if model.viewport === self {
             model.viewport = nil
         }
@@ -326,6 +366,46 @@ extension CanvasRootView: CanvasViewportControlling {
         )
         guard origin.cgPoint != visible.origin else { return }
         setClipOrigin(origin.cgPoint, animated: animated)
+    }
+
+    public func zoom(by factor: CGFloat) {
+        // An explicit zoom invalidates the overview round-trip restore.
+        overviewRestore = nil
+        let target = min(
+            max(scrollView.magnification * factor, scrollView.minMagnification),
+            scrollView.maxMagnification
+        )
+        setMagnification(target)
+    }
+
+    public func resetZoom() {
+        overviewRestore = nil
+        setMagnification(1.0)
+    }
+
+    /// Animates to `magnification`, keeping the current viewport center
+    /// fixed (explicit origin math; `setMagnification(centeredAt:)` drifts
+    /// on large deltas).
+    private func setMagnification(_ magnification: CGFloat) {
+        guard magnification != scrollView.magnification else { return }
+        let visible = scrollView.contentView.documentVisibleRect
+        let center = CGPoint(x: visible.midX, y: visible.midY)
+        let viewportSize = scrollView.contentSize
+        let clipSize = CGSize(
+            width: viewportSize.width / magnification,
+            height: viewportSize.height / magnification
+        )
+        let targetOrigin = CGPoint(
+            x: center.x - clipSize.width / 2,
+            y: center.y - clipSize.height / 2
+        )
+        NSAnimationContext.runAnimationGroup { context in
+            context.duration = 0.2
+            context.allowsImplicitAnimation = true
+            scrollView.animator().magnification = magnification
+            scrollView.contentView.animator().setBoundsOrigin(targetOrigin)
+            scrollView.reflectScrolledClipView(scrollView.contentView)
+        }
     }
 
     public func toggleOverview() {

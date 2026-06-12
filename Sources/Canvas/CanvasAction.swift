@@ -14,6 +14,12 @@ enum CanvasAction: Equatable {
     case revealFocusedPane
     /// Toggle the fit-all overview zoom.
     case toggleOverview
+    /// Zoom in one step, anchored at the viewport center.
+    case zoomIn
+    /// Zoom out one step, anchored at the viewport center.
+    case zoomOut
+    /// Return to 100% magnification.
+    case zoomReset
     /// Apply an alignment/distribution/tidy command to all panes.
     case alignment(CanvasAlignmentCommand)
 }
@@ -24,6 +30,9 @@ extension KeyboardShortcutSettings.Action {
         .toggleCanvasLayout,
         .canvasRevealFocusedPane,
         .canvasOverview,
+        .canvasZoomIn,
+        .canvasZoomOut,
+        .canvasZoomReset,
         .canvasTidy,
         .canvasAlignLeft,
         .canvasAlignRight,
@@ -41,6 +50,9 @@ extension KeyboardShortcutSettings.Action {
         case .toggleCanvasLayout: return .toggleLayout
         case .canvasRevealFocusedPane: return .revealFocusedPane
         case .canvasOverview: return .toggleOverview
+        case .canvasZoomIn: return .zoomIn
+        case .canvasZoomOut: return .zoomOut
+        case .canvasZoomReset: return .zoomReset
         case .canvasTidy: return .alignment(.tidy)
         case .canvasAlignLeft: return .alignment(.alignLeft)
         case .canvasAlignRight: return .alignment(.alignRight)
@@ -61,6 +73,9 @@ extension KeyboardShortcutSettings.Action {
 struct CanvasActionExecutor {
     let workspace: Workspace
 
+    /// One keyboard/palette zoom step (matches typical app zoom increments).
+    static let zoomStepFactor: CGFloat = 1.25
+
     /// Runs the action. Returns `false` when the action does not apply
     /// (for example a canvas-only action while the workspace is in splits).
     @discardableResult
@@ -77,6 +92,18 @@ struct CanvasActionExecutor {
         case .toggleOverview:
             guard workspace.layoutMode == .canvas else { return false }
             workspace.canvasModel.viewport?.toggleOverview()
+            return true
+        case .zoomIn:
+            guard workspace.layoutMode == .canvas else { return false }
+            workspace.canvasModel.viewport?.zoom(by: Self.zoomStepFactor)
+            return true
+        case .zoomOut:
+            guard workspace.layoutMode == .canvas else { return false }
+            workspace.canvasModel.viewport?.zoom(by: 1 / Self.zoomStepFactor)
+            return true
+        case .zoomReset:
+            guard workspace.layoutMode == .canvas else { return false }
+            workspace.canvasModel.viewport?.resetZoom()
             return true
         case .alignment(let command):
             guard workspace.layoutMode == .canvas else { return false }

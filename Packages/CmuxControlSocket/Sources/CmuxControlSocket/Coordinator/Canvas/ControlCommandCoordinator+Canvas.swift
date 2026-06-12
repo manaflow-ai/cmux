@@ -21,6 +21,8 @@ extension ControlCommandCoordinator {
             return canvasReveal(request.params)
         case "canvas.overview":
             return canvasOverview(request.params)
+        case "canvas.zoom":
+            return canvasZoom(request.params)
         default:
             return nil
         }
@@ -138,6 +140,24 @@ extension ControlCommandCoordinator {
     func canvasOverview(_ params: [String: JSONValue]) -> ControlCallResult {
         let routing = routingSelectors(params)
         let resolution = context?.controlCanvasToggleOverview(routing: routing)
+            ?? .tabManagerUnavailable
+        return canvasActionResult(resolution)
+    }
+
+    // MARK: - zoom
+
+    /// `canvas.zoom` — step the viewport magnification (`in`/`out`/`reset`).
+    func canvasZoom(_ params: [String: JSONValue]) -> ControlCallResult {
+        guard let direction = string(params, "direction"),
+              ["in", "out", "reset"].contains(direction) else {
+            return .err(
+                code: "invalid_params",
+                message: "direction must be in, out, or reset",
+                data: nil
+            )
+        }
+        let routing = routingSelectors(params)
+        let resolution = context?.controlCanvasZoom(routing: routing, direction: direction)
             ?? .tabManagerUnavailable
         return canvasActionResult(resolution)
     }

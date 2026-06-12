@@ -79,6 +79,9 @@ extension ShortcutAction {
         case .toggleCanvasLayout: return ShortcutStroke(key: "c", command: true, control: true)
         case .canvasRevealFocusedPane: return ShortcutStroke(key: "r", command: true, control: true)
         case .canvasOverview: return ShortcutStroke(key: "o", command: true, control: true)
+        case .canvasZoomIn: return ShortcutStroke(key: "=", command: true, option: true)
+        case .canvasZoomOut: return ShortcutStroke(key: "-", command: true, option: true)
+        case .canvasZoomReset: return ShortcutStroke(key: "0", command: true, option: true)
         case .canvasTidy: return ShortcutStroke(key: "t", command: true, control: true)
         case .canvasAlignLeft, .canvasAlignRight, .canvasAlignTop, .canvasAlignBottom,
              .canvasEqualizeWidths, .canvasEqualizeHeights,

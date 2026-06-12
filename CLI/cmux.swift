@@ -7351,7 +7351,7 @@ struct CMUXCLI {
         idFormat: CLIIDFormat
     ) throws {
         guard let sub = commandArgs.first?.lowercased() else {
-            throw CLIError(message: "canvas requires a subcommand. Try: info, mode, set-frame, align, reveal, overview")
+            throw CLIError(message: "canvas requires a subcommand. Try: info, mode, set-frame, align, reveal, overview, zoom")
         }
         let rest = Array(commandArgs.dropFirst())
         // Split flags ("--name value") from bare positionals so a flag's
@@ -7414,8 +7414,15 @@ struct CMUXCLI {
             method = "canvas.reveal"
         case "overview":
             method = "canvas.overview"
+        case "zoom":
+            guard let direction = positionals.first?.lowercased(),
+                  ["in", "out", "reset"].contains(direction) else {
+                throw CLIError(message: "Usage: cmux canvas zoom <in|out|reset>")
+            }
+            params["direction"] = direction
+            method = "canvas.zoom"
         default:
-            throw CLIError(message: "Unknown canvas subcommand: \(sub). Try: info, mode, set-frame, align, reveal, overview")
+            throw CLIError(message: "Unknown canvas subcommand: \(sub). Try: info, mode, set-frame, align, reveal, overview, zoom")
         }
 
         let payload = try client.sendV2(method: method, params: params)
@@ -13436,6 +13443,7 @@ struct CMUXCLI {
                                             distribute-horizontally, distribute-vertically
               reveal [<surface>]            Scroll a pane into view (default: focused)
               overview                      Toggle fit-all overview zoom
+              zoom <in|out|reset>           Step viewport magnification
 
             Example:
               cmux canvas mode canvas

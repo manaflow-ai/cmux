@@ -88,6 +88,9 @@ public enum ShortcutAction: String, CaseIterable, Sendable, Hashable, SettingCod
     case toggleCanvasLayout
     case canvasRevealFocusedPane
     case canvasOverview
+    case canvasZoomIn
+    case canvasZoomOut
+    case canvasZoomReset
     case canvasTidy
     case canvasAlignLeft
     case canvasAlignRight
@@ -178,7 +181,8 @@ extension ShortcutAction {
         case .focusLeft, .focusRight, .focusUp, .focusDown, .splitRight, .splitDown,
              .toggleSplitZoom, .equalizeSplits, .splitBrowserRight, .splitBrowserDown,
              .toggleRightSidebar,
-             .toggleCanvasLayout, .canvasRevealFocusedPane, .canvasOverview, .canvasTidy,
+             .toggleCanvasLayout, .canvasRevealFocusedPane, .canvasOverview,
+             .canvasZoomIn, .canvasZoomOut, .canvasZoomReset, .canvasTidy,
              .canvasAlignLeft, .canvasAlignRight, .canvasAlignTop, .canvasAlignBottom,
              .canvasEqualizeWidths, .canvasEqualizeHeights,
              .canvasDistributeHorizontally, .canvasDistributeVertically:
@@ -358,6 +362,12 @@ extension ShortcutAction {
             return String(localized: "shortcut.canvasRevealFocusedPane.label", defaultValue: "Canvas: Reveal Focused Pane")
         case .canvasOverview:
             return String(localized: "shortcut.canvasOverview.label", defaultValue: "Canvas: Toggle Overview")
+        case .canvasZoomIn:
+            return String(localized: "shortcut.canvasZoomIn.label", defaultValue: "Canvas: Zoom In")
+        case .canvasZoomOut:
+            return String(localized: "shortcut.canvasZoomOut.label", defaultValue: "Canvas: Zoom Out")
+        case .canvasZoomReset:
+            return String(localized: "shortcut.canvasZoomReset.label", defaultValue: "Canvas: Actual Size")
         case .canvasTidy:
             return String(localized: "shortcut.canvasTidy.label", defaultValue: "Canvas: Tidy Panes")
         case .canvasAlignLeft:

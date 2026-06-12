@@ -121,6 +121,26 @@ extension TerminalController: ControlCanvasContext {
         ws.canvasModel.viewport?.toggleOverview()
         return .ok(mode: ws.layoutMode.rawValue)
     }
+
+    func controlCanvasZoom(
+        routing: ControlRoutingSelectors,
+        direction: String
+    ) -> ControlCanvasActionResolution {
+        guard let ws = resolveCanvasWorkspace(routing: routing) else {
+            return .workspaceNotFound
+        }
+        guard ws.layoutMode == .canvas else { return .notCanvasMode }
+        let executor = CanvasActionExecutor(workspace: ws)
+        switch direction {
+        case "in":
+            executor.perform(.zoomIn)
+        case "out":
+            executor.perform(.zoomOut)
+        default:
+            executor.perform(.zoomReset)
+        }
+        return .ok(mode: ws.layoutMode.rawValue)
+    }
 }
 
 extension ControlCanvasAlignCommand {

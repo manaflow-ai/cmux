@@ -55,6 +55,16 @@ private final class FakeCanvasControlCommandContext: ControlCommandContext {
     ) -> ControlCanvasActionResolution {
         actionResolution
     }
+
+    var lastZoomDirection: String?
+
+    func controlCanvasZoom(
+        routing: ControlRoutingSelectors,
+        direction: String
+    ) -> ControlCanvasActionResolution {
+        lastZoomDirection = direction
+        return actionResolution
+    }
 }
 
 @MainActor
@@ -184,6 +194,27 @@ struct ControlCommandCoordinatorCanvasTests {
             return
         }
         #expect(context.lastAlignCommand == .equalizeWidths)
+    }
+
+    @Test func zoomValidatesDirection() {
+        let (coordinator, context) = makeCoordinator()
+        guard case .err(let code, _, _) = coordinator.handle(
+            request("canvas.zoom", ["direction": .string("sideways")])
+        ) else {
+            Issue.record("expected err")
+            return
+        }
+        #expect(code == "invalid_params")
+        #expect(context.lastZoomDirection == nil)
+
+        context.actionResolution = .ok(mode: "canvas")
+        guard case .ok = coordinator.handle(
+            request("canvas.zoom", ["direction": .string("in")])
+        ) else {
+            Issue.record("expected ok")
+            return
+        }
+        #expect(context.lastZoomDirection == "in")
     }
 
     @Test func notCanvasModeMapsToInvalidState() {

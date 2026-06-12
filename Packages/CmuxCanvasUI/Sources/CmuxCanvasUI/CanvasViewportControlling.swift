@@ -12,6 +12,11 @@ public protocol CanvasViewportControlling: AnyObject {
     func revealPane(_ panelId: UUID, animated: Bool)
     /// Toggles between fit-all overview magnification and the previous zoom.
     func toggleOverview()
+    /// Multiplies the magnification by `factor` (clamped), anchored at the
+    /// viewport center.
+    func zoom(by factor: CGFloat)
+    /// Returns to 100% magnification, anchored at the viewport center.
+    func resetZoom()
     /// Re-reads the model after an external mutation (palette command,
     /// automation verb) and animates pane views to their new frames.
     func modelDidChangeExternally(animated: Bool)
