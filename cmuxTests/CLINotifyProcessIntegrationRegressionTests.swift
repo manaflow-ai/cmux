@@ -765,6 +765,124 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         )
     }
 
+    func testClaudeForkSessionStartRecognizesEqualsFlagForm() throws {
+        let context = try makeClaudeHookContext(name: "claude-fork-equals-form")
+        defer { context.cleanup() }
+
+        let parentSessionId = "parent-session"
+        let parentSurfaceId = "99999999-9999-9999-9999-999999999999"
+        try seedClaudeForkHookStore(
+            context: context,
+            parentSessionId: parentSessionId,
+            parentSurfaceId: parentSurfaceId,
+            activeSessionId: parentSessionId,
+            activeTurnId: "parent-turn-1"
+        )
+
+        let result = runClaudeHookListingSurfaces(
+            context: context,
+            surfaceIds: [parentSurfaceId, context.surfaceId],
+            arguments: ["hooks", "claude", "session-start"],
+            standardInput: #"{"session_id":"\#(parentSessionId)","source":"resume","cwd":"\#(context.root.path)","hook_event_name":"SessionStart"}"#,
+            extraEnvironment: agentLaunchEnvironment(
+                context: context,
+                kind: "claude",
+                executable: "/usr/local/bin/claude",
+                arguments: ["/usr/local/bin/claude", "--resume", parentSessionId, "--fork-session=true"]
+            )
+        )
+        XCTAssertFalse(result.timedOut, result.stderr)
+        XCTAssertEqual(result.status, 0, result.stderr)
+
+        let parentRecord = try readClaudeHookSession(parentSessionId, context: context)
+        XCTAssertEqual(
+            parentRecord["surfaceId"] as? String,
+            parentSurfaceId,
+            "Fork detection must recognize the --fork-session=true flag form the launch sanitizer already accepts"
+        )
+    }
+
+    func testClaudeLegacyStoreBackfillsPaneBoundaryFromWorkspaceActiveSlot() throws {
+        let context = try makeClaudeHookContext(name: "claude-legacy-backfill")
+        defer { context.cleanup() }
+
+        let paneA = "99999999-9999-9999-9999-999999999999"
+        let paneB = context.surfaceId
+        let now = Date().timeIntervalSince1970
+        // A store written before per-surface tracking: pane A's current
+        // session-2 holds the workspace slot; stale session-1 also lives in
+        // pane A; no activeSessionsBySurface key at all.
+        let store: [String: Any] = [
+            "version": 1,
+            "sessions": [
+                "session-1": [
+                    "sessionId": "session-1",
+                    "workspaceId": context.workspaceId,
+                    "surfaceId": paneA,
+                    "cwd": context.root.path,
+                    "agentLifecycle": "running",
+                    "startedAt": now,
+                    "updatedAt": now,
+                ],
+                "session-2": [
+                    "sessionId": "session-2",
+                    "workspaceId": context.workspaceId,
+                    "surfaceId": paneA,
+                    "cwd": context.root.path,
+                    "agentLifecycle": "running",
+                    "startedAt": now,
+                    "updatedAt": now,
+                ],
+            ],
+            "activeSessionsByWorkspace": [
+                context.workspaceId: [
+                    "sessionId": "session-2",
+                    "updatedAt": now,
+                ],
+            ],
+        ]
+        try JSONSerialization.data(withJSONObject: store, options: [.prettyPrinted])
+            .write(
+                to: context.root.appendingPathComponent("claude-hook-sessions.json"),
+                options: .atomic
+            )
+
+        startClaudeHookMockServerAccepting(
+            context: context,
+            surfaceIds: [paneA, paneB],
+            connectionLimit: 32
+        )
+
+        // Pane B takes the workspace-active slot under the new code…
+        let paneBPrompt = runClaudeHookWithoutServer(
+            context: context,
+            arguments: ["hooks", "claude", "prompt-submit"],
+            standardInput: #"{"session_id":"session-3","turn_id":"turn-3","cwd":"\#(context.root.path)","hook_event_name":"UserPromptSubmit","prompt":"three"}"#,
+            extraEnvironment: ["CMUX_SURFACE_ID": paneB]
+        )
+        XCTAssertFalse(paneBPrompt.timedOut, paneBPrompt.stderr)
+        XCTAssertEqual(paneBPrompt.status, 0, paneBPrompt.stderr)
+
+        // …then a late Stop from stale session-1 in pane A must stay stale:
+        // the pane boundary (session-2 owns pane A) has to survive the upgrade
+        // via backfill from the legacy workspace slot.
+        let lateStop = runClaudeHookWithoutServer(
+            context: context,
+            arguments: ["hooks", "claude", "stop"],
+            standardInput: #"{"session_id":"session-1","cwd":"\#(context.root.path)","hook_event_name":"Stop","last_assistant_message":"late"}"#,
+            extraEnvironment: ["CMUX_SURFACE_ID": paneA]
+        )
+        XCTAssertFalse(lateStop.timedOut, lateStop.stderr)
+        XCTAssertEqual(lateStop.status, 0, lateStop.stderr)
+
+        let staleRecord = try readClaudeHookSession("session-1", context: context)
+        XCTAssertEqual(
+            staleRecord["agentLifecycle"] as? String,
+            "running",
+            "A legacy store must backfill the pane boundary so pre-upgrade stale sessions stay stale after another pane promotes"
+        )
+    }
+
     func testClaudeForkedSessionPromptSubmitRecordsWhileParentTurnActive() throws {
         let context = try makeClaudeHookContext(name: "claude-fork-prompt-submit")
         defer { context.cleanup() }
