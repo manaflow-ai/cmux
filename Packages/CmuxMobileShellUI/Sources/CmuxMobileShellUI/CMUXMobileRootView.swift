@@ -87,6 +87,16 @@ struct CMUXMobileRootView: View {
             // nothing ever resolves `didFinishStoredMacReconnectAttempt`.
             reconnectStoredMacIfNeeded()
         }
+        #if os(iOS)
+        // A notification tap can arrive before the workspace (or terminal) it
+        // targets is loaded (cold launch, or attach still in flight); re-apply
+        // the parked deep link as the lists fill in. The version counter is a
+        // cheap change signal: it bumps on any workspace or terminal list
+        // mutation without allocating ID arrays on every body evaluation.
+        .onChange(of: store.workspaceTopologyVersion) { _, _ in
+            pushCoordinator.workspacesDidChange()
+        }
+        #endif
         .onChange(of: scenePhase) { _, phase in
             guard phase == .active else { return }
             store.resumeForegroundRefresh()

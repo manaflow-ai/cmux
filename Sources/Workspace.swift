@@ -3665,6 +3665,7 @@ final class Workspace: Identifiable, ObservableObject {
         workingDirectory: String? = nil,
         portOrdinal: Int = 0,
         configTemplate: CmuxSurfaceConfigTemplate? = nil,
+        initialSurface: NewWorkspaceInitialSurface = .terminal,
         initialTerminalCommand: String? = nil,
         initialTerminalInput: String? = nil,
         initialTerminalEnvironment: [String: String] = [:], initialDetachedSurface: DetachedSurfaceTransfer? = nil
@@ -3732,6 +3733,35 @@ final class Workspace: Identifiable, ObservableObject {
                attachDetachedSurface(initialDetachedSurface, inPane: initialPaneId, focus: false) != nil {
                 initialTabId = surfaceIdFromPanelId(initialDetachedSurface.panelId)
             }
+        } else if initialSurface == .browser {
+            // Create the initial browser panel in its default new-tab state.
+            // Mirrors the minimal terminal branch below plus the browser panel
+            // wiring `attachDetachedSurface` performs for reattached panels.
+            let browserPanel = BrowserPanel(
+                workspaceId: id,
+                profileID: resolvedNewBrowserProfileID()
+            )
+            configureBrowserPanel(browserPanel)
+            panels[browserPanel.id] = browserPanel
+            panelTitles[browserPanel.id] = browserPanel.displayTitle
+            // Land the first activation in the address bar so a URL can be
+            // typed immediately; BrowserPanelView consumes the pending request
+            // when the surface first appears.
+            _ = browserPanel.requestAddressBarFocus(selectionIntent: .selectAll)
+
+            if let tabId = bonsplitController.createTab(
+                title: browserPanel.displayTitle,
+                icon: browserPanel.displayIcon,
+                kind: SurfaceKind.browser,
+                isDirty: browserPanel.isDirty,
+                isLoading: browserPanel.isLoading,
+                isAudioMuted: browserPanel.isMuted,
+                isPinned: false
+            ) {
+                surfaceIdToPanelId[tabId] = browserPanel.id
+                initialTabId = tabId
+            }
+            installBrowserPanelSubscription(browserPanel)
         } else {
             // Create initial terminal panel
             let terminalPanel = TerminalPanel(

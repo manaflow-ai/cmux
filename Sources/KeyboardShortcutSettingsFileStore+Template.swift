@@ -98,6 +98,11 @@ extension CmuxSettingsFileStore {
                         "idleSeconds": Int(AgentHibernationSettings.defaultIdleSeconds),
                         "maxLiveTerminals": AgentHibernationSettings.defaultMaxLiveTerminals,
                     ],
+                    "rendererRealization": [
+                        "enabled": RendererRealizationSettings.defaultEnabled,
+                        "idleSeconds": Int(RendererRealizationSettings.defaultIdleSeconds),
+                        "maxWarmRenderers": RendererRealizationSettings.defaultMaxWarmRenderers,
+                    ],
                     "textBoxMaxLines": TerminalTextBoxInputSettings.defaultMaxLines,
                     "resumeCommands": [],
                 ],
