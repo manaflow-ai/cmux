@@ -1890,13 +1890,29 @@ struct AppSessionSnapshot: Codable, Sendable {
 }
 
 enum SessionPersistenceStore {
+    enum SnapshotLoadOutcome {
+        case loaded(AppSessionSnapshot)
+        /// No snapshot file on disk: a genuinely clean state.
+        case missing
+        /// A snapshot file exists but cannot be restored (unreadable data,
+        /// decode failure, schema version drift, or an anomalous empty
+        /// window list; empty states remove the file instead of writing it).
+        case unusable
+    }
+
+    static func loadOutcome(fileURL: URL) -> SnapshotLoadOutcome {
+        guard FileManager.default.fileExists(atPath: fileURL.path) else { return .missing }
+        guard let data = try? Data(contentsOf: fileURL) else { return .unusable }
+        let decoder = JSONDecoder()
+        guard let snapshot = try? decoder.decode(AppSessionSnapshot.self, from: data) else { return .unusable }
+        guard snapshot.version == SessionSnapshotSchema.currentVersion else { return .unusable }
+        guard !snapshot.windows.isEmpty else { return .unusable }
+        return .loaded(snapshot)
+    }
+
     static func load(fileURL: URL? = nil) -> AppSessionSnapshot? {
         guard let fileURL = fileURL ?? defaultSnapshotFileURL() else { return nil }
-        guard let data = try? Data(contentsOf: fileURL) else { return nil }
-        let decoder = JSONDecoder()
-        guard let snapshot = try? decoder.decode(AppSessionSnapshot.self, from: data) else { return nil }
-        guard snapshot.version == SessionSnapshotSchema.currentVersion else { return nil }
-        guard !snapshot.windows.isEmpty else { return nil }
+        guard case .loaded(let snapshot) = loadOutcome(fileURL: fileURL) else { return nil }
         return snapshot
     }
 
@@ -1942,13 +1958,57 @@ enum SessionPersistenceStore {
         return load(fileURL: fileURL)
     }
 
-    static func syncManualRestoreSnapshotCache() {
-        guard let fileURL = manualRestoreSnapshotFileURL() else { return }
-        guard let snapshot = load() else {
-            removeSnapshot(fileURL: fileURL)
-            return
+    static func syncManualRestoreSnapshotCache(
+        bundleIdentifier: String? = Bundle.main.bundleIdentifier,
+        appSupportDirectory: URL? = nil
+    ) {
+        guard let backupURL = manualRestoreSnapshotFileURL(
+            bundleIdentifier: bundleIdentifier,
+            appSupportDirectory: appSupportDirectory
+        ) else { return }
+        guard let primaryURL = defaultSnapshotFileURL(
+            bundleIdentifier: bundleIdentifier,
+            appSupportDirectory: appSupportDirectory
+        ) else { return }
+        switch loadOutcome(fileURL: primaryURL) {
+        case .loaded(let snapshot):
+            _ = save(snapshot, fileURL: backupURL)
+        case .missing:
+            removeSnapshot(fileURL: backupURL)
+        case .unusable:
+            // The primary snapshot exists but cannot be restored. Keep the
+            // backup: it is the only remaining recovery path for the user's
+            // sessions (startup fallback and `cmux restore-session`).
+            break
         }
-        _ = save(snapshot, fileURL: fileURL)
+    }
+
+    static func loadStartupSnapshot(
+        bundleIdentifier: String? = Bundle.main.bundleIdentifier,
+        appSupportDirectory: URL? = nil
+    ) -> AppSessionSnapshot? {
+        guard let primaryURL = defaultSnapshotFileURL(
+            bundleIdentifier: bundleIdentifier,
+            appSupportDirectory: appSupportDirectory
+        ) else { return nil }
+        switch loadOutcome(fileURL: primaryURL) {
+        case .loaded(let snapshot):
+            return snapshot
+        case .missing:
+            return nil
+        case .unusable:
+            let backup = loadReopenSessionSnapshot(
+                bundleIdentifier: bundleIdentifier,
+                appSupportDirectory: appSupportDirectory
+            )
+#if DEBUG
+            cmuxDebugLog(
+                "session.restore.primaryUnusable path=\(primaryURL.path) " +
+                    "backupRecovered=\(backup != nil ? 1 : 0)"
+            )
+#endif
+            return backup
+        }
     }
 
     static func defaultSnapshotFileURL(
