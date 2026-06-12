@@ -125,8 +125,8 @@ struct FileExplorerPanelView: NSViewRepresentable {
 
     func makeNSView(context: Context) -> FileExplorerContainerView {
         let container = FileExplorerContainerView(coordinator: context.coordinator, presentation: presentation)
-        container.updateColorScheme(effectiveColorScheme)
         context.coordinator.containerView = container
+        container.updateColorScheme(effectiveColorScheme)
         context.coordinator.onContainerChange?(container)
         return container
     }
