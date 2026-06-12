@@ -63,10 +63,19 @@ extension VerticalTabsSidebar {
                 forDraggedWorkspaceId: draggedId,
                 usesTopLevelRows: usesTopLevelRows
             )
-            let pinnedIds = tabManager.sidebarReorderPinnedWorkspaceIds(
+            // The dragged row itself is excluded from the pinned-tier clamp:
+            // its slots must not be pre-clamped to the tier before membership
+            // resolves (dragging a pinned row into a group, or out of the
+            // tier, unpins it at commit — the preview must be able to show
+            // those slots). Anchor/top-level drags keep the full set, since
+            // group pinning is positional, not membership-driven.
+            var pinnedIds = tabManager.sidebarReorderPinnedWorkspaceIds(
                 forDraggedWorkspaceId: draggedId,
                 usesTopLevelRows: usesTopLevelRows
             )
+            if !usesTopLevelRows {
+                pinnedIds.remove(draggedId)
+            }
             let composition = sidebarReorderScopeBandComposition(
                 usesTopLevelRows: usesTopLevelRows,
                 renderContext: renderContext

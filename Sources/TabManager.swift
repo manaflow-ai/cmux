@@ -3781,6 +3781,25 @@ class TabManager: ObservableObject {
             if tab.isPinned {
                 tab.isPinned = false
             }
+            // Joining a collapsed group expands it (matching the
+            // addWorkspaceToGroup path) so the dropped row stays visible
+            // instead of vanishing under the closed header.
+            if let resolvedGroupId,
+               let groupIndex = workspaceGroups.firstIndex(where: { $0.id == resolvedGroupId }),
+               workspaceGroups[groupIndex].isCollapsed {
+                workspaceGroups[groupIndex].isCollapsed = false
+            }
+        } else if tab.isPinned {
+            // No membership change, but landing OUTSIDE the pinned tier also
+            // expresses unpin intent — otherwise the commit-side tier clamp
+            // would snap the row back to the top, away from the slot the
+            // preview showed. The tier is counted without the moving row.
+            let tierCountExcludingSelf = tabs.prefix(while: { isGlobalPinnedRow($0) })
+                .filter { $0.id != tabId }
+                .count
+            if targetIndex >= tierCountExcludingSelf + 1 {
+                tab.isPinned = false
+            }
         }
         let moved = reorderWorkspace(tabId: tabId, toIndex: targetIndex, isDragOperation: false)
         if membershipChanged {

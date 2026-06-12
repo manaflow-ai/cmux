@@ -9,7 +9,7 @@
 16503	Sources/GhosttyTerminalView.swift
 13589	Sources/Panels/BrowserPanel.swift
 11756	cmuxTests/AppDelegateShortcutRoutingTests.swift
-10105	Sources/TabManager.swift
+10124	Sources/TabManager.swift
 8494	cmuxTests/CLINotifyProcessIntegrationRegressionTests.swift
 7737	Sources/Panels/BrowserPanelView.swift
 7214	cmuxTests/WorkspaceUnitTests.swift
@@ -68,8 +68,8 @@
 1372	cmuxTests/AppDelegateIssue2907RoutingTests.swift
 1365	Sources/Feed/FeedButtonStyleDebugWindowController.swift
 1362	Sources/CMUXInstalledExtensionSidebarHostView.swift
+1324	cmuxTests/WorkspaceGroupTests.swift
 1313	cmuxTests/MobileHostAuthorizationTests.swift
-1293	cmuxTests/WorkspaceGroupTests.swift
 1285	cmuxUITests/SidebarHelpMenuUITests.swift
 1197	cmuxTests/CodexAppServerSessionTests.swift
 1156	cmuxTests/SidebarOrderingTests.swift

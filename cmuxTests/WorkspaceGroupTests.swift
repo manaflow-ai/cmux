@@ -1163,6 +1163,37 @@ struct WorkspaceGroupTests {
         #expect(manager.tabs.firstIndex { $0.id == memberId } == lastIndex)
     }
 
+    @Test func gestureDragJoiningCollapsedGroupExpandsIt() throws {
+        let manager = makeTabManager()
+        manager.addWorkspace(autoWelcomeIfNeeded: false)
+        let originalIds = manager.tabs.map(\.id)
+        let groupId = try #require(manager.createWorkspaceGroup(name: "C", childWorkspaceIds: [originalIds[0]]))
+        manager.toggleWorkspaceGroupCollapsed(groupId: groupId)
+        #expect(try #require(manager.workspaceGroups.first { $0.id == groupId }).isCollapsed)
+        let draggedId = originalIds[2]
+
+        _ = manager.applyGestureDragReorder(tabId: draggedId, toIndex: 2, desiredGroupId: groupId)
+
+        #expect(manager.tabs.first { $0.id == draggedId }?.groupId == groupId)
+        #expect(try #require(manager.workspaceGroups.first { $0.id == groupId }).isCollapsed == false)
+    }
+
+    @Test func gestureDragLeavingPinnedTierUnpins() throws {
+        let manager = makeTabManager()
+        manager.addWorkspace(autoWelcomeIfNeeded: false)
+        let originalIds = manager.tabs.map(\.id)
+        let pinnedTab = try #require(manager.tabs.first { $0.id == originalIds[0] })
+        manager.setPinned(pinnedTab, pinned: true)
+        let lastIndex = manager.tabs.count - 1
+
+        let moved = manager.applyGestureDragReorder(tabId: originalIds[0], toIndex: lastIndex, desiredGroupId: nil)
+
+        #expect(moved)
+        let tab = try #require(manager.tabs.first { $0.id == originalIds[0] })
+        #expect(!tab.isPinned)
+        #expect(manager.tabs.firstIndex { $0.id == originalIds[0] } == lastIndex)
+    }
+
     @Test func gestureDragRejectsAnchorsAndDeadGroups() throws {
         let manager = makeTabManager()
         manager.addWorkspace(autoWelcomeIfNeeded: false)
