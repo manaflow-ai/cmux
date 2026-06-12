@@ -39,6 +39,10 @@ public final class ChatConversationStore {
     /// on your Mac" cell instead of a loading sentinel.
     public private(set) var historyTruncatedAtHead = false
 
+    /// True when the initial history fetch failed (the transcript may be
+    /// unknown to the Mac); the UI offers a retry instead of a spinner.
+    public private(set) var initialLoadFailed = false
+
     /// Whether an older-history page is currently being fetched.
     public private(set) var isLoadingOlder = false
 
@@ -268,6 +272,7 @@ public final class ChatConversationStore {
             messages = page.messages
             hasMoreHistory = page.hasMore
             hasLoadedInitialHistory = true
+            initialLoadFailed = false
             if let lastRead = lastReadSeqAtActivation,
                let firstUnread = page.messages.first(where: { $0.seq > lastRead }) {
                 firstUnreadSeq = firstUnread.seq
@@ -275,8 +280,16 @@ public final class ChatConversationStore {
             lastErrorDescription = nil
             reproject()
         } catch {
+            initialLoadFailed = true
             lastErrorDescription = error.localizedDescription
         }
+    }
+
+    /// Retries a failed initial history load (user-invoked).
+    public func retryInitialLoad() async {
+        guard !hasLoadedInitialHistory else { return }
+        initialLoadFailed = false
+        await loadInitialHistoryIfNeeded()
     }
 
     /// After a stream drop, fetches the newest page and merges anything the

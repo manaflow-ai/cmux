@@ -7,6 +7,11 @@ import Foundation
 /// the existing mobile terminal injection machinery so chat input behaves
 /// exactly like composer input.
 extension TerminalController {
+    /// Actionable error for a chat session whose terminal binding cannot
+    /// be resolved even after a hook-store refresh.
+    static let chatTerminalBindingErrorMessage =
+        "The agent's terminal moved. Open it once on your Mac (or send the agent any prompt there), then retry."
+
     /// Routes one `mobile.chat.*` method to its handler (single dispatch
     /// case in `mobileHostHandleRPC` keeps the god-file growth flat).
     func v2MobileChatDispatch(method: String, params: [String: Any]) async -> V2CallResult {
@@ -46,8 +51,22 @@ extension TerminalController {
         let limit = min(max(v2Int(params, "limit") ?? 100, 1), 200)
         let beforeSeq = v2Int(params, "before_seq")
         let service = AgentChatTranscriptService.shared
-        guard let page = await service.history(sessionID: sessionID, beforeSeq: beforeSeq, limit: limit) else {
-            return .err(code: "not_found", message: "Unknown chat session or transcript", data: [
+        var page = await service.history(sessionID: sessionID, beforeSeq: beforeSeq, limit: limit)
+        if page == nil, service.sessionRecord(sessionID: sessionID) != nil {
+            // The record exists but its transcript didn't resolve — the
+            // recorded path can be stale the same way terminal bindings
+            // are. Re-adopt from the hook store and retry once.
+            #if DEBUG
+            cmuxDebugLog("mobile.chat.history transcript unresolved session=\(sessionID.prefix(8)); refreshing bindings")
+            #endif
+            AgentChatTranscriptService.shared.refreshSessionBindings(sessionID: sessionID)
+            page = await service.history(sessionID: sessionID, beforeSeq: beforeSeq, limit: limit)
+        }
+        guard let page else {
+            #if DEBUG
+            cmuxDebugLog("mobile.chat.history not_found session=\(sessionID.prefix(8))")
+            #endif
+            return .err(code: "not_found", message: "This conversation's transcript isn't readable on the Mac yet. Send the agent a prompt from its terminal, then retry.", data: [
                 "session_id": sessionID
             ])
         }
@@ -69,11 +88,11 @@ extension TerminalController {
             return .err(code: "invalid_params", message: "Nothing to send", data: nil)
         }
         guard let terminalParams = mobileChatTerminalParams(sessionID: sessionID) else {
-            return .err(code: "not_found", message: "Chat session has no terminal binding", data: [
+            return .err(code: "not_found", message: Self.chatTerminalBindingErrorMessage, data: [
                 "session_id": sessionID
             ])
         }
-        for attachment in attachments {
+        for (index, attachment) in attachments.enumerated() {
             guard let base64 = attachment["data_b64"] as? String else {
                 return .err(code: "invalid_params", message: "Attachment missing data_b64", data: nil)
             }
@@ -84,13 +103,25 @@ extension TerminalController {
             if case .err = result {
                 return result
             }
-        }
-        if !attachments.isEmpty, !text.isEmpty,
-           let terminalPanel = mobileChatTerminalPanel(sessionID: sessionID) {
-            // Separate the pasted image path from the prompt so the agent
-            // detects the path and the transcript echo is "<path> <text>"
-            // (the shape the client's pending-row reconcile matches).
-            _ = terminalPanel.surface.sendInputResult(" ")
+            // Separate each pasted path from the next path or the prompt
+            // (the local Mac paste joins with spaces too) so the agent
+            // detects the paths and the echo is "<path> <path> <text>" —
+            // the shape the client's pending-row reconcile matches. A
+            // dropped separator corrupts that shape; surface it.
+            let needsSeparator = index < attachments.count - 1 || !text.isEmpty
+            if needsSeparator, let terminalPanel = mobileChatTerminalPanel(sessionID: sessionID) {
+                let separatorResult = terminalPanel.surface.sendInputResult(" ")
+                switch separatorResult {
+                case .sent, .queued:
+                    break
+                case .inputQueueFull:
+                    return .err(code: "input_queue_full", message: Self.terminalInputQueueFullMessage, data: nil)
+                case .surfaceUnavailable:
+                    return .err(code: "surface_unavailable", message: Self.terminalSurfaceUnavailableMessage, data: nil)
+                case .processExited:
+                    return .err(code: "process_exited", message: Self.terminalProcessExitedMessage, data: nil)
+                }
+            }
         }
         guard !text.isEmpty else {
             // Attachment-only send: the image path is sitting pasted at the
@@ -115,7 +146,7 @@ extension TerminalController {
         }
         let hard = (params["hard"] as? Bool) ?? false
         guard let terminalPanel = mobileChatTerminalPanel(sessionID: sessionID) else {
-            return .err(code: "not_found", message: "Chat session has no terminal binding", data: [
+            return .err(code: "not_found", message: Self.chatTerminalBindingErrorMessage, data: [
                 "session_id": sessionID
             ])
         }
@@ -135,7 +166,7 @@ extension TerminalController {
             return .err(code: "invalid_params", message: "Missing session_id or option_index", data: nil)
         }
         guard let terminalPanel = mobileChatTerminalPanel(sessionID: sessionID) else {
-            return .err(code: "not_found", message: "Chat session has no terminal binding", data: [
+            return .err(code: "not_found", message: Self.chatTerminalBindingErrorMessage, data: [
                 "session_id": sessionID
             ])
         }
@@ -173,6 +204,16 @@ extension TerminalController {
             cmuxDebugLog("mobile.chat binding stale session=\(sessionID.prefix(8)) surface=\(record.surfaceID?.prefix(8) ?? "nil"); refreshing from hook store")
             #endif
             record = service.refreshSessionBindings(sessionID: sessionID) ?? record
+            guard mobileChatBindingResolves(record) else {
+                // Still dead after the refresh (no hook has run since the
+                // panel changed): fail with the actionable binding error
+                // rather than letting the paste path report a generic
+                // surface-not-found.
+                #if DEBUG
+                cmuxDebugLog("mobile.chat binding unresolved after refresh session=\(sessionID.prefix(8))")
+                #endif
+                return nil
+            }
         }
         return record
     }

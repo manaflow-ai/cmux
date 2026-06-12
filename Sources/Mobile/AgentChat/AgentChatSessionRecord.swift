@@ -41,12 +41,23 @@ struct AgentChatSessionRecord: Sendable {
     /// relaunches; never keep a stale binding over a present one).
     ///
     /// - Parameter entry: The store entry to adopt from.
-    mutating func adoptBindings(from entry: AgentChatHookSessionStore.Entry) {
+    /// - Parameters:
+    ///   - entry: The store entry to adopt from.
+    ///   - includingPID: Whether to adopt the process id. Failure-driven
+    ///     refreshes pass `false`: the store can lag a SessionStart by one
+    ///     write, and adopting a dead pid there would let the liveness
+    ///     sweep end a live resumed session.
+    mutating func adoptBindings(
+        from entry: AgentChatHookSessionStore.Entry,
+        includingPID: Bool = true
+    ) {
         surfaceID = entry.surfaceID ?? surfaceID
         workspaceID = entry.workspaceID ?? workspaceID
         transcriptPath = entry.transcriptPath ?? transcriptPath
         workingDirectory = entry.workingDirectory ?? workingDirectory
-        pid = entry.pid ?? pid
+        if includingPID {
+            pid = entry.pid ?? pid
+        }
     }
 
     /// The wire descriptor for this record.

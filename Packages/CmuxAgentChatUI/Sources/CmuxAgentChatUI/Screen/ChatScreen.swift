@@ -41,9 +41,11 @@ public struct ChatScreen: View {
             agentState: store.agentState,
             hasMoreHistory: store.hasMoreHistory,
             hasLoadedInitialHistory: store.hasLoadedInitialHistory,
+            initialLoadFailed: store.initialLoadFailed,
             historyTruncatedAtHead: store.historyTruncatedAtHead,
             actions: rowActions,
-            onReachTop: { Task { await store.loadOlder() } }
+            onReachTop: { Task { await store.loadOlder() } },
+            onRetryInitialLoad: { Task { await store.retryInitialLoad() } }
         )
         .environment(\.chatMarkdownRenderer, renderer)
         .environment(\.chatContentCache, contentCache)

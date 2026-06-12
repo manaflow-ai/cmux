@@ -17,9 +17,11 @@ public struct ChatTranscriptListView: View {
     private let agentState: ChatAgentState
     private let hasMoreHistory: Bool
     private let hasLoadedInitialHistory: Bool
+    private let initialLoadFailed: Bool
     private let historyTruncatedAtHead: Bool
     private let actions: ChatRowActions
     private let onReachTop: () -> Void
+    private let onRetryInitialLoad: () -> Void
 
     @Environment(\.chatTheme) private var theme
 
@@ -47,18 +49,22 @@ public struct ChatTranscriptListView: View {
         agentState: ChatAgentState,
         hasMoreHistory: Bool,
         hasLoadedInitialHistory: Bool = true,
+        initialLoadFailed: Bool = false,
         historyTruncatedAtHead: Bool = false,
         actions: ChatRowActions,
-        onReachTop: @escaping () -> Void
+        onReachTop: @escaping () -> Void,
+        onRetryInitialLoad: @escaping () -> Void = {}
     ) {
         self.rows = rows
         self.expandedIDs = expandedIDs
         self.agentState = agentState
         self.hasMoreHistory = hasMoreHistory
         self.hasLoadedInitialHistory = hasLoadedInitialHistory
+        self.initialLoadFailed = initialLoadFailed
         self.historyTruncatedAtHead = historyTruncatedAtHead
         self.actions = actions
         self.onReachTop = onReachTop
+        self.onRetryInitialLoad = onRetryInitialLoad
     }
 
     public var body: some View {
@@ -74,7 +80,7 @@ public struct ChatTranscriptListView: View {
                 // Composite key: a failed pending row pinned at the tail
                 // keeps `last?.id` stable while agent messages insert
                 // above it, so follow on count changes too.
-                .onChange(of: FollowKey(count: rows.count, lastID: rows.last?.id)) {
+                .onChange(of: FollowKey(count: rows.count, lastID: rows.last?.id, isWorking: isWorking)) {
                     guard isAtBottom else { return }
                     proxy.scrollTo(Self.bottomAnchorID, anchor: .bottom)
                 }
@@ -104,13 +110,21 @@ public struct ChatTranscriptListView: View {
         #endif
     }
 
-    /// Tail-follow trigger identity; see the onChange comment.
+    /// Tail-follow trigger identity; see the onChange comment. Includes
+    /// the typing indicator's presence (not a row) so an agent starting
+    /// work scrolls the indicator into view for at-bottom readers.
     private struct FollowKey: Equatable {
         let count: Int
         let lastID: String?
+        let isWorking: Bool
     }
 
     private static let bottomAnchorID = "chat.bottom.anchor"
+
+    private var isWorking: Bool {
+        if case .working = agentState { return true }
+        return false
+    }
 
     private var scrollContent: some View {
         ScrollView {
@@ -158,8 +172,13 @@ public struct ChatTranscriptListView: View {
                     .frame(height: 1)
                     .id(Self.bottomAnchorID)
                     #if os(iOS)
-                    .onAppear { isAtBottom = true }
-                    .onDisappear { isAtBottom = false }
+                    // Visibility, not lazy materialization: onAppear fires
+                    // anywhere in the LazyVStack's prepared region (up to a
+                    // viewport beyond the screen), which would hide the
+                    // pill and steal scroll while the user reads.
+                    .onScrollVisibilityChange(threshold: 0.5) { visible in
+                        isAtBottom = visible
+                    }
                     #endif
             }
             .scrollTargetLayout()
@@ -179,7 +198,28 @@ public struct ChatTranscriptListView: View {
 
     @ViewBuilder
     private var emptyPlaceholder: some View {
-        if hasLoadedInitialHistory {
+        if initialLoadFailed {
+            VStack(spacing: 12) {
+                Text(
+                    String(
+                        localized: "chat.transcript.load_failed",
+                        defaultValue: "Couldn't load this conversation",
+                        bundle: .module
+                    )
+                )
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
+                Button(action: onRetryInitialLoad) {
+                    Text(
+                        String(localized: "chat.transcript.retry", defaultValue: "Retry", bundle: .module)
+                    )
+                    .font(.subheadline.weight(.medium))
+                }
+                .buttonStyle(.bordered)
+                .accessibilityIdentifier("ChatTranscriptRetry")
+            }
+            .padding(.vertical, 48)
+        } else if hasLoadedInitialHistory {
             Text(
                 String(
                     localized: "chat.transcript.empty",

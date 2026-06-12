@@ -72,7 +72,7 @@ final class AgentChatSessionRegistry {
         guard let entry = hookStore.entry(agentSource: record.agentKind.sourceName, sessionID: sessionID) else {
             return record
         }
-        update(sessionID: sessionID) { $0.adoptBindings(from: entry) }
+        update(sessionID: sessionID) { $0.adoptBindings(from: entry, includingPID: false) }
         return records[sessionID]
     }
 
@@ -152,16 +152,12 @@ final class AgentChatSessionRegistry {
             record.pid = event.ppid
             hookStoreConsultedAt[sessionID] = event.receivedAt
         }
-        if let workspaceID = event.workspaceId, !workspaceID.isEmpty {
-            record.workspaceID = workspaceID
-        }
-        if let cwd = event.cwd, !cwd.isEmpty {
-            record.workingDirectory = cwd
-        }
         // The hook store is a whole-file JSON read on the main actor;
         // consult it at most every 30s per session while fields are still
         // missing (pid can legitimately stay absent), not on every
-        // pre/postToolUse during a tool storm.
+        // pre/postToolUse during a tool storm. Consult BEFORE applying the
+        // event's own fields: the store lags the event by one write, so
+        // the live event must win any disagreement.
         let needsHookStore = record.surfaceID == nil || record.transcriptPath == nil || record.pid == nil
         let lastConsult = hookStoreConsultedAt[sessionID]
         if needsHookStore,
@@ -170,6 +166,12 @@ final class AgentChatSessionRegistry {
             if let entry = hookStore.entry(agentSource: event.source, sessionID: sessionID) {
                 record.adoptBindings(from: entry)
             }
+        }
+        if let workspaceID = event.workspaceId, !workspaceID.isEmpty {
+            record.workspaceID = workspaceID
+        }
+        if let cwd = event.cwd, !cwd.isEmpty {
+            record.workingDirectory = cwd
         }
         record.lastActivityAt = event.receivedAt
 

@@ -18,6 +18,23 @@
         }
       }
     },
+    "chat.bubble.copy" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Copy"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "コピー"
+          }
+        }
+      }
+    },
     "chat.chip.ctrl_c" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -103,6 +120,23 @@
         }
       }
     },
+    "chat.composer.open_terminal" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Open terminal"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ターミナルを開く"
+          }
+        }
+      }
+    },
     "chat.composer.placeholder" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -150,6 +184,23 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "送信"
+          }
+        }
+      }
+    },
+    "chat.composer.session_ended" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Session ended"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "セッションが終了しました"
           }
         }
       }
@@ -252,6 +303,23 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "作業中"
+          }
+        }
+      }
+    },
+    "chat.history.truncated" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Earlier history is on your Mac"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "これより前の履歴はMac側にあります"
           }
         }
       }
@@ -541,6 +609,57 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "⋯ 省略"
+          }
+        }
+      }
+    },
+    "chat.transcript.empty" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "No messages yet"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "まだメッセージはありません"
+          }
+        }
+      }
+    },
+    "chat.transcript.load_failed" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Couldn't load this conversation"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "この会話を読み込めませんでした"
+          }
+        }
+      }
+    },
+    "chat.transcript.retry" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Retry"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "再試行"
           }
         }
       }
