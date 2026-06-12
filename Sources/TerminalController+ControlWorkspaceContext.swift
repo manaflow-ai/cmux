@@ -528,6 +528,26 @@ extension TerminalController: ControlWorkspaceContext {
             .lowercased()
         let transport = WorkspaceRemoteTransport(rawValue: transportRaw ?? "") ?? .ssh
         let autoConnect = v2Bool(params, "auto_connect") ?? true
+        var scope: WorkspaceRemoteScope = .workspace
+        if v2HasNonNullParam(params, "scope") {
+            let scopeRaw = v2RawString(params, "scope")?
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+                .lowercased()
+            guard let parsedScope = WorkspaceRemoteScope(rawValue: scopeRaw ?? "") else {
+                return .err(code: "invalid_params", message: "scope must be \"workspace\" or \"pane\"", data: nil)
+            }
+            scope = parsedScope
+        }
+        var seedSurfaceId: UUID?
+        if v2HasNonNullParam(params, "seed_surface_id") {
+            guard let parsedSeedSurfaceId = v2UUID(params, "seed_surface_id") else {
+                return .err(code: "invalid_params", message: "Missing or invalid seed_surface_id", data: nil)
+            }
+            seedSurfaceId = parsedSeedSurfaceId
+        }
+        if scope == .pane, seedSurfaceId == nil {
+            return .err(code: "invalid_params", message: "seed_surface_id is required when scope is \"pane\"", data: nil)
+        }
         var relayPort: Int?
         if v2HasNonNullParam(params, "relay_port") {
             guard let parsedRelayPort = v2StrictInt(params, "relay_port"),
@@ -667,12 +687,77 @@ extension TerminalController: ControlWorkspaceContext {
             daemonWebSocketEndpoint: daemonWebSocketEndpoint,
             preserveAfterTerminalExit: preserveAfterTerminalExit,
             persistentDaemonSlot: persistentDaemonSlot?.isEmpty == true ? nil : persistentDaemonSlot,
+            scope: scope,
             skipDaemonBootstrap: skipDaemonBootstrap
         )
-        workspace.configureRemoteConnection(config, autoConnect: autoConnect)
+        if let seedSurfaceId, workspace.terminalPanel(for: seedSurfaceId) == nil {
+            return .err(code: "not_found", message: "seed_surface_id does not match a terminal surface in the workspace", data: .object([
+                "workspace_id": .string(workspace.id.uuidString),
+                "workspace_ref": controlWorkspaceRefValue(workspace.id),
+                "seed_surface_id": .string(seedSurfaceId.uuidString),
+            ]))
+        }
+        let windowId = AppDelegate.shared?.windowId(for: owner)
+        // A pane-scoped configure must not clobber an existing connection: replacing
+        // the configuration stops the live session controller and strands every
+        // other remote pane. Same target joins; anything else is an explicit error.
+        if scope == .pane, let existing = workspace.remoteConfiguration {
+            guard existing.scope == .pane else {
+                return .err(
+                    code: "invalid_state",
+                    message: "Workspace is already a remote workspace (\(existing.displayTarget)); run ssh --pane from a workspace that is not connected as a whole",
+                    data: .object([
+                        "workspace_id": .string(workspace.id.uuidString),
+                        "workspace_ref": controlWorkspaceRefValue(workspace.id),
+                        "destination": .string(existing.displayTarget),
+                    ])
+                )
+            }
+            guard existing.hasSamePaneScopeTarget(as: config) else {
+                return .err(
+                    code: "invalid_state",
+                    message: "Workspace already has a pane-scoped SSH connection to \(existing.displayTarget); disconnect it first or connect from another workspace",
+                    data: .object([
+                        "workspace_id": .string(workspace.id.uuidString),
+                        "workspace_ref": controlWorkspaceRefValue(workspace.id),
+                        "destination": .string(existing.displayTarget),
+                    ])
+                )
+            }
+            guard let seedSurfaceId,
+                  let startupCommand = workspace.joinPaneScopedRemoteConnection(seedPanelId: seedSurfaceId) else {
+                return .err(
+                    code: "invalid_state",
+                    message: "Workspace already has a pane-scoped SSH connection to \(existing.displayTarget) but the pane could not join it",
+                    data: .object([
+                        "workspace_id": .string(workspace.id.uuidString),
+                        "workspace_ref": controlWorkspaceRefValue(workspace.id),
+                    ])
+                )
+            }
+            return .ok(.object([
+                "window_id": controlWindowOrNull(windowId),
+                "window_ref": controlWindowRefValue(windowId),
+                "workspace_id": .string(workspace.id.uuidString),
+                "workspace_ref": controlWorkspaceRefValue(workspace.id),
+                "joined_existing": .bool(true),
+                "startup_command": .string(startupCommand),
+                "remote": JSONValue(foundationObject: workspace.remoteStatusPayload()) ?? .object([:]),
+            ]))
+        }
+        if scope == .workspace, workspace.remoteConfiguration?.scope == .pane {
+            return .err(
+                code: "invalid_state",
+                message: "Workspace has a pane-scoped SSH connection (\(workspace.remoteConfiguration?.displayTarget ?? "")); disconnect it before configuring a workspace-scoped remote",
+                data: .object([
+                    "workspace_id": .string(workspace.id.uuidString),
+                    "workspace_ref": controlWorkspaceRefValue(workspace.id),
+                ])
+            )
+        }
+        workspace.configureRemoteConnection(config, autoConnect: autoConnect, seedPanelId: seedSurfaceId)
         notifyRemotePTYControllerAvailabilityChanged()
 
-        let windowId = AppDelegate.shared?.windowId(for: owner)
         return .ok(.object([
             "window_id": controlWindowOrNull(windowId),
             "window_ref": controlWindowRefValue(windowId),

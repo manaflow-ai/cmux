@@ -2908,7 +2908,7 @@ final class TabManagerSessionSnapshotTests: XCTestCase {
                 inPane: paneId,
                 focus: true,
                 workingDirectory: localDirectory,
-                suppressWorkspaceRemoteStartupCommand: true
+                remoteInheritance: .never
             )
         )
         remoteWorkspace.setPanelCustomTitle(panelId: localPanel.id, title: "Local Shell")

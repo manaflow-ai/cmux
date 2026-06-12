@@ -7824,6 +7824,9 @@ struct CMUXCLI {
         /// True when the remote is a cloud VM with cmuxd-remote pre-baked in the image.
         /// Set by `cmux vm new/shell/attach`; false for plain `cmux ssh`.
         let skipDaemonBootstrap: Bool
+        /// True for `cmux ssh --pane`: connect the calling pane (and surfaces created
+        /// from it) instead of creating a new remote workspace.
+        let paneScope: Bool
 
         init(
             destination: String,
@@ -7838,7 +7841,8 @@ struct CMUXCLI {
             agentSocketPath: String? = nil,
             localSocketPath: String,
             remoteRelayPort: Int,
-            skipDaemonBootstrap: Bool = false
+            skipDaemonBootstrap: Bool = false,
+            paneScope: Bool = false
         ) {
             self.destination = destination
             self.displayDestination = displayDestination ?? destination
@@ -7853,6 +7857,7 @@ struct CMUXCLI {
             self.localSocketPath = localSocketPath
             self.remoteRelayPort = remoteRelayPort
             self.skipDaemonBootstrap = skipDaemonBootstrap
+            self.paneScope = paneScope
         }
     }
 
@@ -8104,6 +8109,71 @@ struct CMUXCLI {
             "extraArgs=\(sshOptions.extraArguments.count)"
         )
 
+        if sshOptions.paneScope {
+            guard !jsonOutput else {
+                throw CLIError(message: "ssh --pane cannot emit --json output (this pane becomes the interactive ssh session)")
+            }
+            let environment = ProcessInfo.processInfo.environment
+            let paneWorkspaceId = environment["CMUX_WORKSPACE_ID"]?
+                .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            let paneSurfaceId = environment["CMUX_SURFACE_ID"]?
+                .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            guard !paneWorkspaceId.isEmpty, !paneSurfaceId.isEmpty else {
+                throw CLIError(
+                    message: "ssh --pane must run inside a cmux terminal pane (CMUX_WORKSPACE_ID/CMUX_SURFACE_ID are not set)"
+                )
+            }
+            var configureParams = sshRemoteConfigureParams(
+                workspaceId: paneWorkspaceId,
+                sshOptions: sshOptions,
+                remoteSSHOptions: remoteSSHOptions,
+                relayID: relayID,
+                relayToken: relayToken,
+                terminalStartupCommand: reusableTerminalStartupCommand,
+                foregroundAuthToken: configuredForegroundAuthToken,
+                autoConnect: deferredRemoteReconnectCommandScript == nil,
+                persistentDaemonSlot: persistentDaemonSlot
+            )
+            configureParams["scope"] = "pane"
+            configureParams["seed_surface_id"] = paneSurfaceId
+            cliDebugLog(
+                "cli.ssh.pane.configure workspace=\(String(paneWorkspaceId.prefix(8))) " +
+                "surface=\(String(paneSurfaceId.prefix(8))) target=\(sshOptions.displayDestination) " +
+                "relayPort=\(sshOptions.remoteRelayPort)"
+            )
+            let configureResult = try client.sendV2(method: "workspace.remote.configure", params: configureParams)
+            logSSHTiming("pane.configured")
+            // When the workspace already has a pane-scoped connection to the same
+            // target, the app keeps that connection and this pane joins it. The app
+            // returns the existing connection's startup command (same one member
+            // splits run); exec that instead of bootstrapping a second connection.
+            let joinedStartupCommand: String? =
+                (configureResult["joined_existing"] as? Bool) == true
+                ? (configureResult["startup_command"] as? String)
+                : nil
+            if joinedStartupCommand != nil {
+                cliDebugLog(
+                    "cli.ssh.pane.join workspace=\(String(paneWorkspaceId.prefix(8))) " +
+                    "surface=\(String(paneSurfaceId.prefix(8)))"
+                )
+            }
+            let paneStartupCommand = joinedStartupCommand ?? initialSSHStartupCommand
+            // Become the ssh session: replace the CLI process with the same startup
+            // wrapper a remote-workspace pane would run. The wrapper reads this pane's
+            // CMUX_* environment, so it reports ssh-session-end for this surface when
+            // ssh exits and the app untracks the pane.
+            let launchPath = "/bin/sh"
+            let paneShellArguments = [launchPath, "-c", paneStartupCommand]
+            var argv: [UnsafeMutablePointer<CChar>?] = paneShellArguments.map { strdup($0) }
+            argv.append(nil)
+            execv(launchPath, &argv)
+            let code = errno
+            for item in argv {
+                free(item)
+            }
+            throw CLIError(message: "ssh --pane failed to start ssh: \(String(cString: strerror(code)))")
+        }
+
         var workspaceCreateParams: [String: Any] = [
             "initial_command": initialSSHStartupCommand,
         ]
@@ -8159,40 +8229,17 @@ struct CMUXCLI {
                 ])
             }
 
-            var configureParams: [String: Any] = [
-                "workspace_id": workspaceId,
-                "destination": sshOptions.displayDestination,
-                "auto_connect": deferredRemoteReconnectCommandScript == nil,
-            ]
-            if let configuredForegroundAuthToken {
-                configureParams["foreground_auth_token"] = configuredForegroundAuthToken
-            }
-            if let port = sshOptions.port {
-                configureParams["port"] = port
-            }
-            if let identityFile = normalizedSSHIdentityPath(sshOptions.identityFile) {
-                configureParams["identity_file"] = identityFile
-            }
-            if !remoteSSHOptions.isEmpty {
-                configureParams["ssh_options"] = remoteSSHOptions
-            }
-            if let agentSocketPath = sshOptions.agentSocketPath {
-                configureParams["ssh_auth_sock"] = agentSocketPath
-            }
-            if sshOptions.remoteRelayPort > 0 {
-                configureParams["relay_port"] = sshOptions.remoteRelayPort
-                configureParams["relay_id"] = relayID
-                configureParams["relay_token"] = relayToken
-                configureParams["local_socket_path"] = sshOptions.localSocketPath
-            }
-            configureParams["terminal_startup_command"] = reusableTerminalStartupCommand
-            if sshOptions.skipDaemonBootstrap {
-                configureParams["skip_daemon_bootstrap"] = true
-            }
-            if let persistentDaemonSlot {
-                configureParams["preserve_after_terminal_exit"] = true
-                configureParams["persistent_daemon_slot"] = persistentDaemonSlot
-            }
+            let configureParams = sshRemoteConfigureParams(
+                workspaceId: workspaceId,
+                sshOptions: sshOptions,
+                remoteSSHOptions: remoteSSHOptions,
+                relayID: relayID,
+                relayToken: relayToken,
+                terminalStartupCommand: reusableTerminalStartupCommand,
+                foregroundAuthToken: configuredForegroundAuthToken,
+                autoConnect: deferredRemoteReconnectCommandScript == nil,
+                persistentDaemonSlot: persistentDaemonSlot
+            )
 
             cliDebugLog(
                 "cli.ssh.remote.configure workspace=\(String(workspaceId.prefix(8))) " +
@@ -8274,6 +8321,56 @@ struct CMUXCLI {
         }
     }
 
+    /// Shared `workspace.remote.configure` params for both `cmux ssh` (new workspace)
+    /// and `cmux ssh --pane` (current pane). Pane mode adds scope/seed on top.
+    private func sshRemoteConfigureParams(
+        workspaceId: String,
+        sshOptions: SSHCommandOptions,
+        remoteSSHOptions: [String],
+        relayID: String,
+        relayToken: String,
+        terminalStartupCommand: String,
+        foregroundAuthToken: String?,
+        autoConnect: Bool,
+        persistentDaemonSlot: String?
+    ) -> [String: Any] {
+        var configureParams: [String: Any] = [
+            "workspace_id": workspaceId,
+            "destination": sshOptions.displayDestination,
+            "auto_connect": autoConnect,
+        ]
+        if let foregroundAuthToken {
+            configureParams["foreground_auth_token"] = foregroundAuthToken
+        }
+        if let port = sshOptions.port {
+            configureParams["port"] = port
+        }
+        if let identityFile = normalizedSSHIdentityPath(sshOptions.identityFile) {
+            configureParams["identity_file"] = identityFile
+        }
+        if !remoteSSHOptions.isEmpty {
+            configureParams["ssh_options"] = remoteSSHOptions
+        }
+        if let agentSocketPath = sshOptions.agentSocketPath {
+            configureParams["ssh_auth_sock"] = agentSocketPath
+        }
+        if sshOptions.remoteRelayPort > 0 {
+            configureParams["relay_port"] = sshOptions.remoteRelayPort
+            configureParams["relay_id"] = relayID
+            configureParams["relay_token"] = relayToken
+            configureParams["local_socket_path"] = sshOptions.localSocketPath
+        }
+        configureParams["terminal_startup_command"] = terminalStartupCommand
+        if sshOptions.skipDaemonBootstrap {
+            configureParams["skip_daemon_bootstrap"] = true
+        }
+        if let persistentDaemonSlot {
+            configureParams["preserve_after_terminal_exit"] = true
+            configureParams["persistent_daemon_slot"] = persistentDaemonSlot
+        }
+        return configureParams
+    }
+
     private func parseSSHCommandOptions(
         _ commandArgs: [String],
         localSocketPath: String = "",
@@ -8286,6 +8383,7 @@ struct CMUXCLI {
         var workspaceName: String?
         var windowRaw: String?
         var noFocus = false
+        var paneScope = false
         var sshOptions: [String] = []
         var extraArguments: [String] = []
         var forwardAgentOverride: Bool?
@@ -8334,6 +8432,9 @@ struct CMUXCLI {
             case "--no-focus":
                 noFocus = true
                 index += 1
+            case "--pane":
+                paneScope = true
+                index += 1
             case "-A", "--forward-agent":
                 forwardAgentOverride = true
                 index += 1
@@ -8374,6 +8475,17 @@ struct CMUXCLI {
             sshOptions: sshOptions,
             override: forwardAgentOverride
         )
+        if paneScope {
+            if workspaceName != nil {
+                throw CLIError(message: "ssh: --name cannot be combined with --pane (the pane stays in its current workspace)")
+            }
+            if windowRaw != nil {
+                throw CLIError(message: "ssh: --window cannot be combined with --pane (the pane stays in its current window)")
+            }
+            if !extraArguments.isEmpty {
+                throw CLIError(message: "ssh: remote command arguments cannot be combined with --pane")
+            }
+        }
         return SSHCommandOptions(
             destination: destination,
             port: port,
@@ -8385,7 +8497,8 @@ struct CMUXCLI {
             extraArguments: extraArguments,
             agentSocketPath: agentForwarding.agentSocketPath,
             localSocketPath: localSocketPath,
-            remoteRelayPort: remoteRelayPort
+            remoteRelayPort: remoteRelayPort,
+            paneScope: paneScope
         )
     }
 
@@ -14076,7 +14189,14 @@ struct CMUXCLI {
             Create a new workspace, mark it as remote-SSH, and start an SSH session in that workspace.
             cmux will also establish a local SSH proxy endpoint so browser traffic can egress from the remote host.
 
+            With --pane, connect only the current pane instead of creating a workspace: this pane becomes
+            the SSH session, and new splits/tabs created from it attach to the same host while other panes
+            in the workspace stay local. Right-click the pane's tab to disconnect it. Running ssh --pane in
+            another pane of the same workspace joins the existing connection when the target matches; a
+            different host needs its own workspace.
+
             Flags:
+              --pane                  Connect the current pane only (requires running inside a cmux terminal)
               --name <title>          Optional workspace title
               --port <n>              SSH port
               --identity <path>       SSH identity file path
@@ -14088,6 +14208,7 @@ struct CMUXCLI {
 
             Example:
               cmux ssh dev@my-host
+              cmux ssh dev@my-host --pane
               cmux ssh dev@my-host --name "gpu-box" --port 2222 --identity ~/.ssh/id_ed25519
               cmux ssh dev@my-host --forward-agent
               cmux ssh dev@my-host --ssh-option UserKnownHostsFile=/dev/null --ssh-option StrictHostKeyChecking=no

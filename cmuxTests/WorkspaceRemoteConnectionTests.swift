@@ -6945,4 +6945,93 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
             "Stale env surface should not win inside tmux, saw \(state.commands)"
         )
     }
+
+    // MARK: - Pane-scoped remote connections
+
+    private func makePaneScopeConfiguration(
+        destination: String = "dev@example.com",
+        port: Int? = 22,
+        identityFile: String? = nil,
+        scope: WorkspaceRemoteScope = .pane,
+        terminalStartupCommand: String? = "exec ssh dev@example.com"
+    ) -> WorkspaceRemoteConfiguration {
+        WorkspaceRemoteConfiguration(
+            destination: destination,
+            port: port,
+            identityFile: identityFile,
+            sshOptions: [],
+            localProxyPort: nil,
+            relayPort: nil,
+            relayID: nil,
+            relayToken: nil,
+            localSocketPath: nil,
+            terminalStartupCommand: terminalStartupCommand,
+            scope: scope
+        )
+    }
+
+    func testPaneScopeSurvivesSessionSnapshotRoundtrip() throws {
+        let configuration = makePaneScopeConfiguration()
+        let snapshot = try XCTUnwrap(configuration.sessionSnapshot())
+        XCTAssertEqual(snapshot.scope, .pane)
+
+        let restored = try XCTUnwrap(snapshot.workspaceConfiguration())
+        XCTAssertEqual(restored.scope, .pane)
+    }
+
+    func testWorkspaceScopeSessionSnapshotOmitsScopeForOlderBuilds() throws {
+        let configuration = makePaneScopeConfiguration(scope: .workspace)
+        let snapshot = try XCTUnwrap(configuration.sessionSnapshot())
+        XCTAssertNil(snapshot.scope)
+
+        let encoded = try JSONEncoder().encode(snapshot)
+        let json = try XCTUnwrap(JSONSerialization.jsonObject(with: encoded) as? [String: Any])
+        XCTAssertNil(json["scope"])
+    }
+
+    func testLegacySessionSnapshotWithoutScopeRestoresWorkspaceScope() throws {
+        let legacyJSON = Data("""
+        {"transport":"ssh","destination":"dev@example.com","port":22,"sshOptions":[]}
+        """.utf8)
+        let snapshot = try JSONDecoder().decode(SessionRemoteWorkspaceSnapshot.self, from: legacyJSON)
+        XCTAssertNil(snapshot.scope)
+
+        let restored = try XCTUnwrap(snapshot.workspaceConfiguration())
+        XCTAssertEqual(restored.scope, .workspace)
+    }
+
+    func testPaneScopeJoinTargetMatchesSameDestinationDespitePerInvocationFields() {
+        let first = makePaneScopeConfiguration(terminalStartupCommand: "exec wrapper-a")
+        let second = makePaneScopeConfiguration(terminalStartupCommand: "exec wrapper-b")
+        XCTAssertTrue(first.hasSamePaneScopeTarget(as: second))
+    }
+
+    func testPaneScopeJoinTargetRejectsDifferentHostPortOrIdentity() {
+        let base = makePaneScopeConfiguration()
+        XCTAssertFalse(base.hasSamePaneScopeTarget(as: makePaneScopeConfiguration(destination: "other@example.com")))
+        XCTAssertFalse(base.hasSamePaneScopeTarget(as: makePaneScopeConfiguration(port: 2222)))
+        XCTAssertFalse(base.hasSamePaneScopeTarget(as: makePaneScopeConfiguration(identityFile: "/tmp/id_ed25519")))
+    }
+
+    func testBrowserPanelSnapshotRemoteScopeRoundtripAndLegacyDecode() throws {
+        let snapshot = SessionBrowserPanelSnapshot(
+            urlString: "https://example.com",
+            profileID: nil,
+            shouldRenderWebView: true,
+            pageZoom: 1.0,
+            developerToolsVisible: false,
+            backHistoryURLStrings: nil,
+            forwardHistoryURLStrings: nil,
+            isRemoteScoped: true
+        )
+        let encoded = try JSONEncoder().encode(snapshot)
+        let decoded = try JSONDecoder().decode(SessionBrowserPanelSnapshot.self, from: encoded)
+        XCTAssertEqual(decoded.isRemoteScoped, true)
+
+        let legacyJSON = Data("""
+        {"shouldRenderWebView":true,"pageZoom":1.0,"developerToolsVisible":false}
+        """.utf8)
+        let legacy = try JSONDecoder().decode(SessionBrowserPanelSnapshot.self, from: legacyJSON)
+        XCTAssertNil(legacy.isRemoteScoped)
+    }
 }

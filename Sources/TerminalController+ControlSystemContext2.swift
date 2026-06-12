@@ -131,6 +131,17 @@ extension TerminalController {
             workspace.markPanelUnread(surfaceId)
             return finish(.none)
 
+        case "disconnect_remote", "disconnect_ssh":
+            guard workspace.canDisconnectRemoteSurface(panelId: surfaceId) else {
+                return .bridged(.err(
+                    code: "invalid_state",
+                    message: "Tab is not attached to a pane-scoped SSH connection",
+                    data: nil
+                ))
+            }
+            workspace.disconnectRemoteSurface(panelId: surfaceId)
+            return finish(.none)
+
         case "move_to_new_workspace", "detach_to_workspace", "detach_to_new_workspace":
             // The move-to-new-workspace family stays app-side (it re-homes
             // surfaces across TabManagers); bridge its fully-shaped result.
