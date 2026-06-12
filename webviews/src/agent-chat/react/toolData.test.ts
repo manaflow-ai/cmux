@@ -180,6 +180,14 @@ describe("fileChangeDiffs", () => {
     expect(fileChangeDiffs({ input: { something: "else" } })).toEqual([]);
     expect(fileChangeDiffs({ input: undefined })).toEqual([]);
   });
+
+  test("caps DiffLine allocation for huge writes but keeps counts accurate", () => {
+    const content = Array.from({ length: 1500 }, (_, index) => `line ${index}`).join("\n");
+    const [diff] = fileChangeDiffs({ input: { file_path: "/repo/huge.txt", content } });
+    expect(diff.lines).toHaveLength(1000);
+    expect(diff.truncatedLineCount).toBe(500);
+    expect(diff.addedCount).toBe(1500);
+  });
 });
 
 describe("commandExecutionView", () => {

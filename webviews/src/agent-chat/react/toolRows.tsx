@@ -14,6 +14,7 @@ import {
   agentChatLabels,
   exitCodeLabel,
   imageAttachmentLabel,
+  moreLinesNotShownLabel,
   showMoreLinesLabel,
   unchangedLinesLabel,
 } from "../labels";
@@ -94,6 +95,9 @@ export function RichToolRow({ item }: { item: ConversationItem }) {
 // ---------------------------------------------------------------------------
 
 function FileChangeRow({ item }: { item: ConversationItem }) {
+  // Parse work is bounded (toolData caps source chars and DiffLine count) and
+  // the React Compiler memoizes it on the item snapshot, so re-renders of the
+  // timeline do not re-diff unchanged items.
   const diffs = fileChangeDiffs(item);
   if (diffs.length === 0) {
     // Sparse hook-sourced item or an input shape we do not understand.
@@ -172,6 +176,16 @@ function DiffBlock({ diff }: { diff: FileDiff }) {
           <span className="agent-chat-diff-text">{diffLineText(line)}</span>
         </div>
       ))}
+      {!clamped && diff.truncatedLineCount > 0 ? (
+        <div className="agent-chat-diff-line is-hunk">
+          <span className="agent-chat-diff-sign" aria-hidden="true">
+            {" "}
+          </span>
+          <span className="agent-chat-diff-text">
+            {moreLinesNotShownLabel(diff.truncatedLineCount)}
+          </span>
+        </div>
+      ) : null}
       {clamped || (expanded && diff.lines.length > DIFF_CLAMP_LINES) ? (
         <button
           type="button"

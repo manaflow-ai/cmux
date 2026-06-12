@@ -89,12 +89,30 @@ export interface FileDiff {
   lines: DiffLine[];
   addedCount: number;
   removedCount: number;
+  /** Lines dropped by the parse-time cap (0 when the diff is complete). */
+  truncatedLineCount: number;
 }
 
 /** Above this many DP cells the line diff falls back to whole-block del/add. */
 const LINE_DIFF_CELL_LIMIT = 200_000;
 /** Context lines kept on each side of a change before collapsing the run. */
 const DIFF_CONTEXT_LINES = 2;
+/**
+ * Bounds for parse work done on the render path. Counts stay accurate, but a
+ * giant Write payload or patch never allocates more than this many DiffLine
+ * objects (the row reports the remainder via `truncatedLineCount`), and
+ * oversized source strings are cut before line splitting.
+ */
+const MAX_DIFF_LINES = 1_000;
+const MAX_DIFF_SOURCE_CHARS = 200_000;
+
+function boundedSource(text: string): string {
+  if (text.length <= MAX_DIFF_SOURCE_CHARS) {
+    return text;
+  }
+  const cut = text.lastIndexOf("\n", MAX_DIFF_SOURCE_CHARS);
+  return text.slice(0, cut > 0 ? cut : MAX_DIFF_SOURCE_CHARS);
+}
 
 /**
  * Line-level diff of two text blocks: common prefix/suffix trim, then an LCS
@@ -102,8 +120,8 @@ const DIFF_CONTEXT_LINES = 2;
  * clamped preview starts at the first real change instead of shared prefix.
  */
 export function computeLineDiff(oldText: string, newText: string): DiffLine[] {
-  const oldLines = splitLines(oldText);
-  const newLines = splitLines(newText);
+  const oldLines = splitLines(boundedSource(oldText));
+  const newLines = splitLines(boundedSource(newText));
 
   let prefix = 0;
   while (
@@ -230,7 +248,17 @@ function countDiff(lines: DiffLine[]): { addedCount: number; removedCount: numbe
 }
 
 function makeFileDiff(path: string | null, op: FileDiffOp, lines: DiffLine[]): FileDiff {
-  return { path, op, lines, ...countDiff(lines) };
+  const counts = countDiff(lines);
+  if (lines.length <= MAX_DIFF_LINES) {
+    return { path, op, lines, truncatedLineCount: 0, ...counts };
+  }
+  return {
+    path,
+    op,
+    lines: lines.slice(0, MAX_DIFF_LINES),
+    truncatedLineCount: lines.length - MAX_DIFF_LINES,
+    ...counts,
+  };
 }
 
 const APPLY_PATCH_MARKER = "*** Begin Patch";
@@ -245,7 +273,7 @@ export function parseApplyPatch(patch: string): FileDiff[] {
       current = null;
     }
   };
-  for (const line of splitLines(patch)) {
+  for (const line of splitLines(boundedSource(patch))) {
     if (line.startsWith("*** Update File: ")) {
       flush();
       current = { path: line.slice("*** Update File: ".length).trim(), op: "edit", lines: [] };
@@ -355,7 +383,8 @@ export function fileChangeDiffs(item: Pick<ConversationItem, "input" | "title">)
 
   const content = stringField(record, "content") ?? stringField(record, "new_source");
   if (content !== null) {
-    const lines: DiffLine[] = splitLines(content).map((text) => ({ kind: "add", text }));
+    const sourceLines = splitLines(boundedSource(content));
+    const lines: DiffLine[] = sourceLines.map((text) => ({ kind: "add", text }));
     return [makeFileDiff(path, "create", lines)];
   }
   return [];

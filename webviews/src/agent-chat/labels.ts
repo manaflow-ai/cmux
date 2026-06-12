@@ -93,3 +93,8 @@ export function unchangedLinesLabel(count: number): string {
 export function exitCodeLabel(code: number): string {
   return `${agentChatLabels.exitPrefix}${code}`;
 }
+
+/** Note for diff lines dropped by the parse-time cap (not expandable). */
+export function moreLinesNotShownLabel(count: number): string {
+  return count === 1 ? "1 more line not shown" : `${count} more lines not shown`;
+}
