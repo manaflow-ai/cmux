@@ -131,3 +131,20 @@ struct ControlCommandCoordinatorSurfaceAgentChatTests {
         #expect(message == "No focused surface")
     }
 }
+
+extension ControlCommandCoordinatorSurfaceAgentChatTests {
+    /// A present-but-malformed explicit target must fail instead of silently
+    /// falling back to the focused surface (wrong-target open with success).
+    @Test func malformedSurfaceIDIsInvalidParams() {
+        let (coordinator, context) = makeCoordinator()
+        context.routingResolvesTabManager = true
+        guard case .err(let code, _, _)? = coordinator.handle(
+            request(["surface_id": .string("not-a-uuid")])
+        ) else {
+            Issue.record("Expected an error result")
+            return
+        }
+        #expect(code == "invalid_params")
+        #expect(context.openCallCount == 0)
+    }
+}

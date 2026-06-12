@@ -232,7 +232,7 @@ extension ShortcutAction {
             return .atom(.sidebarFocus)
         case .renameTab, .renameWorkspace:
             return .and(.not(.atom(.browserFocus)), .not(.atom(.sidebarFocus)))
-        case .sendCtrlFToTerminal:
+        case .sendCtrlFToTerminal, .openAgentChat:
             return .and(.not(.atom(.browserFocus)), .not(.atom(.sidebarFocus)))
         case .browserBack, .browserForward, .browserReload,
              .toggleBrowserDeveloperTools, .showBrowserJavaScriptConsole,

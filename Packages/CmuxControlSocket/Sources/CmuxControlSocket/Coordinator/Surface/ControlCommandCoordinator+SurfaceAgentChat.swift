@@ -11,9 +11,16 @@ extension ControlCommandCoordinator {
         guard context?.controlSurfaceRoutingResolvesTabManager(routing: routing) ?? false else {
             return .err(code: "unavailable", message: "TabManager not available", data: nil)
         }
+        let surfaceID = uuid(params, "surface_id")
+        if params["surface_id"] != nil && surfaceID == nil {
+            // A present-but-malformed explicit target must not silently fall
+            // back to the focused surface (the caller would open a chat pane
+            // for the wrong surface and see success).
+            return .err(code: "invalid_params", message: "surface_id is not a valid UUID", data: nil)
+        }
         let resolution = context?.controlSurfaceAgentChatOpen(
             routing: routing,
-            surfaceID: uuid(params, "surface_id")
+            surfaceID: surfaceID
         ) ?? .tabManagerUnavailable
         switch resolution {
         case .tabManagerUnavailable:

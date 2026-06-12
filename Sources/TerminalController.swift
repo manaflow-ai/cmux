@@ -191,6 +191,7 @@ class TerminalController {
         "workspace.last",
         "workspace.group.focus",
         "surface.focus",
+        "surface.agent_chat.open",
         "pane.focus",
         "pane.last",
         "file.open",
