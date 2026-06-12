@@ -14,8 +14,17 @@ import Combine
 
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
+// The app target still declares legacy duplicates of these CmuxSettings
+// value types; with CmuxSettings imported unconditionally the names are
+// ambiguous. These tests exercise the app-side paths, so pin the app types.
+private typealias StoredShortcut = cmux_DEV.StoredShortcut
+private typealias ShortcutStroke = cmux_DEV.ShortcutStroke
+private typealias AppIconMode = cmux_DEV.AppIconMode
 #elseif canImport(cmux)
 @testable import cmux
+private typealias StoredShortcut = cmux.StoredShortcut
+private typealias ShortcutStroke = cmux.ShortcutStroke
+private typealias AppIconMode = cmux.AppIconMode
 #endif
 
 @MainActor
@@ -3853,17 +3862,15 @@ final class SidebarWorkspaceDetailSettingsTests: XCTestCase {
             SidebarWorkspaceDetailVisibility(
                 showWorkspaceDescription: UserDefaultsSettingsClient(defaults: defaults).value(for: SettingCatalog().sidebar.showWorkspaceDescription),
                 showNotificationMessage: true,
-                hideAllDetails: UserDefaultsSettingsClient(defaults: defaults
-            ).showsWorkspaceDescription.value(for: SettingCatalog().sidebar.hideAllDetails)
-            )
+                hideAllDetails: UserDefaultsSettingsClient(defaults: defaults).value(for: SettingCatalog().sidebar.hideAllDetails)
+            ).showsWorkspaceDescription
         )
         XCTAssertTrue(
             SidebarWorkspaceDetailVisibility(
                 showWorkspaceDescription: true,
                 showNotificationMessage: UserDefaultsSettingsClient(defaults: defaults).value(for: SettingCatalog().sidebar.showNotificationMessage),
-                hideAllDetails: UserDefaultsSettingsClient(defaults: defaults
-            ).showsNotificationMessage.value(for: SettingCatalog().sidebar.hideAllDetails)
-            )
+                hideAllDetails: UserDefaultsSettingsClient(defaults: defaults).value(for: SettingCatalog().sidebar.hideAllDetails)
+            ).showsNotificationMessage
         )
     }
 
@@ -3893,9 +3900,8 @@ final class SidebarWorkspaceDetailSettingsTests: XCTestCase {
             SidebarWorkspaceDetailVisibility(
                 showWorkspaceDescription: true,
                 showNotificationMessage: true,
-                hideAllDetails: UserDefaultsSettingsClient(defaults: defaults
-            ).showsWorkspaceDescription.value(for: SettingCatalog().sidebar.hideAllDetails)
-            )
+                hideAllDetails: UserDefaultsSettingsClient(defaults: defaults).value(for: SettingCatalog().sidebar.hideAllDetails)
+            ).showsWorkspaceDescription
         )
         XCTAssertFalse(
             SidebarWorkspaceDetailVisibility(
@@ -3908,9 +3914,8 @@ final class SidebarWorkspaceDetailSettingsTests: XCTestCase {
             SidebarWorkspaceDetailVisibility(
                 showWorkspaceDescription: true,
                 showNotificationMessage: true,
-                hideAllDetails: UserDefaultsSettingsClient(defaults: defaults
-            ).showsNotificationMessage.value(for: SettingCatalog().sidebar.hideAllDetails)
-            )
+                hideAllDetails: UserDefaultsSettingsClient(defaults: defaults).value(for: SettingCatalog().sidebar.hideAllDetails)
+            ).showsNotificationMessage
         )
     }
 }
