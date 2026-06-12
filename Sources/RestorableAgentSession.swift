@@ -533,7 +533,19 @@ enum AgentResumeCommandBuilder {
                 launchCommand: launchCommand,
                 workingDirectory: workingDirectory
             )
-            return arguments.isEmpty ? nil : arguments
+            guard !arguments.isEmpty else { return nil }
+            // Keep the user's captured launch options (model, provider, ...) on the
+            // fork when a sanitizer policy knows the agent (built-in registry ids
+            // like pi/omp). Unknown custom agents stay template-only.
+            let original = commandParts(
+                launchCommand: launchCommand,
+                fallbackExecutable: customRegistration.defaultExecutable
+            )
+            let preserved = AgentLaunchSanitizer.preservedArguments(
+                kind: customRegistration.id,
+                args: original.tail
+            ) ?? []
+            return arguments + preserved
         }
 
         switch kind {

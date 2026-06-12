@@ -44,7 +44,13 @@ final class AgentConversationForkCommandTests: XCTestCase {
             launchCommand: AgentLaunchCommandSnapshot(
                 launcher: "pi",
                 executablePath: "/Users/example/.bun/bin/pi",
-                arguments: ["/Users/example/.bun/bin/pi"],
+                arguments: [
+                    "/Users/example/.bun/bin/pi",
+                    "--model",
+                    "anthropic/claude-sonnet-4-6",
+                    "--session",
+                    "old-pi-session"
+                ],
                 workingDirectory: "/tmp/pi repo",
                 environment: nil,
                 capturedAt: 123,
@@ -54,7 +60,7 @@ final class AgentConversationForkCommandTests: XCTestCase {
         )
         XCTAssertEqual(
             scannerPi.forkCommand,
-            "{ cd -- '/tmp/pi repo' 2>/dev/null || [ ! -d '/tmp/pi repo' ]; } && '/Users/example/.bun/bin/pi' '--fork' 'pi-session-123'"
+            "{ cd -- '/tmp/pi repo' 2>/dev/null || [ ! -d '/tmp/pi repo' ]; } && '/Users/example/.bun/bin/pi' '--fork' 'pi-session-123' '--model' 'anthropic/claude-sonnet-4-6'"
         )
 
         let omp = SessionRestorableAgentSnapshot(
