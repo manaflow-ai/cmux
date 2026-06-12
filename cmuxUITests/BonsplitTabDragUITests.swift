@@ -324,10 +324,9 @@ final class BonsplitTabDragUITests: XCTestCase {
         )
 
         XCTAssertTrue(
-            ensureAppRunningAfterLaunch(app, timeout: launchTimeout) || waitForAnyJSON(atPath: dataPath, timeout: 5.0),
-            "Expected app to launch far enough for UI test setup. data=\(loadJSON(atPath: dataPath) ?? [:])"
+            ensureAppRunningAfterLaunch(app, timeout: launchTimeout),
+            "Expected app to keep running with hidden right sidebar in find mode. state=\(app.state.rawValue) data=\(loadJSON(atPath: dataPath) ?? [:])"
         )
-
         guard let ready = waitForJSONKey("ready", equals: "1", atPath: dataPath, timeout: setupTimeout) else {
             XCTFail("Timed out waiting for ready=1 with hidden right sidebar in find mode. data=\(loadJSON(atPath: dataPath) ?? [:])")
             return
@@ -339,6 +338,7 @@ final class BonsplitTabDragUITests: XCTestCase {
         }
 
         XCTAssertEqual(ready["rightSidebarVisible"], "0")
+        XCTAssertNotEqual(app.state, .notRunning, "Expected app to still be running after hidden right-sidebar setup. data=\(loadJSON(atPath: dataPath) ?? [:])")
         XCTAssertFalse(
             app.textFields["FileExplorerSearchField"].firstMatch.exists,
             "Hidden right sidebar should not expose the File Explorer search field at launch."

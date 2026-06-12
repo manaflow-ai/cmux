@@ -56,9 +56,8 @@ extension RightSidebarMode {
 }
 
 nonisolated enum RightSidebarContentMountPolicy {
-    static func mountedMode(selectedMode: RightSidebarMode, isRightSidebarVisible: Bool) -> RightSidebarMode? {
-        guard isRightSidebarVisible else { return nil }
-        return selectedMode
+    static func shouldMountContent(isRightSidebarVisible: Bool, hasMountedContent: Bool) -> Bool {
+        isRightSidebarVisible || hasMountedContent
     }
 }
 
@@ -195,6 +194,7 @@ struct RightSidebarPanelView: View {
     @State private var focusShortcutHintMonitor = WindowScopedShortcutHintModifierMonitor(activation: .commandOnly)
     @State private var closeShortcutHintMonitor = WindowScopedShortcutHintModifierMonitor(activation: .commandOnly)
     @StateObject private var dockStore = DockControlsStore()
+    @State private var hasMountedRightSidebarContent = false
     @ObservedObject private var keyboardShortcutSettingsObserver = KeyboardShortcutSettingsObserver.shared
     private let alwaysShowShortcutHints = ShortcutHintDebugSettings.alwaysShowHints()
     private let closeShortcutHintXOffset = ShortcutHintDebugSettings.defaultRightSidebarCloseHintX
@@ -243,6 +243,7 @@ struct RightSidebarPanelView: View {
             modeShortcutHintMonitor.start()
             focusShortcutHintMonitor.start()
             closeShortcutHintMonitor.start()
+            if fileExplorerState.isVisible { hasMountedRightSidebarContent = true }
             fileExplorerState.refreshModeAvailability()
             synchronizeDockLifecycle()
         }
@@ -256,6 +257,7 @@ struct RightSidebarPanelView: View {
             synchronizeDockLifecycle(mode: mode)
         }
         .onChange(of: fileExplorerState.isVisible) { _, visible in
+            if visible { hasMountedRightSidebarContent = true }
             synchronizeDockLifecycle(isRightSidebarVisible: visible)
         }
         .onChange(of: dockRootDirectory) { _, newValue in
@@ -425,11 +427,8 @@ struct RightSidebarPanelView: View {
 
     @ViewBuilder
     private var contentForMode: some View {
-        if let mountedMode = RightSidebarContentMountPolicy.mountedMode(
-            selectedMode: fileExplorerState.mode,
-            isRightSidebarVisible: fileExplorerState.isVisible
-        ) {
-            switch mountedMode {
+        if RightSidebarContentMountPolicy.shouldMountContent(isRightSidebarVisible: fileExplorerState.isVisible, hasMountedContent: hasMountedRightSidebarContent) {
+            switch fileExplorerState.mode {
             case .files:
                 FileExplorerPanelView(
                     store: fileExplorerStore,

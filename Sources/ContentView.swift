@@ -2188,8 +2188,8 @@ struct ContentView: View {
 
     private func terminalContentWithRightSidebarPanel(appearance: WindowAppearanceSnapshot) -> some View {
         // The right-sidebar shell remains in the view tree so its frame can
-        // animate without SwiftUI insertion/removal. Its heavy mode content is
-        // mounted only while the sidebar is visible.
+        // animate without SwiftUI insertion/removal. Cold hidden launches defer
+        // heavy mode content until the sidebar has been shown at least once.
         return HStack(spacing: 0) {
             terminalContentWithSidebarDropOverlay(appearance: appearance)
             rightSidebarPanelWithBackdrop(appearance: appearance)

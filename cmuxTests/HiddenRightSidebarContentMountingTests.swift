@@ -11,6 +11,24 @@ import Testing
 @MainActor
 @Suite("Hidden right sidebar content mounting", .serialized)
 struct HiddenRightSidebarContentMountingTests {
+    @Test func coldHiddenRightSidebarDoesNotMountContent() {
+        #expect(
+            !RightSidebarContentMountPolicy.shouldMountContent(
+                isRightSidebarVisible: false,
+                hasMountedContent: false
+            )
+        )
+    }
+
+    @Test func hiddenRightSidebarKeepsContentMountedAfterInitialMount() {
+        #expect(
+            RightSidebarContentMountPolicy.shouldMountContent(
+                isRightSidebarVisible: false,
+                hasMountedContent: true
+            )
+        )
+    }
+
     @Test func hiddenRightSidebarDoesNotMountFileExplorerPanelContent() {
         _ = NSApplication.shared
 
