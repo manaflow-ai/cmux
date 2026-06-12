@@ -39,6 +39,8 @@ public struct SettingCatalog: SettingCatalogSection {
     /// Settings for Mobile pairing and sync.
     public let mobile = MobileCatalogSection()
     public let betaFeatures = BetaFeaturesCatalogSection()
+    /// Settings for custom (user/agent-authored) sidebars (the `customSidebars.*` keys).
+    public let customSidebars = CustomSidebarsCatalogSection()
     public let shortcuts = KeyboardShortcutsCatalogSection()
     public let integrations = IntegrationsCatalogSection()
     public let account = AccountCatalogSection()

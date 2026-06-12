@@ -5,6 +5,7 @@ import UniformTypeIdentifiers
 import WebKit
 import ObjectiveC.runtime
 import Bonsplit
+import CmuxSettings
 import UserNotifications
 import Testing
 
@@ -58,7 +59,7 @@ final class SidebarBranchLayoutSettingsTests: XCTestCase {
         }
         defer { defaults.removePersistentDomain(forName: suiteName) }
 
-        XCTAssertTrue(SidebarBranchLayoutSettings.usesVerticalLayout(defaults: defaults))
+        XCTAssertTrue(UserDefaultsSettingsClient(defaults: defaults).value(for: SettingCatalog().sidebar.branchVerticalLayout))
     }
 
     func testStoredPreferenceOverridesDefault() {
@@ -69,11 +70,11 @@ final class SidebarBranchLayoutSettingsTests: XCTestCase {
         }
         defer { defaults.removePersistentDomain(forName: suiteName) }
 
-        defaults.set(false, forKey: SidebarBranchLayoutSettings.key)
-        XCTAssertFalse(SidebarBranchLayoutSettings.usesVerticalLayout(defaults: defaults))
+        defaults.set(false, forKey: SettingCatalog().sidebar.branchVerticalLayout.userDefaultsKey)
+        XCTAssertFalse(UserDefaultsSettingsClient(defaults: defaults).value(for: SettingCatalog().sidebar.branchVerticalLayout))
 
-        defaults.set(true, forKey: SidebarBranchLayoutSettings.key)
-        XCTAssertTrue(SidebarBranchLayoutSettings.usesVerticalLayout(defaults: defaults))
+        defaults.set(true, forKey: SettingCatalog().sidebar.branchVerticalLayout.userDefaultsKey)
+        XCTAssertTrue(UserDefaultsSettingsClient(defaults: defaults).value(for: SettingCatalog().sidebar.branchVerticalLayout))
     }
 }
 
@@ -87,10 +88,10 @@ final class SidebarActiveTabIndicatorSettingsTests: XCTestCase {
         }
         defer { defaults.removePersistentDomain(forName: suiteName) }
 
-        defaults.removeObject(forKey: SidebarActiveTabIndicatorSettings.styleKey)
+        defaults.removeObject(forKey: SettingCatalog().workspaceColors.indicatorStyle.userDefaultsKey)
         XCTAssertEqual(
-            SidebarActiveTabIndicatorSettings.current(defaults: defaults),
-            SidebarActiveTabIndicatorSettings.defaultStyle
+            UserDefaultsSettingsClient(defaults: defaults).value(for: SettingCatalog().workspaceColors.indicatorStyle),
+            SettingCatalog().workspaceColors.indicatorStyle.defaultValue
         )
     }
 
@@ -102,16 +103,16 @@ final class SidebarActiveTabIndicatorSettingsTests: XCTestCase {
         }
         defer { defaults.removePersistentDomain(forName: suiteName) }
 
-        defaults.set(WorkspaceIndicatorStyle.leftRail.rawValue, forKey: SidebarActiveTabIndicatorSettings.styleKey)
-        XCTAssertEqual(SidebarActiveTabIndicatorSettings.current(defaults: defaults), .leftRail)
+        defaults.set(WorkspaceIndicatorStyle.leftRail.rawValue, forKey: SettingCatalog().workspaceColors.indicatorStyle.userDefaultsKey)
+        XCTAssertEqual(UserDefaultsSettingsClient(defaults: defaults).value(for: SettingCatalog().workspaceColors.indicatorStyle), .leftRail)
 
-        defaults.set("rail", forKey: SidebarActiveTabIndicatorSettings.styleKey)
-        XCTAssertEqual(SidebarActiveTabIndicatorSettings.current(defaults: defaults), .leftRail)
+        defaults.set("rail", forKey: SettingCatalog().workspaceColors.indicatorStyle.userDefaultsKey)
+        XCTAssertEqual(UserDefaultsSettingsClient(defaults: defaults).value(for: SettingCatalog().workspaceColors.indicatorStyle), .leftRail)
 
-        defaults.set("not-a-style", forKey: SidebarActiveTabIndicatorSettings.styleKey)
+        defaults.set("not-a-style", forKey: SettingCatalog().workspaceColors.indicatorStyle.userDefaultsKey)
         XCTAssertEqual(
-            SidebarActiveTabIndicatorSettings.current(defaults: defaults),
-            SidebarActiveTabIndicatorSettings.defaultStyle
+            UserDefaultsSettingsClient(defaults: defaults).value(for: SettingCatalog().workspaceColors.indicatorStyle),
+            SettingCatalog().workspaceColors.indicatorStyle.defaultValue
         )
     }
 }

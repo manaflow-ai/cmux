@@ -57,11 +57,7 @@ extension ControlProjectContext {
         fontSizeInvalid: Bool,
         requestedFocus: Bool
     ) -> ControlMarkdownOpenResolution { .workspaceNotFound }
-    func controlFileOpen(
-        routing: ControlRoutingSelectors,
-        filePaths: [String],
-        paneID: UUID?,
-        surfaceID: UUID?,
-        requestedFocus: Bool
-    ) -> ControlFileOpenResolution { .workspaceNotFound }
+    func controlFileOpen(params: [String: JSONValue]) -> ControlCallResult {
+        .err(code: "unavailable", message: "", data: nil)
+    }
 }

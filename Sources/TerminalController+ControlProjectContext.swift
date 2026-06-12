@@ -246,81 +246,16 @@ extension TerminalController: ControlProjectContext {
 
     // MARK: - file.open
 
-    func controlFileOpen(
-        routing: ControlRoutingSelectors,
-        filePaths: [String],
-        paneID: UUID?,
-        surfaceID: UUID?,
-        requestedFocus: Bool
-    ) -> ControlFileOpenResolution {
-        guard let tabManager = resolveTabManager(routing: routing) else {
-            return .workspaceNotFound
+    /// `file.open` forwards to the single shared `v2FileOpen` body (also driven
+    /// directly by cmuxTests), bridging its Foundation result — one source of
+    /// truth, byte-identical wire output.
+    func controlFileOpen(params: [String: JSONValue]) -> ControlCallResult {
+        switch v2FileOpen(params: params.mapValues(\.foundationObject)) {
+        case let .ok(payload):
+            return .ok(JSONValue(foundationObject: payload) ?? .object([:]))
+        case let .err(code, message, data):
+            return .err(code: code, message: message, data: data.flatMap { JSONValue(foundationObject: $0) })
         }
-        let shouldFocus = v2FocusAllowed(requested: requestedFocus)
-        guard let ws = controlProjectResolveWorkspace(routing: routing, tabManager: tabManager) else {
-            return .workspaceNotFound
-        }
-
-        if shouldFocus {
-            v2MaybeFocusWindow(for: tabManager)
-            v2MaybeSelectWorkspace(tabManager, workspace: ws)
-        }
-
-        let hasExplicitPaneDestination = paneID != nil || surfaceID != nil
-        let resolvedPaneId: PaneID?
-        if let paneUUID = paneID {
-            resolvedPaneId = ws.bonsplitController.allPaneIds.first(where: { $0.id == paneUUID })
-            if resolvedPaneId == nil {
-                return .requestedPaneNotFound(paneUUID)
-            }
-        } else if let surfaceId = surfaceID {
-            guard ws.panels[surfaceId] != nil else {
-                return .sourceSurfaceNotFound(surfaceId)
-            }
-            resolvedPaneId = ws.paneId(forPanelId: surfaceId)
-        } else {
-            resolvedPaneId = ws.bonsplitController.focusedPaneId ?? ws.bonsplitController.allPaneIds.first
-        }
-
-        guard let resolvedPaneId else {
-            return .paneUnresolved
-        }
-
-        let openedPanels = ws.openFileSurfaces(
-            inPane: resolvedPaneId,
-            filePaths: filePaths,
-            focus: shouldFocus,
-            reuseExisting: filePaths.count == 1 && !hasExplicitPaneDestination
-        )
-        guard !openedPanels.isEmpty else {
-            return .openFailed
-        }
-
-        let surfaces = openedPanels.map { panel -> ControlFileOpenSurface in
-            var path: String?
-            var previewMode: String?
-            var displayMode: String?
-            if let previewPanel = panel as? FilePreviewPanel {
-                path = previewPanel.filePath
-                previewMode = previewPanel.previewMode.socketName
-            } else if let markdownPanel = panel as? MarkdownPanel {
-                path = markdownPanel.filePath
-                displayMode = markdownPanel.displayMode.rawValue
-            }
-            return ControlFileOpenSurface(
-                surfaceID: panel.id,
-                paneID: ws.paneId(forPanelId: panel.id)?.id,
-                panelTypeRawValue: panel.panelType.rawValue,
-                path: path,
-                previewMode: previewMode,
-                displayMode: displayMode
-            )
-        }
-        return .opened(
-            windowID: v2ResolveWindowId(tabManager: tabManager),
-            workspaceID: ws.id,
-            surfaces: surfaces
-        )
     }
 
     // MARK: - Resolution helpers (private, file-scoped)

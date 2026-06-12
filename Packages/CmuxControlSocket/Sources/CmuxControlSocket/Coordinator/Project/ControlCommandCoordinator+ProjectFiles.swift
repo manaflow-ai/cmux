@@ -77,102 +77,13 @@ extension ControlCommandCoordinator {
     }
 
     /// `file.open` — open one or more files as preview/markdown surfaces.
+    ///
+    /// A passthrough to the still-shared `v2FileOpen` body (also driven directly
+    /// by cmuxTests), bridging its Foundation result — one source of truth,
+    /// byte-identical wire output, like `workspace.create`.
     func fileOpen(_ params: [String: JSONValue]) -> ControlCallResult {
-        let routing = routingSelectors(params)
-        guard projectContext?.controlProjectRoutingResolvesTabManager(routing: routing) == true else {
-            return .err(code: "unavailable", message: "TabManager not available", data: nil)
-        }
-
-        let rawPaths = stringArray(params, "paths") ?? stringArray(params, "path") ?? []
-        guard !rawPaths.isEmpty else {
-            return .err(code: "invalid_params", message: "Missing 'path' or 'paths' parameter", data: nil)
-        }
-
-        var filePaths: [String] = []
-        for rawPath in rawPaths {
-            let resolved = resolveReadableFilePath(rawPath)
-            if let error = resolved.error {
-                return error
-            }
-            if let path = resolved.path {
-                filePaths.append(path)
-            }
-        }
-
-        let resolution = projectContext?.controlFileOpen(
-            routing: routing,
-            filePaths: filePaths,
-            paneID: uuid(params, "pane_id"),
-            surfaceID: uuid(params, "surface_id"),
-            requestedFocus: bool(params, "focus") ?? true
-        ) ?? .openFailed
-        switch resolution {
-        case .workspaceNotFound:
-            return .err(code: "not_found", message: "Workspace not found", data: nil)
-        case .requestedPaneNotFound(let paneID):
-            return .err(
-                code: "not_found",
-                message: "Pane not found",
-                data: .object(["pane_id": .string(paneID.uuidString)])
-            )
-        case .sourceSurfaceNotFound(let surfaceID):
-            return .err(
-                code: "not_found",
-                message: "Source surface not found",
-                data: .object(["surface_id": .string(surfaceID.uuidString)])
-            )
-        case .paneUnresolved:
-            return .err(code: "not_found", message: "Pane not found", data: nil)
-        case .openFailed:
-            return .err(code: "internal_error", message: "Failed to open file", data: nil)
-        case .opened(let windowID, let workspaceID, let surfaces):
-            let surfacePayloads = surfaces.map(fileOpenSurfacePayload)
-            let primary = surfaces.last
-            let paneID = primary?.paneID
-            var response: [String: JSONValue] = [
-                "window_id": orNull(windowID?.uuidString),
-                "window_ref": ref(.window, windowID),
-                "workspace_id": .string(workspaceID.uuidString),
-                "workspace_ref": ref(.workspace, workspaceID),
-                "pane_id": orNull(paneID?.uuidString),
-                "pane_ref": ref(.pane, paneID),
-                "surface_id": primary.map { JSONValue.string($0.surfaceID.uuidString) } ?? .null,
-                "surface_ref": primary != nil ? ref(.surface, primary?.surfaceID) : .null,
-                "panel_type": orNull(primary?.panelTypeRawValue),
-                "path": orNull(primary?.path),
-                "paths": .array(filePaths.map { .string($0) }),
-                "surfaces": .array(surfacePayloads),
-            ]
-            if let previewMode = primary?.previewMode {
-                response["preview_mode"] = .string(previewMode)
-            }
-            if let displayMode = primary?.displayMode {
-                response["display_mode"] = .string(displayMode)
-            }
-            return .ok(.object(response))
-        }
-    }
-
-    /// One opened-surface row of the `file.open` payload (the legacy
-    /// `v2FileOpenSurfacePayload`).
-    private func fileOpenSurfacePayload(_ surface: ControlFileOpenSurface) -> JSONValue {
-        var payload: [String: JSONValue] = [
-            "surface_id": .string(surface.surfaceID.uuidString),
-            "surface_ref": ref(.surface, surface.surfaceID),
-            "pane_id": orNull(surface.paneID?.uuidString),
-            "pane_ref": ref(.pane, surface.paneID),
-            "panel_type": .string(surface.panelTypeRawValue),
-        ]
-        if let path = surface.path {
-            payload["path"] = .string(path)
-        }
-        if let previewMode = surface.previewMode {
-            payload["preview_mode"] = .string(previewMode)
-        }
-        if let displayMode = surface.displayMode {
-            payload["display_mode"] = .string(displayMode)
-        }
-        return .object(payload)
+        projectContext?.controlFileOpen(params: params)
+            ?? .err(code: "unavailable", message: "TabManager not available", data: nil)
     }
 
     /// The shared readable-file-path validation of `markdown.open` /

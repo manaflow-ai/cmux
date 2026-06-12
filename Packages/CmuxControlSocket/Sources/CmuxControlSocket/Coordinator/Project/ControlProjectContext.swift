@@ -148,19 +148,11 @@ public protocol ControlProjectContext: AnyObject {
 
     /// Opens file surfaces for `file.open` (the paths are already validated).
     ///
-    /// - Parameters:
-    ///   - routing: The routing selectors.
-    ///   - filePaths: The resolved readable file paths (non-empty).
-    ///   - paneID: The explicit `pane_id`, if any.
-    ///   - surfaceID: The explicit `surface_id`, if any.
-    ///   - requestedFocus: The requested `focus` flag (the app applies the
-    ///     focus-allowance policy).
-    /// - Returns: The open resolution.
-    func controlFileOpen(
-        routing: ControlRoutingSelectors,
-        filePaths: [String],
-        paneID: UUID?,
-        surfaceID: UUID?,
-        requestedFocus: Bool
-    ) -> ControlFileOpenResolution
+    /// Forwards to the shared `v2FileOpen` body (also driven by cmuxTests) and
+    /// bridges its Foundation payload — a single source of truth.
+    ///
+    /// - Parameter params: The raw command params; the body parses them and
+    ///   mints refs itself.
+    /// - Returns: The bridged call result.
+    func controlFileOpen(params: [String: JSONValue]) -> ControlCallResult
 }
