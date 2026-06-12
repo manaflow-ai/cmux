@@ -6,10 +6,12 @@ public import CmuxProcess
 ///
 /// The pipeline has three stages, called by the app's orchestration in order:
 /// 1. ``resolveCandidateSeeds(_:gitMetadata:)`` — map each panel's directory to
-///    its GitHub `owner/name` slugs (reading git config via ``GitMetadataService``).
-/// 2. ``fetchRepoResults(repoDirectoriesBySlug:candidateBranchesByRepo:cacheBySlug:now:allowCachedResults:)``
-///    — fetch each repository's recent PRs (REST, paged), with per-branch
-///    fallback lookups, honoring the caller-owned repo cache.
+///    host-qualified repository references (reading git config via
+///    ``GitMetadataService``).
+/// 2. ``fetchRepoResults(repoDirectoriesByReference:candidateBranchesByRepo:cacheByReference:now:allowCachedResults:)``
+///    — fetch each repository's recent PRs (REST, paged) using the reference's
+///    host, with per-branch fallback lookups, honoring the caller-owned repo
+///    cache.
 /// 3. ``resolveRefreshResults(candidates:repoResults:)`` — match candidates
 ///    against the fetched data into per-panel ``WorkspacePullRequestRefreshResult``s.
 ///
@@ -17,12 +19,20 @@ public import CmuxProcess
 /// `nonisolated async` reads (off the caller's actor, parallel across calls;
 /// see that type's `Important` note on `NonisolatedNonsendingByDefault`). The
 /// repo cache is owned by the caller and passed in, so the service holds no
-/// mutable state. Authentication uses `GH_TOKEN`/`GITHUB_TOKEN` or
-/// `gh auth token` via the injected ``CmuxProcess/CommandRunning``.
+/// mutable state. Authentication uses `GH_TOKEN`/`GITHUB_TOKEN` for
+/// `github.com`, then `gh auth token --hostname <host>` via the injected
+/// ``CmuxProcess/CommandRunning`` for each host.
 public struct PullRequestProbeService: Sendable {
-    /// Runs `gh auth token` for the API auth header. Injected so tests supply a
-    /// fake without spawning a process.
+    /// Runs `gh auth token --hostname <host>` for API auth headers.
     let commandRunner: any CommandRunning
+
+    /// The environment used for token resolution.
+    ///
+    /// Carries `GH_TOKEN`/`GITHUB_TOKEN` (consulted only for `github.com`) and
+    /// the ambient `GH_ENTERPRISE_TOKEN`/`GITHUB_ENTERPRISE_TOKEN`, which are
+    /// rejected for enterprise hosts (see ``authToken(for:)``). Injected so tests
+    /// stay off `ProcessInfo.processInfo.environment`.
+    let environment: [String: String]
 
     /// Debug-log sink for probe diagnostics (the app injects its debug logger
     /// in DEBUG builds; defaults to a no-op).
@@ -31,13 +41,17 @@ public struct PullRequestProbeService: Sendable {
     /// Creates a pull-request probe service.
     ///
     /// - Parameters:
-    ///   - commandRunner: Runs `gh auth token`; tests pass a fake.
+    ///   - commandRunner: Runs `gh auth token --hostname <host>`; tests pass a fake.
+    ///   - environment: The environment read for tokens; defaults to the process
+    ///     environment.
     ///   - debugLog: Optional diagnostics sink; defaults to a no-op.
     public init(
         commandRunner: any CommandRunning = CommandRunner(),
+        environment: [String: String] = ProcessInfo.processInfo.environment,
         debugLog: @escaping @Sendable (String) -> Void = { _ in }
     ) {
         self.commandRunner = commandRunner
+        self.environment = environment
         self.debugLog = debugLog
     }
 
@@ -51,6 +65,11 @@ public struct PullRequestProbeService: Sendable {
     static let repoPageLimit = 2
     /// Per-request timeout for GitHub API calls and the `gh auth token` probe.
     static let probeTimeout: TimeInterval = 5.0
+    /// Max distinct hosts probed for a token in one fetch, bounding the `gh`
+    /// subprocess fan-out from a repo config carrying many remote hosts.
+    static let maxTokenProbeHosts = 8
+    /// Max concurrent `gh auth token` child processes per fetch.
+    static let maxConcurrentTokenProbes = 4
     /// Merged PRs older than this no longer earn a badge.
     static let mergedBadgeStaleAfter: TimeInterval = 14 * 24 * 60 * 60
     /// How often a panel showing a terminal (merged/closed) PR is re-checked.
@@ -61,13 +80,14 @@ public struct PullRequestProbeService: Sendable {
 
     /// Resolves candidate seeds against each directory's GitHub remotes.
     ///
-    /// Directories are resolved to `owner/name` slugs once each (deduplicated
-    /// across seeds); a seed whose directory has no GitHub remote yields a
-    /// candidate with empty ``WorkspacePullRequestCandidate/repoSlugs``.
+    /// Directories are resolved to host-qualified references once each
+    /// (deduplicated across seeds); a seed whose directory has no parseable
+    /// remote yields a candidate with empty
+    /// ``WorkspacePullRequestCandidate/repoReferences``.
     ///
     /// - Parameters:
     ///   - seeds: One per panel wanting a badge.
-    ///   - gitMetadata: The git-metadata reader used for slug resolution.
+    ///   - gitMetadata: The git-metadata reader used for remote resolution.
     /// - Returns: The candidates plus repo-keyed indexes for the fetch stage.
     public nonisolated func resolveCandidateSeeds(
         _ seeds: [WorkspacePullRequestCandidateSeed],
@@ -75,22 +95,22 @@ public struct PullRequestProbeService: Sendable {
     ) async -> WorkspacePullRequestCandidateResolution {
         var candidates: [WorkspacePullRequestCandidate] = []
         candidates.reserveCapacity(seeds.count)
-        var candidateBranchesByRepo: [String: Set<String>] = [:]
-        var repoDirectoriesBySlug: [String: String] = [:]
-        var repoSlugsByDirectory: [String: [String]] = [:]
+        var candidateBranchesByRepo: [GitHubRepositoryReference: Set<String>] = [:]
+        var repoDirectoriesByReference: [GitHubRepositoryReference: String] = [:]
+        var repoReferencesByDirectory: [String: [GitHubRepositoryReference]] = [:]
 
         for seed in seeds {
-            let repoSlugs: [String]
+            let repoReferences: [GitHubRepositoryReference]
             if let directory = seed.directory {
-                if let cachedRepoSlugs = repoSlugsByDirectory[directory] {
-                    repoSlugs = cachedRepoSlugs
+                if let cachedRepoReferences = repoReferencesByDirectory[directory] {
+                    repoReferences = cachedRepoReferences
                 } else {
-                    let resolvedRepoSlugs = await gitMetadata.repositorySlugs(forDirectory: directory)
-                    repoSlugsByDirectory[directory] = resolvedRepoSlugs
-                    repoSlugs = resolvedRepoSlugs
+                    let resolvedRepoReferences = await gitMetadata.repositoryReferences(forDirectory: directory)
+                    repoReferencesByDirectory[directory] = resolvedRepoReferences
+                    repoReferences = resolvedRepoReferences
                 }
             } else {
-                repoSlugs = []
+                repoReferences = []
             }
 
             candidates.append(
@@ -98,14 +118,14 @@ public struct PullRequestProbeService: Sendable {
                     workspaceId: seed.workspaceId,
                     panelId: seed.panelId,
                     branch: seed.branch,
-                    repoSlugs: repoSlugs
+                    repoReferences: repoReferences
                 )
             )
 
-            for repoSlug in repoSlugs {
-                candidateBranchesByRepo[repoSlug, default: []].insert(seed.branch)
-                if let directory = seed.directory, repoDirectoriesBySlug[repoSlug] == nil {
-                    repoDirectoriesBySlug[repoSlug] = directory
+            for reference in repoReferences {
+                candidateBranchesByRepo[reference, default: []].insert(seed.branch)
+                if let directory = seed.directory, repoDirectoriesByReference[reference] == nil {
+                    repoDirectoriesByReference[reference] = directory
                 }
             }
         }
@@ -113,7 +133,7 @@ public struct PullRequestProbeService: Sendable {
         return WorkspacePullRequestCandidateResolution(
             candidates: candidates,
             candidateBranchesByRepo: candidateBranchesByRepo,
-            repoDirectoriesBySlug: repoDirectoriesBySlug
+            repoDirectoriesByReference: repoDirectoriesByReference
         )
     }
 
@@ -121,16 +141,17 @@ public struct PullRequestProbeService: Sendable {
 
     /// Matches candidates against fetched repo results into per-panel outcomes.
     ///
-    /// For each candidate the first repo (in slug preference order) with a PR
-    /// for the branch wins; otherwise a transient failure anywhere downgrades
-    /// the outcome to ``WorkspacePullRequestRefreshResult/Resolution/transientFailure``
-    /// (so an existing badge is kept), else `notFound`.
+    /// For each candidate the first reference (in remote preference order) with
+    /// a PR for the branch wins; otherwise a transient failure anywhere
+    /// downgrades the outcome to
+    /// ``WorkspacePullRequestRefreshResult/Resolution/transientFailure`` (so an
+    /// existing badge is kept), else `notFound`.
     public static func resolveRefreshResults(
         candidates: [WorkspacePullRequestCandidate],
-        repoResults: [String: WorkspacePullRequestRepoFetchResult]
+        repoResults: [GitHubRepositoryReference: WorkspacePullRequestRepoFetchResult]
     ) -> [WorkspacePullRequestRefreshResult] {
         candidates.map { candidate in
-            if candidate.repoSlugs.isEmpty {
+            if candidate.repoReferences.isEmpty {
                 return WorkspacePullRequestRefreshResult(
                     workspaceId: candidate.workspaceId,
                     panelId: candidate.panelId,
@@ -144,8 +165,18 @@ public struct PullRequestProbeService: Sendable {
             var sawTransientFailure = false
             var sawCachedSuccess = false
 
-            for repoSlug in candidate.repoSlugs {
-                guard let repoResult = repoResults[repoSlug] else { continue }
+            let attemptedReferences = candidate.repoReferences.filter { repoResults[$0] != nil }
+            if attemptedReferences.isEmpty {
+                return WorkspacePullRequestRefreshResult(
+                    workspaceId: candidate.workspaceId,
+                    panelId: candidate.panelId,
+                    resolution: .unsupportedRepository,
+                    usedCachedRepoData: false
+                )
+            }
+
+            for reference in attemptedReferences {
+                guard let repoResult = repoResults[reference] else { continue }
                 switch repoResult {
                 case .success(let cacheEntry, let usedCache, let transientBranches):
                     if usedCache {

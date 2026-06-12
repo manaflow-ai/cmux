@@ -76,7 +76,7 @@ public struct GitMetadataService: Sendable {
         Self.workspaceGitMetadataWatchedPaths(for: directory)
     }
 
-    /// The GitHub repository slugs (`owner/name`) configured as remotes for the
+    /// The host-qualified repository references configured as remotes for the
     /// repository enclosing `directory`.
     ///
     /// Reads remote URLs straight from `config` (no `git` process), following
@@ -84,8 +84,26 @@ public struct GitMetadataService: Sendable {
     /// then the rest, de-duplicated.
     ///
     /// - Parameter directory: An absolute path to inspect.
-    /// - Returns: Ordered, de-duplicated GitHub slugs; empty when there is no
-    ///   repository or no GitHub remote.
+    /// - Returns: Ordered, de-duplicated repository references; empty when
+    ///   there is no repository or no parseable remote.
+    public nonisolated func repositoryReferences(forDirectory directory: String) async -> [GitHubRepositoryReference] {
+        guard let repository = Self.resolveGitRepository(containing: directory),
+              let output = Self.gitRemoteVOutput(repository: repository) else {
+            return []
+        }
+        return Self.githubRepositoryReferences(fromGitRemoteVOutput: output)
+    }
+
+    /// The public-GitHub repository slugs (`owner/name`) configured as remotes
+    /// for the repository enclosing `directory`.
+    ///
+    /// Reads remote URLs straight from `config` (no `git` process), following
+    /// `include`/`includeIf`, and orders the result `upstream`, then `origin`,
+    /// then the rest, de-duplicated.
+    ///
+    /// - Parameter directory: An absolute path to inspect.
+    /// - Returns: Ordered, de-duplicated `github.com` slugs; empty when there
+    ///   is no repository or no public GitHub remote.
     public nonisolated func repositorySlugs(forDirectory directory: String) async -> [String] {
         guard let repository = Self.resolveGitRepository(containing: directory),
               let output = Self.gitRemoteVOutput(repository: repository) else {

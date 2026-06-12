@@ -1,5 +1,6 @@
 import Foundation
 import Testing
+import CmuxProcess
 @testable import CmuxGit
 
 /// Pure pull-request probe logic. The selection/policy cases are migrated from
@@ -155,13 +156,131 @@ import Testing
     }
 
     @Test func branchEndpointEncodesHeadFilterAndRejectsMalformedSlugs() throws {
+        let reference = GitHubRepositoryReference(host: .dotCom, owner: "manaflow-ai", repo: "cmux")
         let endpoint = try #require(
-            PullRequestProbeService.branchEndpoint(repoSlug: "manaflow-ai/cmux", branch: "feat/x")
+            PullRequestProbeService.branchEndpoint(reference: reference, branch: "feat/x")
         )
         #expect(endpoint.hasPrefix("repos/manaflow-ai/cmux/pulls?"))
         #expect(endpoint.contains("head=manaflow-ai:feat/x") || endpoint.contains("head=manaflow-ai%3Afeat/x") || endpoint.contains("head=manaflow-ai:feat%2Fx"))
-        #expect(PullRequestProbeService.branchEndpoint(repoSlug: "no-slash", branch: "b") == nil)
-        #expect(PullRequestProbeService.branchEndpoint(repoSlug: "/missing-owner", branch: "b") == nil)
+        #expect(PullRequestProbeService.branchEndpoint(reference: GitHubRepositoryReference(host: .dotCom, owner: "", repo: "r"), branch: "b") == nil)
+        #expect(PullRequestProbeService.branchEndpoint(reference: GitHubRepositoryReference(host: .dotCom, owner: "o", repo: ""), branch: "b") == nil)
+    }
+
+    @Test func enterpriseAuthTokenLookupPassesHostnameToGh() async {
+        let recorder = CommandRunnerRecorder(stdout: "ghs_enterprise\n")
+        let service = PullRequestProbeService(commandRunner: recorder, environment: [:])
+
+        let token = await service.authToken(for: GitHubHost(hostname: "ghe.example.com"))
+
+        #expect(token == "ghs_enterprise")
+        #expect(await recorder.invocations.map(\.arguments) == [
+            ["auth", "token", "--hostname", "ghe.example.com"],
+        ])
+    }
+
+    @Test func enterprisePortQualifiedHostUsesOriginConsistentTokenLookup() async {
+        // The credential lookup must match the origin requests target, so a
+        // non-default-port host asks gh for `host:port`, not the bare hostname.
+        let recorder = CommandRunnerRecorder(stdout: "stored-host-token\n")
+        let service = PullRequestProbeService(commandRunner: recorder, environment: [:])
+
+        let token = await service.authToken(for: GitHubHost(hostname: "ghe.example.com", port: 8443))
+
+        #expect(token == "stored-host-token")
+        #expect(await recorder.invocations.map(\.arguments) == [
+            ["auth", "token", "--hostname", "ghe.example.com:8443"],
+        ])
+    }
+
+    @Test func authTokensByHostCapsTokenProbeFanOut() async {
+        // A repo config with many distinct hosts must not fork an unbounded
+        // number of gh processes; the probe count is capped.
+        let recorder = CommandRunnerRecorder(stdout: "stored-host-token\n")
+        let service = PullRequestProbeService(commandRunner: recorder, environment: [:])
+        let hosts = Set((0..<40).map { GitHubHost(hostname: "ghe-\($0).example.com") })
+
+        let tokens = await service.authTokensByHost(for: hosts)
+
+        #expect(tokens.count == PullRequestProbeService.maxTokenProbeHosts)
+        #expect(await recorder.invocations.count == PullRequestProbeService.maxTokenProbeHosts)
+    }
+
+    @Test func authTokenRefusesAmbientEnterpriseTokenForUnverifiedHost() async {
+        // `gh auth token --hostname <anything>` returns GH_ENTERPRISE_TOKEN for
+        // any non-github.com host, so a remote pointing at an attacker host must
+        // not be sent the ambient enterprise credential.
+        let recorder = CommandRunnerRecorder(stdout: "ambient-secret\n")
+        let service = PullRequestProbeService(
+            commandRunner: recorder,
+            environment: ["GH_ENTERPRISE_TOKEN": "ambient-secret"]
+        )
+
+        let token = await service.authToken(for: GitHubHost(hostname: "evil.example.com"))
+
+        #expect(token == nil)
+    }
+
+    @Test func authTokenRefusesAmbientPublicTokenForNonDotComHost() async {
+        // gh hands GH_TOKEN/GITHUB_TOKEN to *.ghe.com hosts, so an ambient public
+        // GitHub token must not be sent to a non-github.com host either.
+        let recorder = CommandRunnerRecorder(stdout: "gho_public\n")
+        let service = PullRequestProbeService(
+            commandRunner: recorder,
+            environment: ["GH_TOKEN": "gho_public"]
+        )
+
+        let token = await service.authToken(for: GitHubHost(hostname: "attacker.ghe.com"))
+
+        #expect(token == nil)
+    }
+
+    @Test func authTokenTrustsAmbientTokenBoundToHostViaGHHost() async {
+        // GH_HOST marks the host the ambient env token is intentionally for, so
+        // the common GH_HOST + GH_ENTERPRISE_TOKEN setup must keep working.
+        let recorder = CommandRunnerRecorder(stdout: "ghs_enterprise\n")
+        let service = PullRequestProbeService(
+            commandRunner: recorder,
+            environment: ["GH_ENTERPRISE_TOKEN": "ghs_enterprise", "GH_HOST": "ghe.example.com"]
+        )
+
+        let token = await service.authToken(for: GitHubHost(hostname: "ghe.example.com"))
+
+        #expect(token == "ghs_enterprise")
+    }
+
+    @Test func dotComTokenLookupIgnoresCloneProxyPort() async {
+        // github.com credentials are stored for the bare host, so a clone proxy
+        // port must not leak into the gh hostname lookup.
+        let recorder = CommandRunnerRecorder(stdout: "gho_token\n")
+        let service = PullRequestProbeService(commandRunner: recorder, environment: [:])
+
+        let token = await service.authToken(for: GitHubHost(hostname: "github.com", port: 8080))
+
+        #expect(token == "gho_token")
+        #expect(await recorder.invocations.map(\.arguments) == [
+            ["auth", "token", "--hostname", "github.com"],
+        ])
+    }
+
+    @Test func authTokenTrustsPerHostStoredEnterpriseToken() async {
+        // A per-host credential from `gh auth login --hostname` differs from the
+        // ambient enterprise env token, so it is trusted and used.
+        let recorder = CommandRunnerRecorder(stdout: "stored-host-token\n")
+        let service = PullRequestProbeService(
+            commandRunner: recorder,
+            environment: ["GH_ENTERPRISE_TOKEN": "ambient-secret"]
+        )
+
+        let token = await service.authToken(for: GitHubHost(hostname: "ghe.example.com"))
+
+        #expect(token == "stored-host-token")
+    }
+
+    @Test func hostPollabilityGatesEnterpriseWithoutToken() {
+        #expect(GitHubHost.dotCom.isPollable(token: nil))
+        #expect(GitHubHost(hostname: "ghe.example.com").isPollable(token: "ghs_enterprise"))
+        #expect(!GitHubHost(hostname: "ghe.example.com").isPollable(token: nil))
+        #expect(!GitHubHost(hostname: "gitlab.com").isPollable(token: nil))
     }
 
     // MARK: result resolution
@@ -169,18 +288,19 @@ import Testing
     @Test func resolveRefreshResultsMatchesPrefersAndPropagatesFailures() {
         let wsA = UUID(), wsB = UUID(), wsC = UUID(), panel = UUID()
         let pr = item(number: 7, state: "OPEN", url: "https://github.com/o/r/pull/7", updatedAt: "2026-06-01T00:00:00Z", headRefName: "feat/x")
+        let reference = GitHubRepositoryReference(host: .dotCom, owner: "o", repo: "r")
         let entry = WorkspacePullRequestRepoCacheEntry(
             fetchedAt: Date(),
             pullRequestsByBranch: ["feat/x": pr]
         )
         let candidates = [
-            WorkspacePullRequestCandidate(workspaceId: wsA, panelId: panel, branch: "feat/x", repoSlugs: ["o/r"]),
-            WorkspacePullRequestCandidate(workspaceId: wsB, panelId: panel, branch: "feat/missing", repoSlugs: ["o/r"]),
-            WorkspacePullRequestCandidate(workspaceId: wsC, panelId: panel, branch: "feat/x", repoSlugs: []),
+            WorkspacePullRequestCandidate(workspaceId: wsA, panelId: panel, branch: "feat/x", repoReferences: [reference]),
+            WorkspacePullRequestCandidate(workspaceId: wsB, panelId: panel, branch: "feat/missing", repoReferences: [reference]),
+            WorkspacePullRequestCandidate(workspaceId: wsC, panelId: panel, branch: "feat/x", repoReferences: []),
         ]
         let results = PullRequestProbeService.resolveRefreshResults(
             candidates: candidates,
-            repoResults: ["o/r": .success(entry, usedCache: false, transientBranches: ["feat/missing"])]
+            repoResults: [reference: .success(entry, usedCache: false, transientBranches: ["feat/missing"])]
         )
 
         guard case .resolved(let resolved) = results[0].resolution else {
@@ -195,8 +315,58 @@ import Testing
             return
         }
         guard case .unsupportedRepository = results[2].resolution else {
-            Issue.record("expected unsupportedRepository for empty slugs")
+            Issue.record("expected unsupportedRepository for empty references")
             return
         }
+    }
+
+    @Test func resolveRefreshResultsTreatsAllSkippedReferencesAsUnsupported() {
+        let candidate = WorkspacePullRequestCandidate(
+            workspaceId: UUID(),
+            panelId: UUID(),
+            branch: "feat/x",
+            repoReferences: [GitHubRepositoryReference(host: GitHubHost(hostname: "gitlab.com"), owner: "o", repo: "r")]
+        )
+
+        let result = PullRequestProbeService.resolveRefreshResults(candidates: [candidate], repoResults: [:])
+
+        guard case .unsupportedRepository = result[0].resolution else {
+            Issue.record("expected unsupportedRepository for a reference skipped before fetch")
+            return
+        }
+    }
+}
+
+private struct CommandInvocation: Sendable, Equatable {
+    let executable: String
+    let arguments: [String]
+}
+
+private actor CommandRunnerRecorder: CommandRunning {
+    private let stdout: String?
+    private var recordedInvocations: [CommandInvocation] = []
+
+    init(stdout: String?) {
+        self.stdout = stdout
+    }
+
+    var invocations: [CommandInvocation] {
+        recordedInvocations
+    }
+
+    func run(
+        directory: String,
+        executable: String,
+        arguments: [String],
+        timeout: TimeInterval?
+    ) async -> CommandResult {
+        recordedInvocations.append(CommandInvocation(executable: executable, arguments: arguments))
+        return CommandResult(
+            stdout: stdout,
+            stderr: "",
+            exitStatus: stdout == nil ? 1 : 0,
+            timedOut: false,
+            executionError: nil
+        )
     }
 }

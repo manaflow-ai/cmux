@@ -59,13 +59,13 @@ import Testing
         #expect(slugs(fromConfig: config) == ["manaflow-ai/cmux", "austinwang/cmux"])
     }
 
-    @Test func usesLastRemoteURLValue() {
+    @Test func usesFirstRemoteURLValue() {
         let config = """
         [remote "origin"]
             url = https://github.com/old-owner/old-repo.git
             url = https://github.com/manaflow-ai/cmux.git
         """
-        #expect(slugs(fromConfig: config) == ["manaflow-ai/cmux"])
+        #expect(slugs(fromConfig: config) == ["old-owner/old-repo"])
     }
 
     @Test func readsIncludedConfigFiles() throws {
@@ -103,8 +103,8 @@ import Testing
             url = https://github.com/old-owner/old-repo.git
         """.write(to: fixture.gitDirectory.appendingPathComponent("remotes.inc"), atomically: true, encoding: .utf8)
 
-        // The in-place include is read first, so the later top-level url wins.
-        #expect(slugs(forDirectory: fixture.root.path) == ["manaflow-ai/cmux"])
+        // The in-place include is read first, and fetch URL selection is first-wins.
+        #expect(slugs(forDirectory: fixture.root.path) == ["old-owner/old-repo"])
     }
 
     @Test func treatsTrailingSlashGitdirAsRecursive() throws {

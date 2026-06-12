@@ -1,7 +1,6 @@
 public import Foundation
 
-/// A seed resolved against the repository's GitHub remotes: the lookup the
-/// fetch stage executes.
+/// A seed resolved against repository remotes: the lookup the fetch stage executes.
 public struct WorkspacePullRequestCandidate: Sendable {
     /// Correlation id of the owning workspace.
     public let workspaceId: UUID
@@ -9,15 +8,25 @@ public struct WorkspacePullRequestCandidate: Sendable {
     public let panelId: UUID
     /// The branch to match pull requests against.
     public let branch: String
-    /// GitHub `owner/name` slugs to search, in preference order; empty when the
-    /// directory has no GitHub remote (an unsupported repository).
-    public let repoSlugs: [String]
+    /// Host-qualified repository references to search, in preference order.
+    public let repoReferences: [GitHubRepositoryReference]
 
     /// Creates a resolved candidate.
-    public init(workspaceId: UUID, panelId: UUID, branch: String, repoSlugs: [String]) {
+    ///
+    /// - Parameters:
+    ///   - workspaceId: Correlation id of the owning workspace.
+    ///   - panelId: Correlation id of the owning panel.
+    ///   - branch: The branch to match pull requests against.
+    ///   - repoReferences: Host-qualified repositories to query.
+    public init(
+        workspaceId: UUID,
+        panelId: UUID,
+        branch: String,
+        repoReferences: [GitHubRepositoryReference]
+    ) {
         self.workspaceId = workspaceId
         self.panelId = panelId
         self.branch = branch
-        self.repoSlugs = repoSlugs
+        self.repoReferences = repoReferences
     }
 }

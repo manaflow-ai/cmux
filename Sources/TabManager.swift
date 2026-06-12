@@ -1238,7 +1238,7 @@ class TabManager: ObservableObject {
     private var workspacePullRequestNextPollAtByKey: [WorkspaceGitProbeKey: Date] = [:]
     private var workspacePullRequestLastTerminalStateRefreshAtByKey: [WorkspaceGitProbeKey: Date] = [:]
     private var workspacePullRequestTransientFailureCountByKey: [WorkspaceGitProbeKey: Int] = [:]
-    private var workspacePullRequestRepoCacheBySlug: [String: WorkspacePullRequestRepoCacheEntry] = [:]
+    private var workspacePullRequestRepoCacheByReference: [GitHubRepositoryReference: WorkspacePullRequestRepoCacheEntry] = [:]
     private var workspacePullRequestPollTask: Task<Void, Never>?
     private var workspacePullRequestRefreshTask: Task<Void, Never>?
     private var workspacePullRequestFollowUpShouldBypassRepoCache = false
@@ -1296,7 +1296,7 @@ class TabManager: ObservableObject {
 
     // Resolves GitHub PR badges (slug resolution, REST fetch, candidate
     // matching). Stateless; the repo cache stays here in
-    // workspacePullRequestRepoCacheBySlug and is passed per refresh.
+    // workspacePullRequestRepoCacheByReference and is passed per refresh.
     private let pullRequestProbeService: PullRequestProbeService
 
     // Drives the git/PR polling delays (probe retry gaps, fallback loop, PR
@@ -1791,7 +1791,7 @@ class TabManager: ObservableObject {
             workspacePullRequestProbeStateByKey[key] = .inFlight(rerunPending: false)
         }
 
-        let cacheBySlug = workspacePullRequestRepoCacheBySlug
+        let cacheByReference = workspacePullRequestRepoCacheByReference
         let allowCachedResults = allowCachedResultsOverride
             ?? PullRequestProbeService.refreshAllowsRepoCache(reason: reason)
         let gitMetadataService = gitMetadataService
@@ -1803,9 +1803,9 @@ class TabManager: ObservableObject {
             )
             guard !Task.isCancelled else { return }
             let repoResults = await pullRequestProbeService.fetchRepoResults(
-                repoDirectoriesBySlug: candidateResolution.repoDirectoriesBySlug,
+                repoDirectoriesByReference: candidateResolution.repoDirectoriesByReference,
                 candidateBranchesByRepo: candidateResolution.candidateBranchesByRepo,
-                cacheBySlug: cacheBySlug,
+                cacheByReference: cacheByReference,
                 now: now,
                 allowCachedResults: allowCachedResults
             )
@@ -1890,7 +1890,7 @@ class TabManager: ObservableObject {
 
     private func applyWorkspacePullRequestRefreshResults(
         _ results: [WorkspacePullRequestRefreshResult],
-        repoResults: [String: WorkspacePullRequestRepoFetchResult],
+        repoResults: [GitHubRepositoryReference: WorkspacePullRequestRepoFetchResult],
         requestedKeys: [WorkspaceGitProbeKey],
         now: Date,
         reason: String
@@ -1910,12 +1910,12 @@ class TabManager: ObservableObject {
             return
         }
 
-        for (repoSlug, repoResult) in repoResults {
+        for (reference, repoResult) in repoResults {
             guard case .success(let cacheEntry, let usedCache, _) = repoResult,
                   !usedCache else {
                 continue
             }
-            workspacePullRequestRepoCacheBySlug[repoSlug] = cacheEntry
+            workspacePullRequestRepoCacheByReference[reference] = cacheEntry
         }
 
         let requestedKeySet = Set(requestedKeys)
@@ -2090,7 +2090,7 @@ class TabManager: ObservableObject {
         workspacePullRequestLastTerminalStateRefreshAtByKey = workspacePullRequestLastTerminalStateRefreshAtByKey.filter { validKeys.contains($0.key) }
         workspacePullRequestTransientFailureCountByKey = workspacePullRequestTransientFailureCountByKey.filter { validKeys.contains($0.key) }
         let repoCacheCutoff = Date().addingTimeInterval(-Self.workspacePullRequestRepoCachePruneLifetime)
-        workspacePullRequestRepoCacheBySlug = workspacePullRequestRepoCacheBySlug.filter {
+        workspacePullRequestRepoCacheByReference = workspacePullRequestRepoCacheByReference.filter {
             $0.value.fetchedAt >= repoCacheCutoff
         }
         updateWorkspacePullRequestPollTimer()
@@ -2127,7 +2127,7 @@ class TabManager: ObservableObject {
         workspacePullRequestNextPollAtByKey.removeAll()
         workspacePullRequestLastTerminalStateRefreshAtByKey.removeAll()
         workspacePullRequestTransientFailureCountByKey.removeAll()
-        workspacePullRequestRepoCacheBySlug.removeAll()
+        workspacePullRequestRepoCacheByReference.removeAll()
         workspacePullRequestFollowUpShouldBypassRepoCache = false
         updateWorkspacePullRequestPollTimer()
     }

@@ -40,9 +40,38 @@ import Testing
         #expect(GitMetadataService.githubRepositorySlugs(fromGitRemoteVOutput: output) == ["owner/repo"])
     }
 
+    @Test func duplicateRemoteURLValuesUseFirstFetchURL() {
+        let output = """
+        origin\thttps://github.com/first/repo.git (fetch)
+        origin\thttps://github.com/second/repo.git (fetch)
+        """
+
+        #expect(GitMetadataService.githubRepositorySlugs(fromGitRemoteVOutput: output) == ["first/repo"])
+        #expect(
+            GitMetadataService.githubRepositoryReferences(fromGitRemoteVOutput: output)
+                .map(\.hostQualifiedSlug)
+                == ["github.com/first/repo"]
+        )
+    }
+
     @Test func ignoresPushOnlyLines() {
         let output = "origin\thttps://github.com/owner/repo.git (push)\n"
         #expect(GitMetadataService.githubRepositorySlugs(fromGitRemoteVOutput: output).isEmpty)
+    }
+
+    @Test func repositoryReferencesPreserveHostAndOrdering() {
+        let output = """
+        origin\thttps://github.com/austinwang/cmux.git (fetch)
+        upstream\tgit@ghe.example.com:manaflow-ai/cmux.git (fetch)
+        backup\thttps://github.com/austinwang/cmux.git (fetch)
+        mirror\thttps://gitlab.com/manaflow-ai/cmux.git (fetch)
+        """
+
+        #expect(
+            GitMetadataService.githubRepositoryReferences(fromGitRemoteVOutput: output)
+                .map(\.hostQualifiedSlug)
+                == ["ghe.example.com/manaflow-ai/cmux", "github.com/austinwang/cmux", "gitlab.com/manaflow-ai/cmux"]
+        )
     }
 
     // MARK: config parsing
@@ -105,6 +134,14 @@ import Testing
         return GitMetadataService.githubRepositorySlugs(fromGitRemoteVOutput: output)
     }
 
+    private func references(forDirectory directory: String) -> [GitHubRepositoryReference] {
+        guard let repository = GitMetadataService.resolveGitRepository(containing: directory),
+              let output = GitMetadataService.gitRemoteVOutput(repository: repository) else {
+            return []
+        }
+        return GitMetadataService.githubRepositoryReferences(fromGitRemoteVOutput: output)
+    }
+
     @Test func configSectionAndKeyNamesAreCaseInsensitive() {
         let config = """
         [Remote "origin"]
@@ -125,6 +162,21 @@ import Testing
             url = https://github.com/manaflow-ai/cmux.git
         """.write(to: fixture.gitDirectory.appendingPathComponent("remotes.inc"), atomically: true, encoding: .utf8)
         #expect(slugs(forDirectory: fixture.root.path) == ["manaflow-ai/cmux"])
+    }
+
+    @Test func includedConfigCanDefineEnterpriseRemoteReference() throws {
+        let fixture = try GitRepositoryFixture()
+        try fixture.writeBranch("main")
+        try fixture.writeConfig("""
+        [include]
+            path = remotes.inc
+        """)
+        try """
+        [remote "upstream"]
+            url = git@ghe.example.com:manaflow-ai/cmux.git
+        """.write(to: fixture.gitDirectory.appendingPathComponent("remotes.inc"), atomically: true, encoding: .utf8)
+
+        #expect(references(forDirectory: fixture.root.path).map(\.hostQualifiedSlug) == ["ghe.example.com/manaflow-ai/cmux"])
     }
 
     @Test func relativeGitdirPatternMatchesAtAnyDepth() throws {

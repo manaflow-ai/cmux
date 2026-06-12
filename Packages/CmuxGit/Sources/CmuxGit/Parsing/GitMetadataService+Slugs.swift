@@ -1,6 +1,53 @@
 import Foundation
 
 extension GitMetadataService {
+    /// Extracts ordered, de-duplicated host-qualified repository references
+    /// from `git remote -v`-style output.
+    ///
+    /// Parsing is host-agnostic: any remote URL with a host and `owner/repo`
+    /// path contributes a reference. Pollability is decided later by
+    /// ``GitHubHost/isPollable(token:)``.
+    nonisolated static func githubRepositoryReferences(fromGitRemoteVOutput output: String) -> [GitHubRepositoryReference] {
+        var referenceByRemoteName: [String: GitHubRepositoryReference] = [:]
+
+        for line in output.split(whereSeparator: \.isNewline) {
+            let parts = line.split(whereSeparator: \.isWhitespace)
+            guard parts.count >= 3 else { continue }
+
+            let remoteName = String(parts[0])
+            let remoteURL = String(parts[1])
+            let remoteKind = String(parts[2])
+            guard remoteKind == "(fetch)",
+                  let reference = GitHubRepositoryReference.parse(remoteURL: remoteURL) else {
+                continue
+            }
+
+            if referenceByRemoteName[remoteName] == nil {
+                referenceByRemoteName[remoteName] = reference
+            }
+        }
+
+        let orderedRemoteNames = referenceByRemoteName.keys.sorted { lhs, rhs in
+            let lhsPriority = githubRemotePriority(lhs)
+            let rhsPriority = githubRemotePriority(rhs)
+            if lhsPriority != rhsPriority {
+                return lhsPriority < rhsPriority
+            }
+            return lhs < rhs
+        }
+
+        var orderedReferences: [GitHubRepositoryReference] = []
+        var seen: Set<GitHubRepositoryReference> = []
+        for remoteName in orderedRemoteNames {
+            guard let reference = referenceByRemoteName[remoteName],
+                  seen.insert(reference).inserted else {
+                continue
+            }
+            orderedReferences.append(reference)
+        }
+        return orderedReferences
+    }
+
     /// Extracts ordered, de-duplicated GitHub `owner/name` slugs from
     /// `git remote -v`-style output.
     ///
@@ -21,7 +68,9 @@ extension GitMetadataService {
                 continue
             }
 
-            slugByRemoteName[remoteName] = repoSlug
+            if slugByRemoteName[remoteName] == nil {
+                slugByRemoteName[remoteName] = repoSlug
+            }
         }
 
         let orderedRemoteNames = slugByRemoteName.keys.sorted { lhs, rhs in
