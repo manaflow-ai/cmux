@@ -912,6 +912,12 @@ final class TerminalNotificationStore: ObservableObject {
         effects in
         store.scheduleUserNotification(notification, effects: effects)
     }
+    private var notificationAuthorizationHandlerForTesting: ((@escaping (Bool) -> Void) -> Void)?
+    private var userNotificationScheduler: (UNNotificationRequest, @escaping (Error?) -> Void) -> Void = {
+        request,
+        completion in
+        UNUserNotificationCenter.current().add(request, withCompletionHandler: completion)
+    }
     private var suppressedNotificationFeedbackHandler: (TerminalNotificationStore, TerminalNotification, TerminalNotificationPolicyEffects) -> Void = {
         store,
         notification,
@@ -2050,7 +2056,7 @@ final class TerminalNotificationStore: ObservableObject {
             return
         }
 
-        ensureAuthorization(origin: .notificationDelivery) { [weak self] authorized in
+        let handleAuthorization: (Bool) -> Void = { [weak self] authorized in
             guard let self else { return }
             let content = UNMutableNotificationContent()
             content.title = self.resolvedNotificationTitle(for: notification)
@@ -2086,7 +2092,8 @@ final class TerminalNotificationStore: ObservableObject {
                 trigger: nil
             )
 
-            self.center.add(request) { error in
+            let scheduleRequest = self.userNotificationScheduler
+            scheduleRequest(request) { error in
                 if let error {
                     terminalNotificationLogger.error(
                         "Failed to schedule notification error=\(error.localizedDescription, privacy: .private)"
@@ -2107,6 +2114,11 @@ final class TerminalNotificationStore: ObservableObject {
                     )
                 }
             }
+        }
+        if let notificationAuthorizationHandlerForTesting {
+            notificationAuthorizationHandlerForTesting(handleAuthorization)
+        } else {
+            ensureAuthorization(origin: .notificationDelivery, handleAuthorization)
         }
     }
 
@@ -2383,6 +2395,28 @@ final class TerminalNotificationStore: ObservableObject {
     func resetNotificationDeliveryHandlerForTesting() {
         notificationDeliveryHandler = { store, notification, effects in
             store.scheduleUserNotification(notification, effects: effects)
+        }
+    }
+
+    func configureNotificationAuthorizationHandlerForTesting(
+        _ handler: @escaping (@escaping (Bool) -> Void) -> Void
+    ) {
+        notificationAuthorizationHandlerForTesting = handler
+    }
+
+    func resetNotificationAuthorizationHandlerForTesting() {
+        notificationAuthorizationHandlerForTesting = nil
+    }
+
+    func configureUserNotificationSchedulerForTesting(
+        _ scheduler: @escaping (UNNotificationRequest, @escaping (Error?) -> Void) -> Void
+    ) {
+        userNotificationScheduler = scheduler
+    }
+
+    func resetUserNotificationSchedulerForTesting() {
+        userNotificationScheduler = { request, completion in
+            UNUserNotificationCenter.current().add(request, withCompletionHandler: completion)
         }
     }
 
