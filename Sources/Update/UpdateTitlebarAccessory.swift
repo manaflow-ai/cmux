@@ -3256,10 +3256,11 @@ private struct RightSidebarToggleTitlebarView: View {
 }
 
 @MainActor
-final class RightSidebarToggleAccessoryViewController: NSTitlebarAccessoryViewController {
+private final class RightSidebarToggleAccessoryViewController: NSTitlebarAccessoryViewController {
+    private static let styleDefaultsKey = "titlebarControlsStyle"
     private let hostingView: NonDraggableHostingView<RightSidebarToggleTitlebarView>
     private let containerView: NSView
-    private var userDefaultsObserver: NSObjectProtocol?
+    private var isObservingStyleDefault = false
 
     init() {
         let containerView = NSView()
@@ -3285,17 +3286,16 @@ final class RightSidebarToggleAccessoryViewController: NSTitlebarAccessoryViewCo
         containerView.addSubview(hostingView)
         applyFittingSize()
 
-        // The button size follows the titlebar controls style; resize when the
-        // style setting changes.
-        userDefaultsObserver = NotificationCenter.default.addObserver(
-            forName: UserDefaults.didChangeNotification,
-            object: nil,
-            queue: .main
-        ) { [weak self] _ in
-            Task { @MainActor [weak self] in
-                self?.applyFittingSize()
-            }
-        }
+        // The button size follows the titlebar controls style; resize when
+        // that specific default changes (KVO on the key, not the broad
+        // UserDefaults.didChangeNotification).
+        UserDefaults.standard.addObserver(
+            self,
+            forKeyPath: Self.styleDefaultsKey,
+            options: [],
+            context: nil
+        )
+        isObservingStyleDefault = true
     }
 
     required init?(coder: NSCoder) {
@@ -3303,8 +3303,23 @@ final class RightSidebarToggleAccessoryViewController: NSTitlebarAccessoryViewCo
     }
 
     deinit {
-        if let userDefaultsObserver {
-            NotificationCenter.default.removeObserver(userDefaultsObserver)
+        if isObservingStyleDefault {
+            UserDefaults.standard.removeObserver(self, forKeyPath: Self.styleDefaultsKey)
+        }
+    }
+
+    override func observeValue(
+        forKeyPath keyPath: String?,
+        of object: Any?,
+        change: [NSKeyValueChangeKey: Any]?,
+        context: UnsafeMutableRawPointer?
+    ) {
+        guard keyPath == Self.styleDefaultsKey else {
+            super.observeValue(forKeyPath: keyPath, of: object, change: change, context: context)
+            return
+        }
+        Task { @MainActor [weak self] in
+            self?.applyFittingSize()
         }
     }
 
