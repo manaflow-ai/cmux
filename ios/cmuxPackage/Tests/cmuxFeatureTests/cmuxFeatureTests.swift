@@ -3523,3 +3523,45 @@ private func rpcErrorFrame(code: String? = nil, message: String) throws -> Data 
     let envelopeData = try JSONSerialization.data(withJSONObject: envelope)
     return try MobileSyncFrameCodec.encodeFrame(envelopeData)
 }
+
+// MARK: - Push notification deep-link
+
+/// Inert registration stub: deep-link tests exercise tap routing only.
+private struct InertPushRegistration: PushRegistering {
+    var isEnabled: Bool {
+        get async { false }
+    }
+    func setEnabled(_ enabled: Bool) async {}
+    func register(deviceToken: Data) async {}
+    func syncTokenIfPossible() async {}
+    func unregisterFromServer() async {}
+}
+
+@MainActor private func deeplinkTestStore() -> CMUXMobileShellStore {
+    CMUXMobileShellStore(
+        runtime: testRuntime(
+            transportFactory: RecordingNeverConnectTransportFactory(dials: TransportDialRecorder())
+        ),
+        reachability: OfflineReachability()
+    )
+}
+
+/// Cold launch from a notification tap: `didReceive` fires before the root
+/// view has mounted, so no store is bound yet. The tap must survive until the
+/// store binds and its workspace list loads, then navigate. Pre-fix the tap
+/// was dropped (`reason: no_store`) and the user landed on the workspaces
+/// home screen.
+@Test @MainActor func notificationTapBeforeStoreBindsNavigatesOnceWorkspacesLoad() async throws {
+    let coordinator = MobilePushCoordinator(registration: InertPushRegistration())
+
+    // Tap arrives first: nothing is bound.
+    coordinator.handleTap(workspaceId: "workspace-docs", surfaceId: "terminal-notes")
+
+    // Root view mounts: store binds already carrying the attached list.
+    let store = deeplinkTestStore()
+    store.workspaces = PreviewMobileHost.workspaces
+    coordinator.bind(store: store)
+
+    #expect(store.selectedWorkspaceID == MobileWorkspacePreview.ID(rawValue: "workspace-docs"))
+    #expect(store.selectedTerminalID == MobileTerminalPreview.ID(rawValue: "terminal-notes"))
+}
