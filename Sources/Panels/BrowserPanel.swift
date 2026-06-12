@@ -2988,16 +2988,21 @@ final class CmuxDiffViewerURLSchemeHandler: NSObject, WKURLSchemeHandler {
             headers["Content-Security-Policy"] = [
                 "default-src 'none'",
                 "script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval'",
-                "style-src 'unsafe-inline'",
+                // 'self' (not just 'unsafe-inline') so Vite's automatic CSS
+                // code-split preload can load the editor chunk's same-origin
+                // stylesheet (monaco-vendor.css) via a <link>. Vite's
+                // `__vitePreload` rejects the dynamic import when that <link>
+                // fails, so blocking it with `style-src 'unsafe-inline'` alone
+                // made session-restored editors (served over this scheme, not
+                // the HTTP server, which sets no CSP) fail to load entirely.
+                "style-src 'self' 'unsafe-inline'",
                 "img-src 'self' data:",
                 "connect-src 'self'",
                 // Monaco's base editor worker is a same-origin module worker
-                // (`new Worker(new URL("...editor.worker.js"), {type:"module"})`).
-                // Without an explicit worker-src it falls back to default-src
-                // 'none' and WebKit refuses to create it, which throws during
-                // mount and leaves session-restored editors (served over this
-                // scheme, not the HTTP server) stuck on the boot-error fallback.
-                // The HTTP server sets no CSP, which is why fresh editors work.
+                // (`new Worker(new URL("...editor.worker.js"), {type:"module"})`),
+                // created lazily when Monaco first needs it. Without an explicit
+                // worker-src it falls back to default-src 'none' and WebKit
+                // refuses to create it.
                 "worker-src 'self'",
                 "child-src 'self'",
                 "font-src 'none'",
