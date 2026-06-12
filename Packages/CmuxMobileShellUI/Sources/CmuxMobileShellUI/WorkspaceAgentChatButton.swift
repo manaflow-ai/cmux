@@ -102,23 +102,7 @@ struct WorkspaceAgentChatButton: View {
     /// only when nothing is alive — a dead session must never shadow a
     /// live one.
     private var openableSessions: [ChatSessionDescriptor] {
-        let alive = sessions.filter { $0.state != .ended }
-        let pool = alive.isEmpty ? sessions : alive
-        return pool.sorted { lhs, rhs in
-            let lp = Self.statePriority(lhs.state)
-            let rp = Self.statePriority(rhs.state)
-            if lp != rp { return lp < rp }
-            return (lhs.lastActivityAt ?? .distantPast) > (rhs.lastActivityAt ?? .distantPast)
-        }
-    }
-
-    private static func statePriority(_ state: ChatAgentState) -> Int {
-        switch state {
-        case .needsInput: return 0
-        case .working: return 1
-        case .idle: return 2
-        case .ended: return 3
-        }
+        ChatSessionOrdering.openable(sessions)
     }
 
     private func sessionMenuTitle(_ session: ChatSessionDescriptor) -> String {
