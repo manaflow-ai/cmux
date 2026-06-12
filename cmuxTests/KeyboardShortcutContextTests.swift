@@ -236,6 +236,17 @@ final class KeyboardShortcutContextTests: XCTestCase {
         )
     }
 
+    func testNewBrowserWorkspaceSettingsPackageActionStaysAligned() {
+        guard let settingsAction = ShortcutAction(
+            rawValue: KeyboardShortcutSettings.Action.newBrowserWorkspace.rawValue
+        ) else {
+            XCTFail("Expected CmuxSettings.ShortcutAction for newBrowserWorkspace")
+            return
+        }
+        XCTAssertEqual(settingsAction.defaultStroke, ShortcutStroke(key: "n", command: true, option: true))
+        XCTAssertEqual(settingsAction.displayName, KeyboardShortcutSettings.Action.newBrowserWorkspace.label)
+    }
+
     func testSettingsPackageDefaultWhenClausesMatchRuntimeShortcutContexts() {
         for action in KeyboardShortcutSettings.Action.allCases {
             guard let settingsAction = ShortcutAction(rawValue: action.rawValue) else {
