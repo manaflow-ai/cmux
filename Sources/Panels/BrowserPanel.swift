@@ -8856,34 +8856,16 @@ class BrowserDownloadDelegate: NSObject, WKDownloadDelegate {
     ) {
         // Save to a temp file — return synchronously so WebKit is never blocked.
         let filenameResolver = BrowserDownloadFilenameResolver()
-        switch filenameResolver.httpStatusDecision(for: response) {
-        case .allow:
-            break
-        case .reject(let statusCode):
-            #if DEBUG
-            cmuxDebugLog("download.rejected status=\(statusCode)")
-            #endif
+        if case .reject = filenameResolver.httpStatusDecision(for: response) {
             completionHandler(nil)
             return
         }
         let sourceURL = response.url ?? URL(fileURLWithPath: suggestedFilename)
-        let safeFilename = filenameResolver.suggestedFilename(
-            suggestedFilename: suggestedFilename,
-            response: response,
-            sourceURL: sourceURL,
-            imageType: nil
-        )
+        let safeFilename = filenameResolver.suggestedFilename(suggestedFilename: suggestedFilename, response: response, sourceURL: sourceURL, imageType: nil)
         let tempFilename = "\(UUID().uuidString)-\(safeFilename)"
         let destURL = Self.tempDir.appendingPathComponent(tempFilename, isDirectory: false)
         try? FileManager.default.removeItem(at: destURL)
-        storeState(
-            DownloadState(
-                tempURL: destURL,
-                suggestedFilename: safeFilename,
-                sourceURL: sourceURL
-            ),
-            for: download
-        )
+        storeState(DownloadState(tempURL: destURL, suggestedFilename: safeFilename, sourceURL: sourceURL), for: download)
         notifyOnMain { [weak self] in
             self?.onDownloadStarted?(safeFilename)
         }
@@ -8910,13 +8892,7 @@ class BrowserDownloadDelegate: NSObject, WKDownloadDelegate {
         DispatchQueue.main.async {
             self.onDownloadReadyToSave?()
             let filenameResolver = BrowserDownloadFilenameResolver()
-            let imageType = filenameResolver.imageType(forDownloadedFileAt: info.tempURL)
-            let suggestedFilename = filenameResolver.suggestedFilename(
-                suggestedFilename: info.suggestedFilename,
-                response: nil,
-                sourceURL: info.sourceURL,
-                imageType: imageType
-            )
+            let suggestedFilename = filenameResolver.suggestedFilename(suggestedFilename: info.suggestedFilename, sourceURL: info.sourceURL, imageFileURL: info.tempURL)
             let savePanel = NSSavePanel()
             savePanel.nameFieldStringValue = suggestedFilename
             savePanel.canCreateDirectories = true

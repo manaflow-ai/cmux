@@ -1788,40 +1788,19 @@ final class CmuxWebView: WKWebView {
                     let statusCode = (response as? HTTPURLResponse)?.statusCode ?? -1
                     let mime = response?.mimeType ?? "nil"
                     let expectedLength = response?.expectedContentLength ?? -1
-                    self.debugContextDownload(
-                        "browser.ctxdl.response trace=\(traceID) stage=success hasResponse=1 status=\(statusCode) mime=\(mime) bytes=\(data.count) expected=\(expectedLength)"
-                    )
+                    self.debugContextDownload("browser.ctxdl.response trace=\(traceID) stage=success hasResponse=1 status=\(statusCode) mime=\(mime) bytes=\(data.count) expected=\(expectedLength)")
                     let filenameResolver = BrowserDownloadFilenameResolver()
-                    switch filenameResolver.httpStatusDecision(for: response) {
-                    case .allow:
-                        break
-                    case .reject(let rejectedStatusCode):
+                    if case .reject = filenameResolver.httpStatusDecision(for: response) {
                         self.notifyContextMenuDownloadState(false)
-                        self.debugContextDownload(
-                            "browser.ctxdl.response trace=\(traceID) stage=httpFailure status=\(rejectedStatusCode) mime=\(mime) bytes=\(data.count)"
-                        )
-                        self.runContextMenuFallback(
-                            action: fallbackAction,
-                            target: fallbackTarget,
-                            sender: sender,
-                            traceID: traceID,
-                            reason: "http_status"
-                        )
+                        self.runContextMenuFallback(action: fallbackAction, target: fallbackTarget, sender: sender, traceID: traceID, reason: "http_status")
                         return
                     }
-                    let imageType = filenameResolver.imageType(forImageData: data)
-                    let saveName = filenameResolver.suggestedFilename(
-                        suggestedFilename: suggestedFilename,
-                        response: response,
-                        sourceURL: url,
-                        imageType: imageType
-                    )
+                    let saveName = filenameResolver.suggestedFilename(suggestedFilename: suggestedFilename, response: response, sourceURL: url, imageData: data)
 
                     let savePanel = NSSavePanel()
                     savePanel.nameFieldStringValue = saveName
                     savePanel.canCreateDirectories = true
                     savePanel.directoryURL = FileManager.default.urls(for: .downloadsDirectory, in: .userDomainMask).first
-                    // Download is already complete; we're now waiting for user save choice.
                     self.notifyContextMenuDownloadState(false)
                     self.debugContextDownload(
                         "browser.ctxdl.response trace=\(traceID) stage=savePrompt shown=1 defaultName=\(saveName)"

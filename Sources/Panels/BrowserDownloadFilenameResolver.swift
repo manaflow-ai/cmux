@@ -61,6 +61,33 @@ nonisolated struct BrowserDownloadFilenameResolver {
         )
     }
 
+    func suggestedFilename(
+        suggestedFilename: String?,
+        response: URLResponse?,
+        sourceURL: URL,
+        imageData: Data
+    ) -> String {
+        self.suggestedFilename(
+            suggestedFilename: suggestedFilename,
+            response: response,
+            sourceURL: sourceURL,
+            imageType: imageType(forImageData: imageData)
+        )
+    }
+
+    func suggestedFilename(
+        suggestedFilename: String?,
+        sourceURL: URL,
+        imageFileURL: URL
+    ) -> String {
+        self.suggestedFilename(
+            suggestedFilename: suggestedFilename,
+            response: nil,
+            sourceURL: sourceURL,
+            imageType: imageType(forDownloadedFileAt: imageFileURL)
+        )
+    }
+
     private func imageFilename(
         candidate: String,
         sourceURL: URL,
