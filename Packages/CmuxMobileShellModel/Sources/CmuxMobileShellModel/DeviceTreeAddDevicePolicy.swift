@@ -9,6 +9,9 @@ import Foundation
 /// `MobileShellRouteAuthPolicy` pattern. A value type (not a static-helper
 /// namespace) per the package API design policy.
 public struct DeviceTreeAddDevicePolicy: Sendable {
+    /// Creates the policy. Stateless today; an initializer (rather than a
+    /// static-helper namespace) keeps the public API injectable and free to
+    /// grow configuration without breaking call sites.
     public init() {}
 
     /// Whether tapping Cancel in the add-device sheet may reset the store's
