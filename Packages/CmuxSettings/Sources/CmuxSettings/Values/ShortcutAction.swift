@@ -218,6 +218,11 @@ extension ShortcutAction {
         }
     }
 
+    /// Whether this action supports a two-stroke shortcut chord.
+    public var allowsChordShortcut: Bool {
+        self != .fileExplorerOpenSelection && self != .fileExplorerOpenSelectionFinderAlias
+    }
+
     /// The action's built-in focus context expressed as a ``ShortcutWhenClause``,
     /// used when no `shortcuts.when` override applies.
     ///

@@ -39,10 +39,10 @@
 2545	cmuxTests/WorkspaceManualUnreadTests.swift
 2544	cmuxTests/CommandPaletteSearchEngineTests.swift
 2527	Sources/TerminalNotificationStore.swift
-2516	Sources/KeyboardShortcutSettings.swift
+2541	Sources/KeyboardShortcutSettings.swift
 2340	Sources/Mobile/MobileHostService.swift
 2327	cmuxTests/CJKIMEInputTests.swift
-2314	Sources/FileExplorerView.swift
+2308	Sources/FileExplorerView.swift
 2260	Sources/TerminalWindowPortal.swift
 2198	Sources/SessionPersistence.swift
 2123	cmuxTests/ShortcutAndCommandPaletteTests.swift
@@ -133,7 +133,7 @@
 680	Sources/FileExplorerSearchController.swift
 679	cmuxTests/KeyboardShortcutContextTests.swift
 668	cmuxTests/FeedCoordinatorTests.swift
-654	Packages/CmuxSettingsUI/Sources/CmuxSettingsUI/Sections/KeyboardShortcutsSection.swift
+658	Packages/CmuxSettingsUI/Sources/CmuxSettingsUI/Sections/KeyboardShortcutsSection.swift
 650	Sources/Panels/MarkdownRemoteImageLoader.swift
 649	Sources/CmuxTopSnapshot.swift
 640	cmuxTests/CommandPaletteNucleoFFITests.swift

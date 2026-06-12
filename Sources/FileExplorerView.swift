@@ -515,7 +515,7 @@ struct FileExplorerPanelView: NSViewRepresentable {
             selectRow(0, in: outlineView, scroll: scroll)
         }
 
-        private func resolvedSelectionRow(in outlineView: NSOutlineView) -> Int? {
+        func resolvedSelectionRow(in outlineView: NSOutlineView) -> Int? {
             if let selectedPath = store.selectedPath,
                let resolution = selectionResolution(for: selectedPath, in: outlineView) {
                 return resolution.row
@@ -605,28 +605,6 @@ struct FileExplorerPanelView: NSViewRepresentable {
         @objc func handleDoubleClick(_ sender: NSOutlineView) {
             let row = sender.clickedRow >= 0 ? sender.clickedRow : sender.selectedRow
             openNode(in: sender, at: row)
-        }
-
-        func openSelectedNode(in outlineView: NSOutlineView) {
-            guard let row = resolvedSelectionRow(in: outlineView) else { return }
-            openNode(in: outlineView, at: row)
-        }
-
-        private func openNode(in outlineView: NSOutlineView, at row: Int) {
-            guard row >= 0,
-                  let node = outlineView.item(atRow: row) as? FileExplorerNode else { return }
-
-            if node.isDirectory {
-                if outlineView.isItemExpanded(node) {
-                    outlineView.collapseItem(node)
-                } else if outlineView.isExpandable(node) {
-                    outlineView.expandItem(node)
-                }
-                return
-            }
-
-            guard store.provider is LocalFileExplorerProvider else { return }
-            onOpenFilePreview(node.path)
         }
 
         // MARK: - Context Menu (NSMenuDelegate)
@@ -2117,10 +2095,6 @@ final class FileExplorerCellView: NSTableCellView {
 final class FileExplorerNSOutlineView: NSOutlineView {
     /// Leading margin applied to disclosure triangles and content.
     static let leadingMargin: CGFloat = 8
-    private static let openSelectionShortcutActions: [KeyboardShortcutSettings.Action] = [
-        .fileExplorerOpenSelection,
-        .fileExplorerOpenSelectionFinderAlias,
-    ]
     var onQuickSearchChanged: ((String?) -> Void)?
     private var quickSearchActive = false
     private var quickSearchQuery = ""
@@ -2243,27 +2217,13 @@ final class FileExplorerNSOutlineView: NSOutlineView {
         dataSource as? FileExplorerPanelView.Coordinator
     }
 
-    private func handleOpenSelectionShortcut(_ event: NSEvent) -> Bool {
-        guard Self.isOpenSelectionShortcut(event) else { return false }
-        endQuickSearch()
-        fileExplorerCoordinator?.openSelectedNode(in: self)
-        return true
-    }
-
-    private static func isOpenSelectionShortcut(_ event: NSEvent) -> Bool {
-        openSelectionShortcutActions.contains { action in
-            KeyboardShortcutSettings.shortcut(for: action).matches(event: event) &&
-                (AppDelegate.shared?.shortcutWhenClauseAllows(action: action, event: event) ?? true)
-        }
-    }
-
     private func beginQuickSearch() {
         quickSearchActive = true
         quickSearchQuery = ""
         onQuickSearchChanged?(quickSearchQuery)
     }
 
-    private func endQuickSearch() {
+    func endQuickSearch() {
         guard quickSearchActive || !quickSearchQuery.isEmpty else { return }
         quickSearchActive = false
         quickSearchQuery = ""

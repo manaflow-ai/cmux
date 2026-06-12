@@ -534,6 +534,10 @@ enum KeyboardShortcutSettings {
             }
         }
 
+        var allowsChordShortcut: Bool {
+            self != .fileExplorerOpenSelection && self != .fileExplorerOpenSelectionFinderAlias
+        }
+
         var isBrowserContentShortcut: Bool {
             switch self {
             case .diffViewerScrollDown,
@@ -590,6 +594,9 @@ enum KeyboardShortcutSettings {
             if shortcut.isUnbound {
                 return .accepted(.unbound)
             }
+            if shortcut.hasChord && !allowsChordShortcut {
+                return .rejected(.reservedBySystem)
+            }
 
             if let conflictingAction = KeyboardShortcutSettings.conflictingAction(
                 for: shortcut,
@@ -606,6 +613,9 @@ enum KeyboardShortcutSettings {
             // Keep this path free of conflict and hotkey checks that consult global shortcut state.
             if shortcut.isUnbound {
                 return .unbound
+            }
+            if shortcut.hasChord && !allowsChordShortcut {
+                return nil
             }
 
             if case let .accepted(normalized) = resolvedRecordedShortcutIgnoringConflicts(
@@ -894,7 +904,10 @@ enum KeyboardShortcutSettings {
         case let .accepted(normalizedShortcut):
             return normalizedShortcut
         case .rejected:
-            if action.usesNumberedDigitMatching || action == .showHideAllWindows || action == .globalSearch {
+            if action.usesNumberedDigitMatching ||
+                action == .showHideAllWindows ||
+                action == .globalSearch ||
+                !action.allowsChordShortcut {
                 return nil
             }
             return shortcut

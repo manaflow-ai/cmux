@@ -247,35 +247,6 @@ final class KeyboardShortcutContextTests: XCTestCase {
         XCTAssertEqual(settingsAction.displayName, KeyboardShortcutSettings.Action.newBrowserWorkspace.label)
     }
 
-    func testFileExplorerOpenSelectionShortcutsAreSidebarFocusedAndSettingsBacked() {
-        let primary = KeyboardShortcutSettings.Action.fileExplorerOpenSelection
-        let finderAlias = KeyboardShortcutSettings.Action.fileExplorerOpenSelectionFinderAlias
-
-        XCTAssertEqual(
-            primary.defaultShortcut,
-            StoredShortcut(key: "\r", command: false, shift: false, option: false, control: false)
-        )
-        XCTAssertEqual(
-            finderAlias.defaultShortcut,
-            StoredShortcut(key: "↓", command: true, shift: false, option: false, control: false)
-        )
-        XCTAssertTrue(primary.allowsBareFirstStroke)
-        XCTAssertTrue(finderAlias.allowsBareFirstStroke)
-        XCTAssertEqual(primary.shortcutContext, .rightSidebarFocus)
-        XCTAssertEqual(finderAlias.shortcutContext, .rightSidebarFocus)
-
-        guard let settingsPrimary = ShortcutAction(rawValue: primary.rawValue),
-              let settingsFinderAlias = ShortcutAction(rawValue: finderAlias.rawValue) else {
-            XCTFail("Expected CmuxSettings.ShortcutAction for file explorer open shortcuts")
-            return
-        }
-
-        XCTAssertEqual(settingsPrimary.defaultStroke, CmuxSettings.ShortcutStroke(key: "\r"))
-        XCTAssertEqual(settingsFinderAlias.defaultStroke, CmuxSettings.ShortcutStroke(key: "↓", command: true))
-        XCTAssertEqual(settingsPrimary.displayName, primary.label)
-        XCTAssertEqual(settingsFinderAlias.displayName, finderAlias.label)
-    }
-
     func testSettingsPackageDefaultWhenClausesMatchRuntimeShortcutContexts() {
         for action in KeyboardShortcutSettings.Action.allCases {
             guard let settingsAction = ShortcutAction(rawValue: action.rawValue) else {

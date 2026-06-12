@@ -12286,7 +12286,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             // here would swallow the first stroke and leave the second one
             // orphaned, breaking that keystroke for the focused terminal/browser
             // input.
-            guard action != .showHideAllWindows && action != .globalSearch else { return false }
+            guard action != .showHideAllWindows && action != .globalSearch && action.allowsChordShortcut else { return false }
             guard !action.isBrowserContentShortcut else { return false }
             return KeyboardShortcutSettings.shortcut(for: action).hasChord
         }
@@ -15333,15 +15333,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
     private func isMenuBackedShortcutAction(_ action: KeyboardShortcutSettings.Action) -> Bool {
-        switch action {
-        case .showHideAllWindows,
-             .globalSearch,
-             .fileExplorerOpenSelection,
-             .fileExplorerOpenSelectionFinderAlias:
-            return false
-        default:
-            return true
-        }
+        action != .showHideAllWindows && action != .globalSearch && action != .fileExplorerOpenSelection && action != .fileExplorerOpenSelectionFinderAlias
     }
 
     private func isCloseShortcutAction(_ action: KeyboardShortcutSettings.Action) -> Bool {

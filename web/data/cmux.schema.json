@@ -1210,10 +1210,10 @@
           },
           "properties": {
             "fileExplorerOpenSelection": {
-              "$ref": "#/$defs/bareFirstStrokeShortcutBindingNullable"
+              "$ref": "#/$defs/singleBareFirstStrokeShortcutBindingNullable"
             },
             "fileExplorerOpenSelectionFinderAlias": {
-              "$ref": "#/$defs/bareFirstStrokeShortcutBindingNullable"
+              "$ref": "#/$defs/singleBareFirstStrokeShortcutBindingNullable"
             },
             "diffViewerScrollDown": {
               "$ref": "#/$defs/bareFirstStrokeShortcutBindingNullable"
@@ -1300,6 +1300,29 @@
         }
       ]
     },
+    "singleBareFirstStrokeShortcutBinding": {
+      "oneOf": [
+        {
+          "$ref": "#/$defs/unboundShortcutBinding",
+          "description": "Unbind this shortcut. Accepted values are an empty string, none, clear, unbound, or disabled."
+        },
+        {
+          "$ref": "#/$defs/bareFirstStrokeShortcutFirstStroke",
+          "description": "Single-stroke shortcut. Bare first strokes are accepted for this action."
+        }
+      ]
+    },
+    "singleBareFirstStrokeShortcutBindingNullable": {
+      "oneOf": [
+        {
+          "$ref": "#/$defs/singleBareFirstStrokeShortcutBinding"
+        },
+        {
+          "type": "null",
+          "description": "Unbind this shortcut."
+        }
+      ]
+    },
     "bareFirstStrokeShortcutBinding": {
       "oneOf": [
         {
@@ -1371,6 +1394,9 @@
             },
             {
               "pattern": "^(?: |[sS][pP][aA][cC][eE]|[sS][pP][aA][cC][eE][bB][aA][rR]|<[sS][pP][aA][cC][eE]>)$"
+            },
+            {
+              "pattern": "^(?:[rR][eE][tT][uU][rR][nN]|[eE][nN][tT][eE][rR]|↩)$"
             },
             {
               "pattern": "^(?:[A-Za-z0-9]|[,./\\\\;'`=\\[\\]-]|[cC][oO][mM][mM][aA]|[pP][eE][rR][iI][oO][dD]|[dD][oO][tT]|[sS][lL][aA][sS][hH]|[bB][aA][cC][kK][sS][lL][aA][sS][hH]|[sS][eE][mM][iI][cC][oO][lL][oO][nN]|[qQ][uU][oO][tT][eE]|[aA][pP][oO][sS][tT][rR][oO][pP][hH][eE]|[bB][aA][cC][kK][tT][iI][cC][kK]|[gG][rR][aA][vV][eE]|[mM][iI][nN][uU][sS]|[hH][yY][pP][hH][eE][nN]|[pP][lL][uU][sS]|[eE][qQ][uU][aA][lL][sS]|[lL][eE][fF][tT][bB][rR][aA][cC][kK][eE][tT]|[oO][pP][eE][nN][bB][rR][aA][cC][kK][eE][tT]|[rR][iI][gG][hH][tT][bB][rR][aA][cC][kK][eE][tT]|[cC][lL][oO][sS][eE][bB][rR][aA][cC][kK][eE][tT])$"

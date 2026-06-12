@@ -547,6 +547,10 @@ public struct KeyboardShortcutsSection: View {
     }
 
     private func assignChord(_ chord: StoredShortcut, to action: ShortcutAction) async {
+        guard action.allowsChordShortcut else {
+            chordModeActions.remove(action.rawValue)
+            return
+        }
         guard let proposed = normalizedNumberedShortcutIfNeeded(chord, for: action) else {
             numberedDigitRejections.insert(action.rawValue)
             chordModeActions.remove(action.rawValue)

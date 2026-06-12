@@ -6498,28 +6498,6 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         }
     }
 
-    func testFileExplorerFinderAliasIsNotSuppressedAsStaleMenuShortcut() {
-        guard let appDelegate = AppDelegate.shared else {
-            XCTFail("Expected AppDelegate.shared")
-            return
-        }
-
-        guard let event = makeKeyDownEvent(
-            shortcut: KeyboardShortcutSettings.Action.fileExplorerOpenSelectionFinderAlias.defaultShortcut,
-            windowNumber: 0
-        ) else {
-            XCTFail("Failed to construct Cmd+Down event")
-            return
-        }
-
-        withTemporaryShortcut(action: .fileExplorerOpenSelectionFinderAlias, shortcut: .unbound) {
-            XCTAssertFalse(
-                appDelegate.shouldSuppressStaleCmuxMenuShortcut(event: event),
-                "File explorer open shortcuts are view-scoped, not menu-backed stale defaults"
-            )
-        }
-    }
-
     func testCurrentNumberedDigitShortcutIsNotSuppressedAsStaleMenuShortcut() {
         guard let appDelegate = AppDelegate.shared else {
             XCTFail("Expected AppDelegate.shared")

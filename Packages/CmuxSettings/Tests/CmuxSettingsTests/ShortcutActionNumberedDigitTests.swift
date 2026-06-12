@@ -53,4 +53,9 @@ struct ShortcutActionNumberedDigitTests {
             )
         }
     }
+
+    @Test func fileExplorerOpenSelectionShortcutsAreSingleStrokeOnly() {
+        #expect(!ShortcutAction.fileExplorerOpenSelection.allowsChordShortcut)
+        #expect(!ShortcutAction.fileExplorerOpenSelectionFinderAlias.allowsChordShortcut)
+    }
 }
