@@ -153,6 +153,23 @@ func shouldDispatchBrowserOmnibarArrowViaFirstResponderKeyDown(
     return normalizedFlags.isEmpty
 }
 
+/// Whether a terminal arrow key-equivalent event must be consumed by directly
+/// dispatching to `GhosttyNSView.keyDown` instead of letting AppKit reinterpret
+/// it as a responder-chain text navigation command.
+func shouldDispatchTerminalArrowViaFirstResponderKeyDown(
+    keyCode: UInt16,
+    firstResponderHasMarkedText: Bool = false,
+    flags: NSEvent.ModifierFlags
+) -> Bool {
+    guard !firstResponderHasMarkedText else { return false }
+    guard (123...126).contains(keyCode) else { return false }
+
+    let normalizedFlags = flags
+        .intersection(.deviceIndependentFlagsMask)
+        .subtracting([.numericPad, .function, .capsLock])
+    return !normalizedFlags.contains(.command)
+}
+
 struct BrowserAddressBarTrackingContext {
     let trackedPanelMatchesWebView: Bool
     let omnibarResponderActive: Bool
