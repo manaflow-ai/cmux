@@ -75,6 +75,38 @@ import Testing
         #expect(try parse(json) == .seen(deviceId: "d", tag: "dev", lastSeenAt: 42))
     }
 
+    @Test func parsesRoutesPushWithLenientRouteDecoding() throws {
+        // One well-formed host/port route plus one unknown future kind: the
+        // known route decodes, the unknown one drops, the frame never fails.
+        let json = """
+        {"type":"routes","instance":{"deviceId":"d","tag":"presvc","platform":"mac",
+         "capabilities":[],"online":true,"lastSeenAt":5,"onlineSince":1,
+         "routes":[
+           {"id":"r1","kind":"tailscale","endpoint":{"type":"host_port","host":"100.0.0.1","port":51000}},
+           {"kind":"quantum-teleport","coordinates":[1,2,3]}]}}
+        """
+        guard case .routes(let instance) = try parse(json) else {
+            Issue.record("expected routes")
+            return
+        }
+        #expect(instance.online)
+        let routes = try #require(instance.routes)
+        #expect(routes.count == 1)
+        #expect(routes.first?.endpoint == .hostPort(host: "100.0.0.1", port: 51000))
+    }
+
+    @Test func instanceWithoutRoutesParsesAsNilRoutes() throws {
+        let json = """
+        {"type":"online","instance":{"deviceId":"d","tag":"default","platform":"mac",
+         "capabilities":[],"online":true,"lastSeenAt":1,"onlineSince":1}}
+        """
+        guard case .online(let instance) = try parse(json) else {
+            Issue.record("expected online")
+            return
+        }
+        #expect(instance.routes == nil)
+    }
+
     @Test func unknownMessageTypeThrows() {
         #expect(throws: PresenceClientError.self) {
             _ = try parse(#"{"type":"mystery"}"#)

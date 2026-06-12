@@ -2,7 +2,7 @@ public import Foundation
 
 /// One message from the presence subscribe stream. The wire protocol mirrors
 /// `workers/presence/src/core.ts`: a `snapshot` arrives first, then `online`,
-/// `offline`, and `seen` transition events.
+/// `offline`, `seen`, and `routes` transition events.
 public enum PresenceUpdate: Equatable, Sendable {
     /// The full presence map, delivered first on every subscribe.
     case snapshot(PresenceSnapshot)
@@ -12,6 +12,10 @@ public enum PresenceUpdate: Equatable, Sendable {
     case offline(PresenceInstance, reason: PresenceOfflineReason)
     /// Lightweight heartbeat tick on an already-online instance.
     case seen(deviceId: String, tag: String, lastSeenAt: Double)
+    /// An online instance's attach routes changed (new port/IP). Carries the
+    /// full updated instance so the phone can reconnect on the fresh routes
+    /// without a registry round trip.
+    case routes(PresenceInstance)
 
     /// Decode one subscribe-stream frame. Pure and synchronous for tests.
     /// Throws ``PresenceClientError/unknownMessage(type:)`` for message types
@@ -52,6 +56,8 @@ extension PresenceUpdate: Decodable {
                 tag: try container.decode(String.self, forKey: .tag),
                 lastSeenAt: try container.decode(Double.self, forKey: .lastSeenAt)
             )
+        case "routes":
+            self = .routes(try container.decode(PresenceInstance.self, forKey: .instance))
         default:
             throw PresenceClientError.unknownMessage(type: type)
         }
