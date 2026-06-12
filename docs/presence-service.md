@@ -111,7 +111,11 @@ by the `web-db-migrations` CI job and the cloud-vm migrate workflow
 A dev/staging instance (`cmux-presence-dev`, dev Stack project) is live at
 `https://cmux-presence-dev.debussy.workers.dev` on the team Cloudflare
 account; see `workers/presence/README.md` for how to redeploy it and point a
-dev Mac build at it.
+dev Mac build at it. Production deploys serve `https://presence.cmux.dev`
+(a `custom_domain` route in `wrangler.toml`; the cmux.dev zone lives on the
+same Cloudflare account, so the deploy provisions DNS + TLS). Flipping the
+Release clients' default service URL to that domain is a follow-up gated on
+the first production deploy and dogfood.
 
 ## Clients
 

@@ -33,3 +33,10 @@ class_name = "TeamPresence"
 [[migrations]]
 tag = "v1"
 new_sqlite_classes = ["TeamPresence"]
+
+# Production custom domain on the cmux.dev zone (same Cloudflare account).
+# `custom_domain = true` provisions the DNS record + TLS cert with the deploy;
+# the workers.dev URL stays as the dev/staging entrypoint.
+[[routes]]
+pattern = "presence.cmux.dev"
+custom_domain = true
