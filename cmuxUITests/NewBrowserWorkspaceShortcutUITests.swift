@@ -13,8 +13,7 @@ final class NewBrowserWorkspaceShortcutUITests: XCTestCase {
 
     func testOptionCmdNOpensBrowserWorkspaceWithAddressBarFocused() {
         let app = XCUIApplication()
-        app.launch()
-        app.activate()
+        launchAndEnsureForeground(app)
 
         // The fresh launch starts with a terminal workspace; no omnibar exists yet.
         let omnibar = app.textFields["BrowserOmnibarTextField"].firstMatch
@@ -36,6 +35,24 @@ final class NewBrowserWorkspaceShortcutUITests: XCTestCase {
             waitForOmnibarTypedText(app: app, omnibar: omnibar, text: "example.com", timeout: 8.0),
             "Expected typed text to land in the focused address bar. value=\(String(describing: omnibar.value))"
         )
+    }
+
+    /// Launches the app, tolerating the headless-CI case where activation
+    /// fails and the app continues in `.runningBackground` — keyboard and
+    /// element APIs still work through the accessibility framework there.
+    /// Mirrors `BrowserPaneNavigationKeybindUITests.launchAndEnsureForeground`.
+    private func launchAndEnsureForeground(_ app: XCUIApplication) {
+        let options = XCTExpectedFailure.Options()
+        options.isStrict = false
+        XCTExpectFailure("App activation may fail on headless CI runners", options: options) {
+            app.launch()
+        }
+
+        if app.state == .runningForeground || app.state == .runningBackground {
+            return
+        }
+
+        XCTFail("App failed to start. state=\(app.state.rawValue)")
     }
 
     /// Types into whatever currently has keyboard focus and waits for the text
