@@ -12,6 +12,20 @@ extension ControlAppFocusContext {
     func controlSimulateAppActive() {}
 }
 
+extension ControlWindowContext {
+    func controlWindowSummaries() -> [ControlWindowSummary] { [] }
+    func controlResolveCurrentWindow(routing: ControlRoutingSelectors) -> ControlCurrentWindowResolution {
+        .tabManagerUnavailable
+    }
+    func controlFocusWindow(id: UUID) -> Bool { false }
+    func controlCreateWindowAndActivate() -> UUID? { nil }
+    func controlCloseWindow(id: UUID) -> Bool { false }
+    func controlAvailableDisplays() -> [ControlDisplayInfo] { [] }
+    func controlWindowExists(id: UUID) -> Bool { false }
+    func controlMoveWindow(id: UUID, toDisplayMatching query: String) -> String? { nil }
+    func controlMoveAllWindows(toDisplayMatching query: String) -> ControlMoveAllWindowsResult? { nil }
+}
+
 extension ControlFeedContext {
     func controlFeedResolvePossibleSurface(workstreamID: String) -> Bool { false }
     func controlFeedSnapshotItems(pendingOnly: Bool) -> [JSONValue] { [] }
@@ -55,6 +69,30 @@ extension ControlPaneContext {
         focus: Bool
     ) -> ControlPaneJoinResolution { .missingSurface }
     func controlPaneLast(routing: ControlRoutingSelectors) -> ControlPaneLastResolution { .tabManagerUnavailable }
+}
+
+extension ControlCanvasContext {
+    func controlCanvasInfo(routing: ControlRoutingSelectors) -> ControlCanvasInfoSnapshot? { nil }
+    func controlCanvasSetMode(
+        routing: ControlRoutingSelectors,
+        mode: String
+    ) -> ControlCanvasActionResolution { .tabManagerUnavailable }
+    func controlCanvasSetFrame(
+        routing: ControlRoutingSelectors,
+        surfaceID: UUID,
+        frame: ControlCanvasFrame
+    ) -> ControlCanvasActionResolution { .tabManagerUnavailable }
+    func controlCanvasAlign(
+        routing: ControlRoutingSelectors,
+        command: ControlCanvasAlignCommand
+    ) -> ControlCanvasActionResolution { .tabManagerUnavailable }
+    func controlCanvasReveal(
+        routing: ControlRoutingSelectors,
+        surfaceID: UUID?
+    ) -> ControlCanvasActionResolution { .tabManagerUnavailable }
+    func controlCanvasToggleOverview(
+        routing: ControlRoutingSelectors
+    ) -> ControlCanvasActionResolution { .tabManagerUnavailable }
 }
 
 extension ControlNotificationContext {

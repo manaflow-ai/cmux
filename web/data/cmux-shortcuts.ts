@@ -178,6 +178,17 @@ export const shortcutCategories: ShortcutCategory[] = [
     ],
   },
   {
+    id: "canvas",
+    titleKey: "canvas",
+    blurbKey: "canvasBlurb",
+    shortcuts: [
+      { id: "toggleCanvasLayout", combos: [["⌃", "⌘", "C"]], description: { en: "Toggle canvas layout", ja: "キャンバスレイアウトを切り替え" } },
+      { id: "canvasRevealFocusedPane", combos: [["⌃", "⌘", "R"]], description: { en: "Reveal focused pane", ja: "フォーカス中のペインを表示" } },
+      { id: "canvasOverview", combos: [["⌃", "⌘", "O"]], description: { en: "Toggle overview zoom", ja: "全体表示を切り替え" } },
+      { id: "canvasTidy", combos: [["⌃", "⌘", "T"]], description: { en: "Tidy panes into a grid", ja: "ペインをグリッドに整列" } },
+    ],
+  },
+  {
     id: "browser",
     titleKey: "browser",
     shortcuts: [

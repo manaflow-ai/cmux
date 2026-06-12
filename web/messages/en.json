@@ -1036,6 +1036,8 @@
         "surfaces": "Surfaces",
         "surfacesBlurb": "Surfaces are tabs inside a pane.",
         "splitPanes": "Split Panes",
+        "canvas": "Canvas",
+        "canvasBlurb": "A freeform 2D layout mode where panes float on an infinite, pannable canvas. Alignment and distribution commands are available from the command palette.",
         "browser": "Browser",
         "notifications": "Notifications",
         "find": "Find",
