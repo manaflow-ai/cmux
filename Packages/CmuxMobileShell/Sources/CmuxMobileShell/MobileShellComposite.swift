@@ -3710,9 +3710,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             guard remoteClient === client else { return fallback }
             guard let payload = try? MobileHostStatusResponse.decode(data) else {
                 terminalOutputTransport = fallback
-                // Keep previously learned capabilities on a malformed/transient
-                // status reply. A new connection already reset them, and a
-                // decoded status below remains authoritative.
+                // Preserve learned capabilities during transient status decode failures.
                 scheduleHostIdentityAdoptionIfNeeded(client: client)
                 return fallback
             }
@@ -3738,10 +3736,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         } catch {
             guard remoteClient === client else { return fallback }
             terminalOutputTransport = fallback
-            // The status probe can fail during reconnect while the last synced
-            // workspace list is still visible. Preserve previously learned
-            // capabilities so rows do not lose swipe/context affordances until a
-            // successful status response says otherwise.
+            // Preserve learned capabilities during transient reconnect probe failures.
             // The probe is best-effort for the terminal transport, but a
             // freshly QR-paired Mac still needs its identity recovered, with
             // a real timeout instead of the probe's 750ms.
