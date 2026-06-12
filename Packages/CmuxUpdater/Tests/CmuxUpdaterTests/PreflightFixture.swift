@@ -24,7 +24,7 @@ struct PreflightFixture {
         try infoData.write(to: contentsURL.appendingPathComponent("Info.plist"))
 
         guard let loadedBundle = Bundle(url: bundleURL) else {
-            throw FixtureError.bundleDidNotLoad
+            throw NSError(domain: "CmuxUpdaterTests.PreflightFixture", code: 1)
         }
         bundle = loadedBundle
     }
@@ -38,9 +38,5 @@ struct PreflightFixture {
         FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0]
             .appendingPathComponent(bundleIdentifier, isDirectory: true)
             .appendingPathComponent("org.sparkle-project.Sparkle", isDirectory: true)
-    }
-
-    enum FixtureError: Error {
-        case bundleDidNotLoad
     }
 }
