@@ -139,6 +139,7 @@
 		B9000002A1B2C3D4E5F60719 /* cmux.swift in Sources */ = {isa = PBXBuildFile; fileRef = B9000001A1B2C3D4E5F60719 /* cmux.swift */; };
 		B9000034A1B2C3D4E5F60719 /* cmux_open.swift in Sources */ = {isa = PBXBuildFile; fileRef = B9000030A1B2C3D4E5F60719 /* cmux_open.swift */; };
 		A5001654 /* CmuxActionTrust.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001655 /* CmuxActionTrust.swift */; };
+		AC4A6E7C4A700001AC4A0001 /* CmuxAgentChat in Frameworks */ = {isa = PBXBuildFile; productRef = AC4A6E7C4A700001AC4A0002 /* CmuxAgentChat */; };
 		A5B00003A1B2C3D4E5F60718 /* CMUXAgentLaunch in Frameworks */ = {isa = PBXBuildFile; productRef = A5B00002A1B2C3D4E5F60718 /* CMUXAgentLaunch */; };
 		A5B00004A1B2C3D4E5F60718 /* CMUXAgentLaunch in Frameworks */ = {isa = PBXBuildFile; productRef = A5B00002A1B2C3D4E5F60718 /* CMUXAgentLaunch */; };
 		A5B00005A1B2C3D4E5F60718 /* CMUXAgentLaunch in Frameworks */ = {isa = PBXBuildFile; productRef = A5B00002A1B2C3D4E5F60718 /* CMUXAgentLaunch */; };
@@ -1571,6 +1572,7 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				AC4A6E7C4A700001AC4A0001 /* CmuxAgentChat in Frameworks */,
 				A5B00003A1B2C3D4E5F60718 /* CMUXAgentLaunch in Frameworks */,
 				F53000A0A1B2C3D4E5F60718 /* CMUXAgentVault in Frameworks */,
 				5EDB6027B346C46521A93C74 /* CMUXAuthCore in Frameworks */,
@@ -2497,6 +2499,7 @@
 				29813FE5A6CBC1019289A251 /* CMUXAuthCore */,
 				53750002A0B1C2D3E4F50002 /* CmuxAuthRuntime */,
 				AA11BB22CC33DD44EE550002 /* CMUXWorkstream */,
+				AC4A6E7C4A700001AC4A0002 /* CmuxAgentChat */,
 				C0DE46000000000000000002 /* CMUXExtensionHostSupport */,
 				C0DE45000000000000000002 /* CmuxExtensionKit */,
 				C0DE4A000000000000000002 /* CmuxSidebarProviderKit */,
@@ -2660,6 +2663,7 @@
 				40B63BB4A170F0BD2D1DEFD1 /* XCLocalSwiftPackageReference "CMUXAuthCore" */,
 				53750001A0B1C2D3E4F50001 /* XCLocalSwiftPackageReference "CmuxAuthRuntime" */,
 				AA11BB22CC33DD44EE550003 /* XCLocalSwiftPackageReference "CMUXWorkstream" */,
+				AC4A6E7C4A700001AC4A0003 /* XCLocalSwiftPackageReference "CmuxAgentChat" */,
 				C0DE46000000000000000003 /* XCLocalSwiftPackageReference "CMUXExtensionHostSupport" */,
 				C0DE45000000000000000003 /* XCLocalSwiftPackageReference "CmuxExtensionKit" */,
 				C0DE4A000000000000000003 /* XCLocalSwiftPackageReference "CmuxSidebarProviderKit" */,
@@ -4025,6 +4029,10 @@
 			isa = XCLocalSwiftPackageReference;
 			relativePath = Packages/CMUXWorkstream;
 		};
+		AC4A6E7C4A700001AC4A0003 /* XCLocalSwiftPackageReference "CmuxAgentChat" */ = {
+			isa = XCLocalSwiftPackageReference;
+			relativePath = Packages/CmuxAgentChat;
+		};
 		C0DE45000000000000000003 /* XCLocalSwiftPackageReference "CmuxExtensionKit" */ = {
 			isa = XCLocalSwiftPackageReference;
 			relativePath = Packages/CmuxExtensionKit;
@@ -4149,6 +4157,11 @@
 			isa = XCSwiftPackageProductDependency;
 			package = AA11BB22CC33DD44EE550003 /* XCLocalSwiftPackageReference "CMUXWorkstream" */;
 			productName = CMUXWorkstream;
+		};
+		AC4A6E7C4A700001AC4A0002 /* CmuxAgentChat */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = AC4A6E7C4A700001AC4A0003 /* XCLocalSwiftPackageReference "CmuxAgentChat" */;
+			productName = CmuxAgentChat;
 		};
 		C0DE45000000000000000002 /* CmuxExtensionKit */ = {
 			isa = XCSwiftPackageProductDependency;
