@@ -246,14 +246,17 @@ final class AgentChatWebViewController: NSViewController, WKScriptMessageHandler
         }
         let binaryURL: URL
         switch await Self.locateDaemonBinary() {
-        case .found(let url):
+        case .found(let url, _):
             binaryURL = url
         case .unavailable(let detail):
             throw AgentDaemonClient.DaemonError(code: "daemon_unavailable", message: detail)
         }
 
         teardownDaemon()
-        let client = AgentDaemonClient(binaryURL: binaryURL)
+        let client = AgentDaemonClient(
+            binaryURL: binaryURL,
+            environment: AgentHookLaunchEnvironment.daemonChildEnvironment()
+        )
         client.onEvent = { [weak self] frame in
             Task { @MainActor [weak self] in
                 self?.handleDaemonEvent(frame)

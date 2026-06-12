@@ -39,6 +39,10 @@ type HookFrame struct {
 	Provider  ProviderID `json:"provider"`
 	SessionID string     `json:"session_id"`
 	Hook      string     `json:"hook"`
+	// TurnID carries the provider's own turn identifier when the native
+	// payload has one (Codex notify). For providers without one (Claude),
+	// turn ids are synthesized per subscription.
+	TurnID    string     `json:"turn_id,omitempty"`
 	ToolName  string     `json:"tool_name,omitempty"`
 	ToolUseID string     `json:"tool_use_id,omitempty"`
 	Prompt    string     `json:"prompt,omitempty"`
@@ -65,8 +69,31 @@ type hookMerger struct {
 	// pendingRequests preserves open order for implicit resolution.
 	pendingRequests []pendingRequest
 	activeTurnID    string
-	turnCounter     int
-	requestCounter  int
+	// seenExternalTurnIDs deduplicates provider-reported turn completions
+	// (frames carrying their own turn_id, with no observed turn.started),
+	// bounded FIFO so non-consecutive redeliveries are dropped too.
+	seenExternalTurnIDs   map[string]bool
+	seenExternalTurnOrder []string
+	turnCounter           int
+	requestCounter        int
+}
+
+const maxSeenExternalTurns = 64
+
+func (m *hookMerger) externalTurnSeen(turnID string) bool {
+	return m.seenExternalTurnIDs[turnID]
+}
+
+func (m *hookMerger) markExternalTurnSeen(turnID string) {
+	if m.seenExternalTurnIDs == nil {
+		m.seenExternalTurnIDs = map[string]bool{}
+	}
+	m.seenExternalTurnIDs[turnID] = true
+	m.seenExternalTurnOrder = append(m.seenExternalTurnOrder, turnID)
+	if len(m.seenExternalTurnOrder) > maxSeenExternalTurns {
+		delete(m.seenExternalTurnIDs, m.seenExternalTurnOrder[0])
+		m.seenExternalTurnOrder = m.seenExternalTurnOrder[1:]
+	}
 }
 
 func newHookMerger(conversation *conversation) *hookMerger {
@@ -110,9 +137,30 @@ func (m *hookMerger) consumeHookFrame(frame HookFrame) []Event {
 			Prompt: frame.Prompt,
 		})
 	case HookStop:
-		events := m.resolveAllPending()
+		if frame.TurnID != "" && m.externalTurnSeen(frame.TurnID) {
+			// A redelivered notification for an already-completed turn is not
+			// new progress evidence: it must not resolve requests opened
+			// since, not re-emit the completion, and not close an unrelated
+			// turn that started after it.
+			return nil
+		}
 		if m.activeTurnID == "" {
-			return events
+			events := m.resolveAllPending()
+			// No observed turn.started. A frame carrying the provider's own
+			// turn id (Codex notify, which only fires at turn end) still
+			// proves a turn completed.
+			if frame.TurnID == "" {
+				return events
+			}
+			m.markExternalTurnSeen(frame.TurnID)
+			return append(events, Event{Type: EventTurnCompleted, TurnID: frame.TurnID})
+		}
+		events := m.resolveAllPending()
+		if frame.TurnID != "" {
+			// Providers that bracket turns with their own ids (turn.started
+			// observed, native id on the stop) get redeliveries deduplicated
+			// too, not only the notify-at-end shape.
+			m.markExternalTurnSeen(frame.TurnID)
 		}
 		turnID := m.activeTurnID
 		m.activeTurnID = ""
@@ -140,7 +188,7 @@ func (m *hookMerger) hookToolStarted(frame HookFrame) []Event {
 	}
 	itemChange := m.conversation.appendItem(Item{
 		ID:        frame.ToolUseID,
-		Type:      classifyClaudeTool(frame.ToolName),
+		Type:      classifyHookTool(frame.Provider, frame.ToolName),
 		Status:    StatusInProgress,
 		ToolName:  frame.ToolName,
 		ToolUseID: frame.ToolUseID,
@@ -160,7 +208,7 @@ func (m *hookMerger) hookToolCompleted(frame HookFrame) []Event {
 		// Content stays sparse until (unless) the transcript line lands.
 		itemChange := m.conversation.appendItem(Item{
 			ID:        frame.ToolUseID,
-			Type:      classifyClaudeTool(frame.ToolName),
+			Type:      classifyHookTool(frame.Provider, frame.ToolName),
 			Status:    StatusCompleted,
 			ToolName:  frame.ToolName,
 			ToolUseID: frame.ToolUseID,
@@ -271,4 +319,38 @@ func hookToolTitle(frame HookFrame) string {
 		return truncateTitle(frame.Detail)
 	}
 	return frame.ToolName
+}
+
+// classifyHookTool picks the provider's own tool classifier for hook frames.
+// The ingest path takes frames from any provider (opencode plugin frames
+// arrive ready-made with their own provider id), so unknown providers get a
+// case-insensitive generic classification instead of Claude's.
+func classifyHookTool(provider ProviderID, name string) ItemType {
+	switch provider {
+	case ProviderCodex:
+		return classifyCodexTool(name)
+	case ProviderClaude:
+		return classifyClaudeTool(name)
+	default:
+		return classifyGenericTool(name)
+	}
+}
+
+// classifyGenericTool maps widely used tool names (opencode's bash, edit,
+// write, patch, webfetch, ...) without provider-specific knowledge. Anything
+// unrecognized stays a dynamic tool call.
+func classifyGenericTool(name string) ItemType {
+	lower := strings.ToLower(name)
+	switch {
+	case strings.HasPrefix(lower, "mcp__"):
+		return ItemMCPToolCall
+	case lower == "bash" || strings.Contains(lower, "shell") || strings.Contains(lower, "exec"):
+		return ItemCommandExecution
+	case lower == "edit" || lower == "multiedit" || lower == "write" || lower == "patch" || strings.Contains(lower, "apply_patch"):
+		return ItemFileChange
+	case strings.Contains(lower, "websearch") || strings.Contains(lower, "web_search") || strings.Contains(lower, "webfetch") || strings.Contains(lower, "web_fetch"):
+		return ItemWebSearch
+	default:
+		return ItemDynamicToolCall
+	}
 }

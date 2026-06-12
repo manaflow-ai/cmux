@@ -52,17 +52,17 @@ The socket accepts newline-delimited JSON hook frames:
 ```json
 {"provider": "claude", "session_id": "<uuid>", "hook": "PreToolUse",
  "tool_name": "Bash", "tool_use_id": "toolu_x", "prompt": "...", "detail": "...",
- "decision": "...", "ts": "2026-06-10T17:00:00Z"}
+ "decision": "...", "turn_id": "...", "ts": "2026-06-10T17:00:00Z"}
 ```
 
-`hook` is one of `UserPromptSubmit` | `PreToolUse` | `PostToolUse` | `Stop` | `Notification` | `PermissionRequest` (unknown kinds are ignored). `detail` is a short human label: the notification message, or a one-line tool title. Frames route to all open subscriptions matching `(provider, session_id)`; frames for sessions with no subscription are dropped (logged once per session).
+`hook` is one of `UserPromptSubmit` | `PreToolUse` | `PostToolUse` | `Stop` | `Notification` | `PermissionRequest` (unknown kinds are ignored). `detail` is a short human label: the notification message, or a one-line tool title. `turn_id` is optional: the provider's own turn identifier when its payload has one (Codex notify); synthesized per subscription otherwise. Frames route to all open subscriptions matching exactly `(provider, session_id)`; frames for sessions with no subscription are dropped (logged once per session).
 
 ### Mapping and dedup
 
 | Hook frame | Canonical event |
 | --- | --- |
 | `UserPromptSubmit` | `turn.started` (synthesized `turn_id`, prompt text) |
-| `Stop` | `turn.completed` (no-op when no turn is active) |
+| `Stop` | `turn.completed` (no-op when no turn is active, unless the frame carries its own `turn_id` — see Codex notify) |
 | `PreToolUse` | `item.started` (tool item, `in_progress`, classified by `tool_name` exactly like the transcript parser) |
 | `PostToolUse` | `item.completed` |
 | `Notification` / `PermissionRequest` | `request.opened`, plus `request.resolved` when the frame carries a `decision` |
@@ -86,34 +86,54 @@ Reads the frame from the positional argument or stdin. Accepts either a ready ho
 
 ### Claude Code hook config cmux injects at launch
 
-Claude Code merges extra settings per launch via `claude --settings <file-or-json>`; hooks configured there receive the native payload on stdin (which includes `session_id` and `tool_use_id`). cmux must NOT write to the user's `~/.claude/settings.json`. At agent launch, the launcher (Swift side, follow-up) writes a managed settings file and passes `--settings`; the file's exact content, with `<emit>` the absolute path to the staged `cmuxd-remote` binary and `<sock>` the ingest socket path for the daemon backing this cmux instance:
+Claude Code loads extra settings per launch via `claude --settings <file-or-json>`; hooks configured there receive the native payload on stdin (which includes `session_id` and `tool_use_id`). cmux must NOT write to the user's `~/.claude/settings.json`.
+
+The launch side lives in two pieces:
+
+1. **The app (Swift, `Sources/AgentChat/AgentHookLaunchEnvironment.swift`)** exports two managed environment variables into every terminal surface: `CMUX_AGENT_HOOK_EMIT_BIN` (the staged `cmuxd-remote` binary from the checksum-verified remote-daemons cache, via `AgentDaemonBinaryLocator`) and `CMUX_AGENT_HOOK_SOCKET` (this instance's ingest socket path). When no daemon binary is cached, neither variable is set and injection is skipped entirely; agent launches never depend on this feature. Because a cached daemon predating the verb falls through to its CLI dispatch when invoked as `agent-hook-emit` (it would stall and fail every Claude hook), injection additionally requires provenance that provably carries the verb: the explicit `CMUX_REMOTE_DAEMON_BINARY` dev override on any build, or, on stable release builds only, a cached binary at the app's exact release version (same-SHA artifacts) or newer; debug, nightly, and staging builds share marketing versions with stable artifacts from other SHAs and inject only with the override. The relay resolution is cached for the app session (a miss is re-probed at most every 30 seconds, so the first `cmux ssh` enables injection for new terminals without a restart). The same socket path is pinned into the environment of the `cmuxd-remote serve --stdio` child the chat surface spawns, so the listener and the emitters always agree.
+2. **The Claude launch wrapper (`Resources/bin/cmux-claude-wrapper`)**, which already owns cmux's per-launch `--settings` payload, merges one extra hook entry per event into that payload when both variables are present and the emit binary is executable:
 
 ```json
-{
-  "hooks": {
-    "UserPromptSubmit": [
-      { "hooks": [{ "type": "command", "command": "'<emit>' agent-hook-emit --socket '<sock>'", "timeout": 5 }] }
-    ],
-    "PreToolUse": [
-      { "matcher": "*", "hooks": [{ "type": "command", "command": "'<emit>' agent-hook-emit --socket '<sock>'", "timeout": 5 }] }
-    ],
-    "PostToolUse": [
-      { "matcher": "*", "hooks": [{ "type": "command", "command": "'<emit>' agent-hook-emit --socket '<sock>'", "timeout": 5 }] }
-    ],
-    "Stop": [
-      { "hooks": [{ "type": "command", "command": "'<emit>' agent-hook-emit --socket '<sock>'", "timeout": 5 }] }
-    ],
-    "Notification": [
-      { "matcher": "*", "hooks": [{ "type": "command", "command": "'<emit>' agent-hook-emit --socket '<sock>'", "timeout": 5 }] }
-    ],
-    "PermissionRequest": [
-      { "matcher": "*", "hooks": [{ "type": "command", "command": "'<emit>' agent-hook-emit --socket '<sock>'", "timeout": 5 }] }
-    ]
-  }
-}
+{ "type": "command", "command": "\"$CMUX_AGENT_HOOK_EMIT_BIN\" agent-hook-emit --socket \"$CMUX_AGENT_HOOK_SOCKET\"", "timeout": 5 }
 ```
 
-Both paths must be single-quoted in the command string (DerivedData paths contain spaces). The same one-liner serves every event because the verb reads `hook_event_name` from stdin. Codex `notify` and the opencode plugin are follow-ups; they will emit ready-made frames with their own `provider`.
+for `UserPromptSubmit`, `PreToolUse`, `PostToolUse`, `Stop`, `Notification`, and `PermissionRequest`. The env references are expanded by the shell Claude runs hook commands with (the wrapper's existing `CMUX_CLAUDE_HOOK_CMUX_BIN` convention), which keeps DerivedData paths with spaces safe without quoting games. The high-frequency tool hooks (`PreToolUse`, `PostToolUse`) carry `"async": true` so they never add latency to tool calls; the merge layer tolerates a `PostToolUse` frame overtaking its `PreToolUse`. The same one-liner serves every event because the verb reads `hook_event_name` from stdin.
+
+The merge happens inside the single `--settings` value the wrapper already injects because Claude's `--settings` is last-wins, not cumulative (verified on 2.1.175: `claude --settings '{invalid' --settings '{}' -p hi` succeeds, while the reversed order fails on the invalid value), so passing a second `--settings` would clobber cmux's existing hook payload. For the same reason a user-supplied `--settings` on the command line wins over cmux's entirely; the wrapper passes it through untouched (user settings are never clobbered; cmux's injection is lost for that launch).
+
+Idempotency: the wrapper composes the settings inline on every exec, so resume/fork relaunches re-inject the same configuration with no files to clean up or merge.
+
+#### Ingest socket path scheme (tagged builds)
+
+`AgentHookLaunchEnvironment.ingestSocketPath` derives the per-instance path from the bundle identifier variant (the same classification the control socket uses): stable release builds use the documented default `/tmp/cmuxd-agentconv-<uid>/ingest.sock`; every other variant is scoped to `/tmp/cmuxd-agentconv-<uid>-<variant>[-<slug>]/ingest.sock` (e.g. `-debug-my-tag`, `-nightly`, `-staging-rc1`) so a tagged dev build's hooks and daemon never cross-talk with the user's stable app. An explicit `CMUX_AGENT_HOOK_SOCKET` in the app's own environment overrides the derivation (tests, operators).
+
+### Codex notify config cmux injects at launch
+
+Codex has no hook system, but `notify` in `~/.codex/config.toml` names a program argv that Codex invokes with an `agent-turn-complete` JSON payload appended as the final argument. `Resources/bin/cmux-codex-wrapper` (installed as a shell function by the cmux shell integration, like the Claude wrapper) injects it per launch, never writing the user's config:
+
+```
+codex -c notify=["<emit>","agent-hook-emit","--socket","<sock>","--provider","codex"] ...
+```
+
+The emit verb recognizes the Codex payload shape and translates it to a `Stop` frame (`thread-id` is the session id). Injection is skipped when the user already has a notifier: their own `-c`/`--config` `notify` override on the command line, or an uncommented `notify` key in config.toml (cmux's persistent Codex integration never sets one, so a present key is always user-chosen). It is also skipped outside cmux terminals, when `CMUX_CODEX_HOOKS_DISABLED=1`, and when the env vars or emit binary are missing. The opencode plugin is a follow-up; it will emit ready-made frames with its own `provider`.
+
+The verb recognizes Codex's `agent-turn-complete` shape (kebab-case, from codex-rs `legacy_notify.rs`):
+
+```json
+{"type": "agent-turn-complete", "thread-id": "<session uuid>", "turn-id": "...",
+ "cwd": "...", "input-messages": ["..."], "last-assistant-message": "..."}
+```
+
+Mapping (only what the payload supports): `thread-id` → `session_id`, the frame is `hook: "Stop"` with `turn_id` = `turn-id` and `detail` = `last-assistant-message`, producing canonical `turn.completed {turn_id}`. The completion is emitted even though no `turn.started` was observed (notify only fires at turn end); redelivered notifications for the same `turn_id` are dropped. `cwd` and `input-messages` have no canonical destination and are not mapped — message content stays transcript-derived. Payloads without `thread-id` (ancient Codex) or with an unknown `type` are dropped, never guessed at. For Codex, `turn.started`, tool items, and requests remain transcript-derived; notify cannot observe them.
+
+### opencode plugin frames (any non-native provider)
+
+The emit verb passes ready-made frames (input that already has `hook`) through with their own `provider`, and nothing in ingest or merge is limited to claude|codex. Contract for an opencode plugin (or any future agent):
+
+- Write newline-JSON frames to the ingest socket, or invoke `'<emit>' agent-hook-emit --socket '<sock>' '<frame-json>'`.
+- Required fields: `provider: "opencode"`, `session_id`, and a `hook` from the vocabulary above. Tool frames must carry `tool_use_id` (frames without one are dropped as undeduplicatable). `detail` is the short human label; `decision` resolves requests; `turn_id` deduplicates provider-reported turn completions.
+- Tool classification is per provider: claude and codex frames use their native tool-name classifiers; any other provider gets a case-insensitive generic classification (bash/shell/exec → `command_execution`, edit/write/patch → `file_change`, websearch/webfetch → `web_search`, `mcp__` prefix → `mcp_tool_call`, otherwise `dynamic_tool_call`).
+- Frames route by exact `(provider, session_id)`. There is no opencode transcript parser, so `agent.session.open` must pass both `transcript_path` and an explicit `session_id` (the daemon registers the requested id when the transcript yields none); the conversation is then hook-fed, with the transcript only tailed for growth.
 
 The daemon-side capability string for this feature is `agent.conversation.hooks` (in `hello`).
 
@@ -121,7 +141,7 @@ The daemon-side capability string for this feature is `agent.conversation.hooks`
 
 Claude Code (`~/.claude/projects/<encoded-cwd>/<uuid>.jsonl`): `user`/`assistant` lines carry `message.content` as a string or block array. `text` → message items, `thinking` → reasoning, `tool_use` → tool item (classified by tool name: Bash → command_execution; Edit/Write/MultiEdit/NotebookEdit → file_change; WebSearch/WebFetch → web_search; `mcp__*` → mcp_tool_call; otherwise dynamic_tool_call). `tool_result` blocks live in `user` lines and fold into their item by `tool_use_id`. Sidechain lines (`isSidechain`), meta lines, and unknown top-level types (`summary`, `queue-operation`, `attachment`, `mode`, ...) are skipped. Malformed lines are skipped, never fatal.
 
-Codex (`~/.codex/sessions/YYYY/MM/DD/rollout-*.jsonl`): `response_item` of type `message`/`reasoning`/`function_call`/`function_call_output` (paired by `call_id`; `shell` → command_execution, `apply_patch` → file_change). `event_msg` duplicates response_item text and is dropped, as is `token_count`. Envelope wrappers (`<permissions>`, `<environment_context>`, `# AGENTS.md` preamble) are stripped from message text. Discovery globs the sessions tree in P1; the sqlite index (`~/.codex/state_5.sqlite`) is a later optimization.
+Codex (`~/.codex/sessions/YYYY/MM/DD/rollout-*.jsonl`): `response_item` of type `message`/`reasoning`/`function_call`/`function_call_output` (paired by `call_id`; `shell` → command_execution, `apply_patch` → file_change). `event_msg` duplicates response_item text and is dropped, as is `token_count`. Envelope wrappers (`<permissions>`, `<environment_context>`, `# AGENTS.md` preamble) are stripped from message text. Discovery prefers Codex's own sqlite session index (`~/.codex/state_5.sqlite`, `threads` table: session id → rollout path, cwd, title, updated_at), opened strictly read-only (`mode=ro`, bounded busy timeout) so a live Codex is never blocked; listing and session_id→path resolution honor the `cwd` narrowing param. The sessions-tree glob remains the fallback when the index is missing, unreadable, locked, or empty.
 
 ## Write path (P2, design constraint now)
 
@@ -130,5 +150,5 @@ Sending a message to a session must respect who owns the live process. If the se
 ## Phases
 
 - **P1 (this):** contract + Go parsers (Claude, Codex) + tailing + `agent.*` verbs + macOS local stdio spawn + read-only `/agent-chat` surface opened from a terminal pane. Iteration 2 added the live hook ingest source (turns, requests, low-latency tool items) for Claude; rendering of requests is display-only (banner, no answer buttons).
-- **P2:** composer (pane PTY inject + background `--resume` for detached sessions), launcher injection of the Claude hook config, Codex `notify`/opencode plugin hook sources.
+- **P2:** composer (pane PTY inject + background `--resume` for detached sessions), launcher injection of the Claude hook config. Daemon-side Codex `notify` translation, opencode/any-provider frame routing, and the Codex sqlite session index landed with this phase; launcher injection of the Codex notify config is the remaining Swift work item.
 - **P3:** answering permission requests, Codex write path, image fetch (`agent.image.get`), iOS consumer, remote hosts over the existing `cmux ssh` daemon channel.
