@@ -1,6 +1,9 @@
 import AppKit
 import CmuxAuthRuntime
 import CmuxControlSocket
+import CmuxTerminalCore
+import CmuxTerminalEngine
+import CmuxTerminalServices
 import CmuxSettings
 import CmuxSettingsUI
 import CmuxSocketControl
@@ -1156,6 +1159,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     override init() {
         super.init()
         Self.shared = self
+        // Inverts the surface registry's legacy AppDelegate.shared reach-up:
+        // the registry asks this delegate (via MainWindowRouteRetiring) to
+        // sweep recoverable main-window routes after a surface unregisters.
+        GhosttyApp.terminalSurfaceRegistry.attachRouteRetirer(self)
     }
 
     func application(_ application: NSApplication, open urls: [URL]) {
@@ -1906,7 +1913,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         CmuxSSHURLProcessLauncher.shared.terminateAll()
         MobileHostService.shared.stop()
         TerminalController.shared.stop()
-        GhosttyPasteboardHelper.cleanupAllOwnedTemporaryImageFiles()
+        GhosttyApp.terminalPasteboard.cleanupAllOwnedTemporaryImageFiles()
         VSCodeServeWebController.shared.stop()
         BrowserProfileStore.shared.flushPendingSaves()
         if TelemetrySettings.enabledForCurrentLaunch {
@@ -6634,7 +6641,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
               let panelId = ghosttyView.terminalSurface?.id else {
             return false
         }
-        return TerminalSurfaceRegistry.shared.isRightSidebarDockSurface(id: panelId)
+        return GhosttyApp.terminalSurfaceRegistry.isRightSidebarDockSurface(id: panelId)
     }
 
     func allowsTerminalKeyboardFocus(
@@ -6661,7 +6668,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
               let panelId = ghosttyView.terminalSurface?.id else {
             return nil
         }
-        if TerminalSurfaceRegistry.shared.isRightSidebarDockSurface(id: panelId) {
+        if GhosttyApp.terminalSurfaceRegistry.isRightSidebarDockSurface(id: panelId) {
             return nil
         }
         return TerminalKeyboardFocusRequest(

@@ -1,4 +1,5 @@
 import Foundation
+import CmuxTerminalEngine
 import SwiftUI
 import AppKit
 import Bonsplit
@@ -15007,7 +15008,7 @@ final class Workspace: Identifiable, ObservableObject {
             requestTransferredRemoteCleanup: true,
             cleanupControllerSurfaceState: false
         )
-        TerminalSurfaceRegistry.shared.unregister(oldPanel.surface)
+        GhosttyApp.terminalSurfaceRegistry.unregister(oldPanel.surface)
         oldPanel.surface.teardownSurface()
 
         let replacementPanel = TerminalPanel(
