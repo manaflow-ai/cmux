@@ -48,6 +48,7 @@ public final class CanvasRootView: NSView {
         let originalFrame: CGRect
         let startPoint: CGPoint
         var lastFrame: CGRect
+        var lastPoint: CGPoint = .zero
     }
 
     public init(
@@ -319,7 +320,7 @@ public final class CanvasRootView: NSView {
         rect.offsetBy(dx: -documentOriginInCanvas.x, dy: -documentOriginInCanvas.y)
     }
 
-    private func canvasRect(fromDocument rect: CGRect) -> CGRect {
+    func canvasRect(fromDocument rect: CGRect) -> CGRect {
         rect.offsetBy(dx: documentOriginInCanvas.x, dy: documentOriginInCanvas.y)
     }
 

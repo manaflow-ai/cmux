@@ -25,8 +25,8 @@ extension CanvasRootView: CanvasPaneViewDelegate {
     }
 
     func paneView(_ view: CanvasPaneView, draggedTo documentPoint: CGPoint, modifiers: NSEvent.ModifierFlags) {
-        guard var session = dragSession, session.paneID == view.paneID,
-              let panelId = selectedPanelId(of: view) else { return }
+        guard var session = dragSession,
+              let panelId = model.layout.selectedPanelId(in: session.paneID)?.rawValue else { return }
         let dx = documentPoint.x - session.startPoint.x
         let dy = documentPoint.y - session.startPoint.y
         // Holding Command suspends snapping for free-form placement.
@@ -60,22 +60,81 @@ extension CanvasRootView: CanvasPaneViewDelegate {
         }
 
         session.lastFrame = result.frame.cgRect
+        session.lastPoint = documentPoint
         dragSession = session
-        view.frame = documentRect(fromCanvas: session.lastFrame)
+        paneViews[session.paneID]?.frame = documentRect(fromCanvas: session.lastFrame)
         guidesView.setGuides(result.guides)
         callbacks.onViewportGeometryChanged(window)
     }
 
     func paneViewDidEndDrag(_ view: CanvasPaneView) {
-        guard let session = dragSession, session.paneID == view.paneID,
-              let panelId = selectedPanelId(of: view) else { return }
+        guard let session = dragSession,
+              let panelId = model.layout.selectedPanelId(in: session.paneID)?.rawValue else { return }
         dragSession = nil
         guidesView.setGuides([])
+
+        // Dropping a single-tab pane onto another pane's tab bar joins it as
+        // a tab there (the canvas twin of bonsplit's tab drop).
+        if model.layout.panelIds(in: session.paneID)?.count == 1,
+           let target = joinTarget(at: session.lastPoint, excluding: session.paneID),
+           let targetPanelId = model.layout.selectedPanelId(in: target)?.rawValue,
+           model.joinPanel(panelId, withPaneContaining: targetPanelId) {
+            reconcilePanes()
+            applyZOrder()
+            recomputeDocumentGeometry()
+            applyAllPaneFrames()
+            updateLifecycle()
+            callbacks.onLayoutChanged()
+            callbacks.onFocusPanel(panelId)
+            callbacks.onViewportGeometryChanged(window)
+            return
+        }
+
         model.setFrame(session.lastFrame, for: panelId)
         recomputeDocumentGeometry()
         applyAllPaneFrames()
         updateLifecycle()
         callbacks.onLayoutChanged()
+        callbacks.onViewportGeometryChanged(window)
+    }
+
+    /// The pane whose tab bar contains the given document point, if any.
+    private func joinTarget(at documentPoint: CGPoint, excluding excluded: CanvasPaneID) -> CanvasPaneID? {
+        // Front-most first so overlapping bars resolve like clicks would.
+        for pane in model.layout.panes.reversed() where pane.id != excluded {
+            guard let paneView = paneViews[pane.id] else { continue }
+            var barFrame = paneView.frame
+            barFrame.size.height = CanvasPaneTitleBarView.height
+            if barFrame.contains(documentPoint) {
+                return pane.id
+            }
+        }
+        return nil
+    }
+
+    func paneView(_ view: CanvasPaneView, requestTearOutTab panelId: UUID, atDocumentPoint point: CGPoint) {
+        guard model.breakOutPanel(panelId) else { return }
+        // Put the torn-out pane's tab bar under the cursor and drag from there.
+        guard var frame = model.frame(of: panelId) else { return }
+        let canvasPoint = canvasRect(fromDocument: CGRect(origin: point, size: .zero)).origin
+        frame.origin = CGPoint(
+            x: canvasPoint.x - min(60, frame.width / 4),
+            y: canvasPoint.y - CanvasPaneTitleBarView.height / 2
+        )
+        model.setFrame(frame, for: panelId)
+        reconcilePanes()
+        applyZOrder()
+        applyAllPaneFrames()
+        guard let paneID = model.paneID(containing: panelId) else { return }
+        dragSession = DragSession(
+            paneID: paneID,
+            region: .titleBar,
+            originalFrame: frame,
+            startPoint: point,
+            lastFrame: frame,
+            lastPoint: point
+        )
+        callbacks.onFocusPanel(panelId)
         callbacks.onViewportGeometryChanged(window)
     }
 

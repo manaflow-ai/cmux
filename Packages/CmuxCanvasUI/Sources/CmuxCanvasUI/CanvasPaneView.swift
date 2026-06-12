@@ -8,6 +8,9 @@ protocol CanvasPaneViewDelegate: AnyObject {
     func paneView(_ view: CanvasPaneView, mouseDownAt documentPoint: CGPoint, region: CanvasPaneHitRegion)
     func paneView(_ view: CanvasPaneView, draggedTo documentPoint: CGPoint, modifiers: NSEvent.ModifierFlags)
     func paneViewDidEndDrag(_ view: CanvasPaneView)
+    /// Option+drag on a tab of a multi-tab pane: tear the tab out into its
+    /// own pane and continue the drag with that new pane.
+    func paneView(_ view: CanvasPaneView, requestTearOutTab panelId: UUID, atDocumentPoint point: CGPoint)
     func paneView(_ view: CanvasPaneView, didSelectTab panelId: UUID)
     func paneView(_ view: CanvasPaneView, didCloseTab panelId: UUID)
     func paneViewDidRequestFocus(_ view: CanvasPaneView)
@@ -176,9 +179,23 @@ final class CanvasPaneView: NSView {
             }
         }
         guard let documentView = superview else { return }
+        let documentPoint = documentView.convert(event.locationInWindow, from: nil)
+        // Option+drag on a tab tears it out into its own pane; the root
+        // starts a drag session for the new pane and our tracking loop keeps
+        // feeding it.
+        if case .titleBar = region,
+           event.modifierFlags.contains(.option),
+           let click = pendingTabClick, !click.isClose {
+            pendingTabClick = nil
+            activeDragRegion = region
+            dragStartedMoving = true
+            dragStartDocumentPoint = documentPoint
+            delegate?.paneView(self, requestTearOutTab: click.panelId, atDocumentPoint: documentPoint)
+            return
+        }
         activeDragRegion = region
         dragStartedMoving = false
-        dragStartDocumentPoint = documentView.convert(event.locationInWindow, from: nil)
+        dragStartDocumentPoint = documentPoint
         delegate?.paneViewDidRequestFocus(self)
     }
 
