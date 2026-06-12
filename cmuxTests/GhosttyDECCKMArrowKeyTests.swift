@@ -60,6 +60,14 @@ struct GhosttyDECCKMArrowKeyTests {
         let surfaceView = hostedTerminal.surfaceView
         defer { window.orderOut(nil) }
 
+        guard hostedTerminal.surface.hasLiveSurface else {
+            Issue.record(
+                "Ghostty surface failed to initialize on this host; Metal/embedded_window unavailable.",
+                severity: .warning
+            )
+            return
+        }
+
         #expect(window.makeFirstResponder(surfaceView), "Expected terminal surface to own first responder")
 
         let readyText = try waitForTerminalText(from: hostedTerminal) {
