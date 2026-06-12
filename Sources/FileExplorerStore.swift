@@ -296,12 +296,7 @@ enum FileExplorerWorkspaceRoot: Equatable {
     )
 }
 
-enum FileExplorerWorkspaceRootIdentity: Equatable {
-    case none
-    case local(workspaceId: UUID)
-    case remoteSSH(workspaceId: UUID, connection: SSHFileExplorerConnection, displayTarget: String)
-}
-
+enum FileExplorerWorkspaceRootIdentity: Equatable { case none, local(workspaceId: UUID), remoteSSH(workspaceId: UUID, connection: SSHFileExplorerConnection, displayTarget: String) }
 // MARK: - Local Provider
 
 final class LocalFileExplorerProvider: FileExplorerProvider {
@@ -809,24 +804,16 @@ final class FileExplorerStore: ObservableObject {
     ) {
         switch request {
         case .none:
-            cancelRemoteHomeResolution()
-            setRootStatusMessage(nil)
-            setWorkspaceRootIdentity(.none)
-            if provider != nil {
-                setProvider(nil, reloadIfAvailable: false)
-            }
+            cancelRemoteHomeResolution(); setRootStatusMessage(nil); setWorkspaceRootIdentity(.none)
+            if provider != nil { setProvider(nil, reloadIfAvailable: false) }
             setRootPath("")
-
         case .local(let workspaceId, let path):
-            cancelRemoteHomeResolution()
-            setRootStatusMessage(nil)
-            setWorkspaceRootIdentity(.local(workspaceId: workspaceId))
+            cancelRemoteHomeResolution(); setRootStatusMessage(nil); setWorkspaceRootIdentity(.local(workspaceId: workspaceId))
             if !(provider is LocalFileExplorerProvider) {
                 setRootPath("")
                 setProvider(LocalFileExplorerProvider(), reloadIfAvailable: false)
             }
             setRootPath(path)
-
         case .remoteSSH(let workspaceId, let connection, let displayTarget, let rootPath, let isAvailable, let unavailableDetail):
             applyRemoteSSHWorkspaceRoot(
                 workspaceId: workspaceId,
@@ -839,11 +826,7 @@ final class FileExplorerStore: ObservableObject {
             )
         }
     }
-
-    private func setWorkspaceRootIdentity(_ identity: FileExplorerWorkspaceRootIdentity) {
-        guard workspaceRootIdentity != identity else { return }
-        workspaceRootIdentity = identity
-    }
+    private func setWorkspaceRootIdentity(_ identity: FileExplorerWorkspaceRootIdentity) { guard workspaceRootIdentity != identity else { return }; workspaceRootIdentity = identity }
 
     func setRootPath(_ path: String) {
         guard path != rootPath else {

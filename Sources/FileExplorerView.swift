@@ -1011,38 +1011,20 @@ final class FileExplorerContainerView: NSView {
     }
 
     func updateHeader(store: FileExplorerStore) {
-        let nextRootPath = store.rootPath
-        let nextProviderIsLocal = store.provider is LocalFileExplorerProvider
-        let nextWorkspaceRootIdentity = store.workspaceRootIdentity
-        let nextContentRevision = store.contentRevision
-        let workspaceRootChanged = nextWorkspaceRootIdentity != currentWorkspaceRootIdentity
-        let searchScopeChanged = nextRootPath != currentRootPath ||
-            nextProviderIsLocal != currentProviderIsLocal ||
-            workspaceRootChanged
-        let contentRevisionChanged = nextContentRevision != currentContentRevision
-
-        currentRootPath = nextRootPath
-        currentProviderIsLocal = nextProviderIsLocal
-        currentWorkspaceRootIdentity = nextWorkspaceRootIdentity
-        currentContentRevision = nextContentRevision
+        let nextRootPath = store.rootPath, nextProviderIsLocal = store.provider is LocalFileExplorerProvider
+        let nextWorkspaceRootIdentity = store.workspaceRootIdentity, nextContentRevision = store.contentRevision
+        let workspaceRootChanged = nextWorkspaceRootIdentity != currentWorkspaceRootIdentity, contentRevisionChanged = nextContentRevision != currentContentRevision
+        let searchScopeChanged = workspaceRootChanged || nextRootPath != currentRootPath || nextProviderIsLocal != currentProviderIsLocal
+        currentRootPath = nextRootPath; currentProviderIsLocal = nextProviderIsLocal
+        currentWorkspaceRootIdentity = nextWorkspaceRootIdentity; currentContentRevision = nextContentRevision
         headerView.update(displayPath: store.displayRootPath)
-        if workspaceRootChanged {
-            resetSearchStateForWorkspaceRootChange()
-        }
+        if workspaceRootChanged { cancelPendingSearchRefresh(); pendingSearchRefreshAfterSettled = false; searchController.cancel(clear: true); searchField.stringValue = ""; applySearchSnapshot(.empty) }
         if searchScopeChanged {
             pendingSearchRefreshAfterSettled = false
             refreshSearchIfNeeded()
         } else if contentRevisionChanged {
             refreshSearchAfterContentRevisionIfNeeded()
         }
-    }
-
-    private func resetSearchStateForWorkspaceRootChange() {
-        cancelPendingSearchRefresh()
-        pendingSearchRefreshAfterSettled = false
-        searchController.cancel(clear: true)
-        searchField.stringValue = ""
-        applySearchSnapshot(.empty)
     }
 
     func representedRightSidebarMode() -> RightSidebarMode {

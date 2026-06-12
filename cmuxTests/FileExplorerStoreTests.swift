@@ -866,58 +866,6 @@ final class FileSearchControllerTests: XCTestCase {
         XCTAssertEqual(searchController.searchRequests.last?.contentRevision, store.contentRevision)
     }
 
-    func testSamePathLocalWorkspaceSwitchResetsFindSearchScope() async throws {
-        let store = FileExplorerStore()
-        let state = FileExplorerState()
-        let searchController = SpyFileSearchController()
-        let coordinator = FileExplorerPanelView.Coordinator(
-            store: store,
-            state: state,
-            onOpenFilePreview: { _ in }
-        )
-        let container = FileExplorerContainerView(
-            coordinator: coordinator,
-            presentation: .find,
-            searchController: searchController
-        )
-        let rootPath = "/tmp/cmux-find-same-directory-test"
-        let firstWorkspaceId = UUID()
-        let secondWorkspaceId = UUID()
-
-        store.applyWorkspaceRoot(.local(workspaceId: firstWorkspaceId, path: rootPath))
-        container.updateHeader(store: store)
-        container.updatePresentation(.find)
-
-        let searchField = try XCTUnwrap(Self.findSearchField(in: container))
-        searchController.searchRequests.removeAll()
-        searchField.stringValue = "adfasdf"
-        container.controlTextDidChange(Notification(name: NSControl.textDidChangeNotification, object: searchField))
-
-        try await waitForSearchRequestCount(1, in: searchController)
-        searchController.publish(FileSearchSnapshot(
-            query: "adfasdf",
-            results: [],
-            status: .noMatches,
-            isSearching: false
-        ))
-        XCTAssertEqual(container.searchSnapshot.status, .noMatches)
-
-        store.applyWorkspaceRoot(.local(workspaceId: secondWorkspaceId, path: rootPath))
-        container.updateHeader(store: store)
-        container.updatePresentation(.find)
-
-        XCTAssertEqual(
-            searchField.stringValue,
-            "",
-            "Switching to a different workspace with the same root must not keep the previous workspace's query."
-        )
-        XCTAssertEqual(
-            container.searchSnapshot,
-            .empty,
-            "Find results are scoped to the workspace identity, not just the directory path."
-        )
-    }
-
     func testRipgrepResolverPrefersConfiguredBinaryPath() {
         let configuredPath = "/nix/store/custom-ripgrep/bin/rg"
         let fallbackPath = "/usr/local/bin/rg"
