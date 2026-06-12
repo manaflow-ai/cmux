@@ -1,6 +1,10 @@
 import XCTest
 import Darwin
 
+// Swift Testing migration deferred: this file is an extension on CLINotifyProcessIntegrationRegressionTests
+// (XCTestCase, ~8500 lines). Migrating only this extension file would require either extracting all shared
+// helper methods used via `self.*` from the parent class or migrating the entire parent, both of which are
+// outside the scope of this PR.
 extension CLINotifyProcessIntegrationRegressionTests {
     struct GenericHookPersistenceScenario {
         let agent: String
