@@ -2750,6 +2750,19 @@ final class CmuxDiffViewerURLSchemeHandler: NSObject, WKURLSchemeHandler {
     /// Extracts the diff viewer `(token, requestPath)` from a live diff viewer
     /// URL, accepting both the custom scheme (`cmux-diff-viewer://<token>/<path>`)
     /// and the local HTTP server form (`http://127.0.0.1:<port>/<token>/<path>#cmux-diff-viewer`).
+    /// Whether a URL fragment marks a diff-viewer/editor page served over the
+    /// local HTTP server. The page's hash router rewrites the fragment to a
+    /// leading-slash form (`/cmux-diff-viewer`) after load, so a restored
+    /// `webView.url` carries that variant rather than the bare scheme name the
+    /// page was opened with. Tolerate both (and any router suffix) so HTTP-
+    /// served editor/diff surfaces persist + restore via the port-independent
+    /// custom scheme instead of a now-dead server port.
+    static func fragmentMarksDiffViewer(_ fragment: String?) -> Bool {
+        guard var fragment else { return false }
+        while fragment.hasPrefix("/") { fragment.removeFirst() }
+        return fragment == scheme || fragment.hasPrefix(scheme + "/")
+    }
+
     static func diffViewerComponents(from url: URL?) -> (token: String, requestPath: String)? {
         guard let url else { return nil }
         if url.scheme == scheme, let token = url.host, isValidToken(token) {
@@ -2758,7 +2771,7 @@ final class CmuxDiffViewerURLSchemeHandler: NSObject, WKURLSchemeHandler {
         }
         if (url.scheme == "http" || url.scheme == "https"),
            url.host == "127.0.0.1",
-           url.fragment == Self.scheme {
+           Self.fragmentMarksDiffViewer(url.fragment) {
             let rawPath = URLComponents(url: url, resolvingAgainstBaseURL: false)?.percentEncodedPath ?? url.path
             let parts = rawPath.split(separator: "/", omittingEmptySubsequences: true).map(String.init)
             guard parts.count >= 2, isValidToken(parts[0]) else { return nil }
@@ -2975,9 +2988,23 @@ final class CmuxDiffViewerURLSchemeHandler: NSObject, WKURLSchemeHandler {
             headers["Content-Security-Policy"] = [
                 "default-src 'none'",
                 "script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval'",
-                "style-src 'unsafe-inline'",
+                // 'self' (not just 'unsafe-inline') so Vite's automatic CSS
+                // code-split preload can load the editor chunk's same-origin
+                // stylesheet (monaco-vendor.css) via a <link>. Vite's
+                // `__vitePreload` rejects the dynamic import when that <link>
+                // fails, so blocking it with `style-src 'unsafe-inline'` alone
+                // made session-restored editors (served over this scheme, not
+                // the HTTP server, which sets no CSP) fail to load entirely.
+                "style-src 'self' 'unsafe-inline'",
                 "img-src 'self' data:",
                 "connect-src 'self'",
+                // Monaco's base editor worker is a same-origin module worker
+                // (`new Worker(new URL("...editor.worker.js"), {type:"module"})`),
+                // created lazily when Monaco first needs it. Without an explicit
+                // worker-src it falls back to default-src 'none' and WebKit
+                // refuses to create it.
+                "worker-src 'self'",
+                "child-src 'self'",
                 "font-src 'none'",
                 "object-src 'none'",
                 "base-uri 'none'",
@@ -4092,8 +4119,18 @@ final class BrowserPanel: Panel, ObservableObject {
         "globe"
     }
 
+    /// Set by the editor save bridge when a `cmux edit` page reports unsaved
+    /// buffer changes; drives tab close-confirmation through `isDirty`.
+    var editorBufferIsDirty = false
+    /// True while a `cmux edit` Monaco page is live in this webview; gates the
+    /// undo/redo key routing so plain browser pages keep default behavior.
+    var editorPageActive = false
+    /// Pending first stroke of a chorded save shortcut (see
+    /// `handleEditorKeyEquivalent`).
+    var editorSaveChordPrefixPending = false
+
     var isDirty: Bool {
-        false
+        editorBufferIsDirty
     }
 
     private static func makeWebView(
@@ -4226,6 +4263,11 @@ final class BrowserPanel: Panel, ObservableObject {
         setupObservers(for: webView)
         setupReactGrabMessageHandler(for: webView)
         setupMediaPlaybackMessageHandler(for: webView)
+        setupEditorSaveMessageHandler(for: webView)
+        webView.onEditorSaveKeyEquivalent = { [weak self, weak webView] event in
+            guard let self, let webView else { return false }
+            return self.handleEditorKeyEquivalent(event: event, webView: webView)
+        }
         applyMuteState(to: webView, reason: "bindWebView")
     }
 
@@ -4253,6 +4295,12 @@ final class BrowserPanel: Panel, ObservableObject {
                 // discarded. didCommit does not fire for same-document (pushState)
                 // navigations, so a persisting SPA video keeps its frame id.
                 self.resetMediaPlaybackTracking()
+                // A new top-level document replaces any editor buffer; clear
+                // its dirty mirror so close-confirmation and the save
+                // shortcut never act on a page that is gone.
+                self.editorBufferIsDirty = false
+                self.editorPageActive = false
+                self.editorSaveChordPrefixPending = false
                 self.publishCommittedURL(from: webView)
                 self.applyMuteState(to: webView, reason: "navigationCommit")
             }

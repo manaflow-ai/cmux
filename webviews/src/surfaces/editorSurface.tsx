@@ -5,8 +5,10 @@ import { resolveDiffViewerAppearance } from "../appearance";
 import "../editor/monacoEnvironment";
 import { EditorApp } from "../editor/EditorApp";
 import editorStyles from "../editor/editor.css?inline";
+import { createEditorLabelResolver } from "../editor/editorLabels";
 import { preloadGrammarForPath } from "../editor/monacoLanguages";
 import { defineMonacoThemes } from "../editor/monacoTheme";
+import { EditorSaveController, mapEditorSaveReply, type EditorSaveRequest } from "../editor/saveController";
 import { createWebviewsRouter } from "../router";
 import type { DiffViewerConfig } from "../types";
 import { installWebviewStyles } from "./installWebviewStyles";
@@ -55,6 +57,44 @@ async function injectMonacoStylesheet(): Promise<void> {
   }
 }
 
+type EditorSaveMessageHandler = {
+  postMessage: (request: EditorSaveRequest | { probe: true }) => Promise<unknown>;
+};
+
+/**
+ * Resolves the native save bridge. Present only when the app registered the
+ * `cmuxEditorSave` script message handler for this page (writable `cmux edit`
+ * surfaces); absent in plain browsers and for read-only files. The Swift side
+ * re-validates the page's scheme token on every message, so the handler being
+ * visible to page JS is not what authorizes the write.
+ */
+async function resolveSaveBridge(): Promise<
+  ((request: EditorSaveRequest) => Promise<ReturnType<typeof mapEditorSaveReply>>) | null
+> {
+  const webkit = (
+    window as unknown as {
+      webkit?: { messageHandlers?: { cmuxEditorSave?: EditorSaveMessageHandler } };
+    }
+  ).webkit;
+  const handler = webkit?.messageHandlers?.cmuxEditorSave;
+  if (!handler || typeof handler.postMessage !== "function") {
+    return null;
+  }
+  // Probe the write capability before unlocking the buffer: the handler is
+  // installed on every browser webview, but authorization is the in-memory
+  // token registration, which dies with the app instance. Without this check
+  // a session-restored page would accept edits it can never save.
+  try {
+    const probeReply = (await handler.postMessage({ probe: true })) as { ok?: unknown } | null;
+    if (probeReply?.ok !== true) {
+      return null;
+    }
+  } catch {
+    return null;
+  }
+  return async (request) => mapEditorSaveReply(await handler.postMessage(request));
+}
+
 /**
  * Boots the Monaco editor surface: reads its injected config, registers
  * cmux-derived themes, then renders `EditorApp` through the shared router.
@@ -68,11 +108,25 @@ export async function mountEditorSurface(rootElement: HTMLElement): Promise<void
   const themes = defineMonacoThemes(appearance.themes.dark, appearance.themes.light);
   const prefersDark = window.matchMedia?.("(prefers-color-scheme: dark)").matches ?? true;
   const themeName = prefersDark ? themes.dark : themes.light;
+  const activeTheme = prefersDark ? appearance.themes.dark : appearance.themes.light;
   const filePath = typeof config.payload?.filePath === "string" ? config.payload.filePath : "untitled.txt";
   const content = typeof config.payload?.content === "string" ? config.payload.content : "";
   if (typeof config.payload?.title === "string" && config.payload.title.trim() !== "") {
     document.title = config.payload.title;
   }
+  const labels = createEditorLabelResolver(config.payload?.labels);
+  // Read-only unless the CLI explicitly marked the file writable AND the app
+  // exposed the save bridge; either one missing means edits would be silently
+  // discarded when the pane closes, so the buffer stays locked.
+  const saveBridge = config.payload?.readOnly === false ? await resolveSaveBridge() : null;
+  const readOnly = saveBridge === null;
+  const saveController = readOnly
+    ? null
+    : new EditorSaveController({
+        bridge: saveBridge,
+        baselineSha256:
+          typeof config.payload?.contentSha256 === "string" ? config.payload.contentSha256 : null,
+      });
   // Load the file's Monarch grammar before mounting so the editor tokenizes
   // synchronously on first render (the WKWebView does not reliably repaint the
   // lazy async re-tokenization).
@@ -86,14 +140,13 @@ export async function mountEditorSurface(rootElement: HTMLElement): Promise<void
         fontFamily: appearance.fontFamily,
         fontSize: appearance.fontSize,
         lineHeight: appearance.lineHeight,
-        // Read-only by default. There is no save path yet (no Cmd-S, dirty
-        // tracking, or write-back to the file), so allowing edits would
-        // silently discard them when the pane closes. A future save feature can
-        // opt in by passing `readOnly: false`.
-        readOnly: config.payload?.readOnly ?? true,
+        readOnly,
         minimap: { enabled: true },
         scrollBeyondLastLine: false,
       }}
+      labels={labels}
+      saveController={saveController}
+      chrome={{ background: activeTheme.background, foreground: activeTheme.foreground }}
     />
   ));
   createRoot(rootElement).render(<RouterProvider router={router} />);

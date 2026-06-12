@@ -7,7 +7,59 @@ body,
   overflow: hidden;
 }
 
-.cmux-monaco-root {
-  width: 100%;
+.cmux-editor-shell {
+  position: relative;
+  display: flex;
+  flex-direction: column;
   height: 100vh;
+  width: 100%;
+}
+
+.cmux-monaco-root {
+  flex: 1 1 auto;
+  min-height: 0;
+  width: 100%;
+}
+
+/* Transient save-attention card (conflict prompt / save error). The editor
+   has no persistent chrome; this floats top-right only when needed and stays
+   clear of the window's bottom-right resize corner. */
+.cmux-editor-overlay {
+  position: absolute;
+  top: 10px;
+  right: 14px;
+  z-index: 10;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  max-width: min(560px, calc(100% - 28px));
+  padding: 6px 10px;
+  border-radius: 8px;
+  border: 1px solid color-mix(in srgb, var(--cmux-editor-chrome-fg, #888) 25%, transparent);
+  background: var(--cmux-editor-chrome-bg, rgba(30, 30, 30, 0.95));
+  color: var(--cmux-editor-chrome-fg, inherit);
+  font-family: -apple-system, BlinkMacSystemFont, sans-serif;
+  font-size: 12px;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.25);
+}
+
+.cmux-editor-overlay-message {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.cmux-editor-overlay-button {
+  flex: 0 0 auto;
+  padding: 2px 8px;
+  border-radius: 5px;
+  border: 1px solid color-mix(in srgb, var(--cmux-editor-chrome-fg, #888) 35%, transparent);
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+}
+
+.cmux-editor-overlay-button:hover {
+  background: color-mix(in srgb, var(--cmux-editor-chrome-fg, #888) 15%, transparent);
 }

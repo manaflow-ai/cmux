@@ -1,3 +1,4 @@
+import CryptoKit
 import Darwin
 import Foundation
 
@@ -909,6 +910,7 @@ extension CMUXCLI {
         var fileURL: URL
         var url: URL
         var title: String
+        var token: String
         var allowedFiles: [DiffViewerAllowedFile]
     }
 
@@ -994,12 +996,25 @@ extension CMUXCLI {
 
         let appearance = diffViewerAppearance(socketPath: socketPath, fontSizeOverride: nil)
         let runtime = diffViewerRuntime(socketPath: socketPath)
+        let writable = FileManager.default.isWritableFile(atPath: fileURL.path)
+        // Pure Swift nibble encoding: String(format:) in hash paths is the
+        // known unbounded-memory P0 class in this repo.
+        let hexDigits = Array("0123456789abcdef".utf8)
+        var contentShaBytes = [UInt8]()
+        contentShaBytes.reserveCapacity(64)
+        for byte in SHA256.hash(data: fileData) {
+            contentShaBytes.append(hexDigits[Int(byte >> 4)])
+            contentShaBytes.append(hexDigits[Int(byte & 0x0f)])
+        }
+        let contentSha256 = String(decoding: contentShaBytes, as: UTF8.self)
         let editor = try writeEditor(
             filePath: fileURL.path,
             content: content,
             title: fileURL.lastPathComponent,
             appearance: appearance,
-            runtime: runtime
+            runtime: runtime,
+            readOnly: !writable,
+            contentSha256: contentSha256
         )
 
         let client = try connectClient(
@@ -1051,7 +1066,9 @@ extension CMUXCLI {
         content: String,
         title: String,
         appearance: DiffViewerAppearance,
-        runtime: URL?
+        runtime: URL?,
+        readOnly: Bool,
+        contentSha256: String
     ) throws -> EditorWriteResult {
         let directory = try diffViewerDirectory()
         let origin = try diffViewerHTTPServerOrigin(rootDirectory: directory, runtime: runtime)
@@ -1070,7 +1087,9 @@ extension CMUXCLI {
             filePath: filePath,
             content: content,
             title: title,
-            appearance: appearance
+            appearance: appearance,
+            readOnly: readOnly,
+            contentSha256: contentSha256
         )
         let allowedFiles = try diffViewerAllowedFiles(
             pageURLs: [viewerFileURL],
@@ -1082,13 +1101,45 @@ extension CMUXCLI {
             files: allowedFiles,
             rootDirectory: directory
         )
+        if !readOnly {
+            // The write capability travels through the uid-owned trusted
+            // directory (0600 sidecar), never through socket params: only a
+            // real `cmux edit` can mint it, so browser.open_split callers
+            // cannot point an editor token at an arbitrary file.
+            let servingOrigin = origin.absoluteString
+            let sidecar: [String: Any] = [
+                "token": mapper.token,
+                "path": filePath,
+                "origin": servingOrigin
+            ]
+            let sidecarURL = directory.appendingPathComponent(".editor-\(mapper.token).json", isDirectory: false)
+            let sidecarData = try JSONSerialization.data(withJSONObject: sidecar, options: [.sortedKeys])
+            try sidecarData.write(to: sidecarURL, options: .atomic)
+            try? FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: sidecarURL.path)
+        }
         return EditorWriteResult(
             fileURL: viewerFileURL,
             url: try mapper.viewerURL(for: viewerFileURL),
             title: title,
+            token: mapper.token,
             allowedFiles: allowedFiles
         )
     }
+
+    private static let editorLabels: [String: String] = [
+        "conflictChanged": CMUXDiffViewerLocalization.string("editor.conflict.changed", defaultValue: "The file changed on disk after it was opened."),
+        "conflictMissing": CMUXDiffViewerLocalization.string("editor.conflict.missing", defaultValue: "The file no longer exists on disk."),
+        "dismiss": CMUXDiffViewerLocalization.string("editor.conflict.dismiss", defaultValue: "Dismiss"),
+        "modified": CMUXDiffViewerLocalization.string("editor.status.modified", defaultValue: "Modified"),
+        "overwrite": CMUXDiffViewerLocalization.string("editor.conflict.overwrite", defaultValue: "Overwrite"),
+        "readOnly": CMUXDiffViewerLocalization.string("editor.status.readOnly", defaultValue: "Read-only"),
+        "saved": CMUXDiffViewerLocalization.string("editor.status.saved", defaultValue: "Saved"),
+        "saveFailed": CMUXDiffViewerLocalization.string("editor.error.saveFailed", defaultValue: "Could not save the file."),
+        "savePermissionDenied": CMUXDiffViewerLocalization.string("editor.error.permissionDenied", defaultValue: "You don't have permission to save this file."),
+        "saveUnavailable": CMUXDiffViewerLocalization.string("editor.error.saveUnavailable", defaultValue: "Saving is unavailable for this editor."),
+        "saving": CMUXDiffViewerLocalization.string("editor.status.saving", defaultValue: "Saving…"),
+        "useDiskVersion": CMUXDiffViewerLocalization.string("editor.conflict.useDiskVersion", defaultValue: "Use disk version"),
+    ]
 
     private func writeEditorHTML(
         to viewerURL: URL,
@@ -1096,13 +1147,18 @@ extension CMUXCLI {
         filePath: String,
         content: String,
         title: String,
-        appearance: DiffViewerAppearance
+        appearance: DiffViewerAppearance,
+        readOnly: Bool,
+        contentSha256: String
     ) throws {
         let payload: [String: Any] = [
             "filePath": filePath,
             "content": content,
             "title": title,
-            "appearance": appearance.jsonObject
+            "appearance": appearance.jsonObject,
+            "readOnly": readOnly,
+            "contentSha256": contentSha256,
+            "labels": Self.editorLabels
         ]
         let config: [String: Any] = ["payload": payload]
         let configLiteral = try jsonScriptLiteral(config)

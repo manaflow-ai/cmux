@@ -11395,6 +11395,9 @@ class TerminalController {
         if let error = v2RegisterDiffViewerURLIfNeeded(params: params, url: url) {
             return error
         }
+        if let error = v2RegisterEditorFileIfNeeded(params: params, url: url) {
+            return error
+        }
 
         var result: V2CallResult = .err(code: "internal_error", message: "Failed to create browser", data: nil)
         v2MainSync {
@@ -11550,6 +11553,26 @@ class TerminalController {
         }
     }
 
+    /// Registers the editor write capability for a diff-viewer page being
+    /// opened, if a trusted sidecar exists for the URL's token. The file path
+    /// comes exclusively from the uid-owned serving directory (written by
+    /// `cmux edit`), never from socket params, so `browser.open_split`
+    /// callers cannot mint a write capability for arbitrary pages or paths.
+    private func v2RegisterEditorFileIfNeeded(params: [String: Any], url: URL?) -> V2CallResult? {
+        guard let url, v2IsDiffViewerURL(url) else {
+            return nil
+        }
+        let token: String?
+        if url.scheme == CmuxDiffViewerURLSchemeHandler.scheme {
+            token = url.host
+        } else {
+            token = url.path.split(separator: "/", omittingEmptySubsequences: true).first.map(String.init)
+        }
+        if let token {
+            CmuxEditorSaveRegistry.shared.registerFromTrustedSidecar(token: token)
+        }
+        return nil
+    }
     private func v2BrowserNavigate(params: [String: Any]) -> V2CallResult {
         guard let tabManager = v2ResolveTabManager(params: params) else {
             return .err(code: "unavailable", message: "TabManager not available", data: nil)
