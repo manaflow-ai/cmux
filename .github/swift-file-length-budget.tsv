@@ -15,8 +15,8 @@
 7291	cmuxTests/WorkspaceUnitTests.swift
 6948	cmuxTests/WorkspaceRemoteConnectionTests.swift
 6542	cmuxTests/GhosttyConfigTests.swift
+6329	cmuxTests/SessionPersistenceTests.swift
 6299	cmuxTests/TerminalAndGhosttyTests.swift
-6220	cmuxTests/SessionPersistenceTests.swift
 6153	CLI/cmux_open.swift
 6071	Sources/TextBoxInput.swift
 5482	cmuxTests/BrowserConfigTests.swift
@@ -44,7 +44,7 @@
 2327	cmuxTests/CJKIMEInputTests.swift
 2314	Sources/FileExplorerView.swift
 2260	Sources/TerminalWindowPortal.swift
-2138	Sources/SessionPersistence.swift
+2198	Sources/SessionPersistence.swift
 2123	cmuxTests/ShortcutAndCommandPaletteTests.swift
 2117	cmuxTests/CmuxConfigTests.swift
 1996	Sources/KeyboardShortcutSettingsFileStore.swift
