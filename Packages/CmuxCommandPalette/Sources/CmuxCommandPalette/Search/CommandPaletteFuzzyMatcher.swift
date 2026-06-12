@@ -1,157 +1,36 @@
 import Foundation
 
-struct CommandPaletteSwitcherSearchMetadata: Equatable, Sendable {
-    let directories: [String]
-    let branches: [String]
-    let ports: [Int]
-    let description: String?
-
-    init(
-        directories: [String] = [],
-        branches: [String] = [],
-        ports: [Int] = [],
-        description: String? = nil
-    ) {
-        self.directories = directories
-        self.branches = branches
-        self.ports = ports
-        self.description = description
-    }
-}
-enum CommandPaletteSwitcherSearchIndexer {
-    enum MetadataDetail {
-        case workspace
-        case surface
-    }
-
-    private static let metadataDelimiters = CharacterSet(charactersIn: "/\\.:_- ")
-
-    static func keywords(
-        baseKeywords: [String],
-        metadata: CommandPaletteSwitcherSearchMetadata,
-        detail: MetadataDetail = .surface
-    ) -> [String] {
-        let metadataKeywords = metadataKeywordsForSearch(metadata, detail: detail)
-        return uniqueNormalizedPreservingOrder(baseKeywords + metadataKeywords)
-    }
-
-    private static func metadataKeywordsForSearch(
-        _ metadata: CommandPaletteSwitcherSearchMetadata,
-        detail: MetadataDetail
-    ) -> [String] {
-        let directoryTokens = metadata.directories.flatMap { directoryTokensForSearch($0, detail: detail) }
-        let branchTokens = metadata.branches.flatMap { branchTokensForSearch($0, detail: detail) }
-        let portTokens = metadata.ports.flatMap(portTokensForSearch)
-        let descriptionTokens = descriptionTokensForSearch(metadata.description)
-
-        var contextKeywords: [String] = []
-        if !directoryTokens.isEmpty {
-            contextKeywords.append(contentsOf: ["directory", "dir", "cwd", "path"])
-        }
-        if !branchTokens.isEmpty {
-            contextKeywords.append(contentsOf: ["branch", "git"])
-        }
-        if !portTokens.isEmpty {
-            contextKeywords.append(contentsOf: ["port", "ports"])
-        }
-        if !descriptionTokens.isEmpty {
-            contextKeywords.append(contentsOf: ["description", "descriptions", "notes", "note"])
-        }
-
-        return contextKeywords + directoryTokens + branchTokens + portTokens + descriptionTokens
-    }
-
-    private static func directoryTokensForSearch(
-        _ rawDirectory: String,
-        detail: MetadataDetail
-    ) -> [String] {
-        let trimmed = rawDirectory.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { return [] }
-
-        let standardized = (trimmed as NSString).standardizingPath
-        let canonical = standardized.isEmpty ? trimmed : standardized
-        let abbreviated = (canonical as NSString).abbreviatingWithTildeInPath
-        switch detail {
-        case .workspace:
-            return uniqueNormalizedPreservingOrder([trimmed, canonical, abbreviated])
-        case .surface:
-            let basename = URL(fileURLWithPath: canonical, isDirectory: true).lastPathComponent
-            let components = canonical.components(separatedBy: metadataDelimiters).filter { !$0.isEmpty }
-            return uniqueNormalizedPreservingOrder(
-                [trimmed, canonical, abbreviated, basename] + components
-            )
-        }
-    }
-
-    private static func branchTokensForSearch(
-        _ rawBranch: String,
-        detail: MetadataDetail
-    ) -> [String] {
-        let trimmed = rawBranch.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { return [] }
-        switch detail {
-        case .workspace:
-            return [trimmed]
-        case .surface:
-            let components = trimmed.components(separatedBy: metadataDelimiters).filter { !$0.isEmpty }
-            return uniqueNormalizedPreservingOrder([trimmed] + components)
-        }
-    }
-
-    private static func portTokensForSearch(_ port: Int) -> [String] {
-        guard (1...65535).contains(port) else { return [] }
-        let portText = String(port)
-        return [portText, ":\(portText)"]
-    }
-
-    private static func descriptionTokensForSearch(_ rawDescription: String?) -> [String] {
-        let trimmed = rawDescription?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-        guard !trimmed.isEmpty else { return [] }
-        let normalizedWhitespace = trimmed.replacingOccurrences(
-            of: "\\s+",
-            with: " ",
-            options: .regularExpression
-        )
-        let components = normalizedWhitespace.components(separatedBy: metadataDelimiters).filter { !$0.isEmpty }
-        return uniqueNormalizedPreservingOrder([trimmed, normalizedWhitespace] + components)
-    }
-
-    private static func uniqueNormalizedPreservingOrder(_ values: [String]) -> [String] {
-        var result: [String] = []
-        var seen: Set<String> = []
-        result.reserveCapacity(values.count)
-
-        for value in values {
-            let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
-            guard !trimmed.isEmpty else { continue }
-            let normalizedKey = trimmed
-                .folding(options: [.diacriticInsensitive, .caseInsensitive], locale: .current)
-                .lowercased()
-            guard seen.insert(normalizedKey).inserted else { continue }
-            result.append(trimmed)
-        }
-        return result
-    }
-}
-
-enum CommandPaletteFuzzyMatcher {
+/// The Swift fuzzy matcher behind command-palette ranking: token scoring over
+/// word segments with exact/prefix/contains/initialism/stitched-prefix and
+/// single-edit fallbacks. Pure logic; scores are deterministic for a given
+/// query/candidate pair.
+public enum CommandPaletteFuzzyMatcher {
     private static let tokenBoundaryChars: Set<Character> = [" ", "-", "_", "/", ".", ":"]
 
-    struct WordSegment: Hashable, Sendable {
-        let start: Int
-        let end: Int
+    /// Half-open `[start, end)` character range of one word in a candidate.
+    public struct WordSegment: Hashable, Sendable {
+        /// Index of the first character of the word.
+        public let start: Int
+        /// Index one past the last character of the word.
+        public let end: Int
     }
 
-    struct ASCIIScalarMask: Equatable, Sendable {
-        let low: UInt64
-        let high: UInt64
+    /// 128-bit presence mask of ASCII scalars used to cheaply prune
+    /// candidates that cannot contain a token's characters.
+    public struct ASCIIScalarMask: Equatable, Sendable {
+        /// Bits for scalars 0-63.
+        public let low: UInt64
+        /// Bits for scalars 64-127.
+        public let high: UInt64
 
-        init(low: UInt64, high: UInt64) {
+        /// Creates a mask from raw bit halves.
+        public init(low: UInt64, high: UInt64) {
             self.low = low
             self.high = high
         }
 
-        init(_ text: String) {
+        /// Builds the mask from the ASCII scalars of `text`.
+        public init(_ text: String) {
             var low: UInt64 = 0
             var high: UInt64 = 0
             for scalar in text.unicodeScalars where scalar.isASCII {
@@ -166,21 +45,32 @@ enum CommandPaletteFuzzyMatcher {
             self.high = high
         }
 
-        func missingBitCount(from candidate: ASCIIScalarMask) -> Int {
+        /// Number of scalars present here but absent from `candidate`.
+        public func missingBitCount(from candidate: ASCIIScalarMask) -> Int {
             (low & ~candidate.low).nonzeroBitCount + (high & ~candidate.high).nonzeroBitCount
         }
     }
 
-    struct PreparedToken: Equatable, Sendable {
-        let normalizedText: String
-        let characters: [Character]
-        let asciiMask: ASCIIScalarMask
-        let allowsSingleEdit: Bool
-        let containsTokenBoundaryCharacter: Bool
-        let scoreUpperBound: Int
-        let scoreUpperBoundWithoutExactMatch: Int
+    /// One normalized query token with precomputed characters, ASCII mask,
+    /// and score bounds.
+    public struct PreparedToken: Equatable, Sendable {
+        /// The normalized token text.
+        public let normalizedText: String
+        /// The token's characters in order.
+        public let characters: [Character]
+        /// ASCII presence mask for fast pruning.
+        public let asciiMask: ASCIIScalarMask
+        /// Whether single-edit (typo) fallback matching applies (length >= 4).
+        public let allowsSingleEdit: Bool
+        /// Whether the token contains a word-boundary character.
+        public let containsTokenBoundaryCharacter: Bool
+        /// Maximum achievable score for this token.
+        public let scoreUpperBound: Int
+        /// Maximum achievable score excluding an exact whole-text match.
+        public let scoreUpperBoundWithoutExactMatch: Int
 
-        init(_ normalizedText: String) {
+        /// Prepares a normalized token for matching.
+        public init(_ normalizedText: String) {
             self.normalizedText = normalizedText
             self.characters = Array(normalizedText)
             self.asciiMask = ASCIIScalarMask(normalizedText)
@@ -192,19 +82,28 @@ enum CommandPaletteFuzzyMatcher {
             self.scoreUpperBoundWithoutExactMatch = max(6799, 3500 + (characters.count * 300))
         }
 
-        func couldMatch(_ candidate: PreparedCandidateText) -> Bool {
+        /// Fast pre-check: whether `candidate` could possibly match this token
+        /// within the allowed edit budget.
+        public func couldMatch(_ candidate: PreparedCandidateText) -> Bool {
             let missingCharacters = asciiMask.missingBitCount(from: candidate.asciiMask)
             return missingCharacters <= (allowsSingleEdit ? 1 : 0)
         }
     }
 
-    struct PreparedCandidateText: Sendable {
-        let normalizedText: String
-        let characters: [Character]
-        let wordSegments: [WordSegment]
-        let asciiMask: ASCIIScalarMask
+    /// One normalized candidate string with precomputed characters, word
+    /// segments, and ASCII mask.
+    public struct PreparedCandidateText: Sendable {
+        /// The normalized candidate text.
+        public let normalizedText: String
+        /// The candidate's characters in order.
+        public let characters: [Character]
+        /// Word segments split on token-boundary characters.
+        public let wordSegments: [WordSegment]
+        /// ASCII presence mask for fast pruning.
+        public let asciiMask: ASCIIScalarMask
 
-        init(normalizedText: String) {
+        /// Prepares a normalized candidate for matching.
+        public init(normalizedText: String) {
             self.normalizedText = normalizedText
             self.characters = Array(normalizedText)
             self.wordSegments = CommandPaletteFuzzyMatcher.wordSegments(characters)
@@ -241,16 +140,21 @@ enum CommandPaletteFuzzyMatcher {
         let editKind: SingleEditWordPrefixEditKind
     }
 
-    struct PreparedQuery {
-        let normalizedText: String
-        let tokens: [PreparedToken]
+    /// A normalized query split into prepared tokens.
+    public struct PreparedQuery {
+        /// The full normalized query text.
+        public let normalizedText: String
+        /// The prepared tokens, in query order.
+        public let tokens: [PreparedToken]
 
-        var isEmpty: Bool {
+        /// Whether the query has no tokens.
+        public var isEmpty: Bool {
             tokens.isEmpty
         }
     }
 
-    static func preparedQuery(_ query: String) -> PreparedQuery {
+    /// Normalizes and tokenizes `query` for matching.
+    public static func preparedQuery(_ query: String) -> PreparedQuery {
         let normalizedQuery = normalizeForSearch(query)
         return PreparedQuery(
             normalizedText: normalizedQuery,
@@ -262,29 +166,34 @@ enum CommandPaletteFuzzyMatcher {
         )
     }
 
-    static func normalizeForSearch(_ text: String) -> String {
+    /// Canonical search normalization: trim, diacritic-fold, case-fold.
+    public static func normalizeForSearch(_ text: String) -> String {
         text
             .trimmingCharacters(in: .whitespacesAndNewlines)
             .folding(options: [.diacriticInsensitive, .caseInsensitive], locale: .current)
             .lowercased()
     }
 
-    static func prepareCandidateText(_ candidate: String) -> PreparedCandidateText? {
+    /// Normalizes and prepares `candidate`, or nil when it normalizes to empty.
+    public static func prepareCandidateText(_ candidate: String) -> PreparedCandidateText? {
         let normalizedCandidate = normalizeForSearch(candidate)
         guard !normalizedCandidate.isEmpty else { return nil }
         return PreparedCandidateText(normalizedText: normalizedCandidate)
     }
 
-    static func prepareNormalizedCandidateText(_ normalizedCandidate: String) -> PreparedCandidateText? {
+    /// Prepares an already-normalized candidate, or nil when empty.
+    public static func prepareNormalizedCandidateText(_ normalizedCandidate: String) -> PreparedCandidateText? {
         guard !normalizedCandidate.isEmpty else { return nil }
         return PreparedCandidateText(normalizedText: normalizedCandidate)
     }
 
-    static func score(query: String, candidate: String) -> Int? {
+    /// Scores `query` against a single candidate; nil when it does not match.
+    public static func score(query: String, candidate: String) -> Int? {
         score(query: query, candidates: [candidate])
     }
 
-    static func score(query: String, candidates: [String]) -> Int? {
+    /// Scores `query` against multiple candidate texts; nil when any token fails.
+    public static func score(query: String, candidates: [String]) -> Int? {
         let preparedQuery = preparedQuery(query)
         var normalizedCandidates: [String] = []
         normalizedCandidates.reserveCapacity(candidates.count)
@@ -299,7 +208,8 @@ enum CommandPaletteFuzzyMatcher {
         )
     }
 
-    static func score(preparedQuery: PreparedQuery, normalizedCandidates: [String]) -> Int? {
+    /// Scores a prepared query against normalized candidate texts.
+    public static func score(preparedQuery: PreparedQuery, normalizedCandidates: [String]) -> Int? {
         score(
             preparedQuery: preparedQuery,
             preparedCandidates: normalizedCandidates.compactMap(prepareNormalizedCandidateText),
@@ -307,7 +217,8 @@ enum CommandPaletteFuzzyMatcher {
         )
     }
 
-    static func score(preparedQuery: PreparedQuery, preparedCandidates: [PreparedCandidateText]) -> Int? {
+    /// Scores a prepared query against prepared candidates.
+    public static func score(preparedQuery: PreparedQuery, preparedCandidates: [PreparedCandidateText]) -> Int? {
         score(
             preparedQuery: preparedQuery,
             preparedCandidates: preparedCandidates,
@@ -315,7 +226,8 @@ enum CommandPaletteFuzzyMatcher {
         )
     }
 
-    static func score(preparedQuery: PreparedQuery, preparedCandidate: PreparedCandidateText) -> Int? {
+    /// Scores a prepared query against one prepared candidate.
+    public static func score(preparedQuery: PreparedQuery, preparedCandidate: PreparedCandidateText) -> Int? {
         guard !preparedQuery.isEmpty else { return 0 }
 
         var totalScore = 0
@@ -327,7 +239,8 @@ enum CommandPaletteFuzzyMatcher {
         return totalScore
     }
 
-    static func score(
+    /// Full scoring entry point with exact-text and prefix-score fast paths.
+    public static func score(
         preparedQuery: PreparedQuery,
         preparedCandidates: [PreparedCandidateText],
         exactCandidateTexts: Set<String>?,
@@ -379,7 +292,8 @@ enum CommandPaletteFuzzyMatcher {
         return bestScore
     }
 
-    static func wholeCandidatePrefixScoreByToken(
+    /// Precomputes best whole-candidate prefix scores keyed by prefix text.
+    public static func wholeCandidatePrefixScoreByToken(
         preparedCandidates: [PreparedCandidateText],
         maxPrefixLength: Int = 16
     ) -> [String: Int] {
@@ -399,18 +313,22 @@ enum CommandPaletteFuzzyMatcher {
         return scores
     }
 
-    static func matchCharacterIndices(query: String, candidate: String) -> Set<Int> {
+    /// Candidate character indices matched by `query`, for highlight rendering.
+    public static func matchCharacterIndices(query: String, candidate: String) -> Set<Int> {
         matchCharacterIndices(preparedQuery: preparedQuery(query), candidate: candidate)
     }
 
-    static func matchCharacterIndices(preparedQuery: PreparedQuery, candidate: String) -> Set<Int> {
+    /// Candidate character indices matched by a prepared query.
+    public static func matchCharacterIndices(preparedQuery: PreparedQuery, candidate: String) -> Set<Int> {
         guard !preparedQuery.isEmpty else { return [] }
 
         guard let preparedCandidate = prepareCandidateText(candidate) else { return [] }
         return matchCharacterIndices(preparedQuery: preparedQuery, preparedCandidate: preparedCandidate)
     }
 
-    static func matchCharacterIndices(
+    /// Candidate character indices matched by a prepared query against a
+    /// prepared candidate.
+    public static func matchCharacterIndices(
         preparedQuery: PreparedQuery,
         preparedCandidate: PreparedCandidateText
     ) -> Set<Int> {
@@ -476,7 +394,8 @@ enum CommandPaletteFuzzyMatcher {
         return matched
     }
 
-    static func tokenCanMatchWithoutSingleEdit(
+    /// Whether `token` matches `candidate` through any non-typo strategy.
+    public static func tokenCanMatchWithoutSingleEdit(
         _ token: PreparedToken,
         preparedCandidate candidate: PreparedCandidateText
     ) -> Bool {
@@ -512,7 +431,9 @@ enum CommandPaletteFuzzyMatcher {
         return false
     }
 
-    static func usesSingleEditWordPrefix(
+    /// Whether any token only matches these candidates via the single-edit
+    /// (typo) word-prefix fallback.
+    public static func usesSingleEditWordPrefix(
         preparedQuery: PreparedQuery,
         preparedCandidates: [PreparedCandidateText]
     ) -> Bool {
@@ -1122,289 +1043,5 @@ enum CommandPaletteFuzzyMatcher {
         }
 
         return matched
-    }
-}
-
-struct CommandPaletteSearchCorpusEntry<Payload>: Sendable where Payload: Sendable {
-    let payload: Payload
-    let rank: Int
-    let title: String
-    let preparedTitle: CommandPaletteFuzzyMatcher.PreparedCandidateText?
-    let preparedSearchableTexts: [CommandPaletteFuzzyMatcher.PreparedCandidateText]
-    let searchableTextSet: Set<String>
-    let searchablePrefixScoreByToken: [String: Int]
-    let nucleoSearchText: String
-
-    init(payload: Payload, rank: Int, title: String, searchableTexts: [String]) {
-        self.payload = payload
-        self.rank = rank
-        self.title = title
-        let normalizedTitle = CommandPaletteFuzzyMatcher.normalizeForSearch(title)
-        self.preparedTitle = CommandPaletteFuzzyMatcher.prepareNormalizedCandidateText(normalizedTitle)
-
-        var nucleoSearchTexts: [String] = []
-        var normalizedTexts: [String] = []
-        var seen: Set<String> = []
-        normalizedTexts.reserveCapacity(searchableTexts.count)
-        nucleoSearchTexts.reserveCapacity(searchableTexts.count)
-        for text in searchableTexts {
-            let trimmedText = text.trimmingCharacters(in: .whitespacesAndNewlines)
-            if !trimmedText.isEmpty {
-                nucleoSearchTexts.append(trimmedText)
-            }
-            let normalizedText = CommandPaletteFuzzyMatcher.normalizeForSearch(text)
-            guard !normalizedText.isEmpty else { continue }
-            guard seen.insert(normalizedText).inserted else { continue }
-            normalizedTexts.append(normalizedText)
-        }
-
-        let preparedSearchableTexts = normalizedTexts.compactMap(
-            CommandPaletteFuzzyMatcher.prepareNormalizedCandidateText
-        )
-        self.preparedSearchableTexts = preparedSearchableTexts
-        self.searchableTextSet = Set(normalizedTexts)
-        self.searchablePrefixScoreByToken = CommandPaletteFuzzyMatcher.wholeCandidatePrefixScoreByToken(
-            preparedCandidates: preparedSearchableTexts
-        )
-        self.nucleoSearchText = nucleoSearchTexts.joined(separator: "\n")
-    }
-}
-
-struct CommandPaletteSearchCorpusResult<Payload>: Sendable where Payload: Sendable {
-    let payload: Payload
-    let rank: Int
-    let title: String
-    let score: Int
-    let titleMatchIndices: Set<Int>
-}
-
-enum CommandPaletteSearchEngine {
-    private static let titleMatchBonus = 2000
-
-    private struct ScoredEntry<Payload>: Sendable where Payload: Sendable {
-        let entry: CommandPaletteSearchCorpusEntry<Payload>
-        let index: Int
-        let score: Int
-    }
-
-    private static func scoredEntryIsBetter<Payload: Sendable>(
-        _ lhs: ScoredEntry<Payload>,
-        than rhs: ScoredEntry<Payload>
-    ) -> Bool {
-        if lhs.score != rhs.score { return lhs.score > rhs.score }
-        if lhs.entry.rank != rhs.entry.rank { return lhs.entry.rank < rhs.entry.rank }
-        let titleComparison = lhs.entry.title.localizedCaseInsensitiveCompare(rhs.entry.title)
-        if titleComparison != .orderedSame { return titleComparison == .orderedAscending }
-        return lhs.index < rhs.index
-    }
-
-    private static func scoredEntryIsWorse<Payload: Sendable>(
-        _ lhs: ScoredEntry<Payload>,
-        than rhs: ScoredEntry<Payload>
-    ) -> Bool {
-        scoredEntryIsBetter(rhs, than: lhs)
-    }
-
-    private static func siftUpWorstScoredEntryHeap<Payload: Sendable>(
-        _ heap: inout [ScoredEntry<Payload>],
-        from startIndex: Int
-    ) {
-        var child = startIndex
-        while child > 0 {
-            let parent = (child - 1) / 2
-            guard scoredEntryIsWorse(heap[child], than: heap[parent]) else { break }
-            heap.swapAt(child, parent)
-            child = parent
-        }
-    }
-
-    private static func siftDownWorstScoredEntryHeap<Payload: Sendable>(
-        _ heap: inout [ScoredEntry<Payload>],
-        from startIndex: Int
-    ) {
-        var parent = startIndex
-        while true {
-            let leftChild = (parent * 2) + 1
-            guard leftChild < heap.count else { return }
-
-            let rightChild = leftChild + 1
-            var worstChild = leftChild
-            if rightChild < heap.count,
-               scoredEntryIsWorse(heap[rightChild], than: heap[leftChild]) {
-                worstChild = rightChild
-            }
-
-            guard scoredEntryIsWorse(heap[worstChild], than: heap[parent]) else { return }
-            heap.swapAt(parent, worstChild)
-            parent = worstChild
-        }
-    }
-
-    private static func appendScoredEntry<Payload: Sendable>(
-        _ scoredEntry: ScoredEntry<Payload>,
-        to scoredEntries: inout [ScoredEntry<Payload>],
-        limit: Int?
-    ) {
-        guard let limit else {
-            scoredEntries.append(scoredEntry)
-            return
-        }
-
-        if scoredEntries.count < limit {
-            scoredEntries.append(scoredEntry)
-            siftUpWorstScoredEntryHeap(&scoredEntries, from: scoredEntries.count - 1)
-            return
-        }
-
-        guard let worstEntry = scoredEntries.first,
-              scoredEntryIsBetter(scoredEntry, than: worstEntry) else {
-            return
-        }
-        scoredEntries[0] = scoredEntry
-        siftDownWorstScoredEntryHeap(&scoredEntries, from: 0)
-    }
-
-    static func search<Payload: Sendable>(
-        entries: [CommandPaletteSearchCorpusEntry<Payload>],
-        query: String,
-        resultLimit: Int? = nil,
-        historyBoost: (Payload, Bool) -> Int
-    ) -> [CommandPaletteSearchCorpusResult<Payload>] {
-        search(
-            entries: entries,
-            query: query,
-            resultLimit: resultLimit,
-            historyBoost: historyBoost,
-            shouldCancel: nil
-        )
-    }
-
-    static func search<Payload: Sendable>(
-        entries: [CommandPaletteSearchCorpusEntry<Payload>],
-        query: String,
-        resultLimit: Int? = nil,
-        historyBoost: (Payload, Bool) -> Int,
-        shouldCancel: @escaping () -> Bool
-    ) -> [CommandPaletteSearchCorpusResult<Payload>] {
-        search(
-            entries: entries,
-            query: query,
-            resultLimit: resultLimit,
-            historyBoost: historyBoost,
-            shouldCancel: Optional(shouldCancel)
-        )
-    }
-
-    private static func search<Payload: Sendable>(
-        entries: [CommandPaletteSearchCorpusEntry<Payload>],
-        query: String,
-        resultLimit: Int?,
-        historyBoost: (Payload, Bool) -> Int,
-        shouldCancel: (() -> Bool)?
-    ) -> [CommandPaletteSearchCorpusResult<Payload>] {
-        if let resultLimit, resultLimit <= 0 {
-            return []
-        }
-        let preparedQuery = CommandPaletteFuzzyMatcher.preparedQuery(query)
-        let queryIsEmpty = preparedQuery.isEmpty
-        let limitedResultCount = resultLimit.map { min($0, entries.count) }
-        var scoredEntries: [ScoredEntry<Payload>] = []
-        scoredEntries.reserveCapacity(limitedResultCount ?? entries.count)
-
-        func shouldCancelSearch(at index: Int) -> Bool {
-            guard let shouldCancel else { return false }
-            return index % 16 == 0 && shouldCancel()
-        }
-
-        if queryIsEmpty {
-            for (index, entry) in entries.enumerated() {
-                if shouldCancelSearch(at: index) { return [] }
-                appendScoredEntry(
-                    ScoredEntry(
-                        entry: entry,
-                        index: index,
-                        score: historyBoost(entry.payload, true)
-                    ),
-                    to: &scoredEntries,
-                    limit: limitedResultCount
-                )
-            }
-        } else {
-            for (index, entry) in entries.enumerated() {
-                if shouldCancelSearch(at: index) { return [] }
-                guard let fuzzyScore = weightedScore(
-                    preparedQuery: preparedQuery,
-                    entry: entry
-                ) else {
-                    continue
-                }
-                appendScoredEntry(
-                    ScoredEntry(
-                        entry: entry,
-                        index: index,
-                        score: fuzzyScore + historyBoost(entry.payload, false)
-                    ),
-                    to: &scoredEntries,
-                    limit: limitedResultCount
-                )
-            }
-        }
-
-        if shouldCancel?() == true { return [] }
-
-        scoredEntries.sort { scoredEntryIsBetter($0, than: $1) }
-
-        let outputCount = resultLimit.map { min($0, scoredEntries.count) } ?? scoredEntries.count
-        var results: [CommandPaletteSearchCorpusResult<Payload>] = []
-        results.reserveCapacity(outputCount)
-        for index in 0..<outputCount {
-            if shouldCancelSearch(at: index) { return [] }
-            let scoredEntry = scoredEntries[index]
-            let entry = scoredEntry.entry
-            let titleMatchIndices: Set<Int>
-            if queryIsEmpty {
-                titleMatchIndices = []
-            } else {
-                titleMatchIndices = entry.preparedTitle.map {
-                    CommandPaletteFuzzyMatcher.matchCharacterIndices(
-                        preparedQuery: preparedQuery,
-                        preparedCandidate: $0
-                    )
-                } ?? []
-            }
-            results.append(
-                CommandPaletteSearchCorpusResult(
-                    payload: entry.payload,
-                    rank: entry.rank,
-                    title: entry.title,
-                    score: scoredEntry.score,
-                    titleMatchIndices: titleMatchIndices
-                )
-            )
-        }
-        return results
-    }
-
-    private static func weightedScore<Payload: Sendable>(
-        preparedQuery: CommandPaletteFuzzyMatcher.PreparedQuery,
-        entry: CommandPaletteSearchCorpusEntry<Payload>
-    ) -> Int? {
-        guard let fuzzyScore = CommandPaletteFuzzyMatcher.score(
-            preparedQuery: preparedQuery,
-            preparedCandidates: entry.preparedSearchableTexts,
-            exactCandidateTexts: entry.searchableTextSet,
-            wholeCandidatePrefixScoreByToken: entry.searchablePrefixScoreByToken
-        ) else {
-            return nil
-        }
-        if let preparedTitle = entry.preparedTitle,
-           preparedQuery.tokens.allSatisfy({ $0.couldMatch(preparedTitle) }),
-           let titleScore = CommandPaletteFuzzyMatcher.score(
-                preparedQuery: preparedQuery,
-                preparedCandidate: preparedTitle
-            ) {
-            return max(fuzzyScore, titleScore + titleMatchBonus)
-        }
-        return fuzzyScore
     }
 }
