@@ -9,14 +9,12 @@ extension cmuxApp {
             let recentlyFocusedSnapshot = recentlyFocusedMenuSnapshot(manager: historyTabManager)
             let recentlyClosedSnapshot = recentlyClosedMenuSnapshot
 
-            // Badge the always-available Global pair: the ⌘[ / ⌘] pair is gated
-            // to non-browser focus, which a static menu equivalent would bypass.
-            splitCommandButton(title: String(localized: "menu.history.focusBack", defaultValue: "Focus Back"), shortcut: menuShortcut(for: .focusHistoryBackGlobal)) {
+            splitCommandButton(title: String(localized: "menu.history.focusBack", defaultValue: "Focus Back"), shortcut: menuShortcut(for: .focusHistoryBack)) {
                 historyTabManager.navigateBack()
             }
             .disabled(!canNavigateFocusHistoryBack)
 
-            splitCommandButton(title: String(localized: "menu.history.focusForward", defaultValue: "Focus Forward"), shortcut: menuShortcut(for: .focusHistoryForwardGlobal)) {
+            splitCommandButton(title: String(localized: "menu.history.focusForward", defaultValue: "Focus Forward"), shortcut: menuShortcut(for: .focusHistoryForward)) {
                 historyTabManager.navigateForward()
             }
             .disabled(!canNavigateFocusHistoryForward)

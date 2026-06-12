@@ -14,7 +14,6 @@ extension KeyboardShortcutSettings {
 
         guard let data = UserDefaults.standard.data(forKey: action.defaultsKey),
               let shortcut = try? JSONDecoder().decode(StoredShortcut.self, from: data) else {
-            if inheritsFocusHistoryOptOut(action) { return nil }
             let defaultShortcut = action.defaultShortcut
             return defaultShortcut.isUnbound ? nil : defaultShortcut
         }
@@ -30,34 +29,6 @@ extension KeyboardShortcutSettings {
         if settingsFileStore.override(for: action) != nil { return true }
         guard let data = UserDefaults.standard.data(forKey: action.defaultsKey) else { return false }
         return (try? JSONDecoder().decode(StoredShortcut.self, from: data)) != nil
-    }
-
-    /// Whether the user explicitly unbound `action` (an unbound marker stored in
-    /// either layer), as opposed to never touching it.
-    static func hasExplicitUnboundMarker(for action: Action) -> Bool {
-        if let managedShortcut = settingsFileStore.override(for: action) {
-            return managedShortcut.isUnbound
-        }
-        guard let data = UserDefaults.standard.data(forKey: action.defaultsKey),
-              let shortcut = try? JSONDecoder().decode(StoredShortcut.self, from: data) else {
-            return false
-        }
-        return shortcut.isUnbound
-    }
-
-    /// Users who explicitly unbound Focus Back AND Focus Forward (the previously
-    /// documented workaround to reclaim ⌘[ / ⌘] for browser panes) opted out of
-    /// the focus-history verb on their keyboard; don't resurrect it through the
-    /// global pair's factory default. Read-side only — never writes the user's
-    /// config, and binding either global action explicitly always wins.
-    private static func inheritsFocusHistoryOptOut(_ action: Action) -> Bool {
-        switch action {
-        case .focusHistoryBackGlobal, .focusHistoryForwardGlobal:
-            return hasExplicitUnboundMarker(for: .focusHistoryBack)
-                && hasExplicitUnboundMarker(for: .focusHistoryForward)
-        default:
-            return false
-        }
     }
 
     static func shortcut(for action: Action) -> StoredShortcut {
@@ -81,15 +52,13 @@ extension KeyboardShortcutSettings {
         }
 
         // A static menu key equivalent would bypass these actions' built-in
-        // focus gates (same hazard as issue #5189, but for built-in clauses):
-        // Focus Back/Forward are scoped outside browser panes, and the View
-        // menu's Back/Forward call into the focused browser as a silent no-op
-        // when none is focused, so a ⌘[ / ⌘] equivalent there would eat the
-        // chord whenever the keyDown router leaves it unhandled. The History
-        // menu badges the always-available Global pair instead; the keyDown
-        // router remains the sole dispatcher for the focus-gated ⌘[ / ⌘] pair.
+        // browser-focus gate (same hazard as issue #5189, but for a built-in
+        // clause): the View menu's Back/Forward call into the focused browser
+        // as a silent no-op when none is focused, so a menu equivalent there
+        // would eat the chord whenever the keyDown router leaves it unhandled.
+        // The keyDown router remains the sole dispatcher for both.
         switch action {
-        case .focusHistoryBack, .focusHistoryForward, .browserBack, .browserForward:
+        case .browserBack, .browserForward:
             return .unbound
         default:
             return shortcut(for: action)

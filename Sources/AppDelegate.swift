@@ -13542,11 +13542,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             }
         }
 
-        // Focus history rides ⌘[ / ⌘] outside browser panes (its built-in when
-        // clause yields those keys to browserBack/browserForward while a browser
-        // pane is focused) and stays reachable everywhere on the Global pair.
-        if matchConfiguredShortcut(event: event, action: .focusHistoryBack) ||
-            matchConfiguredShortcut(event: event, action: .focusHistoryBackGlobal) {
+        if matchConfiguredShortcut(event: event, action: .focusHistoryBack) {
             let routedManager = preferredMainWindowContextForShortcutRouting(event: event)?.tabManager ?? tabManager
             if routedManager?.navigateBack() != true {
                 NSSound.beep()
@@ -13554,8 +13550,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             return true
         }
 
-        if matchConfiguredShortcut(event: event, action: .focusHistoryForward) ||
-            matchConfiguredShortcut(event: event, action: .focusHistoryForwardGlobal) {
+        if matchConfiguredShortcut(event: event, action: .focusHistoryForward) {
             let routedManager = preferredMainWindowContextForShortcutRouting(event: event)?.tabManager ?? tabManager
             if routedManager?.navigateForward() != true {
                 NSSound.beep()

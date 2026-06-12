@@ -352,7 +352,7 @@ final class KeyboardShortcutContextTests: XCTestCase {
         )
     }
 
-    func testFocusHistoryMenuShortcutsAreSuppressedInFavorOfGlobalPair() throws {
+    func testBrowserHistoryMenuShortcutsStayUnboundSoMenusCannotBypassFocusGate() throws {
         let originalSettingsFileStore = KeyboardShortcutSettings.settingsFileStore
         let directoryURL = try makeTemporaryDirectory()
         defer {
@@ -371,113 +371,38 @@ final class KeyboardShortcutContextTests: XCTestCase {
         )
         KeyboardShortcutSettings.resetAll()
 
-        // Static menu equivalents bypass focus gates, so the focus-gated
-        // ⌘[ / ⌘] pair and the browser View-menu Back/Forward (which no-op
-        // without a focused browser) stay menu-unbound; only the History
-        // menu's always-available Global pair carries a badge.
-        XCTAssertEqual(KeyboardShortcutSettings.menuShortcut(for: .focusHistoryBack), .unbound)
-        XCTAssertEqual(KeyboardShortcutSettings.menuShortcut(for: .focusHistoryForward), .unbound)
+        // Static menu equivalents bypass focus gates: the View menu's
+        // Back/Forward no-op without a focused browser, so a ⌥⌘[ / ⌥⌘]
+        // equivalent there would eat the chord whenever the keyDown router
+        // leaves it unhandled. Focus history has no focus gate, so the History
+        // menu keeps its truthful ⌘[ / ⌘] badges.
         XCTAssertEqual(KeyboardShortcutSettings.menuShortcut(for: .browserBack), .unbound)
         XCTAssertEqual(KeyboardShortcutSettings.menuShortcut(for: .browserForward), .unbound)
         XCTAssertEqual(
-            KeyboardShortcutSettings.menuShortcut(for: .focusHistoryBackGlobal),
-            KeyboardShortcutSettings.shortcut(for: .focusHistoryBackGlobal)
+            KeyboardShortcutSettings.menuShortcut(for: .focusHistoryBack),
+            KeyboardShortcutSettings.shortcut(for: .focusHistoryBack)
         )
         XCTAssertEqual(
-            KeyboardShortcutSettings.menuShortcut(for: .focusHistoryForwardGlobal),
-            KeyboardShortcutSettings.shortcut(for: .focusHistoryForwardGlobal)
+            KeyboardShortcutSettings.menuShortcut(for: .focusHistoryForward),
+            KeyboardShortcutSettings.shortcut(for: .focusHistoryForward)
         )
-    }
-
-    func testFocusHistoryGlobalPairDefaultsToCommandOptionBrackets() {
-        XCTAssertEqual(
-            KeyboardShortcutSettings.Action.focusHistoryBackGlobal.defaultShortcut,
-            StoredShortcut(key: "[", command: true, shift: false, option: true, control: false)
-        )
-        XCTAssertEqual(
-            KeyboardShortcutSettings.Action.focusHistoryForwardGlobal.defaultShortcut,
-            StoredShortcut(key: "]", command: true, shift: false, option: true, control: false)
-        )
-        XCTAssertEqual(KeyboardShortcutSettings.Action.focusHistoryBackGlobal.shortcutContext, .application)
-        XCTAssertEqual(KeyboardShortcutSettings.Action.focusHistoryForwardGlobal.shortcutContext, .application)
-        XCTAssertTrue(KeyboardShortcutSettings.settingsVisibleActions.contains(.focusHistoryBackGlobal))
-        XCTAssertTrue(KeyboardShortcutSettings.settingsVisibleActions.contains(.focusHistoryForwardGlobal))
-    }
-
-    // Users who explicitly unbound Focus Back/Forward (the documented workaround
-    // to reclaim ⌘[ / ⌘] for browser panes) opted out of the focus-history verb;
-    // shipping the Global pair must not resurrect it on their keyboard.
-    func testExplicitFocusHistoryOptOutCarriesOverToGlobalPair() {
-        defer { KeyboardShortcutSettings.resetAll() }
-        KeyboardShortcutSettings.resetAll()
-
-        KeyboardShortcutSettings.clearShortcut(for: .focusHistoryBack)
-        XCTAssertEqual(
-            KeyboardShortcutSettings.shortcut(for: .focusHistoryBackGlobal),
-            KeyboardShortcutSettings.Action.focusHistoryBackGlobal.defaultShortcut,
-            "Unbinding only one direction is not a full opt-out; the Global pair keeps its default"
-        )
-
-        KeyboardShortcutSettings.clearShortcut(for: .focusHistoryForward)
-        XCTAssertEqual(KeyboardShortcutSettings.shortcut(for: .focusHistoryBackGlobal), .unbound)
-        XCTAssertEqual(KeyboardShortcutSettings.shortcut(for: .focusHistoryForwardGlobal), .unbound)
-
-        // An explicit user binding on a Global action always wins over the
-        // inherited opt-out.
-        let custom = StoredShortcut(key: "b", command: true, shift: true, option: true, control: false)
-        KeyboardShortcutSettings.setShortcut(custom, for: .focusHistoryBackGlobal)
-        XCTAssertEqual(KeyboardShortcutSettings.shortcut(for: .focusHistoryBackGlobal), custom)
-    }
-
-    func testExplicitFocusHistoryOptOutInSettingsFileCarriesOverToGlobalPair() throws {
-        let originalSettingsFileStore = KeyboardShortcutSettings.settingsFileStore
-        let directoryURL = try makeTemporaryDirectory()
-        defer {
-            KeyboardShortcutSettings.resetAll()
-            KeyboardShortcutSettings.settingsFileStore = originalSettingsFileStore
-            try? FileManager.default.removeItem(at: directoryURL)
-        }
-
-        let settingsFileURL = directoryURL.appendingPathComponent("cmux.json", isDirectory: false)
-        try writeSettingsFile(
-            """
-            {
-              "shortcuts": {
-                "bindings": {
-                  "focusHistoryBack": "none",
-                  "focusHistoryForward": "none"
-                }
-              }
-            }
-            """,
-            to: settingsFileURL
-        )
-        KeyboardShortcutSettings.settingsFileStore = KeyboardShortcutSettingsFileStore(
-            primaryPath: settingsFileURL.path,
-            fallbackPath: nil,
-            additionalFallbackPaths: [],
-            startWatching: false
-        )
-        KeyboardShortcutSettings.resetAll()
-
-        XCTAssertEqual(KeyboardShortcutSettings.shortcut(for: .focusHistoryBackGlobal), .unbound)
-        XCTAssertEqual(KeyboardShortcutSettings.shortcut(for: .focusHistoryForwardGlobal), .unbound)
     }
 
     func testUserCustomizationDetectionDistinguishesStoredValuesFromDefaults() {
         defer { KeyboardShortcutSettings.resetAll() }
         KeyboardShortcutSettings.resetAll()
 
-        XCTAssertFalse(KeyboardShortcutSettings.isUserCustomized(.focusHistoryBackGlobal))
-        XCTAssertFalse(KeyboardShortcutSettings.hasExplicitUnboundMarker(for: .focusHistoryBack))
+        XCTAssertFalse(KeyboardShortcutSettings.isUserCustomized(.browserBack))
 
         let custom = StoredShortcut(key: "b", command: true, shift: true, option: true, control: false)
-        KeyboardShortcutSettings.setShortcut(custom, for: .focusHistoryBackGlobal)
-        XCTAssertTrue(KeyboardShortcutSettings.isUserCustomized(.focusHistoryBackGlobal))
+        KeyboardShortcutSettings.setShortcut(custom, for: .browserBack)
+        XCTAssertTrue(KeyboardShortcutSettings.isUserCustomized(.browserBack))
 
         KeyboardShortcutSettings.clearShortcut(for: .focusHistoryBack)
-        XCTAssertTrue(KeyboardShortcutSettings.hasExplicitUnboundMarker(for: .focusHistoryBack))
-        XCTAssertTrue(KeyboardShortcutSettings.isUserCustomized(.focusHistoryBack))
+        XCTAssertTrue(
+            KeyboardShortcutSettings.isUserCustomized(.focusHistoryBack),
+            "An explicit unbound marker is a stored customization, not a fall-through to defaults"
+        )
     }
 
     func testEmptyWhenClauseDoesNotSuppressMenuShortcut() throws {
@@ -743,43 +668,40 @@ final class KeyboardShortcutContextTests: XCTestCase {
         XCTAssertFalse(surfaceWhen.evaluate(filesMode))
     }
 
-    // ⌘[ / ⌘] are Safari-muscle-memory page back/forward inside browser panes.
-    // Focus history shares those defaults, so its built-in clause must yield to
-    // browser focus — otherwise browserBack/browserForward are unreachable from
-    // the keyboard (the regression shipped with the focus-history feature).
-    func testFocusHistoryDefaultClauseYieldsToBrowserFocus() {
+    // One chord, one meaning, in every pane: ⌘[ / ⌘] are focus history
+    // everywhere (including focused browser panes), and browser page
+    // back/forward live on their own ⌥⌘[ / ⌥⌘] chords. This replaced both the
+    // original shared-⌘[ conflict (which left browser back keyboard-dead) and
+    // an interim context-routed design where ⌘[ changed meaning per pane.
+    func testFocusHistoryOwnsCommandBracketsEverywhereAndBrowserHistoryHasItsOwnChords() {
         let browserFocused = ShortcutFocusState(browser: true, markdown: false, sidebar: false)
-        let terminalFocused = ShortcutFocusState(browser: false, markdown: false, sidebar: false)
-        let sidebarFocused = ShortcutFocusState(browser: false, markdown: false, sidebar: true)
 
         for action in [KeyboardShortcutSettings.Action.focusHistoryBack, .focusHistoryForward] {
-            let clause = KeyboardShortcutSettings.effectiveWhenClause(for: action)
-            XCTAssertFalse(
-                clause.evaluate(browserFocused),
-                "\(action.rawValue) must yield ⌘[ / ⌘] to browser page navigation while a browser pane is focused"
+            XCTAssertEqual(action.shortcutContext, .application, action.rawValue)
+            XCTAssertTrue(
+                KeyboardShortcutSettings.effectiveWhenClause(for: action).evaluate(browserFocused),
+                "\(action.rawValue) keeps the same meaning while a browser pane is focused"
             )
-            XCTAssertTrue(clause.evaluate(terminalFocused), "\(action.rawValue) must stay live outside browser panes")
-            XCTAssertTrue(clause.evaluate(sidebarFocused), "\(action.rawValue) must stay live while the sidebar is focused")
         }
-    }
 
-    func testFocusHistoryAndBrowserHistoryCoexistOnSharedDefaultChord() {
-        let commandBracket = KeyboardShortcutSettings.Action.focusHistoryBack.defaultShortcut
-        XCTAssertEqual(commandBracket, KeyboardShortcutSettings.Action.browserBack.defaultShortcut)
-
-        XCTAssertFalse(
-            KeyboardShortcutSettings.Action.focusHistoryBack.conflicts(
-                with: commandBracket,
-                proposedAction: .browserBack,
-                configuredShortcut: commandBracket
-            ),
-            "focusHistoryBack (non-browser) and browserBack (browser) partition focus states; ⌘[ must be recordable on both"
+        XCTAssertEqual(
+            KeyboardShortcutSettings.Action.browserBack.defaultShortcut,
+            StoredShortcut(key: "[", command: true, shift: false, option: true, control: false)
+        )
+        XCTAssertEqual(
+            KeyboardShortcutSettings.Action.browserForward.defaultShortcut,
+            StoredShortcut(key: "]", command: true, shift: false, option: true, control: false)
+        )
+        XCTAssertNotEqual(
+            KeyboardShortcutSettings.Action.browserBack.defaultShortcut,
+            KeyboardShortcutSettings.Action.focusHistoryBack.defaultShortcut,
+            "browser history must not contest the focus-history chord"
         )
         XCTAssertFalse(
-            KeyboardShortcutSettings.Action.browserBack.conflicts(
-                with: commandBracket,
-                proposedAction: .focusHistoryBack,
-                configuredShortcut: commandBracket
+            KeyboardShortcutSettings.Action.focusHistoryBack.conflicts(
+                with: KeyboardShortcutSettings.Action.browserBack.defaultShortcut,
+                proposedAction: .browserBack,
+                configuredShortcut: KeyboardShortcutSettings.Action.focusHistoryBack.defaultShortcut
             )
         )
     }

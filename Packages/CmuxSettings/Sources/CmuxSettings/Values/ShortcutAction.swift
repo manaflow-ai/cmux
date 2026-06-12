@@ -51,11 +51,6 @@ public enum ShortcutAction: String, CaseIterable, Sendable, Hashable, SettingCod
     case prevSidebarTab
     case focusHistoryBack
     case focusHistoryForward
-    /// Focus-history back that stays available in every context, including
-    /// focused browser panes where ``focusHistoryBack`` yields its chord to
-    /// ``browserBack``.
-    case focusHistoryBackGlobal
-    case focusHistoryForwardGlobal
     case selectWorkspaceByNumber
     case renameTab
     case renameWorkspace
@@ -159,7 +154,6 @@ extension ShortcutAction {
             return .workspace
         case .nextSurface, .prevSurface, .selectSurfaceByNumber, .nextSidebarTab,
              .prevSidebarTab, .focusHistoryBack, .focusHistoryForward,
-             .focusHistoryBackGlobal, .focusHistoryForwardGlobal,
              .selectWorkspaceByNumber, .renameTab, .renameWorkspace,
              .editWorkspaceDescription, .closeTab, .closeOtherTabsInPane, .closeWorkspace,
              .groupSelectedWorkspaces, .toggleFocusedWorkspaceGroupCollapsed,
@@ -236,10 +230,6 @@ extension ShortcutAction {
             return .and(.not(.atom(.browserFocus)), .not(.atom(.sidebarFocus)))
         case .sendCtrlFToTerminal:
             return .and(.not(.atom(.browserFocus)), .not(.atom(.sidebarFocus)))
-        case .focusHistoryBack, .focusHistoryForward:
-            // Yields ⌘[ / ⌘] to browserBack/browserForward while a browser pane
-            // is focused; focusHistoryBackGlobal/ForwardGlobal stay `.always`.
-            return .not(.atom(.browserFocus))
         case .browserBack, .browserForward, .browserReload,
              .toggleBrowserDeveloperTools, .showBrowserJavaScriptConsole,
              .browserZoomIn, .browserZoomOut, .browserZoomReset, .toggleBrowserFocusMode,
@@ -312,10 +302,6 @@ extension ShortcutAction {
         case .prevSidebarTab: return "Previous Workspace"
         case .focusHistoryBack: return "Focus Back"
         case .focusHistoryForward: return "Focus Forward"
-        case .focusHistoryBackGlobal:
-            return String(localized: "shortcut.focusHistoryBackGlobal.label", defaultValue: "Focus Back (Global)")
-        case .focusHistoryForwardGlobal:
-            return String(localized: "shortcut.focusHistoryForwardGlobal.label", defaultValue: "Focus Forward (Global)")
         case .selectWorkspaceByNumber: return "Select Workspace 1…9"
         case .renameTab: return "Rename Tab"
         case .renameWorkspace: return "Rename Workspace"

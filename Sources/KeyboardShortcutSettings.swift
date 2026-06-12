@@ -100,8 +100,6 @@ enum KeyboardShortcutSettings {
         case prevSidebarTab
         case focusHistoryBack
         case focusHistoryForward
-        case focusHistoryBackGlobal
-        case focusHistoryForwardGlobal
         case selectWorkspaceByNumber
         case renameTab
         case renameWorkspace
@@ -202,8 +200,6 @@ enum KeyboardShortcutSettings {
             case .prevSidebarTab: return String(localized: "shortcut.previousWorkspace.label", defaultValue: "Previous Workspace")
             case .focusHistoryBack: return String(localized: "shortcut.focusHistoryBack.label", defaultValue: "Focus Back")
             case .focusHistoryForward: return String(localized: "shortcut.focusHistoryForward.label", defaultValue: "Focus Forward")
-            case .focusHistoryBackGlobal: return String(localized: "shortcut.focusHistoryBackGlobal.label", defaultValue: "Focus Back (Global)")
-            case .focusHistoryForwardGlobal: return String(localized: "shortcut.focusHistoryForwardGlobal.label", defaultValue: "Focus Forward (Global)")
             case .selectWorkspaceByNumber: return String(localized: "shortcut.selectWorkspaceByNumber.label", defaultValue: "Select Workspace 1…9")
             case .renameTab: return String(localized: "shortcut.renameTab.label", defaultValue: "Rename Tab")
             case .renameWorkspace: return String(localized: "shortcut.renameWorkspace.label", defaultValue: "Rename Workspace")
@@ -346,10 +342,6 @@ enum KeyboardShortcutSettings {
                 return StoredShortcut(key: "[", command: true, shift: false, option: false, control: false)
             case .focusHistoryForward:
                 return StoredShortcut(key: "]", command: true, shift: false, option: false, control: false)
-            case .focusHistoryBackGlobal:
-                return StoredShortcut(key: "[", command: true, shift: false, option: true, control: false)
-            case .focusHistoryForwardGlobal:
-                return StoredShortcut(key: "]", command: true, shift: false, option: true, control: false)
             case .renameTab:
                 return StoredShortcut(key: "r", command: true, shift: false, option: false, control: false)
             case .renameWorkspace:
@@ -427,9 +419,13 @@ enum KeyboardShortcutSettings {
             case .focusBrowserAddressBar:
                 return StoredShortcut(key: "l", command: true, shift: false, option: false, control: false)
             case .browserBack:
-                return StoredShortcut(key: "[", command: true, shift: false, option: false, control: false)
+                // ⌥⌘[ instead of Safari's ⌘[: cmux keeps one meaning per chord
+                // in every pane, and ⌘[ / ⌘] are focus history app-wide. The
+                // shortcut docs carry a recipe for users who want Safari-style
+                // ⌘[ page-back in browser panes.
+                return StoredShortcut(key: "[", command: true, shift: false, option: true, control: false)
             case .browserForward:
-                return StoredShortcut(key: "]", command: true, shift: false, option: false, control: false)
+                return StoredShortcut(key: "]", command: true, shift: false, option: true, control: false)
             case .browserReload:
                 return StoredShortcut(key: "r", command: true, shift: false, option: false, control: false)
             case .browserZoomIn:
