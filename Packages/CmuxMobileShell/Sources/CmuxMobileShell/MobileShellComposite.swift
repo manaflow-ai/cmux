@@ -179,7 +179,12 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         return Self.attachTicketIsUnexpired(activeTicket, now: runtime?.now() ?? Date())
     }
     public var pairingCode: String
-    public var workspaces: [MobileWorkspacePreview]
+    public var workspaces: [MobileWorkspacePreview] {
+        didSet { workspaceTopologyVersion &+= 1 }
+    }
+    /// Bumped on every ``workspaces`` mutation: a cheap "lists may have
+    /// changed" signal (e.g. for retrying a parked notification deep link).
+    public private(set) var workspaceTopologyVersion: UInt64 = 0
     /// Whether the connected Mac advertises the `workspace.actions.v1` capability
     /// (rename/pin over the mobile RPC). `false` until host status is read, and
     /// for older Macs that lack the handler, so the UI can hide rename/pin rather
@@ -2343,6 +2348,10 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         selectedTerminalID = id
     }
 
+    /// One-shot "actually navigate" deep-link intent; API in
+    /// `MobileShellComposite+DeeplinkNavigation.swift` (storage must live here).
+    public internal(set) var deeplinkWorkspaceNavigationRequest: DeeplinkWorkspaceNavigationRequest?
+
     /// Selects `id` as a chrome action (the terminal picker), so the surface
     /// that comes up does not grab the keyboard.
     ///
@@ -4448,15 +4457,6 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                 _ = self.disconnectForAuthorizationFailureIfNeeded(error)
             }
         }
-    }
-
-    private func workspaceID(forTerminalID terminalID: String) -> MobileWorkspacePreview.ID? {
-        for workspace in workspaces {
-            if workspace.terminals.contains(where: { $0.id.rawValue == terminalID }) {
-                return workspace.id
-            }
-        }
-        return nil
     }
 
     private func handleTerminalRenderGridEvent(_ event: MobileEventEnvelope) {
