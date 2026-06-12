@@ -5,8 +5,9 @@ import UniformTypeIdentifiers
 
 /// **App** section — mirrors the legacy in-app section row-for-row
 /// inside a single `SettingsCard`: Language, Appearance, App Icon,
-/// New Workspace Placement, Inherit Working Directory, Minimal Mode,
-/// Keep Workspace Open When Closing Last Surface, Focus Pane on
+/// New Workspace Placement, Restore Previous Session on Launch,
+/// Inherit Working Directory, Minimal Mode, Keep Workspace Open
+/// When Closing Last Surface, Focus Pane on
 /// First Click, File Drops, Open Files With, Open Supported Files in
 /// cmux, Terminal Config link, Open Markdown in cmux Viewer,
 /// Markdown Viewer typography, iMessage Mode, Reorder on Notification, Dock Badge, Menu Bar
@@ -27,6 +28,7 @@ public struct AppSection: View {
     @State private var appearance: DefaultsValueModel<AppearanceMode>
     @State private var appIcon: DefaultsValueModel<AppIconMode>
     @State private var placement: DefaultsValueModel<WorkspacePlacement>
+    @State private var restoreSessionOnLaunch: DefaultsValueModel<Bool>
     @State private var inheritDir: DefaultsValueModel<Bool>
     @State private var minimalMode: DefaultsValueModel<WorkspacePresentationMode>
     @State private var keepWorkspaceOpen: DefaultsValueModel<Bool>
@@ -71,6 +73,7 @@ public struct AppSection: View {
         _appearance = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.app.appearance))
         _appIcon = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.app.appIcon))
         _placement = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.app.newWorkspacePlacement))
+        _restoreSessionOnLaunch = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.app.restorePreviousSessionOnLaunch))
         _inheritDir = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.app.workspaceInheritWorkingDirectory))
         _minimalMode = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.app.presentationMode))
         _keepWorkspaceOpen = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.app.keepWorkspaceOpenWhenClosingLastSurface))
@@ -181,6 +184,24 @@ public struct AppSection: View {
                 }
                 .labelsHidden()
                 .pickerStyle(.menu)
+            }
+            SettingsCardDivider()
+
+            // Restore Previous Session on Launch
+            SettingsCardRow(
+                configurationReview: .json("app.restorePreviousSessionOnLaunch"),
+                String(localized: "settings.app.restorePreviousSessionOnLaunch", defaultValue: "Restore Previous Session on Launch"),
+                subtitle: restoreSessionOnLaunch.current
+                    ? String(localized: "settings.app.restorePreviousSessionOnLaunch.subtitleOn", defaultValue: "cmux restores saved windows, workspaces, tabs, and pane splits when launched normally.")
+                    : String(localized: "settings.app.restorePreviousSessionOnLaunch.subtitleOff", defaultValue: "cmux starts with a fresh window on launch. Use Reopen Previous Session to restore manually.")
+            ) {
+                Toggle("", isOn: Binding(get: { restoreSessionOnLaunch.current }, set: { restoreSessionOnLaunch.set($0) }))
+                    .labelsHidden()
+                    .controlSize(.small)
+                    .accessibilityIdentifier("SettingsRestorePreviousSessionOnLaunchToggle")
+                    .accessibilityLabel(
+                        String(localized: "settings.app.restorePreviousSessionOnLaunch", defaultValue: "Restore Previous Session on Launch")
+                    )
             }
             SettingsCardDivider()
 

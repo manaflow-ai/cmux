@@ -64,6 +64,7 @@ function buildSettingsFileExample(t: ConfigurationTranslation) {
   //   "appearance": "dark",
   //   "menuBarOnly": false,
   //   "newWorkspacePlacement": "afterCurrent",
+  //   "restorePreviousSessionOnLaunch": true,
   //   "confirmQuit": "always",
   //   "openSupportedFilesInCmux": true,
   //   "workspaceInheritWorkingDirectory": true,

@@ -32,6 +32,12 @@ public struct AppCatalogSection: SettingCatalogSection {
         userDefaultsKey: "newWorkspacePlacement"
     )
 
+    public let restorePreviousSessionOnLaunch = DefaultsKey<Bool>(
+        id: "app.restorePreviousSessionOnLaunch",
+        defaultValue: true,
+        userDefaultsKey: "session.restorePreviousSessionOnLaunch"
+    )
+
     public let workspaceInheritWorkingDirectory = DefaultsKey<Bool>(
         id: "app.workspaceInheritWorkingDirectory",
         defaultValue: true,

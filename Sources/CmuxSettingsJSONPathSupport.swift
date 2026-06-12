@@ -70,6 +70,7 @@ extension CmuxSettingsFileStore {
         "app.appIcon",
         "app.menuBarOnly",
         "app.newWorkspacePlacement",
+        "app.restorePreviousSessionOnLaunch",
         "app.workspaceInheritWorkingDirectory",
         "app.minimalMode",
         "app.keepWorkspaceOpenWhenClosingLastSurface",

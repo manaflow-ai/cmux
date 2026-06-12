@@ -431,6 +431,11 @@ final class CmuxSettingsFileStore {
             }
             snapshot.managedUserDefaults[WorkspacePlacementSettings.placementKey] = .string(placement.rawValue)
         }
+        if let value = jsonBool(section["restorePreviousSessionOnLaunch"]) {
+            snapshot.managedUserDefaults[SessionAutoRestoreSettings.restorePreviousSessionOnLaunchKey] = .bool(value)
+        } else if section.keys.contains("restorePreviousSessionOnLaunch") {
+            logInvalid("app.restorePreviousSessionOnLaunch", sourcePath: sourcePath)
+        }
         if let raw = jsonString(section["forkConversationDefaultDestination"]) {
             if let destination = AgentConversationForkDestination(rawValue: raw) {
                 snapshot.managedUserDefaults[AgentConversationForkDefaultSettings.key] = .string(destination.rawValue)

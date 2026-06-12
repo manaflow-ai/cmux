@@ -52,6 +52,12 @@ struct SettingsSearchIndexTests {
         #expect(index.entries.contains { $0.id == anchor })
     }
 
+    @Test func resolvesSessionAutoRestorePath() {
+        let index = SettingsSearchIndex(catalog: SettingCatalog())
+        let anchor = index.anchorID(forSettingsPath: "app.restorePreviousSessionOnLaunch")
+        #expect(anchor == "setting:app:restore-session-launch")
+    }
+
     @Test func unknownPathHasNoAnchor() {
         let index = SettingsSearchIndex(catalog: SettingCatalog())
         #expect(index.anchorID(forSettingsPath: "totally.bogus.path") == nil)

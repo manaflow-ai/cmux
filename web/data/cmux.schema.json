@@ -277,6 +277,11 @@
           "default": "afterCurrent",
           "description": "Where new workspaces are inserted in the sidebar."
         },
+        "restorePreviousSessionOnLaunch": {
+          "type": "boolean",
+          "default": true,
+          "description": "Restore saved windows, workspaces, tabs, pane splits, and panel metadata on normal app launch."
+        },
         "forkConversationDefaultDestination": {
           "type": "string",
           "enum": ["right", "left", "top", "bottom", "newTab", "newWorkspace"],
