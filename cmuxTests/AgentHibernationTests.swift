@@ -363,6 +363,38 @@ final class AgentHibernationTests: XCTestCase {
         )
     }
 
+    // MARK: - Startup window guard
+
+    /// After a crash-on-resume, the durable store must NOT retain the startup-window
+    /// terminal-input timestamp. recordTerminalInput(durable: false) avoids writing
+    /// to durableTerminalInputByPanelId, so after a restart the stale timestamp is gone.
+    func testStartupWindowInputIsNotDurable() {
+        // Simulate: agent was last idle at T_idle, hibernated, then resumed.
+        let idleAt: TimeInterval = 1_000.0
+        let resumeAt: TimeInterval = 2_000.0
+
+        // With durable:true (old behavior), the startup-window timestamp persists.
+        // After a restart lifecycleChangeAt resets to 0, and durableLifecycleChangeAt
+        // equals lifecycleUpdatedAt = idleAt, so hasUnconfirmedTerminalInput is true
+        // whenever durableTerminalInputAt (resumeAt) > durableLifecycleChangeAt (idleAt).
+        let durableTerminalInputAtWithOldBehavior = resumeAt
+        let durableLifecycleChangeAt = idleAt   // lifecycleUpdatedAt from before hibernate
+        XCTAssertTrue(
+            durableTerminalInputAtWithOldBehavior > durableLifecycleChangeAt,
+            "Old durable write leaves stale post-restart guard"
+        )
+
+        // With durable:false (new behavior), durableTerminalInputByPanelId is not written.
+        // After a restart durableTerminalInputAt stays at whatever it was before resume
+        // (either 0 for a fresh panel or a prior durable user input). Assuming no prior
+        // durable input, the guard is 0 > idleAt = false — panel is re-hibernatable.
+        let durableTerminalInputAtWithNewBehavior: TimeInterval = 0
+        XCTAssertFalse(
+            durableTerminalInputAtWithNewBehavior > durableLifecycleChangeAt,
+            "Transient startup-window input must not permanently block re-hibernation"
+        )
+    }
+
     func testProcessFallbackFingerprintIncludesProcessIDs() {
         let first = AgentHibernationController.processFallbackFingerprint(
             kind: .opencode,

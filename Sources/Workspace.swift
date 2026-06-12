@@ -12284,20 +12284,28 @@ final class Workspace: Identifiable, ObservableObject {
     func setAgentLifecycle(
         key: String,
         panelId: UUID?,
-        lifecycle: AgentHibernationLifecycleState
+        lifecycle: AgentHibernationLifecycleState,
+        preserveIdle: Bool = false
     ) {
         let targetPanelId = panelId ?? focusedPanelId
         guard let targetPanelId, panels[targetPanelId] != nil else { return }
-        agentLifecycleStatesByPanelId[targetPanelId, default: [:]][key] = lifecycle
+        let existing = agentLifecycleStatesByPanelId[targetPanelId]?[key]
+        // When preserveIdle is true (SessionStart path), apply preservingDefinitive so
+        // an `.unknown` from a process restart cannot clobber a resume-seeded `.idle`.
+        // This is deliberately scoped to the SessionStart caller via the socket command
+        // flag `--preserve-idle`; direct `set_agent_lifecycle` calls without that flag
+        // take the incoming value as-is, preserving the expected API contract.
+        let resolved = preserveIdle
+            ? AgentHibernationLifecycleState.preservingDefinitive(existing: existing, incoming: lifecycle)
+            : lifecycle
+        agentLifecycleStatesByPanelId[targetPanelId, default: [:]][key] = resolved
         // Only advance lifecycleChangeAt for definitive (non-unknown) events. An
         // `.unknown` SessionStart must not push the timestamp past a recent
         // terminalInputAt, which would clear the hasUnconfirmedTerminalInput guard
-        // and allow premature hibernation mid-turn. The CLI hook processor already
-        // skips `.unknown` writes when the persisted record has a definitive lifecycle
-        // (preservingDefinitive in the hook store update()), so this guard covers the
-        // live in-memory side. Definitive updates (including repeated `.idle`) still
-        // advance lifecycleChangeAt so hasUnconfirmedTerminalInput clears normally.
-        if lifecycle != .unknown {
+        // and allow premature hibernation mid-turn. Definitive updates (including
+        // repeated `.idle`) still advance lifecycleChangeAt so hasUnconfirmedTerminalInput
+        // clears normally after the resumed agent completes its first turn.
+        if resolved != .unknown {
             recordAgentLifecycleChange(panelId: targetPanelId)
         }
     }
@@ -12409,13 +12417,14 @@ final class Workspace: Identifiable, ObservableObject {
         // The PID/session teardown around hibernation already cleared the live
         // lifecycle, and the resumed agent may even relaunch under a brand-new
         // session id, so positive evidence cannot otherwise survive. Seeding idle
-        // here (then suppressing the resumed process's SessionStart `.unknown` via
-        // setAgentLifecycle's preservingDefinitive) keeps the panel
-        // hibernation-eligible until it actually runs a turn, fixing the
-        // hibernation-is-one-shot bug. A real new turn still wins: prompt-submit
-        // emits `.running`, a blocking prompt `.needsInput`, both of which outrank
-        // idle in the resolver. recordTerminalFocus below resets the idle timer so
-        // it waits a fresh idle window after you leave.
+        // here keeps the panel hibernation-eligible until it actually runs a turn,
+        // fixing the hibernation-is-one-shot bug. The CLI SessionStart hook uses
+        // `--preserve-idle` so the seeded `.idle` survives the resumed process's
+        // `.unknown` report (see `setAgentLifecycle` `preserveIdle` parameter).
+        // A real new turn still wins: prompt-submit emits `.running`, a blocking
+        // prompt `.needsInput`, both of which outrank idle in the resolver.
+        // recordTerminalFocus below resets the idle timer so it waits a fresh
+        // idle window after you leave.
         if let resumedKind = restoredAgentSnapshotsByPanelId[panelId]?.kind {
             setAgentLifecycle(key: resumedKind.lifecycleStatusKey, panelId: panelId, lifecycle: .idle)
         }
@@ -12425,8 +12434,11 @@ final class Workspace: Identifiable, ObservableObject {
         // Record it here synchronously so hasUnconfirmedTerminalInput stays true
         // until the resumed process confirms its first lifecycle update, keeping the
         // planner from re-hibernating the panel during the startup window.
+        // Use durable: false — a startup-window guard only needs to survive the
+        // current session; making it durable would permanently block re-hibernation
+        // across restarts if the agent crashes before completing its first turn.
         if preparation.queuedStartupInput {
-            AgentHibernationController.shared.recordTerminalInput(workspaceId: id, panelId: panelId)
+            AgentHibernationController.shared.recordTerminalInput(workspaceId: id, panelId: panelId, durable: false)
         }
         AgentHibernationController.shared.recordTerminalFocus(workspaceId: id, panelId: panelId)
         if focus {

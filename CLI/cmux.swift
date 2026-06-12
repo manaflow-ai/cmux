@@ -21883,15 +21883,17 @@ struct CMUXCLI {
         key: String,
         lifecycle: AgentHibernationLifecycleState,
         workspaceId: String,
-        surfaceId: String?
+        surfaceId: String?,
+        preserveIdle: Bool = false
     ) {
         guard Self.allowedAgentLifecycleStatusKeys.contains(key) else {
             fputs("Warning: unsupported agent lifecycle key\n", stderr)
             return
         }
         do {
+            let preserveFlag = preserveIdle ? " --preserve-idle" : ""
             _ = try sendV1Command(
-                "set_agent_lifecycle \(key) \(lifecycle.rawValue) --tab=\(workspaceId)\(socketPanelOption(surfaceId))",
+                "set_agent_lifecycle \(key) \(lifecycle.rawValue) --tab=\(workspaceId)\(socketPanelOption(surfaceId))\(preserveFlag)",
                 client: client
             )
         } catch {
@@ -27890,17 +27892,19 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                     client: client
                 )
             }
-            // SessionStart's live `.unknown` would mask a previously-proven
-            // definitive state in the live per-panel map (resolved() returns
-            // `.unknown` when the live collection contains it, never consulting
-            // the preserved persisted fallback). Skip the write when the prior
-            // record already proves a definitive lifecycle, so the live map stays
-            // empty on resume/relaunch and Workspace.agentHibernationLifecycleState
-            // falls through to the preserved persisted state.
+            // SessionStart `.unknown` handling:
+            // - When the prior record proves a definitive lifecycle (e.g. `.idle`
+            //   from a same-session resume): skip the write entirely, keeping the
+            //   live map empty so Workspace.agentHibernationLifecycleState falls
+            //   through to the persisted fallback.
+            // - Otherwise (new session, fresh agent, or prior record indeterminate):
+            //   send `.unknown --preserve-idle` so Workspace's preservingDefinitive
+            //   keeps any resume-seeded `.idle` alive even when the new session ID
+            //   has no prior store record (mapped == nil). Without --preserve-idle,
+            //   the write would overwrite the seeded `.idle` with `.unknown` and
+            //   re-introduce the hibernation-is-one-shot bug for new-session resumes.
             // Use effective() so a record with only lastNotificationStatus=idle
-            // (no explicit agentLifecycle) is also treated as proven-definitive:
-            // pushing .unknown would defeat the effective() fallback that
-            // Workspace.agentHibernationLifecycleState uses to classify such records.
+            // (no explicit agentLifecycle) is also treated as proven-definitive.
             let mappedEffectiveLifecycle = AgentHibernationLifecycleState.effective(
                 agentLifecycle: mapped?.agentLifecycle,
                 lastNotificationStatus: mapped?.lastNotificationStatus?.rawValue
@@ -27911,7 +27915,8 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                     key: def.statusKey,
                     lifecycle: .unknown,
                     workspaceId: workspaceId,
-                    surfaceId: surfaceId
+                    surfaceId: surfaceId,
+                    preserveIdle: true
                 )
             }
 

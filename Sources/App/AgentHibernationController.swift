@@ -174,12 +174,13 @@ final class AgentHibernationController {
         }
     }
 
-    func recordTerminalInput(workspaceId: UUID, panelId: UUID, recordedAt: Date? = nil) {
+    func recordTerminalInput(workspaceId: UUID, panelId: UUID, recordedAt: Date? = nil, durable: Bool = true) {
         guard AgentHibernationTrackingGate.isEnabled() else { return }
         let recordedAt = recordedAt ?? Date()
         let key = recordActivity(workspaceId: workspaceId, panelId: panelId, recordedAt: recordedAt)
         let timestamp = recordedAt.timeIntervalSince1970
         terminalInputByPanel[key] = timestamp
+        guard durable else { return }
         // Persist so that after a restart the planner can still detect new input that
         // arrived after the agent's last idle signal, preventing stale-idle hibernation.
         durableTerminalInputByPanelId[panelId] = max(durableTerminalInputByPanelId[panelId] ?? 0, timestamp)

@@ -19180,10 +19180,10 @@ class TerminalController {
     }
 
     /// Record the lifecycle state of a restorable agent session.
-    /// Usage: set_agent_lifecycle <key> <unknown|running|idle|needsInput> [--tab=<id>] [--panel=<id>]
+    /// Usage: set_agent_lifecycle <key> <unknown|running|idle|needsInput> [--tab=<id>] [--panel=<id>] [--preserve-idle]
     private func setAgentLifecycle(_ args: String) -> String {
         let parsed = parseOptions(args)
-        let usage = "set_agent_lifecycle <key> <unknown|running|idle|needsInput> [--tab=<id>] [--panel=<id>]"
+        let usage = "set_agent_lifecycle <key> <unknown|running|idle|needsInput> [--tab=<id>] [--panel=<id>] [--preserve-idle]"
         guard parsed.positional.count >= 2 else {
             return "ERROR: Usage: \(usage)"
         }
@@ -19207,11 +19207,18 @@ class TerminalController {
         ) else {
             return "ERROR: Unsupported agent lifecycle key '\(key)'"
         }
+        // --preserve-idle: apply preservingDefinitive so a `.unknown` SessionStart
+        // cannot overwrite a resume-seeded `.idle`. Only the SessionStart hook path
+        // in the CLI sets this flag; direct callers omit it and get the raw value.
+        let preserveIdle = parsed.options["preserve-idle"] != nil
         scheduleSidebarMutation(target: target) { _, tab in
             if let panelId = panelResolution.panelId, !tab.panels.keys.contains(panelId) {
                 return
             }
-            tab.setAgentLifecycle(key: key, panelId: panelResolution.panelId, lifecycle: lifecycle)
+            tab.setAgentLifecycle(
+                key: key, panelId: panelResolution.panelId, lifecycle: lifecycle,
+                preserveIdle: preserveIdle
+            )
         }
         return "OK"
     }
