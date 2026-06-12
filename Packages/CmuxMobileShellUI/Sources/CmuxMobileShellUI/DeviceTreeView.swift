@@ -30,6 +30,10 @@ struct DeviceTreeView: View {
     /// Persisted expansion shape, encoded as a newline-separated id string.
     @AppStorage("cmux.mobile.deviceTree.expanded") private var expandedStorage = ""
     @State private var isRefreshing = false
+    /// Presents the add-device pairing flow (the same ``PairingView`` the
+    /// first-run path uses), so another device can be paired from here at any
+    /// time — not only while disconnected.
+    @State private var isShowingAddDevice = false
 
     private var expansion: DeviceTreeExpansionStore {
         DeviceTreeExpansionStore(storage: expandedStorage)
@@ -53,11 +57,20 @@ struct DeviceTreeView: View {
                         deviceSection(device)
                     }
                 }
+
+                addDeviceSection
             }
             .listStyle(.insetGrouped)
             .navigationTitle(L10n.string("mobile.deviceTree.title", defaultValue: "Devices"))
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
+                ToolbarItem(placement: .topBarLeading) {
+                    Button(action: beginAddDevice) {
+                        Image(systemName: "plus")
+                    }
+                    .accessibilityLabel(L10n.string("mobile.addDevice.title", defaultValue: "Add device"))
+                    .accessibilityIdentifier("MobileDeviceTreeAddDeviceToolbar")
+                }
                 ToolbarItem(placement: .confirmationAction) {
                     Button(L10n.string("mobile.common.done", defaultValue: "Done")) {
                         dismiss()
@@ -75,8 +88,114 @@ struct DeviceTreeView: View {
                 await store.loadPairedMacs()
                 await store.loadRegistryDevices()
             }
+            .sheet(isPresented: $isShowingAddDevice) {
+                addDeviceSheet
+            }
         }
         .accessibilityIdentifier("MobileDeviceTree")
+    }
+
+    /// One always-available entry into the pairing flow (the list row); the
+    /// toolbar `plus` invokes the same ``beginAddDevice()`` action, per the
+    /// shared-behavior policy (one action path for every entrypoint).
+    @ViewBuilder
+    private var addDeviceSection: some View {
+        Section {
+            Button(action: beginAddDevice) {
+                Label(
+                    L10n.string("mobile.addDevice.title", defaultValue: "Add device"),
+                    systemImage: "plus"
+                )
+            }
+            .accessibilityIdentifier("MobileDeviceTreeAddDevice")
+        }
+    }
+
+    /// The first-run pairing flow, re-entered in place: QR scan or manual
+    /// host, driven by the same store mutations as the root pairing path. On
+    /// success the attempt leaves the shell connected to the new device, so
+    /// the sheet dismisses and the tree refreshes to show it. The underlying
+    /// pairing path is destructive on failure, so each attempt captures the
+    /// Mac that was live when it started and ``finishAddDevice(previousMacDeviceID:)``
+    /// reconnects it when the attempt ends disconnected.
+    private var addDeviceSheet: some View {
+        PairingView(
+            pairingCode: $store.pairingCode,
+            connectionError: store.connectionError,
+            connectionErrorGuidance: store.connectionErrorGuidance,
+            connectPairingCode: {
+                let previousMacDeviceID = liveMacDeviceID
+                await store.connectPairingInput()
+                finishAddDevice(previousMacDeviceID: previousMacDeviceID)
+            },
+            connectManualHost: { name, host, port in
+                let previousMacDeviceID = liveMacDeviceID
+                await store.connectManualHost(name: name, host: host, port: port)
+                finishAddDevice(previousMacDeviceID: previousMacDeviceID)
+            },
+            cancelPairing: {
+                // Cancelling a sheet opened over a live connection must not
+                // tear that connection down; `cancelPairing()` flips the store
+                // to `.disconnected`. Pure decision, unit tested. A cancel
+                // mid-attempt is handled by the attempt's own continuation:
+                // the store ends the cancelled attempt `.disconnected`, and
+                // `finishAddDevice` restores the previous Mac.
+                if addDevicePolicy.cancelResetsPairingState(connectionState: store.connectionState) {
+                    store.cancelPairing()
+                }
+            },
+            cancel: { isShowingAddDevice = false }
+        )
+        .presentationDragIndicator(.visible)
+    }
+
+    private var addDevicePolicy: DeviceTreeAddDevicePolicy { DeviceTreeAddDevicePolicy() }
+
+    /// The device id of the currently live Mac, captured before a pairing
+    /// attempt so a destructive failure can restore it. `nil` when not
+    /// connected (nothing to restore).
+    private var liveMacDeviceID: String? {
+        store.connectionState == .connected ? store.connectedMacDeviceID : nil
+    }
+
+    private func beginAddDevice() {
+        isShowingAddDevice = true
+    }
+
+    /// Called after a pairing attempt from the add-device sheet completes.
+    ///
+    /// Success (the shell is connected, to the added device): dismiss the
+    /// sheet and refresh both device sources so the new device appears in the
+    /// tree. Cancellation over what was a live connection (disconnected, no
+    /// connection error): the pairing path has already torn that connection
+    /// down, so reconnect the previous Mac via
+    /// ``CMUXMobileShellStore/switchToMac(macDeviceID:)`` instead of
+    /// stranding the user. The restore runs in a fresh unstructured `Task`
+    /// because a cancelled attempt's continuation executes in an
+    /// already-cancelled task. A real failure (connection error set) does not
+    /// restore — the reconnect would clear the error the user needs to read;
+    /// the disconnected shell auto-presents the pairing sheet with that error
+    /// for an in-place retry (see the policy's rationale).
+    private func finishAddDevice(previousMacDeviceID: String?) {
+        let state = store.connectionState
+        if addDevicePolicy.dismissesAfterPairingAttempt(connectionState: state) {
+            isShowingAddDevice = false
+            Task {
+                await store.loadPairedMacs()
+                await store.loadRegistryDevices()
+            }
+            return
+        }
+        if addDevicePolicy.restoresPreviousConnection(
+            connectionState: state,
+            previousMacDeviceID: previousMacDeviceID,
+            hasConnectionError: store.connectionError != nil
+        ), let previousMacDeviceID {
+            let store = store
+            Task {
+                await store.switchToMac(macDeviceID: previousMacDeviceID)
+            }
+        }
     }
 
     @ViewBuilder
