@@ -11414,18 +11414,26 @@ struct VerticalTabsSidebar: View {
                     CmuxExtensionSidebarSelection.setProviderId(CmuxSidebarProviderDescriptor.defaultWorkspacesID)
                 }
             )
-            .onReceive(
-                extensionSidebarImmediateObservationPublisher(renderContext: renderContext)
-                    .receive(on: RunLoop.main)
-            ) { _ in
-                refreshExtensionSidebarSnapshot()
+            // Observe workspace state via `.task(id:)` so SwiftUI owns the
+            // subscription lifecycle: restarted only when the observed workspace
+            // set changes, torn down on disappear. Bridging the Combine
+            // publishers through `.values` (instead of `.onReceive` on a publisher
+            // rebuilt every body pass) avoids re-subscribing on every render,
+            // which replayed each `@Published`-backed publisher's current value,
+            // bumped `extensionSidebarUpdateToken`, re-invalidated the body, and
+            // span the main thread at 100% CPU once an extension sidebar was
+            // selected (#5970).
+            .task(id: renderContext.tabIds) {
+                for await _ in extensionSidebarImmediateObservationPublisher(renderContext: renderContext).values {
+                    refreshExtensionSidebarSnapshot()
+                }
             }
-            .onReceive(
-                extensionSidebarDebouncedObservationPublisher(renderContext: renderContext)
-                    .receive(on: RunLoop.main)
+            .task(id: renderContext.tabIds) {
+                let debounced = extensionSidebarDebouncedObservationPublisher(renderContext: renderContext)
                     .debounce(for: Self.extensionSidebarObservationCoalesceInterval, scheduler: RunLoop.main)
-            ) { _ in
-                refreshExtensionSidebarSnapshot()
+                for await _ in debounced.values {
+                    refreshExtensionSidebarSnapshot()
+                }
             }
             // Fade the extension's content out at the bottom so it dissolves behind the
             // sidebar footer instead of overlapping it sharply, matching the default
@@ -11586,18 +11594,22 @@ struct VerticalTabsSidebar: View {
             }
             .background(Color.clear)
             .modifier(ClearScrollBackground())
-            .onReceive(
-                extensionSidebarImmediateObservationPublisher(renderContext: renderContext)
-                    .receive(on: RunLoop.main)
-            ) { _ in
-                refreshExtensionSidebarSnapshot()
+            // Stable observation via `.task(id:)` (see the matching block above):
+            // SwiftUI restarts it only when the observed workspace set changes, so
+            // the publishers are not rebuilt and re-subscribed every body pass,
+            // which replayed their current value and span the main thread at 100%
+            // CPU once an extension sidebar was selected (#5970).
+            .task(id: renderContext.tabIds) {
+                for await _ in extensionSidebarImmediateObservationPublisher(renderContext: renderContext).values {
+                    refreshExtensionSidebarSnapshot()
+                }
             }
-            .onReceive(
-                    extensionSidebarDebouncedObservationPublisher(renderContext: renderContext)
-                        .receive(on: RunLoop.main)
-                        .debounce(for: Self.extensionSidebarObservationCoalesceInterval, scheduler: RunLoop.main)
-                ) { _ in
-                refreshExtensionSidebarSnapshot()
+            .task(id: renderContext.tabIds) {
+                let debounced = extensionSidebarDebouncedObservationPublisher(renderContext: renderContext)
+                    .debounce(for: Self.extensionSidebarObservationCoalesceInterval, scheduler: RunLoop.main)
+                for await _ in debounced.values {
+                    refreshExtensionSidebarSnapshot()
+                }
             }
             .onReceive(
                 NotificationCenter.default.publisher(for: BrowserStackSidebar.stateDidLoadNotification)
