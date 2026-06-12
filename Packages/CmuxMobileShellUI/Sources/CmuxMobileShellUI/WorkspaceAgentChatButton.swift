@@ -7,8 +7,10 @@ import CmuxMobileSupport
 import SwiftUI
 
 /// Toolbar affordance for the workspace's agent chat: visible when the
-/// connected Mac reports chat-capable agent sessions in this workspace,
-/// opening the most recently active one as a full-screen conversation.
+/// connected Mac reports chat-capable agent sessions in this workspace.
+/// One live session opens directly; several present a picker so a dead
+/// session can never shadow a live one (the "Session ended while the
+/// agent was running" report). Needs-input sessions sort first.
 struct WorkspaceAgentChatButton: View {
     let workspace: MobileWorkspacePreview
     let store: CMUXMobileShellStore
@@ -26,7 +28,21 @@ struct WorkspaceAgentChatButton: View {
         // EmptyView, and the session fetch below must run even while the
         // button is hidden.
         ZStack {
-            if let session = sessions.first {
+            if openableSessions.count > 1 {
+                Menu {
+                    ForEach(openableSessions, id: \.id) { session in
+                        Button {
+                            open(session)
+                        } label: {
+                            Label(sessionMenuTitle(session), systemImage: sessionMenuSymbol(session))
+                        }
+                    }
+                } label: {
+                    Image(systemName: "bubble.left.and.bubble.right")
+                }
+                .accessibilityLabel(L10n.string("mobile.workspace.agentChat", defaultValue: "Agent Chat"))
+                .accessibilityIdentifier("MobileWorkspaceAgentChatButton")
+            } else if let session = openableSessions.first {
                 Button {
                     open(session)
                 } label: {
@@ -46,7 +62,11 @@ struct WorkspaceAgentChatButton: View {
         .task(id: RefreshKey(workspaceID: workspace.id.rawValue, isConnected: store.connectionState == .connected)) {
             sessions = await store.chatSessions(workspaceID: workspace.id.rawValue)
         }
-        .fullScreenCover(item: $presentation) { presentation in
+        .fullScreenCover(item: $presentation, onDismiss: {
+            // Session states moved while the cover was up (the agent ended,
+            // another started); refresh so the next open picks correctly.
+            Task { sessions = await store.chatSessions(workspaceID: workspace.id.rawValue) }
+        }) { presentation in
             NavigationStack {
                 ChatScreen(
                     store: presentation.conversation,
@@ -75,6 +95,43 @@ struct WorkspaceAgentChatButton: View {
             store.selectedTerminalID = MobileTerminalPreview.ID(rawValue: terminalID)
         }
         presentation = nil
+    }
+
+    /// Sessions worth opening, attention first: needs-input, then
+    /// working, then idle (each by recency). Ended sessions are offered
+    /// only when nothing is alive — a dead session must never shadow a
+    /// live one.
+    private var openableSessions: [ChatSessionDescriptor] {
+        let alive = sessions.filter { $0.state != .ended }
+        let pool = alive.isEmpty ? sessions : alive
+        return pool.sorted { lhs, rhs in
+            let lp = Self.statePriority(lhs.state)
+            let rp = Self.statePriority(rhs.state)
+            if lp != rp { return lp < rp }
+            return (lhs.lastActivityAt ?? .distantPast) > (rhs.lastActivityAt ?? .distantPast)
+        }
+    }
+
+    private static func statePriority(_ state: ChatAgentState) -> Int {
+        switch state {
+        case .needsInput: return 0
+        case .working: return 1
+        case .idle: return 2
+        case .ended: return 3
+        }
+    }
+
+    private func sessionMenuTitle(_ session: ChatSessionDescriptor) -> String {
+        session.title ?? session.agentKind.displayName
+    }
+
+    private func sessionMenuSymbol(_ session: ChatSessionDescriptor) -> String {
+        switch session.state {
+        case .needsInput: return "exclamationmark.bubble"
+        case .working: return "circle.dotted.circle"
+        case .idle: return "bubble"
+        case .ended: return "moon.zzz"
+        }
     }
 
     private func open(_ session: ChatSessionDescriptor) {
