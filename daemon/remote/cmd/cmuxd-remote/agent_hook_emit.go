@@ -98,9 +98,24 @@ func runAgentHookEmit(args []string, stdin io.Reader) int {
 	return 0
 }
 
-// decodeHookEmitInput accepts either a ready agentconv.HookFrame (has "hook")
-// or a provider-native hook payload (Claude Code's, has "hook_event_name")
-// and normalizes to a frame.
+// codexNotifyPayload is the JSON Codex appends as the final argv argument to
+// the program configured as `notify` in ~/.codex/config.toml. Field names are
+// kebab-case (codex-rs/hooks/src/legacy_notify.rs); agent-turn-complete is
+// the only type Codex emits. thread-id is the rollout session id; very old
+// Codex versions omitted it, and such payloads cannot be routed.
+type codexNotifyPayload struct {
+	Type                 string   `json:"type"`
+	ThreadID             string   `json:"thread-id"`
+	TurnID               string   `json:"turn-id"`
+	Cwd                  string   `json:"cwd"`
+	InputMessages        []string `json:"input-messages"`
+	LastAssistantMessage string   `json:"last-assistant-message"`
+}
+
+// decodeHookEmitInput accepts a ready agentconv.HookFrame (has "hook") or a
+// provider-native payload: Claude Code's hook stdin shape (has
+// "hook_event_name") or Codex's notify argv shape (type
+// "agent-turn-complete"), normalized to a frame.
 func decodeHookEmitInput(input []byte, provider agentconv.ProviderID) (agentconv.HookFrame, bool) {
 	trimmed := strings.TrimSpace(string(input))
 	if trimmed == "" {
@@ -117,6 +132,13 @@ func decodeHookEmitInput(input []byte, provider agentconv.ProviderID) (agentconv
 		stampHookFrameTS(&frame)
 		return frame, frame.SessionID != ""
 	}
+	if claudeFrame, ok := decodeClaudeNativePayload(trimmed, provider); ok {
+		return claudeFrame, true
+	}
+	return decodeCodexNotifyPayload(trimmed)
+}
+
+func decodeClaudeNativePayload(trimmed string, provider agentconv.ProviderID) (agentconv.HookFrame, bool) {
 	var native claudeHookPayload
 	if err := json.Unmarshal([]byte(trimmed), &native); err != nil {
 		return agentconv.HookFrame{}, false
@@ -124,7 +146,7 @@ func decodeHookEmitInput(input []byte, provider agentconv.ProviderID) (agentconv
 	if native.HookEventName == "" || native.SessionID == "" {
 		return agentconv.HookFrame{}, false
 	}
-	frame = agentconv.HookFrame{
+	frame := agentconv.HookFrame{
 		Provider:  provider,
 		SessionID: native.SessionID,
 		Hook:      native.HookEventName,
@@ -135,6 +157,31 @@ func decodeHookEmitInput(input []byte, provider agentconv.ProviderID) (agentconv
 	}
 	if frame.Detail == "" && native.ToolName != "" {
 		frame.Detail = agentconv.ToolCallTitle(native.ToolName, native.ToolInput)
+	}
+	stampHookFrameTS(&frame)
+	return frame, true
+}
+
+// decodeCodexNotifyPayload maps Codex's agent-turn-complete notification to a
+// turn-completion frame. Only what the payload supports is mapped: thread-id
+// is the session id, turn-id the provider turn id, last-assistant-message a
+// human-readable detail. input-messages and cwd have no canonical frame
+// destination and are dropped. The payload shape is Codex's own, so the
+// provider is always codex regardless of --provider.
+func decodeCodexNotifyPayload(trimmed string) (agentconv.HookFrame, bool) {
+	var notify codexNotifyPayload
+	if err := json.Unmarshal([]byte(trimmed), &notify); err != nil {
+		return agentconv.HookFrame{}, false
+	}
+	if notify.Type != "agent-turn-complete" || notify.ThreadID == "" {
+		return agentconv.HookFrame{}, false
+	}
+	frame := agentconv.HookFrame{
+		Provider:  agentconv.ProviderCodex,
+		SessionID: notify.ThreadID,
+		Hook:      agentconv.HookStop,
+		TurnID:    notify.TurnID,
+		Detail:    notify.LastAssistantMessage,
 	}
 	stampHookFrameTS(&frame)
 	return frame, true
