@@ -285,7 +285,7 @@ protocol SSHFileExplorerTransport: AnyObject {
 
 enum FileExplorerWorkspaceRoot: Equatable {
     case none
-    case local(path: String)
+    case local(workspaceId: UUID, path: String)
     case remoteSSH(
         workspaceId: UUID,
         connection: SSHFileExplorerConnection,
@@ -809,7 +809,7 @@ final class FileExplorerStore: ObservableObject {
             }
             setRootPath("")
 
-        case .local(let path):
+        case .local(_, let path):
             cancelRemoteHomeResolution()
             setRootStatusMessage(nil)
             if !(provider is LocalFileExplorerProvider) {
