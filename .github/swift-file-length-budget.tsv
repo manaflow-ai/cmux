@@ -7,7 +7,7 @@
 19256	Sources/ContentView.swift
 18021	Sources/AppDelegate.swift
 16539	Sources/GhosttyTerminalView.swift
-13608	Sources/Panels/BrowserPanel.swift
+13626	Sources/Panels/BrowserPanel.swift
 11916	cmuxTests/AppDelegateShortcutRoutingTests.swift
 9992	Sources/TabManager.swift
 9345	cmuxTests/CLINotifyProcessIntegrationRegressionTests.swift
@@ -19,7 +19,7 @@
 6220	cmuxTests/SessionPersistenceTests.swift
 6153	CLI/cmux_open.swift
 6071	Sources/TextBoxInput.swift
-5482	cmuxTests/BrowserConfigTests.swift
+5503	cmuxTests/BrowserConfigTests.swift
 5448	Sources/cmuxApp.swift
 4827	Packages/CmuxMobileShell/Sources/CmuxMobileShell/MobileShellComposite.swift
 4460	Sources/Panels/FilePreviewPanel.swift

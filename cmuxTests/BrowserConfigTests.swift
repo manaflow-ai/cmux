@@ -5253,6 +5253,27 @@ final class BrowserNavigableURLResolutionTests: XCTestCase {
         XCTAssertNil(resolveBrowserNavigableURL("ftp://example.com/file.html"))
     }
 
+    func testResolvesDottedHostWithPortAsHTTPSURL() throws {
+        // URL(string: "example.com:8443") parses "example.com" as a scheme, so
+        // the resolver must recover the bare host:port shape instead of
+        // sending it to search (https://github.com/manaflow-ai/cmux/issues/5913:
+        // the omnibar inline completion displays history hosts this way).
+        let resolved = try XCTUnwrap(resolveBrowserNavigableURL("example.com:8443"))
+        XCTAssertEqual(resolved.scheme, "https")
+        XCTAssertEqual(resolved.host, "example.com")
+        XCTAssertEqual(resolved.port, 8443)
+
+        let withPath = try XCTUnwrap(resolveBrowserNavigableURL("example.com:8443/admin?tab=1"))
+        XCTAssertEqual(withPath.scheme, "https")
+        XCTAssertEqual(withPath.port, 8443)
+        XCTAssertEqual(withPath.path, "/admin")
+    }
+
+    func testKeepsRejectingDottedSchemeInputsWithoutNumericPort() {
+        XCTAssertNil(resolveBrowserNavigableURL("example.com:notaport"))
+        XCTAssertNil(resolveBrowserNavigableURL("example.com:99999"))
+    }
+
     func testRejectsHostOnlyFileURL() {
         XCTAssertNil(resolveBrowserNavigableURL("file://example.html"))
     }
