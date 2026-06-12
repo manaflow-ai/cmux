@@ -103,14 +103,15 @@ extension SocketTransport {
 
     /// Whether a refused socket at `path` may be replaced even without a
     /// reusable lock marker, based on the well-known cmux socket filenames
-    /// (debug/nightly/staging and their tagged variants).
+    /// (debug/nightly/rc/staging and their tagged variants).
     func canReplaceUnmarkedRefusedSocket(at path: String) -> Bool {
         let filename = URL(fileURLWithPath: (path as NSString).standardizingPath)
             .lastPathComponent
             .lowercased()
-        let recoverablePrefixes = ["cmux-debug-", "cmux-nightly-", "cmux-staging-"]
+        let recoverablePrefixes = ["cmux-debug-", "cmux-nightly-", "cmux-rc-", "cmux-staging-"]
         return filename == "cmux-debug.sock" ||
             filename == "cmux-nightly.sock" ||
+            filename == "cmux-rc.sock" ||
             filename == "cmux-staging.sock" ||
             recoverablePrefixes.contains { prefix in
                 filename.hasPrefix(prefix) && filename.hasSuffix(".sock")

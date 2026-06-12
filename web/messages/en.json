@@ -38,6 +38,7 @@
     "discord": "Discord",
     "contact": "Contact",
     "nightly": "Nightly",
+    "rc": "RC",
     "copyright": "© {year} Manaflow",
     "language": "Language",
     "assets": "Assets"
@@ -1759,6 +1760,15 @@
     "description": "cmux NIGHTLY is built automatically from the latest commit on main. It has its own bundle ID, so it runs alongside the stable version without conflicts. Use it to test new features before they ship.",
     "download": "Download NIGHTLY for Mac",
     "warning": "Nightly builds may contain bugs or incomplete features. If something breaks, report it on <githubLink>GitHub</githubLink> or in <discordLink>#nightly-bugs on Discord</discordLink>, and switch back to the stable release."
+  },
+  "rc": {
+    "title": "cmux RC",
+    "subtitle": "Release-candidate builds",
+    "metaTitle": "cmux RC — Release Candidate Builds",
+    "metaDescription": "Download cmux RC, a separate app built from a frozen release-candidate commit. Runs alongside the stable version with its own auto-updates so you can verify the next release before it ships.",
+    "description": "cmux RC is built from a frozen release-candidate commit, the same code being prepared for the next stable release. It has its own bundle ID, so it runs alongside the stable version without conflicts. Use it to verify a release before it ships.",
+    "download": "Download RC for Mac",
+    "warning": "RC builds are pre-release and may still contain bugs. If something breaks, report it on <githubLink>GitHub</githubLink> or in <discordLink>Discord</discordLink>, and switch back to the stable release."
   },
   "languageSwitcher": {
     "label": "Language"

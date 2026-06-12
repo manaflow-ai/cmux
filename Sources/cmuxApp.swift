@@ -4953,6 +4953,7 @@ nonisolated enum QuitConfirmationMode: String, CaseIterable, Sendable {
 nonisolated enum BuildFlavor: String, Sendable {
     case dev
     case nightly
+    case rc
     case stable
 
     static var current: BuildFlavor {
@@ -4986,6 +4987,10 @@ nonisolated enum BuildFlavor: String, Sendable {
         if normalizedBundleIdentifier == "com.cmuxterm.app.nightly"
             || normalizedBundleIdentifier?.hasPrefix("com.cmuxterm.app.nightly.") == true {
             return .nightly
+        }
+        if normalizedBundleIdentifier == "com.cmuxterm.app.rc"
+            || normalizedBundleIdentifier?.hasPrefix("com.cmuxterm.app.rc.") == true {
+            return .rc
         }
         if bundleNames.contains(where: containsNightlyToken) {
             return .nightly

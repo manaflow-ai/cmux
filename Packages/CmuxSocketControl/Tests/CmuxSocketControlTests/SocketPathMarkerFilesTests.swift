@@ -11,6 +11,14 @@ import Testing
         environment: [:]
     ) == .nightly(slug: nil))
     #expect(SocketPathMarkerFiles.variant(
+        bundleIdentifier: "com.cmuxterm.app.rc",
+        environment: [:]
+    ) == .rc(slug: nil))
+    #expect(SocketPathMarkerFiles.variant(
+        bundleIdentifier: "com.cmuxterm.app.rc.my-feature",
+        environment: [:]
+    ) == .rc(slug: "my-feature"))
+    #expect(SocketPathMarkerFiles.variant(
         bundleIdentifier: "com.cmuxterm.app.debug.agent",
         environment: [:]
     ) == .dev(slug: "agent"))
@@ -37,6 +45,12 @@ import Testing
         isDebugBuild: false,
         stableSocketPath: "/stable/cmux.sock"
     ) == "/tmp/cmux-nightly.sock")
+    #expect(SocketPathMarkerFiles.defaultSocketPath(
+        bundleIdentifier: "com.cmuxterm.app.rc",
+        environment: [:],
+        isDebugBuild: false,
+        stableSocketPath: "/stable/cmux.sock"
+    ) == "/tmp/cmux-rc.sock")
     #expect(SocketPathMarkerFiles.defaultSocketPath(
         bundleIdentifier: "com.cmuxterm.app.staging.my-feature",
         environment: [:],
