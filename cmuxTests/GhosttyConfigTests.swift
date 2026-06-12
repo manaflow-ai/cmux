@@ -5368,6 +5368,7 @@ final class ZshShellIntegrationHandoffTests: XCTestCase {
             contents: """
             #!/bin/sh
             printf '%s\\n' "$*" >> "\(logPath.path)"
+            printf '%s\\n' '{"ok":true,"result":{"accepted":true,"queued":true}}'
             exit 0
             """
         )
@@ -5396,6 +5397,189 @@ final class ZshShellIntegrationHandoffTests: XCTestCase {
         )
     }
 
+    func testShellIntegrationRelayPromptReportsPWDInZsh() throws {
+        let fileManager = FileManager.default
+        let root = fileManager.temporaryDirectory
+            .appendingPathComponent("cmux-zsh-relay-report-pwd-\(UUID().uuidString)")
+        let binDir = root.appendingPathComponent("bin", isDirectory: true)
+        let remoteDirectory = root.appendingPathComponent("remote project", isDirectory: true)
+        let logPath = root.appendingPathComponent("relay.log", isDirectory: false)
+
+        try fileManager.createDirectory(at: binDir, withIntermediateDirectories: true)
+        try fileManager.createDirectory(at: remoteDirectory, withIntermediateDirectories: true)
+        defer { try? fileManager.removeItem(at: root) }
+
+        try writeExecutableScript(
+            at: binDir.appendingPathComponent("cmux", isDirectory: false),
+            contents: """
+            #!/bin/sh
+            printf '%s\\n' "$*" >> "\(logPath.path)"
+            exit 0
+            """
+        )
+
+        let output = try runInteractiveZsh(
+            cmuxLoadGhosttyIntegration: false,
+            cmuxLoadShellIntegration: true,
+            command: """
+            : > "\(logPath.path)"
+            cd "\(remoteDirectory.path)"
+            _CMUX_TTY_REPORTED=1
+            _CMUX_PORTS_LAST_RUN="$(_cmux_now)"
+            _CMUX_PWD_LAST_PWD=
+            _cmux_precmd
+            repeat 20; do
+              command grep -q "surface.report_pwd" "\(logPath.path)" && break
+              sleep 0.05
+            done
+            repeat 20; do
+              [[ -s "${_CMUX_PWD_RELAY_ACK_FILE:-}" ]] && break
+              sleep 0.05
+            done
+            _CMUX_PWD_RELAY_PENDING_STARTED_AT=0
+            _cmux_precmd
+            printf 'LAST=%s\\n' "$_CMUX_PWD_LAST_PWD"
+            cat "\(logPath.path)"
+            """,
+            extraEnvironment: [
+                "PATH": "\(binDir.path):/usr/bin:/bin:/usr/sbin:/sbin",
+                "CMUX_SOCKET_PATH": "127.0.0.1:64011",
+                "CMUX_WORKSPACE_ID": "11111111-1111-1111-1111-111111111111",
+                "CMUX_TAB_ID": "22222222-2222-2222-2222-222222222222",
+                "CMUX_PANEL_ID": "22222222-2222-2222-2222-222222222222",
+            ]
+        )
+
+        XCTAssertTrue(
+            output.contains(#"rpc surface.report_pwd {"workspace_id":"11111111-1111-1111-1111-111111111111","surface_id":"22222222-2222-2222-2222-222222222222","directory":"\#(remoteDirectory.path)"}"#),
+            output
+        )
+        let reportCount = output.components(separatedBy: "rpc surface.report_pwd").count - 1
+        XCTAssertEqual(reportCount, 1, output)
+        XCTAssertTrue(output.contains("LAST=\(remoteDirectory.path)\n"), output)
+    }
+
+    func testShellIntegrationRelayPromptRetriesPWDWhenRelayFailsInZsh() throws {
+        let fileManager = FileManager.default
+        let root = fileManager.temporaryDirectory
+            .appendingPathComponent("cmux-zsh-relay-report-pwd-retry-\(UUID().uuidString)")
+        let binDir = root.appendingPathComponent("bin", isDirectory: true)
+        let remoteDirectory = root.appendingPathComponent("remote project", isDirectory: true)
+        let logPath = root.appendingPathComponent("relay.log", isDirectory: false)
+
+        try fileManager.createDirectory(at: binDir, withIntermediateDirectories: true)
+        try fileManager.createDirectory(at: remoteDirectory, withIntermediateDirectories: true)
+        defer { try? fileManager.removeItem(at: root) }
+
+        try writeExecutableScript(
+            at: binDir.appendingPathComponent("cmux", isDirectory: false),
+            contents: """
+            #!/bin/sh
+            printf '%s\\n' "$*" >> "\(logPath.path)"
+            exit 1
+            """
+        )
+
+        let output = try runInteractiveZsh(
+            cmuxLoadGhosttyIntegration: false,
+            cmuxLoadShellIntegration: true,
+            command: """
+            : > "\(logPath.path)"
+            cd "\(remoteDirectory.path)"
+            _CMUX_TTY_REPORTED=1
+            _CMUX_PORTS_LAST_RUN="$(_cmux_now)"
+            _CMUX_PWD_LAST_PWD=
+            _cmux_precmd
+            repeat 20; do
+              _cmux_count="$(command grep -c "surface.report_pwd" "\(logPath.path)" 2>/dev/null || true)"
+              [[ "${_cmux_count:-0}" -ge 1 ]] && break
+              sleep 0.05
+            done
+            _CMUX_PWD_RELAY_PENDING_STARTED_AT=0
+            _cmux_precmd
+            repeat 20; do
+              _cmux_count="$(command grep -c "surface.report_pwd" "\(logPath.path)" 2>/dev/null || true)"
+              [[ "${_cmux_count:-0}" -ge 2 ]] && break
+              sleep 0.05
+            done
+            printf 'LAST=%s\\n' "$_CMUX_PWD_LAST_PWD"
+            cat "\(logPath.path)"
+            """,
+            extraEnvironment: [
+                "PATH": "\(binDir.path):/usr/bin:/bin:/usr/sbin:/sbin",
+                "CMUX_SOCKET_PATH": "127.0.0.1:64011",
+                "CMUX_WORKSPACE_ID": "11111111-1111-1111-1111-111111111111",
+                "CMUX_TAB_ID": "22222222-2222-2222-2222-222222222222",
+                "CMUX_PANEL_ID": "22222222-2222-2222-2222-222222222222",
+            ]
+        )
+
+        let reportCount = output.components(separatedBy: "rpc surface.report_pwd").count - 1
+        XCTAssertEqual(reportCount, 2, output)
+        XCTAssertTrue(output.contains("LAST=\n"), output)
+    }
+
+    func testShellIntegrationRelayPromptDoesNotAckPendingPWDInZsh() throws {
+        let fileManager = FileManager.default
+        let root = fileManager.temporaryDirectory
+            .appendingPathComponent("cmux-zsh-relay-report-pwd-pending-\(UUID().uuidString)")
+        let binDir = root.appendingPathComponent("bin", isDirectory: true)
+        let remoteDirectory = root.appendingPathComponent("remote project", isDirectory: true)
+        let logPath = root.appendingPathComponent("relay.log", isDirectory: false)
+
+        try fileManager.createDirectory(at: binDir, withIntermediateDirectories: true)
+        try fileManager.createDirectory(at: remoteDirectory, withIntermediateDirectories: true)
+        defer { try? fileManager.removeItem(at: root) }
+
+        try writeExecutableScript(
+            at: binDir.appendingPathComponent("cmux", isDirectory: false),
+            contents: """
+            #!/bin/sh
+            printf '%s\\n' "$*" >> "\(logPath.path)"
+            printf '%s\\n' '{"ok":true,"result":{"pending":true}}'
+            exit 0
+            """
+        )
+
+        let output = try runInteractiveZsh(
+            cmuxLoadGhosttyIntegration: false,
+            cmuxLoadShellIntegration: true,
+            command: """
+            : > "\(logPath.path)"
+            cd "\(remoteDirectory.path)"
+            _CMUX_TTY_REPORTED=1
+            _CMUX_PORTS_LAST_RUN="$(_cmux_now)"
+            _CMUX_PWD_LAST_PWD=
+            _cmux_precmd
+            repeat 20; do
+              _cmux_count="$(command grep -c "surface.report_pwd" "\(logPath.path)" 2>/dev/null || true)"
+              [[ "${_cmux_count:-0}" -ge 1 ]] && break
+              sleep 0.05
+            done
+            _CMUX_PWD_RELAY_PENDING_STARTED_AT=0
+            _cmux_precmd
+            repeat 20; do
+              _cmux_count="$(command grep -c "surface.report_pwd" "\(logPath.path)" 2>/dev/null || true)"
+              [[ "${_cmux_count:-0}" -ge 2 ]] && break
+              sleep 0.05
+            done
+            printf 'LAST=%s\\n' "$_CMUX_PWD_LAST_PWD"
+            cat "\(logPath.path)"
+            """,
+            extraEnvironment: [
+                "PATH": "\(binDir.path):/usr/bin:/bin:/usr/sbin:/sbin",
+                "CMUX_SOCKET_PATH": "127.0.0.1:64011",
+                "CMUX_WORKSPACE_ID": "11111111-1111-1111-1111-111111111111",
+                "CMUX_TAB_ID": "22222222-2222-2222-2222-222222222222",
+                "CMUX_PANEL_ID": "22222222-2222-2222-2222-222222222222",
+            ]
+        )
+
+        let reportCount = output.components(separatedBy: "rpc surface.report_pwd").count - 1
+        XCTAssertEqual(reportCount, 2, output)
+        XCTAssertTrue(output.contains("LAST=\n"), output)
+    }
+
     func testShellIntegrationRelayPortsKickOmitsSurfaceIDUntilAvailableInZsh() throws {
         let fileManager = FileManager.default
         let root = fileManager.temporaryDirectory
@@ -5411,6 +5595,7 @@ final class ZshShellIntegrationHandoffTests: XCTestCase {
             contents: """
             #!/bin/sh
             printf '%s\\n' "$*" >> "\(logPath.path)"
+            printf '%s\\n' '{"ok":true,"result":{"accepted":true,"queued":true}}'
             exit 0
             """
         )
@@ -5531,6 +5716,186 @@ final class ZshShellIntegrationHandoffTests: XCTestCase {
             result.stdout.contains(#"rpc surface.report_tty {"workspace_id":"11111111-1111-1111-1111-111111111111","tty_name":"ttys888","surface_id":"22222222-2222-2222-2222-222222222222"}"#),
             result.stdout
         )
+    }
+
+    func testShellIntegrationRelayPromptReportsPWDInBash() throws {
+        let fileManager = FileManager.default
+        let root = fileManager.temporaryDirectory
+            .appendingPathComponent("cmux-bash-relay-report-pwd-\(UUID().uuidString)")
+        let binDir = root.appendingPathComponent("bin", isDirectory: true)
+        let remoteDirectory = root.appendingPathComponent("remote project", isDirectory: true)
+        let logPath = root.appendingPathComponent("relay.log", isDirectory: false)
+
+        try fileManager.createDirectory(at: binDir, withIntermediateDirectories: true)
+        try fileManager.createDirectory(at: remoteDirectory, withIntermediateDirectories: true)
+        defer { try? fileManager.removeItem(at: root) }
+
+        try writeExecutableScript(
+            at: binDir.appendingPathComponent("cmux", isDirectory: false),
+            contents: """
+            #!/bin/sh
+            printf '%s\\n' "$*" >> "\(logPath.path)"
+            exit 0
+            """
+        )
+
+        let result = try runInteractiveBash(
+            cmuxLoadShellIntegration: true,
+            command: """
+            : > "\(logPath.path)"
+            cd "\(remoteDirectory.path)"
+            _CMUX_TTY_REPORTED=1
+            _CMUX_PORTS_LAST_RUN="$(_cmux_now)"
+            _CMUX_PWD_LAST_PWD=
+            _cmux_prompt_command
+            for _cmux_i in $(seq 1 20); do
+              grep -q "surface.report_pwd" "\(logPath.path)" && break
+              sleep 0.05
+            done
+            for _cmux_i in $(seq 1 20); do
+              [ -s "${_CMUX_PWD_RELAY_ACK_FILE:-}" ] && break
+              sleep 0.05
+            done
+            _CMUX_PWD_RELAY_PENDING_STARTED_AT=0
+            _cmux_prompt_command
+            printf 'LAST=%s\\n' "$_CMUX_PWD_LAST_PWD"
+            cat "\(logPath.path)"
+            """,
+            extraEnvironment: [
+                "PATH": "\(binDir.path):/usr/bin:/bin:/usr/sbin:/sbin",
+                "CMUX_SOCKET_PATH": "127.0.0.1:64011",
+                "CMUX_WORKSPACE_ID": "11111111-1111-1111-1111-111111111111",
+                "CMUX_TAB_ID": "22222222-2222-2222-2222-222222222222",
+                "CMUX_PANEL_ID": "22222222-2222-2222-2222-222222222222",
+            ]
+        )
+
+        XCTAssertTrue(
+            result.stdout.contains(#"rpc surface.report_pwd {"workspace_id":"11111111-1111-1111-1111-111111111111","surface_id":"22222222-2222-2222-2222-222222222222","directory":"\#(remoteDirectory.path)"}"#),
+            result.stdout
+        )
+        let reportCount = result.stdout.components(separatedBy: "rpc surface.report_pwd").count - 1
+        XCTAssertEqual(reportCount, 1, result.stdout)
+        XCTAssertTrue(result.stdout.contains("LAST=\(remoteDirectory.path)\n"), result.stdout)
+    }
+
+    func testShellIntegrationRelayPromptRetriesPWDWhenRelayFailsInBash() throws {
+        let fileManager = FileManager.default
+        let root = fileManager.temporaryDirectory
+            .appendingPathComponent("cmux-bash-relay-report-pwd-retry-\(UUID().uuidString)")
+        let binDir = root.appendingPathComponent("bin", isDirectory: true)
+        let remoteDirectory = root.appendingPathComponent("remote project", isDirectory: true)
+        let logPath = root.appendingPathComponent("relay.log", isDirectory: false)
+
+        try fileManager.createDirectory(at: binDir, withIntermediateDirectories: true)
+        try fileManager.createDirectory(at: remoteDirectory, withIntermediateDirectories: true)
+        defer { try? fileManager.removeItem(at: root) }
+
+        try writeExecutableScript(
+            at: binDir.appendingPathComponent("cmux", isDirectory: false),
+            contents: """
+            #!/bin/sh
+            printf '%s\\n' "$*" >> "\(logPath.path)"
+            exit 1
+            """
+        )
+
+        let result = try runInteractiveBash(
+            cmuxLoadShellIntegration: true,
+            command: """
+            : > "\(logPath.path)"
+            cd "\(remoteDirectory.path)"
+            _CMUX_TTY_REPORTED=1
+            _CMUX_PORTS_LAST_RUN="$(_cmux_now)"
+            _CMUX_PWD_LAST_PWD=
+            _cmux_prompt_command
+            for _cmux_i in $(seq 1 20); do
+              _cmux_count="$(grep -c "surface.report_pwd" "\(logPath.path)" 2>/dev/null || true)"
+              [ "${_cmux_count:-0}" -ge 1 ] && break
+              sleep 0.05
+            done
+            _CMUX_PWD_RELAY_PENDING_STARTED_AT=0
+            _cmux_prompt_command
+            for _cmux_i in $(seq 1 20); do
+              _cmux_count="$(grep -c "surface.report_pwd" "\(logPath.path)" 2>/dev/null || true)"
+              [ "${_cmux_count:-0}" -ge 2 ] && break
+              sleep 0.05
+            done
+            printf 'LAST=%s\\n' "$_CMUX_PWD_LAST_PWD"
+            cat "\(logPath.path)"
+            """,
+            extraEnvironment: [
+                "PATH": "\(binDir.path):/usr/bin:/bin:/usr/sbin:/sbin",
+                "CMUX_SOCKET_PATH": "127.0.0.1:64011",
+                "CMUX_WORKSPACE_ID": "11111111-1111-1111-1111-111111111111",
+                "CMUX_TAB_ID": "22222222-2222-2222-2222-222222222222",
+                "CMUX_PANEL_ID": "22222222-2222-2222-2222-222222222222",
+            ]
+        )
+
+        let reportCount = result.stdout.components(separatedBy: "rpc surface.report_pwd").count - 1
+        XCTAssertEqual(reportCount, 2, result.stdout)
+        XCTAssertTrue(result.stdout.contains("LAST=\n"), result.stdout)
+    }
+
+    func testShellIntegrationRelayPromptDoesNotAckPendingPWDInBash() throws {
+        let fileManager = FileManager.default
+        let root = fileManager.temporaryDirectory
+            .appendingPathComponent("cmux-bash-relay-report-pwd-pending-\(UUID().uuidString)")
+        let binDir = root.appendingPathComponent("bin", isDirectory: true)
+        let remoteDirectory = root.appendingPathComponent("remote project", isDirectory: true)
+        let logPath = root.appendingPathComponent("relay.log", isDirectory: false)
+
+        try fileManager.createDirectory(at: binDir, withIntermediateDirectories: true)
+        try fileManager.createDirectory(at: remoteDirectory, withIntermediateDirectories: true)
+        defer { try? fileManager.removeItem(at: root) }
+
+        try writeExecutableScript(
+            at: binDir.appendingPathComponent("cmux", isDirectory: false),
+            contents: """
+            #!/bin/sh
+            printf '%s\\n' "$*" >> "\(logPath.path)"
+            printf '%s\\n' '{"ok":true,"result":{"pending":true}}'
+            exit 0
+            """
+        )
+
+        let result = try runInteractiveBash(
+            cmuxLoadShellIntegration: true,
+            command: """
+            : > "\(logPath.path)"
+            cd "\(remoteDirectory.path)"
+            _CMUX_TTY_REPORTED=1
+            _CMUX_PORTS_LAST_RUN="$(_cmux_now)"
+            _CMUX_PWD_LAST_PWD=
+            _cmux_prompt_command
+            for _cmux_i in $(seq 1 20); do
+              _cmux_count="$(grep -c "surface.report_pwd" "\(logPath.path)" 2>/dev/null || true)"
+              [ "${_cmux_count:-0}" -ge 1 ] && break
+              sleep 0.05
+            done
+            _CMUX_PWD_RELAY_PENDING_STARTED_AT=0
+            _cmux_prompt_command
+            for _cmux_i in $(seq 1 20); do
+              _cmux_count="$(grep -c "surface.report_pwd" "\(logPath.path)" 2>/dev/null || true)"
+              [ "${_cmux_count:-0}" -ge 2 ] && break
+              sleep 0.05
+            done
+            printf 'LAST=%s\\n' "$_CMUX_PWD_LAST_PWD"
+            cat "\(logPath.path)"
+            """,
+            extraEnvironment: [
+                "PATH": "\(binDir.path):/usr/bin:/bin:/usr/sbin:/sbin",
+                "CMUX_SOCKET_PATH": "127.0.0.1:64011",
+                "CMUX_WORKSPACE_ID": "11111111-1111-1111-1111-111111111111",
+                "CMUX_TAB_ID": "22222222-2222-2222-2222-222222222222",
+                "CMUX_PANEL_ID": "22222222-2222-2222-2222-222222222222",
+            ]
+        )
+
+        let reportCount = result.stdout.components(separatedBy: "rpc surface.report_pwd").count - 1
+        XCTAssertEqual(reportCount, 2, result.stdout)
+        XCTAssertTrue(result.stdout.contains("LAST=\n"), result.stdout)
     }
 
     func testShellIntegrationRelayPreexecWorksBeforeSurfaceIDExistsInBash() throws {

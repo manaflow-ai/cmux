@@ -2279,7 +2279,7 @@ class TabManager: ObservableObject {
         let rawDirectory = workspace.panelDirectories[panelId]
             ?? workspace.terminalPanel(for: panelId)?.requestedWorkingDirectory
             ?? (workspace.focusedPanelId == panelId ? workspace.currentDirectory : nil)
-        return rawDirectory.flatMap(normalizedWorkingDirectory)
+        return gitProbeDirectoryValue(rawDirectory, preserveExact: workspace.isRemoteWorkspace)
     }
 
     func scheduleInitialWorkspaceGitMetadataRefreshIfPossible(
@@ -2812,7 +2812,6 @@ class TabManager: ObservableObject {
         delays: [TimeInterval],
         reason: String
     ) {
-        let normalizedDirectory = normalizeDirectory(directory)
         let key = WorkspaceGitProbeKey(workspaceId: workspaceId, panelId: panelId)
         cancelWorkspaceGitProbeTask(for: key)
         if workspaceGitProbeStateByKey[key] == nil {
@@ -2822,7 +2821,7 @@ class TabManager: ObservableObject {
 #if DEBUG
         cmuxDebugLog(
             "workspace.gitProbe.schedule workspace=\(workspaceId.uuidString.prefix(5)) " +
-            "panel=\(panelId.uuidString.prefix(5)) dir=\(normalizedDirectory) reason=\(reason)"
+            "panel=\(panelId.uuidString.prefix(5)) dir=\(directory) reason=\(reason)"
         )
 #endif
 
@@ -2843,7 +2842,7 @@ class TabManager: ObservableObject {
                 guard let self, !Task.isCancelled else { return }
                 self.beginWorkspaceGitMetadataProbeAttempt(
                     probeKey: key,
-                    expectedDirectory: normalizedDirectory,
+                    expectedDirectory: directory,
                     isLastAttempt: isLastAttempt
                 )
             }
@@ -3520,6 +3519,14 @@ class TabManager: ObservableObject {
         let normalized = normalizeDirectory(directory)
         let trimmed = normalized.trimmingCharacters(in: .whitespacesAndNewlines)
         return trimmed.isEmpty ? nil : normalized
+    }
+
+    private func gitProbeDirectoryValue(_ directory: String?, preserveExact: Bool) -> String? {
+        guard let directory else { return nil }
+        if preserveExact {
+            return directory.isEmpty ? nil : directory
+        }
+        return normalizedWorkingDirectory(directory)
     }
 
     private func newTabInsertIndex(placementOverride: NewWorkspacePlacement? = nil) -> Int {
@@ -5089,12 +5096,24 @@ class TabManager: ObservableObject {
 
     // MARK: - Surface Directory Updates (Backwards Compatibility)
 
-    func updateSurfaceDirectory(tabId: UUID, surfaceId: UUID, directory: String) {
+    func updateSurfaceDirectory(
+        tabId: UUID,
+        surfaceId: UUID,
+        directory: String,
+        preserveExactDirectory: Bool = false
+    ) {
         guard let tab = tabs.first(where: { $0.id == tabId }) else { return }
         let previousDirectory = gitProbeDirectory(for: tab, panelId: surfaceId)
-        let normalized = normalizeDirectory(directory)
-        guard tab.updatePanelDirectory(panelId: surfaceId, directory: normalized) else { return }
-        let nextDirectory = normalizedWorkingDirectory(normalized)
+        let normalized = preserveExactDirectory ? directory : normalizeDirectory(directory)
+        guard tab.updatePanelDirectory(
+            panelId: surfaceId,
+            directory: normalized,
+            preserveExactDirectory: preserveExactDirectory
+        ) else { return }
+        let nextDirectory = gitProbeDirectoryValue(
+            normalized,
+            preserveExact: preserveExactDirectory || tab.isRemoteWorkspace
+        )
         if previousDirectory != nextDirectory {
             guard sidebarGitMetadataWatchEnabled else {
                 clearWorkspaceGitMetadata(for: WorkspaceGitProbeKey(workspaceId: tabId, panelId: surfaceId))

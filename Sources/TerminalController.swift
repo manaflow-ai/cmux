@@ -2107,6 +2107,8 @@ class TerminalController {
             return v2Result(id: id, self.v2SurfaceSendKey(params: params))
         case "surface.report_tty":
             return v2Result(id: id, self.v2SurfaceReportTTY(params: params))
+        case "surface.report_pwd":
+            return v2Result(id: id, self.v2SurfaceReportPwd(params: params))
         case "surface.report_shell_state":
             return v2Result(id: id, self.v2SurfaceReportShellState(params: params))
         case "surface.ports_kick":
@@ -2495,6 +2497,7 @@ class TerminalController {
             "surface.send_text",
             "surface.send_key",
             "surface.report_tty",
+            "surface.report_pwd",
             "surface.report_shell_state",
             "surface.ports_kick",
             "surface.read_text",
@@ -6673,6 +6676,86 @@ class TerminalController {
         }
 
         return result
+    }
+
+    private func v2SurfaceReportPwd(params: [String: Any]) -> V2CallResult {
+        guard let workspaceId = v2UUID(params, "workspace_id") else {
+            return .err(code: "invalid_params", message: "Missing or invalid workspace_id", data: nil)
+        }
+        let requestedSurfaceId = v2UUID(params, "surface_id")
+        if v2HasNonNullParam(params, "surface_id"), requestedSurfaceId == nil {
+            return .err(code: "invalid_params", message: "Missing or invalid surface_id", data: nil)
+        }
+        let rawDirectory = v2RawString(params, "directory")
+            ?? v2RawString(params, "path")
+            ?? v2RawString(params, "pwd")
+        guard let directory = rawDirectory, !directory.isEmpty else {
+            return .err(code: "invalid_params", message: "Missing directory", data: nil)
+        }
+
+        if let requestedSurfaceId {
+            DispatchQueue.main.async { [weak self] in
+                guard let self else { return }
+                guard let tabManager = AppDelegate.shared?.tabManagerFor(tabId: workspaceId) ?? self.tabManager,
+                      let tab = tabManager.tabs.first(where: { $0.id == workspaceId }) else {
+                    return
+                }
+                let validSurfaceIds = Set(tab.panels.keys)
+                tab.pruneSurfaceMetadata(validSurfaceIds: validSurfaceIds)
+                guard validSurfaceIds.contains(requestedSurfaceId) else { return }
+                tabManager.updateSurfaceDirectory(
+                    tabId: workspaceId,
+                    surfaceId: requestedSurfaceId,
+                    directory: directory,
+                    preserveExactDirectory: true
+                )
+            }
+            return .ok([
+                "workspace_id": workspaceId.uuidString,
+                "workspace_ref": v2Ref(kind: .workspace, uuid: workspaceId),
+                "surface_id": requestedSurfaceId.uuidString,
+                "surface_ref": v2Ref(kind: .surface, uuid: requestedSurfaceId),
+                "directory": directory,
+                "accepted": true,
+                "queued": true,
+            ])
+        }
+
+        DispatchQueue.main.async { [weak self] in
+            guard let self else { return }
+            guard let tab = self.tabForSidebarMutation(id: workspaceId),
+                  let tabManager = AppDelegate.shared?.tabManagerFor(tabId: workspaceId) ?? self.tabManager else {
+                return
+            }
+            let validSurfaceIds = Set(tab.panels.keys)
+            tab.pruneSurfaceMetadata(validSurfaceIds: validSurfaceIds)
+
+            let surfaceId = self.resolveReportedSurfaceId(
+                in: tab,
+                requestedSurfaceId: requestedSurfaceId,
+                validSurfaceIds: validSurfaceIds
+            )
+            guard let surfaceId, validSurfaceIds.contains(surfaceId) else {
+                return
+            }
+
+            tabManager.updateSurfaceDirectory(
+                tabId: workspaceId,
+                surfaceId: surfaceId,
+                directory: directory,
+                preserveExactDirectory: true
+            )
+        }
+
+        return .ok([
+            "workspace_id": workspaceId.uuidString,
+            "workspace_ref": v2Ref(kind: .workspace, uuid: workspaceId),
+            "surface_id": NSNull(),
+            "surface_ref": NSNull(),
+            "directory": directory,
+            "accepted": true,
+            "queued": true,
+        ])
     }
 
     private func v2SurfaceReportShellState(params: [String: Any]) -> V2CallResult {

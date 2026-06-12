@@ -12474,32 +12474,48 @@ final class Workspace: Identifiable, ObservableObject {
     }
 
     @discardableResult
-    func updatePanelDirectory(panelId: UUID, directory: String) -> Bool {
-        updatePanelDirectory(panelId: panelId, directory: directory, source: .liveReport)
+    func updatePanelDirectory(
+        panelId: UUID,
+        directory: String,
+        preserveExactDirectory: Bool = false
+    ) -> Bool {
+        updatePanelDirectory(
+            panelId: panelId,
+            directory: directory,
+            preserveExactDirectory: preserveExactDirectory,
+            source: .liveReport
+        )
     }
 
     @discardableResult
     private func updatePanelDirectory(
         panelId: UUID,
         directory: String,
+        preserveExactDirectory: Bool = false,
         source: PanelDirectoryUpdateSource
     ) -> Bool {
-        let trimmed = directory.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { return false }
+        let resolvedDirectory: String
+        if preserveExactDirectory {
+            resolvedDirectory = directory
+        } else {
+            resolvedDirectory = directory.trimmingCharacters(in: .whitespacesAndNewlines)
+        }
+        guard !resolvedDirectory.isEmpty else { return false }
         if source == .liveReport,
-           shouldIgnoreRestoredGuardedDirectoryReport(panelId: panelId, reportedDirectory: trimmed) {
+           !preserveExactDirectory,
+           shouldIgnoreRestoredGuardedDirectoryReport(panelId: panelId, reportedDirectory: resolvedDirectory) {
             return false
         }
-        if panelDirectories[panelId] != trimmed {
-            panelDirectories[panelId] = trimmed
+        if panelDirectories[panelId] != resolvedDirectory {
+            panelDirectories[panelId] = resolvedDirectory
         }
         // Update current directory if this is the focused panel
         if panelId == focusedPanelId {
-            if surfaceTabBarDirectory != trimmed {
-                surfaceTabBarDirectory = trimmed
+            if surfaceTabBarDirectory != resolvedDirectory {
+                surfaceTabBarDirectory = resolvedDirectory
             }
-            if currentDirectory != trimmed {
-                currentDirectory = trimmed
+            if currentDirectory != resolvedDirectory {
+                currentDirectory = resolvedDirectory
             }
         }
         return true
@@ -13687,6 +13703,77 @@ final class Workspace: Identifiable, ObservableObject {
         return environment
     }
 
+    private func normalizedTerminalWorkingDirectory(
+        _ workingDirectory: String?,
+        preserveExact: Bool = false
+    ) -> String? {
+        guard let workingDirectory else { return nil }
+        if preserveExact {
+            return workingDirectory.isEmpty ? nil : workingDirectory
+        }
+        let trimmed = workingDirectory.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? nil : trimmed
+    }
+
+    private func terminalWorkingDirectoryCandidate(
+        for panelId: UUID?,
+        preserveExact: Bool
+    ) -> String? {
+        guard let panelId else { return nil }
+        if let panelDirectory = normalizedTerminalWorkingDirectory(
+            panelDirectories[panelId],
+            preserveExact: preserveExact
+        ) {
+            return panelDirectory
+        }
+        return normalizedTerminalWorkingDirectory(
+            terminalPanel(for: panelId)?.requestedWorkingDirectory,
+            preserveExact: preserveExact
+        )
+    }
+
+    private func resolvedTerminalStartupWorkingDirectory(
+        explicitWorkingDirectory: String?,
+        sourcePanelId: UUID? = nil,
+        targetPaneId: PaneID? = nil,
+        preserveExact: Bool = false
+    ) -> String? {
+        if let explicitWorkingDirectory = normalizedTerminalWorkingDirectory(
+            explicitWorkingDirectory,
+            preserveExact: preserveExact
+        ) {
+            return explicitWorkingDirectory
+        }
+
+        var candidatePanelIds: [UUID] = []
+        var seenPanelIds: Set<UUID> = []
+        func appendCandidate(_ panelId: UUID?) {
+            guard let panelId, seenPanelIds.insert(panelId).inserted else { return }
+            candidatePanelIds.append(panelId)
+        }
+
+        appendCandidate(sourcePanelId)
+        if let targetPaneId {
+            if let selectedSurfaceId = bonsplitController.selectedTab(inPane: targetPaneId)?.id {
+                appendCandidate(panelIdFromSurfaceId(selectedSurfaceId))
+            }
+            for tab in bonsplitController.tabs(inPane: targetPaneId) {
+                appendCandidate(panelIdFromSurfaceId(tab.id))
+            }
+        }
+
+        for panelId in candidatePanelIds {
+            if let candidate = terminalWorkingDirectoryCandidate(
+                for: panelId,
+                preserveExact: preserveExact
+            ) {
+                return candidate
+            }
+        }
+
+        return normalizedTerminalWorkingDirectory(currentDirectory, preserveExact: preserveExact)
+    }
+
     private func normalizedRemotePTYSessionID(_ value: String?) -> String? {
         guard let trimmed = value?.trimmingCharacters(in: .whitespacesAndNewlines),
               !trimmed.isEmpty else {
@@ -14668,7 +14755,7 @@ final class Workspace: Identifiable, ObservableObject {
         let remoteTerminalStartupCommand = remoteTerminalStartupCommand()
         let startupCommand = explicitInitialCommand ?? remoteTerminalStartupCommand
         let remoteStartupCommandForEnvironment = explicitInitialCommand == nil ? remoteTerminalStartupCommand : nil
-        let effectiveStartupEnvironment = terminalStartupEnvironment(
+        var effectiveStartupEnvironment = terminalStartupEnvironment(
             base: startupEnvironment,
             remoteStartupCommand: remoteStartupCommandForEnvironment
         )
@@ -14693,36 +14780,29 @@ final class Workspace: Identifiable, ObservableObject {
         // Inherit working directory: prefer the source panel's reported cwd,
         // then its requested startup cwd if shell integration has not reported
         // back yet, and finally fall back to the workspace's current directory.
-        let splitWorkingDirectory: String? = {
-            if let workingDirectory = workingDirectory?.trimmingCharacters(in: .whitespacesAndNewlines),
-               !workingDirectory.isEmpty {
-                return workingDirectory
-            }
-            if let panelDirectory = panelDirectories[panelId]?.trimmingCharacters(in: .whitespacesAndNewlines),
-               !panelDirectory.isEmpty {
-                return panelDirectory
-            }
-            if let requestedWorkingDirectory = terminalPanel(for: panelId)?
-                .requestedWorkingDirectory?
-                .trimmingCharacters(in: .whitespacesAndNewlines),
-               !requestedWorkingDirectory.isEmpty {
-                return requestedWorkingDirectory
-            }
-            let workspaceDirectory = currentDirectory.trimmingCharacters(in: .whitespacesAndNewlines)
-            return workspaceDirectory.isEmpty ? nil : workspaceDirectory
-        }()
+        let splitWorkingDirectory = resolvedTerminalStartupWorkingDirectory(
+            explicitWorkingDirectory: workingDirectory,
+            sourcePanelId: panelId,
+            preserveExact: remoteStartupCommandForEnvironment != nil
+        )
 #if DEBUG
         cmuxDebugLog(
             "split.cwd panelId=\(panelId.uuidString.prefix(5)) panelDir=\(panelDirectories[panelId] ?? "nil") requestedDir=\(terminalPanel(for: panelId)?.requestedWorkingDirectory ?? "nil") currentDir=\(currentDirectory) resolved=\(splitWorkingDirectory ?? "nil")"
         )
 #endif
+        let usesWorkspaceRemoteStartup = remoteStartupCommandForEnvironment != nil
+        let remoteInitialWorkingDirectory = usesWorkspaceRemoteStartup ? splitWorkingDirectory : nil
+        let localWorkingDirectory = usesWorkspaceRemoteStartup ? nil : splitWorkingDirectory
+        if let remoteInitialWorkingDirectory {
+            effectiveStartupEnvironment["CMUX_REMOTE_INITIAL_CWD"] = remoteInitialWorkingDirectory
+        }
 
         // Create the new terminal panel.
         let newPanel = TerminalPanel(
             workspaceId: id,
             context: GHOSTTY_SURFACE_CONTEXT_SPLIT,
             configTemplate: inheritedConfig,
-            workingDirectory: splitWorkingDirectory,
+            workingDirectory: localWorkingDirectory,
             portOrdinal: portOrdinal,
             initialCommand: startupCommand,
             tmuxStartCommand: tmuxStartCommand,
@@ -14853,7 +14933,7 @@ final class Workspace: Identifiable, ObservableObject {
         let remoteTerminalStartupCommand = suppressWorkspaceRemoteStartupCommand ? nil : remoteTerminalStartupCommand()
         let startupCommand = explicitInitialCommand ?? remoteTerminalStartupCommand
         let remoteStartupCommandForEnvironment = explicitInitialCommand == nil ? remoteTerminalStartupCommand : nil
-        let effectiveStartupEnvironment = terminalStartupEnvironment(
+        var effectiveStartupEnvironment = terminalStartupEnvironment(
             base: startupEnvironment,
             remoteStartupCommand: remoteStartupCommandForEnvironment
         )
@@ -14865,13 +14945,27 @@ final class Workspace: Identifiable, ObservableObject {
             template.waitAfterCommand = true
             inheritedConfig = template
         }
+        let requestedWorkingDirectory = normalizedTerminalWorkingDirectory(workingDirectory)
+        let localWorkingDirectory: String?
+        if remoteStartupCommandForEnvironment != nil {
+            localWorkingDirectory = nil
+            if let remoteInitialWorkingDirectory = resolvedTerminalStartupWorkingDirectory(
+                explicitWorkingDirectory: workingDirectory,
+                targetPaneId: paneId,
+                preserveExact: true
+            ) {
+                effectiveStartupEnvironment["CMUX_REMOTE_INITIAL_CWD"] = remoteInitialWorkingDirectory
+            }
+        } else {
+            localWorkingDirectory = requestedWorkingDirectory
+        }
 
         // Create new terminal panel
         let newPanel = TerminalPanel(
             workspaceId: id,
             context: GHOSTTY_SURFACE_CONTEXT_SPLIT,
             configTemplate: inheritedConfig,
-            workingDirectory: workingDirectory,
+            workingDirectory: localWorkingDirectory,
             portOrdinal: portOrdinal,
             initialCommand: startupCommand,
             tmuxStartCommand: tmuxStartCommand,
@@ -18198,21 +18292,30 @@ final class Workspace: Identifiable, ObservableObject {
         var inheritedConfig = inheritedTerminalConfig(inPane: paneId)
         let requestedRemoteStartupCommand = remoteStartupCommand?.trimmingCharacters(in: .whitespacesAndNewlines)
         let startupCommand = requestedRemoteStartupCommand?.isEmpty == false ? requestedRemoteStartupCommand : nil
-        let effectiveStartupEnvironment = terminalStartupEnvironment(
+        let remoteInitialWorkingDirectory = startupCommand == nil ? nil : resolvedTerminalStartupWorkingDirectory(
+            explicitWorkingDirectory: workingDirectory,
+            targetPaneId: paneId,
+            preserveExact: true
+        )
+        var effectiveStartupEnvironment = terminalStartupEnvironment(
             base: [:],
             remoteStartupCommand: startupCommand
         )
+        if let remoteInitialWorkingDirectory {
+            effectiveStartupEnvironment["CMUX_REMOTE_INITIAL_CWD"] = remoteInitialWorkingDirectory
+        }
         if startupCommand != nil {
             var template = inheritedConfig ?? CmuxSurfaceConfigTemplate()
             template.waitAfterCommand = true
             inheritedConfig = template
         }
+        let terminalWorkingDirectory = startupCommand == nil ? workingDirectory : nil
 
         let newPanel = TerminalPanel(
             workspaceId: id,
             context: GHOSTTY_SURFACE_CONTEXT_SPLIT,
             configTemplate: inheritedConfig,
-            workingDirectory: workingDirectory,
+            workingDirectory: terminalWorkingDirectory,
             portOrdinal: portOrdinal,
             initialCommand: startupCommand,
             initialInput: initialInput,
@@ -18326,14 +18429,14 @@ final class Workspace: Identifiable, ObservableObject {
             targetPane: paneId,
             orientation: direction.orientation,
             insertFirst: direction.insertFirst,
-            workingDirectory: remoteStartupCommand == nil ? workingDirectory : nil,
+            workingDirectory: workingDirectory,
             initialInput: startupInput,
             remoteStartupCommand: remoteStartupCommand
         )
         if let forkedPanel,
            remoteStartupCommand != nil,
            let workingDirectory {
-            updatePanelDirectory(panelId: forkedPanel.id, directory: workingDirectory)
+            updatePanelDirectory(panelId: forkedPanel.id, directory: workingDirectory, preserveExactDirectory: true)
         }
         if forkedPanel == nil, let zoomedPaneId {
             _ = bonsplitController.togglePaneZoom(inPane: zoomedPaneId)
@@ -18350,7 +18453,7 @@ final class Workspace: Identifiable, ObservableObject {
             panelDirectories[panelId],
             terminalPanel(for: panelId)?.requestedWorkingDirectory,
             currentDirectory
-        ])
+        ], preserveExact: isRemoteTerminalSurface(panelId))
     }
 
     /// Synchronous availability check used by the tab right-click context menu to decide
@@ -18422,13 +18525,13 @@ final class Workspace: Identifiable, ObservableObject {
         let forkedPanel = newTerminalSurface(
             inPane: paneId,
             focus: true,
-            workingDirectory: remoteStartupCommand == nil ? workingDirectory : nil,
+            workingDirectory: workingDirectory,
             initialInput: startupInput
         )
         if let forkedPanel {
             _ = reorderSurface(panelId: forkedPanel.id, toIndex: targetIndex)
             if remoteStartupCommand != nil, let workingDirectory {
-                updatePanelDirectory(panelId: forkedPanel.id, directory: workingDirectory)
+                updatePanelDirectory(panelId: forkedPanel.id, directory: workingDirectory, preserveExactDirectory: true)
             }
         } else if let zoomedPaneId {
             _ = bonsplitController.togglePaneZoom(inPane: zoomedPaneId)
@@ -18454,7 +18557,17 @@ final class Workspace: Identifiable, ObservableObject {
     }
 
     private static func firstNonEmptyPath(_ candidates: [String?]) -> String? {
+        firstNonEmptyPath(candidates, preserveExact: false)
+    }
+
+    private static func firstNonEmptyPath(_ candidates: [String?], preserveExact: Bool) -> String? {
         for candidate in candidates {
+            if preserveExact {
+                if let candidate, !candidate.isEmpty {
+                    return candidate
+                }
+                continue
+            }
             let trimmed = candidate?.trimmingCharacters(in: .whitespacesAndNewlines)
             if let trimmed, !trimmed.isEmpty {
                 return trimmed
@@ -19923,7 +20036,11 @@ extension Workspace: BonsplitDelegate {
         if let workingDirectory = launch.workingDirectory,
            launch.terminalWorkingDirectory == nil,
            let forkPanelId = forkWorkspace.focusedPanelId {
-            forkWorkspace.updatePanelDirectory(panelId: forkPanelId, directory: workingDirectory)
+            forkWorkspace.updatePanelDirectory(
+                panelId: forkPanelId,
+                directory: workingDirectory,
+                preserveExactDirectory: launch.remoteConfiguration != nil
+            )
         }
         return true
     }

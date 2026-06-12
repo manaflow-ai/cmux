@@ -73,6 +73,7 @@ private func restoreUserDefaultForTabManagerTests(_ value: Any?, key: String) {
 
 private actor BlockingWorkspaceGitMetadataReader: WorkspaceGitMetadataReading {
     private let metadata: GitWorkspaceMetadata
+    private var directories: [String] = []
     private var callCount = 0
     private var maxActiveCallCount = 0
     private var activeCallCount = 0
@@ -84,6 +85,7 @@ private actor BlockingWorkspaceGitMetadataReader: WorkspaceGitMetadataReading {
     }
 
     func workspaceMetadata(for directory: String) async -> GitWorkspaceMetadata {
+        directories.append(directory)
         callCount += 1
         activeCallCount += 1
         maxActiveCallCount = max(maxActiveCallCount, activeCallCount)
@@ -112,6 +114,10 @@ private actor BlockingWorkspaceGitMetadataReader: WorkspaceGitMetadataReading {
 
     var observedCallCount: Int {
         callCount
+    }
+
+    var observedDirectories: [String] {
+        directories
     }
 
     var observedMaxActiveCallCount: Int {
@@ -1028,6 +1034,77 @@ final class TabManagerPullRequestProbeTests: XCTestCase {
         XCTAssertTrue(workspace.isRemoteWorkspace)
         XCTAssertTrue(workspace.isRemoteTerminalSurface(splitPanel.id))
         XCTAssertEqual(manager.activeWorkspaceGitProbePanelIdsForTesting(workspaceId: workspace.id), Set<UUID>())
+    }
+
+    func testRemoteDirectoryChangeGitProbePreservesExactReportedDirectory() async throws {
+        let defaults = UserDefaults.standard
+        let previousWatchGitStatus = defaults.object(forKey: SidebarWorkspaceDetailDefaults.watchGitStatusKey)
+        defaults.set(false, forKey: SidebarWorkspaceDetailDefaults.watchGitStatusKey)
+        defer {
+            restoreUserDefaultForTabManagerTests(
+                previousWatchGitStatus,
+                key: SidebarWorkspaceDetailDefaults.watchGitStatusKey
+            )
+        }
+
+        let reader = BlockingWorkspaceGitMetadataReader(
+            metadata: GitWorkspaceMetadata(
+                isRepository: false,
+                branch: nil,
+                isDirty: false,
+                indexSignature: nil,
+                indexContentSignature: nil,
+                headSignature: nil
+            )
+        )
+        defer {
+            Task {
+                await reader.releaseAll()
+            }
+        }
+
+        let manager = TabManager(workspaceGitMetadataReader: reader)
+        guard let workspace = manager.selectedWorkspace,
+              let panelId = workspace.focusedPanelId else {
+            XCTFail("Expected selected workspace with focused panel")
+            return
+        }
+
+        workspace.configureRemoteConnection(
+            WorkspaceRemoteConfiguration(
+                destination: "cmux-macmini",
+                port: nil,
+                identityFile: nil,
+                sshOptions: [],
+                localProxyPort: nil,
+                relayPort: 64017,
+                relayID: String(repeating: "a", count: 16),
+                relayToken: String(repeating: "b", count: 64),
+                localSocketPath: "/tmp/cmux-debug-test.sock",
+                terminalStartupCommand: "ssh cmux-macmini"
+            ),
+            autoConnect: false
+        )
+
+        let exactDirectory = "/srv/cmux/repo-\(UUID().uuidString) "
+        defaults.set(true, forKey: SidebarWorkspaceDetailDefaults.watchGitStatusKey)
+        manager.updateSurfaceDirectory(
+            tabId: workspace.id,
+            surfaceId: panelId,
+            directory: exactDirectory,
+            preserveExactDirectory: true
+        )
+
+        let readStarted = expectation(description: "remote exact cwd git snapshot read started")
+        Task {
+            await reader.waitForCallCount(1)
+            readStarted.fulfill()
+        }
+        await fulfillment(of: [readStarted], timeout: 1.0)
+
+        let observedDirectories = await reader.observedDirectories
+        XCTAssertEqual(observedDirectories, [exactDirectory])
+        await reader.releaseAll()
     }
 
     // testResolvedCommandPathFallsBackOutsideAppPATH moved to

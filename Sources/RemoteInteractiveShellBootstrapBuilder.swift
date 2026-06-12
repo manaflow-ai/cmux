@@ -194,10 +194,25 @@ enum RemoteInteractiveShellBootstrapBuilder {
             "cmux_surface_id='__CMUX_SURFACE_ID__'",
             "case \"$cmux_surface_id\" in \"\"|'__CMUX_''SURFACE_ID__') ;; *) export CMUX_SURFACE_ID=\"$cmux_surface_id\"; export CMUX_PANEL_ID=\"$cmux_surface_id\" ;; esac",
             "unset cmux_workspace_id cmux_surface_id",
+        ])
+        lines.append(contentsOf: remoteInitialWorkingDirectoryLines())
+        lines.append(contentsOf: [
             "hash -r >/dev/null 2>&1 || true",
             "rehash >/dev/null 2>&1 || true",
         ])
         return lines
+    }
+
+    private static func remoteInitialWorkingDirectoryLines() -> [String] {
+        [
+            "cmux_remote_initial_cwd_b64='__CMUX_REMOTE_INITIAL_CWD_B64__'",
+            "if [ \"$cmux_remote_initial_cwd_b64\" = '__CMUX_''REMOTE_INITIAL_CWD_B64__' ]; then cmux_remote_initial_cwd_b64=''; fi",
+            "if [ -n \"$cmux_remote_initial_cwd_b64\" ]; then",
+            "  cmux_remote_initial_cwd=\"$(printf %s \"$cmux_remote_initial_cwd_b64\" | base64 -d 2>/dev/null || printf %s \"$cmux_remote_initial_cwd_b64\" | base64 -D 2>/dev/null || true)\"",
+            "  if [ -n \"$cmux_remote_initial_cwd\" ]; then cd \"$cmux_remote_initial_cwd\" 2>/dev/null || true; fi",
+            "fi",
+            "unset cmux_remote_initial_cwd_b64 cmux_remote_initial_cwd",
+        ]
     }
 
     private static func terminalSetupLines(terminfoSource: String?) -> [String] {

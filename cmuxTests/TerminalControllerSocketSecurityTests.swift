@@ -202,6 +202,62 @@ final class TerminalControllerSocketSecurityTests: XCTestCase {
         XCTAssertEqual(payload["has_ssh_options"] as? Bool, true)
     }
 
+    func testV2SurfaceReportPwdUpdatesRemoteWorkspaceDirectory() throws {
+        let tabManager = TabManager()
+        TerminalController.shared.setActiveTabManager(tabManager)
+        defer { TerminalController.shared.setActiveTabManager(nil) }
+
+        let workspace = tabManager.addWorkspace(
+            workingDirectory: "/Users/local/project",
+            select: true,
+            eagerLoadTerminal: false
+        )
+        workspace.configureRemoteConnection(
+            .init(
+                destination: "example.com",
+                port: nil,
+                identityFile: nil,
+                sshOptions: [],
+                localProxyPort: nil,
+                relayPort: 64011,
+                relayID: "relay-id",
+                relayToken: "relay-token",
+                localSocketPath: "/tmp/cmux-test.sock",
+                terminalStartupCommand: "ssh example.com"
+            ),
+            autoConnect: false
+        )
+        let surfaceId = try XCTUnwrap(workspace.focusedPanelId)
+        let directory = "/home/dev/project with trailing space "
+        let request: [String: Any] = [
+            "id": "report-pwd",
+            "method": "surface.report_pwd",
+            "params": [
+                "workspace_id": workspace.id.uuidString,
+                "surface_id": surfaceId.uuidString,
+                "directory": directory,
+            ],
+        ]
+        let requestData = try JSONSerialization.data(withJSONObject: request, options: [])
+        let requestLine = try XCTUnwrap(String(data: requestData, encoding: .utf8))
+
+        let responseLine = TerminalController.shared.handleSocketLine(requestLine)
+        let responseData = try XCTUnwrap(responseLine.data(using: .utf8))
+        let response = try XCTUnwrap(JSONSerialization.jsonObject(with: responseData, options: []) as? [String: Any])
+
+        XCTAssertEqual(response["ok"] as? Bool, true)
+        let result = try XCTUnwrap(response["result"] as? [String: Any])
+        XCTAssertEqual(result["accepted"] as? Bool, true)
+        XCTAssertEqual(result["queued"] as? Bool, true)
+        XCTAssertNil(result["pending"])
+        let deadline = Date().addingTimeInterval(1.0)
+        while workspace.currentDirectory != directory && Date() < deadline {
+            RunLoop.current.run(until: Date().addingTimeInterval(0.01))
+        }
+        XCTAssertEqual(workspace.panelDirectories[surfaceId], directory)
+        XCTAssertEqual(workspace.currentDirectory, directory)
+    }
+
     func testRemoteConfigureRejectsInvalidPersistentDaemonSlot() throws {
         let response = try handleV2Request(
             method: "workspace.remote.configure",

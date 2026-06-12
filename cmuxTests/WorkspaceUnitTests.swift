@@ -5751,12 +5751,12 @@ final class WorkspacePanelGitBranchTests: XCTestCase {
         let snapshot = SessionRestorableAgentSnapshot(
             kind: .codex,
             sessionId: "019dad34-d218-7943-b81a-eddac5c87951",
-            workingDirectory: "/Users/cmux/project",
+            workingDirectory: "/Users/cmux/project ",
             launchCommand: AgentLaunchCommandSnapshot(
                 launcher: "codex",
                 executablePath: "/Users/example/.bun/bin/codex",
                 arguments: ["/Users/example/.bun/bin/codex"],
-                workingDirectory: "/Users/cmux/project",
+                workingDirectory: "/Users/cmux/project ",
                 environment: nil,
                 capturedAt: 123,
                 source: "process"
@@ -5773,7 +5773,8 @@ final class WorkspacePanelGitBranchTests: XCTestCase {
 
         XCTAssertEqual(forkPanel.surface.debugInitialCommand(), "ssh cmux-macmini")
         XCTAssertNil(forkPanel.requestedWorkingDirectory)
-        XCTAssertEqual(workspace.panelDirectories[forkPanel.id], "/Users/cmux/project")
+        XCTAssertEqual(forkPanel.surface.startupEnvironmentValue("CMUX_REMOTE_INITIAL_CWD"), "/Users/cmux/project ")
+        XCTAssertEqual(workspace.panelDirectories[forkPanel.id], "/Users/cmux/project ")
         XCTAssertEqual(forkPanel.surface.initialInput, snapshot.forkCommand.map { $0 + "\n" })
         XCTAssertEqual(workspace.activeRemoteTerminalSessionCount, initialRemoteSessionCount + 1)
     }
@@ -5822,6 +5823,10 @@ final class WorkspacePanelGitBranchTests: XCTestCase {
 
         XCTAssertEqual(forkPanel.surface.debugInitialCommand(), "ssh cmux-macmini")
         XCTAssertNil(forkPanel.requestedWorkingDirectory)
+        XCTAssertEqual(
+            forkPanel.surface.startupEnvironmentValue("CMUX_REMOTE_INITIAL_CWD"),
+            "/Users/cmux/fallback repo"
+        )
         XCTAssertEqual(workspace.panelDirectories[forkPanel.id], "/Users/cmux/fallback repo")
         XCTAssertEqual(
             forkPanel.surface.initialInput,
@@ -6737,6 +6742,47 @@ final class WorkspacePanelGitBranchTests: XCTestCase {
             snapshot.forkCommand.map { $0 + "\n" },
             "Forked tab should boot with the snapshot's --fork-session command"
         )
+    }
+
+    func testForkAgentConversationToNewTabInRemoteWorkspaceUsesRemoteInitialCWD() throws {
+        let workspace = Workspace()
+        workspace.configureRemoteConnection(
+            WorkspaceRemoteConfiguration(
+                destination: "cmux-macmini",
+                port: nil,
+                identityFile: nil,
+                sshOptions: [],
+                localProxyPort: nil,
+                relayPort: 64000,
+                relayID: "relay-new-tab-fork",
+                relayToken: String(repeating: "a", count: 64),
+                localSocketPath: "/tmp/cmux-new-tab-fork-remote.sock",
+                terminalStartupCommand: "ssh cmux-macmini"
+            ),
+            autoConnect: false
+        )
+        let initialRemoteSessionCount = workspace.activeRemoteTerminalSessionCount
+        let sourcePanelId = try XCTUnwrap(workspace.focusedPanelId)
+        let sourcePaneId = try XCTUnwrap(workspace.paneId(forPanelId: sourcePanelId))
+        let anchorTabId = try XCTUnwrap(workspace.surfaceIdFromPanelId(sourcePanelId))
+        let remoteWorkingDirectory = "/Users/cmux/new tab project "
+        let snapshot = makeForkableCodexSnapshot(workingDirectory: remoteWorkingDirectory)
+
+        let forkPanel = try XCTUnwrap(
+            workspace.forkAgentConversationToNewTab(
+                fromPanelId: sourcePanelId,
+                snapshot: snapshot,
+                anchorTabId: anchorTabId,
+                paneId: sourcePaneId
+            )
+        )
+
+        XCTAssertEqual(forkPanel.surface.debugInitialCommand(), "ssh cmux-macmini")
+        XCTAssertNil(forkPanel.requestedWorkingDirectory)
+        XCTAssertEqual(forkPanel.surface.startupEnvironmentValue("CMUX_REMOTE_INITIAL_CWD"), remoteWorkingDirectory)
+        XCTAssertEqual(workspace.panelDirectories[forkPanel.id], remoteWorkingDirectory)
+        XCTAssertEqual(forkPanel.surface.initialInput, snapshot.forkCommand.map { $0 + "\n" })
+        XCTAssertEqual(workspace.activeRemoteTerminalSessionCount, initialRemoteSessionCount + 1)
     }
 
     func testForkAgentConversationToNewTabPlacesForkImmediatelyRightOfAnchor() throws {
