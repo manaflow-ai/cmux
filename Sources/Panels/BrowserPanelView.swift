@@ -5699,6 +5699,12 @@ struct WebViewRepresentable: NSViewRepresentable {
             return slotView
         }
 
+#if DEBUG
+        func localInlineSlotViewForDebug() -> WindowBrowserSlotView? {
+            localInlineSlotView
+        }
+#endif
+
         func setLocalInlineSlotHidden(_ hidden: Bool) {
             localInlineSlotView?.isHidden = hidden
             if hidden {
@@ -7261,6 +7267,19 @@ struct WebViewRepresentable: NSViewRepresentable {
             )
             DispatchQueue.main.async { [weak host, weak webView] in
                 guard let host, let webView else { return }
+#if DEBUG
+                let slotFrame = host.localInlineSlotViewForDebug()?.frame ?? .zero
+                let companions = webView.superview?.subviews
+                    .filter { $0 !== webView }
+                    .map { String(describing: type(of: $0)) }
+                    .joined(separator: ",") ?? "-"
+                cmuxDebugLog(
+                    "browser.localInline.frames host=\(host.bounds) slot=\(slotFrame) " +
+                    "web=\(webView.frame) webSuper=\(String(describing: type(of: webView.superview))) " +
+                    "inspector=\(webView.cmuxInspectorFrontendWebView() != nil ? 1 : 0) " +
+                    "companions=\(companions)"
+                )
+#endif
                 if let sourceSuperview = Self.localInlineTransferRoot(for: webView),
                    sourceSuperview === slotView {
                     Self.moveWebKitRelatedSubviewsIntoHostIfNeeded(

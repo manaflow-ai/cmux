@@ -40,13 +40,16 @@ struct CanvasHostedPanelContentView: View {
         // border; this inset keeps the focus ring visible around it.
         .padding(.horizontal, 2)
         .padding(.bottom, 2)
-        // Inline hosting (cmuxCanvasInlineBrowserHosting=true) parents the
-        // webview inside the pane hierarchy: pans track frame-perfectly and
-        // content scales with magnification. The portal tug-of-war is fixed
-        // (reconcilers skip canvasInlineHostingActive panels), and content
-        // renders live inline — but the webview's frame inside the slot still
-        // comes up partial-width/right-aligned (suspect: pinHostedWebView's
-        // companion-subview check skipping the frame reset). Default-off
-        // until that is fixed; portal hosting + per-frame sync remains.
+        // Inline hosting parents the webview inside the pane hierarchy: pans
+        // track frame-perfectly and content scales with magnification. The
+        // portal tug-of-war is fixed (reconcilers skip
+        // canvasInlineHostingActive panels) and content renders live inline,
+        // but the webview's slot frame still comes up partial-width, so it
+        // ships default-off. The launch-time debug default
+        // `canvasInlineBrowserHostingDebug` flips it on for diagnosis.
+        .environment(
+            \.cmuxCanvasInlineBrowserHosting,
+            UserDefaults.standard.bool(forKey: "canvasInlineBrowserHostingDebug")
+        )
     }
 }
