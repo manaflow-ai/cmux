@@ -2005,6 +2005,7 @@ final class TitlebarLeadingInsetPassthroughViewTests: XCTestCase {
     }
 }
 
+
 @Suite("Custom titlebar leading padding")
 struct CustomTitlebarLeadingPaddingTests {
     @Test func hiddenSidebarUsesMinimumSidebarTitleInset() {
