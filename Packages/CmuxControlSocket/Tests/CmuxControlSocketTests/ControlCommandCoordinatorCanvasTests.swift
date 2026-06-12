@@ -120,7 +120,9 @@ struct ControlCommandCoordinatorCanvasTests {
                 ControlCanvasPaneSummary(
                     surfaceID: surfaceID,
                     frame: ControlCanvasFrame(x: 10, y: 20, width: 800, height: 520),
-                    isFocused: true
+                    isFocused: true,
+                    panelIDs: [surfaceID],
+                    selectedPanelID: surfaceID
                 ),
             ]
         )
@@ -139,6 +141,10 @@ struct ControlCommandCoordinatorCanvasTests {
                     "width": .double(800),
                     "height": .double(520),
                     "focused": .bool(true),
+                    "surface_ids": .array([.string(surfaceID.uuidString)]),
+                    "surface_refs": .array([.string("surface:1")]),
+                    "selected_surface_id": .string(surfaceID.uuidString),
+                    "selected_surface_ref": .string("surface:1"),
                 ]),
             ]),
         ])))

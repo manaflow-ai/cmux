@@ -52,6 +52,10 @@ extension ControlCommandCoordinator {
                 "width": .double(pane.frame.width),
                 "height": .double(pane.frame.height),
                 "focused": .bool(pane.isFocused),
+                "surface_ids": .array(pane.panelIDs.map { .string($0.uuidString) }),
+                "surface_refs": .array(pane.panelIDs.map { ref(.surface, $0) }),
+                "selected_surface_id": .string(pane.selectedPanelID.uuidString),
+                "selected_surface_ref": ref(.surface, pane.selectedPanelID),
             ])
         }
         return .ok(.object([

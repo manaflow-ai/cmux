@@ -23,17 +23,19 @@ extension TerminalController: ControlCanvasContext {
     func controlCanvasInfo(routing: ControlRoutingSelectors) -> ControlCanvasInfoSnapshot? {
         guard let ws = resolveCanvasWorkspace(routing: routing) else { return nil }
         let focusedPanelId = ws.focusedPanelId
-        let panes: [ControlCanvasPaneSummary] = ws.canvasModel.layout.paneIDs.compactMap { paneID in
-            guard let frame = ws.canvasModel.frame(of: paneID.rawValue) else { return nil }
+        let panes: [ControlCanvasPaneSummary] = ws.canvasModel.layout.panes.map { pane in
+            let panelIDs = pane.panelIds.map(\.rawValue)
             return ControlCanvasPaneSummary(
-                surfaceID: paneID.rawValue,
+                surfaceID: pane.id.rawValue,
                 frame: ControlCanvasFrame(
-                    x: frame.origin.x,
-                    y: frame.origin.y,
-                    width: frame.width,
-                    height: frame.height
+                    x: pane.frame.x,
+                    y: pane.frame.y,
+                    width: pane.frame.width,
+                    height: pane.frame.height
                 ),
-                isFocused: paneID.rawValue == focusedPanelId
+                isFocused: focusedPanelId.map(panelIDs.contains) ?? false,
+                panelIDs: panelIDs,
+                selectedPanelID: pane.selectedPanelId.rawValue
             )
         }
         return ControlCanvasInfoSnapshot(

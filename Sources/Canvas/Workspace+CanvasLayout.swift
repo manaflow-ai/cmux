@@ -146,3 +146,23 @@ extension NavigationDirection {
         }
     }
 }
+
+extension Workspace {
+    /// Cycles the focused canvas pane's tabs by `offset` (wrapping). Returns
+    /// `false` when the focused pane has fewer than two tabs, so the caller
+    /// can fall back to bonsplit cycling semantics.
+    func selectAdjacentCanvasTab(offset: Int) -> Bool {
+        guard let focusedPanelId,
+              let paneID = canvasModel.paneID(containing: focusedPanelId),
+              let tabs = canvasModel.layout.panelIds(in: paneID),
+              tabs.count > 1,
+              let selected = canvasModel.layout.selectedPanelId(in: paneID),
+              let index = tabs.firstIndex(of: selected) else {
+            return false
+        }
+        let next = tabs[(index + offset + tabs.count) % tabs.count]
+        focusPanel(next.rawValue)
+        canvasModel.viewport?.modelDidChangeExternally(animated: false)
+        return true
+    }
+}
