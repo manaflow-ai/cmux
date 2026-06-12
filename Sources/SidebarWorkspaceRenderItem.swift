@@ -184,7 +184,16 @@ enum SidebarWorkspaceRenderItem {
         let afterGroup = draggedIndex < renderItems.index(before: renderItems.endIndex)
             ? groupIdentity(renderItems[draggedIndex + 1])
             : nil
-        let membership: UUID? = (beforeGroup == afterGroup) ? beforeGroup : nil
+        // Mirror the commit rule exactly: matching neighbors decide the
+        // membership; the AMBIGUOUS case (one neighbor in, one out — the
+        // first/last in-group slot) keeps the COMMITTED membership, the same
+        // bias `applyDragInferredGroupMembership` applies. Forcing nil here
+        // made the preview unindent at group-edge slots and snap back on drop.
+        let committedGroupId: UUID? = {
+            if case .workspace(let workspace, _) = renderItems[draggedIndex] { return workspace.groupId }
+            return nil
+        }()
+        let membership: UUID? = (beforeGroup == afterGroup) ? beforeGroup : committedGroupId
         guard renderItems[draggedIndex].effectiveGroupId != membership else { return renderItems }
         var result = renderItems
         result[draggedIndex] = result[draggedIndex].withEffectiveGroupId(membership)

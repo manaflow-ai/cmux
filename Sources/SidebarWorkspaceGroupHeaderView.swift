@@ -15,6 +15,7 @@ struct SidebarWorkspaceGroupHeaderView: View, Equatable {
             lhs.isCollapsed == rhs.isCollapsed &&
             lhs.isPinned == rhs.isPinned &&
             lhs.isAnchorActive == rhs.isAnchorActive &&
+            lhs.isReorderDropTarget == rhs.isReorderDropTarget &&
             lhs.memberCount == rhs.memberCount &&
             lhs.groupUnreadCount == rhs.groupUnreadCount &&
             lhs.shortcutDigit == rhs.shortcutDigit &&
@@ -39,6 +40,9 @@ struct SidebarWorkspaceGroupHeaderView: View, Equatable {
     let isCollapsed: Bool
     let isPinned: Bool
     let isAnchorActive: Bool
+    /// True while a gesture-reorder drag is parked over this header's center
+    /// drop-into zone (releasing adds the dragged workspace to the group).
+    let isReorderDropTarget: Bool
     let memberCount: Int
     let groupUnreadCount: Int
     let shortcutDigit: Int?
@@ -237,6 +241,12 @@ struct SidebarWorkspaceGroupHeaderView: View, Equatable {
         .padding(.horizontal, 6)
         .background { rowHeightProbe }
         .shortcutHintVisibilityAnimation(value: showsShortcutHint)
+        .overlay {
+            if isReorderDropTarget {
+                RoundedRectangle(cornerRadius: 6)
+                    .strokeBorder(Color.accentColor, lineWidth: 1.5)
+            }
+        }
         .modifier(SidebarReorderRowModifier(
             enabled: isReorderEnabled,
             workspaceId: anchorWorkspaceId,

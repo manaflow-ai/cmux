@@ -70,6 +70,32 @@ extension VerticalTabsSidebar {
                 usesTopLevelRows: usesTopLevelRows,
                 renderContext: renderContext
             )
+            // Commit-side clamp (grouped members stay inside their group's
+            // run) plus its visual mirror for the live gap, and the headers a
+            // non-anchor row could be dropped INTO via their center zone.
+            let legalInsertionRange = tabManager.sidebarReorderLegalInsertionRange(
+                forDraggedWorkspaceId: draggedId,
+                usesTopLevelRows: usesTopLevelRows
+            )
+            let draggedWorkspace = renderContext.workspaceById[draggedId]
+            let draggedGroupId = draggedWorkspace?.groupId
+            let memberClampBandIds: Set<UUID>? = legalInsertionRange.flatMap { _ in
+                guard let draggedGroupId else { return nil }
+                return Set(
+                    renderContext.tabs
+                        .filter { $0.groupId == draggedGroupId }
+                        .map(\.id)
+                )
+            }
+            let draggedIsAnchor = renderContext.workspaceGroups
+                .contains { $0.anchorWorkspaceId == draggedId }
+            let dropIntoCandidates: Set<UUID> = draggedIsAnchor
+                ? []
+                : Set(
+                    renderContext.workspaceGroups
+                        .filter { $0.id != draggedGroupId }
+                        .map(\.anchorWorkspaceId)
+                )
             let frame = dragState.rowFramesInList[draggedId]
             let grabOffsetY = frame.map { startLocationY - $0.minY } ?? 0
             #if DEBUG
@@ -86,6 +112,9 @@ extension VerticalTabsSidebar {
                 reorderIds: reorderIds,
                 pinnedIds: pinnedIds,
                 scopeBandComposition: composition,
+                legalInsertionRange: legalInsertionRange,
+                memberClampBandIds: memberClampBandIds,
+                dropIntoGroupCandidateAnchorIds: dropIntoCandidates,
                 draggedRowFrame: frame,
                 grabOffsetY: grabOffsetY,
                 translationBaseY: startLocationY,
@@ -105,8 +134,26 @@ extension VerticalTabsSidebar {
             dragState.clearDrag()
             dragAutoScrollController.stop()
         }
-        guard dragState.draggedTabId == draggedId,
-              let targetIndex = dragState.gestureReorderTargetIndex() else {
+        guard dragState.draggedTabId == draggedId else {
+            #if DEBUG
+            cmuxDebugLog("sidebar.reorder.end id=\(draggedId.uuidString.prefix(5)) target=nil (noop)")
+            #endif
+            return
+        }
+        // Released over a group header's center zone: join that group. The
+        // only drag path INTO a collapsed group, whose members have no rows
+        // to land between.
+        if let anchorId = dragState.dropIntoGroupAnchorId,
+           let group = tabManager.workspaceGroups.first(where: { $0.anchorWorkspaceId == anchorId }) {
+            #if DEBUG
+            cmuxDebugLog("sidebar.reorder.end id=\(draggedId.uuidString.prefix(5)) intoGroup=\(group.id.uuidString.prefix(5))")
+            #endif
+            withAnimation(SidebarGroupAnimation.structure) {
+                tabManager.addWorkspaceToGroup(workspaceId: draggedId, groupId: group.id)
+            }
+            return
+        }
+        guard let targetIndex = dragState.gestureReorderTargetIndex() else {
             #if DEBUG
             cmuxDebugLog("sidebar.reorder.end id=\(draggedId.uuidString.prefix(5)) target=nil (noop)")
             #endif

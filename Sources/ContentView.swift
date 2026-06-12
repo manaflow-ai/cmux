@@ -10429,6 +10429,29 @@ final class SidebarDragState {
     /// members when dragging a group anchor at top level).
     @ObservationIgnored private var scopeBandComposition: [UUID: [UUID]] = [:]
 
+    /// The group header (anchor id) the cursor is currently parked over in
+    /// its center drop-into zone, observed so the header can highlight.
+    /// Releasing here adds the dragged workspace to that group instead of
+    /// reordering — the only drag path INTO a collapsed group, whose members
+    /// have no rows to sandwich between.
+    var dropIntoGroupAnchorId: UUID?
+
+    /// Insertion clamp for the commit, in full reorder-scope index space
+    /// (grouped members may only land inside their group's run; pinned
+    /// members inside the group's pinned sub-tier). Mirrors the clamp
+    /// `TabManager.reorderWorkspace` applies at commit so the landing slot
+    /// the preview shows is the slot the drop produces.
+    @ObservationIgnored private var legalInsertionRange: ClosedRange<Int>?
+    /// When dragging a grouped member, the rendered band ids of its group's
+    /// member rows. The hit-test cursor is clamped to this run so the live
+    /// gap also stays inside the group (the visual mirror of
+    /// `legalInsertionRange`).
+    @ObservationIgnored private var memberClampBandIds: Set<UUID>?
+    /// Anchor ids of groups the dragged workspace could be dropped INTO via
+    /// a header's center zone (every group except the one it is already in;
+    /// empty when dragging an anchor).
+    @ObservationIgnored private var dropIntoGroupCandidateAnchorIds: Set<UUID> = []
+
     /// The begin-time gesture location in list space. Later cursor positions
     /// are derived as base + translation + autoscroll delta, because the
     /// gesture's location re-converts through the host row's CURRENT geometry
@@ -10492,6 +10515,10 @@ final class SidebarDragState {
         reorderIds = []
         pinnedIds = []
         scopeBandComposition = [:]
+        legalInsertionRange = nil
+        memberClampBandIds = nil
+        dropIntoGroupCandidateAnchorIds = []
+        dropIntoGroupAnchorId = nil
         clearDropIndicator()
     }
 
@@ -10504,6 +10531,9 @@ final class SidebarDragState {
         reorderIds: [UUID],
         pinnedIds: Set<UUID>,
         scopeBandComposition: [UUID: [UUID]],
+        legalInsertionRange: ClosedRange<Int>?,
+        memberClampBandIds: Set<UUID>?,
+        dropIntoGroupCandidateAnchorIds: Set<UUID>,
         draggedRowFrame: CGRect?,
         grabOffsetY: CGFloat,
         translationBaseY: CGFloat,
@@ -10514,6 +10544,9 @@ final class SidebarDragState {
         self.reorderIds = reorderIds
         self.pinnedIds = pinnedIds
         self.scopeBandComposition = scopeBandComposition
+        self.legalInsertionRange = legalInsertionRange
+        self.memberClampBandIds = memberClampBandIds
+        self.dropIntoGroupCandidateAnchorIds = dropIntoGroupCandidateAnchorIds
         self.draggedRowFrame = draggedRowFrame
         self.grabOffsetY = grabOffsetY
         self.reorderTranslationBaseY = translationBaseY
@@ -10569,15 +10602,50 @@ final class SidebarDragState {
             targetTabId: dropIndicator?.tabId,
             indicator: dropIndicator,
             tabIds: reorderIds,
-            pinnedTabIds: pinnedIds
+            pinnedTabIds: pinnedIds,
+            legalInsertionRange: legalInsertionRange
         )
     }
 
     private func recomputeIndicator(cursorY: CGFloat) {
         guard let draggedTabId else { return }
         let bands = buildBands()
+
+        // Center drop-into zone: parking over the middle of another group's
+        // header adds the dragged row to that group on release. Checked
+        // against the raw cursor (a grouped member's clamp below would never
+        // reach a header outside its group anyway).
+        let hoveredBand = bands.first(where: { cursorY >= $0.minY && cursorY < $0.maxY })
+        let intoGroupAnchorId: UUID? = hoveredBand.flatMap { band in
+            guard dropIntoGroupCandidateAnchorIds.contains(band.id) else { return nil }
+            let inset = band.height / 3
+            let isCenter = cursorY >= band.minY + inset && cursorY <= band.maxY - inset
+            return isCenter ? band.id : nil
+        }
+        if intoGroupAnchorId != dropIntoGroupAnchorId {
+            dropIntoGroupAnchorId = intoGroupAnchorId
+        }
+        if intoGroupAnchorId != nil {
+            if dropIndicator != nil {
+                dropIndicator = nil
+            }
+            return
+        }
+
+        // A grouped member's hit-test cursor is clamped to its group's
+        // rendered run, mirroring the commit-side clamp so the live gap never
+        // shows a landing slot the drop would reject.
+        var effectiveCursorY = cursorY
+        if let memberClampBandIds {
+            let runBands = bands.filter { memberClampBandIds.contains($0.id) }
+            if let runMinY = runBands.map(\.minY).min(),
+               let runMaxY = runBands.map(\.maxY).max() {
+                effectiveCursorY = min(max(cursorY, runMinY + 1), runMaxY - 1)
+            }
+        }
+
         let indicator = SidebarReorderIndicatorResolver.resolve(
-            cursorY: cursorY,
+            cursorY: effectiveCursorY,
             bands: bands,
             draggedId: draggedTabId,
             pinnedIds: pinnedIds,
