@@ -10,14 +10,14 @@ import SwiftUI
 /// a row inside the `LazyVStack`/`ForEach`), its per-frame updates repaint just
 /// this one view and never invalidate the list body — the property that keeps
 /// the drag off the https://github.com/manaflow-ai/cmux/issues/2586 thrash path.
-/// The cursor tracking stays animation-free by construction: `.position` sits
-/// OUTSIDE the indent's `.animation(_:value:)` scope, no other animation
-/// modifier covers it, and `followerCursorY` writes are never wrapped in
-/// `withAnimation` — so the follower snaps to the cursor with zero lag while
-/// the indent/width animate on their own axis. (A blanket
-/// `.transaction { disablesAnimations = true }` used to enforce this, but it
-/// also suppressed the indent animation — disablesAnimations kills
-/// `.animation(_:value:)` downstream — so it must not come back.)
+///
+/// The membership indent is NOT animated here: `followerRenderedIndent` is
+/// animated at its single mutation site (`SidebarDragState.setPreviewMembership`
+/// wraps the write in `withAnimation`), so every way a flip can happen —
+/// vertical slot crossing, in-place X nudge — animates identically. This view
+/// just renders the value. Cursor tracking stays animation-free because the
+/// `followerCursorY` writes are never wrapped in `withAnimation` and no
+/// animation modifier covers `.position`.
 struct SidebarReorderFollowerView: View {
     let dragState: SidebarDragState
     /// The committed render list, used to find the picked-up row's content
@@ -26,20 +26,7 @@ struct SidebarReorderFollowerView: View {
     /// Spacing between the header and member rows in a group-block follower,
     /// matching the list's row spacing.
     let rowSpacing: CGFloat
-    /// Extra leading indent previewed for the dragged row at its current
-    /// landing slot, RELATIVE to its committed indent (positive tucking into
-    /// a group, negative pulling out, 0 unchanged). Derived by the parent
-    /// from the resolved membership, so it only changes when the resolved
-    /// membership does.
-    let previewExtraIndent: CGFloat
     let rowContent: (SidebarWorkspaceRenderItem) -> AnyView
-
-    /// The rendered indent, animated toward `previewExtraIndent` with an
-    /// EXPLICIT `withAnimation` transaction in `onChange` — the most
-    /// deterministic animation mechanism available, immune to the
-    /// transaction-semantics subtleties that kept `.animation(_:value:)`
-    /// from firing here.
-    @State private var animatedExtraIndent: CGFloat = 0
 
     var body: some View {
         if let draggedId = dragState.draggedTabId,
@@ -49,36 +36,22 @@ struct SidebarReorderFollowerView: View {
            frame.height > 0,
            let itemIndex = sourceItems.firstIndex(where: { $0.representedWorkspaceId == draggedId }) {
             let topY = cursorY - dragState.grabOffsetY
+            let indent = dragState.followerRenderedIndent
             let blockItems = followerBlockItems(startingAt: itemIndex)
-            // The indent is applied INSIDE the position-tracked container, on
-            // its own animation keyed to the indent value: the row slides
-            // right and narrows when the landing slot crosses into a group
-            // (and back out), while Y stays glued to the cursor with
-            // animations disabled. The container is sized to the picked-up
-            // row's frame and top-aligned, so a group block overflows below
-            // it without disturbing the cursor anchor math.
+            // Width and X are BOTH functions of the rendered indent: tucking
+            // into a group slides the row right by the indent AND narrows it
+            // by the same amount (the trailing edge stays fixed). The outer
+            // fixed-size container keeps the cursor anchor math stable; a
+            // group block overflows below it without clipping.
             VStack(alignment: .leading, spacing: rowSpacing) {
                 ForEach(blockItems, id: \.representedWorkspaceId) { item in
                     rowContent(item)
                 }
             }
-            // Width and X are BOTH explicit functions of the animated
-            // indent: tucking into a group slides the row right by the
-            // indent AND narrows it by the same amount (the trailing edge
-            // stays fixed), in one motion, while Y tracking below stays
-            // animation-free.
-            .frame(width: max(frame.width - animatedExtraIndent, 0), height: frame.height, alignment: .topLeading)
-            .padding(.leading, animatedExtraIndent)
+            .frame(width: max(frame.width - indent, 0), height: frame.height, alignment: .topLeading)
+            .padding(.leading, indent)
             .frame(width: frame.width, height: frame.height, alignment: .topLeading)
             .position(x: frame.midX, y: topY + frame.height / 2)
-            .onAppear {
-                animatedExtraIndent = previewExtraIndent
-            }
-            .onChange(of: previewExtraIndent) { _, newValue in
-                withAnimation(.snappy(duration: 0.15, extraBounce: 0)) {
-                    animatedExtraIndent = newValue
-                }
-            }
             .shadow(color: Color.black.opacity(0.18), radius: 11, x: 0, y: 5)
             .opacity(0.97)
             .allowsHitTesting(false)

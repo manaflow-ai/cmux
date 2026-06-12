@@ -10445,8 +10445,20 @@ final class SidebarDragState {
     /// its group, so headers never donate a boundary candidate to the slot
     /// above them).
     @ObservationIgnored private var headerBandIds: Set<UUID> = []
+    /// The follower's rendered extra leading indent, RELATIVE to the dragged
+    /// row's committed indent (+12 tucking into a group, -12 pulling out, 0
+    /// unchanged). Driven exclusively by ``setPreviewMembership(_:)`` with an
+    /// explicit `withAnimation` at that single mutation site, so every way a
+    /// membership flip can happen (vertical slot crossing, in-place X nudge)
+    /// animates identically by construction. Read only by the follower
+    /// overlay.
+    var followerRenderedIndent: CGFloat = 0
+
     /// Dragged row's committed membership at drag begin.
     @ObservationIgnored private var draggedCommittedGroupId: UUID?
+    /// The committed leading indent matching that membership (member rows
+    /// are indented); the baseline the rendered indent is relative to.
+    @ObservationIgnored private var draggedCommittedIndent: CGFloat = 0
     /// True while dragging an anchor (membership never changes for anchors).
     @ObservationIgnored private var draggedIsAnchor = false
     /// The reorder scope mode pinned at drag begin (anchors reorder in
@@ -10533,6 +10545,8 @@ final class SidebarDragState {
         bandGroupIdById = [:]
         headerBandIds = []
         draggedCommittedGroupId = nil
+        draggedCommittedIndent = 0
+        followerRenderedIndent = 0
         draggedIsAnchor = false
         gestureScopeUsesTopLevelRows = false
         previewMembershipGroupId = nil
@@ -10568,6 +10582,10 @@ final class SidebarDragState {
         self.bandGroupIdById = bandGroupIdById
         self.headerBandIds = headerBandIds
         self.draggedCommittedGroupId = draggedCommittedGroupId
+        self.draggedCommittedIndent = (draggedCommittedGroupId != nil && !draggedIsAnchor)
+            ? SidebarWorkspaceGroupingMetrics.memberIndent
+            : 0
+        self.followerRenderedIndent = 0
         self.draggedIsAnchor = draggedIsAnchor
         self.gestureScopeUsesTopLevelRows = usesTopLevelRows
         // Anchors never change membership; their committed groupId is the
@@ -10786,6 +10804,14 @@ final class SidebarDragState {
     private func setPreviewMembership(_ groupId: UUID?) {
         if previewMembershipGroupId != groupId {
             previewMembershipGroupId = groupId
+        }
+        let targetIndent: CGFloat = draggedIsAnchor
+            ? 0
+            : (groupId != nil ? SidebarWorkspaceGroupingMetrics.memberIndent : 0) - draggedCommittedIndent
+        if followerRenderedIndent != targetIndent {
+            withAnimation(.snappy(duration: 0.15, extraBounce: 0)) {
+                followerRenderedIndent = targetIndent
+            }
         }
     }
 
@@ -12883,10 +12909,6 @@ struct VerticalTabsSidebar: View {
                 dragState: dragState,
                 sourceItems: baseRenderItems,
                 rowSpacing: tabRowSpacing,
-                previewExtraIndent: followerPreviewExtraIndent(
-                    baseRenderItems: baseRenderItems,
-                    previewItems: previewItems
-                ),
                 rowContent: { item in
                     switch item {
                     case .groupHeader(let group, let memberWorkspaceIds):
@@ -12940,27 +12962,6 @@ struct VerticalTabsSidebar: View {
         } else {
             rows
         }
-    }
-
-    /// Extra leading indent the follower previews for the dragged row,
-    /// relative to its committed indent: positive when the resolved landing
-    /// membership tucks an ungrouped row into a group, negative when a member
-    /// is being pulled out, 0 when membership is unchanged.
-    private func followerPreviewExtraIndent(
-        baseRenderItems: [SidebarWorkspaceRenderItem],
-        previewItems: [SidebarWorkspaceRenderItem]
-    ) -> CGFloat {
-        guard let draggedId = dragState.draggedTabId,
-              let committed = baseRenderItems.first(where: { $0.representedWorkspaceId == draggedId }) else {
-            return 0
-        }
-        let committedIndent: CGFloat = committed.effectiveGroupId != nil
-            ? SidebarWorkspaceGroupingMetrics.memberIndent
-            : 0
-        let previewIndent: CGFloat = dragState.previewMembershipGroupId != nil
-            ? SidebarWorkspaceGroupingMetrics.memberIndent
-            : 0
-        return previewIndent - committedIndent
     }
 
     private func bonsplitWorkspaceDropOverlay() -> some View {
