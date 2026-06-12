@@ -1,0 +1,100 @@
+import AppKit
+
+/// How a panel's content view mounts into a canvas pane.
+///
+/// Terminals mount their real `GhosttySurfaceScrollView` directly (detached
+/// from the window portal) so they keep full size at the viewport edge and
+/// never reflow during panning. Other panel kinds keep their SwiftUI views
+/// inside a hosting view.
+enum CanvasPaneContent {
+    /// A terminal surface hosted directly as an AppKit subview.
+    case terminal(TerminalPanel)
+    /// Any other panel kind, hosted through an `NSHostingView`.
+    case hosted(NSView)
+}
+
+/// Owns the mounted content of one canvas pane and its teardown.
+@MainActor
+final class CanvasPaneContentMount {
+    let panelId: UUID
+    private let content: CanvasPaneContent
+    private weak var container: NSView?
+    private var onFocusPanel: ((UUID) -> Void)?
+
+    /// Mounts panel content into the pane's content container.
+    ///
+    /// - Parameters:
+    ///   - content: What to mount.
+    ///   - panelId: The panel this content belongs to.
+    ///   - container: The pane view's content container.
+    ///   - onFocusPanel: Invoked when the content reports keyboard focus
+    ///     (terminal surfaces report via their `onFocus` hook).
+    init(
+        content: CanvasPaneContent,
+        panelId: UUID,
+        container: NSView,
+        onFocusPanel: @escaping (UUID) -> Void
+    ) {
+        self.content = content
+        self.panelId = panelId
+        self.container = container
+        self.onFocusPanel = onFocusPanel
+
+        let view: NSView
+        switch content {
+        case .terminal(let panel):
+            let hostedView = panel.hostedView
+            // The window portal resizes hosted terminals to their visible
+            // intersection; on a scrolling canvas that would reflow the
+            // terminal at the viewport edge. Detach and parent directly so
+            // the clip view crops instead.
+            TerminalWindowPortalRegistry.detach(hostedView: hostedView)
+            hostedView.setVisibleInUI(true)
+            hostedView.setFocusHandler { [weak self] in
+                guard let self else { return }
+                self.onFocusPanel?(self.panelId)
+            }
+            view = hostedView
+        case .hosted(let hostedView):
+            view = hostedView
+        }
+
+        view.translatesAutoresizingMaskIntoConstraints = true
+        view.autoresizingMask = [.width, .height]
+        view.frame = container.bounds
+        container.addSubview(view)
+    }
+
+    /// The terminal panel when this mount hosts a terminal directly.
+    var terminalPanel: TerminalPanel? {
+        if case .terminal(let panel) = content { return panel }
+        return nil
+    }
+
+    /// Applies the explicit canvas lifecycle state to the mounted content.
+    /// Offscreen terminals stop rendering (Ghostty occlusion) but keep their
+    /// size, so re-entering the viewport never reflows.
+    func setRendering(_ rendering: Bool) {
+        switch content {
+        case .terminal(let panel):
+            panel.surface.setOcclusion(rendering)
+        case .hosted:
+            break
+        }
+    }
+
+    /// Unmounts the content. Terminals hand their view back to the portal
+    /// system (the split layout's representable rebinds on its next update).
+    func unmount() {
+        switch content {
+        case .terminal(let panel):
+            let hostedView = panel.hostedView
+            hostedView.setFocusHandler(nil)
+            panel.surface.setOcclusion(true)
+            hostedView.removeFromSuperview()
+        case .hosted(let view):
+            view.removeFromSuperview()
+        }
+        onFocusPanel = nil
+    }
+}

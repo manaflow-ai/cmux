@@ -10614,6 +10614,15 @@ final class Workspace: Identifiable, ObservableObject {
 
     /// The bonsplit controller managing the split panes for this workspace
     let bonsplitController: BonsplitController
+
+    /// How this workspace lays out its panels. Mutate through
+    /// `setLayoutMode(_:)` (Workspace+CanvasLayout.swift) so canvas frames
+    /// are seeded from the split layout on first entry.
+    @Published var layoutMode: WorkspaceLayoutMode = .splits
+
+    /// Durable canvas-layout state (pane frames, z-order). Lives on the
+    /// workspace so it survives canvas view remounts and workspace switches.
+    let canvasModel = WorkspaceCanvasModel()
     private struct SurfaceTabBarExecutableButton {
         let button: CmuxSurfaceTabBarButton
         let builtInAction: CmuxSurfaceTabBarBuiltInAction?
@@ -16895,6 +16904,10 @@ final class Workspace: Identifiable, ObservableObject {
     }
 
     func moveFocus(direction: NavigationDirection) {
+        if layoutMode == .canvas {
+            moveCanvasFocus(direction: direction)
+            return
+        }
         let previousFocusedPanelId = focusedPanelId
 
         // Unfocus the currently-focused panel before navigating.
