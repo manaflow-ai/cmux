@@ -1,22 +1,31 @@
 import SwiftUI
 
+/// Hit rects for one rendered tab, in the tab bar's local coordinates.
+/// Reported by the SwiftUI strip so `CanvasPaneView` can route AppKit mouse
+/// events (select / close / drag) without SwiftUI gesture recognizers —
+/// drags stay on the fast NSEvent path and never fight button recognizers.
+struct CanvasTabHitRegions: Equatable {
+    var tabFrames: [UUID: CGRect] = [:]
+    var closeFrames: [UUID: CGRect] = [:]
+}
+
+private struct CanvasTabFramesKey: PreferenceKey {
+    static let defaultValue = CanvasTabHitRegions()
+    static func reduce(value: inout CanvasTabHitRegions, nextValue: () -> CanvasTabHitRegions) {
+        let next = nextValue()
+        value.tabFrames.merge(next.tabFrames) { _, new in new }
+        value.closeFrames.merge(next.closeFrames) { _, new in new }
+    }
+}
+
 /// The tab bar at the top of a canvas pane, mirroring the workspace split
 /// pane tab bar's anatomy (30pt bar, full-height square tabs, right-edge
-/// separators, selected/hover fills, 14pt icon slot that becomes a close
-/// button on hover, 11pt centered titles). The bar is also the pane's
-/// move-drag handle: empty bar area drags via the AppKit path, and tabs
-/// relay drags through `onTabStripDrag`. All text arrives pre-localized
-/// through ``CanvasPaneChrome``.
+/// separators, selected/hover fills, icon slot that becomes a close glyph on
+/// hover, 11pt centered titles). Render-only: all clicks and drags are
+/// handled by `CanvasPaneView` via the reported hit regions.
 struct CanvasPaneTitleBarView: View {
     let chrome: CanvasPaneChrome
-    let onSelectTab: (UUID) -> Void
-    let onCloseTab: (UUID) -> Void
-    /// Pane-drag relay for drags that start on a tab (tabs consume
-    /// mouse-down, so the AppKit title-bar drag path never sees them).
-    /// Translation is in pane-local points, which equals document points at
-    /// any magnification because the strip renders inside the scaled space.
-    let onTabStripDrag: (CGSize) -> Void
-    let onTabStripDragEnded: () -> Void
+    let onHitRegionsChanged: (CanvasTabHitRegions) -> Void
 
     /// Matches the split pane tab bar height.
     static let height: CGFloat = 30
@@ -27,58 +36,56 @@ struct CanvasPaneTitleBarView: View {
                 CanvasPaneTabItem(
                     tab: tab,
                     isSelected: chrome.tabs.count == 1 || tab.id == chrome.selectedTabId,
-                    paneIsFocused: chrome.isFocused,
-                    closeActionLabel: chrome.closeActionLabel,
-                    onSelect: { onSelectTab(tab.id) },
-                    onClose: { onCloseTab(tab.id) }
-                )
-                .simultaneousGesture(
-                    DragGesture(minimumDistance: 4)
-                        .onChanged { onTabStripDrag($0.translation) }
-                        .onEnded { _ in onTabStripDragEnded() }
+                    paneIsFocused: chrome.isFocused
                 )
             }
             Spacer(minLength: 0)
         }
         .frame(height: Self.height)
-        .contentShape(Rectangle())
+        .coordinateSpace(name: "canvasTabBar")
+        .onPreferenceChange(CanvasTabFramesKey.self) { regions in
+            onHitRegionsChanged(regions)
+        }
     }
 }
 
 /// One tab, visually matching the workspace split pane tabs: full-height
 /// rectangle, selected/hover background fill, a 1px trailing separator, and
-/// an icon slot that swaps to a close button on hover.
+/// an icon slot that swaps to a close glyph on hover.
 private struct CanvasPaneTabItem: View {
     let tab: CanvasTabChrome
     let isSelected: Bool
     let paneIsFocused: Bool
-    let closeActionLabel: String
-    let onSelect: () -> Void
-    let onClose: () -> Void
 
     @State private var isHovered = false
-    @State private var isCloseHovered = false
 
     private var textOpacity: Double {
         isSelected && paneIsFocused ? 0.82 : 0.62
     }
 
     var body: some View {
-        Button(action: onSelect) {
-            HStack(spacing: 6) {
-                iconOrClose
-                Text(tab.title)
-                    .font(.system(size: 11))
-                    .foregroundStyle(.primary.opacity(textOpacity))
-                    .lineLimit(1)
-                    .truncationMode(.middle)
-            }
-            .padding(.horizontal, 6)
-            .frame(maxWidth: 220, minHeight: CanvasPaneTitleBarView.height, maxHeight: CanvasPaneTitleBarView.height)
-            .background(tabBackground)
+        HStack(spacing: 6) {
+            iconOrClose
+            Text(tab.title)
+                .font(.system(size: 11))
+                .foregroundStyle(.primary.opacity(textOpacity))
+                .lineLimit(1)
+                .truncationMode(.middle)
         }
-        .buttonStyle(.plain)
+        .padding(.horizontal, 6)
+        .frame(maxWidth: 220, minHeight: CanvasPaneTitleBarView.height, maxHeight: CanvasPaneTitleBarView.height)
+        .background(tabBackground)
         .onHover { isHovered = $0 }
+        .background(
+            GeometryReader { proxy in
+                Color.clear.preference(
+                    key: CanvasTabFramesKey.self,
+                    value: CanvasTabHitRegions(
+                        tabFrames: [tab.id: proxy.frame(in: .named("canvasTabBar"))]
+                    )
+                )
+            }
+        )
         .help(tab.title)
         .accessibilityLabel(tab.title)
         .accessibilityAddTraits(isSelected ? .isSelected : [])
@@ -88,20 +95,20 @@ private struct CanvasPaneTabItem: View {
     private var iconOrClose: some View {
         ZStack {
             if isHovered {
-                Button(action: onClose) {
-                    Image(systemName: "xmark")
-                        .font(.system(size: 9, weight: .bold))
-                        .foregroundStyle(.primary.opacity(isCloseHovered ? 0.82 : 0.62))
-                        .frame(width: 16, height: 16)
-                        .background(
-                            RoundedRectangle(cornerRadius: 3)
-                                .fill(isCloseHovered ? Color.primary.opacity(0.12) : .clear)
-                        )
-                }
-                .buttonStyle(.plain)
-                .onHover { isCloseHovered = $0 }
-                .help(closeActionLabel)
-                .accessibilityLabel(closeActionLabel)
+                Image(systemName: "xmark")
+                    .font(.system(size: 9, weight: .bold))
+                    .foregroundStyle(.primary.opacity(0.82))
+                    .frame(width: 16, height: 16)
+                    .background(
+                        GeometryReader { proxy in
+                            Color.clear.preference(
+                                key: CanvasTabFramesKey.self,
+                                value: CanvasTabHitRegions(
+                                    closeFrames: [tab.id: proxy.frame(in: .named("canvasTabBar")).insetBy(dx: -4, dy: -7)]
+                                )
+                            )
+                        }
+                    )
             } else if let iconSystemName = tab.iconSystemName {
                 Image(systemName: iconSystemName)
                     .font(.system(size: 11, weight: .medium))

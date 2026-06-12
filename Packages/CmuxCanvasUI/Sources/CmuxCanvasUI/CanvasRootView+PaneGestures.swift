@@ -79,38 +79,6 @@ extension CanvasRootView: CanvasPaneViewDelegate {
         callbacks.onViewportGeometryChanged(window)
     }
 
-    func paneView(_ view: CanvasPaneView, tabStripDraggedBy translation: CGSize, modifiers: NSEvent.ModifierFlags) {
-        guard let panelId = selectedPanelId(of: view) else { return }
-        if dragSession?.paneID != view.paneID {
-            guard let frame = model.layout.frame(of: view.paneID)?.cgRect else { return }
-            dragSession = DragSession(
-                paneID: view.paneID,
-                region: .titleBar,
-                originalFrame: frame,
-                startPoint: .zero,
-                lastFrame: frame
-            )
-            model.bringToFront(panelId)
-            applyZOrder()
-        }
-        guard var session = dragSession else { return }
-        let proposed = session.originalFrame.offsetBy(dx: translation.width, dy: translation.height)
-        let result = model.snapForMove(
-            proposed: proposed,
-            movingPanelId: panelId,
-            snapping: !modifiers.contains(.command)
-        )
-        session.lastFrame = result.frame.cgRect
-        dragSession = session
-        view.frame = documentRect(fromCanvas: session.lastFrame)
-        guidesView.setGuides(result.guides)
-        callbacks.onViewportGeometryChanged(window)
-    }
-
-    func paneViewTabStripDragEnded(_ view: CanvasPaneView) {
-        paneViewDidEndDrag(view)
-    }
-
     func paneView(_ view: CanvasPaneView, didSelectTab panelId: UUID) {
         model.selectPanel(panelId)
         if let pane = model.layout.panes.first(where: { $0.id == view.paneID }) {

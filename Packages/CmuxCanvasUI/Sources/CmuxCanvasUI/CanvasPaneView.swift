@@ -8,8 +8,6 @@ protocol CanvasPaneViewDelegate: AnyObject {
     func paneView(_ view: CanvasPaneView, mouseDownAt documentPoint: CGPoint, region: CanvasPaneHitRegion)
     func paneView(_ view: CanvasPaneView, draggedTo documentPoint: CGPoint, modifiers: NSEvent.ModifierFlags)
     func paneViewDidEndDrag(_ view: CanvasPaneView)
-    func paneView(_ view: CanvasPaneView, tabStripDraggedBy translation: CGSize, modifiers: NSEvent.ModifierFlags)
-    func paneViewTabStripDragEnded(_ view: CanvasPaneView)
     func paneView(_ view: CanvasPaneView, didSelectTab panelId: UUID)
     func paneView(_ view: CanvasPaneView, didCloseTab panelId: UUID)
     func paneViewDidRequestFocus(_ view: CanvasPaneView)
@@ -36,6 +34,11 @@ final class CanvasPaneView: NSView {
     private var activeDragRegion: CanvasPaneHitRegion?
     private var dragStartedMoving = false
     private var dragStartDocumentPoint: CGPoint = .zero
+    /// Tab/close hit rects in tab-bar coordinates, reported by SwiftUI.
+    private var tabHitRegions = CanvasTabHitRegions()
+    /// Pending click target resolved at mouse-down, fired at mouse-up when
+    /// no drag started.
+    private var pendingTabClick: (panelId: UUID, isClose: Bool)?
 
     /// Pane fill behind the content, resolved by the host through
     /// ``CanvasTheme``.
@@ -55,10 +58,7 @@ final class CanvasPaneView: NSView {
         self.paneID = paneID
         self.titleBarHost = NSHostingView(rootView: CanvasPaneTitleBarView(
             chrome: CanvasPaneChrome(tabs: [], selectedTabId: nil, isFocused: false, closeActionLabel: ""),
-            onSelectTab: { _ in },
-            onCloseTab: { _ in },
-            onTabStripDrag: { _ in },
-            onTabStripDragEnded: {}
+            onHitRegionsChanged: { _ in }
         ))
         super.init(frame: .zero)
 
@@ -98,25 +98,8 @@ final class CanvasPaneView: NSView {
         self.chrome = chrome
         titleBarHost.rootView = CanvasPaneTitleBarView(
             chrome: chrome,
-            onSelectTab: { [weak self] panelId in
-                guard let self else { return }
-                self.delegate?.paneView(self, didSelectTab: panelId)
-            },
-            onCloseTab: { [weak self] panelId in
-                guard let self else { return }
-                self.delegate?.paneView(self, didCloseTab: panelId)
-            },
-            onTabStripDrag: { [weak self] translation in
-                guard let self else { return }
-                self.delegate?.paneView(
-                    self,
-                    tabStripDraggedBy: translation,
-                    modifiers: NSEvent.modifierFlags
-                )
-            },
-            onTabStripDragEnded: { [weak self] in
-                guard let self else { return }
-                self.delegate?.paneViewTabStripDragEnded(self)
+            onHitRegionsChanged: { [weak self] regions in
+                self?.tabHitRegions = regions
             }
         )
         applyChromeColors()
@@ -162,13 +145,15 @@ final class CanvasPaneView: NSView {
         return nil
     }
 
-    /// Route border-band clicks to the pane itself even when they land over
-    /// the title strip or content edges, so resize always wins at the rim.
+    /// The pane owns every event over the resize rim AND the tab bar: drags
+    /// stay on the fast AppKit path and tab clicks resolve deterministically
+    /// against the reported hit regions (SwiftUI gesture recognizers fought
+    /// drags and swallowed close clicks).
     override func hitTest(_ point: NSPoint) -> NSView? {
         let result = super.hitTest(point)
         guard result != nil, result !== self else { return result }
         let local = convert(point, from: superview)
-        if case .resize = hitRegion(at: local) {
+        if hitRegion(at: local) != nil {
             return self
         }
         return result
@@ -180,6 +165,15 @@ final class CanvasPaneView: NSView {
             delegate?.paneViewDidRequestFocus(self)
             super.mouseDown(with: event)
             return
+        }
+        pendingTabClick = nil
+        if case .titleBar = region {
+            let barPoint = titleBarHost.convert(event.locationInWindow, from: nil)
+            if let (panelId, _) = tabHitRegions.closeFrames.first(where: { $0.value.contains(barPoint) }) {
+                pendingTabClick = (panelId, true)
+            } else if let (panelId, _) = tabHitRegions.tabFrames.first(where: { $0.value.contains(barPoint) }) {
+                pendingTabClick = (panelId, false)
+            }
         }
         guard let documentView = superview else { return }
         activeDragRegion = region
@@ -209,7 +203,14 @@ final class CanvasPaneView: NSView {
         if activeDragRegion != nil {
             if dragStartedMoving {
                 delegate?.paneViewDidEndDrag(self)
+            } else if let click = pendingTabClick {
+                if click.isClose {
+                    delegate?.paneView(self, didCloseTab: click.panelId)
+                } else {
+                    delegate?.paneView(self, didSelectTab: click.panelId)
+                }
             }
+            pendingTabClick = nil
             activeDragRegion = nil
             dragStartedMoving = false
             return
