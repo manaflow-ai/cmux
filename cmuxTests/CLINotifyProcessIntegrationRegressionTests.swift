@@ -402,8 +402,9 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
     func testClaudePromptSubmitFromNewSessionCanReplaceStoppedSession() throws {
         let context = try makeClaudeHookContext(name: "claude-new-session-after-stop")
         defer { context.cleanup() }
+        startAgentHookMockServerAccepting(context: context, connectionLimit: 32)
 
-        let oldStart = runClaudeHook(
+        let oldStart = runClaudeHookWithoutServer(
             context: context,
             arguments: ["hooks", "claude", "session-start"],
             standardInput: #"{"session_id":"old-session","cwd":"\#(context.root.path)","hook_event_name":"SessionStart"}"#
@@ -411,7 +412,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         XCTAssertFalse(oldStart.timedOut, oldStart.stderr)
         XCTAssertEqual(oldStart.status, 0, oldStart.stderr)
 
-        let oldPrompt = runClaudeHook(
+        let oldPrompt = runClaudeHookWithoutServer(
             context: context,
             arguments: ["hooks", "claude", "prompt-submit"],
             standardInput: #"{"session_id":"old-session","turn_id":"turn-1","cwd":"\#(context.root.path)","hook_event_name":"PromptSubmit"}"#
@@ -419,7 +420,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         XCTAssertFalse(oldPrompt.timedOut, oldPrompt.stderr)
         XCTAssertEqual(oldPrompt.status, 0, oldPrompt.stderr)
 
-        let oldStop = runClaudeHook(
+        let oldStop = runClaudeHookWithoutServer(
             context: context,
             arguments: ["hooks", "claude", "stop"],
             standardInput: #"{"session_id":"old-session","turn_id":"turn-1","cwd":"\#(context.root.path)","hook_event_name":"Stop","last_assistant_message":"old turn finished"}"#
@@ -427,7 +428,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         XCTAssertFalse(oldStop.timedOut, oldStop.stderr)
         XCTAssertEqual(oldStop.status, 0, oldStop.stderr)
 
-        let newStart = runClaudeHook(
+        let newStart = runClaudeHookWithoutServer(
             context: context,
             arguments: ["hooks", "claude", "session-start"],
             standardInput: #"{"session_id":"new-session","source":"startup","cwd":"\#(context.root.path)","hook_event_name":"SessionStart"}"#
@@ -436,7 +437,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         XCTAssertEqual(newStart.status, 0, newStart.stderr)
 
         let newPromptStart = context.state.commands.count
-        let newPrompt = runClaudeHook(
+        let newPrompt = runClaudeHookWithoutServer(
             context: context,
             arguments: ["hooks", "claude", "prompt-submit"],
             standardInput: #"{"session_id":"new-session","turn_id":"turn-1","cwd":"\#(context.root.path)","hook_event_name":"PromptSubmit"}"#
@@ -451,6 +452,47 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
             },
             "Expected a new Claude session to replace a stopped idle owner on prompt-submit, saw \(newPromptCommands)"
         )
+    }
+
+    func testClaudeFailedResumePromptDoesNotPublishSurfaceResumeBinding() throws {
+        let context = try makeClaudeHookContext(name: "claude-failed-resume-binding")
+        defer { context.cleanup() }
+        startAgentHookMockServerAccepting(context: context, connectionLimit: 8)
+
+        let missingSessionId = "932d910e-b979-4583-bf08-66285e5514ce"
+        let resumeEnvironment = agentLaunchEnvironment(
+            context: context,
+            kind: "claude",
+            executable: "/usr/local/bin/claude",
+            arguments: ["/usr/local/bin/claude", "--resume", missingSessionId, "--dangerously-skip-permissions"]
+        )
+        let start = runClaudeHookWithoutServer(
+            context: context,
+            arguments: ["hooks", "claude", "session-start"],
+            standardInput: #"{"session_id":"\#(missingSessionId)","source":"startup","cwd":"\#(context.root.path)","hook_event_name":"SessionStart"}"#,
+            extraEnvironment: resumeEnvironment
+        )
+        XCTAssertFalse(start.timedOut, start.stderr)
+        XCTAssertEqual(start.status, 0, start.stderr)
+
+        let prompt = runClaudeHookWithoutServer(
+            context: context,
+            arguments: ["hooks", "claude", "prompt-submit"],
+            standardInput: #"{"session_id":"\#(missingSessionId)","cwd":"\#(context.root.path)","hook_event_name":"UserPromptSubmit","prompt":"resume"}"#,
+            extraEnvironment: resumeEnvironment
+        )
+        XCTAssertFalse(prompt.timedOut, prompt.stderr)
+        XCTAssertEqual(prompt.status, 0, prompt.stderr)
+
+        XCTAssertFalse(
+            context.state.commands.contains { command in
+                guard let payload = jsonObject(command) else { return false }
+                return payload["method"] as? String == "surface.resume.set"
+            },
+            "A failed first-sighting Claude resume must not replace the pane's durable resume binding, saw \(context.state.commands)"
+        )
+        let session = try readClaudeHookSession(missingSessionId, context: context)
+        XCTAssertEqual(session["isRestorable"] as? Bool, false)
     }
 
     // MARK: - Forked conversation restore (https://github.com/manaflow-ai/cmux/issues/5908)
@@ -8666,6 +8708,8 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
                 return self.surfaceListResponse(id: id, surfaceId: context.surfaceId)
             case "feed.push":
                 return self.v2Response(id: id, ok: true, result: [:])
+            case "surface.resume.set":
+                return self.v2Response(id: id, ok: true, result: ["resume_binding": [:]])
             case "surface.resume.clear":
                 return self.v2Response(id: id, ok: true, result: ["cleared": true])
             default:
