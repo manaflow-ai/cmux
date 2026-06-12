@@ -1047,6 +1047,355 @@
         }
       }
     },
+    "editor": {
+      "title": "editor",
+      "description": "Monaco code-editor settings for `cmux edit` (the rich editor surface).",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "wordWrap": {
+          "type": "string",
+          "enum": [
+            "off",
+            "on",
+            "wordWrapColumn",
+            "bounded"
+          ],
+          "default": "off",
+          "description": "How long lines wrap: off (scroll), on (viewport width), wordWrapColumn (at wordWrapColumn), or bounded.",
+          "descriptionKey": "schemaDescriptions.editor.wordWrap"
+        },
+        "wordWrapColumn": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 10000,
+          "default": 80,
+          "description": "Column to wrap at when wordWrap is wordWrapColumn or bounded.",
+          "descriptionKey": "schemaDescriptions.editor.wordWrapColumn"
+        },
+        "wrappingIndent": {
+          "type": "string",
+          "enum": [
+            "none",
+            "same",
+            "indent",
+            "deepIndent"
+          ],
+          "default": "same",
+          "description": "Indentation of wrapped lines.",
+          "descriptionKey": "schemaDescriptions.editor.wrappingIndent"
+        },
+        "scrollBeyondLastLine": {
+          "type": "boolean",
+          "default": false,
+          "description": "Allow scrolling past the last line.",
+          "descriptionKey": "schemaDescriptions.editor.scrollBeyondLastLine"
+        },
+        "smoothScrolling": {
+          "type": "boolean",
+          "default": false,
+          "description": "Animate scrolling.",
+          "descriptionKey": "schemaDescriptions.editor.smoothScrolling"
+        },
+        "tabSize": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 64,
+          "default": 4,
+          "description": "Spaces a tab is rendered as (when detectIndentation does not override it).",
+          "descriptionKey": "schemaDescriptions.editor.tabSize"
+        },
+        "insertSpaces": {
+          "type": "boolean",
+          "default": true,
+          "description": "Insert spaces instead of tabs.",
+          "descriptionKey": "schemaDescriptions.editor.insertSpaces"
+        },
+        "detectIndentation": {
+          "type": "boolean",
+          "default": true,
+          "description": "Auto-detect tabSize and insertSpaces from the file contents.",
+          "descriptionKey": "schemaDescriptions.editor.detectIndentation"
+        },
+        "trimAutoWhitespace": {
+          "type": "boolean",
+          "default": true,
+          "description": "Trim trailing auto-inserted whitespace.",
+          "descriptionKey": "schemaDescriptions.editor.trimAutoWhitespace"
+        },
+        "lineNumbers": {
+          "type": "string",
+          "enum": [
+            "on",
+            "off",
+            "relative",
+            "interval"
+          ],
+          "default": "on",
+          "description": "Line number display.",
+          "descriptionKey": "schemaDescriptions.editor.lineNumbers"
+        },
+        "renderWhitespace": {
+          "type": "string",
+          "enum": [
+            "none",
+            "boundary",
+            "selection",
+            "trailing",
+            "all"
+          ],
+          "default": "selection",
+          "description": "When to render whitespace characters.",
+          "descriptionKey": "schemaDescriptions.editor.renderWhitespace"
+        },
+        "renderLineHighlight": {
+          "type": "string",
+          "enum": [
+            "none",
+            "gutter",
+            "line",
+            "all"
+          ],
+          "default": "all",
+          "description": "How the current line is highlighted.",
+          "descriptionKey": "schemaDescriptions.editor.renderLineHighlight"
+        },
+        "glyphMargin": {
+          "type": "boolean",
+          "default": false,
+          "description": "Show the glyph margin column.",
+          "descriptionKey": "schemaDescriptions.editor.glyphMargin"
+        },
+        "folding": {
+          "type": "boolean",
+          "default": true,
+          "description": "Enable code folding.",
+          "descriptionKey": "schemaDescriptions.editor.folding"
+        },
+        "showFoldingControls": {
+          "type": "string",
+          "enum": [
+            "always",
+            "never",
+            "mouseover"
+          ],
+          "default": "mouseover",
+          "description": "When folding controls are shown.",
+          "descriptionKey": "schemaDescriptions.editor.showFoldingControls"
+        },
+        "cursorStyle": {
+          "type": "string",
+          "enum": [
+            "line",
+            "block",
+            "underline",
+            "line-thin",
+            "block-outline",
+            "underline-thin"
+          ],
+          "default": "line",
+          "description": "Cursor shape.",
+          "descriptionKey": "schemaDescriptions.editor.cursorStyle"
+        },
+        "cursorBlinking": {
+          "type": "string",
+          "enum": [
+            "blink",
+            "smooth",
+            "phase",
+            "expand",
+            "solid"
+          ],
+          "default": "blink",
+          "description": "Cursor blinking animation.",
+          "descriptionKey": "schemaDescriptions.editor.cursorBlinking"
+        },
+        "cursorSmoothCaretAnimation": {
+          "type": "string",
+          "enum": [
+            "off",
+            "explicit",
+            "on"
+          ],
+          "default": "off",
+          "description": "Smooth caret movement animation.",
+          "descriptionKey": "schemaDescriptions.editor.cursorSmoothCaretAnimation"
+        },
+        "letterSpacing": {
+          "type": "number",
+          "minimum": -5,
+          "maximum": 20,
+          "default": 0,
+          "description": "Extra letter spacing in pixels.",
+          "descriptionKey": "schemaDescriptions.editor.letterSpacing"
+        },
+        "fontLigatures": {
+          "type": "boolean",
+          "default": false,
+          "description": "Enable font ligatures.",
+          "descriptionKey": "schemaDescriptions.editor.fontLigatures"
+        },
+        "roundedSelection": {
+          "type": "boolean",
+          "default": true,
+          "description": "Render selection with rounded corners.",
+          "descriptionKey": "schemaDescriptions.editor.roundedSelection"
+        },
+        "columnSelection": {
+          "type": "boolean",
+          "default": false,
+          "description": "Column (box) selection mode.",
+          "descriptionKey": "schemaDescriptions.editor.columnSelection"
+        },
+        "mouseWheelZoom": {
+          "type": "boolean",
+          "default": false,
+          "description": "Zoom font with Cmd/Ctrl + mouse wheel.",
+          "descriptionKey": "schemaDescriptions.editor.mouseWheelZoom"
+        },
+        "multiCursorModifier": {
+          "type": "string",
+          "enum": [
+            "ctrlCmd",
+            "alt"
+          ],
+          "default": "alt",
+          "description": "Modifier key for adding multiple cursors.",
+          "descriptionKey": "schemaDescriptions.editor.multiCursorModifier"
+        },
+        "minimap": {
+          "type": "object",
+          "additionalProperties": false,
+          "description": "Minimap (code overview) settings.",
+          "descriptionKey": "schemaDescriptions.editor.minimap._section",
+          "properties": {
+            "enabled": {
+              "type": "boolean",
+              "default": true,
+              "description": "Show the minimap.",
+              "descriptionKey": "schemaDescriptions.editor.minimap.enabled"
+            },
+            "side": {
+              "type": "string",
+              "enum": [
+                "left",
+                "right"
+              ],
+              "default": "right",
+              "description": "Minimap side.",
+              "descriptionKey": "schemaDescriptions.editor.minimap.side"
+            },
+            "renderCharacters": {
+              "type": "boolean",
+              "default": true,
+              "description": "Render actual characters in the minimap.",
+              "descriptionKey": "schemaDescriptions.editor.minimap.renderCharacters"
+            },
+            "maxColumn": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 1000,
+              "default": 120,
+              "description": "Maximum columns rendered in the minimap.",
+              "descriptionKey": "schemaDescriptions.editor.minimap.maxColumn"
+            }
+          }
+        },
+        "bracketPairColorization": {
+          "type": "object",
+          "additionalProperties": false,
+          "description": "Bracket pair colorization.",
+          "descriptionKey": "schemaDescriptions.editor.bracketPairColorization._section",
+          "properties": {
+            "enabled": {
+              "type": "boolean",
+              "default": false,
+              "description": "Colorize matching bracket pairs.",
+              "descriptionKey": "schemaDescriptions.editor.bracketPairColorization.enabled"
+            },
+            "independentColorPoolPerBracketType": {
+              "type": "boolean",
+              "default": false,
+              "description": "Use an independent color pool per bracket type.",
+              "descriptionKey": "schemaDescriptions.editor.bracketPairColorization.independentColorPoolPerBracketType"
+            }
+          }
+        },
+        "guides": {
+          "type": "object",
+          "additionalProperties": false,
+          "description": "Indentation and bracket guide settings.",
+          "descriptionKey": "schemaDescriptions.editor.guides._section",
+          "properties": {
+            "indentation": {
+              "type": "boolean",
+              "default": true,
+              "description": "Show indentation guides.",
+              "descriptionKey": "schemaDescriptions.editor.guides.indentation"
+            },
+            "highlightActiveIndentation": {
+              "type": "boolean",
+              "default": true,
+              "description": "Highlight the active indentation guide.",
+              "descriptionKey": "schemaDescriptions.editor.guides.highlightActiveIndentation"
+            },
+            "bracketPairs": {
+              "type": [
+                "boolean",
+                "string"
+              ],
+              "enum": [
+                true,
+                false,
+                "active"
+              ],
+              "default": false,
+              "description": "Show bracket pair guides (true, false, or 'active').",
+              "descriptionKey": "schemaDescriptions.editor.guides.bracketPairs"
+            },
+            "highlightActiveBracketPair": {
+              "type": "boolean",
+              "default": true,
+              "description": "Highlight the active bracket pair.",
+              "descriptionKey": "schemaDescriptions.editor.guides.highlightActiveBracketPair"
+            }
+          }
+        },
+        "stickyScroll": {
+          "type": "object",
+          "additionalProperties": false,
+          "description": "Sticky scroll settings.",
+          "descriptionKey": "schemaDescriptions.editor.stickyScroll._section",
+          "properties": {
+            "enabled": {
+              "type": "boolean",
+              "default": false,
+              "description": "Pin enclosing scopes to the top while scrolling.",
+              "descriptionKey": "schemaDescriptions.editor.stickyScroll.enabled"
+            },
+            "maxLineCount": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 20,
+              "default": 5,
+              "description": "Maximum sticky lines.",
+              "descriptionKey": "schemaDescriptions.editor.stickyScroll.maxLineCount"
+            }
+          }
+        },
+        "rulers": {
+          "type": "array",
+          "items": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 10000
+          },
+          "default": [],
+          "description": "Vertical ruler columns.",
+          "descriptionKey": "schemaDescriptions.editor.rulers"
+        }
+      }
+    },
     "fileEditor": {
       "title": "fileEditor",
       "description": "Built-in plain-text file editor settings.",

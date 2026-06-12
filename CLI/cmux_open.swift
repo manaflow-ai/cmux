@@ -1,3 +1,4 @@
+import CmuxFoundation
 import CryptoKit
 import Darwin
 import Foundation
@@ -1014,7 +1015,8 @@ extension CMUXCLI {
             appearance: appearance,
             runtime: runtime,
             readOnly: !writable,
-            contentSha256: contentSha256
+            contentSha256: contentSha256,
+            editorOptions: editorMonacoOptions()
         )
 
         let client = try connectClient(
@@ -1068,7 +1070,8 @@ extension CMUXCLI {
         appearance: DiffViewerAppearance,
         runtime: URL?,
         readOnly: Bool,
-        contentSha256: String
+        contentSha256: String,
+        editorOptions: [String: Any]
     ) throws -> EditorWriteResult {
         let directory = try diffViewerDirectory()
         let origin = try diffViewerHTTPServerOrigin(rootDirectory: directory, runtime: runtime)
@@ -1089,7 +1092,8 @@ extension CMUXCLI {
             title: title,
             appearance: appearance,
             readOnly: readOnly,
-            contentSha256: contentSha256
+            contentSha256: contentSha256,
+            editorOptions: editorOptions
         )
         let allowedFiles = try diffViewerAllowedFiles(
             pageURLs: [viewerFileURL],
@@ -1149,9 +1153,10 @@ extension CMUXCLI {
         title: String,
         appearance: DiffViewerAppearance,
         readOnly: Bool,
-        contentSha256: String
+        contentSha256: String,
+        editorOptions: [String: Any]
     ) throws {
-        let payload: [String: Any] = [
+        var payload: [String: Any] = [
             "filePath": filePath,
             "content": content,
             "title": title,
@@ -1160,6 +1165,11 @@ extension CMUXCLI {
             "contentSha256": contentSha256,
             "labels": Self.editorLabels
         ]
+        // Only present when the user configured `editor.*` in cmux.json; absence
+        // preserves the webview's hardcoded defaults.
+        if !editorOptions.isEmpty {
+            payload["editorOptions"] = editorOptions
+        }
         let config: [String: Any] = ["payload": payload]
         let configLiteral = try jsonScriptLiteral(config)
         let escapedAppModuleURL = htmlEscaped(appModuleURL)
@@ -1574,6 +1584,27 @@ extension CMUXCLI {
             return nil
         }
         return root
+    }
+
+    /// Curated, validated Monaco editor options resolved from the `editor`
+    /// object in cmux.json. Only an explicit allowlist of viewer/edit-safe
+    /// options is forwarded to the editor webview; model-specific or unsafe
+    /// keys (`model`, `value`, `language`, `theme`, `readOnly`,
+    /// `automaticLayout`, …) are never accepted even if present. Returns an
+    /// empty dictionary when nothing valid is configured, which preserves the
+    /// webview's hardcoded defaults.
+    private func editorMonacoOptions() -> [String: Any] {
+        for path in diffViewerDefaultSettingsPaths() {
+            guard let root = diffViewerSettingsRoot(at: path),
+                  let section = root["editor"] as? [String: Any] else {
+                continue
+            }
+            let curated = EditorMonacoOptionCuration.curate(section)
+            if !curated.isEmpty {
+                return curated
+            }
+        }
+        return [:]
     }
 
     private func resolveOpenTarget(_ raw: String) throws -> OpenTarget {

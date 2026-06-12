@@ -6,15 +6,32 @@ import type { EditorLabelResolver } from "./editorLabels";
 import { EditorSaveOverlay } from "./EditorSaveOverlay";
 import type { EditorSaveController } from "./saveController";
 
-/** Fire-and-forget dirty-state mirror to the native panel (token-authorized
- * on the Swift side; failures are benign for pages without a registration). */
-function notifyNativeDirty(dirty: boolean): void {
-  const handler = (
+/** The native editor-save message handler, present on every editor webview
+ * (token-authorized on the Swift side; absent in plain browsers). */
+function editorSaveHandler():
+  | { postMessage: (m: unknown) => Promise<unknown> }
+  | undefined {
+  return (
     window as unknown as {
       webkit?: { messageHandlers?: { cmuxEditorSave?: { postMessage: (m: unknown) => Promise<unknown> } } };
     }
   ).webkit?.messageHandlers?.cmuxEditorSave;
-  handler?.postMessage({ dirty }).catch(() => {});
+}
+
+/** Fire-and-forget dirty-state mirror to the native panel (failures are benign
+ * for pages without a registration). */
+function notifyNativeDirty(dirty: boolean): void {
+  editorSaveHandler()?.postMessage({ dirty }).catch(() => {});
+}
+
+/** Persist the editor's view state (scroll/cursor/selection/folding) to the
+ * native per-token sidecar. Authorized by the page's scheme token, so it works
+ * for read-only files too. Fire-and-forget. */
+function persistViewState(viewState: monaco.editor.ICodeEditorViewState | null): void {
+  if (!viewState) {
+    return;
+  }
+  editorSaveHandler()?.postMessage({ viewState }).catch(() => {});
 }
 
 /** Props for a single read/edit Monaco surface, fixed for the lifetime of the mount. */
@@ -28,6 +45,9 @@ export type EditorAppProps = {
   saveController: EditorSaveController | null;
   /** Status bar chrome colors derived from the active cmux theme. */
   chrome: { background?: string; foreground?: string };
+  /** Monaco view state (scroll/cursor/selection/folding) restored from the
+   * native sidecar after a webview unload; null on a fresh open. */
+  restoredViewState?: monaco.editor.ICodeEditorViewState | null;
 };
 
 /**
@@ -44,6 +64,7 @@ export function EditorApp({
   labels,
   saveController,
   chrome,
+  restoredViewState,
 }: EditorAppProps) {
   const mountEditor = useCallback(
     (node: HTMLDivElement | null) => {
@@ -79,6 +100,23 @@ export function EditorApp({
       tokenization?.forceTokenization?.(Math.min(model.getLineCount(), 2000));
       editor.render(true);
       node.dataset.cmuxEditorReady = "true";
+      // Restore scroll/cursor/selection/folding from before the last webview
+      // unload, before first paint so there is no visible jump.
+      if (restoredViewState) {
+        editor.restoreViewState(restoredViewState);
+      }
+      // Persist view state whenever the page is being torn down (tab switch,
+      // navigation, app quit). `pagehide` is the reliable teardown signal in
+      // WKWebView; `visibilitychange`->hidden covers backgrounding before an
+      // unannounced unload. Both capture the live state to the native sidecar.
+      const captureViewState = () => persistViewState(editor.saveViewState());
+      const onVisibility = () => {
+        if (document.visibilityState === "hidden") {
+          captureViewState();
+        }
+      };
+      window.addEventListener("pagehide", captureViewState);
+      document.addEventListener("visibilitychange", onVisibility);
       // Autofocus so the user can type immediately on open without a click.
       // Focusing Monaco inside a non-key webview does not steal OS focus, so
       // when the tab becomes key the editor already holds the caret. Deferred
@@ -136,6 +174,11 @@ export function EditorApp({
         };
       }
       return () => {
+        // Capture once more on React unmount (covers in-app surface teardown
+        // that does not fire pagehide), then detach listeners.
+        captureViewState();
+        window.removeEventListener("pagehide", captureViewState);
+        document.removeEventListener("visibilitychange", onVisibility);
         removeTitleSync?.();
         removeSaveShortcut?.();
         contentListener?.dispose();
@@ -148,7 +191,7 @@ export function EditorApp({
         model.dispose();
       };
     },
-    [content, filePath, themeName, options, saveController],
+    [content, filePath, themeName, options, saveController, restoredViewState],
   );
   return (
     <div

@@ -42,10 +42,19 @@ final class CmuxEditorSaveRegistry: @unchecked Sendable {
     /// here, so its 0600 `.editor-<token>.json` sidecars are proof that a
     /// real `cmux edit` minted the write capability; socket callers cannot
     /// forge one through `browser.open_split` params.
-    private let trustedRootURL = URL(fileURLWithPath: "/tmp", isDirectory: true)
+    private let trustedRootURL: URL
+
+    /// The process-wide default serving directory. Tests inject a temp root
+    /// through ``init(trustedRootURL:)`` to exercise the sidecar round-trips
+    /// without touching the shared `/tmp` directory.
+    static let defaultTrustedRootURL = URL(fileURLWithPath: "/tmp", isDirectory: true)
         .appendingPathComponent("cmux-diff-viewer-\(Darwin.getuid())", isDirectory: true)
         .standardizedFileURL
         .resolvingSymlinksInPath()
+
+    init(trustedRootURL: URL = CmuxEditorSaveRegistry.defaultTrustedRootURL) {
+        self.trustedRootURL = trustedRootURL
+    }
 
     /// Registers the write target for `token` from its trusted sidecar, if
     /// one exists. Returns whether a capability was registered. Tokens with
@@ -149,6 +158,35 @@ final class CmuxEditorSaveRegistry: @unchecked Sendable {
             hasUnsavedChanges: unsaved
         )
     }
+
+    /// Sidecar for an editor page's Monaco view state (scroll/cursor/selection/
+    /// folding), keyed by serving token, in the uid-owned serving directory.
+    private func viewStateSidecarURL(forToken token: String) -> URL {
+        trustedRootURL.appendingPathComponent(".viewstate-\(token).json", isDirectory: false)
+    }
+
+    /// Persists opaque Monaco view state for an editor page. Unlike the write
+    /// capability, this is keyed by the page's scheme token alone (the handler
+    /// authorizes it from the unforgeable frame identity), so scroll memory
+    /// works for read-only files too. Written 0600 next to `.editor-<token>`.
+    @discardableResult
+    func storeViewState(_ data: Data, forToken token: String) -> Bool {
+        guard CmuxDiffViewerURLSchemeHandler.isValidToken(token) else { return false }
+        let url = viewStateSidecarURL(forToken: token)
+        do {
+            try data.write(to: url, options: .atomic)
+            try? FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: url.path)
+            return true
+        } catch {
+            return false
+        }
+    }
+
+    /// Reads the persisted view-state sidecar for `token`, or nil when absent.
+    func loadViewState(forToken token: String) -> Data? {
+        guard CmuxDiffViewerURLSchemeHandler.isValidToken(token) else { return nil }
+        return try? Data(contentsOf: viewStateSidecarURL(forToken: token))
+    }
 }
 
 /// JS→Swift save endpoint for the Monaco editor surface
@@ -182,13 +220,46 @@ final class EditorSaveMessageHandler: NSObject, WKScriptMessageHandlerWithReply 
         didReceive message: WKScriptMessage,
         replyHandler: @escaping (Any?, String?) -> Void
     ) {
-        guard let (token, requestOrigin) = Self.editorTokenAndOrigin(for: message),
-              let fileURL = CmuxEditorSaveRegistry.shared.fileURL(forToken: token, requestOrigin: requestOrigin) else {
+        guard let (token, requestOrigin) = Self.editorTokenAndOrigin(for: message) else {
             replyHandler(Self.errorEnvelope(code: "unauthorized", detail: nil), nil)
             return
         }
         guard let body = message.body as? [String: Any] else {
             replyHandler(Self.errorEnvelope(code: "invalid_request", detail: nil), nil)
+            return
+        }
+        // View-state round-trip (scroll/cursor/selection/folding). Authorized by
+        // the page's scheme token from the unforgeable frame identity, NOT the
+        // write capability, so scroll memory works for read-only files. The
+        // payload is opaque Monaco state persisted to a per-token sidecar.
+        if body["loadViewState"] as? Bool == true {
+            Self.ioQueue.async {
+                let viewState = CmuxEditorSaveRegistry.shared.loadViewState(forToken: token)
+                    .flatMap { try? JSONSerialization.jsonObject(with: $0) }
+                DispatchQueue.main.async {
+                    replyHandler(["ok": true, "value": ["viewState": viewState as Any]], nil)
+                }
+            }
+            return
+        }
+        if body.keys.contains("viewState") {
+            let viewState = body["viewState"]
+            Self.ioQueue.async {
+                if let obj = viewState as? [String: Any],
+                   let data = try? JSONSerialization.data(withJSONObject: obj, options: [.sortedKeys]) {
+                    CmuxEditorSaveRegistry.shared.storeViewState(data, forToken: token)
+                }
+                // A null/absent viewState is a no-op: keep the last good state.
+                DispatchQueue.main.async {
+                    replyHandler(["ok": true, "value": ["status": "ok"]], nil)
+                }
+            }
+            return
+        }
+        // Everything below mutates the user's file and requires the write
+        // capability (origin-bound, TTL-managed). Read-only pages stop here.
+        guard let fileURL = CmuxEditorSaveRegistry.shared.fileURL(forToken: token, requestOrigin: requestOrigin) else {
+            replyHandler(Self.errorEnvelope(code: "unauthorized", detail: nil), nil)
             return
         }
         // Capability probe: the page asks at mount time whether this token

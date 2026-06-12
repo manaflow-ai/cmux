@@ -50,6 +50,7 @@ const sectionOrder = [
   "browser",
   "markdown",
   "fileEditor",
+  "editor",
   "shortcuts",
 ] as const;
 
