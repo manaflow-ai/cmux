@@ -63,6 +63,7 @@ export default function sitemap(): MetadataRoute.Sitemap {
     { path: "/community", lastModified: "2026-03-18", changeFrequency: "monthly" as const, priority: 0.5 },
     { path: "/wall-of-love", lastModified: "2026-03-18", changeFrequency: "monthly" as const, priority: 0.5 },
     { path: "/nightly", lastModified: "2026-03-18", changeFrequency: "weekly" as const, priority: 0.6 },
+    { path: "/rc", lastModified: "2026-06-11", changeFrequency: "weekly" as const, priority: 0.6 },
     { path: "/assets", lastModified: "2026-06-03", changeFrequency: "monthly" as const, priority: 0.5 },
     // SEO landing/guide pages: localized, not in the main nav.
     { path: "/guides", lastModified: "2026-06-22", changeFrequency: "monthly" as const, priority: 0.6 },

@@ -353,6 +353,8 @@ extension CMUXCLI {
             return "com.cmuxterm.app.debug"
         case "cmux-nightly.sock":
             return "com.cmuxterm.app.nightly"
+        case "cmux-rc.sock":
+            return "com.cmuxterm.app.rc"
         case "cmux-staging.sock":
             return "com.cmuxterm.app.staging"
         default:
@@ -368,6 +370,9 @@ extension CMUXCLI {
         }
         if let slug = themeReloadSocketSlug(name, prefix: "cmux-nightly-", suffix: ".sock") {
             return "com.cmuxterm.app.nightly.\(slug)"
+        }
+        if let slug = themeReloadSocketSlug(name, prefix: "cmux-rc-", suffix: ".sock") {
+            return "com.cmuxterm.app.rc.\(slug)"
         }
         if let slug = themeReloadSocketSlug(name, prefix: "cmux-staging-", suffix: ".sock") {
             return "com.cmuxterm.app.staging.\(slug)"
