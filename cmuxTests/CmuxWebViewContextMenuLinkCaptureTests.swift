@@ -25,11 +25,12 @@ struct CmuxWebViewContextMenuLinkCaptureTests {
         defer { CmuxWebView.contextMenuLinkCaptureAcceptsUntrustedEventsForTesting = false }
         let webView = try await makeLoadedTwoLinkWebView()
 
-        // The DOM contextmenu event lands on #clicked, like a real right-click
-        // on that link. The NSEvent point below intentionally maps away from
-        // #clicked to model the coordinate skew between AppKit space and CSS
-        // space (page zoom, iframes); the skew must not change which link
-        // opens.
+        // Like a real right-click: the AppKit mouse event happens first, then
+        // WebKit dispatches the DOM contextmenu event on #clicked. The NSEvent
+        // point below intentionally maps away from #clicked to model the
+        // coordinate skew between AppKit space and CSS space (page zoom,
+        // iframes); the skew must not change which link opens.
+        let mouseEventTimestamp = ProcessInfo.processInfo.systemUptime
         _ = try await webView.evaluateJavaScript(
             "document.getElementById('clicked').dispatchEvent(new MouseEvent('contextmenu', {bubbles: true})); 0"
         )
@@ -39,9 +40,35 @@ struct CmuxWebViewContextMenuLinkCaptureTests {
 
         let openedURL = try await openLinkInDefaultBrowser(
             webView,
-            menuEventLocation: NSPoint(x: 50, y: 550)
+            menuEventLocation: NSPoint(x: 50, y: 550),
+            menuEventTimestamp: mouseEventTimestamp
         )
         #expect(openedURL?.absoluteString == "https://example.test/clicked")
+    }
+
+    // Regression test: a capture left over from a previous right-click must
+    // not pair with a menu opened by a later event (keyboard or accessibility
+    // menu paths never clear the capture via rightMouseDown). The menu event
+    // below is newer than the capture, so the capture is stale and the action
+    // must resolve from coordinates instead, which point at #decoy.
+    @Test
+    func staleCaptureFromPreviousClickIsNotReusedForALaterMenu() async throws {
+        CmuxWebView.contextMenuLinkCaptureAcceptsUntrustedEventsForTesting = true
+        defer { CmuxWebView.contextMenuLinkCaptureAcceptsUntrustedEventsForTesting = false }
+        let webView = try await makeLoadedTwoLinkWebView()
+
+        _ = try await webView.evaluateJavaScript(
+            "document.getElementById('clicked').dispatchEvent(new MouseEvent('contextmenu', {bubbles: true})); 0"
+        )
+        _ = try await webView.evaluateJavaScript("0")
+        try await Task.sleep(nanoseconds: 200_000_000)
+
+        let openedURL = try await openLinkInDefaultBrowser(
+            webView,
+            menuEventLocation: NSPoint(x: 60, y: 60),
+            menuEventTimestamp: ProcessInfo.processInfo.systemUptime
+        )
+        #expect(openedURL?.absoluteString == "https://example.test/decoy")
     }
 
     // Regression test: a synthetic contextmenu event dispatched by page
@@ -62,7 +89,8 @@ struct CmuxWebViewContextMenuLinkCaptureTests {
         // point is identical because CmuxWebView (WKWebView) is flipped.
         let openedURL = try await openLinkInDefaultBrowser(
             webView,
-            menuEventLocation: NSPoint(x: 60, y: 60)
+            menuEventLocation: NSPoint(x: 60, y: 60),
+            menuEventTimestamp: ProcessInfo.processInfo.systemUptime
         )
         #expect(openedURL?.absoluteString == "https://example.test/decoy")
     }
@@ -129,7 +157,8 @@ struct CmuxWebViewContextMenuLinkCaptureTests {
     /// "Open Link in Default Browser", returning the URL handed to the opener.
     private func openLinkInDefaultBrowser(
         _ webView: CmuxWebView,
-        menuEventLocation: NSPoint
+        menuEventLocation: NSPoint,
+        menuEventTimestamp: TimeInterval
     ) async throws -> URL? {
         let menu = NSMenu()
         let openLinkItem = NSMenuItem(title: "Open Link", action: nil, keyEquivalent: "")
@@ -147,7 +176,7 @@ struct CmuxWebViewContextMenuLinkCaptureTests {
                 with: .rightMouseDown,
                 location: menuEventLocation,
                 modifierFlags: [],
-                timestamp: ProcessInfo.processInfo.systemUptime,
+                timestamp: menuEventTimestamp,
                 windowNumber: 0,
                 context: nil,
                 eventNumber: 0,

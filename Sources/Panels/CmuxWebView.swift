@@ -944,6 +944,12 @@ final class CmuxWebView: WKWebView {
     /// Uptime at which the current context menu opened, used to pair the menu
     /// with the contextmenu capture report from the same right-click.
     var lastContextMenuOpenUptime: TimeInterval?
+    /// `NSEvent.timestamp` of the event that opened the current context menu
+    /// (same uptime clock as `ProcessInfo.systemUptime`). The DOM contextmenu
+    /// capture for that menu is always reported after this instant, so a
+    /// capture older than it belongs to a previous click and must not pair
+    /// with this menu, even on menu-open paths that never saw a mouse event.
+    var lastContextMenuOpenEventTimestamp: TimeInterval?
     /// Saved native WebKit action for "Download Image".
     private var fallbackDownloadImageTarget: AnyObject?
     private var fallbackDownloadImageAction: Selector?
@@ -2095,6 +2101,7 @@ final class CmuxWebView: WKWebView {
         super.willOpenMenu(menu, with: event)
         lastContextMenuPoint = convert(event.locationInWindow, from: nil)
         lastContextMenuOpenUptime = ProcessInfo.processInfo.systemUptime
+        lastContextMenuOpenEventTimestamp = event.timestamp
         debugContextDownload(
             "browser.ctxdl.menu open itemCount=\(menu.items.count) point=(\(Int(lastContextMenuPoint.x)),\(Int(lastContextMenuPoint.y)))"
         )
@@ -2442,7 +2449,10 @@ final class CmuxWebView: WKWebView {
         debugContextDownload(
             "browser.ctxdl.click trace=\(traceID) fallback action=\(Self.selectorName(fallback.action)) target=\(String(describing: fallback.target))"
         )
-        findLinkURLAtPoint(point) { [weak self] url in
+        // Shared link resolution with the Open Link actions: prefer the link
+        // captured at contextmenu time (correct under page zoom and inside
+        // iframes), coordinate hit test only as fallback.
+        resolveContextMenuLinkURL(at: point) { [weak self] url in
             guard let self else { return }
             self.debugContextDownload(
                 "browser.ctxdl.resolve trace=\(traceID) kind=linked linkURL=\(url?.absoluteString ?? "nil")"

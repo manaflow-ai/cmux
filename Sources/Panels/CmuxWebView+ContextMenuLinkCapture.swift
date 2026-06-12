@@ -131,7 +131,14 @@ extension CmuxWebView {
     private func capturedContextMenuLinkURLForCurrentMenu() -> URL? {
         guard let captured = contextMenuCapturedLink,
               let menuOpenUptime = lastContextMenuOpenUptime,
-              abs(captured.uptime - menuOpenUptime) <= Self.contextMenuLinkCaptureMaxAge
+              let menuOpenEventTimestamp = lastContextMenuOpenEventTimestamp,
+              // The DOM contextmenu event is dispatched after the AppKit event
+              // that opened the menu, so a capture recorded before that event
+              // belongs to a previous click (e.g. a keyboard- or
+              // accessibility-opened menu reusing the last mouse capture).
+              captured.uptime >= menuOpenEventTimestamp,
+              // Upper bound for captures that arrive after the menu opened.
+              captured.uptime - menuOpenUptime <= Self.contextMenuLinkCaptureMaxAge
         else { return nil }
         return captured.url
     }
