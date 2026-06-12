@@ -15,13 +15,15 @@ final class SidebarScrollViewResolverView: NSView {
         // connect/disconnect, System Settings "Show scroll bars"). That
         // clobbers the forced overlay configuration with a legacy,
         // space-reserving scrollbar until the next SwiftUI update happens to
-        // re-run the resolver — re-resolve immediately instead. The async
-        // main hop in resolveScrollView() runs after AppKit's own synchronous
-        // per-scroll-view reset regardless of observer registration order.
+        // re-run the resolver — re-resolve immediately instead. The .main
+        // queue keeps the block on the main thread for any posting thread,
+        // and the async main hop in resolveScrollView() runs after AppKit's
+        // own synchronous per-scroll-view reset regardless of observer
+        // registration order.
         scrollerStyleObserver = NotificationCenter.default.addObserver(
             forName: NSScroller.preferredScrollerStyleDidChangeNotification,
             object: nil,
-            queue: nil
+            queue: .main
         ) { [weak self] _ in
             self?.resolveScrollView()
         }
