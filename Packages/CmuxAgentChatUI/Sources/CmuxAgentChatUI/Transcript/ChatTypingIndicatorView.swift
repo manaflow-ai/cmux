@@ -51,14 +51,17 @@ public struct ChatTypingIndicatorView: View {
         }
     }
 
-    /// Formats elapsed working time as "5s", "1m 23s", "1h 02m".
+    /// Formats elapsed working time compactly ("5s", "1m 23s", "1h 2m"),
+    /// localized through `Duration`'s units format style.
     static func elapsedLabel(seconds: Int) -> String {
-        if seconds < 60 { return "\(seconds)s" }
-        let minutes = seconds / 60
-        let remainder = seconds % 60
-        if minutes < 60 { return "\(minutes)m \(remainder)s" }
-        let hours = minutes / 60
-        return String(format: "%dh %02dm", hours, minutes % 60)
+        let duration = Duration.seconds(seconds)
+        if seconds < 60 {
+            return duration.formatted(.units(allowed: [.seconds], width: .narrow))
+        }
+        if seconds < 3600 {
+            return duration.formatted(.units(allowed: [.minutes, .seconds], width: .narrow))
+        }
+        return duration.formatted(.units(allowed: [.hours, .minutes], width: .narrow))
     }
 }
 

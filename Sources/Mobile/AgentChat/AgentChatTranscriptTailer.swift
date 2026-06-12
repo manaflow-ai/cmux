@@ -113,10 +113,14 @@ actor AgentChatTranscriptTailer {
             start -= 1
         }
         let page = Array(eligible[start...])
-        // Paging stops at the cache head even when the transcript has more
-        // on disk (bounded backfill); the client shows its honest
-        // "earlier history is on your Mac" cell instead of looping.
-        return ChatHistoryPage(messages: page, hasMore: start > eligible.startIndex)
+        // At the cache head, `headTruncated` keeps `hasMore` honest: older
+        // transcript exists on disk that this tailer will never serve. The
+        // client recognizes the resulting empty page and shows its "earlier
+        // history is on your Mac" cell instead of looping.
+        return ChatHistoryPage(
+            messages: page,
+            hasMore: start > eligible.startIndex || headTruncated
+        )
     }
 
     /// First user prompt in the cache, for the session title.

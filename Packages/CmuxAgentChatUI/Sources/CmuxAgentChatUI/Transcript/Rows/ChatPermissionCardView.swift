@@ -1,5 +1,8 @@
 import CmuxAgentChat
 import SwiftUI
+#if canImport(UIKit)
+import UIKit
+#endif
 
 /// An actionable permission card: title, the gated command in a mono chip,
 /// and Approve/Deny buttons. Once resolved it freezes into a receipt line.
@@ -10,6 +13,11 @@ public struct ChatPermissionCardView: View {
     private let actions: ChatRowActions
 
     @Environment(\.chatTheme) private var theme
+
+    /// Set on the first decision tap so the buttons disarm immediately;
+    /// answering is raw key injection over the Mac round-trip, and a second
+    /// tap before the receipt echoes back would select a different option.
+    @State private var tappedIndex: Int?
 
     /// Creates a permission card.
     ///
@@ -55,11 +63,18 @@ public struct ChatPermissionCardView: View {
     private var decisionButtons: some View {
         VStack(spacing: 8) {
             Button {
-                actions.answerOption(0)
+                decide(0)
             } label: {
-                Text(
-                    String(localized: "chat.permission.approve", defaultValue: "Approve", bundle: .module)
-                )
+                HStack(spacing: 6) {
+                    if tappedIndex == 0 {
+                        ProgressView()
+                            .controlSize(.small)
+                            .tint(.white)
+                    }
+                    Text(
+                        String(localized: "chat.permission.approve", defaultValue: "Approve", bundle: .module)
+                    )
+                }
                 .font(.subheadline.weight(.semibold))
                 .foregroundStyle(.white)
                 .frame(maxWidth: .infinity)
@@ -68,8 +83,9 @@ public struct ChatPermissionCardView: View {
                 .contentShape(.rect)
             }
             .buttonStyle(.plain)
+            .accessibilityIdentifier("ChatPermissionApprove")
             Button {
-                actions.answerOption(1)
+                decide(1)
             } label: {
                 Text(
                     String(localized: "chat.permission.deny", defaultValue: "Deny", bundle: .module)
@@ -85,7 +101,19 @@ public struct ChatPermissionCardView: View {
                 .contentShape(.rect)
             }
             .buttonStyle(.plain)
+            .accessibilityIdentifier("ChatPermissionDeny")
         }
+        .disabled(tappedIndex != nil)
+        .opacity(tappedIndex == nil ? 1 : 0.6)
+    }
+
+    private func decide(_ index: Int) {
+        guard tappedIndex == nil else { return }
+        tappedIndex = index
+        #if os(iOS)
+        UIImpactFeedbackGenerator(style: .medium).impactOccurred()
+        #endif
+        actions.answerOption(index)
     }
 
     private func receipt(resolution: ChatPermissionRequest.Resolution) -> some View {

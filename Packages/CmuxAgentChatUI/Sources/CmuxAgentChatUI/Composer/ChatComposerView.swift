@@ -59,17 +59,21 @@ public struct ChatComposerView: View {
 
     public var body: some View {
         VStack(spacing: 8) {
-            ChatAccessoryChipRow(
-                agentState: agentState,
-                onInterrupt: onInterrupt,
-                onOpenTerminal: onOpenTerminal
-            )
-            #if os(iOS)
-            if !attachments.isEmpty {
-                attachmentStrip
+            if isEnded {
+                endedRow
+            } else {
+                ChatAccessoryChipRow(
+                    agentState: agentState,
+                    onInterrupt: onInterrupt,
+                    onOpenTerminal: onOpenTerminal
+                )
+                #if os(iOS)
+                if !attachments.isEmpty {
+                    attachmentStrip
+                }
+                #endif
+                fieldRow
             }
-            #endif
-            fieldRow
         }
         .padding(.horizontal, theme.horizontalMargin)
         .padding(.vertical, 8)
@@ -92,6 +96,7 @@ public struct ChatComposerView: View {
                 .lineLimit(1...6)
                 .font(.body)
                 .textFieldStyle(.plain)
+                .accessibilityIdentifier("ChatComposerField")
                 .padding(.horizontal, 12)
                 .padding(.vertical, 8)
                 .background(
@@ -127,6 +132,39 @@ public struct ChatComposerView: View {
         return false
     }
 
+    private var isEnded: Bool {
+        agentState == .ended
+    }
+
+    /// Replaces the input row when the session can no longer accept input;
+    /// the terminal escape hatch stays reachable.
+    private var endedRow: some View {
+        HStack(spacing: 12) {
+            Text(
+                String(
+                    localized: "chat.composer.session_ended",
+                    defaultValue: "Session ended",
+                    bundle: .module
+                )
+            )
+            .font(.subheadline)
+            .foregroundStyle(.secondary)
+            Spacer()
+            Button(action: onOpenTerminal) {
+                Text(
+                    String(
+                        localized: "chat.composer.open_terminal",
+                        defaultValue: "Open terminal",
+                        bundle: .module
+                    )
+                )
+                .font(.subheadline.weight(.medium))
+            }
+            .buttonStyle(.bordered)
+        }
+        .padding(.vertical, 4)
+    }
+
     // MARK: - Send / stop button
 
     @ViewBuilder
@@ -135,11 +173,13 @@ public struct ChatComposerView: View {
             Button(action: performSend) {
                 Image(systemName: "arrow.up.circle.fill")
                     .font(.system(size: 30))
-                    .foregroundStyle(theme.accent)
+                    .foregroundStyle(isConnected ? theme.accent : Color.secondary)
                     .frame(width: 36, height: 36)
                     .contentShape(.circle)
             }
             .buttonStyle(.plain)
+            .disabled(!isConnected)
+            .accessibilityIdentifier("ChatComposerSend")
             .accessibilityLabel(
                 String(
                     localized: "chat.composer.send.accessibility",

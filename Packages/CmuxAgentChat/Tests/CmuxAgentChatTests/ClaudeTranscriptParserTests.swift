@@ -324,6 +324,28 @@ struct ClaudeTranscriptParserTests {
 
     // MARK: - Robustness
 
+    @Test("sidechain lines are skipped while still consuming their seq")
+    func sidechainLines() {
+        var sidechain: [String: Any] = [
+            "parentUuid": NSNull(), "isSidechain": true, "type": "user",
+            "message": ["role": "user", "content": "injected subagent prompt"],
+            "uuid": "side-1", "sessionId": "s-1",
+            "timestamp": "2026-06-12T05:07:51.103Z",
+        ]
+        let lines = [
+            Self.json(sidechain),
+            userLine(uuid: "u-real", content: "the human's prompt"),
+        ]
+        let result = parser.parse(lines: lines, startingSeq: 10)
+        #expect(result.messages.count == 1)
+        #expect(result.messages[0].seq == 11)
+        guard case .prose(let prose) = result.messages[0].kind else {
+            Issue.record("expected prose")
+            return
+        }
+        #expect(prose.text == "the human's prompt")
+    }
+
     @Test("malformed lines are skipped without affecting seq assignment")
     func malformedLines() {
         let lines = [

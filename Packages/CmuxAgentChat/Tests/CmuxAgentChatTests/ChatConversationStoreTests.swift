@@ -86,6 +86,59 @@ private actor GatedChatEventSource: ChatEventSource {
     func answer(optionIndex: Int, sessionID: String) async throws {}
 }
 
+/// A `ChatEventSource` whose `send` succeeds without echoing, with a
+/// manual `emit` so tests control the transcript echo's exact shape.
+private actor SilentSendEventSource: ChatEventSource {
+    private var continuation: AsyncStream<ChatSessionEvent>.Continuation?
+
+    func history(sessionID: String, beforeSeq: Int?, limit: Int) async throws -> ChatHistoryPage {
+        ChatHistoryPage(messages: [], hasMore: false)
+    }
+
+    func events(sessionID: String) async -> AsyncStream<ChatSessionEvent> {
+        AsyncStream { self.continuation = $0 }
+    }
+
+    func emit(_ event: ChatSessionEvent) {
+        continuation?.yield(event)
+    }
+
+    func send(text: String, attachments: [ChatOutboundAttachment], sessionID: String) async throws {}
+
+    func interrupt(sessionID: String, hard: Bool) async throws {}
+
+    func answer(optionIndex: Int, sessionID: String) async throws {}
+}
+
+/// A `ChatEventSource` modeling the Mac tailer's bounded cache: the
+/// newest page is served, but paging before it returns an empty page that
+/// still reports `hasMore` (older transcript exists on disk only).
+private actor TruncatedHeadEventSource: ChatEventSource {
+    private let newest: [ChatMessage]
+
+    init(newest: [ChatMessage]) {
+        self.newest = newest
+    }
+
+    func history(sessionID: String, beforeSeq: Int?, limit: Int) async throws -> ChatHistoryPage {
+        if let beforeSeq {
+            let eligible = newest.filter { $0.seq < beforeSeq }
+            return ChatHistoryPage(messages: Array(eligible.suffix(limit)), hasMore: true)
+        }
+        return ChatHistoryPage(messages: Array(newest.suffix(limit)), hasMore: true)
+    }
+
+    func events(sessionID: String) async -> AsyncStream<ChatSessionEvent> {
+        AsyncStream { $0.finish() }
+    }
+
+    func send(text: String, attachments: [ChatOutboundAttachment], sessionID: String) async throws {}
+
+    func interrupt(sessionID: String, hard: Bool) async throws {}
+
+    func answer(optionIndex: Int, sessionID: String) async throws {}
+}
+
 @Suite("ChatConversationStore")
 @MainActor
 struct ChatConversationStoreTests {
@@ -397,5 +450,49 @@ struct ChatConversationStoreTests {
         runTask.cancel()
         await runTask.value
         #expect(store.isConnected == false)
+    }
+
+    @Test("a budget-truncated transcript echo still reconciles the pending row")
+    func truncatedEchoReconciles() async {
+        let source = SilentSendEventSource()
+        let store = Self.makeStore(source: source)
+        let runTask = Task { await store.run() }
+        defer { runTask.cancel() }
+        #expect(await TestPoller.waitUntil { store.isConnected })
+
+        let longText = String(repeating: "prompt body ", count: 30)
+        await store.send(text: longText)
+        #expect(await TestPoller.waitUntil { Self.pendingItems(store.rows).count == 1 })
+
+        let truncated = String(longText.prefix(100)) + "…"
+        let echo = ChatMessage(
+            id: "echo-1",
+            seq: 0,
+            role: .user,
+            timestamp: Self.baseTime,
+            kind: .prose(ChatProse(text: truncated))
+        )
+        await source.emit(.appended([echo]))
+
+        #expect(await TestPoller.waitUntil { Self.pendingItems(store.rows).isEmpty })
+        #expect(Self.userProseTexts(store.rows) == [truncated])
+    }
+
+    @Test("an empty page at the Mac's cache head ends paging and flags head truncation")
+    func emptyPageAtCacheHeadStopsPaging() async {
+        let newest = (100..<104).map { Self.prose(seq: $0) }
+        let source = TruncatedHeadEventSource(newest: newest)
+        let store = Self.makeStore(source: source)
+        let runTask = Task { await store.run() }
+        defer { runTask.cancel() }
+        #expect(await TestPoller.waitUntil { store.hasLoadedInitialHistory })
+        #expect(store.hasMoreHistory)
+        #expect(store.historyTruncatedAtHead == false)
+
+        await store.loadOlder()
+
+        #expect(store.hasMoreHistory == false)
+        #expect(store.historyTruncatedAtHead)
+        #expect(Self.snapshots(store.rows).count == 4)
     }
 }

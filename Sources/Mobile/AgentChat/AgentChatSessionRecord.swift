@@ -32,6 +32,9 @@ struct AgentChatSessionRecord: Sendable {
     /// Conversation title (first user prompt), filled by the tailer.
     var title: String?
 
+    /// The agent process id, for liveness sweeps.
+    var pid: Int?
+
     /// The wire descriptor for this record.
     var descriptor: ChatSessionDescriptor {
         ChatSessionDescriptor(

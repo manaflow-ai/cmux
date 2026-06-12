@@ -65,7 +65,14 @@ extension TerminalController {
             }
         }
         guard !text.isEmpty else {
-            return .ok(["submitted": false])
+            // Attachment-only send: the image path is sitting pasted at the
+            // agent's prompt; submit it so the send actually reaches the
+            // agent instead of idling in the line editor.
+            guard let terminalPanel = mobileChatTerminalPanel(sessionID: sessionID) else {
+                return .ok(["submitted": false])
+            }
+            let keyResult = terminalPanel.sendNamedKeyResult("return")
+            return .ok(["submitted": keyResult.accepted])
         }
         var pasteParams = terminalParams
         pasteParams["text"] = text

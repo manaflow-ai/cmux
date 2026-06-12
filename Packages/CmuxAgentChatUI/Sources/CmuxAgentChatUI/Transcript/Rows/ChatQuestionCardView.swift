@@ -1,5 +1,8 @@
 import CmuxAgentChat
 import SwiftUI
+#if canImport(UIKit)
+import UIKit
+#endif
 
 /// An actionable multiple-choice question card: prompt plus one bordered
 /// button per option. Once answered it freezes into a receipt line showing
@@ -9,6 +12,11 @@ public struct ChatQuestionCardView: View {
     private let actions: ChatRowActions
 
     @Environment(\.chatTheme) private var theme
+
+    /// Set on the first option tap so the buttons disarm immediately;
+    /// answering is raw key injection over the Mac round-trip, and a second
+    /// tap before the receipt echoes back would select a different option.
+    @State private var tappedIndex: Int?
 
     /// Creates a question card.
     ///
@@ -46,16 +54,23 @@ public struct ChatQuestionCardView: View {
         VStack(spacing: 8) {
             ForEach(Array(question.options.enumerated()), id: \.offset) { index, option in
                 Button {
-                    actions.answerOption(index)
+                    choose(index)
                 } label: {
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text(option.label)
-                            .font(.subheadline.weight(.medium))
-                            .foregroundStyle(.primary)
-                        if let detail = option.detail, !detail.isEmpty {
-                            Text(detail)
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
+                    HStack(spacing: 6) {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(option.label)
+                                .font(.subheadline.weight(.medium))
+                                .foregroundStyle(.primary)
+                            if let detail = option.detail, !detail.isEmpty {
+                                Text(detail)
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                            }
+                        }
+                        if tappedIndex == index {
+                            Spacer(minLength: 6)
+                            ProgressView()
+                                .controlSize(.small)
                         }
                     }
                     .multilineTextAlignment(.leading)
@@ -69,8 +84,20 @@ public struct ChatQuestionCardView: View {
                     .contentShape(.rect)
                 }
                 .buttonStyle(.plain)
+                .accessibilityIdentifier("ChatQuestionOption\(index)")
             }
         }
+        .disabled(tappedIndex != nil)
+        .opacity(tappedIndex == nil ? 1 : 0.6)
+    }
+
+    private func choose(_ index: Int) {
+        guard tappedIndex == nil else { return }
+        tappedIndex = index
+        #if os(iOS)
+        UIImpactFeedbackGenerator(style: .medium).impactOccurred()
+        #endif
+        actions.answerOption(index)
     }
 
     private func receipt(selected: String) -> some View {

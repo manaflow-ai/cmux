@@ -34,6 +34,11 @@ public final class ChatConversationStore {
     /// Whether older history exists beyond the current window.
     public private(set) var hasMoreHistory = false
 
+    /// True when paging stopped at the Mac's cache head while older
+    /// transcript still exists on disk; the UI shows an "earlier history is
+    /// on your Mac" cell instead of a loading sentinel.
+    public private(set) var historyTruncatedAtHead = false
+
     /// Whether an older-history page is currently being fetched.
     public private(set) var isLoadingOlder = false
 
@@ -92,25 +97,31 @@ public final class ChatConversationStore {
 
     @ObservationIgnored private let lastReadSeqAtActivation: Int?
 
-    /// Loads the newest history page, then follows the live event stream
-    /// until cancelled. Run this from the owning view's `.task` modifier.
+    /// Follows the live event stream until cancelled, loading history
+    /// inside each subscription so no event falls into a fetch/subscribe
+    /// gap. Run this from the owning view's `.task` modifier.
     ///
     /// If the stream ends while the task is still active (connection drop),
     /// the store marks itself disconnected and resubscribes; the event
     /// source owns backoff policy.
     public func run() async {
-        await loadInitialHistoryIfNeeded()
         while !Task.isCancelled {
+            // Subscribe FIRST: events emitted while the history fetch is in
+            // flight buffer in the stream and replay after the merge (the
+            // window dedups by message id), instead of being dropped.
             let stream = await source.events(sessionID: descriptor.id)
             isConnected = true
+            let hadHistory = hasLoadedInitialHistory
+            await loadInitialHistoryIfNeeded()
+            if hadHistory {
+                // Reconnect: merge whatever the window missed while down.
+                await resyncTail()
+            }
             for await event in stream {
                 apply(event)
             }
             isConnected = false
             guard !Task.isCancelled else { return }
-            // The source signaled stream end (connection drop). Resync
-            // history before the next stream so missed messages appear.
-            await resyncTail()
         }
     }
 
@@ -128,8 +139,16 @@ public final class ChatConversationStore {
             )
             // Re-check the anchor: an append may have raced the fetch.
             guard messages.first?.seq == oldestSeq else { return }
-            messages.insert(contentsOf: page.messages, at: 0)
-            hasMoreHistory = page.hasMore
+            if page.messages.isEmpty {
+                // The Mac's cache head: nothing more is servable even when
+                // older transcript exists on disk. Stop paging and surface
+                // the honest "earlier history is on your Mac" state.
+                hasMoreHistory = false
+                historyTruncatedAtHead = page.hasMore
+            } else {
+                messages.insert(contentsOf: page.messages, at: 0)
+                hasMoreHistory = page.hasMore
+            }
             lastErrorDescription = nil
             reproject()
         } catch {
@@ -251,6 +270,7 @@ public final class ChatConversationStore {
                 limit: pageSize
             )
             guard let newestKnown = messages.last?.seq else {
+                reconcilePending(against: page.messages)
                 messages = page.messages
                 hasMoreHistory = page.hasMore
                 reproject()
@@ -258,8 +278,20 @@ public final class ChatConversationStore {
             }
             let missed = page.messages.filter { $0.seq > newestKnown }
             if !missed.isEmpty {
+                reconcilePending(against: missed)
                 appendToWindow(missed)
             }
+            // Carry in-place completions (tool results that resolved while
+            // disconnected) for messages already in the window.
+            var didUpdate = false
+            for message in page.messages where message.seq <= newestKnown {
+                if let index = messages.firstIndex(where: { $0.id == message.id }),
+                   messages[index] != message {
+                    messages[index] = message
+                    didUpdate = true
+                }
+            }
+            if didUpdate { reproject() }
             lastErrorDescription = nil
         } catch {
             lastErrorDescription = error.localizedDescription
@@ -289,8 +321,12 @@ public final class ChatConversationStore {
     }
 
     private func appendToWindow(_ newMessages: [ChatMessage]) {
-        guard !newMessages.isEmpty else { return }
-        messages.append(contentsOf: newMessages)
+        // Dedup by id: a live event can replay content the history fetch in
+        // the same subscription cycle already merged.
+        let knownIDs = Set(messages.suffix(64).map(\.id))
+        let fresh = newMessages.filter { !knownIDs.contains($0.id) }
+        guard !fresh.isEmpty else { return }
+        messages.append(contentsOf: fresh)
         if messages.count > maxWindowCount {
             messages.removeFirst(messages.count - maxWindowCount)
             hasMoreHistory = true
@@ -305,7 +341,18 @@ public final class ChatConversationStore {
         for message in newMessages {
             guard message.role == .user, case .prose(let prose) = message.kind else { continue }
             let echoed = prose.text.trimmingCharacters(in: .whitespacesAndNewlines)
-            if let index = pending.firstIndex(where: { $0.text == echoed }) {
+            let index = pending.firstIndex { item in
+                if item.text == echoed { return true }
+                // The transcript copy may be budget-truncated ("…" suffix)
+                // or a paste placeholder; match on the echoed prefix so long
+                // prompts still reconcile.
+                if echoed.hasSuffix("…"), echoed.count > 64,
+                   item.text.hasPrefix(echoed.dropLast()) {
+                    return true
+                }
+                return false
+            }
+            if let index {
                 pending.remove(at: index)
             }
         }

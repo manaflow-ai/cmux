@@ -22,6 +22,10 @@ final class AgentChatTranscriptService {
     private let resolver: AgentChatTranscriptResolver
     private let coding = ChatWireCoding()
     private var tailers: [String: AgentChatTranscriptTailer] = [:]
+    /// Sessions whose transcript could not be resolved; skipped until an
+    /// explicit history request retries, so per-hook-event resolution
+    /// failures don't rescan the filesystem during tool storms.
+    private var failedResolutions: Set<String> = []
 
     /// Creates the service.
     ///
@@ -84,6 +88,9 @@ final class AgentChatTranscriptService {
     ///   unknown.
     func history(sessionID: String, beforeSeq: Int?, limit: Int) async -> ChatHistoryPage? {
         guard let record = registry.record(sessionID: sessionID) else { return nil }
+        // A user opening the chat is the right moment to retry a previously
+        // failed transcript resolution.
+        failedResolutions.remove(sessionID)
         guard let tailer = ensureTailer(for: record) else { return nil }
         await tailer.start()
         let page = await tailer.history(beforeSeq: beforeSeq, limit: limit)
@@ -100,7 +107,11 @@ final class AgentChatTranscriptService {
         if let existing = tailers[record.sessionID] {
             return existing
         }
-        guard let path = resolver.transcriptPath(for: record) else { return nil }
+        guard !failedResolutions.contains(record.sessionID) else { return nil }
+        guard let path = resolver.transcriptPath(for: record) else {
+            failedResolutions.insert(record.sessionID)
+            return nil
+        }
         if record.transcriptPath != path {
             registry.update(sessionID: record.sessionID) { $0.transcriptPath = path }
         }
@@ -131,6 +142,11 @@ final class AgentChatTranscriptService {
     }
 
     private func handleRecordChange(_ record: AgentChatSessionRecord, stateChanged: Bool) {
+        if record.state == .ended, let tailer = tailers.removeValue(forKey: record.sessionID) {
+            // The transcript can no longer grow; release the file watcher
+            // and cache instead of holding them until app quit.
+            Task { await tailer.stop() }
+        }
         guard MobileHostService.hasEventSubscribers(topic: Self.eventTopic) else { return }
         if stateChanged {
             emit(frame: ChatSessionEventFrame(sessionID: record.sessionID, event: .stateChanged(record.state)))

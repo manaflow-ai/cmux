@@ -26,9 +26,22 @@ final class AgentChatSessionRegistry {
     /// - Parameter workspaceID: Workspace UUID string filter, or `nil`.
     /// - Returns: Matching records.
     func sessions(workspaceID: String?) -> [AgentChatSessionRecord] {
-        records.values
+        sweepDeadProcesses()
+        return records.values
             .filter { workspaceID == nil || $0.workspaceID == workspaceID }
             .sorted { $0.lastActivityAt > $1.lastActivityAt }
+    }
+
+    /// Marks sessions whose agent process died without a SessionEnd hook
+    /// (crash, kill, closed terminal) as ended, so a missing Stop hook
+    /// cannot wedge a session in "working" forever.
+    private func sweepDeadProcesses() {
+        for (sessionID, record) in records {
+            guard record.state != .ended, let pid = record.pid else { continue }
+            if kill(pid_t(pid), 0) != 0 {
+                update(sessionID: sessionID, stateChanged: true) { $0.state = .ended }
+            }
+        }
     }
 
     /// One session's record.
@@ -76,7 +89,8 @@ final class AgentChatSessionRegistry {
                     transcriptPath: entry.transcriptPath,
                     state: alive ? .idle : .ended,
                     lastActivityAt: entry.updatedAt ?? .distantPast,
-                    title: nil
+                    title: nil,
+                    pid: entry.pid
                 )
             }
         }
@@ -100,7 +114,8 @@ final class AgentChatSessionRegistry {
             transcriptPath: nil,
             state: .idle,
             lastActivityAt: event.receivedAt,
-            title: nil
+            title: nil,
+            pid: nil
         )
         if let workspaceID = event.workspaceId, !workspaceID.isEmpty {
             record.workspaceID = workspaceID
@@ -108,12 +123,13 @@ final class AgentChatSessionRegistry {
         if let cwd = event.cwd, !cwd.isEmpty {
             record.workingDirectory = cwd
         }
-        if record.surfaceID == nil || record.transcriptPath == nil,
+        if record.surfaceID == nil || record.transcriptPath == nil || record.pid == nil,
            let entry = hookStore.entry(agentSource: event.source, sessionID: sessionID) {
             record.surfaceID = record.surfaceID ?? entry.surfaceID
             record.workspaceID = record.workspaceID ?? entry.workspaceID
             record.transcriptPath = record.transcriptPath ?? entry.transcriptPath
             record.workingDirectory = record.workingDirectory ?? entry.workingDirectory
+            record.pid = record.pid ?? entry.pid
         }
         record.lastActivityAt = event.receivedAt
 
@@ -147,8 +163,12 @@ final class AgentChatSessionRegistry {
         case .permissionRequest, .askUserQuestion, .exitPlanMode, .notification:
             if case .needsInput = previous { return previous }
             return .needsInput(since: event.receivedAt)
-        case .stop, .subagentStop:
+        case .stop:
             return .idle
+        case .subagentStop:
+            // A Task subagent finishing says nothing about the parent
+            // session's activity; keep the current state.
+            return previous
         case .sessionEnd:
             return .ended
         }

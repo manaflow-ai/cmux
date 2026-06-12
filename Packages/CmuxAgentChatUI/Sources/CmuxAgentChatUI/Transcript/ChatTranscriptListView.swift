@@ -16,6 +16,8 @@ public struct ChatTranscriptListView: View {
     private let expandedIDs: Set<String>
     private let agentState: ChatAgentState
     private let hasMoreHistory: Bool
+    private let hasLoadedInitialHistory: Bool
+    private let historyTruncatedAtHead: Bool
     private let actions: ChatRowActions
     private let onReachTop: () -> Void
 
@@ -33,6 +35,10 @@ public struct ChatTranscriptListView: View {
     ///   - expandedIDs: Row ids currently expanded.
     ///   - agentState: Live agent presence (drives the typing indicator).
     ///   - hasMoreHistory: Whether a top sentinel should page older history.
+    ///   - hasLoadedInitialHistory: Whether the first page has arrived
+    ///     (drives the loading and empty placeholders).
+    ///   - historyTruncatedAtHead: Whether paging stopped at the Mac's
+    ///     cache head with older transcript left on disk.
     ///   - actions: Row action bundle.
     ///   - onReachTop: Called when the top sentinel appears (load older).
     public init(
@@ -40,6 +46,8 @@ public struct ChatTranscriptListView: View {
         expandedIDs: Set<String>,
         agentState: ChatAgentState,
         hasMoreHistory: Bool,
+        hasLoadedInitialHistory: Bool = true,
+        historyTruncatedAtHead: Bool = false,
         actions: ChatRowActions,
         onReachTop: @escaping () -> Void
     ) {
@@ -47,6 +55,8 @@ public struct ChatTranscriptListView: View {
         self.expandedIDs = expandedIDs
         self.agentState = agentState
         self.hasMoreHistory = hasMoreHistory
+        self.hasLoadedInitialHistory = hasLoadedInitialHistory
+        self.historyTruncatedAtHead = historyTruncatedAtHead
         self.actions = actions
         self.onReachTop = onReachTop
     }
@@ -102,6 +112,20 @@ public struct ChatTranscriptListView: View {
                         .controlSize(.small)
                         .padding(.vertical, 12)
                         .onAppear(perform: onReachTop)
+                } else if historyTruncatedAtHead {
+                    Text(
+                        String(
+                            localized: "chat.history.truncated",
+                            defaultValue: "Earlier history is on your Mac",
+                            bundle: .module
+                        )
+                    )
+                    .font(.caption)
+                    .foregroundStyle(.tertiary)
+                    .padding(.vertical, 12)
+                }
+                if rows.isEmpty {
+                    emptyPlaceholder
                 }
                 ForEach(rows) { row in
                     ChatTranscriptRowView(
@@ -109,6 +133,7 @@ public struct ChatTranscriptListView: View {
                         isExpanded: expandedIDs.contains(row.id),
                         actions: actions
                     )
+                    .equatable()
                     .id(row.id)
                 }
                 if case .working = agentState {
@@ -119,6 +144,26 @@ public struct ChatTranscriptListView: View {
             .scrollTargetLayout()
             .padding(.horizontal, theme.horizontalMargin)
             .padding(.vertical, 8)
+        }
+    }
+
+    @ViewBuilder
+    private var emptyPlaceholder: some View {
+        if hasLoadedInitialHistory {
+            Text(
+                String(
+                    localized: "chat.transcript.empty",
+                    defaultValue: "No messages yet",
+                    bundle: .module
+                )
+            )
+            .font(.subheadline)
+            .foregroundStyle(.secondary)
+            .padding(.vertical, 48)
+        } else {
+            ProgressView()
+                .controlSize(.regular)
+                .padding(.vertical, 48)
         }
     }
 }

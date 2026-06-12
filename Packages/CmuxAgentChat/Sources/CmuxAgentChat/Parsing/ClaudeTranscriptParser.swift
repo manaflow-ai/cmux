@@ -54,6 +54,13 @@ public struct ClaudeTranscriptParser: Sendable {
                 lastTimestamp = stamped
             }
             let timestamp = lastTimestamp ?? Date(timeIntervalSince1970: 0)
+            // Task-subagent traffic shares the session JSONL with
+            // `isSidechain: true`; its "user" lines are injected prompts the
+            // human never typed. Skip them (the seq is still consumed, so
+            // line indexing never drifts).
+            if root["isSidechain"]?.bool == true {
+                continue
+            }
             switch root["type"]?.string {
             case "user":
                 appendUserLine(root, seq: seq, timestamp: timestamp, into: &assembler)

@@ -31,6 +31,8 @@ public struct ChatScreen: View {
             expandedIDs: expandedIDs,
             agentState: store.agentState,
             hasMoreHistory: store.hasMoreHistory,
+            hasLoadedInitialHistory: store.hasLoadedInitialHistory,
+            historyTruncatedAtHead: store.historyTruncatedAtHead,
             actions: rowActions,
             onReachTop: { Task { await store.loadOlder() } }
         )

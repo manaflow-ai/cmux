@@ -19,7 +19,8 @@ struct WorkspaceAgentChatButton: View {
     var body: some View {
         // The empty state still renders a zero-sized view (not EmptyView):
         // `.task` never fires on a modifier chain whose content resolves to
-        // EmptyView, and this button must poll even when currently hidden.
+        // EmptyView, and the session fetch below must run even while the
+        // button is hidden.
         ZStack {
             if let session = sessions.first {
                 Button {
@@ -35,7 +36,10 @@ struct WorkspaceAgentChatButton: View {
                     .accessibilityHidden(true)
             }
         }
-        .task(id: workspace.id) {
+        // Refetches per workspace and per reconnect; a session that starts
+        // while this workspace stays open appears after renavigation or
+        // reconnection (deliberate staleness, no polling).
+        .task(id: RefreshKey(workspaceID: workspace.id.rawValue, isConnected: store.connectionState == .connected)) {
             sessions = await store.chatSessions(workspaceID: workspace.id.rawValue)
         }
         .fullScreenCover(item: $presentation) { presentation in
@@ -69,6 +73,13 @@ struct WorkspaceAgentChatButton: View {
     private struct Presentation: Identifiable {
         let id: String
         let conversation: ChatConversationStore
+    }
+
+    /// Task identity for the session fetch: workspace plus connection
+    /// epoch, so a reconnect refetches.
+    private struct RefreshKey: Equatable {
+        let workspaceID: String
+        let isConnected: Bool
     }
 }
 #endif

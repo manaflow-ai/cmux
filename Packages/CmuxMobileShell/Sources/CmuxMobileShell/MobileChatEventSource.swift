@@ -55,19 +55,26 @@ public actor MobileChatEventSource: ChatEventSource {
         let envelopes = await client.subscribe(to: ["chat.message"])
         let client = self.client
         let coding = self.coding
+        let streamID = UUID().uuidString
         return AsyncStream { continuation in
             let pump = Task {
                 // Server-side handshake after the local listener exists so no
-                // early event falls between the two.
-                let subscribe = try? MobileCoreRPCClient.requestData(
-                    method: "mobile.events.subscribe",
-                    params: [
-                        "topics": ["chat.message"],
-                        "stream_id": UUID().uuidString,
-                    ]
-                )
-                if let subscribe {
-                    _ = try? await client.sendRequest(subscribe)
+                // early event falls between the two. A failed handshake must
+                // finish the stream: the server never feeds an unregistered
+                // connection, so continuing would wedge the consumer in a
+                // silent "connected but deaf" state.
+                do {
+                    let subscribe = try MobileCoreRPCClient.requestData(
+                        method: "mobile.events.subscribe",
+                        params: [
+                            "topics": ["chat.message"],
+                            "stream_id": streamID,
+                        ]
+                    )
+                    _ = try await client.sendRequest(subscribe)
+                } catch {
+                    continuation.finish()
+                    return
                 }
                 for await envelope in envelopes {
                     guard let payload = envelope.payloadJSON else { continue }
@@ -81,6 +88,16 @@ public actor MobileChatEventSource: ChatEventSource {
             }
             continuation.onTermination = { _ in
                 pump.cancel()
+                // Withdraw the server-side registration so the Mac stops
+                // tailing and pushing for a chat nobody is watching.
+                Task {
+                    if let unsubscribe = try? MobileCoreRPCClient.requestData(
+                        method: "mobile.events.unsubscribe",
+                        params: ["stream_id": streamID]
+                    ) {
+                        _ = try? await client.sendRequest(unsubscribe)
+                    }
+                }
             }
         }
     }

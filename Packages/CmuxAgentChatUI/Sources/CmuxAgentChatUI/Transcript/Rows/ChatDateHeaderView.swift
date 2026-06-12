@@ -27,10 +27,17 @@ public struct ChatDateHeaderView: View {
     /// locale supports it, otherwise as a medium date. The formatter
     /// localizes the result; no string catalog entry is needed.
     private static func label(for day: Date) -> String {
+        relativeDayFormatter.string(from: day)
+    }
+
+    /// Shared formatter: creating a `DateFormatter` per render inside the
+    /// lazy transcript is measurable scroll cost. Recreated implicitly on
+    /// app relaunch, which bounds locale staleness in practice.
+    private static let relativeDayFormatter: DateFormatter = {
         let formatter = DateFormatter()
         formatter.dateStyle = .medium
         formatter.timeStyle = .none
         formatter.doesRelativeDateFormatting = true
-        return formatter.string(from: day)
-    }
+        return formatter
+    }()
 }
