@@ -78,6 +78,7 @@ struct WorkspaceDetailView: View {
         .mobileTerminalNavigationChrome()
         .toolbar {
             ToolbarItemGroup(placement: .topBarTrailing) {
+                WorkspaceAgentChatButton(workspace: workspace, store: store)
                 newWorkspaceToolbarButton
                 terminalPickerToolbarButton
             }
@@ -182,6 +183,7 @@ struct WorkspaceDetailView: View {
         .toolbar {
             #if os(iOS)
             ToolbarItemGroup(placement: .topBarTrailing) {
+                WorkspaceAgentChatButton(workspace: workspace, store: store)
                 newWorkspaceToolbarButton
                 terminalPickerToolbarButton
             }
