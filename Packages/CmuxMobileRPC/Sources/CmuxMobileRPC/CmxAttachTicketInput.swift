@@ -7,10 +7,17 @@ public struct CmxAttachTicketInput {
     private init() {}
 
     /// Decode and validate a `cmux-ios://pair` or `cmux-ios://attach` URL.
+    ///
+    /// Attach tickets are validated structurally only; a scanned QR keeps
+    /// working however long it sat on the Mac's screen (the host authorizes
+    /// by Stack account, not ticket age). Only the ancient `cmux-ios://pair`
+    /// grammar still enforces its own expiry.
     /// - Parameter rawValue: The scanned/pasted URL string.
     /// - Returns: A validated attach ticket.
     /// - Throws: `MobileSyncPairingPayloadError.invalidURL` or any ticket
-    ///   validation error if the input is malformed or expired.
+    ///   validation error if the input is malformed, or
+    ///   `MobileSyncPairingPayloadError.loopbackRouteRejected` for a v2
+    ///   pairing code whose routes point at the phone itself.
     public static func decode(_ rawValue: String) throws -> CmxAttachTicket {
         guard let url = URL(string: rawValue) else {
             throw MobileSyncPairingPayloadError.invalidURL
@@ -20,8 +27,15 @@ public struct CmxAttachTicketInput {
         }
         guard url.scheme == "cmux-ios",
               url.host == "attach",
-              let components = URLComponents(url: url, resolvingAgainstBaseURL: false),
-              let encodedPayload = components.queryItems?.first(where: { $0.name == "payload" })?.value,
+              let components = URLComponents(url: url, resolvingAgainstBaseURL: false) else {
+            throw MobileSyncPairingPayloadError.invalidURL
+        }
+        // The minimal v2 pairing-code grammar (bare Tailscale routes, loopback
+        // rejected). v1 URLs carry a base64 JSON `payload` item instead.
+        if CmxPairingQRCode().isPairingCodeURL(components) {
+            return try CmxPairingQRCode().decode(components)
+        }
+        guard let encodedPayload = components.queryItems?.first(where: { $0.name == "payload" })?.value,
               let data = base64URLDecode(encodedPayload) else {
             throw MobileSyncPairingPayloadError.invalidURL
         }
