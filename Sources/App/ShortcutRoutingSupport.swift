@@ -125,9 +125,7 @@ func shouldDispatchBrowserArrowViaFirstResponderKeyDown(
     guard !firstResponderHasMarkedText else { return false }
     guard (123...126).contains(keyCode) else { return false }
 
-    let normalizedFlags = flags
-        .intersection(.deviceIndependentFlagsMask)
-        .subtracting([.numericPad, .function, .capsLock])
+    let normalizedFlags = browserOmnibarNormalizedModifierFlags(flags)
 
     if normalizedFlags.isEmpty {
         return true
@@ -153,21 +151,13 @@ func shouldDispatchBrowserOmnibarArrowViaFirstResponderKeyDown(
     return normalizedFlags.isEmpty
 }
 
-/// Whether a terminal arrow key-equivalent event must be consumed by directly
-/// dispatching to `GhosttyNSView.keyDown` instead of letting AppKit reinterpret
-/// it as a responder-chain text navigation command.
 func shouldDispatchTerminalArrowViaFirstResponderKeyDown(
     keyCode: UInt16,
     firstResponderHasMarkedText: Bool = false,
     flags: NSEvent.ModifierFlags
 ) -> Bool {
-    guard !firstResponderHasMarkedText else { return false }
-    guard (123...126).contains(keyCode) else { return false }
-
-    let normalizedFlags = flags
-        .intersection(.deviceIndependentFlagsMask)
-        .subtracting([.numericPad, .function, .capsLock])
-    return !normalizedFlags.contains(.command)
+    guard !firstResponderHasMarkedText, (123...126).contains(keyCode) else { return false }
+    return !browserOmnibarNormalizedModifierFlags(flags).contains(.command)
 }
 
 struct BrowserAddressBarTrackingContext {
@@ -205,9 +195,7 @@ func shouldDispatchCommandPaletteHorizontalArrowViaFirstResponderKeyDown(
     guard !firstResponderHasMarkedText else { return false }
     guard keyCode == 123 || keyCode == 124 else { return false }
 
-    let normalizedFlags = flags
-        .intersection(.deviceIndependentFlagsMask)
-        .subtracting([.numericPad, .function, .capsLock])
+    let normalizedFlags = browserOmnibarNormalizedModifierFlags(flags)
     switch normalizedFlags {
     case [], [.shift], [.option], [.option, .shift], [.command], [.command, .shift]:
         return true
@@ -234,9 +222,7 @@ private func standaloneTextResponderOwnsArrowKeyDown(
     guard !firstResponderHasMarkedText else { return false }
     guard (123...126).contains(keyCode) else { return false }
 
-    let normalizedFlags = flags
-        .intersection(.deviceIndependentFlagsMask)
-        .subtracting([.numericPad, .function, .capsLock])
+    let normalizedFlags = browserOmnibarNormalizedModifierFlags(flags)
     switch normalizedFlags {
     case [], [.shift], [.option], [.option, .shift], [.command], [.command, .shift]:
         return true
@@ -300,9 +286,7 @@ func shouldDispatchTextBoxInputControlNavViaFirstResponderKeyDown(
     guard firstResponderIsTextBoxInput else { return false }
     guard !firstResponderHasMarkedText else { return false }
 
-    let normalizedFlags = flags
-        .intersection(.deviceIndependentFlagsMask)
-        .subtracting([.numericPad, .function, .capsLock])
+    let normalizedFlags = browserOmnibarNormalizedModifierFlags(flags)
     guard normalizedFlags == [.control] else { return false }
     let key = charactersIgnoringModifiers?.lowercased()
     return key == "n" || key == "p"
@@ -314,9 +298,7 @@ func shouldToggleMainWindowFullScreenForCommandControlFShortcut(
     keyCode: UInt16,
     layoutCharacterProvider: (UInt16, NSEvent.ModifierFlags) -> String? = KeyboardLayout.character(forKeyCode:modifierFlags:)
 ) -> Bool {
-    let normalizedFlags = flags
-        .intersection(.deviceIndependentFlagsMask)
-        .subtracting([.numericPad, .function, .capsLock])
+    let normalizedFlags = browserOmnibarNormalizedModifierFlags(flags)
     guard normalizedFlags == [.command, .control] else { return false }
     let normalizedChars = chars.lowercased()
     if normalizedChars == "f" {
