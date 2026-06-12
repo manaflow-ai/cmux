@@ -19,8 +19,6 @@ struct MacAuthComposition {
     let browserSignIn: HostBrowserSignInFlow
     /// Recognizes/parses auth callback URLs (AppDelegate URL routing).
     let callbackRouter: AuthCallbackRouter
-    /// The token store the Stack client persists through.
-    let tokenStore: any StackAuthTokenStoreProtocol
 
     /// Build the auth graph.
     /// - Parameters:
@@ -38,7 +36,6 @@ struct MacAuthComposition {
             ),
             fallback: FileStackTokenStore(directory: Self.credentialsDirectory(bundleIdentifier: bundleIdentifier))
         )
-        self.tokenStore = tokenStore
 
         let stack = StackClientApp(
             projectId: AuthEnvironment.stackProjectID,

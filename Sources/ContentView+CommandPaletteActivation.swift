@@ -332,13 +332,4 @@ extension ContentView {
         persistCommandPaletteUsageHistory(history)
     }
 
-    private func commandPaletteHistoryBoost(for commandId: String, queryIsEmpty: Bool) -> Int {
-        CommandPaletteSearchOrchestrator.historyBoost(
-            for: commandId,
-            queryIsEmpty: queryIsEmpty,
-            history: commandPaletteUsageHistoryByCommandId,
-            now: Date().timeIntervalSince1970
-        )
-    }
-
 }

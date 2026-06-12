@@ -799,18 +799,6 @@ extension TerminalController {
         )
     }
 
-    func readTerminalTextForSessionSnapshot(
-        terminalPanel: TerminalPanel,
-        includeScrollback: Bool = false,
-        lineLimit: Int? = nil
-    ) -> String? {
-        readTerminalTextForSnapshot(
-            terminalPanel: terminalPanel,
-            includeScrollback: includeScrollback,
-            lineLimit: lineLimit
-        )
-    }
-
     func v2SurfaceTriggerFlash(params: [String: Any]) -> V2CallResult {
         guard let tabManager = v2ResolveTabManager(params: params) else {
             return .err(code: "unavailable", message: "TabManager not available", data: nil)

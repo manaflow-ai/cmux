@@ -220,37 +220,4 @@ extension CMUXOpenCommandTests {
         return try XCTUnwrap(option["url"] as? String)
     }
 
-    private func runDiffCLIExpectingNoOpen(
-        cliPath: String,
-        arguments: [String],
-        environmentOverrides: [String: String] = [:],
-        currentDirectoryURL: URL? = nil
-    ) -> ProcessRunResult {
-        let socketPath = makeSocketPath("diff-no")
-        guard let listenerFD = try? bindUnixSocket(at: socketPath) else {
-            return ProcessRunResult(status: -1, stdout: "", stderr: "failed to bind socket", timedOut: false)
-        }
-        let state = MockSocketServerState()
-        defer {
-            Darwin.close(listenerFD)
-            unlink(socketPath)
-        }
-        _ = startMockServer(listenerFD: listenerFD, state: state) { line in
-            guard let payload = Self.v2Payload(from: line),
-                  let id = payload["id"] as? String else {
-                return Self.v2Response(id: "unknown", ok: false, error: ["code": "unexpected"])
-            }
-            return Self.v2Response(id: id, ok: false, error: ["code": "unexpected-open"])
-        }
-        let result = runCLI(
-            cliPath: cliPath,
-            socketPath: socketPath,
-            arguments: arguments,
-            environmentOverrides: environmentOverrides,
-            currentDirectoryURL: currentDirectoryURL
-        )
-        XCTAssertTrue(state.commands.isEmpty, state.commands.joined(separator: "\n"))
-        return result
-    }
-
 }

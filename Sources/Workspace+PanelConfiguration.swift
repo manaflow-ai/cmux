@@ -13,12 +13,6 @@ import CoreText
 
 // MARK: - Panel access, configuration, and subscriptions
 extension Workspace {
-    var focusedSurfaceId: UUID? { focusedPanelId }
-    var surfaceDirectories: [UUID: String] {
-        get { panelDirectories }
-        set { panelDirectories = newValue }
-    }
-
     enum SurfaceKind {
         static let terminal = "terminal"
         static let browser = "browser"

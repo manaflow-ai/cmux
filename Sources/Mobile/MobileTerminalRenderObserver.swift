@@ -243,14 +243,6 @@ final class MobileTerminalRenderObserver {
     }
 
     #if DEBUG
-    func debugResetRenderGridCacheForTesting() {
-        renderGridStatesBySurfaceID.removeAll()
-    }
-
-    var debugRenderGridCacheCountForTesting: Int {
-        renderGridStatesBySurfaceID.count
-    }
-
     var debugIsRetainingNotificationDemandForTesting: Bool {
         releaseFrameDemand != nil && releaseTickDemand != nil
     }

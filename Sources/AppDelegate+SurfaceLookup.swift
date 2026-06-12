@@ -79,32 +79,6 @@ extension AppDelegate {
         return nil
     }
 
-    func locateGhosttySurface(_ surface: ghostty_surface_t?) -> (windowId: UUID, workspaceId: UUID, panelId: UUID, tabManager: TabManager)? {
-        guard let surface else { return nil }
-        for ctx in mainWindowContexts.values {
-            for ws in ctx.tabManager.tabs {
-                for (panelId, panel) in ws.panels {
-                    guard let terminal = panel as? TerminalPanel else { continue }
-                    if terminal.surface.surface == surface {
-                        return (ctx.windowId, ws.id, panelId, ctx.tabManager)
-                    }
-                }
-            }
-        }
-        for route in recoverableMainWindowRoutes() {
-            guard let manager = route.tabManager else { continue }
-            for ws in manager.tabs {
-                for (panelId, panel) in ws.panels {
-                    guard let terminal = panel as? TerminalPanel else { continue }
-                    if terminal.surface.surface == surface {
-                        return (route.windowId, ws.id, panelId, manager)
-                    }
-                }
-            }
-        }
-        return nil
-    }
-
     func refreshTerminalSurfacesAfterGhosttyConfigReload(
         source: String,
         preferredColorScheme: GhosttyConfig.ColorSchemePreference

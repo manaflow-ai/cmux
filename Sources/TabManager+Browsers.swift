@@ -48,28 +48,6 @@ extension TabManager {
         )?.id
     }
 
-    /// Create a new browser surface in a pane
-    func newBrowserSurface(
-        tabId: UUID,
-        inPane paneId: PaneID,
-        url: URL? = nil,
-        preferredProfileID: UUID? = nil
-    ) -> UUID? {
-        guard BrowserAvailabilitySettings.isEnabled() else { return nil }
-        guard let tab = tabs.first(where: { $0.id == tabId }) else { return nil }
-        return tab.newBrowserSurface(
-            inPane: paneId,
-            url: url,
-            preferredProfileID: preferredProfileID
-        )?.id
-    }
-
-    /// Get a browser panel by ID
-    func browserPanel(tabId: UUID, panelId: UUID) -> BrowserPanel? {
-        guard let tab = tabs.first(where: { $0.id == tabId }) else { return nil }
-        return tab.browserPanel(for: panelId)
-    }
-
     /// Open a browser in a specific workspace, optionally preferring a split-right layout.
     @discardableResult
     func openBrowser(

@@ -226,13 +226,4 @@ extension GhosttyNSView {
         abs(lhs - rhs) <= epsilon
     }
 
-    func expectedPixelSize(for pointsSize: CGSize) -> CGSize {
-        let backing = convertToBacking(NSRect(origin: .zero, size: pointsSize)).size
-        if backing.width > 0, backing.height > 0 {
-            return backing
-        }
-        let scale = max(1.0, window?.backingScaleFactor ?? layer?.contentsScale ?? 1.0)
-        return CGSize(width: pointsSize.width * scale, height: pointsSize.height * scale)
-    }
-
 }

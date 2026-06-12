@@ -178,85 +178,6 @@ enum BrowserScreenshotWebViewSnapshotter {
         _ webView: WKWebView,
         viewportSize: NSSize,
         expectedURL: URL?,
-        operation: () async throws -> T
-    ) async throws -> T {
-        let previousSuperview = webView.superview
-        let previousSubviews = previousSuperview?.subviews ?? []
-        let previousIndex = previousSubviews.firstIndex(of: webView)
-        let previousFrame = webView.frame
-        let previousBounds = webView.bounds
-        let previousAutoresizingMask = webView.autoresizingMask
-        let previousTranslatesAutoresizingMaskIntoConstraints = webView.translatesAutoresizingMaskIntoConstraints
-        let restoreAnchor: NSView?
-        let restorePosition: NSWindow.OrderingMode
-        if let previousIndex, previousIndex > 0 {
-            restoreAnchor = previousSubviews[previousIndex - 1]
-            restorePosition = .above
-        } else if let previousIndex, previousIndex == 0, previousSubviews.count > 1 {
-            restoreAnchor = previousSubviews[1]
-            restorePosition = .below
-        } else {
-            restoreAnchor = nil
-            restorePosition = .above
-        }
-
-        let normalizedSize = normalizedViewportSize(viewportSize)
-        let frame = NSRect(
-            x: -100_000 - normalizedSize.width,
-            y: -100_000 - normalizedSize.height,
-            width: normalizedSize.width,
-            height: normalizedSize.height
-        )
-        let window = BrowserScreenshotOffscreenRenderPanel(
-            contentRect: frame,
-            styleMask: [.borderless, .nonactivatingPanel],
-            backing: .buffered,
-            defer: false
-        )
-        window.isReleasedWhenClosed = false
-        window.identifier = NSUserInterfaceItemIdentifier("cmux.browserVisualAutomationRender")
-        window.hasShadow = false
-        window.isOpaque = false
-        window.backgroundColor = .clear
-        window.alphaValue = 0.01
-        window.ignoresMouseEvents = true
-        window.hidesOnDeactivate = false
-        window.collectionBehavior = [.transient, .ignoresCycle, .stationary, .canJoinAllSpaces]
-        window.isExcludedFromWindowsMenu = true
-
-        let contentView = NSView(frame: NSRect(origin: .zero, size: normalizedSize))
-        contentView.wantsLayer = true
-        webView.removeFromSuperview()
-        webView.frame = contentView.bounds
-        webView.autoresizingMask = [.width, .height]
-        contentView.addSubview(webView)
-        window.contentView = contentView
-        window.orderFrontRegardless()
-
-        defer {
-            restoreWebView(
-                webView,
-                to: previousSuperview,
-                frame: previousFrame,
-                bounds: previousBounds,
-                autoresizingMask: previousAutoresizingMask,
-                translatesAutoresizingMaskIntoConstraints: previousTranslatesAutoresizingMaskIntoConstraints,
-                anchor: restoreAnchor,
-                position: restorePosition
-            )
-            window.orderOut(nil)
-            window.contentView = nil
-            window.close()
-        }
-
-        try await prepareForVisualCapture(webView, expectedURL: expectedURL)
-        return try await operation()
-    }
-
-    static func withOffscreenRenderHost<T>(
-        _ webView: WKWebView,
-        viewportSize: NSSize,
-        expectedURL: URL?,
         timeout: TimeInterval,
         operation: @escaping (@escaping (Result<T, Error>) -> Void) -> Void,
         completion: @escaping (Result<T, Error>) -> Void
@@ -349,22 +270,6 @@ enum BrowserScreenshotWebViewSnapshotter {
                 finish(.failure(error))
             }
         }
-    }
-
-    static func prepareForVisualCapture(_ webView: WKWebView, expectedURL: URL?) async throws {
-        try await waitForExpectedURLIfNeeded(webView, expectedURL: expectedURL)
-
-        forceAppKitLayout(for: webView)
-
-        do {
-            _ = try await webView.evaluateJavaScript(visualCaptureLayoutFlushScript, contentWorld: .page)
-        } catch {
-            #if DEBUG
-            cmuxDebugLog("browser.screenshot.prepare.failed error=\(error.localizedDescription)")
-            #endif
-        }
-
-        forceAppKitLayout(for: webView)
     }
 
     static func prepareForVisualCapture(
@@ -553,23 +458,6 @@ enum BrowserScreenshotWebViewSnapshotter {
         }
     }
 
-    private static func waitForExpectedURLIfNeeded(_ webView: WKWebView, expectedURL: URL?) async throws {
-        guard let expectedURL else { return }
-        let waiter = BrowserScreenshotExpectedURLWaiter(
-            webView: webView,
-            expectedAbsoluteString: expectedURL.absoluteString,
-            timeout: 5.0
-        )
-
-        try await withTaskCancellationHandler {
-            try await waiter.wait()
-        } onCancel: {
-            Task { @MainActor in
-                waiter.cancel()
-            }
-        }
-    }
-
     private static func waitForExpectedURLIfNeeded(
         _ webView: WKWebView,
         expectedURL: URL?,
@@ -752,25 +640,6 @@ private final class BrowserScreenshotExpectedURLWaiter: @unchecked Sendable {
         self.timeout = timeout
     }
 
-    func wait() async throws {
-        try Task.checkCancellation()
-        if isReady {
-            return
-        }
-
-        try await withCheckedThrowingContinuation { continuation in
-            self.continuation = continuation
-            installObservers()
-            if isCancelled {
-                finish(.failure(CancellationError()))
-                return
-            }
-            if isReady {
-                finish(.success(()))
-            }
-        }
-    }
-
     func wait(completion: @escaping (Result<Void, Error>) -> Void) {
         if isReady {
             completion(.success(()))
@@ -786,11 +655,6 @@ private final class BrowserScreenshotExpectedURLWaiter: @unchecked Sendable {
         if isReady {
             finish(.success(()))
         }
-    }
-
-    func cancel() {
-        isCancelled = true
-        finish(.failure(CancellationError()))
     }
 
     private var isReady: Bool {

@@ -600,13 +600,6 @@ extension KeyboardShortcutSettings {
         return .accepted(shortcut)
     }
 
-    private static func normalizedSystemWideHotkeyShortcut(_ shortcut: StoredShortcut, for action: Action) -> StoredShortcut? {
-        guard case let .accepted(normalized) = normalizedSystemWideHotkeyShortcutResult(shortcut, for: action) else {
-            return nil
-        }
-        return normalized
-    }
-
     private static func systemWideHotkeyConflicts(with shortcut: StoredShortcut, excluding action: Action) -> Bool {
         guard let registration = shortcut.carbonHotKeyRegistration else { return false }
         let keyCode = UInt16(registration.keyCode)

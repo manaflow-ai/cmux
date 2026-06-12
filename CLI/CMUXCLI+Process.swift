@@ -11,7 +11,6 @@ struct CLIProcessResult {
 struct CLIProcessDataResult {
     let status: Int32
     let stdout: Data
-    let stderr: String
     let timedOut: Bool
 }
 
@@ -182,7 +181,7 @@ enum CLIProcessRunner {
             stdinPipe?.fileHandleForWriting.closeFile()
             stdoutFinished.wait()
             stderrFinished.wait()
-            return CLIProcessDataResult(status: 1, stdout: Data(), stderr: error.localizedDescription, timedOut: false)
+            return CLIProcessDataResult(status: 1, stdout: Data(), timedOut: false)
         }
 
         if let stdinText, let stdinPipe {
@@ -209,20 +208,9 @@ enum CLIProcessRunner {
         stdoutFinished.wait()
         stderrFinished.wait()
 
-        var stderr = String(data: stderrBuffer.get(), encoding: .utf8) ?? ""
-        if timedOut {
-            let timeoutMessage = "process timed out"
-            if stderr.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                stderr = timeoutMessage
-            } else if !stderr.contains(timeoutMessage) {
-                stderr += "\n\(timeoutMessage)"
-            }
-        }
-
         return CLIProcessDataResult(
             status: timedOut ? 124 : process.terminationStatus,
             stdout: stdoutBuffer.get(),
-            stderr: stderr,
             timedOut: timedOut
         )
     }

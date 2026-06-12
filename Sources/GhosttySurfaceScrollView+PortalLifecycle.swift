@@ -40,13 +40,6 @@ extension GhosttySurfaceScrollView {
         )
     }
 
-    func releaseOwnedPortalHost(hostId: ObjectIdentifier, reason: String) {
-        surfaceView.terminalSurface?.releasePortalHostIfOwned(
-            hostId: hostId,
-            reason: reason
-        )
-    }
-
     func prepareOwnedPortalHostForTransientReattach(hostId: ObjectIdentifier, reason: String) {
         surfaceView.terminalSurface?.preparePortalHostReplacementIfOwned(
             hostId: hostId,

@@ -9,10 +9,6 @@ enum AppearanceMode: String, CaseIterable, Identifiable {
 
     var id: String { rawValue }
 
-    static var visibleCases: [AppearanceMode] {
-        [.system, .light, .dark]
-    }
-
     var displayName: String {
         switch self {
         case .system:

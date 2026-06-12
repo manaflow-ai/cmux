@@ -93,10 +93,6 @@ enum FeedButtonDebugSettings {
             ?? fallbackColor(for: kind, role: role, colorScheme: colorScheme)
     }
 
-    static func applyRaycastGlassPreset() {
-        apply(.raycastGlass)
-    }
-
     static func applyPalette(_ palette: FeedButtonDebugPalettePreset) {
         defaults.set(palette.rawValue, forKey: paletteKey)
         clearCustomColors()

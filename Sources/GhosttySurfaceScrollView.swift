@@ -189,16 +189,6 @@ final class GhosttySurfaceScrollView: NSView {
         (drawCounts[surfaceId, default: 0], lastDrawTimes[surfaceId, default: 0])
     }
 
-    static func resetDrawStats() {
-        drawCounts.removeAll()
-        lastDrawTimes.removeAll()
-    }
-
-    static func recordSurfaceDraw(_ surfaceId: UUID) {
-        drawCounts[surfaceId, default: 0] += 1
-        lastDrawTimes[surfaceId] = CACurrentMediaTime()
-    }
-
     static func contentsKey(for layer: CALayer?) -> String {
         guard let modelLayer = layer else { return "nil" }
         // Prefer the presentation layer to better reflect what the user sees on screen.

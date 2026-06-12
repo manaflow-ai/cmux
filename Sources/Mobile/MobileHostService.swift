@@ -294,9 +294,9 @@ final class MobileHostService {
 
     /// The single source of truth for the capabilities advertised to mobile
     /// clients via `mobile.host.status`. Every status path (the public-status
-    /// cache, the live `publicHostStatusResult`, and `TerminalController`'s
-    /// full status) reads this so the lists cannot drift; iOS gates features
-    /// like rename/pin on the entries present here.
+    /// cache and `TerminalController`'s full status) reads this so the lists
+    /// cannot drift; iOS gates features like rename/pin on the entries
+    /// present here.
     ///
     /// In DEBUG builds this also advertises `dogfood.v1`, the DEV dogfood
     /// feedback round-trip (`dogfood.feedback.submit`). It is absent from

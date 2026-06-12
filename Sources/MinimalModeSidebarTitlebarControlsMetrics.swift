@@ -23,7 +23,6 @@ enum MinimalModeSidebarTitlebarControlsMetrics {
 
     static let hostWidth: CGFloat = 164
     static let hostHeight: CGFloat = 28
-    static let singleButtonHostWidth: CGFloat = hostHeight
 
     static func titlebarControlsOpticalYOffset(backingScaleFactor _: CGFloat?) -> CGFloat {
         0

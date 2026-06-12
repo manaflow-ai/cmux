@@ -139,11 +139,6 @@ extension AppDelegate {
 #endif
     }
 
-    func recoverableMainWindowRoute(windowId: UUID) -> RecoverableMainWindowRoute? {
-        guard recoverableMainWindowRouteSnapshot(windowId: windowId) != nil else { return nil }
-        return mainWindowRouteLedger.routesByWindowId[windowId]
-    }
-
     func recoverableMainWindowRoutes() -> [RecoverableMainWindowRoute] {
         let validWindowIds = Set(recoverableMainWindowRouteSnapshots().map(\.windowId))
         return sortedRecoverableMainWindowRoutes().filter { validWindowIds.contains($0.windowId) }

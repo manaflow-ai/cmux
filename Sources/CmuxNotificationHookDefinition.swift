@@ -36,18 +36,6 @@ struct CmuxNotificationHookDefinition: Codable, Sendable, Hashable {
         case enabled
     }
 
-    init(
-        id: String,
-        command: String,
-        timeoutSeconds: TimeInterval? = nil,
-        enabled: Bool = true
-    ) {
-        self.id = id
-        self.command = command
-        self.timeoutSeconds = timeoutSeconds
-        self.enabled = enabled
-    }
-
     init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         let decodedID = try Self.requiredTrimmedString(forKey: .id, in: container)

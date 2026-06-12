@@ -45,7 +45,6 @@ final class MainWindowVisibilityController {
         var makeKey: @MainActor (NSWindow) -> Void
         var orderFront: @MainActor (NSWindow) -> Void
         var orderFrontRegardless: @MainActor (NSWindow) -> Void
-        var orderOut: @MainActor (NSWindow) -> Void
         var softHide: @MainActor (NSWindow) -> Void
         var softShow: @MainActor (NSWindow) -> Void
 
@@ -60,7 +59,6 @@ final class MainWindowVisibilityController {
             makeKey: { $0.makeKey() },
             orderFront: { $0.orderFront(nil) },
             orderFrontRegardless: { $0.orderFrontRegardless() },
-            orderOut: { $0.orderOut(nil) },
             softHide: {
                 if let window = $0 as? CmuxMainWindow {
                     window.setSoftHiddenForVisibilityController(true)

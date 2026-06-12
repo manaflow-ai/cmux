@@ -150,7 +150,6 @@ enum BrowserDataImporter {
         switch browser.family {
         case .firefox:
             return await importFirefoxCookies(
-                from: browser,
                 sourceProfiles: sourceProfiles,
                 destinationProfileID: destinationProfileID,
                 domainFilters: domainFilters
@@ -200,7 +199,6 @@ enum BrowserDataImporter {
         switch browser.family {
         case .firefox:
             return await importFirefoxHistory(
-                from: browser,
                 sourceProfiles: sourceProfiles,
                 destinationProfileID: destinationProfileID,
                 domainFilters: domainFilters
@@ -223,7 +221,6 @@ enum BrowserDataImporter {
     }
 
     private static func importFirefoxCookies(
-        from browser: InstalledBrowserCandidate,
         sourceProfiles: [InstalledBrowserProfile],
         destinationProfileID: UUID,
         domainFilters: [String]
@@ -377,7 +374,6 @@ enum BrowserDataImporter {
     }
 
     private static func importFirefoxHistory(
-        from browser: InstalledBrowserCandidate,
         sourceProfiles: [InstalledBrowserProfile],
         destinationProfileID: UUID,
         domainFilters: [String]
@@ -750,10 +746,6 @@ enum BrowserDataImporter {
 
     private static func sqliteColumnDouble(_ statement: OpaquePointer, index: Int32) -> Double {
         sqlite3_column_double(statement, index)
-    }
-
-    private static func sqliteColumnBytes(_ statement: OpaquePointer, index: Int32) -> Int {
-        Int(sqlite3_column_bytes(statement, index))
     }
 
     private static func sqliteColumnData(_ statement: OpaquePointer, index: Int32) -> Data {

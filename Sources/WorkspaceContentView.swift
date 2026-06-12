@@ -12,10 +12,6 @@ enum TmuxOverlayExperimentTarget: String, CaseIterable, Codable, Sendable {
     var usesWorkspacePaneOverlay: Bool {
         self == .bonsplitPane
     }
-
-    var usesTmuxActivePaneOverlay: Bool {
-        self == .tmuxActivePane
-    }
 }
 
 struct TmuxOverlayExperimentSettings {
@@ -45,12 +41,6 @@ struct TmuxOverlayExperimentSettings {
     }
 }
 
-private enum WorkspaceTitlebarInteractionMetrics {
-    // Keep in sync with the minimal-mode titlebar strip so the monitor only
-    // covers titlebar chrome.
-    static let minimalModeTopStripHeight: CGFloat = MinimalModeChromeMetrics.titlebarHeight
-}
-
 struct TmuxPaneLayoutPane: Codable, Equatable, Sendable {
     let paneId: String
     let left: Int
@@ -62,30 +52,6 @@ struct TmuxPaneLayoutPane: Codable, Equatable, Sendable {
 
 struct TmuxPaneLayoutReport: Codable, Equatable, Sendable {
     let panes: [TmuxPaneLayoutPane]
-
-    var activePane: TmuxPaneLayoutPane? {
-        panes.first(where: \.isActive) ?? panes.first
-    }
-}
-
-func tmuxActivePaneOverlayRect(
-    surfaceFrame: CGRect,
-    cellSize: CGSize,
-    pane: TmuxPaneLayoutPane
-) -> CGRect? {
-    guard cellSize.width > 0,
-          cellSize.height > 0,
-          pane.width > 0,
-          pane.height > 0 else {
-        return nil
-    }
-
-    return CGRect(
-        x: surfaceFrame.origin.x + (CGFloat(pane.left) * cellSize.width),
-        y: surfaceFrame.origin.y + (CGFloat(pane.top) * cellSize.height),
-        width: CGFloat(pane.width) * cellSize.width,
-        height: CGFloat(pane.height) * cellSize.height
-    )
 }
 
 private extension PixelRect {

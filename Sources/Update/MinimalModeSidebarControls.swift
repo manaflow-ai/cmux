@@ -158,7 +158,7 @@ final class MinimalModeSidebarControlActionView: NSView {
         if NSApp.currentEvent?.type == .rightMouseDown, !slot.acceptsContextMenu {
             return nil
         }
-        guard shouldAcceptAction(at: point) else { return nil }
+        guard shouldAcceptAction() else { return nil }
         #if DEBUG
         if ProcessInfo.processInfo.environment["CMUX_UI_TEST_BONSPLIT_TAB_DRAG_SETUP"] == "1" {
             _ = CmuxUITestCapture.mutateJSONObjectIfConfigured(envKey: "CMUX_UI_TEST_BONSPLIT_TAB_DRAG_PATH") { payload in
@@ -178,7 +178,7 @@ final class MinimalModeSidebarControlActionView: NSView {
             super.mouseDown(with: event)
             return
         }
-        guard shouldAcceptAction(at: localPoint) else {
+        guard shouldAcceptAction() else {
             super.mouseDown(with: event)
             return
         }
@@ -188,7 +188,7 @@ final class MinimalModeSidebarControlActionView: NSView {
     override func rightMouseDown(with event: NSEvent) {
         let localPoint = convert(event.locationInWindow, from: nil)
         guard let slot = TitlebarControlsHitRegions.sidebarActionSlot(at: localPoint, config: config),
-              shouldAcceptAction(at: localPoint) else {
+              shouldAcceptAction() else {
             super.rightMouseDown(with: event)
             return
         }
@@ -304,7 +304,7 @@ final class MinimalModeSidebarControlActionView: NSView {
             || NotificationsPopoverVisibilityState.shared.isShown(in: window.windowNumber)
     }
 
-    private func shouldAcceptAction(at localPoint: NSPoint) -> Bool {
+    private func shouldAcceptAction() -> Bool {
         guard isEnabled else { return false }
         guard requiresRevealedState else { return true }
         return isRevealed

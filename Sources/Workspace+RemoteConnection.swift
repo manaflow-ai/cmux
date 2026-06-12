@@ -113,18 +113,6 @@ extension Workspace {
         controller.uploadDroppedFiles(fileURLs, operation: operation, completion: completion)
     }
 
-    @MainActor
-    func uploadDroppedFilesForRemoteTerminal(
-        _ fileURLs: [URL],
-        completion: @escaping (Result<[String], Error>) -> Void
-    ) {
-        uploadDroppedFilesForRemoteTerminal(
-            fileURLs,
-            operation: TerminalImageTransferOperation(),
-            completion: completion
-        )
-    }
-
     func syncRemotePortScanTTYs() {
         guard isRemoteWorkspace else { return }
         remoteSessionController?.updateRemotePortScanTTYs(surfaceTTYNames)
@@ -138,71 +126,6 @@ extension Workspace {
         guard isRemoteWorkspace else { return }
         syncRemotePortScanTTYs()
         remoteSessionController?.kickRemotePortScan(panelId: panelId, reason: reason)
-    }
-
-    func listRemotePTYSessions() throws -> [[String: Any]] {
-        guard let controller = remoteSessionController else {
-            throw NSError(domain: "cmux.remote.pty", code: 10, userInfo: [
-                NSLocalizedDescriptionKey: "remote connection is not active",
-            ])
-        }
-        return try controller.listPTYSessions()
-    }
-
-    func closeRemotePTYSession(sessionID: String) throws {
-        guard let controller = remoteSessionController else {
-            throw NSError(domain: "cmux.remote.pty", code: 11, userInfo: [
-                NSLocalizedDescriptionKey: "remote connection is not active",
-            ])
-        }
-        try controller.closePTYSession(sessionID: sessionID)
-    }
-
-    func startRemotePTYBridge(
-        sessionID: String,
-        attachmentID: String,
-        command: String?,
-        requireExisting: Bool
-    ) throws -> WorkspaceRemotePTYBridgeServer.Endpoint {
-        guard let controller = remoteSessionController else {
-            throw NSError(domain: "cmux.remote.pty", code: 12, userInfo: [
-                NSLocalizedDescriptionKey: "remote connection is not active",
-            ])
-        }
-        return try controller.startPTYBridge(
-            sessionID: sessionID,
-            attachmentID: attachmentID,
-            command: command,
-            requireExisting: requireExisting
-        )
-    }
-
-    func resizeRemotePTY(sessionID: String, attachmentID: String, attachmentToken: String, cols: Int, rows: Int) throws {
-        guard let controller = remoteSessionController else {
-            throw NSError(domain: "cmux.remote.pty", code: 13, userInfo: [
-                NSLocalizedDescriptionKey: "remote connection is not active",
-            ])
-        }
-        try controller.resizePTY(
-            sessionID: sessionID,
-            attachmentID: attachmentID,
-            attachmentToken: attachmentToken,
-            cols: cols,
-            rows: rows
-        )
-    }
-
-    func detachRemotePTYAttachment(sessionID: String, attachmentID: String, attachmentToken: String) throws {
-        guard let controller = remoteSessionController else {
-            throw NSError(domain: "cmux.remote.pty", code: 14, userInfo: [
-                NSLocalizedDescriptionKey: "remote connection is not active",
-            ])
-        }
-        try controller.detachPTYSession(
-            sessionID: sessionID,
-            attachmentID: attachmentID,
-            attachmentToken: attachmentToken
-        )
     }
 
     func remoteStatusPayload() -> [String: Any] {

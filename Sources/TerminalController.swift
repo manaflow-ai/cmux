@@ -121,7 +121,6 @@ class TerminalController {
         let type: String
         let message: String
         let defaultText: String?
-        let responder: (_ accept: Bool, _ text: String?) -> Void
     }
 
     final class V2BrowserUndefinedSentinel {}

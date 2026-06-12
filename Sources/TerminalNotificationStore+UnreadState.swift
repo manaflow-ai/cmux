@@ -308,12 +308,6 @@ extension TerminalNotificationStore {
         focusedReadIndicatorByTabId.removeValue(forKey: tabId)
     }
 
-    func clearFocusedReadIndicatorIfSurfaceChanged(forTabId tabId: UUID, surfaceId: UUID?) {
-        guard let existingSurfaceId = focusedReadIndicatorByTabId[tabId] else { return }
-        guard existingSurfaceId != surfaceId else { return }
-        focusedReadIndicatorByTabId.removeValue(forKey: tabId)
-    }
-
     func markAllRead() {
         var updated = notifications
         var idsToClear: [String] = []

@@ -15,8 +15,6 @@ extension CmuxConfigStore {
             startLocalDirectoryWatcher()
             return
         }
-        localFileDescriptor = fd
-
         let source = DispatchSource.makeFileSystemObjectSource(
             fileDescriptor: fd,
             eventMask: [.write, .delete, .rename, .extend],
@@ -108,14 +106,12 @@ extension CmuxConfigStore {
             return
         }
         localFileWatchSource = primaryWatch.source
-        localFileDescriptor = primaryWatch.fileDescriptor
 
         if let searchDirectory = localConfigSearchDirectory,
            fs.fileExists(atPath: configDirectory),
            searchDirectory != dirPath,
            let fallbackWatch = startLocalDirectoryWatchSource(at: searchDirectory, eventHandler: eventHandler) {
             localFallbackDirectoryWatchSource = fallbackWatch.source
-            localFallbackDirectoryDescriptor = fallbackWatch.fileDescriptor
         }
     }
 
@@ -181,8 +177,6 @@ extension CmuxConfigStore {
             source.cancel()
             localFallbackDirectoryWatchSource = nil
         }
-        localFileDescriptor = -1
-        localFallbackDirectoryDescriptor = -1
     }
 
     // MARK: - File watching (global)

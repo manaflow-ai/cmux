@@ -18,27 +18,6 @@ import Security
 
 // MARK: - Visual automation snapshots
 extension BrowserPanel {
-    /// Take a snapshot of the web view
-    func takeSnapshot(completion: @escaping (NSImage?) -> Void) {
-        captureAutomationVisibleViewportSnapshot { result in
-            switch result {
-            case .success(let image):
-                completion(image)
-            case .failure(let error):
-                NSLog("BrowserPanel snapshot error: %@", error.localizedDescription)
-                completion(nil)
-            }
-        }
-    }
-
-    func captureAutomationVisibleViewportSnapshot() async throws -> NSImage {
-        try await withCheckedThrowingContinuation { continuation in
-            captureAutomationVisibleViewportSnapshot { result in
-                continuation.resume(with: result)
-            }
-        }
-    }
-
     func captureAutomationVisibleViewportSnapshot(
         completion: @escaping (Result<NSImage, Error>) -> Void
     ) {

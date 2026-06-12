@@ -21,10 +21,6 @@ import UniformTypeIdentifiers
 
 // MARK: - Drag and drop
 extension GhosttyNSView {
-    fileprivate static func escapeDropForShell(_ value: String) -> String {
-        TerminalImageTransferPlanner.escapeForShell(value)
-    }
-
     static func dropPlanForTesting(
         pasteboard: NSPasteboard,
         isRemoteTerminalSurface: Bool
@@ -43,28 +39,6 @@ extension GhosttyNSView {
             return .uploadFiles(fileURLs)
         case .reject:
             return .reject
-        }
-    }
-
-    static func performRemoteDropUploadForTesting(
-        upload: (@escaping (Result<[String], Error>) -> Void) -> Void,
-        sendText: @escaping (String) -> Void,
-        onFailure: @escaping () -> Void
-    ) {
-        upload { result in
-            switch result {
-            case .success(let remotePaths):
-                let content = remotePaths
-                    .map { Self.escapeDropForShell($0) }
-                    .joined(separator: " ")
-                guard !content.isEmpty else {
-                    onFailure()
-                    return
-                }
-                sendText(content)
-            case .failure:
-                onFailure()
-            }
         }
     }
 

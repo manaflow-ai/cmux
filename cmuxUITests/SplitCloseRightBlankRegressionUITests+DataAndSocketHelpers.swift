@@ -7,13 +7,6 @@ import Darwin
 
 // MARK: - Data & socket helpers
 extension SplitCloseRightBlankRegressionUITests {
-    private func waitForData(keys: [String], timeout: TimeInterval) -> Bool {
-        waitForCondition(timeout: timeout) {
-            guard let data = self.loadData() else { return false }
-            return keys.allSatisfy { data[$0] != nil }
-        }
-    }
-
     func waitForAnyData(timeout: TimeInterval) -> Bool {
         waitForCondition(timeout: timeout) {
             self.loadData() != nil
@@ -66,20 +59,7 @@ extension SplitCloseRightBlankRegressionUITests {
         return (try? JSONSerialization.jsonObject(with: raw)) as? [String: String]
     }
 
-    private func loadDiagnostics() -> [String: String]? {
-        guard let raw = try? Data(contentsOf: URL(fileURLWithPath: diagnosticsPath)) else {
-            return nil
-        }
-        return (try? JSONSerialization.jsonObject(with: raw)) as? [String: String]
-    }
-
     // MARK: - Automation Socket Client (UI Tests)
-
-    private func waitForSocketPong(timeout: TimeInterval) -> Bool {
-        waitForCondition(timeout: timeout) {
-            self.socketCommand("ping") == "PONG"
-        }
-    }
 
     func waitForVisualDone(timeout: TimeInterval) -> Bool {
         waitForCondition(timeout: timeout) {

@@ -188,12 +188,10 @@ struct ConfigSourceEnvironment {
 }
 
 struct ConfigSourceSnapshot {
-    let source: ConfigSource
     let primaryURL: URL
     let displayPaths: [String]
     let contents: String
     let isEditable: Bool
-    let hasBackingFile: Bool
     let hasStandaloneGhosttyConfig: Bool
 }
 
@@ -203,21 +201,15 @@ enum ConfigSource: String, CaseIterable, Identifiable {
 
     var id: Self { self }
 
-    var isEditable: Bool {
-        self == .cmux
-    }
-
     func snapshot(environment: ConfigSourceEnvironment = .live()) -> ConfigSourceSnapshot {
         switch self {
         case .cmux:
             let url = environment.cmuxConfigURL
             return ConfigSourceSnapshot(
-                source: self,
                 primaryURL: url,
                 displayPaths: [url.path],
                 contents: Self.readContents(at: url),
                 isEditable: true,
-                hasBackingFile: environment.isRegularFile(at: url),
                 hasStandaloneGhosttyConfig: environment.isRegularFile(at: environment.standaloneGhosttyDisplayURL)
             )
         case .synced:
@@ -238,12 +230,10 @@ enum ConfigSource: String, CaseIterable, Identifiable {
                 fileManager: environment.fileManager
             )
             return ConfigSourceSnapshot(
-                source: self,
                 primaryURL: environment.syncedPreviewURL,
                 displayPaths: [environment.syncedPreviewURL.path],
                 contents: renderedContents,
                 isEditable: false,
-                hasBackingFile: environment.isRegularFile(at: environment.syncedPreviewURL),
                 hasStandaloneGhosttyConfig: hasStandaloneGhosttyConfig
             )
         }

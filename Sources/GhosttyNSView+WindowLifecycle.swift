@@ -147,11 +147,6 @@ extension GhosttyNSView {
         )
     }
 
-    fileprivate func updateOcclusionState() {
-        // Intentionally no-op: we don't drive libghostty occlusion from AppKit occlusion state.
-        // This avoids transient clears during reparenting and keeps rendering logic minimal.
-    }
-
     override func viewDidChangeBackingProperties() {
         super.viewDidChangeBackingProperties()
         if let window {

@@ -35,7 +35,7 @@ extension FilePreviewPDFContainerView {
         }
     }
 
-    func zoomPDF(with event: NSEvent, factor: CGFloat) {
+    func zoomPDF(factor: CGFloat) {
         guard pdfView.document != nil else { return }
         guard factor.isFinite, factor > 0 else { return }
         pdfView.autoScales = false

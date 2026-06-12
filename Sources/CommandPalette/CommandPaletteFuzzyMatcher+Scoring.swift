@@ -30,14 +30,6 @@ extension CommandPaletteFuzzyMatcher {
         )
     }
 
-    static func score(preparedQuery: PreparedQuery, preparedCandidates: [PreparedCandidateText]) -> Int? {
-        score(
-            preparedQuery: preparedQuery,
-            preparedCandidates: preparedCandidates,
-            exactCandidateTexts: nil
-        )
-    }
-
     static func score(preparedQuery: PreparedQuery, preparedCandidate: PreparedCandidateText) -> Int? {
         guard !preparedQuery.isEmpty else { return 0 }
 

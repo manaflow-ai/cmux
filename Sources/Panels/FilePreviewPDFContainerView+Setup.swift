@@ -101,10 +101,10 @@ extension FilePreviewPDFContainerView {
         pdfView.maxScaleFactor = 8.0
         pdfView.onMagnify = { [weak self] event in
             let factor = 1.0 + event.magnification
-            self?.zoomPDF(with: event, factor: factor)
+            self?.zoomPDF(factor: factor)
         }
         pdfView.onScrollZoom = { [weak self] event in
-            self?.zoomPDF(with: event, factor: FilePreviewInteraction.zoomFactor(forScroll: event))
+            self?.zoomPDF(factor: FilePreviewInteraction.zoomFactor(forScroll: event))
         }
         pdfView.onScroll = { [weak self] in
             self?.updatePageControls()

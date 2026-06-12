@@ -99,15 +99,6 @@ enum SessionSplitOrientation: String, Codable, Sendable {
     case horizontal
     case vertical
 
-    init(_ orientation: SplitOrientation) {
-        switch orientation {
-        case .horizontal:
-            self = .horizontal
-        case .vertical:
-            self = .vertical
-        }
-    }
-
     var splitOrientation: SplitOrientation {
         switch self {
         case .horizontal:

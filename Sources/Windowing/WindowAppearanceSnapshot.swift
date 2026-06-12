@@ -81,16 +81,6 @@ enum WindowBackdropPolicy {
     )
     case sidebarMaterial(SidebarBackdropMaterialPolicy)
     case clear
-
-    var hostLayerBackgroundColor: NSColor? {
-        switch self {
-        case let .ghosttyTerminalBackdrop(color, opacity, renderingMode):
-            guard renderingMode.usesWindowHostBackdrop else { return nil }
-            return color.withAlphaComponent(opacity)
-        case .sidebarMaterial, .clear:
-            return nil
-        }
-    }
 }
 
 /// Identifies the layer responsible for painting a terminal surface background.
@@ -226,25 +216,6 @@ struct SidebarBackdropSettingsSnapshot {
             usesWindowLevelGlass: usesWindowLevelGlass
         )
     }
-
-    var appKitMutationID: String {
-        [
-            materialRawValue,
-            blendModeRawValue,
-            stateRawValue,
-            tintHex,
-            tintHexLight ?? "nil",
-            tintHexDark ?? "nil",
-            Self.identityComponent(tintOpacity),
-            Self.identityComponent(cornerRadius),
-            Self.identityComponent(blurOpacity),
-            String(describing: colorScheme),
-        ].joined(separator: "|")
-    }
-
-    private static func identityComponent(_ value: Double) -> String {
-        String(format: "%.4f", value)
-    }
 }
 
 struct WindowGlassSettingsSnapshot {
@@ -291,17 +262,6 @@ struct WindowGlassSettingsSnapshot {
             bgGlassEnabled: isEnabled,
             glassEffectAvailable: glassEffectAvailable
         )
-    }
-
-    var appKitMutationID: String {
-        [
-            sidebarBlendModeRawValue,
-            String(isEnabled),
-            tintHex,
-            String(format: "%.4f", tintOpacity),
-            String(describing: terminalBackgroundBlur),
-            terminalGlassTintColor?.hexString(includeAlpha: true) ?? "nil",
-        ].joined(separator: "|")
     }
 }
 

@@ -21,11 +21,6 @@ extension TabManager {
         selectedWorkspace?.newTerminalSurfaceInFocusedPane(focus: true)
     }
 
-    func newSurface(initialInput: String) {
-        selectedWorkspace?.clearSplitZoom()
-        selectedWorkspace?.newTerminalSurfaceInFocusedPane(focus: true, initialInput: initialInput)
-    }
-
     // MARK: - Split Creation
 
     /// Create a new split in the current tab
@@ -135,7 +130,7 @@ extension TabManager {
     }
 
     /// Move focus in the specified direction
-    func moveSplitFocus(tabId: UUID, surfaceId: UUID, direction: NavigationDirection) -> Bool {
+    func moveSplitFocus(tabId: UUID, direction: NavigationDirection) -> Bool {
         guard let tab = tabs.first(where: { $0.id == tabId }) else { return false }
         tab.moveFocus(direction: direction)
         return true
@@ -249,18 +244,6 @@ extension TabManager {
 
             return ResizeSplitTrace(containsTarget: containsTarget, bounds: combinedBounds)
         }
-    }
-
-    /// Close a surface/panel
-    func closeSurface(tabId: UUID, surfaceId: UUID) -> Bool {
-        guard let tab = tabs.first(where: { $0.id == tabId }) else { return false }
-        // Guard against stale close callbacks (e.g. child-exit can trigger multiple actions).
-        // A stale callback must never affect unrelated panels/workspaces.
-        guard tab.panels[surfaceId] != nil,
-              tab.surfaceIdFromPanelId(surfaceId) != nil else { return false }
-        tab.closePanel(surfaceId)
-        AppDelegate.shared?.notificationStore?.clearNotifications(forTabId: tabId, surfaceId: surfaceId)
-        return true
     }
 
 }

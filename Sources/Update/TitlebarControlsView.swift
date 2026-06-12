@@ -12,11 +12,7 @@ final class TitlebarControlsViewModel {
 }
 
 private enum TitlebarControlIconStyle {
-    static let opacity = HeaderChromeIconStyle.opacity
-    static let hoveredOpacity = HeaderChromeIconStyle.hoveredOpacity
-    static let pressedOpacity = HeaderChromeIconStyle.pressedOpacity
     static let weight = HeaderChromeIconStyle.weight
-    static let foregroundColor = HeaderChromeIconStyle.foregroundColor
     static let sidebarGlyphStrokeWidth = HeaderChromeIconStyle.sidebarGlyphStrokeWidth
 
     static func iconFrameSize(for config: TitlebarControlsStyleConfig) -> CGFloat {

@@ -512,7 +512,6 @@ final class MainWindowVisibilityControllerTests: XCTestCase {
             makeKey: makeKey,
             orderFront: orderFront,
             orderFrontRegardless: orderFrontRegardless,
-            orderOut: { _ in },
             softHide: softHide,
             softShow: softShow
         )

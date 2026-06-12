@@ -3,7 +3,6 @@ import SwiftUI
 
 @MainActor
 final class MenubarSearchPopover: NSObject, NSPopoverDelegate {
-    private unowned let coordinator: GlobalSearchCoordinator
     private let popover = NSPopover()
 
     var isShown: Bool {
@@ -11,7 +10,6 @@ final class MenubarSearchPopover: NSObject, NSPopoverDelegate {
     }
 
     init(coordinator: GlobalSearchCoordinator) {
-        self.coordinator = coordinator
         super.init()
         popover.behavior = .transient
         popover.animates = true

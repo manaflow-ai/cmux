@@ -53,24 +53,6 @@ extension ContentView {
         let kind: Kind
         let currentName: String
 
-        var title: String {
-            switch kind {
-            case .workspace:
-                return String(localized: "commandPalette.rename.workspaceTitle", defaultValue: "Rename Workspace")
-            case .tab:
-                return String(localized: "commandPalette.rename.tabTitle", defaultValue: "Rename Tab")
-            }
-        }
-
-        var description: String {
-            switch kind {
-            case .workspace:
-                return String(localized: "commandPalette.rename.workspaceDescription", defaultValue: "Choose a custom workspace name.")
-            case .tab:
-                return String(localized: "commandPalette.rename.tabDescription", defaultValue: "Choose a custom tab name.")
-            }
-        }
-
         var placeholder: String {
             switch kind {
             case .workspace:

@@ -40,7 +40,6 @@ final class CmuxConfigStore {
     @ObservationIgnored var actionLookup: [String: CmuxResolvedConfigAction] = [:]
     @ObservationIgnored var surfaceTabBarButtonSourcePath: String?
     @ObservationIgnored var surfaceTabBarCommandSourcePaths: [String: String] = [:]
-    @ObservationIgnored var newWorkspaceActionSourcePath: String?
 
     @ObservationIgnored var localConfigPath: String?
     @ObservationIgnored weak var tabManager: TabManager?
@@ -106,12 +105,10 @@ final class CmuxConfigStore {
     // performs search-directory *path re-resolution* (not just reload-on-change).
     // The global config and hook files use CmuxFileWatch.FileWatcher.
     @ObservationIgnored var localFileWatchSource: DispatchSourceFileSystemObject?
-    @ObservationIgnored var localFileDescriptor: Int32 = -1
     @ObservationIgnored var localConfigSearchDirectory: String?
     @ObservationIgnored var hookWatchers: [String: FileWatcher] = [:]
     @ObservationIgnored var hookWatchTasks: [String: Task<Void, Never>] = [:]
     @ObservationIgnored var localFallbackDirectoryWatchSource: DispatchSourceFileSystemObject?
-    @ObservationIgnored var localFallbackDirectoryDescriptor: Int32 = -1
     @ObservationIgnored var globalWatcher: FileWatcher?
     @ObservationIgnored var globalWatchTask: Task<Void, Never>?
     let watchQueue = DispatchQueue(label: "com.cmux.config-file-watch")

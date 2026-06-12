@@ -91,45 +91,6 @@ extension CMUXCLI {
         try patch.write(to: diffViewerPatchFileURL(for: viewerURL), atomically: true, encoding: .utf8)
     }
 
-    func writeDiffViewerHTML(
-        patch: String,
-        title: String,
-        sourceLabel: String,
-        externalURL: String?,
-        remotePatchURL: URL? = nil,
-        layout: String,
-        layoutSource: String,
-        appearance: DiffViewerAppearance,
-        sourceOptions: [DiffViewerSourceOption],
-        repoOptions: [DiffViewerSourceOption] = [],
-        baseOptions: [DiffViewerSourceOption] = [],
-        repoRoot: String? = nil,
-        branchBaseRef: String? = nil
-    ) throws -> URL {
-        let directory = try diffViewerDirectory()
-
-        let timestamp = Int(Date().timeIntervalSince1970)
-        let filename = "diff-\(timestamp)-\(UUID().uuidString.prefix(8)).html"
-        let viewerURL = directory.appendingPathComponent(filename, isDirectory: false)
-        try writeDiffViewerHTML(
-            to: viewerURL,
-            patch: patch,
-            title: title,
-            sourceLabel: sourceLabel,
-            externalURL: externalURL,
-            remotePatchURL: remotePatchURL,
-            layout: layout,
-            layoutSource: layoutSource,
-            appearance: appearance,
-            sourceOptions: sourceOptions,
-            repoOptions: repoOptions,
-            baseOptions: baseOptions,
-            repoRoot: repoRoot,
-            branchBaseRef: branchBaseRef
-        )
-        return viewerURL
-    }
-
     func writeDiffViewerStatusHTML(
         to viewerURL: URL,
         title: String,

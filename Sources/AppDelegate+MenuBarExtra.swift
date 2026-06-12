@@ -216,16 +216,8 @@ extension AppDelegate {
         menuBarExtraController?.refreshForDebugControls()
     }
 
-    func openTaskManagerWindow() {
-        TaskManagerWindowController.shared.show()
-    }
-
     func captureMainWindowVisibilityRestoreTargetsForApplicationHide() {
         mainWindowVisibilityController.captureHiddenWindowRestoreTargets(windows: mainWindowsForVisibilityController())
-    }
-
-    func dismissMainWindowFromWindowChrome(_ window: NSWindow) {
-        mainWindowVisibilityController.dismissWindows(windows: [window], reason: .titlebarDismiss)
     }
 
     func toggleApplicationVisibilityFromGlobalHotkey() {

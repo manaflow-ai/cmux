@@ -196,10 +196,6 @@ final class CmuxSettingsFileStore {
         return URL(fileURLWithPath: primaryPath)
     }
 
-    func settingsFileDisplayPath() -> String {
-        (primaryPath as NSString).abbreviatingWithTildeInPath
-    }
-
     private func bootstrapPrimaryTemplateIfNeeded() {
         guard !fileManager.fileExists(atPath: primaryPath) else { return }
 

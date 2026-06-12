@@ -111,7 +111,6 @@ extension WorkspaceRemoteSessionController {
         proxyLease = nil
         proxyEndpoint = nil
         daemonReady = false
-        daemonBootstrapVersion = nil
         daemonRemotePath = nil
         publishProxyEndpoint(nil)
         publishPortsSnapshotLocked()
@@ -176,7 +175,6 @@ extension WorkspaceRemoteSessionController {
                 ])
             }
             daemonReady = true
-            daemonBootstrapVersion = hello.version
             daemonRemotePath = hello.remotePath
             publishDaemonStatus(
                 .ready,
@@ -210,7 +208,6 @@ extension WorkspaceRemoteSessionController {
             }
         } catch {
             daemonReady = false
-            daemonBootstrapVersion = nil
             daemonRemotePath = nil
             let retrySchedule = scheduleReconnectLocked(baseDelay: 4.0)
             let retrySuffix = Self.retrySuffix(retry: retrySchedule.retry, delay: retrySchedule.delay)
@@ -303,7 +300,6 @@ extension WorkspaceRemoteSessionController {
             proxyLease?.release()
             proxyLease = nil
             daemonReady = false
-            daemonBootstrapVersion = nil
             daemonRemotePath = nil
 
             let retrySchedule = scheduleReconnectLocked(baseDelay: 2.0)

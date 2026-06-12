@@ -106,10 +106,6 @@ enum MobileHostRPCEnvelope {
         }
     }
 
-    static func ok(id: Any?, _ payload: Any) -> Data {
-        encodeResponse(id: id, result: .ok(payload))
-    }
-
     static func error(id: Any?, code: String, message: String, data: Any? = nil) -> Data {
         encodeResponse(
             id: id,

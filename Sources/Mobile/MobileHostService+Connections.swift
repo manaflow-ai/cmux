@@ -90,50 +90,6 @@ extension MobileHostService {
         listener != nil && generation == listenerGeneration
     }
 
-    private func accept(_ connection: NWConnection, generation: UUID) {
-        guard listener != nil, generation == listenerGeneration else {
-            connection.cancel()
-            MobileHostRequestActivity.endConnection()
-            return
-        }
-        guard activeConnections.count < Self.maximumActiveConnectionCount else {
-            mobileHostLog.error("mobile host rejected connection because active connection limit was reached")
-            connection.cancel()
-            MobileHostRequestActivity.endConnection()
-            return
-        }
-
-        let id = UUID()
-        let session = MobileHostConnection(
-            id: id,
-            connection: connection,
-            authorizeRequest: { request in
-                await MobileHostService.shared.authorizationError(for: request)
-            },
-            onAuthorizedRequest: { request in
-                if let clientID = Self.clientID(from: request.params) {
-                    await MobileHostService.shared.recordClientID(clientID, for: id)
-                }
-            },
-            handleRequest: { request in
-                if request.method == "mobile.host.status" {
-                    return await MobileHostService.shared.publicHostStatusResult()
-                }
-                let result = await TerminalController.shared.mobileHostHandleRPC(request)
-                await MobileHostService.shared.recordCreatedResourcesIfNeeded(
-                    request: request,
-                    result: result
-                )
-                return result
-            },
-            onClose: { id in
-                await MobileHostService.shared.removeConnection(id: id)
-            }
-        )
-        activeConnections[id] = session
-        Task { await session.start() }
-    }
-
     /// Whether an incoming connection's remote peer is on the loopback interface.
     ///
     /// Used to refuse local connections in release builds, where no legitimate

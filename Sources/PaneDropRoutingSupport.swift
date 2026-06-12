@@ -48,8 +48,6 @@ struct PaneDragTransfer: Equatable {
     }
 }
 
-typealias TerminalPaneDragTransfer = PaneDragTransfer
-
 enum PaneDropRouting {
     private static func fullPaneSize(for size: CGSize, topChromeHeight: CGFloat) -> CGSize {
         CGSize(width: size.width, height: size.height + max(0, topChromeHeight))
@@ -143,8 +141,6 @@ enum PaneDropRouting {
         }
     }
 }
-
-typealias TerminalPaneDropRouting = PaneDropRouting
 
 @MainActor
 final class PaneDropZoneOverlayAnimator {

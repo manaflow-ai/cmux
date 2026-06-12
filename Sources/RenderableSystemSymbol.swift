@@ -48,11 +48,4 @@ enum RenderableSystemSymbol {
         renderabilityCache[symbol] = resolved
         return resolved
     }
-
-    #if DEBUG
-    @MainActor
-    static func resetRenderabilityCacheForTesting() {
-        renderabilityCache.removeAll()
-    }
-    #endif
 }

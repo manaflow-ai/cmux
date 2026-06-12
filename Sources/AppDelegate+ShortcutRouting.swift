@@ -153,21 +153,6 @@ extension AppDelegate {
         return mainWindowContexts.values.first
     }
 
-    private func activateMainWindowContextForShortcutEvent(_ event: NSEvent) {
-        let preferredWindow = mainWindowForShortcutEvent(event)
-#if DEBUG
-        cmuxDebugLog(
-            "shortcut.activate.pre event=\(NSWindow.keyDescription(event)) preferred={\(debugWindowToken(preferredWindow))} \(debugShortcutRouteSnapshot(event: event))"
-        )
-#endif
-        _ = synchronizeActiveMainWindowContext(preferredWindow: preferredWindow)
-#if DEBUG
-        cmuxDebugLog(
-            "shortcut.activate.post event=\(NSWindow.keyDescription(event)) preferred={\(debugWindowToken(preferredWindow))} \(debugShortcutRouteSnapshot(event: event))"
-        )
-#endif
-    }
-
     func currentKeyboardShortcutEvent() -> NSEvent? {
         guard let event = NSApp.currentEvent,
               event.type == .keyDown || event.type == .keyUp else {

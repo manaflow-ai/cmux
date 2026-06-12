@@ -465,11 +465,6 @@ extension TabManager {
         selectWorkspaceId(tabs[index].id, notificationDismissalContext: .explicitWorkspaceResume)
     }
 
-    func selectLastTab() {
-        guard let lastTab = tabs.last else { return }
-        selectWorkspaceId(lastTab.id, notificationDismissalContext: .explicitWorkspaceResume)
-    }
-
     // MARK: - Surface Navigation
 
     /// Select the next surface in the currently focused pane of the selected workspace
@@ -516,17 +511,6 @@ extension TabManager {
     /// the model from whatever first responder happened to be during reparenting transitions.
     func reconcileFocusedPanelFromFirstResponderForKeyboard() {
         ensureFocusedTerminalFirstResponder()
-    }
-
-    /// Get a terminal panel by ID
-    func terminalPanel(tabId: UUID, panelId: UUID) -> TerminalPanel? {
-        guard let tab = tabs.first(where: { $0.id == tabId }) else { return nil }
-        return tab.terminalPanel(for: panelId)
-    }
-
-    /// Get the panel for a surface ID (terminal panels use surface ID as panel ID)
-    func surface(for tabId: UUID, surfaceId: UUID) -> TerminalSurface? {
-        terminalPanel(tabId: tabId, panelId: surfaceId)?.surface
     }
 
 }

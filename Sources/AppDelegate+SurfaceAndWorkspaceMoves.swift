@@ -32,7 +32,6 @@ extension AppDelegate {
     struct WindowMoveTarget: Identifiable {
         let windowId: UUID
         let label: String
-        let tabManager: TabManager
         let isCurrentWindow: Bool
 
         var id: UUID { windowId }
@@ -43,7 +42,6 @@ extension AppDelegate {
         let workspaceId: UUID
         let windowLabel: String
         let workspaceTitle: String
-        let tabManager: TabManager
         let isCurrentWindow: Bool
 
         var id: String { "\(windowId.uuidString):\(workspaceId.uuidString)" }
@@ -56,12 +54,11 @@ extension AppDelegate {
         let orderedSummaries = orderedMainWindowSummaries(referenceWindowId: referenceWindowId)
         let labels = windowLabelsById(orderedSummaries: orderedSummaries, referenceWindowId: referenceWindowId)
         return orderedSummaries.compactMap { summary in
-            guard let manager = tabManagerFor(windowId: summary.windowId) else { return nil }
+            guard tabManagerFor(windowId: summary.windowId) != nil else { return nil }
             let label = labels[summary.windowId] ?? "Window"
             return WindowMoveTarget(
                 windowId: summary.windowId,
                 label: label,
-                tabManager: manager,
                 isCurrentWindow: summary.windowId == referenceWindowId
             )
         }
@@ -90,7 +87,6 @@ extension AppDelegate {
                         workspaceId: workspace.id,
                         windowLabel: windowLabel,
                         workspaceTitle: workspaceDisplayName(workspace),
-                        tabManager: manager,
                         isCurrentWindow: isCurrentWindow
                     )
                 )

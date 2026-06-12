@@ -36,15 +36,6 @@ enum AuthEnvironment {
         )
     }
 
-    static var signInWebsiteOrigin: URL {
-        canonicalizedLoopbackURL(
-            resolvedURL(
-                environmentKey: "CMUX_AUTH_WWW_ORIGIN",
-                fallback: defaultWebOrigin
-            )
-        )
-    }
-
     static var apiBaseURL: URL {
         canonicalizedLoopbackURL(
             resolvedURL(

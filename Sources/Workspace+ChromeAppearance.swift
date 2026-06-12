@@ -22,18 +22,6 @@ extension Workspace {
         )
     }
 
-    static func bonsplitAppearance(from config: GhosttyConfig) -> BonsplitConfiguration.Appearance {
-        bonsplitAppearance(
-            from: config.backgroundColor,
-            backgroundOpacity: config.backgroundOpacity,
-            tabTitleFontSize: config.surfaceTabBarFontSize
-        )
-    }
-
-    nonisolated static func usesSharedSurfaceBackdrop(defaults: UserDefaults = .standard) -> Bool {
-        defaults.bool(forKey: "sidebarMatchTerminalBackground")
-    }
-
     nonisolated static func usesWindowRootTerminalBackdrop() -> Bool {
         true
     }

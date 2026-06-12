@@ -24,26 +24,6 @@ struct CmuxConfigFile: Codable, Sendable {
         case actions, ui, notifications, newWorkspaceCommand, surfaceTabBarButtons, commands, vault, workspaceGroups
     }
 
-    init(
-        actions: [String: CmuxConfigActionDefinition] = [:],
-        ui: CmuxConfigUIDefinition? = nil,
-        notifications: CmuxNotificationConfigDefinition? = nil,
-        newWorkspaceCommand: String? = nil,
-        surfaceTabBarButtons: [CmuxSurfaceTabBarButton]? = nil,
-        commands: [CmuxCommandDefinition] = [],
-        vault: CmuxVaultConfigDefinition? = nil,
-        workspaceGroups: CmuxConfigWorkspaceGroupsDefinition? = nil
-    ) {
-        self.actions = actions
-        self.ui = ui
-        self.notifications = notifications
-        self.newWorkspaceCommand = newWorkspaceCommand
-        self.surfaceTabBarButtons = surfaceTabBarButtons
-        self.commands = commands
-        self.vault = vault
-        self.workspaceGroups = workspaceGroups
-    }
-
     init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         let decodedActions = try container.decodeIfPresent(

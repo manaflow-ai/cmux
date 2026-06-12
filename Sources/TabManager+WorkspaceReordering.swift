@@ -332,12 +332,6 @@ extension TabManager {
         )
     }
 
-    @discardableResult
-    func reorderWorkspace(tabId: UUID, before beforeId: UUID? = nil, after afterId: UUID? = nil, isDragOperation: Bool = false) -> Bool {
-        guard let plan = workspaceReorderPlan(tabId: tabId, before: beforeId, after: afterId) else { return false }
-        return reorderWorkspace(tabId: tabId, toIndex: plan.toIndex, isDragOperation: isDragOperation)
-    }
-
     func workspaceReorderPlan(tabId: UUID, before beforeId: UUID? = nil, after afterId: UUID? = nil) -> WorkspaceReorderPlanItem? {
         guard tabs.contains(where: { $0.id == tabId }) else { return nil }
         if let beforeId {
@@ -424,12 +418,6 @@ extension TabManager {
             .map(\.id)
             .filter { !orderedSet.contains($0) && workspacesById[$0]?.isPinned == false }
         return orderedPinnedIds + remainingPinnedIds + orderedUnpinnedIds + remainingUnpinnedIds
-    }
-
-    func togglePin(tabId: UUID) {
-        guard let index = tabs.firstIndex(where: { $0.id == tabId }) else { return }
-        let tab = tabs[index]
-        setPinned(tab, pinned: !tab.isPinned)
     }
 
     func setPinned(_ tab: Workspace, pinned: Bool) {

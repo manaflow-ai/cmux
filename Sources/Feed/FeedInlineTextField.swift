@@ -239,12 +239,6 @@ final class FeedInlineTextEditorView: NSView {
         )
     }
 
-    private func updateTextViewLayout() {
-        let availableWidth = max(bounds.width, 1)
-        let height = fittingHeight(for: availableWidth)
-        textView.frame = NSRect(x: 0, y: 0, width: availableWidth, height: height)
-    }
-
     private func fittingHeight() -> CGFloat {
         guard bounds.width > 1 else {
             return Self.minimumHeight(for: currentFont)

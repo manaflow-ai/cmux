@@ -99,30 +99,6 @@ struct CmuxConfigActionDefinition: Codable, Sendable, Hashable {
         case target
     }
 
-    init(
-        action: CmuxSurfaceTabBarButtonAction? = nil,
-        title: String? = nil,
-        subtitle: String? = nil,
-        keywords: [String]? = nil,
-        palette: Bool? = nil,
-        shortcut: StoredShortcut? = nil,
-        icon: CmuxButtonIcon? = nil,
-        tooltip: String? = nil,
-        confirm: Bool? = nil,
-        terminalCommandTarget: CmuxConfigTerminalCommandTarget? = nil
-    ) {
-        self.action = action
-        self.title = title
-        self.subtitle = subtitle
-        self.keywords = keywords
-        self.palette = palette
-        self.shortcut = shortcut
-        self.icon = icon
-        self.tooltip = tooltip
-        self.confirm = confirm
-        self.terminalCommandTarget = terminalCommandTarget
-    }
-
     init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         let type = try Self.trimmedString(forKey: .type, in: container)

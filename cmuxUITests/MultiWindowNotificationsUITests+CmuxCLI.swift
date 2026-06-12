@@ -5,32 +5,6 @@ import CoreGraphics
 
 // MARK: - cmux CLI Invocation and Path Resolution
 extension MultiWindowNotificationsUITests {
-    private func runCmuxNotify(
-        socketPath: String,
-        workspaceId: String,
-        surfaceId: String,
-        title: String
-    ) -> (terminationStatus: Int32, stdout: String, stderr: String) {
-        runCmuxCommand(
-            socketPath: socketPath,
-            arguments: [
-                "notify",
-                "--workspace",
-                workspaceId,
-                "--surface",
-                surfaceId,
-                "--title",
-                title,
-                "--subtitle",
-                "ui-test",
-                "--body",
-                "focus-regression"
-            ],
-            responseTimeoutSeconds: 4.0,
-            cliStrategy: .bundledOnly
-        )
-    }
-
     func runCmuxCommand(
         socketPath: String,
         arguments: [String],

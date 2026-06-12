@@ -179,7 +179,6 @@ struct RealizedBrowserImportExecutionEntry: Sendable {
 }
 
 struct RealizedBrowserImportExecutionPlan: Sendable {
-    let mode: BrowserImportDestinationMode
     let entries: [RealizedBrowserImportExecutionEntry]
     let createdProfiles: [BrowserProfileDefinition]
 }
@@ -532,7 +531,6 @@ enum BrowserImportPlanResolver {
         }
 
         return RealizedBrowserImportExecutionPlan(
-            mode: plan.mode,
             entries: realizedEntries,
             createdProfiles: createdProfiles
         )

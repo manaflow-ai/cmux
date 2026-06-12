@@ -12,11 +12,6 @@ enum CommandPaletteFuzzyMatcher {
         let low: UInt64
         let high: UInt64
 
-        init(low: UInt64, high: UInt64) {
-            self.low = low
-            self.high = high
-        }
-
         init(_ text: String) {
             var low: UInt64 = 0
             var high: UInt64 = 0
@@ -79,7 +74,6 @@ enum CommandPaletteFuzzyMatcher {
     }
 
     struct PreparedQuery {
-        let normalizedText: String
         let tokens: [PreparedToken]
 
         var isEmpty: Bool {
@@ -90,7 +84,6 @@ enum CommandPaletteFuzzyMatcher {
     static func preparedQuery(_ query: String) -> PreparedQuery {
         let normalizedQuery = normalizeForSearch(query)
         return PreparedQuery(
-            normalizedText: normalizedQuery,
             tokens: normalizedQuery
                 .split(separator: " ")
                 .map(String.init)

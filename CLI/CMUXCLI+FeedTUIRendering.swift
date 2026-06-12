@@ -258,10 +258,6 @@ extension CMUXCLI {
         CMUXCLI.feedSourceSupportsBypassPermissions(source)
     }
 
-    static func feedSourceSupportsPersistentPermissionModes(_ source: String) -> Bool {
-        CodexTeamsApprovalBridge.feedSourceSupportsPersistentPermissionModes(source)
-    }
-
     static func feedSourceSupportsOncePermissionMode(_ source: String, toolInputJSON: String?) -> Bool {
         CodexTeamsApprovalBridge.feedSourceSupportsOncePermissionMode(source, toolInputJSON: toolInputJSON)
     }

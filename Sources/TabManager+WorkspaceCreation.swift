@@ -361,15 +361,6 @@ extension TabManager {
         )
     }
 
-    private func workspaceCreationSnapshot() -> WorkspaceCreationSnapshot {
-        workspaceCreationSnapshotLite(
-            currentTabs: tabs,
-            currentSelectedTabId: selectedTabId,
-            preferredWorkingDirectory: preferredWorkingDirectoryForNewTab(),
-            inheritedTerminalFontPoints: inheritedTerminalFontPointsForNewWorkspace()
-        )
-    }
-
     private func orderedLiveWorkspaceCreationTabs(
         from snapshot: WorkspaceCreationSnapshot
     ) -> [WorkspaceCreationTabSnapshot]? {
@@ -422,10 +413,6 @@ extension TabManager {
         return candidates.first
     }
 
-    private func inheritedTerminalConfigForNewWorkspace() -> CmuxSurfaceConfigTemplate? {
-        inheritedTerminalConfigForNewWorkspace(workspace: selectedWorkspace)
-    }
-
     func cachedInheritedTerminalFontPointsForNewWorkspace(
         workspace: Workspace?
     ) -> Float? {
@@ -441,10 +428,6 @@ extension TabManager {
             }
             return fontPoints
         }
-    }
-
-    private func inheritedTerminalFontPointsForNewWorkspace() -> Float? {
-        inheritedTerminalFontPointsForNewWorkspace(workspace: selectedWorkspace)
     }
 
     func inheritedTerminalFontPointsForNewWorkspace(
@@ -471,10 +454,6 @@ extension TabManager {
         let normalized = normalizeDirectory(directory)
         let trimmed = normalized.trimmingCharacters(in: .whitespacesAndNewlines)
         return trimmed.isEmpty ? nil : normalized
-    }
-
-    private func newTabInsertIndex(placementOverride: NewWorkspacePlacement? = nil) -> Int {
-        newTabInsertIndex(snapshot: workspaceCreationSnapshot(), placementOverride: placementOverride)
     }
 
     func newTabInsertIndex(
@@ -507,10 +486,6 @@ extension TabManager {
             }
             return snapshot.selectedTabWasPinned ? pinnedCount : liveTabs.count
         }
-    }
-
-    private func preferredWorkingDirectoryForNewTab() -> String? {
-        preferredWorkingDirectoryForNewTab(workspace: selectedWorkspace)
     }
 
     func preferredWorkingDirectoryForNewTab(

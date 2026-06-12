@@ -434,8 +434,6 @@ final class AgentSessionProcessStore {
 
         session.openCodeEventTask = Task.detached(priority: .utility) { [weak self] in
             await Self.consumeOpenCodeEventStream(
-                sessionId: sessionId,
-                openCodeSessionID: openCodeSessionID,
                 url: url,
                 authorizationHeader: authorizationHeader,
                 handleEvent: { event in
@@ -459,8 +457,6 @@ final class AgentSessionProcessStore {
     }
 
     nonisolated private static func consumeOpenCodeEventStream(
-        sessionId: String,
-        openCodeSessionID: String,
         url: URL,
         authorizationHeader: String?,
         handleEvent: ([String: Any]) async -> Void,

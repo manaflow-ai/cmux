@@ -141,42 +141,6 @@ struct ShortcutRecorderValidationPresentation: Equatable {
     }
 }
 
-struct ShortcutSettingRow: View {
-    let action: KeyboardShortcutSettings.Action
-    @State private var shortcut: StoredShortcut
-    @State private var isManagedBySettingsFile: Bool
-
-    init(action: KeyboardShortcutSettings.Action) {
-        self.action = action
-        _shortcut = State(initialValue: KeyboardShortcutSettings.shortcut(for: action))
-        _isManagedBySettingsFile = State(initialValue: KeyboardShortcutSettings.isManagedBySettingsFile(action))
-    }
-
-    var body: some View {
-        ShortcutRecorderSettingsControl(
-            action: action,
-            shortcut: $shortcut,
-            subtitle: isManagedBySettingsFile ? KeyboardShortcutSettings.settingsFileManagedSubtitle(for: action) : nil,
-            displayString: { action.displayedShortcutString(for: $0) },
-            isDisabled: isManagedBySettingsFile
-        )
-        .onChange(of: shortcut) { _, newValue in
-            guard !isManagedBySettingsFile else { return }
-            KeyboardShortcutSettings.setShortcut(newValue, for: action)
-        }
-        .onReceive(NotificationCenter.default.publisher(for: KeyboardShortcutSettings.didChangeNotification)) { _ in
-            let latest = KeyboardShortcutSettings.shortcut(for: action)
-            let latestManagedState = KeyboardShortcutSettings.isManagedBySettingsFile(action)
-            if latestManagedState != isManagedBySettingsFile {
-                isManagedBySettingsFile = latestManagedState
-            }
-            if latest != shortcut {
-                shortcut = latest
-            }
-        }
-    }
-}
-
 struct ShortcutRecorderSettingsControl: View {
     let action: KeyboardShortcutSettings.Action
     @Binding var shortcut: StoredShortcut

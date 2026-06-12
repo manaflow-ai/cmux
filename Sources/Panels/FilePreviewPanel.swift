@@ -145,10 +145,6 @@ final class FilePreviewPanel: Panel, FilePreviewTextEditingPanel {
         focusCoordinator.fulfillPendingFocusIfNeeded()
     }
 
-    func attachPDFPreview(root: NSView, primaryResponder: NSView) {
-        attachPreviewFocus(root: root, primaryResponder: primaryResponder, intent: .pdfCanvas)
-    }
-
     func attachPreviewFocus(
         root: NSView,
         primaryResponder: NSView,
@@ -364,7 +360,6 @@ final class FilePreviewPDFContainerView: NSView, NSSplitViewDelegate, NSOutlineV
         static let maximumSidebarWidth = FilePreviewPDFSizing.maximumSidebarWidth
         static let floatingChromeHeight: CGFloat = 40
         static let floatingControlsWidth: CGFloat = 344
-        static let floatingChromeCornerRadius: CGFloat = 20
     }
 
     let splitView = NSSplitView()

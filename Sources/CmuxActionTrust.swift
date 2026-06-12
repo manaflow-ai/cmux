@@ -65,10 +65,6 @@ final class CmuxActionTrust {
         save()
     }
 
-    var allTrustedFingerprints: [String] {
-        trustedFingerprints.sorted()
-    }
-
     private func save() {
         guard let data = try? JSONEncoder().encode(trustedFingerprints.sorted()) else { return }
         FileManager.default.createFile(atPath: storePath, contents: data)

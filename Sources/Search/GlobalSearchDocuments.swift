@@ -47,9 +47,7 @@ enum GlobalSearchDocuments {
             title: context.panelTitle,
             location: "",
             anchor: "panel",
-            snippet: context.location,
-            rank: 0,
-            timestamp: .now
+            snippet: context.location
         )
     }
 

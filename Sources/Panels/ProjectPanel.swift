@@ -55,22 +55,22 @@ public enum ProjectPanelLoadState: Sendable, Equatable {
 /// re-render without dealing with reload events.
 @MainActor
 @Observable
-public final class ProjectPanel: NSObject, Panel {
+final class ProjectPanel: NSObject, Panel {
     public let id = UUID()
     public let panelType: PanelType = .project
 
-    public private(set) var projectURL: URL
-    public private(set) var loadState: ProjectPanelLoadState = .idle
-    public var activeTab: ProjectPanelTab = .files
-    public var selectedFilePath: String?
-    public var selectedTargetID: TargetID?
-    public var selectedSchemeName: String?
-    public var selectedConfigurationName: String?
-    public var settingsSearchText: String = ""
-    public var settingsCustomizedOnly: Bool = false
-    public var collapsedNodeIDs: Set<ProjectNodeID> = []
-    public var filesSearchText: String = ""
-    public var lastLoadError: String?
+    private(set) var projectURL: URL
+    private(set) var loadState: ProjectPanelLoadState = .idle
+    var activeTab: ProjectPanelTab = .files
+    var selectedFilePath: String?
+    var selectedTargetID: TargetID?
+    var selectedSchemeName: String?
+    var selectedConfigurationName: String?
+    var settingsSearchText: String = ""
+    var settingsCustomizedOnly: Bool = false
+    var collapsedNodeIDs: Set<ProjectNodeID> = []
+    var filesSearchText: String = ""
+    var lastLoadError: String?
     private var reloadTask: Task<Void, Never>?
 
     public var displayTitle: String {
@@ -79,7 +79,7 @@ public final class ProjectPanel: NSObject, Panel {
 
     public var displayIcon: String? { "hammer" }
 
-    public init(projectURL: URL) {
+    init(projectURL: URL) {
         self.projectURL = projectURL
         super.init()
     }
@@ -87,7 +87,7 @@ public final class ProjectPanel: NSObject, Panel {
     /// Trigger a load (or reload) of the project model. Safe to call
     /// repeatedly. Loading runs off the main actor. Concurrent calls cancel
     /// any in-flight reload so the latest invocation's result always wins.
-    public func reload() {
+    func reload() {
         reloadTask?.cancel()
         let previousModel = loadState.model
         loadState = .loading

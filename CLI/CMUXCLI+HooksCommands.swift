@@ -18,18 +18,6 @@ import Sentry
 
 // MARK: - hooks namespace commands
 extension CMUXCLI {
-    private func runCursorInstallHooks() throws { try installAgentHooks(Self.agentDef(named: "cursor")!) }
-    private func runCursorUninstallHooks() throws { try uninstallAgentHooks(Self.agentDef(named: "cursor")!) }
-    private func runCursorHook(commandArgs: [String], client: SocketClient, telemetry: CLISocketSentryTelemetry) throws {
-        try runGenericAgentHook(def: Self.agentDef(named: "cursor")!, commandArgs: commandArgs, client: client, telemetry: telemetry)
-    }
-
-    private func runGeminiInstallHooks() throws { try installAgentHooks(Self.agentDef(named: "gemini")!) }
-    private func runGeminiUninstallHooks() throws { try uninstallAgentHooks(Self.agentDef(named: "gemini")!) }
-    private func runGeminiHook(commandArgs: [String], client: SocketClient, telemetry: CLISocketSentryTelemetry) throws {
-        try runGenericAgentHook(def: Self.agentDef(named: "gemini")!, commandArgs: commandArgs, client: client, telemetry: telemetry)
-    }
-
     // MARK: - Hooks namespace
 
     func runHooksNoSocketCommand(commandArgs: [String]) throws -> Bool {

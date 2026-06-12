@@ -143,113 +143,21 @@ enum SettingsNavigationRequest {
         )
     }
 
-    static func target(from notification: Notification) -> SettingsNavigationTarget? {
-        destination(from: notification)?.target
-    }
-
-    static func destination(from notification: Notification) -> SettingsNavigationDestination? {
-        guard
-            let rawValue = notification.userInfo?[targetKey] as? String,
-            let target = SettingsNavigationTarget(rawValue: rawValue)
-        else {
-            return nil
-        }
-        let anchorID = notification.userInfo?[anchorKey] as? String
-        let shouldHighlight = notification.userInfo?[highlightKey] as? Bool ?? false
-        return SettingsNavigationDestination(
-            target: target,
-            anchorID: anchorID ?? SettingsSearchIndex.sectionID(for: target),
-            shouldHighlight: shouldHighlight
-        )
-    }
-}
-
-struct SettingsNavigationDestination {
-    let target: SettingsNavigationTarget
-    let anchorID: String
-    let shouldHighlight: Bool
 }
 
 struct SettingsSearchHighlightState: Equatable {
     let anchorID: String?
-    let token: Int
     let startedAt: Date?
 }
 
 private struct SettingsSearchHighlightStateKey: EnvironmentKey {
-    static let defaultValue = SettingsSearchHighlightState(anchorID: nil, token: 0, startedAt: nil)
+    static let defaultValue = SettingsSearchHighlightState(anchorID: nil, startedAt: nil)
 }
 
 extension EnvironmentValues {
     var settingsSearchHighlightState: SettingsSearchHighlightState {
         get { self[SettingsSearchHighlightStateKey.self] }
         set { self[SettingsSearchHighlightStateKey.self] = newValue }
-    }
-}
-
-extension View {
-    @ViewBuilder
-    func settingsSearchAnchor(_ anchorID: String?) -> some View {
-        if let anchorID {
-            settingsSearchAnchors([anchorID])
-        } else {
-            self
-        }
-    }
-
-    @ViewBuilder
-    func settingsSearchAnchors(_ anchorIDs: [String]) -> some View {
-        let filteredAnchorIDs = anchorIDs.filter { !$0.isEmpty }
-        if let primaryAnchorID = filteredAnchorIDs.first {
-            self
-                .id(primaryAnchorID)
-                .modifier(SettingsSearchHighlightModifier(anchorIDs: filteredAnchorIDs))
-        } else {
-            self
-        }
-    }
-}
-
-private struct SettingsSearchHighlightModifier: ViewModifier {
-    @Environment(\.settingsSearchHighlightState) private var highlightState
-    let anchorIDs: [String]
-
-    private func matches(_ state: SettingsSearchHighlightState) -> Bool {
-        guard let anchorID = state.anchorID else { return false }
-        return anchorIDs.contains(anchorID)
-    }
-
-    func body(content: Content) -> some View {
-        content
-            .background {
-                if matches(highlightState) {
-                    TimelineView(.animation) { context in
-                        let opacity = highlightOpacity(at: context.date, for: highlightState)
-                        RoundedRectangle(cornerRadius: 8, style: .continuous)
-                            .fill(Color.accentColor.opacity(opacity * 0.24))
-                            .overlay(
-                                RoundedRectangle(cornerRadius: 8, style: .continuous)
-                                    .stroke(Color.accentColor.opacity(opacity), lineWidth: 2.5)
-                            )
-                            .shadow(color: Color.accentColor.opacity(opacity * 0.24), radius: 8, x: 0, y: 0)
-                    }
-                }
-            }
-    }
-
-    private func highlightOpacity(at date: Date, for state: SettingsSearchHighlightState) -> Double {
-        guard matches(state), let startedAt = state.startedAt else { return 0 }
-        let elapsed = date.timeIntervalSince(startedAt)
-        if elapsed < 0.14 {
-            return max(0, min(1, elapsed / 0.14))
-        }
-        if elapsed < 5 {
-            return 1
-        }
-        if elapsed < 5.9 {
-            return max(0, 1 - ((elapsed - 5) / 0.9))
-        }
-        return 0
     }
 }
 
@@ -287,8 +195,6 @@ struct SettingsSearchEntry: Identifiable {
 }
 
 enum SettingsSearchIndex {
-    static let defaultSelectionID = sectionID(for: .account)
-
     private static let sectionEntries: [SettingsSearchEntry] = SettingsNavigationTarget.allCases.map { target in
         SettingsSearchEntry(
             id: sectionID(for: target),
@@ -424,10 +330,6 @@ enum SettingsSearchIndex {
 
     private static let allEntries = sectionEntries + settingEntries
 
-    private static let entriesByID: [String: SettingsSearchEntry] = Dictionary(
-        uniqueKeysWithValues: allEntries.map { ($0.id, $0) }
-    )
-
     private static let settingsPathAnchorIDs: [String: String] = [
         "rightSidebar.beta.feed.enabled": settingID(for: .betaFeatures, idSuffix: "feed"),
         "rightSidebar.beta.dock.enabled": settingID(for: .betaFeatures, idSuffix: "dock"),
@@ -538,14 +440,6 @@ enum SettingsSearchIndex {
         return allEntries.filter { entry in
             tokens.allSatisfy { token in entry.normalizedSearchText.contains(token) }
         }
-    }
-
-    static func entry(withID id: String) -> SettingsSearchEntry? {
-        entriesByID[id]
-    }
-
-    static func sectionEntry(for target: SettingsNavigationTarget) -> SettingsSearchEntry {
-        entriesByID[sectionID(for: target)] ?? sectionEntries[0]
     }
 
     static func sectionID(for target: SettingsNavigationTarget) -> String { "section:\(target.rawValue)" }

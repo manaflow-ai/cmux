@@ -29,7 +29,6 @@ final class CmuxDiffViewerURLSchemeHandler: NSObject, WKURLSchemeHandler {
     }
 
     private struct Session {
-        let token: String
         let filesByPath: [String: RegisteredFile]
         let createdAt: Date
     }
@@ -97,7 +96,7 @@ final class CmuxDiffViewerURLSchemeHandler: NSObject, WKURLSchemeHandler {
 
         lock.lock()
         pruneExpiredSessionsLocked(now: now)
-        sessions[token] = Session(token: token, filesByPath: byPath, createdAt: now)
+        sessions[token] = Session(filesByPath: byPath, createdAt: now)
         lock.unlock()
     }
 

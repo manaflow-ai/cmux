@@ -49,24 +49,6 @@ extension GhosttyNSView {
         return ghostty_surface_has_selection(surface)
     }
 
-    /// Attempt to open the word under the mouse cursor as a file path, resolved
-    /// against the terminal panel's current working directory.
-    private func tryOpenWordAsPath(at point: NSPoint? = nil) {
-        guard let resolution = resolveWordUnderCursorPath(at: point) else { return }
-
-        #if DEBUG
-        cmuxDebugLog("link.wordFallback resolved=\(resolution.path) source=\(resolution.source.rawValue)")
-        #endif
-
-        PreferredEditorSettings.open(URL(fileURLWithPath: resolution.path))
-    }
-
-    /// Check if the word under the mouse cursor resolves to an existing file/directory
-    /// in the terminal panel's CWD. Returns the resolved absolute path, or nil.
-    private func resolveWordUnderCursorAsPath(at point: NSPoint? = nil) -> String? {
-        resolveWordUnderCursorPath(at: point)?.path
-    }
-
     func resolveWordUnderCursorPath(at point: NSPoint? = nil) -> WordPathResolution? {
         guard let surface = surface else { return nil }
 

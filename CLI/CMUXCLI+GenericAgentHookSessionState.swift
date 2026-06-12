@@ -29,7 +29,6 @@ extension CMUXCLI {
         } else if let consumed = try? ctx.store.consume(sessionId: ctx.sessionId, workspaceId: nil, surfaceId: nil) {
             clearAgentSurfaceResumeBinding(
                 client: ctx.client,
-                workspaceId: consumed.workspaceId,
                 surfaceId: consumed.surfaceId,
                 sessionId: consumed.sessionId
             )

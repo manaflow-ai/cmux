@@ -151,8 +151,8 @@ struct MobilePairingView: View {
             failure(message: message)
         case let .ready(ready):
             readyContent(ready)
-        case let .connected(ready):
-            connectedContent(ready)
+        case .connected:
+            connectedContent
         }
     }
 
@@ -248,8 +248,7 @@ struct MobilePairingView: View {
         }
     }
 
-    @ViewBuilder
-    private func connectedContent(_ ready: MobilePairingModel.Ready) -> some View {
+    private var connectedContent: some View {
         VStack(spacing: 12) {
             Image(systemName: "checkmark.circle.fill")
                 .font(.system(size: 36))

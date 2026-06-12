@@ -417,46 +417,9 @@ struct FeedItemRow: View, Equatable {
         return lines.joined(separator: "\n")
     }
 
-    private func resolvedBadgeLabel(_ decision: WorkstreamDecision) -> String {
-        let submitted = String(localized: "feed.badge.submitted", defaultValue: "Submitted")
-        switch decision {
-        case .permission(let m):
-            return "\(submitted) · \(m.displayLabel)"
-        case .exitPlan(let m, let feedback):
-            if let feedback, !feedback.isEmpty {
-                return "\(submitted) · " + String(localized: "feed.badge.refined", defaultValue: "refined")
-            }
-            return "\(submitted) · \(m.displayLabel)"
-        case .question:
-            return submitted
-        }
-    }
-
-    private func statusTag(_ text: String, color: Color) -> some View {
-        Text(text)
-            .font(.system(size: 10, weight: .medium))
-            .foregroundColor(color)
-            .padding(.horizontal, 5)
-            .padding(.vertical, 1)
-            .background(
-                RoundedRectangle(cornerRadius: 3, style: .continuous)
-                    .fill(color.opacity(0.12))
-            )
-    }
-
-    private func relativeTime(_ date: Date) -> String {
-        Self.relativeFormatter.localizedString(for: date, relativeTo: Date())
-    }
-
     private func absoluteTime(_ date: Date) -> String {
         Self.absoluteFormatter.string(from: date)
     }
-
-    private static let relativeFormatter: RelativeDateTimeFormatter = {
-        let f = RelativeDateTimeFormatter()
-        f.unitsStyle = .short
-        return f
-    }()
 
     private static let absoluteFormatter: DateFormatter = {
         let f = DateFormatter()

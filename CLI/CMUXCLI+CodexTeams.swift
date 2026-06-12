@@ -453,16 +453,6 @@ extension CMUXCLI {
             .joined(separator: ":") ?? ""
     }
 
-    static func codexTeamsResolvedWorkingDirectory(
-        commandArgs: [String],
-        baseDirectory: String
-    ) -> String? {
-        CodexTeamsApprovalBridge.resolvedWorkingDirectory(
-            commandArgs: commandArgs,
-            baseDirectory: baseDirectory
-        )
-    }
-
     static func validateCodexTeamsWorkingDirectory(
         commandArgs: [String],
         baseDirectory: String

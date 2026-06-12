@@ -26,10 +26,6 @@ final class NotificationsPopoverVisibilityState {
 
     private init() {}
 
-    func setShown(_ newValue: Bool) {
-        setShown(newValue, source: nil, windowNumber: nil)
-    }
-
     func setShown(_ newValue: Bool, source: AnyObject?, windowNumber: Int? = nil) {
         if Thread.isMainThread {
             setShownOnMain(newValue, source: source, windowNumber: windowNumber)

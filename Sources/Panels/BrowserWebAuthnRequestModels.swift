@@ -251,10 +251,6 @@ struct BrowserWebAuthnTransportSummary {
         containsSecurityKeyTransport || containsHybrid || containsUnspecifiedTransport
     }
 
-    var needsBluetoothPreparation: Bool {
-        containsBluetooth || containsHybrid
-    }
-
     var prefersSecurityKeysFirst: Bool {
         containsSecurityKeyTransport &&
             !containsInternal &&

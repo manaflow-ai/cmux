@@ -155,7 +155,7 @@ extension AppDelegate {
         commandPaletteEscapeSuppressionStartedAtByWindowId.removeValue(forKey: windowId)
     }
 
-    func shouldConsumeSuppressedEscape(event: NSEvent, window: NSWindow?) -> Bool {
+    func shouldConsumeSuppressedEscape(window: NSWindow?) -> Bool {
         guard let window,
               let windowId = mainWindowId(for: window),
               commandPaletteEscapeSuppressionByWindowId.contains(windowId) else {
@@ -200,7 +200,7 @@ extension AppDelegate {
     func clearEscapeSuppressionForKeyUp(event: NSEvent, consumeIfSuppressed: Bool = false) -> Bool {
         guard event.type == .keyUp, event.keyCode == 53 else { return false }
         let suppressionWindow = escapeSuppressionWindow(for: event)
-        let didConsume = consumeIfSuppressed && shouldConsumeSuppressedEscape(event: event, window: suppressionWindow)
+        let didConsume = consumeIfSuppressed && shouldConsumeSuppressedEscape(window: suppressionWindow)
         if let window = suppressionWindow {
             endCommandPaletteEscapeSuppression(for: window)
 #if DEBUG

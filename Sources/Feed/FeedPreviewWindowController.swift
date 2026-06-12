@@ -180,14 +180,6 @@ enum FeedPreviewFixtures {
     enum StateChoice: String, CaseIterable, Identifiable {
         case pending, resolved, expired, all
         var id: String { rawValue }
-        var label: String {
-            switch self {
-            case .pending: return "Pending"
-            case .resolved: return "Resolved"
-            case .expired: return "Expired"
-            case .all: return "Pending + Resolved + Expired"
-            }
-        }
     }
 
     static func item(kind: Kind, state: StateChoice) -> WorkstreamItem {

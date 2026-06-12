@@ -319,21 +319,10 @@ extension GhosttySurfaceScrollView {
         surfaceView.debugPendingSurfaceSize()
     }
 
-    func debugRegisteredDropTypes() -> [String] {
-        surfaceView.debugRegisteredDropTypes()
-    }
-
     func debugInactiveOverlayState() -> (isHidden: Bool, alpha: CGFloat) {
         (
             inactiveOverlayView.isHidden,
             inactiveOverlayView.layer?.backgroundColor.flatMap { NSColor(cgColor: $0)?.alphaComponent } ?? 0
-        )
-    }
-
-    func debugNotificationRingState() -> (isHidden: Bool, opacity: Float) {
-        (
-            notificationRingOverlayView.isHidden,
-            notificationRingLayer.opacity
         )
     }
 
@@ -375,10 +364,6 @@ extension GhosttySurfaceScrollView {
     }
 
 #endif
-
-    fileprivate var hasActiveDropZoneOverlay: Bool {
-        activeDropZone != nil || pendingDropZone != nil
-    }
 
     /// Handle file/URL drops, forwarding to the terminal as shell-escaped paths.
     func handleDroppedURLs(_ urls: [URL]) -> Bool {

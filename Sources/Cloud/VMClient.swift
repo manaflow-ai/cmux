@@ -227,7 +227,6 @@ struct VMExecResult {
 /// Short-lived SSH endpoint the backend mints on demand. Mac client dials this with the
 /// existing `cmux ssh` transport.
 struct VMSSHEndpoint {
-    let transport: String
     let host: String
     let port: Int
     let username: String
@@ -241,7 +240,6 @@ struct VMSSHEndpoint {
 }
 
 struct VMWebSocketPtyEndpoint {
-    let transport: String
     let url: String
     let headers: [String: String]
     let token: String
@@ -391,7 +389,6 @@ actor VMClient {
                 ?? Int64((obj["expiresAtUnix"] as? Double) ?? 0)
             let daemon = try decodeWebSocketDaemonEndpoint(obj["daemon"])
             return .websocket(VMWebSocketPtyEndpoint(
-                transport: "websocket",
                 url: url,
                 headers: headers,
                 token: token,
@@ -549,7 +546,6 @@ actor VMClient {
             throw VMClientError.malformedResponse("Cloud VM SSH response used an unsupported attach mode.")
         }
         return VMSSHEndpoint(
-            transport: "ssh",
             host: host,
             port: port,
             username: username,

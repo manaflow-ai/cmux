@@ -140,51 +140,6 @@ extension MultiWindowNotificationsUITests {
         return lastResponse == "PONG" ? "PONG" : (socketCommand("ping") ?? lastResponse)
     }
 
-    private func waitForTerminalFocus(surfaceId: String, timeout: TimeInterval) -> Bool {
-        waitForCondition(timeout: timeout) {
-            self.socketCommand("is_terminal_focused \(surfaceId)") == "true"
-        }
-    }
-
-    private func waitForCmuxPing(timeout: TimeInterval) -> (stdout: String?, stderr: String?) {
-        var lastStdout: String?
-        var lastStderr: String?
-        let didSucceed = waitForCondition(timeout: timeout) {
-            let result = self.runCmuxCommand(
-                socketPath: self.socketPath,
-                arguments: ["ping"],
-                responseTimeoutSeconds: 2.0
-            )
-            let stdout = result.stdout.isEmpty ? nil : result.stdout
-            let stderr = result.stderr.isEmpty ? nil : result.stderr
-            if let stdout {
-                lastStdout = stdout
-            }
-            if let stderr {
-                lastStderr = stderr
-            }
-            if result.terminationStatus == 0, stdout == "PONG" {
-                return true
-            }
-            if self.isSocketPermissionFailure(stderr),
-               self.waitForSocketPong(timeout: 0.5) == "PONG" {
-                return true
-            }
-            return false
-        }
-        if didSucceed {
-            return ("PONG", lastStderr)
-        }
-
-        let result = runCmuxCommand(socketPath: socketPath, arguments: ["ping"], responseTimeoutSeconds: 2.0)
-        let stdout = result.stdout.isEmpty ? nil : result.stdout
-        let stderr = result.stderr.isEmpty ? nil : result.stderr
-        if isSocketPermissionFailure(stderr), waitForSocketPong(timeout: 0.5) == "PONG" {
-            return ("PONG", stderr)
-        }
-        return (stdout ?? lastStdout, stderr ?? lastStderr)
-    }
-
     func waitForCommandCompletionWhileBackgrounded(
         statusPath: String,
         app: XCUIApplication,
@@ -233,24 +188,6 @@ extension MultiWindowNotificationsUITests {
             }
         }
         return nil
-    }
-
-    private func waitForSurfaceId(forWorkspaceId workspaceId: String, timeout: TimeInterval) -> String? {
-        var surfaceId: String?
-        _ = waitForCondition(timeout: timeout) {
-            surfaceId = self.firstSurfaceId(forWorkspaceId: workspaceId)
-            return surfaceId != nil
-        }
-        return surfaceId ?? firstSurfaceId(forWorkspaceId: workspaceId)
-    }
-
-    private func waitForSurfaceIdViaCLI(forWorkspaceId workspaceId: String, timeout: TimeInterval) -> String? {
-        var surfaceId: String?
-        _ = waitForCondition(timeout: timeout) {
-            surfaceId = self.firstSurfaceIdViaCLI(forWorkspaceId: workspaceId)
-            return surfaceId != nil
-        }
-        return surfaceId ?? firstSurfaceIdViaCLI(forWorkspaceId: workspaceId)
     }
 
     func waitForCondition(timeout: TimeInterval, predicate: @escaping () -> Bool) -> Bool {

@@ -320,10 +320,6 @@ class TabManager {
     var uiTestCancellables = Set<AnyCancellable>()
 #endif
 
-    // Runs external commands (currently the `gh auth token` probe). Injected so
-    // tests can supply a fake without spawning a real process.
-    private let commandRunner: any CommandRunning
-
     // Reads on-disk git metadata (branch, dirty state, watched paths, remote
     // slugs) off the main actor. Stateless; the reads are pure functions of the
     // directory argument.
@@ -349,7 +345,6 @@ class TabManager {
         workspaceGitMetadataReader: (any WorkspaceGitMetadataReading)? = nil,
         gitPollClock: any GitPollClock = SystemGitPollClock()
     ) {
-        self.commandRunner = commandRunner
         self.gitMetadataService = gitMetadataService
         self.workspaceGitMetadataReader = workspaceGitMetadataReader ?? gitMetadataService
         self.gitPollClock = gitPollClock
@@ -445,15 +440,7 @@ class TabManager {
         return tabs.first(where: { $0.id == selectedTabId })
     }
 
-    // Keep selectedTab as convenience alias
-    var selectedTab: Workspace? { selectedWorkspace }
-
     // MARK: - Surface/Panel Compatibility Layer
-
-    /// Returns the focused terminal surface for the selected workspace
-    var selectedSurface: TerminalSurface? {
-        selectedWorkspace?.focusedTerminalPanel?.surface
-    }
 
     /// Returns the focused panel's terminal panel (if it is a terminal)
     var selectedTerminalPanel: TerminalPanel? {

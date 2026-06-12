@@ -3,8 +3,6 @@ import Foundation
 
 struct CommandPaletteNucleoSearchResult<Payload>: Sendable where Payload: Sendable {
     let payload: Payload
-    let rank: Int
-    let title: String
     let score: Int
     let titleMatchIndices: Set<Int>
 }
@@ -40,20 +38,17 @@ final class CommandPaletteNucleoSearchLibrary: @unchecked Sendable {
     private let createIndex: CreateIndex
     private let destroyIndex: DestroyIndex
     private let searchIndexWithBoosts: SearchIndexWithBoosts
-    let version: UInt32
 
     private init(
         handle: UnsafeMutableRawPointer,
         createIndex: @escaping CreateIndex,
         destroyIndex: @escaping DestroyIndex,
-        searchIndexWithBoosts: @escaping SearchIndexWithBoosts,
-        version: UInt32
+        searchIndexWithBoosts: @escaping SearchIndexWithBoosts
     ) {
         self.handle = handle
         self.createIndex = createIndex
         self.destroyIndex = destroyIndex
         self.searchIndexWithBoosts = searchIndexWithBoosts
-        self.version = version
     }
 
     deinit {
@@ -97,8 +92,7 @@ final class CommandPaletteNucleoSearchLibrary: @unchecked Sendable {
             handle: handle,
             createIndex: createIndex,
             destroyIndex: destroyIndex,
-            searchIndexWithBoosts: searchIndexWithBoosts,
-            version: resolvedVersion
+            searchIndexWithBoosts: searchIndexWithBoosts
         )
     }
 
@@ -329,8 +323,6 @@ final class CommandPaletteNucleoSearchIndex<Payload>: @unchecked Sendable where 
             results.append(
                 CommandPaletteNucleoSearchResult(
                     payload: entry.payload,
-                    rank: entry.rank,
-                    title: entry.title,
                     score: Self.clampedRoundedScore(rawMatch.score),
                     titleMatchIndices: titleMatchIndices
                 )

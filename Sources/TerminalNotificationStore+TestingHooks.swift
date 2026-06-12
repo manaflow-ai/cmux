@@ -41,12 +41,6 @@ extension TerminalNotificationStore {
         }
     }
 
-    func configureNotificationDeliveryHandlerForTesting(
-        _ handler: @escaping (TerminalNotificationStore, TerminalNotification, TerminalNotificationPolicyEffects) -> Void
-    ) {
-        notificationDeliveryHandler = handler
-    }
-
     func resetNotificationDeliveryHandlerForTesting() {
         notificationDeliveryHandler = { store, notification, effects in
             store.scheduleUserNotification(notification, effects: effects)
@@ -59,12 +53,6 @@ extension TerminalNotificationStore {
         suppressedNotificationFeedbackHandler = { store, notification, _ in
             handler(store, notification)
         }
-    }
-
-    func configureSuppressedNotificationFeedbackHandlerForTesting(
-        _ handler: @escaping (TerminalNotificationStore, TerminalNotification, TerminalNotificationPolicyEffects) -> Void
-    ) {
-        suppressedNotificationFeedbackHandler = handler
     }
 
     func resetSuppressedNotificationFeedbackHandlerForTesting() {

@@ -211,46 +211,6 @@ final class UpdateTitlebarAccessoryController {
         }
     }
 
-    private func removeAccessoryIfPresent(from window: NSWindow) {
-        guard canAccessTitlebarAccessories(on: window) else {
-            attachedWindows.remove(window)
-            pendingAttachRetries.removeValue(forKey: ObjectIdentifier(window))
-            return
-        }
-        let matchingIndices = window.titlebarAccessoryViewControllers.indices.reversed().filter { index in
-            let id = window.titlebarAccessoryViewControllers[index].view.identifier
-            return id == controlsIdentifier
-        }
-        guard !matchingIndices.isEmpty || attachedWindows.contains(window) else { return }
-
-        for index in matchingIndices {
-            let accessory = window.titlebarAccessoryViewControllers[index]
-            if let controls = accessory as? TitlebarControlsAccessoryViewController {
-                controls.dismissNotificationsPopover()
-            }
-            window.removeTitlebarAccessoryViewController(at: index)
-        }
-
-        attachedWindows.remove(window)
-        pendingAttachRetries.removeValue(forKey: ObjectIdentifier(window))
-        DispatchQueue.main.async { [weak window] in
-            guard let window else { return }
-            window.contentView?.needsLayout = true
-            window.contentView?.superview?.needsLayout = true
-            window.contentView?.layoutSubtreeIfNeeded()
-            window.contentView?.superview?.layoutSubtreeIfNeeded()
-            window.invalidateShadow()
-        }
-
-#if DEBUG
-        let env = ProcessInfo.processInfo.environment
-        if env["CMUX_UI_TEST_MODE"] == "1" {
-            let ident = window.identifier?.rawValue ?? "<nil>"
-            updateLog.append("removed titlebar accessories from window id=\(ident)")
-        }
-#endif
-    }
-
     private func isSettingsWindow(_ window: NSWindow) -> Bool {
         if window.identifier?.rawValue == "cmux.settings" {
             return true

@@ -64,16 +64,8 @@ extension MobileHostService {
         debugAcceptedStackAuthToken = MobileHostDevStackAuthPolicy.normalizedToken(token)
     }
 
-    func debugAcceptedStackAuthTokenForTesting() -> String? {
-        debugAcceptedStackAuthToken
-    }
-
     nonisolated static func debugHasEventSubscribersForTesting(topic: String) -> Bool {
         MobileHostEventSubscriptionTracker.hasSubscribers(topic: topic)
-    }
-
-    nonisolated static func debugResetEventSubscriptionsForTesting() {
-        MobileHostEventSubscriptionTracker.resetForTesting()
     }
 }
 #endif

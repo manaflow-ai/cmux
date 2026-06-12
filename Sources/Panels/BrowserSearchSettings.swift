@@ -165,14 +165,6 @@ enum BrowserSearchSettings {
     static let defaultCustomSearchEngineURLTemplate = "https://www.google.com/search?q={query}"
     static let defaultSearchSuggestionsEnabled: Bool = true
 
-    static func currentSearchEngine(defaults: UserDefaults = .standard) -> BrowserSearchEngine {
-        guard let raw = defaults.string(forKey: searchEngineKey),
-              let engine = BrowserSearchEngine(rawValue: raw) else {
-            return defaultSearchEngine
-        }
-        return engine
-    }
-
     static func currentConfiguration(defaults: UserDefaults = .standard) -> BrowserSearchConfiguration {
         configuration(
             engineRaw: defaults.string(forKey: searchEngineKey),

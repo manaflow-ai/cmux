@@ -154,12 +154,6 @@ extension TabManager {
     func closeTab(_ tab: Workspace) { closeWorkspace(tab) }
     func closeCurrentTabWithConfirmation() { closeCurrentWorkspaceWithConfirmation() }
 
-    func closeCurrentWorkspace() {
-        guard let selectedId = selectedTabId,
-              let workspace = tabs.first(where: { $0.id == selectedId }) else { return }
-        closeWorkspace(workspace)
-    }
-
     func closeCurrentPanelWithConfirmation() {
 #if DEBUG
         UITestRecorder.incrementInt("closePanelInvocations")

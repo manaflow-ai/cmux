@@ -18,10 +18,6 @@ import Security
 
 // MARK: - Workspace reattachment & profile switching
 extension BrowserPanel {
-    func updateWorkspaceId(_ newWorkspaceId: UUID) {
-        workspaceId = newWorkspaceId
-    }
-
     func reattachToWorkspace(
         _ newWorkspaceId: UUID,
         isRemoteWorkspace: Bool,

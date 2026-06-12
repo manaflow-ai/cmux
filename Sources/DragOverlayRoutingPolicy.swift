@@ -40,20 +40,6 @@ enum FileDropDefaultBehavior: String, CaseIterable, Identifiable {
         }
     }
 
-    var settingsSubtitle: String {
-        switch self {
-        case .text:
-            return String(
-                localized: "settings.app.fileDrop.defaultBehavior.text.subtitle",
-                defaultValue: "Over terminals and editors, dragging files inserts shell-escaped paths. Hold Shift to open a file preview or split."
-            )
-        case .preview:
-            return String(
-                localized: "settings.app.fileDrop.defaultBehavior.preview.subtitle",
-                defaultValue: "Dragging files opens previews or split panes. Hold Shift over terminals and editors to insert path text."
-            )
-        }
-    }
 }
 
 enum FileDropTextDestinationKind: Equatable {

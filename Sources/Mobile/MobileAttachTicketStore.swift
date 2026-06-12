@@ -14,7 +14,6 @@ enum MobileAttachTicketStoreError: Error {
 final class MobileAttachTicketStore {
     private struct Record {
         let ticket: CmxAttachTicket
-        let issuedAt: Date
         var createdWorkspaceIDs: Set<String> = []
         var createdTerminalIDs: Set<String> = []
     }
@@ -47,7 +46,7 @@ final class MobileAttachTicketStore {
             authToken: Self.randomBearerToken()
         )
         if let authToken = ticket.authToken {
-            recordsByAuthToken[authToken] = Record(ticket: ticket, issuedAt: now)
+            recordsByAuthToken[authToken] = Record(ticket: ticket)
         }
         return ticket
     }

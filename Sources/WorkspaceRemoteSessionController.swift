@@ -149,7 +149,6 @@ final class WorkspaceRemoteSessionController {
     var proxyLease: WorkspaceRemoteProxyBroker.Lease?
     var proxyEndpoint: BrowserProxyEndpoint?
     var daemonReady = false
-    var daemonBootstrapVersion: String?
     var daemonRemotePath: String?
     var reverseRelayProcess: Process?
     var reverseRelayControlMasterForwardSpec: String?

@@ -73,7 +73,6 @@ extension ContentView {
         @MainActor final class Coordinator: NSObject, NSTextFieldDelegate {
             var parent: CommandPaletteSearchFieldRepresentable
             var isProgrammaticMutation = false
-            weak var parentField: CommandPaletteNativeTextField?
             var pendingFocusRequest: Bool?
             nonisolated(unsafe) var editorTextDidChangeObserver: NSObjectProtocol?
             weak var observedEditor: NSTextView?
@@ -203,13 +202,11 @@ extension ContentView {
             field.onHandleKeyEvent = { [weak coordinator = context.coordinator] event, editor in
                 coordinator?.handleKeyEvent(event, editor: editor) ?? false
             }
-            context.coordinator.parentField = field
             return field
         }
 
         func updateNSView(_ nsView: CommandPaletteNativeTextField, context: Context) {
             context.coordinator.parent = self
-            context.coordinator.parentField = nsView
             nsView.placeholderString = placeholder
 
             if let editor = nsView.currentEditor() as? NSTextView {
@@ -255,7 +252,6 @@ extension ContentView {
             nsView.delegate = nil
             nsView.onHandleKeyEvent = nil
             coordinator.detachEditorTextDidChangeObserver()
-            coordinator.parentField = nil
         }
     }
 

@@ -352,24 +352,6 @@ struct TextBoxInputContainer: View {
         .frame(width: TextBoxLayout.iconButtonSize, height: TextBoxLayout.iconButtonSize)
     }
 
-    private func attachmentStrip(foreground: Color) -> some View {
-        ScrollView(.horizontal, showsIndicators: false) {
-            HStack(spacing: 4) {
-                ForEach(attachments) { attachment in
-                    TextBoxAttachmentChip(
-                        attachment: attachment,
-                        foreground: foreground,
-                        onRemove: {
-                            attachments.removeAll { $0.id == attachment.id }
-                        }
-                    )
-                }
-            }
-        }
-        .frame(maxWidth: 280)
-        .frame(height: TextBoxLayout.attachmentChipHeight)
-    }
-
     private func sendButton(canSend: Bool, foreground: Color) -> some View {
         Button(action: submit) {
             Image(systemName: "arrow.up")

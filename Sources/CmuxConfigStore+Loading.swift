@@ -262,7 +262,6 @@ extension CmuxConfigStore {
         commandSourcePaths = sourcePaths
         actionLookup = resolvedActionLookup
         newWorkspaceActionID = configuredNewWorkspaceActionID
-        newWorkspaceActionSourcePath = configuredNewWorkspaceActionSourcePath
         newWorkspaceCommandName = configuredNewWorkspaceCommandName
         newWorkspaceContextMenuItems = resolvedNewWorkspaceContextMenuItems.items
         let resolvedGroupConfigs = resolveWorkspaceGroupConfigsFromLayers(

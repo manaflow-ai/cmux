@@ -48,14 +48,6 @@ struct WindowBackdropApplicationResult {
 
 enum WindowBackdropController {
     static func apply(
-        snapshot: WindowAppearanceSnapshot,
-        to window: NSWindow,
-        glassEffectAvailable: Bool = WindowGlassEffect.isAvailable
-    ) -> WindowBackdropApplicationResult {
-        apply(plan: snapshot.backdropPlan(glassEffectAvailable: glassEffectAvailable), to: window)
-    }
-
-    static func apply(
         plan: WindowBackdropPlan,
         to window: NSWindow
     ) -> WindowBackdropApplicationResult {

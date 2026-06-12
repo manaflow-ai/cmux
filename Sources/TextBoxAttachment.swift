@@ -57,10 +57,6 @@ struct TextBoxAttachment: Identifiable {
         return TextBoxAttachment.isImageFileURL(localURL)
     }
 
-    var escapedSubmissionPath: String {
-        TerminalImageTransferPlanner.escapeForShell(submissionPath)
-    }
-
     var submitsLocalFilePath: Bool {
         guard let localURL else { return false }
         let standardizedLocalURL = localURL.standardizedFileURL

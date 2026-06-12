@@ -217,7 +217,7 @@ extension AppDelegate {
                 ?? event.window
                 ?? NSApp.keyWindow
                 ?? NSApp.mainWindow
-            if shouldConsumeSuppressedEscape(event: event, window: suppressionWindow) {
+            if shouldConsumeSuppressedEscape(window: suppressionWindow) {
 #if DEBUG
                 cmuxDebugLog(
                     "shortcut.escape suppressionConsume consumed=1 target={\(debugWindowToken(suppressionWindow))} " +

@@ -522,10 +522,6 @@ final class BrowserPanel: Panel {
         BrowserProfileStore.shared.displayName(for: profileID)
     }
 
-    var usesBuiltInDefaultProfile: Bool {
-        profileID == BrowserProfileStore.shared.builtInDefaultProfileID
-    }
-
     var currentBrowserThemeMode: BrowserThemeMode {
         browserThemeMode
     }

@@ -87,13 +87,6 @@ enum RestorableAgentKind: Codable, Hashable, Sendable {
         }
     }
 
-    var customAgentID: String? {
-        if case .custom(let id) = self {
-            return id
-        }
-        return nil
-    }
-
     var displayName: String {
         switch self {
         case .claude: return "Claude Code"

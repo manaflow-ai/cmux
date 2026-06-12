@@ -1,10 +1,4 @@
 import Foundation
-import OSLog
-
-private let mobileTerminalByteTeeLog = Logger(
-    subsystem: "dev.cmux",
-    category: "mobile-terminal-byte-tee"
-)
 
 /// Captures raw PTY-output bytes from every cmux terminal surface and
 /// publishes them to subscribed mobile clients as `terminal.bytes`

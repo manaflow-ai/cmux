@@ -22,40 +22,6 @@ import CmuxFoundation
 // MARK: - Browser address bar focus and omnibar selection
 extension AppDelegate {
 #if DEBUG
-    private func logBrowserZoomShortcutTrace(
-        stage: String,
-        event: NSEvent,
-        flags: NSEvent.ModifierFlags,
-        chars: String,
-        action: BrowserZoomShortcutAction? = nil,
-        handled: Bool? = nil
-    ) {
-        guard browserZoomShortcutTraceCandidate(
-            flags: flags,
-            chars: chars,
-            keyCode: event.keyCode,
-            literalChars: event.characters
-        ) else {
-            return
-        }
-
-        let keyWindow = NSApp.keyWindow
-        let firstResponderType = keyWindow?.firstResponder.map { String(describing: type(of: $0)) } ?? "nil"
-        let panel = tabManager?.focusedBrowserPanel
-        let panelToken = panel.map { String($0.id.uuidString.prefix(8)) } ?? "nil"
-        let panelZoom = panel?.webView.pageZoom ?? -1
-        var line =
-            "zoom.shortcut stage=\(stage) event=\(NSWindow.keyDescription(event)) " +
-            "chars='\(chars)' flags=\(browserZoomShortcutTraceFlagsString(flags)) " +
-            "action=\(browserZoomShortcutTraceActionString(action)) keyWin=\(keyWindow?.windowNumber ?? -1) " +
-            "fr=\(firstResponderType) panel=\(panelToken) zoom=\(String(format: "%.3f", panelZoom)) " +
-            "addrBarId=\(browserAddressBarFocusedPanelId?.uuidString.prefix(8) ?? "nil")"
-        if let handled {
-            line += " handled=\(handled ? 1 : 0)"
-        }
-        cmuxDebugLog(line)
-    }
-
     private func browserFocusStateSnapshot() -> String {
         let selected = tabManager?.selectedTabId.map { String($0.uuidString.prefix(5)) } ?? "nil"
         let focused = tabManager?.selectedWorkspace?.focusedPanelId.map { String($0.uuidString.prefix(5)) } ?? "nil"

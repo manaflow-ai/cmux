@@ -115,20 +115,6 @@ enum FileExplorerStyle: Int, CaseIterable {
         }
     }
 
-    var hoverColor: NSColor {
-        switch self {
-        case .liquidGlass: return .labelColor.withAlphaComponent(0.05)
-        case .highDensity: return .white.withAlphaComponent(0.05)
-        case .terminalStealth: return .white.withAlphaComponent(0.03)
-        case .proStudio: return .white.withAlphaComponent(0.1)
-        case .finder: return .labelColor.withAlphaComponent(0.04)
-        }
-    }
-
-    var usesBorderSelection: Bool {
-        self == .terminalStealth
-    }
-
     var fileIconTint: NSColor {
         switch self {
         case .liquidGlass: return .secondaryLabelColor

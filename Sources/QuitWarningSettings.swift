@@ -16,7 +16,6 @@ import UniformTypeIdentifiers
 enum QuitWarningSettings {
     static let warnBeforeQuitKey = "warnBeforeQuitShortcut"
     static let confirmQuitKey = "confirmQuit"
-    static let defaultWarnBeforeQuit = true
     static let defaultConfirmQuitMode = QuitConfirmationMode.always
 
     static func isEnabled(defaults: UserDefaults = .standard) -> Bool {

@@ -680,22 +680,4 @@ extension CMUXCLI {
         }
         return tokenLists
     }
-
-    static func hookMarkers(for def: AgentHookDef) -> [String] {
-        var markers = [def.hookMarker]
-        if def.name == "codex" {
-            markers.append("cmux codex-hook")
-        }
-        return markers
-    }
-
-    /// Marker substrings used when removing / upgrading our own Feed bridge
-    /// entries on reinstall or uninstall.
-    static func feedHookMarkers(for def: AgentHookDef) -> [String] {
-        var markers = ["cmux hooks feed --source"]
-        if def.name == "codex" {
-            markers.append("cmux feed-hook --source")
-        }
-        return markers
-    }
 }

@@ -358,17 +358,6 @@ enum InstalledBrowserDetector {
         }
     }
 
-    @MainActor
-    static func applicationBundleLookupSnapshot() -> [String: URL] {
-        var result: [String: URL] = [:]
-        for descriptor in allBrowserDescriptors {
-            for bundleIdentifier in descriptor.bundleIdentifiers where result[bundleIdentifier] == nil {
-                result[bundleIdentifier] = NSWorkspace.shared.urlForApplication(withBundleIdentifier: bundleIdentifier)
-            }
-        }
-        return result
-    }
-
     static func summaryText(for browsers: [InstalledBrowserCandidate], limit: Int = 4) -> String {
         guard !browsers.isEmpty else {
             return String(

@@ -114,7 +114,6 @@ extension CMUXCLI {
         ) else {
             clearAgentSurfaceResumeBinding(
                 client: client,
-                workspaceId: workspaceId,
                 surfaceId: surfaceId,
                 sessionId: sessionId
             )
@@ -140,7 +139,6 @@ extension CMUXCLI {
 
     func clearAgentSurfaceResumeBinding(
         client: SocketClient,
-        workspaceId: String,
         surfaceId: String,
         sessionId: String?
     ) {

@@ -143,10 +143,6 @@ enum SidebarDragStateRegistry {
     static func state(forWindowId windowId: UUID) -> SidebarDragState? {
         statesByWindowId[windowId]
     }
-
-    static func registeredWindowIds() -> [UUID] {
-        Array(statesByWindowId.keys)
-    }
 }
 #endif
 

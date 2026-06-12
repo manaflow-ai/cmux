@@ -103,17 +103,6 @@ final class AgentHibernationController {
         updateTimerForCurrentSettings()
     }
 
-    func stop() {
-        timer?.cancel()
-        timer = nil
-        AgentHibernationTrackingGate.setEnabled(false)
-        clearTrackingState()
-        if let settingsObserver {
-            NotificationCenter.default.removeObserver(settingsObserver)
-            self.settingsObserver = nil
-        }
-    }
-
     func recordTerminalInput(workspaceId: UUID, panelId: UUID, recordedAt: Date? = nil) {
         guard AgentHibernationTrackingGate.isEnabled() else { return }
         let recordedAt = recordedAt ?? Date()

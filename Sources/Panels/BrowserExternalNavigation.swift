@@ -123,7 +123,6 @@ func browserPresentAlert(
 }
 
 private func browserPresentExternalNavigationPrompt(
-    for url: URL,
     in webView: WKWebView,
     completion: @escaping (Bool) -> Void,
     presentAlert: BrowserAlertPresenter = browserPresentAlert
@@ -230,7 +229,6 @@ func browserHandleExternalNavigation(
 
     case let .promptToOpenApp(externalURL):
         browserPresentExternalNavigationPrompt(
-            for: externalURL,
             in: webView,
             completion: { shouldOpenApp in
                 guard shouldOpenApp else {

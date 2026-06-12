@@ -206,36 +206,6 @@ extension AppDelegate {
         return true
     }
 
-    func promptRenameSelectedWorkspace() -> Bool {
-        guard let tabManager,
-              let tabId = tabManager.selectedTabId,
-              let tab = tabManager.tabs.first(where: { $0.id == tabId }) else {
-            NSSound.beep()
-            return false
-        }
-
-        let alert = NSAlert()
-        alert.messageText = String(localized: "dialog.renameWorkspace.title", defaultValue: "Rename Workspace")
-        alert.informativeText = String(localized: "dialog.renameWorkspace.message", defaultValue: "Enter a custom name for this workspace.")
-        let input = NSTextField(string: tab.customTitle ?? tab.title)
-        input.placeholderString = String(localized: "dialog.renameWorkspace.placeholder", defaultValue: "Workspace name")
-        input.frame = NSRect(x: 0, y: 0, width: 240, height: 22)
-        alert.accessoryView = input
-        alert.addButton(withTitle: String(localized: "common.rename", defaultValue: "Rename"))
-        alert.addButton(withTitle: String(localized: "common.cancel", defaultValue: "Cancel"))
-        let alertWindow = alert.window
-        alertWindow.initialFirstResponder = input
-        DispatchQueue.main.async {
-            alertWindow.makeFirstResponder(input)
-            input.selectText(nil)
-        }
-
-        let response = alert.runModal()
-        guard response == .alertFirstButtonReturn else { return true }
-        tabManager.setCustomTitle(tabId: tab.id, title: input.stringValue)
-        return true
-    }
-
     /// Allow AppKit-backed browser surfaces (WKWebView) to route non-menu shortcuts
     /// through the same app-level shortcut handler used by the local key monitor.
     @discardableResult

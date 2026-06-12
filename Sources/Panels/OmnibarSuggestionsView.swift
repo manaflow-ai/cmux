@@ -51,15 +51,6 @@ struct OmnibarSuggestionsView: View {
         return rowsHeight + (gaps * rowSpacing) + topInset + bottomInset
     }
 
-    private var minimumPopupHeight: CGFloat {
-        singleLineRowHeight + topInset + bottomInset
-    }
-
-    private func snapToDevicePixels(_ value: CGFloat) -> CGFloat {
-        let scale = NSScreen.main?.backingScaleFactor ?? 2
-        return (value * scale).rounded(.toNearestOrAwayFromZero) / scale
-    }
-
     private var popupHeight: CGFloat {
         Self.popupHeight(for: items)
     }

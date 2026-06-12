@@ -67,10 +67,6 @@ struct CmuxCLIPathInstaller {
         self.privilegedUninstaller = privilegedUninstaller ?? Self.uninstallWithAdministratorPrivileges(destinationURL:)
     }
 
-    var destinationPath: String {
-        destinationURL.path
-    }
-
     func install() throws -> InstallOutcome {
         let sourceURL = try resolveBundledCLIURL()
         do {

@@ -30,10 +30,6 @@ extension AppDelegate {
         titlebarAccessoryController.dismissNotificationsPopoverIfShown()
     }
 
-    func isNotificationsPopoverShown() -> Bool {
-        titlebarAccessoryController.isNotificationsPopoverShown()
-    }
-
     @discardableResult
     func jumpToLatestUnread(
         excludingNotificationId excludedNotificationId: UUID? = nil,

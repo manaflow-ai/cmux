@@ -77,8 +77,6 @@ struct SearchIndexHit: Identifiable, Sendable, Equatable {
     let location: String
     let anchor: String
     let snippet: String
-    let rank: Double
-    let timestamp: Date
 }
 
 enum SearchIndexError: LocalizedError {
@@ -249,12 +247,6 @@ actor SearchIndex {
         }
     }
 
-    #if DEBUG
-    func clearForTesting() throws {
-        try deleteAll()
-    }
-    #endif
-
     private static func configureDatabase(_ database: OpaquePointer) throws {
         let existingSchemaVersion = try userVersion(database)
 
@@ -419,9 +411,7 @@ actor SearchIndex {
         let title = sqliteText(statement, 5) ?? ""
         let location = sqliteText(statement, 6) ?? ""
         let anchor = sqliteText(statement, 7) ?? ""
-        let timestamp = Date(timeIntervalSince1970: sqlite3_column_double(statement, 8))
         let snippet = sqliteText(statement, 9) ?? title
-        let rank = sqlite3_column_double(statement, 10)
 
         return SearchIndexHit(
             id: id,
@@ -432,9 +422,7 @@ actor SearchIndex {
             title: title,
             location: location,
             anchor: anchor,
-            snippet: snippet,
-            rank: rank,
-            timestamp: timestamp
+            snippet: snippet
         )
     }
 

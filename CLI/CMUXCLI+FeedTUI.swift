@@ -24,8 +24,6 @@ extension CMUXCLI {
     }
 
     struct FeedTUIQuestion {
-        let id: String
-        let prompt: String
         let multiSelect: Bool
         let options: [FeedTUIOption]
     }
@@ -33,14 +31,12 @@ extension CMUXCLI {
     struct FeedTUIItem {
         let id: String
         let requestId: String?
-        let workstreamId: String
         let source: String
         let kind: String
         let status: String
         let createdAt: Date?
         let title: String
         let detail: String
-        let toolInputJSON: String
         let toolInputCapabilitiesJSON: String
         let defaultMode: String?
         let questionMultiSelect: Bool
@@ -58,7 +54,7 @@ extension CMUXCLI {
 
         static func parse(_ dict: [String: Any]) -> FeedTUIItem? {
             guard let id = dict["id"] as? String,
-                  let workstreamId = dict["workstream_id"] as? String,
+                  dict["workstream_id"] is String,
                   let source = dict["source"] as? String,
                   let kind = dict["kind"] as? String,
                   let status = dict["status"] as? String else {
@@ -84,14 +80,12 @@ extension CMUXCLI {
             return FeedTUIItem(
                 id: id,
                 requestId: dict["request_id"] as? String,
-                workstreamId: workstreamId,
                 source: source,
                 kind: kind,
                 status: status,
                 createdAt: createdAt,
                 title: title,
                 detail: detail,
-                toolInputJSON: (dict["tool_input"] as? String) ?? "",
                 toolInputCapabilitiesJSON: (dict["tool_input_capabilities"] as? String)
                     ?? (dict["tool_input"] as? String)
                     ?? "",
@@ -104,7 +98,7 @@ extension CMUXCLI {
 
         private static func questions(dict: [String: Any], fallbackOptions: [FeedTUIOption]) -> [FeedTUIQuestion] {
             if let rawQuestions = dict["questions"] as? [[String: Any]] {
-                let parsed = rawQuestions.enumerated().compactMap { index, raw -> FeedTUIQuestion? in
+                let parsed = rawQuestions.compactMap { raw -> FeedTUIQuestion? in
                     let prompt = (raw["prompt"] as? String)
                         ?? (raw["question"] as? String)
                         ?? (raw["header"] as? String)
@@ -118,8 +112,6 @@ extension CMUXCLI {
                     } ?? []
                     guard !prompt.isEmpty || !options.isEmpty else { return nil }
                     return FeedTUIQuestion(
-                        id: (raw["id"] as? String) ?? "question-\(index + 1)",
-                        prompt: prompt,
                         multiSelect: (raw["multi_select"] as? Bool) ?? (raw["multiSelect"] as? Bool) ?? false,
                         options: options
                     )
@@ -128,13 +120,8 @@ extension CMUXCLI {
                     return parsed
                 }
             }
-            let prompt = (dict["question_prompt"] as? String)
-                ?? (dict["title"] as? String)
-                ?? "Answer the agent question."
             return [
                 FeedTUIQuestion(
-                    id: "question-1",
-                    prompt: prompt,
                     multiSelect: (dict["question_multi_select"] as? Bool) ?? false,
                     options: fallbackOptions
                 )

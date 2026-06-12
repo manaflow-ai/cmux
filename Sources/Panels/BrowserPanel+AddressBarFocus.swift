@@ -28,16 +28,6 @@ extension BrowserPanel {
 #endif
     }
 
-    func suppressWebViewFocus(for seconds: TimeInterval) {
-        suppressWebViewFocusUntil = Date().addingTimeInterval(seconds)
-#if DEBUG
-        cmuxDebugLog(
-            "browser.focus.webView.suppress panel=\(id.uuidString.prefix(5)) " +
-            "seconds=\(String(format: "%.2f", seconds))"
-        )
-#endif
-    }
-
     func clearWebViewFocusSuppression() {
         suppressWebViewFocusUntil = nil
 #if DEBUG

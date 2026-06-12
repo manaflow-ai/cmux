@@ -213,9 +213,7 @@ final class SearchIndexTests: XCTestCase {
             title: "Result",
             location: "https://example.test",
             anchor: "https://example.test",
-            snippet: "The rendered page contains bar but not the complete raw query.",
-            rank: 0,
-            timestamp: Date(timeIntervalSince1970: 0)
+            snippet: "The rendered page contains bar but not the complete raw query."
         )
 
         XCTAssertEqual(

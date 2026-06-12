@@ -114,14 +114,6 @@ extension CMUXCLI {
         }
     }
 
-    private func parsePositiveInt(_ raw: String?, label: String) throws -> Int? {
-        guard let raw else { return nil }
-        guard let value = Int(raw) else {
-            throw CLIError(message: "\(label) must be an integer")
-        }
-        return value
-    }
-
     func isHandleRef(_ value: String) -> Bool {
         let pieces = value.split(separator: ":", omittingEmptySubsequences: false)
         guard pieces.count == 2 else { return false }

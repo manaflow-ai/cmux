@@ -130,16 +130,6 @@ extension MobileHostService {
         }
     }
 
-    private func publicStatusSnapshot() async -> MobileHostServiceStatus {
-        let routes: [CmxAttachRoute]
-        if let listenerPort {
-            routes = routeResolver.routes(port: listenerPort).routes
-        } else {
-            routes = []
-        }
-        return makeStatus(routes: routes)
-    }
-
     private func makeStatus(routes: [CmxAttachRoute]) -> MobileHostServiceStatus {
         let isRunning = listener != nil && listenerPort != nil
         return MobileHostServiceStatus(
@@ -153,15 +143,6 @@ extension MobileHostService {
             activeConnectionCount: MobileHostConnectionRegistry.shared.count,
             lastErrorDescription: lastErrorDescription
         )
-    }
-
-    func publicHostStatusResult() async -> MobileHostRPCResult {
-        let status = await publicStatusSnapshot()
-        return .ok([
-            "routes": status.routes.map(\.mobileHostJSONObject),
-            "terminal_fidelity": "render_grid",
-            "capabilities": MobileHostService.mobileHostCapabilities,
-        ])
     }
 
     func updatePublicStatusRoutes(

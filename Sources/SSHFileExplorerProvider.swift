@@ -61,30 +61,6 @@ final class SSHFileExplorerProvider: FileExplorerProvider, @unchecked Sendable {
     var sshOptions: [String] { connection.sshOptions }
 
     init(
-        destination: String,
-        port: Int?,
-        identityFile: String?,
-        sshOptions: [String],
-        displayTarget: String? = nil,
-        homePath: String,
-        isAvailable: Bool,
-        transport: SSHFileExplorerTransport = ProcessSSHFileExplorerTransport.shared
-    ) {
-        self.connection = SSHFileExplorerConnection(
-            destination: destination,
-            port: port,
-            identityFile: identityFile,
-            sshOptions: sshOptions
-        )
-        self.displayTarget = displayTarget ?? {
-            guard let port else { return destination }
-            return "\(destination):\(port)"
-        }()
-        self.transport = transport
-        self.state = State(homePath: homePath, isAvailable: isAvailable)
-    }
-
-    init(
         connection: SSHFileExplorerConnection,
         displayTarget: String,
         homePath: String,

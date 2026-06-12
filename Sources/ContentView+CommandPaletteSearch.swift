@@ -130,13 +130,6 @@ extension ContentView {
         }
     }
 
-    private func commandPaletteEntries(for scope: CommandPaletteListScope) -> [CommandPaletteCommand] {
-        commandPaletteEntries(
-            for: scope,
-            includeSurfaces: commandPaletteSwitcherIncludesSurfaceEntries
-        )
-    }
-
     private func commandPaletteEntries(
         for scope: CommandPaletteListScope,
         includeSurfaces: Bool,
@@ -559,13 +552,6 @@ extension ContentView {
                 }
             }
         }
-    }
-
-    private func commandPaletteEntriesFingerprint(for scope: CommandPaletteListScope) -> Int {
-        commandPaletteEntriesFingerprint(
-            for: scope,
-            includeSurfaces: commandPaletteSwitcherIncludesSurfaceEntries
-        )
     }
 
     private func commandPaletteEntriesFingerprint(

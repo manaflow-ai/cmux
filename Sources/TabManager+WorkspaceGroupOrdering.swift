@@ -338,11 +338,6 @@ extension TabManager {
         return [anchor] + nonAnchors.filter(\.isPinned) + nonAnchors.filter { !$0.isPinned }
     }
 
-    /// Compatibility shim. With anchor-bound group lifecycle, "empty" groups
-    /// are no longer possible — a group exists iff its anchor exists in
-    /// `tabs[]`. The cleanup is now performed inside the `tabs` didSet.
-    func pruneEmptyWorkspaceGroups() {}
-
     func clampedReorderIndex(for workspace: Workspace, targetIndex: Int) -> Int {
         let clamped = max(0, min(targetIndex, tabs.count - 1))
         if let groupClamp = clampedGroupedMemberReorderIndex(

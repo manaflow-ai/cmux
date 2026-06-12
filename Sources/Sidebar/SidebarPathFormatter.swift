@@ -18,17 +18,6 @@ enum SidebarPathFormatter {
         return trimmed
     }
 
-    // The shortest single-string form. Falls back to the abbreviated path
-    // unchanged when there are no leading segments to drop, so `/tmp` stays
-    // `/tmp` rather than becoming `…/tmp`.
-    static func lastSegmentPath(
-        _ path: String,
-        homeDirectoryPath: String = Self.homeDirectoryPath
-    ) -> String {
-        pathCandidates(path, homeDirectoryPath: homeDirectoryPath).last
-            ?? shortenedPath(path, homeDirectoryPath: homeDirectoryPath)
-    }
-
     // Ordered longest → shortest. The first entry is the full abbreviated path
     // (with `~/` if applicable). Each subsequent entry drops one more leading
     // segment and is prefixed with `…/`. Suitable as `ViewThatFits` candidates.

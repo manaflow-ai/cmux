@@ -71,19 +71,6 @@ struct OmnibarSuggestion: Identifiable, Hashable {
         }
     }
 
-    var secondaryText: String? {
-        switch kind {
-        case .history(let url, let title):
-            let titleOneline = Self.singleLineText(title)
-            return titleOneline.isEmpty ? nil : Self.displayURLText(for: url)
-        case .switchToTab(_, _, let url, let title):
-            let titleOneline = Self.singleLineText(title)
-            return titleOneline.isEmpty ? nil : Self.displayURLText(for: url)
-        default:
-            return nil
-        }
-    }
-
     var trailingBadgeText: String? {
         switch kind {
         case .switchToTab:
@@ -91,11 +78,6 @@ struct OmnibarSuggestion: Identifiable, Hashable {
         default:
             return nil
         }
-    }
-
-    var isHistoryRemovable: Bool {
-        if case .history = kind { return true }
-        return false
     }
 
     static func history(_ entry: BrowserHistoryStore.Entry) -> OmnibarSuggestion {

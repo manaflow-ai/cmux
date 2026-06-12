@@ -8,8 +8,6 @@ import SwiftUI
 /// tab strip) and dispatches into the per-tab subviews.
 struct ProjectPanelView: View {
     var panel: ProjectPanel
-    let isFocused: Bool
-    let onRequestPanelFocus: () -> Void
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -137,11 +135,6 @@ struct ProjectPanelView: View {
             .pickerStyle(.menu)
             .frame(minWidth: 180, maxWidth: 240)
         }
-    }
-
-    @ViewBuilder
-    private var pathHint: some View {
-        EmptyView()
     }
 
     @ViewBuilder

@@ -230,8 +230,6 @@ struct WebViewRepresentable: NSViewRepresentable {
 
         enum DividerCursorKind: Equatable {
             case vertical
-
-            var cursor: NSCursor { .resizeLeftRight }
         }
 
         static let hostedInspectorDividerHitExpansion: CGFloat = 10

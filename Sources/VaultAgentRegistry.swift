@@ -3,10 +3,6 @@ import OSLog
 
 struct CmuxVaultConfigDefinition: Codable, Hashable, Sendable {
     var agents: [CmuxVaultAgentRegistration]
-
-    init(agents: [CmuxVaultAgentRegistration] = []) {
-        self.agents = agents
-    }
 }
 
 struct CmuxVaultAgentRegistration: Codable, Hashable, Sendable {

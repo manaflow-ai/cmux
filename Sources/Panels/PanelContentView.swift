@@ -106,11 +106,7 @@ struct PanelContentView: View {
             }
         case .project:
             if let projectPanel = panel as? ProjectPanel {
-                ProjectPanelView(
-                    panel: projectPanel,
-                    isFocused: isFocused,
-                    onRequestPanelFocus: onRequestPanelFocus
-                )
+                ProjectPanelView(panel: projectPanel)
             }
         case .extensionBrowser:
             if let extensionBrowserPanel = panel as? CMUXSidebarExtensionBrowserPanel {

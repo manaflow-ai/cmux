@@ -476,13 +476,13 @@ extension GhosttyApp {
             return true
         case GHOSTTY_ACTION_GOTO_SPLIT:
             guard let tabId = surfaceView.tabId,
-                  let surfaceId = surfaceView.terminalSurface?.id,
+                  surfaceView.terminalSurface != nil,
                   let direction = focusDirection(from: action.action.goto_split) else {
                 return false
             }
             return performOnMain {
                 guard let tabManager = AppDelegate.shared?.tabManager else { return false }
-                return tabManager.moveSplitFocus(tabId: tabId, surfaceId: surfaceId, direction: direction)
+                return tabManager.moveSplitFocus(tabId: tabId, direction: direction)
             }
         case GHOSTTY_ACTION_RESIZE_SPLIT:
             guard let tabId = surfaceView.tabId,

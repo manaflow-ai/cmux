@@ -228,13 +228,6 @@ func sidebarSelectedWorkspaceBackgroundNSColor(
     return cmuxAccentNSColor(for: colorScheme)
 }
 
-func sidebarSelectedWorkspaceForegroundNSColor(opacity: CGFloat) -> NSColor {
-    sidebarSelectedWorkspaceForegroundNSColor(
-        on: sidebarSelectedWorkspaceBackgroundNSColor(for: .dark),
-        opacity: opacity
-    )
-}
-
 func sidebarSelectedWorkspaceForegroundNSColor(
     on backgroundColor: NSColor,
     opacity: CGFloat

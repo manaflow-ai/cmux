@@ -377,9 +377,7 @@ struct CmuxTaskManagerResources: Equatable {
 struct CmuxTaskManagerMemoryDiagnostic: Sendable {
     let summary: String
     let appFootprintBytes: Int64
-    let appResidentBytes: Int64
     let childRSSBytes: Int64
-    let childProcessCount: Int
     let groups: [CmuxTaskManagerMemoryGroup]
 
     init?(_ payload: [String: Any]?) {
@@ -388,9 +386,7 @@ struct CmuxTaskManagerMemoryDiagnostic: Sendable {
         let children = payload["children"] as? [String: Any] ?? [:]
         self.summary = Self.string(payload["summary"]) ?? ""
         self.appFootprintBytes = Self.int64(app["physical_footprint_bytes"])
-        self.appResidentBytes = Self.int64(app["resident_bytes"])
         self.childRSSBytes = Self.int64(children["recursive_rss_bytes"])
-        self.childProcessCount = Self.int(children["process_count"]) ?? 0
         self.groups = (children["groups"] as? [[String: Any]] ?? [])
             .compactMap(CmuxTaskManagerMemoryGroup.init)
     }

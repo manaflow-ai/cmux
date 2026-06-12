@@ -52,10 +52,6 @@ extension TabManager {
         focusedBrowserPanel?.resetZoom() ?? false
     }
 
-    var canToggleBrowserFocusModeForFocusedBrowser: Bool {
-        focusedBrowserPanel?.canToggleBrowserFocusMode == true
-    }
-
     @discardableResult
     func toggleBrowserFocusModeForFocusedBrowser(reason: String) -> Bool {
         guard let browserPanel = focusedBrowserPanel else { return false }

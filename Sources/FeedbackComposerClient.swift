@@ -25,7 +25,6 @@ enum FeedbackComposerSettings {
     static let storedEmailKey = "sidebarHelpFeedbackEmail"
     static let endpointEnvironmentKey = "CMUX_FEEDBACK_API_URL"
     static let defaultEndpoint = "https://cmux.com/api/feedback"
-    static let foundersEmail = "founders@manaflow.com"
     static let maxMessageLength = 4_000
     static let maxAttachmentCount = 10
     // Keep the multipart body below Vercel's 4.5 MB request limit.

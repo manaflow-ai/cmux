@@ -144,21 +144,6 @@ extension CMUXCLI {
             ], timeout: timeout)
         }
 
-        func respondError(
-            requestId: Any,
-            code: Int,
-            message: String,
-            timeout: TimeInterval = 10
-        ) throws {
-            try sendObject([
-                "id": requestId,
-                "error": [
-                    "code": code,
-                    "message": message
-                ]
-            ], timeout: timeout)
-        }
-
         func request(
             method: String,
             params: [String: Any]? = nil,

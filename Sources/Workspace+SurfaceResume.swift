@@ -97,33 +97,6 @@ extension Workspace {
     }
 
     nonisolated static func surfaceResumeStartupLaunch(
-        _ resumeBinding: SurfaceResumeBindingSnapshot?,
-        autoResumeAgentSessions: Bool,
-        allowLauncherScript: Bool = true,
-        promptForApproval: Bool = true,
-        approvalStoreURL: URL = SurfaceResumeApprovalStore.defaultURL(),
-        approvalSigningSecret: Data? = nil,
-        fileManager: FileManager = .default,
-        temporaryDirectory: URL = FileManager.default.temporaryDirectory
-    ) -> SurfaceResumeStartupLaunch? {
-        guard let effectiveBinding = approvedSurfaceResumeBinding(
-            resumeBinding,
-            autoResumeAgentSessions: autoResumeAgentSessions,
-            promptForApproval: promptForApproval,
-            approvalStoreURL: approvalStoreURL,
-            approvalSigningSecret: approvalSigningSecret
-        ) else {
-            return nil
-        }
-        return surfaceResumeStartupLaunch(
-            forApprovedBinding: effectiveBinding,
-            allowLauncherScript: allowLauncherScript,
-            fileManager: fileManager,
-            temporaryDirectory: temporaryDirectory
-        )
-    }
-
-    nonisolated static func surfaceResumeStartupLaunch(
         forApprovedBinding effectiveBinding: SurfaceResumeBindingSnapshot,
         allowLauncherScript: Bool = true,
         fileManager: FileManager = .default,

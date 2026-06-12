@@ -24,18 +24,6 @@ struct CmuxConfigButtonPlacement: Codable, Sendable, Hashable {
         case rightClick
     }
 
-    init(
-        action: String? = nil,
-        icon: CmuxButtonIcon? = nil,
-        tooltip: String? = nil,
-        contextMenu: [CmuxConfigContextMenuItem]? = nil
-    ) {
-        self.action = action
-        self.icon = icon
-        self.tooltip = tooltip
-        self.contextMenu = contextMenu
-    }
-
     init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         action = try Self.trimmedString(forKey: .action, in: container)

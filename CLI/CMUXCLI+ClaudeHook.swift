@@ -467,7 +467,6 @@ extension CMUXCLI {
                 let workspaceId = consumedSession.workspaceId
                 clearAgentSurfaceResumeBinding(
                     client: client,
-                    workspaceId: workspaceId,
                     surfaceId: consumedSession.surfaceId,
                     sessionId: consumedSession.sessionId
                 )

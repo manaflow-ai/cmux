@@ -18,10 +18,6 @@ import Security
 
 // MARK: - Browser theme settings
 enum GhosttyBackgroundTheme {
-    static func clampedOpacity(_ opacity: Double) -> CGFloat {
-        WindowAppearanceSnapshot.clampedOpacity(opacity)
-    }
-
     static func color(backgroundColor: NSColor, opacity: Double) -> NSColor {
         WindowAppearanceSnapshot.compositedTerminalColor(
             backgroundColor: backgroundColor,

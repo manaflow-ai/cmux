@@ -145,20 +145,6 @@ extension MobileHostService {
     }
 
     private static func ticketAuthorizationError(
-        ticket: CmxAttachTicket,
-        request: MobileHostRPCRequest
-    ) -> MobileHostRPCError? {
-        ticketAuthorizationError(
-            authorization: MobileAttachTicketAuthorization(
-                ticket: ticket,
-                createdWorkspaceIDs: [],
-                createdTerminalIDs: []
-            ),
-            request: request
-        )
-    }
-
-    private static func ticketAuthorizationError(
         authorization: MobileAttachTicketAuthorization,
         request: MobileHostRPCRequest
     ) -> MobileHostRPCError? {

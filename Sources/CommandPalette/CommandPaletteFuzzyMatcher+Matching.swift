@@ -214,27 +214,6 @@ extension CommandPaletteFuzzyMatcher {
     }
 
     private static func singleEditWordPrefixMatch(
-        token: String,
-        candidate: String
-    ) -> SingleEditWordPrefixMatch? {
-        singleEditWordPrefixMatch(
-            tokenChars: Array(token),
-            candidateChars: Array(candidate)
-        )
-    }
-
-    private static func singleEditWordPrefixMatch(
-        tokenChars: [Character],
-        candidateChars: [Character]
-    ) -> SingleEditWordPrefixMatch? {
-        singleEditWordPrefixMatch(
-            tokenChars: tokenChars,
-            candidateChars: candidateChars,
-            segments: wordSegments(candidateChars)
-        )
-    }
-
-    private static func singleEditWordPrefixMatch(
         tokenChars: [Character],
         candidateChars: [Character],
         segments: [WordSegment]

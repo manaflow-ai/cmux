@@ -132,7 +132,6 @@ func titlebarControlPressedScale(isPressed _: Bool) -> CGFloat {
 enum TitlebarControlsLayoutMetrics {
     static let outerLeadingPadding: CGFloat = TitlebarControlsHitRegions.outerLeadingPadding
     static let hintTrailingBaseInset: CGFloat = 8
-    static let trafficLightGap: CGFloat = 2
     /// Leading inset the controls content sits at inside the accessory; must match the
     /// `.padding(.leading, …)` applied to `controlsGroup` in the view body.
     static let hintLeadingPadding: CGFloat = HeaderChromeControlMetrics.titlebarControlsLeadingPadding

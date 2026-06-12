@@ -501,63 +501,6 @@ extension TerminalController {
         }
     }
 
-    func enqueueBrowserDialog(
-        surfaceId: UUID,
-        type: String,
-        message: String,
-        defaultText: String?,
-        responder: @escaping (_ accept: Bool, _ text: String?) -> Void
-    ) {
-        var queue = v2BrowserDialogQueueBySurface[surfaceId] ?? []
-        queue.append(V2BrowserPendingDialog(type: type, message: message, defaultText: defaultText, responder: responder))
-        if queue.count > 16 {
-            // Keep bounded memory while preserving FIFO semantics for newest entries.
-            queue.removeFirst(queue.count - 16)
-        }
-        v2BrowserDialogQueueBySurface[surfaceId] = queue
-    }
-
-    private func v2BrowserPopDialog(surfaceId: UUID) -> V2BrowserPendingDialog? {
-        var queue = v2BrowserDialogQueueBySurface[surfaceId] ?? []
-        guard !queue.isEmpty else { return nil }
-        let first = queue.removeFirst()
-        v2BrowserDialogQueueBySurface[surfaceId] = queue
-        return first
-    }
-
-    private func v2BrowserEnsureInitScriptsApplied(surfaceId: UUID, browserPanel: BrowserPanel) {
-        let scripts = v2BrowserInitScriptsBySurface[surfaceId] ?? []
-        let styles = v2BrowserInitStylesBySurface[surfaceId] ?? []
-        guard !scripts.isEmpty || !styles.isEmpty else { return }
-
-        let injector = """
-        (() => {
-          window.__cmuxInitScriptsApplied = window.__cmuxInitScriptsApplied || { scripts: [], styles: [] };
-          return true;
-        })()
-        """
-        _ = v2RunBrowserJavaScript(browserPanel.webView, surfaceId: surfaceId, script: injector)
-
-        for script in scripts {
-            _ = v2RunBrowserJavaScript(browserPanel.webView, surfaceId: surfaceId, script: script)
-        }
-        for css in styles {
-            let cssLiteral = v2JSONLiteral(css)
-            let styleScript = """
-            (() => {
-              const id = 'cmux-init-style-' + btoa(unescape(encodeURIComponent(\(cssLiteral)))).replace(/=+$/g, '');
-              if (document.getElementById(id)) return true;
-              const el = document.createElement('style');
-              el.id = id;
-              el.textContent = String(\(cssLiteral));
-              (document.head || document.documentElement || document.body).appendChild(el);
-              return true;
-            })()
-            """
-            _ = v2RunBrowserJavaScript(browserPanel.webView, surfaceId: surfaceId, script: styleScript)
-        }
-    }
-
     func v2PNGData(from image: NSImage) -> Data? {
         guard let tiff = image.tiffRepresentation,
               let rep = NSBitmapImageRep(data: tiff) else { return nil }

@@ -14,13 +14,6 @@ extension CmuxConfigStore {
         actions.mapValues { ActionEntry(definition: $0, sourcePath: sourcePath) }
     }
 
-    private func mergedActionEntries(
-        primary: [String: ActionEntry],
-        fallback: [String: ActionEntry]
-    ) -> [String: ActionEntry] {
-        fallback.merging(primary) { _, primary in primary }
-    }
-
     func resolvedActionRegistry(
         globalActions: [String: ActionEntry],
         localActions: [String: ActionEntry],

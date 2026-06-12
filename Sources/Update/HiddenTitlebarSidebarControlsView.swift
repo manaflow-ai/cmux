@@ -248,7 +248,6 @@ struct HiddenTitlebarSidebarControlsView: View {
 
 enum TitlebarControlsVisibilityMode {
     case alwaysVisible
-    case onHover
 }
 
 func minimalModePassthroughHoverTrackerCapturesHit(

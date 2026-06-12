@@ -78,16 +78,13 @@ extension GhosttySurfaceScrollView {
 
 #if DEBUG
     struct DebugFrameSample {
-        let sampleCount: Int
         let uniqueQuantized: Int
         let lumaStdDev: Double
         let modeFraction: Double
-        let fingerprint: UInt64
         let iosurfaceWidthPx: Int
         let iosurfaceHeightPx: Int
         let expectedWidthPx: Int
         let expectedHeightPx: Int
-        let layerClass: String
         let layerContentsGravity: String
         let layerContentsKey: String
 
@@ -149,7 +146,6 @@ extension GhosttySurfaceScrollView {
         guard let modelLayer = surfaceView.layer else { return nil }
         // Prefer the presentation layer to better match what the user sees on screen.
         let layer = modelLayer.presentation() ?? modelLayer
-        let layerClass = String(describing: type(of: layer))
         let layerContentsGravity = layer.contentsGravity.rawValue
         let contentsKey = Self.contentsKey(for: layer)
         let presentationScale = max(1.0, layer.contentsScale)
@@ -161,16 +157,13 @@ extension GhosttySurfaceScrollView {
         guard let anySurface = layer.contents else {
             // Treat "no contents" as a blank frame: this is the visual regression we're guarding.
             return DebugFrameSample(
-                sampleCount: 0,
                 uniqueQuantized: 0,
                 lumaStdDev: 0,
                 modeFraction: 1,
-                fingerprint: 0,
                 iosurfaceWidthPx: 0,
                 iosurfaceHeightPx: 0,
                 expectedWidthPx: expectedWidthPx,
                 expectedHeightPx: expectedHeightPx,
-                layerClass: layerClass,
                 layerContentsGravity: layerContentsGravity,
                 layerContentsKey: contentsKey
             )
@@ -181,22 +174,14 @@ extension GhosttySurfaceScrollView {
         // Treat non-IOSurface contents as "non-blank" and avoid unsafe casts.
         let cf = anySurface as CFTypeRef
         guard CFGetTypeID(cf) == IOSurfaceGetTypeID() else {
-            var fnv: UInt64 = 1469598103934665603
-            for b in contentsKey.utf8 {
-                fnv ^= UInt64(b)
-                fnv &*= 1099511628211
-            }
             return DebugFrameSample(
-                sampleCount: 1,
                 uniqueQuantized: 1,
                 lumaStdDev: 999,
                 modeFraction: 0,
-                fingerprint: fnv,
                 iosurfaceWidthPx: 0,
                 iosurfaceHeightPx: 0,
                 expectedWidthPx: expectedWidthPx,
                 expectedHeightPx: expectedHeightPx,
-                layerClass: layerClass,
                 layerContentsGravity: layerContentsGravity,
                 layerContentsKey: contentsKey
             )
@@ -239,7 +224,6 @@ extension GhosttySurfaceScrollView {
         lumas.reserveCapacity(((x1 - x0) / step) * ((y1 - y0) / step))
 
         var count = 0
-        var fnv: UInt64 = 1469598103934665603
 
         for y in stride(from: y0, to: y1, by: step) {
             let row = base.advanced(by: y * bytesPerRow)
@@ -257,10 +241,6 @@ extension GhosttySurfaceScrollView {
                 let key = (rq << 8) | (gq << 4) | bq
                 hist[key, default: 0] += 1
                 count += 1
-
-                let lq = UInt8(max(0, min(63, Int(luma / 4.0))))
-                fnv ^= UInt64(lq)
-                fnv &*= 1099511628211
             }
         }
 
@@ -273,16 +253,13 @@ extension GhosttySurfaceScrollView {
         let modeFrac = Double(modeCount) / Double(count)
 
         return DebugFrameSample(
-            sampleCount: count,
             uniqueQuantized: hist.count,
             lumaStdDev: stddev,
             modeFraction: modeFrac,
-            fingerprint: fnv,
             iosurfaceWidthPx: width,
             iosurfaceHeightPx: height,
             expectedWidthPx: expectedWidthPx,
             expectedHeightPx: expectedHeightPx,
-            layerClass: layerClass,
             layerContentsGravity: layerContentsGravity,
             layerContentsKey: contentsKey
         )

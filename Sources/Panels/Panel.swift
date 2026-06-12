@@ -123,8 +123,6 @@ struct WorkspaceAttentionPersistentState: Equatable, Sendable {
 }
 
 struct WorkspaceAttentionFlashDecision: Equatable, Sendable {
-    let panelID: UUID
-    let reason: WorkspaceAttentionFlashReason
     let isAllowed: Bool
 }
 
@@ -162,8 +160,6 @@ enum WorkspaceAttentionCoordinator {
         }
 
         return WorkspaceAttentionFlashDecision(
-            panelID: targetPanelID,
-            reason: reason,
             isAllowed: isAllowed
         )
     }
@@ -183,28 +179,6 @@ enum PanelOverlayRingMetrics {
         bounds.insetBy(dx: inset, dy: inset)
     }
 }
-
-#if DEBUG
-func cmuxFlashDebugID(_ id: UUID?) -> String {
-    guard let id else { return "nil" }
-    return String(id.uuidString.prefix(6))
-}
-
-func cmuxFlashDebugRect(_ rect: CGRect?) -> String {
-    guard let rect else { return "nil" }
-    return String(
-        format: "%.1f,%.1f %.1fx%.1f",
-        rect.origin.x,
-        rect.origin.y,
-        rect.size.width,
-        rect.size.height
-    )
-}
-
-func cmuxFlashDebugBool(_ value: Bool) -> Int {
-    value ? 1 : 0
-}
-#endif
 
 struct FocusFlashSegment: Equatable {
     let delay: TimeInterval
@@ -354,9 +328,5 @@ extension Panel {
         _ = intent
         _ = window
         return false
-    }
-
-    func triggerFlash() {
-        triggerFlash(reason: .navigation)
     }
 }

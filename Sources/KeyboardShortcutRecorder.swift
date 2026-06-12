@@ -460,10 +460,6 @@ final class ShortcutRecorderNSButton: NSButton {
         isRecording
     }
 
-    var debugHasPendingRejection: Bool {
-        hasPendingRejection
-    }
-
     func debugSetPendingChordStart(_ stroke: ShortcutStroke?) {
         isRecording = true
         pendingChordStart = stroke
