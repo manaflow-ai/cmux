@@ -828,6 +828,67 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         )
     }
 
+    func testClaudeStaleStopStaysStaleAfterAnotherPaneBecomesWorkspaceActive() throws {
+        let context = try makeClaudeHookContext(name: "claude-stale-stop-multi-pane")
+        defer { context.cleanup() }
+
+        let paneA = "99999999-9999-9999-9999-999999999999"
+        let paneB = context.surfaceId
+        let surfaces = [paneA, paneB]
+
+        func runHook(_ subcommand: String, stdin: String, surface: String) -> ProcessRunResult {
+            runClaudeHookListingSurfaces(
+                context: context,
+                surfaceIds: surfaces,
+                arguments: ["hooks", "claude", subcommand],
+                standardInput: stdin,
+                extraEnvironment: ["CMUX_SURFACE_ID": surface]
+            )
+        }
+
+        // Pane A: session-1 runs a turn, stops, and is replaced by session-2
+        // (the /clear-replacement boundary for pane A).
+        for (subcommand, stdin) in [
+            ("prompt-submit", #"{"session_id":"session-1","turn_id":"turn-1","cwd":"\#(context.root.path)","hook_event_name":"UserPromptSubmit","prompt":"one"}"#),
+            ("stop", #"{"session_id":"session-1","turn_id":"turn-1","cwd":"\#(context.root.path)","hook_event_name":"Stop","last_assistant_message":"done"}"#),
+            ("prompt-submit", #"{"session_id":"session-2","turn_id":"turn-2","cwd":"\#(context.root.path)","hook_event_name":"UserPromptSubmit","prompt":"two"}"#),
+        ] {
+            let result = runHook(subcommand, stdin: stdin, surface: paneA)
+            XCTAssertFalse(result.timedOut, result.stderr)
+            XCTAssertEqual(result.status, 0, result.stderr)
+        }
+
+        // Pane B: a different session (e.g. a forked conversation) takes the
+        // workspace-active slot.
+        let paneBPrompt = runHook(
+            "prompt-submit",
+            stdin: #"{"session_id":"session-3","turn_id":"turn-3","cwd":"\#(context.root.path)","hook_event_name":"UserPromptSubmit","prompt":"three"}"#,
+            surface: paneB
+        )
+        XCTAssertFalse(paneBPrompt.timedOut, paneBPrompt.stderr)
+        XCTAssertEqual(paneBPrompt.status, 0, paneBPrompt.stderr)
+
+        // A late Stop from the superseded session-1 in pane A must stay stale
+        // even though the workspace-active session now lives in pane B.
+        let lateStop = runHook(
+            "stop",
+            stdin: #"{"session_id":"session-1","turn_id":"turn-1","cwd":"\#(context.root.path)","hook_event_name":"Stop","last_assistant_message":"late"}"#,
+            surface: paneA
+        )
+        XCTAssertFalse(lateStop.timedOut, lateStop.stderr)
+        XCTAssertEqual(lateStop.status, 0, lateStop.stderr)
+
+        let stateURL = context.root.appendingPathComponent("claude-hook-sessions.json")
+        let savedState = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(contentsOf: stateURL)) as? [String: Any])
+        let activeSessions = try XCTUnwrap(savedState["activeSessionsByWorkspace"] as? [String: Any])
+        let active = try XCTUnwrap(activeSessions[context.workspaceId] as? [String: Any])
+        XCTAssertEqual(
+            active["sessionId"] as? String,
+            "session-3",
+            "A late Stop from a session replaced in its own pane must not re-promote it after another pane became the workspace-active session"
+        )
+    }
+
     func testClaudeParentPaneStopAppliesAfterForkedSessionPromoted() throws {
         let context = try makeClaudeHookContext(name: "claude-fork-parent-stop")
         defer { context.cleanup() }
