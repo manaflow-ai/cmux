@@ -16,6 +16,9 @@ struct SidebarWorkspaceRowsHeightPreferenceKey: PreferenceKey {
             value = next
             return
         }
+        // Within-tolerance same-row measurements are intentionally kept at the
+        // first value so equivalent layout passes cannot re-emit preference
+        // churn before the @State write gate sees them.
         guard !current.isEquivalent(to: next) else { return }
         value = current.rowsHeight >= next.rowsHeight ? current : next
     }
