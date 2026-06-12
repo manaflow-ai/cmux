@@ -1876,7 +1876,12 @@ final class WindowDragHandleHitTests: XCTestCase {
         XCTAssertEqual(window.miniaturizeCallCount, 0)
     }
 
-    func testHiddenRightSidebarDoesNotMountFileExplorerPanelContent() {
+}
+
+@MainActor
+@Suite("Hidden right sidebar content mounting", .serialized)
+struct HiddenRightSidebarContentMountingTests {
+    @Test func hiddenRightSidebarDoesNotMountFileExplorerPanelContent() {
         _ = NSApplication.shared
 
         let defaults = UserDefaults.standard
@@ -1925,10 +1930,28 @@ final class WindowDragHandleHitTests: XCTestCase {
         window.displayIfNeeded()
         hostingView.layoutSubtreeIfNeeded()
 
-        XCTAssertNil(
-            Self.firstSubview(in: hostingView) { $0 is FileExplorerContainerView },
+        let mountedContainer = Self.firstSubview(in: hostingView) { $0 is FileExplorerContainerView }
+        #expect(
+            mountedContainer == nil,
             "Hidden right-sidebar state should preserve the selected mode without mounting FileExplorerPanelView content"
         )
+    }
+
+    private static func firstSubview(
+        in view: NSView,
+        matching predicate: (NSView) -> Bool
+    ) -> NSView? {
+        if predicate(view) {
+            return view
+        }
+
+        for subview in view.subviews {
+            if let match = firstSubview(in: subview, matching: predicate) {
+                return match
+            }
+        }
+
+        return nil
     }
 }
 
