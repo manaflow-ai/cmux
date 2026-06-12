@@ -47,10 +47,13 @@ public struct MobileAuthComposition {
     ) {
         self.reachability = reachability
 
-        let isDevelopment = Self.isDevelopmentBuild
-        let overrides = Self.localConfigStringOverrides(in: bundle)
+        let overrides = Self.configurationStringOverrides(in: bundle)
+        let authEnvironment = Self.resolvedAuthEnvironment(
+            isDevelopmentBuild: Self.isDevelopmentBuild,
+            overrides: overrides
+        )
         let resolvedConfig = AuthConfig(
-            environment: isDevelopment ? .development : .production,
+            environment: authEnvironment,
             overrides: overrides
         )
         self.config = resolvedConfig
@@ -135,6 +138,40 @@ public struct MobileAuthComposition {
         #endif
     }
 
+    /// Resolve which Stack project this mobile build should use.
+    ///
+    /// iOS DEBUG builds default to production auth so a normal tagged iPhone
+    /// build can pair with a normal tagged Mac dev build. Local/development
+    /// auth remains available through `CMUXAuthEnvironment=development` in the
+    /// bundle Info.plist or LocalConfig.plist.
+    static func resolvedAuthEnvironment(
+        isDevelopmentBuild: Bool,
+        overrides: [String: String]
+    ) -> CMUXAuthEnvironment {
+        if let raw = overrides["CMUXAuthEnvironment"]?.trimmingCharacters(in: .whitespacesAndNewlines),
+           !raw.isEmpty {
+            switch raw.lowercased() {
+            case "development", "dev", "local":
+                return .development
+            case "production", "prod":
+                return .production
+            default:
+                break
+            }
+        }
+        return .production
+    }
+
+    /// Parse optional string overrides from bundled `LocalConfig.plist` and
+    /// Info.plist build settings.
+    private static func configurationStringOverrides(in bundle: Bundle) -> [String: String] {
+        var overrides = localConfigStringOverrides(in: bundle)
+        for (key, value) in infoPlistStringOverrides(in: bundle) {
+            overrides[key] = value
+        }
+        return overrides
+    }
+
     /// Parse optional string overrides from a bundled `LocalConfig.plist`.
     /// Stored as `[String: String]` so the result is Sendable.
     private static func localConfigStringOverrides(in bundle: Bundle) -> [String: String] {
@@ -150,6 +187,30 @@ public struct MobileAuthComposition {
                     overrides[key] = trimmed
                 }
             }
+        }
+        return overrides
+    }
+
+    /// Parse auth override build settings baked into the app Info.plist.
+    ///
+    /// Empty and unexpanded values are ignored so direct Xcode builds with the
+    /// shared xcconfig defaults behave predictably.
+    private static func infoPlistStringOverrides(in bundle: Bundle) -> [String: String] {
+        guard let info = bundle.infoDictionary else { return [:] }
+        let keys = [
+            "CMUXAuthEnvironment",
+            "ApiBaseURL",
+            "STACK_PROJECT_ID_DEV",
+            "STACK_PROJECT_ID_PROD",
+            "STACK_PUBLISHABLE_CLIENT_KEY_DEV",
+            "STACK_PUBLISHABLE_CLIENT_KEY_PROD"
+        ]
+        var overrides: [String: String] = [:]
+        for key in keys {
+            guard let stringValue = info[key] as? String else { continue }
+            let trimmed = stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !trimmed.isEmpty, !trimmed.contains("$(") else { continue }
+            overrides[key] = trimmed
         }
         return overrides
     }
