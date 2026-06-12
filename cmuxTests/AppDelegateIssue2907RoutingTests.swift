@@ -1175,12 +1175,12 @@ final class AppDelegateIssue2907RoutingTests: XCTestCase {
         TerminalController.shared.setActiveTabManager(staleManager)
 
         let originalLiveWorkspaceCount = liveManager.tabs.count
-        let createdWorkspaceId = app.addWorkspaceInPreferredMainWindow(
+        let createdWorkspace = app.addWorkspaceInPreferredMainWindow(
             shouldBringToFront: false,
             debugSource: "test.issue2907.staleActiveContext"
         )
 
-        let unwrappedCreatedWorkspaceId = try XCTUnwrap(createdWorkspaceId)
+        let unwrappedCreatedWorkspaceId = try XCTUnwrap(createdWorkspace).id
         XCTAssertEqual(liveManager.tabs.count, originalLiveWorkspaceCount + 1)
         XCTAssertTrue(liveManager.tabs.contains { $0.id == unwrappedCreatedWorkspaceId })
     }

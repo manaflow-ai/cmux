@@ -49,11 +49,12 @@ extension TabManager {
     }
 
     func publishCmuxInitialSurfaceCreated(_ workspace: Workspace, selected: Bool) {
-        guard let terminalPanel = workspace.focusedTerminalPanel else { return }
+        guard let panelId = workspace.focusedSurfaceId,
+              let panel = workspace.panels[panelId] else { return }
         workspace.publishCmuxSurfaceCreated(
-            terminalPanel.id,
-            paneId: workspace.paneId(forPanelId: terminalPanel.id),
-            kind: "terminal",
+            panelId,
+            paneId: workspace.paneId(forPanelId: panelId),
+            kind: Workspace.cmuxEventSurfaceKind(panel),
             origin: "workspace_initial",
             focused: selected
         )

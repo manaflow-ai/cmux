@@ -633,7 +633,7 @@ final class TerminalControllerSocketSecurityTests: XCTestCase {
         let tabManager = TabManager()
         let workspace = tabManager.addWorkspace(select: true, eagerLoadTerminal: false)
         let panelId = try XCTUnwrap(workspace.focusedPanelId)
-        let snapshot = "ls\ngit status\npm test\ngit status\ngit switch main"
+        let snapshot = "ls\ngit status\nnpm test\ngit status\ngit switch main"
         let payload = Data(snapshot.utf8).base64EncodedString()
         TerminalCommandHistoryStore.shared.removeAll()
         TerminalController.shared.setActiveTabManager(tabManager)

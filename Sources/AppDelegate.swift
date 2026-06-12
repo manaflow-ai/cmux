@@ -1256,6 +1256,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         )
         AppIconLaunchState.markDidFinishLaunching()
         AppearanceSettingsUserDefaultsObserver.shared.startObserving()
+        BrowserSystemProxyWatcher.shared.startObserving()
         if isRunningUnderXCTest {
             NSApp.setActivationPolicy(.regular)
         } else {
@@ -3071,7 +3072,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         Self.removeLegacyPersistedWindowGeometry()
         SessionPersistenceStore.syncManualRestoreSnapshotCache()
         guard SessionRestorePolicy.shouldAttemptRestore() else { return }
-        startupSessionSnapshot = SessionPersistenceStore.load()
+        startupSessionSnapshot = SessionPersistenceStore.loadStartupSnapshot()
     }
 
     private func persistedWindowGeometry(defaults: UserDefaults = .standard) -> PersistedWindowGeometry? {
@@ -7056,6 +7057,44 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         event: NSEvent? = nil,
         debugSource: String = "newWorkspace"
     ) -> Bool {
+        performNewWorkspaceCreationAction(
+            initialSurface: .terminal,
+            preferredTabManager: preferredTabManager,
+            event: event,
+            debugSource: debugSource
+        )
+    }
+
+    /// Creates a new workspace whose initial surface is a browser pane in its
+    /// default new-tab state with the address bar focused. Shares the window
+    /// routing, placement, and naming semantics of `performNewWorkspaceAction`.
+    @discardableResult
+    func performNewBrowserWorkspaceAction(
+        tabManager preferredTabManager: TabManager? = nil,
+        event: NSEvent? = nil,
+        debugSource: String = "newBrowserWorkspace"
+    ) -> Bool {
+        guard BrowserAvailabilitySettings.isEnabled() else {
+#if DEBUG
+            cmuxDebugLog("newBrowserWorkspace.blocked_browser_disabled source=\(debugSource)")
+#endif
+            NSSound.beep()
+            return false
+        }
+        return performNewWorkspaceCreationAction(
+            initialSurface: .browser,
+            preferredTabManager: preferredTabManager,
+            event: event,
+            debugSource: debugSource
+        )
+    }
+
+    private func performNewWorkspaceCreationAction(
+        initialSurface: NewWorkspaceInitialSurface,
+        preferredTabManager: TabManager?,
+        event: NSEvent?,
+        debugSource: String
+    ) -> Bool {
         let preferredContext = preferredTabManager.flatMap { mainWindowContext(for: $0) }
         let livePreferredContext: MainWindowContext? = {
             guard let preferredContext else { return nil }
@@ -7079,11 +7118,24 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             let windowId = createMainWindow()
             if let context = mainWindowContexts.values.first(where: { $0.windowId == windowId }) {
                 let initialWorkspace = context.tabManager.selectedWorkspace
-                _ = executeConfiguredNewWorkspaceActionIfAvailable(
-                    in: context,
-                    debugSource: debugSource,
-                    replacingInitialWorkspace: initialWorkspace
-                )
+                switch initialSurface {
+                case .terminal:
+                    _ = executeConfiguredNewWorkspaceActionIfAvailable(
+                        in: context,
+                        debugSource: debugSource,
+                        replacingInitialWorkspace: initialWorkspace
+                    )
+                case .browser:
+                    // The fresh window boots with a terminal workspace; add the
+                    // browser workspace and close that initial one so the
+                    // action's result matches the no-window case for terminals.
+                    let workspace = context.tabManager.addWorkspace(initialSurface: .browser)
+                    closeInitialWorkspaceIfNeeded(
+                        initialWorkspaceId: initialWorkspace?.id,
+                        in: context
+                    )
+                    focusInitialBrowserAddressBar(in: workspace)
+                }
             }
             return true
         }
@@ -7092,7 +7144,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             ?? preferredMainWindowContextForWorkspaceCreation(event: event, debugSource: debugSource)
 
         let workspaceGroupTarget = context.flatMap { workspaceGroupNewWorkspaceTarget(in: $0) }
-        if let context,
+        // The configured new-workspace action is the user's override for the
+        // plain New Workspace behavior; the browser variant keeps its own
+        // fixed semantics and skips it.
+        if initialSurface == .terminal,
+           let context,
            executeConfiguredNewWorkspaceActionIfAvailable(
                in: context,
                debugSource: debugSource,
@@ -7102,20 +7158,38 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
 
         if let context, let workspaceGroupTarget {
-            return context.tabManager.createWorkspaceInGroup(
+            guard let workspace = context.tabManager.createWorkspaceInGroup(
                 groupId: workspaceGroupTarget.groupId,
                 placement: workspaceGroupTarget.placement,
-                referenceWorkspaceId: workspaceGroupTarget.referenceWorkspaceId
-            ) != nil
+                referenceWorkspaceId: workspaceGroupTarget.referenceWorkspaceId,
+                initialSurface: initialSurface
+            ) else {
+                return false
+            }
+            if initialSurface == .browser {
+                focusInitialBrowserAddressBar(in: workspace)
+            }
+            return true
         }
 
         if let preferredTabManager,
            preferredContext == nil || livePreferredContext != nil {
-            preferredTabManager.addWorkspace()
+            let workspace = preferredTabManager.addWorkspace(initialSurface: initialSurface)
+            if initialSurface == .browser {
+                focusInitialBrowserAddressBar(in: workspace)
+            }
             return true
         }
 
-        if addWorkspaceInPreferredMainWindow(event: event, debugSource: debugSource) == nil {
+        if let workspace = addWorkspaceInPreferredMainWindow(
+            initialSurface: initialSurface,
+            event: event,
+            debugSource: debugSource
+        ) {
+            if initialSurface == .browser {
+                focusInitialBrowserAddressBar(in: workspace)
+            }
+        } else {
 #if DEBUG
             logWorkspaceCreationRouting(
                 phase: "fallback_new_window",
@@ -7128,6 +7202,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             openNewMainWindow(nil)
         }
         return true
+    }
+
+    /// Routes first focus of a freshly created browser-initial workspace into
+    /// the address bar so the user can type a URL immediately.
+    private func focusInitialBrowserAddressBar(in workspace: Workspace) {
+        guard let browserPanel = workspace.focusedSurfaceId.flatMap({ workspace.browserPanel(for: $0) })
+            ?? workspace.panels.values.compactMap({ $0 as? BrowserPanel }).first else {
+            return
+        }
+        workspace.focusPanel(browserPanel.id)
+        focusBrowserAddressBar(in: browserPanel)
     }
 
     @discardableResult
@@ -7685,10 +7770,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     func addWorkspaceInPreferredMainWindow(
         workingDirectory: String? = nil,
         initialTerminalInput: String? = nil,
+        initialSurface: NewWorkspaceInitialSurface = .terminal,
         shouldBringToFront: Bool = false,
         event: NSEvent? = nil,
         debugSource: String = "unspecified"
-    ) -> UUID? {
+    ) -> Workspace? {
         #if DEBUG
         logWorkspaceCreationRouting(
             phase: "request",
@@ -7732,7 +7818,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
 
         let workspace: Workspace
-        if workingDirectory != nil || initialTerminalInput != nil {
+        if initialSurface == .browser {
+            workspace = context.tabManager.addWorkspace(initialSurface: .browser, select: true)
+        } else if workingDirectory != nil || initialTerminalInput != nil {
             workspace = context.tabManager.addWorkspace(
                 workingDirectory: workingDirectory,
                 initialTerminalInput: initialTerminalInput,
@@ -7753,7 +7841,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             workingDirectory: workingDirectory
         )
         #endif
-        return workspace.id
+        return workspace
     }
 
     private func preferredMainWindowContextForWorkspaceCreation(
@@ -13076,6 +13164,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             return true
         }
 
+        if matchConfiguredShortcut(event: event, action: .newBrowserWorkspace) {
+#if DEBUG
+            cmuxDebugLog("shortcut.action name=newBrowserWorkspace \(debugShortcutRouteSnapshot(event: event))")
+#endif
+            performNewBrowserWorkspaceAction(event: event, debugSource: "shortcut.optCmdN")
+            return true
+        }
+
         // New Window: Cmd+Shift+N
         // Handled here instead of relying on SwiftUI's CommandGroup menu item because
         // after a browser panel has been shown, SwiftUI's menu dispatch can silently
@@ -16552,13 +16648,6 @@ private var cmuxFirstResponderGuardHitViewOverride: NSView?
 private var cmuxFirstResponderGuardCurrentEventContext: NSEvent?
 private var cmuxFirstResponderGuardHitViewContext: NSView?
 private var cmuxFirstResponderGuardContextWindowNumber: Int?
-private var cmuxBrowserReturnForwardingDepth = 0
-private var cmuxBrowserArrowForwardingDepth = 0
-private var cmuxBrowserOmnibarMarkedTextForwardingDepth = 0
-private var cmuxCommandPaletteArrowForwardingDepth = 0
-private var cmuxTextBoxInputArrowForwardingDepth = 0
-private var cmuxTextBoxInputControlNavForwardingDepth = 0
-private var cmuxEditableTextViewArrowForwardingDepth = 0
 private var cmuxWindowFirstResponderBypassDepth = 0
 private var cmuxFieldEditorOwningWebViewAssociationKey: UInt8 = 0
 
@@ -17244,16 +17333,20 @@ private extension NSWindow {
         if ShortcutRecorderEventRouter.dispatchActiveRecordingEvent(event, preferredWindow: self) {
             return true
         }
+        let browserWebKitKeyDownReentry = firstResponderWebView != nil && cmuxBrowserWebKitKeyDownDispatchIsActive()
         if shortcutRoutingShouldBypassForPrintableOptionText(event: event) {
+            if browserWebKitKeyDownReentry { return false }
             let textInputTarget: NSResponder? = firstResponderGhosttyView
                 ?? firstResponderWebView
                 ?? self.firstResponder
             if let textInputTarget, textInputTarget !== self {
-                textInputTarget.keyDown(with: event)
-#if DEBUG
-                cmuxDebugLog("  → printable Option text routed to keyDown")
-#endif
-                return true
+                if cmuxForceDispatchKeyDownOnce(event, to: textInputTarget, reason: "printable Option text") {
+                    return true
+                }
+                // Same event already in flight on this stack (WebKit replay /
+                // macOS 26 NSWindow.keyDown re-entry): decline so default
+                // AppKit handling proceeds instead of looping.
+                return false
             }
             return false
         }
@@ -17273,8 +17366,12 @@ private extension NSWindow {
 #endif
                 return true
             }
-            if let firstResponderGhosttyView {
-                firstResponderGhosttyView.keyDown(with: event)
+            if let firstResponderGhosttyView,
+               cmuxForceDispatchKeyDownOnce(
+                   event,
+                   to: firstResponderGhosttyView,
+                   reason: "stale cmux menu shortcut terminal bypass"
+               ) {
 #if DEBUG
                 cmuxDebugLog("  → terminal received command equivalent bypassing stale cmux menu shortcut")
 #endif
@@ -17314,11 +17411,13 @@ private extension NSWindow {
                 keyCode: event.keyCode,
                 literalChars: event.characters
             ) {
-                ghosttyView.keyDown(with: event)
+                if cmuxForceDispatchKeyDownOnce(event, to: ghosttyView, reason: "terminal font zoom") {
 #if DEBUG
-                cmuxDebugLog("zoom.shortcut stage=window.ghosttyKeyDownDirect event=\(Self.keyDescription(event)) handled=1")
+                    cmuxDebugLog("zoom.shortcut stage=window.ghosttyKeyDownDirect event=\(Self.keyDescription(event)) handled=1")
 #endif
-                return true
+                    return true
+                }
+                return false
             }
         }
 
@@ -17327,26 +17426,16 @@ private extension NSWindow {
             firstResponderHasMarkedText: firstResponderHasMarkedText,
             flags: event.modifierFlags
         ) {
-            if cmuxBrowserOmnibarMarkedTextForwardingDepth > 0 {
-#if DEBUG
-                cmuxDebugLog("  → browser omnibar marked-text reentry; leaving unhandled")
-#endif
+            guard let target = self.firstResponder,
+                  cmuxForceDispatchKeyDownOnce(
+                      event,
+                      to: target,
+                      reason: "browser omnibar marked-text " +
+                          "panel=\(firstResponderOmnibarPanelId.map { String($0.uuidString.prefix(5)) } ?? "nil")"
+                  )
+            else {
                 return false
             }
-            cmuxBrowserOmnibarMarkedTextForwardingDepth += 1
-            defer {
-                cmuxBrowserOmnibarMarkedTextForwardingDepth = max(
-                    0,
-                    cmuxBrowserOmnibarMarkedTextForwardingDepth - 1
-                )
-            }
-#if DEBUG
-            cmuxDebugLog(
-                "  → browser omnibar marked-text routed to firstResponder.keyDown " +
-                "panel=\(firstResponderOmnibarPanelId.map { String($0.uuidString.prefix(5)) } ?? "nil")"
-            )
-#endif
-            self.firstResponder?.keyDown(with: event)
             return true
         }
 
@@ -17356,12 +17445,11 @@ private extension NSWindow {
             firstResponderHasMarkedText: firstResponderHasMarkedText,
             flags: event.modifierFlags
         ) {
-            if cmuxCommandPaletteArrowForwardingDepth > 0 {
+            guard let target = self.firstResponder,
+                  cmuxForceDispatchKeyDownOnce(event, to: target, reason: "command palette arrow")
+            else {
                 return false
             }
-            cmuxCommandPaletteArrowForwardingDepth += 1
-            defer { cmuxCommandPaletteArrowForwardingDepth = max(0, cmuxCommandPaletteArrowForwardingDepth - 1) }
-            self.firstResponder?.keyDown(with: event)
             return true
         }
 
@@ -17371,22 +17459,17 @@ private extension NSWindow {
             firstResponderHasMarkedText: firstResponderHasMarkedText,
             flags: event.modifierFlags
         ) {
-            if cmuxBrowserArrowForwardingDepth > 0 {
-#if DEBUG
-                cmuxDebugLog("  → browser omnibar arrow reentry; using normal dispatch")
-#endif
-                return cmux_performKeyEquivalent(with: event)
+            guard let target = self.firstResponder else { return false }
+            if cmuxForceDispatchKeyDownOnce(
+                event,
+                to: target,
+                reason: "browser omnibar arrow " +
+                    "panel=\(firstResponderOmnibarPanelId.map { String($0.uuidString.prefix(5)) } ?? "nil")"
+            ) {
+                return true
             }
-            cmuxBrowserArrowForwardingDepth += 1
-            defer { cmuxBrowserArrowForwardingDepth = max(0, cmuxBrowserArrowForwardingDepth - 1) }
-#if DEBUG
-            cmuxDebugLog(
-                "  → browser omnibar arrow routed to firstResponder.keyDown " +
-                "panel=\(firstResponderOmnibarPanelId.map { String($0.uuidString.prefix(5)) } ?? "nil")"
-            )
-#endif
-            self.firstResponder?.keyDown(with: event)
-            return true
+            // Reentry of the same in-flight event: use normal dispatch.
+            return cmux_performKeyEquivalent(with: event)
         }
 
         if shouldDispatchTextBoxInputArrowViaFirstResponderKeyDown(
@@ -17395,12 +17478,11 @@ private extension NSWindow {
             firstResponderHasMarkedText: firstResponderHasMarkedText,
             flags: event.modifierFlags
         ) {
-            if cmuxTextBoxInputArrowForwardingDepth > 0 {
+            guard let target = self.firstResponder,
+                  cmuxForceDispatchKeyDownOnce(event, to: target, reason: "text-box input arrow")
+            else {
                 return false
             }
-            cmuxTextBoxInputArrowForwardingDepth += 1
-            defer { cmuxTextBoxInputArrowForwardingDepth = max(0, cmuxTextBoxInputArrowForwardingDepth - 1) }
-            self.firstResponder?.keyDown(with: event)
             return true
         }
 
@@ -17410,12 +17492,11 @@ private extension NSWindow {
             firstResponderHasMarkedText: firstResponderHasMarkedText,
             flags: event.modifierFlags
         ) {
-            if cmuxTextBoxInputControlNavForwardingDepth > 0 {
+            guard let target = self.firstResponder,
+                  cmuxForceDispatchKeyDownOnce(event, to: target, reason: "text-box input control nav")
+            else {
                 return false
             }
-            cmuxTextBoxInputControlNavForwardingDepth += 1
-            defer { cmuxTextBoxInputControlNavForwardingDepth = max(0, cmuxTextBoxInputControlNavForwardingDepth - 1) }
-            self.firstResponder?.keyDown(with: event)
             return true
         }
 
@@ -17429,63 +17510,42 @@ private extension NSWindow {
             firstResponderHasMarkedText: firstResponderHasMarkedText,
             flags: event.modifierFlags
         ) {
-            if cmuxEditableTextViewArrowForwardingDepth > 0 {
+            guard let target = self.firstResponder,
+                  cmuxForceDispatchKeyDownOnce(event, to: target, reason: "editable text view arrow")
+            else {
                 return false
             }
-            cmuxEditableTextViewArrowForwardingDepth += 1
-            defer { cmuxEditableTextViewArrowForwardingDepth = max(0, cmuxEditableTextViewArrowForwardingDepth - 1) }
-            self.firstResponder?.keyDown(with: event)
             return true
         }
 
-        // Web forms rely on Return/Enter flowing through keyDown. If the original
-        // NSWindow.performKeyEquivalent consumes Enter first, submission never reaches
-        // WebKit. Route Return/Enter directly to the current first responder and
-        // mark handled to avoid the AppKit alert sound path.
+        // Web forms rely on Return/Enter flowing through keyDown. Route it directly to the first responder.
         if shouldDispatchBrowserReturnViaFirstResponderKeyDown(
             keyCode: event.keyCode,
             firstResponderIsBrowser: firstResponderWebView != nil,
             firstResponderHasMarkedText: firstResponderHasMarkedText,
             flags: event.modifierFlags
         ) {
+            if browserWebKitKeyDownReentry { return false }
+            guard let target = self.firstResponder else { return false }
+            if cmuxForceDispatchKeyDownOnce(event, to: target, reason: "browser Return/Enter") {
+                return true
+            }
             // Forwarding keyDown can re-enter performKeyEquivalent in WebKit/AppKit internals.
             // On re-entry, fall back to normal dispatch to avoid an infinite loop.
-            if cmuxBrowserReturnForwardingDepth > 0 {
-#if DEBUG
-                cmuxDebugLog("  → browser Return/Enter reentry; using normal dispatch")
-#endif
-                return cmux_performKeyEquivalent(with: event)
-            }
-            cmuxBrowserReturnForwardingDepth += 1
-            defer { cmuxBrowserReturnForwardingDepth = max(0, cmuxBrowserReturnForwardingDepth - 1) }
-#if DEBUG
-            cmuxDebugLog("  → browser Return/Enter routed to firstResponder.keyDown")
-#endif
-            self.firstResponder?.keyDown(with: event)
-            return true
+            return cmux_performKeyEquivalent(with: event)
         }
 
-        // Some browser content (notably Google Docs) loses plain arrows when
-        // NSWindow.performKeyEquivalent claims the arrow before WebKit sees
-        // keyDown. Route those arrows directly to the first responder instead.
+        // Browser content can lose plain arrows when performKeyEquivalent claims them before WebKit.
         if shouldDispatchBrowserArrowViaFirstResponderKeyDown(
             keyCode: event.keyCode,
             firstResponderIsBrowser: firstResponderWebView != nil,
             firstResponderHasMarkedText: firstResponderHasMarkedText,
             flags: event.modifierFlags
         ) {
+            if browserWebKitKeyDownReentry { return false }
             if let focusedOmnibarField = AppDelegate.shared?.focusedBrowserOmnibarField(for: event, in: self),
                browserOmnibarPanelId(for: self.firstResponder) == nil,
                focusedOmnibarField.window === self {
-                if cmuxBrowserArrowForwardingDepth > 0 {
-#if DEBUG
-                    cmuxDebugLog("  → browser arrow omnibar restore reentry; using normal dispatch")
-#endif
-                    return cmux_performKeyEquivalent(with: event)
-                }
-                cmuxBrowserArrowForwardingDepth += 1
-                defer { cmuxBrowserArrowForwardingDepth = max(0, cmuxBrowserArrowForwardingDepth - 1) }
-
                 var currentEditorResponder: NSResponder? = focusedOmnibarField.currentEditor()
                 if currentEditorResponder == nil || self.firstResponder !== currentEditorResponder {
                     guard self.makeFirstResponder(focusedOmnibarField) else {
@@ -17508,32 +17568,26 @@ private extension NSWindow {
 #endif
                     return false
                 }
-#if DEBUG
-                if browserResponderHasMarkedText(omnibarResponder) {
-                    cmuxDebugLog("  → browser arrow restored focused omnibar with marked text before keyDown")
-                } else {
-                    cmuxDebugLog("  → browser arrow restored focused omnibar before keyDown")
+                if cmuxForceDispatchKeyDownOnce(
+                    event,
+                    to: omnibarResponder,
+                    reason: browserResponderHasMarkedText(omnibarResponder)
+                        ? "browser arrow restored focused omnibar with marked text"
+                        : "browser arrow restored focused omnibar"
+                ) {
+                    return true
                 }
-#endif
-                omnibarResponder.keyDown(with: event)
-                return true
+                // Reentry of the same in-flight event: use normal dispatch.
+                return cmux_performKeyEquivalent(with: event)
             }
 
             // Match the Return/Enter forwarding guard: AppKit/WebKit can re-enter
             // performKeyEquivalent while the synthesized keyDown is in flight.
-            if cmuxBrowserArrowForwardingDepth > 0 {
-#if DEBUG
-                cmuxDebugLog("  → browser arrow reentry; using normal dispatch")
-#endif
-                return cmux_performKeyEquivalent(with: event)
+            guard let target = self.firstResponder else { return false }
+            if cmuxForceDispatchKeyDownOnce(event, to: target, reason: "browser arrow") {
+                return true
             }
-            cmuxBrowserArrowForwardingDepth += 1
-            defer { cmuxBrowserArrowForwardingDepth = max(0, cmuxBrowserArrowForwardingDepth - 1) }
-#if DEBUG
-            cmuxDebugLog("  → browser arrow routed to firstResponder.keyDown")
-#endif
-            self.firstResponder?.keyDown(with: event)
-            return true
+            return cmux_performKeyEquivalent(with: event)
         }
 
         if let firstResponderWebView,
@@ -17594,8 +17648,14 @@ private extension NSWindow {
         if let firstResponderGhosttyView, shouldRouteCommandEquivalentDirectlyToMainMenu(event) {
             if AppDelegate.shared?.shouldForwardBrowserSurfaceShortcutToTerminal(event) == true {
                 if firstResponderGhosttyView.performKeyEquivalentAfterMenuMiss(with: event) { return true }
-                firstResponderGhosttyView.keyDown(with: event)
-                return true
+                if cmuxForceDispatchKeyDownOnce(
+                    event,
+                    to: firstResponderGhosttyView,
+                    reason: "browser surface shortcut to terminal"
+                ) {
+                    return true
+                }
+                return false
             }
             guard let mainMenu = NSApp.mainMenu else { return false }
             let consumedByMenu = mainMenu.performKeyEquivalent(with: event)

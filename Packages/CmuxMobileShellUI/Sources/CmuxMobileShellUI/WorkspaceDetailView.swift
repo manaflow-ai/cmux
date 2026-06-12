@@ -32,6 +32,12 @@ struct WorkspaceDetailView: View {
     @State private var feedbackEmail = ""
     @State private var isSubmittingFeedback = false
     @State private var feedbackErrorMessage: String?
+    @State private var isTextSheetPresented = false
+    /// Captured at the moment the "View as Text" action is tapped so the
+    /// sheet keeps showing the terminal the user asked about even if the
+    /// workspace selection changes underneath it (e.g. Mac-side sync) while
+    /// the sheet is open; the sheet loads its snapshot once per presentation.
+    @State private var textSheetSurfaceID: String?
     #endif
 
     private var selectedTerminal: MobileTerminalPreview? {
@@ -93,7 +99,17 @@ struct WorkspaceDetailView: View {
                     surfaceID: terminalID,
                     store: store,
                     fontSize: MobileTerminalFontPreference.defaultSize,
+                    // While the composer is presented the terminal input proxy
+                    // must not grab first responder on attach. This covers both
+                    // composer states: mid-compose (the field owns the keyboard
+                    // and a surface re-create from switching terminals must not
+                    // steal it back) and the default-open presentation (the field
+                    // is visible but unfocused — iMessage semantics — so the
+                    // keyboard stays DOWN until the user taps the terminal or the
+                    // field).
                     autoFocusOnWindowAttach: store.shouldAutoFocusTerminalSurface(terminalID)
+                        && !store.isComposerPresented,
+                    isComposerActive: store.isComposerPresented
                 )
                 // Identity must track the selected terminal. The representable's
                 // coordinator binds its byte sink to the surfaceID at make time and
@@ -127,7 +143,29 @@ struct WorkspaceDetailView: View {
                 .padding(.top, 10)
                 .padding(.leading, 10)
         }
+        #if os(iOS) && DEBUG
+        // Store-side composer seam (DEBUG/UI-test only): exposes the source-of-truth
+        // store flags that drive the surface's composer mirror, so a UI test can assert
+        // the store and surface agree across repeated open/close cycles and that the
+        // draft (`terminalInputText`) survives. Zero-size + read live on every query;
+        // never compiled into a shipping build. Pairs with `MobileComposerDockProbe`
+        // on the surface side.
+        .overlay {
+            ComposerStoreProbe(
+                isComposerPresented: store.isComposerPresented,
+                composerFocusRequest: store.composerFocusRequest,
+                draftLength: store.terminalInputText.count
+            )
+        }
+        #endif
         #if os(iOS)
+        // The whole bottom dock (terminal grid / composer band / accessory toolbar /
+        // keyboard) is owned by `GhosttySurfaceView` in one coordinate system. The
+        // iMessage composer is mounted INTO the surface's composer band by
+        // `GhosttySurfaceRepresentable` (a `UIHostingController`), not added here as a
+        // `safeAreaInset`. There is no second layout system reaching into the
+        // surface's bottom, so the accessory toolbar can never be reparented out (its
+        // buttons can never disappear) and a composer-grow pushes only the terminal up.
         .mobileTerminalSafeAreaExpansion(
             context: safeAreaContext,
             includesBottom: true
@@ -156,6 +194,9 @@ struct WorkspaceDetailView: View {
         #if canImport(UIKit)
         .sheet(isPresented: $isFeedbackComposerPresented) {
             feedbackComposer
+        }
+        .sheet(isPresented: $isTextSheetPresented) {
+            TerminalTextSheetView(surfaceID: textSheetSurfaceID)
         }
         #endif
     }
@@ -240,6 +281,20 @@ struct WorkspaceDetailView: View {
 
         #if canImport(UIKit)
         Section {
+            // Only while the terminal pane is showing: in browser mode the
+            // terminal surface is dismantled (nothing to capture) and the
+            // sheet modifier lives on `detailContent`, so the armed flag
+            // would pop the sheet later when the browser closes.
+            if activeBrowser == nil {
+                Button(action: openTextSheetFromMenu) {
+                    Label(
+                        L10n.string("mobile.terminal.viewAsText", defaultValue: "View as Text"),
+                        systemImage: "doc.plaintext"
+                    )
+                }
+                .accessibilityIdentifier("MobileViewAsTextMenuItem")
+            }
+
             #if DEBUG
             Button(action: copyDebugLogsFromMenu) {
                 // DEV-only debug tooling; not shipped, so not localized.
@@ -272,6 +327,13 @@ struct WorkspaceDetailView: View {
         }
     }
     #endif
+
+    /// Opens the "View as Text" sheet: the terminal's content as selectable
+    /// plain text, because the render surface itself has no copy affordance.
+    private func openTextSheetFromMenu() {
+        textSheetSurfaceID = selectedTerminal?.id.rawValue
+        isTextSheetPresented = true
+    }
 
     private func openFeedbackComposerFromMenu() {
         feedbackText = ""
