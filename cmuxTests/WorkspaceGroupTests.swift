@@ -871,6 +871,12 @@ struct WorkspaceGroupTests {
         #expect(RenderableSystemSymbol.resolvedSurfaceTabIcon("   ") == "doc.text")
     }
 
+    @Test func symbolRasterPointSizeClampsZeroAndNegativeInputs() {
+        #expect(RenderableSystemSymbol.clampedRasterPointSize(0) == 1)
+        #expect(RenderableSystemSymbol.clampedRasterPointSize(-8) == 1)
+        #expect(RenderableSystemSymbol.clampedRasterPointSize(11) == 11)
+    }
+
     // Regression for #5404: renaming a group must update the name shown in
     // window chrome (the custom title bar / NSWindow title / toolbar label),
     // not just the sidebar header. The chrome derives a grouped anchor's
