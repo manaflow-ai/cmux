@@ -4,8 +4,8 @@
 33554	CLI/cmux.swift
 20570	Sources/Workspace.swift
 19287	Sources/ContentView.swift
-18228	Sources/AppDelegate.swift
-16777	Sources/GhosttyTerminalView.swift
+18229	Sources/AppDelegate.swift
+16912	Sources/GhosttyTerminalView.swift
 14808	Sources/TerminalController.swift
 13606	Sources/Panels/BrowserPanel.swift
 12044	cmuxTests/AppDelegateShortcutRoutingTests.swift
@@ -47,7 +47,7 @@
 2198	Sources/SessionPersistence.swift
 2123	cmuxTests/ShortcutAndCommandPaletteTests.swift
 2117	cmuxTests/CmuxConfigTests.swift
-1996	Sources/KeyboardShortcutSettingsFileStore.swift
+2030	Sources/KeyboardShortcutSettingsFileStore.swift
 1949	Sources/Panels/BrowserWebAuthnSupport.swift
 1860	cmuxTests/NotificationAndMenuBarTests.swift
 1793	Sources/SessionIndexStore.swift
@@ -96,8 +96,8 @@
 913	cmuxTests/WorkspaceGroupTests.swift
 905	Sources/CmuxSSHURLRequest.swift
 898	Sources/WorkspaceContentView.swift
+896	Sources/CommandPalette/CommandPaletteSettingsToggle.swift
 868	Sources/Panels/BrowserScreenshotSnapshotter.swift
-866	Sources/CommandPalette/CommandPaletteSettingsToggle.swift
 864	Sources/Panels/TerminalPanel.swift
 856	Packages/CmuxSettingsUI/Sources/CmuxSettingsUI/Sections/AppSection.swift
 852	Packages/CmuxControlSocket/Sources/CmuxControlSocket/Coordinator/Workspace/ControlCommandCoordinator+Workspace.swift
@@ -147,8 +147,8 @@
 619	cmuxTests/FinderFileDropRegressionTests.swift
 614	cmuxTests/SessionIndexViewTests.swift
 613	Sources/PortScanner.swift
+603	Sources/SettingsNavigation.swift
 599	Packages/CMUXAgentLaunch/Sources/CMUXAgentLaunch/AgentLaunchSanitizerPrimaryPolicies.swift
-599	Sources/SettingsNavigation.swift
 597	cmuxTests/RemoteTmuxControlParserTests.swift
 596	cmuxTests/CmuxEventBusTests.swift
 594	Sources/SessionIndexModels.swift
@@ -176,6 +176,7 @@
 536	cmuxTests/CmuxConfigContextMenuTests.swift
 534	Packages/CmuxControlSocket/Sources/CmuxControlSocket/Coordinator/Surface/ControlCommandCoordinator+Surface.swift
 531	Packages/CmuxSettingsUI/Sources/CmuxSettingsUI/Scene/SettingsWindowScene.swift
+531	Sources/App/WorkspaceRuntimeSettings.swift
 530	Packages/CmuxMobileTerminal/Sources/CmuxMobileTerminal/GhosttyRuntime.swift
 528	cmuxTests/CLINotifyProcessTestSupport.swift
 528	cmuxUITests/AutomationSocketUITests.swift

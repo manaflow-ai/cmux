@@ -5425,6 +5425,26 @@ final class TerminalSurface: Identifiable, ObservableObject {
     private(set) var surface: ghostty_surface_t?
     private weak var attachedView: GhosttyNSView?
 
+    /// cmux renderer reclamation: whether the current runtime surface's GPU
+    /// renderer (Metal swap chain / IOSurface, ~40MB) is realized. A freshly
+    /// created runtime surface is always realized, so this starts `true` and is
+    /// reset to `true` in `createSurface`. `RendererRealizationController`
+    /// releases it (`releaseRenderer`) while the surface is offscreen and idle;
+    /// `setVisibleInUI(true)` re-realizes it (`realizeRenderer`) before the next
+    /// draw. It mirrors Ghostty's swap-chain `defunct` flag so realize/unrealize
+    /// strictly alternate (Ghostty's `displayRealized` asserts `defunct`).
+    private var rendererRealized = true
+
+    /// Wall-clock time (epoch seconds) this surface was last made visible in the
+    /// UI. Used by `RendererRealizationController` as the LRU key so recently
+    /// used tabs stay warm. Seeded at creation.
+    private(set) var rendererLastVisibleAt: TimeInterval = Date().timeIntervalSince1970
+
+    /// Authoritative on-screen flag, driven by `setVisibleInUI` (the same signal
+    /// that drives Ghostty occlusion). The reclamation controller never releases
+    /// a surface whose portal is visible.
+    private var rendererPortalVisible = false
+
     /// Whether the runtime Ghostty surface exists and has not begun teardown.
     ///
     /// Use this as a quick availability check. Before passing `surface` to
@@ -6865,6 +6885,12 @@ final class TerminalSurface: Identifiable, ObservableObject {
         }
         guard let createdSurface = surface else { return }
         TerminalSurfaceRegistry.shared.registerRuntimeSurface(createdSurface, ownerId: id)
+        // A freshly created runtime surface always owns a live (non-defunct)
+        // swap chain, so it is realized. Reset the flag in case this object's
+        // previous runtime surface had been released before being freed (e.g.
+        // agent-hibernation suspend/restore), which would otherwise let a later
+        // realizeRenderer() double-realize and trip Ghostty's defunct assert.
+        rendererRealized = true
         recordRuntimeSurfaceCreation()
         // Install the PTY tee so MobileTerminalByteTee receives every byte
         // the read thread produces, in order, before the VT parser runs.
@@ -7355,6 +7381,105 @@ final class TerminalSurface: Identifiable, ObservableObject {
     func setOcclusion(_ visible: Bool) {
         guard let surface = surface else { return }
         ghostty_surface_set_occlusion(surface, visible)
+    }
+
+    /// Whether this surface currently holds realized GPU renderer resources.
+    /// Read by `RendererRealizationController` to skip surfaces with nothing to
+    /// release. Requires a live runtime surface — the `rendererRealized` flag
+    /// defaults to `true` even before `createSurface`, so gate on `surface`.
+    var isRendererRealized: Bool { surface != nil && rendererRealized }
+
+    /// Whether this surface's portal is currently visible in the UI. This is the
+    /// authoritative on-screen signal (the same one that drives occlusion via
+    /// `setVisibleInUI`), so the reclamation controller never releases a visible
+    /// surface even if higher-level layout bookkeeping is momentarily stale.
+    var isRendererPortalVisible: Bool { rendererPortalVisible }
+
+    /// Record the portal visibility transition for reclamation. Called from
+    /// `setVisibleInUI`. Stamps the LRU/idle timestamp on BOTH transitions: a
+    /// hide moment is the surface's last-visible time, so the planner's
+    /// `now - rendererLastVisibleAt` measures the true offscreen-idle duration
+    /// from the hide rather than from the last sampling tick (which could reclaim
+    /// the renderer well before `idleSeconds` of being offscreen has elapsed).
+    func setRendererPortalVisible(_ visible: Bool) {
+        let wasVisible = rendererPortalVisible
+        rendererPortalVisible = visible
+        // Stamp the last-visible time while visible, and exactly once at the hide
+        // transition (the hide moment is the last-visible time). Do NOT re-stamp
+        // on repeated hidden updates (setVisibleInUI can be called many times with
+        // visible=false during layout reconciles), or the offscreen-idle clock
+        // would keep resetting and the renderer would never be reclaimed.
+        if visible || wasVisible {
+            noteBecameVisibleForRendererReclamation()
+        }
+    }
+
+    /// Stamp the LRU "last visible" timestamp. The reclamation controller also
+    /// calls this each pass for surfaces that are currently visible so a
+    /// continuously-visible tab keeps a fresh timestamp and stays in the warm set.
+    func noteBecameVisibleForRendererReclamation() {
+        rendererLastVisibleAt = Date().timeIntervalSince1970
+    }
+
+    /// Release the runtime surface's GPU renderer (Metal swap chain / IOSurface)
+    /// while keeping its PTY/io thread and terminal state alive. Driven by
+    /// `RendererRealizationController` for offscreen, idle surfaces. Idempotent:
+    /// no-ops if there is no runtime surface, it is already released, or the
+    /// surface is currently visible (a hard safety net so we never blank an
+    /// on-screen terminal regardless of how the caller picked it).
+    @MainActor
+    func releaseRenderer() {
+#if os(macOS)
+        guard rendererRealized, !rendererPortalVisible else { return }
+        // The reclamation controller is default-on and scans every registered
+        // wrapper, so validate the native pointer (registry ownership +
+        // liveness) before the C call instead of trusting `surface != nil`.
+        // This self-heals a stale wrapper whose runtime surface was freed
+        // out-of-band rather than passing a dangling pointer to Ghostty.
+        guard let surface = liveSurfaceForGhosttyAccess(reason: "renderer.release") else { return }
+        // Only advance our mirror state when the message was actually enqueued
+        // (a `.forever` push can still drop on a spurious wakeup while the
+        // mailbox is full). If it dropped, keep `rendererRealized = true` so the
+        // controller retries on its next pass rather than desyncing from
+        // Ghostty's still-realized swap chain.
+        if ghostty_surface_set_renderer_realized(surface, false) {
+            rendererRealized = false
+        }
+#endif
+    }
+
+    /// Recreate the runtime surface's GPU renderer after a prior `releaseRenderer`.
+    /// Must run before the surface is drawn again (it is called from
+    /// `setVisibleInUI(true)` before occlusion/refresh). Idempotent: no-ops if
+    /// there is no runtime surface or it is already realized, so it never trips
+    /// Ghostty's `displayRealized` `assert(swap_chain.defunct)`.
+    @MainActor
+    func realizeRenderer() {
+#if os(macOS)
+        guard !rendererRealized else { return }
+        // Validate the native pointer before the C call (see releaseRenderer).
+        // If the wrapper is stale this returns nil and tears it down; the next
+        // createSurface re-creates a fresh realized surface, so we never
+        // double-realize a defunct swap chain.
+        guard let surface = liveSurfaceForGhosttyAccess(reason: "renderer.realize") else { return }
+        // Non-blocking enqueue (the C API pushes `.instant`): advance our mirror
+        // state only on success. On re-show the renderer mailbox is normally
+        // empty, so the realize enqueues immediately and the surface is never
+        // presented against a defunct swap chain. In the rare full-mailbox case
+        // the push drops, `rendererRealized` stays false, and the controller's
+        // pass re-realizes any visible-but-unrealized surface as the backstop. We
+        // never block the main actor waiting on the renderer thread.
+        if ghostty_surface_set_renderer_realized(surface, true) {
+            rendererRealized = true
+        } else {
+            // Enqueue dropped (full mailbox, i.e. the renderer thread is not
+            // draining). Kick an immediate reclamation pass so the controller
+            // re-realizes this now-visible surface on the next runloop turn
+            // instead of waiting for the periodic tick, minimizing how long a
+            // re-shown terminal could draw against a defunct swap chain.
+            RendererRealizationController.shared.scheduleImmediatePass()
+        }
+#endif
     }
 
     func needsConfirmClose() -> Bool {
@@ -14244,6 +14369,16 @@ final class GhosttySurfaceScrollView: NSView {
 
     func setVisibleInUI(_ visible: Bool) {
         let wasVisible = surfaceView.isVisibleInUI
+        // Record portal visibility for renderer reclamation. When becoming
+        // visible, re-realize the GPU renderer BEFORE marking the surface
+        // visible/occluded or kicking any draw, so we never draw into a swap
+        // chain that RendererRealizationController released while this surface was
+        // offscreen. realizeRenderer() is idempotent (no-op if there is no runtime
+        // surface or it is already realized).
+        surfaceView.terminalSurface?.setRendererPortalVisible(visible)
+        if visible {
+            surfaceView.terminalSurface?.realizeRenderer()
+        }
         surfaceView.setVisibleInUI(visible)
         isHidden = !visible
         if wasVisible != visible, lastRequestedPortalOcclusionVisible != visible {
