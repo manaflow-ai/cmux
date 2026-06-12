@@ -62,10 +62,15 @@ struct AgentChatPresenter {
         // freshly restored panel misses there, so capture the workspace's own
         // restored-agent snapshot (the resume path's source) as the fallback.
         let restoredSnapshot = workspace.restoredAgentSnapshotForAgentChat(panelId: panelId)
+        // Capture the panel's persisted resume binding on the main actor so the
+        // resolver can fall back to it when both the live index and the
+        // restored snapshot miss (a terminal restored after an app relaunch).
+        let resumeBinding = workspace.surfaceResumeBinding(panelId: panelId)
 #if DEBUG
         cmuxDebugLog(
             "agentChat.present.resolve.start ws=\(workspaceId.uuidString.prefix(5)) " +
-            "panel=\(panelId.uuidString.prefix(5)) restoredSnapshot=\(restoredSnapshot != nil ? 1 : 0)"
+            "panel=\(panelId.uuidString.prefix(5)) restoredSnapshot=\(restoredSnapshot != nil ? 1 : 0) " +
+            "resumeBinding=\(resumeBinding != nil ? 1 : 0)"
         )
 #endif
 
@@ -77,7 +82,8 @@ struct AgentChatPresenter {
                     index: RestorableAgentSessionIndex.load(),
                     restoredSnapshot: restoredSnapshot,
                     workspaceId: workspaceId,
-                    panelId: panelId
+                    panelId: panelId,
+                    resumeBinding: resumeBinding
                 )
             }.value
 

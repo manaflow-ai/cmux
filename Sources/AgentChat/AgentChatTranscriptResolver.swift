@@ -51,14 +51,19 @@ struct AgentChatTranscriptResolver {
     }
 
     /// Resolves a panel's transcript from the restorable-session index, with
-    /// the workspace's in-memory restored-agent snapshot as the fallback.
+    /// the workspace's in-memory restored-agent snapshot and the panel's
+    /// persisted resume binding as fallbacks (in that order).
     ///
     /// The hook-session index is keyed by the `(workspaceId, panelId)` pair the
     /// agent's hooks last reported. A freshly RESTORED panel has new ids and
     /// its resumed agent has not fired a hook yet, so the index lookup misses;
     /// the restored snapshot (the same source the resume path launched from)
-    /// covers that window. The index entry wins when both exist because hooks
-    /// track live session-id changes (e.g. a resume fork).
+    /// covers that window. When neither exists (e.g. the in-memory snapshot
+    /// was consumed or never captured), the panel's persisted resume binding
+    /// (kind + session id + cwd + env, the same tuple cmux resumes from)
+    /// still locates the transcript. The index entry wins when several
+    /// sources exist because hooks track live session-id changes (e.g. a
+    /// resume fork).
     ///
     /// - Parameters:
     ///   - index: The loaded restorable-session index.
@@ -66,48 +71,60 @@ struct AgentChatTranscriptResolver {
     ///     for the panel, when one exists.
     ///   - workspaceId: The panel's workspace id.
     ///   - panelId: The panel id.
+    ///   - resumeBinding: The panel's persisted surface resume binding,
+    ///     consulted when both the index and the restored snapshot miss.
     /// - Returns: The resolution, or `nil` when the panel has no known agent
     ///   session or the agent kind is not a transcript-backed kind P1 supports.
     func resolve(
         index: RestorableAgentSessionIndex,
         restoredSnapshot: SessionRestorableAgentSnapshot?,
         workspaceId: UUID,
-        panelId: UUID
+        panelId: UUID,
+        resumeBinding: SurfaceResumeBindingSnapshot? = nil
     ) -> Resolution? {
         let indexSnapshot = index.snapshot(workspaceId: workspaceId, panelId: panelId)
 #if DEBUG
         cmuxDebugLog(
             "agentChat.resolve.sources indexHit=\(indexSnapshot != nil ? 1 : 0) " +
-            "restoredHit=\(restoredSnapshot != nil ? 1 : 0)"
+            "restoredHit=\(restoredSnapshot != nil ? 1 : 0) " +
+            "bindingHit=\(resumeBinding != nil ? 1 : 0)"
         )
 #endif
-        guard let snapshot = indexSnapshot ?? restoredSnapshot else {
+        let snapshotInputs = (indexSnapshot ?? restoredSnapshot).map { snapshot in
+            ResolutionInputs(
+                kind: snapshot.kind,
+                sessionId: snapshot.sessionId,
+                cwd: snapshot.workingDirectory,
+                environment: snapshot.launchCommand?.environment
+            )
+        }
+        guard let inputs = snapshotInputs ?? resumeBindingInputs(resumeBinding) else {
 #if DEBUG
             cmuxDebugLog(
-                "agentChat.resolve.miss reason=noIndexEntryOrRestoredSnapshot " +
+                "agentChat.resolve.miss reason=noIndexEntryOrRestoredSnapshotOrBinding " +
                 "ws=\(workspaceId.uuidString.prefix(5)) panel=\(panelId.uuidString.prefix(5))"
             )
 #endif
             return nil
         }
-        let sessionId = snapshot.sessionId
+        let sessionId = inputs.sessionId
         guard !sessionId.isEmpty else {
 #if DEBUG
-            cmuxDebugLog("agentChat.resolve.miss reason=emptySessionId kind=\(snapshot.kind.rawValue)")
+            cmuxDebugLog("agentChat.resolve.miss reason=emptySessionId kind=\(inputs.kind.rawValue)")
 #endif
             return nil
         }
-        let cwd = snapshot.workingDirectory
+        let cwd = inputs.cwd
 #if DEBUG
         cmuxDebugLog(
-            "agentChat.resolve.snapshot kind=\(snapshot.kind.rawValue) " +
+            "agentChat.resolve.snapshot kind=\(inputs.kind.rawValue) " +
             "session=\(sessionId.prefix(8)) hasCwd=\(cwd != nil ? 1 : 0)"
         )
 #endif
 
-        switch snapshot.kind {
+        switch inputs.kind {
         case .claude:
-            let configuredRoot = snapshot.launchCommand?.environment?["CLAUDE_CONFIG_DIR"]
+            let configuredRoot = inputs.environment?["CLAUDE_CONFIG_DIR"]
             let transcriptURL = claudeTranscriptURL(
                 sessionId: sessionId,
                 cwd: cwd,
@@ -126,7 +143,7 @@ struct AgentChatTranscriptResolver {
                 transcriptURL: transcriptURL
             )
         case .codex:
-            let codexHome = snapshot.launchCommand?.environment?["CODEX_HOME"]
+            let codexHome = inputs.environment?["CODEX_HOME"]
             let transcriptURL = codexTranscriptURL(sessionId: sessionId, codexHome: codexHome)
 #if DEBUG
             cmuxDebugLog(
@@ -143,9 +160,63 @@ struct AgentChatTranscriptResolver {
         default:
             // Other agents are not transcript-backed in the P1 parsers.
 #if DEBUG
-            cmuxDebugLog("agentChat.resolve.miss reason=unsupportedKind kind=\(snapshot.kind.rawValue)")
+            cmuxDebugLog("agentChat.resolve.miss reason=unsupportedKind kind=\(inputs.kind.rawValue)")
 #endif
             return nil
+        }
+    }
+
+    /// The transcript-lookup inputs for a panel, normalized from whichever
+    /// source resolved them (index snapshot, restored snapshot, or persisted
+    /// resume binding).
+    private struct ResolutionInputs {
+        let kind: RestorableAgentKind
+        let sessionId: String
+        let cwd: String?
+        let environment: [String: String]?
+    }
+
+    /// Inputs reconstructed from a panel's persisted resume binding, used when
+    /// both the live index and the restored snapshot miss (e.g. a terminal
+    /// restored after an app relaunch whose in-memory snapshot is gone). The
+    /// binding's `checkpointId` is the agent session id the resume path uses;
+    /// `kind` is the persisted agent-kind string.
+    private func resumeBindingInputs(_ binding: SurfaceResumeBindingSnapshot?) -> ResolutionInputs? {
+        guard let binding,
+              let sessionId = binding.checkpointId,
+              isSafeSessionFilenameComponent(sessionId),
+              let kind = restorableKind(fromBindingKind: binding.kind) else {
+            return nil
+        }
+        return ResolutionInputs(
+            kind: kind,
+            sessionId: sessionId,
+            cwd: binding.cwd,
+            environment: binding.environment
+        )
+    }
+
+    /// Whether a session id from a persisted resume binding is safe to use as a
+    /// transcript filename component. The resume binding is a trust boundary
+    /// (it can be created through the public resume path and does not validate
+    /// the checkpoint id), and the session id is later appended to a project /
+    /// sessions directory, so a value containing a path separator or `..` could
+    /// escape into another reachable `.jsonl`. Mirrors the live index path's
+    /// Claude safe-filename invariant.
+    private func isSafeSessionFilenameComponent(_ sessionId: String) -> Bool {
+        !sessionId.isEmpty
+            && sessionId != "."
+            && sessionId != ".."
+            && sessionId.range(of: #"[\\/]"#, options: .regularExpression) == nil
+    }
+
+    /// Maps a resume binding's kind string to a `RestorableAgentKind`, limited
+    /// to the transcript-backed kinds the P1 parsers support.
+    private func restorableKind(fromBindingKind kind: String?) -> RestorableAgentKind? {
+        switch kind?.lowercased() {
+        case "claude": return .claude
+        case "codex": return .codex
+        default: return nil
         }
     }
 
@@ -179,8 +250,45 @@ struct AgentChatTranscriptResolver {
                     .appending(fileName)
                 if regularFileExists(path) { return URL(fileURLWithPath: path) }
             }
+
+            // Workflow/sub-agent case: the recorded session id is a *container*
+            // directory and the real transcript is a newer sibling `.jsonl`
+            // with a different id in the same project dir. Mirrors the live
+            // index path's workflow-container resolution so restored workflow
+            // panels resolve their transcript too.
+            for dir in projectDirs {
+                let projectDir = (projectsRoot as NSString).appendingPathComponent(dir)
+                let container = (projectDir as NSString).appendingPathComponent(sessionId)
+                var isDir: ObjCBool = false
+                guard fileManager.fileExists(atPath: container, isDirectory: &isDir), isDir.boolValue else {
+                    continue
+                }
+                if let sibling = newestSiblingTranscript(in: projectDir, excludingSessionId: sessionId) {
+                    return sibling
+                }
+            }
         }
         return nil
+    }
+
+    /// The newest `<id>.jsonl` transcript in `projectDir` whose id is not
+    /// `excludedSessionId`, by file modification time. Used for the Claude
+    /// workflow-container fallback.
+    private func newestSiblingTranscript(in projectDir: String, excludingSessionId excluded: String) -> URL? {
+        guard let children = try? fileManager.contentsOfDirectory(atPath: projectDir) else { return nil }
+        var best: (url: URL, modifiedAt: Date)?
+        for child in children where child.hasSuffix(".jsonl") {
+            let id = String(child.dropLast(".jsonl".count))
+            guard id != excluded, !id.isEmpty else { continue }
+            let path = (projectDir as NSString).appendingPathComponent(child)
+            guard regularFileExists(path) else { continue }
+            let modified = (try? fileManager.attributesOfItem(atPath: path)[.modificationDate] as? Date) ?? nil
+            let when = modified ?? .distantPast
+            if best == nil || when > best!.modifiedAt {
+                best = (URL(fileURLWithPath: path), when)
+            }
+        }
+        return best?.url
     }
 
     /// The ordered Claude config roots to search, mirroring the restore/resume
