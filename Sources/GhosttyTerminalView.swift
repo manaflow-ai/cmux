@@ -7230,8 +7230,16 @@ final class TerminalSurface: Identifiable, ObservableObject {
     /// from the hide rather than from the last sampling tick (which could reclaim
     /// the renderer well before `idleSeconds` of being offscreen has elapsed).
     func setRendererPortalVisible(_ visible: Bool) {
+        let wasVisible = rendererPortalVisible
         rendererPortalVisible = visible
-        noteBecameVisibleForRendererReclamation()
+        // Stamp the last-visible time while visible, and exactly once at the hide
+        // transition (the hide moment is the last-visible time). Do NOT re-stamp
+        // on repeated hidden updates (setVisibleInUI can be called many times with
+        // visible=false during layout reconciles), or the offscreen-idle clock
+        // would keep resetting and the renderer would never be reclaimed.
+        if visible || wasVisible {
+            noteBecameVisibleForRendererReclamation()
+        }
     }
 
     /// Stamp the LRU "last visible" timestamp. The reclamation controller also
