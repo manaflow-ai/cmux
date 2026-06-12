@@ -35,18 +35,6 @@ public final class GhosttyMetalLayer: CAMetalLayer {
         lock.unlock()
     }
 
-    private func currentFrameReceiver() -> (any TerminalRenderedFrameReceiving)? {
-        lock.lock()
-        defer { lock.unlock() }
-        return frameReceiver
-    }
-
-    private func currentRenderDemand() -> (any RenderDemandGating)? {
-        lock.lock()
-        defer { lock.unlock() }
-        return renderDemand
-    }
-
     /// The number of drawables vended so far and the media time of the last
     /// one, for debug HUDs.
     public func debugStats() -> (count: Int, last: CFTimeInterval) {
@@ -57,12 +45,17 @@ public final class GhosttyMetalLayer: CAMetalLayer {
 
     override public func nextDrawable() -> (any CAMetalDrawable)? {
         guard let drawable = super.nextDrawable() else { return nil }
+        // One critical section for the instrumentation write and both
+        // injected-collaborator reads; the render thread takes this lock once
+        // per vended drawable.
         lock.lock()
         drawableCount += 1
         lastDrawableTime = CACurrentMediaTime()
+        let renderDemand = renderDemand
+        let frameReceiver = frameReceiver
         lock.unlock()
-        guard currentRenderDemand()?.isActive == true else { return drawable }
-        if let frameReceiver = currentFrameReceiver() {
+        guard renderDemand?.isActive == true else { return drawable }
+        if let frameReceiver {
             // Hop to the main actor exactly like the legacy
             // DispatchQueue.main.async dispatch (the main-actor executor is
             // the main queue); the receiver coalesces bursts on arrival.
