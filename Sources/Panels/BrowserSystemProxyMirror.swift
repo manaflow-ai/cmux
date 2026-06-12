@@ -34,15 +34,20 @@ struct BrowserSystemProxyMirror: Equatable {
     /// The proxy every non-excluded connection should use.
     let proxy: Proxy
 
-    /// Hostname suffixes that bypass the proxy: the loopback defaults merged
+    /// Hostname suffixes that bypass the proxy: the implicit defaults merged
     /// with the expressible entries of the user's macOS proxy bypass list.
     let excludedDomains: [String]
 
     /// Hosts that always connect directly, mirroring Chromium's implicit
     /// proxy-bypass rules: localhost (and subdomains), the canonical
-    /// IPv4/IPv6 loopback literals, and mDNS `.local` names. Entries are
+    /// IPv4/IPv6 loopback literals, mDNS `.local` names, and the link-local
+    /// instance-metadata endpoint (`169.254.169.254` can carry cloud
+    /// credentials, and the broader `169.254/16` system bypass is not
+    /// representable — see `init?(systemProxySettings:)`). Entries are
     /// domain suffixes, so `"local"` covers `*.local`.
-    static let loopbackExclusions: [String] = ["localhost", "127.0.0.1", "::1", "local"]
+    static let implicitExclusions: [String] = [
+        "localhost", "127.0.0.1", "::1", "local", "169.254.169.254",
+    ]
 
     /// Maps a `CFNetworkCopySystemProxySettings()` dictionary to an explicit
     /// proxy + bypass mirror, or `nil` when the active configuration cannot
@@ -160,8 +165,8 @@ struct BrowserSystemProxyMirror: Equatable {
     /// exclusions cannot express. Leading `*.` / `.` prefixes are normalized
     /// away (`*.local` → `local`), entries are lowercased and deduplicated.
     private static func mergedExcludedDomains(systemBypassList: [String]) -> [String]? {
-        var seen = Set(loopbackExclusions)
-        var merged = loopbackExclusions
+        var seen = Set(implicitExclusions)
+        var merged = implicitExclusions
         for rawEntry in systemBypassList {
             switch resolveBypassEntry(rawEntry) {
             case .domain(let entry):

@@ -226,13 +226,13 @@ import Testing
 
     // MARK: - Excluded domains (loopback bypass + system bypass list)
 
-    @Test("Loopback is always excluded from the mirrored proxy")
+    @Test("Loopback and the metadata endpoint are always excluded from the mirrored proxy")
     func loopbackIsAlwaysExcluded() throws {
         let mirror = try #require(
             BrowserSystemProxyMirror(systemProxySettings: webProxySettings())
         )
-        #expect(mirror.excludedDomains == BrowserSystemProxyMirror.loopbackExclusions)
-        for host in ["localhost", "127.0.0.1", "::1", "local"] {
+        #expect(mirror.excludedDomains == BrowserSystemProxyMirror.implicitExclusions)
+        for host in ["localhost", "127.0.0.1", "::1", "local", "169.254.169.254"] {
             #expect(mirror.excludedDomains.contains(host))
         }
     }
@@ -248,7 +248,7 @@ import Testing
         )
         #expect(
             mirror.excludedDomains ==
-                BrowserSystemProxyMirror.loopbackExclusions +
+                BrowserSystemProxyMirror.implicitExclusions +
                 ["intranet.corp.example", "printer.home.arpa"]
         )
     }
@@ -272,7 +272,7 @@ import Testing
         )
         #expect(
             mirror.excludedDomains ==
-                BrowserSystemProxyMirror.loopbackExclusions +
+                BrowserSystemProxyMirror.implicitExclusions +
                 ["myhost.corp", "padded.example.com", "dotted.example.com"]
         )
     }
@@ -288,7 +288,7 @@ import Testing
         )
         #expect(
             mirror.excludedDomains ==
-                BrowserSystemProxyMirror.loopbackExclusions + ["kept.example.com"]
+                BrowserSystemProxyMirror.implicitExclusions + ["kept.example.com"]
         )
     }
 
@@ -320,7 +320,7 @@ import Testing
         )
         #expect(
             mirror.excludedDomains ==
-                BrowserSystemProxyMirror.loopbackExclusions + ["kept.example.com"]
+                BrowserSystemProxyMirror.implicitExclusions + ["kept.example.com"]
         )
     }
 
@@ -335,7 +335,7 @@ import Testing
         )
         #expect(
             mirror.excludedDomains ==
-                BrowserSystemProxyMirror.loopbackExclusions + ["kept.example.com"]
+                BrowserSystemProxyMirror.implicitExclusions + ["kept.example.com"]
         )
     }
 
