@@ -11,6 +11,33 @@ import Testing
 @MainActor
 @Suite("Titlebar interactive controls")
 struct TitlebarInteractiveControlTests {
+    private final class RecordingDragWindow: NSWindow {
+        var performDragCallCount = 0
+        var isMovableDuringPerformDrag: Bool?
+
+        override func performDrag(with event: NSEvent) {
+            performDragCallCount += 1
+            isMovableDuringPerformDrag = isMovable
+        }
+    }
+
+    private static func makeLeftMouseDownEvent(location: NSPoint, window: NSWindow, clickCount: Int = 1) -> NSEvent {
+        guard let event = NSEvent.mouseEvent(
+            with: .leftMouseDown,
+            location: location,
+            modifierFlags: [],
+            timestamp: ProcessInfo.processInfo.systemUptime,
+            windowNumber: window.windowNumber,
+            context: nil,
+            eventNumber: 1,
+            clickCount: clickCount,
+            pressure: 1.0
+        ) else {
+            fatalError("Expected to create titlebar accessory mouse-down event")
+        }
+        return event
+    }
+
     /// `titlebarInteractiveControl()` registers the control's region (without
     /// reparenting it). The explicit `WindowDragHandleView` must yield to that
     /// registered region so a click toggles the control instead of starting a
@@ -112,22 +139,46 @@ struct TitlebarInteractiveControlTests {
         )
     }
 
-    @Test func emptyAccessoryChromeCanMoveWindow() {
+    @Test func emptyAccessoryChromeUsesExplicitWindowDragPath() {
         _ = NSApplication.shared
+
+        let window = RecordingDragWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 180, height: 44),
+            styleMask: [.titled, .closable, .resizable],
+            backing: .buffered,
+            defer: false
+        )
+        defer { window.orderOut(nil) }
+        window.isMovable = false
 
         let controller = TitlebarControlsAccessoryViewController(notificationStore: TerminalNotificationStore.shared)
         let container = controller.view
         container.frame = NSRect(x: 0, y: 0, width: 180, height: 44)
+        window.contentView = container
 
         let emptyTopRightPoint = NSPoint(x: container.bounds.maxX - 4, y: container.bounds.maxY - 4)
         guard let hitView = container.hitTest(emptyTopRightPoint) else {
-            Issue.record("Expected empty titlebar accessory chrome to participate in window dragging")
+            Issue.record("Expected empty titlebar accessory chrome to receive the drag mouse-down")
             return
         }
 
+        #expect(hitView === container)
         #expect(
-            hitView.mouseDownCanMoveWindow,
-            "Empty titlebar accessory chrome should let AppKit move the window instead of swallowing the mouse-down."
+            !hitView.mouseDownCanMoveWindow,
+            "Empty accessory chrome must not rely on native AppKit window dragging because main windows are normally immovable."
+        )
+
+        let event = Self.makeLeftMouseDownEvent(location: emptyTopRightPoint, window: window)
+        hitView.mouseDown(with: event)
+
+        #expect(window.performDragCallCount == 1)
+        #expect(
+            window.isMovableDuringPerformDrag == true,
+            "Empty accessory chrome should temporarily enable main-window movement before calling performDrag(with:)."
+        )
+        #expect(
+            !window.isMovable,
+            "Explicit accessory dragging must restore the main window to its normal immovable state."
         )
     }
 

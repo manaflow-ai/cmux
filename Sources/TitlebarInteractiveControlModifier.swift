@@ -6,7 +6,7 @@ final class TitlebarAccessoryContainerView: NSView {
         eventType == nil || eventType == .leftMouseDown
     }
 
-    override var mouseDownCanMoveWindow: Bool { true }
+    override var mouseDownCanMoveWindow: Bool { false }
 
     override func hitTest(_ point: NSPoint) -> NSView? {
         guard bounds.contains(point) else { return nil }
@@ -14,6 +14,28 @@ final class TitlebarAccessoryContainerView: NSView {
             return super.hitTest(point)
         }
         return super.hitTest(point) ?? self
+    }
+
+    override func mouseDown(with event: NSEvent) {
+        if event.clickCount >= 2 {
+            let result = handleTitlebarDoubleClick(
+                window: window,
+                behavior: .standardAction
+            )
+            if result.consumesEvent {
+                return
+            }
+        }
+
+        guard !isWindowDragSuppressed(window: window) else { return }
+
+        if let window {
+            withTemporaryWindowMovableEnabled(window: window) {
+                window.performDrag(with: event)
+            }
+        } else {
+            super.mouseDown(with: event)
+        }
     }
 }
 
