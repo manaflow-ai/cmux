@@ -187,14 +187,39 @@ public final class MobilePushCoordinator {
             return
         }
         guard let store else { return }
+
+        // Resolve the workspace to navigate to: the explicit target, or for a
+        // surface-only tap the workspace that owns the terminal. Unresolvable
+        // means "not loaded yet": stay parked for the next topology change so
+        // the tap is never spent on a selection that cannot navigate.
+        let workspaceTarget: MobileWorkspacePreview.ID
         if let workspaceId = pending.workspaceId {
-            let target = MobileWorkspacePreview.ID(rawValue: workspaceId)
-            // Wait for the attach to deliver the workspace; selecting an
-            // absent ID would not navigate and a later list load could not
-            // re-trigger the push.
-            guard store.workspaces.contains(where: { $0.id == target }) else { return }
-            store.selectedWorkspaceID = target
+            workspaceTarget = MobileWorkspacePreview.ID(rawValue: workspaceId)
+            guard store.workspaces.contains(where: { $0.id == workspaceTarget }) else { return }
+        } else if let surfaceId = pending.surfaceId {
+            guard let owner = store.workspaceID(containingSurfaceID: surfaceId) else { return }
+            workspaceTarget = owner
+        } else {
+            pendingDeeplink = nil
+            return
         }
+
+        if let surfaceId = pending.surfaceId,
+           !store.workspace(workspaceTarget, containsSurfaceID: surfaceId) {
+            // The workspace is here but its terminal snapshot is not (still
+            // loading, or the terminal was closed). Land the user in the right
+            // workspace now and keep only the surface part parked so it can
+            // resolve if the terminal arrives, bounded by the same expiry.
+            store.navigateToWorkspaceForDeeplink(workspaceTarget)
+            pendingDeeplink = PendingDeeplink(
+                workspaceId: nil,
+                surfaceId: surfaceId,
+                createdAt: pending.createdAt
+            )
+            return
+        }
+
+        store.navigateToWorkspaceForDeeplink(workspaceTarget)
         if let surfaceId = pending.surfaceId {
             store.selectTerminal(MobileTerminalPreview.ID(rawValue: surfaceId))
         }

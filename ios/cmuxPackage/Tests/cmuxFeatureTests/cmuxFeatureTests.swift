@@ -3603,3 +3603,69 @@ private struct InertPushRegistration: PushRegistering {
     #expect(store.selectedWorkspaceID == nil)
     #expect(store.selectedTerminalID == nil)
 }
+
+/// A surface-only tap (no workspaceId in the payload) must wait for the
+/// terminal's owning workspace to load, then navigate to that workspace and
+/// select the terminal. Pre-fix it bypassed the membership gate: the terminal
+/// was selected against an empty store and the tap was discarded with no
+/// retry, stranding the user on the home screen.
+@Test @MainActor func surfaceOnlyNotificationTapWaitsForOwningWorkspace() async throws {
+    let coordinator = MobilePushCoordinator(registration: InertPushRegistration())
+    let store = deeplinkTestStore()
+    coordinator.bind(store: store)
+
+    coordinator.handleTap(workspaceId: nil, surfaceId: "terminal-notes")
+    // Nothing loaded yet: the tap must stay parked, not be spent.
+    #expect(store.selectedTerminalID == nil)
+
+    store.workspaces = PreviewMobileHost.workspaces
+    coordinator.workspacesDidChange()
+
+    #expect(store.selectedWorkspaceID == MobileWorkspacePreview.ID(rawValue: "workspace-docs"))
+    #expect(store.selectedTerminalID == MobileTerminalPreview.ID(rawValue: "terminal-notes"))
+}
+
+/// The workspace snapshot can arrive before its terminal list fills in. The
+/// tap lands the user in the right workspace immediately and keeps the
+/// terminal part parked, selecting it when its snapshot arrives instead of
+/// pointing the store at a non-existent surface.
+@Test @MainActor func notificationTapKeepsTerminalParkedUntilItsSnapshotArrives() async throws {
+    let coordinator = MobilePushCoordinator(registration: InertPushRegistration())
+    let store = deeplinkTestStore()
+    coordinator.bind(store: store)
+
+    coordinator.handleTap(workspaceId: "workspace-docs", surfaceId: "terminal-notes")
+    store.workspaces = [
+        MobileWorkspacePreview(id: "workspace-docs", name: "Docs", terminals: [])
+    ]
+    coordinator.workspacesDidChange()
+
+    // Workspace navigation happens now; the absent terminal is not selected.
+    #expect(store.selectedWorkspaceID == MobileWorkspacePreview.ID(rawValue: "workspace-docs"))
+    #expect(store.selectedTerminalID == nil)
+
+    store.workspaces = PreviewMobileHost.workspaces
+    coordinator.workspacesDidChange()
+
+    #expect(store.selectedTerminalID == MobileTerminalPreview.ID(rawValue: "terminal-notes"))
+}
+
+/// A resolved tap must emit the one-shot navigation intent the compact
+/// (iPhone) shell consumes to push its `NavigationStack`: selection alone
+/// leaves an empty path untouched by design, which is what stranded
+/// cold-launch taps on the workspaces home screen.
+@Test @MainActor func notificationTapEmitsConsumableCompactNavigationIntent() async throws {
+    let coordinator = MobilePushCoordinator(registration: InertPushRegistration())
+    let store = deeplinkTestStore()
+    store.workspaces = PreviewMobileHost.workspaces
+    coordinator.bind(store: store)
+
+    coordinator.handleTap(workspaceId: "workspace-docs", surfaceId: nil)
+
+    let target = MobileWorkspacePreview.ID(rawValue: "workspace-docs")
+    #expect(store.deeplinkWorkspaceNavigationRequest?.workspaceID == target)
+    #expect(store.consumeDeeplinkWorkspaceNavigationRequest() == target)
+    // One-shot: a later layout remount cannot replay a stale push.
+    #expect(store.deeplinkWorkspaceNavigationRequest == nil)
+    #expect(store.consumeDeeplinkWorkspaceNavigationRequest() == nil)
+}
