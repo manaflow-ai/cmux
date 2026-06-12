@@ -58,12 +58,25 @@ extension MobileWorkspacePreview {
     }
 
     func accessibilitySummary(connectionStatus: MobileMacConnectionStatus) -> String {
-        let detail = detailLine(connectionStatus: connectionStatus)
+        let detail = [unreadAccessibilityStatus, detailLine(connectionStatus: connectionStatus)]
+            .compactMap { $0 }
+            .joined(separator: ", ")
         // A healthy connection contributes no status text anywhere, including VoiceOver.
         guard connectionStatus != .connected else {
             return "\(previewLine), \(detail)"
         }
         return "\(previewLine), \(connectionStatus.label), \(detail)"
+    }
+
+    private var unreadAccessibilityStatus: String? {
+        guard isUnread else { return nil }
+        if unreadCount == 1 {
+            return L10n.string("mobile.workspace.unreadStatus.one", defaultValue: "Unread")
+        }
+        return String(
+            format: L10n.string("mobile.workspace.unreadStatus.other", defaultValue: "%d unread"),
+            unreadCount
+        )
     }
 
     private var latestActivityDate: Date { .distantPast }

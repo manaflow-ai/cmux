@@ -28,6 +28,11 @@ struct WorkspaceRow: View {
                         .foregroundStyle(isSelected ? Color.accentColor : Color.primary)
                         .lineLimit(wrapWorkspaceTitles ? nil : 1)
 
+                    if workspace.isUnread {
+                        WorkspaceUnreadIndicator(unreadCount: workspace.unreadCount)
+                            .accessibilityHidden(true)
+                    }
+
                     Spacer(minLength: 8)
 
                     Text(workspace.timestampOrStatus(connectionStatus: connectionStatus))
@@ -79,6 +84,28 @@ struct WorkspaceAvatar: View {
                 .font(.headline)
                 .foregroundStyle(.white)
                 .accessibilityHidden(true)
+        }
+    }
+}
+
+private struct WorkspaceUnreadIndicator: View {
+    let unreadCount: Int
+
+    var body: some View {
+        if unreadCount > 1 {
+            Text("\(min(unreadCount, 99))")
+                .font(.caption2.weight(.semibold))
+                .monospacedDigit()
+                .foregroundStyle(.white)
+                .lineLimit(1)
+                .minimumScaleFactor(0.8)
+                .padding(.horizontal, 5)
+                .frame(minWidth: 18, minHeight: 18)
+                .background(Capsule().fill(Color.accentColor))
+        } else {
+            Circle()
+                .fill(Color.accentColor)
+                .frame(width: 8, height: 8)
         }
     }
 }
