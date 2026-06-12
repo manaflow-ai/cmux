@@ -11,14 +11,14 @@ import CmuxCanvas
 /// and ``CanvasTheme``.
 @MainActor
 public final class CanvasRootView: NSView {
-    private let model: CanvasModel
-    private let callbacks: CanvasHostCallbacks
+    let model: CanvasModel
+    let callbacks: CanvasHostCallbacks
     private let themeProvider: () -> CanvasTheme
-    private let scrollView: CanvasScrollView
+    let scrollView: CanvasScrollView
     private let documentView = CanvasDocumentView()
-    private let guidesView = CanvasGuidesView()
+    let guidesView = CanvasGuidesView()
 
-    private var paneViews: [CanvasPaneID: CanvasPaneView] = [:]
+    var paneViews: [CanvasPaneID: CanvasPaneView] = [:]
     /// One mount per pane: its selected tab's content. Keyed by panel id.
     private var mounts: [UUID: any CanvasPaneContentMounting] = [:]
     /// The panel currently mounted in each pane.
@@ -28,9 +28,9 @@ public final class CanvasRootView: NSView {
     private var renderingByPane: [CanvasPaneID: Bool] = [:]
     private var isWorkspaceVisible = true
     /// Canvas coordinates of the document view's (0,0).
-    private var documentOriginInCanvas: CGPoint = .zero
-    private var dragSession: DragSession?
-    private var overviewRestore: (magnification: CGFloat, origin: CGPoint)?
+    var documentOriginInCanvas: CGPoint = .zero
+    var dragSession: DragSession?
+    var overviewRestore: (magnification: CGFloat, origin: CGPoint)?
     private var clipBoundsObserver: (any NSObjectProtocol)?
     private var commandScrollMonitor: Any?
     private var hasPlacedInitialViewport = false
@@ -38,10 +38,10 @@ public final class CanvasRootView: NSView {
     /// Extra viewport fraction kept rendering around the visible rect so
     /// panes don't flicker on at the edge mid-flick.
     private static let lifecycleMarginFraction: CGFloat = 0.5
-    private static let revealMargin: CGFloat = 24
-    private static let overviewPadding: CGFloat = 48
+    static let revealMargin: CGFloat = 24
+    static let overviewPadding: CGFloat = 48
 
-    private struct DragSession {
+    struct DragSession {
         let paneID: CanvasPaneID
         let region: CanvasPaneHitRegion
         let originalFrame: CGRect
@@ -203,7 +203,7 @@ public final class CanvasRootView: NSView {
     /// Creates/removes pane views to match the model's pane set and brings
     /// each pane's mount and chrome up to date from the cached descriptors.
     /// Runs on every sync and after external model mutations (socket verbs).
-    private func reconcilePanes() {
+    func reconcilePanes() {
         let livePaneIDs = Set(model.layout.paneIDs)
         for (paneID, paneView) in paneViews where !livePaneIDs.contains(paneID) {
             if let mounted = mountedPanelByPane[paneID] {
@@ -235,7 +235,7 @@ public final class CanvasRootView: NSView {
 
     /// Mounts the pane's selected tab, unmounting whatever was mounted
     /// before. Content mounts exactly while it is the visible tab.
-    private func reconcileMount(for pane: CanvasPane, in paneView: CanvasPaneView) {
+    func reconcileMount(for pane: CanvasPane, in paneView: CanvasPaneView) {
         let selected = pane.selectedPanelId.rawValue
         let mounted = mountedPanelByPane[pane.id]
         guard mounted != selected else { return }
@@ -256,7 +256,7 @@ public final class CanvasRootView: NSView {
     }
 
     /// Builds the pane's strip chrome from the latest descriptors.
-    private func chrome(for pane: CanvasPane) -> CanvasPaneChrome {
+    func chrome(for pane: CanvasPane) -> CanvasPaneChrome {
         let tabs = pane.panelIds.compactMap { descriptorsByPanelId[$0.rawValue]?.tab }
         let isFocused = pane.panelIds.contains { descriptorsByPanelId[$0.rawValue]?.isFocused == true }
         let closeLabel = descriptorsByPanelId[pane.selectedPanelId.rawValue]?.closeActionLabel
@@ -270,7 +270,7 @@ public final class CanvasRootView: NSView {
         )
     }
 
-    private func applyZOrder() {
+    func applyZOrder() {
         for paneID in model.layout.paneIDs {
             if let paneView = paneViews[paneID] {
                 documentView.addSubview(paneView, positioned: .above, relativeTo: nil)
@@ -279,7 +279,7 @@ public final class CanvasRootView: NSView {
         documentView.addSubview(guidesView, positioned: .above, relativeTo: nil)
     }
 
-    private func applyAllPaneFrames() {
+    func applyAllPaneFrames() {
         for (paneID, paneView) in paneViews {
             guard dragSession?.paneID != paneID else { continue }
             if let frame = model.layout.frame(of: paneID)?.cgRect {
@@ -290,7 +290,7 @@ public final class CanvasRootView: NSView {
 
     // MARK: Coordinate spaces
 
-    private func documentRect(fromCanvas rect: CGRect) -> CGRect {
+    func documentRect(fromCanvas rect: CGRect) -> CGRect {
         rect.offsetBy(dx: -documentOriginInCanvas.x, dy: -documentOriginInCanvas.y)
     }
 
@@ -300,7 +300,7 @@ public final class CanvasRootView: NSView {
 
     /// Sizes the document around the content with a viewport-sized margin on
     /// every side, shifting the scroll origin so nothing moves on screen.
-    private func recomputeDocumentGeometry() {
+    func recomputeDocumentGeometry() {
         let clipSize = scrollView.contentView.bounds.size
         let marginX = max(clipSize.width, 500)
         let marginY = max(clipSize.height, 400)
@@ -349,7 +349,7 @@ public final class CanvasRootView: NSView {
     /// Explicit pane lifecycle: panes within the visible rect (plus margin)
     /// render; everything else stops (Ghostty occlusion). Frames never change
     /// while offscreen, so re-entry never reflows.
-    private func updateLifecycle() {
+    func updateLifecycle() {
         let visible = scrollView.contentView.documentVisibleRect
         let margin = CGSize(
             width: visible.width * Self.lifecycleMarginFraction,
@@ -377,7 +377,7 @@ public final class CanvasRootView: NSView {
         setClipOrigin(target, animated: animated)
     }
 
-    private func setClipOrigin(_ origin: CGPoint, animated: Bool) {
+    func setClipOrigin(_ origin: CGPoint, animated: Bool) {
         if animated {
             NSAnimationContext.runAnimationGroup { context in
                 context.duration = 0.28
@@ -389,229 +389,6 @@ public final class CanvasRootView: NSView {
         } else {
             scrollView.contentView.setBoundsOrigin(origin)
             scrollView.reflectScrolledClipView(scrollView.contentView)
-        }
-    }
-}
-
-// MARK: - CanvasViewportControlling
-
-extension CanvasRootView: CanvasViewportControlling {
-    public func modelDidChangeExternally(animated: Bool) {
-        reconcilePanes()
-        applyZOrder()
-        recomputeDocumentGeometry()
-        if animated {
-            NSAnimationContext.runAnimationGroup({ context in
-                context.duration = 0.25
-                context.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
-                context.allowsImplicitAnimation = true
-                for (paneID, paneView) in paneViews {
-                    if let frame = model.layout.frame(of: paneID)?.cgRect {
-                        paneView.animator().frame = documentRect(fromCanvas: frame)
-                    }
-                }
-            }, completionHandler: { [weak self] in
-                guard let self else { return }
-                self.callbacks.onViewportGeometryChanged(self.window)
-            })
-        } else {
-            applyAllPaneFrames()
-        }
-        updateLifecycle()
-        callbacks.onLayoutChanged()
-        callbacks.onViewportGeometryChanged(window)
-    }
-
-    public func revealPane(_ panelId: UUID, animated: Bool) {
-        guard let frame = model.frame(of: panelId) else { return }
-        let docFrame = documentRect(fromCanvas: frame)
-        let visible = scrollView.contentView.documentVisibleRect
-        let origin = CanvasViewportMath().originToReveal(
-            CanvasRect(docFrame),
-            viewportOrigin: CanvasPoint(visible.origin),
-            viewportSize: CanvasSize(visible.size),
-            margin: Self.revealMargin
-        )
-        guard origin.cgPoint != visible.origin else { return }
-        setClipOrigin(origin.cgPoint, animated: animated)
-    }
-
-    public func zoom(by factor: CGFloat) {
-        // An explicit zoom invalidates the overview round-trip restore.
-        overviewRestore = nil
-        let target = min(
-            max(scrollView.magnification * factor, scrollView.minMagnification),
-            scrollView.maxMagnification
-        )
-        setMagnification(target)
-    }
-
-    public func resetZoom() {
-        overviewRestore = nil
-        setMagnification(1.0)
-    }
-
-    /// Animates to `magnification`, keeping the current viewport center
-    /// fixed (explicit origin math; `setMagnification(centeredAt:)` drifts
-    /// on large deltas).
-    private func setMagnification(_ magnification: CGFloat) {
-        guard magnification != scrollView.magnification else { return }
-        let visible = scrollView.contentView.documentVisibleRect
-        let center = CGPoint(x: visible.midX, y: visible.midY)
-        let viewportSize = scrollView.contentSize
-        let clipSize = CGSize(
-            width: viewportSize.width / magnification,
-            height: viewportSize.height / magnification
-        )
-        let targetOrigin = CGPoint(
-            x: center.x - clipSize.width / 2,
-            y: center.y - clipSize.height / 2
-        )
-        NSAnimationContext.runAnimationGroup { context in
-            context.duration = 0.2
-            context.allowsImplicitAnimation = true
-            scrollView.animator().magnification = magnification
-            scrollView.contentView.animator().setBoundsOrigin(targetOrigin)
-            scrollView.reflectScrolledClipView(scrollView.contentView)
-        }
-    }
-
-    public func toggleOverview() {
-        if let restore = overviewRestore {
-            overviewRestore = nil
-            NSAnimationContext.runAnimationGroup { context in
-                context.duration = 0.3
-                context.allowsImplicitAnimation = true
-                scrollView.animator().magnification = restore.magnification
-                scrollView.contentView.animator().setBoundsOrigin(restore.origin)
-                scrollView.reflectScrolledClipView(scrollView.contentView)
-            }
-            return
-        }
-        guard let content = model.contentBounds else { return }
-        overviewRestore = (scrollView.magnification, scrollView.contentView.bounds.origin)
-        let viewportSize = scrollView.contentSize
-        let fit = CGFloat(CanvasViewportMath().magnificationToFit(
-            CanvasRect(content),
-            in: CanvasSize(viewportSize),
-            padding: Self.overviewPadding,
-            range: Double(scrollView.minMagnification)...Double(scrollView.maxMagnification)
-        ))
-        // Anchor explicitly: after magnification `fit`, the clip's bounds are
-        // viewport/fit in document coordinates; centering the content means
-        // origin = contentCenter - clipSize/2. setMagnification(centeredAt:)
-        // alone lands off-center when the magnification change is large.
-        let docCenter = documentRect(fromCanvas: content).canvasCenter
-        let clipSize = CGSize(width: viewportSize.width / fit, height: viewportSize.height / fit)
-        let targetOrigin = CGPoint(
-            x: docCenter.x - clipSize.width / 2,
-            y: docCenter.y - clipSize.height / 2
-        )
-        NSAnimationContext.runAnimationGroup { context in
-            context.duration = 0.3
-            context.allowsImplicitAnimation = true
-            scrollView.animator().magnification = fit
-            scrollView.contentView.animator().setBoundsOrigin(targetOrigin)
-            scrollView.reflectScrolledClipView(scrollView.contentView)
-        }
-    }
-}
-
-// MARK: - CanvasPaneViewDelegate
-
-extension CanvasRootView: CanvasPaneViewDelegate {
-    /// The selected panel of a pane view, used for panel-keyed model calls.
-    private func selectedPanelId(of view: CanvasPaneView) -> UUID? {
-        model.layout.selectedPanelId(in: view.paneID)?.rawValue
-    }
-
-    func paneView(_ view: CanvasPaneView, mouseDownAt documentPoint: CGPoint, region: CanvasPaneHitRegion) {
-        guard let frame = model.layout.frame(of: view.paneID)?.cgRect else { return }
-        dragSession = DragSession(
-            paneID: view.paneID,
-            region: region,
-            originalFrame: frame,
-            startPoint: documentPoint,
-            lastFrame: frame
-        )
-        if let panelId = selectedPanelId(of: view) {
-            model.bringToFront(panelId)
-        }
-        applyZOrder()
-    }
-
-    func paneView(_ view: CanvasPaneView, draggedTo documentPoint: CGPoint, modifiers: NSEvent.ModifierFlags) {
-        guard var session = dragSession, session.paneID == view.paneID,
-              let panelId = selectedPanelId(of: view) else { return }
-        let dx = documentPoint.x - session.startPoint.x
-        let dy = documentPoint.y - session.startPoint.y
-        // Holding Command suspends snapping for free-form placement.
-        let snapping = !modifiers.contains(.command)
-
-        let result: CanvasSnapResult
-        switch session.region {
-        case .titleBar:
-            let proposed = session.originalFrame.offsetBy(dx: dx, dy: dy)
-            result = model.snapForMove(proposed: proposed, movingPanelId: panelId, snapping: snapping)
-        case .resize(let edges):
-            var proposed = session.originalFrame
-            if edges.contains(.left) {
-                proposed.origin.x += dx
-                proposed.size.width = max(1, proposed.size.width - dx)
-            } else if edges.contains(.right) {
-                proposed.size.width = max(1, proposed.size.width + dx)
-            }
-            if edges.contains(.top) {
-                proposed.origin.y += dy
-                proposed.size.height = max(1, proposed.size.height - dy)
-            } else if edges.contains(.bottom) {
-                proposed.size.height = max(1, proposed.size.height + dy)
-            }
-            result = model.snapForResize(
-                proposed: proposed,
-                edges: edges,
-                panelId: panelId,
-                snapping: snapping
-            )
-        }
-
-        session.lastFrame = result.frame.cgRect
-        dragSession = session
-        view.frame = documentRect(fromCanvas: session.lastFrame)
-        guidesView.setGuides(result.guides)
-        callbacks.onViewportGeometryChanged(window)
-    }
-
-    func paneViewDidEndDrag(_ view: CanvasPaneView) {
-        guard let session = dragSession, session.paneID == view.paneID,
-              let panelId = selectedPanelId(of: view) else { return }
-        dragSession = nil
-        guidesView.setGuides([])
-        model.setFrame(session.lastFrame, for: panelId)
-        recomputeDocumentGeometry()
-        applyAllPaneFrames()
-        updateLifecycle()
-        callbacks.onLayoutChanged()
-        callbacks.onViewportGeometryChanged(window)
-    }
-
-    func paneView(_ view: CanvasPaneView, didSelectTab panelId: UUID) {
-        model.selectPanel(panelId)
-        if let pane = model.layout.panes.first(where: { $0.id == view.paneID }) {
-            reconcileMount(for: pane, in: view)
-            view.updateChrome(chrome(for: pane))
-        }
-        callbacks.onFocusPanel(panelId)
-        callbacks.onViewportGeometryChanged(window)
-    }
-
-    func paneView(_ view: CanvasPaneView, didCloseTab panelId: UUID) {
-        callbacks.onClosePanel(panelId)
-    }
-
-    func paneViewDidRequestFocus(_ view: CanvasPaneView) {
-        if let panelId = selectedPanelId(of: view) {
-            callbacks.onFocusPanel(panelId)
         }
     }
 }
