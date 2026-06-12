@@ -123,7 +123,11 @@ extension KeyboardShortcutSettings.Action {
              .diffViewerScrollUp,
              .diffViewerScrollToBottom,
              .diffViewerScrollToTop,
-             .diffViewerOpenFileSearch:
+             .diffViewerOpenFileSearch,
+             .diffViewerNextHunk,
+             .diffViewerPrevHunk,
+             .diffViewerNextFile,
+             .diffViewerPrevFile:
             return .browserPanel
         case .switchRightSidebarToFiles, .switchRightSidebarToFind, .switchRightSidebarToSessions, .switchRightSidebarToFeed, .switchRightSidebarToDock:
             return .rightSidebarFocus

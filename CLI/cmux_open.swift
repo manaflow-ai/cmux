@@ -465,6 +465,10 @@ extension CMUXCLI {
         case scrollToBottom = "diffViewerScrollToBottom"
         case scrollToTop = "diffViewerScrollToTop"
         case openFileSearch = "diffViewerOpenFileSearch"
+        case nextHunk = "diffViewerNextHunk"
+        case prevHunk = "diffViewerPrevHunk"
+        case nextFile = "diffViewerNextFile"
+        case prevFile = "diffViewerPrevFile"
 
         var defaultShortcut: DiffViewerShortcut {
             switch self {
@@ -481,6 +485,14 @@ extension CMUXCLI {
                 )
             case .openFileSearch:
                 return DiffViewerShortcut(first: DiffViewerShortcutStroke(key: "/"))
+            case .nextHunk:
+                return DiffViewerShortcut(first: DiffViewerShortcutStroke(key: "n"))
+            case .prevHunk:
+                return DiffViewerShortcut(first: DiffViewerShortcutStroke(key: "p"))
+            case .nextFile:
+                return DiffViewerShortcut(first: DiffViewerShortcutStroke(key: "]"))
+            case .prevFile:
+                return DiffViewerShortcut(first: DiffViewerShortcutStroke(key: "["))
             }
         }
     }
@@ -1267,7 +1279,53 @@ extension CMUXCLI {
         if let rawLayout {
             return (try parseDiffViewerLayout(rawLayout, errorMessage: "--layout must be split|unified"), "explicit")
         }
+        // The user's last in-viewer layout choice (persisted by the app's
+        // viewerPrefs bridge) wins over the settings-file default, so new diff
+        // panels open the way the user last left one (#5284).
+        if let persisted = persistedDiffViewerPreferences()["layout"] as? String {
+            return (persisted, "default")
+        }
         return (diffViewerDefaultLayoutSetting() ?? "unified", "default")
+    }
+
+    /// Reads the diff viewer display preferences persisted by the app
+    /// (`~/Library/Application Support/cmux/diff-viewer/preferences.json`),
+    /// sanitized to known keys/values. Returns an empty dictionary when the
+    /// file is missing or unreadable.
+    private func persistedDiffViewerPreferences() -> [String: Any] {
+        let fileURL: URL
+        if let override = ProcessInfo.processInfo.environment["CMUX_DIFF_VIEWER_PREFS_PATH"],
+           !override.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            fileURL = URL(fileURLWithPath: override, isDirectory: false)
+        } else if let appSupport = FileManager.default.urls(
+            for: .applicationSupportDirectory,
+            in: .userDomainMask
+        ).first {
+            fileURL = appSupport
+                .appendingPathComponent("cmux", isDirectory: true)
+                .appendingPathComponent("diff-viewer", isDirectory: true)
+                .appendingPathComponent("preferences.json", isDirectory: false)
+        } else {
+            return [:]
+        }
+        guard let data = try? Data(contentsOf: fileURL),
+              let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+            return [:]
+        }
+        var sanitized: [String: Any] = [:]
+        if let layout = object["layout"] as? String, layout == "split" || layout == "unified" {
+            sanitized["layout"] = layout
+        }
+        if let indicators = object["diffIndicators"] as? String,
+           indicators == "bars" || indicators == "classic" || indicators == "none" {
+            sanitized["diffIndicators"] = indicators
+        }
+        for key in ["wordWrap", "wordDiffs", "lineNumbers", "showBackgrounds", "expandUnchanged"] {
+            if let value = object[key] as? Bool {
+                sanitized[key] = value
+            }
+        }
+        return sanitized
     }
 
     private func parseDiffViewerLayout(_ rawValue: String, errorMessage: String) throws -> String {
@@ -1436,7 +1494,15 @@ extension CMUXCLI {
         let sourceLabel: String
         switch source {
         case .unstaged:
-            patch = try gitStdout(gitDiffPatchArguments(["--"]), in: repoRoot)
+            // Untracked files are part of the unstaged working-tree state but
+            // plain `git diff` omits them, which silently hides files agents
+            // just created. Append an added-file patch per untracked path.
+            patch = try joinedGitDiffPatches(
+                [gitStdout(gitDiffPatchArguments(["--"]), in: repoRoot)]
+                    + gitUntrackedPaths(in: repoRoot).map { path in
+                        try gitAddedUntrackedPatch(path: path, in: repoRoot)
+                    }
+            )
             sourceLabel = "git unstaged"
         case .staged:
             patch = try gitStdout(gitDiffPatchArguments(["--cached", "--"]), in: repoRoot)
@@ -5633,6 +5699,13 @@ extension CMUXCLI {
             "baseOptions": baseOptions.map(\.jsonObject),
             "generatedAt": ISO8601DateFormatter().string(from: Date())
         ]
+        // Persisted display toggles (word wrap, line numbers, …) seed the
+        // page's initial options so first paint matches the user's last
+        // session; the page then re-syncs live through the viewerPrefs bridge.
+        let viewerOptions = persistedDiffViewerPreferences().filter { $0.key != "layout" }
+        if !viewerOptions.isEmpty {
+            payload["viewerOptions"] = viewerOptions
+        }
         if let statusMessage {
             payload["statusMessage"] = statusMessage
             payload["statusIsError"] = statusIsError

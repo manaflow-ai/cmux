@@ -156,7 +156,10 @@ test("layout toggle persists user choice while explicit payload layout wins", as
 
   expect(dom.window.document.documentElement.dataset.layout).toBe("unified");
   dom.window.document.getElementById("layout-toggle")?.click();
-  await waitFor(() => dom?.window.localStorage.getItem("cmux.diffViewer.layout") === "split");
+  await waitFor(() => {
+    const raw = dom?.window.localStorage.getItem("cmux.diffViewer.options");
+    return raw != null && JSON.parse(raw).layout === "split";
+  });
   expect(dom.window.document.documentElement.dataset.layout).toBe("split");
   flushSync(() => root?.unmount());
   root = null;
@@ -192,6 +195,54 @@ test("layout toggle persists user choice while explicit payload layout wins", as
     />,
   );
 
+  expect(dom.window.document.documentElement.dataset.layout).toBe("unified");
+});
+
+test("layout persisted under the legacy localStorage key is still honored", async () => {
+  dom = createDom();
+  installDomGlobals(dom, () => {
+    throw new Error("unexpected fetch");
+  });
+  dom.window.localStorage.setItem("cmux.diffViewer.layout", "split");
+
+  renderApp(
+    <App
+      config={{
+        payload: {
+          layout: "unified",
+          statusMessage: "Rendered diff",
+          title: "Diff",
+        },
+      }}
+      initialStatus={createDiffViewerStatus("Rendered diff", { loading: false, statusOnly: true })}
+    />,
+  );
+
+  expect(dom.window.document.documentElement.dataset.layout).toBe("split");
+});
+
+test("viewerOptions payload seeds persisted display toggles", async () => {
+  dom = createDom();
+  installDomGlobals(dom, () => {
+    throw new Error("unexpected fetch");
+  });
+
+  renderApp(
+    <App
+      config={{
+        payload: {
+          statusMessage: "Rendered diff",
+          title: "Diff",
+          viewerOptions: { wordWrap: true, diffIndicators: "classic", layout: "split", bogus: 1 },
+        },
+      }}
+      initialStatus={createDiffViewerStatus("Rendered diff", { loading: false, statusOnly: true })}
+    />,
+  );
+
+  expect(dom.window.document.documentElement.dataset.wordWrap).toBe("true");
+  expect(dom.window.document.documentElement.dataset.diffIndicators).toBe("classic");
+  // Layout is owned by payload.layout/layoutSource, not viewerOptions.
   expect(dom.window.document.documentElement.dataset.layout).toBe("unified");
 });
 

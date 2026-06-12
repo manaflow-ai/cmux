@@ -113,6 +113,10 @@ extension ShortcutAction {
         case .diffViewerScrollToBottom: return ShortcutStroke(key: "g", shift: true)
         case .diffViewerScrollToTop: return nil
         case .diffViewerOpenFileSearch: return ShortcutStroke(key: "/")
+        case .diffViewerNextHunk: return ShortcutStroke(key: "n")
+        case .diffViewerPrevHunk: return ShortcutStroke(key: "p")
+        case .diffViewerNextFile: return ShortcutStroke(key: "]")
+        case .diffViewerPrevFile: return ShortcutStroke(key: "[")
         }
     }
 }

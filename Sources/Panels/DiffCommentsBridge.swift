@@ -52,11 +52,13 @@ final class DiffCommentsBridge: NSObject, WKScriptMessageHandlerWithReply {
     }
 
     private let store: DiffCommentStore
+    private let preferencesStore: DiffViewerPreferencesStore
 
-    init(store: DiffCommentStore? = nil) {
-        // Default resolved in the MainActor body: a `.shared` default argument
+    init(store: DiffCommentStore? = nil, preferencesStore: DiffViewerPreferencesStore? = nil) {
+        // Defaults resolved in the MainActor body: a `.shared` default argument
         // would evaluate in the caller's nonisolated context and warn.
         self.store = store ?? DiffCommentStore.shared
+        self.preferencesStore = preferencesStore ?? DiffViewerPreferencesStore.shared
     }
 
     /// Adds the reply handler to a user content controller exactly once.
@@ -150,6 +152,21 @@ final class DiffCommentsBridge: NSObject, WKScriptMessageHandlerWithReply {
             throw BridgeError.invalidRequest("Malformed bridge request")
         }
         let params = body["params"] as? [String: Any] ?? [:]
+
+        // Viewer display preferences are global (not per-repo), so they are
+        // handled before the repoRoot requirement that comment methods share.
+        switch method {
+        case "viewerPrefs.get":
+            return ["preferences": preferencesStore.preferences()]
+        case "viewerPrefs.set":
+            guard let rawPreferences = params["preferences"] as? [String: Any] else {
+                throw BridgeError.invalidRequest("Missing preferences")
+            }
+            return ["preferences": preferencesStore.merge(rawPreferences)]
+        default:
+            break
+        }
+
         guard let repoRoot = (params["repoRoot"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines),
               !repoRoot.isEmpty else {
             throw BridgeError.invalidRequest("Missing repoRoot")

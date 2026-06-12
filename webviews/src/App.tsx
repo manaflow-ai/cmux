@@ -42,6 +42,8 @@ import {
   type DiffViewerOptions,
 } from "./pierre-options";
 import { applyDiffViewerStatusToDocument, createDiffViewerStatus } from "./status";
+import { adjacentItemId, buildHunkAnchors, nextHunkIndex } from "./viewer-nav";
+import { loadViewerPrefs, sanitizeViewerPrefs, saveViewerPrefs, type ViewerPrefs } from "./viewer-prefs";
 import type { DiffViewerLabelResolver } from "./labels";
 import type { DiffViewerStatus } from "./status";
 import type { DiffViewerConfig } from "./types";
@@ -65,12 +67,15 @@ type AppState = {
   metrics: StreamMetrics | null;
   options: DiffViewerOptions;
   optionsOpen: boolean;
+  renderGeneration: number;
   status: DiffViewerStatus;
   treeSource: FileTreeSource | null;
 };
 
 type AppAction =
   | { type: "append-items"; items: DiffItem[] }
+  | { type: "apply-persisted-options"; prefs: ViewerPrefs; allowLayout: boolean }
+  | { type: "refresh" }
   | { type: "remove-comment"; id: string }
   | { type: "rename-item"; oldId: string; newId: string }
   | { type: "set-active-item"; itemId: string; treePath?: string }
@@ -90,11 +95,14 @@ type AppAction =
 const fileSkeletonWidths = ["82%", "64%", "76%", "58%", "70%", "46%"];
 const diffSkeletonWidths = ["58%", "88%", "72%", "94%", "64%", "82%", "52%", "78%"];
 const defaultWorkerModuleURL = "./assets/pierre-diffs-1.2.7-trees-1.0.0-beta.4/worker-pool/worker-portable.js";
-const persistedLayoutKey = "cmux.diffViewer.layout";
 type DiffViewerLayout = DiffViewerOptions["layout"];
 
 function initialAppState(config: DiffViewerConfig, initialStatus: DiffViewerStatus): AppState {
   const payload = config.payload ?? {};
+  // Display toggles persisted by previous sessions are baked into the payload
+  // by the CLI; the viewerPrefs bridge re-syncs them live after boot.
+  const seededOptions = sanitizeViewerPrefs(payload.viewerOptions);
+  delete seededOptions.layout;
   return {
     activeItemId: "",
     activeTreePath: "",
@@ -110,13 +118,15 @@ function initialAppState(config: DiffViewerConfig, initialStatus: DiffViewerStat
       collapsed: false,
       diffIndicators: "bars",
       expandUnchanged: false,
-      layout: initialDiffViewerLayout(payload),
       lineNumbers: true,
       showBackgrounds: true,
       wordDiffs: false,
       wordWrap: false,
+      ...seededOptions,
+      layout: initialDiffViewerLayout(payload),
     } as DiffViewerOptions,
     optionsOpen: false,
+    renderGeneration: 0,
     status: initialStatus,
     treeSource: null,
   };
@@ -136,6 +146,25 @@ function reducer(state: AppState, action: AppAction): AppState {
       status: state.status.loading ? createDiffViewerStatus("", { loading: false }) : state.status,
     };
   }
+  case "apply-persisted-options": {
+    const prefs = { ...action.prefs };
+    if (!action.allowLayout) {
+      delete prefs.layout;
+    }
+    return { ...state, options: { ...state.options, ...prefs } };
+  }
+  case "refresh":
+    return {
+      ...state,
+      activeItemId: "",
+      activeTreePath: "",
+      draft: null,
+      items: [],
+      metrics: null,
+      renderGeneration: state.renderGeneration + 1,
+      status: createDiffViewerStatus("", { loading: true }),
+      treeSource: null,
+    };
   case "remove-comment": {
     const comments = state.comments.filter((comment) => comment.id !== action.id);
     return {
@@ -251,11 +280,57 @@ export function App({ config, initialStatus }: ConfigProps) {
   const renderedCodeViewOptions = codeViewOptions(state.options, appearance);
   renderedCodeViewOptions.onGutterUtilityClick = comments.onGutterUtilityClick as any;
 
+  const hunkNavIndex = useRef(-1);
+  const navigateHunk = (direction: 1 | -1) => {
+    const current = latestState.current;
+    const anchors = buildHunkAnchors(current.items);
+    const index = nextHunkIndex(anchors, hunkNavIndex.current, current.activeItemId, direction);
+    if (index < 0) {
+      return;
+    }
+    const anchor = anchors[index];
+    hunkNavIndex.current = index;
+    codeViewRef.current?.scrollTo({
+      type: "line",
+      id: anchor.itemId,
+      lineNumber: anchor.lineNumber,
+      side: anchor.side,
+      align: "center",
+      behavior: "smooth-auto",
+    });
+    dispatch({
+      type: "set-active-item",
+      itemId: anchor.itemId,
+      treePath: current.treeSource?.treePathByItemId.get(anchor.itemId),
+    });
+  };
+  const navigateFile = (direction: 1 | -1) => {
+    const current = latestState.current;
+    const target = adjacentItemId(current.items, current.activeItemId, direction);
+    if (target == null) {
+      return;
+    }
+    hunkNavIndex.current = -1;
+    codeViewRef.current?.scrollTo({ type: "item", id: target, align: "start", behavior: "smooth-auto" });
+    dispatch({
+      type: "set-active-item",
+      itemId: target,
+      treePath: current.treeSource?.treePathByItemId.get(target),
+    });
+  };
+  const navigation = useSyncedRef({
+    nextFile: () => navigateFile(1),
+    nextHunk: () => navigateHunk(1),
+    prevFile: () => navigateFile(-1),
+    prevHunk: () => navigateHunk(-1),
+  });
+
   usePageDataAttributes(state);
   usePendingReplacement(payload, label, dispatch);
-  useRenderDiff(config, label, dispatch, latestState);
+  useRenderDiff(config, label, dispatch, latestState, state.renderGeneration);
+  useViewerPrefsBootstrap(payload, dispatch);
   useCommentsBootstrap(bridgeAvailable ? repoRoot : null, comments.onLoaded);
-  useKeyboardShortcuts(payload.shortcuts ?? {}, viewerContainerRef, dispatch);
+  useKeyboardShortcuts(payload.shortcuts ?? {}, viewerContainerRef, dispatch, navigation);
   useOptionsDismiss(state.optionsOpen, dispatch);
 
   const renderCommentAnnotation = (annotation: CommentAnnotation, item: DiffItem) => {
@@ -322,8 +397,26 @@ export function App({ config, initialStatus }: ConfigProps) {
     dispatch({ type: "set-status", status });
   };
   const setLayout = (layout: DiffViewerLayout) => {
-    persistDiffViewerLayout(layout);
+    saveViewerPrefs({ layout });
     dispatch({ type: "set-option", key: "layout", value: layout });
+  };
+  // Dispatches an options change and persists it globally when the key is a
+  // persisted preference (`collapsed` stays session-local).
+  const setOption = (key: keyof DiffViewerOptions, value: any) => {
+    dispatch({ type: "set-option", key, value });
+    if (key !== "collapsed") {
+      saveViewerPrefs({ [key]: value });
+    }
+  };
+  const refresh = () => {
+    // Status-only pages (pending replacement or baked status messages) carry
+    // no patch to re-stream; a full reload picks up their replacement page.
+    if (isStatusOnlyPayload(payload)) {
+      window.location.reload();
+      return;
+    }
+    hunkNavIndex.current = -1;
+    dispatch({ type: "refresh" });
   };
 
   return (
@@ -344,8 +437,9 @@ export function App({ config, initialStatus }: ConfigProps) {
           setStatus(createDiffViewerStatus(label("loadingDiff"), { pending: true }));
           window.location.href = resolveDiffNavigationURL(url);
         }}
-        onReload={() => window.location.reload()}
+        onReload={refresh}
         onSetLayout={setLayout}
+        onSetOption={setOption}
         dispatch={dispatch}
         state={state}
       />
@@ -498,27 +592,52 @@ function initialDiffViewerLayout(payload: Record<string, any>): DiffViewerLayout
   if (payload.layoutSource === "explicit" && payloadLayout) {
     return payloadLayout;
   }
-  return readPersistedDiffViewerLayout() ?? payloadLayout ?? "unified";
+  // The CLI bakes the persisted layout into the payload at generation time;
+  // local storage only wins for pages opened outside cmux. The viewerPrefs
+  // bridge re-syncs the live value right after boot.
+  return localViewerPrefsLayout() ?? payloadLayout ?? "unified";
 }
 
-function readPersistedDiffViewerLayout(): DiffViewerLayout | null {
+function localViewerPrefsLayout(): DiffViewerLayout | null {
   try {
-    return parseDiffViewerLayout(window.localStorage.getItem(persistedLayoutKey));
+    const raw = window.localStorage.getItem("cmux.diffViewer.options");
+    if (raw != null) {
+      const layout = (JSON.parse(raw) as Record<string, unknown>).layout;
+      const parsed = parseDiffViewerLayout(layout);
+      if (parsed) {
+        return parsed;
+      }
+    }
+    // Legacy key from before options were persisted as one object.
+    return parseDiffViewerLayout(window.localStorage.getItem("cmux.diffViewer.layout"));
   } catch {
     return null;
   }
 }
 
-function persistDiffViewerLayout(layout: DiffViewerLayout): void {
-  try {
-    window.localStorage.setItem(persistedLayoutKey, layout);
-  } catch {
-    // Storage may be unavailable for some generated viewer origins.
-  }
-}
-
 function parseDiffViewerLayout(value: unknown): DiffViewerLayout | null {
   return value === "split" || value === "unified" ? value : null;
+}
+
+function useViewerPrefsBootstrap(payload: any, dispatch: React.Dispatch<AppAction>) {
+  const started = useRef(false);
+  useEffect(() => {
+    if (started.current) {
+      return;
+    }
+    started.current = true;
+    loadViewerPrefs()
+      .then((prefs) => {
+        dispatch({
+          type: "apply-persisted-options",
+          prefs,
+          allowLayout: payload.layoutSource !== "explicit",
+        });
+      })
+      .catch(() => {
+        // Preferences are a convenience; boot continues with payload defaults.
+      });
+  }, [dispatch, payload]);
 }
 
 function WorkerRenderOptionsSync({
@@ -541,6 +660,7 @@ function Toolbar({
   onNavigate,
   onReload,
   onSetLayout,
+  onSetOption,
   state,
 }: {
   config: DiffViewerConfig;
@@ -551,6 +671,7 @@ function Toolbar({
   onNavigate: (url: string) => void;
   onReload: () => void;
   onSetLayout: (layout: DiffViewerLayout) => void;
+  onSetOption: (key: keyof DiffViewerOptions, value: any) => void;
   state: AppState;
 }) {
   const payload = config.payload ?? {};
@@ -617,6 +738,7 @@ function Toolbar({
           label={label}
           onCopyGitApply={onCopyGitApply}
           onReload={onReload}
+          onSetOption={onSetOption}
           state={state}
         />
       ) : null}
@@ -742,15 +864,17 @@ function OptionsMenu({
   label,
   onCopyGitApply,
   onReload,
+  onSetOption,
   state,
 }: {
   dispatch: React.Dispatch<AppAction>;
   label: DiffViewerLabelResolver;
   onCopyGitApply: () => void;
   onReload: () => void;
+  onSetOption: (key: keyof DiffViewerOptions, value: any) => void;
   state: AppState;
 }) {
-  const toggle = (key: keyof DiffViewerOptions) => dispatch({ type: "set-option", key, value: !state.options[key] });
+  const toggle = (key: keyof DiffViewerOptions) => onSetOption(key, !state.options[key]);
   return (
     <div id="options-menu" aria-label={label("options")}>
       <MenuButton icon="refresh" label={label("refresh")} onClick={onReload} />
@@ -778,7 +902,7 @@ function OptionsMenu({
               title={option.label}
               aria-label={option.label}
               aria-pressed={state.options.diffIndicators === option.value}
-              onClick={() => dispatch({ type: "set-option", key: "diffIndicators", value: option.value })}
+              onClick={() => onSetOption("diffIndicators", option.value)}
             >
               <Icon name={option.icon as IconName} />
             </button>
@@ -1126,13 +1250,17 @@ function useRenderDiff(
   label: DiffViewerLabelResolver,
   dispatch: React.Dispatch<AppAction>,
   latestState: React.MutableRefObject<AppState>,
+  renderGeneration: number,
 ) {
-  const started = useRef(false);
+  const renderedGeneration = useRef(-1);
   useEffect(() => {
-    if (started.current || isStatusOnlyPayload(config.payload)) {
+    if (renderedGeneration.current === renderGeneration || isStatusOnlyPayload(config.payload)) {
       return;
     }
-    started.current = true;
+    renderedGeneration.current = renderGeneration;
+    // A soft refresh (generation bump) re-streams the patch; callbacks from a
+    // superseded stream are dropped so they cannot clobber the newer render.
+    const isCurrent = () => latestState.current.renderGeneration === renderGeneration;
     const payload = config.payload ?? {};
     const appearance = resolveDiffViewerAppearance(payload.appearance);
     if (appearance.themes.light.name) {
@@ -1148,10 +1276,16 @@ function useRenderDiff(
       initialFileTreeRowCount: getInitialFileTreeRowCount(),
       label,
       onBatch: (items) => {
+        if (!isCurrent()) {
+          return;
+        }
         streamedItems.push(...items);
         dispatch({ type: "append-items", items });
       },
       onComplete: (metrics) => {
+        if (!isCurrent()) {
+          return;
+        }
         dispatch({ type: "set-metrics", metrics });
         const items = streamedItems;
         if (items.length === 0) {
@@ -1167,17 +1301,32 @@ function useRenderDiff(
         preloadHighlighter({ themes, langs: langs.length > 0 ? langs : ["text"] })
           .catch((error) => console.warn("cmux diff highlighter preload failed", error));
       },
-      onMetrics: (metrics) => dispatch({ type: "set-metrics", metrics }),
-      onRename: (rename) => dispatch({ type: "rename-item", oldId: rename.oldId, newId: rename.newId }),
-      onTreeSource: (source) => dispatch({ type: "set-tree-source", source }),
+      onMetrics: (metrics) => {
+        if (isCurrent()) {
+          dispatch({ type: "set-metrics", metrics });
+        }
+      },
+      onRename: (rename) => {
+        if (isCurrent()) {
+          dispatch({ type: "rename-item", oldId: rename.oldId, newId: rename.newId });
+        }
+      },
+      onTreeSource: (source) => {
+        if (isCurrent()) {
+          dispatch({ type: "set-tree-source", source });
+        }
+      },
       parsePatchFiles,
       patchURL: payload.patchURL,
       processFile,
     }).catch((error) => {
+      if (!isCurrent()) {
+        return;
+      }
       console.error("cmux diff viewer render failed", error);
       dispatch({ type: "set-status", status: createDiffViewerStatus(label("renderFailed"), { error: true, loading: false, statusOnly: true }) });
     });
-  }, [config, dispatch, label, latestState]);
+  }, [config, dispatch, label, latestState, renderGeneration]);
 }
 
 function isStatusOnlyPayload(payload: any): boolean {
@@ -1248,10 +1397,18 @@ function usePageDataAttributes(state: AppState) {
   }, [state]);
 }
 
+type DiffViewerNavigation = {
+  nextFile: () => void;
+  nextHunk: () => void;
+  prevFile: () => void;
+  prevHunk: () => void;
+};
+
 function useKeyboardShortcuts(
   shortcuts: any,
   viewerRef: React.MutableRefObject<HTMLDivElement | null>,
   dispatch: React.Dispatch<AppAction>,
+  navigation: React.MutableRefObject<DiffViewerNavigation>,
 ) {
   useEffect(() => {
     const scrollDownShortcut = normalizeShortcut(shortcuts.diffViewerScrollDown);
@@ -1259,6 +1416,10 @@ function useKeyboardShortcuts(
     const scrollBottomShortcut = normalizeShortcut(shortcuts.diffViewerScrollToBottom);
     const scrollTopShortcut = normalizeShortcut(shortcuts.diffViewerScrollToTop);
     const fileSearchShortcut = normalizeShortcut(shortcuts.diffViewerOpenFileSearch);
+    const nextHunkShortcut = normalizeShortcut(shortcuts.diffViewerNextHunk);
+    const prevHunkShortcut = normalizeShortcut(shortcuts.diffViewerPrevHunk);
+    const nextFileShortcut = normalizeShortcut(shortcuts.diffViewerNextFile);
+    const prevFileShortcut = normalizeShortcut(shortcuts.diffViewerPrevFile);
     let pendingChord: PendingChord | null = null;
     let chordTimeout = 0;
     const clearPendingChord = () => {
@@ -1301,6 +1462,26 @@ function useKeyboardShortcuts(
         dispatch({ type: "set-file-search-open", open: true });
         return;
       }
+      if (shortcutMatchesEvent(nextHunkShortcut, event)) {
+        event.preventDefault();
+        navigation.current.nextHunk();
+        return;
+      }
+      if (shortcutMatchesEvent(prevHunkShortcut, event)) {
+        event.preventDefault();
+        navigation.current.prevHunk();
+        return;
+      }
+      if (shortcutMatchesEvent(nextFileShortcut, event)) {
+        event.preventDefault();
+        navigation.current.nextFile();
+        return;
+      }
+      if (shortcutMatchesEvent(prevFileShortcut, event)) {
+        event.preventDefault();
+        navigation.current.prevFile();
+        return;
+      }
       if (scrollTopShortcut && shortcutStartsChord(scrollTopShortcut, event)) {
         event.preventDefault();
         pendingChord = {
@@ -1315,7 +1496,7 @@ function useKeyboardShortcuts(
       clearPendingChord();
       document.removeEventListener("keydown", listener);
     };
-  }, [dispatch, shortcuts, viewerRef]);
+  }, [dispatch, navigation, shortcuts, viewerRef]);
 }
 
 function useOptionsDismiss(optionsOpen: boolean, dispatch: React.Dispatch<AppAction>) {

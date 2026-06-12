@@ -117,6 +117,14 @@ public enum ShortcutAction: String, CaseIterable, Sendable, Hashable, SettingCod
     case diffViewerScrollToTop
     /// Opens file search inside the focused diff viewer.
     case diffViewerOpenFileSearch
+    /// Jumps to the next hunk in the focused diff viewer.
+    case diffViewerNextHunk
+    /// Jumps to the previous hunk in the focused diff viewer.
+    case diffViewerPrevHunk
+    /// Jumps to the next file in the focused diff viewer.
+    case diffViewerNextFile
+    /// Jumps to the previous file in the focused diff viewer.
+    case diffViewerPrevFile
 }
 
 extension ShortcutAction {
@@ -171,7 +179,8 @@ extension ShortcutAction {
              .hideFind, .useSelectionForFind, .toggleBrowserDeveloperTools,
              .showBrowserJavaScriptConsole, .toggleBrowserFocusMode, .toggleReactGrab,
              .diffViewerScrollDown, .diffViewerScrollUp, .diffViewerScrollToBottom,
-             .diffViewerScrollToTop, .diffViewerOpenFileSearch:
+             .diffViewerScrollToTop, .diffViewerOpenFileSearch,
+             .diffViewerNextHunk, .diffViewerPrevHunk, .diffViewerNextFile, .diffViewerPrevFile:
             return .browser
         }
     }
@@ -207,7 +216,11 @@ extension ShortcutAction {
              .diffViewerScrollUp,
              .diffViewerScrollToBottom,
              .diffViewerScrollToTop,
-             .diffViewerOpenFileSearch:
+             .diffViewerOpenFileSearch,
+             .diffViewerNextHunk,
+             .diffViewerPrevHunk,
+             .diffViewerNextFile,
+             .diffViewerPrevFile:
             return true
         default:
             return false
@@ -234,7 +247,8 @@ extension ShortcutAction {
              .toggleBrowserDeveloperTools, .showBrowserJavaScriptConsole,
              .browserZoomIn, .browserZoomOut, .browserZoomReset, .toggleBrowserFocusMode,
              .diffViewerScrollDown, .diffViewerScrollUp, .diffViewerScrollToBottom,
-             .diffViewerScrollToTop, .diffViewerOpenFileSearch:
+             .diffViewerScrollToTop, .diffViewerOpenFileSearch,
+             .diffViewerNextHunk, .diffViewerPrevHunk, .diffViewerNextFile, .diffViewerPrevFile:
             return .atom(.browserFocus)
         case .markdownZoomIn, .markdownZoomOut, .markdownZoomReset:
             return .atom(.markdownFocus)
@@ -364,6 +378,14 @@ extension ShortcutAction {
             return String(localized: "shortcut.diffViewerScrollToTop.label", defaultValue: "Diff Viewer: Scroll to Top")
         case .diffViewerOpenFileSearch:
             return String(localized: "shortcut.diffViewerOpenFileSearch.label", defaultValue: "Diff Viewer: Open File Search")
+        case .diffViewerNextHunk:
+            return String(localized: "shortcut.diffViewerNextHunk.label", defaultValue: "Diff Viewer: Next Hunk")
+        case .diffViewerPrevHunk:
+            return String(localized: "shortcut.diffViewerPrevHunk.label", defaultValue: "Diff Viewer: Previous Hunk")
+        case .diffViewerNextFile:
+            return String(localized: "shortcut.diffViewerNextFile.label", defaultValue: "Diff Viewer: Next File")
+        case .diffViewerPrevFile:
+            return String(localized: "shortcut.diffViewerPrevFile.label", defaultValue: "Diff Viewer: Previous File")
         }
     }
 }

@@ -159,6 +159,10 @@ enum KeyboardShortcutSettings {
         case diffViewerScrollToBottom
         case diffViewerScrollToTop
         case diffViewerOpenFileSearch
+        case diffViewerNextHunk
+        case diffViewerPrevHunk
+        case diffViewerNextFile
+        case diffViewerPrevFile
 
         var id: String { rawValue }
 
@@ -254,6 +258,10 @@ enum KeyboardShortcutSettings {
             case .diffViewerScrollToBottom: return String(localized: "shortcut.diffViewerScrollToBottom.label", defaultValue: "Diff Viewer: Scroll to Bottom")
             case .diffViewerScrollToTop: return String(localized: "shortcut.diffViewerScrollToTop.label", defaultValue: "Diff Viewer: Scroll to Top")
             case .diffViewerOpenFileSearch: return String(localized: "shortcut.diffViewerOpenFileSearch.label", defaultValue: "Diff Viewer: Open File Search")
+            case .diffViewerNextHunk: return String(localized: "shortcut.diffViewerNextHunk.label", defaultValue: "Diff Viewer: Next Hunk")
+            case .diffViewerPrevHunk: return String(localized: "shortcut.diffViewerPrevHunk.label", defaultValue: "Diff Viewer: Previous Hunk")
+            case .diffViewerNextFile: return String(localized: "shortcut.diffViewerNextFile.label", defaultValue: "Diff Viewer: Next File")
+            case .diffViewerPrevFile: return String(localized: "shortcut.diffViewerPrevFile.label", defaultValue: "Diff Viewer: Previous File")
             }
         }
 
@@ -486,6 +494,14 @@ enum KeyboardShortcutSettings {
                 )
             case .diffViewerOpenFileSearch:
                 return StoredShortcut(key: "/", command: false, shift: false, option: false, control: false)
+            case .diffViewerNextHunk:
+                return StoredShortcut(key: "n", command: false, shift: false, option: false, control: false)
+            case .diffViewerPrevHunk:
+                return StoredShortcut(key: "p", command: false, shift: false, option: false, control: false)
+            case .diffViewerNextFile:
+                return StoredShortcut(key: "]", command: false, shift: false, option: false, control: false)
+            case .diffViewerPrevFile:
+                return StoredShortcut(key: "[", command: false, shift: false, option: false, control: false)
             }
         }
 
@@ -508,7 +524,11 @@ enum KeyboardShortcutSettings {
                  .diffViewerScrollUp,
                  .diffViewerScrollToBottom,
                  .diffViewerScrollToTop,
-                 .diffViewerOpenFileSearch:
+                 .diffViewerOpenFileSearch,
+                 .diffViewerNextHunk,
+                 .diffViewerPrevHunk,
+                 .diffViewerNextFile,
+                 .diffViewerPrevFile:
                 return true
             default:
                 return false
@@ -521,7 +541,11 @@ enum KeyboardShortcutSettings {
                  .diffViewerScrollUp,
                  .diffViewerScrollToBottom,
                  .diffViewerScrollToTop,
-                 .diffViewerOpenFileSearch:
+                 .diffViewerOpenFileSearch,
+                 .diffViewerNextHunk,
+                 .diffViewerPrevHunk,
+                 .diffViewerNextFile,
+                 .diffViewerPrevFile:
                 return true
             default:
                 return false

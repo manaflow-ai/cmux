@@ -1176,7 +1176,11 @@
               "diffViewerScrollUp",
               "diffViewerScrollToBottom",
               "diffViewerScrollToTop",
-              "diffViewerOpenFileSearch"
+              "diffViewerOpenFileSearch",
+              "diffViewerNextHunk",
+              "diffViewerPrevHunk",
+              "diffViewerNextFile",
+              "diffViewerPrevFile"
             ]
           },
           "properties": {
@@ -1193,6 +1197,18 @@
               "$ref": "#/$defs/diffViewerShortcutBindingNullable"
             },
             "diffViewerOpenFileSearch": {
+              "$ref": "#/$defs/diffViewerShortcutBindingNullable"
+            },
+            "diffViewerNextHunk": {
+              "$ref": "#/$defs/diffViewerShortcutBindingNullable"
+            },
+            "diffViewerPrevHunk": {
+              "$ref": "#/$defs/diffViewerShortcutBindingNullable"
+            },
+            "diffViewerNextFile": {
+              "$ref": "#/$defs/diffViewerShortcutBindingNullable"
+            },
+            "diffViewerPrevFile": {
               "$ref": "#/$defs/diffViewerShortcutBindingNullable"
             }
           },

@@ -9,6 +9,7 @@ export type DiffViewerPayload = {
   pendingReplacement?: boolean;
   statusMessage?: string;
   title?: string;
+  viewerOptions?: Record<string, unknown>;
   [key: string]: any;
 };
 

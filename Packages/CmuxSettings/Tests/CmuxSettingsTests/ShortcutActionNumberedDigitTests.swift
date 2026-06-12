@@ -29,6 +29,10 @@ struct ShortcutActionNumberedDigitTests {
             .diffViewerScrollToBottom,
             .diffViewerScrollToTop,
             .diffViewerOpenFileSearch,
+            .diffViewerNextHunk,
+            .diffViewerPrevHunk,
+            .diffViewerNextFile,
+            .diffViewerPrevFile,
         ]
 
         for action in ShortcutAction.allCases {
