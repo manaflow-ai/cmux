@@ -78,6 +78,12 @@ func (s *rpcServer) handleAgentSessionOpen(req rpcRequest) rpcResponse {
 		provider:     provider,
 		sessionID:    session.SessionID,
 	}
+	if state.sessionID == "" {
+		// Transcripts the parser cannot identify (providers without a native
+		// parser, opened by explicit transcript_path) still route hook frames
+		// when the caller supplied the session id.
+		state.sessionID = stringParam(req.Params, "session_id")
+	}
 	s.mu.Lock()
 	subscriptionID := fmt.Sprintf("agent-%d", s.nextAgentSubID)
 	s.nextAgentSubID++
