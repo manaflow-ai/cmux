@@ -87,6 +87,37 @@ import Testing
         #expect(path == "/tmp/custom/ingest.sock")
     }
 
+    @Test func overrideInheritedFromAnotherInstanceTerminalIsIgnored() {
+        // A tagged dev app launched from a terminal INSIDE the stable app
+        // inherits the stable instance's socket plus its CMUX_BUNDLE_ID
+        // marker; adopting the socket would collapse tagged isolation.
+        let path = AgentHookLaunchEnvironment.ingestSocketPath(
+            environment: [
+                "CMUX_AGENT_HOOK_SOCKET": "/tmp/cmuxd-agentconv-501/ingest.sock",
+                "CMUX_BUNDLE_ID": "com.cmuxterm.app",
+            ],
+            bundleIdentifier: "com.cmuxterm.app.debug.my-tag",
+            isDebugBuild: true,
+            uid: 501
+        )
+        #expect(path == "/tmp/cmuxd-agentconv-501-debug-my-tag/ingest.sock")
+    }
+
+    @Test func overrideFromOwnInstanceContextStillWins() {
+        // Same-instance ambient context (or a test/operator override outside
+        // any cmux terminal) keeps the explicit value.
+        let path = AgentHookLaunchEnvironment.ingestSocketPath(
+            environment: [
+                "CMUX_AGENT_HOOK_SOCKET": "/tmp/custom/ingest.sock",
+                "CMUX_BUNDLE_ID": "com.cmuxterm.app.debug.my-tag",
+            ],
+            bundleIdentifier: "com.cmuxterm.app.debug.my-tag",
+            isDebugBuild: true,
+            uid: 501
+        )
+        #expect(path == "/tmp/custom/ingest.sock")
+    }
+
     @Test func explicitOverrideBinaryIsAlwaysInjectable() {
         let url = URL(fileURLWithPath: "/dev-build/cmuxd-remote")
         for isDebugBuild in [true, false] {

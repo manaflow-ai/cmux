@@ -47,7 +47,18 @@ enum AgentHookLaunchEnvironment {
     ) -> String {
         if let override = environment[socketEnvKey]?.trimmingCharacters(in: .whitespacesAndNewlines),
            !override.isEmpty {
-            return override
+            // Terminals export this key for their pane's hooks, so a cmux app
+            // launched from inside ANOTHER cmux instance's terminal inherits
+            // that instance's socket. Adopting it would collapse tagged/
+            // nightly/staging isolation (and the bind would fail anyway, the
+            // parent owns it). CMUX_BUNDLE_ID marks such ambient context:
+            // honor the override only when it isn't another instance's.
+            let ambientBundleID = environment["CMUX_BUNDLE_ID"]?
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            if ambientBundleID == nil || ambientBundleID?.isEmpty == true
+                || ambientBundleID == bundleIdentifier {
+                return override
+            }
         }
         let base = "/tmp/cmuxd-agentconv-\(uid)"
         let directory: String
