@@ -1889,6 +1889,32 @@ final class SessionPersistenceTests: XCTestCase {
 }
 
 final class SocketListenerAcceptPolicyTests: XCTestCase {
+    func testPersistedAgentSnapshotDropsShellWrapperLaunchCommandWhenRenderingResume() {
+        let snapshot = SessionRestorableAgentSnapshot(
+            kind: .codex,
+            sessionId: "codex-session-123",
+            workingDirectory: "/tmp/repo",
+            launchCommand: AgentLaunchCommandSnapshot(
+                launcher: "codex",
+                executablePath: "bash",
+                arguments: [
+                    "bash",
+                    "-c",
+                    "payload=\"$1\"; shift; \"$@\" <\"$payload\" &",
+                ],
+                workingDirectory: "/tmp/dispatch-shell",
+                environment: ["CODEX_HOME": "/tmp/codex"],
+                capturedAt: 123,
+                source: "process"
+            )
+        )
+
+        XCTAssertEqual(
+            snapshot.resumeCommand,
+            "{ cd -- '/tmp/repo' 2>/dev/null || [ ! -d '/tmp/repo' ]; } && 'codex' 'resume' 'codex-session-123'"
+        )
+    }
+
     func testClaudeResumeCommandRoutesThroughWrapperInsteadOfCapturedRealBinary() {
         // The captured launch executable is the real claude binary
         // (CMUX_AGENT_LAUNCH_EXECUTABLE). Resuming with it directly bypasses
@@ -5794,6 +5820,88 @@ extension SessionPersistenceTests {
             restored.sessionSnapshot(includeScrollback: false).panels.first?.terminal?.resumeBinding?.command,
             "./resume.sh"
         )
+    }
+
+    @MainActor
+    func testRestoreDropsPoisonedAgentHookShellWrapperResumeBindingAndUsesAgentSnapshot() throws {
+        try withAutoResumeAgentSessionsEnabled {
+            let source = Workspace()
+            let sourcePanelId = try XCTUnwrap(source.focusedPanelId)
+            let sessionId = "019eba43-1e37-78d2-98df-d1983200273d"
+            let sourceIndex = try makeRestorableAgentIndex(
+                workspaceId: source.id,
+                panelId: sourcePanelId,
+                sessionId: sessionId,
+                arguments: [
+                    "/usr/local/bin/codex",
+                    "--yolo",
+                ]
+            )
+            let bindingIndex = SurfaceResumeBindingIndex(bindingsByPanel: [
+                SurfaceResumeBindingIndex.PanelKey(workspaceId: source.id, panelId: sourcePanelId): SurfaceResumeBindingSnapshot(
+                    name: "Codex",
+                    kind: "codex",
+                    command: "{ cd -- '/Users/lawrence/fun/cmuxterm-hq' 2>/dev/null || [ ! -d '/Users/lawrence/fun/cmuxterm-hq' ]; } && 'bash' 'resume' '\(sessionId)' '-c' 'payload=\"$1\"; shift; \"$@\" <\"$payload\" &'",
+                    cwd: "/Users/lawrence/fun/cmuxterm-hq",
+                    checkpointId: sessionId,
+                    source: "agent-hook",
+                    autoResume: true,
+                    updatedAt: 10
+                ),
+            ])
+            let snapshot = source.sessionSnapshot(
+                includeScrollback: false,
+                restorableAgentIndex: sourceIndex,
+                surfaceResumeBindingIndex: bindingIndex
+            )
+
+            let restored = Workspace()
+            restored.restoreSessionSnapshot(snapshot)
+            let restoredPanelId = try XCTUnwrap(restored.focusedPanelId)
+            let restoredPanel = try XCTUnwrap(restored.terminalPanel(for: restoredPanelId))
+            let payload = try restoredStartupPayload(for: restoredPanel)
+
+            XCTAssertTrue(payload.contains("/usr/local/bin/codex"), payload)
+            XCTAssertTrue(payload.contains("resume"), payload)
+            XCTAssertTrue(payload.contains(sessionId), payload)
+            XCTAssertTrue(payload.contains("--yolo"), payload)
+            XCTAssertFalse(payload.contains("'bash' 'resume'"), payload)
+            XCTAssertNil(restored.sessionSnapshot(includeScrollback: false).panels.first?.terminal?.resumeBinding)
+        }
+    }
+
+    @MainActor
+    func testRestoreDropsPoisonedAgentHookShellWrapperResumeBindingWithoutAgentSnapshot() throws {
+        try withAutoResumeAgentSessionsEnabled {
+            let source = Workspace()
+            let sourcePanelId = try XCTUnwrap(source.focusedPanelId)
+            let sessionId = "019eb982-d798-7123-aa2b-93326ff3bd08"
+            let bindingIndex = SurfaceResumeBindingIndex(bindingsByPanel: [
+                SurfaceResumeBindingIndex.PanelKey(workspaceId: source.id, panelId: sourcePanelId): SurfaceResumeBindingSnapshot(
+                    name: "Codex",
+                    kind: "codex",
+                    command: "{ cd -- '/Users/lawrence/fun/cmuxterm-hq' 2>/dev/null || [ ! -d '/Users/lawrence/fun/cmuxterm-hq' ]; } && 'sh' 'resume' '\(sessionId)' '-c' 'payload=\"$1\"; shift; \"$@\" <\"$payload\" &'",
+                    cwd: "/Users/lawrence/fun/cmuxterm-hq",
+                    checkpointId: sessionId,
+                    source: "agent-hook",
+                    autoResume: true,
+                    updatedAt: 10
+                ),
+            ])
+            let snapshot = source.sessionSnapshot(
+                includeScrollback: false,
+                surfaceResumeBindingIndex: bindingIndex
+            )
+
+            let restored = Workspace()
+            restored.restoreSessionSnapshot(snapshot)
+            let restoredPanelId = try XCTUnwrap(restored.focusedPanelId)
+            let restoredPanel = try XCTUnwrap(restored.terminalPanel(for: restoredPanelId))
+
+            XCTAssertNil(restoredPanel.surface.debugInitialCommand())
+            XCTAssertFalse(restoredPanel.surface.debugInitialInputMetadata().hasInitialInput)
+            XCTAssertNil(restored.sessionSnapshot(includeScrollback: false).panels.first?.terminal?.resumeBinding)
+        }
     }
 
     @MainActor
