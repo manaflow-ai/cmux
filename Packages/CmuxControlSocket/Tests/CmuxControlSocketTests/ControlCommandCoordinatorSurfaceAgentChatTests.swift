@@ -139,7 +139,10 @@ extension ControlCommandCoordinatorSurfaceAgentChatTests {
     @Test(arguments: ["window_id", "workspace_id", "surface_id", "terminal_id", "tab_id"])
     func malformedExplicitSelectorIsInvalidParams(key: String) {
         let (coordinator, context) = makeCoordinator()
-        context.routingResolvesTabManager = true
+        // false: a malformed window_id also fails TabManager resolution, so
+        // validation must win over the availability guard (caller error, not
+        // `unavailable`).
+        context.routingResolvesTabManager = false
         guard case .err(let code, let message, _)? = coordinator.handle(
             request([key: .string("not-a-uuid")])
         ) else {

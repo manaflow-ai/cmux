@@ -7,19 +7,22 @@ extension ControlCommandCoordinator {
     /// `surface.agent_chat.open` — resolve the target surface and ask the app
     /// to run the shared agent-chat resolve-then-present flow for it.
     func surfaceAgentChatOpen(_ params: [String: JSONValue]) -> ControlCallResult {
-        let routing = routingSelectors(params)
-        guard context?.controlSurfaceRoutingResolvesTabManager(routing: routing) ?? false else {
-            return .err(code: "unavailable", message: "TabManager not available", data: nil)
-        }
         // A present-but-malformed explicit selector must not silently fall
         // back to the current window/workspace/focused surface: this verb is
         // focus-intent and opens UI, so a typo'd target would mutate the
         // wrong place and report success (same rule as the resume verbs).
+        // Validated BEFORE the availability guard: a malformed window_id
+        // also fails TabManager resolution, which would misreport caller
+        // error as `unavailable`.
         for key in ["window_id", "workspace_id", "surface_id", "terminal_id", "tab_id"]
         where hasNonNull(params, key) {
             if uuid(params, key) == nil {
                 return .err(code: "invalid_params", message: "Missing or invalid \(key)", data: nil)
             }
+        }
+        let routing = routingSelectors(params)
+        guard context?.controlSurfaceRoutingResolvesTabManager(routing: routing) ?? false else {
+            return .err(code: "unavailable", message: "TabManager not available", data: nil)
         }
         let resolution = context?.controlSurfaceAgentChatOpen(
             routing: routing,
