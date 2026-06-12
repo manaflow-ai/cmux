@@ -116,7 +116,7 @@
 714	Sources/AppleScriptSupport.swift
 708	Sources/TerminalSSHSessionDetector.swift
 705	CLI/CMUXCLI+Config.swift
-705	cmuxUITests/BrowserOmnibarSuggestionsUITests.swift
+779	cmuxUITests/BrowserOmnibarSuggestionsUITests.swift
 701	CLI/CMUXCLI+AgentHookDefinitions.swift
 698	cmuxTests/RestorableAgentHookProviderResumeTests.swift
 697	cmuxTests/TerminalNotificationClearAllTests.swift
