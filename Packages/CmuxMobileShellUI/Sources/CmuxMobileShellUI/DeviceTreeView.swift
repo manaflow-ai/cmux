@@ -166,12 +166,16 @@ struct DeviceTreeView: View {
     ///
     /// Success (the shell is connected, to the added device): dismiss the
     /// sheet and refresh both device sources so the new device appears in the
-    /// tree. Failure or cancellation over what was a live connection: the
-    /// pairing path has already torn that connection down, so reconnect the
-    /// previous Mac via ``CMUXMobileShellStore/switchToMac(macDeviceID:)``
-    /// instead of stranding the user disconnected. The restore runs in a
-    /// fresh unstructured `Task` because a cancelled attempt's continuation
-    /// executes in an already-cancelled task.
+    /// tree. Cancellation over what was a live connection (disconnected, no
+    /// connection error): the pairing path has already torn that connection
+    /// down, so reconnect the previous Mac via
+    /// ``CMUXMobileShellStore/switchToMac(macDeviceID:)`` instead of
+    /// stranding the user. The restore runs in a fresh unstructured `Task`
+    /// because a cancelled attempt's continuation executes in an
+    /// already-cancelled task. A real failure (connection error set) does not
+    /// restore — the reconnect would clear the error the user needs to read;
+    /// the disconnected shell auto-presents the pairing sheet with that error
+    /// for an in-place retry (see the policy's rationale).
     private func finishAddDevice(previousMacDeviceID: String?) {
         let state = store.connectionState
         if addDevicePolicy.dismissesAfterPairingAttempt(connectionState: state) {
@@ -184,7 +188,8 @@ struct DeviceTreeView: View {
         }
         if addDevicePolicy.restoresPreviousConnection(
             connectionState: state,
-            previousMacDeviceID: previousMacDeviceID
+            previousMacDeviceID: previousMacDeviceID,
+            hasConnectionError: store.connectionError != nil
         ), let previousMacDeviceID {
             let store = store
             Task {

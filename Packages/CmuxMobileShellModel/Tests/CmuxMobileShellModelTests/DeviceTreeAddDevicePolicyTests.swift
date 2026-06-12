@@ -32,13 +32,27 @@ import Testing
         #expect(!policy.dismissesAfterPairingAttempt(connectionState: .disconnected))
     }
 
-    /// A failed or cancelled attempt that started over a live connection
+    /// A cancelled attempt (disconnected, no connection error — the store's
+    /// cancellation path sets none) that started over a live connection
     /// reconnects that Mac: the pairing path is destructive, and the user must
-    /// not lose a working session to a bad QR code or a cancelled attempt.
-    @Test func failedAttemptOverLiveConnectionRestoresIt() {
+    /// not lose a working session just by backing out of the sheet.
+    @Test func cancelledAttemptOverLiveConnectionRestoresIt() {
         #expect(policy.restoresPreviousConnection(
             connectionState: .disconnected,
-            previousMacDeviceID: "mac-1"
+            previousMacDeviceID: "mac-1",
+            hasConnectionError: false
+        ))
+    }
+
+    /// A failed attempt (connection error set) must NOT auto-restore: the
+    /// reconnect path begins a fresh pairing attempt, which clears
+    /// `connectionError` and would erase the failure reason while the user is
+    /// reading it on the auto-presented pairing sheet.
+    @Test func failedAttemptKeepsErrorInsteadOfRestoring() {
+        #expect(!policy.restoresPreviousConnection(
+            connectionState: .disconnected,
+            previousMacDeviceID: "mac-1",
+            hasConnectionError: true
         ))
     }
 
@@ -47,16 +61,18 @@ import Testing
     @Test func successfulAttemptDoesNotRestorePreviousMac() {
         #expect(!policy.restoresPreviousConnection(
             connectionState: .connected,
-            previousMacDeviceID: "mac-1"
+            previousMacDeviceID: "mac-1",
+            hasConnectionError: false
         ))
     }
 
     /// An attempt that started without a live connection (first pair from the
     /// tree's empty state) has nothing to restore.
-    @Test func failedAttemptWithNoPreviousMacDoesNotRestore() {
+    @Test func cancelledAttemptWithNoPreviousMacDoesNotRestore() {
         #expect(!policy.restoresPreviousConnection(
             connectionState: .disconnected,
-            previousMacDeviceID: nil
+            previousMacDeviceID: nil,
+            hasConnectionError: false
         ))
     }
 }

@@ -35,18 +35,28 @@ public struct DeviceTreeAddDevicePolicy: Sendable {
     /// Whether a completed add-device attempt should reconnect the Mac that
     /// was live when the attempt started.
     ///
-    /// The underlying pairing path is destructive: a failed (or cancelled)
-    /// attempt leaves the shell `.disconnected` even when a healthy connection
-    /// existed before it began. When the attempt started over a live
-    /// connection (`previousMacDeviceID` non-nil) and ended disconnected,
-    /// restore that Mac via `switchToMac` instead of stranding the user —
-    /// the same "never strand the user" contract `switchToMac` documents for
-    /// its own failure path. A successful attempt is connected (to the new
-    /// device), so no restore happens.
+    /// The underlying pairing path is destructive: a cancelled attempt leaves
+    /// the shell `.disconnected` even when a healthy connection existed before
+    /// it began. When the attempt started over a live connection
+    /// (`previousMacDeviceID` non-nil), ended disconnected, and reported no
+    /// connection error (the store's cancellation path sets none, while every
+    /// real failure does), restore that Mac via `switchToMac` instead of
+    /// stranding the user — the same "never strand the user" contract
+    /// `switchToMac` documents for its own failure path.
+    ///
+    /// A failed attempt (`hasConnectionError`) deliberately does NOT restore:
+    /// the reconnect path begins a fresh pairing attempt, which clears
+    /// `connectionError` and would erase the actionable failure reason while
+    /// the user is reading it. The disconnected shell auto-presents the
+    /// pairing sheet with that error for an in-place retry; reconnecting the
+    /// previous Mac without losing the error needs a store-owned error
+    /// channel that survives reconnects (follow-up). A successful attempt is
+    /// connected (to the new device), so no restore happens either.
     public func restoresPreviousConnection(
         connectionState: MobileConnectionState,
-        previousMacDeviceID: String?
+        previousMacDeviceID: String?,
+        hasConnectionError: Bool
     ) -> Bool {
-        connectionState != .connected && previousMacDeviceID != nil
+        connectionState != .connected && previousMacDeviceID != nil && !hasConnectionError
     }
 }
