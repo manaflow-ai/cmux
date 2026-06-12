@@ -302,14 +302,14 @@ export class TeamPresence extends DurableObject {
     return [...(await this.allEntries()).values()];
   }
 
-  /** Make sure the alarm fires no later than this instance's next deadline.
-   * The alarm handler itself reschedules from the full map, so per-heartbeat
-   * scheduling only needs the cheap min() against the currently set alarm. */
+  /** Make sure the alarm fires no later than this instance's next deadline
+   * (expiry check for online, prune pass for offline — delegated to
+   * `nextAlarmTime` so the rule lives in one place). The alarm handler itself
+   * reschedules from the full map, so per-heartbeat scheduling only needs the
+   * cheap min() against the currently set alarm. */
   private async ensureAlarmFor(instance: PresenceInstance): Promise<void> {
-    const due = instance.online
-      ? instance.lastSeenAt + OFFLINE_TIMEOUT_MS
-      : (instance.offlineAt ?? instance.lastSeenAt) + OFFLINE_TIMEOUT_MS;
-    await this.ensureAlarmAt(due);
+    const due = nextAlarmTime([instance]);
+    if (due !== null) await this.ensureAlarmAt(due);
   }
 
   /** Pull the alarm earlier if `due` precedes the currently scheduled one

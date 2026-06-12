@@ -1544,12 +1544,12 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             syncPushedRoutes(from: instance)
         case .snapshot(let snapshot):
             // The snapshot is the reconcile-on-(re)subscribe path: a port that
-            // changed while the phone was offline lands here.
-            for device in snapshot.devices {
-                for instance in device.instances where instance.online {
-                    syncPushedRoutes(from: instance)
-                }
-            }
+            // changed while the phone was offline lands here. One batch (not
+            // one task per instance) so a multi-tag Mac syncs routes in
+            // deterministic order and kicks at most one reconnect.
+            syncPushedRoutes(from: snapshot.devices.flatMap { device in
+                device.instances.filter(\.online)
+            })
         case .offline, .seen:
             break
         }
@@ -1565,59 +1565,74 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// route the live session uses disappeared, the transport notices on its
     /// own and the next reconnect picks up the stored fresh routes.
     private func syncPushedRoutes(from instance: PresenceInstance) {
-        guard instance.platform.lowercased() != "ios" else { return }
-        let routes = instance.routes ?? []
-        let deviceId = instance.deviceId
-        let tag = instance.tag
-        let isOnline = instance.online
+        syncPushedRoutes(from: [instance])
+    }
+
+    /// Batch form: one sequential task for the whole delivery (a snapshot can
+    /// carry several online instances, including multiple tags on one Mac),
+    /// so route upserts apply in deterministic order and the reconnect kick
+    /// fires at most once per delivery instead of once per instance.
+    private func syncPushedRoutes(from instances: [PresenceInstance]) {
+        let candidates = instances.filter { $0.platform.lowercased() != "ios" }
+        guard !candidates.isEmpty else { return }
         let stackUserID = identityProvider?.currentUserID
         Task { @MainActor [weak self] in
             guard let self else { return }
             if self.pairedMacs.isEmpty {
                 // A presence frame can land before the first paired-Mac load
                 // (snapshot arrives fast on launch); resolve the pairing list
-                // before deciding this device is unknown.
+                // before deciding these devices are unknown.
                 await self.loadPairedMacs()
             }
-            guard let mac = self.pairedMacs.first(where: { $0.macDeviceID == deviceId }) else {
-                return
-            }
-            if !routes.isEmpty,
-               let pairedMacStore = self.pairedMacStore,
-               let updated = DeviceRegistryService.selectReconnectRoutes(
-                   local: mac.routes,
-                   registry: routes
-               ) {
-                do {
-                    try await pairedMacStore.upsert(
-                        macDeviceID: deviceId,
-                        displayName: mac.displayName,
-                        routes: updated,
-                        markActive: mac.isActive,
-                        stackUserID: stackUserID
-                    )
-                    await self.loadPairedMacs()
-                } catch {
-                    mobileShellLog.debug(
-                        "presence route upsert failed: \(String(describing: error), privacy: .public)"
-                    )
-                }
-                // Keep the in-memory registry tree's Connect affordances on the
-                // fresh routes too, without waiting for the next registry fetch.
-                if let deviceIndex = self.registryDevices.firstIndex(where: { $0.deviceId == deviceId }),
-                   let instanceIndex = self.registryDevices[deviceIndex].instances
-                       .firstIndex(where: { $0.tag == tag }) {
-                    self.registryDevices[deviceIndex].instances[instanceIndex].routes = routes
-                }
+            var onlineDeviceIds: Set<String> = []
+            for instance in candidates {
+                if instance.online { onlineDeviceIds.insert(instance.deviceId) }
+                await self.applyPushedRoutes(from: instance, stackUserID: stackUserID)
             }
             // The Mac this phone wants is online and we are not connected:
             // reconnect now (routes above are already persisted), instead of
             // waiting for the user to pull Retry.
-            if isOnline,
-               self.connectionState != .connected,
-               self.pairedMacs.first(where: { $0.isActive })?.macDeviceID == deviceId {
+            if self.connectionState != .connected,
+               let activeMacID = self.pairedMacs.first(where: { $0.isActive })?.macDeviceID,
+               onlineDeviceIds.contains(activeMacID) {
                 self.recoverMobileConnection(trigger: .presencePush)
             }
+        }
+    }
+
+    /// Per-instance store/registry write-through for the batch sync above.
+    private func applyPushedRoutes(from instance: PresenceInstance, stackUserID: String?) async {
+        let routes = instance.routes ?? []
+        let deviceId = instance.deviceId
+        guard let mac = pairedMacs.first(where: { $0.macDeviceID == deviceId }) else {
+            return
+        }
+        guard !routes.isEmpty,
+              let pairedMacStore,
+              let updated = DeviceRegistryService.selectReconnectRoutes(
+                  local: mac.routes,
+                  registry: routes
+              ) else { return }
+        do {
+            try await pairedMacStore.upsert(
+                macDeviceID: deviceId,
+                displayName: mac.displayName,
+                routes: updated,
+                markActive: mac.isActive,
+                stackUserID: stackUserID
+            )
+            await loadPairedMacs()
+        } catch {
+            mobileShellLog.debug(
+                "presence route upsert failed: \(String(describing: error), privacy: .public)"
+            )
+        }
+        // Keep the in-memory registry tree's Connect affordances on the
+        // fresh routes too, without waiting for the next registry fetch.
+        if let deviceIndex = registryDevices.firstIndex(where: { $0.deviceId == deviceId }),
+           let instanceIndex = registryDevices[deviceIndex].instances
+               .firstIndex(where: { $0.tag == instance.tag }) {
+            registryDevices[deviceIndex].instances[instanceIndex].routes = routes
         }
     }
 
