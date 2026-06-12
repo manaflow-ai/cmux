@@ -1892,6 +1892,34 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         return false
     }
 
+    func terminalSessionSummaryForUpdateInstall() -> UpdateInstallGate.TerminalSessionSummary {
+        var visitedManagers = Set<ObjectIdentifier>()
+        var summary = UpdateInstallGate.TerminalSessionSummary.empty
+
+        func appendManager(_ manager: TabManager?) {
+            guard let manager else { return }
+            let managerId = ObjectIdentifier(manager)
+            guard visitedManagers.insert(managerId).inserted else { return }
+            var managerSummary = manager.terminalSessionSummaryForUpdateInstall()
+            if managerSummary.hasTerminalSessions {
+                managerSummary.windowCount = 1
+            }
+            summary.merge(managerSummary)
+        }
+
+        for context in mainWindowContexts.values {
+            appendManager(context.tabManager)
+        }
+
+        appendManager(tabManager)
+
+        for route in recoverableMainWindowRoutes() {
+            appendManager(route.tabManager)
+        }
+
+        return summary
+    }
+
     @discardableResult
     private func closeAllWebInspectorsBeforeAppTeardown() -> Int {
         WebViewInspectorTeardown.closeAllInspectors(in: NSApp.windows)
@@ -18003,9 +18031,33 @@ private extension NSWindow {
 /// updater triggers (``UpdateActionsHost``) and the retry/relaunch hooks it calls back into
 /// (``UpdateActionDelegate``). `checkForUpdatesInCustomUI()` is satisfied by the method on the
 /// main `AppDelegate` declaration.
+@MainActor
 extension AppDelegate: UpdateActionDelegate, UpdateActionsHost {
     func updaterRequestsRetryCheckForUpdates() {
         checkForUpdates(nil)
+    }
+
+    func updaterTerminalSessionSummaryForUpdateInstall() -> UpdateInstallGate.TerminalSessionSummary {
+        terminalSessionSummaryForUpdateInstall()
+    }
+
+    func updaterConfirmTerminalTerminationForUpdateInstall(summary: UpdateInstallGate.TerminalSessionSummary) -> Bool {
+        let alert = NSAlert()
+        alert.alertStyle = .warning
+        alert.messageText = String(
+            localized: "update.terminalWarning.title",
+            defaultValue: "Install Update and Relaunch?"
+        )
+        alert.informativeText = Self.terminalTerminationWarningMessage(summary: summary)
+        alert.addButton(withTitle: String(
+            localized: "common.installAndRelaunch",
+            defaultValue: "Install and Relaunch"
+        ))
+        alert.addButton(withTitle: String(
+            localized: "common.restartLater",
+            defaultValue: "Restart Later"
+        ))
+        return alert.runModal() == .alertFirstButtonReturn
     }
 
     func updaterWillRelaunchApplication() {
@@ -18023,6 +18075,68 @@ extension AppDelegate: UpdateActionDelegate, UpdateActionsHost {
 
     var updateLogPath: String {
         updateLog.logPath()
+    }
+
+    private static func terminalTerminationWarningMessage(
+        summary: UpdateInstallGate.TerminalSessionSummary
+    ) -> String {
+        let terminalSessions = localizedCount(
+            summary.terminalCount,
+            oneKey: "update.terminalWarning.terminalSessions.one",
+            oneDefaultValue: "%lld terminal session",
+            otherKey: "update.terminalWarning.terminalSessions.other",
+            otherDefaultValue: "%lld terminal sessions"
+        )
+        let workspaces = localizedCount(
+            summary.workspaceCount,
+            oneKey: "update.terminalWarning.workspaces.one",
+            oneDefaultValue: "%lld workspace",
+            otherKey: "update.terminalWarning.workspaces.other",
+            otherDefaultValue: "%lld workspaces"
+        )
+        let base = String(
+            format: String(
+                localized: "update.terminalWarning.message",
+                defaultValue: "cmux will relaunch and terminate %@ across %@. Running shells, SSH connections, and agents in those terminals will stop."
+            ),
+            terminalSessions,
+            workspaces
+        )
+        guard summary.runningCommandCount > 0 else { return base }
+        let runningFormat = if summary.runningCommandCount == 1 {
+            String(
+                localized: "update.terminalWarning.runningCommands.one",
+                defaultValue: "%lld terminal session appears to have a running command."
+            )
+        } else {
+            String(
+                localized: "update.terminalWarning.runningCommands.other",
+                defaultValue: "%lld terminal sessions appear to have running commands."
+            )
+        }
+        let running = String(
+            format: runningFormat,
+            Int64(summary.runningCommandCount)
+        )
+        return base + "\n\n" + running
+    }
+
+    private static func localizedCount(
+        _ count: Int,
+        oneKey: StaticString,
+        oneDefaultValue: String.LocalizationValue,
+        otherKey: StaticString,
+        otherDefaultValue: String.LocalizationValue
+    ) -> String {
+        let format = if count == 1 {
+            String(localized: oneKey, defaultValue: oneDefaultValue)
+        } else {
+            String(localized: otherKey, defaultValue: otherDefaultValue)
+        }
+        return String(
+            format: format,
+            Int64(count)
+        )
     }
 }
 

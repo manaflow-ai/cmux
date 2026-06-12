@@ -10,6 +10,17 @@ public protocol UpdateActionDelegate: AnyObject {
     /// through its normal entry point.
     func updaterRequestsRetryCheckForUpdates()
 
+    /// Returns the terminal sessions that would be terminated by an update relaunch.
+    func updaterTerminalSessionSummaryForUpdateInstall() -> UpdateInstallGate.TerminalSessionSummary
+
+    /// Asks the host to confirm that the user wants to terminate the given terminal sessions.
+    ///
+    /// The package keeps the decision policy in ``UpdateInstallGate`` and delegates the actual
+    /// UI to the host so `CmuxUpdater` remains independent of AppKit alert presentation.
+    /// - Parameter summary: The terminal sessions requiring explicit confirmation.
+    /// - Returns: `true` when the user accepted the warning and installation may continue.
+    func updaterConfirmTerminalTerminationForUpdateInstall(summary: UpdateInstallGate.TerminalSessionSummary) -> Bool
+
     /// Sparkle is about to relaunch the app to finish installing. The host should persist
     /// session state, stop its terminal/runtime, and invalidate restorable state so the
     /// relaunched instance starts cleanly.

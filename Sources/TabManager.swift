@@ -5,6 +5,7 @@ import Bonsplit
 import CmuxFileWatch
 import CmuxGit
 import CmuxProcess
+import CmuxUpdater
 import CoreVideo
 import Combine
 import CoreServices
@@ -9720,6 +9721,14 @@ extension TabManager {
             workspaces: workspaceSnapshots,
             workspaceGroups: groupSnapshots
         )
+    }
+
+    func terminalSessionSummaryForUpdateInstall() -> UpdateInstallGate.TerminalSessionSummary {
+        var summary = UpdateInstallGate.TerminalSessionSummary.empty
+        for workspace in tabs {
+            summary.merge(workspace.terminalSessionSummaryForUpdateInstall())
+        }
+        return summary
     }
 
     func sessionSnapshotWorkspaceIds() -> [UUID] {

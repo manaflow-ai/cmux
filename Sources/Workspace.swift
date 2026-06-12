@@ -4,6 +4,7 @@ import AppKit
 import Bonsplit
 import CMUXAgentLaunch
 import CmuxSocketControl
+import CmuxUpdater
 import Combine
 import CryptoKit
 import Darwin
@@ -12827,6 +12828,36 @@ final class Workspace: Identifiable, ObservableObject {
             )
         }
         return panel.isDirty
+    }
+
+    func terminalSessionSummaryForUpdateInstall() -> UpdateInstallGate.TerminalSessionSummary {
+        var terminalCount = 0
+        var runningCommandCount = 0
+        var terminalPanelIds = Set<UUID>()
+        var runningCommandPanelIds = Set<UUID>()
+
+        for (panelId, panel) in panels {
+            guard let terminalPanel = panel as? TerminalPanel else { continue }
+            terminalCount += 1
+            terminalPanelIds.insert(panelId)
+            let hasRunningCommand = panelNeedsConfirmClose(
+                panelId: panelId,
+                fallbackNeedsConfirmClose: terminalPanel.needsConfirmClose()
+            )
+            if hasRunningCommand {
+                runningCommandCount += 1
+                runningCommandPanelIds.insert(panelId)
+            }
+        }
+
+        return UpdateInstallGate.TerminalSessionSummary(
+            windowCount: 0,
+            workspaceCount: terminalCount > 0 ? 1 : 0,
+            terminalCount: terminalCount,
+            runningCommandCount: runningCommandCount,
+            terminalPanelIds: terminalPanelIds,
+            runningCommandPanelIds: runningCommandPanelIds
+        )
     }
 
     func updatePanelGitBranch(panelId: UUID, branch: String, isDirty: Bool) {

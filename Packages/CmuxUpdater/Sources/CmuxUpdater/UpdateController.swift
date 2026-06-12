@@ -90,6 +90,9 @@ public final class UpdateController {
             userDriver: driver,
             delegate: driver
         )
+        driver.installDeferred = { [weak self] in
+            self?.stopInstallTriggersAfterTerminalWarning()
+        }
         startStateReactions()
     }
 
@@ -181,6 +184,11 @@ public final class UpdateController {
     private func stopAttemptUpdateMonitoring() {
         isAttemptingUpdate = false
         didObserveAttemptUpdateProgress = false
+    }
+
+    private func stopInstallTriggersAfterTerminalWarning() {
+        isForceInstalling = false
+        stopAttemptUpdateMonitoring()
     }
 
     // MARK: - "No updates" auto-dismiss

@@ -14,8 +14,10 @@ final class UpdateDriver: NSObject, @preconcurrency SPUUserDriver {
     let model: UpdateStateModel
     let log: any UpdateLogging
     private let clock: any UpdateClock
+    private let installGate: UpdateInstallGate
     /// Host actions the driver delegates upward. Held weak; set by ``UpdateController``.
     weak var actionDelegate: (any UpdateActionDelegate)?
+    var installDeferred: (@MainActor () -> Void)?
 
     private let minimumCheckDuration: TimeInterval = UpdateTiming.minimumCheckDisplayDuration
     private let checkTimeoutDuration: TimeInterval = UpdateTiming.checkTimeoutDuration
@@ -23,11 +25,18 @@ final class UpdateDriver: NSObject, @preconcurrency SPUUserDriver {
     private var pendingCheckTransitionTask: Task<Void, Never>?
     private var checkTimeoutTask: Task<Void, Never>?
     private(set) var lastFeedURLString: String?
+    private var confirmedTerminalSessionSummary: UpdateInstallGate.TerminalSessionSummary?
 
-    init(model: UpdateStateModel, log: any UpdateLogging, clock: any UpdateClock) {
+    init(
+        model: UpdateStateModel,
+        log: any UpdateLogging,
+        clock: any UpdateClock,
+        installGate: UpdateInstallGate = UpdateInstallGate()
+    ) {
         self.model = model
         self.log = log
         self.clock = clock
+        self.installGate = installGate
         super.init()
     }
 
@@ -61,7 +70,11 @@ final class UpdateDriver: NSObject, @preconcurrency SPUUserDriver {
                          state: SPUUserUpdateState,
                          reply: @escaping @Sendable (SPUUserUpdateChoice) -> Void) {
         log.append("show update found: \(appcastItem.displayVersionString)")
-        setStateAfterMinimumCheckDelay(.updateAvailable(.init(appcastItem: appcastItem, reply: reply)))
+        confirmedTerminalSessionSummary = nil
+        setStateAfterMinimumCheckDelay(.updateAvailable(.init(
+            appcastItem: appcastItem,
+            reply: installGateReply(reply)
+        )))
     }
 
     func showUpdateReleaseNotes(with downloadData: SPUDownloadData) {
@@ -139,13 +152,17 @@ final class UpdateDriver: NSObject, @preconcurrency SPUUserDriver {
 
     func showReady(toInstallAndRelaunch reply: @escaping @Sendable (SPUUserUpdateChoice) -> Void) {
         log.append("show ready to install")
-        reply(.install)
+        replyToInstallChoice(.install, reply: reply) { [weak self] in
+            self?.setReadyToInstallDeferredState(reply: reply)
+        }
     }
 
     func showInstallingUpdate(withApplicationTerminated applicationTerminated: Bool, retryTerminatingApplication: @escaping () -> Void) {
         log.append("show installing update")
         setState(.installing(.init(
-            retryTerminatingApplication: retryTerminatingApplication,
+            retryTerminatingApplication: { [weak self] in
+                self?.runImmediateInstallAfterGate(retryTerminatingApplication)
+            },
             dismiss: { [weak self] in
                 self?.model.setState(.idle)
             }
@@ -164,6 +181,7 @@ final class UpdateDriver: NSObject, @preconcurrency SPUUserDriver {
 
     func dismissUpdateInstallation() {
         log.append("dismiss update installation")
+        confirmedTerminalSessionSummary = nil
         if case .error = model.state {
             log.append("dismiss update installation ignored (error visible)")
             return
@@ -177,6 +195,85 @@ final class UpdateDriver: NSObject, @preconcurrency SPUUserDriver {
             return
         }
         setState(.idle)
+    }
+
+    private func installGateReply(
+        _ reply: @escaping @Sendable (SPUUserUpdateChoice) -> Void
+    ) -> @Sendable (SPUUserUpdateChoice) -> Void {
+        { [weak self] choice in
+            Task { @MainActor [weak self] in
+                guard let self else {
+                    reply(choice)
+                    return
+                }
+                self.replyToInstallChoice(choice, reply: reply)
+            }
+        }
+    }
+
+    private func replyToInstallChoice(
+        _ choice: SPUUserUpdateChoice,
+        reply: @escaping @Sendable (SPUUserUpdateChoice) -> Void,
+        deferred: (() -> Void)? = nil
+    ) {
+        guard choice == .install else {
+            confirmedTerminalSessionSummary = nil
+            reply(choice)
+            return
+        }
+
+        guard confirmUpdateInstallAfterTerminalWarning() else {
+            log.append("update install deferred after terminal session warning")
+            installDeferred?()
+            deferred?()
+            return
+        }
+        reply(.install)
+    }
+
+    private func setReadyToInstallDeferredState(
+        reply: @escaping @Sendable (SPUUserUpdateChoice) -> Void
+    ) {
+        setState(.installing(.init(
+            retryTerminatingApplication: { [weak self] in
+                self?.replyToInstallChoice(.install, reply: reply)
+            },
+            dismiss: { [weak self] in
+                self?.confirmedTerminalSessionSummary = nil
+                reply(.dismiss)
+                self?.model.setState(.idle)
+            }
+        )))
+    }
+
+    func runImmediateInstallAfterGate(_ install: @escaping () -> Void) {
+        guard confirmUpdateInstallAfterTerminalWarning() else {
+            log.append("update relaunch deferred after terminal session warning")
+            return
+        }
+        install()
+    }
+
+    func confirmUpdateInstallAfterTerminalWarningForImmediateInstall() -> Bool {
+        confirmUpdateInstallAfterTerminalWarning()
+    }
+
+    private func confirmUpdateInstallAfterTerminalWarning() -> Bool {
+        let summary = actionDelegate?.updaterTerminalSessionSummaryForUpdateInstall() ?? .empty
+        switch installGate.decision(
+            terminalSessions: summary,
+            confirmedTerminalSessions: confirmedTerminalSessionSummary
+        ) {
+        case .installNow:
+            return true
+        case .requireConfirmation(let warningSummary):
+            guard actionDelegate?.updaterConfirmTerminalTerminationForUpdateInstall(summary: warningSummary) == true else {
+                confirmedTerminalSessionSummary = nil
+                return false
+            }
+            confirmedTerminalSessionSummary = warningSummary
+            return true
+        }
     }
 
     // MARK: - State transition helpers
