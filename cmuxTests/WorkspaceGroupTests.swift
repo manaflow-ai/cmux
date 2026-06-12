@@ -1194,6 +1194,54 @@ struct WorkspaceGroupTests {
         #expect(manager.tabs.firstIndex { $0.id == originalIds[0] } == lastIndex)
     }
 
+    @Test func boundaryHitboxesResolveLastOfGroupVsFirstAfterGroup() throws {
+        // Layout (list space): header H(0..30, group G), member M(30..80, G),
+        // ungrouped U(80..130), dragged row D(200..250, ungrouped).
+        let drag = SidebarDragState()
+        let g = UUID()
+        let h = UUID(), m = UUID(), u = UUID(), d = UUID()
+        let frames: [UUID: CGRect] = [
+            h: CGRect(x: 0, y: 0, width: 200, height: 30),
+            m: CGRect(x: 12, y: 30, width: 188, height: 50),
+            u: CGRect(x: 0, y: 80, width: 200, height: 50),
+            d: CGRect(x: 0, y: 200, width: 200, height: 50),
+        ]
+        drag.updateRowFrames(frames)
+        drag.beginReorder(
+            tabId: d,
+            usesTopLevelRows: false,
+            reorderIds: [h, m, u, d],
+            pinnedIds: [],
+            scopeBandComposition: [:],
+            bandGroupIdById: [h: g, m: g, u: nil, d: nil],
+            headerBandIds: [h],
+            draggedCommittedGroupId: nil,
+            draggedIsAnchor: false,
+            draggedRowFrame: frames[d],
+            grabOffsetY: 25,
+            translationBaseY: 225,
+            cursorY: 225
+        )
+
+        // Hover the last member's LOWER half: the slot is "after M" and the
+        // membership hitbox says INSIDE the group (last member).
+        drag.updateReorder(cursorY: 70, translationWidth: 0)
+        #expect(drag.dropIndicator != nil)
+        #expect(drag.previewMembershipGroupId == g)
+
+        // Slide just past M's bottom edge (over U's top half): SAME insertion
+        // position, but the second hitbox — first row AFTER the group.
+        drag.updateReorder(cursorY: 95, translationWidth: 0)
+        #expect(drag.previewMembershipGroupId == nil)
+
+        // The header's lower half tucks INTO the group as its first slot.
+        drag.updateReorder(cursorY: 28, translationWidth: 0)
+        #expect(drag.previewMembershipGroupId == g)
+
+        drag.clearDrag()
+        #expect(drag.previewMembershipGroupId == nil)
+    }
+
     @Test func gestureDragRejectsAnchorsAndDeadGroups() throws {
         let manager = makeTabManager()
         manager.addWorkspace(autoWelcomeIfNeeded: false)

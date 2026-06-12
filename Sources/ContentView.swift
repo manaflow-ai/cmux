@@ -10654,7 +10654,7 @@ final class SidebarDragState {
         if indicator != dropIndicator {
             dropIndicator = indicator
         }
-        resolveMembership(bands: bands, translationWidth: translationWidth)
+        resolveMembership(bands: bands, cursorY: cursorY, translationWidth: translationWidth)
     }
 
     /// Resolves the membership the dragged row will commit with at the
@@ -10669,6 +10669,7 @@ final class SidebarDragState {
     /// it on a purely vertical drag.
     private func resolveMembership(
         bands: [SidebarReorderIndicatorResolver.Band],
+        cursorY: CGFloat,
         translationWidth: CGFloat
     ) {
         guard let draggedTabId, !draggedIsAnchor, !dropIndicatorUsesTopLevelRows else { return }
@@ -10718,31 +10719,55 @@ final class SidebarDragState {
             return
         }
 
-        // Boundary slot. Re-anchor the X measurement whenever the slot (or
-        // its candidate group) changes.
-        let slotKey = "\(dropIndicator?.tabId?.uuidString ?? "own").\(dropIndicator?.edge == .top ? "t" : "b").\(candidate.uuidString)"
-        if boundarySlotKey != slotKey {
-            boundarySlotKey = slotKey
-            translationWidthAtBoundaryEntry = translationWidth
+        if dropIndicator == nil {
+            // Own-slot boundary (no vertical movement): the X axis flips
+            // membership in place — drag right to tuck into the adjacent
+            // group, left to pull out, without moving vertically. Measured
+            // relative to slot entry so earlier drift never biases it.
+            let slotKey = "own.\(candidate.uuidString)"
+            if boundarySlotKey != slotKey {
+                boundarySlotKey = slotKey
+                translationWidthAtBoundaryEntry = translationWidth
+            }
+            let deltaSinceEntry = translationWidth - translationWidthAtBoundaryEntry
+            let stickyIn = previewMembershipGroupId == candidate
+            let isIn: Bool
+            if deltaSinceEntry >= 8 {
+                isIn = true
+            } else if deltaSinceEntry <= -8 {
+                isIn = false
+            } else {
+                isIn = stickyIn
+            }
+            if isIn != stickyIn {
+                translationWidthAtBoundaryEntry = translationWidth
+            }
+            setPreviewMembership(isIn ? candidate : nil)
+            return
         }
-        let deltaSinceEntry = translationWidth - translationWidthAtBoundaryEntry
-        // Sticky default: whatever membership the drag already resolved
-        // carries into the boundary (a member at its own group's edge stays
-        // in; a foreign row stays out) until a deliberate ~8pt horizontal
-        // nudge flips it.
-        let stickyIn = previewMembershipGroupId == candidate
+
+        // Moving boundary slot: TWO stacked hitboxes share this insertion
+        // position. While the cursor is still over the boundary-adjacent row
+        // that donated the candidate (its lower half resolved this slot) the
+        // drop is INSIDE the group ("last member" / "tucked under the
+        // header"); once the cursor passes that row's bottom edge into the
+        // gap or the next row's top half, the drop is OUTSIDE ("first row
+        // after the group"). Deterministic from Y — no horizontal nudge
+        // needed — with a small hysteresis band at the edge so jitter does
+        // not flicker the indent.
+        boundarySlotKey = nil
+        let currentlyIn = previewMembershipGroupId == candidate
         let isIn: Bool
-        if deltaSinceEntry >= 8 {
-            isIn = true
-        } else if deltaSinceEntry <= -8 {
-            isIn = false
+        if prevGroup != nil, let prevBand {
+            let edgeY = prevBand.maxY
+            isIn = currentlyIn ? cursorY <= edgeY + 2 : cursorY <= edgeY - 2
+        } else if let nextBand {
+            // Candidate donated by the row BELOW the slot — mirror the rule
+            // on that row's top edge.
+            let edgeY = nextBand.minY
+            isIn = currentlyIn ? cursorY >= edgeY - 2 : cursorY >= edgeY + 2
         } else {
-            isIn = stickyIn
-        }
-        if isIn != stickyIn {
-            // Re-anchor on each flip so flipping back needs the same ~8pt
-            // nudge from here, not double the distance from slot entry.
-            translationWidthAtBoundaryEntry = translationWidth
+            isIn = currentlyIn
         }
         setPreviewMembership(isIn ? candidate : nil)
     }

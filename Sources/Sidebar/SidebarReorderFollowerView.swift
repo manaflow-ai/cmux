@@ -50,6 +50,12 @@ struct SidebarReorderFollowerView: View {
                     rowContent(item)
                 }
             }
+            // Width and X are BOTH explicit functions of the previewed
+            // indent: tucking into a group slides the row right by the
+            // indent AND narrows it by the same amount (the trailing edge
+            // stays fixed), animated together on the indent's own axis while
+            // Y tracking below stays animation-free.
+            .frame(width: max(frame.width - previewExtraIndent, 0), height: frame.height, alignment: .topLeading)
             .padding(.leading, previewExtraIndent)
             .animation(.snappy(duration: 0.15, extraBounce: 0), value: previewExtraIndent)
             .frame(width: frame.width, height: frame.height, alignment: .topLeading)
