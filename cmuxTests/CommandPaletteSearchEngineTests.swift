@@ -1710,6 +1710,37 @@ final class CommandPaletteSearchEngineTests: XCTestCase {
         )
     }
 
+    // The browser-workspace palette command must not displace the exact-title
+    // match for "New Workspace"; UI flows (and
+    // BrowserPaneNavigationKeybindUITests) rely on it staying the top result.
+    func testCommandSearchKeepsNewWorkspaceAboveNewBrowserWorkspace() {
+        let entries = [
+            FixtureEntry(
+                id: "palette.newWorkspace",
+                rank: 0,
+                title: "New Workspace",
+                searchableTexts: ["New Workspace", "Workspace", "create", "new", "workspace"]
+            ),
+            FixtureEntry(
+                id: "palette.newBrowserWorkspace",
+                rank: 1,
+                title: "New Browser Workspace",
+                searchableTexts: ["New Browser Workspace", "Workspace", "create", "new", "browser", "workspace", "web"]
+            ),
+        ]
+
+        XCTAssertEqual(
+            optimizedResults(entries: entries, query: "New Workspace").first?.id,
+            "palette.newWorkspace",
+            "Exact title match must outrank the browser variant"
+        )
+        XCTAssertEqual(
+            optimizedResults(entries: entries, query: "new browser").first?.id,
+            "palette.newBrowserWorkspace",
+            "Browser-specific query should surface the browser workspace command"
+        )
+    }
+
     func testSearchMatchesSingleOmittedCharacterInCommandWordPrefix() {
         let entries = makeFinderCommandEntries()
 

@@ -6804,6 +6804,15 @@ struct ContentView: View {
         )
         contributions.append(
             CommandPaletteCommandContribution(
+                commandId: "palette.newBrowserWorkspace",
+                title: constant(String(localized: "command.newBrowserWorkspace.title", defaultValue: "New Browser Workspace")),
+                subtitle: constant(String(localized: "command.newBrowserWorkspace.subtitle", defaultValue: "Workspace")),
+                keywords: ["create", "new", "browser", "workspace", "web"],
+                when: { !$0.bool(CommandPaletteContextKeys.browserDisabled) }
+            )
+        )
+        contributions.append(
+            CommandPaletteCommandContribution(
                 commandId: "palette.newWindow",
                 title: constant(String(localized: "command.newWindow.title", defaultValue: "New Window")),
                 subtitle: constant(String(localized: "command.newWindow.subtitle", defaultValue: "Window")),
@@ -8007,6 +8016,16 @@ struct ContentView: View {
                 tabManager: tabManager,
                 debugSource: "palette.newWorkspace"
             )
+        }
+        registry.register(commandId: "palette.newBrowserWorkspace") {
+            // Let command-palette dismissal complete first so omnibar focus
+            // is not blocked by the palette visibility guard.
+            DispatchQueue.main.async {
+                _ = AppDelegate.shared?.performNewBrowserWorkspaceAction(
+                    tabManager: tabManager,
+                    debugSource: "palette.newBrowserWorkspace"
+                )
+            }
         }
         registry.register(commandId: "palette.openFolder") {
             // Defer so the command palette dismisses before the modal sheet appears.
@@ -10666,6 +10685,7 @@ struct VerticalTabsSidebar: View {
     private var selectedExtensionSidebarProviderId = CmuxExtensionSidebarSelection.defaultProviderId
     @LiveSetting(\.betaFeatures.extensions) private var extensionsExperimentalEnabled
     @LiveSetting(\.betaFeatures.customSidebars) private var customSidebarsExperimentalEnabled
+    @LiveSetting(\.customSidebars.renderer) private var customSidebarRenderer
 
     // The provider to actually render. Built-in views are always honored; only
     // the hosted-extension selection falls back to the default workspaces
@@ -11411,18 +11431,25 @@ struct VerticalTabsSidebar: View {
             // Periodic tick so the custom sidebar re-renders live (clock,
             // countdowns, and refreshed workspace/data context), mirroring the
             // default sidebar's TimelineView. No banned timers involved.
-            // Fully out-of-process: the render worker interprets AND renders
-            // the file; this view only hosts the worker's remote layer and
-            // forwards input, so no file-derived view code runs in the host.
+            // The surface mounts the in-process renderer by default (native
+            // hover/focus/keyboard, same-frame resize); the
+            // `customSidebars.renderer` setting switches it to the
+            // out-of-process worker for untrusted sources (no file-derived
+            // view code runs in the host). The @LiveSetting's initial value
+            // lags one store round-trip on remount, so a non-default choice
+            // can mount the other renderer for one tick before flipping;
+            // harmless (the host shuts the short-lived client down on
+            // unmount).
             TimelineView(.periodic(from: .now, by: 1)) { timeline in
-                // No .id(customSidebarURL): the worker swaps files in place on
-                // the next scene message, so remounting the surface would only
-                // flash the previous sidebar's pixels during the switch.
-                RemoteCustomSidebarHost(
+                CustomSidebarSurface(
                     fileURL: customSidebarURL,
                     dataContext: customSidebarDataContext(now: timeline.date),
                     dispatch: makeCmuxSidebarActionDispatch(),
-                    contentInsets: CustomSidebarContentInsets(top: SidebarWorkspaceScrollInsets.workspaceList.top, bottom: SidebarWorkspaceScrollInsets.workspaceList.bottom),
+                    contentInsets: CustomSidebarContentInsets(
+                        top: SidebarWorkspaceScrollInsets.workspaceList.top,
+                        bottom: SidebarWorkspaceScrollInsets.workspaceList.bottom
+                    ),
+                    rendersInProcess: customSidebarRenderer == .inProcess,
                     client: $sidebarRenderWorkerClient
                 )
             }
