@@ -79,11 +79,12 @@ class KeyboardLayout {
         )
     }
 
+    #if DEBUG
     /// Translate a physical keyCode against a specific keyboard input source
     /// exactly as text input would (Option/Shift applied, no ASCII fallback).
     /// Resolves the source from all installed input sources, so layouts that
     /// are not enabled on the host (e.g. German on a US machine) still
-    /// translate. Used by Option-composition regression coverage.
+    /// translate. Test-only seam for Option-composition regression coverage.
     static func textInputCharacter(
         forKeyCode keyCode: UInt16,
         modifierFlags: NSEvent.ModifierFlags,
@@ -106,6 +107,7 @@ class KeyboardLayout {
         }
         return list.first
     }
+    #endif
 
     /// Return the ASCII-normalized equivalent of `event.charactersIgnoringModifiers`,
     /// falling back through the ASCII-capable input source for non-Latin input methods.
