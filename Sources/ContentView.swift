@@ -6804,6 +6804,15 @@ struct ContentView: View {
         )
         contributions.append(
             CommandPaletteCommandContribution(
+                commandId: "palette.newBrowserWorkspace",
+                title: constant(String(localized: "command.newBrowserWorkspace.title", defaultValue: "New Browser Workspace")),
+                subtitle: constant(String(localized: "command.newBrowserWorkspace.subtitle", defaultValue: "Workspace")),
+                keywords: ["create", "new", "browser", "workspace", "web"],
+                when: { !$0.bool(CommandPaletteContextKeys.browserDisabled) }
+            )
+        )
+        contributions.append(
+            CommandPaletteCommandContribution(
                 commandId: "palette.newWindow",
                 title: constant(String(localized: "command.newWindow.title", defaultValue: "New Window")),
                 subtitle: constant(String(localized: "command.newWindow.subtitle", defaultValue: "Window")),
@@ -8007,6 +8016,16 @@ struct ContentView: View {
                 tabManager: tabManager,
                 debugSource: "palette.newWorkspace"
             )
+        }
+        registry.register(commandId: "palette.newBrowserWorkspace") {
+            // Let command-palette dismissal complete first so omnibar focus
+            // is not blocked by the palette visibility guard.
+            DispatchQueue.main.async {
+                _ = AppDelegate.shared?.performNewBrowserWorkspaceAction(
+                    tabManager: tabManager,
+                    debugSource: "palette.newBrowserWorkspace"
+                )
+            }
         }
         registry.register(commandId: "palette.openFolder") {
             // Defer so the command palette dismisses before the modal sheet appears.
