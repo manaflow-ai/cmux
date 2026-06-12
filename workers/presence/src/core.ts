@@ -22,6 +22,12 @@ export const OFFLINE_TIMEOUT_MS = 45_000;
  * active instances. */
 export const PRUNE_AFTER_MS = 24 * 60 * 60 * 1000;
 
+/** One attach route as the registry stores it (`device_app_instances.routes`
+ * jsonb). Opaque to presence, exactly like the registry route: bounded plain
+ * objects whose semantic schema (`CmxAttachRoute`) is owned by the clients, so
+ * new route kinds flow through without a worker ship. */
+export type PresenceRoute = Record<string, unknown>;
+
 export interface PresenceInstance {
   /** cmux-generated persisted device UUID (same identity as the Aurora
    * `devices.device_uuid` registry column). */
@@ -39,6 +45,12 @@ export interface PresenceInstance {
   onlineSince?: number;
   /** Epoch ms when the instance was declared offline (timeout or goodbye). */
   offlineAt?: number;
+  /** The instance's current attach routes, mirrored from the host's heartbeat.
+   * A live CACHE of the durable registry row (the host writes the same set to
+   * `POST /api/devices`), kept here so subscribers get fresh routes pushed in
+   * realtime instead of polling the registry. Reconciliation on DO cold start
+   * is the heartbeat itself: hosts re-announce the full set within 15s. */
+  routes?: PresenceRoute[];
 }
 
 export interface HeartbeatInput {
@@ -50,18 +62,38 @@ export interface HeartbeatInput {
   /** True when the host is shutting down cleanly and wants an immediate
    * offline transition instead of waiting out the timeout. */
   stopping?: boolean;
+  /** Current attach routes. Absent means "unchanged" (the previous set is
+   * kept); an empty array means "no routes" (e.g. pairing turned off). */
+  routes?: PresenceRoute[];
 }
 
 export type PresenceEvent =
   | { type: "online"; instance: PresenceInstance }
   | { type: "offline"; instance: PresenceInstance; reason: "timeout" | "goodbye" }
-  | { type: "seen"; deviceId: string; tag: string; lastSeenAt: number };
+  | { type: "seen"; deviceId: string; tag: string; lastSeenAt: number }
+  /** The instance's attach routes changed while online (new port/IP). Carries
+   * the full updated instance so subscribers can reconnect on the fresh routes
+   * without a registry round trip. */
+  | { type: "routes"; instance: PresenceInstance };
 
 export interface HeartbeatResult {
   instance: PresenceInstance;
   /** Events to broadcast to subscribers, in order. A fresh heartbeat on an
    * already-online instance yields only a lightweight "seen" tick. */
   events: PresenceEvent[];
+}
+
+/** Whether two route sets are the same, order-sensitively (hosts publish a
+ * priority-ordered list, so order is meaning). Routes are small bounded JSON
+ * objects, so canonical-enough comparison via JSON.stringify is fine: a false
+ * "changed" only costs one extra push. Pure for tests. */
+export function routesEqual(
+  a: readonly PresenceRoute[] | undefined,
+  b: readonly PresenceRoute[] | undefined,
+): boolean {
+  if (a === undefined || b === undefined) return a === b;
+  if (a.length !== b.length) return false;
+  return JSON.stringify(a) === JSON.stringify(b);
 }
 
 /** Apply one heartbeat to the (possibly absent) existing record. */
@@ -74,6 +106,9 @@ export function applyHeartbeat(
     return applyGoodbye(existing, beat, nowMs);
   }
   const wasOnline = existing?.online === true;
+  // Absent routes mean "unchanged": keep the previous set so a client that
+  // omits the field (or a future slim keepalive) never wipes pushed routes.
+  const routes = beat.routes ?? existing?.routes;
   const instance: PresenceInstance = {
     deviceId: beat.deviceId,
     tag: beat.tag,
@@ -83,10 +118,17 @@ export function applyHeartbeat(
     online: true,
     lastSeenAt: nowMs,
     onlineSince: wasOnline ? existing.onlineSince : nowMs,
+    ...(routes !== undefined ? { routes } : {}),
   };
-  const events: PresenceEvent[] = wasOnline
-    ? [{ type: "seen", deviceId: instance.deviceId, tag: instance.tag, lastSeenAt: nowMs }]
-    : [{ type: "online", instance }];
+  if (!wasOnline) {
+    return { instance, events: [{ type: "online", instance }] };
+  }
+  // Already online: a changed route set is the realtime "new port/IP" push;
+  // an unchanged one is just a lightweight liveness tick.
+  const events: PresenceEvent[] =
+    beat.routes !== undefined && !routesEqual(existing.routes, beat.routes)
+      ? [{ type: "routes", instance }]
+      : [{ type: "seen", deviceId: instance.deviceId, tag: instance.tag, lastSeenAt: nowMs }];
   return { instance, events };
 }
 
@@ -96,6 +138,10 @@ function applyGoodbye(
   beat: HeartbeatInput,
   nowMs: number,
 ): HeartbeatResult {
+  // Keep the last known routes on the offline record: they are the
+  // best-known rendezvous for "try waking this host", matching the registry
+  // row that outlives the instance going offline.
+  const routes = beat.routes ?? existing?.routes;
   const instance: PresenceInstance = {
     deviceId: beat.deviceId,
     tag: beat.tag,
@@ -106,6 +152,7 @@ function applyGoodbye(
     lastSeenAt: existing?.lastSeenAt ?? nowMs,
     onlineSince: undefined,
     offlineAt: nowMs,
+    ...(routes !== undefined ? { routes } : {}),
   };
   // Only emit an offline event when the instance was actually online; a
   // goodbye from an already-offline (or never-seen) instance is a no-op tick.

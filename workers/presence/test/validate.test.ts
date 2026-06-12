@@ -1,5 +1,5 @@
 import { describe, expect, it } from "bun:test";
-import { MAX_REQUEST_BYTES, parseHeartbeat, readBoundedJson } from "../src/validate";
+import { MAX_REQUEST_BYTES, MAX_ROUTES, parseHeartbeat, readBoundedJson } from "../src/validate";
 
 const DEVICE_ID = "11111111-2222-4333-8444-555555555555";
 
@@ -135,5 +135,50 @@ describe("parseHeartbeat", () => {
     const result = parseHeartbeat({ deviceId: DEVICE_ID, platform: "mac", stopping: "yes" });
     expect(result.ok).toBe(true);
     if (result.ok) expect(result.beat.stopping).toBeUndefined();
+  });
+});
+
+describe("parseHeartbeat routes", () => {
+  function body(routes: unknown): Record<string, unknown> {
+    return { deviceId: DEVICE_ID, platform: "mac", routes };
+  }
+
+  it("absent routes parse as undefined (unchanged)", () => {
+    const result = parseHeartbeat({ deviceId: DEVICE_ID, platform: "mac" });
+    if (!result.ok) throw new Error(result.error);
+    expect(result.beat.routes).toBeUndefined();
+  });
+
+  it("an explicit empty array parses as empty (no routes), not absent", () => {
+    const result = parseHeartbeat(body([]));
+    if (!result.ok) throw new Error(result.error);
+    expect(result.beat.routes).toEqual([]);
+  });
+
+  it("plain-object entries pass through opaquely", () => {
+    const route = { kind: "lan", host: "192.168.1.10", port: 49152 };
+    const result = parseHeartbeat(body([route]));
+    if (!result.ok) throw new Error(result.error);
+    expect(result.beat.routes).toEqual([route]);
+  });
+
+  it("non-object entries are dropped, mirroring the registry route", () => {
+    const route = { kind: "lan" };
+    const result = parseHeartbeat(body([route, "x", 4, null, [1]]));
+    if (!result.ok) throw new Error(result.error);
+    expect(result.beat.routes).toEqual([route]);
+  });
+
+  it("a present non-array routes value is rejected (must not silently clear)", () => {
+    expect(parseHeartbeat(body("lan"))).toEqual({ ok: false, error: "invalid_routes" });
+    expect(parseHeartbeat(body(7))).toEqual({ ok: false, error: "invalid_routes" });
+    expect(parseHeartbeat(body({ kind: "lan" }))).toEqual({ ok: false, error: "invalid_routes" });
+  });
+
+  it("bounds the set at MAX_ROUTES entries", () => {
+    const routes = Array.from({ length: MAX_ROUTES + 5 }, (_, i) => ({ port: i }));
+    const result = parseHeartbeat(body(routes));
+    if (!result.ok) throw new Error(result.error);
+    expect(result.beat.routes).toHaveLength(MAX_ROUTES);
   });
 });

@@ -12,6 +12,7 @@ import {
   OFFLINE_TIMEOUT_MS,
   PRUNE_AFTER_MS,
   resolveSubscribeDeadline,
+  routesEqual,
   shouldPrune,
   type HeartbeatInput,
   type PresenceInstance,
@@ -308,5 +309,79 @@ describe("resolveSubscribeDeadline", () => {
     expect(resolveSubscribeDeadline("", T0, MAX_AGE)).toBeNull();
     expect(resolveSubscribeDeadline("not-a-number", T0, MAX_AGE)).toBeNull();
     expect(resolveSubscribeDeadline("Infinity", T0, MAX_AGE)).toBeNull();
+  });
+});
+
+describe("heartbeat routes", () => {
+  const routeA = { kind: "lan", host: "192.168.1.10", port: 49152 };
+  const routeB = { kind: "tailscale", host: "mac.tailnet.ts.net", port: 49152 };
+  const routeMoved = { kind: "lan", host: "192.168.1.10", port: 50000 };
+
+  it("stores routes from the first heartbeat on the online instance", () => {
+    const { instance, events } = applyHeartbeat(undefined, beat({ routes: [routeA, routeB] }), T0);
+    expect(instance.routes).toEqual([routeA, routeB]);
+    expect(events).toEqual([{ type: "online", instance }]);
+  });
+
+  it("absent routes keep the previous set and tick seen", () => {
+    const existing = onlineInstance({ routes: [routeA] });
+    const { instance, events } = applyHeartbeat(existing, beat(), T0 + 15_000);
+    expect(instance.routes).toEqual([routeA]);
+    expect(events).toEqual([
+      { type: "seen", deviceId: instance.deviceId, tag: instance.tag, lastSeenAt: T0 + 15_000 },
+    ]);
+  });
+
+  it("a changed route set on an online instance emits a routes push", () => {
+    const existing = onlineInstance({ routes: [routeA] });
+    const { instance, events } = applyHeartbeat(existing, beat({ routes: [routeMoved] }), T0 + 15_000);
+    expect(instance.routes).toEqual([routeMoved]);
+    expect(events).toEqual([{ type: "routes", instance }]);
+  });
+
+  it("route order is meaning: a reordered set is a change", () => {
+    const existing = onlineInstance({ routes: [routeA, routeB] });
+    const { events } = applyHeartbeat(existing, beat({ routes: [routeB, routeA] }), T0 + 15_000);
+    expect(events[0]?.type).toBe("routes");
+  });
+
+  it("an unchanged route set is only a seen tick", () => {
+    const existing = onlineInstance({ routes: [routeA, routeB] });
+    const { events } = applyHeartbeat(existing, beat({ routes: [routeA, routeB] }), T0 + 15_000);
+    expect(events[0]?.type).toBe("seen");
+  });
+
+  it("an explicit empty set clears routes and emits a routes push", () => {
+    const existing = onlineInstance({ routes: [routeA] });
+    const { instance, events } = applyHeartbeat(existing, beat({ routes: [] }), T0 + 15_000);
+    expect(instance.routes).toEqual([]);
+    expect(events).toEqual([{ type: "routes", instance }]);
+  });
+
+  it("routes on a fresh online transition ride the online event, not a routes push", () => {
+    const offline = onlineInstance({ online: false, onlineSince: undefined, offlineAt: T0, routes: [routeA] });
+    const { instance, events } = applyHeartbeat(offline, beat({ routes: [routeMoved] }), T0 + 60_000);
+    expect(instance.routes).toEqual([routeMoved]);
+    expect(events).toEqual([{ type: "online", instance }]);
+  });
+
+  it("a goodbye keeps the last known routes on the offline record", () => {
+    const existing = onlineInstance({ routes: [routeA] });
+    const { instance } = applyHeartbeat(existing, beat({ stopping: true }), T0 + 15_000);
+    expect(instance.online).toBe(false);
+    expect(instance.routes).toEqual([routeA]);
+  });
+
+  it("routesEqual is order-sensitive and treats undefined as distinct from empty", () => {
+    expect(routesEqual(undefined, undefined)).toBe(true);
+    expect(routesEqual(undefined, [])).toBe(false);
+    expect(routesEqual([], [])).toBe(true);
+    expect(routesEqual([routeA], [routeA])).toBe(true);
+    expect(routesEqual([routeA, routeB], [routeB, routeA])).toBe(false);
+  });
+
+  it("snapshot instances carry their stored routes", () => {
+    const snapshot = buildSnapshot("team-1", [onlineInstance({ routes: [routeA] })], T0);
+    expect(snapshot.devices[0]?.instances[0]?.routes).toEqual([routeA]);
   });
 });

@@ -3,13 +3,16 @@
 // payload conventions hold across the durable registry and this ephemeral
 // presence layer.
 
-import type { HeartbeatInput } from "./core";
+import type { HeartbeatInput, PresenceRoute } from "./core";
 
 export const MAX_REQUEST_BYTES = 16 * 1024;
 export const MAX_TAG_LENGTH = 64;
 export const MAX_DISPLAY_NAME_LENGTH = 128;
 export const MAX_CAPABILITIES = 32;
 export const MAX_CAPABILITY_LENGTH = 64;
+/** Mirrors the registry route's `MAX_ROUTES` (`web/app/api/devices/route.ts`):
+ * hosts publish the same bounded set to both. */
+export const MAX_ROUTES = 16;
 
 const UUID_RE =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -64,6 +67,25 @@ export function parseHeartbeat(body: Record<string, unknown>): HeartbeatParse {
 
   const stopping = body.stopping === true;
 
+  // Routes are tri-state on the heartbeat wire (see HeartbeatInput): absent
+  // means "unchanged", `[]` means "no routes". A present-but-non-array value is
+  // rejected rather than coerced like the registry route does, because under
+  // presence semantics a silent coercion would either wipe pushed routes
+  // (treat-as-empty) or mask a client bug (treat-as-absent). Entry filtering
+  // mirrors the registry: keep only plain objects, bounded by MAX_ROUTES;
+  // semantic `CmxAttachRoute` validation stays client-owned so new route kinds
+  // flow through without a worker ship.
+  let routes: PresenceRoute[] | undefined;
+  if (body.routes !== undefined) {
+    if (!Array.isArray(body.routes)) return { ok: false, error: "invalid_routes" };
+    routes = body.routes
+      .filter(
+        (entry): entry is PresenceRoute =>
+          entry !== null && typeof entry === "object" && !Array.isArray(entry),
+      )
+      .slice(0, MAX_ROUTES);
+  }
+
   return {
     ok: true,
     beat: {
@@ -73,6 +95,7 @@ export function parseHeartbeat(body: Record<string, unknown>): HeartbeatParse {
       displayName: displayName || undefined,
       capabilities,
       stopping: stopping || undefined,
+      routes,
     },
   };
 }
