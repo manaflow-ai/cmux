@@ -728,6 +728,43 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         )
     }
 
+    func testClaudeForkSessionStartWithoutSurfaceIdentityDoesNotRegisterPIDOnFallbackPane() throws {
+        let context = try makeClaudeHookContext(name: "claude-fork-no-surface")
+        defer { context.cleanup() }
+
+        let parentSessionId = "parent-session"
+        let parentSurfaceId = "99999999-9999-9999-9999-999999999999"
+        try seedClaudeForkHookStore(
+            context: context,
+            parentSessionId: parentSessionId,
+            parentSurfaceId: parentSurfaceId,
+            activeSessionId: parentSessionId,
+            activeTurnId: nil
+        )
+
+        // No surface identity: resolution falls back to the focused surface,
+        // which is some other pane. The fork's PID must not be registered
+        // there — the matching SessionEnd cleanup only clears authoritative
+        // surfaces, so a fallback registration would never be cleared.
+        var environment = claudeForkLaunchEnvironment(context: context, parentSessionId: parentSessionId)
+        environment["CMUX_SURFACE_ID"] = ""
+        environment["CMUX_CLAUDE_PID"] = "12345"
+        let result = runClaudeHookListingSurfaces(
+            context: context,
+            surfaceIds: [parentSurfaceId, context.surfaceId],
+            arguments: ["hooks", "claude", "session-start"],
+            standardInput: #"{"session_id":"\#(parentSessionId)","source":"resume","cwd":"\#(context.root.path)","hook_event_name":"SessionStart"}"#,
+            extraEnvironment: environment
+        )
+        XCTAssertFalse(result.timedOut, result.stderr)
+        XCTAssertEqual(result.status, 0, result.stderr)
+
+        XCTAssertFalse(
+            context.state.commands.contains { $0.hasPrefix("set_agent_pid claude_code ") },
+            "A fork SessionStart without an authoritative surface must not register its PID on a borrowed fallback pane, saw \(context.state.commands)"
+        )
+    }
+
     func testClaudeForkedSessionPromptSubmitRecordsWhileParentTurnActive() throws {
         let context = try makeClaudeHookContext(name: "claude-fork-prompt-submit")
         defer { context.cleanup() }
