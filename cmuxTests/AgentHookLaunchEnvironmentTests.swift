@@ -93,23 +93,29 @@ import Testing
             #expect(AgentHookLaunchEnvironment.injectableEmitBinaryURL(
                 outcome: .found(url, .explicitOverride),
                 appVersion: "0.50.0",
+                environment: [:],
+                bundleIdentifier: "com.cmuxterm.app.debug.my-tag",
                 isDebugBuild: isDebugBuild
             ) == url)
         }
     }
 
-    @Test func cachedBinaryRequiresExactOrNewerVersionOnReleaseBuilds() {
+    @Test func cachedBinaryRequiresExactOrNewerVersionOnStableReleaseBuilds() {
         let url = URL(fileURLWithPath: "/cache/cmuxd-remote")
         // Same release version: same-SHA artifacts, carries the verb.
         #expect(AgentHookLaunchEnvironment.injectableEmitBinaryURL(
             outcome: .found(url, .cached(version: "0.50.0")),
             appVersion: "0.50.0",
+            environment: [:],
+            bundleIdentifier: "com.cmuxterm.app",
             isDebugBuild: false
         ) == url)
         // Newer cached daemon: the verb is additive.
         #expect(AgentHookLaunchEnvironment.injectableEmitBinaryURL(
             outcome: .found(url, .cached(version: "0.51.0")),
             appVersion: "0.50.0",
+            environment: [:],
+            bundleIdentifier: "com.cmuxterm.app",
             isDebugBuild: false
         ) == url)
         // Older cached daemon predates the verb: invoking it would fall
@@ -117,26 +123,40 @@ import Testing
         #expect(AgentHookLaunchEnvironment.injectableEmitBinaryURL(
             outcome: .found(url, .cached(version: "0.49.0")),
             appVersion: "0.50.0",
+            environment: [:],
+            bundleIdentifier: "com.cmuxterm.app",
             isDebugBuild: false
         ) == nil)
     }
 
-    @Test func debugBuildsInjectOnlyTheExplicitOverride() {
-        // A debug build shares its marketing version with release artifacts
-        // built from different SHAs, so a cached binary is never provably
-        // verb-capable there.
+    @Test func nonStableVariantsInjectOnlyTheExplicitOverride() {
+        // Debug, nightly, and staging builds share marketing versions with
+        // stable artifacts built from different SHAs, so a cached binary is
+        // never provably verb-capable there.
         let url = URL(fileURLWithPath: "/cache/cmuxd-remote")
-        #expect(AgentHookLaunchEnvironment.injectableEmitBinaryURL(
-            outcome: .found(url, .cached(version: "0.50.0")),
-            appVersion: "0.50.0",
-            isDebugBuild: true
-        ) == nil)
+        let cases: [(bundleIdentifier: String, isDebugBuild: Bool)] = [
+            ("com.cmuxterm.app", true),
+            ("com.cmuxterm.app.debug.my-tag", true),
+            ("com.cmuxterm.app.nightly", false),
+            ("com.cmuxterm.app.staging.rc1", false),
+        ]
+        for testCase in cases {
+            #expect(AgentHookLaunchEnvironment.injectableEmitBinaryURL(
+                outcome: .found(url, .cached(version: "0.50.0")),
+                appVersion: "0.50.0",
+                environment: [:],
+                bundleIdentifier: testCase.bundleIdentifier,
+                isDebugBuild: testCase.isDebugBuild
+            ) == nil, "\(testCase.bundleIdentifier) debug=\(testCase.isDebugBuild)")
+        }
     }
 
     @Test func unavailableOutcomeIsNeverInjectable() {
         #expect(AgentHookLaunchEnvironment.injectableEmitBinaryURL(
             outcome: .unavailable(detail: "not cached"),
             appVersion: "0.50.0",
+            environment: [:],
+            bundleIdentifier: "com.cmuxterm.app",
             isDebugBuild: false
         ) == nil)
     }

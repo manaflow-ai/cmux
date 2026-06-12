@@ -6606,11 +6606,10 @@ final class TerminalSurface: Identifiable, ObservableObject {
         // wrappers the staged cmuxd-remote emit relay and this instance's
         // ingest socket path. Skipped entirely when no daemon binary is
         // cached or the cached one predates the agent-hook-emit verb, so
-        // agent launches never depend on the feature
+        // agent launches never depend on the feature. The relay is resolved
+        // once per app session, not per surface
         // (docs/agent-conversation-protocol.md, "Hook ingest").
-        if let emitBinaryURL = AgentHookLaunchEnvironment.injectableEmitBinaryURL(
-               outcome: AgentDaemonBinaryLocator().locate()
-           ),
+        if let emitBinaryURL = AgentHookLaunchEnvironment.injectableEmitBinaryURLForLaunch(),
            let agentHookEnvironment = AgentHookLaunchEnvironment.launchEnvironment(
                emitBinaryURL: emitBinaryURL,
                socketPath: AgentHookLaunchEnvironment.ingestSocketPath()

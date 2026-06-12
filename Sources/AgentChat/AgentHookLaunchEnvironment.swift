@@ -75,14 +75,18 @@ enum AgentHookLaunchEnvironment {
     ///
     /// - the explicit `CMUX_REMOTE_DAEMON_BINARY` dev override (opt-in,
     ///   assumed current), on any build;
-    /// - on release builds only, a cached binary at this app's exact release
-    ///   version (same-SHA release artifacts) or newer (the verb is
-    ///   additive). Debug builds share marketing versions with release
-    ///   artifacts built from different SHAs, so they inject only with the
-    ///   override, which dev dogfood of this feature already requires.
+    /// - on stable release builds only, a cached binary at this app's exact
+    ///   release version (the release workflow builds the app and its daemon
+    ///   artifacts from one SHA) or newer (the verb is additive). Debug,
+    ///   nightly, and staging builds share marketing versions with stable
+    ///   artifacts built from different SHAs, so the version comparison
+    ///   proves nothing there; they inject only with the override, which dev
+    ///   dogfood of this feature already requires.
     static func injectableEmitBinaryURL(
         outcome: AgentDaemonBinaryLocator.Outcome,
         appVersion: String = AgentDaemonBinaryLocator.appVersionString(),
+        environment: [String: String] = ProcessInfo.processInfo.environment,
+        bundleIdentifier: String? = Bundle.main.bundleIdentifier,
         isDebugBuild: Bool = AgentHookLaunchEnvironment.isDebugBuild
     ) -> URL? {
         guard case .found(let url, let provenance) = outcome else { return nil }
@@ -90,11 +94,34 @@ enum AgentHookLaunchEnvironment {
         case .explicitOverride:
             return url
         case .cached(let version):
-            guard !isDebugBuild else { return nil }
+            guard !isDebugBuild,
+                  case .stable = SocketPathMarkerFiles.variant(
+                      bundleIdentifier: bundleIdentifier,
+                      environment: environment
+                  ) else {
+                return nil
+            }
             if version == appVersion { return url }
             return AgentDaemonBinaryLocator.isVersionNewer(version, appVersion) ? url : nil
         }
     }
+
+    /// One-shot, app-session cache around the locator + provenance gate for
+    /// the terminal launch path: surface creation must not rescan the daemon
+    /// cache per surface. The first surface pays one small scan (a couple of
+    /// stats, in line with the bundled-CLI checks around it); a daemon cached
+    /// later in the session (first `cmux ssh`) is picked up on next launch.
+    @MainActor
+    static func injectableEmitBinaryURLForLaunch() -> URL? {
+        if let cached = cachedInjectableEmitBinaryURL {
+            return cached
+        }
+        let resolved = injectableEmitBinaryURL(outcome: AgentDaemonBinaryLocator().locate())
+        cachedInjectableEmitBinaryURL = .some(resolved)
+        return resolved
+    }
+
+    @MainActor private static var cachedInjectableEmitBinaryURL: URL??
 
     /// The environment pairs a terminal surface (or any agent launch) needs
     /// for hook injection, or `nil` when no staged daemon binary exists.
