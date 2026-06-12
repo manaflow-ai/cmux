@@ -14,6 +14,8 @@ private func cmux_ghostty_surface_clear_selection(_ surface: ghostty_surface_t) 
 /// file with `@_silgen_name` and exposed as a static member here, so every
 /// header-less FFI binding in the codebase lives behind a single type instead
 /// of being scattered as bare function declarations.
+// lint:allow namespace-type — sanctioned FFI seam: a holder for header-less
+// @_silgen_name libghostty bindings; there is nothing to instantiate.
 public struct GhosttyRuntimeCInterop {
     private init() {}
 

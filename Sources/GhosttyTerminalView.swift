@@ -1697,7 +1697,7 @@ class GhosttyApp {
             let callbackTabId = callbackContext.tabId
 
 #if DEBUG
-            TerminalChildExitProbe.write(
+            TerminalChildExitProbe().write(
                 [
                     "probeCloseSurfaceNeedsConfirm": needsConfirmClose ? "1" : "0",
                     "probeCloseSurfaceTabId": callbackTabId?.uuidString ?? "",
@@ -4017,7 +4017,7 @@ class GhosttyApp {
             )
 #endif
 #if DEBUG
-            TerminalChildExitProbe.write(
+            TerminalChildExitProbe().write(
                 [
                     "probeShowChildExitedTabId": callbackTabId?.uuidString ?? "",
                     "probeShowChildExitedSurfaceId": callbackSurfaceId?.uuidString ?? "",
@@ -4330,7 +4330,7 @@ class GhosttyApp {
             // Ghostty's link detection can match file paths that contain
             // slashes or dots (e.g. "docs/spec.md." or "/tmp/spec.md.") as URLs.
             // Attempt to resolve the raw string as a local file first
-            // (with trailing-punctuation trimming via TerminalPathResolver.resolveQuicklookPath).
+            // (with trailing-punctuation trimming via TerminalPathResolver's quicklook resolution).
             // If the file exists and cmux can handle it, route through the
             // file viewer instead of the browser.
             let trimmedUrlString = urlString.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -4346,7 +4346,7 @@ class GhosttyApp {
                         workspace: workspace,
                         surfaceId: termSurface.id
                     )
-                    guard let resolvedPath = TerminalPathResolver.resolveOpenURLFilePath(trimmedUrlString, cwd: cwd) else {
+                    guard let resolvedPath = TerminalPathResolver().resolveOpenURLFilePath(trimmedUrlString, cwd: cwd) else {
                         return (false, nil)
                     }
                     guard CommandClickFileOpenRouter.shouldRouteInCmux(path: resolvedPath) else {
@@ -9317,7 +9317,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
 #endif
 
 #if DEBUG
-        TerminalChildExitProbe.write(
+        TerminalChildExitProbe().write(
             [
                 "probePerformCharsHex": (event.characters?.unicodeScalarHexList ?? ""),
                 "probePerformCharsIgnoringHex": (event.charactersIgnoringModifiers?.unicodeScalarHexList ?? ""),
@@ -9512,7 +9512,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
 #endif
 
 #if DEBUG
-        TerminalChildExitProbe.write(
+        TerminalChildExitProbe().write(
             [
                 "probeKeyDownCharsHex": (event.characters?.unicodeScalarHexList ?? ""),
                 "probeKeyDownCharsIgnoringHex": (event.charactersIgnoringModifiers?.unicodeScalarHexList ?? ""),
@@ -9950,7 +9950,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         }
 
         if !hasMarkedText(),
-           let action = GhosttyKeyEventTranslation.modifierActionForFlagsChanged(
+           let action = ghostty_input_action_e.modifierActionForFlagsChanged(
             keyCode: event.keyCode,
             modifierFlagsRawValue: event.modifierFlags.rawValue
            ) {
@@ -10381,7 +10381,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
 #else
                     let resolvedQuicklookWord = decodedWord
 #endif
-                    if let resolvedPath = TerminalPathResolver.resolveQuicklookPath(resolvedQuicklookWord, cwd: cwd) {
+                    if let resolvedPath = TerminalPathResolver().resolveQuicklookPath(resolvedQuicklookWord, cwd: cwd) {
                         quicklookResolution = makeWordPathResolution(
                             path: resolvedPath,
                             source: .quicklook,
@@ -10573,14 +10573,14 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             terminalPanel: panel,
             lineLimit: max(200, rows * 4)
         ) ?? ""
-        let visibleLines = TerminalPathResolver.visibleLines(from: visibleText, rows: rows)
+        let visibleLines = visibleText.visibleLines(rows: rows)
         let rowOffset = max(0, rows - visibleLines.count)
         let rowFromTop = max(0, min(rows - 1, viewportOffsetStart / cols))
         let visibleRow = rowFromTop - rowOffset
         guard visibleRow >= 0, visibleRow < visibleLines.count else { return nil }
 
         let column = max(0, min(cols - 1, viewportOffsetStart % cols))
-        guard let resolution = TerminalPathResolver.resolveVisibleLinePath(
+        guard let resolution = TerminalPathResolver().resolveVisibleLinePath(
             visibleLines[visibleRow],
             column: column,
             cwd: cwd
@@ -10617,7 +10617,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             terminalPanel: panel,
             lineLimit: max(200, rows * 4)
         ) ?? ""
-        let visibleLines = TerminalPathResolver.visibleLines(from: visibleText, rows: rows)
+        let visibleLines = visibleText.visibleLines(rows: rows)
         let rowOffset = max(0, rows - visibleLines.count)
         let xInset = max(0, (bounds.width - (CGFloat(cols) * resolvedCellWidth)) / 2)
         let yInset = max(0, (bounds.height - (CGFloat(rows) * resolvedCellHeight)) / 2)
@@ -10628,7 +10628,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         guard visibleRow >= 0, visibleRow < visibleLines.count else { return nil }
 
         let column = max(0, min(cols - 1, Int((point.x - xInset) / resolvedCellWidth)))
-        guard let resolution = TerminalPathResolver.resolveVisibleLinePath(
+        guard let resolution = TerminalPathResolver().resolveVisibleLinePath(
             visibleLines[visibleRow],
             column: column,
             cwd: cwd
@@ -10940,7 +10940,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     }
 
     private func debugFlagsChangedEvent(commandDown: Bool, at pointInView: NSPoint) -> NSEvent? {
-        // GhosttyKeyEventTranslation.modifierActionForFlagsChanged distinguishes left-Cmd
+        // ghostty_input_action_e.modifierActionForFlagsChanged distinguishes left-Cmd
         // presses by the device-side bit, so a bare .command is read as a
         // release.
         let rawFlags: UInt = commandDown
@@ -14968,7 +14968,7 @@ extension GhosttyNSView: NSTextInputClient {
         let typingTimingStart = CmuxTypingTiming.start()
 #endif
 #if DEBUG
-        TerminalChildExitProbe.write(
+        TerminalChildExitProbe().write(
             [
                 "probeInsertTextCharsHex": chars.unicodeScalarHexList,
                 "probeInsertTextSurfaceId": terminalSurface?.id.uuidString ?? "",

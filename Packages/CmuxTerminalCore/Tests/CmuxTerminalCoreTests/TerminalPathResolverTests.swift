@@ -2,49 +2,49 @@ import Foundation
 import Testing
 import CmuxTerminalCore
 
-private func existsIn(_ existingPaths: Set<String>) -> (String) -> Bool {
+private func existsIn(_ existingPaths: Set<String>) -> @Sendable (String) -> Bool {
     { path in existingPaths.contains((path as NSString).standardizingPath) }
 }
 
 @Suite struct TerminalPathTrailingPunctuationTests {
     @Test func trimsTrailingPeriodAfterMarkdownFile() {
         #expect(
-            TerminalPathResolver.trimTrailingPunctuation("~/ClaudeCode/feature-spec-template.md.")
+            "~/ClaudeCode/feature-spec-template.md.".trimmingTrailingTerminalPunctuation()
                 == "~/ClaudeCode/feature-spec-template.md"
         )
     }
 
     @Test func trimsTrailingCommaInList() {
         #expect(
-            TerminalPathResolver.trimTrailingPunctuation("/tmp/fixtures/first.txt,")
+            "/tmp/fixtures/first.txt,".trimmingTrailingTerminalPunctuation()
                 == "/tmp/fixtures/first.txt"
         )
     }
 
     @Test func trimsTrailingCloseParenWhenNoBalancedOpenParen() {
         #expect(
-            TerminalPathResolver.trimTrailingPunctuation("/tmp/fixtures/notes.txt)")
+            "/tmp/fixtures/notes.txt)".trimmingTrailingTerminalPunctuation()
                 == "/tmp/fixtures/notes.txt"
         )
     }
 
     @Test func preservesBalancedParensInMiddleOfPath() {
         #expect(
-            TerminalPathResolver.trimTrailingPunctuation("/tmp/fixtures/report (draft)/notes.txt")
+            "/tmp/fixtures/report (draft)/notes.txt".trimmingTrailingTerminalPunctuation()
                 == "/tmp/fixtures/report (draft)/notes.txt"
         )
     }
 
     @Test func stripsMultipleTrailingPunctuationCharacters() {
         #expect(
-            TerminalPathResolver.trimTrailingPunctuation("/tmp/fixtures/report (draft).md).,!?\"")
+            "/tmp/fixtures/report (draft).md).,!?\"".trimmingTrailingTerminalPunctuation()
                 == "/tmp/fixtures/report (draft).md"
         )
     }
 
     @Test func trimsTrailingClosingQuote() {
         #expect(
-            TerminalPathResolver.trimTrailingPunctuation("/tmp/fixtures/notes.txt\"")
+            "/tmp/fixtures/notes.txt\"".trimmingTrailingTerminalPunctuation()
                 == "/tmp/fixtures/notes.txt"
         )
     }
@@ -54,10 +54,9 @@ private func existsIn(_ existingPaths: Set<String>) -> (String) -> Bool {
     @Test func fallsBackToStrippedPathWhenLiteralPathIsMissing() {
         let strippedPath = "/tmp/cmux-cmdclick-path.md"
         #expect(
-            TerminalPathResolver.resolveQuicklookPath(
+            TerminalPathResolver(fileExists: existsIn([strippedPath])).resolveQuicklookPath(
                 "\(strippedPath).",
-                cwd: "/tmp",
-                fileExists: existsIn([strippedPath])
+                cwd: "/tmp"
             ) == strippedPath
         )
     }
@@ -66,10 +65,9 @@ private func existsIn(_ existingPaths: Set<String>) -> (String) -> Bool {
         let literalPath = "/tmp/cmux-cmdclick-literal-dot.md."
         let strippedPath = "/tmp/cmux-cmdclick-literal-dot.md"
         #expect(
-            TerminalPathResolver.resolveQuicklookPath(
+            TerminalPathResolver(fileExists: existsIn([literalPath, strippedPath])).resolveQuicklookPath(
                 literalPath,
-                cwd: "/tmp",
-                fileExists: existsIn([literalPath, strippedPath])
+                cwd: "/tmp"
             ) == literalPath
         )
     }
@@ -78,10 +76,9 @@ private func existsIn(_ existingPaths: Set<String>) -> (String) -> Bool {
         let literalPath = "/tmp/cmux-cmdclick-literal-paren)"
         let strippedPath = "/tmp/cmux-cmdclick-literal-paren"
         #expect(
-            TerminalPathResolver.resolveQuicklookPath(
+            TerminalPathResolver(fileExists: existsIn([literalPath, strippedPath])).resolveQuicklookPath(
                 literalPath,
-                cwd: "/tmp",
-                fileExists: existsIn([literalPath, strippedPath])
+                cwd: "/tmp"
             ) == literalPath
         )
     }
@@ -90,10 +87,9 @@ private func existsIn(_ existingPaths: Set<String>) -> (String) -> Bool {
         let cwd = "/Users/dev/project"
         let existingFile = "/Users/dev/project/docs/specs/2026-05-22-test.md"
         #expect(
-            TerminalPathResolver.resolveQuicklookPath(
+            TerminalPathResolver(fileExists: existsIn([existingFile])).resolveQuicklookPath(
                 "docs/specs/2026-05-22-test.md.",
-                cwd: cwd,
-                fileExists: existsIn([existingFile])
+                cwd: cwd
             ) == existingFile
         )
     }
@@ -102,30 +98,27 @@ private func existsIn(_ existingPaths: Set<String>) -> (String) -> Bool {
         let cwd = "/Users/dev/project"
         let existingFile = "/Users/dev/project/src/main.swift"
         #expect(
-            TerminalPathResolver.resolveQuicklookPath(
+            TerminalPathResolver(fileExists: existsIn([existingFile])).resolveQuicklookPath(
                 "src/main.swift,",
-                cwd: cwd,
-                fileExists: existsIn([existingFile])
+                cwd: cwd
             ) == existingFile
         )
     }
 
     @Test func returnsNilForRelativePathThatDoesNotExist() {
         #expect(
-            TerminalPathResolver.resolveQuicklookPath(
+            TerminalPathResolver(fileExists: existsIn([])).resolveQuicklookPath(
                 "docs/nonexistent.md.",
-                cwd: "/Users/dev/project",
-                fileExists: existsIn([])
+                cwd: "/Users/dev/project"
             ) == nil
         )
     }
 
     @Test func relativeCandidateWithoutCwdIsSkipped() {
         #expect(
-            TerminalPathResolver.resolveQuicklookPath(
+            TerminalPathResolver(fileExists: { _ in true }).resolveQuicklookPath(
                 "src/main.swift",
-                cwd: nil,
-                fileExists: { _ in true }
+                cwd: nil
             ) == nil
         )
     }
@@ -133,10 +126,9 @@ private func existsIn(_ existingPaths: Set<String>) -> (String) -> Bool {
     @Test func unquotesShellQuotedToken() {
         let existingFile = "/tmp/cmux quicklook spaced.md"
         #expect(
-            TerminalPathResolver.resolveQuicklookPath(
+            TerminalPathResolver(fileExists: existsIn([existingFile])).resolveQuicklookPath(
                 "\"\(existingFile)\"",
-                cwd: "/tmp",
-                fileExists: existsIn([existingFile])
+                cwd: "/tmp"
             ) == existingFile
         )
     }
@@ -144,10 +136,9 @@ private func existsIn(_ existingPaths: Set<String>) -> (String) -> Bool {
     @Test func unescapesBackslashEscapedSpaces() {
         let existingFile = "/tmp/cmux quicklook escaped.md"
         #expect(
-            TerminalPathResolver.resolveQuicklookPath(
+            TerminalPathResolver(fileExists: existsIn([existingFile])).resolveQuicklookPath(
                 "/tmp/cmux\\ quicklook\\ escaped.md",
-                cwd: "/tmp",
-                fileExists: existsIn([existingFile])
+                cwd: "/tmp"
             ) == existingFile
         )
     }
@@ -157,10 +148,9 @@ private func existsIn(_ existingPaths: Set<String>) -> (String) -> Bool {
     @Test func resolvesAbsoluteMarkdownPathWithTrailingDot() {
         let existingFile = "/Users/dev/project/skills/marketing/data/lawrencecchen-tweets.md"
         #expect(
-            TerminalPathResolver.resolveOpenURLFilePath(
+            TerminalPathResolver(fileExists: existsIn([existingFile])).resolveOpenURLFilePath(
                 "\(existingFile).",
-                cwd: "/Users/dev/project",
-                fileExists: existsIn([existingFile])
+                cwd: "/Users/dev/project"
             ) == existingFile
         )
     }
@@ -168,27 +158,24 @@ private func existsIn(_ existingPaths: Set<String>) -> (String) -> Bool {
     @Test func resolvesQuotedAbsoluteMarkdownPathWithTrailingDot() {
         let existingFile = "/Users/dev/project/skills/marketing/data/lawrencecchen-tweets.md"
         #expect(
-            TerminalPathResolver.resolveOpenURLFilePath(
+            TerminalPathResolver(fileExists: existsIn([existingFile])).resolveOpenURLFilePath(
                 "\"\(existingFile).\"",
-                cwd: "/Users/dev/project",
-                fileExists: existsIn([existingFile])
+                cwd: "/Users/dev/project"
             ) == existingFile
         )
     }
 
     @Test func textWithURLSchemeIsNeverTreatedAsFilePath() {
         #expect(
-            TerminalPathResolver.resolveOpenURLFilePath(
+            TerminalPathResolver(fileExists: { _ in true }).resolveOpenURLFilePath(
                 "file:///tmp/test.md",
-                cwd: "/tmp",
-                fileExists: { _ in true }
+                cwd: "/tmp"
             ) == nil
         )
         #expect(
-            TerminalPathResolver.resolveOpenURLFilePath(
+            TerminalPathResolver(fileExists: { _ in true }).resolveOpenURLFilePath(
                 "mailto:test@example.com",
-                cwd: "/tmp",
-                fileExists: { _ in true }
+                cwd: "/tmp"
             ) == nil
         )
     }
@@ -196,10 +183,9 @@ private func existsIn(_ existingPaths: Set<String>) -> (String) -> Bool {
     @Test func schemelessRelativeAndAbsoluteTextStaysEligible() {
         let relative = "/Users/dev/project/docs/specs/2026-05-22-test.md"
         #expect(
-            TerminalPathResolver.resolveOpenURLFilePath(
+            TerminalPathResolver(fileExists: existsIn([relative])).resolveOpenURLFilePath(
                 "docs/specs/2026-05-22-test.md.",
-                cwd: "/Users/dev/project",
-                fileExists: existsIn([relative])
+                cwd: "/Users/dev/project"
             ) == relative
         )
     }
@@ -208,23 +194,22 @@ private func existsIn(_ existingPaths: Set<String>) -> (String) -> Bool {
 @Suite struct TerminalVisibleLineResolutionTests {
     @Test func visibleLinesKeepsTrailingRowsOnly() {
         let text = "one\ntwo\nthree\nfour"
-        #expect(TerminalPathResolver.visibleLines(from: text, rows: 2) == ["three", "four"])
-        #expect(TerminalPathResolver.visibleLines(from: text, rows: 10) == ["one", "two", "three", "four"])
+        #expect(text.visibleLines(rows: 2) == ["three", "four"])
+        #expect(text.visibleLines(rows: 10) == ["one", "two", "three", "four"])
     }
 
     @Test func visibleLinesPreservesEmptyLines() {
-        #expect(TerminalPathResolver.visibleLines(from: "a\n\nb", rows: 3) == ["a", "", "b"])
+        #expect("a\n\nb".visibleLines(rows: 3) == ["a", "", "b"])
     }
 
     @Test func resolvesRawSegmentUnderColumn() throws {
         let existingFile = "/tmp/cmux-visible-line.md"
         let line = "open /tmp/cmux-visible-line.md now"
         let resolution = try #require(
-            TerminalPathResolver.resolveVisibleLinePath(
+            TerminalPathResolver(fileExists: existsIn([existingFile])).resolveVisibleLinePath(
                 line,
                 column: 8,
-                cwd: "/tmp",
-                fileExists: existsIn([existingFile])
+                cwd: "/tmp"
             )
         )
         #expect(resolution.path == existingFile)
@@ -235,11 +220,10 @@ private func existsIn(_ existingPaths: Set<String>) -> (String) -> Bool {
         let existingFile = "/tmp/cmux visible escaped.md"
         let line = "cat /tmp/cmux\\ visible\\ escaped.md"
         let resolution = try #require(
-            TerminalPathResolver.resolveVisibleLinePath(
+            TerminalPathResolver(fileExists: existsIn([existingFile])).resolveVisibleLinePath(
                 line,
                 column: 6,
-                cwd: "/tmp",
-                fileExists: existsIn([existingFile])
+                cwd: "/tmp"
             )
         )
         #expect(resolution.path == existingFile)
@@ -247,11 +231,10 @@ private func existsIn(_ existingPaths: Set<String>) -> (String) -> Bool {
 
     @Test func returnsNilWhenColumnSitsOnHardDelimiter() {
         #expect(
-            TerminalPathResolver.resolveVisibleLinePath(
+            TerminalPathResolver(fileExists: { _ in true }).resolveVisibleLinePath(
                 "a\tb",
                 column: 1,
-                cwd: "/tmp",
-                fileExists: { _ in true }
+                cwd: "/tmp"
             ) == nil
         )
     }
