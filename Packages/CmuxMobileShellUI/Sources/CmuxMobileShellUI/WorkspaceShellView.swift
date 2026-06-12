@@ -82,9 +82,7 @@ struct WorkspaceShellView: View {
                 signOut: signOut,
                 store: store,
                 renameWorkspace: renameWorkspaceClosure,
-                setPinned: setWorkspacePinnedClosure,
-                setUnread: setWorkspaceUnreadClosure,
-                closeWorkspace: closeWorkspaceClosure
+                setPinned: setWorkspacePinnedClosure
             )
             .navigationDestination(for: MobileWorkspacePreview.ID.self) { workspaceID in
                 workspaceDestination(for: workspaceID, createWorkspace: createWorkspaceInCompactStack)
@@ -139,9 +137,7 @@ struct WorkspaceShellView: View {
                 signOut: signOut,
                 store: store,
                 renameWorkspace: renameWorkspaceClosure,
-                setPinned: setWorkspacePinnedClosure,
-                setUnread: setWorkspaceUnreadClosure,
-                closeWorkspace: closeWorkspaceClosure
+                setPinned: setWorkspacePinnedClosure
             )
             .navigationSplitViewColumnWidth(min: 320, ideal: 380, max: 440)
         } detail: {
@@ -178,12 +174,11 @@ struct WorkspaceShellView: View {
         }
     }
 
-    /// Workspace-action closures, present when the paired Mac has advertised the
-    /// `workspace.actions.v1` capability. Do not hide them during a transient
-    /// reconnecting state: the workspace list can still be visible and refreshable
-    /// while `macConnectionStatus` catches up, and hiding actions makes native
-    /// swipe rows feel broken. The mutation path remains authoritative and
-    /// re-syncs from macOS after each attempt.
+    /// Rename/pin closures, present only when the connected Mac advertises the
+    /// `workspace.actions.v1` capability so the row affordances stay hidden on
+    /// older Macs that lack the handler. Built as explicit closure literals (not
+    /// a method-reference ternary, which the compiler fails to type-check inside
+    /// the large `WorkspaceListView` initializer).
     private var renameWorkspaceClosure: ((MobileWorkspacePreview.ID, String) -> Void)? {
         guard store.supportsWorkspaceActions else { return nil }
         let store = store
@@ -194,18 +189,6 @@ struct WorkspaceShellView: View {
         guard store.supportsWorkspaceActions else { return nil }
         let store = store
         return { id, pinned in Task { await store.setWorkspacePinned(id: id, pinned) } }
-    }
-
-    private var setWorkspaceUnreadClosure: ((MobileWorkspacePreview.ID, Bool) -> Void)? {
-        guard store.supportsWorkspaceActions else { return nil }
-        let store = store
-        return { id, unread in Task { await store.setWorkspaceUnread(id: id, unread) } }
-    }
-
-    private var closeWorkspaceClosure: ((MobileWorkspacePreview.ID) -> Void)? {
-        guard store.supportsWorkspaceActions else { return nil }
-        let store = store
-        return { id in Task { await store.closeWorkspace(id: id) } }
     }
 
     /// Pull-to-refresh closure for the workspace list. Awaits the store's real

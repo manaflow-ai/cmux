@@ -39,8 +39,9 @@ public final class ChatMarkdownRenderer {
         var options = AttributedString.MarkdownParsingOptions()
         options.interpretedSyntax = .inlineOnlyPreservingWhitespace
         options.failurePolicy = .returnPartiallyParsedIfPossible
-        let rendered = (try? AttributedString(markdown: markdown, options: options))
+        var rendered = (try? AttributedString(markdown: markdown, options: options))
             ?? AttributedString(markdown)
+        Self.linkifyBareURLs(in: &rendered)
         if cache.count >= capacity, let oldest = insertionOrder.first {
             cache[oldest] = nil
             insertionOrder.removeFirst()
@@ -48,6 +49,24 @@ public final class ChatMarkdownRenderer {
         cache[key] = rendered
         insertionOrder.append(key)
         return rendered
+    }
+
+    /// Adds tap targets to bare URLs that markdown's inline parser leaves
+    /// as plain text (it only links `[text](url)` and autolinks `<url>`).
+    /// Runs that already carry a link (markdown links) are skipped.
+    private static func linkifyBareURLs(in text: inout AttributedString) {
+        let plain = String(text.characters)
+        guard let detector = try? NSDataDetector(types: NSTextCheckingResult.CheckingType.link.rawValue),
+              !plain.isEmpty else { return }
+        let nsRange = NSRange(plain.startIndex..<plain.endIndex, in: plain)
+        for match in detector.matches(in: plain, range: nsRange) {
+            guard let url = match.url,
+                  let stringRange = Range(match.range, in: plain),
+                  let attrRange = Range(stringRange, in: text) else { continue }
+            if text[attrRange].link == nil {
+                text[attrRange].link = url
+            }
+        }
     }
 }
 

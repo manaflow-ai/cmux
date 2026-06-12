@@ -9,8 +9,6 @@ public struct MobileSyncWorkspaceListResponse: Decodable, Sendable {
     public struct Workspace: Decodable, Sendable {
         /// Stable workspace identifier.
         public let id: String
-        /// Stable Mac window identifier, when reported.
-        public let windowID: String?
         /// User-facing workspace title.
         public let title: String
         /// The workspace's current working directory, if reported.
@@ -20,20 +18,15 @@ public struct MobileSyncWorkspaceListResponse: Decodable, Sendable {
         /// Whether this workspace is pinned, if the Mac reported it. `nil` when
         /// connected to a Mac old enough not to emit `is_pinned`.
         public let isPinned: Bool?
-        /// Unread notification count, if the Mac reported it. `nil` when
-        /// connected to an older Mac that does not emit `unread_count`.
-        public let unreadCount: Int?
         /// Terminals belonging to this workspace.
         public let terminals: [Terminal]
 
         private enum CodingKeys: String, CodingKey {
             case id
-            case windowID = "window_id"
             case title
             case currentDirectory = "current_directory"
             case isSelected = "is_selected"
             case isPinned = "is_pinned"
-            case unreadCount = "unread_count"
             case terminals
         }
     }

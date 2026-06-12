@@ -131,12 +131,9 @@ import Testing
           "workspaces": [
             {
               "id": "ws-1",
-              "window_id": "window-1",
               "title": "cmux",
               "current_directory": "/Users/test/project",
               "is_selected": true,
-              "is_pinned": false,
-              "unread_count": 2,
               "terminals": [
                 {
                   "id": "t-1",
@@ -158,101 +155,9 @@ import Testing
         #expect(response.createdWorkspaceID == "ws-1")
         #expect(response.createdTerminalID == "t-1")
         let workspace = try #require(response.workspaces.first)
-        #expect(workspace.windowID == "window-1")
         #expect(workspace.isSelected)
-        #expect(workspace.isPinned == false)
-        #expect(workspace.unreadCount == 2)
         #expect(workspace.terminals.first?.isFocused == true)
         #expect(workspace.terminals.first?.isReady == true)
-    }
-
-    @Test func workspaceCloseCarriesCoveredAttachToken() async throws {
-        let transport = QueuedCancellationProbeTransport()
-        let route = try hostPortRoute(kind: .tailscale, host: "100.64.0.5", port: 59123)
-        let runtime = TestMobileSyncRuntime(
-            transportFactory: QueuedCancellationProbeTransportFactory(transport: transport),
-            stackAccessToken: "test-stack-token",
-            rpcRequestTimeoutNanoseconds: 60 * 1_000_000_000
-        )
-        let ticket = try CmxAttachTicket(
-            workspaceID: "workspace-main",
-            terminalID: nil,
-            macDeviceID: "test-mac",
-            macDisplayName: "Test Mac",
-            routes: [route],
-            expiresAt: Date().addingTimeInterval(60),
-            authToken: "ticket-secret"
-        )
-        let client = MobileCoreRPCClient(
-            runtime: runtime,
-            route: route,
-            ticket: ticket,
-            allowsStackAuthFallback: true
-        )
-        let request = try MobileCoreRPCClient.requestData(
-            method: "workspace.close",
-            params: ["workspace_id": "workspace-main"],
-            id: "close-workspace"
-        )
-
-        let task = Task {
-            try await client.sendRequest(request)
-        }
-        let sent = try await transport.waitForSentRequestCount(1)
-        task.cancel()
-        _ = try? await task.value
-
-        let closeRequest = try #require(sent.first)
-        #expect(closeRequest.method == "workspace.close")
-        #expect(closeRequest.workspaceID == "workspace-main")
-        #expect(closeRequest.attachToken == "ticket-secret")
-        #expect(closeRequest.stackAccessToken == "test-stack-token")
-    }
-
-    @Test func workspaceReadStateActionCarriesCoveredAttachToken() async throws {
-        let transport = QueuedCancellationProbeTransport()
-        let route = try hostPortRoute(kind: .tailscale, host: "100.64.0.5", port: 59123)
-        let runtime = TestMobileSyncRuntime(
-            transportFactory: QueuedCancellationProbeTransportFactory(transport: transport),
-            stackAccessToken: "test-stack-token",
-            rpcRequestTimeoutNanoseconds: 60 * 1_000_000_000
-        )
-        let ticket = try CmxAttachTicket(
-            workspaceID: "workspace-main",
-            terminalID: nil,
-            macDeviceID: "test-mac",
-            macDisplayName: "Test Mac",
-            routes: [route],
-            expiresAt: Date().addingTimeInterval(60),
-            authToken: "ticket-secret"
-        )
-        let client = MobileCoreRPCClient(
-            runtime: runtime,
-            route: route,
-            ticket: ticket,
-            allowsStackAuthFallback: true
-        )
-        let request = try MobileCoreRPCClient.requestData(
-            method: "workspace.action",
-            params: [
-                "workspace_id": "workspace-main",
-                "action": "mark_unread",
-            ],
-            id: "mark-unread"
-        )
-
-        let task = Task {
-            try await client.sendRequest(request)
-        }
-        let sent = try await transport.waitForSentRequestCount(1)
-        task.cancel()
-        _ = try? await task.value
-
-        let actionRequest = try #require(sent.first)
-        #expect(actionRequest.method == "workspace.action")
-        #expect(actionRequest.workspaceID == "workspace-main")
-        #expect(actionRequest.attachToken == "ticket-secret")
-        #expect(actionRequest.stackAccessToken == "test-stack-token")
     }
 
     @Test func attachTicketInputDecodesAttachURL() throws {

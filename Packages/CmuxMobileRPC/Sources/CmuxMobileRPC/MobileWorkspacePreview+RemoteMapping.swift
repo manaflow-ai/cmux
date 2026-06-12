@@ -6,10 +6,8 @@ extension MobileWorkspacePreview {
     public init(remote: MobileSyncWorkspaceListResponse.Workspace) {
         self.init(
             id: ID(rawValue: remote.id),
-            windowID: remote.windowID,
             name: remote.title,
             isPinned: remote.isPinned ?? false,
-            unreadCount: max(0, remote.unreadCount ?? 0),
             terminals: remote.terminals.map { terminal in
                 MobileTerminalPreview(remote: terminal)
             }

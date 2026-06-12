@@ -41,12 +41,6 @@ struct WorkspaceListView: View {
     /// Optional: pin/unpin a workspace on the Mac. When present, each row offers
     /// a Pin/Unpin context-menu action and pinned workspaces sort to the top.
     var setPinned: ((MobileWorkspacePreview.ID, Bool) -> Void)?
-    /// Optional: mark a workspace read/unread on the Mac. When present, each
-    /// row offers a leading swipe action.
-    var setUnread: ((MobileWorkspacePreview.ID, Bool) -> Void)?
-    /// Optional: close a workspace on the Mac. When present, each row offers a
-    /// destructive Delete context-menu and swipe action.
-    var closeWorkspace: ((MobileWorkspacePreview.ID) -> Void)?
     @State private var searchText = ""
     @State private var showingShortcutsSettings = false
     @State private var showingSettings = false
@@ -95,9 +89,7 @@ struct WorkspaceListView: View {
                         wrapWorkspaceTitles: wrapWorkspaceTitles,
                         selectWorkspace: selectWorkspace,
                         renameWorkspace: renameWorkspace,
-                        setPinned: setPinned,
-                        setUnread: setUnread,
-                        closeWorkspace: closeWorkspace
+                        setPinned: setPinned
                     )
                     .listRowInsets(EdgeInsets(top: 4, leading: 12, bottom: 4, trailing: 12))
                     .listRowSeparator(.hidden)

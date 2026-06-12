@@ -113,10 +113,11 @@ public struct ChatProseBubbleView: View {
     private func segmentView(_ segment: ChatProseSegment) -> some View {
         switch segment.kind {
         case .text:
-            Text(renderedText(for: segment))
-                .font(.body)
-                .foregroundStyle(.primary)
-                .textSelection(.enabled)
+            VStack(alignment: .leading, spacing: 4) {
+                ForEach(textBlocks(for: segment)) { block in
+                    blockView(block, segmentIndex: segment.index)
+                }
+            }
         case .code:
             ScrollView(.horizontal, showsIndicators: false) {
                 Text(segment.content)
@@ -129,12 +130,74 @@ public struct ChatProseBubbleView: View {
         }
     }
 
-    /// Markdown-renders a text segment through the shared cache, falling
-    /// back to plain attributed text when no renderer is in the environment
-    /// (previews).
-    private func renderedText(for segment: ChatProseSegment) -> AttributedString {
-        renderer?.render(messageID: "\(message.id)#\(segment.index)", markdown: segment.content)
-            ?? AttributedString(segment.content)
+    /// Block-level elements of a text segment (headings, lists, quotes,
+    /// paragraphs), cached alongside the ANSI/segment work.
+    private func textBlocks(for segment: ChatProseSegment) -> [ChatTextBlock] {
+        contentCache?.textBlocks(messageID: "\(message.id)#\(segment.index)", text: segment.content)
+            ?? ChatTextBlockParser().blocks(from: segment.content)
+    }
+
+    /// Renders one block with its structural styling; inline markdown
+    /// (bold/italic/code/links) comes from the shared renderer.
+    @ViewBuilder
+    private func blockView(_ block: ChatTextBlock, segmentIndex: Int) -> some View {
+        let inline = renderedInline(block.text, segmentIndex: segmentIndex, blockIndex: block.index)
+        switch block.kind {
+        case .heading(let level):
+            Text(inline)
+                .font(headingFont(level: level))
+                .foregroundStyle(.primary)
+                .textSelection(.enabled)
+                .padding(.top, block.index == 0 ? 0 : 2)
+        case .paragraph:
+            Text(inline)
+                .font(.body)
+                .foregroundStyle(.primary)
+                .textSelection(.enabled)
+        case .bullet(let indent):
+            listRow(marker: "•", inline: inline, indent: indent)
+        case .ordered(let marker, let indent):
+            listRow(marker: marker, inline: inline, indent: indent)
+        case .quote:
+            HStack(spacing: 8) {
+                Rectangle()
+                    .fill(theme.hairline)
+                    .frame(width: 3)
+                Text(inline)
+                    .font(.body)
+                    .foregroundStyle(.secondary)
+                    .textSelection(.enabled)
+            }
+        }
+    }
+
+    private func listRow(marker: String, inline: AttributedString, indent: Int) -> some View {
+        HStack(alignment: .firstTextBaseline, spacing: 6) {
+            Text(marker)
+                .font(.body)
+                .foregroundStyle(.secondary)
+                .frame(minWidth: 16, alignment: .trailing)
+            Text(inline)
+                .font(.body)
+                .foregroundStyle(.primary)
+                .textSelection(.enabled)
+                .frame(maxWidth: .infinity, alignment: .leading)
+        }
+        .padding(.leading, CGFloat(min(indent, 4)) * 14)
+    }
+
+    private func headingFont(level: Int) -> Font {
+        switch level {
+        case 1: return .title3.weight(.bold)
+        case 2: return .headline
+        default: return .subheadline.weight(.semibold)
+        }
+    }
+
+    /// Inline-markdown render of a block's text through the shared cache.
+    private func renderedInline(_ text: String, segmentIndex: Int, blockIndex: Int) -> AttributedString {
+        renderer?.render(messageID: "\(message.id)#\(segmentIndex).\(blockIndex)", markdown: text)
+            ?? AttributedString(text)
     }
 
     /// The bubble outline: full radius everywhere except the grouped inner

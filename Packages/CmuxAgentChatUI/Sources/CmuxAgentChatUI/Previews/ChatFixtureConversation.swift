@@ -36,7 +36,18 @@ public struct ChatFixtureConversation {
             .agent,
             .prose(
                 ChatProse(
-                    text: "I'll reproduce the failure first, then inspect the resync path in `ChatConversationStore`."
+                    text: """
+                    I'll reproduce the failure first, then inspect the resync path in `ChatConversationStore`.
+
+                    ## Plan
+                    - Reproduce the **flaky** reconnect failure
+                    - Read the store's `run()` loop
+                    - Check how the tail resync merges missed messages
+
+                    > The test asserts `rows.count == 5` after a stream drop.
+
+                    Docs: https://github.com/manaflow-ai/cmux
+                    """
                 )
             ),
             gap: 6

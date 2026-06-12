@@ -13,8 +13,10 @@ import SwiftUI
 public final class ChatContentCache {
     private var lines: [String: [String]] = [:]
     private var segments: [String: [ChatProseSegment]] = [:]
+    private var blocks: [String: [ChatTextBlock]] = [:]
     private var lineOrder: [String] = []
     private var segmentOrder: [String] = []
+    private var blockOrder: [String] = []
     private let capacity: Int
 
     /// Creates a cache.
@@ -51,6 +53,25 @@ public final class ChatContentCache {
     ///   - messageID: Stable identity of the owning message.
     ///   - text: The prose source.
     /// - Returns: Render segments.
+    /// Block-level elements of a text segment, cached.
+    ///
+    /// - Parameters:
+    ///   - messageID: Stable identity of the owning segment.
+    ///   - text: The segment's text run.
+    /// - Returns: Block elements.
+    public func textBlocks(messageID: String, text: String) -> [ChatTextBlock] {
+        let key = "\(messageID)-\(text.hashValue)"
+        if let cached = blocks[key] { return cached }
+        let result = ChatTextBlockParser().blocks(from: text)
+        if blocks.count >= capacity, let oldest = blockOrder.first {
+            blocks[oldest] = nil
+            blockOrder.removeFirst()
+        }
+        blocks[key] = result
+        blockOrder.append(key)
+        return result
+    }
+
     public func proseSegments(messageID: String, text: String) -> [ChatProseSegment] {
         let key = "\(messageID)-\(text.hashValue)"
         if let cached = segments[key] { return cached }
