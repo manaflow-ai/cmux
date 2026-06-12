@@ -328,7 +328,9 @@ enum AgentResumeCommandBuilder {
               let argv = forkArguments(
                   kind: kind,
                   sessionId: sessionId,
-                  launchCommand: launchCommand
+                  launchCommand: launchCommand,
+                  workingDirectory: workingDirectory,
+                  customRegistration: customRegistration
               ),
               !argv.isEmpty else {
             return nil
@@ -477,7 +479,9 @@ enum AgentResumeCommandBuilder {
     private static func forkArguments(
         kind: RestorableAgentKind,
         sessionId: String,
-        launchCommand: AgentLaunchCommandSnapshot?
+        launchCommand: AgentLaunchCommandSnapshot?,
+        workingDirectory: String?,
+        customRegistration: CmuxVaultAgentRegistration?
     ) -> [String]? {
         switch launchCommand?.launcher {
         case "claudeTeams":
@@ -519,6 +523,19 @@ enum AgentResumeCommandBuilder {
             break
         }
 
+        if case .custom = kind {
+            guard let customRegistration,
+                  let template = customRegistration.forkCommand else { return nil }
+            let arguments = customTemplateArguments(
+                template: template,
+                registration: customRegistration,
+                sessionId: sessionId,
+                launchCommand: launchCommand,
+                workingDirectory: workingDirectory
+            )
+            return arguments.isEmpty ? nil : arguments
+        }
+
         switch kind {
         case .claude:
             let original = commandParts(launchCommand: launchCommand, fallbackExecutable: "claude")
@@ -535,6 +552,18 @@ enum AgentResumeCommandBuilder {
             let original = commandParts(launchCommand: launchCommand, fallbackExecutable: "opencode")
             guard let preserved = AgentLaunchSanitizer.preservedArguments(kind: "opencode", args: original.tail) else { return nil }
             return [original.executable, "--session", sessionId, "--fork"] + preserved
+        case .pi:
+            // pi >= 0.60.0: `--fork <path|id>` copies the source session into a
+            // new session; the original is untouched.
+            let original = commandParts(launchCommand: launchCommand, fallbackExecutable: "pi")
+            guard let preserved = AgentLaunchSanitizer.preservedArguments(kind: "pi", args: original.tail) else { return nil }
+            return [original.executable, "--fork", sessionId] + preserved
+        case .factory:
+            // droid: `--fork <sessionId>` forks and resumes an existing session
+            // into a new copy.
+            let original = commandParts(launchCommand: launchCommand, fallbackExecutable: "droid")
+            guard let preserved = AgentLaunchSanitizer.preservedArguments(kind: "factory", args: original.tail) else { return nil }
+            return [original.executable, "--fork", sessionId] + preserved
         default:
             return nil
         }
@@ -546,7 +575,23 @@ enum AgentResumeCommandBuilder {
         launchCommand: AgentLaunchCommandSnapshot?,
         workingDirectory: String?
     ) -> [String] {
-        let templateParts = splitShellWords(registration.resumeCommand)
+        customTemplateArguments(
+            template: registration.resumeCommand,
+            registration: registration,
+            sessionId: sessionId,
+            launchCommand: launchCommand,
+            workingDirectory: workingDirectory
+        )
+    }
+
+    private static func customTemplateArguments(
+        template: String,
+        registration: CmuxVaultAgentRegistration,
+        sessionId: String,
+        launchCommand: AgentLaunchCommandSnapshot?,
+        workingDirectory: String?
+    ) -> [String] {
+        let templateParts = splitShellWords(template)
         guard !templateParts.isEmpty else { return [] }
         let original = commandParts(
             launchCommand: launchCommand,

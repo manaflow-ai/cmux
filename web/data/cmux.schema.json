@@ -139,6 +139,14 @@
                 ],
                 "description": "Shell-like argv template used to resume a session. Supported placeholders: {{sessionId}}, {{sessionPath}}, {{executable}}, {{cwd}}, {{sessionDir}}. Must include {{sessionId}} or {{sessionPath}}."
               },
+              "forkCommand": {
+                "type": "string",
+                "anyOf": [
+                  { "pattern": "\\{\\{sessionId\\}\\}" },
+                  { "pattern": "\\{\\{sessionPath\\}\\}" }
+                ],
+                "description": "Optional shell-like argv template that forks the session into a new one, leaving the original untouched. Same placeholders as resumeCommand. Must include {{sessionId}} or {{sessionPath}}. When omitted, cmux hides the Fork Conversation actions for this agent."
+              },
               "cwd": {
                 "type": "string",
                 "enum": ["preserve", "ignore"],

@@ -19,6 +19,7 @@ Pi Coding Agent and OMP are registered by default:
         },
         "sessionIdSource": { "type": "piSessionFile" },
         "resumeCommand": "{{executable}} --session {{sessionId}}",
+        "forkCommand": "{{executable}} --fork {{sessionId}}",
         "cwd": "preserve",
         "sessionDirectory": "~/.pi/agent/sessions"
       },
@@ -30,6 +31,7 @@ Pi Coding Agent and OMP are registered by default:
         },
         "sessionIdSource": { "type": "piSessionFile" },
         "resumeCommand": "{{executable}} --session {{sessionId}}",
+        "forkCommand": "{{executable}} --fork {{sessionId}}",
         "cwd": "preserve",
         "sessionDirectory": "~/.omp/agent/sessions"
       }
@@ -68,6 +70,12 @@ OMP accepts `--session`, `--resume`, and `-r` for existing sessions; Vault emits
 
 `resumeCommand` must include either `{{sessionId}}` or `{{sessionPath}}`, for
 example `pi --session {{sessionId}}`.
+
+`forkCommand` is optional and uses the same placeholders. When set, cmux shows
+the Fork Conversation actions (command palette and tab context menu) for the
+agent and runs the template to branch the session into a new one, leaving the
+original session untouched. Only declare it for CLIs with a real fork primitive,
+for example `pi --fork {{sessionId}}`. When omitted, the fork actions stay hidden.
 
 `iconAssetName` is optional. When omitted, Vault uses a neutral system icon for
 registered agents instead of reusing another agent's brand mark.
