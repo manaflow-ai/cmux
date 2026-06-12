@@ -3905,6 +3905,21 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
               connectionState == .connected else {
             return
         }
+        if terminalSubscriptionStartTask != nil {
+            // The stream ended while this generation's enable handshake was
+            // still in flight: the transport dropped before the subscription
+            // ever delivered. Restarting here would supersede the generation
+            // and silently swallow the handshake's failure verdict (its ack
+            // guard sees a newer listenerID), so a closed transport would
+            // loop `reconnecting` forever. Converge instead: a stream that
+            // dies before its handshake completes IS a failed start.
+            mobileShellLog.info("terminal event stream ended before subscribe ack, marking unavailable")
+            MobileDebugLog.anchormux("sync.stream_ended before subscribe ack; failed start")
+            diagnosticLog?.record(DiagnosticEvent(.error))
+            stopTerminalRefreshPolling()
+            markMacConnectionUnavailable()
+            return
+        }
         mobileShellLog.info("terminal event stream ended, restarting")
         MobileDebugLog.anchormux("sync.stream_ended restarting (render-grid push stopped; falling back to poll)")
         diagnosticLog?.record(DiagnosticEvent(.streamEnded))
