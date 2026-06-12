@@ -710,13 +710,33 @@ struct SessionRestorableAgentSnapshot: Codable, Sendable {
         )
     }
 
+    /// Claude scopes `--resume <id>` lookups to `projects/<encoded-cwd>/`, so a
+    /// resume or fork launched in a different directory than the session's
+    /// origin needs the transcript seeded there first
+    /// (https://github.com/manaflow-ai/cmux/issues/5941). Runs at launch time,
+    /// right before the startup input is handed to the terminal.
+    private func seedClaudeTranscriptIfNeeded(fileManager: FileManager) {
+        guard kind == .claude,
+              let targetWorkingDirectory = workingDirectory ?? launchCommand?.workingDirectory else {
+            return
+        }
+        ClaudeSessionTranscriptSeeder.seedIfNeeded(
+            sessionId: sessionId,
+            targetWorkingDirectory: targetWorkingDirectory,
+            configDirCandidates: ClaudeSessionTranscriptSeeder.defaultConfigDirCandidates(
+                launchEnvironment: launchCommand?.environment),
+            fileManager: fileManager
+        )
+    }
+
     func resumeStartupInput(
         fileManager: FileManager = .default,
         temporaryDirectory: URL = FileManager.default.temporaryDirectory,
         allowLauncherScript: Bool = true,
         allowOversizedInlineInput: Bool = false
     ) -> String? {
-        startupInput(
+        seedClaudeTranscriptIfNeeded(fileManager: fileManager)
+        return startupInput(
             command: resumeCommand,
             fileManager: fileManager,
             temporaryDirectory: temporaryDirectory,
@@ -729,6 +749,7 @@ struct SessionRestorableAgentSnapshot: Codable, Sendable {
         fileManager: FileManager = .default,
         temporaryDirectory: URL = FileManager.default.temporaryDirectory
     ) -> String? {
+        seedClaudeTranscriptIfNeeded(fileManager: fileManager)
         guard let command = resumeCommand,
               let scriptURL = AgentResumeScriptStore.writeLauncherScript(
                   command: command,
@@ -753,7 +774,8 @@ struct SessionRestorableAgentSnapshot: Codable, Sendable {
         temporaryDirectory: URL = FileManager.default.temporaryDirectory,
         allowLauncherScript: Bool = true
     ) -> String? {
-        startupInput(
+        seedClaudeTranscriptIfNeeded(fileManager: fileManager)
+        return startupInput(
             command: forkCommand,
             fileManager: fileManager,
             temporaryDirectory: temporaryDirectory,
