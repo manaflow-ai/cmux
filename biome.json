@@ -27,7 +27,6 @@
       "!!Resources/agent-session-react",
       "!!Resources/agent-session-solid",
       "!!Resources/markdown-viewer",
-      "!!skills",
       "!!web/.next",
       "!!web/.pagefind-site",
       "!!web/.vercel",
