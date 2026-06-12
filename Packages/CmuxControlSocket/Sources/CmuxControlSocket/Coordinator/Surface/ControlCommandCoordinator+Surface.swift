@@ -62,6 +62,8 @@ extension ControlCommandCoordinator {
             return surfaceReadText(request.params)
         case "surface.trigger_flash":
             return surfaceTriggerFlash(request.params)
+        case "surface.agent_chat.open":
+            return surfaceAgentChatOpen(request.params)
         case "debug.terminals":
             return debugTerminals(request.params)
         default:
