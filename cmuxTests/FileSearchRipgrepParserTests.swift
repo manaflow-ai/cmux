@@ -1,4 +1,5 @@
 import AppKit
+import Testing
 import XCTest
 
 #if canImport(cmux_DEV)
@@ -185,9 +186,13 @@ final class FileSearchOutputPipelineTests: XCTestCase {
     }
 }
 
+@Suite("File search workspace scope")
 @MainActor
-final class FileSearchWorkspaceScopeTests: XCTestCase {
-    func testSamePathLocalWorkspaceSwitchResetsFindSearchScope() async throws {
+struct FileSearchWorkspaceScopeTests {
+    private enum WaitTimeout: Error { case timedOut }
+
+    @Test("Same-path local workspace switch resets Find search scope")
+    func samePathLocalWorkspaceSwitchResetsFindSearchScope() async throws {
         let store = FileExplorerStore()
         let state = FileExplorerState()
         let searchController = SpyFileSearchController()
@@ -199,7 +204,7 @@ final class FileSearchWorkspaceScopeTests: XCTestCase {
         container.updateHeader(store: store)
         container.updatePresentation(.find)
 
-        let searchField = try XCTUnwrap(Self.findSearchField(in: container))
+        let searchField = try #require(Self.findSearchField(in: container))
         searchController.searchRequests.removeAll()
         searchField.stringValue = "adfasdf"
         container.controlTextDidChange(Notification(name: NSControl.textDidChangeNotification, object: searchField))
@@ -210,8 +215,8 @@ final class FileSearchWorkspaceScopeTests: XCTestCase {
         container.updateHeader(store: store)
         container.updatePresentation(.find)
 
-        XCTAssertEqual(searchField.stringValue, "")
-        XCTAssertEqual(container.searchSnapshot, .empty)
+        #expect(searchField.stringValue == "")
+        #expect(container.searchSnapshot == .empty)
     }
 
     private func waitForSearchRequestCount(_ expectedCount: Int, in searchController: SpyFileSearchController) async throws {
@@ -220,7 +225,8 @@ final class FileSearchWorkspaceScopeTests: XCTestCase {
             if searchController.searchRequests.count >= expectedCount { return }
             try await Task.sleep(nanoseconds: 10_000_000)
         }
-        XCTFail("Timed out waiting for \(expectedCount) file search requests")
+        Issue.record("Timed out waiting for \(expectedCount) file search requests")
+        throw WaitTimeout.timedOut
     }
 
     private static func findSearchField(in root: NSView) -> NSSearchField? {
