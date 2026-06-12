@@ -217,11 +217,38 @@ class TabManager: ObservableObject {
     /// Used to apply title updates to the correct window instead of NSApp.keyWindow.
     weak var window: NSWindow?
 
-    @Published var tabs: [Workspace] = []
+    // Wave-4 sub-model (TabManager decomposition): the workspace list, the
+    // sidebar group sections, and the selected-workspace id storage live in
+    // WorkspacesModel (CmuxWorkspaces). TabManager stays the per-window
+    // composition point: it owns the model, forwards the legacy accessors
+    // below, and implements WorkspacesHosting (bottom of this file) to run
+    // the legacy @Published property-observer side effects at identical
+    // timing (objectWillChange + bridge publishers in willSet, selection
+    // side effects in didSet).
+    let workspaces = WorkspacesModel<Workspace>()
+
+    var tabs: [Workspace] {
+        get { workspaces.tabs }
+        set { workspaces.tabs = newValue }
+    }
     /// Named groupings of workspaces shown as collapsible sections in the sidebar.
     /// Group order in this array defines section order in the sidebar.
     /// Each member workspace stores its `groupId` on the `Workspace` model.
-    @Published var workspaceGroups: [WorkspaceGroup] = []
+    var workspaceGroups: [WorkspaceGroup] {
+        get { workspaces.workspaceGroups }
+        set { workspaces.workspaceGroups = newValue }
+    }
+
+    /// Legacy Combine bridge for the remaining `tabManager.$tabs`
+    /// subscribers. Driven exclusively from `workspaceTabsWillChange(to:)`,
+    /// so it emits the new value during willSet and replays the current
+    /// value on subscribe — the exact `Published.Publisher` semantics those
+    /// call sites were written against. Single seam; delete when the
+    /// subscribers move to @Observable observation.
+    let tabsPublisher = CurrentValueSubject<[Workspace], Never>([])
+    /// Legacy Combine bridge for the remaining `tabManager.$selectedTabId`
+    /// subscribers; same contract as `tabsPublisher`.
+    let selectedTabIdPublisher = CurrentValueSubject<UUID?, Never>(nil)
     /// Set by `restoreSessionSnapshot` to suppress side-effects (like auto-
     /// expanding a group on focus) that would mutate restored state mid-restore.
     private var isRestoringSessionSnapshot: Bool = false
@@ -233,8 +260,30 @@ class TabManager: ObservableObject {
     /// Global monotonically increasing counter for CMUX_PORT ordinal assignment.
     /// Static so port ranges don't overlap across multiple windows (each window has its own TabManager).
     static var nextPortOrdinal: Int = 0
-    @Published var selectedTabId: UUID? {
-        willSet {
+    var selectedTabId: UUID? {
+        get { workspaces.selectedTabId }
+        set { workspaces.selectedTabId = newValue }
+    }
+
+    // MARK: - WorkspacesHosting hooks (legacy @Published property observers)
+
+    /// Legacy `@Published tabs` willSet: objectWillChange plus the Combine
+    /// bridge fire before storage changes, matching @Published timing.
+    func workspaceTabsWillChange(to newValue: [Workspace]) {
+        objectWillChange.send()
+        tabsPublisher.send(newValue)
+    }
+
+    /// Legacy `@Published workspaceGroups` willSet.
+    func workspaceGroupsWillChange(to newValue: [WorkspaceGroup]) {
+        objectWillChange.send()
+    }
+
+    /// Legacy `@Published selectedTabId` willSet; `selectedTabId` still
+    /// reads the old value here, exactly like the original property observer.
+    func selectedWorkspaceIdWillChange(to newValue: UUID?) {
+        objectWillChange.send()
+        selectedTabIdPublisher.send(newValue)
 #if DEBUG
             guard newValue != selectedTabId else {
                 debugPendingWorkspaceSwitchTrigger = nil
@@ -260,8 +309,11 @@ class TabManager: ObservableObject {
                 )
             }
 #endif
-        }
-        didSet {
+    }
+
+    /// Legacy `@Published selectedTabId` didSet: the selection side-effect
+    /// chain, run synchronously after storage changed.
+    func selectedWorkspaceIdDidChange(from oldValue: UUID?) {
             guard selectedTabId != oldValue else { return }
             if !isRestoringSessionSnapshot {
                 expandWorkspaceGroupForSelectionIfNeeded()
@@ -341,7 +393,6 @@ class TabManager: ObservableObject {
                 )
 #endif
             }
-        }
     }
     private var observers: [NSObjectProtocol] = []
     private var lastFocusedPanelByTab: [UUID: UUID] = [:]
@@ -469,6 +520,11 @@ class TabManager: ObservableObject {
         sidebarGitMetadataService.attach(host: self)
         notificationDismissal.attach(host: self)
         focusHistoryNavigation.attach(host: self)
+        // Workspace-list/group/selection storage (CmuxWorkspaces). Attached
+        // before the first addWorkspace so the property-observer hooks fire
+        // from the very first insertion, matching the legacy @Published
+        // observer timing.
+        workspaces.attach(host: self)
         addWorkspace(
             title: initialWorkspaceTitle,
             workingDirectory: initialWorkingDirectory,
@@ -6364,7 +6420,7 @@ class TabManager: ObservableObject {
                 }
                 .store(in: &uiTestCancellables)
 
-            $tabs
+            tabsPublisher
                 .map { $0.contains(where: { $0.id == tab.id }) }
                 .removeDuplicates()
                 .sink { alive in
@@ -7049,6 +7105,14 @@ extension TabManager {
         }
     }
 }
+
+// The hook methods live in the class body (they touch private selection /
+// DEBUG state); this extension only binds the conformance.
+extension TabManager: WorkspacesHosting {}
+
+// Workspace satisfies the CmuxWorkspaces tab seam with its existing
+// id/groupId/isPinned storage.
+extension Workspace: WorkspaceTabRepresenting {}
 
 extension Notification.Name {
     // The sidebar multi-selection sync events moved to CmuxSidebar as typed

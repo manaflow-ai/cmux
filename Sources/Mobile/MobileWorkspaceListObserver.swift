@@ -40,7 +40,7 @@ final class MobileWorkspaceListObserver {
         lastSummaryHash = initial
         emitIfNeeded(force: true)
 
-        tabsCancellable = tabManager.$tabs
+        tabsCancellable = tabManager.tabsPublisher
             .throttle(for: .milliseconds(throttleMilliseconds), scheduler: RunLoop.main, latest: true)
             .sink { [weak self] tabs in
                 guard let self else { return }
@@ -53,7 +53,7 @@ final class MobileWorkspaceListObserver {
         // Selection changes (Mac user clicks a different sidebar tab) need
         // to push to iPhone too. iPhone's selectedWorkspaceID drives which
         // terminal it displays.
-        selectionCancellable = tabManager.$selectedTabId
+        selectionCancellable = tabManager.selectedTabIdPublisher
             .throttle(for: .milliseconds(throttleMilliseconds), scheduler: RunLoop.main, latest: true)
             .sink { [weak self] _ in
                 self?.emitIfNeeded(force: false)

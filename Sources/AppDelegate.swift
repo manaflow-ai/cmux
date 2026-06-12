@@ -179,8 +179,8 @@ private struct WorkspaceGroupNewWorkspaceTarget {
 /// TabManager and joins it to a target group. Used by group `+` context-menu
 /// actions whose underlying executor creates the workspace asynchronously
 /// (cloudVM in particular launches `cmux vm new` and returns immediately).
-/// Subscribes to `tabManager.$tabs` (the @Published source of truth that
-/// `addWorkspace` updates, regardless of whether a NotificationCenter event
+/// Subscribes to `tabManager.tabsPublisher` (the legacy Combine bridge fed by
+/// every `tabs` mutation, regardless of whether a NotificationCenter event
 /// fired) so VM workspaces, dropped attaches, or any other slow async path
 /// is caught. Self-clears on first match, group disappearance, or a process
 /// completion signal that either names the created workspace or reports launch
@@ -215,7 +215,7 @@ final class ConfiguredGroupActionAsyncWorkspaceObserver {
             knownIds: knownIds
         )
         pending[key] = watcher
-        watcher.subscription = tabManager.$tabs
+        watcher.subscription = tabManager.tabsPublisher
             .receive(on: DispatchQueue.main)
             .sink { [weak watcher] tabs in
                 watcher?.checkForNewWorkspace(in: tabs)
@@ -11299,7 +11299,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 }
             }
 
-            tabsCancellable = tabManager.$tabs
+            tabsCancellable = tabManager.tabsPublisher
                 .map { _ in () }
                 .sink { _ in attemptResolve() }
             focusObserver = NotificationCenter.default.addObserver(
@@ -11517,7 +11517,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                   readySurfaceId == surfaceId else { return }
             attemptFocus()
         })
-        selectedTabCancellable = tabManager.$selectedTabId
+        selectedTabCancellable = tabManager.selectedTabIdPublisher
             .map { _ in () }
             .sink { _ in attemptFocus() }
         DispatchQueue.main.asyncAfter(deadline: .now() + 8.0) {
@@ -16485,7 +16485,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                   surfaceId == expectedSurfaceId else { return }
             Task { @MainActor in finishIfFocused() }
         })
-        cancellables.append(tabManager.$selectedTabId.sink { _ in
+        cancellables.append(tabManager.selectedTabIdPublisher.sink { _ in
             Task { @MainActor in finishIfFocused() }
         })
         if let workspace = tabManager.tabs.first(where: { $0.id == tabId }) {

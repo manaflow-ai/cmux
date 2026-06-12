@@ -2032,7 +2032,7 @@ final class CmuxConfigStore: ObservableObject {
         trackingCancellables.removeAll()
         self.tabManager = tabManager
 
-        tabManager.$selectedTabId
+        tabManager.selectedTabIdPublisher
             .compactMap { [weak tabManager] tabId -> Workspace? in
                 guard let tabId, let tabManager else { return nil }
                 return tabManager.tabs.first(where: { $0.id == tabId })
@@ -2048,7 +2048,7 @@ final class CmuxConfigStore: ObservableObject {
             }
             .store(in: &trackingCancellables)
 
-        tabManager.$tabs
+        tabManager.tabsPublisher
             .receive(on: DispatchQueue.main)
             .sink { [weak self] _ in
                 self?.applySurfaceTabBarButtonsToCurrentManager()
