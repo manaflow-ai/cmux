@@ -34,6 +34,13 @@ struct SidebarReorderFollowerView: View {
     let previewExtraIndent: CGFloat
     let rowContent: (SidebarWorkspaceRenderItem) -> AnyView
 
+    /// The rendered indent, animated toward `previewExtraIndent` with an
+    /// EXPLICIT `withAnimation` transaction in `onChange` — the most
+    /// deterministic animation mechanism available, immune to the
+    /// transaction-semantics subtleties that kept `.animation(_:value:)`
+    /// from firing here.
+    @State private var animatedExtraIndent: CGFloat = 0
+
     var body: some View {
         if let draggedId = dragState.draggedTabId,
            let cursorY = dragState.followerCursorY,
@@ -55,16 +62,23 @@ struct SidebarReorderFollowerView: View {
                     rowContent(item)
                 }
             }
-            // Width and X are BOTH explicit functions of the previewed
+            // Width and X are BOTH explicit functions of the animated
             // indent: tucking into a group slides the row right by the
             // indent AND narrows it by the same amount (the trailing edge
-            // stays fixed), animated together on the indent's own axis while
-            // Y tracking below stays animation-free.
-            .frame(width: max(frame.width - previewExtraIndent, 0), height: frame.height, alignment: .topLeading)
-            .padding(.leading, previewExtraIndent)
-            .animation(.snappy(duration: 0.15, extraBounce: 0), value: previewExtraIndent)
+            // stays fixed), in one motion, while Y tracking below stays
+            // animation-free.
+            .frame(width: max(frame.width - animatedExtraIndent, 0), height: frame.height, alignment: .topLeading)
+            .padding(.leading, animatedExtraIndent)
             .frame(width: frame.width, height: frame.height, alignment: .topLeading)
             .position(x: frame.midX, y: topY + frame.height / 2)
+            .onAppear {
+                animatedExtraIndent = previewExtraIndent
+            }
+            .onChange(of: previewExtraIndent) { _, newValue in
+                withAnimation(.snappy(duration: 0.15, extraBounce: 0)) {
+                    animatedExtraIndent = newValue
+                }
+            }
             .shadow(color: Color.black.opacity(0.18), radius: 11, x: 0, y: 5)
             .opacity(0.97)
             .allowsHitTesting(false)

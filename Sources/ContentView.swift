@@ -10759,13 +10759,24 @@ final class SidebarDragState {
         let currentlyIn = previewMembershipGroupId == candidate
         let isIn: Bool
         if prevGroup != nil, let prevBand {
-            let edgeY = prevBand.maxY
-            isIn = currentlyIn ? cursorY <= edgeY + 2 : cursorY <= edgeY - 2
+            // Split at the MIDPOINT of the space between the boundary row's
+            // bottom and the next row's top: the IN hitbox covers the
+            // boundary row's lower half PLUS half the gap, the OUT hitbox the
+            // other half of the gap plus the next row's top half — two
+            // comparably-sized zones instead of a knife edge at the row's
+            // bottom pixel.
+            let edgeY: CGFloat
+            if let nextBand {
+                edgeY = (prevBand.maxY + nextBand.minY) / 2
+            } else {
+                edgeY = prevBand.maxY
+            }
+            isIn = currentlyIn ? cursorY <= edgeY + 3 : cursorY <= edgeY - 3
         } else if let nextBand {
             // Candidate donated by the row BELOW the slot — mirror the rule
             // on that row's top edge.
-            let edgeY = nextBand.minY
-            isIn = currentlyIn ? cursorY >= edgeY - 2 : cursorY >= edgeY + 2
+            let edgeY = prevBand.map { ($0.maxY + nextBand.minY) / 2 } ?? nextBand.minY
+            isIn = currentlyIn ? cursorY >= edgeY - 3 : cursorY >= edgeY + 3
         } else {
             isIn = currentlyIn
         }

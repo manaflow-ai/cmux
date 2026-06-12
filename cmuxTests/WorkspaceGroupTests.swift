@@ -1234,8 +1234,9 @@ struct WorkspaceGroupTests {
         drag.updateReorder(cursorY: 95, translationWidth: 0)
         #expect(drag.previewMembershipGroupId == nil)
 
-        // The header's lower half tucks INTO the group as its first slot.
-        drag.updateReorder(cursorY: 28, translationWidth: 0)
+        // The header's lower half tucks INTO the group as its first slot
+        // (clear of the 3pt hysteresis band around the zone edge at y=30).
+        drag.updateReorder(cursorY: 26, translationWidth: 0)
         #expect(drag.previewMembershipGroupId == g)
 
         drag.clearDrag()
