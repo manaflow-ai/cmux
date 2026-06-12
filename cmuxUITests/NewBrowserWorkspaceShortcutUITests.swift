@@ -13,6 +13,12 @@ final class NewBrowserWorkspaceShortcutUITests: XCTestCase {
 
     func testOptionCmdNOpensBrowserWorkspaceWithAddressBarFocused() {
         let app = XCUIApplication()
+        // Run the app in automated-test mode with an isolated tag, like every
+        // other UI suite: without a CMUX_UI_TEST_* key the app behaves as a
+        // real user session and never quiesces, so XCUIApplication.launch()
+        // hangs on CI runners.
+        app.launchEnvironment["CMUX_UI_TEST_MODE"] = "1"
+        app.launchEnvironment["CMUX_TAG"] = "ui-tests-new-browser-workspace-\(UUID().uuidString.prefix(8))"
         launchAndEnsureForeground(app)
 
         // The fresh launch starts with a terminal workspace; no omnibar exists yet.
