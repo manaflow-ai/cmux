@@ -58,6 +58,18 @@ public struct PresenceMap: Equatable, Sendable {
         instancesByDevice[deviceId]?[tag]
     }
 
+    /// The device's single online route-advertising instance, or `nil` when
+    /// zero or 2+ online instances advertise routes. The paired-Mac store is
+    /// device-level (no tag), so persisted reconnect routes may only be
+    /// substituted when it is unambiguous which build they belong to; this is
+    /// the live-presence mirror of the registry refresh's multi-instance guard
+    /// (``DeviceRegistryService/routes(forMacDeviceID:in:)``).
+    public func soleRouteAdvertisingInstance(deviceId: String) -> PresenceInstance? {
+        guard let instances = instancesByDevice[deviceId] else { return nil }
+        let candidates = instances.values.filter { $0.online && !($0.routes ?? []).isEmpty }
+        return candidates.count == 1 ? candidates.first : nil
+    }
+
     /// Roll the device's instances up for a device row, or `nil` when the
     /// presence service has never seen this device (the row then falls back to
     /// its registry "last seen" hint).

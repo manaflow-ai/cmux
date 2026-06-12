@@ -1632,7 +1632,16 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         }
         // The paired-Mac store keeps last-known-good reconnect routes, so only
         // a non-empty push updates it (same merge the registry refresh uses).
+        // The store is device-level (no tag), so substitution must also stay
+        // unambiguous: persist only when this device has exactly one online
+        // route-advertising instance and it is the one that pushed, mirroring
+        // the registry refresh's multi-instance guard. With a stable build and
+        // a tagged debug build both live, keep the locally persisted routes
+        // rather than risk reconnecting the phone to the wrong build's
+        // workspaces.
         guard !routes.isEmpty,
+              let sole = presenceMap.soleRouteAdvertisingInstance(deviceId: deviceId),
+              sole.tag == instance.tag,
               let pairedMacStore,
               let updated = DeviceRegistryService.selectReconnectRoutes(
                   local: mac.routes,
