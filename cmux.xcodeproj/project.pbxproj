@@ -26,7 +26,7 @@
 		D36A00030000000000000001 /* AgentHibernationLifecycleState.swift in Sources */ = {isa = PBXBuildFile; fileRef = D36A00030000000000000002 /* AgentHibernationLifecycleState.swift */; };
 		D36A00030000000000000003 /* AgentHibernationLifecycleState.swift in Sources */ = {isa = PBXBuildFile; fileRef = D36A00030000000000000002 /* AgentHibernationLifecycleState.swift */; };
 		D36A00020000000000000001 /* AgentHibernationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D36A00020000000000000002 /* AgentHibernationTests.swift */; };
-		A6E810070000000000000002 /* AgentHookLaunchEnvironment.swift in Sources */ = {isa = PBXBuildFile; fileRef = A6E810070000000000000001 /* AgentHookLaunchEnvironment.swift */; };
+		A6E810090000000000000002 /* AgentHookLaunchEnvironment.swift in Sources */ = {isa = PBXBuildFile; fileRef = A6E810090000000000000001 /* AgentHookLaunchEnvironment.swift */; };
 		A9E0200000000000000000C9 /* AgentHookLaunchEnvironmentTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A9E0100000000000000000C9 /* AgentHookLaunchEnvironmentTests.swift */; };
 		D3610B010000000000000001 /* AgentSessionAutoResumeSettingsTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D3610B010000000000000002 /* AgentSessionAutoResumeSettingsTests.swift */; };
 		A9E020000000000000000008 /* AgentSessionBridge.swift in Sources */ = {isa = PBXBuildFile; fileRef = A9E010000000000000000008 /* AgentSessionBridge.swift */; };
@@ -878,7 +878,7 @@
 		D36A00010000000000000002 /* AgentHibernationController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/AgentHibernationController.swift; sourceTree = "<group>"; };
 		D36A00030000000000000002 /* AgentHibernationLifecycleState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentHibernation/AgentHibernationLifecycleState.swift; sourceTree = "<group>"; };
 		D36A00020000000000000002 /* AgentHibernationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentHibernationTests.swift; sourceTree = "<group>"; };
-		A6E810070000000000000001 /* AgentHookLaunchEnvironment.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentChat/AgentHookLaunchEnvironment.swift; sourceTree = "<group>"; };
+		A6E810090000000000000001 /* AgentHookLaunchEnvironment.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentChat/AgentHookLaunchEnvironment.swift; sourceTree = "<group>"; };
 		A9E0100000000000000000C9 /* AgentHookLaunchEnvironmentTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentHookLaunchEnvironmentTests.swift; sourceTree = "<group>"; };
 		D3610B010000000000000002 /* AgentSessionAutoResumeSettingsTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentSessionAutoResumeSettingsTests.swift; sourceTree = "<group>"; };
 		A9E010000000000000000008 /* AgentSessionBridge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/AgentSessionBridge.swift; sourceTree = "<group>"; };
@@ -2129,7 +2129,7 @@
 				A6E810040000000000000001 /* AgentChatWebViewController.swift */,
 				A6E810050000000000000001 /* AgentDaemonClient.swift */,
 				A6E810060000000000000001 /* AgentDaemonBinaryLocator.swift */,
-				A6E810070000000000000001 /* AgentHookLaunchEnvironment.swift */,
+				A6E810090000000000000001 /* AgentHookLaunchEnvironment.swift */,
 				A9E010000000000000000002 /* AgentSessionPanel.swift */,
 				A9E010000000000000000008 /* AgentSessionBridge.swift */,
 				A9E010000000000000000009 /* AgentSessionProcessStore.swift */,
@@ -2901,7 +2901,7 @@
 				C0DEF0C10000000000000001 /* AgentForkSupport.swift in Sources */,
 				D36A00010000000000000001 /* AgentHibernationController.swift in Sources */,
 				D36A00030000000000000001 /* AgentHibernationLifecycleState.swift in Sources */,
-				A6E810070000000000000002 /* AgentHookLaunchEnvironment.swift in Sources */,
+				A6E810090000000000000002 /* AgentHookLaunchEnvironment.swift in Sources */,
 				A9E020000000000000000008 /* AgentSessionBridge.swift in Sources */,
 				A9F20000000000000000000B /* AgentSessionBridgeError.swift in Sources */,
 				A9F20000000000000000000C /* AgentSessionBridgeRequest.swift in Sources */,

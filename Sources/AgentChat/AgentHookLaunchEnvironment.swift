@@ -127,7 +127,7 @@ enum AgentHookLaunchEnvironment {
     }
 
     private static func suffixed(_ base: String, variant: String, slug: String?) -> String {
-        guard let slug = slug.flatMap(SocketControlSettings.sanitizeSocketSlug), !slug.isEmpty else {
+        guard let slug = slug.flatMap(SocketPathMarkerFiles.sanitizeSocketSlug), !slug.isEmpty else {
             return "\(base)-\(variant)"
         }
         return "\(base)-\(variant)-\(slug)"
