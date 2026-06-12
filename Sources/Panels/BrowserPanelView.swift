@@ -3657,6 +3657,12 @@ func omnibarReduce(state: inout OmnibarState, event: OmnibarEvent) -> OmnibarEff
     case .focusReasserted(let shouldSelectAll):
         state.isFocused = true
         effects.shouldSelectAll = shouldSelectAll
+        if shouldSelectAll {
+            // A Cmd+L style reassert restarts editing from the full selected
+            // text; an earlier arrow selection no longer reflects Return
+            // intent. Plain focus restoration (no select-all) keeps it.
+            state.selectionIsExplicit = false
+        }
 
     case .focusLostRevertBuffer(let url):
         state.isFocused = false

@@ -221,6 +221,48 @@ final class OmnibarSubmitDecisionTests: XCTestCase {
         XCTAssertEqual(decision, .navigate(text: "claude"))
     }
 
+    func testSelectAllFocusReassertInvalidatesArrowSelectionOnReturn() {
+        // Cmd+L while already editing reasserts focus with select-all; the
+        // earlier arrow selection must not commit on the next Return.
+        var state = focusedState(buffer: "claude")
+        _ = omnibarReduce(state: &state, event: .suggestionsUpdated([
+            .search(engineName: "Google", query: "claude"),
+            .remoteSearchSuggestion("claude pricing"),
+        ]))
+        _ = omnibarReduce(state: &state, event: .moveSelection(delta: 1))
+        _ = omnibarReduce(state: &state, event: .focusReasserted(shouldSelectAll: true))
+
+        let decision = omnibarSubmitDecision(
+            liveField: caretSnapshot("claude"),
+            state: state,
+            inlineCompletion: nil,
+            canInteractWithSuggestions: true
+        )
+
+        XCTAssertEqual(decision, .navigate(text: "claude"))
+    }
+
+    func testFocusRestorationWithoutSelectAllKeepsArrowSelectionOnReturn() {
+        // Programmatic focus restoration (window churn, palette close) does
+        // not reset editing intent and must keep the arrow selection armed.
+        var state = focusedState(buffer: "claude")
+        _ = omnibarReduce(state: &state, event: .suggestionsUpdated([
+            .search(engineName: "Google", query: "claude"),
+            .remoteSearchSuggestion("claude pricing"),
+        ]))
+        _ = omnibarReduce(state: &state, event: .moveSelection(delta: 1))
+        _ = omnibarReduce(state: &state, event: .focusReasserted(shouldSelectAll: false))
+
+        let decision = omnibarSubmitDecision(
+            liveField: caretSnapshot("claude"),
+            state: state,
+            inlineCompletion: nil,
+            canInteractWithSuggestions: true
+        )
+
+        XCTAssertEqual(decision, .commitSelectedSuggestion)
+    }
+
     func testArrowSelectionSurvivesSameQuerySuggestionMerge() {
         var state = focusedState(buffer: "go")
         let base: [OmnibarSuggestion] = [
