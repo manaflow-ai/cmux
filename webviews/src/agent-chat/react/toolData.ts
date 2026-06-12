@@ -521,7 +521,10 @@ export function commandExecutionView(
     }
   }
 
-  if (exitCode === null && output !== null) {
+  // Textual fallback only for outputs already marked as failures: success
+  // output legitimately mentions phrases like "expected exit code: 2" and
+  // must never be re-badged from prose.
+  if (exitCode === null && output !== null && item.output?.is_error === true) {
     const match = EXIT_CODE_PATTERN.exec(output);
     if (match) {
       exitCode = Number.parseInt(match[1], 10);
@@ -593,6 +596,8 @@ export interface WebSearchView {
 }
 
 const MAX_SEARCH_RESULTS = 8;
+/** Search outputs are scanned at most this far for embedded result objects. */
+const MAX_SEARCH_SCAN_CHARS = 100_000;
 
 // Claude WebSearch output embeds JSON objects like
 // {"title": "...", "url": "..."} (either key order) inside result text.
@@ -602,13 +607,16 @@ const RESULT_OBJECT_PATTERN =
 function extractSearchResults(text: string): WebSearchResult[] {
   const results: WebSearchResult[] = [];
   const seen = new Set<string>();
-  for (const match of text.match(RESULT_OBJECT_PATTERN) ?? []) {
+  const scanText = text.length > MAX_SEARCH_SCAN_CHARS ? text.slice(0, MAX_SEARCH_SCAN_CHARS) : text;
+  // matchAll is lazy: breaking at the cap stops the scan instead of first
+  // materializing every embedded object in a huge output.
+  for (const match of scanText.matchAll(RESULT_OBJECT_PATTERN)) {
     if (results.length >= MAX_SEARCH_RESULTS) {
       break;
     }
     let parsed: unknown;
     try {
-      parsed = JSON.parse(match);
+      parsed = JSON.parse(match[0]);
     } catch {
       continue;
     }

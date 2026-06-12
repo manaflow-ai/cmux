@@ -226,6 +226,15 @@ describe("commandExecutionView", () => {
     expect(view.exitCode).toBeNull();
   });
 
+  test("success output mentioning an exit code keeps its implicit exit 0", () => {
+    const view = commandExecutionView({
+      status: "completed",
+      input: { command: "bun test" },
+      output: { text: "asserts the process fails with exit code: 2\n5 pass" },
+    });
+    expect(view.exitCode).toBe(0);
+  });
+
   test("extracts the exit code from error text", () => {
     const view = commandExecutionView({
       status: "failed",
