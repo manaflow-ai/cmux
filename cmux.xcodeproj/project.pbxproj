@@ -507,6 +507,7 @@
 		F5410002A1B2C3D4E5F60718 /* RestorableAgentNonInteractiveTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F5410003A1B2C3D4E5F60718 /* RestorableAgentNonInteractiveTests.swift */; };
 		A5001660 /* RestorableAgentSession.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001661 /* RestorableAgentSession.swift */; };
 		F5410006A1B2C3D4E5F60718 /* RestorableAgentSessionIndexTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F5410007A1B2C3D4E5F60718 /* RestorableAgentSessionIndexTests.swift */; };
+		C0DEF5941000000000000003 /* RestorableAgentSessionStartupInput.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DEF5941000000000000004 /* RestorableAgentSessionStartupInput.swift */; };
 		C13519000000000000000005 /* RestorableAgentTypes.swift in Sources */ = {isa = PBXBuildFile; fileRef = C13519000000000000000006 /* RestorableAgentTypes.swift */; };
 		B7F9A600B7F9A600B7F9A600 /* RightSidebarChromeGeometryReporting.swift in Sources */ = {isa = PBXBuildFile; fileRef = B7F9A601B7F9A601B7F9A601 /* RightSidebarChromeGeometryReporting.swift */; };
 		AA1B2C3D4E5F60720 /* RightSidebarChromeHeightUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA1B2C3D4E5F60721 /* RightSidebarChromeHeightUITests.swift */; };
@@ -1301,6 +1302,7 @@
 		F5410003A1B2C3D4E5F60718 /* RestorableAgentNonInteractiveTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RestorableAgentNonInteractiveTests.swift; sourceTree = "<group>"; };
 		A5001661 /* RestorableAgentSession.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RestorableAgentSession.swift; sourceTree = "<group>"; };
 		F5410007A1B2C3D4E5F60718 /* RestorableAgentSessionIndexTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RestorableAgentSessionIndexTests.swift; sourceTree = "<group>"; };
+		C0DEF5941000000000000004 /* RestorableAgentSessionStartupInput.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RestorableAgentSessionStartupInput.swift; sourceTree = "<group>"; };
 		C13519000000000000000006 /* RestorableAgentTypes.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RestorableAgentTypes.swift; sourceTree = "<group>"; };
 		B7F9A601B7F9A601B7F9A601 /* RightSidebarChromeGeometryReporting.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RightSidebarChromeGeometryReporting.swift; sourceTree = "<group>"; };
 		AA1B2C3D4E5F60721 /* RightSidebarChromeHeightUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RightSidebarChromeHeightUITests.swift; sourceTree = "<group>"; };
@@ -2163,6 +2165,7 @@
 				A5001661 /* RestorableAgentSession.swift */,
 				C0DEF0C10000000000000002 /* AgentForkSupport.swift */,
 				C0DEF5941000000000000002 /* ClaudeSessionTranscriptSeeder.swift */,
+				C0DEF5941000000000000004 /* RestorableAgentSessionStartupInput.swift */,
 				C0DEF0C20000000000000002 /* SemanticVersion.swift */,
 				A5001642 /* RemoteInteractiveShellBootstrapBuilder.swift */,
 				A5001641 /* RemoteRelayZshBootstrap.swift */,
@@ -3121,6 +3124,7 @@
 				E4321000E4321000E4321001 /* RemoteShellSessionParsing.swift in Sources */,
 				D5037010000000000000003 /* RenderableSystemSymbol.swift in Sources */,
 				A5001660 /* RestorableAgentSession.swift in Sources */,
+				C0DEF5941000000000000003 /* RestorableAgentSessionStartupInput.swift in Sources */,
 				C13519000000000000000005 /* RestorableAgentTypes.swift in Sources */,
 				B7F9A600B7F9A600B7F9A600 /* RightSidebarChromeGeometryReporting.swift in Sources */,
 				B7F9A604B7F9A604B7F9A604 /* RightSidebarChromeStyle.swift in Sources */,
