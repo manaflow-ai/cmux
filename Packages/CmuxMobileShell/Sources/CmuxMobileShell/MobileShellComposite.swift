@@ -653,7 +653,11 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     }
 
     public static func preview(runtime: (any MobileSyncRuntime)? = nil) -> CMUXMobileShellStore {
-        CMUXMobileShellStore(runtime: runtime, workspaces: PreviewMobileHost.workspaces)
+        CMUXMobileShellStore(
+            runtime: runtime,
+            workspaces: PreviewMobileHost.workspaces,
+            deliveredNotificationClearer: NoopDeliveredNotificationClearer()
+        )
     }
 
     public func signIn() {
