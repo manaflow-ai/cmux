@@ -10510,9 +10510,22 @@ final class SidebarDragState {
 
     /// Updates the follower position and landing slot for a moved cursor.
     func updateReorder(cursorY: CGFloat) {
+#if DEBUG
+        reorderTickCount += 1
+        if reorderTickCount % 60 == 0 {
+            cmuxDebugLog("sidebar.reorder.tick n=\(reorderTickCount) cursorY=\(Int(cursorY))")
+        }
+#endif
         followerCursorY = cursorY
         recomputeIndicator(cursorY: cursorY)
     }
+
+#if DEBUG
+    /// Gesture event counter, logged every 60th tick as drag-health evidence
+    /// (a healthy drag streams events at pointer rate; a torn-down gesture
+    /// stops ticking).
+    @ObservationIgnored private var reorderTickCount = 0
+#endif
 
     /// Advances the reorder by the distance the auto-scroll tick just moved
     /// the content. The gesture's cursor Y lives in list (content) space, so
@@ -12555,10 +12568,16 @@ struct VerticalTabsSidebar: View {
             tabs: renderContext.tabs,
             groupsById: renderContext.workspaceGroupById
         )
-        let shouldCollectWorkspaceDropTargets = SidebarDropPlanner.shouldCollectWorkspaceDropTargets(
-            draggedTabId: dragState.draggedTabId,
-            isBonsplitWorkspaceDropActive: isBonsplitWorkspaceDropTargetCollectionActive
-        )
+        // Collect row frames for the bonsplit drop overlay ONLY while a
+        // bonsplit tab drag is active. The legacy gate also flipped on for
+        // workspace drags (draggedTabId != nil), which in the gesture world
+        // killed the drag at its first event: flipping
+        // `rowsWithGatedDropTargetReader`'s if/else re-identities the whole
+        // row subtree, tearing down the row hosting the in-flight reorder
+        // `DragGesture` (begin logged, end never fired, follower frozen). The
+        // gesture reorder needs no drop targets — its hit-testing runs on
+        // `SidebarReorderRowFrameKey` frames.
+        let shouldCollectWorkspaceDropTargets = isBonsplitWorkspaceDropTargetCollectionActive
         // During a gesture-driven reorder the list reflows to `previewItems`
         // (the dragged row moved to its landing slot) so the gap animates open.
         // `dropIndicator` is discrete — it changes only when the landing slot
