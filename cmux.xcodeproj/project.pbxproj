@@ -254,6 +254,7 @@
 		C0DE58990000000000000004 /* CmuxWebViewKeyDownReentryTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE58990000000000000002 /* CmuxWebViewKeyDownReentryTests.swift */; };
 		7D5DA4DC51454ECDBF9AC978 /* CmuxWebViewMouseNavigationButtonTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 43F90FAF3FD44F11BF547BE9 /* CmuxWebViewMouseNavigationButtonTests.swift */; };
 		E30750000000000000000004 /* CmuxWorkspaceDefinition.swift in Sources */ = {isa = PBXBuildFile; fileRef = E30750000000000000000003 /* CmuxWorkspaceDefinition.swift */; };
+		E3B7A30000000000000000E3 /* CmuxWorkspaceNavigation in Frameworks */ = {isa = PBXBuildFile; productRef = E3B7A30000000000000000E2 /* CmuxWorkspaceNavigation */; };
 		AA11BB22CC33DD44EE550001 /* CMUXWorkstream in Frameworks */ = {isa = PBXBuildFile; productRef = AA11BB22CC33DD44EE550002 /* CMUXWorkstream */; };
 		A9F200000000000000000016 /* CodexAppServerQueuedInput.swift in Sources */ = {isa = PBXBuildFile; fileRef = A9F100000000000000000016 /* CodexAppServerQueuedInput.swift */; };
 		A9E02000000000000000000E /* CodexAppServerSession.swift in Sources */ = {isa = PBXBuildFile; fileRef = A9E01000000000000000000E /* CodexAppServerSession.swift */; };
@@ -622,6 +623,7 @@
 		C3677003000000000000001 /* TabManager+CompatibilityTypes.swift in Sources */ = {isa = PBXBuildFile; fileRef = C3677003000000000000002 /* TabManager+CompatibilityTypes.swift */; };
 		D7AB00000000000000000013 /* TabManager+DetachedWorkspace.swift in Sources */ = {isa = PBXBuildFile; fileRef = D7AB00000000000000000014 /* TabManager+DetachedWorkspace.swift */; };
 		E3309A03 /* TabManager+EqualizeSplits.swift in Sources */ = {isa = PBXBuildFile; fileRef = E3309A04 /* TabManager+EqualizeSplits.swift */; };
+		E3B7A400000000000000000B /* TabManager+FocusHistoryHosting.swift in Sources */ = {isa = PBXBuildFile; fileRef = E3B7A400000000000000000C /* TabManager+FocusHistoryHosting.swift */; };
 		E3B7A4000000000000000009 /* TabManager+NotificationDismissalHosting.swift in Sources */ = {isa = PBXBuildFile; fileRef = E3B7A400000000000000000A /* TabManager+NotificationDismissalHosting.swift */; };
 		C5B6A10000000000000000B1 /* TabManager+SidebarGitHosting.swift in Sources */ = {isa = PBXBuildFile; fileRef = C5B6A10000000000000000B2 /* TabManager+SidebarGitHosting.swift */; };
 		A5001003 /* TabManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001013 /* TabManager.swift */; };
@@ -1413,6 +1415,7 @@
 		C3677003000000000000002 /* TabManager+CompatibilityTypes.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TabManager+CompatibilityTypes.swift"; sourceTree = "<group>"; };
 		D7AB00000000000000000014 /* TabManager+DetachedWorkspace.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TabManager+DetachedWorkspace.swift"; sourceTree = "<group>"; };
 		E3309A04 /* TabManager+EqualizeSplits.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TabManager+EqualizeSplits.swift"; sourceTree = "<group>"; };
+		E3B7A400000000000000000C /* TabManager+FocusHistoryHosting.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TabManager+FocusHistoryHosting.swift"; sourceTree = "<group>"; };
 		E3B7A400000000000000000A /* TabManager+NotificationDismissalHosting.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TabManager+NotificationDismissalHosting.swift"; sourceTree = "<group>"; };
 		C5B6A10000000000000000B2 /* TabManager+SidebarGitHosting.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TabManager+SidebarGitHosting.swift"; sourceTree = "<group>"; };
 		A5001013 /* TabManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TabManager.swift; sourceTree = "<group>"; };
@@ -1609,6 +1612,7 @@
 				C52830000000000000000001 /* CmuxTerminalCopyMode in Frameworks */,
 				CDFEED0300000000CDFEED03 /* CmuxUpdater in Frameworks */,
 				CDFEED0600000000CDFEED06 /* CmuxUpdaterUI in Frameworks */,
+				E3B7A30000000000000000E3 /* CmuxWorkspaceNavigation in Frameworks */,
 				AA11BB22CC33DD44EE550001 /* CMUXWorkstream in Frameworks */,
 				A5001006 /* GhosttyKit.xcframework in Frameworks */,
 				A5001290 /* MarkdownUI in Frameworks */,
@@ -1935,6 +1939,7 @@
 				E3B7A4000000000000000006 /* WorkspacePlacement+Resolution.swift */,
 				E3B7A4000000000000000008 /* WorkspaceIndicatorStyle+Display.swift */,
 				E3B7A400000000000000000A /* TabManager+NotificationDismissalHosting.swift */,
+				E3B7A400000000000000000C /* TabManager+FocusHistoryHosting.swift */,
 				A5001511 /* UITestRecorder.swift */,
 				A5001520 /* PostHogAnalytics.swift */,
 				A5001416 /* Workspace.swift */,
@@ -2532,6 +2537,7 @@
 				E3B7A30000000000000000B2 /* CmuxSidebar */,
 				E3B7A30000000000000000C2 /* CmuxBrowser */,
 				E3B7A30000000000000000D2 /* CmuxNotifications */,
+				E3B7A30000000000000000E2 /* CmuxWorkspaceNavigation */,
 				A500D013A1B2C3D4E5F60718 /* CMUXDebugLog */,
 				CD0CFE5200000000CD0CFE52 /* CmuxSettings */,
 				CD0CFE5500000000CD0CFE55 /* CmuxSettingsUI */,
@@ -2699,6 +2705,7 @@
 				E3B7A30000000000000000B1 /* XCLocalSwiftPackageReference "CmuxSidebar" */,
 				E3B7A30000000000000000C1 /* XCLocalSwiftPackageReference "CmuxBrowser" */,
 				E3B7A30000000000000000D1 /* XCLocalSwiftPackageReference "CmuxNotifications" */,
+				E3B7A30000000000000000E1 /* XCLocalSwiftPackageReference "CmuxWorkspaceNavigation" */,
 				C750100000000000000000A1 /* XCLocalSwiftPackageReference "CmuxControlSocket" */,
 				CD0CFE5100000000CD0CFE51 /* XCLocalSwiftPackageReference "CmuxSettings" */,
 				CD0CFE5400000000CD0CFE54 /* XCLocalSwiftPackageReference "CmuxSettingsUI" */,
@@ -3207,6 +3214,7 @@
 				C3677003000000000000001 /* TabManager+CompatibilityTypes.swift in Sources */,
 				D7AB00000000000000000013 /* TabManager+DetachedWorkspace.swift in Sources */,
 				E3309A03 /* TabManager+EqualizeSplits.swift in Sources */,
+				E3B7A400000000000000000B /* TabManager+FocusHistoryHosting.swift in Sources */,
 				E3B7A4000000000000000009 /* TabManager+NotificationDismissalHosting.swift in Sources */,
 				C5B6A10000000000000000B1 /* TabManager+SidebarGitHosting.swift in Sources */,
 				A5001003 /* TabManager.swift in Sources */,
@@ -4109,6 +4117,10 @@
 			isa = XCLocalSwiftPackageReference;
 			relativePath = Packages/CmuxNotifications;
 		};
+		E3B7A30000000000000000E1 /* XCLocalSwiftPackageReference "CmuxWorkspaceNavigation" */ = {
+			isa = XCLocalSwiftPackageReference;
+			relativePath = Packages/CmuxWorkspaceNavigation;
+		};
 		C750100000000000000000A1 /* XCLocalSwiftPackageReference "CmuxControlSocket" */ = {
 			isa = XCLocalSwiftPackageReference;
 			relativePath = Packages/CmuxControlSocket;
@@ -4294,6 +4306,11 @@
 			isa = XCSwiftPackageProductDependency;
 			package = E3B7A30000000000000000D1 /* XCLocalSwiftPackageReference "CmuxNotifications" */;
 			productName = CmuxNotifications;
+		};
+		E3B7A30000000000000000E2 /* CmuxWorkspaceNavigation */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = E3B7A30000000000000000E1 /* XCLocalSwiftPackageReference "CmuxWorkspaceNavigation" */;
+			productName = CmuxWorkspaceNavigation;
 		};
 		C750100000000000000000A2 /* CmuxControlSocket */ = {
 			isa = XCSwiftPackageProductDependency;
