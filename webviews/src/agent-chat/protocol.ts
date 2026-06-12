@@ -162,6 +162,13 @@ export interface AgentChatInitResult {
   daemon_status: "ready" | "unavailable";
   /** Human-readable detail when unavailable. */
   daemon_detail?: string;
+  /**
+   * Terminal-derived theme tokens, the agent-session bridge's camelCase
+   * AgentSessionTheme shape (Sources/Panels/AgentSessionWebTheme.swift).
+   * Absent in dev/mock mode; the surface keeps its system-scheme CSS fallback.
+   * Validated by agent-chat/theme.ts before applying, hence `unknown`.
+   */
+  theme?: unknown;
 }
 
 export type AgentChatBridgeInbound =

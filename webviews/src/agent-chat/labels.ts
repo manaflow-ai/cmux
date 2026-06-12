@@ -49,6 +49,26 @@ export const agentChatLabels = {
   noToolPayload: "No input or output recorded.",
   imageAttachmentSingular: "1 image attachment",
 
+  // Rich tool rows (toolRows.tsx).
+  showLess: "Show less",
+  newFileBadge: "new",
+  deletedFileBadge: "deleted",
+  exitPrefix: "exit ",
+  noCommandOutput: "No output.",
+  noFilePreview: "No preview recorded.",
+  searchQueryFallback: "Web search",
+  diffFallbackTitle: "File change",
+  diffSourceTruncated: "Change too large to diff fully; later lines not shown",
+
+  // In-conversation search.
+  searchOpen: "Search",
+  searchPlaceholder: "Search conversation",
+  searchNoMatches: "No matches",
+  searchNextMatch: "Next match",
+  searchPreviousMatch: "Previous match",
+  searchClose: "Close search",
+  searchFilterToggle: "Only show matches",
+
   // Pending-request banner.
   waitingForInput: "Agent is waiting for your input",
   waitingForPermission: "Agent is waiting for permission",
@@ -70,4 +90,26 @@ export const agentChatLabels = {
 
 export function imageAttachmentLabel(count: number): string {
   return count === 1 ? agentChatLabels.imageAttachmentSingular : `${count} image attachments`;
+}
+
+export function showMoreLinesLabel(count: number): string {
+  return count === 1 ? "Show 1 more line" : `Show ${count} more lines`;
+}
+
+export function unchangedLinesLabel(count: number): string {
+  return count === 1 ? "1 unchanged line" : `${count} unchanged lines`;
+}
+
+export function exitCodeLabel(code: number): string {
+  return `${agentChatLabels.exitPrefix}${code}`;
+}
+
+/** Note for diff lines dropped by the parse-time cap (not expandable). */
+export function moreLinesNotShownLabel(count: number): string {
+  return count === 1 ? "1 more line not shown" : `${count} more lines not shown`;
+}
+
+/** Search bar match counter, 1-based ("2/14"). */
+export function matchCounterLabel(current: number, total: number): string {
+  return `${current}/${total}`;
 }

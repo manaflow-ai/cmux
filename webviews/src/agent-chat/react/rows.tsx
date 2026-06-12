@@ -1,52 +1,88 @@
 // Timeline row components for the /agent-chat surface, one renderer per
 // `ItemType` family. Expand/collapse is plain per-row component state; markdown
 // goes through the shared sanitizing renderer from the agent-session surface.
+// Tool-shaped items route through the rich renderers in toolRows.tsx (diffs,
+// structured command output, file previews, search results).
 
 import { useState } from "react";
 import { renderMarkdownHTML } from "../../agent-session/shared/markdown";
-import { agentChatLabels, imageAttachmentLabel } from "../labels";
+import { agentChatLabels } from "../labels";
 import type { PendingRequest } from "../conversationStore";
 import type { ConversationItem } from "../protocol";
-import {
-  formatToolInput,
-  isToolItemType,
-  statusGlyph,
-  toolItemTitle,
-  toolTypeGlyph,
-  toolTypeLabel,
-} from "./display";
+import { highlightSegments } from "../search";
+import { isToolItemType } from "./display";
+import { RichToolRow, StatusIndicator, rowDataProps } from "./toolRows";
 
-export function ItemRow({ item }: { item: ConversationItem }) {
+export function ItemRow({
+  item,
+  provider = null,
+  searchQuery = "",
+  isSearchMatch = false,
+  isCurrentSearchMatch = false,
+}: {
+  item: ConversationItem;
+  /** Session provider id snapshot, threaded to provider-aware tool rows. */
+  provider?: string | null;
+  /** Active search query when this row matches it; "" otherwise. */
+  searchQuery?: string;
+  isSearchMatch?: boolean;
+  isCurrentSearchMatch?: boolean;
+}) {
+  let row;
   if (item.type === "user_message") {
-    return <UserMessageRow item={item} />;
+    row = <UserMessageRow item={item} searchQuery={searchQuery} />;
+  } else if (item.type === "assistant_message") {
+    row = <AssistantMessageRow item={item} />;
+  } else if (item.type === "reasoning") {
+    row = <ReasoningRow item={item} />;
+  } else if (item.type === "plan") {
+    row = <PlanRow item={item} />;
+  } else if (isToolItemType(item.type)) {
+    row = <RichToolRow item={item} provider={provider} />;
+  } else {
+    row = <SystemRow item={item} />;
   }
-  if (item.type === "assistant_message") {
-    return <AssistantMessageRow item={item} />;
-  }
-  if (item.type === "reasoning") {
-    return <ReasoningRow item={item} />;
-  }
-  if (item.type === "plan") {
-    return <PlanRow item={item} />;
-  }
-  if (isToolItemType(item.type)) {
-    return <ToolRow item={item} />;
-  }
-  return <SystemRow item={item} />;
+  // display:contents — the wrapper generates no box, so row layout is
+  // untouched; CSS targets matches via the data attributes without threading
+  // search props through every row family.
+  return (
+    <div
+      className="agent-chat-search-wrap"
+      data-search-match={isSearchMatch ? "true" : "false"}
+      data-search-current={isCurrentSearchMatch ? "true" : "false"}
+    >
+      {row}
+    </div>
+  );
 }
 
-function rowDataProps(item: ConversationItem) {
-  return {
-    "data-item-id": item.id,
-    "data-item-type": item.type,
-    "data-item-status": item.status,
-  };
-}
-
-function UserMessageRow({ item }: { item: ConversationItem }) {
+function UserMessageRow({
+  item,
+  searchQuery = "",
+}: {
+  item: ConversationItem;
+  searchQuery?: string;
+}) {
+  const text = item.text ?? "";
   return (
     <div className="agent-chat-row agent-chat-user-row" {...rowDataProps(item)}>
-      <div className="agent-chat-user-bubble">{item.text ?? ""}</div>
+      <div className="agent-chat-user-bubble">
+        {searchQuery === ""
+          ? text
+          : highlightSegments(text, searchQuery).map((segment, index) =>
+              segment.match ? (
+                // Segment lists are derived per render from (text, query);
+                // index keys are stable for that pair.
+                // eslint-disable-next-line react/no-array-index-key
+                <mark key={index} className="agent-chat-search-mark">
+                  {segment.text}
+                </mark>
+              ) : (
+                // eslint-disable-next-line react/no-array-index-key
+                <span key={index}>{segment.text}</span>
+              ),
+            )}
+      </div>
     </div>
   );
 }
@@ -106,55 +142,6 @@ function PlanRow({ item }: { item: ConversationItem }) {
   );
 }
 
-function ToolRow({ item }: { item: ConversationItem }) {
-  const [expanded, setExpanded] = useState(false);
-  const input = formatToolInput(item.input);
-  const outputText = item.output?.text ?? "";
-  const imageCount = item.output?.image_ids?.length ?? 0;
-  const failed = item.status === "failed" || item.output?.is_error === true;
-  return (
-    <div className="agent-chat-row agent-chat-tool-row" {...rowDataProps(item)}>
-      <button
-        type="button"
-        className="agent-chat-disclosure agent-chat-tool-summary"
-        aria-expanded={expanded}
-        onClick={() => setExpanded((current) => !current)}
-      >
-        <StatusIndicator status={item.status} />
-        <span className="agent-chat-badge agent-chat-tool-badge">
-          <span aria-hidden="true">{toolTypeGlyph(item.type)}</span> {toolTypeLabel(item.type)}
-        </span>
-        <span className="agent-chat-tool-title">{toolItemTitle(item)}</span>
-        <span className="agent-chat-disclosure-chevron" aria-hidden="true">
-          {expanded ? "▾" : "▸"}
-        </span>
-      </button>
-      {expanded ? (
-        <div className="agent-chat-tool-detail">
-          {input !== "" ? (
-            <pre className="agent-chat-mono agent-chat-tool-input">{input}</pre>
-          ) : null}
-          {outputText !== "" ? (
-            <pre
-              className={`agent-chat-mono agent-chat-tool-output${failed ? " is-error" : ""}`}
-            >
-              {outputText}
-            </pre>
-          ) : null}
-          {imageCount > 0 ? (
-            <div className="agent-chat-tool-images">
-              {imageAttachmentLabel(imageCount)}
-            </div>
-          ) : null}
-          {input === "" && outputText === "" && imageCount === 0 ? (
-            <div className="agent-chat-tool-images">{agentChatLabels.noToolPayload}</div>
-          ) : null}
-        </div>
-      ) : null}
-    </div>
-  );
-}
-
 function SystemRow({ item }: { item: ConversationItem }) {
   const label =
     item.type === "context_compaction"
@@ -172,32 +159,6 @@ function SystemRow({ item }: { item: ConversationItem }) {
       <span className="agent-chat-system-label">{label}</span>
       {item.text ? <span className="agent-chat-system-text">{item.text}</span> : null}
     </div>
-  );
-}
-
-export function StatusIndicator({ status }: { status: ConversationItem["status"] }) {
-  if (status === "in_progress") {
-    return (
-      <output className="agent-chat-status is-in-progress" data-status={status}>
-        <span className="agent-chat-spinner" aria-hidden="true" />
-        <span className="agent-chat-visually-hidden">{agentChatLabels.statusInProgress}</span>
-      </output>
-    );
-  }
-  return (
-    <span
-      className={`agent-chat-status is-${status}`}
-      data-status={status}
-      aria-label={
-        status === "failed"
-          ? agentChatLabels.statusFailed
-          : status === "declined"
-            ? agentChatLabels.statusDeclined
-            : agentChatLabels.statusCompleted
-      }
-    >
-      {statusGlyph(status)}
-    </span>
   );
 }
 

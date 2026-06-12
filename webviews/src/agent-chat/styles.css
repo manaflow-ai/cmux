@@ -6,6 +6,55 @@
   color-scheme: light dark;
 }
 
+/* Token defaults. The macOS host overrides most of these with inline custom
+ * properties on <html> via the shared applyAgentTheme seam (it also sets
+ * data-theme="dark|light"); inline style always wins over these blocks. With
+ * no host theme (vite dev, mock bridge) the dark defaults below apply, and the
+ * system-light block swaps them. Scoped to <html> only: <body> carries the
+ * same data attribute, and defining vars there would shadow the :root
+ * overrides for every descendant. */
+
+html[data-cmux-webview-kind="agent-chat"] {
+  --agent-page-bg: #1e1e1e;
+  --agent-surface-elevated: #2a2a2a;
+  --agent-input-bg: rgba(127, 127, 127, 0.12);
+  --agent-border: rgba(127, 127, 127, 0.25);
+  --agent-text: #d6d6d6;
+  --agent-muted: #8a8a8a;
+  --agent-soft: #b8b8b8;
+  --agent-accent: #4f8ff7;
+  --agent-danger: #e5484d;
+  /* Not part of the host token set: derived/static companions that still
+   * track the delivered theme. */
+  --agent-control: color-mix(in srgb, var(--agent-text) 13%, transparent);
+  --agent-success: #00a240;
+  --agent-warning: #f5a623;
+}
+
+/* System light scheme while no host theme has been applied. */
+@media (prefers-color-scheme: light) {
+  html[data-cmux-webview-kind="agent-chat"]:not([data-theme]) {
+    --agent-page-bg: #ffffff;
+    --agent-surface-elevated: #f2f2f2;
+    --agent-input-bg: rgba(0, 0, 0, 0.05);
+    --agent-border: rgba(0, 0, 0, 0.16);
+    --agent-text: #1f1f1f;
+    --agent-muted: #6e6e6e;
+    --agent-soft: #4b4b4b;
+    --agent-accent: #0a66d0;
+    --agent-danger: #b3261e;
+    --agent-success: #1a7f37;
+    --agent-warning: #9a6700;
+  }
+}
+
+/* Host-delivered light theme: the host supplies the core tokens inline; only
+ * the local companions need a light variant. */
+html[data-cmux-webview-kind="agent-chat"][data-theme="light"] {
+  --agent-success: #1a7f37;
+  --agent-warning: #9a6700;
+}
+
 [data-cmux-webview-kind="agent-chat"] {
   margin: 0;
   background: var(--agent-page-bg, #1e1e1e);
@@ -297,6 +346,221 @@
   color: var(--agent-muted, #8a8a8a);
 }
 
+/* File-change rows (real diffs) */
+
+.agent-chat-file-change-row {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 12px;
+}
+
+.agent-chat-file-change {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+
+.agent-chat-file-change-header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  padding: 2px 0;
+}
+
+.agent-chat-file-path {
+  flex: 1;
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  direction: rtl;
+  text-align: left;
+  color: var(--agent-text, #d6d6d6);
+  font-family: var(--vscode-editor-font-family, ui-monospace, "SF Mono", Menlo, monospace);
+  font-size: 11.5px;
+}
+
+.agent-chat-op-badge.is-create {
+  color: var(--agent-success, #00a240);
+  background: color-mix(in srgb, var(--agent-success, #00a240) 14%, transparent);
+}
+
+.agent-chat-op-badge.is-delete {
+  color: var(--agent-danger, #e5484d);
+  background: color-mix(in srgb, var(--agent-danger, #e5484d) 14%, transparent);
+}
+
+.agent-chat-diff-counts {
+  flex: none;
+  font-size: 11px;
+  font-family: var(--vscode-editor-font-family, ui-monospace, "SF Mono", Menlo, monospace);
+}
+
+.agent-chat-diff-added-count {
+  color: var(--agent-success, #00a240);
+}
+
+.agent-chat-diff-removed-count {
+  color: var(--agent-danger, #e5484d);
+}
+
+.agent-chat-diff {
+  border: 1px solid var(--agent-border, rgba(127, 127, 127, 0.25));
+  border-radius: 8px;
+  overflow: hidden;
+  background: var(--agent-input-bg, rgba(127, 127, 127, 0.12));
+  font-family: var(--vscode-editor-font-family, ui-monospace, "SF Mono", Menlo, monospace);
+  font-size: 11.5px;
+  line-height: 1.5;
+}
+
+.agent-chat-diff-line {
+  display: flex;
+  padding: 0 8px 0 4px;
+}
+
+.agent-chat-diff-sign {
+  flex: none;
+  width: 14px;
+  text-align: center;
+  user-select: none;
+  color: var(--agent-muted, #8a8a8a);
+}
+
+.agent-chat-diff-text {
+  flex: 1;
+  min-width: 0;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.agent-chat-diff-line.is-add {
+  background: color-mix(in srgb, var(--agent-success, #00a240) 14%, transparent);
+}
+
+.agent-chat-diff-line.is-add .agent-chat-diff-sign {
+  color: var(--agent-success, #00a240);
+}
+
+.agent-chat-diff-line.is-del {
+  background: color-mix(in srgb, var(--agent-danger, #e5484d) 12%, transparent);
+}
+
+.agent-chat-diff-line.is-del .agent-chat-diff-sign {
+  color: var(--agent-danger, #e5484d);
+}
+
+.agent-chat-diff-line.is-hunk {
+  color: var(--agent-muted, #8a8a8a);
+  background: var(--agent-control, rgba(127, 127, 127, 0.16));
+  font-style: italic;
+}
+
+.agent-chat-clamp-toggle {
+  display: block;
+  width: 100%;
+  padding: 3px 8px;
+  border: none;
+  background: none;
+  color: var(--agent-accent, #4f8ff7);
+  font: inherit;
+  font-size: 11px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.agent-chat-clamped-block {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+/* Command-execution rows */
+
+.agent-chat-command-line {
+  display: flex;
+  gap: 7px;
+  padding: 7px 10px;
+  border-radius: 8px;
+  background: var(--agent-input-bg, rgba(127, 127, 127, 0.12));
+  font-family: var(--vscode-editor-font-family, ui-monospace, "SF Mono", Menlo, monospace);
+  font-size: 11.5px;
+  line-height: 1.45;
+}
+
+.agent-chat-command-prompt {
+  flex: none;
+  color: var(--agent-accent, #4f8ff7);
+  font-weight: 600;
+  user-select: none;
+}
+
+.agent-chat-command-text {
+  flex: 1;
+  min-width: 0;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.agent-chat-exit-badge {
+  flex: none;
+  padding: 1px 6px;
+  border-radius: 5px;
+  font-size: 10.5px;
+  font-weight: 600;
+  font-family: var(--vscode-editor-font-family, ui-monospace, "SF Mono", Menlo, monospace);
+}
+
+.agent-chat-exit-badge.is-success {
+  color: var(--agent-success, #00a240);
+  background: color-mix(in srgb, var(--agent-success, #00a240) 14%, transparent);
+}
+
+.agent-chat-exit-badge.is-failure {
+  color: var(--agent-danger, #e5484d);
+  background: color-mix(in srgb, var(--agent-danger, #e5484d) 14%, transparent);
+}
+
+.agent-chat-duration {
+  flex: none;
+  font-size: 10.5px;
+  color: var(--agent-muted, #8a8a8a);
+  font-family: var(--vscode-editor-font-family, ui-monospace, "SF Mono", Menlo, monospace);
+}
+
+/* Web-search rows */
+
+.agent-chat-search-results {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  margin: 0;
+  padding: 2px 0;
+  list-style: none;
+}
+
+.agent-chat-search-result {
+  min-width: 0;
+  font-size: 12px;
+}
+
+.agent-chat-search-result a {
+  color: var(--agent-accent, #4f8ff7);
+  overflow-wrap: anywhere;
+}
+
+.agent-chat-search-url {
+  display: block;
+  font-size: 10.5px;
+  color: var(--agent-muted, #8a8a8a);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
 /* System rows */
 
 .agent-chat-system-row {
@@ -432,4 +696,113 @@
   30% {
     opacity: 1;
   }
+}
+
+/* In-conversation search */
+
+.agent-chat-header-search {
+  margin-left: auto;
+  flex: none;
+  border: none;
+  background: transparent;
+  color: var(--agent-muted, rgba(127, 127, 127, 0.9));
+  font-size: 14px;
+  line-height: 1;
+  padding: 2px 6px;
+  border-radius: 4px;
+  cursor: pointer;
+}
+
+.agent-chat-header-search:hover {
+  background: var(--agent-control, rgba(127, 127, 127, 0.15));
+  color: var(--agent-text, inherit);
+}
+
+.agent-chat-search-bar {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  border-bottom: 1px solid var(--agent-border, rgba(127, 127, 127, 0.25));
+  flex: none;
+}
+
+.agent-chat-search-input {
+  flex: 1;
+  min-width: 0;
+  font: inherit;
+  font-size: 12px;
+  color: var(--agent-text, inherit);
+  background: var(--agent-input-bg, rgba(127, 127, 127, 0.08));
+  border: 1px solid var(--agent-border, rgba(127, 127, 127, 0.25));
+  border-radius: 5px;
+  padding: 3px 8px;
+  outline: none;
+}
+
+.agent-chat-search-input:focus {
+  border-color: var(--agent-accent, #4a8df0);
+}
+
+.agent-chat-search-counter {
+  flex: none;
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  color: var(--agent-muted, rgba(127, 127, 127, 0.9));
+  min-width: 48px;
+  text-align: right;
+}
+
+.agent-chat-search-counter[data-empty="true"] {
+  color: var(--agent-warning, #c77f1a);
+}
+
+.agent-chat-search-button {
+  flex: none;
+  border: none;
+  background: transparent;
+  color: var(--agent-muted, rgba(127, 127, 127, 0.9));
+  font-size: 12px;
+  line-height: 1;
+  padding: 3px 6px;
+  border-radius: 4px;
+  cursor: pointer;
+}
+
+.agent-chat-search-button:hover:not(:disabled) {
+  background: var(--agent-control, rgba(127, 127, 127, 0.15));
+  color: var(--agent-text, inherit);
+}
+
+.agent-chat-search-button:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+.agent-chat-search-button.is-toggle[data-active="true"] {
+  background: var(--agent-accent, #4a8df0);
+  color: var(--agent-page-bg, #fff);
+}
+
+/* The wrapper renders no box (display: contents); match styling lands on the
+   row element inside it. */
+.agent-chat-search-wrap {
+  display: contents;
+}
+
+.agent-chat-search-wrap[data-search-match="true"] > .agent-chat-row {
+  border-radius: 6px;
+  box-shadow: inset 2px 0 0 var(--agent-accent, #4a8df0);
+}
+
+.agent-chat-search-wrap[data-search-current="true"] > .agent-chat-row {
+  outline: 1px solid var(--agent-accent, #4a8df0);
+  outline-offset: -1px;
+  border-radius: 6px;
+}
+
+mark.agent-chat-search-mark {
+  background: color-mix(in srgb, var(--agent-accent, #4a8df0) 35%, transparent);
+  color: inherit;
+  border-radius: 2px;
 }

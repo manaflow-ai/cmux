@@ -15,6 +15,7 @@ struct AgentChatPanelView: View {
             if isVisibleInUI {
                 AgentChatWebViewRepresentable(
                     controller: panel.chatViewController,
+                    theme: AgentSessionWebTheme.resolve(appearance: appearance),
                     onRequestPanelFocus: onRequestPanelFocus
                 )
                     .id(panel.id)
@@ -34,14 +35,17 @@ struct AgentChatPanelView: View {
 /// owns the controller's lifetime.
 private struct AgentChatWebViewRepresentable: NSViewControllerRepresentable {
     let controller: AgentChatWebViewController
+    let theme: AgentSessionWebTheme
     let onRequestPanelFocus: () -> Void
 
     func makeNSViewController(context: Context) -> AgentChatWebViewController {
         controller.onPointerDown = onRequestPanelFocus
+        controller.apply(theme: theme)
         return controller
     }
 
     func updateNSViewController(_ nsViewController: AgentChatWebViewController, context: Context) {
         nsViewController.onPointerDown = onRequestPanelFocus
+        nsViewController.apply(theme: theme)
     }
 }
