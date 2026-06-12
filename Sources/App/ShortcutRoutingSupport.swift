@@ -109,9 +109,8 @@ func shouldDispatchBrowserReturnViaFirstResponderKeyDown(
     guard firstResponderIsBrowser else { return false }
     guard !firstResponderHasMarkedText else { return false }
     guard keyCode == 36 || keyCode == 76 else { return false }
-    // Keep browser Return forwarding narrow: only plain/Shift Return should be
-    // treated as submit-intent. Command-modified Return is reserved for app shortcuts
-    // like Toggle Pane Zoom (Cmd+Shift+Enter).
+    // Keep browser Return forwarding narrow: only plain/Shift Return is submit;
+    // Command-modified Return is reserved for app shortcuts like Toggle Pane Zoom.
     return browserOmnibarShouldSubmitOnReturn(flags: flags)
 }
 
@@ -151,6 +150,7 @@ func shouldDispatchBrowserOmnibarArrowViaFirstResponderKeyDown(
     return normalizedFlags.isEmpty
 }
 
+/// Returns true when a terminal arrow key-equivalent should be sent through keyDown.
 func shouldDispatchTerminalArrowViaFirstResponderKeyDown(
     keyCode: UInt16,
     firstResponderIsTerminal: Bool,
