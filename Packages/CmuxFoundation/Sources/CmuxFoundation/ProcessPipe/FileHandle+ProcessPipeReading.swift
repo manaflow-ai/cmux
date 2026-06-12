@@ -52,13 +52,7 @@ extension FileHandle {
         ProcessPipeEndRead.reading(
             fileDescriptor: fileDescriptor,
             chunkSize: chunkSize
-        ) { fileDescriptor, maxLength, operation in
-            ProcessPipeAvailableRead.readOnce(
-                fileDescriptor: fileDescriptor,
-                maxLength: maxLength,
-                operation: operation
-            )
-        }
+        )
     }
 
     /// ``readToEndOfFileCapturingError(chunkSize:)`` with failures logged and

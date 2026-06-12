@@ -2,12 +2,35 @@ import XCTest
 import CmuxCore
 import CmuxRemoteDaemon
 import CmuxRemoteWorkspace
+import CmuxRemoteSession
 
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
 #elseif canImport(cmux)
 @testable import cmux
 #endif
+
+/// Closure shape shared by the scripted process-runner tests; mirrors the
+/// legacy `runProcessOverrideForTesting` static signature so the scripted
+/// bodies stay byte-identical.
+private typealias RemoteProcessScript = (
+    _ executable: String, _ arguments: [String], _ stdin: Data?, _ timeout: TimeInterval
+) throws -> (status: Int32, stdout: String, stderr: String)
+
+/// Test fake for the coordinator's injected process-runner seam: scripts each
+/// subprocess invocation. `@unchecked Sendable` because the scripts capture
+/// test-local locks/semaphores exactly like the legacy static override did.
+private struct ScriptedRemoteProcessRunner: RemoteSessionProcessRunning, @unchecked Sendable {
+    let script: RemoteProcessScript
+
+    func run(
+        _ request: RemoteProcessRequest,
+        operation: (any RemoteTransferCancelling)?
+    ) throws -> RemoteCommandResult {
+        let result = try script(request.executable, request.arguments, request.stdin, request.timeout)
+        return RemoteCommandResult(status: result.status, stdout: result.stdout, stderr: result.stderr)
+    }
+}
 
 final class WorkspaceRemoteConnectionTests: XCTestCase {
     private struct ProcessRunResult {
@@ -284,7 +307,7 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
                 "HOME=\(home.path)",
                 "/bin/sh",
                 "-c",
-                WorkspaceRemoteSessionController.remoteRelayMetadataCleanupScript(relayPort: 64008),
+                RemoteSessionCoordinator.remoteRelayMetadataCleanupScript(relayPort: 64008),
             ],
             timeout: 5
         )
@@ -322,7 +345,7 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
                 "HOME=\(home.path)",
                 "/bin/sh",
                 "-c",
-                WorkspaceRemoteSessionController.remoteRelayMetadataCleanupScript(relayPort: 64009),
+                RemoteSessionCoordinator.remoteRelayMetadataCleanupScript(relayPort: 64009),
             ],
             timeout: 5
         )
@@ -369,7 +392,7 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
         )
 
         let script = try XCTUnwrap(
-            WorkspaceRemoteSessionController.remoteStaleRelayListenerCleanupScript(
+            RemoteSessionCoordinator.remoteStaleRelayListenerCleanupScript(
                 relayPort: 50446,
                 persistentDaemonSlot: "ssh-c4ba8ab1"
             )
@@ -431,7 +454,7 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
         )
 
         let script = try XCTUnwrap(
-            WorkspaceRemoteSessionController.remoteStaleRelayListenerCleanupScript(
+            RemoteSessionCoordinator.remoteStaleRelayListenerCleanupScript(
                 relayPort: 50446,
                 persistentDaemonSlot: "ssh-c4ba8ab1"
             )
@@ -489,7 +512,7 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
         )
 
         let script = try XCTUnwrap(
-            WorkspaceRemoteSessionController.remoteStaleRelayListenerCleanupScript(
+            RemoteSessionCoordinator.remoteStaleRelayListenerCleanupScript(
                 relayPort: 50446,
                 persistentDaemonSlot: "ssh-a"
             )
@@ -558,7 +581,7 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
         )
 
         let script = try XCTUnwrap(
-            WorkspaceRemoteSessionController.remoteStaleRelayListenerCleanupScript(
+            RemoteSessionCoordinator.remoteStaleRelayListenerCleanupScript(
                 relayPort: 50446,
                 persistentDaemonSlot: "ssh-c4ba8ab1"
             )
@@ -634,7 +657,7 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
         )
 
         let script = try XCTUnwrap(
-            WorkspaceRemoteSessionController.remoteStaleRelayListenerCleanupScript(
+            RemoteSessionCoordinator.remoteStaleRelayListenerCleanupScript(
                 relayPort: 50446,
                 persistentDaemonSlot: "ssh-c4ba8ab1"
             )
@@ -931,7 +954,10 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
         let rawError = NSError(domain: "cmux.remote.daemon", code: 43, userInfo: [
             NSLocalizedDescriptionKey: "remote daemon missing required capability pty.write.notification",
         ])
-        let bootstrapMessage = WorkspaceRemoteSessionController.userFacingRemoteDaemonBootstrapErrorMessage(rawError)
+        let bootstrapMessage = RemoteSessionCoordinator.userFacingRemoteDaemonBootstrapErrorMessage(
+            rawError,
+            strings: .appLocalized
+        )
         XCTAssertEqual(bootstrapMessage, message)
         XCTAssertFalse(bootstrapMessage.contains("pty.session"))
         XCTAssertFalse(bootstrapMessage.contains("pty.write.notification"))
@@ -979,7 +1005,7 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
 
         try process.run()
 
-        let detail = WorkspaceRemoteSessionController.reverseRelayStartupFailureDetail(
+        let detail = RemoteSessionCoordinator.reverseRelayStartupFailureDetail(
             process: process,
             stderrPipe: stderrPipe,
             gracePeriod: 1.0
@@ -989,7 +1015,7 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
     }
 
     func testExecutableSearchPathsIncludesHomebrewAndHomeFallbacks() {
-        let paths = WorkspaceRemoteSessionController.executableSearchPaths(
+        let paths = RemoteSessionCoordinator.executableSearchPaths(
             environment: [
                 "HOME": "/Users/tester",
                 "PATH": "/usr/bin:/bin",
@@ -1017,7 +1043,7 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
 
     func testParsePathHelperPathsExtractsPathEntries() {
         XCTAssertEqual(
-            WorkspaceRemoteSessionController.parsePathHelperPaths(
+            RemoteSessionCoordinator.parsePathHelperPaths(
                 "PATH=\"/opt/homebrew/bin:/usr/local/bin:/usr/bin\"; export PATH;\n"
             ),
             [
@@ -1030,7 +1056,7 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
 
     func testParsePathHelperPathsIgnoresMANPATHAssignments() {
         XCTAssertEqual(
-            WorkspaceRemoteSessionController.parsePathHelperPaths(
+            RemoteSessionCoordinator.parsePathHelperPaths(
                 """
                 MANPATH="/opt/homebrew/share/man:/usr/share/man"; export MANPATH;
                 PATH="/opt/homebrew/bin:/usr/local/bin:/usr/bin"; export PATH;
@@ -1759,7 +1785,7 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
         let fileURL = URL(fileURLWithPath: "/Users/test/Screen Shot.PNG")
         let uuid = try XCTUnwrap(UUID(uuidString: "12345678-1234-1234-1234-1234567890AB"))
 
-        let remotePath = WorkspaceRemoteSessionController.remoteDropPath(for: fileURL, uuid: uuid)
+        let remotePath = RemoteSessionCoordinator.remoteDropPath(for: fileURL, uuid: uuid)
 
         XCTAssertEqual(remotePath, "/tmp/cmux-drop-12345678-1234-1234-1234-1234567890ab.png")
     }
@@ -1798,7 +1824,7 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
         let scpInvoked = DispatchSemaphore(value: 0)
         let lock = NSLock()
         var scpDestination: String?
-        WorkspaceRemoteSessionController.runProcessOverrideForTesting = { executable, arguments, _, _ in
+        let remoteProcessScript: RemoteProcessScript = { executable, arguments, _, _ in
             if executable == "/usr/bin/ssh" {
                 let command = arguments.last ?? ""
                 if command.contains("uname -s") {
@@ -1828,9 +1854,10 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
             XCTFail("unexpected executable \(executable)")
             return (status: 1, stdout: "", stderr: "unexpected executable")
         }
-        defer { WorkspaceRemoteSessionController.runProcessOverrideForTesting = nil }
 
         let workspace = Workspace()
+        workspace.remoteSessionProcessRunnerOverrideForTesting =
+            ScriptedRemoteProcessRunner(script: remoteProcessScript)
         let config = WorkspaceRemoteConfiguration(
             destination: "test@hpc.example",
             port: 2222,
@@ -1884,7 +1911,7 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
         let scpInvoked = DispatchSemaphore(value: 0)
         let lock = NSLock()
         var scpDestination: String?
-        WorkspaceRemoteSessionController.runProcessOverrideForTesting = { executable, arguments, _, _ in
+        let remoteProcessScript: RemoteProcessScript = { executable, arguments, _, _ in
             let executableName = URL(fileURLWithPath: executable).lastPathComponent
             if executable == "/usr/bin/ssh" {
                 let command = arguments.last ?? ""
@@ -1935,9 +1962,10 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
             XCTFail("unexpected executable \(executable)")
             return (status: 1, stdout: "", stderr: "unexpected executable")
         }
-        defer { WorkspaceRemoteSessionController.runProcessOverrideForTesting = nil }
 
         let workspace = Workspace()
+        workspace.remoteSessionProcessRunnerOverrideForTesting =
+            ScriptedRemoteProcessRunner(script: remoteProcessScript)
         let config = WorkspaceRemoteConfiguration(
             destination: "test@hpc.example",
             port: nil,
@@ -1972,7 +2000,7 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
         let lock = NSLock()
         var controlOperations: [(command: String, spec: String)] = []
 
-        WorkspaceRemoteSessionController.runProcessOverrideForTesting = { executable, arguments, _, _ in
+        let remoteProcessScript: RemoteProcessScript = { executable, arguments, _, _ in
             guard executable == "/usr/bin/ssh" else {
                 XCTFail("unexpected executable \(executable)")
                 return (status: 1, stdout: "", stderr: "unexpected executable")
@@ -2014,9 +2042,10 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
             }
             return (status: 0, stdout: "", stderr: "")
         }
-        defer { WorkspaceRemoteSessionController.runProcessOverrideForTesting = nil }
 
         let workspace = Workspace()
+        workspace.remoteSessionProcessRunnerOverrideForTesting =
+            ScriptedRemoteProcessRunner(script: remoteProcessScript)
         let config = WorkspaceRemoteConfiguration(
             destination: "test@hpc.example",
             port: 2222,
@@ -2064,7 +2093,7 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
         var cleanupInvoked = false
         var cleanupArguments: [String] = []
 
-        WorkspaceRemoteSessionController.runProcessOverrideForTesting = { executable, arguments, _, _ in
+        let remoteProcessScript: RemoteProcessScript = { executable, arguments, _, _ in
             guard executable == "/usr/bin/ssh" else {
                 XCTFail("unexpected executable \(executable)")
                 return (status: 1, stdout: "", stderr: "unexpected executable")
@@ -2128,9 +2157,10 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
             }
             return (status: 0, stdout: "", stderr: "")
         }
-        defer { WorkspaceRemoteSessionController.runProcessOverrideForTesting = nil }
 
         let workspace = Workspace()
+        workspace.remoteSessionProcessRunnerOverrideForTesting =
+            ScriptedRemoteProcessRunner(script: remoteProcessScript)
         let config = WorkspaceRemoteConfiguration(
             destination: "test@hpc.example",
             port: 2222,
@@ -3625,59 +3655,6 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
             stderr: stderr,
             timedOut: timedOut
         )
-    }
-
-    @MainActor
-    func testARunProcessCaptureSurvivesPipeReadHandleTeardown() throws {
-        let controller = WorkspaceRemoteSessionController(
-            workspace: Workspace(),
-            configuration: WorkspaceRemoteConfiguration(
-                destination: "test@example.invalid",
-                port: nil,
-                identityFile: nil,
-                sshOptions: [],
-                localProxyPort: nil,
-                relayPort: nil,
-                relayID: nil,
-                relayToken: nil,
-                localSocketPath: nil,
-                terminalStartupCommand: nil
-            ),
-            controllerID: UUID(),
-            proxyBroker: RemoteProxyBroker(
-                tunnelProvider: RemoteDaemonProxyTunnelProvider(
-                    strings: RemoteDaemonStrings(
-                        missingPersistentPTYCapability: "missing persistent pty capability",
-                        missingRequiredFunctionality: "missing required functionality"
-                    ),
-                    ptyBridgeStrings: AppRemotePTYBridgeStrings()
-                )
-            ),
-            manifestRepository: RemoteDaemonManifestRepository(
-                homeDirectory: FileManager.default.homeDirectoryForCurrentUser
-            )
-        )
-
-        let didCloseReadHandles = DispatchSemaphore(value: 0)
-        WorkspaceRemoteSessionController.runProcessReadHandlesDidInstallForTesting = { stdoutHandle, stderrHandle in
-            try? stdoutHandle.close()
-            try? stderrHandle.close()
-            didCloseReadHandles.signal()
-        }
-        defer {
-            WorkspaceRemoteSessionController.runProcessReadHandlesDidInstallForTesting = nil
-        }
-
-        let result = try controller.runProcessForTesting(
-            executable: "/usr/bin/true",
-            arguments: [],
-            timeout: 2
-        )
-
-        XCTAssertEqual(didCloseReadHandles.wait(timeout: .now() + 2), .success)
-        XCTAssertEqual(result.status, 0)
-        XCTAssertEqual(result.stdout, "")
-        XCTAssertEqual(result.stderr, "")
     }
 
     func testAgentHookLaunchEnvironmentDoesNotPersistPathOrShell() throws {

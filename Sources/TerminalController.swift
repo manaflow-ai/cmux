@@ -1,4 +1,5 @@
 import AppKit
+import CmuxRemoteSession
 import CmuxCore
 import CmuxAuthRuntime
 import CmuxControlSocket
@@ -29,7 +30,7 @@ nonisolated private struct SocketLineProcessingResult: Sendable {
 }
 
 nonisolated private struct RemotePTYSocketTarget {
-    let controller: WorkspaceRemoteSessionController?
+    let controller: RemoteSessionCoordinator?
     let windowId: UUID?
     let windowRef: Any
     let workspaceId: UUID
@@ -608,7 +609,7 @@ class TerminalController {
 
     nonisolated static func parseRemotePortScanKickReason(
         _ rawReason: String
-    ) -> WorkspaceRemoteSessionController.PortScanKickReason? {
+    ) -> PortScanKickReason? {
         switch rawReason.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() {
         case "command", "running", "foreground", "start":
             return .command
@@ -16336,7 +16337,7 @@ class TerminalController {
 
     private func portsKick(_ args: String) -> String {
         let parsed = parseOptions(args)
-        let reason: WorkspaceRemoteSessionController.PortScanKickReason
+        let reason: PortScanKickReason
         if let rawReason = parsed.options["reason"], !rawReason.isEmpty {
             guard let parsedReason = Self.parseRemotePortScanKickReason(rawReason) else {
                 return "ERROR: Invalid ports_kick reason '\(rawReason)' — expected command or refresh"

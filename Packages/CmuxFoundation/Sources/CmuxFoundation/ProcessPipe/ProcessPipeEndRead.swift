@@ -22,6 +22,28 @@ public struct ProcessPipeEndRead: Equatable, Sendable {
     /// core behind ``Foundation/FileHandle/readToEndOfFileCapturingError(chunkSize:)``
     /// and is public so tests can pin the partial-data-on-failure contract
     /// without a real descriptor.
+    /// Drains `fileDescriptor` to end-of-file with blocking `read(2)` chunks,
+    /// preserving partial data when a later read fails.
+    ///
+    /// Raw-descriptor variant of
+    /// ``Foundation/FileHandle/readToEndOfFileCapturingError(chunkSize:)`` for
+    /// callers that must snapshot the descriptor up front because the owning
+    /// `FileHandle` may be closed concurrently mid-drain (a closed handle's
+    /// `fileDescriptor` accessor raises an uncatchable ObjC exception, whereas
+    /// `read(2)` on a closed descriptor fails cleanly with `EBADF`).
+    public static func reading(
+        fileDescriptor: Int32,
+        chunkSize: Int = FileHandle.processPipeReadChunkSize
+    ) -> ProcessPipeEndRead {
+        reading(fileDescriptor: fileDescriptor, chunkSize: chunkSize) { fileDescriptor, maxLength, operation in
+            ProcessPipeAvailableRead.readOnce(
+                fileDescriptor: fileDescriptor,
+                maxLength: maxLength,
+                operation: operation
+            )
+        }
+    }
+
     public static func reading(
         fileDescriptor: Int32,
         chunkSize: Int = FileHandle.processPipeReadChunkSize,

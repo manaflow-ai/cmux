@@ -3,6 +3,7 @@ import CmuxSettings
 import CmuxCore
 import CmuxRemoteDaemon
 import CmuxRemoteWorkspace
+import CmuxRemoteSession
 import CmuxSocketControl
 import AppKit
 import Combine
@@ -2788,7 +2789,7 @@ final class WorkspaceRemoteSSHCleanupTests: XCTestCase {
         """
 
         XCTAssertEqual(
-            WorkspaceRemoteSessionController.orphanedCMUXRemoteSSHPIDs(
+            RemoteSessionCoordinator.orphanedCMUXRemoteSSHPIDs(
                 psOutput: psOutput,
                 destination: "cmux-macmini"
             ),
@@ -2806,7 +2807,7 @@ final class WorkspaceRemoteSSHCleanupTests: XCTestCase {
         """
 
         XCTAssertEqual(
-            WorkspaceRemoteSessionController.orphanedCMUXRemoteSSHPIDs(
+            RemoteSessionCoordinator.orphanedCMUXRemoteSSHPIDs(
                 psOutput: psOutput,
                 destination: "cmux-macmini",
                 relayPort: 56081,
@@ -2816,7 +2817,7 @@ final class WorkspaceRemoteSSHCleanupTests: XCTestCase {
         )
 
         XCTAssertEqual(
-            WorkspaceRemoteSessionController.orphanedCMUXRemoteSSHPIDs(
+            RemoteSessionCoordinator.orphanedCMUXRemoteSSHPIDs(
                 psOutput: psOutput,
                 destination: "cmux-macmini",
                 relayPort: 56081
@@ -2832,7 +2833,7 @@ final class WorkspaceRemoteSSHCleanupTests: XCTestCase {
         """
 
         XCTAssertEqual(
-            WorkspaceRemoteSessionController.orphanedCMUXRemoteSSHPIDs(
+            RemoteSessionCoordinator.orphanedCMUXRemoteSSHPIDs(
                 psOutput: psOutput,
                 destination: "cmux-macmini",
                 relayPort: 56081,
@@ -2849,7 +2850,7 @@ final class WorkspaceRemoteSSHCleanupTests: XCTestCase {
         """
 
         XCTAssertEqual(
-            WorkspaceRemoteSessionController.orphanedCMUXRemoteSSHPIDs(
+            RemoteSessionCoordinator.orphanedCMUXRemoteSSHPIDs(
                 psOutput: psOutput,
                 destination: "cmux-macmini",
                 relayPort: 56081,
@@ -2869,7 +2870,7 @@ final class WorkspaceRemoteSSHCleanupTests: XCTestCase {
         """
 
         XCTAssertEqual(
-            WorkspaceRemoteSessionController.orphanedCMUXRemoteSSHPIDs(
+            RemoteSessionCoordinator.orphanedCMUXRemoteSSHPIDs(
                 psOutput: psOutput,
                 destination: "cmux-macmini",
                 persistentDaemonSlot: "ssh-test"
