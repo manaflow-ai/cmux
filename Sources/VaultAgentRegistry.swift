@@ -1,13 +1,8 @@
 import Foundation
 import OSLog
 
-struct CmuxVaultConfigDefinition: Codable, Hashable, Sendable {
-    var agents: [CmuxVaultAgentRegistration]
-
-    init(agents: [CmuxVaultAgentRegistration] = []) {
-        self.agents = agents
-    }
-}
+// `CmuxVaultConfigDefinition` and `CmuxVaultPathMapping` live in
+// `ClaudeSessionEquivalence.swift` (with the path-equivalence logic they feed).
 
 struct CmuxVaultAgentRegistration: Codable, Hashable, Sendable {
     var id: String

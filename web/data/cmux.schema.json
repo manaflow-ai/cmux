@@ -152,6 +152,32 @@
             }
           },
           "default": []
+        },
+        "claudeSessionRoots": {
+          "type": "array",
+          "description": "Extra Claude config directories (each expected to contain a projects/ subdirectory) scanned alongside the built-in roots. Use to read transcripts from a mounted or synced container ~/.claude.",
+          "items": { "type": "string" },
+          "default": []
+        },
+        "claudePathMappings": {
+          "type": "array",
+          "description": "Remote-to-local path equivalences applied to the Claude \"this folder only\" filter so mounted remote transcripts match their local workspace folder. Example: container /workspace mapped to Mac /Users/<me>.",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["remote", "local"],
+            "properties": {
+              "remote": {
+                "type": "string",
+                "description": "Remote path prefix as written in the transcript cwd, such as /workspace."
+              },
+              "local": {
+                "type": "string",
+                "description": "Local path prefix the remote prefix maps to, such as /Users/<me>."
+              }
+            }
+          },
+          "default": []
         }
       }
     },
