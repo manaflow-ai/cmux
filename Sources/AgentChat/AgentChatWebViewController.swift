@@ -17,6 +17,12 @@ final class AgentChatWebViewController: NSViewController, WKScriptMessageHandler
     /// The resolved target session for this presentation.
     private var resolution: AgentChatTranscriptResolver.Resolution?
 
+    /// Terminal-derived theme tokens, the same set the agent-session surface
+    /// receives (``AgentSessionWebTheme``). Delivered to the page in the
+    /// `chat.init` reply (race-free initial paint) and pushed on change via
+    /// `window.cmuxAgentChatBridge.applyTheme`.
+    private var theme: AgentSessionWebTheme?
+
     private var webView: AgentSessionWebView?
     private var daemonClient: AgentDaemonClient?
     private var subscriptionId: String?
@@ -39,6 +45,34 @@ final class AgentChatWebViewController: NSViewController, WKScriptMessageHandler
         self.resolution = resolution
         teardownDaemon()
         loadSurface()
+    }
+
+    /// Applies the terminal theme for the hosting panel. Idempotent per token
+    /// set; pushes to the live page only when the tokens actually changed
+    /// (mirrors AgentSessionWebRendererCoordinator's theme update path).
+    func apply(theme: AgentSessionWebTheme) {
+        guard theme != self.theme else { return }
+        self.theme = theme
+        pushThemeToPage()
+    }
+
+    private func pushThemeToPage() {
+        guard let webView, let theme,
+              let data = try? JSONSerialization.data(withJSONObject: theme.dictionary),
+              let json = String(data: data, encoding: .utf8) else {
+            return
+        }
+        // No-ops harmlessly before the page module installs the bridge; the
+        // page then pulls the current tokens through its `chat.init` reply.
+        webView.evaluateJavaScript("window.cmuxAgentChatBridge?.applyTheme(\(json));") { _, error in
+#if DEBUG
+            if let error {
+                cmuxDebugLog("agentChat.web.theme.failed error=\(error.localizedDescription)")
+            }
+#else
+            _ = error
+#endif
+        }
     }
 
     /// Terminates the daemon child without reloading the page; called when
@@ -93,6 +127,12 @@ final class AgentChatWebViewController: NSViewController, WKScriptMessageHandler
         // hook and the first-click-focus setting; nothing in it is
         // session-specific.
         let webView = AgentSessionWebView(frame: .zero, configuration: configuration)
+        // The page paints the theme's pageBackground itself; with a
+        // transparent terminal background the token is "transparent" and the
+        // window backdrop must show through, exactly like the agent-session
+        // surface (AgentSessionWebRendererCoordinator does the same).
+        webView.setValue(false, forKey: "drawsBackground")
+        webView.underPageBackgroundColor = .clear
         webView.onPointerDown = onPointerDown
         webView.navigationDelegate = self
         webView.allowsBackForwardNavigationGestures = false
@@ -209,6 +249,9 @@ final class AgentChatWebViewController: NSViewController, WKScriptMessageHandler
         }
         if let session = sessionRefPayload() {
             payload["session"] = session
+        }
+        if let theme {
+            payload["theme"] = theme.dictionary
         }
         return payload
     }

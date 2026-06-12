@@ -17,8 +17,17 @@ import {
   type ConversationState,
 } from "../conversationStore";
 import { agentChatLabels } from "../labels";
+import {
+  clampCursor,
+  computeMatches,
+  initialSearchUIState,
+  normalizeSearchQuery,
+  reduceSearchUI,
+} from "../search";
+import { applyAgentChatTheme } from "../theme";
 import { providerDisplayName, sessionDisplayTitle } from "./display";
 import { ItemRow, PendingRequestBanner, TurnSeparator } from "./rows";
+import { SearchBar, useSearchHotkey } from "./SearchBar";
 
 /** Distance from the bottom (px) still treated as "at the bottom". */
 const FOLLOW_THRESHOLD_PX = 24;
@@ -59,6 +68,10 @@ function useAgentChatConnection(
       if (cancelled) {
         return;
       }
+      // Terminal theme tokens ride the init reply so the first paint is
+      // already themed; later appearance changes arrive as
+      // `cmuxAgentChatBridge.applyTheme` pushes (bridge.ts).
+      applyAgentChatTheme(result.theme);
       dispatch({ type: "init", result });
       try {
         await bridge.subscribe();
@@ -88,21 +101,72 @@ export function AgentChatApp({ createBridge }: { createBridge?: BridgeFactory })
     initialConversationState,
   );
   useAgentChatConnection(dispatch, createBridge);
+
+  // Search is fully derived from (items, search UI state): the match list and
+  // cursor are recomputed per render, never stored. An open bar with an empty
+  // query leaves the timeline untouched.
+  const [searchUI, dispatchSearch] = useReducer(reduceSearchUI, undefined, initialSearchUIState);
+  const activeQuery = searchUI.open ? normalizeSearchQuery(searchUI.query) : "";
+  const matches = computeMatches(state.items, activeQuery);
+  const cursor = clampCursor(searchUI.cursor, matches.length);
+  const currentMatchId = matches.length > 0 ? state.items[matches[cursor]].id : null;
+
+  const openSearch = () => dispatchSearch({ type: "open" });
+  useSearchHotkey(openSearch);
+  const stepSearch = (direction: 1 | -1) => {
+    if (matches.length === 0) {
+      return;
+    }
+    // Compute the destination with the reducer's own arithmetic so the
+    // imperative scroll targets exactly the row the next render marks current.
+    const next = (cursor + direction + matches.length) % matches.length;
+    dispatchSearch({ type: "step", direction, matchCount: matches.length });
+    const target = state.items[matches[next]];
+    document
+      .querySelector(`[data-item-id="${CSS.escape(target.id)}"]`)
+      ?.scrollIntoView({ block: "center" });
+  };
+
   return (
     <div className="agent-chat-shell">
-      <HeaderStrip state={state} />
+      <HeaderStrip state={state} onOpenSearch={openSearch} />
+      {searchUI.open ? (
+        <SearchBar
+          openCount={searchUI.openCount}
+          query={searchUI.query}
+          filterMode={searchUI.filterMode}
+          cursor={cursor}
+          matchCount={matches.length}
+          onQueryChange={(query) => dispatchSearch({ type: "set-query", query })}
+          onStep={stepSearch}
+          onToggleFilter={() => dispatchSearch({ type: "toggle-filter" })}
+          onClose={() => dispatchSearch({ type: "close" })}
+        />
+      ) : null}
       {state.daemonStatus === "unavailable" && state.items.length > 0 ? (
         <DaemonBanner detail={state.daemonDetail} />
       ) : null}
       {state.pendingRequests.map((request) => (
         <PendingRequestBanner key={request.id} request={request} />
       ))}
-      <TimelineBody state={state} />
+      <TimelineBody
+        state={state}
+        searchQuery={activeQuery}
+        matchedIndexes={matches}
+        currentMatchId={currentMatchId}
+        filterMode={searchUI.filterMode}
+      />
     </div>
   );
 }
 
-function HeaderStrip({ state }: { state: ConversationState }) {
+function HeaderStrip({
+  state,
+  onOpenSearch,
+}: {
+  state: ConversationState;
+  onOpenSearch: () => void;
+}) {
   const session = state.session;
   return (
     <header className="agent-chat-header">
@@ -113,6 +177,15 @@ function HeaderStrip({ state }: { state: ConversationState }) {
         <span className="agent-chat-header-title">{sessionDisplayTitle(session)}</span>
         {session?.cwd ? <span className="agent-chat-header-cwd">{session.cwd}</span> : null}
       </span>
+      <button
+        type="button"
+        className="agent-chat-header-search"
+        title={agentChatLabels.searchOpen}
+        aria-label={agentChatLabels.searchOpen}
+        onClick={onOpenSearch}
+      >
+        ⌕
+      </button>
       <span
         className={`agent-chat-daemon-status is-${state.daemonStatus}`}
         title={state.daemonStatus === "unavailable" ? (state.daemonDetail ?? undefined) : undefined}
@@ -135,7 +208,22 @@ function DaemonBanner({ detail }: { detail: string | null }) {
   );
 }
 
-function TimelineBody({ state }: { state: ConversationState }) {
+type SearchRenderProps = {
+  /** Normalized active query; "" when search is closed or blank. */
+  searchQuery: string;
+  /** Indexes into state.items of the matching items, timeline order. */
+  matchedIndexes: number[];
+  currentMatchId: string | null;
+  filterMode: boolean;
+};
+
+function TimelineBody({
+  state,
+  searchQuery,
+  matchedIndexes,
+  currentMatchId,
+  filterMode,
+}: { state: ConversationState } & SearchRenderProps) {
   if (state.phase === "connecting") {
     return (
       <EmptyState
@@ -181,7 +269,15 @@ function TimelineBody({ state }: { state: ConversationState }) {
       />
     );
   }
-  return <Timeline state={state} />;
+  return (
+    <Timeline
+      state={state}
+      searchQuery={searchQuery}
+      matchedIndexes={matchedIndexes}
+      currentMatchId={currentMatchId}
+      filterMode={filterMode}
+    />
+  );
 }
 
 function EmptyState({ title, detail }: { title: string; detail: string }) {
@@ -193,7 +289,14 @@ function EmptyState({ title, detail }: { title: string; detail: string }) {
   );
 }
 
-function Timeline({ state }: { state: ConversationState }) {
+function Timeline({
+  state,
+  searchQuery,
+  matchedIndexes,
+  currentMatchId,
+  filterMode,
+}: { state: ConversationState } & SearchRenderProps) {
+  const searchActive = searchQuery !== "";
   // Auto-follow is fully derived: `unfollowedAtSeq === null` means "stick to
   // the bottom". Scroll events flip it (leaving the bottom unfollows, reaching
   // the bottom re-follows), and the seq recorded at unfollow time tells us
@@ -227,7 +330,9 @@ function Timeline({ state }: { state: ConversationState }) {
   };
 
   const anchorRef = (node: HTMLDivElement | null) => {
-    if (node && following) {
+    // An active search pauses auto-follow so new events don't yank the
+    // viewport away from the inspected match; clearing the query restores it.
+    if (node && following && !searchActive) {
       scrollToBottom(node.parentElement);
     }
   };
@@ -239,14 +344,33 @@ function Timeline({ state }: { state: ConversationState }) {
   const firstRealBoundary =
     state.turnStarts.length > 0 ? Math.min(...state.turnStarts) : Number.POSITIVE_INFINITY;
   const provider = state.session?.provider ?? null;
+  const matchedIndexSet = new Set(matchedIndexes);
+  const filtering = searchActive && filterMode;
   const rows: ReactNode[] = [];
   state.items.forEach((item, index) => {
-    const isBoundary =
-      index >= firstRealBoundary ? realBoundaries.has(index) : item.type === "user_message";
-    if (isBoundary && index > 0) {
-      rows.push(<TurnSeparator key={`turn-${item.id}`} />);
+    const isMatch = searchActive && matchedIndexSet.has(index);
+    if (filtering && !isMatch) {
+      return;
     }
-    rows.push(<ItemRow key={item.id} item={item} provider={provider} />);
+    // Turn separators are an unfiltered-timeline concept; the filtered view
+    // is a flat match list.
+    if (!filtering) {
+      const isBoundary =
+        index >= firstRealBoundary ? realBoundaries.has(index) : item.type === "user_message";
+      if (isBoundary && index > 0) {
+        rows.push(<TurnSeparator key={`turn-${item.id}`} />);
+      }
+    }
+    rows.push(
+      <ItemRow
+        key={item.id}
+        item={item}
+        provider={provider}
+        searchQuery={isMatch ? searchQuery : ""}
+        isSearchMatch={isMatch}
+        isCurrentSearchMatch={isMatch && item.id === currentMatchId}
+      />,
+    );
   });
 
   return (
