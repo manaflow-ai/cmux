@@ -283,23 +283,54 @@ const APPLY_PATCH_MARKER = "*** Begin Patch";
 /** Parses a Codex apply_patch envelope into per-file diffs. */
 export function parseApplyPatch(patch: string): FileDiff[] {
   const diffs: FileDiff[] = [];
-  let current: { path: string; op: FileDiffOp; lines: DiffLine[] } | null = null;
+  let current: { path: string; op: FileDiffOp; lines: DiffLine[]; skipped: number } | null = null;
   const flush = () => {
     if (current) {
-      diffs.push(makeFileDiff(current.path, current.op, collapseContextRuns(current.lines)));
+      const diff = makeFileDiff(current.path, current.op, collapseContextRuns(current.lines));
+      diffs.push(
+        current.skipped > 0
+          ? { ...diff, truncatedLineCount: diff.truncatedLineCount + current.skipped }
+          : diff,
+      );
       current = null;
     }
+  };
+  // Per-file work budget: lines past the cap are counted, never allocated.
+  const append = (line: DiffLine) => {
+    if (current === null) {
+      return;
+    }
+    if (current.lines.length >= MAX_DIFF_LINES) {
+      current.skipped += 1;
+      return;
+    }
+    current.lines.push(line);
   };
   for (const line of splitLines(boundedSource(patch))) {
     if (line.startsWith("*** Update File: ")) {
       flush();
-      current = { path: line.slice("*** Update File: ".length).trim(), op: "edit", lines: [] };
+      current = {
+        path: line.slice("*** Update File: ".length).trim(),
+        op: "edit",
+        lines: [],
+        skipped: 0,
+      };
     } else if (line.startsWith("*** Add File: ")) {
       flush();
-      current = { path: line.slice("*** Add File: ".length).trim(), op: "create", lines: [] };
+      current = {
+        path: line.slice("*** Add File: ".length).trim(),
+        op: "create",
+        lines: [],
+        skipped: 0,
+      };
     } else if (line.startsWith("*** Delete File: ")) {
       flush();
-      current = { path: line.slice("*** Delete File: ".length).trim(), op: "delete", lines: [] };
+      current = {
+        path: line.slice("*** Delete File: ".length).trim(),
+        op: "delete",
+        lines: [],
+        skipped: 0,
+      };
     } else if (line.startsWith("*** Move to: ")) {
       if (current) {
         current.path = `${current.path} → ${line.slice("*** Move to: ".length).trim()}`;
@@ -311,13 +342,13 @@ export function parseApplyPatch(patch: string): FileDiff[] {
       }
     } else if (current) {
       if (line.startsWith("@@")) {
-        current.lines.push({ kind: "hunk", text: line.slice(2).trim() });
+        append({ kind: "hunk", text: line.slice(2).trim() });
       } else if (line.startsWith("+")) {
-        current.lines.push({ kind: "add", text: line.slice(1) });
+        append({ kind: "add", text: line.slice(1) });
       } else if (line.startsWith("-")) {
-        current.lines.push({ kind: "del", text: line.slice(1) });
+        append({ kind: "del", text: line.slice(1) });
       } else {
-        current.lines.push({ kind: "context", text: line.startsWith(" ") ? line.slice(1) : line });
+        append({ kind: "context", text: line.startsWith(" ") ? line.slice(1) : line });
       }
     }
   }
@@ -395,6 +426,12 @@ export function fileChangeDiffs(item: Pick<ConversationItem, "input" | "title">)
     let editIndex = 0;
     let truncated = false;
     for (const edit of edits) {
+      // Whole-loop work budget: once the line cap is reached, skip the
+      // remaining edits entirely instead of diffing them and slicing later.
+      if (lines.length >= MAX_DIFF_LINES) {
+        truncated = true;
+        break;
+      }
       const editRecord = asRecord(edit);
       const editOld = stringField(editRecord, "old_string");
       const editNew = stringField(editRecord, "new_string");
@@ -434,6 +471,14 @@ export interface CommandView {
 }
 
 const SHELL_WRAPPERS = new Set(["bash", "sh", "zsh", "/bin/bash", "/bin/sh", "/bin/zsh"]);
+
+/**
+ * Codex envelope candidates above this size are left verbatim: the genuine
+ * leak case (daemon forwards the envelope only when the inner output is
+ * empty) is tiny, and render-path JSON.parse of multi-megabyte command
+ * stdout must never happen.
+ */
+const MAX_ENVELOPE_PARSE_CHARS = 100_000;
 
 /** Joins a Codex argv, unwrapping the ["bash","-lc","<script>"] pattern. */
 function commandFromArgv(argv: unknown[]): string | null {
@@ -500,10 +545,16 @@ export function commandExecutionView(
   // envelope still reaches us when the inner output is empty, and hook-only
   // or future producers may pass it through verbatim. Parsing it here is the
   // only way to surface exit code/duration until the protocol carries them
-  // as structured ToolOutput fields. Two guards keep arbitrary stdout from
-  // being reinterpreted: only Codex sessions are unwrapped at all, and the
-  // text must carry both envelope fields.
-  if (provider === "codex" && output !== null && output.startsWith("{")) {
+  // as structured ToolOutput fields. Three guards keep arbitrary stdout from
+  // being reinterpreted or parsed at scale: only Codex sessions are unwrapped
+  // at all, the candidate must be small, and the text must carry both
+  // envelope fields.
+  if (
+    provider === "codex" &&
+    output !== null &&
+    output.length <= MAX_ENVELOPE_PARSE_CHARS &&
+    output.startsWith("{")
+  ) {
     try {
       const parsed = asRecord(JSON.parse(output));
       const innerOutput = stringField(parsed, "output");

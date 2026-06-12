@@ -190,6 +190,17 @@ describe("fileChangeDiffs", () => {
     expect(diff.sourceTruncated).toBe(false);
   });
 
+  test("MultiEdit stops diffing once the line budget is spent", () => {
+    const block = Array.from({ length: 300 }, (_, index) => `old ${index}`).join("\n");
+    const edits = Array.from({ length: 10 }, () => ({
+      old_string: block,
+      new_string: "replaced",
+    }));
+    const [diff] = fileChangeDiffs({ input: { file_path: "/repo/many.ts", edits } });
+    expect(diff.lines.length).toBeLessThanOrEqual(1000);
+    expect(diff.sourceTruncated).toBe(true);
+  });
+
   test("a change past the source cap is flagged instead of looking unchanged", () => {
     // Identical 200k+ prefix; the only change is in the tail the cap cuts.
     const prefix = `${"x".repeat(250_000)}\n`;
@@ -262,6 +273,16 @@ describe("commandExecutionView", () => {
     expect(view.output).toBe("total 0\ndrwxr-xr-x  2 dev  wheel  64 .");
     expect(view.exitCode).toBe(1);
     expect(view.durationText).toBe("420ms");
+  });
+
+  test("oversized JSON command output is never parsed as an envelope", () => {
+    const text = `{"output": "${"x".repeat(150_000)}", "metadata": {"exit_code": 1}}`;
+    const view = commandExecutionView(
+      { status: "completed", input: { command: "cat big.json" }, output: { text } },
+      "codex",
+    );
+    expect(view.output).toBe(text);
+    expect(view.exitCode).toBe(0);
   });
 
   test("envelope-shaped stdout from a non-Codex session is never reparsed", () => {
