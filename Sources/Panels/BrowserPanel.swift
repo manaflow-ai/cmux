@@ -8888,28 +8888,29 @@ class BrowserDownloadDelegate: NSObject, WKDownloadDelegate {
         #endif
         NSLog("BrowserPanel download finished: %@", info.suggestedFilename)
 
-        // Show NSSavePanel on the next runloop iteration (safe context).
-        DispatchQueue.main.async {
-            self.onDownloadReadyToSave?()
-            let filenameResolver = BrowserDownloadFilenameResolver()
-            let suggestedFilename = filenameResolver.suggestedFilename(suggestedFilename: info.suggestedFilename, sourceURL: info.sourceURL, imageFileURL: info.tempURL)
-            let savePanel = NSSavePanel()
-            savePanel.nameFieldStringValue = suggestedFilename
-            savePanel.canCreateDirectories = true
-            savePanel.directoryURL = FileManager.default.urls(for: .downloadsDirectory, in: .userDomainMask).first
-
-            savePanel.begin { result in
-                guard result == .OK, let destURL = savePanel.url else {
-                    try? FileManager.default.removeItem(at: info.tempURL)
-                    return
-                }
-                do {
-                    try? FileManager.default.removeItem(at: destURL)
-                    try FileManager.default.moveItem(at: info.tempURL, to: destURL)
-                    NSLog("BrowserPanel download saved: %@", destURL.path)
-                } catch {
-                    NSLog("BrowserPanel download move failed: %@", error.localizedDescription)
-                    try? FileManager.default.removeItem(at: info.tempURL)
+        let filenameResolver = BrowserDownloadFilenameResolver()
+        DispatchQueue.global(qos: .utility).async {
+            let imageType = filenameResolver.imageType(forDownloadedFileAt: info.tempURL)
+            DispatchQueue.main.async {
+                self.onDownloadReadyToSave?()
+                let suggestedFilename = filenameResolver.suggestedFilename(suggestedFilename: info.suggestedFilename, response: nil, sourceURL: info.sourceURL, imageType: imageType)
+                let savePanel = NSSavePanel()
+                savePanel.nameFieldStringValue = suggestedFilename
+                savePanel.canCreateDirectories = true
+                savePanel.directoryURL = FileManager.default.urls(for: .downloadsDirectory, in: .userDomainMask).first
+                savePanel.begin { result in
+                    guard result == .OK, let destURL = savePanel.url else {
+                        try? FileManager.default.removeItem(at: info.tempURL)
+                        return
+                    }
+                    do {
+                        try? FileManager.default.removeItem(at: destURL)
+                        try FileManager.default.moveItem(at: info.tempURL, to: destURL)
+                        NSLog("BrowserPanel download saved: %@", destURL.path)
+                    } catch {
+                        NSLog("BrowserPanel download move failed: %@", error.localizedDescription)
+                        try? FileManager.default.removeItem(at: info.tempURL)
+                    }
                 }
             }
         }
