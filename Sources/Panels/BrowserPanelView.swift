@@ -417,6 +417,7 @@ struct BrowserPanelView: View {
     let portalPriority: Int
     let onRequestPanelFocus: () -> Void
     @Environment(\.colorScheme) private var colorScheme
+    @Environment(\.cmuxCanvasInlineBrowserHosting) private var canvasInlineBrowserHosting
     @Environment(\.openWindow) private var openWindow
     @Environment(\.paneDropZone) private var paneDropZone
     @State private var omnibarState = OmnibarState()
@@ -1732,9 +1733,13 @@ struct BrowserPanelView: View {
     }
 
     private var webView: some View {
+        // Canvas-hosted panes force inline hosting: window-portal positioning
+        // visibly trails the pane during canvas pans (out-of-process WebKit
+        // compositing), and portal content cannot scale with magnification.
         let useLocalInlineDeveloperToolsHosting =
-            panel.shouldUseLocalInlineDeveloperToolsHosting() &&
-            isCurrentPaneOwner
+            (panel.shouldUseLocalInlineDeveloperToolsHosting() &&
+             isCurrentPaneOwner) ||
+            canvasInlineBrowserHosting
 
         return Group {
             if panel.shouldRenderWebView {

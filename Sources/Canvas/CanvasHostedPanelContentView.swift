@@ -40,5 +40,11 @@ struct CanvasHostedPanelContentView: View {
         // border; this inset keeps the focus ring visible around it.
         .padding(.horizontal, 2)
         .padding(.bottom, 2)
+        // Inline hosting (cmuxCanvasInlineBrowserHosting) would make webviews
+        // track pans frame-perfectly and scale with magnification, but the
+        // inline slot mis-lays out under the canvas's flipped document
+        // hierarchy (content renders as a small offset rect). Parked behind
+        // the default-off environment flag until that layout path is fixed;
+        // window-portal hosting with per-frame anchor sync remains.
     }
 }

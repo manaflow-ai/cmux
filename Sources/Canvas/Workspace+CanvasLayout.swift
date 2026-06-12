@@ -166,3 +166,20 @@ extension Workspace {
         return true
     }
 }
+
+extension Workspace {
+    /// Makes a freshly created panel a tab of the canvas pane hosting
+    /// `anchor` (the Cmd+T-in-canvas semantics). Ensures the panel exists in
+    /// the canvas model first, since panel creation can run before the next
+    /// descriptor sync.
+    func joinNewPanelIntoCanvasPane(_ panelId: UUID, anchor: UUID) {
+        guard layoutMode == .canvas else { return }
+        canvasModel.syncPanes(
+            panelIds: orderedPanelIds,
+            focusedPanelId: anchor
+        )
+        canvasModel.joinPanel(panelId, withPaneContaining: anchor)
+        focusPanel(panelId)
+        canvasModel.viewport?.modelDidChangeExternally(animated: false)
+    }
+}

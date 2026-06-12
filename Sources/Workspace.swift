@@ -16988,7 +16988,15 @@ final class Workspace: Identifiable, ObservableObject {
     @discardableResult
     func newTerminalSurfaceInFocusedPane(focus: Bool? = nil, initialInput: String? = nil) -> TerminalPanel? {
         guard let focusedPaneId = bonsplitController.focusedPaneId else { return nil }
-        return newTerminalSurface(inPane: focusedPaneId, focus: focus, initialInput: initialInput)
+        // In canvas mode, Cmd+T means "new tab in the focused canvas pane":
+        // remember the anchor panel so the new one joins its pane instead of
+        // floating as a separate canvas pane.
+        let canvasAnchorPanelId = layoutMode == .canvas ? focusedPanelId : nil
+        let panel = newTerminalSurface(inPane: focusedPaneId, focus: focus, initialInput: initialInput)
+        if let panel, let anchor = canvasAnchorPanelId {
+            joinNewPanelIntoCanvasPane(panel.id, anchor: anchor)
+        }
+        return panel
     }
 
     @discardableResult
