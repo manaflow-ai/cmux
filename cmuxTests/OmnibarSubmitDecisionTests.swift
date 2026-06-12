@@ -1,5 +1,5 @@
 import AppKit
-import XCTest
+import Testing
 
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
@@ -12,7 +12,7 @@ import XCTest
 // field shows, never a stale published buffer or a suggestion that was
 // auto-selected for an older query. Only an explicit arrow selection may
 // commit a suggestion row on Return.
-final class OmnibarSubmitDecisionTests: XCTestCase {
+@Suite struct OmnibarSubmitDecisionTests {
     private func focusedState(buffer: String, currentURLString: String = "https://example.com/") -> OmnibarState {
         var state = OmnibarState()
         _ = omnibarReduce(state: &state, event: .focusGained(currentURLString: currentURLString, shouldSelectAll: false))
@@ -28,7 +28,7 @@ final class OmnibarSubmitDecisionTests: XCTestCase {
         )
     }
 
-    func testReturnAfterFastTypingNavigatesLiveTextNotStaleAutoSelectedSuggestion() {
+    @Test func returnAfterFastTypingNavigatesLiveTextNotStaleAutoSelectedSuggestion() {
         // The 80ms-debounced suggestion list still holds rows computed for
         // "claude.c" while the field already shows "claude.com". The row that
         // was auto-selected for the stale query must not win over the field.
@@ -47,14 +47,13 @@ final class OmnibarSubmitDecisionTests: XCTestCase {
             canInteractWithSuggestions: true
         )
 
-        XCTAssertEqual(
-            decision,
-            .navigate(text: "claude.com"),
+        #expect(
+            decision == .navigate(text: "claude.com"),
             "Return must navigate the live field text; a suggestion auto-selected for a stale query must not commit."
         )
     }
 
-    func testReturnNavigatesLiveFieldTextWhenPublishLagsBehindTyping() {
+    @Test func returnNavigatesLiveFieldTextWhenPublishLagsBehindTyping() {
         // The field shows "claude.com" but the last landed publish is still
         // "claude.c". Submit must resolve the text from the live field editor.
         let state = focusedState(buffer: "claude.c")
@@ -66,10 +65,10 @@ final class OmnibarSubmitDecisionTests: XCTestCase {
             canInteractWithSuggestions: false
         )
 
-        XCTAssertEqual(decision, .navigate(text: "claude.com"))
+        #expect(decision == .navigate(text: "claude.com"))
     }
 
-    func testReturnWithAutoSelectedInlineCompletionNavigatesDisplayedText() throws {
+    @Test func returnWithAutoSelectedInlineCompletionNavigatesDisplayedText() throws {
         // Inline completion displays "claude.com" for typed "claude.c". With no
         // explicit arrow selection, Return navigates exactly what the field
         // shows instead of committing the auto-selected row.
@@ -79,7 +78,7 @@ final class OmnibarSubmitDecisionTests: XCTestCase {
             .search(engineName: "Google", query: "claude.c"),
         ]))
 
-        let completion = try XCTUnwrap(
+        let completion = try #require(
             omnibarInlineCompletionForDisplay(
                 typedText: state.buffer,
                 suggestions: state.suggestions,
@@ -88,7 +87,7 @@ final class OmnibarSubmitDecisionTests: XCTestCase {
                 hasMarkedText: false
             )
         )
-        XCTAssertEqual(completion.displayText, "claude.com")
+        #expect(completion.displayText == "claude.com")
 
         let decision = omnibarSubmitDecision(
             liveField: OmnibarLiveFieldSnapshot(
@@ -101,10 +100,10 @@ final class OmnibarSubmitDecisionTests: XCTestCase {
             canInteractWithSuggestions: true
         )
 
-        XCTAssertEqual(decision, .navigate(text: "claude.com"))
+        #expect(decision == .navigate(text: "claude.com"))
     }
 
-    func testReturnCommitsArrowSelectedSuggestion() {
+    @Test func returnCommitsArrowSelectedSuggestion() {
         var state = focusedState(buffer: "claude")
         _ = omnibarReduce(state: &state, event: .suggestionsUpdated([
             .search(engineName: "Google", query: "claude"),
@@ -120,10 +119,10 @@ final class OmnibarSubmitDecisionTests: XCTestCase {
             canInteractWithSuggestions: true
         )
 
-        XCTAssertEqual(decision, .commitSelectedSuggestion)
+        #expect(decision == .commitSelectedSuggestion)
     }
 
-    func testReturnCommitsArrowReselectedSuggestionWithInlineCompletionDisplayed() throws {
+    @Test func returnCommitsArrowReselectedSuggestionWithInlineCompletionDisplayed() throws {
         var state = focusedState(buffer: "claude.c")
         _ = omnibarReduce(state: &state, event: .suggestionsUpdated([
             .history(url: "https://claude.com/", title: "Claude"),
@@ -132,9 +131,9 @@ final class OmnibarSubmitDecisionTests: XCTestCase {
         // Arrow down then up: lands back on row 0 as an explicit user selection.
         _ = omnibarReduce(state: &state, event: .moveSelection(delta: 1))
         _ = omnibarReduce(state: &state, event: .moveSelection(delta: -1))
-        XCTAssertEqual(state.selectedSuggestionIndex, 0)
+        #expect(state.selectedSuggestionIndex == 0)
 
-        let completion = try XCTUnwrap(
+        let completion = try #require(
             omnibarInlineCompletionForDisplay(
                 typedText: state.buffer,
                 suggestions: state.suggestions,
@@ -155,10 +154,10 @@ final class OmnibarSubmitDecisionTests: XCTestCase {
             canInteractWithSuggestions: true
         )
 
-        XCTAssertEqual(decision, .commitSelectedSuggestion)
+        #expect(decision == .commitSelectedSuggestion)
     }
 
-    func testTypingAfterArrowSelectionInvalidatesSuggestionCommitOnReturn() {
+    @Test func typingAfterArrowSelectionInvalidatesSuggestionCommitOnReturn() {
         var state = focusedState(buffer: "claude.c")
         _ = omnibarReduce(state: &state, event: .suggestionsUpdated([
             .search(engineName: "Google", query: "claude.c"),
@@ -174,10 +173,10 @@ final class OmnibarSubmitDecisionTests: XCTestCase {
             canInteractWithSuggestions: true
         )
 
-        XCTAssertEqual(decision, .navigate(text: "claude.com"))
+        #expect(decision == .navigate(text: "claude.com"))
     }
 
-    func testReturnIgnoresHoverHighlightedSuggestion() {
+    @Test func returnIgnoresHoverHighlightedSuggestion() {
         var state = focusedState(buffer: "claude")
         _ = omnibarReduce(state: &state, event: .suggestionsUpdated([
             .search(engineName: "Google", query: "claude"),
@@ -192,14 +191,13 @@ final class OmnibarSubmitDecisionTests: XCTestCase {
             canInteractWithSuggestions: true
         )
 
-        XCTAssertEqual(
-            decision,
-            .navigate(text: "claude"),
+        #expect(
+            decision == .navigate(text: "claude"),
             "Pointer hover highlight is not an explicit selection; Return must navigate the typed text."
         )
     }
 
-    func testHoverAfterArrowSelectionDoesNotCommitOnReturn() {
+    @Test func hoverAfterArrowSelectionDoesNotCommitOnReturn() {
         // Hover moves the highlight away from the arrow-selected row, so the
         // selection no longer reflects an explicit keyboard choice.
         var state = focusedState(buffer: "claude")
@@ -218,10 +216,10 @@ final class OmnibarSubmitDecisionTests: XCTestCase {
             canInteractWithSuggestions: true
         )
 
-        XCTAssertEqual(decision, .navigate(text: "claude"))
+        #expect(decision == .navigate(text: "claude"))
     }
 
-    func testSelectAllFocusReassertInvalidatesArrowSelectionOnReturn() {
+    @Test func selectAllFocusReassertInvalidatesArrowSelectionOnReturn() {
         // Cmd+L while already editing reasserts focus with select-all; the
         // earlier arrow selection must not commit on the next Return.
         var state = focusedState(buffer: "claude")
@@ -239,10 +237,10 @@ final class OmnibarSubmitDecisionTests: XCTestCase {
             canInteractWithSuggestions: true
         )
 
-        XCTAssertEqual(decision, .navigate(text: "claude"))
+        #expect(decision == .navigate(text: "claude"))
     }
 
-    func testFocusRestorationWithoutSelectAllKeepsArrowSelectionOnReturn() {
+    @Test func focusRestorationWithoutSelectAllKeepsArrowSelectionOnReturn() {
         // Programmatic focus restoration (window churn, palette close) does
         // not reset editing intent and must keep the arrow selection armed.
         var state = focusedState(buffer: "claude")
@@ -260,10 +258,10 @@ final class OmnibarSubmitDecisionTests: XCTestCase {
             canInteractWithSuggestions: true
         )
 
-        XCTAssertEqual(decision, .commitSelectedSuggestion)
+        #expect(decision == .commitSelectedSuggestion)
     }
 
-    func testArrowSelectionSurvivesSameQuerySuggestionMerge() {
+    @Test func arrowSelectionSurvivesSameQuerySuggestionMerge() {
         var state = focusedState(buffer: "go")
         let base: [OmnibarSuggestion] = [
             .search(engineName: "Google", query: "go"),
@@ -273,7 +271,7 @@ final class OmnibarSubmitDecisionTests: XCTestCase {
         _ = omnibarReduce(state: &state, event: .suggestionsUpdated(base))
         _ = omnibarReduce(state: &state, event: .moveSelection(delta: 2))
         _ = omnibarReduce(state: &state, event: .suggestionsUpdated(base + [.remoteSearchSuggestion("go fmt")]))
-        XCTAssertEqual(state.selectedSuggestionIndex, 2)
+        #expect(state.selectedSuggestionIndex == 2)
 
         let decision = omnibarSubmitDecision(
             liveField: caretSnapshot("go"),
@@ -282,10 +280,10 @@ final class OmnibarSubmitDecisionTests: XCTestCase {
             canInteractWithSuggestions: true
         )
 
-        XCTAssertEqual(decision, .commitSelectedSuggestion)
+        #expect(decision == .commitSelectedSuggestion)
     }
 
-    func testReturnWithoutLiveFieldNavigatesPublishedBuffer() {
+    @Test func returnWithoutLiveFieldNavigatesPublishedBuffer() {
         let state = focusedState(buffer: "claude.c")
 
         let decision = omnibarSubmitDecision(
@@ -295,6 +293,6 @@ final class OmnibarSubmitDecisionTests: XCTestCase {
             canInteractWithSuggestions: false
         )
 
-        XCTAssertEqual(decision, .navigate(text: "claude.c"))
+        #expect(decision == .navigate(text: "claude.c"))
     }
 }
