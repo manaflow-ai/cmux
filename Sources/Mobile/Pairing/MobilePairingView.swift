@@ -1,3 +1,5 @@
+import AppKit
+import CMUXMobileCore
 import CmuxAuthRuntime
 import SwiftUI
 
@@ -9,6 +11,12 @@ import SwiftUI
 /// same-account check; Tailscale is what gives the iPhone a route to this Mac.
 struct MobilePairingView: View {
     @State private var model = MobilePairingModel()
+    /// The manual-entry value that was just copied (the host or the port
+    /// string), so only the matching button shows the brief "Copied" flash.
+    /// The two values can never collide: one is a host, the other a port.
+    @State private var copiedValue: String?
+    /// Bumped per copy so an older flash's dismissal can't clear a newer one.
+    @State private var copiedValueGeneration = 0
 
     /// The shared auth coordinator, observed so the view re-runs `refresh()`
     /// when sign-in completes or settles. Captured once; stable post-startup.
@@ -31,7 +39,7 @@ struct MobilePairingView: View {
             .frame(maxWidth: .infinity, alignment: .leading)
         }
         .task { await model.refresh() }
-        .onDisappear { model.stopAutoRefresh() }
+        .onDisappear { model.stopObserving() }
         .onChange(of: coordinator?.isAuthenticated ?? false) { _, _ in
             Task { await model.refresh() }
         }
@@ -216,13 +224,18 @@ struct MobilePairingView: View {
     @ViewBuilder
     private func readyContent(_ ready: MobilePairingModel.Ready) -> some View {
         VStack(alignment: .center, spacing: 14) {
-            MobilePairingQRImageView(payload: ready.attachURL, dimension: 220)
+            // The QR fills the window width (resize the window for an even
+            // bigger code). The spec 4-module quiet zone is baked into the
+            // bitmap itself so it scales with the code; the padding and white
+            // card here are cosmetic.
+            MobilePairingQRImageView(payload: ready.attachURL)
                 .padding(12)
                 .background(.white, in: RoundedRectangle(cornerRadius: 16))
                 .overlay(
                     RoundedRectangle(cornerRadius: 16)
                         .strokeBorder(Color.secondary.opacity(0.2))
                 )
+                .frame(maxWidth: .infinity)
 
             HStack(spacing: 6) {
                 ProgressView().controlSize(.small)
@@ -312,10 +325,60 @@ struct MobilePairingView: View {
                     .textSelection(.enabled)
                     .foregroundStyle(.secondary)
             }
+            if let entry = ready.manualEntry {
+                HStack(spacing: 8) {
+                    copyButton(
+                        label: String(localized: "mobile.pairing.manual.copyIP", defaultValue: "Copy IP"),
+                        value: entry.host
+                    )
+                    copyButton(
+                        label: String(localized: "mobile.pairing.manual.copyPort", defaultValue: "Copy Port"),
+                        value: String(entry.port)
+                    )
+                }
+                .padding(.top, 2)
+            }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(12)
         .background(Color.secondary.opacity(0.08), in: RoundedRectangle(cornerRadius: 10))
+    }
+
+    /// One of the two manual-entry copy controls. Copies `value` to the
+    /// general pasteboard and briefly swaps its label to a "Copied" check.
+    private func copyButton(label: String, value: String) -> some View {
+        Button {
+            let pasteboard = NSPasteboard.general
+            pasteboard.clearContents()
+            pasteboard.setString(value, forType: .string)
+            flashCopied(value)
+        } label: {
+            HStack(spacing: 4) {
+                Image(systemName: copiedValue == value ? "checkmark" : "doc.on.doc")
+                Text(
+                    copiedValue == value
+                        ? String(localized: "mobile.pairing.manual.copied", defaultValue: "Copied")
+                        : label
+                )
+            }
+            .font(.caption)
+        }
+        .buttonStyle(.bordered)
+        .controlSize(.small)
+    }
+
+    private func flashCopied(_ value: String) {
+        copiedValueGeneration &+= 1
+        let generation = copiedValueGeneration
+        copiedValue = value
+        Task { @MainActor in
+            // Bounded, intended auto-dismiss for the "Copied" flash (same
+            // pattern as MarkdownPanelView's copy confirmation); a newer copy
+            // supersedes this one via the generation guard.
+            try? await ContinuousClock().sleep(for: .seconds(1.6))
+            guard copiedValueGeneration == generation else { return }
+            copiedValue = nil
+        }
     }
 
     private func centered<C: View>(@ViewBuilder _ content: () -> C) -> some View {

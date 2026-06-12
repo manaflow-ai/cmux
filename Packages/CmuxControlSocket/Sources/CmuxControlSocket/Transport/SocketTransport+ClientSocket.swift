@@ -2,6 +2,23 @@ public import Foundation
 internal import Darwin
 
 extension SocketTransport {
+    /// Creates the listener socket (`AF_UNIX`/`SOCK_STREAM`) with `FD_CLOEXEC`
+    /// set so it is not inherited by PTY-child forks.
+    ///
+    /// - Returns: The descriptor and a nil errno on success, or `-1` and the
+    ///   failing `errno`.
+    public func makeListenerSocket() -> (fd: Int32, errnoCode: Int32?) {
+        let fd = socket(AF_UNIX, SOCK_STREAM, 0)
+        guard fd >= 0 else {
+            return (-1, errno)
+        }
+        if let errnoCode = configureCloseOnExec(fd) {
+            close(fd)
+            return (-1, errnoCode)
+        }
+        return (fd, nil)
+    }
+
     /// Sets `O_NONBLOCK` on `fd`.
     ///
     /// - Parameter fd: The socket descriptor to configure.
@@ -12,6 +29,30 @@ extension SocketTransport {
             return errno
         }
         guard fcntl(fd, F_SETFL, flags | O_NONBLOCK) >= 0 else {
+            return errno
+        }
+        return nil
+    }
+
+    /// Sets `FD_CLOEXEC` on `fd` so it is not inherited across `fork`/`exec`.
+    ///
+    /// Read-modify-write via `F_GETFD` to preserve any existing descriptor
+    /// flags; a no-op when the flag is already set. macOS has no `accept4`/
+    /// `SOCK_CLOEXEC`, so control-socket descriptors must be marked explicitly
+    /// to keep them out of PTY-child forks (see the path-lock fd, which uses
+    /// the same pattern).
+    ///
+    /// - Parameter fd: The descriptor to mark close-on-exec.
+    /// - Returns: Nil on success, the failing `errno` otherwise.
+    public func configureCloseOnExec(_ fd: Int32) -> Int32? {
+        let flags = fcntl(fd, F_GETFD, 0)
+        guard flags >= 0 else {
+            return errno
+        }
+        if flags & FD_CLOEXEC != 0 {
+            return nil
+        }
+        guard fcntl(fd, F_SETFD, flags | FD_CLOEXEC) >= 0 else {
             return errno
         }
         return nil
@@ -109,6 +150,12 @@ extension SocketTransport {
     /// - Parameter fd: The freshly accepted client socket descriptor.
     /// - Returns: Nil on success, or the failing ``SocketStageFailure``.
     public func configureAcceptedClientSocket(_ fd: Int32) -> SocketStageFailure? {
+        // Set close-on-exec first, before any later configuration step can
+        // fail and before a concurrent PTY fork can inherit the descriptor
+        // (macOS has no `accept4`/`SOCK_CLOEXEC`).
+        if let errnoCode = configureCloseOnExec(fd) {
+            return SocketStageFailure(stage: "accept_client_configure_cloexec", errnoCode: errnoCode)
+        }
         if let errnoCode = configureBlocking(fd) {
             return SocketStageFailure(stage: "accept_client_configure_blocking", errnoCode: errnoCode)
         }
