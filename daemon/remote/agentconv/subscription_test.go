@@ -266,3 +266,44 @@ func TestReadNewLinesBoundedByBudget(t *testing.T) {
 		}
 	}
 }
+
+// A live subscription must not retain conversation items without bound: past
+// MaxLiveItems the oldest history is dropped and the client resynchronizes
+// via a fresh snapshot holding only the newest items.
+func TestLiveRetentionTrimsAndResnapshots(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "session.jsonl")
+	if err := os.WriteFile(path, []byte(claudeUserLine("u0", "first")), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	subscription, _, err := Open(Config{
+		Provider:       ProviderClaude,
+		TranscriptPath: path,
+		PollInterval:   time.Millisecond,
+		MaxLiveItems:   8,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer subscription.Close()
+	awaitEvent(t, subscription.Events, EventSnapshot)
+
+	file, err := os.OpenFile(path, os.O_APPEND|os.O_WRONLY, 0o644)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for i := 1; i <= 12; i++ {
+		if _, err := file.WriteString(claudeUserLine(fmt.Sprintf("u%d", i), fmt.Sprintf("msg %d", i))); err != nil {
+			t.Fatal(err)
+		}
+	}
+	file.Close()
+
+	resnapshot := awaitEvent(t, subscription.Events, EventSnapshot)
+	if len(resnapshot.Items) != 6 {
+		t.Fatalf("retention snapshot has %d items, want 6 (3/4 of 8)", len(resnapshot.Items))
+	}
+	last := resnapshot.Items[len(resnapshot.Items)-1]
+	if last.Text != "msg 12" {
+		t.Fatalf("retention snapshot tail = %q, want the newest item", last.Text)
+	}
+}

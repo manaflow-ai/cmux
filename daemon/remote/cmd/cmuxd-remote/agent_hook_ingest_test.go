@@ -183,3 +183,34 @@ func awaitSocketGone(t *testing.T, path string) {
 	}
 	t.Fatalf("ingest socket %s was not removed after last close", path)
 }
+
+// The ingest socket's parent lives at a well-known /tmp name: a pre-created
+// symlink there must disable the listener instead of redirecting the socket.
+func TestHookIngestRefusesSymlinkedSocketDir(t *testing.T) {
+	base := t.TempDir()
+	target := filepath.Join(base, "elsewhere")
+	if err := os.MkdirAll(target, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	link := filepath.Join(base, "linked")
+	if err := os.Symlink(target, link); err != nil {
+		t.Fatal(err)
+	}
+	socketPath := filepath.Join(link, "ingest.sock")
+	t.Setenv(agentHookSocketEnv, socketPath)
+
+	registry := &hookIngestRegistry{logf: func(string, ...any) {}}
+	registry.mu.Lock()
+	registry.startListenerLocked()
+	listening := registry.listener != nil
+	registry.mu.Unlock()
+	if listening {
+		registry.mu.Lock()
+		registry.stopListenerLocked()
+		registry.mu.Unlock()
+		t.Fatal("listener started behind a symlinked socket directory")
+	}
+	if _, err := os.Lstat(filepath.Join(target, "ingest.sock")); err == nil {
+		t.Fatal("socket was created through the symlink")
+	}
+}

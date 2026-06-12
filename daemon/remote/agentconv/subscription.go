@@ -33,6 +33,12 @@ const defaultMaxSnapshotBytes = int64(32 * 1024 * 1024)
 // read. At the default poll interval this drains >100 MiB/s of backlog.
 const defaultReadBudgetBytes = defaultMaxSnapshotBytes
 
+// defaultMaxLiveItems bounds the conversation items a live subscription (and
+// the GUI mirroring it) retains. At typical item sizes this is a few MB; a
+// long-lived pane on a busy session trims its oldest history rather than
+// growing daemon and WebView memory without bound.
+const defaultMaxLiveItems = 4096
+
 type Config struct {
 	Provider       ProviderID
 	TranscriptPath string
@@ -40,6 +46,10 @@ type Config struct {
 	PollInterval time.Duration
 	// MaxSnapshotBytes overrides the initial replay cap.
 	MaxSnapshotBytes int64
+	// MaxLiveItems bounds how many conversation items a subscription retains
+	// (the GUI mirrors the same list). Crossing the bound trims to 3/4 of it
+	// and emits a fresh snapshot, exactly like a transcript truncation.
+	MaxLiveItems int
 }
 
 type Subscription struct {
@@ -78,6 +88,9 @@ func Open(config Config) (*Subscription, SessionRef, error) {
 	}
 	if config.MaxSnapshotBytes <= 0 {
 		config.MaxSnapshotBytes = defaultMaxSnapshotBytes
+	}
+	if config.MaxLiveItems <= 0 {
+		config.MaxLiveItems = defaultMaxLiveItems
 	}
 	reader := &transcriptReader{path: config.TranscriptPath}
 	parser := newTranscriptParser(config.Provider, config.TranscriptPath)
@@ -143,8 +156,13 @@ func (s *Subscription) run(config Config, parser transcriptParser, reader *trans
 		}
 	}
 
+	// keepOnTrim leaves headroom below the bound so a busy session does not
+	// re-snapshot on every appended item.
+	keepOnTrim := config.MaxLiveItems * 3 / 4
+
 	conversation := parser.conv()
 	conversation.sessionDirty = false
+	conversation.trimToNewest(config.MaxLiveItems)
 	snapshotItems := make([]Item, len(conversation.items))
 	copy(snapshotItems, conversation.items)
 	sessionCopy := session
@@ -203,6 +221,7 @@ func (s *Subscription) run(config Config, parser transcriptParser, reader *trans
 			for _, line := range lines {
 				parser.consumeLine(line)
 			}
+			conversation.trimToNewest(config.MaxLiveItems)
 			refreshed := snapshotSessionRef(parser, config.TranscriptPath)
 			conversation.sessionDirty = false
 			items := make([]Item, len(conversation.items))
@@ -225,6 +244,20 @@ func (s *Subscription) run(config Config, parser transcriptParser, reader *trans
 			conversation.sessionDirty = false
 			refreshed := snapshotSessionRef(parser, config.TranscriptPath)
 			if !emit(Event{Type: EventSessionMeta, Seq: nextSeq(), Session: &refreshed}) {
+				return
+			}
+		}
+		if len(conversation.items) > config.MaxLiveItems {
+			// Retention bound: drop the oldest history and resynchronize the
+			// client with a fresh snapshot (hook merge state is ephemeral and
+			// resets with it, same as a transcript truncation).
+			conversation.trimToNewest(keepOnTrim)
+			merger = newHookMerger(conversation)
+			refreshed := snapshotSessionRef(parser, config.TranscriptPath)
+			conversation.sessionDirty = false
+			items := make([]Item, len(conversation.items))
+			copy(items, conversation.items)
+			if !emit(Event{Type: EventSnapshot, Seq: nextSeq(), Session: &refreshed, Items: items}) {
 				return
 			}
 		}
