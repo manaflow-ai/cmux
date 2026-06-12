@@ -191,6 +191,7 @@ class TerminalController {
         "workspace.last",
         "workspace.group.focus",
         "surface.focus",
+        "surface.agent_chat.open",
         "pane.focus",
         "pane.last",
         "file.open",
@@ -1826,8 +1827,8 @@ class TerminalController {
         // still-shared v2SurfaceSplitOff) handled by ControlCommandCoordinator too.
         // surface.refresh/health/resume.set/get/clear, debug.terminals (forwards to the
         // still-shared v2DebugTerminals), surface.send_text/send_key/report_tty/
-        // report_shell_state/ports_kick/clear_history/trigger_flash, and surface.read_text
-        // handled by ControlCommandCoordinator.
+        // report_shell_state/ports_kick/clear_history/trigger_flash/agent_chat.open, and
+        // surface.read_text handled by ControlCommandCoordinator.
 
         // Panes
         // pane.* handled by ControlCommandCoordinator.
@@ -2083,6 +2084,7 @@ class TerminalController {
             "surface.read_text",
             "surface.clear_history",
             "surface.trigger_flash",
+            "surface.agent_chat.open",
             "pane.list",
             "pane.focus",
             "pane.surfaces",

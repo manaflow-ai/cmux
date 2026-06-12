@@ -3,11 +3,15 @@ import Foundation
 
 /// The shared action path for opening the agent chat pane for a panel.
 ///
-/// All entry points (command palette, Window menu) call
-/// ``AgentChatPresenter/presentForFocusedPanel()`` so the resolve-and-open flow
-/// lives in one place. Resolution reads the restorable-session index and globs
-/// the filesystem, so it runs off-main; the pane is opened back on the main
-/// actor as a split next to the panel it mirrors.
+/// All entry points route through one resolve-and-open flow: the Window menu,
+/// command palette, and keyboard shortcut call
+/// ``AgentChatPresenter/presentForFocusedPanel()``, while the terminal context
+/// menu and the `surface.agent_chat.open` socket verb (the `cmux agent-chat`
+/// CLI command) target an explicit panel via
+/// ``AgentChatPresenter/present(panelId:in:manager:)``. Resolution reads the
+/// restorable-session index and globs the filesystem, so it runs off-main; the
+/// pane is opened back on the main actor as a split next to the panel it
+/// mirrors.
 @MainActor
 struct AgentChatPresenter {
     /// The resolver used to map a panel to its transcript file.
@@ -48,10 +52,25 @@ struct AgentChatPresenter {
             presentNoSessionAlert()
             return
         }
+        present(panelId: panelId, in: workspace, manager: manager)
+    }
+
+    /// Resolves a specific panel's agent and opens (or focuses) its chat pane,
+    /// or shows an alert when the panel has no recognizable agent session.
+    ///
+    /// This is the shared resolve-then-present body behind every entry point;
+    /// callers that target a non-focused panel (terminal context menu, the
+    /// `surface.agent_chat.open` socket verb) call it directly.
+    ///
+    /// - Parameters:
+    ///   - panelId: The panel whose agent conversation should be shown.
+    ///   - workspace: The workspace owning `panelId`.
+    ///   - manager: The TabManager owning `workspace`.
+    func present(panelId: UUID, in workspace: Workspace, manager: TabManager) {
         if let chatPanel = workspace.panels[panelId] as? AgentChatPanel {
-            // The chat pane itself is focused; it is already open.
+            // The target panel is itself a chat pane; it is already open.
 #if DEBUG
-            cmuxDebugLog("agentChat.present.skip reason=chatPanelFocused panel=\(panelId.uuidString.prefix(5))")
+            cmuxDebugLog("agentChat.present.skip reason=chatPanelTargeted panel=\(panelId.uuidString.prefix(5))")
 #endif
             workspace.focusPanel(chatPanel.id)
             return

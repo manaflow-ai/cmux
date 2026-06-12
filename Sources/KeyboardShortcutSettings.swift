@@ -116,6 +116,7 @@ enum KeyboardShortcutSettings {
         case focusTextBoxInput
         case attachTextBoxFile
         case sendCtrlFToTerminal
+        case openAgentChat
 
         // Panes / splits
         case focusLeft
@@ -217,6 +218,7 @@ enum KeyboardShortcutSettings {
             case .focusTextBoxInput: return String(localized: "shortcut.focusTextBoxInput.label", defaultValue: "Focus TextBox Input")
             case .attachTextBoxFile: return String(localized: "shortcut.attachTextBoxFile.label", defaultValue: "Attach File to TextBox Input")
             case .sendCtrlFToTerminal: return String(localized: "shortcut.sendCtrlFToTerminal.label", defaultValue: "Send Ctrl-F to Terminal")
+            case .openAgentChat: return String(localized: "shortcut.openAgentChat.label", defaultValue: "Open Agent Chat")
             case .focusLeft: return String(localized: "shortcut.focusPaneLeft.label", defaultValue: "Focus Pane Left")
             case .focusRight: return String(localized: "shortcut.focusPaneRight.label", defaultValue: "Focus Pane Right")
             case .focusUp: return String(localized: "shortcut.focusPaneUp.label", defaultValue: "Focus Pane Up")
@@ -415,6 +417,12 @@ enum KeyboardShortcutSettings {
                 // opt in via Settings; it stays reachable through the command palette and
                 // the `send_key ctrl-f` socket command.
                 return .unbound
+            case .openAgentChat:
+                // Cmd+Shift+A ("A for Agent") is taken by focusTextBoxInput;
+                // Cmd+Shift+C ("C for Chat") is unclaimed by cmux defaults,
+                // Ghostty's macOS defaults (copy is plain Cmd+C), and
+                // AppKit-reserved chords. Rebindable in Settings or cmux.json.
+                return StoredShortcut(key: "c", command: true, shift: true, option: false, control: false)
             case .selectWorkspaceByNumber:
                 return StoredShortcut(key: "1", command: true, shift: false, option: false, control: false)
             case .toggleRightSidebar:

@@ -158,6 +158,37 @@ extension TerminalController {
         )
     }
 
+    // MARK: - agent_chat.open
+
+    func controlSurfaceAgentChatOpen(
+        routing: ControlRoutingSelectors,
+        surfaceID: UUID?
+    ) -> ControlSurfaceAgentChatOpenResolution {
+        guard let tabManager = resolveTabManager(routing: routing) else {
+            return .tabManagerUnavailable
+        }
+        guard let ws = resolveSurfaceWorkspace(routing: routing, tabManager: tabManager) else {
+            return .workspaceNotFound
+        }
+        guard let surfaceId = surfaceID ?? ws.focusedPanelId else {
+            return .noFocusedSurface
+        }
+        guard ws.panels[surfaceId] != nil else {
+            return .surfaceNotFound(surfaceId)
+        }
+        v2MaybeFocusWindow(for: tabManager)
+        v2MaybeSelectWorkspace(tabManager, workspace: ws)
+        // The ONE shared resolve-then-present path (also driven by the Window
+        // menu, command palette, keyboard shortcut, and terminal context menu).
+        // Resolution is async, so this acknowledges the accepted request.
+        AgentChatPresenter().present(panelId: surfaceId, in: ws, manager: tabManager)
+        return .requested(
+            windowID: v2ResolveWindowId(tabManager: tabManager),
+            workspaceID: ws.id,
+            surfaceID: surfaceId
+        )
+    }
+
     // MARK: - send_text / send_key
 
     func controlSurfaceInputStrings() -> ControlSurfaceInputStrings {

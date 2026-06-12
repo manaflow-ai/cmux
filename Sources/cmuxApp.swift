@@ -878,7 +878,10 @@ struct cmuxApp: App {
             Button(String(localized: "menu.window.taskManager", defaultValue: "Task Manager...")) {
                 TaskManagerWindowController.shared.show()
             }
-            Button(String(localized: "menu.window.viewChat", defaultValue: "View Chat...")) {
+            splitCommandButton(
+                title: String(localized: "menu.window.viewChat", defaultValue: "View Chat..."),
+                shortcut: menuShortcut(for: .openAgentChat)
+            ) {
                 AgentChatPresenter().presentForFocusedPanel()
             }
         }

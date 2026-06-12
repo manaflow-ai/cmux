@@ -85,6 +85,10 @@ extension ShortcutAction {
         case .focusTextBoxInput: return ShortcutStroke(key: "a", command: true, shift: true)
         case .attachTextBoxFile: return ShortcutStroke(key: "a", command: true, shift: true, option: true)
         case .sendCtrlFToTerminal: return nil
+        // Cmd+Shift+A (the "A for Agent" mnemonic) is taken by focusTextBoxInput;
+        // Cmd+Shift+C ("C for Chat") is unclaimed by cmux defaults, Ghostty's
+        // macOS defaults (copy is plain Cmd+C), and AppKit-reserved chords.
+        case .openAgentChat: return ShortcutStroke(key: "c", command: true, shift: true)
         case .toggleRightSidebar: return ShortcutStroke(key: "b", command: true, option: true)
         case .openDiffViewer: return ShortcutStroke(key: "d", command: true, shift: true, control: true)
         case .saveFilePreview: return ShortcutStroke(key: "s", command: true)
