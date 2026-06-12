@@ -51,6 +51,22 @@ struct SidebarWorkspaceScrollLayoutTests {
         #expect(!base.isEquivalent(to: differentRows))
     }
 
+    @Test func rowsMeasurementPreferenceUpdateIsIdempotentForEquivalentValues() {
+        let current = SidebarWorkspaceRowsMeasurement(workspaceIds: ["a", "b"], rowsHeight: 240)
+        let same = SidebarWorkspaceRowsMeasurement(workspaceIds: ["a", "b"], rowsHeight: 240)
+        let jittered = SidebarWorkspaceRowsMeasurement(workspaceIds: ["a", "b"], rowsHeight: 240.3)
+        let moved = SidebarWorkspaceRowsMeasurement(workspaceIds: ["a", "b"], rowsHeight: 256)
+        let differentRows = SidebarWorkspaceRowsMeasurement(workspaceIds: ["b", "a"], rowsHeight: 240)
+
+        #expect(!SidebarWorkspaceRowsMeasurement<String>.shouldStorePreferenceUpdate(current: nil, preference: nil))
+        #expect(SidebarWorkspaceRowsMeasurement.shouldStorePreferenceUpdate(current: current, preference: nil))
+        #expect(SidebarWorkspaceRowsMeasurement.shouldStorePreferenceUpdate(current: nil, preference: same))
+        #expect(!SidebarWorkspaceRowsMeasurement.shouldStorePreferenceUpdate(current: current, preference: same))
+        #expect(!SidebarWorkspaceRowsMeasurement.shouldStorePreferenceUpdate(current: current, preference: jittered))
+        #expect(SidebarWorkspaceRowsMeasurement.shouldStorePreferenceUpdate(current: current, preference: moved))
+        #expect(SidebarWorkspaceRowsMeasurement.shouldStorePreferenceUpdate(current: current, preference: differentRows))
+    }
+
     @Test func emptyAreaFillsOnlyRemainingViewportSpaceWhenRowsFit() {
         let contentMinHeight = SidebarWorkspaceScrollLayout.contentMinHeight(
             viewportHeight: 720,

@@ -11,11 +11,12 @@ struct SidebarWorkspaceRowsHeightPreferenceKey: PreferenceKey {
         value: inout SidebarWorkspaceRowsMeasurement<UUID>?,
         nextValue: () -> SidebarWorkspaceRowsMeasurement<UUID>?
     ) {
-        guard let next = nextValue() else { return }
+        guard let next = nextValue()?.normalizedForStorage else { return }
         guard let current = value else {
             value = next
             return
         }
+        guard !current.isEquivalent(to: next) else { return }
         value = current.rowsHeight >= next.rowsHeight ? current : next
     }
 }

@@ -11324,6 +11324,7 @@ struct VerticalTabsSidebar: View {
                     // Drop the stale rows-height measurement so the empty-area
                     // sizing recomputes for the new row set. The measurement is
                     // also keyed by workspace ids, so this is belt-and-suspenders.
+                    guard workspaceRowsMeasurement != nil else { return }
                     workspaceRowsMeasurement = nil
                 }
                 .onReceive(NotificationCenter.default.publisher(for: .workspaceOrderDidChange)) { notification in
@@ -11375,19 +11376,13 @@ struct VerticalTabsSidebar: View {
                     }
                 }
                 .onPreferenceChange(SidebarWorkspaceRowsHeightPreferenceKey.self) { measurement in
-                    guard let measurement else {
-                        workspaceRowsMeasurement = nil
+                    guard SidebarWorkspaceRowsMeasurement.shouldStorePreferenceUpdate(
+                        current: workspaceRowsMeasurement,
+                        preference: measurement
+                    ) else {
                         return
                     }
-                    let nextMeasurement = SidebarWorkspaceRowsMeasurement(
-                        workspaceIds: measurement.workspaceIds,
-                        rowsHeight: max(0, measurement.rowsHeight)
-                    )
-                    if let workspaceRowsMeasurement,
-                       workspaceRowsMeasurement.isEquivalent(to: nextMeasurement) {
-                        return
-                    }
-                    workspaceRowsMeasurement = nextMeasurement
+                    workspaceRowsMeasurement = measurement?.normalizedForStorage
                 }
             }
         }

@@ -15,6 +15,13 @@ struct SidebarWorkspaceRowsMeasurement<ID: Equatable>: Equatable {
     let workspaceIds: [ID]
     let rowsHeight: CGFloat
 
+    nonisolated var normalizedForStorage: SidebarWorkspaceRowsMeasurement<ID> {
+        SidebarWorkspaceRowsMeasurement(
+            workspaceIds: workspaceIds,
+            rowsHeight: max(0, rowsHeight)
+        )
+    }
+
     nonisolated func rowsHeight(for currentWorkspaceIds: [ID]) -> CGFloat? {
         guard workspaceIds == currentWorkspaceIds else { return nil }
         return max(0, rowsHeight)
@@ -25,5 +32,17 @@ struct SidebarWorkspaceRowsMeasurement<ID: Equatable>: Equatable {
         tolerance: CGFloat = 0.5
     ) -> Bool {
         workspaceIds == other.workspaceIds && abs(rowsHeight - other.rowsHeight) <= tolerance
+    }
+
+    nonisolated static func shouldStorePreferenceUpdate(
+        current: SidebarWorkspaceRowsMeasurement<ID>?,
+        preference: SidebarWorkspaceRowsMeasurement<ID>?
+    ) -> Bool {
+        guard let preference else {
+            return current != nil
+        }
+        let next = preference.normalizedForStorage
+        guard let current else { return true }
+        return !current.isEquivalent(to: next)
     }
 }
