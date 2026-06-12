@@ -444,7 +444,7 @@ struct GhosttyConfig {
                     } else {
                         hasParsedBackgroundOpacity = false
                     }
-                case "background-blur":
+                case "background-blur", "background-blur-radius":
                     hasBackgroundBlurDirective = true
                     if let parsedBlur = Self.parseBackgroundBlur(value) {
                         backgroundBlur = parsedBlur

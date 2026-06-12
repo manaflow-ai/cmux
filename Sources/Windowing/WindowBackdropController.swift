@@ -18,7 +18,7 @@ struct WindowBackdropPlan {
     let windowIsOpaque: Bool
     let rootPolicy: WindowBackdropPolicy
     let glass: WindowBackdropGlassPlan?
-    let shouldApplyGhosttyCompositorBlur: Bool
+    let compositorBlurRadius: Int
 
     var usesTransparentWindow: Bool {
         hostingPhase != .opaqueWindowFill
@@ -36,7 +36,7 @@ struct WindowBackdropPlan {
             rootPolicy.identityComponent,
             glass?.tintColor.hexString(includeAlpha: true) ?? "nil",
             glass.map { String(describing: $0.style) } ?? "nil",
-            String(shouldApplyGhosttyCompositorBlur),
+            String(compositorBlurRadius),
         ].joined(separator: "|")
     }
 }
@@ -66,20 +66,16 @@ enum WindowBackdropController {
             didChangeGlassRoot = WindowGlassEffect.remove(from: window)
             window.backgroundColor = plan.windowBackgroundColor
             window.isOpaque = plan.windowIsOpaque
-            cmuxResetCompositorBackgroundBlur(on: window)
+            cmuxSetCompositorBackgroundBlur(on: window, radius: plan.compositorBlurRadius)
         case .transparentRootBackdrop:
             didChangeGlassRoot = WindowGlassEffect.remove(from: window)
             window.backgroundColor = plan.windowBackgroundColor
             window.isOpaque = false
-            if plan.shouldApplyGhosttyCompositorBlur {
-                GhosttyApp.shared.applyWindowBlurIfNeeded(window)
-            } else {
-                cmuxResetCompositorBackgroundBlur(on: window)
-            }
+            cmuxSetCompositorBackgroundBlur(on: window, radius: plan.compositorBlurRadius)
         case .windowGlass:
             window.backgroundColor = plan.windowBackgroundColor
             window.isOpaque = false
-            cmuxResetCompositorBackgroundBlur(on: window)
+            cmuxSetCompositorBackgroundBlur(on: window, radius: plan.compositorBlurRadius)
             if let glass = plan.glass {
                 didChangeGlassRoot = WindowGlassEffect.apply(
                     to: window,
@@ -166,7 +162,7 @@ extension WindowAppearanceSnapshot {
                     tintColor: windowGlassSettings.tintColor,
                     style: windowGlassSettings.style
                 ),
-                shouldApplyGhosttyCompositorBlur: false
+                compositorBlurRadius: 0
             )
         }
 
@@ -177,7 +173,7 @@ extension WindowAppearanceSnapshot {
                 windowIsOpaque: false,
                 rootPolicy: rootPolicy,
                 glass: nil,
-                shouldApplyGhosttyCompositorBlur: !terminalBackgroundBlur.isMacOSGlassStyle
+                compositorBlurRadius: terminalBackgroundBlur.compositorBlurRadius
             )
         }
 
@@ -187,7 +183,7 @@ extension WindowAppearanceSnapshot {
             windowIsOpaque: true,
             rootPolicy: rootPolicy,
             glass: nil,
-            shouldApplyGhosttyCompositorBlur: false
+            compositorBlurRadius: 0
         )
     }
 
