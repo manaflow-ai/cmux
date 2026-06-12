@@ -1,3 +1,4 @@
+import CMUXMobileCore
 import CmuxAuthRuntime
 import Foundation
 
@@ -13,6 +14,11 @@ import Foundation
 /// server-owned: every heartbeat response carries `heartbeatIntervalMs`, and
 /// the loop sleeps that long, so the server can retune without a client ship.
 ///
+/// Every beat also states the host's full current attach-route set (the same
+/// set ``DeviceRegistryClient`` writes through to the durable registry), and a
+/// route change additionally triggers one immediate out-of-cadence beat, so
+/// the presence service can push the fresh port/IP to subscribed phones live.
+///
 /// Offline is explicit on the server: a clean quit sends a `stopping: true`
 /// goodbye; a crash or sleep is caught by the service's missed-heartbeat alarm
 /// (45s), so this client never needs a watchdog of its own.
@@ -23,9 +29,14 @@ final class PresenceHeartbeatClient {
     private let session: URLSession = .shared
     private var auth: AuthCoordinator?
     private var loopTask: Task<Void, Never>?
+    private var routesObserveTask: Task<Void, Never>?
     private var defaultsObserver: NSObjectProtocol?
     /// Cadence between heartbeats; server-owned, seeded with the service default.
     private var intervalMs: Int = 15_000
+    /// The attach routes most recently advertised by ``MobileHostService``,
+    /// included in every heartbeat so the presence service mirrors the same
+    /// set the device registry stores (DO = live cache, registry = truth).
+    private var currentRoutes: [CmxAttachRoute] = []
 
     private init() {}
 
@@ -33,6 +44,7 @@ final class PresenceHeartbeatClient {
     /// once at the composition root, alongside ``DeviceRegistryClient``.
     func configure(auth: AuthCoordinator) {
         self.auth = auth
+        startObservingRoutes()
         if defaultsObserver == nil {
             // Re-evaluate when the flag or URL flips, so enabling presence in a
             // running app starts the loop without a relaunch (and disabling
@@ -61,22 +73,55 @@ final class PresenceHeartbeatClient {
         Task { await self.sendHeartbeat(stopping: true) }
     }
 
+    // MARK: - Routes
+
+    /// Mirror ``DeviceRegistryClient``'s observation of the host's advertised
+    /// attach routes. Where the registry client POSTs durable rendezvous data
+    /// on change, presence carries the same set on every heartbeat — and a
+    /// change triggers one immediate out-of-cadence beat so subscribed phones
+    /// receive the fresh port/IP within a round trip instead of waiting out
+    /// the 15s cadence.
+    private func startObservingRoutes() {
+        guard routesObserveTask == nil else { return }
+        routesObserveTask = Task { @MainActor [weak self] in
+            for await status in MobileHostService.shared.statusUpdates() {
+                guard let self, !Task.isCancelled else { break }
+                guard self.currentRoutes != status.routes else { continue }
+                self.currentRoutes = status.routes
+                // Push the change live only while the heartbeat loop runs; a
+                // disabled client stays silent and the cached set rides the
+                // first beat whenever the loop starts.
+                if self.loopTask != nil {
+                    await self.sendHeartbeat(stopping: false)
+                }
+            }
+        }
+    }
+
     // MARK: - Loop lifecycle
 
     private var isEnabled: Bool {
-        UserDefaults.standard.bool(forKey: PresenceSettings.enabledKey)
+        PresenceSettings.isEnabled()
     }
 
     /// Resolved service base URL: env override first (dev/tagged builds), then
-    /// the defaults key. Nil disables the client entirely.
+    /// the defaults key, then the Debug-build dev-instance default. Nil
+    /// disables the client entirely.
     static func resolvedServiceURL(
         environment: [String: String] = ProcessInfo.processInfo.environment,
         defaults: UserDefaults = .standard
     ) -> URL? {
-        let raw = environment[PresenceSettings.serviceURLEnvKey]?
+        var raw = environment[PresenceSettings.serviceURLEnvKey]?
             .trimmingCharacters(in: .whitespacesAndNewlines)
             ?? defaults.string(forKey: PresenceSettings.serviceURLKey)?
             .trimmingCharacters(in: .whitespacesAndNewlines)
+        #if DEBUG
+        if raw == nil || raw?.isEmpty == true {
+            // Debug builds authenticate against the dev Stack project, which is
+            // what the dev/staging worker verifies — see PresenceSettings.
+            raw = PresenceSettings.debugDefaultServiceURL
+        }
+        #endif
         guard let raw, !raw.isEmpty else { return nil }
         return URL(string: raw)
     }
@@ -133,17 +178,13 @@ final class PresenceHeartbeatClient {
             + "/v1/presence/heartbeat"
         guard let url = comps.url else { return }
 
-        var bodyDict: [String: Any] = [
-            "deviceId": MobileHostIdentity.deviceID(),
-            "platform": "mac",
-            "tag": Self.buildTag(),
-        ]
-        if let displayName = MobileHostIdentity.displayName(), !displayName.isEmpty {
-            bodyDict["displayName"] = displayName
-        }
-        if stopping {
-            bodyDict["stopping"] = true
-        }
+        let bodyDict = Self.heartbeatBody(
+            deviceID: MobileHostIdentity.deviceID(),
+            tag: Self.buildTag(),
+            displayName: MobileHostIdentity.displayName(),
+            routes: currentRoutes,
+            stopping: stopping
+        )
 
         var req = URLRequest(url: url)
         req.httpMethod = "POST"
@@ -170,6 +211,33 @@ final class PresenceHeartbeatClient {
         } catch {
             // best-effort; presence must never disrupt the Mac.
         }
+    }
+
+    /// Build the heartbeat JSON body. Routes are always present (the wire
+    /// treats an absent field as "unchanged", but this client knows the full
+    /// current set on every beat, so it always states it — an empty array
+    /// accurately means "no routes", e.g. mobile pairing off). Pure and
+    /// nonisolated for tests.
+    nonisolated static func heartbeatBody(
+        deviceID: String,
+        tag: String,
+        displayName: String?,
+        routes: [CmxAttachRoute],
+        stopping: Bool
+    ) -> [String: Any] {
+        var bodyDict: [String: Any] = [
+            "deviceId": deviceID,
+            "platform": "mac",
+            "tag": tag,
+            "routes": routes.map(\.mobileHostJSONObject),
+        ]
+        if let displayName, !displayName.isEmpty {
+            bodyDict["displayName"] = displayName
+        }
+        if stopping {
+            bodyDict["stopping"] = true
+        }
+        return bodyDict
     }
 
     /// The build tag for this cmux instance, matching the registry's instance
