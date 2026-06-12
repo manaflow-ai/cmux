@@ -5721,19 +5721,14 @@ final class Workspace: Identifiable, ObservableObject {
             completion(.failure(RemoteDropUploadError.unavailable))
             return
         }
-        controller.uploadDroppedFiles(fileURLs, operation: operation, completion: completion)
-    }
-
-    @MainActor
-    func uploadDroppedFilesForRemoteTerminal(
-        _ fileURLs: [URL],
-        completion: @escaping (Result<[String], Error>) -> Void
-    ) {
-        uploadDroppedFilesForRemoteTerminal(
-            fileURLs,
-            operation: TerminalImageTransferOperation(),
-            completion: completion
-        )
+        // The coordinator pins the legacy contract of invoking the completion
+        // on the main queue (see RemoteSessionCoordinator.uploadDroppedFiles),
+        // so the non-Sendable completion never runs off the caller's main
+        // thread even though the coordinator's parameter is `@Sendable`.
+        nonisolated(unsafe) let completion = completion
+        controller.uploadDroppedFiles(fileURLs, operation: operation) { result in
+            completion(result)
+        }
     }
 
     func syncRemotePortScanTTYs() {

@@ -7,7 +7,12 @@ import Foundation
 // workspace reference, the main-queue hop, the stale-controller guard
 // (`activeRemoteSessionControllerID`), and the `remoteDisplayTarget` fallback.
 // Every method may be called from the coordinator's serial queue.
-final class WorkspaceRemoteSessionHostAdapter: RemoteSessionHosting {
+//
+// `@unchecked Sendable`: `controllerID` is immutable and `workspace` is a
+// weak reference that is only assigned in `init`; afterwards it is read via
+// `[weak workspace]` captures (weak loads are runtime-atomic) and the
+// referenced `Workspace` is only touched after hopping to the main queue.
+final class WorkspaceRemoteSessionHostAdapter: RemoteSessionHosting, @unchecked Sendable {
     private weak var workspace: Workspace?
     private let controllerID: UUID
 
