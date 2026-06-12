@@ -248,6 +248,8 @@ extension Workspace {
             currentDirectory: currentDirectory,
             focusedPanelId: focusedPanelId,
             layout: layout,
+            layoutMode: layoutMode.rawValue,
+            canvasPanes: canvasSessionPaneSnapshots(),
             panels: panelSnapshots,
             statusEntries: statusSnapshots,
             logEntries: logSnapshots,
@@ -345,6 +347,8 @@ extension Workspace {
         gitBranch = snapshot.gitBranch.map { SidebarGitBranchState(branch: $0.branch, isDirty: $0.isDirty) }
 
         recomputeListeningPorts()
+
+        restoreCanvasState(from: snapshot, oldToNewPanelIds: oldToNewPanelIds)
 
         if let focusedOldPanelId = snapshot.focusedPanelId,
            let focusedNewPanelId = oldToNewPanelIds[focusedOldPanelId],

@@ -84,6 +84,20 @@ public enum ShortcutAction: String, CaseIterable, Sendable, Hashable, SettingCod
     case splitBrowserDown
     case toggleRightSidebar = "toggleFileExplorer"
 
+    // MARK: Canvas
+    case toggleCanvasLayout
+    case canvasRevealFocusedPane
+    case canvasOverview
+    case canvasTidy
+    case canvasAlignLeft
+    case canvasAlignRight
+    case canvasAlignTop
+    case canvasAlignBottom
+    case canvasEqualizeWidths
+    case canvasEqualizeHeights
+    case canvasDistributeHorizontally
+    case canvasDistributeVertically
+
     // MARK: Browser & Find
     case openDiffViewer
     case saveFilePreview
@@ -163,7 +177,11 @@ extension ShortcutAction {
             return .navigation
         case .focusLeft, .focusRight, .focusUp, .focusDown, .splitRight, .splitDown,
              .toggleSplitZoom, .equalizeSplits, .splitBrowserRight, .splitBrowserDown,
-             .toggleRightSidebar:
+             .toggleRightSidebar,
+             .toggleCanvasLayout, .canvasRevealFocusedPane, .canvasOverview, .canvasTidy,
+             .canvasAlignLeft, .canvasAlignRight, .canvasAlignTop, .canvasAlignBottom,
+             .canvasEqualizeWidths, .canvasEqualizeHeights,
+             .canvasDistributeHorizontally, .canvasDistributeVertically:
             return .panes
         case .openDiffViewer, .saveFilePreview, .openBrowser, .focusBrowserAddressBar, .browserBack,
              .browserForward, .browserReload, .browserZoomIn, .browserZoomOut,
@@ -334,6 +352,18 @@ extension ShortcutAction {
         case .splitBrowserRight: return "Split Browser Right"
         case .splitBrowserDown: return "Split Browser Down"
         case .toggleRightSidebar: return "Toggle Right Sidebar"
+        case .toggleCanvasLayout: return "Toggle Canvas Layout"
+        case .canvasRevealFocusedPane: return "Canvas: Reveal Focused Pane"
+        case .canvasOverview: return "Canvas: Toggle Overview"
+        case .canvasTidy: return "Canvas: Tidy Panes"
+        case .canvasAlignLeft: return "Canvas: Align Left Edges"
+        case .canvasAlignRight: return "Canvas: Align Right Edges"
+        case .canvasAlignTop: return "Canvas: Align Top Edges"
+        case .canvasAlignBottom: return "Canvas: Align Bottom Edges"
+        case .canvasEqualizeWidths: return "Canvas: Equalize Widths"
+        case .canvasEqualizeHeights: return "Canvas: Equalize Heights"
+        case .canvasDistributeHorizontally: return "Canvas: Distribute Horizontally"
+        case .canvasDistributeVertically: return "Canvas: Distribute Vertically"
         case .openDiffViewer: return "Open Diff Viewer"
         case .saveFilePreview: return "Save File Preview"
         case .openBrowser: return "Open Browser"

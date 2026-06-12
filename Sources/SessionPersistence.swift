@@ -1789,6 +1789,16 @@ indirect enum SessionWorkspaceLayoutSnapshot: Codable, Sendable {
     }
 }
 
+/// One canvas pane's persisted geometry, ordered back-to-front so restore
+/// reproduces the z-order.
+struct SessionCanvasPaneSnapshot: Codable, Equatable, Sendable {
+    var panelId: UUID
+    var x: Double
+    var y: Double
+    var width: Double
+    var height: Double
+}
+
 struct SessionWorkspaceSnapshot: Codable, Sendable {
     /// Original workspace ID captured when the snapshot comes from a live workspace.
     /// Restore uses this to remap closed-panel history onto the new workspace IDs;
@@ -1807,6 +1817,12 @@ struct SessionWorkspaceSnapshot: Codable, Sendable {
     var currentDirectory: String
     var focusedPanelId: UUID?
     var layout: SessionWorkspaceLayoutSnapshot
+    /// `WorkspaceLayoutMode` raw value; absent in pre-canvas snapshots
+    /// (treated as splits).
+    var layoutMode: String? = nil
+    /// Canvas pane frames in z-order; persisted whenever any exist so
+    /// positions survive toggling back to splits across restarts.
+    var canvasPanes: [SessionCanvasPaneSnapshot]? = nil
     var panels: [SessionPanelSnapshot]
     var statusEntries: [SessionStatusEntrySnapshot]
     var logEntries: [SessionLogEntrySnapshot]

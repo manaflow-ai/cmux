@@ -123,6 +123,15 @@ final class WorkspaceCanvasModel {
         )
     }
 
+    /// Replaces the whole layout with persisted frames (already in z-order,
+    /// back to front). Used by session restore.
+    func restoreFrames(_ ordered: [(id: UUID, frame: CGRect)]) {
+        layout = CanvasLayout(panes: ordered.map { entry in
+            CanvasPane(id: CanvasPaneID(rawValue: entry.id), frame: CanvasRect(entry.frame))
+        })
+        revision &+= 1
+    }
+
     private func gestureMetrics(snapping: Bool) -> CanvasMetrics {
         var metrics = metrics
         if !snapping {
