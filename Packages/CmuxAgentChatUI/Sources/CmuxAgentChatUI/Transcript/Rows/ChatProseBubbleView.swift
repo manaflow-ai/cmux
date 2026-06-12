@@ -15,6 +15,7 @@ public struct ChatProseBubbleView: View {
 
     @Environment(\.chatTheme) private var theme
     @Environment(\.chatBubbleMaxWidth) private var bubbleMaxWidth
+    @Environment(\.chatContentCache) private var contentCache
     @Environment(\.chatMarkdownRenderer) private var renderer
 
     /// Creates a prose bubble.
@@ -69,6 +70,11 @@ public struct ChatProseBubbleView: View {
 
     private var isUser: Bool { message.role == .user }
 
+    private var proseSegments: [ChatProseSegment] {
+        contentCache?.proseSegments(messageID: message.id, text: prose.text)
+            ?? ChatProseSegmenter().segments(from: prose.text)
+    }
+
     private var bubble: some View {
         Group {
             if isUser {
@@ -78,7 +84,7 @@ public struct ChatProseBubbleView: View {
                     .textSelection(.enabled)
             } else {
                 VStack(alignment: .leading, spacing: 8) {
-                    ForEach(ChatProseSegmenter().segments(from: prose.text)) { segment in
+                    ForEach(proseSegments) { segment in
                         segmentView(segment)
                     }
                 }

@@ -13,6 +13,7 @@ public struct ChatTerminalCardView: View {
     private let actions: ChatRowActions
 
     @Environment(\.chatTheme) private var theme
+    @Environment(\.chatContentCache) private var contentCache
 
     private static let collapseThreshold = 6
     private static let collapsedHeadCount = 3
@@ -64,6 +65,9 @@ public struct ChatTerminalCardView: View {
     /// output yet.
     private var outputLines: [String] {
         guard let output = capture.output, !output.isEmpty else { return [] }
+        if let cache = contentCache {
+            return cache.sanitizedLines(messageID: rowID, output: output)
+        }
         let cleaned = ChatANSISanitizer().sanitized(output)
         return cleaned.split(separator: "\n", omittingEmptySubsequences: false).map(String.init)
     }

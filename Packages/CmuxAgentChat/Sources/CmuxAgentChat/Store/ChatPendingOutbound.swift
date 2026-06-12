@@ -13,7 +13,11 @@ public struct ChatPendingOutbound: Identifiable, Sendable, Equatable {
     public let text: String
 
     /// Number of attachments sent with the prompt.
-    public let attachmentCount: Int
+    public var attachmentCount: Int { attachments.count }
+
+    /// The attachment payloads, retained until the send reconciles so a
+    /// retry resends them rather than silently dropping images.
+    public let attachments: [ChatOutboundAttachment]
 
     /// When the user hit send.
     public let createdAt: Date
@@ -26,19 +30,19 @@ public struct ChatPendingOutbound: Identifiable, Sendable, Equatable {
     /// - Parameters:
     ///   - id: Local-only identity.
     ///   - text: The prompt text.
-    ///   - attachmentCount: Number of attachments sent with the prompt.
+    ///   - attachments: Attachment payloads, kept for retry.
     ///   - createdAt: When the user hit send.
     ///   - delivery: Current delivery progress.
     public init(
         id: String,
         text: String,
-        attachmentCount: Int,
+        attachments: [ChatOutboundAttachment] = [],
         createdAt: Date,
         delivery: ChatDeliveryState
     ) {
         self.id = id
         self.text = text
-        self.attachmentCount = attachmentCount
+        self.attachments = attachments
         self.createdAt = createdAt
         self.delivery = delivery
     }

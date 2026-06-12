@@ -186,7 +186,7 @@ public final class ChatConversationStore {
         let item = ChatPendingOutbound(
             id: "local-\(pendingCounter)",
             text: trimmed,
-            attachmentCount: attachments.count,
+            attachments: attachments,
             createdAt: now(),
             delivery: .sending
         )
@@ -211,7 +211,7 @@ public final class ChatConversationStore {
         let item = pending[index]
         updatePending(id: pendingID, delivery: .sending)
         do {
-            try await source.send(text: item.text, attachments: [], sessionID: descriptor.id)
+            try await source.send(text: item.text, attachments: item.attachments, sessionID: descriptor.id)
             updatePending(id: pendingID, delivery: .delivered)
             lastErrorDescription = nil
         } catch {

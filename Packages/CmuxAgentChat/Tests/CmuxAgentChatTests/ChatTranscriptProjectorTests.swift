@@ -61,8 +61,7 @@ struct ChatTranscriptProjectorTests {
         ChatPendingOutbound(
             id: id,
             text: text,
-            attachmentCount: 0,
-            createdAt: baseTime,
+                        createdAt: baseTime,
             delivery: .sending
         )
     }

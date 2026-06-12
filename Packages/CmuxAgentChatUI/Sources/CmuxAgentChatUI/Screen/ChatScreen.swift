@@ -11,6 +11,7 @@ public struct ChatScreen: View {
     @State private var store: ChatConversationStore
     @State private var expandedIDs: Set<String> = []
     @State private var renderer = ChatMarkdownRenderer()
+    @State private var contentCache = ChatContentCache()
     @Binding private var draft: String
     private let onOpenTerminal: () -> Void
 
@@ -45,6 +46,7 @@ public struct ChatScreen: View {
             onReachTop: { Task { await store.loadOlder() } }
         )
         .environment(\.chatMarkdownRenderer, renderer)
+        .environment(\.chatContentCache, contentCache)
         .overlay(alignment: .top) {
             if let error = store.lastErrorDescription {
                 Text(error)

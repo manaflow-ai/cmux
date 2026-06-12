@@ -18,8 +18,7 @@ import SwiftUI
             pending: ChatPendingOutbound(
                 id: "p1",
                 text: "Run the suite again",
-                attachmentCount: 0,
-                createdAt: Date(),
+                                createdAt: Date(),
                 delivery: .queued
             ),
             actions: actions
@@ -28,7 +27,7 @@ import SwiftUI
             pending: ChatPendingOutbound(
                 id: "p2",
                 text: "Now push the branch",
-                attachmentCount: 1,
+                attachments: [ChatOutboundAttachment(data: Data([0x89]), format: .png)],
                 createdAt: Date(),
                 delivery: .sending
             ),
@@ -38,8 +37,7 @@ import SwiftUI
             pending: ChatPendingOutbound(
                 id: "p3",
                 text: "And open a PR",
-                attachmentCount: 0,
-                createdAt: Date(),
+                                createdAt: Date(),
                 delivery: .delivered
             ),
             actions: actions
@@ -48,7 +46,10 @@ import SwiftUI
             pending: ChatPendingOutbound(
                 id: "p4",
                 text: "Also fix the flaky integration job",
-                attachmentCount: 2,
+                attachments: [
+                    ChatOutboundAttachment(data: Data([0x89]), format: .png),
+                    ChatOutboundAttachment(data: Data([0x89]), format: .jpeg),
+                ],
                 createdAt: Date(),
                 delivery: .failed("Connection lost")
             ),
