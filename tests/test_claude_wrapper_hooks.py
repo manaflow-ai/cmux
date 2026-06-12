@@ -772,6 +772,90 @@ def test_live_socket_normalizes_subrouter_claude_config_dir(failures: list[str])
     expect(auth_env.get("CLAUDE_CONFIG_DIR") == expected["path"], f"normalize config dir: expected {expected['path']!r}, got {auth_env.get('CLAUDE_CONFIG_DIR')!r}", failures)
 
 
+def test_live_socket_picks_subrouter_claude_profile_for_fable_fresh_launch(failures: list[str]) -> None:
+    expected: dict[str, str] = {}
+
+    def setup(tmp: Path) -> dict[str, str]:
+        home = tmp / "home"
+        fake_bin = tmp / "fake-bin"
+        fake_bin.mkdir(parents=True)
+        old_profile = home / ".codex-accounts" / "claude" / "_old"
+        new_profile = home / ".codex-accounts" / "claude" / "_new"
+        old_profile.mkdir(parents=True)
+        new_profile.mkdir(parents=True)
+        pick_log = tmp / "subrouter-pick.log"
+        expected["old_profile"] = str(old_profile)
+        expected["new_profile"] = str(new_profile)
+        expected["pick_log"] = str(pick_log)
+        make_executable(
+            fake_bin / "subrouter",
+            f"""#!/usr/bin/env bash
+set -euo pipefail
+if [[ "${{1:-}}" == "claude" && "${{2:-}}" == "pick" ]]; then
+  printf 'pick\\n' >> {str(pick_log)!r}
+  exit 0
+fi
+if [[ "${{1:-}}" == "claude" && "${{2:-}}" == "env" ]]; then
+  printf 'export CLAUDE_CONFIG_DIR=%s\\n' {str(new_profile)!r}
+  exit 0
+fi
+exit 2
+""",
+        )
+        return {
+            "HOME": str(home),
+            "PATH": f"{fake_bin}:{tmp / 'wrapper-bin'}:{tmp / 'real-bin'}:{os.environ.get('PATH', '/usr/bin:/bin')}",
+            "CLAUDE_CONFIG_DIR": str(old_profile),
+        }
+
+    code, auth_env, real_argv, stderr = run_wrapper_auth_env(
+        argv=["--model", "claude-fable-5", "hello"],
+        inherited_env={},
+        setup_env=setup,
+    )
+    expect(code == 0, f"subrouter pick fresh launch: wrapper exited {code}: {stderr}", failures)
+    expect(auth_env.get("CLAUDE_CONFIG_DIR") == expected["new_profile"], f"subrouter pick fresh launch: expected picked CLAUDE_CONFIG_DIR {expected['new_profile']!r}, got {auth_env.get('CLAUDE_CONFIG_DIR')!r}", failures)
+    expect(read_lines(Path(expected["pick_log"])) == ["pick"], "subrouter pick fresh launch: expected one pick call", failures)
+    expect("--session-id" in real_argv, f"subrouter pick fresh launch: expected session injection, got {real_argv}", failures)
+
+
+def test_live_socket_keeps_subrouter_claude_profile_for_resume_launch(failures: list[str]) -> None:
+    expected: dict[str, str] = {}
+
+    def setup(tmp: Path) -> dict[str, str]:
+        home = tmp / "home"
+        fake_bin = tmp / "fake-bin"
+        fake_bin.mkdir(parents=True)
+        profile = home / ".codex-accounts" / "claude" / "_resume"
+        profile.mkdir(parents=True)
+        pick_log = tmp / "subrouter-pick.log"
+        expected["profile"] = str(profile)
+        expected["pick_log"] = str(pick_log)
+        make_executable(
+            fake_bin / "subrouter",
+            f"""#!/usr/bin/env bash
+set -euo pipefail
+printf '%s\\n' "$*" >> {str(pick_log)!r}
+exit 42
+""",
+        )
+        return {
+            "HOME": str(home),
+            "PATH": f"{fake_bin}:{tmp / 'wrapper-bin'}:{tmp / 'real-bin'}:{os.environ.get('PATH', '/usr/bin:/bin')}",
+            "CLAUDE_CONFIG_DIR": str(profile),
+        }
+
+    code, auth_env, real_argv, stderr = run_wrapper_auth_env(
+        argv=["--resume", "claude-session-123", "--model", "claude-fable-5"],
+        inherited_env={},
+        setup_env=setup,
+    )
+    expect(code == 0, f"subrouter pick resume launch: wrapper exited {code}: {stderr}", failures)
+    expect(auth_env.get("CLAUDE_CONFIG_DIR") == expected["profile"], f"subrouter pick resume launch: expected resume CLAUDE_CONFIG_DIR {expected['profile']!r}, got {auth_env.get('CLAUDE_CONFIG_DIR')!r}", failures)
+    expect(read_lines(Path(expected["pick_log"])) == [], "subrouter pick resume launch: did not expect subrouter calls", failures)
+    expect("--session-id" not in real_argv, f"subrouter pick resume launch: expected no injected session id, got {real_argv}", failures)
+
+
 def test_live_socket_preserves_claude_auth_for_resume_launch(failures: list[str]) -> None:
     expected_auth_env = {
         "CLAUDE_CONFIG_DIR": "/tmp/resume-claude-config",
