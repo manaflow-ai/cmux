@@ -1223,20 +1223,20 @@ struct WorkspaceGroupTests {
             cursorY: 225
         )
 
-        // Hover the last member's LOWER half: the slot is "after M" and the
-        // membership hitbox says INSIDE the group (last member).
+        // Drag UP until the follower's top edge penetrates the member M
+        // (touch-probe): the slot flips immediately to "before M" — an
+        // interior slot of the group, so membership is forced IN.
         drag.updateReorder(cursorY: 70, translationWidth: 0)
         #expect(drag.dropIndicator != nil)
         #expect(drag.previewMembershipGroupId == g)
 
-        // Slide just past M's bottom edge (over U's top half): SAME insertion
-        // position, but the second hitbox — first row AFTER the group.
+        // Reverse DOWN until the follower's bottom edge penetrates the
+        // ungrouped row U: the slot flips below it — outside the group.
         drag.updateReorder(cursorY: 95, translationWidth: 0)
         #expect(drag.previewMembershipGroupId == nil)
 
-        // The header's lower half tucks INTO the group as its first slot
-        // (clear of the 3pt hysteresis band around the zone edge at y=30).
-        drag.updateReorder(cursorY: 26, translationWidth: 0)
+        // Back UP into M again: in-group once touched.
+        drag.updateReorder(cursorY: 60, translationWidth: 0)
         #expect(drag.previewMembershipGroupId == g)
 
         drag.clearDrag()

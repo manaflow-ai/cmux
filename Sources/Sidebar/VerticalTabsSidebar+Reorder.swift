@@ -90,6 +90,9 @@ extension VerticalTabsSidebar {
                 uniqueKeysWithValues: renderContext.tabs.map { ($0.id, $0.groupId) }
             )
             let headerBandIds = Set(renderContext.workspaceGroups.map(\.anchorWorkspaceId))
+            let collapsedAnchorIds = Set(
+                renderContext.workspaceGroups.filter(\.isCollapsed).map(\.anchorWorkspaceId)
+            )
             let frame = dragState.rowFramesInList[draggedId]
             let grabOffsetY = frame.map { startLocationY - $0.minY } ?? 0
             #if DEBUG
@@ -108,6 +111,7 @@ extension VerticalTabsSidebar {
                 scopeBandComposition: composition,
                 bandGroupIdById: bandGroupIdById,
                 headerBandIds: headerBandIds,
+                collapsedAnchorBandIds: collapsedAnchorIds,
                 draggedCommittedGroupId: draggedGroupId,
                 draggedIsAnchor: draggedIsAnchor,
                 draggedRowFrame: frame,

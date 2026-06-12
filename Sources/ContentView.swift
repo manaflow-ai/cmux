@@ -10471,6 +10471,19 @@ final class SidebarDragState {
     /// earlier in the drag cannot silently bias joins.
     @ObservationIgnored private var boundarySlotKey: String?
     @ObservationIgnored private var translationWidthAtBoundaryEntry: CGFloat = 0
+    /// Last cursor Y and the persisted vertical drag direction. The reorder
+    /// probe is the follower's LEADING edge for the current direction, so a
+    /// touch triggers the swap; direction persists while stationary.
+    @ObservationIgnored private var lastReorderCursorY: CGFloat?
+    @ObservationIgnored private var dragDirectionIsUp = false
+    /// Anchor ids of currently-collapsed groups, for spring-loading: parking
+    /// the cursor over one mid-drag expands the group so the row can be
+    /// placed at a specific slot inside (Finder-style spring-loaded folders).
+    @ObservationIgnored private var collapsedAnchorBandIds: Set<UUID> = []
+    @ObservationIgnored private var springLoadArmedAnchorId: UUID?
+    @ObservationIgnored private var springLoadTask: Task<Void, Never>?
+    /// Set by the sidebar; performs the model-side expand for a spring-load.
+    @ObservationIgnored var onSpringLoadExpand: ((UUID) -> Void)?
 
     /// The begin-time gesture location in list space. Later cursor positions
     /// are derived as base + translation + autoscroll delta, because the
@@ -10553,6 +10566,12 @@ final class SidebarDragState {
         boundarySlotKey = nil
         translationWidthAtBoundaryEntry = 0
         lastTranslationWidth = 0
+        lastReorderCursorY = nil
+        dragDirectionIsUp = false
+        collapsedAnchorBandIds = []
+        springLoadArmedAnchorId = nil
+        springLoadTask?.cancel()
+        springLoadTask = nil
         clearDropIndicator()
     }
 
@@ -10567,6 +10586,7 @@ final class SidebarDragState {
         scopeBandComposition: [UUID: [UUID]],
         bandGroupIdById: [UUID: UUID?],
         headerBandIds: Set<UUID>,
+        collapsedAnchorBandIds: Set<UUID>,
         draggedCommittedGroupId: UUID?,
         draggedIsAnchor: Bool,
         draggedRowFrame: CGRect?,
@@ -10581,6 +10601,9 @@ final class SidebarDragState {
         self.scopeBandComposition = scopeBandComposition
         self.bandGroupIdById = bandGroupIdById
         self.headerBandIds = headerBandIds
+        self.collapsedAnchorBandIds = collapsedAnchorBandIds
+        self.lastReorderCursorY = nil
+        self.dragDirectionIsUp = false
         self.draggedCommittedGroupId = draggedCommittedGroupId
         self.draggedCommittedIndent = (draggedCommittedGroupId != nil && !draggedIsAnchor)
             ? SidebarWorkspaceGroupingMetrics.memberIndent
@@ -10661,18 +10684,107 @@ final class SidebarDragState {
     private func recomputeIndicator(cursorY: CGFloat, translationWidth: CGFloat) {
         guard let draggedTabId else { return }
         let bands = buildBands()
-        let indicator = SidebarReorderIndicatorResolver.resolve(
-            cursorY: cursorY,
-            bands: bands,
-            draggedId: draggedTabId,
-            pinnedIds: pinnedIds,
-            current: dropIndicator,
-            hysteresisMargin: Self.hysteresisMargin
-        )
+
+        // Persisted vertical direction (kept while stationary).
+        if let last = lastReorderCursorY {
+            if cursorY < last - 0.5 {
+                dragDirectionIsUp = true
+            } else if cursorY > last + 0.5 {
+                dragDirectionIsUp = false
+            }
+        }
+        lastReorderCursorY = cursorY
+
+        // The reorder probe is the FOLLOWER'S leading edge, not the cursor:
+        // the swap triggers as soon as the dragged row visually penetrates
+        // ~6pt into a neighbor, instead of waiting for the cursor to cross
+        // row midpoints. Moving up claims the slot ABOVE the touched row,
+        // moving down the slot BELOW it; while the probe sits in a gap (or
+        // the dragged row's own frozen band) the current slot is kept, which
+        // is also the hysteresis.
+        let draggedHeight = draggedRowFrame?.height ?? 0
+        let followerTop = cursorY - grabOffsetY
+        let touchInset: CGFloat = 6
+        let probeY = dragDirectionIsUp
+            ? followerTop + touchInset
+            : followerTop + draggedHeight - touchInset
+
+        let neighborBands = bands.filter { $0.id != draggedTabId }
+        let scopeIds = bands.map(\.id)
+        var indicator = dropIndicator
+        if let probeBand = neighborBands.first(where: { probeY >= $0.minY && probeY < $0.maxY }) {
+            // Built through the planner so pinned-tier legality and slot
+            // canonicalization still apply.
+            let forcedPointerY: CGFloat = dragDirectionIsUp ? 1 : max(probeBand.height - 1, 1)
+            indicator = SidebarDropPlanner.indicator(
+                draggedTabId: draggedTabId,
+                targetTabId: probeBand.id,
+                tabIds: scopeIds,
+                pinnedTabIds: pinnedIds,
+                pointerY: forcedPointerY,
+                targetHeight: probeBand.height
+            )
+        } else if let lastBand = neighborBands.last, probeY >= lastBand.maxY {
+            indicator = SidebarDropPlanner.indicator(
+                draggedTabId: draggedTabId,
+                targetTabId: nil,
+                tabIds: scopeIds,
+                pinnedTabIds: pinnedIds
+            )
+        } else if let firstBand = neighborBands.first, probeY < firstBand.minY {
+            indicator = SidebarDropPlanner.indicator(
+                draggedTabId: draggedTabId,
+                targetTabId: firstBand.id,
+                tabIds: scopeIds,
+                pinnedTabIds: pinnedIds,
+                pointerY: 1,
+                targetHeight: firstBand.height
+            )
+        }
         if indicator != dropIndicator {
             dropIndicator = indicator
         }
+
+        updateSpringLoad(bands: bands, cursorY: cursorY)
         resolveMembership(bands: bands, cursorY: cursorY, translationWidth: translationWidth)
+    }
+
+    /// Spring-loaded collapsed groups: parking the CURSOR over a collapsed
+    /// group's header for a short dwell expands the group mid-drag so the
+    /// row can be placed at a specific slot inside. The dwell is a
+    /// cancellable Task (cancelled when the cursor leaves the header or the
+    /// drag ends), per the no-asyncAfter policy.
+    private func updateSpringLoad(
+        bands: [SidebarReorderIndicatorResolver.Band],
+        cursorY: CGFloat
+    ) {
+        let hoveredCollapsedAnchorId = bands.first(where: {
+            collapsedAnchorBandIds.contains($0.id) && cursorY >= $0.minY && cursorY < $0.maxY
+        })?.id
+        guard hoveredCollapsedAnchorId != springLoadArmedAnchorId else { return }
+        springLoadTask?.cancel()
+        springLoadTask = nil
+        springLoadArmedAnchorId = hoveredCollapsedAnchorId
+        guard let anchorId = hoveredCollapsedAnchorId else { return }
+        springLoadTask = Task { @MainActor [weak self] in
+            try? await Task.sleep(for: .milliseconds(600))
+            guard !Task.isCancelled, let self, self.draggedTabId != nil else { return }
+            self.onSpringLoadExpand?(anchorId)
+        }
+    }
+
+    /// Called by the sidebar after a spring-load expanded the group in the
+    /// model: re-baselines the frozen geometry against the expanded layout.
+    /// The indicator is cleared first so the next layout pass renders the
+    /// committed (gapless) order, and the frame map refills from it.
+    func noteSpringLoadExpanded(anchorId: UUID) {
+        collapsedAnchorBandIds.remove(anchorId)
+        springLoadArmedAnchorId = nil
+        springLoadTask = nil
+        if dropIndicator != nil {
+            dropIndicator = nil
+        }
+        rowFramesInList = [:]
     }
 
     /// Resolves the membership the dragged row will commit with at the
@@ -11443,6 +11555,17 @@ struct VerticalTabsSidebar: View {
             // while the pointer sits still at a list edge.
             dragAutoScrollController.onDidScroll = { [weak dragState] delta in
                 dragState?.applyAutoScrollDelta(delta)
+            }
+            // Spring-loaded collapsed groups: a dwell over a collapsed
+            // header mid-drag expands the group so the row can be placed at
+            // a specific slot inside.
+            dragState.onSpringLoadExpand = { [weak tabManager, weak dragState] anchorId in
+                guard let tabManager,
+                      let group = tabManager.workspaceGroups.first(where: { $0.anchorWorkspaceId == anchorId }) else { return }
+                withAnimation(SidebarGroupAnimation.collapse) {
+                    tabManager.setWorkspaceGroupCollapsed(groupId: group.id, isCollapsed: false)
+                }
+                dragState?.noteSpringLoadExpanded(anchorId: anchorId)
             }
             // Defensive reset: if a prior simulation died without running
             // its teardown (sidebar unmounted mid-loop, app crash, etc.) the
