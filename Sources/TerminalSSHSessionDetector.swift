@@ -127,9 +127,11 @@ struct DetectedSSHSession: Equatable {
     }
 
     private func scpArguments(localPath: String, remotePath: String) -> [String] {
-        var args: [String] = [
-            "-q",
-            "-o", "ConnectTimeout=6",
+        var args: [String] = ["-q"]
+        if !Self.hasSSHOptionKey(sshOptions, key: "ConnectTimeout") {
+            args += ["-o", "ConnectTimeout=30"]
+        }
+        args += [
             "-o", "ServerAliveInterval=20",
             "-o", "ServerAliveCountMax=2",
             "-o", "BatchMode=yes",
@@ -176,9 +178,11 @@ struct DetectedSSHSession: Equatable {
     }
 
     private func sshArguments(command: String) -> [String] {
-        var args: [String] = [
-            "-T",
-            "-o", "ConnectTimeout=6",
+        var args: [String] = ["-T"]
+        if !Self.hasSSHOptionKey(sshOptions, key: "ConnectTimeout") {
+            args += ["-o", "ConnectTimeout=30"]
+        }
+        args += [
             "-o", "ServerAliveInterval=20",
             "-o", "ServerAliveCountMax=2",
             "-o", "BatchMode=yes",

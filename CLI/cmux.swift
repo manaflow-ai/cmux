@@ -8954,7 +8954,7 @@ struct CMUXCLI {
         )
         var parts: [String] = ["ssh"]
         if !hasSSHOptionKey(effectiveSSHOptions, key: "ConnectTimeout") {
-            parts += ["-o", "ConnectTimeout=6"]
+            parts += ["-o", "ConnectTimeout=30"]
         }
         if !hasSSHOptionKey(effectiveSSHOptions, key: "ServerAliveInterval") {
             parts += ["-o", "ServerAliveInterval=20"]

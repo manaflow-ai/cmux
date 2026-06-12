@@ -203,7 +203,7 @@ nonisolated enum SSHPTYAttachStartupCommandBuilder {
         var arguments = ["ssh"]
         let options = sshOptionsWithRestoreControlDefaults(auth.sshOptions)
         if !hasSSHOptionKey(options, key: "ConnectTimeout") {
-            arguments += ["-o", "ConnectTimeout=6"]
+            arguments += ["-o", "ConnectTimeout=30"]
         }
         if !hasSSHOptionKey(options, key: "ServerAliveInterval") {
             arguments += ["-o", "ServerAliveInterval=20"]

@@ -2997,6 +2997,55 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
         XCTAssertTrue(arguments.contains(where: { $0 == "ControlPath /tmp/cmux-ssh-%C" || $0 == "ControlPath=/tmp/cmux-ssh-%C" }))
     }
 
+    func testDaemonTransportArgumentsInjectsDefaultConnectTimeoutWhenAbsent() {
+        let configuration = WorkspaceRemoteConfiguration(
+            destination: "cmux-macmini",
+            port: 2222,
+            identityFile: "/Users/test/.ssh/id_ed25519",
+            sshOptions: ["StrictHostKeyChecking=accept-new"],
+            localProxyPort: nil,
+            relayPort: nil,
+            relayID: nil,
+            relayToken: nil,
+            localSocketPath: nil,
+            terminalStartupCommand: nil
+        )
+
+        let arguments = WorkspaceRemoteSSHBatchCommandBuilder.daemonTransportArguments(
+            configuration: configuration,
+            remotePath: "/remote/cmuxd-remote"
+        )
+
+        XCTAssertTrue(arguments.contains("ConnectTimeout=30"))
+        XCTAssertFalse(arguments.contains(where: { $0.hasPrefix("ConnectTimeout=") && $0 != "ConnectTimeout=30" }))
+    }
+
+    func testDaemonTransportArgumentsHonorsUserConnectTimeoutOverride() {
+        let configuration = WorkspaceRemoteConfiguration(
+            destination: "cmux-macmini",
+            port: 2222,
+            identityFile: "/Users/test/.ssh/id_ed25519",
+            sshOptions: [
+                "ConnectTimeout=15",
+                "StrictHostKeyChecking=accept-new",
+            ],
+            localProxyPort: nil,
+            relayPort: nil,
+            relayID: nil,
+            relayToken: nil,
+            localSocketPath: nil,
+            terminalStartupCommand: nil
+        )
+
+        let arguments = WorkspaceRemoteSSHBatchCommandBuilder.daemonTransportArguments(
+            configuration: configuration,
+            remotePath: "/remote/cmuxd-remote"
+        )
+
+        XCTAssertTrue(arguments.contains("ConnectTimeout=15"))
+        XCTAssertFalse(arguments.contains("ConnectTimeout=30"))
+    }
+
     func testReverseRelayControlMasterArgumentsReuseConfiguredControlSocket() throws {
         let configuration = WorkspaceRemoteConfiguration(
             destination: "cmux-macmini",
