@@ -98,6 +98,8 @@ public actor FixtureChatEventSource: ChatEventSource {
                     backlog[index] = message
                 }
             }
+        case .unknown:
+            break
         case .stateChanged, .descriptorChanged:
             break
         }

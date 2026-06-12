@@ -48,26 +48,34 @@ extension ChatMessageKind: Codable {
     public init(from decoder: any Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         let rawType = try container.decode(String.self, forKey: .type)
-        switch TypeName(rawValue: rawType) {
-        case .prose:
-            self = .prose(try ChatProse(from: decoder))
-        case .thought:
-            self = .thought(try ChatThought(from: decoder))
-        case .toolUse:
-            self = .toolUse(try ChatToolUse(from: decoder))
-        case .terminal:
-            self = .terminal(try ChatTerminalCapture(from: decoder))
-        case .fileEdit:
-            self = .fileEdit(try ChatFileEdit(from: decoder))
-        case .permissionRequest:
-            self = .permissionRequest(try ChatPermissionRequest(from: decoder))
-        case .question:
-            self = .question(try ChatQuestion(from: decoder))
-        case .status:
-            self = .status(try ChatStatusTransition(from: decoder))
-        case .attachment:
-            self = .attachment(try ChatAttachment(from: decoder))
-        case .unsupported, .none:
+        // Payload decode failures fail OPEN to the unsupported row: a newer
+        // Mac adding one nested enum value (a new tool status, a new media
+        // kind) must degrade that single message, not throw the whole page
+        // or event frame away.
+        do {
+            switch TypeName(rawValue: rawType) {
+            case .prose:
+                self = .prose(try ChatProse(from: decoder))
+            case .thought:
+                self = .thought(try ChatThought(from: decoder))
+            case .toolUse:
+                self = .toolUse(try ChatToolUse(from: decoder))
+            case .terminal:
+                self = .terminal(try ChatTerminalCapture(from: decoder))
+            case .fileEdit:
+                self = .fileEdit(try ChatFileEdit(from: decoder))
+            case .permissionRequest:
+                self = .permissionRequest(try ChatPermissionRequest(from: decoder))
+            case .question:
+                self = .question(try ChatQuestion(from: decoder))
+            case .status:
+                self = .status(try ChatStatusTransition(from: decoder))
+            case .attachment:
+                self = .attachment(try ChatAttachment(from: decoder))
+            case .unsupported, .none:
+                self = .unsupported(ChatUnsupportedPayload(rawType: rawType))
+            }
+        } catch {
             self = .unsupported(ChatUnsupportedPayload(rawType: rawType))
         }
     }

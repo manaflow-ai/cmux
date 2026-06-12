@@ -83,7 +83,8 @@ public final class ChatConversationStore {
         projector: ChatTranscriptProjector = ChatTranscriptProjector(),
         pageSize: Int = 100,
         maxWindowCount: Int = 600,
-        now: @escaping @Sendable () -> Date = { Date() }
+        now: @escaping @Sendable () -> Date = { Date() },
+        idleSleep: @escaping (Duration) async -> Void = { try? await Task.sleep(for: $0) }
     ) {
         self.descriptor = descriptor
         self.agentState = descriptor.state
@@ -92,10 +93,14 @@ public final class ChatConversationStore {
         self.pageSize = pageSize
         self.maxWindowCount = maxWindowCount
         self.now = now
+        self.idleSleep = idleSleep
         self.lastReadSeqAtActivation = lastReadSeq
     }
 
     @ObservationIgnored private let lastReadSeqAtActivation: Int?
+    /// Cancellable reconnect-backoff sleep; injectable for deterministic
+    /// tests.
+    @ObservationIgnored private let idleSleep: (Duration) async -> Void
 
     /// Follows the live event stream until cancelled, loading history
     /// inside each subscription so no event falls into a fetch/subscribe
@@ -105,6 +110,7 @@ public final class ChatConversationStore {
     /// the store marks itself disconnected and resubscribes; the event
     /// source owns backoff policy.
     public func run() async {
+        var backoff: Duration = .zero
         while !Task.isCancelled {
             // Subscribe FIRST: events emitted while the history fetch is in
             // flight buffer in the stream and replay after the merge (the
@@ -117,11 +123,22 @@ public final class ChatConversationStore {
                 // Reconnect: merge whatever the window missed while down.
                 await resyncTail()
             }
+            var receivedEvent = false
             for await event in stream {
+                receivedEvent = true
+                if backoff != .zero { backoff = .zero }
                 apply(event)
             }
             isConnected = false
             guard !Task.isCancelled else { return }
+            // A stream that died without delivering anything means the
+            // connection is unhealthy; back off before resubscribing so a
+            // dead Mac doesn't spin subscribe+history RPCs at full speed.
+            // Cancellable sleep; reset on the first delivered event.
+            if !receivedEvent {
+                backoff = min(max(backoff * 2, .milliseconds(500)), .seconds(16))
+                await idleSleep(backoff)
+            }
         }
     }
 
@@ -317,13 +334,16 @@ public final class ChatConversationStore {
         case .descriptorChanged(let descriptor):
             self.descriptor = descriptor
             agentState = descriptor.state
+        case .unknown:
+            break
         }
     }
 
     private func appendToWindow(_ newMessages: [ChatMessage]) {
-        // Dedup by id: a live event can replay content the history fetch in
-        // the same subscription cycle already merged.
-        let knownIDs = Set(messages.suffix(64).map(\.id))
+        // Dedup by id against the FULL window: a live event can replay
+        // content the history fetch in the same subscription cycle already
+        // merged, and a single tailer drain can exceed any fixed suffix.
+        let knownIDs = Set(messages.map(\.id))
         let fresh = newMessages.filter { !knownIDs.contains($0.id) }
         guard !fresh.isEmpty else { return }
         messages.append(contentsOf: fresh)
@@ -338,24 +358,46 @@ public final class ChatConversationStore {
     /// transcript as a real user message.
     private func reconcilePending(against newMessages: [ChatMessage]) {
         guard !pending.isEmpty else { return }
-        for message in newMessages {
-            guard message.role == .user, case .prose(let prose) = message.kind else { continue }
-            let echoed = prose.text.trimmingCharacters(in: .whitespacesAndNewlines)
-            let index = pending.firstIndex { item in
-                if item.text == echoed { return true }
-                // The transcript copy may be budget-truncated ("…" suffix)
-                // or a paste placeholder; match on the echoed prefix so long
-                // prompts still reconcile.
-                if echoed.hasSuffix("…"), echoed.count > 64,
-                   item.text.hasPrefix(echoed.dropLast()) {
-                    return true
+        for message in newMessages where message.role == .user {
+            switch message.kind {
+            case .prose(let prose):
+                let echoed = prose.text.trimmingCharacters(in: .whitespacesAndNewlines)
+                let index = pending.firstIndex { item in
+                    if item.text == echoed { return true }
+                    // The transcript copy may be budget-truncated ("…"
+                    // suffix); match on the echoed prefix so long prompts
+                    // still reconcile.
+                    if echoed.hasSuffix("…"), echoed.count > 64,
+                       item.text.hasPrefix(echoed.dropLast()) {
+                        return true
+                    }
+                    // Bracketed multi-line sends echo as Claude Code's
+                    // paste placeholder, not the literal text; match it to
+                    // the oldest delivered multi-line pending.
+                    if Self.isPastePlaceholder(echoed) {
+                        return item.text.contains("\n")
+                    }
+                    return false
                 }
-                return false
-            }
-            if let index {
-                pending.remove(at: index)
+                if let index {
+                    pending.remove(at: index)
+                }
+            case .attachment:
+                // Attachment-only sends have no text to echo; the image
+                // path arriving as a user attachment message is the echo.
+                if let index = pending.firstIndex(where: { $0.text.isEmpty }) {
+                    pending.remove(at: index)
+                }
+            default:
+                continue
             }
         }
+    }
+
+    /// Whether an echoed user line is Claude Code's bracketed-paste
+    /// placeholder ("[Pasted text #1 +12 lines]").
+    static func isPastePlaceholder(_ text: String) -> Bool {
+        text.wholeMatch(of: /\[Pasted text #\d+( \+\d+ lines)?\]/) != nil
     }
 
     private func updatePending(id: String, delivery: ChatDeliveryState) {

@@ -17,7 +17,7 @@ public struct ChatComposerView: View {
     private let onInterrupt: (Bool) -> Void
     private let onOpenTerminal: () -> Void
 
-    @State private var draft = ""
+    @Binding private var draft: String
     @State private var lastStopTap: Date?
     #if os(iOS)
     @State private var pickedItems: [PhotosPickerItem] = []
@@ -45,6 +45,7 @@ public struct ChatComposerView: View {
         agentState: ChatAgentState,
         agentKind: ChatAgentKind,
         isConnected: Bool,
+        draft: Binding<String>,
         onSend: @escaping (String, [ChatOutboundAttachment]) -> Void,
         onInterrupt: @escaping (Bool) -> Void,
         onOpenTerminal: @escaping () -> Void
@@ -52,6 +53,7 @@ public struct ChatComposerView: View {
         self.agentState = agentState
         self.agentKind = agentKind
         self.isConnected = isConnected
+        _draft = draft
         self.onSend = onSend
         self.onInterrupt = onInterrupt
         self.onOpenTerminal = onOpenTerminal

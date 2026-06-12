@@ -55,4 +55,19 @@ public struct ChatMessage: Identifiable, Sendable, Equatable, Codable {
         case timestamp
         case kind
     }
+
+    public init(from decoder: any Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        // id and seq are genuinely load-bearing (identity, paging cursor);
+        // their absence is corruption and throws. Everything else fails
+        // open so one evolved field can't sink a whole page.
+        self.id = try container.decode(String.self, forKey: .id)
+        self.seq = try container.decode(Int.self, forKey: .seq)
+        let rawRole = try? container.decode(String.self, forKey: .role)
+        self.role = rawRole.flatMap(ChatRole.init(rawValue:)) ?? .agent
+        self.timestamp = (try? container.decode(Date.self, forKey: .timestamp))
+            ?? Date(timeIntervalSince1970: 0)
+        self.kind = (try? container.decode(ChatMessageKind.self, forKey: .kind))
+            ?? .unsupported(ChatUnsupportedPayload(rawType: "undecodable"))
+    }
 }

@@ -452,6 +452,44 @@ struct ChatConversationStoreTests {
         #expect(store.isConnected == false)
     }
 
+    @Test("a live replay overlapping a long history page does not duplicate rows")
+    func replayOverlappingHistoryDeduplicates() async {
+        // 100-message page plus a buffered replay of the same 100 (one
+        // tailer drain emitted mid-fetch); the window must stay at 100.
+        let backlog = Self.backlog(count: 100)
+        let source = FixtureChatEventSource(backlog: backlog)
+        let store = Self.makeStore(source: source, pageSize: 100)
+        let runTask = Task { await store.run() }
+        defer { runTask.cancel() }
+        #expect(await TestPoller.waitUntil { store.hasLoadedInitialHistory })
+
+        await source.emit(.appended(backlog))
+        _ = await TestPoller.waitUntil { Self.snapshots(store.rows).count > 100 }
+        #expect(Self.snapshots(store.rows).count == 100)
+    }
+
+    @Test("a paste-placeholder echo reconciles a multi-line pending send")
+    func pastePlaceholderEchoReconciles() async {
+        let source = SilentSendEventSource()
+        let store = Self.makeStore(source: source)
+        let runTask = Task { await store.run() }
+        defer { runTask.cancel() }
+        #expect(await TestPoller.waitUntil { store.isConnected })
+
+        await store.send(text: "line one\nline two\nline three")
+        #expect(await TestPoller.waitUntil { Self.pendingItems(store.rows).count == 1 })
+
+        let echo = ChatMessage(
+            id: "echo-paste",
+            seq: 0,
+            role: .user,
+            timestamp: Self.baseTime,
+            kind: .prose(ChatProse(text: "[Pasted text #1 +3 lines]"))
+        )
+        await source.emit(.appended([echo]))
+        #expect(await TestPoller.waitUntil { Self.pendingItems(store.rows).isEmpty })
+    }
+
     @Test("a budget-truncated transcript echo still reconciles the pending row")
     func truncatedEchoReconciles() async {
         let source = SilentSendEventSource()

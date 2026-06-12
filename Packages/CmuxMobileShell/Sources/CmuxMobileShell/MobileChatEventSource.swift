@@ -86,10 +86,15 @@ public actor MobileChatEventSource: ChatEventSource {
                 }
                 continuation.finish()
             }
-            continuation.onTermination = { _ in
+            continuation.onTermination = { reason in
                 pump.cancel()
-                // Withdraw the server-side registration so the Mac stops
-                // tailing and pushing for a chat nobody is watching.
+                // Withdraw the server-side registration only when the
+                // CONSUMER cancelled a live stream (chat closed). A
+                // `.finished` termination means the connection itself died
+                // (or the handshake failed); sending an unsubscribe there
+                // would reopen a torn-down transport just to clean up a
+                // registration that died with it.
+                guard case .cancelled = reason else { return }
                 Task {
                     if let unsubscribe = try? MobileCoreRPCClient.requestData(
                         method: "mobile.events.unsubscribe",

@@ -27,6 +27,7 @@ public struct ChatTranscriptListView: View {
     @State private var scrollPosition = ScrollPosition(edge: .bottom)
     @State private var isAtBottom = true
     #endif
+    @State private var containerWidth: CGFloat = 0
 
     /// Creates the transcript list.
     ///
@@ -75,7 +76,10 @@ public struct ChatTranscriptListView: View {
             } action: { _, nearBottom in
                 isAtBottom = nearBottom
             }
-            .onChange(of: rows.last?.id) {
+            // Composite key: a failed pending row pinned at the tail keeps
+            // `last?.id` stable while agent messages insert above it, so
+            // follow on count changes too.
+            .onChange(of: FollowKey(count: rows.count, lastID: rows.last?.id)) {
                 guard isAtBottom else { return }
                 scrollPosition.scrollTo(edge: .bottom)
             }
@@ -102,6 +106,12 @@ public struct ChatTranscriptListView: View {
                 }
         }
         #endif
+    }
+
+    /// Tail-follow trigger identity; see the onChange comment.
+    private struct FollowKey: Equatable {
+        let count: Int
+        let lastID: String?
     }
 
     private var scrollContent: some View {
@@ -145,6 +155,15 @@ public struct ChatTranscriptListView: View {
             .padding(.horizontal, theme.horizontalMargin)
             .padding(.vertical, 8)
         }
+        .onGeometryChange(for: CGFloat.self) { proxy in
+            proxy.size.width
+        } action: { width in
+            containerWidth = width
+        }
+        .environment(
+            \.chatBubbleMaxWidth,
+            containerWidth > 0 ? containerWidth * theme.bubbleMaxWidthFraction : .infinity
+        )
     }
 
     @ViewBuilder

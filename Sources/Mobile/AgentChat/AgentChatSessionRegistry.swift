@@ -9,9 +9,14 @@ final class AgentChatSessionRegistry {
     private var records: [String: AgentChatSessionRecord] = [:]
     private let hookStore: AgentChatHookSessionStore
 
-    /// Called whenever a record's live state or descriptor changes, so the
-    /// owner can push `chat.message` events.
-    var onRecordChanged: ((AgentChatSessionRecord, _ stateChanged: Bool) -> Void)?
+    /// Called after a record mutation with the previous value (nil for a
+    /// brand-new record), so the owner derives state/descriptor deltas in
+    /// one place instead of hand-maintained flags.
+    var onRecordChanged: ((AgentChatSessionRecord, _ previous: AgentChatSessionRecord?) -> Void)?
+
+    /// Per-session timestamp of the last hook-store file consult, bounding
+    /// main-actor disk reads during tool storms.
+    private var hookStoreConsultedAt: [String: Date] = [:]
 
     /// Creates a registry.
     ///
@@ -38,8 +43,10 @@ final class AgentChatSessionRegistry {
     private func sweepDeadProcesses() {
         for (sessionID, record) in records {
             guard record.state != .ended, let pid = record.pid else { continue }
-            if kill(pid_t(pid), 0) != 0 {
-                update(sessionID: sessionID, stateChanged: true) { $0.state = .ended }
+            // ESRCH means the process is gone; EPERM means it exists but is
+            // not signalable, which still counts as alive.
+            if kill(pid_t(pid), 0) != 0, errno == ESRCH {
+                update(sessionID: sessionID) { $0.state = .ended }
             }
         }
     }
@@ -52,21 +59,21 @@ final class AgentChatSessionRegistry {
         records[sessionID]
     }
 
-    /// Applies a mutation to a record and notifies the change callback.
+    /// Applies a mutation to a record and notifies the change callback
+    /// with the previous value.
     ///
     /// - Parameters:
     ///   - sessionID: The session to mutate.
-    ///   - stateChanged: Whether the mutation includes a live-state change.
     ///   - mutate: The in-place mutation.
     func update(
         sessionID: String,
-        stateChanged: Bool = false,
         mutate: (inout AgentChatSessionRecord) -> Void
     ) {
-        guard var record = records[sessionID] else { return }
+        guard let previous = records[sessionID] else { return }
+        var record = previous
         mutate(&record)
         records[sessionID] = record
-        onRecordChanged?(record, stateChanged)
+        onRecordChanged?(record, previous)
     }
 
     /// Seeds the registry from the on-disk hook stores so sessions started
@@ -123,20 +130,29 @@ final class AgentChatSessionRegistry {
         if let cwd = event.cwd, !cwd.isEmpty {
             record.workingDirectory = cwd
         }
-        if record.surfaceID == nil || record.transcriptPath == nil || record.pid == nil,
-           let entry = hookStore.entry(agentSource: event.source, sessionID: sessionID) {
-            record.surfaceID = record.surfaceID ?? entry.surfaceID
-            record.workspaceID = record.workspaceID ?? entry.workspaceID
-            record.transcriptPath = record.transcriptPath ?? entry.transcriptPath
-            record.workingDirectory = record.workingDirectory ?? entry.workingDirectory
-            record.pid = record.pid ?? entry.pid
+        // The hook store is a whole-file JSON read on the main actor;
+        // consult it at most every 30s per session while fields are still
+        // missing (pid can legitimately stay absent), not on every
+        // pre/postToolUse during a tool storm.
+        let needsHookStore = record.surfaceID == nil || record.transcriptPath == nil || record.pid == nil
+        let lastConsult = hookStoreConsultedAt[sessionID]
+        if needsHookStore,
+           lastConsult.map({ event.receivedAt.timeIntervalSince($0) > 30 }) ?? true {
+            hookStoreConsultedAt[sessionID] = event.receivedAt
+            if let entry = hookStore.entry(agentSource: event.source, sessionID: sessionID) {
+                record.surfaceID = record.surfaceID ?? entry.surfaceID
+                record.workspaceID = record.workspaceID ?? entry.workspaceID
+                record.transcriptPath = record.transcriptPath ?? entry.transcriptPath
+                record.workingDirectory = record.workingDirectory ?? entry.workingDirectory
+                record.pid = record.pid ?? entry.pid
+            }
         }
         record.lastActivityAt = event.receivedAt
 
-        let previousState = record.state
-        record.state = Self.nextState(previous: previousState, event: event)
+        let previous = records[sessionID]
+        record.state = Self.nextState(previous: record.state, event: event)
         records[sessionID] = record
-        onRecordChanged?(record, record.state != previousState)
+        onRecordChanged?(record, previous)
         return record
     }
 

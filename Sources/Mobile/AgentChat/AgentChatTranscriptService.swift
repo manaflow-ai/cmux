@@ -38,8 +38,8 @@ final class AgentChatTranscriptService {
     ) {
         self.registry = registry
         self.resolver = resolver
-        registry.onRecordChanged = { [weak self] record, stateChanged in
-            self?.handleRecordChange(record, stateChanged: stateChanged)
+        registry.onRecordChanged = { [weak self] record, previous in
+            self?.handleRecordChange(record, previous: previous)
         }
     }
 
@@ -54,9 +54,19 @@ final class AgentChatTranscriptService {
     /// - Parameter event: The hook event.
     func noteHookEvent(_ event: WorkstreamEvent) {
         let record = registry.noteHookEvent(event)
-        // Tail eagerly only while someone is listening; history requests
-        // start tailers on demand.
-        if MobileHostService.hasEventSubscribers(topic: Self.eventTopic) {
+        // A session (re)starting or receiving a prompt is the bounded
+        // retry point for a transcript that didn't exist at first sight.
+        switch event.hookEventName {
+        case .sessionStart, .userPromptSubmit:
+            failedResolutions.remove(record.sessionID)
+        default:
+            break
+        }
+        // Tail eagerly only while someone is listening, and never for an
+        // ended session (its transcript can no longer grow; recreating the
+        // tailer here would undo the ended-state eviction).
+        if record.state != .ended,
+           MobileHostService.hasEventSubscribers(topic: Self.eventTopic) {
             ensureTailer(for: record)
         }
     }
@@ -141,17 +151,35 @@ final class AgentChatTranscriptService {
         }
     }
 
-    private func handleRecordChange(_ record: AgentChatSessionRecord, stateChanged: Bool) {
-        if record.state == .ended, let tailer = tailers.removeValue(forKey: record.sessionID) {
+    private func handleRecordChange(_ record: AgentChatSessionRecord, previous: AgentChatSessionRecord?) {
+        let stateChanged = previous?.state != record.state
+        if stateChanged, record.state == .ended,
+           let tailer = tailers.removeValue(forKey: record.sessionID) {
             // The transcript can no longer grow; release the file watcher
-            // and cache instead of holding them until app quit.
+            // and cache instead of holding them until app quit. Evicting
+            // only on the TRANSITION keeps unrelated record updates (title
+            // discovery while paging an ended session) from churning it.
             Task { await tailer.stop() }
         }
         guard MobileHostService.hasEventSubscribers(topic: Self.eventTopic) else { return }
         if stateChanged {
             emit(frame: ChatSessionEventFrame(sessionID: record.sessionID, event: .stateChanged(record.state)))
         }
-        emit(frame: ChatSessionEventFrame(sessionID: record.sessionID, event: .descriptorChanged(record.descriptor)))
+        // Pure activity bumps (every pre/postToolUse moves lastActivityAt)
+        // don't merit a descriptor push to every phone; emit only when the
+        // descriptor changed beyond the activity timestamp.
+        if Self.descriptorChangedMeaningfully(previous: previous, current: record) {
+            emit(frame: ChatSessionEventFrame(sessionID: record.sessionID, event: .descriptorChanged(record.descriptor)))
+        }
+    }
+
+    private static func descriptorChangedMeaningfully(
+        previous: AgentChatSessionRecord?,
+        current: AgentChatSessionRecord
+    ) -> Bool {
+        guard var normalizedPrevious = previous else { return true }
+        normalizedPrevious.lastActivityAt = current.lastActivityAt
+        return normalizedPrevious.descriptor != current.descriptor
     }
 
     private func emit(frame: ChatSessionEventFrame) {

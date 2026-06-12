@@ -11,6 +11,7 @@ public struct ChatScreen: View {
     @State private var store: ChatConversationStore
     @State private var expandedIDs: Set<String> = []
     @State private var renderer = ChatMarkdownRenderer()
+    @Binding private var draft: String
     private let onOpenTerminal: () -> Void
 
     /// Creates the screen.
@@ -20,8 +21,15 @@ public struct ChatScreen: View {
     ///     platform ``ChatEventSource``.
     ///   - onOpenTerminal: Opens the session's raw terminal surface (the
     ///     escape hatch); the host owns that navigation.
-    public init(store: ChatConversationStore, onOpenTerminal: @escaping () -> Void) {
+    ///   - draft: Host-owned composer draft, so a dismissed cover keeps
+    ///     the half-typed prompt. Pass `.constant("")` to opt out.
+    public init(
+        store: ChatConversationStore,
+        draft: Binding<String> = .constant(""),
+        onOpenTerminal: @escaping () -> Void
+    ) {
         _store = State(initialValue: store)
+        _draft = draft
         self.onOpenTerminal = onOpenTerminal
     }
 
@@ -57,6 +65,7 @@ public struct ChatScreen: View {
                 agentState: store.agentState,
                 agentKind: store.descriptor.agentKind,
                 isConnected: store.isConnected,
+                draft: $draft,
                 onSend: { text, attachments in
                     Task { await store.send(text: text, attachments: attachments) }
                 },

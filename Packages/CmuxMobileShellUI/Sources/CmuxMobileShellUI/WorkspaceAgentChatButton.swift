@@ -15,6 +15,10 @@ struct WorkspaceAgentChatButton: View {
 
     @State private var sessions: [ChatSessionDescriptor] = []
     @State private var presentation: Presentation?
+    /// Per-session composer drafts, surviving cover dismissal while the
+    /// workspace view lives (a closed chat reopened mid-thought keeps the
+    /// half-typed prompt).
+    @State private var drafts: [String: String] = [:]
 
     var body: some View {
         // The empty state still renders a zero-sized view (not EmptyView):
@@ -46,7 +50,11 @@ struct WorkspaceAgentChatButton: View {
             NavigationStack {
                 ChatScreen(
                     store: presentation.conversation,
-                    onOpenTerminal: { self.presentation = nil }
+                    draft: Binding(
+                        get: { drafts[presentation.id] ?? "" },
+                        set: { drafts[presentation.id] = $0 }
+                    ),
+                    onOpenTerminal: { openTerminal(presentation.conversation.descriptor) }
                 )
                 .toolbar {
                     ToolbarItem(placement: .cancellationAction) {
@@ -58,6 +66,15 @@ struct WorkspaceAgentChatButton: View {
                 }
             }
         }
+    }
+
+    /// The escape hatch: land on the session's actual terminal surface,
+    /// not just back on the workspace.
+    private func openTerminal(_ descriptor: ChatSessionDescriptor) {
+        if let terminalID = descriptor.terminalID {
+            store.selectedTerminalID = MobileTerminalPreview.ID(rawValue: terminalID)
+        }
+        presentation = nil
     }
 
     private func open(_ session: ChatSessionDescriptor) {

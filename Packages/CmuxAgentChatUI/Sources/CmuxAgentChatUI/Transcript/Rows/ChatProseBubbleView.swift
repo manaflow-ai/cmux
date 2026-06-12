@@ -1,5 +1,8 @@
 import CmuxAgentChat
 import SwiftUI
+#if canImport(UIKit)
+import UIKit
+#endif
 
 /// The core prose bubble: user prompts render trailing-aligned plain text
 /// on the outgoing fill; agent prose renders leading-aligned with markdown
@@ -11,6 +14,7 @@ public struct ChatProseBubbleView: View {
     private let showsTimestamp: Bool
 
     @Environment(\.chatTheme) private var theme
+    @Environment(\.chatBubbleMaxWidth) private var bubbleMaxWidth
     @Environment(\.chatMarkdownRenderer) private var renderer
 
     /// Creates a prose bubble.
@@ -38,6 +42,19 @@ public struct ChatProseBubbleView: View {
             if isUser { Spacer(minLength: 64) }
             VStack(alignment: isUser ? .trailing : .leading, spacing: 3) {
                 bubble
+                    .frame(maxWidth: bubbleMaxWidth, alignment: isUser ? .trailing : .leading)
+                    .contextMenu {
+                        Button {
+                            #if canImport(UIKit)
+                            UIPasteboard.general.string = prose.text
+                            #endif
+                        } label: {
+                            Label(
+                                String(localized: "chat.bubble.copy", defaultValue: "Copy", bundle: .module),
+                                systemImage: "doc.on.doc"
+                            )
+                        }
+                    }
                 if showsTimestamp {
                     Text(message.timestamp.formatted(.dateTime.hour().minute()))
                         .font(.caption2)

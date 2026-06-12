@@ -105,6 +105,42 @@ struct ChatMessageCodableTests {
         #expect(decoded.kind == .unsupported(ChatUnsupportedPayload(rawType: "hologram")))
     }
 
+    @Test("an unknown nested enum value degrades that message to unsupported, not the page")
+    func unknownNestedEnumFailsOpen() throws {
+        let json = """
+        {"id": "m10", "seq": 10, "role": "agent",
+         "timestamp": "2026-06-11T00:00:00Z",
+         "kind": {"type": "tool_use", "tool_name": "Bash", "summary": "x",
+                  "status": "cancelled_by_orbit"}}
+        """
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+        let decoded = try decoder.decode(ChatMessage.self, from: Data(json.utf8))
+        #expect(decoded.kind == .unsupported(ChatUnsupportedPayload(rawType: "tool_use")))
+    }
+
+    @Test("an unknown role and missing timestamp fail open, keeping id and seq")
+    func unknownEnvelopeFieldsFailOpen() throws {
+        let json = """
+        {"id": "m11", "seq": 11, "role": "overseer",
+         "kind": {"type": "prose", "text": "hi"}}
+        """
+        let decoded = try JSONDecoder().decode(ChatMessage.self, from: Data(json.utf8))
+        #expect(decoded.id == "m11")
+        #expect(decoded.seq == 11)
+        #expect(decoded.role == .agent)
+        #expect(decoded.kind == .prose(ChatProse(text: "hi")))
+    }
+
+    @Test("an unknown session event name decodes as ignorable, not a throw")
+    func unknownSessionEventFailsOpen() throws {
+        let json = """
+        {"event": "hologram_projected", "intensity": 11}
+        """
+        let decoded = try JSONDecoder().decode(ChatSessionEvent.self, from: Data(json.utf8))
+        #expect(decoded == .unknown("hologram_projected"))
+    }
+
     @Test("agent state round-trips with associated dates")
     func agentStateRoundTrips() throws {
         let encoder = JSONEncoder()
