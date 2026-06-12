@@ -153,10 +153,11 @@ func shouldDispatchBrowserOmnibarArrowViaFirstResponderKeyDown(
 
 func shouldDispatchTerminalArrowViaFirstResponderKeyDown(
     keyCode: UInt16,
+    firstResponderIsTerminal: Bool,
     firstResponderHasMarkedText: Bool = false,
     flags: NSEvent.ModifierFlags
 ) -> Bool {
-    guard !firstResponderHasMarkedText, (123...126).contains(keyCode) else { return false }
+    guard firstResponderIsTerminal, !firstResponderHasMarkedText, (123...126).contains(keyCode) else { return false }
     return !browserOmnibarNormalizedModifierFlags(flags).contains(.command)
 }
 

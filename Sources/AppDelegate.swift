@@ -17298,9 +17298,8 @@ private extension NSWindow {
 #endif
 
         // When a terminal owns first responder, bypass SwiftUI's hosting view:
-        // after browser focus churn it can claim key equivalents without firing
-        // actions. Non-Command keys go to Ghostty; Command keys go to the main
-        // menu because app shortcuts were already handled by the event monitor.
+        // after browser focus churn it can claim key equivalents without firing.
+        // Non-Command keys go to Ghostty; Command keys go to the main menu.
         let firstResponderGhosttyView = cmuxOwningGhosttyView(for: self.firstResponder)
         let firstResponderWebView = self.firstResponder.flatMap {
             Self.cmuxOwningWebView(for: $0, in: self, event: event)
@@ -17386,6 +17385,7 @@ private extension NSWindow {
             if !flags.contains(.command) {
                 if shouldDispatchTerminalArrowViaFirstResponderKeyDown(
                     keyCode: event.keyCode,
+                    firstResponderIsTerminal: true,
                     firstResponderHasMarkedText: ghosttyView.hasMarkedText(),
                     flags: event.modifierFlags
                 ) {

@@ -112,6 +112,48 @@ struct GhosttyDECCKMArrowKeyTests {
         )
     }
 
+    @Test(arguments: [123, 124, 125, 126] as [UInt16])
+    func terminalArrowPredicateAcceptsUnmodifiedTerminalArrows(keyCode: UInt16) {
+        #expect(shouldDispatchTerminalArrowViaFirstResponderKeyDown(
+            keyCode: keyCode,
+            firstResponderIsTerminal: true,
+            flags: [.numericPad, .function]
+        ))
+    }
+
+    @Test
+    func terminalArrowPredicateRequiresTerminalContext() {
+        #expect(!shouldDispatchTerminalArrowViaFirstResponderKeyDown(
+            keyCode: 126,
+            firstResponderIsTerminal: false,
+            flags: [.numericPad, .function]
+        ))
+    }
+
+    @Test
+    func terminalArrowPredicateLeavesMarkedTextAndCommandArrowsAlone() {
+        #expect(!shouldDispatchTerminalArrowViaFirstResponderKeyDown(
+            keyCode: 126,
+            firstResponderIsTerminal: true,
+            firstResponderHasMarkedText: true,
+            flags: [.numericPad, .function]
+        ))
+        #expect(!shouldDispatchTerminalArrowViaFirstResponderKeyDown(
+            keyCode: 126,
+            firstResponderIsTerminal: true,
+            flags: [.command, .numericPad, .function]
+        ))
+    }
+
+    @Test
+    func terminalArrowPredicateRejectsNonArrowKeys() {
+        #expect(!shouldDispatchTerminalArrowViaFirstResponderKeyDown(
+            keyCode: 36,
+            firstResponderIsTerminal: true,
+            flags: [.numericPad, .function]
+        ))
+    }
+
     private func makeHostedTerminalWindow(initialCommand: String? = nil) throws -> HostedTerminalWindow {
         _ = NSApplication.shared
 
