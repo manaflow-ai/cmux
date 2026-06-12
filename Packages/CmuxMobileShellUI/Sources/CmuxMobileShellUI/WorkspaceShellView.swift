@@ -178,38 +178,34 @@ struct WorkspaceShellView: View {
         }
     }
 
-    /// Workspace-action closures, present only when the live Mac advertises the
-    /// `workspace.actions.v1` capability. When disconnected/reconnecting, the
-    /// affordances are hidden instead of accepting taps that cannot reach macOS.
-    /// Built as explicit closure literals (not method-reference ternaries, which
-    /// the compiler fails to type-check inside the large `WorkspaceListView`
-    /// initializer).
+    /// Workspace-action closures, present when the paired Mac has advertised the
+    /// `workspace.actions.v1` capability. Do not hide them during a transient
+    /// reconnecting state: the workspace list can still be visible and refreshable
+    /// while `macConnectionStatus` catches up, and hiding actions makes native
+    /// swipe rows feel broken. The mutation path remains authoritative and
+    /// re-syncs from macOS after each attempt.
     private var renameWorkspaceClosure: ((MobileWorkspacePreview.ID, String) -> Void)? {
-        guard workspaceActionsAreAvailable else { return nil }
+        guard store.supportsWorkspaceActions else { return nil }
         let store = store
         return { id, title in Task { await store.renameWorkspace(id: id, title: title) } }
     }
 
     private var setWorkspacePinnedClosure: ((MobileWorkspacePreview.ID, Bool) -> Void)? {
-        guard workspaceActionsAreAvailable else { return nil }
+        guard store.supportsWorkspaceActions else { return nil }
         let store = store
         return { id, pinned in Task { await store.setWorkspacePinned(id: id, pinned) } }
     }
 
     private var setWorkspaceUnreadClosure: ((MobileWorkspacePreview.ID, Bool) -> Void)? {
-        guard workspaceActionsAreAvailable else { return nil }
+        guard store.supportsWorkspaceActions else { return nil }
         let store = store
         return { id, unread in Task { await store.setWorkspaceUnread(id: id, unread) } }
     }
 
     private var closeWorkspaceClosure: ((MobileWorkspacePreview.ID) -> Void)? {
-        guard workspaceActionsAreAvailable else { return nil }
+        guard store.supportsWorkspaceActions else { return nil }
         let store = store
         return { id in Task { await store.closeWorkspace(id: id) } }
-    }
-
-    private var workspaceActionsAreAvailable: Bool {
-        store.supportsWorkspaceActions && store.macConnectionStatus == .connected
     }
 
     /// Pull-to-refresh closure for the workspace list. Awaits the store's real

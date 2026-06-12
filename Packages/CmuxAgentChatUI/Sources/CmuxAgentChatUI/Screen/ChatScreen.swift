@@ -19,6 +19,7 @@ public struct ChatScreen: View {
     @State private var contentCache = ChatContentCache()
     @Binding private var draft: String
     private let onOpenTerminal: () -> Void
+    private let providesOwnChrome: Bool
 
     /// Creates the screen.
     ///
@@ -29,13 +30,20 @@ public struct ChatScreen: View {
     ///     escape hatch); the host owns that navigation.
     ///   - draft: Host-owned composer draft, so a dismissed cover keeps
     ///     the half-typed prompt. Pass `.constant("")` to opt out.
+    ///   - providesOwnChrome: When `true` (default, standalone use) the
+    ///     screen sets its own navigation title, session-state header, and
+    ///     Open-Terminal button. Pass `false` when embedded in a host that
+    ///     supplies its own navigation chrome (the in-place workspace
+    ///     toggle), so the two don't fight and drop the header.
     public init(
         store: ChatConversationStore,
         draft: Binding<String> = .constant(""),
+        providesOwnChrome: Bool = true,
         onOpenTerminal: @escaping () -> Void
     ) {
         _store = State(initialValue: store)
         _draft = draft
+        self.providesOwnChrome = providesOwnChrome
         self.onOpenTerminal = onOpenTerminal
     }
 
@@ -93,31 +101,11 @@ public struct ChatScreen: View {
                 onOpenTerminal: onOpenTerminal
             )
         }
-        .navigationTitle(store.descriptor.title ?? store.descriptor.agentKind.displayName)
-        #if os(iOS)
-        .navigationBarTitleDisplayMode(.inline)
-        .toolbar {
-            ToolbarItem(placement: .principal) {
-                ChatSessionHeaderView(
-                    descriptor: store.descriptor,
-                    agentState: store.agentState,
-                    isConnected: store.isConnected
-                )
-            }
-            ToolbarItem(placement: .topBarTrailing) {
-                Button(action: onOpenTerminal) {
-                    Image(systemName: "terminal")
-                }
-                .accessibilityLabel(
-                    String(
-                        localized: "chat.open_terminal.accessibility",
-                        defaultValue: "Open terminal",
-                        bundle: .module
-                    )
-                )
-            }
-        }
-        #endif
+        .modifier(ChatScreenChrome(
+            store: store,
+            providesOwnChrome: providesOwnChrome,
+            onOpenTerminal: onOpenTerminal
+        ))
         .task { await store.run() }
         #if canImport(UIKit)
         .onChange(of: store.rows.last?.id) { announceLatestAgentProse() }
@@ -166,5 +154,50 @@ public struct ChatScreen: View {
             },
             openTerminal: onOpenTerminal
         )
+    }
+}
+
+/// Standalone navigation chrome for ``ChatScreen``: title, session-state
+/// header, and the Open-Terminal button. Suppressed when the host supplies
+/// its own chrome (the in-place workspace toggle), so a nested second
+/// toolbar can't drop the header.
+private struct ChatScreenChrome: ViewModifier {
+    let store: ChatConversationStore
+    let providesOwnChrome: Bool
+    let onOpenTerminal: () -> Void
+
+    func body(content: Content) -> some View {
+        #if os(iOS)
+        if providesOwnChrome {
+            content
+                .navigationTitle(store.descriptor.title ?? store.descriptor.agentKind.displayName)
+                .navigationBarTitleDisplayMode(.inline)
+                .toolbar {
+                    ToolbarItem(placement: .principal) {
+                        ChatSessionHeaderView(
+                            descriptor: store.descriptor,
+                            agentState: store.agentState,
+                            isConnected: store.isConnected
+                        )
+                    }
+                    ToolbarItem(placement: .topBarTrailing) {
+                        Button(action: onOpenTerminal) {
+                            Image(systemName: "terminal")
+                        }
+                        .accessibilityLabel(
+                            String(
+                                localized: "chat.open_terminal.accessibility",
+                                defaultValue: "Open terminal",
+                                bundle: .module
+                            )
+                        )
+                    }
+                }
+        } else {
+            content
+        }
+        #else
+        content
+        #endif
     }
 }

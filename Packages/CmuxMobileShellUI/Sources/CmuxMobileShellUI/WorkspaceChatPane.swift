@@ -25,8 +25,22 @@ struct WorkspaceChatPane: View {
                 ChatScreen(
                     store: conversation,
                     draft: $draft,
+                    providesOwnChrome: false,
                     onOpenTerminal: openTerminal
                 )
+                // The host (workspace detail) owns the nav bar, so the
+                // live session-state header is supplied here as a principal
+                // item rather than by ChatScreen, which would be dropped
+                // under the workspace's own chrome.
+                .toolbar {
+                    ToolbarItem(placement: .principal) {
+                        ChatSessionHeaderView(
+                            descriptor: conversation.descriptor,
+                            agentState: conversation.agentState,
+                            isConnected: conversation.isConnected
+                        )
+                    }
+                }
             } else {
                 Color.clear
             }
