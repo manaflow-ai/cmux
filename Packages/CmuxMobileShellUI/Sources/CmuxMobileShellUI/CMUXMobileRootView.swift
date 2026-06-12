@@ -87,6 +87,14 @@ struct CMUXMobileRootView: View {
             // nothing ever resolves `didFinishStoredMacReconnectAttempt`.
             reconnectStoredMacIfNeeded()
         }
+        #if os(iOS)
+        // A notification tap can arrive before the workspace it targets is
+        // loaded (cold launch, or attach still in flight); re-apply the parked
+        // deep link as the list fills in.
+        .onChange(of: store.workspaces.map(\.id)) { _, _ in
+            pushCoordinator.workspacesDidChange()
+        }
+        #endif
         .onChange(of: scenePhase) { _, phase in
             guard phase == .active else { return }
             store.resumeForegroundRefresh()

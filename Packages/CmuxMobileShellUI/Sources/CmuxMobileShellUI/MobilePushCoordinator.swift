@@ -30,6 +30,25 @@ public final class MobilePushCoordinator {
 
     @ObservationIgnored private weak var store: CMUXMobileShellStore?
 
+    /// A tap whose navigation could not complete yet. On a cold launch the
+    /// notification-center delegate delivers the tap before the root view has
+    /// mounted (no store bound yet), and even once bound the tapped workspace
+    /// is not in the store until the Mac attach finishes. The tap is parked
+    /// here and re-applied from ``bind(store:)`` and ``workspacesDidChange()``
+    /// until the target exists or the request expires.
+    private struct PendingDeeplink {
+        let workspaceId: String?
+        let surfaceId: String?
+        let createdAt: Date
+    }
+
+    @ObservationIgnored private var pendingDeeplink: PendingDeeplink?
+    /// Bounded so a tap from long ago cannot yank the user out of whatever
+    /// they navigated to in the meantime, but generous enough to cover cold
+    /// launch plus sign-in plus a slow attach.
+    private static let pendingDeeplinkLifetime: TimeInterval = 120
+    @ObservationIgnored private let now: () -> Date
+
     /// Creates a push coordinator.
     /// - Parameters:
     ///   - registration: The injected push-registration service.
@@ -37,14 +56,18 @@ public final class MobilePushCoordinator {
     ///     ``NoopAnalytics`` for previews/tests.
     ///   - defaults: The store backing the opt-in flag (must match the suite the
     ///     registration service uses). Defaults to `.standard`.
+    ///   - now: Clock seam for the pending-deeplink expiry. Defaults to
+    ///     `Date.init`.
     public init(
         registration: any PushRegistering,
         analytics: any AnalyticsEmitting = NoopAnalytics(),
-        defaults: UserDefaults = .standard
+        defaults: UserDefaults = .standard,
+        now: @escaping () -> Date = Date.init
     ) {
         self.registration = registration
         self.analytics = analytics
         self.defaults = defaults
+        self.now = now
     }
 
     /// Whether the user has opted into phone notifications (synchronous mirror).
@@ -53,6 +76,14 @@ public final class MobilePushCoordinator {
     /// Point routing at the active store (called by the root view on appear).
     public func bind(store: CMUXMobileShellStore) {
         self.store = store
+        applyPendingDeeplinkIfReady()
+    }
+
+    /// Re-apply a parked notification tap once its target can exist. Called by
+    /// the root view whenever the store's workspace list changes (the list is
+    /// empty until the Mac attach completes).
+    public func workspacesDidChange() {
+        applyPendingDeeplinkIfReady()
     }
 
     /// Install the notification-center delegate and, if already opted in,
@@ -130,20 +161,47 @@ public final class MobilePushCoordinator {
     }
 
     /// Deep-link to the workspace/terminal a tapped notification refers to.
+    ///
+    /// The tap is parked first and applied through one path: a cold launch
+    /// delivers the tap before the root view has bound a store, and a
+    /// warm-but-detached app has not loaded the workspace yet. Navigating
+    /// immediately in those states is what stranded users on the workspaces
+    /// home screen.
     public func handleTap(workspaceId: String?, surfaceId: String?) {
-        guard let store else {
-            analytics.capture("ios_push_deeplink_failed", ["reason": .string("no_store")])
+        pendingDeeplink = PendingDeeplink(
+            workspaceId: workspaceId,
+            surfaceId: surfaceId,
+            createdAt: now()
+        )
+        applyPendingDeeplinkIfReady()
+    }
+
+    /// Apply the parked tap if its target can be navigated to right now;
+    /// otherwise keep it parked for the next ``bind(store:)`` or
+    /// ``workspacesDidChange()``.
+    private func applyPendingDeeplinkIfReady() {
+        guard let pending = pendingDeeplink else { return }
+        guard now().timeIntervalSince(pending.createdAt) < Self.pendingDeeplinkLifetime else {
+            pendingDeeplink = nil
+            analytics.capture("ios_push_deeplink_failed", ["reason": .string("expired")])
             return
         }
-        if let workspaceId {
-            store.selectedWorkspaceID = MobileWorkspacePreview.ID(rawValue: workspaceId)
+        guard let store else { return }
+        if let workspaceId = pending.workspaceId {
+            let target = MobileWorkspacePreview.ID(rawValue: workspaceId)
+            // Wait for the attach to deliver the workspace; selecting an
+            // absent ID would not navigate and a later list load could not
+            // re-trigger the push.
+            guard store.workspaces.contains(where: { $0.id == target }) else { return }
+            store.selectedWorkspaceID = target
         }
-        if let surfaceId {
+        if let surfaceId = pending.surfaceId {
             store.selectTerminal(MobileTerminalPreview.ID(rawValue: surfaceId))
         }
+        pendingDeeplink = nil
         analytics.capture("ios_push_deeplink_resolved", [
-            "resolved_workspace": .bool(workspaceId != nil),
-            "resolved_surface": .bool(surfaceId != nil),
+            "resolved_workspace": .bool(pending.workspaceId != nil),
+            "resolved_surface": .bool(pending.surfaceId != nil),
         ])
     }
 }

@@ -3565,3 +3565,41 @@ private struct InertPushRegistration: PushRegistering {
     #expect(store.selectedWorkspaceID == MobileWorkspacePreview.ID(rawValue: "workspace-docs"))
     #expect(store.selectedTerminalID == MobileTerminalPreview.ID(rawValue: "terminal-notes"))
 }
+
+/// Tap lands while the store is bound but the Mac attach has not delivered
+/// the workspace list yet: the deep link applies when the list fills in,
+/// driven by the root view's workspace-list change hook.
+@Test @MainActor func notificationTapBeforeAttachAppliesWhenWorkspaceArrives() async throws {
+    let coordinator = MobilePushCoordinator(registration: InertPushRegistration())
+    let store = deeplinkTestStore()
+    coordinator.bind(store: store)
+
+    coordinator.handleTap(workspaceId: "workspace-docs", surfaceId: "terminal-notes")
+    // Target not loaded yet: no navigation to an absent workspace.
+    #expect(store.selectedWorkspaceID == nil)
+
+    store.workspaces = PreviewMobileHost.workspaces
+    coordinator.workspacesDidChange()
+
+    #expect(store.selectedWorkspaceID == MobileWorkspacePreview.ID(rawValue: "workspace-docs"))
+    #expect(store.selectedTerminalID == MobileTerminalPreview.ID(rawValue: "terminal-notes"))
+}
+
+/// A parked tap expires: navigating minutes later would yank the user out of
+/// whatever they moved on to.
+@Test @MainActor func notificationTapExpiresInsteadOfNavigatingLate() async throws {
+    nonisolated(unsafe) var currentTime = Date(timeIntervalSince1970: 1_000_000)
+    let coordinator = MobilePushCoordinator(
+        registration: InertPushRegistration(),
+        now: { currentTime }
+    )
+    coordinator.handleTap(workspaceId: "workspace-docs", surfaceId: "terminal-notes")
+
+    currentTime = currentTime.addingTimeInterval(121)
+    let store = deeplinkTestStore()
+    store.workspaces = PreviewMobileHost.workspaces
+    coordinator.bind(store: store)
+
+    #expect(store.selectedWorkspaceID == nil)
+    #expect(store.selectedTerminalID == nil)
+}
