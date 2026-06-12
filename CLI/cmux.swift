@@ -1429,10 +1429,27 @@ private final class ClaudeHookSessionStore {
             return ClaudeHookSessionStoreFile()
         }
         guard let data = try? Data(contentsOf: URL(fileURLWithPath: statePath)),
-              let decoded = try? decoder.decode(ClaudeHookSessionStoreFile.self, from: data) else {
+              var decoded = try? decoder.decode(ClaudeHookSessionStoreFile.self, from: data) else {
             return ClaudeHookSessionStoreFile()
         }
+        backfillSurfaceActiveSlots(&decoded)
         return decoded
+    }
+
+    /// Stores written before per-surface tracking (or rewritten by an older
+    /// CLI, which drops the unknown key) carry only workspace-active slots.
+    /// Rebuild the pane boundary from each workspace-active session's recorded
+    /// surface so pre-upgrade panes keep suppressing stale hooks after a
+    /// sibling pane takes the workspace slot.
+    /// https://github.com/manaflow-ai/cmux/issues/5908
+    private func backfillSurfaceActiveSlots(_ state: inout ClaudeHookSessionStoreFile) {
+        guard state.activeSessionsBySurface.isEmpty else { return }
+        for active in state.activeSessionsByWorkspace.values {
+            guard let surfaceId = normalizeOptional(state.sessions[active.sessionId]?.surfaceId) else {
+                continue
+            }
+            state.activeSessionsBySurface[surfaceId] = active
+        }
     }
 
     private func saveUnlocked(_ state: ClaudeHookSessionStoreFile) throws {
@@ -25808,8 +25825,23 @@ struct CMUXCLI {
     /// pane. Reads the raw launch argv — the sanitized launch-command record
     /// strips `--fork-session`. https://github.com/manaflow-ai/cmux/issues/5908
     private func isClaudeForkSessionLaunch(env: [String: String], fallbackPID: Int?) -> Bool {
-        claudeRawLaunchArguments(env: env, fallbackPID: fallbackPID)?
-            .contains("--fork-session") == true
+        guard let arguments = claudeRawLaunchArguments(env: env, fallbackPID: fallbackPID) else {
+            return false
+        }
+        return claudeLaunchArgumentsContainForkSession(arguments)
+    }
+
+    /// Accept the same flag forms the launch sanitizer strips: bare
+    /// `--fork-session` and `--fork-session=<value>` (unless explicitly false).
+    private func claudeLaunchArgumentsContainForkSession(_ arguments: [String]) -> Bool {
+        arguments.contains { argument in
+            if argument == "--fork-session" { return true }
+            guard argument.hasPrefix("--fork-session=") else { return false }
+            let value = argument.dropFirst("--fork-session=".count)
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+                .lowercased()
+            return !["false", "0", "no", "off"].contains(value)
+        }
     }
 
     /// The parent session id a `--resume <parent> --fork-session` launch was
@@ -25820,7 +25852,7 @@ struct CMUXCLI {
     /// record. https://github.com/manaflow-ai/cmux/issues/5908
     private func claudeForkSessionParentId(env: [String: String], fallbackPID: Int?) -> String? {
         guard let arguments = claudeRawLaunchArguments(env: env, fallbackPID: fallbackPID),
-              arguments.contains("--fork-session") else {
+              claudeLaunchArgumentsContainForkSession(arguments) else {
             return nil
         }
         for (index, argument) in arguments.enumerated() {
