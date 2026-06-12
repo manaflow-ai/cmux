@@ -2,12 +2,12 @@ import Foundation
 import ImageIO
 import UniformTypeIdentifiers
 
-nonisolated enum BrowserDownloadHTTPStatusDecision: Equatable {
+nonisolated enum BrowserDownloadHTTPStatusDecision: Equatable, Sendable {
     case allow
     case reject(statusCode: Int)
 }
 
-nonisolated struct BrowserDownloadFilenameResolver {
+nonisolated struct BrowserDownloadFilenameResolver: Sendable {
     func httpStatusDecision(for response: URLResponse?) -> BrowserDownloadHTTPStatusDecision {
         guard let httpResponse = response as? HTTPURLResponse else {
             return .allow

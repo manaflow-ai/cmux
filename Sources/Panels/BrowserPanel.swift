@@ -8808,7 +8808,7 @@ private extension NSObject {
 /// Handles WKDownload lifecycle by saving to a temp file synchronously (no UI
 /// during WebKit callbacks), then showing NSSavePanel after the download finishes.
 class BrowserDownloadDelegate: NSObject, WKDownloadDelegate {
-    private struct DownloadState {
+    private struct DownloadState: Sendable {
         let tempURL: URL
         let suggestedFilename: String
         let sourceURL: URL
@@ -8889,28 +8889,28 @@ class BrowserDownloadDelegate: NSObject, WKDownloadDelegate {
         NSLog("BrowserPanel download finished: %@", info.suggestedFilename)
 
         let filenameResolver = BrowserDownloadFilenameResolver()
-        DispatchQueue.global(qos: .utility).async {
-            let imageType = filenameResolver.imageType(forDownloadedFileAt: info.tempURL)
-            DispatchQueue.main.async {
-                self.onDownloadReadyToSave?()
-                let suggestedFilename = filenameResolver.suggestedFilename(suggestedFilename: info.suggestedFilename, response: nil, sourceURL: info.sourceURL, imageType: imageType)
-                let savePanel = NSSavePanel()
-                savePanel.nameFieldStringValue = suggestedFilename
-                savePanel.canCreateDirectories = true
-                savePanel.directoryURL = FileManager.default.urls(for: .downloadsDirectory, in: .userDomainMask).first
-                savePanel.begin { result in
-                    guard result == .OK, let destURL = savePanel.url else {
-                        try? FileManager.default.removeItem(at: info.tempURL)
-                        return
-                    }
-                    do {
-                        try? FileManager.default.removeItem(at: destURL)
-                        try FileManager.default.moveItem(at: info.tempURL, to: destURL)
-                        NSLog("BrowserPanel download saved: %@", destURL.path)
-                    } catch {
-                        NSLog("BrowserPanel download move failed: %@", error.localizedDescription)
-                        try? FileManager.default.removeItem(at: info.tempURL)
-                    }
+        Task { @MainActor in
+            let imageType = await Task.detached(priority: .utility) {
+                filenameResolver.imageType(forDownloadedFileAt: info.tempURL)
+            }.value
+            self.onDownloadReadyToSave?()
+            let suggestedFilename = filenameResolver.suggestedFilename(suggestedFilename: info.suggestedFilename, response: nil, sourceURL: info.sourceURL, imageType: imageType)
+            let savePanel = NSSavePanel()
+            savePanel.nameFieldStringValue = suggestedFilename
+            savePanel.canCreateDirectories = true
+            savePanel.directoryURL = FileManager.default.urls(for: .downloadsDirectory, in: .userDomainMask).first
+            savePanel.begin { result in
+                guard result == .OK, let destURL = savePanel.url else {
+                    try? FileManager.default.removeItem(at: info.tempURL)
+                    return
+                }
+                do {
+                    try? FileManager.default.removeItem(at: destURL)
+                    try FileManager.default.moveItem(at: info.tempURL, to: destURL)
+                    NSLog("BrowserPanel download saved: %@", destURL.path)
+                } catch {
+                    NSLog("BrowserPanel download move failed: %@", error.localizedDescription)
+                    try? FileManager.default.removeItem(at: info.tempURL)
                 }
             }
         }
