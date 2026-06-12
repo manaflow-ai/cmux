@@ -134,7 +134,10 @@ jobs:
     needs: detect-ios-changes
     if: ${{ needs.detect-ios-changes.outputs.should_run == 'true' }}
     runs-on: macos-26
-    timeout-minutes: 35
+    # 50 (was 35): a CmuxIrohFFI cache miss adds a ~9 min cold Rust build, and the
+    # UITest suite alone runs ~25 min. A timeout also cancels the post-job cache
+    # save, which would keep every subsequent run cold; headroom breaks that loop.
+    timeout-minutes: 50
     strategy:
       fail-fast: false
       matrix:
