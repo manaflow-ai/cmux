@@ -1407,11 +1407,22 @@ struct RestorableAgentSessionIndex: Sendable {
     }
 
     static func encodeClaudeProjectDir(_ path: String) -> String {
-        // Claude derives a project directory name by replacing both "/" and "." with "-"
-        // (e.g. "/Users/x/repo/.claude" -> "-Users-x-repo--claude"). Missing the "." case
-        // sent dotted paths to the wrong project directory.
-        path.replacingOccurrences(of: "/", with: "-")
-            .replacingOccurrences(of: ".", with: "-")
+        // Claude derives a project directory name by replacing every non-alphanumeric
+        // character with "-" (e.g. "/Users/x/my_repo/.claude" -> "-Users-x-my-repo--claude").
+        // Only replacing "/" and "." sent paths with underscores, spaces, or other
+        // punctuation to a project directory Claude never writes. Mirrors the Go
+        // daemon's agentconv.EncodeClaudeProjectDir (per Unicode scalar, ASCII
+        // alphanumerics pass through).
+        var encoded = String.UnicodeScalarView()
+        for scalar in path.unicodeScalars {
+            switch scalar {
+            case "a"..."z", "A"..."Z", "0"..."9":
+                encoded.append(scalar)
+            default:
+                encoded.append("-")
+            }
+        }
+        return String(encoded)
     }
 
     private static func claudeTranscriptFileExists(

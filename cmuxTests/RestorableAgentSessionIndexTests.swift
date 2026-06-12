@@ -515,12 +515,16 @@ final class RestorableAgentSessionIndexTests: XCTestCase {
         )
     }
 
-    /// Mirrors Claude's external project-directory naming rule ("/" and "." both become "-")
-    /// independently of the production `encodeClaudeProjectDir`, so these regression tests fail if
-    /// that helper regresses instead of masking it by sharing the same code path.
+    /// Claude Code's real project-dir rule (every non-alphanumeric character
+    /// becomes "-"), computed independently of the production helper so a
+    /// regression there fails these tests instead of being masked.
     private func expectedClaudeProjectDirName(_ path: String) -> String {
-        path.replacingOccurrences(of: "/", with: "-")
-            .replacingOccurrences(of: ".", with: "-")
+        String(path.unicodeScalars.map { scalar -> Character in
+            switch scalar {
+            case "a"..."z", "A"..."Z", "0"..."9": return Character(scalar)
+            default: return "-"
+            }
+        })
     }
 
     // A custom Vault agent defaults to cwd: .preserve and can expand {{cwd}} in its resume template,
