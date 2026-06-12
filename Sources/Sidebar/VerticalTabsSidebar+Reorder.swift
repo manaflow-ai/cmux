@@ -24,24 +24,36 @@ extension VerticalTabsSidebar {
     /// Handles a reorder drag tick: begins the drag on the first event, then
     /// updates the follower position and landing slot.
     ///
+    /// The cursor is derived from the gesture's TRANSLATION, not its location:
+    /// `DragGesture` converts locations through the host row's current
+    /// geometry, and the preview moves that row to the landing slot mid-drag,
+    /// so location jumps by the row's displacement on every preview reflow —
+    /// a feedback loop (cursor jump → indicator jump → preview move → cursor
+    /// jump) seen in the dogfood log as ±row-band cursorY oscillation.
+    /// Translation is a pure pointer delta and is immune to host movement; it
+    /// is anchored to the begin-time location (geometry-consistent, the
+    /// preview has not moved yet) plus the accumulated autoscroll delta.
+    ///
     /// - Parameters:
     ///   - draggedId: the workspace (or group anchor) being dragged.
     ///   - startLocationY: the gesture's start Y in the reorder list space.
-    ///   - cursorY: the gesture's current Y in the reorder list space.
+    ///     Trustworthy only on the begin event (it re-converts with current
+    ///     geometry on later events).
+    ///   - translationHeight: the gesture's vertical pointer travel.
     func sidebarReorderGestureChanged(
         draggedId: UUID,
         startLocationY: CGFloat,
-        cursorY: CGFloat,
+        translationHeight: CGFloat,
         renderContext: WorkspaceListRenderContext
     ) {
         // Escape cancelled this drag mid-gesture. The DragGesture itself stays
         // alive until the mouse releases and keeps streaming onChanged; without
         // this latch the next event would re-begin the cancelled drag.
         guard dragState.cancelledReorderTabId != draggedId else { return }
+        let cursorY = (dragState.draggedTabId == draggedId)
+            ? dragState.reorderTranslationBaseY + translationHeight + dragState.autoScrollAccumulatedDelta
+            : startLocationY + translationHeight
         if dragState.draggedTabId != draggedId {
-            #if DEBUG
-            cmuxDebugLog("sidebar.reorder.begin id=\(draggedId.uuidString.prefix(5)) startY=\(Int(startLocationY)) cursorY=\(Int(cursorY))")
-            #endif
             let usesTopLevelRows = tabManager.sidebarReorderUsesTopLevelRows(
                 forDraggedWorkspaceId: draggedId,
                 targetWorkspaceId: nil
@@ -60,6 +72,14 @@ extension VerticalTabsSidebar {
             )
             let frame = dragState.rowFramesInList[draggedId]
             let grabOffsetY = frame.map { startLocationY - $0.minY } ?? 0
+            #if DEBUG
+            cmuxDebugLog(
+                "sidebar.reorder.begin id=\(draggedId.uuidString.prefix(5)) " +
+                "startY=\(Int(startLocationY)) cursorY=\(Int(cursorY)) " +
+                "topLevel=\(usesTopLevelRows) scope=\(reorderIds.count) " +
+                "frames=\(dragState.rowFramesInList.count) ownFrame=\(frame.map { "\(Int($0.minY))..\(Int($0.maxY))" } ?? "nil")"
+            )
+            #endif
             dragState.beginReorder(
                 tabId: draggedId,
                 usesTopLevelRows: usesTopLevelRows,
@@ -68,6 +88,7 @@ extension VerticalTabsSidebar {
                 scopeBandComposition: composition,
                 draggedRowFrame: frame,
                 grabOffsetY: grabOffsetY,
+                translationBaseY: startLocationY,
                 cursorY: cursorY
             )
         } else {
@@ -129,22 +150,22 @@ extension VerticalTabsSidebar {
 /// `"sidebarReorderList"` space so its location aligns with the measured row
 /// frames. A non-zero `minimumDistance` lets a plain click still select the row.
 struct SidebarReorderDragModifier: ViewModifier {
-    let onChanged: (_ startLocation: CGPoint, _ location: CGPoint) -> Void
-    let onEnded: (_ startLocation: CGPoint, _ location: CGPoint) -> Void
+    let onChanged: (_ startLocation: CGPoint, _ translationHeight: CGFloat) -> Void
+    let onEnded: (_ startLocation: CGPoint, _ translationHeight: CGFloat) -> Void
 
     func body(content: Content) -> some View {
         content.gesture(
             DragGesture(minimumDistance: 6, coordinateSpace: .named(SidebarReorderListCoordinateSpace.name))
-                .onChanged { value in onChanged(value.startLocation, value.location) }
-                .onEnded { value in onEnded(value.startLocation, value.location) }
+                .onChanged { value in onChanged(value.startLocation, value.translation.height) }
+                .onEnded { value in onEnded(value.startLocation, value.translation.height) }
         )
     }
 }
 
 extension View {
     func sidebarReorderDrag(
-        onChanged: @escaping (_ startLocation: CGPoint, _ location: CGPoint) -> Void,
-        onEnded: @escaping (_ startLocation: CGPoint, _ location: CGPoint) -> Void
+        onChanged: @escaping (_ startLocation: CGPoint, _ translationHeight: CGFloat) -> Void,
+        onEnded: @escaping (_ startLocation: CGPoint, _ translationHeight: CGFloat) -> Void
     ) -> some View {
         modifier(SidebarReorderDragModifier(onChanged: onChanged, onEnded: onEnded))
     }
@@ -157,8 +178,8 @@ extension View {
 struct SidebarReorderRowModifier: ViewModifier {
     let enabled: Bool
     let workspaceId: UUID
-    let onChanged: (_ startLocation: CGPoint, _ location: CGPoint) -> Void
-    let onEnded: (_ startLocation: CGPoint, _ location: CGPoint) -> Void
+    let onChanged: (_ startLocation: CGPoint, _ translationHeight: CGFloat) -> Void
+    let onEnded: (_ startLocation: CGPoint, _ translationHeight: CGFloat) -> Void
 
     @ViewBuilder
     func body(content: Content) -> some View {

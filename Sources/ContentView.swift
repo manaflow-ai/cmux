@@ -10429,6 +10429,15 @@ final class SidebarDragState {
     /// members when dragging a group anchor at top level).
     @ObservationIgnored private var scopeBandComposition: [UUID: [UUID]] = [:]
 
+    /// The begin-time gesture location in list space. Later cursor positions
+    /// are derived as base + translation + autoscroll delta, because the
+    /// gesture's location re-converts through the host row's CURRENT geometry
+    /// and jumps when the preview moves that row.
+    @ObservationIgnored var reorderTranslationBaseY: CGFloat = 0
+    /// Total content distance autoscroll has moved during this drag; folded
+    /// into every translation-derived cursor position.
+    @ObservationIgnored var autoScrollAccumulatedDelta: CGFloat = 0
+
     /// Dead-zone half-width around a row midpoint within which the landing edge
     /// is held, so the gap does not flicker on sub-pixel jitter.
     static let hysteresisMargin: CGFloat = 6
@@ -10478,6 +10487,8 @@ final class SidebarDragState {
         followerCursorY = nil
         draggedRowFrame = nil
         grabOffsetY = 0
+        reorderTranslationBaseY = 0
+        autoScrollAccumulatedDelta = 0
         reorderIds = []
         pinnedIds = []
         scopeBandComposition = [:]
@@ -10495,6 +10506,7 @@ final class SidebarDragState {
         scopeBandComposition: [UUID: [UUID]],
         draggedRowFrame: CGRect?,
         grabOffsetY: CGFloat,
+        translationBaseY: CGFloat,
         cursorY: CGFloat
     ) {
         self.draggedTabId = tabId
@@ -10504,6 +10516,8 @@ final class SidebarDragState {
         self.scopeBandComposition = scopeBandComposition
         self.draggedRowFrame = draggedRowFrame
         self.grabOffsetY = grabOffsetY
+        self.reorderTranslationBaseY = translationBaseY
+        self.autoScrollAccumulatedDelta = 0
         self.followerCursorY = cursorY
         recomputeIndicator(cursorY: cursorY)
     }
@@ -10513,7 +10527,13 @@ final class SidebarDragState {
 #if DEBUG
         reorderTickCount += 1
         if reorderTickCount % 60 == 0 {
-            cmuxDebugLog("sidebar.reorder.tick n=\(reorderTickCount) cursorY=\(Int(cursorY))")
+            let indicatorDescription = dropIndicator.map {
+                "\($0.tabId?.uuidString.prefix(5) ?? "end").\($0.edge == .top ? "top" : "bottom")"
+            } ?? "nil"
+            cmuxDebugLog(
+                "sidebar.reorder.tick n=\(reorderTickCount) cursorY=\(Int(cursorY)) " +
+                "frames=\(rowFramesInList.count) indicator=\(indicatorDescription)"
+            )
         }
 #endif
         followerCursorY = cursorY
@@ -10535,6 +10555,7 @@ final class SidebarDragState {
     /// the pointer sits still at a list edge.
     func applyAutoScrollDelta(_ delta: CGFloat) {
         guard draggedTabId != nil, delta != 0, let cursorY = followerCursorY else { return }
+        autoScrollAccumulatedDelta += delta
         updateReorder(cursorY: cursorY + delta)
     }
 
@@ -12834,15 +12855,15 @@ struct VerticalTabsSidebar: View {
         // into `TabItemView` so it lives below `.equatable()` and survives the
         // parent body re-evaluations that the discrete drop-indicator changes
         // trigger, instead of being torn down mid-drag.
-        let onReorderChanged: (CGPoint, CGPoint) -> Void = { [tabId = tab.id, renderContext] startLocation, location in
+        let onReorderChanged: (CGPoint, CGFloat) -> Void = { [tabId = tab.id, renderContext] startLocation, translationHeight in
             sidebarReorderGestureChanged(
                 draggedId: tabId,
                 startLocationY: startLocation.y,
-                cursorY: location.y,
+                translationHeight: translationHeight,
                 renderContext: renderContext
             )
         }
-        let onReorderEnded: (CGPoint, CGPoint) -> Void = { [tabId = tab.id] _, _ in
+        let onReorderEnded: (CGPoint, CGFloat) -> Void = { [tabId = tab.id] _, _ in
             sidebarReorderGestureEnded(draggedId: tabId)
         }
 
@@ -15440,8 +15461,8 @@ struct TabItemView: View, Equatable {
     /// Reorder gesture callbacks (start location, current location), dispatched
     /// into the shared `VerticalTabsSidebar` reorder helpers via closures so the
     /// row never holds an `@Observable` store reference (snapshot-boundary rule).
-    let onReorderChanged: (CGPoint, CGPoint) -> Void
-    let onReorderEnded: (CGPoint, CGPoint) -> Void
+    let onReorderChanged: (CGPoint, CGFloat) -> Void
+    let onReorderEnded: (CGPoint, CGFloat) -> Void
     /// False for the floating follower copy, which is non-interactive and must
     /// not report a row frame.
     let isReorderEnabled: Bool

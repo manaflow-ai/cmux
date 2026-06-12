@@ -39,15 +39,15 @@ extension VerticalTabsSidebar {
         let showsHintForAnchor = modifierKeyMonitor.isModifierPressed
         // Dragging a group header reorders the whole group at top level; the
         // shared reorder helpers handle the anchor/top-level scope.
-        let onReorderChanged: (CGPoint, CGPoint) -> Void = { [anchorId = group.anchorWorkspaceId, renderContext] startLocation, location in
+        let onReorderChanged: (CGPoint, CGFloat) -> Void = { [anchorId = group.anchorWorkspaceId, renderContext] startLocation, translationHeight in
             sidebarReorderGestureChanged(
                 draggedId: anchorId,
                 startLocationY: startLocation.y,
-                cursorY: location.y,
+                translationHeight: translationHeight,
                 renderContext: renderContext
             )
         }
-        let onReorderEnded: (CGPoint, CGPoint) -> Void = { [anchorId = group.anchorWorkspaceId] _, _ in
+        let onReorderEnded: (CGPoint, CGFloat) -> Void = { [anchorId = group.anchorWorkspaceId] _, _ in
             sidebarReorderGestureEnded(draggedId: anchorId)
         }
         // Computed in the parent and applied as opacity below (not passed into
