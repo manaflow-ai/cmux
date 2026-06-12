@@ -45,5 +45,23 @@ void bootSurface({
   load,
   reload: () => window.location.reload(),
   storage: window.sessionStorage,
-  onError: (message, error) => console.error(message, error),
+  onError: (message, error) => {
+    // Serialize the error into the message: an Error/DOMException logged as a
+    // second console arg serializes to `{}` through the native console bridge,
+    // which hides the actual cause (e.g. a CSP-blocked CSS preload that rejects
+    // the surface's dynamic import).
+    const detail =
+      error instanceof Error
+        ? `${error.name}: ${error.message}${error.stack ? `\n${error.stack}` : ""}`
+        : typeof error === "string"
+          ? error
+          : (() => {
+              try {
+                return JSON.stringify(error);
+              } catch {
+                return String(error);
+              }
+            })();
+    console.error(`${message} :: ${detail}`);
+  },
 });
