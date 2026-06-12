@@ -4280,6 +4280,54 @@ struct CMUXCLI {
             let payload = try client.sendV2(method: "surface.trigger_flash", params: params)
             printV2Payload(payload, jsonOutput: jsonOutput, idFormat: idFormat, fallbackText: v2OKSummary(payload, idFormat: idFormat))
 
+        case "agent-chat":
+            // Open (or focus) the agent chat pane for a terminal surface through
+            // the shared in-app presenter path (same as Window → View Chat).
+            // Target resolution mirrors trigger-flash: explicit flags win, then
+            // the caller's own workspace/surface env, then the focused surface.
+            let acWsFlag = optionValue(commandArgs, name: "--workspace")
+            let acExplicitWorkspaceArg = acWsFlag
+            let acWindowRaw = windowFromArgsOrOverride(commandArgs, windowOverride: windowId)
+            let acPreferTTYFallback = acWindowRaw == nil && ProcessInfo.processInfo.environment["TMUX"] != nil
+            let acCallerWorkspaceArg = acPreferTTYFallback
+                ? nil
+                : (acWindowRaw == nil ? ProcessInfo.processInfo.environment["CMUX_WORKSPACE_ID"] : nil)
+            let acWorkspaceArg = acExplicitWorkspaceArg ?? acCallerWorkspaceArg
+            let acExplicitSurfaceArg = optionValue(commandArgs, name: "--surface") ?? optionValue(commandArgs, name: "--panel")
+            let acCallerSurfaceArg = acExplicitSurfaceArg == nil && acPreferTTYFallback == false && acWindowRaw == nil
+                ? ProcessInfo.processInfo.environment["CMUX_SURFACE_ID"]
+                : nil
+            let acSurfaceArg = acExplicitSurfaceArg ?? acCallerSurfaceArg
+            var params: [String: Any] = [:]
+            let acWinId = try normalizeWindowHandle(acWindowRaw, client: client)
+            if let acWinId { params["window_id"] = acWinId }
+            let acWsId = try {
+                if acExplicitWorkspaceArg != nil || acWinId != nil {
+                    return try normalizeWorkspaceHandle(
+                        acWorkspaceArg,
+                        client: client,
+                        windowHandle: acWinId,
+                        allowCurrent: acWinId != nil
+                    )
+                }
+                return try resolveWorkspaceIdAllowingFallback(acWorkspaceArg, client: client)
+            }()
+            if let acWsId { params["workspace_id"] = acWsId }
+            let acSfId = try {
+                if acExplicitSurfaceArg != nil {
+                    return try normalizeSurfaceHandle(acSurfaceArg, client: client, workspaceHandle: acWsId, windowHandle: acWinId)
+                }
+                guard let acWsId else { return nil }
+                return try resolveSurfaceIdAllowingFallback(
+                    acSurfaceArg,
+                    workspaceId: acWsId,
+                    client: client
+                )
+            }()
+            if let acSfId { params["surface_id"] = acSfId }
+            let payload = try client.sendV2(method: "surface.agent_chat.open", params: params)
+            printV2Payload(payload, jsonOutput: jsonOutput, idFormat: idFormat, fallbackText: v2OKSummary(payload, idFormat: idFormat))
+
         case "list-panels":
             let workspaceArg = workspaceFromArgsOrEnv(commandArgs, windowOverride: windowId)
             var params: [String: Any] = [:]
@@ -5128,6 +5176,7 @@ struct CMUXCLI {
     private static let topLevelCommandNames: Set<String> = [
         "__codex-teams-watch",
         "__tmux-compat",
+        "agent-chat",
         "agent-hibernation",
         "auth",
         "bind-key",
@@ -14467,6 +14516,25 @@ struct CMUXCLI {
             Example:
               cmux trigger-flash
               cmux trigger-flash --workspace workspace:2 --surface surface:3
+            """
+        case "agent-chat":
+            return """
+            Usage: cmux agent-chat [--workspace <id|ref|index>] [--surface <id|ref|index>] [--panel <id|ref|index>] [--window <id|ref|index>]
+
+            Open (or focus) the agent chat pane for a terminal surface running
+            Claude Code or Codex. Defaults to the caller's surface, then the
+            focused surface. Same action as Window → View Chat and the
+            "Open Agent Chat" command palette entry.
+
+            Flags:
+              --workspace <id|ref|index>   Workspace context (default: $CMUX_WORKSPACE_ID)
+              --surface <id|ref|index>     Target surface (default: $CMUX_SURFACE_ID)
+              --panel <id|ref|index>       Alias for --surface
+              --window <id|ref|index>      Window context for workspace/surface refs and indexes
+
+            Example:
+              cmux agent-chat
+              cmux agent-chat --workspace workspace:2 --surface surface:3
             """
         case "list-panels":
             return """
@@ -33097,6 +33165,7 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
           surface-health [--workspace <id|ref|index>] [--window <id|ref|index>]
           debug-terminals
           trigger-flash [--workspace <id|ref|index>] [--surface <id|ref|index>] [--window <id|ref|index>]
+          agent-chat [--workspace <id|ref|index>] [--surface <id|ref|index>] [--window <id|ref|index>]
           list-panels [--workspace <id|ref|index>] [--window <id|ref|index>]
           focus-panel --panel <id|ref|index> [--workspace <id|ref|index>] [--window <id|ref|index>]
           close-workspace --workspace <id|ref|index> [--window <id|ref|index>]

@@ -361,6 +361,11 @@ extension ControlSurfaceContext {
         surfaceID: UUID?
     ) -> ControlSurfaceTriggerFlashResolution { .tabManagerUnavailable }
 
+    func controlSurfaceAgentChatOpen(
+        routing: ControlRoutingSelectors,
+        surfaceID: UUID?
+    ) -> ControlSurfaceAgentChatOpenResolution { .tabManagerUnavailable }
+
     func controlSurfaceInputStrings() -> ControlSurfaceInputStrings {
         ControlSurfaceInputStrings(inputQueueFull: "", surfaceUnavailable: "", processExited: "")
     }

@@ -178,6 +178,21 @@ public protocol ControlSurfaceContext: AnyObject {
         surfaceID: UUID?
     ) -> ControlSurfaceTriggerFlashResolution
 
+    /// Opens (or focuses) the agent chat pane for a surface for
+    /// `surface.agent_chat.open`. The app resolves the target and hands it to
+    /// the shared `AgentChatPresenter` resolve-then-present path (the same one
+    /// the Window menu, command palette, keyboard shortcut, and terminal
+    /// context menu drive).
+    ///
+    /// - Parameters:
+    ///   - routing: The routing selectors.
+    ///   - surfaceID: The explicit `surface_id`, or `nil` for the focused surface.
+    /// - Returns: The agent-chat-open resolution.
+    func controlSurfaceAgentChatOpen(
+        routing: ControlRoutingSelectors,
+        surfaceID: UUID?
+    ) -> ControlSurfaceAgentChatOpenResolution
+
     /// The app-bundle-resolved localized terminal-input error strings, shared by
     /// `surface.send_text` and `surface.send_key`. The app resolves each
     /// `String(localized:)` so the package never binds them to the wrong bundle.

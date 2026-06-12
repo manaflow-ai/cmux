@@ -48,6 +48,12 @@ extension KeyboardShortcutSettings {
         case .browserForward
             where !shortcut.isUnbound && shortcut == KeyboardShortcutSettings.shortcut(for: .focusHistoryForward):
             return .unbound
+        case .openAgentChat:
+            // nonBrowserPanel-scoped by default: a static menu key equivalent
+            // would fire while a browser/sidebar has focus and steal that
+            // surface's chord. The context-gated keyDown route is the sole
+            // dispatcher; the menu item stays clickable, just badge-less.
+            return .unbound
         default:
             return shortcut
         }

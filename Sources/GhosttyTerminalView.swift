@@ -11655,6 +11655,19 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             accessibilityDescription: nil
         )
         appendMoveCurrentSurfaceMoveMenuItems(to: menu); menu.addItem(.separator())
+        if terminalSurface != nil {
+            let agentChatItem = menu.addItem(
+                withTitle: String(localized: "terminalContextMenu.viewAgentChat", defaultValue: "View Agent Chat"),
+                action: #selector(viewAgentChat(_:)),
+                keyEquivalent: ""
+            )
+            agentChatItem.target = self
+            applyConfiguredMenuShortcut(KeyboardShortcutSettings.menuShortcut(for: .openAgentChat), to: agentChatItem)
+            agentChatItem.image = NSImage(
+                systemSymbolName: "bubble.left.and.bubble.right",
+                accessibilityDescription: nil
+            )
+        }
         let resetTerminalItem = menu.addItem(
             withTitle: String(localized: "terminalContextMenu.resetTerminal", defaultValue: "Reset Terminal"),
             action: #selector(resetTerminal(_:)),
@@ -11715,6 +11728,22 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
 
     @objc private func triggerFlash(_ sender: Any?) {
         onTriggerFlash?()
+    }
+
+    /// Opens the agent chat pane for this terminal panel through the shared
+    /// presenter path (same as Window → View Chat, the command palette, the
+    /// keyboard shortcut, and `cmux agent-chat`), targeting the right-clicked
+    /// panel explicitly rather than the focused one.
+    @objc private func viewAgentChat(_ sender: Any?) {
+        guard let tabId,
+              let surfaceId = terminalSurface?.id,
+              let app = AppDelegate.shared,
+              let manager = app.tabManagerFor(tabId: tabId) ?? app.tabManager,
+              let workspace = manager.tabs.first(where: { $0.id == tabId }) else {
+            NSSound.beep()
+            return
+        }
+        AgentChatPresenter().present(panelId: surfaceId, in: workspace, manager: manager)
     }
 
     @objc private func resetTerminal(_ sender: Any?) {

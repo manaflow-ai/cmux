@@ -87,6 +87,8 @@ extension ContentView {
             return .equalizeSplits
         case "palette.triggerFlash":
             return .triggerFlash
+        case "palette.openAgentChat":
+            return .openAgentChat
         default:
             return nil
         }
