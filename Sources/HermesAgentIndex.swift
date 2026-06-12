@@ -1,4 +1,5 @@
 import CMUXAgentVault
+import CMUXAgentLaunch
 import Foundation
 
 extension SessionIndexStore {

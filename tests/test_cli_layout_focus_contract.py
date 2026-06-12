@@ -115,6 +115,7 @@ def run_cli(
     socket_path: str,
     args: list[str],
     env_overrides: dict[str, str] | None = None,
+    cwd: str | None = None,
 ) -> str:
     env = dict(os.environ)
     for key in ["CMUX_WORKSPACE_ID", "CMUX_SURFACE_ID", "CMUX_TAB_ID"]:
@@ -127,6 +128,7 @@ def run_cli(
         text=True,
         check=False,
         env=env,
+        cwd=cwd,
         timeout=5,
     )
     if proc.returncode != 0:
@@ -249,6 +251,36 @@ def main() -> int:
                 state,
                 "surface.create",
                 {"workspace_id": WORKSPACE_ID, "pane_id": PANE_ID, "focus": False},
+            )
+
+            project_dir = Path(tmp) / "project"
+            project_dir.mkdir()
+            run_cli(
+                cli,
+                socket_path,
+                [
+                    "new-surface",
+                    "--workspace",
+                    WORKSPACE_ID,
+                    "--pane",
+                    PANE_ID,
+                    "--type",
+                    "agent-session",
+                    "--cwd",
+                    "project",
+                ],
+                cwd=tmp,
+            )
+            assert_last_call(
+                state,
+                "surface.create",
+                {
+                    "workspace_id": WORKSPACE_ID,
+                    "pane_id": PANE_ID,
+                    "type": "agent-session",
+                    "working_directory": str(project_dir.resolve()),
+                    "focus": False,
+                },
             )
 
             run_cli(cli, socket_path, ["reorder-surface", "--surface", SURFACE_ID, "--index", "0"])

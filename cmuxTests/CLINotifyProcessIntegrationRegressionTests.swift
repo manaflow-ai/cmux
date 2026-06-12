@@ -73,6 +73,271 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         )
     }
 
+    func testClaudePreToolUseFeedContextReadsOnlyRecentTranscriptTail() throws {
+        let context = try makeClaudeHookContext(name: "claude-pretool-tail")
+        defer { context.cleanup() }
+
+        let transcriptURL = context.root.appendingPathComponent("large-claude-session.jsonl")
+        _ = FileManager.default.createFile(atPath: transcriptURL.path, contents: nil)
+        let handle = try FileHandle(forWritingTo: transcriptURL)
+
+        func writeLine(_ line: String) throws {
+            try handle.write(contentsOf: Data((line + "\n").utf8))
+        }
+
+        try writeLine(#"{"type":"user","message":{"role":"user","content":"ancient user message"}}"#)
+        try writeLine(#"{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"ancient assistant response"},{"type":"tool_use","name":"Bash","input":{"command":"echo old"}}]}}"#)
+        let fillerPayload = String(repeating: "x", count: 1_200)
+        for _ in 0..<1_200 {
+            try writeLine(#"{"type":"user","message":{"role":"user","content":"\#(fillerPayload)"}}"#)
+        }
+        try writeLine(#"{"type":"user","message":{"role":"user","content":"recent user message"}}"#)
+        try writeLine(#"{"type":"assistant","message":{"role":"assistant","content":"recent assistant response"}}"#)
+        try handle.close()
+
+        let result = runClaudeHook(
+            context: context,
+            arguments: ["hooks", "claude", "pre-tool-use"],
+            standardInput: #"{"session_id":"tail-session","turn_id":"turn-1","cwd":"\#(context.root.path)","transcript_path":"\#(transcriptURL.path)","hook_event_name":"PreToolUse","tool_name":"Bash","tool_input":{"command":"echo recent"}}"#
+        )
+
+        XCTAssertFalse(result.timedOut, result.stderr)
+        XCTAssertEqual(result.status, 0, result.stderr)
+        let preToolEvent = try XCTUnwrap(
+            feedPushEvents(in: context).last { $0["hook_event_name"] as? String == "PreToolUse" }
+        )
+        let feedContext = try XCTUnwrap(preToolEvent["context"] as? [String: Any])
+        XCTAssertEqual(feedContext["lastUserMessage"] as? String, "recent user message")
+        XCTAssertEqual(feedContext["assistantPreamble"] as? String, "recent assistant response")
+        XCTAssertFalse(String(describing: feedContext).contains("ancient"), "\(feedContext)")
+    }
+
+    func testClaudePreToolUseFeedContextKeepsOversizedFinalTranscriptLine() throws {
+        let context = try makeClaudeHookContext(name: "claude-pretool-oversized-final")
+        defer { context.cleanup() }
+
+        let transcriptURL = context.root.appendingPathComponent("oversized-final-claude-session.jsonl")
+        _ = FileManager.default.createFile(atPath: transcriptURL.path, contents: nil)
+        let handle = try FileHandle(forWritingTo: transcriptURL)
+        defer { try? handle.close() }
+
+        try handle.write(contentsOf: Data(#"{"type":"user","message":{"role":"user","content":"ancient user message"}}"#.utf8))
+        try handle.write(contentsOf: Data("\n".utf8))
+        let longAssistantText = "recent assistant response " + String(repeating: "r", count: 1_100_000)
+        let finalLine = #"{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"\#(longAssistantText)"},{"type":"tool_use","name":"Bash","input":{"command":"echo huge"}}]}}"#
+        try handle.write(contentsOf: Data(finalLine.utf8))
+        try handle.close()
+
+        let result = runClaudeHook(
+            context: context,
+            arguments: ["hooks", "claude", "pre-tool-use"],
+            standardInput: #"{"session_id":"oversized-final-session","turn_id":"turn-1","cwd":"\#(context.root.path)","transcript_path":"\#(transcriptURL.path)","hook_event_name":"PreToolUse","tool_name":"Bash","tool_input":{"command":"echo huge"}}"#
+        )
+
+        XCTAssertFalse(result.timedOut, result.stderr)
+        XCTAssertEqual(result.status, 0, result.stderr)
+        let preToolEvent = try XCTUnwrap(
+            feedPushEvents(in: context).last { $0["hook_event_name"] as? String == "PreToolUse" }
+        )
+        let feedContext = try XCTUnwrap(preToolEvent["context"] as? [String: Any])
+        let assistantPreamble = try XCTUnwrap(feedContext["assistantPreamble"] as? String)
+        XCTAssertTrue(assistantPreamble.hasPrefix("recent assistant response"), "\(feedContext)")
+    }
+
+    func testCodexStopReadsOversizedFinalTranscriptLine() throws {
+        let context = try makeClaudeHookContext(name: "codex-oversized-final-transcript")
+        defer { context.cleanup() }
+        startAgentHookMockServerAccepting(context: context, connectionLimit: 32)
+
+        let turnId = "oversized-final-turn"
+        let transcriptURL = context.root.appendingPathComponent("oversized-final-codex-session.jsonl")
+        _ = FileManager.default.createFile(atPath: transcriptURL.path, contents: nil)
+        let handle = try FileHandle(forWritingTo: transcriptURL)
+        defer { try? handle.close() }
+
+        try handle.write(contentsOf: Data(#"{"type":"session_meta","payload":{"id":"codex-oversized-final-session"}}"#.utf8))
+        try handle.write(contentsOf: Data("\n".utf8))
+        let padding = String(repeating: "p", count: 600_000)
+        let finalLine = #"{"type":"event_msg","payload":{"type":"turn_complete","turn_id":"\#(turnId)","padding":"\#(padding)"}}"#
+        try handle.write(contentsOf: Data(finalLine.utf8))
+        try handle.close()
+
+        let stop = runCodexHook(
+            context: context,
+            subcommand: "stop",
+            standardInput: #"{"session_id":"codex-oversized-final-session","turn_id":"\#(turnId)","cwd":"\#(context.root.path)","transcript_path":"\#(transcriptURL.path)","hook_event_name":"Stop","last_assistant_message":null}"#
+        )
+
+        XCTAssertFalse(stop.timedOut, stop.stderr)
+        XCTAssertEqual(stop.status, 0, stop.stderr)
+        XCTAssertTrue(
+            context.state.commands.contains { command in
+                command.contains("notify_target_async \(context.workspaceId) \(context.surfaceId) Codex|Error|Codex ended before sending a final response")
+            },
+            "Expected Codex to parse the oversized final transcript line, saw \(context.state.commands)"
+        )
+    }
+
+    func testCodexPromptSubmitRefreshesLastTurnDiffBaseline() throws {
+        let context = try makeClaudeHookContext(name: "codex-prompt-baseline")
+        defer { context.cleanup() }
+
+        let storyURL = context.root.appendingPathComponent("story.txt")
+        func runGit(_ arguments: [String]) throws -> String {
+            let result = runProcess(
+                executablePath: "/usr/bin/env",
+                arguments: ["git", "-C", context.root.path] + arguments,
+                environment: ["PATH": "/usr/bin:/bin:/usr/sbin:/sbin"],
+                timeout: 10
+            )
+            XCTAssertFalse(result.timedOut, result.stderr)
+            XCTAssertEqual(result.status, 0, result.stderr)
+            guard result.status == 0 else {
+                throw NSError(domain: "CLINotifyProcessIntegrationRegressionTests.git", code: Int(result.status))
+            }
+            return result.stdout.trimmingCharacters(in: .whitespacesAndNewlines)
+        }
+        func baselineRecords() throws -> [[String: Any]] {
+            let storeURL = context.root.appendingPathComponent("agent-turn-diff-baselines.json")
+            let store = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(contentsOf: storeURL)) as? [String: Any])
+            return try XCTUnwrap(store["records"] as? [[String: Any]])
+        }
+
+        _ = try runGit(["init"])
+        _ = try runGit(["checkout", "-b", "main"])
+        _ = try runGit(["config", "user.name", "cmux tests"])
+        _ = try runGit(["config", "user.email", "cmux@example.invalid"])
+        try "one\n".write(to: storyURL, atomically: true, encoding: .utf8)
+        _ = try runGit(["add", "story.txt"])
+        _ = try runGit(["commit", "-m", "initial"])
+        let initialCommit = try runGit(["rev-parse", "HEAD"])
+
+        startAgentHookMockServerAccepting(context: context, connectionLimit: 32)
+        let sessionId = "codex-last-turn-session"
+        let sessionStart = runCodexHook(
+            context: context,
+            subcommand: "session-start",
+            standardInput: #"{"session_id":"\#(sessionId)","turn_id":"turn-0","cwd":"\#(context.root.path)","hook_event_name":"SessionStart"}"#,
+            extraEnvironment: codexLaunchEnvironment(context: context, sessionId: sessionId)
+        )
+        XCTAssertFalse(sessionStart.timedOut, sessionStart.stderr)
+        XCTAssertEqual(sessionStart.status, 0, sessionStart.stderr)
+
+        try "one\ntwo\n".write(to: storyURL, atomically: true, encoding: .utf8)
+        _ = try runGit(["add", "story.txt"])
+        _ = try runGit(["commit", "-m", "add two"])
+        let promptCommit = try runGit(["rev-parse", "HEAD"])
+
+        let promptSubmit = runCodexHook(
+            context: context,
+            subcommand: "prompt-submit",
+            standardInput: #"{"session_id":"\#(sessionId)","turn_id":"turn-1","cwd":"\#(context.root.path)","hook_event_name":"UserPromptSubmit"}"#,
+            extraEnvironment: codexLaunchEnvironment(context: context, sessionId: sessionId)
+        )
+        XCTAssertFalse(promptSubmit.timedOut, promptSubmit.stderr)
+        XCTAssertEqual(promptSubmit.status, 0, promptSubmit.stderr)
+
+        let records = try baselineRecords()
+        let startRecord = try XCTUnwrap(records.first { $0["turnId"] as? String == "turn-0" })
+        let promptRecord = try XCTUnwrap(records.first { $0["turnId"] as? String == "turn-1" })
+        XCTAssertEqual(startRecord["baseCommit"] as? String, initialCommit)
+        XCTAssertEqual(promptRecord["baseCommit"] as? String, promptCommit)
+        XCTAssertEqual(promptRecord["workspaceId"] as? String, context.workspaceId)
+        XCTAssertEqual(promptRecord["surfaceId"] as? String, context.surfaceId)
+
+        try "one\ntwo\nnested\n".write(to: storyURL, atomically: true, encoding: .utf8)
+        _ = try runGit(["add", "story.txt"])
+        _ = try runGit(["commit", "-m", "nested child change"])
+        let childPrompt = runCodexHook(
+            context: context,
+            subcommand: "prompt-submit",
+            standardInput: #"{"session_id":"\#(sessionId)","turn_id":"child-turn","cwd":"\#(context.root.path)","hook_event_name":"UserPromptSubmit"}"#,
+            extraEnvironment: codexLaunchEnvironment(context: context, sessionId: sessionId)
+        )
+        XCTAssertFalse(childPrompt.timedOut, childPrompt.stderr)
+        XCTAssertEqual(childPrompt.status, 0, childPrompt.stderr)
+
+        let childRecords = try baselineRecords()
+        XCTAssertNil(
+            childRecords.first { $0["turnId"] as? String == "child-turn" },
+            "Nested Codex prompts should not create a last-turn diff baseline."
+        )
+        let parentRecordAfterChild = try XCTUnwrap(childRecords.first { $0["turnId"] as? String == "turn-1" })
+        XCTAssertEqual(parentRecordAfterChild["baseCommit"] as? String, promptCommit)
+
+        let childStop = runCodexHook(
+            context: context,
+            subcommand: "stop",
+            standardInput: #"{"session_id":"\#(sessionId)","turn_id":"child-turn","cwd":"\#(context.root.path)","hook_event_name":"Stop","last_assistant_message":"child done"}"#,
+            extraEnvironment: codexLaunchEnvironment(context: context, sessionId: sessionId)
+        )
+        XCTAssertFalse(childStop.timedOut, childStop.stderr)
+        XCTAssertEqual(childStop.status, 0, childStop.stderr)
+
+        let parentStop = runCodexHook(
+            context: context,
+            subcommand: "stop",
+            standardInput: #"{"session_id":"\#(sessionId)","turn_id":"turn-1","cwd":"\#(context.root.path)","hook_event_name":"Stop","last_assistant_message":"parent done"}"#,
+            extraEnvironment: codexLaunchEnvironment(context: context, sessionId: sessionId)
+        )
+        XCTAssertFalse(parentStop.timedOut, parentStop.stderr)
+        XCTAssertEqual(parentStop.status, 0, parentStop.stderr)
+
+        try "one\ntwo\nthree\n".write(to: storyURL, atomically: true, encoding: .utf8)
+        let dirtyPromptSubmit = runCodexHook(
+            context: context,
+            subcommand: "prompt-submit",
+            standardInput: #"{"session_id":"\#(sessionId)","turn_id":"turn-1","cwd":"\#(context.root.path)","hook_event_name":"UserPromptSubmit"}"#,
+            extraEnvironment: codexLaunchEnvironment(context: context, sessionId: sessionId)
+        )
+        XCTAssertFalse(dirtyPromptSubmit.timedOut, dirtyPromptSubmit.stderr)
+        XCTAssertEqual(dirtyPromptSubmit.status, 0, dirtyPromptSubmit.stderr)
+
+        let dirtyRecords = try baselineRecords()
+        let dirtyRecord = try XCTUnwrap(dirtyRecords.first { $0["turnId"] as? String == "turn-1" })
+        let dirtyBaseCommit = try XCTUnwrap(dirtyRecord["baseCommit"] as? String)
+        XCTAssertEqual(
+            try runGit(["show-ref", "--verify", "--hash", "refs/cmux/last-turn/\(dirtyBaseCommit)"]),
+            dirtyBaseCommit
+        )
+
+        let dirtyStop = runCodexHook(
+            context: context,
+            subcommand: "stop",
+            standardInput: #"{"session_id":"\#(sessionId)","turn_id":"turn-1","cwd":"\#(context.root.path)","hook_event_name":"Stop","last_assistant_message":"dirty done"}"#,
+            extraEnvironment: codexLaunchEnvironment(context: context, sessionId: sessionId)
+        )
+        XCTAssertFalse(dirtyStop.timedOut, dirtyStop.stderr)
+        XCTAssertEqual(dirtyStop.status, 0, dirtyStop.stderr)
+
+        try "one\ntwo\nthree\nfour\n".write(to: storyURL, atomically: true, encoding: .utf8)
+        let refreshedDirtyPromptSubmit = runCodexHook(
+            context: context,
+            subcommand: "prompt-submit",
+            standardInput: #"{"session_id":"\#(sessionId)","turn_id":"turn-1","cwd":"\#(context.root.path)","hook_event_name":"UserPromptSubmit"}"#,
+            extraEnvironment: codexLaunchEnvironment(context: context, sessionId: sessionId)
+        )
+        XCTAssertFalse(refreshedDirtyPromptSubmit.timedOut, refreshedDirtyPromptSubmit.stderr)
+        XCTAssertEqual(refreshedDirtyPromptSubmit.status, 0, refreshedDirtyPromptSubmit.stderr)
+
+        let refreshedRecords = try baselineRecords()
+        let refreshedRecord = try XCTUnwrap(refreshedRecords.first { $0["turnId"] as? String == "turn-1" })
+        let refreshedBaseCommit = try XCTUnwrap(refreshedRecord["baseCommit"] as? String)
+        XCTAssertNotEqual(refreshedBaseCommit, dirtyBaseCommit)
+        let oldRef = runProcess(
+            executablePath: "/usr/bin/env",
+            arguments: ["git", "-C", context.root.path, "show-ref", "--verify", "--hash", "refs/cmux/last-turn/\(dirtyBaseCommit)"],
+            environment: ["PATH": "/usr/bin:/bin:/usr/sbin:/sbin"],
+            timeout: 10
+        )
+        XCTAssertFalse(oldRef.timedOut, oldRef.stderr)
+        XCTAssertNotEqual(oldRef.status, 0, oldRef.stdout)
+        XCTAssertEqual(
+            try runGit(["show-ref", "--verify", "--hash", "refs/cmux/last-turn/\(refreshedBaseCommit)"]),
+            refreshedBaseCommit
+        )
+    }
+
     func testClaudeStopFromPreviousSessionDoesNotClobberClearRunningStatus() throws {
         let context = try makeClaudeHookContext(name: "claude-clear-stale-stop")
         defer { context.cleanup() }
@@ -185,6 +450,857 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
                 $0.hasPrefix("set_status claude_code Running --icon=bolt.fill --color=#4C8DFF --tab=\(context.workspaceId)")
             },
             "Expected a new Claude session to replace a stopped idle owner on prompt-submit, saw \(newPromptCommands)"
+        )
+    }
+
+    // MARK: - Forked conversation restore (https://github.com/manaflow-ai/cmux/issues/5908)
+    //
+    // `claude --resume <parent> --fork-session` fires SessionStart with the PARENT
+    // session id; the forked session id is only minted at the first UserPromptSubmit.
+    // Without special handling the fork pane's SessionStart steals the parent record's
+    // surface binding, and the forked session's own hooks are dropped as stale by the
+    // per-workspace active-session gate, so a restart restores the parent conversation
+    // in the fork pane and the forked conversation is lost.
+
+    private func claudeForkLaunchEnvironment(
+        context: ClaudeHookContext,
+        parentSessionId: String
+    ) -> [String: String] {
+        agentLaunchEnvironment(
+            context: context,
+            kind: "claude",
+            executable: "/usr/local/bin/claude",
+            arguments: ["/usr/local/bin/claude", "--resume", parentSessionId, "--fork-session"]
+        )
+    }
+
+    private func seedClaudeForkHookStore(
+        context: ClaudeHookContext,
+        parentSessionId: String,
+        parentSurfaceId: String,
+        forkedSessionId: String? = nil,
+        forkedSurfaceId: String? = nil,
+        activeSessionId: String,
+        activeTurnId: String?
+    ) throws {
+        let now = Date().timeIntervalSince1970
+        var sessions: [String: Any] = [
+            parentSessionId: [
+                "sessionId": parentSessionId,
+                "workspaceId": context.workspaceId,
+                "surfaceId": parentSurfaceId,
+                "cwd": context.root.path,
+                "agentLifecycle": "running",
+                "startedAt": now,
+                "updatedAt": now,
+            ],
+        ]
+        if let forkedSessionId, let forkedSurfaceId {
+            sessions[forkedSessionId] = [
+                "sessionId": forkedSessionId,
+                "workspaceId": context.workspaceId,
+                "surfaceId": forkedSurfaceId,
+                "cwd": context.root.path,
+                "agentLifecycle": "running",
+                "startedAt": now,
+                "updatedAt": now,
+            ]
+        }
+        var active: [String: Any] = [
+            "sessionId": activeSessionId,
+            "updatedAt": now,
+        ]
+        if let activeTurnId {
+            active["turnId"] = activeTurnId
+        }
+        let store: [String: Any] = [
+            "version": 1,
+            "sessions": sessions,
+            "activeSessionsByWorkspace": [context.workspaceId: active],
+        ]
+        try JSONSerialization.data(withJSONObject: store, options: [.prettyPrinted])
+            .write(
+                to: context.root.appendingPathComponent("claude-hook-sessions.json"),
+                options: .atomic
+            )
+    }
+
+    /// Multi-connection mock server for tests that invoke several hooks in one
+    /// scenario; pair with `runClaudeHookWithoutServer`. The per-call
+    /// `runClaudeHookListingSurfaces` server accepts a single connection, which
+    /// deadlocks sequences once any CLI invocation opens more than one.
+    private func startClaudeHookMockServerAccepting(
+        context: ClaudeHookContext,
+        surfaceIds: [String],
+        connectionLimit: Int
+    ) {
+        DispatchQueue.global(qos: .userInitiated).async {
+            var accepted = 0
+            while accepted < connectionLimit {
+                var clientAddr = sockaddr_un()
+                var clientAddrLen = socklen_t(MemoryLayout<sockaddr_un>.size)
+                let clientFD = withUnsafeMutablePointer(to: &clientAddr) { ptr in
+                    ptr.withMemoryRebound(to: sockaddr.self, capacity: 1) { sockaddrPtr in
+                        Darwin.accept(context.listenerFD, sockaddrPtr, &clientAddrLen)
+                    }
+                }
+                if clientFD < 0 {
+                    if errno == EINTR { continue }
+                    return
+                }
+                accepted += 1
+
+                DispatchQueue.global(qos: .userInitiated).async {
+                    defer { Darwin.close(clientFD) }
+                    var pending = Data()
+                    var buffer = [UInt8](repeating: 0, count: 4096)
+                    while true {
+                        let count = Darwin.read(clientFD, &buffer, buffer.count)
+                        if count < 0 {
+                            if errno == EINTR { continue }
+                            return
+                        }
+                        if count == 0 { return }
+                        pending.append(buffer, count: count)
+                        while let newlineRange = pending.firstRange(of: Data([0x0A])) {
+                            let lineData = pending.subdata(in: 0..<newlineRange.lowerBound)
+                            pending.removeSubrange(0...newlineRange.lowerBound)
+                            guard let line = String(data: lineData, encoding: .utf8) else { continue }
+                            context.state.append(line)
+                            let response = self.claudeHookMockResponse(line: line, surfaceIds: surfaceIds) + "\n"
+                            _ = response.withCString { ptr in
+                                Darwin.write(clientFD, ptr, strlen(ptr))
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    private func claudeHookMockResponse(line: String, surfaceIds: [String]) -> String {
+        guard let payload = jsonObject(line) else {
+            return "OK"
+        }
+        guard let id = payload["id"] as? String, let method = payload["method"] as? String else {
+            return malformedRequestResponse(id: payload["id"] as? String, raw: line)
+        }
+        switch method {
+        case "surface.list":
+            return v2Response(
+                id: id,
+                ok: true,
+                result: [
+                    "surfaces": surfaceIds.enumerated().map { index, surfaceId in
+                        ["id": surfaceId, "ref": "surface:\(index + 1)", "focused": index == 0] as [String: Any]
+                    }
+                ]
+            )
+        case "feed.push":
+            return v2Response(id: id, ok: true, result: [:])
+        case "surface.resume.set":
+            return v2Response(id: id, ok: true, result: ["resume_binding": [:]])
+        case "surface.resume.clear":
+            return v2Response(id: id, ok: true, result: ["cleared": true])
+        default:
+            return v2Response(id: id, ok: false, error: ["code": "unrecognized_method", "message": "unexpected method: \(method)"])
+        }
+    }
+
+    private func runClaudeHookWithoutServer(
+        context: ClaudeHookContext,
+        arguments: [String],
+        standardInput: String,
+        extraEnvironment: [String: String] = [:]
+    ) -> ProcessRunResult {
+        var environment = [
+            "HOME": context.root.path,
+            "PATH": "/usr/bin:/bin:/usr/sbin:/sbin",
+            "CMUX_SOCKET_PATH": context.socketPath,
+            "CMUX_WORKSPACE_ID": context.workspaceId,
+            "CMUX_SURFACE_ID": context.surfaceId,
+            "CMUX_CLAUDE_HOOK_STATE_PATH": context.root.appendingPathComponent("claude-hook-sessions.json").path,
+            "CMUX_CLI_SENTRY_DISABLED": "1",
+            "CMUX_CLAUDE_HOOK_SENTRY_DISABLED": "1",
+        ]
+        for (key, value) in extraEnvironment {
+            environment[key] = value
+        }
+        return runProcess(
+            executablePath: context.cliPath,
+            arguments: arguments,
+            environment: environment,
+            standardInput: standardInput,
+            timeout: 5
+        )
+    }
+
+    private func runClaudeHookListingSurfaces(
+        context: ClaudeHookContext,
+        surfaceIds: [String],
+        arguments: [String],
+        standardInput: String,
+        extraEnvironment: [String: String] = [:]
+    ) -> ProcessRunResult {
+        let serverHandled = startMockServer(listenerFD: context.listenerFD, state: context.state) { line in
+            guard let payload = self.jsonObject(line) else {
+                return "OK"
+            }
+            guard let id = payload["id"] as? String, let method = payload["method"] as? String else {
+                return self.malformedRequestResponse(id: payload["id"] as? String, raw: line)
+            }
+            switch method {
+            case "surface.list":
+                return self.v2Response(
+                    id: id,
+                    ok: true,
+                    result: [
+                        "surfaces": surfaceIds.enumerated().map { index, surfaceId in
+                            ["id": surfaceId, "ref": "surface:\(index + 1)", "focused": index == 0] as [String: Any]
+                        }
+                    ]
+                )
+            case "feed.push":
+                return self.v2Response(id: id, ok: true, result: [:])
+            case "surface.resume.set":
+                return self.v2Response(id: id, ok: true, result: ["resume_binding": [:]])
+            case "surface.resume.clear":
+                return self.v2Response(id: id, ok: true, result: ["cleared": true])
+            default:
+                return self.v2Response(id: id, ok: false, error: ["code": "unrecognized_method", "message": "unexpected method: \(method)"])
+            }
+        }
+
+        var environment = [
+            "HOME": context.root.path,
+            "PATH": "/usr/bin:/bin:/usr/sbin:/sbin",
+            "CMUX_SOCKET_PATH": context.socketPath,
+            "CMUX_WORKSPACE_ID": context.workspaceId,
+            "CMUX_SURFACE_ID": context.surfaceId,
+            "CMUX_CLAUDE_HOOK_STATE_PATH": context.root.appendingPathComponent("claude-hook-sessions.json").path,
+            "CMUX_CLI_SENTRY_DISABLED": "1",
+            "CMUX_CLAUDE_HOOK_SENTRY_DISABLED": "1",
+        ]
+        for (key, value) in extraEnvironment {
+            environment[key] = value
+        }
+
+        let result = runProcess(
+            executablePath: context.cliPath,
+            arguments: arguments,
+            environment: environment,
+            standardInput: standardInput,
+            timeout: 5
+        )
+        wait(for: [serverHandled], timeout: 5)
+        return result
+    }
+
+    func testClaudeForkSessionStartKeepsParentSessionBoundToOriginalSurface() throws {
+        let context = try makeClaudeHookContext(name: "claude-fork-session-start")
+        defer { context.cleanup() }
+
+        let parentSessionId = "parent-session"
+        let parentSurfaceId = "99999999-9999-9999-9999-999999999999"
+        try seedClaudeForkHookStore(
+            context: context,
+            parentSessionId: parentSessionId,
+            parentSurfaceId: parentSurfaceId,
+            activeSessionId: parentSessionId,
+            activeTurnId: "parent-turn-1"
+        )
+
+        let result = runClaudeHookListingSurfaces(
+            context: context,
+            surfaceIds: [parentSurfaceId, context.surfaceId],
+            arguments: ["hooks", "claude", "session-start"],
+            standardInput: #"{"session_id":"\#(parentSessionId)","source":"resume","cwd":"\#(context.root.path)","hook_event_name":"SessionStart"}"#,
+            extraEnvironment: claudeForkLaunchEnvironment(context: context, parentSessionId: parentSessionId)
+        )
+        XCTAssertFalse(result.timedOut, result.stderr)
+        XCTAssertEqual(result.status, 0, result.stderr)
+
+        let parentRecord = try readClaudeHookSession(parentSessionId, context: context)
+        XCTAssertEqual(
+            parentRecord["surfaceId"] as? String,
+            parentSurfaceId,
+            "Fork-session SessionStart reports the parent session id and must not steal the parent record's surface binding for the fork pane"
+        )
+    }
+
+    func testClaudeForkSessionStartWithoutSurfaceIdentityDoesNotRegisterPIDOnFallbackPane() throws {
+        let context = try makeClaudeHookContext(name: "claude-fork-no-surface")
+        defer { context.cleanup() }
+
+        let parentSessionId = "parent-session"
+        let parentSurfaceId = "99999999-9999-9999-9999-999999999999"
+        try seedClaudeForkHookStore(
+            context: context,
+            parentSessionId: parentSessionId,
+            parentSurfaceId: parentSurfaceId,
+            activeSessionId: parentSessionId,
+            activeTurnId: nil
+        )
+
+        // No surface identity: resolution falls back to the focused surface,
+        // which is some other pane. The fork's PID must not be registered
+        // there — the matching SessionEnd cleanup only clears authoritative
+        // surfaces, so a fallback registration would never be cleared.
+        var environment = claudeForkLaunchEnvironment(context: context, parentSessionId: parentSessionId)
+        environment["CMUX_SURFACE_ID"] = ""
+        environment["CMUX_CLAUDE_PID"] = "12345"
+        let result = runClaudeHookListingSurfaces(
+            context: context,
+            surfaceIds: [parentSurfaceId, context.surfaceId],
+            arguments: ["hooks", "claude", "session-start"],
+            standardInput: #"{"session_id":"\#(parentSessionId)","source":"resume","cwd":"\#(context.root.path)","hook_event_name":"SessionStart"}"#,
+            extraEnvironment: environment
+        )
+        XCTAssertFalse(result.timedOut, result.stderr)
+        XCTAssertEqual(result.status, 0, result.stderr)
+
+        XCTAssertFalse(
+            context.state.commands.contains { $0.hasPrefix("set_agent_pid claude_code ") },
+            "A fork SessionStart without an authoritative surface must not register its PID on a borrowed fallback pane, saw \(context.state.commands)"
+        )
+    }
+
+    func testClaudeForkSessionStartRecognizesEqualsFlagForm() throws {
+        let context = try makeClaudeHookContext(name: "claude-fork-equals-form")
+        defer { context.cleanup() }
+
+        let parentSessionId = "parent-session"
+        let parentSurfaceId = "99999999-9999-9999-9999-999999999999"
+        try seedClaudeForkHookStore(
+            context: context,
+            parentSessionId: parentSessionId,
+            parentSurfaceId: parentSurfaceId,
+            activeSessionId: parentSessionId,
+            activeTurnId: "parent-turn-1"
+        )
+
+        let result = runClaudeHookListingSurfaces(
+            context: context,
+            surfaceIds: [parentSurfaceId, context.surfaceId],
+            arguments: ["hooks", "claude", "session-start"],
+            standardInput: #"{"session_id":"\#(parentSessionId)","source":"resume","cwd":"\#(context.root.path)","hook_event_name":"SessionStart"}"#,
+            extraEnvironment: agentLaunchEnvironment(
+                context: context,
+                kind: "claude",
+                executable: "/usr/local/bin/claude",
+                arguments: ["/usr/local/bin/claude", "--resume", parentSessionId, "--fork-session=true"]
+            )
+        )
+        XCTAssertFalse(result.timedOut, result.stderr)
+        XCTAssertEqual(result.status, 0, result.stderr)
+
+        let parentRecord = try readClaudeHookSession(parentSessionId, context: context)
+        XCTAssertEqual(
+            parentRecord["surfaceId"] as? String,
+            parentSurfaceId,
+            "Fork detection must recognize the --fork-session=true flag form the launch sanitizer already accepts"
+        )
+    }
+
+    func testClaudeLegacyStoreBackfillsPaneBoundaryFromWorkspaceActiveSlot() throws {
+        let context = try makeClaudeHookContext(name: "claude-legacy-backfill")
+        defer { context.cleanup() }
+
+        let paneA = "99999999-9999-9999-9999-999999999999"
+        let paneB = context.surfaceId
+        let now = Date().timeIntervalSince1970
+        // A store written before per-surface tracking: pane A's current
+        // session-2 holds the workspace slot; stale session-1 also lives in
+        // pane A; no activeSessionsBySurface key at all.
+        let store: [String: Any] = [
+            "version": 1,
+            "sessions": [
+                "session-1": [
+                    "sessionId": "session-1",
+                    "workspaceId": context.workspaceId,
+                    "surfaceId": paneA,
+                    "cwd": context.root.path,
+                    "agentLifecycle": "running",
+                    "startedAt": now,
+                    "updatedAt": now,
+                ],
+                "session-2": [
+                    "sessionId": "session-2",
+                    "workspaceId": context.workspaceId,
+                    "surfaceId": paneA,
+                    "cwd": context.root.path,
+                    "agentLifecycle": "running",
+                    "startedAt": now,
+                    "updatedAt": now,
+                ],
+            ],
+            "activeSessionsByWorkspace": [
+                context.workspaceId: [
+                    "sessionId": "session-2",
+                    "updatedAt": now,
+                ],
+            ],
+        ]
+        try JSONSerialization.data(withJSONObject: store, options: [.prettyPrinted])
+            .write(
+                to: context.root.appendingPathComponent("claude-hook-sessions.json"),
+                options: .atomic
+            )
+
+        startClaudeHookMockServerAccepting(
+            context: context,
+            surfaceIds: [paneA, paneB],
+            connectionLimit: 32
+        )
+
+        // Pane B takes the workspace-active slot under the new code…
+        let paneBPrompt = runClaudeHookWithoutServer(
+            context: context,
+            arguments: ["hooks", "claude", "prompt-submit"],
+            standardInput: #"{"session_id":"session-3","turn_id":"turn-3","cwd":"\#(context.root.path)","hook_event_name":"UserPromptSubmit","prompt":"three"}"#,
+            extraEnvironment: ["CMUX_SURFACE_ID": paneB]
+        )
+        XCTAssertFalse(paneBPrompt.timedOut, paneBPrompt.stderr)
+        XCTAssertEqual(paneBPrompt.status, 0, paneBPrompt.stderr)
+
+        // …then a late Stop from stale session-1 in pane A must stay stale:
+        // the pane boundary (session-2 owns pane A) has to survive the upgrade
+        // via backfill from the legacy workspace slot.
+        let lateStop = runClaudeHookWithoutServer(
+            context: context,
+            arguments: ["hooks", "claude", "stop"],
+            standardInput: #"{"session_id":"session-1","cwd":"\#(context.root.path)","hook_event_name":"Stop","last_assistant_message":"late"}"#,
+            extraEnvironment: ["CMUX_SURFACE_ID": paneA]
+        )
+        XCTAssertFalse(lateStop.timedOut, lateStop.stderr)
+        XCTAssertEqual(lateStop.status, 0, lateStop.stderr)
+
+        let staleRecord = try readClaudeHookSession("session-1", context: context)
+        XCTAssertEqual(
+            staleRecord["agentLifecycle"] as? String,
+            "running",
+            "A legacy store must backfill the pane boundary so pre-upgrade stale sessions stay stale after another pane promotes"
+        )
+    }
+
+    func testClaudeForkedSessionPromptSubmitRecordsWhileParentTurnActive() throws {
+        let context = try makeClaudeHookContext(name: "claude-fork-prompt-submit")
+        defer { context.cleanup() }
+
+        let parentSessionId = "parent-session"
+        let parentSurfaceId = "99999999-9999-9999-9999-999999999999"
+        let forkedSessionId = "forked-session"
+        try seedClaudeForkHookStore(
+            context: context,
+            parentSessionId: parentSessionId,
+            parentSurfaceId: parentSurfaceId,
+            activeSessionId: parentSessionId,
+            activeTurnId: "parent-turn-1"
+        )
+
+        let commandStart = context.state.commands.count
+        let result = runClaudeHookListingSurfaces(
+            context: context,
+            surfaceIds: [parentSurfaceId, context.surfaceId],
+            arguments: ["hooks", "claude", "prompt-submit"],
+            standardInput: #"{"session_id":"\#(forkedSessionId)","turn_id":"fork-turn-1","cwd":"\#(context.root.path)","hook_event_name":"UserPromptSubmit","prompt":"diverge here"}"#,
+            extraEnvironment: claudeForkLaunchEnvironment(context: context, parentSessionId: parentSessionId)
+        )
+        XCTAssertFalse(result.timedOut, result.stderr)
+        XCTAssertEqual(result.status, 0, result.stderr)
+
+        let forkedRecord = try readClaudeHookSession(forkedSessionId, context: context)
+        XCTAssertEqual(
+            forkedRecord["surfaceId"] as? String,
+            context.surfaceId,
+            "The forked session's first prompt-submit must bind the forked session to the fork pane even while the parent session owns the workspace's active turn"
+        )
+        XCTAssertEqual(
+            forkedRecord["isRestorable"] as? Bool,
+            true,
+            "The forked session must become restorable so a cmux restart resumes the fork, not the parent"
+        )
+
+        let promptCommands = Array(context.state.commands.dropFirst(commandStart))
+        let resumeBindingRequests = promptCommands.compactMap { command -> [String: Any]? in
+            guard let payload = jsonObject(command),
+                  payload["method"] as? String == "surface.resume.set" else {
+                return nil
+            }
+            return payload["params"] as? [String: Any]
+        }
+        XCTAssertEqual(resumeBindingRequests.count, 1, promptCommands.joined(separator: "\n"))
+        let request = try XCTUnwrap(resumeBindingRequests.first)
+        XCTAssertEqual(request["checkpoint_id"] as? String, forkedSessionId)
+        XCTAssertEqual(request["surface_id"] as? String, context.surfaceId)
+    }
+
+    func testClaudeForkSessionEndBeforeFirstPromptDoesNotConsumeParentSession() throws {
+        let context = try makeClaudeHookContext(name: "claude-fork-session-end")
+        defer { context.cleanup() }
+
+        let parentSessionId = "parent-session"
+        let parentSurfaceId = "99999999-9999-9999-9999-999999999999"
+        try seedClaudeForkHookStore(
+            context: context,
+            parentSessionId: parentSessionId,
+            parentSurfaceId: parentSurfaceId,
+            activeSessionId: parentSessionId,
+            activeTurnId: nil
+        )
+
+        // Exiting a fork pane before its first prompt fires SessionEnd with the
+        // PARENT session id (the forked id is only minted at the first prompt).
+        let result = runClaudeHookListingSurfaces(
+            context: context,
+            surfaceIds: [parentSurfaceId, context.surfaceId],
+            arguments: ["hooks", "claude", "session-end"],
+            standardInput: #"{"session_id":"\#(parentSessionId)","cwd":"\#(context.root.path)","hook_event_name":"SessionEnd"}"#,
+            extraEnvironment: claudeForkLaunchEnvironment(context: context, parentSessionId: parentSessionId)
+        )
+        XCTAssertFalse(result.timedOut, result.stderr)
+        XCTAssertEqual(result.status, 0, result.stderr)
+
+        let parentRecord = try readClaudeHookSession(parentSessionId, context: context)
+        XCTAssertEqual(
+            parentRecord["surfaceId"] as? String,
+            parentSurfaceId,
+            "A pre-prompt fork exit must not consume the parent session record the original pane still owns"
+        )
+        let resumeClearRequests = context.state.commands.compactMap { command -> [String: Any]? in
+            guard let payload = jsonObject(command),
+                  payload["method"] as? String == "surface.resume.clear" else {
+                return nil
+            }
+            return payload["params"] as? [String: Any]
+        }
+        XCTAssertTrue(
+            resumeClearRequests.isEmpty,
+            "A pre-prompt fork exit must not clear the parent pane's resume binding, saw \(resumeClearRequests)"
+        )
+        XCTAssertTrue(
+            context.state.commands.contains {
+                $0.hasPrefix("clear_agent_pid claude_code ") && $0.contains("--panel=\(context.surfaceId)")
+            },
+            "A pre-prompt fork exit must still clear the agent PID/status registered for the fork pane, saw \(context.state.commands)"
+        )
+    }
+
+    func testClaudeForkedSessionPromptSubmitRecordsWithSurfaceRefForm() throws {
+        let context = try makeClaudeHookContext(name: "claude-fork-surface-ref")
+        defer { context.cleanup() }
+
+        let parentSessionId = "parent-session"
+        let parentSurfaceId = "99999999-9999-9999-9999-999999999999"
+        let forkedSessionId = "forked-session"
+        try seedClaudeForkHookStore(
+            context: context,
+            parentSessionId: parentSessionId,
+            parentSurfaceId: parentSurfaceId,
+            activeSessionId: parentSessionId,
+            activeTurnId: "parent-turn-1"
+        )
+
+        // The hook surface may arrive as the documented surface:N ref form
+        // rather than a UUID; the staleness gate must treat the resolved UUID
+        // as the hook's own surface in that case too.
+        let result = runClaudeHookListingSurfaces(
+            context: context,
+            surfaceIds: [parentSurfaceId, context.surfaceId],
+            arguments: ["hooks", "claude", "prompt-submit"],
+            standardInput: #"{"session_id":"\#(forkedSessionId)","turn_id":"fork-turn-1","cwd":"\#(context.root.path)","hook_event_name":"UserPromptSubmit","prompt":"diverge here"}"#,
+            extraEnvironment: ["CMUX_SURFACE_ID": "surface:2"]
+        )
+        XCTAssertFalse(result.timedOut, result.stderr)
+        XCTAssertEqual(result.status, 0, result.stderr)
+
+        let forkedRecord = try readClaudeHookSession(forkedSessionId, context: context)
+        XCTAssertEqual(
+            forkedRecord["surfaceId"] as? String,
+            context.surfaceId,
+            "A forked session's first prompt-submit must record via the resolved surface when the hook supplies the surface as a ref"
+        )
+    }
+
+    func testClaudeStaleStopFromClosedPaneStaysStaleWhenSurfaceResolutionFallsBack() throws {
+        let context = try makeClaudeHookContext(name: "claude-stale-stop-fallback")
+        defer { context.cleanup() }
+
+        let staleSessionId = "stale-session"
+        let closedSurfaceId = "99999999-9999-9999-9999-999999999999"
+        let activeSessionId = "active-session"
+        let activeSurfaceId = "88888888-8888-8888-8888-888888888888"
+        let now = Date().timeIntervalSince1970
+        let store: [String: Any] = [
+            "version": 1,
+            "sessions": [
+                staleSessionId: [
+                    "sessionId": staleSessionId,
+                    "workspaceId": context.workspaceId,
+                    "surfaceId": closedSurfaceId,
+                    "cwd": context.root.path,
+                    "agentLifecycle": "running",
+                    "startedAt": now,
+                    "updatedAt": now,
+                ],
+                activeSessionId: [
+                    "sessionId": activeSessionId,
+                    "workspaceId": context.workspaceId,
+                    "surfaceId": activeSurfaceId,
+                    "cwd": context.root.path,
+                    "agentLifecycle": "running",
+                    "startedAt": now,
+                    "updatedAt": now,
+                ],
+            ],
+            "activeSessionsByWorkspace": [
+                context.workspaceId: [
+                    "sessionId": activeSessionId,
+                    "updatedAt": now,
+                ],
+            ],
+        ]
+        try JSONSerialization.data(withJSONObject: store, options: [.prettyPrinted])
+            .write(
+                to: context.root.appendingPathComponent("claude-hook-sessions.json"),
+                options: .atomic
+            )
+
+        // The stale session's pane is closed: it is not in surface.list, so
+        // surface resolution falls back to the focused surface (a third pane).
+        // The cross-surface staleness gate must not treat that borrowed pane as
+        // the hook's own surface — the late Stop has to stay stale.
+        let result = runClaudeHookListingSurfaces(
+            context: context,
+            surfaceIds: [context.surfaceId, activeSurfaceId],
+            arguments: ["hooks", "claude", "stop"],
+            standardInput: #"{"session_id":"\#(staleSessionId)","cwd":"\#(context.root.path)","hook_event_name":"Stop","last_assistant_message":"late stop"}"#,
+            extraEnvironment: ["CMUX_SURFACE_ID": closedSurfaceId]
+        )
+        XCTAssertFalse(result.timedOut, result.stderr)
+        XCTAssertEqual(result.status, 0, result.stderr)
+
+        let staleRecord = try readClaudeHookSession(staleSessionId, context: context)
+        XCTAssertEqual(
+            staleRecord["surfaceId"] as? String,
+            closedSurfaceId,
+            "A stale hook resolved to a fallback surface must not retarget the session record to a pane it never owned"
+        )
+        XCTAssertEqual(
+            staleRecord["agentLifecycle"] as? String,
+            "running",
+            "A late Stop from a closed pane must stay stale when surface resolution fell back to another pane"
+        )
+    }
+
+    func testClaudeStaleStopStaysStaleAfterAnotherPaneBecomesWorkspaceActive() throws {
+        let context = try makeClaudeHookContext(name: "claude-stale-stop-multi-pane")
+        defer { context.cleanup() }
+
+        let paneA = "99999999-9999-9999-9999-999999999999"
+        let paneB = context.surfaceId
+        startClaudeHookMockServerAccepting(
+            context: context,
+            surfaceIds: [paneA, paneB],
+            connectionLimit: 32
+        )
+
+        func runHook(_ subcommand: String, stdin: String, surface: String) -> ProcessRunResult {
+            runClaudeHookWithoutServer(
+                context: context,
+                arguments: ["hooks", "claude", subcommand],
+                standardInput: stdin,
+                extraEnvironment: ["CMUX_SURFACE_ID": surface]
+            )
+        }
+
+        // Pane A: session-1 runs a turn, stops, and is replaced by session-2
+        // (the /clear-replacement boundary for pane A).
+        for (subcommand, stdin) in [
+            ("prompt-submit", #"{"session_id":"session-1","turn_id":"turn-1","cwd":"\#(context.root.path)","hook_event_name":"UserPromptSubmit","prompt":"one"}"#),
+            ("stop", #"{"session_id":"session-1","turn_id":"turn-1","cwd":"\#(context.root.path)","hook_event_name":"Stop","last_assistant_message":"done"}"#),
+            ("prompt-submit", #"{"session_id":"session-2","turn_id":"turn-2","cwd":"\#(context.root.path)","hook_event_name":"UserPromptSubmit","prompt":"two"}"#),
+        ] {
+            let result = runHook(subcommand, stdin: stdin, surface: paneA)
+            XCTAssertFalse(result.timedOut, result.stderr)
+            XCTAssertEqual(result.status, 0, result.stderr)
+        }
+
+        // Pane B: a different session (e.g. a forked conversation) takes the
+        // workspace-active slot.
+        let paneBPrompt = runHook(
+            "prompt-submit",
+            stdin: #"{"session_id":"session-3","turn_id":"turn-3","cwd":"\#(context.root.path)","hook_event_name":"UserPromptSubmit","prompt":"three"}"#,
+            surface: paneB
+        )
+        XCTAssertFalse(paneBPrompt.timedOut, paneBPrompt.stderr)
+        XCTAssertEqual(paneBPrompt.status, 0, paneBPrompt.stderr)
+
+        // A late Stop from the superseded session-1 in pane A must stay stale
+        // even though the workspace-active session now lives in pane B.
+        let lateStop = runHook(
+            "stop",
+            stdin: #"{"session_id":"session-1","turn_id":"turn-1","cwd":"\#(context.root.path)","hook_event_name":"Stop","last_assistant_message":"late"}"#,
+            surface: paneA
+        )
+        XCTAssertFalse(lateStop.timedOut, lateStop.stderr)
+        XCTAssertEqual(lateStop.status, 0, lateStop.stderr)
+
+        let stateURL = context.root.appendingPathComponent("claude-hook-sessions.json")
+        let savedState = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(contentsOf: stateURL)) as? [String: Any])
+        let activeSessions = try XCTUnwrap(savedState["activeSessionsByWorkspace"] as? [String: Any])
+        let active = try XCTUnwrap(activeSessions[context.workspaceId] as? [String: Any])
+        XCTAssertEqual(
+            active["sessionId"] as? String,
+            "session-3",
+            "A late Stop from a session replaced in its own pane must not re-promote it after another pane became the workspace-active session"
+        )
+    }
+
+    func testClaudeNewSessionReplacesStoppedSessionInPaneAfterAnotherPaneBecameActive() throws {
+        let context = try makeClaudeHookContext(name: "claude-replace-multi-pane")
+        defer { context.cleanup() }
+
+        let paneA = "99999999-9999-9999-9999-999999999999"
+        let paneB = context.surfaceId
+        startClaudeHookMockServerAccepting(
+            context: context,
+            surfaceIds: [paneA, paneB],
+            connectionLimit: 32
+        )
+
+        func runHook(_ subcommand: String, stdin: String, surface: String) -> ProcessRunResult {
+            runClaudeHookWithoutServer(
+                context: context,
+                arguments: ["hooks", "claude", subcommand],
+                standardInput: stdin,
+                extraEnvironment: ["CMUX_SURFACE_ID": surface]
+            )
+        }
+
+        // Pane A: session-1 runs a turn and stops (idle, replacement allowed).
+        // Pane B: session-3 (e.g. a forked conversation) takes the
+        // workspace-active slot.
+        for (subcommand, stdin, surface) in [
+            ("prompt-submit", #"{"session_id":"session-1","turn_id":"turn-1","cwd":"\#(context.root.path)","hook_event_name":"UserPromptSubmit","prompt":"one"}"#, paneA),
+            ("stop", #"{"session_id":"session-1","turn_id":"turn-1","cwd":"\#(context.root.path)","hook_event_name":"Stop","last_assistant_message":"done"}"#, paneA),
+            ("prompt-submit", #"{"session_id":"session-3","turn_id":"turn-3","cwd":"\#(context.root.path)","hook_event_name":"UserPromptSubmit","prompt":"three"}"#, paneB),
+        ] {
+            let result = runHook(subcommand, stdin: stdin, surface: surface)
+            XCTAssertFalse(result.timedOut, result.stderr)
+            XCTAssertEqual(result.status, 0, result.stderr)
+        }
+
+        // Pane A: the user starts a fresh Claude session. It must replace the
+        // stopped session in its own pane even though the workspace-active
+        // session now lives in pane B.
+        for (subcommand, stdin) in [
+            ("session-start", #"{"session_id":"session-4","source":"startup","cwd":"\#(context.root.path)","hook_event_name":"SessionStart"}"#),
+            ("prompt-submit", #"{"session_id":"session-4","turn_id":"turn-4","cwd":"\#(context.root.path)","hook_event_name":"UserPromptSubmit","prompt":"four"}"#),
+        ] {
+            let result = runHook(subcommand, stdin: stdin, surface: paneA)
+            XCTAssertFalse(result.timedOut, result.stderr)
+            XCTAssertEqual(result.status, 0, result.stderr)
+        }
+
+        let newRecord = try readClaudeHookSession("session-4", context: context)
+        XCTAssertEqual(
+            newRecord["surfaceId"] as? String,
+            paneA,
+            "A fresh session in an idle pane must record against its own pane"
+        )
+        XCTAssertEqual(
+            newRecord["isRestorable"] as? Bool,
+            true,
+            "A fresh session replacing a stopped session in its own pane must not be dropped as stale after another pane became workspace-active"
+        )
+    }
+
+    func testClaudeStaleTurnSessionEndDoesNotConsumeSessionAfterAnotherPaneBecameActive() throws {
+        let context = try makeClaudeHookContext(name: "claude-stale-end-multi-pane")
+        defer { context.cleanup() }
+
+        let paneA = "99999999-9999-9999-9999-999999999999"
+        let paneB = context.surfaceId
+        startClaudeHookMockServerAccepting(
+            context: context,
+            surfaceIds: [paneA, paneB],
+            connectionLimit: 32
+        )
+
+        func runHook(_ subcommand: String, stdin: String, surface: String) -> ProcessRunResult {
+            runClaudeHookWithoutServer(
+                context: context,
+                arguments: ["hooks", "claude", subcommand],
+                standardInput: stdin,
+                extraEnvironment: ["CMUX_SURFACE_ID": surface]
+            )
+        }
+
+        // Pane A: session-1 finishes turn-1 and is mid turn-2. Pane B promotes
+        // session-3 into the workspace-active slot.
+        for (subcommand, stdin, surface) in [
+            ("prompt-submit", #"{"session_id":"session-1","turn_id":"turn-1","cwd":"\#(context.root.path)","hook_event_name":"UserPromptSubmit","prompt":"one"}"#, paneA),
+            ("stop", #"{"session_id":"session-1","turn_id":"turn-1","cwd":"\#(context.root.path)","hook_event_name":"Stop","last_assistant_message":"done"}"#, paneA),
+            ("prompt-submit", #"{"session_id":"session-1","turn_id":"turn-2","cwd":"\#(context.root.path)","hook_event_name":"UserPromptSubmit","prompt":"again"}"#, paneA),
+            ("prompt-submit", #"{"session_id":"session-3","turn_id":"turn-3","cwd":"\#(context.root.path)","hook_event_name":"UserPromptSubmit","prompt":"three"}"#, paneB),
+        ] {
+            let result = runHook(subcommand, stdin: stdin, surface: surface)
+            XCTAssertFalse(result.timedOut, result.stderr)
+            XCTAssertEqual(result.status, 0, result.stderr)
+        }
+
+        // A stale SessionEnd for session-1's finished turn-1 must not consume
+        // the record while pane A's surface-active turn is turn-2, even though
+        // the workspace-active slot now belongs to pane B.
+        let staleEnd = runHook(
+            "session-end",
+            stdin: #"{"session_id":"session-1","turn_id":"turn-1","cwd":"\#(context.root.path)","hook_event_name":"SessionEnd"}"#,
+            surface: paneA
+        )
+        XCTAssertFalse(staleEnd.timedOut, staleEnd.stderr)
+        XCTAssertEqual(staleEnd.status, 0, staleEnd.stderr)
+
+        let record = try readClaudeHookSession("session-1", context: context)
+        XCTAssertEqual(
+            record["surfaceId"] as? String,
+            paneA,
+            "A stale turn-mismatched SessionEnd must not consume a session that is still active in its own pane after another pane became workspace-active"
+        )
+    }
+
+    func testClaudeParentPaneStopAppliesAfterForkedSessionPromoted() throws {
+        let context = try makeClaudeHookContext(name: "claude-fork-parent-stop")
+        defer { context.cleanup() }
+
+        let parentSessionId = "parent-session"
+        let parentSurfaceId = "99999999-9999-9999-9999-999999999999"
+        let forkedSessionId = "forked-session"
+        try seedClaudeForkHookStore(
+            context: context,
+            parentSessionId: parentSessionId,
+            parentSurfaceId: parentSurfaceId,
+            forkedSessionId: forkedSessionId,
+            forkedSurfaceId: context.surfaceId,
+            activeSessionId: forkedSessionId,
+            activeTurnId: "fork-turn-1"
+        )
+
+        let result = runClaudeHookListingSurfaces(
+            context: context,
+            surfaceIds: [parentSurfaceId, context.surfaceId],
+            arguments: ["hooks", "claude", "stop"],
+            standardInput: #"{"session_id":"\#(parentSessionId)","cwd":"\#(context.root.path)","hook_event_name":"Stop","last_assistant_message":"parent turn finished"}"#,
+            extraEnvironment: ["CMUX_SURFACE_ID": parentSurfaceId]
+        )
+        XCTAssertFalse(result.timedOut, result.stderr)
+        XCTAssertEqual(result.status, 0, result.stderr)
+
+        let parentRecord = try readClaudeHookSession(parentSessionId, context: context)
+        XCTAssertEqual(
+            parentRecord["agentLifecycle"] as? String,
+            "idle",
+            "The parent pane's Stop must keep applying after the forked session became the workspace's active session in another pane"
         )
     }
 
@@ -2221,18 +3337,165 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         let run = try runMockedSSH(arguments: [], jsonOutput: true)
         let payload = try jsonPayload(from: run.stdout)
         let sessionID = try XCTUnwrap(payload["ssh_pty_session_id"] as? String)
+        let persistentDaemonSlot = try XCTUnwrap(payload["persistent_daemon_slot"] as? String)
 
         XCTAssertEqual(sessionID, "ssh-\(run.workspaceId)-\(run.surfaceId)")
         XCTAssertFalse(sessionID.contains("$"), sessionID)
         XCTAssertFalse(sessionID.contains("{"), sessionID)
+        XCTAssertTrue(persistentDaemonSlot.hasPrefix("ssh-"), persistentDaemonSlot)
+        XCTAssertNotNil(UUID(uuidString: String(persistentDaemonSlot.dropFirst(4))))
     }
 
     func testSSHPersistentPTYJSONResolvesSessionIDWhenWorkspaceCreateOmitsSurfaceID() throws {
         let run = try runMockedSSH(arguments: [], jsonOutput: true, omitWorkspaceCreateSurfaceID: true)
         let payload = try jsonPayload(from: run.stdout)
         let sessionID = try XCTUnwrap(payload["ssh_pty_session_id"] as? String)
+        let persistentDaemonSlot = try XCTUnwrap(payload["persistent_daemon_slot"] as? String)
 
         XCTAssertEqual(sessionID, "ssh-\(run.workspaceId)-\(run.surfaceId)")
+        XCTAssertTrue(persistentDaemonSlot.hasPrefix("ssh-"), persistentDaemonSlot)
+        XCTAssertNotNil(UUID(uuidString: String(persistentDaemonSlot.dropFirst(4))))
+    }
+
+    func testSSHForwardAgentFlagPropagatesCallerAgentSocket() throws {
+        let agentSocketPath = try makeExistingAgentSocketPath()
+        let run = try runMockedSSH(
+            arguments: ["--forward-agent"],
+            environmentOverrides: ["SSH_AUTH_SOCK": agentSocketPath]
+        )
+        let createParams = try XCTUnwrap(params(for: "workspace.create", in: run.requests))
+        let configureParams = try XCTUnwrap(params(for: "workspace.remote.configure", in: run.requests))
+        let sshOptions = try XCTUnwrap(configureParams["ssh_options"] as? [String])
+        let initialEnv = try XCTUnwrap(createParams["initial_env"] as? [String: String])
+
+        XCTAssertTrue(sshOptions.contains("ForwardAgent=yes"), "ssh_options: \(sshOptions)")
+        XCTAssertEqual(initialEnv["SSH_AUTH_SOCK"], agentSocketPath)
+        XCTAssertEqual(configureParams["ssh_auth_sock"] as? String, agentSocketPath)
+    }
+
+    func testSSHForwardAgentOptionPropagatesCallerAgentSocket() throws {
+        let agentSocketPath = try makeExistingAgentSocketPath()
+        let run = try runMockedSSH(
+            arguments: ["--ssh-option", "ForwardAgent=yes"],
+            environmentOverrides: ["SSH_AUTH_SOCK": agentSocketPath]
+        )
+        let createParams = try XCTUnwrap(params(for: "workspace.create", in: run.requests))
+        let configureParams = try XCTUnwrap(params(for: "workspace.remote.configure", in: run.requests))
+        let sshOptions = try XCTUnwrap(configureParams["ssh_options"] as? [String])
+        let initialEnv = try XCTUnwrap(createParams["initial_env"] as? [String: String])
+
+        XCTAssertTrue(sshOptions.contains("ForwardAgent=yes"), "ssh_options: \(sshOptions)")
+        XCTAssertEqual(initialEnv["SSH_AUTH_SOCK"], agentSocketPath)
+        XCTAssertEqual(configureParams["ssh_auth_sock"] as? String, agentSocketPath)
+    }
+
+    func testSSHForwardAgentRepeatedOptionUsesLastValue() throws {
+        let run = try runMockedSSH(
+            arguments: [
+                "--ssh-option", "ForwardAgent=yes",
+                "--ssh-option", "ForwardAgent=no",
+            ],
+            environmentOverrides: [
+                "SSH_AUTH_SOCK": "/tmp/cmux-test-agent-\(UUID().uuidString).sock",
+            ]
+        )
+        let createParams = try XCTUnwrap(params(for: "workspace.create", in: run.requests))
+        let configureParams = try XCTUnwrap(params(for: "workspace.remote.configure", in: run.requests))
+        let sshOptions = try XCTUnwrap(configureParams["ssh_options"] as? [String])
+
+        XCTAssertEqual(sshOptions.filter { $0.hasPrefix("ForwardAgent=") }, [
+            "ForwardAgent=yes",
+            "ForwardAgent=no",
+        ])
+        XCTAssertNil(createParams["initial_env"])
+        XCTAssertNil(configureParams["ssh_auth_sock"])
+    }
+
+    func testSSHPreservesCallerAgentSocketForOpenSSHConfigResolution() throws {
+        let agentSocketPath = try makeExistingAgentSocketPath()
+        let run = try runMockedSSH(
+            arguments: [],
+            environmentOverrides: [
+                "SSH_AUTH_SOCK": agentSocketPath,
+            ]
+        )
+        let createParams = try XCTUnwrap(params(for: "workspace.create", in: run.requests))
+        let configureParams = try XCTUnwrap(params(for: "workspace.remote.configure", in: run.requests))
+        let initialEnv = try XCTUnwrap(createParams["initial_env"] as? [String: String])
+
+        XCTAssertNil(configureParams["ssh_options"])
+        XCTAssertEqual(initialEnv["SSH_AUTH_SOCK"], agentSocketPath)
+        XCTAssertEqual(configureParams["ssh_auth_sock"] as? String, agentSocketPath)
+    }
+
+    func testSSHForwardAgentLiteralSocketPathPropagatesSocketPath() throws {
+        let agentSocketPath = try makeExistingAgentSocketPath()
+        let run = try runMockedSSH(
+            arguments: ["--ssh-option", "ForwardAgent=\(agentSocketPath)"]
+        )
+        let createParams = try XCTUnwrap(params(for: "workspace.create", in: run.requests))
+        let configureParams = try XCTUnwrap(params(for: "workspace.remote.configure", in: run.requests))
+        let sshOptions = try XCTUnwrap(configureParams["ssh_options"] as? [String])
+        let initialEnv = try XCTUnwrap(createParams["initial_env"] as? [String: String])
+
+        XCTAssertTrue(sshOptions.contains("ForwardAgent=\(agentSocketPath)"), "ssh_options: \(sshOptions)")
+        XCTAssertEqual(initialEnv["SSH_AUTH_SOCK"], agentSocketPath)
+        XCTAssertEqual(configureParams["ssh_auth_sock"] as? String, agentSocketPath)
+    }
+
+    func testSSHForwardAgentTildeSocketPathExpandsSocketPath() throws {
+        let homeURL = try makeTemporaryDirectory(prefix: "cmux-ssh-home")
+        let tildeSocketPath = "~/.ssh/cmux-test-agent.sock"
+        let expandedSocketURL = homeURL.appendingPathComponent(".ssh/cmux-test-agent.sock")
+        try createExistingFile(at: expandedSocketURL)
+        let run = try runMockedSSH(
+            arguments: ["--ssh-option", "ForwardAgent=\(tildeSocketPath)"],
+            environmentOverrides: [
+                "HOME": homeURL.path,
+            ]
+        )
+        let createParams = try XCTUnwrap(params(for: "workspace.create", in: run.requests))
+        let configureParams = try XCTUnwrap(params(for: "workspace.remote.configure", in: run.requests))
+        let sshOptions = try XCTUnwrap(configureParams["ssh_options"] as? [String])
+        let initialEnv = try XCTUnwrap(createParams["initial_env"] as? [String: String])
+
+        XCTAssertTrue(sshOptions.contains("ForwardAgent=\(tildeSocketPath)"), "ssh_options: \(sshOptions)")
+        XCTAssertEqual(initialEnv["SSH_AUTH_SOCK"], expandedSocketURL.path)
+        XCTAssertEqual(configureParams["ssh_auth_sock"] as? String, expandedSocketURL.path)
+    }
+
+    func testSSHForwardAgentAskDoesNotPropagateInvalidSocketPath() throws {
+        let run = try runMockedSSH(
+            arguments: ["--ssh-option", "ForwardAgent=ask"],
+            environmentOverrides: [
+                "SSH_AUTH_SOCK": "/tmp/cmux-test-agent-\(UUID().uuidString).sock",
+            ]
+        )
+        let createParams = try XCTUnwrap(params(for: "workspace.create", in: run.requests))
+        let configureParams = try XCTUnwrap(params(for: "workspace.remote.configure", in: run.requests))
+        let sshOptions = try XCTUnwrap(configureParams["ssh_options"] as? [String])
+
+        XCTAssertTrue(sshOptions.contains("ForwardAgent=ask"), "ssh_options: \(sshOptions)")
+        XCTAssertNil(createParams["initial_env"])
+        XCTAssertNil(configureParams["ssh_auth_sock"])
+    }
+
+    func testSSHNoForwardAgentFlagOverridesConfig() throws {
+        let agentSocketPath = try makeExistingAgentSocketPath()
+        let run = try runMockedSSH(
+            arguments: ["--no-forward-agent"],
+            environmentOverrides: [
+                "SSH_AUTH_SOCK": agentSocketPath,
+            ]
+        )
+        let createParams = try XCTUnwrap(params(for: "workspace.create", in: run.requests))
+        let configureParams = try XCTUnwrap(params(for: "workspace.remote.configure", in: run.requests))
+        let sshOptions = try XCTUnwrap(configureParams["ssh_options"] as? [String])
+        let initialEnv = try XCTUnwrap(createParams["initial_env"] as? [String: String])
+
+        XCTAssertTrue(sshOptions.contains("ForwardAgent=no"), "ssh_options: \(sshOptions)")
+        XCTAssertEqual(initialEnv["SSH_AUTH_SOCK"], agentSocketPath)
+        XCTAssertEqual(configureParams["ssh_auth_sock"] as? String, agentSocketPath)
     }
 
     private func assertSSHPersistentPTYUsesReusableForegroundAuthControlConnection(
@@ -2305,6 +3568,9 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         XCTAssertEqual(configureParams["auto_connect"] as? Bool, false)
         XCTAssertNotNil(configureParams["foreground_auth_token"] as? String)
         XCTAssertEqual(configureParams["preserve_after_terminal_exit"] as? Bool, true)
+        let persistentDaemonSlot = try XCTUnwrap(configureParams["persistent_daemon_slot"] as? String)
+        XCTAssertTrue(persistentDaemonSlot.hasPrefix("ssh-"), persistentDaemonSlot)
+        XCTAssertNotNil(UUID(uuidString: String(persistentDaemonSlot.dropFirst(4))))
     }
 
     func testSSHPersistentPTYFallsBackWhenForegroundAuthCannotBeReused() throws {
@@ -2338,6 +3604,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
             XCTAssertEqual(configureParams["auto_connect"] as? Bool, true, testCase.name)
             XCTAssertNil(configureParams["foreground_auth_token"], testCase.name)
             XCTAssertNil(configureParams["preserve_after_terminal_exit"], testCase.name)
+            XCTAssertNil(configureParams["persistent_daemon_slot"], testCase.name)
         }
     }
 
@@ -3203,6 +4470,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
             XCTAssertEqual(params["remote_pty_session_id"] as? String, sessionId)
             XCTAssertEqual(params["focus"] as? Bool, true)
             let initialCommand = params["initial_command"] as? String ?? ""
+            XCTAssertTrue(initialCommand.hasPrefix("/bin/sh -c "), initialCommand)
             XCTAssertTrue(initialCommand.contains("ssh-pty-attach"), initialCommand)
             XCTAssertTrue(initialCommand.contains("--require-existing"), initialCommand)
             XCTAssertTrue(initialCommand.contains(sessionId), initialCommand)
@@ -7437,6 +8705,18 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         return try XCTUnwrap(sessions[sessionId] as? [String: Any])
     }
 
+    private func feedPushEvents(in context: ClaudeHookContext) -> [[String: Any]] {
+        context.state.snapshot().compactMap { line in
+            guard let payload = jsonObject(line),
+                  payload["method"] as? String == "feed.push",
+                  let params = payload["params"] as? [String: Any],
+                  let event = params["event"] as? [String: Any] else {
+                return nil
+            }
+            return event
+        }
+    }
+
     func testBrowserImportDefaultsNonInteractiveInCodingAgent() throws {
         let cliPath = try bundledCLIPath()
         let socketPath = makeSocketPath("browser-import-agent")
@@ -7803,11 +9083,13 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         arguments sshArguments: [String],
         jsonOutput: Bool = false,
         omitWorkspaceCreateSurfaceID: Bool = false,
+        environmentOverrides: [String: String] = [:],
         file: StaticString = #filePath,
         line: UInt = #line
     ) throws -> MockedSSHRun {
         let cliPath = try bundledCLIPath()
         let socketPath = makeSocketPath("ssh")
+        let homeURL = try makeTemporaryDirectory(prefix: "cmux-ssh-home")
         let listenerFD = try bindUnixSocket(at: socketPath)
         let state = MockSocketServerState()
         let workspaceId = "11111111-1111-1111-1111-111111111111"
@@ -7876,6 +9158,10 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         }
         environment["CMUX_SOCKET_PATH"] = socketPath
         environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+        environment["HOME"] = homeURL.path
+        for (key, value) in environmentOverrides {
+            environment[key] = value
+        }
 
         let commandArguments = jsonOutput
             ? ["--json", "--id-format", "uuids", "ssh", "example.test", "--no-focus"] + sshArguments
@@ -7901,6 +9187,34 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
             stdout: result.stdout,
             workspaceId: workspaceId,
             surfaceId: surfaceId
+        )
+    }
+
+    private func makeExistingAgentSocketPath() throws -> String {
+        let directory = try makeTemporaryDirectory(prefix: "cmux-agent")
+        let url = directory.appendingPathComponent("agent.sock")
+        try createExistingFile(at: url)
+        return url.path
+    }
+
+    private func makeTemporaryDirectory(prefix: String) throws -> URL {
+        let url = FileManager.default.temporaryDirectory
+            .appendingPathComponent("\(prefix)-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
+        addTeardownBlock {
+            try? FileManager.default.removeItem(at: url)
+        }
+        return url
+    }
+
+    private func createExistingFile(at url: URL) throws {
+        try FileManager.default.createDirectory(
+            at: url.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
+        XCTAssertTrue(
+            FileManager.default.createFile(atPath: url.path, contents: Data()),
+            "Expected to create \(url.path)"
         )
     }
 
@@ -7952,4 +9266,80 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         )
     }
 
+}
+
+extension CLINotifyProcessIntegrationRegressionTests {
+    // E2E for #4920: the REAL CLI launcher env builder (configureTmuxCompatEnvironment, exercised via
+    // the hidden __debug-tmux-compat-env seam) must stamp the LAUNCH surface (the launcher's own
+    // inherited env), not the operator's focused pane returned by system.identify. Without the fix it
+    // stamped the focused surface (A), desyncing CMUX_SURFACE_ID from CMUX_PANEL_ID and jumbling codex
+    // into the wrong surface on reload.
+    func testTmuxCompatEnvStampsLaunchSurfaceNotFocusedPane() throws {
+        let cliPath = try bundledCLIPath()
+        let tmpDir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-spawn-id-e2e-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: tmpDir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tmpDir) }
+        let socketPath = tmpDir.appendingPathComponent("sock").path
+        let listenerFD = try bindUnixSocket(at: socketPath)
+        defer { Darwin.close(listenerFD); unlink(socketPath) }
+        let state = MockSocketServerState()
+
+        // The operator's FOCUSED pane is surface A (what system.identify returns).
+        let focusedWorkspace = "11111111-1111-1111-1111-111111111111"
+        let focusedSurface = "22222222-2222-2222-2222-222222222222"
+        let handled = startMockServer(listenerFD: listenerFD, state: state) { line in
+            guard let payload = self.jsonObject(line),
+                  let id = payload["id"] as? String,
+                  let method = payload["method"] as? String else {
+                return self.malformedRequestResponse(raw: line)
+            }
+            if method == "system.identify" {
+                return self.v2Response(id: id, ok: true, result: [
+                    "focused": [
+                        "workspace_id": focusedWorkspace,
+                        "surface_id": focusedSurface,
+                        "pane_id": "%1",
+                    ],
+                ])
+            }
+            // resolveWorkspaceId / tmuxCanonicalPaneId fail gracefully (CLI uses try?).
+            return self.v2Response(id: id, ok: false, error: ["code": "unsupported", "message": method])
+        }
+
+        // ...but the launcher RUNS in surface B (its own inherited env). Tab id is surface-scoped, so
+        // it is distinct from the workspace id.
+        let launchWorkspace = "33333333-3333-3333-3333-333333333333"
+        let launchSurface = "44444444-4444-4444-4444-444444444444"
+        let launchTab = "55555555-5555-5555-5555-555555555555"
+        let result = runProcess(
+            executablePath: cliPath,
+            arguments: ["__debug-tmux-compat-env"],
+            environment: [
+                "CMUX_SOCKET_PATH": socketPath,
+                "CMUX_WORKSPACE_ID": launchWorkspace,
+                "CMUX_SURFACE_ID": launchSurface,
+                "CMUX_PANEL_ID": launchSurface,
+                "CMUX_TAB_ID": launchTab,
+                "HOME": tmpDir.path,
+                "PATH": ProcessInfo.processInfo.environment["PATH"] ?? "/usr/bin:/bin",
+            ],
+            timeout: 30
+        )
+        wait(for: [handled], timeout: 30)
+
+        XCTAssertTrue(
+            result.stdout.contains("CMUX_SURFACE_ID=\(launchSurface)"),
+            "launcher must stamp the LAUNCH surface; stdout:\n\(result.stdout)\nstderr:\n\(result.stderr)"
+        )
+        XCTAssertFalse(
+            result.stdout.contains("CMUX_SURFACE_ID=\(focusedSurface)"),
+            "launcher must NOT stamp the focused surface; stdout:\n\(result.stdout)"
+        )
+        XCTAssertTrue(result.stdout.contains("CMUX_WORKSPACE_ID=\(launchWorkspace)"), result.stdout)
+        // Matched-pair invariant: SURFACE == PANEL (the desync is exactly the bug). The surface-scoped
+        // tab id passes through untouched.
+        XCTAssertTrue(result.stdout.contains("CMUX_PANEL_ID=\(launchSurface)"), result.stdout)
+        XCTAssertTrue(result.stdout.contains("CMUX_TAB_ID=\(launchTab)"), result.stdout)
+    }
 }

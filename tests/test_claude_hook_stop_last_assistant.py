@@ -105,12 +105,20 @@ class CapturingSocketServer:
                         continue
                     line = raw_line.decode("utf-8", errors="replace")
                     self.commands.append(line)
-                    conn.sendall((self._response_for(line) + "\n").encode("utf-8"))
+                    response = self._response_for(line)
+                    if response is None:
+                        continue
+                    try:
+                        conn.sendall((response + "\n").encode("utf-8"))
+                    except OSError:
+                        return
 
-    def _response_for(self, line: str) -> str:
+    def _response_for(self, line: str) -> str | None:
         if line.startswith("{"):
             try:
                 request = json.loads(line)
+                if "id" not in request:
+                    return None
                 if request.get("method") == "surface.list":
                     return json.dumps(
                         {

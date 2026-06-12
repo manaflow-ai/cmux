@@ -114,10 +114,22 @@ extension AppDelegate {
         case .window(let windowEntry):
             var restoredPanelIdsByWorkspaceIndex: [[UUID: UUID]] = []
             var restoredTabManager: TabManager?
+            var windowSnapshot = windowEntry.snapshot
+            if windowSnapshot.windowId == nil {
+                windowSnapshot.windowId = windowEntry.windowId
+            }
+            let originalWindowId = windowSnapshot.windowId
+            let originalWorkspaceIdsByIndex = windowSnapshot.tabManager.workspaces.enumerated().map { index, workspaceSnapshot -> UUID? in
+                if let workspaceId = workspaceSnapshot.workspaceId {
+                    return workspaceId
+                }
+                guard windowEntry.workspaceIds.indices.contains(index) else { return nil }
+                return windowEntry.workspaceIds[index]
+            }
             let windowId = createMainWindow(
-                sessionWindowSnapshot: windowEntry.snapshot,
+                sessionWindowSnapshot: windowSnapshot,
                 shouldActivate: shouldActivate,
-                closedWindowHistoryWorkspaceIds: windowEntry.workspaceIds,
+                remapClosedPanelHistoryFromSessionSnapshot: false,
                 restoredSessionSnapshotHandler: { panelIdsByWorkspaceIndex, tabManager in
                     restoredPanelIdsByWorkspaceIndex = panelIdsByWorkspaceIndex
                     restoredTabManager = tabManager
@@ -129,12 +141,17 @@ extension AppDelegate {
                 restoredPanelIdsByWorkspaceIndex: restoredPanelIdsByWorkspaceIndex,
                 hasLivePanels: hasLivePanels
             ) else {
+                if let originalWindowId {
+                    ClosedItemHistoryStore.shared.remapWorkspaceWindowIds(from: windowId, to: originalWindowId)
+                    ClosedItemHistoryStore.shared.flushPendingSaves()
+                }
                 discardMainWindowWithoutClosedHistory(windowId: windowId)
                 return false
             }
-            if let oldWindowId = windowEntry.windowId {
-                ClosedItemHistoryStore.shared.remapWorkspaceWindowIds(from: oldWindowId, to: windowId)
-            }
+            restoredTabManager?.remapClosedPanelHistoryAfterSessionRestore(
+                originalWorkspaceIds: originalWorkspaceIdsByIndex,
+                restoredPanelIdsByWorkspaceIndex: restoredPanelIdsByWorkspaceIndex
+            )
             return true
         }
     }

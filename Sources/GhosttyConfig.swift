@@ -13,10 +13,17 @@ struct GhosttyConfig {
 
     private static let loadCacheLock = NSLock()
     private static var cachedConfigsByColorScheme: [ColorSchemePreference: GhosttyConfig] = [:]
+    static let defaultSidebarFontSize = CGFloat(CmuxGhosttyConfigSettingEditor.defaultSidebarFontSize)
+    static let minSidebarFontSize = CGFloat(CmuxGhosttyConfigSettingEditor.minSidebarFontSize)
+    static let maxSidebarFontSize = CGFloat(CmuxGhosttyConfigSettingEditor.maxSidebarFontSize)
+    static let defaultSurfaceTabBarFontSize = CGFloat(CmuxGhosttyConfigSettingEditor.defaultSurfaceTabBarFontSize)
+    static let minSurfaceTabBarFontSize = CGFloat(CmuxGhosttyConfigSettingEditor.minSurfaceTabBarFontSize)
+    static let maxSurfaceTabBarFontSize = CGFloat(CmuxGhosttyConfigSettingEditor.maxSurfaceTabBarFontSize)
 
     var fontFamily: String = "Menlo"
     var fontSize: CGFloat = 12
-    var surfaceTabBarFontSize: CGFloat = 11
+    var surfaceTabBarFontSize: CGFloat = Self.defaultSurfaceTabBarFontSize
+    var sidebarFontSize: CGFloat = Self.defaultSidebarFontSize
     var theme: String?
     var workingDirectory: String?
     // Ghostty measures scrollback-limit in bytes, not lines.
@@ -373,7 +380,14 @@ struct GhosttyConfig {
     ) {
         let lines = contents.components(separatedBy: .newlines)
         for line in lines {
-            let trimmed = line.trimmingCharacters(in: .whitespaces)
+            var trimmed = line.trimmingCharacters(in: .whitespaces)
+            // Strip a leading UTF-8 BOM so a BOM-encoded first line (e.g. a
+            // `sidebar-font-size` setting) is still parsed instead of silently
+            // ignored, matching `CmuxGhosttyConfigSettingEditor.parsedSetting`.
+            if trimmed.hasPrefix("\u{FEFF}") {
+                trimmed.removeFirst()
+                trimmed = trimmed.trimmingCharacters(in: .whitespaces)
+            }
             if trimmed.isEmpty || trimmed.hasPrefix("#") {
                 continue
             }
@@ -391,8 +405,12 @@ struct GhosttyConfig {
                         fontSize = CGFloat(size)
                     }
                 case "surface-tab-bar-font-size":
-                    if let size = Double(value) {
-                        surfaceTabBarFontSize = CGFloat(size)
+                    if let size = Double(value), size.isFinite {
+                        surfaceTabBarFontSize = Self.clampedSurfaceTabBarFontSize(CGFloat(size))
+                    }
+                case "sidebar-font-size":
+                    if let size = Double(value), size.isFinite {
+                        sidebarFontSize = Self.clampedSidebarFontSize(CGFloat(size))
                     }
                 case "theme":
                     theme = value
@@ -655,6 +673,14 @@ struct GhosttyConfig {
         return parsed
     }
 
+    static func clampedSidebarFontSize(_ value: CGFloat) -> CGFloat {
+        CGFloat(CmuxGhosttyConfigSettingEditor.clampedSidebarFontSize(Double(value)))
+    }
+
+    static func clampedSurfaceTabBarFontSize(_ value: CGFloat) -> CGFloat {
+        CGFloat(CmuxGhosttyConfigSettingEditor.clampedSurfaceTabBarFontSize(Double(value)))
+    }
+
     private static func parseBackgroundBlur(_ value: String) -> GhosttyBackgroundBlur? {
         switch value {
         case "false", "0":
@@ -781,6 +807,54 @@ struct GhosttyConfig {
             return lightTheme
         }
         return rawThemeValue.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    /// Returns the theme name that the raw `theme` value *explicitly* assigns to
+    /// `preferredColorScheme` via ghostty's conditional `light:...`/`dark:...`
+    /// syntax, or `nil` when that side is not conditionally specified.
+    ///
+    /// Unlike ``resolveThemeName(from:preferredColorScheme:)``, this performs no
+    /// cross-side fallback: `light:X` (with no `dark:` token) returns `X` for
+    /// `.light` and `nil` for `.dark`. cmux injects a resolved plain `theme = X`
+    /// override only for explicitly specified sides, because ghostty mis-applies
+    /// the conditional form (the background lands but the foreground/palette stay
+    /// at the default colors — see
+    /// https://github.com/manaflow-ai/cmux/issues/3459). Injecting for an unset
+    /// side would clobber the user's inherited/default theme for that appearance.
+    static func explicitConditionalThemeName(
+        from rawThemeValue: String,
+        preferredColorScheme: ColorSchemePreference
+    ) -> String? {
+        var lightTheme: String?
+        var darkTheme: String?
+
+        for token in rawThemeValue.split(separator: ",").map(String.init) {
+            let entry = token.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !entry.isEmpty else { continue }
+
+            let parts = entry.split(separator: ":", maxSplits: 1).map(String.init)
+            guard parts.count == 2 else { continue }
+
+            let key = parts[0].trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+            let value = parts[1].trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !value.isEmpty else { continue }
+
+            switch key {
+            case "light":
+                if lightTheme == nil { lightTheme = value }
+            case "dark":
+                if darkTheme == nil { darkTheme = value }
+            default:
+                continue
+            }
+        }
+
+        switch preferredColorScheme {
+        case .light:
+            return lightTheme
+        case .dark:
+            return darkTheme
+        }
     }
 
     static func themeValueUsesSameResolvedThemeInBothColorSchemes(_ rawThemeValue: String) -> Bool {
