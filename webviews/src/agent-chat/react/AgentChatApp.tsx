@@ -17,6 +17,7 @@ import {
   type ConversationState,
 } from "../conversationStore";
 import { agentChatLabels } from "../labels";
+import { applyAgentChatTheme } from "../theme";
 import { providerDisplayName, sessionDisplayTitle } from "./display";
 import { ItemRow, PendingRequestBanner, TurnSeparator } from "./rows";
 
@@ -59,6 +60,10 @@ function useAgentChatConnection(
       if (cancelled) {
         return;
       }
+      // Terminal theme tokens ride the init reply so the first paint is
+      // already themed; later appearance changes arrive as
+      // `cmuxAgentChatBridge.applyTheme` pushes (bridge.ts).
+      applyAgentChatTheme(result.theme);
       dispatch({ type: "init", result });
       try {
         await bridge.subscribe();

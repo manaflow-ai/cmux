@@ -6,6 +6,55 @@
   color-scheme: light dark;
 }
 
+/* Token defaults. The macOS host overrides most of these with inline custom
+ * properties on <html> via the shared applyAgentTheme seam (it also sets
+ * data-theme="dark|light"); inline style always wins over these blocks. With
+ * no host theme (vite dev, mock bridge) the dark defaults below apply, and the
+ * system-light block swaps them. Scoped to <html> only: <body> carries the
+ * same data attribute, and defining vars there would shadow the :root
+ * overrides for every descendant. */
+
+html[data-cmux-webview-kind="agent-chat"] {
+  --agent-page-bg: #1e1e1e;
+  --agent-surface-elevated: #2a2a2a;
+  --agent-input-bg: rgba(127, 127, 127, 0.12);
+  --agent-border: rgba(127, 127, 127, 0.25);
+  --agent-text: #d6d6d6;
+  --agent-muted: #8a8a8a;
+  --agent-soft: #b8b8b8;
+  --agent-accent: #4f8ff7;
+  --agent-danger: #e5484d;
+  /* Not part of the host token set: derived/static companions that still
+   * track the delivered theme. */
+  --agent-control: color-mix(in srgb, var(--agent-text) 13%, transparent);
+  --agent-success: #00a240;
+  --agent-warning: #f5a623;
+}
+
+/* System light scheme while no host theme has been applied. */
+@media (prefers-color-scheme: light) {
+  html[data-cmux-webview-kind="agent-chat"]:not([data-theme]) {
+    --agent-page-bg: #ffffff;
+    --agent-surface-elevated: #f2f2f2;
+    --agent-input-bg: rgba(0, 0, 0, 0.05);
+    --agent-border: rgba(0, 0, 0, 0.16);
+    --agent-text: #1f1f1f;
+    --agent-muted: #6e6e6e;
+    --agent-soft: #4b4b4b;
+    --agent-accent: #0a66d0;
+    --agent-danger: #b3261e;
+    --agent-success: #1a7f37;
+    --agent-warning: #9a6700;
+  }
+}
+
+/* Host-delivered light theme: the host supplies the core tokens inline; only
+ * the local companions need a light variant. */
+html[data-cmux-webview-kind="agent-chat"][data-theme="light"] {
+  --agent-success: #1a7f37;
+  --agent-warning: #9a6700;
+}
+
 [data-cmux-webview-kind="agent-chat"] {
   margin: 0;
   background: var(--agent-page-bg, #1e1e1e);
