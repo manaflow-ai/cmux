@@ -8811,6 +8811,7 @@ class BrowserDownloadDelegate: NSObject, WKDownloadDelegate {
     private struct DownloadState {
         let tempURL: URL
         let suggestedFilename: String
+        let sourceURL: URL
     }
 
     /// Tracks active downloads keyed by WKDownload identity.
@@ -8825,16 +8826,6 @@ class BrowserDownloadDelegate: NSObject, WKDownloadDelegate {
         try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         return dir
     }()
-
-    private static func sanitizedFilename(_ raw: String, fallbackURL: URL?) -> String {
-        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
-        let candidate = (trimmed as NSString).lastPathComponent
-        let fromURL = fallbackURL?.lastPathComponent ?? ""
-        let base = candidate.isEmpty ? fromURL : candidate
-        let replaced = base.replacingOccurrences(of: ":", with: "-")
-        let safe = replaced.trimmingCharacters(in: .whitespacesAndNewlines)
-        return safe.isEmpty ? "download" : safe
-    }
 
     private func storeState(_ state: DownloadState, for download: WKDownload) {
         activeDownloadsLock.lock()
@@ -8864,11 +8855,35 @@ class BrowserDownloadDelegate: NSObject, WKDownloadDelegate {
         completionHandler: @escaping (URL?) -> Void
     ) {
         // Save to a temp file — return synchronously so WebKit is never blocked.
-        let safeFilename = Self.sanitizedFilename(suggestedFilename, fallbackURL: response.url)
+        let filenameResolver = BrowserDownloadFilenameResolver()
+        switch filenameResolver.httpStatusDecision(for: response) {
+        case .allow:
+            break
+        case .reject(let statusCode):
+            #if DEBUG
+            cmuxDebugLog("download.rejected status=\(statusCode)")
+            #endif
+            completionHandler(nil)
+            return
+        }
+        let sourceURL = response.url ?? URL(fileURLWithPath: suggestedFilename)
+        let safeFilename = filenameResolver.suggestedFilename(
+            suggestedFilename: suggestedFilename,
+            response: response,
+            sourceURL: sourceURL,
+            imageType: nil
+        )
         let tempFilename = "\(UUID().uuidString)-\(safeFilename)"
         let destURL = Self.tempDir.appendingPathComponent(tempFilename, isDirectory: false)
         try? FileManager.default.removeItem(at: destURL)
-        storeState(DownloadState(tempURL: destURL, suggestedFilename: safeFilename), for: download)
+        storeState(
+            DownloadState(
+                tempURL: destURL,
+                suggestedFilename: safeFilename,
+                sourceURL: sourceURL
+            ),
+            for: download
+        )
         notifyOnMain { [weak self] in
             self?.onDownloadStarted?(safeFilename)
         }
@@ -8894,8 +8909,16 @@ class BrowserDownloadDelegate: NSObject, WKDownloadDelegate {
         // Show NSSavePanel on the next runloop iteration (safe context).
         DispatchQueue.main.async {
             self.onDownloadReadyToSave?()
+            let filenameResolver = BrowserDownloadFilenameResolver()
+            let imageType = filenameResolver.imageType(forDownloadedFileAt: info.tempURL)
+            let suggestedFilename = filenameResolver.suggestedFilename(
+                suggestedFilename: info.suggestedFilename,
+                response: nil,
+                sourceURL: info.sourceURL,
+                imageType: imageType
+            )
             let savePanel = NSSavePanel()
-            savePanel.nameFieldStringValue = info.suggestedFilename
+            savePanel.nameFieldStringValue = suggestedFilename
             savePanel.canCreateDirectories = true
             savePanel.directoryURL = FileManager.default.urls(for: .downloadsDirectory, in: .userDomainMask).first
 

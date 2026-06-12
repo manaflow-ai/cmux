@@ -1885,10 +1885,31 @@ final class CmuxWebView: WKWebView {
                     self.debugContextDownload(
                         "browser.ctxdl.response trace=\(traceID) stage=success hasResponse=1 status=\(statusCode) mime=\(mime) bytes=\(data.count) expected=\(expectedLength)"
                     )
-                    let filenameCandidate = suggestedFilename
-                        ?? response?.suggestedFilename
-                        ?? url.lastPathComponent
-                    let saveName = filenameCandidate.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "download" : filenameCandidate
+                    let filenameResolver = BrowserDownloadFilenameResolver()
+                    switch filenameResolver.httpStatusDecision(for: response) {
+                    case .allow:
+                        break
+                    case .reject(let rejectedStatusCode):
+                        self.notifyContextMenuDownloadState(false)
+                        self.debugContextDownload(
+                            "browser.ctxdl.response trace=\(traceID) stage=httpFailure status=\(rejectedStatusCode) mime=\(mime) bytes=\(data.count)"
+                        )
+                        self.runContextMenuFallback(
+                            action: fallbackAction,
+                            target: fallbackTarget,
+                            sender: sender,
+                            traceID: traceID,
+                            reason: "http_status"
+                        )
+                        return
+                    }
+                    let imageType = filenameResolver.imageType(forImageData: data)
+                    let saveName = filenameResolver.suggestedFilename(
+                        suggestedFilename: suggestedFilename,
+                        response: response,
+                        sourceURL: url,
+                        imageType: imageType
+                    )
 
                     let savePanel = NSSavePanel()
                     savePanel.nameFieldStringValue = saveName
