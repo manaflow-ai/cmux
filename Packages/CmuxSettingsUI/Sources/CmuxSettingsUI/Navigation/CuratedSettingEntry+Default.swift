@@ -105,6 +105,10 @@ extension Array where Element == CuratedSettingEntry {
             .init(section: .mobile, id: "iOSPairingPort", title: String(localized: "settings.mobile.port", defaultValue: "Pairing Port"), synonyms: "mobile.iOSPairingHost.port ios iphone mobile pairing port tcp listener firewall conflict"),
             .init(section: .mobile, id: "iOSPairingDisplayName", title: String(localized: "settings.mobile.displayName", defaultValue: "Display Name"), synonyms: "mobile.iOSPairingHost.displayName ios iphone mobile pairing display name mac hostname device label"),
 
+            // Custom Sidebars
+            .init(section: .customSidebars, id: "enabled", title: String(localized: "settings.customSidebars.enabled", defaultValue: "Show Custom Sidebars"), synonyms: "custom sidebars enable show vibe swift json interpreted picker beta"),
+            .init(section: .customSidebars, id: "renderer", title: String(localized: "settings.customSidebars.renderer", defaultValue: "Renderer"), synonyms: "customSidebars.renderer renderer in-process in app remote worker isolated process hover focus typing input"),
+
             // Beta
             .init(section: .betaFeatures, id: "feed", title: "Feed", synonyms: "feed right sidebar agent decisions permissions questions approval beta unstable"),
             .init(section: .betaFeatures, id: "dock", title: "Dock", synonyms: "dock right sidebar terminal controls tui beta unstable"),

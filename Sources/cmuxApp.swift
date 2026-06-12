@@ -715,6 +715,20 @@ struct cmuxApp: App {
                     }
                 }
 
+                splitCommandButton(title: String(localized: "menu.file.newBrowserWorkspace", defaultValue: "New Browser Workspace"), shortcut: menuShortcut(for: .newBrowserWorkspace)) {
+                    if let appDelegate = AppDelegate.shared {
+                        appDelegate.performNewBrowserWorkspaceAction(
+                            tabManager: activeTabManager,
+                            debugSource: "menu.newBrowserWorkspace"
+                        )
+                    } else if BrowserAvailabilitySettings.isEnabled() {
+                        // Last-resort fallback for a missing AppDelegate; keep
+                        // the browser-availability gate identical to the
+                        // shared action path.
+                        activeTabManager.addWorkspace(initialSurface: .browser)
+                    }
+                }
+
                 splitCommandButton(title: String(localized: "menu.file.openFolder", defaultValue: "Open Folder…"), shortcut: menuShortcut(for: .openFolder)) {
                     AppDelegate.shared?.showOpenFolderPanel()
                 }

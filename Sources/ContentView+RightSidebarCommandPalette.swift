@@ -9,6 +9,8 @@ extension ContentView {
         switch commandId {
         case "palette.newWorkspace":
             return .newTab
+        case "palette.newBrowserWorkspace":
+            return .newBrowserWorkspace
         case "palette.newWindow":
             return .newWindow
         case "palette.openFolder":
