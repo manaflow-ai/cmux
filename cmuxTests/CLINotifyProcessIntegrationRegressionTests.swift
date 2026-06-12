@@ -525,6 +525,116 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
             )
     }
 
+    /// Multi-connection mock server for tests that invoke several hooks in one
+    /// scenario; pair with `runClaudeHookWithoutServer`. The per-call
+    /// `runClaudeHookListingSurfaces` server accepts a single connection, which
+    /// deadlocks sequences once any CLI invocation opens more than one.
+    private func startClaudeHookMockServerAccepting(
+        context: ClaudeHookContext,
+        surfaceIds: [String],
+        connectionLimit: Int
+    ) {
+        DispatchQueue.global(qos: .userInitiated).async {
+            var accepted = 0
+            while accepted < connectionLimit {
+                var clientAddr = sockaddr_un()
+                var clientAddrLen = socklen_t(MemoryLayout<sockaddr_un>.size)
+                let clientFD = withUnsafeMutablePointer(to: &clientAddr) { ptr in
+                    ptr.withMemoryRebound(to: sockaddr.self, capacity: 1) { sockaddrPtr in
+                        Darwin.accept(context.listenerFD, sockaddrPtr, &clientAddrLen)
+                    }
+                }
+                if clientFD < 0 {
+                    if errno == EINTR { continue }
+                    return
+                }
+                accepted += 1
+
+                DispatchQueue.global(qos: .userInitiated).async {
+                    defer { Darwin.close(clientFD) }
+                    var pending = Data()
+                    var buffer = [UInt8](repeating: 0, count: 4096)
+                    while true {
+                        let count = Darwin.read(clientFD, &buffer, buffer.count)
+                        if count < 0 {
+                            if errno == EINTR { continue }
+                            return
+                        }
+                        if count == 0 { return }
+                        pending.append(buffer, count: count)
+                        while let newlineRange = pending.firstRange(of: Data([0x0A])) {
+                            let lineData = pending.subdata(in: 0..<newlineRange.lowerBound)
+                            pending.removeSubrange(0...newlineRange.lowerBound)
+                            guard let line = String(data: lineData, encoding: .utf8) else { continue }
+                            context.state.append(line)
+                            let response = self.claudeHookMockResponse(line: line, surfaceIds: surfaceIds) + "\n"
+                            _ = response.withCString { ptr in
+                                Darwin.write(clientFD, ptr, strlen(ptr))
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    private func claudeHookMockResponse(line: String, surfaceIds: [String]) -> String {
+        guard let payload = jsonObject(line) else {
+            return "OK"
+        }
+        guard let id = payload["id"] as? String, let method = payload["method"] as? String else {
+            return malformedRequestResponse(id: payload["id"] as? String, raw: line)
+        }
+        switch method {
+        case "surface.list":
+            return v2Response(
+                id: id,
+                ok: true,
+                result: [
+                    "surfaces": surfaceIds.enumerated().map { index, surfaceId in
+                        ["id": surfaceId, "ref": "surface:\(index + 1)", "focused": index == 0] as [String: Any]
+                    }
+                ]
+            )
+        case "feed.push":
+            return v2Response(id: id, ok: true, result: [:])
+        case "surface.resume.set":
+            return v2Response(id: id, ok: true, result: ["resume_binding": [:]])
+        case "surface.resume.clear":
+            return v2Response(id: id, ok: true, result: ["cleared": true])
+        default:
+            return v2Response(id: id, ok: false, error: ["code": "unrecognized_method", "message": "unexpected method: \(method)"])
+        }
+    }
+
+    private func runClaudeHookWithoutServer(
+        context: ClaudeHookContext,
+        arguments: [String],
+        standardInput: String,
+        extraEnvironment: [String: String] = [:]
+    ) -> ProcessRunResult {
+        var environment = [
+            "HOME": context.root.path,
+            "PATH": "/usr/bin:/bin:/usr/sbin:/sbin",
+            "CMUX_SOCKET_PATH": context.socketPath,
+            "CMUX_WORKSPACE_ID": context.workspaceId,
+            "CMUX_SURFACE_ID": context.surfaceId,
+            "CMUX_CLAUDE_HOOK_STATE_PATH": context.root.appendingPathComponent("claude-hook-sessions.json").path,
+            "CMUX_CLI_SENTRY_DISABLED": "1",
+            "CMUX_CLAUDE_HOOK_SENTRY_DISABLED": "1",
+        ]
+        for (key, value) in extraEnvironment {
+            environment[key] = value
+        }
+        return runProcess(
+            executablePath: context.cliPath,
+            arguments: arguments,
+            environment: environment,
+            standardInput: standardInput,
+            timeout: 5
+        )
+    }
+
     private func runClaudeHookListingSurfaces(
         context: ClaudeHookContext,
         surfaceIds: [String],
@@ -834,12 +944,15 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
 
         let paneA = "99999999-9999-9999-9999-999999999999"
         let paneB = context.surfaceId
-        let surfaces = [paneA, paneB]
+        startClaudeHookMockServerAccepting(
+            context: context,
+            surfaceIds: [paneA, paneB],
+            connectionLimit: 32
+        )
 
         func runHook(_ subcommand: String, stdin: String, surface: String) -> ProcessRunResult {
-            runClaudeHookListingSurfaces(
+            runClaudeHookWithoutServer(
                 context: context,
-                surfaceIds: surfaces,
                 arguments: ["hooks", "claude", subcommand],
                 standardInput: stdin,
                 extraEnvironment: ["CMUX_SURFACE_ID": surface]
@@ -895,12 +1008,15 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
 
         let paneA = "99999999-9999-9999-9999-999999999999"
         let paneB = context.surfaceId
-        let surfaces = [paneA, paneB]
+        startClaudeHookMockServerAccepting(
+            context: context,
+            surfaceIds: [paneA, paneB],
+            connectionLimit: 32
+        )
 
         func runHook(_ subcommand: String, stdin: String, surface: String) -> ProcessRunResult {
-            runClaudeHookListingSurfaces(
+            runClaudeHookWithoutServer(
                 context: context,
-                surfaceIds: surfaces,
                 arguments: ["hooks", "claude", subcommand],
                 standardInput: stdin,
                 extraEnvironment: ["CMUX_SURFACE_ID": surface]
