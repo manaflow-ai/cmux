@@ -146,26 +146,39 @@ final class AgentHibernationController {
         durableWriteTimer = writeTimer
     }
 
-    private func flushDurableInputStore() {
+    private func flushDurableInputStore(synchronous: Bool = false) {
         durableWriteTimer?.cancel()
         durableWriteTimer = nil
         durableInputWritePending = false
         let snapshot = Dictionary(
             uniqueKeysWithValues: durableTerminalInputByPanelId.map { ($0.key.uuidString, $0.value) }
         )
-        timerQueue.async {
+        let write = {
             guard let data = try? JSONEncoder().encode(snapshot) else { return }
             let dir = Self.durableInputStoreURL.deletingLastPathComponent()
             try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
             try? data.write(to: Self.durableInputStoreURL, options: .atomic)
+        }
+        // Synchronous during stop() so the write completes before the process exits.
+        // Asynchronous during normal debounced path to avoid blocking the main thread.
+        if synchronous {
+            timerQueue.sync { write() }
+        } else {
+            timerQueue.async { write() }
         }
     }
 
     func stop() {
         timer?.cancel()
         timer = nil
-        durableWriteTimer?.cancel()
-        durableWriteTimer = nil
+        // Synchronously flush any pending durable input write so normal-quit paths
+        // write the safety timestamp before the process exits.
+        if durableInputWritePending {
+            flushDurableInputStore(synchronous: true)
+        } else {
+            durableWriteTimer?.cancel()
+            durableWriteTimer = nil
+        }
         AgentHibernationTrackingGate.setEnabled(false)
         clearTrackingState()
         if let settingsObserver {
