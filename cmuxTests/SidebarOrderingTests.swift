@@ -102,7 +102,7 @@ final class SidebarActiveTabIndicatorSettingsTests: XCTestCase {
         }
         defer { defaults.removePersistentDomain(forName: suiteName) }
 
-        defaults.set(SidebarActiveTabIndicatorStyle.leftRail.rawValue, forKey: SidebarActiveTabIndicatorSettings.styleKey)
+        defaults.set(WorkspaceIndicatorStyle.leftRail.rawValue, forKey: SidebarActiveTabIndicatorSettings.styleKey)
         XCTAssertEqual(SidebarActiveTabIndicatorSettings.current(defaults: defaults), .leftRail)
 
         defaults.set("rail", forKey: SidebarActiveTabIndicatorSettings.styleKey)

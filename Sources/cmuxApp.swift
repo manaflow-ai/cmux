@@ -1865,10 +1865,10 @@ private enum DebugWindowConfigSnapshot {
         sidebarTintHexDark=\(stringValue(defaults, key: "sidebarTintHexDark", fallback: "(nil)"))
         sidebarTintOpacity=\(String(format: "%.2f", doubleValue(defaults, key: "sidebarTintOpacity", fallback: 0.18)))
         sidebarCornerRadius=\(String(format: "%.1f", doubleValue(defaults, key: "sidebarCornerRadius", fallback: 0.0)))
-        sidebarBranchVerticalLayout=\(boolValue(defaults, key: SidebarBranchLayoutSettings.key, fallback: SidebarBranchLayoutSettings.defaultVerticalLayout))
-        sidebarBranchDirectoryStacked=\(boolValue(defaults, key: SidebarBranchDirectoryStackedSettings.key, fallback: SidebarBranchDirectoryStackedSettings.defaultStacked))
-        sidebarPathLastSegmentOnly=\(boolValue(defaults, key: SidebarPathLastSegmentSettings.key, fallback: SidebarPathLastSegmentSettings.defaultLastSegmentOnly))
-        sidebarActiveTabIndicatorStyle=\(stringValue(defaults, key: SidebarActiveTabIndicatorSettings.styleKey, fallback: SidebarActiveTabIndicatorSettings.defaultStyle.rawValue))
+        sidebarBranchVerticalLayout=\(boolValue(defaults, key: SidebarCatalogSection().branchVerticalLayout.userDefaultsKey, fallback: SidebarCatalogSection().branchVerticalLayout.defaultValue))
+        sidebarBranchDirectoryStacked=\(boolValue(defaults, key: SidebarCatalogSection().stackBranchDirectory.userDefaultsKey, fallback: SidebarCatalogSection().stackBranchDirectory.defaultValue))
+        sidebarPathLastSegmentOnly=\(boolValue(defaults, key: SidebarCatalogSection().pathLastSegmentOnly.userDefaultsKey, fallback: SidebarCatalogSection().pathLastSegmentOnly.defaultValue))
+        sidebarActiveTabIndicatorStyle=\(stringValue(defaults, key: WorkspaceColorsCatalogSection().indicatorStyle.userDefaultsKey, fallback: WorkspaceColorsCatalogSection().indicatorStyle.defaultValue.rawValue))
         sidebarDevBuildBannerVisible=\(boolValue(defaults, key: DevBuildBannerDebugSettings.sidebarBannerVisibleKey, fallback: DevBuildBannerDebugSettings.defaultShowSidebarBanner))
         sidebarMinimumWidth=\(String(format: "%.1f", SessionPersistencePolicy.resolvedMinimumSidebarWidth(defaults: defaults)))
         """
@@ -1958,8 +1958,8 @@ private final class DebugWindowControlsWindowController: NSWindowController, NSW
 }
 
 private struct DebugWindowControlsView: View {
-    @AppStorage(SidebarActiveTabIndicatorSettings.styleKey)
-    private var sidebarActiveTabIndicatorStyle = SidebarActiveTabIndicatorSettings.defaultStyle.rawValue
+    @AppStorage(WorkspaceColorsCatalogSection().indicatorStyle.userDefaultsKey)
+    private var sidebarActiveTabIndicatorStyle = WorkspaceColorsCatalogSection().indicatorStyle.defaultValue.rawValue
     @AppStorage(BrowserDevToolsButtonDebugSettings.iconNameKey) private var browserDevToolsIconNameRaw = BrowserDevToolsButtonDebugSettings.defaultIcon.rawValue
     @AppStorage(BrowserDevToolsButtonDebugSettings.iconColorKey) private var browserDevToolsIconColorRaw = BrowserDevToolsButtonDebugSettings.defaultColor.rawValue
 
@@ -1971,8 +1971,9 @@ private struct DebugWindowControlsView: View {
         BrowserDevToolsIconColorOption(rawValue: browserDevToolsIconColorRaw) ?? BrowserDevToolsButtonDebugSettings.defaultColor
     }
 
-    private var selectedSidebarActiveTabIndicatorStyle: SidebarActiveTabIndicatorStyle {
-        SidebarActiveTabIndicatorSettings.resolvedStyle(rawValue: sidebarActiveTabIndicatorStyle)
+    private var selectedSidebarActiveTabIndicatorStyle: WorkspaceIndicatorStyle {
+        WorkspaceIndicatorStyle.decodeFromUserDefaults(sidebarActiveTabIndicatorStyle)
+            ?? WorkspaceColorsCatalogSection().indicatorStyle.defaultValue
     }
 
     private var sidebarIndicatorStyleSelection: Binding<String> {
@@ -2089,14 +2090,14 @@ private struct DebugWindowControlsView: View {
                 GroupBox("Active Workspace Indicator") {
                     VStack(alignment: .leading, spacing: 8) {
                         Picker("Style", selection: sidebarIndicatorStyleSelection) {
-                            ForEach(SidebarActiveTabIndicatorStyle.allCases) { style in
+                            ForEach(WorkspaceIndicatorStyle.allCases, id: \.self) { style in
                                 Text(style.displayName).tag(style.rawValue)
                             }
                         }
                         .pickerStyle(.menu)
 
                         Button("Reset Indicator Style") {
-                            sidebarActiveTabIndicatorStyle = SidebarActiveTabIndicatorSettings.defaultStyle.rawValue
+                            sidebarActiveTabIndicatorStyle = WorkspaceColorsCatalogSection().indicatorStyle.defaultValue.rawValue
                         }
                     }
                     .padding(.top, 2)
@@ -2917,17 +2918,21 @@ private struct SidebarDebugView: View {
     @AppStorage("sidebarState") private var sidebarState = SidebarStateOption.followWindow.rawValue
     @AppStorage("sidebarCornerRadius") private var sidebarCornerRadius = 0.0
     @AppStorage("sidebarBlurOpacity") private var sidebarBlurOpacity = 1.0
-    @AppStorage(SidebarBranchLayoutSettings.key) private var sidebarBranchVerticalLayout = SidebarBranchLayoutSettings.defaultVerticalLayout
-    @AppStorage(SidebarBranchDirectoryStackedSettings.key) private var sidebarBranchDirectoryStacked = SidebarBranchDirectoryStackedSettings.defaultStacked
-    @AppStorage(SidebarPathLastSegmentSettings.key) private var sidebarPathLastSegmentOnly = SidebarPathLastSegmentSettings.defaultLastSegmentOnly
+    @AppStorage(SidebarCatalogSection().branchVerticalLayout.userDefaultsKey)
+    private var sidebarBranchVerticalLayout = SidebarCatalogSection().branchVerticalLayout.defaultValue
+    @AppStorage(SidebarCatalogSection().stackBranchDirectory.userDefaultsKey)
+    private var sidebarBranchDirectoryStacked = SidebarCatalogSection().stackBranchDirectory.defaultValue
+    @AppStorage(SidebarCatalogSection().pathLastSegmentOnly.userDefaultsKey)
+    private var sidebarPathLastSegmentOnly = SidebarCatalogSection().pathLastSegmentOnly.defaultValue
     @AppStorage(DevBuildBannerDebugSettings.sidebarBannerVisibleKey)
     private var showSidebarDevBuildBanner = DevBuildBannerDebugSettings.defaultShowSidebarBanner
-    @AppStorage(SidebarActiveTabIndicatorSettings.styleKey)
-    private var sidebarActiveTabIndicatorStyle = SidebarActiveTabIndicatorSettings.defaultStyle.rawValue
+    @AppStorage(WorkspaceColorsCatalogSection().indicatorStyle.userDefaultsKey)
+    private var sidebarActiveTabIndicatorStyle = WorkspaceColorsCatalogSection().indicatorStyle.defaultValue.rawValue
     @AppStorage("sidebarSelectionColorHex") private var sidebarSelectionColorHex: String?
 
-    private var selectedSidebarIndicatorStyle: SidebarActiveTabIndicatorStyle {
-        SidebarActiveTabIndicatorSettings.resolvedStyle(rawValue: sidebarActiveTabIndicatorStyle)
+    private var selectedSidebarIndicatorStyle: WorkspaceIndicatorStyle {
+        WorkspaceIndicatorStyle.decodeFromUserDefaults(sidebarActiveTabIndicatorStyle)
+            ?? WorkspaceColorsCatalogSection().indicatorStyle.defaultValue
     }
 
     private var sidebarIndicatorStyleSelection: Binding<String> {
@@ -3032,7 +3037,7 @@ private struct SidebarDebugView: View {
                 GroupBox("Active Workspace Indicator") {
                     VStack(alignment: .leading, spacing: 8) {
                         Picker("Style", selection: sidebarIndicatorStyleSelection) {
-                            ForEach(SidebarActiveTabIndicatorStyle.allCases) { style in
+                            ForEach(WorkspaceIndicatorStyle.allCases, id: \.self) { style in
                                 Text(style.displayName).tag(style.rawValue)
                             }
                         }
@@ -3076,7 +3081,7 @@ private struct SidebarDebugView: View {
                         sidebarCornerRadius = 0.0
                     }
                     Button("Reset Active Indicator") {
-                        sidebarActiveTabIndicatorStyle = SidebarActiveTabIndicatorSettings.defaultStyle.rawValue
+                        sidebarActiveTabIndicatorStyle = WorkspaceColorsCatalogSection().indicatorStyle.defaultValue.rawValue
                         sidebarSelectionColorHex = nil
                     }
                 }

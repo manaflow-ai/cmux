@@ -3,6 +3,7 @@ import CmuxFileWatch
 import Combine
 import CryptoKit
 import Foundation
+import CmuxSettings
 
 extension CodingUserInfoKey {
     static let cmuxWorkspaceColorDefaults = CodingUserInfoKey(rawValue: "cmuxWorkspaceColorDefaults")!
@@ -172,7 +173,7 @@ struct CmuxConfigWorkspaceGroupEntry: Codable, Sendable, Equatable {
     /// falling back to top), `"top"` (immediately after the anchor), or
     /// `"end"` (after the last member). When omitted,
     /// falls back to the global default
-    /// (`WorkspaceGroupNewWorkspacePlacementSettings.resolved()`).
+    /// (the stored `workspaceGroups.newWorkspacePlacement` setting).
     var newWorkspacePlacement: String?
 }
 

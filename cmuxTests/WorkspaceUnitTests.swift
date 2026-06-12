@@ -2825,7 +2825,7 @@ final class WorkspacePlacementSettingsTests: XCTestCase {
         }
         defer { defaults.removePersistentDomain(forName: suiteName) }
 
-        defaults.set(NewWorkspacePlacement.top.rawValue, forKey: WorkspacePlacementSettings.placementKey)
+        defaults.set(WorkspacePlacement.top.rawValue, forKey: WorkspacePlacementSettings.placementKey)
         XCTAssertEqual(WorkspacePlacementSettings.current(defaults: defaults), .top)
 
         defaults.set("nope", forKey: WorkspacePlacementSettings.placementKey)
@@ -3242,7 +3242,7 @@ final class WorkspaceCreationPlacementTests: XCTestCase {
             }
         }
 
-        defaults.set(NewWorkspacePlacement.end.rawValue, forKey: placementKey)
+        defaults.set(WorkspacePlacement.end.rawValue, forKey: placementKey)
         defaults.set(true, forKey: iMessageModeKey)
 
         let manager = TabManager()

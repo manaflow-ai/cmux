@@ -7248,7 +7248,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         return WorkspaceGroupNewWorkspaceTarget(
             groupId: groupId,
             referenceWorkspaceId: selectedWorkspaceId,
-            placement: configured ?? WorkspaceGroupNewWorkspacePlacementSettings.resolved()
+            placement: configured
+                ?? UserDefaultsSettingsClient(defaults: .standard).value(for: SettingCatalog().workspaceGroups.newWorkspacePlacement)
         )
     }
 
@@ -14955,7 +14956,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 tabManager.tabs.first(where: { $0.id == id })?.currentDirectory
             }
             let configured = context.cmuxConfigStore?.resolveWorkspaceGroupConfig(forCwd: cwd)?.newWorkspacePlacement
-            return configured ?? WorkspaceGroupNewWorkspacePlacementSettings.resolved()
+            return configured
+                ?? UserDefaultsSettingsClient(defaults: .standard).value(for: SettingCatalog().workspaceGroups.newWorkspacePlacement)
         }()
         // Short-circuit the built-in `newWorkspace` action: it must go through
         // createWorkspaceInGroup so the new workspace inherits the anchor's

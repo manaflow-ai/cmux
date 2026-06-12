@@ -2,9 +2,13 @@ import AppKit
 import SwiftUI
 import Foundation
 import Bonsplit
+import CmuxBrowser
 import CmuxFileWatch
 import CmuxGit
+import CmuxNotifications
 import CmuxProcess
+import CmuxSettings
+import CmuxSidebar
 import CmuxSidebarGit
 import CoreVideo
 import Combine
@@ -17,57 +21,6 @@ import OSLog
 typealias Tab = Workspace
 
 private let tabManagerLogger = Logger(subsystem: "com.cmuxterm.app", category: "TabManager")
-
-enum NewWorkspacePlacement: String, CaseIterable, Identifiable {
-    case top
-    case afterCurrent
-    case end
-
-    var id: String { rawValue }
-
-    var displayName: String {
-        switch self {
-        case .top:
-            return String(localized: "workspace.placement.top", defaultValue: "Top")
-        case .afterCurrent:
-            return String(localized: "workspace.placement.afterCurrent", defaultValue: "After current")
-        case .end:
-            return String(localized: "workspace.placement.end", defaultValue: "End")
-        }
-    }
-
-    var description: String {
-        switch self {
-        case .top:
-            return String(
-                localized: "workspace.placement.top.description",
-                defaultValue: "Insert new workspaces at the top of the list."
-            )
-        case .afterCurrent:
-            return String(
-                localized: "workspace.placement.afterCurrent.description",
-                defaultValue: "Insert new workspaces directly after the active workspace."
-            )
-        case .end:
-            return String(
-                localized: "workspace.placement.end.description",
-                defaultValue: "Append new workspaces to the bottom of the list."
-            )
-        }
-    }
-}
-
-enum WorkspaceAutoReorderSettings {
-    static let key = "workspaceAutoReorderOnNotification"
-    static let defaultValue = true
-
-    static func isEnabled(defaults: UserDefaults = .standard) -> Bool {
-        if defaults.object(forKey: key) == nil {
-            return defaultValue
-        }
-        return defaults.bool(forKey: key)
-    }
-}
 
 enum WorkspaceOrderChangeNotificationKey {
     static let movedWorkspaceIds = "movedWorkspaceIds"
@@ -82,551 +35,6 @@ struct WorkspaceReorderPlanItem: Equatable {
 enum WorkspaceBatchReorderError: Error, Equatable {
     case duplicateWorkspace(UUID)
     case workspaceNotFound(UUID)
-}
-
-enum LastSurfaceCloseShortcutSettings {
-    static let key = "closeWorkspaceOnLastSurfaceShortcut"
-    // Keep the legacy stored meaning so existing values still map to the same
-    // behavior. The default is flipped to preserve the current Close Tab shortcut behavior.
-    static let defaultValue = true
-
-    static func closesWorkspace(defaults: UserDefaults = .standard) -> Bool {
-        if defaults.object(forKey: key) == nil {
-            return defaultValue
-        }
-        return defaults.bool(forKey: key)
-    }
-}
-
-enum SidebarBranchLayoutSettings {
-    static let key = "sidebarBranchVerticalLayout"
-    static let defaultVerticalLayout = true
-
-    static func usesVerticalLayout(defaults: UserDefaults = .standard) -> Bool {
-        if defaults.object(forKey: key) == nil {
-            return defaultVerticalLayout
-        }
-        return defaults.bool(forKey: key)
-    }
-}
-
-enum SidebarBranchDirectoryStackedSettings {
-    static let key = "sidebarBranchDirectoryStacked"
-    static let defaultStacked = false
-
-    static func isStacked(defaults: UserDefaults = .standard) -> Bool {
-        if defaults.object(forKey: key) == nil {
-            return defaultStacked
-        }
-        return defaults.bool(forKey: key)
-    }
-}
-
-enum SidebarPathLastSegmentSettings {
-    static let key = "sidebarPathLastSegmentOnly"
-    static let defaultLastSegmentOnly = false
-
-    static func isLastSegmentOnly(defaults: UserDefaults = .standard) -> Bool {
-        if defaults.object(forKey: key) == nil {
-            return defaultLastSegmentOnly
-        }
-        return defaults.bool(forKey: key)
-    }
-}
-
-enum SidebarWorkspaceDetailSettings {
-    static let hideAllDetailsKey = "sidebarHideAllDetails"
-    static let showWorkspaceDescriptionKey = "sidebarShowWorkspaceDescription"
-    static let showNotificationMessageKey = "sidebarShowNotificationMessage"
-    static let defaultHideAllDetails = false
-    static let defaultShowWorkspaceDescription = true
-    static let defaultShowNotificationMessage = true
-
-    static func hidesAllDetails(defaults: UserDefaults = .standard) -> Bool {
-        if defaults.object(forKey: hideAllDetailsKey) == nil {
-            return defaultHideAllDetails
-        }
-        return defaults.bool(forKey: hideAllDetailsKey)
-    }
-
-    static func showsWorkspaceDescription(defaults: UserDefaults = .standard) -> Bool {
-        if defaults.object(forKey: showWorkspaceDescriptionKey) == nil {
-            return defaultShowWorkspaceDescription
-        }
-        return defaults.bool(forKey: showWorkspaceDescriptionKey)
-    }
-
-    static func showsNotificationMessage(defaults: UserDefaults = .standard) -> Bool {
-        if defaults.object(forKey: showNotificationMessageKey) == nil {
-            return defaultShowNotificationMessage
-        }
-        return defaults.bool(forKey: showNotificationMessageKey)
-    }
-
-    static func resolvedWorkspaceDescriptionVisibility(
-        showWorkspaceDescription: Bool,
-        hideAllDetails: Bool
-    ) -> Bool {
-        showWorkspaceDescription && !hideAllDetails
-    }
-
-    static func resolvedNotificationMessageVisibility(
-        showNotificationMessage: Bool,
-        hideAllDetails: Bool
-    ) -> Bool {
-        showNotificationMessage && !hideAllDetails
-    }
-}
-
-enum SidebarPullRequestClickabilitySettings {
-    static let key = "sidebarMakePullRequestClickable"
-    static let defaultClickable = true
-
-    static func isClickable(defaults: UserDefaults = .standard) -> Bool {
-        if defaults.object(forKey: key) == nil {
-            return defaultClickable
-        }
-        return defaults.bool(forKey: key)
-    }
-}
-
-struct SidebarWorkspaceAuxiliaryDetailVisibility: Equatable {
-    let showsMetadata: Bool
-    let showsLog: Bool
-    let showsProgress: Bool
-    let showsBranchDirectory: Bool
-    let showsPullRequests: Bool
-    let showsPorts: Bool
-
-    static let hidden = Self(
-        showsMetadata: false,
-        showsLog: false,
-        showsProgress: false,
-        showsBranchDirectory: false,
-        showsPullRequests: false,
-        showsPorts: false
-    )
-
-    static func resolved(
-        showMetadata: Bool,
-        showLog: Bool,
-        showProgress: Bool,
-        showBranchDirectory: Bool,
-        showPullRequests: Bool,
-        showPorts: Bool,
-        hideAllDetails: Bool
-    ) -> Self {
-        guard !hideAllDetails else { return .hidden }
-        return Self(
-            showsMetadata: showMetadata,
-            showsLog: showLog,
-            showsProgress: showProgress,
-            showsBranchDirectory: showBranchDirectory,
-            showsPullRequests: showPullRequests,
-            showsPorts: showPorts
-        )
-    }
-}
-
-enum SidebarActiveTabIndicatorStyle: String, CaseIterable, Identifiable {
-    case leftRail
-    case solidFill
-
-    var id: String { rawValue }
-
-    var displayName: String {
-        switch self {
-        case .leftRail:
-            return String(localized: "sidebar.activeTabIndicator.leftRail", defaultValue: "Left Rail")
-        case .solidFill:
-            return String(localized: "sidebar.activeTabIndicator.solidFill", defaultValue: "Solid Fill")
-        }
-    }
-}
-
-enum SidebarActiveTabIndicatorSettings {
-    static let styleKey = "sidebarActiveTabIndicatorStyle"
-    static let defaultStyle: SidebarActiveTabIndicatorStyle = .leftRail
-
-    static func resolvedStyle(rawValue: String?) -> SidebarActiveTabIndicatorStyle {
-        guard let rawValue else { return defaultStyle }
-        if let style = SidebarActiveTabIndicatorStyle(rawValue: rawValue) {
-            return style
-        }
-
-        // Legacy values from earlier iterations map to the closest modern option.
-        switch rawValue {
-        case "rail":
-            return .leftRail
-        case "border", "wash", "lift", "typography", "washRail", "blueWashColorRail":
-            return .solidFill
-        default:
-            return defaultStyle
-        }
-    }
-
-    static func current(defaults: UserDefaults = .standard) -> SidebarActiveTabIndicatorStyle {
-        resolvedStyle(rawValue: defaults.string(forKey: styleKey))
-    }
-}
-
-enum WorkspacePlacementSettings {
-    static let placementKey = "newWorkspacePlacement"
-    static let defaultPlacement: NewWorkspacePlacement = .afterCurrent
-
-    static func current(defaults: UserDefaults = .standard) -> NewWorkspacePlacement {
-        guard let raw = defaults.string(forKey: placementKey),
-              let placement = NewWorkspacePlacement(rawValue: raw) else {
-            return defaultPlacement
-        }
-        return placement
-    }
-
-    static func effectivePlacement(
-        placementOverride: NewWorkspacePlacement?,
-        defaults: UserDefaults = .standard
-    ) -> NewWorkspacePlacement {
-        if let placementOverride {
-            return placementOverride
-        }
-        if IMessageModeSettings.isEnabled(defaults: defaults) {
-            return .top
-        }
-        return current(defaults: defaults)
-    }
-
-    static func insertionIndex(
-        placement: NewWorkspacePlacement,
-        selectedIndex: Int?,
-        selectedIsPinned: Bool,
-        pinnedCount: Int,
-        totalCount: Int
-    ) -> Int {
-        let clampedTotalCount = max(0, totalCount)
-        let clampedPinnedCount = max(0, min(pinnedCount, clampedTotalCount))
-
-        switch placement {
-        case .top:
-            // Keep pinned workspaces grouped at the top by inserting ahead of unpinned items.
-            return clampedPinnedCount
-        case .end:
-            return clampedTotalCount
-        case .afterCurrent:
-            guard let selectedIndex, clampedTotalCount > 0 else {
-                return clampedTotalCount
-            }
-            let clampedSelectedIndex = max(0, min(selectedIndex, clampedTotalCount - 1))
-            if selectedIsPinned {
-                return clampedPinnedCount
-            }
-            return min(clampedSelectedIndex + 1, clampedTotalCount)
-        }
-    }
-}
-
-enum WorkspaceWorkingDirectoryInheritanceSettings {
-    static let key = "workspaceInheritWorkingDirectory"
-    static let defaultValue = true
-
-    static func isEnabled(defaults: UserDefaults = .standard) -> Bool {
-        guard defaults.object(forKey: key) != nil else {
-            return defaultValue
-        }
-        return defaults.bool(forKey: key)
-    }
-}
-
-struct WorkspaceTabColorEntry: Equatable, Identifiable {
-    let name: String
-    let hex: String
-
-    var id: String { name }
-}
-
-/// UserDefaults-backed "Don't ask again" flag for the anchor-close confirm
-/// dialog. Defaults to false (dialog is shown).
-enum WorkspaceGroupAnchorCloseSettings {
-    static let suppressionKey = "workspaceGroup.anchorCloseSuppressed"
-
-    static func suppressed(defaults: UserDefaults = .standard) -> Bool {
-        defaults.bool(forKey: suppressionKey)
-    }
-
-    static func setSuppressed(_ value: Bool, defaults: UserDefaults = .standard) {
-        if value {
-            defaults.set(true, forKey: suppressionKey)
-        } else {
-            defaults.removeObject(forKey: suppressionKey)
-        }
-    }
-}
-
-enum WorkspaceTabColorSettings {
-    static let paletteKey = "workspaceTabColor.colors"
-
-    private static let legacyDefaultOverridesKey = "workspaceTabColor.defaultOverrides"
-    private static let legacyCustomColorsKey = "workspaceTabColor.customColors"
-
-    private static let originalPRPalette: [WorkspaceTabColorEntry] = [
-        WorkspaceTabColorEntry(name: "Red", hex: "#C0392B"),
-        WorkspaceTabColorEntry(name: "Crimson", hex: "#922B21"),
-        WorkspaceTabColorEntry(name: "Orange", hex: "#A04000"),
-        WorkspaceTabColorEntry(name: "Amber", hex: "#7D6608"),
-        WorkspaceTabColorEntry(name: "Olive", hex: "#4A5C18"),
-        WorkspaceTabColorEntry(name: "Green", hex: "#196F3D"),
-        WorkspaceTabColorEntry(name: "Teal", hex: "#006B6B"),
-        WorkspaceTabColorEntry(name: "Aqua", hex: "#0E6B8C"),
-        WorkspaceTabColorEntry(name: "Blue", hex: "#1565C0"),
-        WorkspaceTabColorEntry(name: "Navy", hex: "#1A5276"),
-        WorkspaceTabColorEntry(name: "Indigo", hex: "#283593"),
-        WorkspaceTabColorEntry(name: "Purple", hex: "#6A1B9A"),
-        WorkspaceTabColorEntry(name: "Magenta", hex: "#AD1457"),
-        WorkspaceTabColorEntry(name: "Rose", hex: "#880E4F"),
-        WorkspaceTabColorEntry(name: "Brown", hex: "#7B3F00"),
-        WorkspaceTabColorEntry(name: "Charcoal", hex: "#3E4B5E"),
-    ]
-
-    static var defaultPalette: [WorkspaceTabColorEntry] {
-        originalPRPalette
-    }
-
-    static func palette(defaults: UserDefaults = .standard) -> [WorkspaceTabColorEntry] {
-        let paletteMap = effectivePaletteMap(defaults: defaults)
-        let builtInOrder = defaultPalette.compactMap { entry -> WorkspaceTabColorEntry? in
-            guard let hex = paletteMap[entry.name] else { return nil }
-            return WorkspaceTabColorEntry(name: entry.name, hex: hex)
-        }
-        let builtInNames = Set(defaultPalette.map(\.name))
-        let customEntries = paletteMap
-            .filter { !builtInNames.contains($0.key) }
-            .sorted { lhs, rhs in
-                lhs.key.localizedStandardCompare(rhs.key) == .orderedAscending
-            }
-            .map { WorkspaceTabColorEntry(name: $0.key, hex: $0.value) }
-        return builtInOrder + customEntries
-    }
-
-    static func customPaletteEntries(defaults: UserDefaults = .standard) -> [WorkspaceTabColorEntry] {
-        let builtInNames = Set(defaultPalette.map(\.name))
-        return palette(defaults: defaults).filter { !builtInNames.contains($0.name) }
-    }
-
-    static func defaultColorHex(named name: String) -> String? {
-        defaultPalette.first(where: { $0.name == name })?.hex
-    }
-
-    static func currentColorHex(named name: String, defaults: UserDefaults = .standard) -> String? {
-        effectivePaletteMap(defaults: defaults)[name]
-    }
-
-    static func setColor(named name: String, hex: String, defaults: UserDefaults = .standard) {
-        guard let normalizedName = normalizedColorName(name),
-              let normalizedHex = normalizedHex(hex) else { return }
-
-        var palette = editablePaletteMap(defaults: defaults)
-        palette[normalizedName] = normalizedHex
-        persistPaletteMap(palette, defaults: defaults)
-    }
-
-    static func removeColor(named name: String, defaults: UserDefaults = .standard) {
-        guard let normalizedName = normalizedColorName(name) else { return }
-        var palette = editablePaletteMap(defaults: defaults)
-        palette.removeValue(forKey: normalizedName)
-        persistPaletteMap(palette, defaults: defaults)
-    }
-
-    static func persistPaletteMap(_ rawPalette: [String: String], defaults: UserDefaults = .standard) {
-        let normalizedPalette = normalizedPaletteMap(rawPalette)
-        if normalizedPalette == defaultPaletteMap {
-            defaults.removeObject(forKey: paletteKey)
-        } else {
-            defaults.set(normalizedPalette, forKey: paletteKey)
-        }
-        defaults.removeObject(forKey: legacyDefaultOverridesKey)
-        defaults.removeObject(forKey: legacyCustomColorsKey)
-    }
-
-    static func backupPaletteMap(defaults: UserDefaults = .standard) -> [String: String]? {
-        if let stored = storedPaletteMap(defaults: defaults) {
-            return stored
-        }
-        return legacyPaletteMap(defaults: defaults)
-    }
-
-    static func resolvedPaletteMap(defaults: UserDefaults = .standard) -> [String: String] {
-        effectivePaletteMap(defaults: defaults)
-    }
-
-    static func addCustomColor(_ hex: String, defaults: UserDefaults = .standard) -> String? {
-        guard let normalized = normalizedHex(hex) else { return nil }
-        var palette = editablePaletteMap(defaults: defaults)
-        if palette.contains(where: { $0.value == normalized }) {
-            return normalized
-        }
-
-        palette[nextCustomColorName(existingNames: Set(palette.keys))] = normalized
-        persistPaletteMap(palette, defaults: defaults)
-        return normalized
-    }
-
-    static func reset(defaults: UserDefaults = .standard) {
-        defaults.removeObject(forKey: paletteKey)
-        defaults.removeObject(forKey: legacyDefaultOverridesKey)
-        defaults.removeObject(forKey: legacyCustomColorsKey)
-    }
-
-    static func normalizedHex(_ raw: String) -> String? {
-        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { return nil }
-        let body = trimmed.hasPrefix("#") ? String(trimmed.dropFirst()) : trimmed
-        guard body.count == 6 else { return nil }
-        guard UInt64(body, radix: 16) != nil else { return nil }
-        return "#" + body.uppercased()
-    }
-
-    static func displayColor(
-        hex: String,
-        colorScheme: ColorScheme,
-        forceBright: Bool = false
-    ) -> Color? {
-        guard let color = displayNSColor(hex: hex, colorScheme: colorScheme, forceBright: forceBright) else {
-            return nil
-        }
-        return Color(nsColor: color)
-    }
-
-    static func displayNSColor(
-        hex: String,
-        colorScheme: ColorScheme,
-        forceBright: Bool = false
-    ) -> NSColor? {
-        guard let normalized = normalizedHex(hex),
-              let baseColor = NSColor(hex: normalized) else {
-            return nil
-        }
-
-        if forceBright || colorScheme == .dark {
-            return brightenedForDarkAppearance(baseColor)
-        }
-        return baseColor
-    }
-
-    private static func effectivePaletteMap(defaults: UserDefaults) -> [String: String] {
-        if let stored = storedPaletteMap(defaults: defaults) {
-            return stored
-        }
-        if let legacy = legacyPaletteMap(defaults: defaults) {
-            return legacy
-        }
-        return defaultPaletteMap
-    }
-
-    private static func editablePaletteMap(defaults: UserDefaults) -> [String: String] {
-        if let stored = storedPaletteMap(defaults: defaults) {
-            return stored
-        }
-        if let legacy = legacyPaletteMap(defaults: defaults) {
-            return legacy
-        }
-        return defaultPaletteMap
-    }
-
-    private static func storedPaletteMap(defaults: UserDefaults) -> [String: String]? {
-        guard let raw = defaults.dictionary(forKey: paletteKey) as? [String: String] else { return nil }
-        return normalizedPaletteMap(raw)
-    }
-
-    private static func legacyPaletteMap(defaults: UserDefaults) -> [String: String]? {
-        let hasLegacyOverrides = defaults.object(forKey: legacyDefaultOverridesKey) != nil
-        let hasLegacyCustomColors = defaults.object(forKey: legacyCustomColorsKey) != nil
-        guard hasLegacyOverrides || hasLegacyCustomColors else { return nil }
-
-        var palette = defaultPaletteMap
-
-        if let rawOverrides = defaults.dictionary(forKey: legacyDefaultOverridesKey) as? [String: String] {
-            let validNames = Set(defaultPalette.map(\.name))
-            for (name, hex) in rawOverrides {
-                guard validNames.contains(name),
-                      let normalized = normalizedHex(hex) else { continue }
-                palette[name] = normalized
-            }
-        }
-
-        if let rawCustomColors = defaults.array(forKey: legacyCustomColorsKey) as? [String] {
-            var index = 1
-            var seenCustomHexes: Set<String> = []
-            for rawHex in rawCustomColors {
-                guard let normalized = normalizedHex(rawHex),
-                      seenCustomHexes.insert(normalized).inserted else { continue }
-                let name = nextCustomColorName(
-                    existingNames: Set(palette.keys),
-                    startingAt: index
-                )
-                palette[name] = normalized
-                index += 1
-            }
-        }
-
-        return palette
-    }
-
-    private static func normalizedPaletteMap(_ rawPalette: [String: String]) -> [String: String] {
-        var normalized: [String: String] = [:]
-        for (rawName, rawHex) in rawPalette {
-            guard let name = normalizedColorName(rawName),
-                  let hex = normalizedHex(rawHex) else { continue }
-            normalized[name] = hex
-        }
-        return normalized
-    }
-
-    private static var defaultPaletteMap: [String: String] {
-        Dictionary(uniqueKeysWithValues: defaultPalette.map { ($0.name, $0.hex) })
-    }
-
-    private static func normalizedColorName(_ raw: String) -> String? {
-        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
-        return trimmed.isEmpty ? nil : trimmed
-    }
-
-    private static func nextCustomColorName(
-        existingNames: Set<String>,
-        startingAt initialIndex: Int = 1
-    ) -> String {
-        var index = max(1, initialIndex)
-        while true {
-            let candidate = "Custom \(index)"
-            if !existingNames.contains(where: { $0.caseInsensitiveCompare(candidate) == .orderedSame }) {
-                return candidate
-            }
-            index += 1
-        }
-    }
-
-    private static func brightenedForDarkAppearance(_ color: NSColor) -> NSColor {
-        let rgbColor = color.usingColorSpace(.sRGB) ?? color
-        var hue: CGFloat = 0
-        var saturation: CGFloat = 0
-        var brightness: CGFloat = 0
-        var alpha: CGFloat = 0
-        rgbColor.getHue(&hue, saturation: &saturation, brightness: &brightness, alpha: &alpha)
-
-        let boostedBrightness = min(1, max(brightness, 0.62) + ((1 - brightness) * 0.28))
-        // Preserve neutral grays when brightening to avoid introducing hue shifts.
-        let boostedSaturation: CGFloat
-        if saturation <= 0.08 {
-            boostedSaturation = saturation
-        } else {
-            boostedSaturation = min(1, saturation + ((1 - saturation) * 0.12))
-        }
-
-        return NSColor(
-            hue: hue,
-            saturation: boostedSaturation,
-            brightness: boostedBrightness,
-            alpha: alpha
-        )
-    }
 }
 
 /// Coalesces repeated main-thread signals into one callback after a short delay.
@@ -840,91 +248,6 @@ fileprivate func cmuxVsyncIOSurfaceTimelineCallback(
 }
 #endif
 
-/// Where a newly-created workspace lands inside its group when the user
-/// clicks the group header's + button (or invokes
-/// `workspace.group.new_workspace`).
-///   - `.afterCurrent` — immediately after the current in-group workspace,
-///     falling back to `.top` when no in-group reference is supplied.
-///   - `.top` — second slot, immediately after the anchor.
-///   - `.end` — last slot, after the existing trailing member.
-enum WorkspaceGroupNewPlacement: String, Sendable, CaseIterable, Identifiable {
-    case afterCurrent
-    case top
-    case end
-
-    var id: String { rawValue }
-
-    init?(rawString: String?) {
-        guard let raw = rawString?.trimmingCharacters(in: .whitespacesAndNewlines),
-              !raw.isEmpty else { return nil }
-        switch raw.lowercased() {
-        case "aftercurrent", "after-current", "after_current":
-            self = .afterCurrent
-        case "top":
-            self = .top
-        case "end":
-            self = .end
-        default:
-            return nil
-        }
-    }
-
-    var displayName: String {
-        switch self {
-        case .afterCurrent:
-            return String(localized: "workspaceGroup.placement.afterCurrent", defaultValue: "After current")
-        case .top:
-            return String(localized: "workspaceGroup.placement.top", defaultValue: "Top of group")
-        case .end:
-            return String(localized: "workspaceGroup.placement.end", defaultValue: "End of group")
-        }
-    }
-
-    var settingsDescription: String {
-        switch self {
-        case .afterCurrent:
-            return String(
-                localized: "workspaceGroup.placement.afterCurrent.description",
-                defaultValue: "Insert new group workspaces after the active workspace in that group."
-            )
-        case .top:
-            return String(
-                localized: "workspaceGroup.placement.top.description",
-                defaultValue: "Insert new group workspaces right after the group header."
-            )
-        case .end:
-            return String(
-                localized: "workspaceGroup.placement.end.description",
-                defaultValue: "Append new group workspaces after the last group member."
-            )
-        }
-    }
-}
-
-/// UserDefaults-backed global default for the per-group `+` placement.
-/// Used when neither the per-cwd `cmux.json` entry nor an explicit call-site
-/// override pins a placement.
-enum WorkspaceGroupNewWorkspacePlacementSettings {
-    static let key = "workspaceGroup.newWorkspacePlacement"
-    static let defaultValue: WorkspaceGroupNewPlacement = .afterCurrent
-
-    static func resolved(defaults: UserDefaults = .standard) -> WorkspaceGroupNewPlacement {
-        guard let raw = defaults.string(forKey: key),
-              let value = WorkspaceGroupNewPlacement(rawString: raw) else {
-            return defaultValue
-        }
-        return value
-    }
-
-    static func set(_ value: WorkspaceGroupNewPlacement, defaults: UserDefaults = .standard) {
-        if value == defaultValue {
-            defaults.removeObject(forKey: key)
-        } else {
-            defaults.set(value.rawValue, forKey: key)
-        }
-    }
-}
-
 /// Named collapsible sidebar group containing one or more workspaces.
 /// The membership relation lives on `Workspace.groupId`; this struct stores
 /// the group's identity, display name, collapse/pin state, and the explicit
@@ -1031,8 +354,7 @@ class TabManager: ObservableObject {
                 }
             }
             publishCmuxWorkspaceSelectedChange(from: previousTabId)
-            let notificationDismissalContext = pendingSelectedTabNotificationDismissContext ?? .activeFocus
-            pendingSelectedTabNotificationDismissContext = nil
+            let notificationDismissalContext = notificationDismissal.takePendingSelectionContext() ?? .activeFocus
 #if DEBUG
             let switchId = debugWorkspaceSwitchId
             let switchDtMs = debugWorkspaceSwitchStartTime > 0
@@ -1080,8 +402,6 @@ class TabManager: ObservableObject {
         }
     }
     private var observers: [NSObjectProtocol] = []
-    private var suppressFocusFlash = false
-    private var pendingSelectedTabNotificationDismissContext: NotificationDismissalContext?
     private var lastFocusedPanelByTab: [UUID: UUID] = [:]
     private struct PanelTitleUpdateKey: Hashable {
         let tabId: UUID
@@ -1089,7 +409,19 @@ class TabManager: ObservableObject {
     }
     private var pendingPanelTitleUpdates: [PanelTitleUpdateKey: String] = [:]
     private let panelTitleUpdateCoalescer = NotificationBurstCoalescer(delay: 1.0 / 30.0)
-    private var recentlyClosedBrowsers = RecentlyClosedBrowserStack(capacity: 20)
+
+    // Wave-3 sub-models (TabManager decomposition): TabManager is the
+    // per-window composition point. It owns the concrete sub-models, hosts
+    // their seams, and forwards its legacy entry points.
+    /// Per-panel notification-dismissal flow (CmuxNotifications).
+    let notificationDismissal: any NotificationDismissing = NotificationDismissalModel()
+    /// Recently-closed browser panel history (CmuxBrowser).
+    let browserModel = BrowserModel<ClosedBrowserPanelRestoreSnapshot>()
+    /// Sidebar multi-selection state + sync events (CmuxSidebar).
+    let sidebarMultiSelection = SidebarMultiSelectionModel()
+    /// Typed synchronous settings access (CmuxSettings).
+    private let settings: any SettingsWriting
+    private let settingsCatalog = SettingCatalog()
 
     @Published private(set) var focusHistoryRevision: UInt64 = 0 {
         didSet {
@@ -1110,7 +442,7 @@ class TabManager: ObservableObject {
     private var workspaceCycleGeneration: UInt64 = 0
     private var workspaceCycleCooldownTask: Task<Void, Never>?
     private var pendingWorkspaceUnfocusTarget: (tabId: UUID, panelId: UUID)?
-    private(set) var sidebarSelectedWorkspaceIds: Set<UUID> = []
+    var sidebarSelectedWorkspaceIds: Set<UUID> { sidebarMultiSelection.selectedWorkspaceIds }
     private var currentWindowTabBarLeadingInset: CGFloat?
     private var closeConfirmationInFlight = false
     var confirmCloseHandler: ((String, String, Bool) -> Bool)?
@@ -1155,8 +487,10 @@ class TabManager: ObservableObject {
         gitMetadataService: GitMetadataService = GitMetadataService(),
         workspaceGitMetadataReader: (any WorkspaceGitMetadataReading)? = nil,
         gitPollClock: any GitPollClock = SystemGitPollClock(),
-        gitProbeLimiter: WorkspaceGitMetadataProbeLimiter? = nil
+        gitProbeLimiter: WorkspaceGitMetadataProbeLimiter? = nil,
+        settings: any SettingsWriting = UserDefaultsSettingsClient(defaults: .standard)
     ) {
+        self.settings = settings
 #if DEBUG
         let sidebarGitDebugLog: @Sendable (String) -> Void = { cmuxDebugLog($0) }
 #else
@@ -1186,6 +520,7 @@ class TabManager: ObservableObject {
         // services, matching the legacy in-class scheduling timing.
         pullRequestProbing.attach(host: self)
         sidebarGitMetadataService.attach(host: self)
+        notificationDismissal.attach(host: self)
         addWorkspace(
             title: initialWorkspaceTitle,
             workingDirectory: initialWorkingDirectory,
@@ -1362,7 +697,7 @@ class TabManager: ObservableObject {
 
     func wireClosedBrowserTracking(for workspace: Workspace) {
         workspace.onClosedBrowserPanel = { [weak self] snapshot in
-            self?.recentlyClosedBrowsers.push(snapshot)
+            self?.browserModel.recordClosedBrowserPanel(snapshot)
         }
     }
 
@@ -1639,7 +974,7 @@ class TabManager: ObservableObject {
         inheritWorkingDirectory: Bool = true,
         select: Bool = true,
         eagerLoadTerminal: Bool = false,
-        placementOverride: NewWorkspacePlacement? = nil,
+        placementOverride: WorkspacePlacement? = nil,
         autoWelcomeIfNeeded: Bool = true,
         autoRefreshMetadata: Bool = true,
         normalizeWorkspaceGroupsAfterInsert: Bool = true
@@ -2046,15 +1381,19 @@ class TabManager: ObservableObject {
         directory?.nonEmptyNormalizedGitProbeDirectory
     }
 
-    private func newTabInsertIndex(placementOverride: NewWorkspacePlacement? = nil) -> Int {
+    private func newTabInsertIndex(placementOverride: WorkspacePlacement? = nil) -> Int {
         newTabInsertIndex(snapshot: workspaceCreationSnapshot(), placementOverride: placementOverride)
     }
 
     func newTabInsertIndex(
         snapshot: WorkspaceCreationSnapshot,
-        placementOverride: NewWorkspacePlacement? = nil
+        placementOverride: WorkspacePlacement? = nil
     ) -> Int {
-        let placement = WorkspacePlacementSettings.effectivePlacement(placementOverride: placementOverride)
+        let placement = WorkspacePlacement.effectivePlacement(
+            placementOverride: placementOverride,
+            settings: settings,
+            catalog: settingsCatalog
+        )
         let liveTabs = orderedLiveWorkspaceCreationTabs(from: snapshot) ?? snapshot.tabs
         let pinnedCount = liveTabs.reduce(into: 0) { partial, tab in
             if tab.isPinned {
@@ -2070,8 +1409,7 @@ class TabManager: ObservableObject {
         case .afterCurrent:
             if let selectedTabId = snapshot.selectedTabId,
                let selectedIndex = liveTabs.firstIndex(where: { $0.id == selectedTabId }) {
-                return WorkspacePlacementSettings.insertionIndex(
-                    placement: placement,
+                return placement.insertionIndex(
                     selectedIndex: selectedIndex,
                     selectedIsPinned: snapshot.selectedTabWasPinned,
                     pinnedCount: pinnedCount,
@@ -2104,7 +1442,7 @@ class TabManager: ObservableObject {
     }
 
     func implicitWorkingDirectoryForNewWorkspace(from sourceWorkspace: Workspace?) -> String? {
-        guard WorkspaceWorkingDirectoryInheritanceSettings.isEnabled() else {
+        guard settings.value(for: settingsCatalog.app.workspaceInheritWorkingDirectory) else {
             return nil
         }
         return preferredWorkingDirectoryForNewTab(workspace: sourceWorkspace)
@@ -2768,15 +2106,8 @@ class TabManager: ObservableObject {
         if collapseSidebarSelection,
            !sidebarSelectedWorkspaceIds.isDisjoint(with: Set(eligibleChildren)) || sidebarSelectedWorkspaceIds.count > 1 {
             let hiddenIds = sidebarSelectedWorkspaceIds
-            sidebarSelectedWorkspaceIds = [anchor.id]
-            NotificationCenter.default.post(
-                name: .sidebarMultiSelectionDidHide,
-                object: self,
-                userInfo: [
-                    SidebarMultiSelectionHideKey.hiddenWorkspaceIds: hiddenIds,
-                    SidebarMultiSelectionHideKey.focusedWorkspaceId: anchor.id,
-                ]
-            )
+            sidebarMultiSelection.replaceSelection(with: [anchor.id])
+            sidebarMultiSelection.postDidHide(hiddenWorkspaceIds: hiddenIds, focusedWorkspaceId: anchor.id)
         }
         postWorkspaceOrderDidChange(movedWorkspaceIds: [anchor.id] + eligibleChildren)
         return group.id
@@ -2788,10 +2119,15 @@ class TabManager: ObservableObject {
     @discardableResult
     func createWorkspaceInGroup(
         groupId: UUID,
-        placement: WorkspaceGroupNewPlacement = WorkspaceGroupNewWorkspacePlacementSettings.resolved(),
+        placement explicitPlacement: WorkspaceGroupNewPlacement? = nil,
         referenceWorkspaceId: UUID? = nil,
         select: Bool = true
     ) -> Workspace? {
+        // nil resolves to the stored global default at call time, matching
+        // the legacy default-argument read of the
+        // workspaceGroups.newWorkspacePlacement setting.
+        let placement = explicitPlacement
+            ?? settings.value(for: settingsCatalog.workspaceGroups.newWorkspacePlacement)
         guard let group = workspaceGroups.first(where: { $0.id == groupId }) else { return nil }
         let cwd = tabs.first(where: { $0.id == group.anchorWorkspaceId })?.currentDirectory
         let newWorkspace = addWorkspace(
@@ -3043,20 +2379,15 @@ class TabManager: ObservableObject {
             )
             if !hiddenMemberIds.isEmpty,
                !sidebarSelectedWorkspaceIds.isDisjoint(with: hiddenMemberIds) {
-                sidebarSelectedWorkspaceIds.subtract(hiddenMemberIds)
-                // Use the "did hide" notification (not collapse-to-one) so the
+                sidebarMultiSelection.subtractSelection(hiddenMemberIds)
+                // Use the "did hide" event (not collapse-to-one) so the
                 // SwiftUI sidebar only strips the hidden ids and keeps any
                 // visible multi-selection entries that sit outside the group.
-                var userInfo: [AnyHashable: Any] = [
-                    SidebarMultiSelectionHideKey.hiddenWorkspaceIds: hiddenMemberIds
-                ]
-                if let selectedTabId, selectedTabId == anchorId {
-                    userInfo[SidebarMultiSelectionHideKey.focusedWorkspaceId] = anchorId
-                }
-                NotificationCenter.default.post(
-                    name: .sidebarMultiSelectionDidHide,
-                    object: self,
-                    userInfo: userInfo
+                // focusedWorkspaceId rides along only when focus moved.
+                let focusedWorkspaceId: UUID? = (selectedTabId == anchorId) ? anchorId : nil
+                sidebarMultiSelection.postDidHide(
+                    hiddenWorkspaceIds: hiddenMemberIds,
+                    focusedWorkspaceId: focusedWorkspaceId
                 )
             }
         }
@@ -3694,7 +3025,7 @@ class TabManager: ObservableObject {
         }
         sidebarGitMetadataService.clearWorkspaceGitProbes(workspaceId: workspace.id)
         pullRequestProbing.clearWorkspacePullRequestTracking(workspaceId: workspace.id)
-        sidebarSelectedWorkspaceIds.remove(workspace.id)
+        sidebarMultiSelection.removeFromSelection(workspace.id)
         invalidateFocusHistoryTarget(workspaceId: workspace.id, panelId: nil)
 
         AppDelegate.shared?.notificationStore?.clearNotifications(forTabId: workspace.id)
@@ -3703,7 +3034,7 @@ class TabManager: ObservableObject {
         }
         workspace.teardownRemoteConnection()
         unwireClosedBrowserTracking(for: workspace)
-        recentlyClosedBrowsers.removeSnapshots(forWorkspaceId: workspace.id)
+        browserModel.removeClosedBrowserPanels(forWorkspaceId: workspace.id)
         workspace.owningTabManager = nil
 
         if let index = tabs.firstIndex(where: { $0.id == workspace.id }) {
@@ -3754,7 +3085,7 @@ class TabManager: ObservableObject {
     func detachWorkspace(tabId: UUID) -> Workspace? {
         guard let index = tabs.firstIndex(where: { $0.id == tabId }) else { return nil }
         sidebarGitMetadataService.clearWorkspaceGitProbes(workspaceId: tabId)
-        sidebarSelectedWorkspaceIds.remove(tabId)
+        sidebarMultiSelection.removeFromSelection(tabId)
         invalidateFocusHistoryTarget(workspaceId: tabId, panelId: nil)
 
         let removed = tabs.remove(at: index)
@@ -3767,7 +3098,7 @@ class TabManager: ObservableObject {
         // render it as an orphaned indented row with stale grouping state.
         removed.groupId = nil
         unwireClosedBrowserTracking(for: removed)
-        recentlyClosedBrowsers.removeSnapshots(forWorkspaceId: removed.id)
+        browserModel.removeClosedBrowserPanels(forWorkspaceId: removed.id)
         removed.owningTabManager = nil
         lastFocusedPanelByTab.removeValue(forKey: removed.id)
 
@@ -3911,7 +3242,7 @@ class TabManager: ObservableObject {
 
     func setSidebarSelectedWorkspaceIds(_ workspaceIds: Set<UUID>) {
         let existingIds = Set(tabs.map(\.id))
-        sidebarSelectedWorkspaceIds = workspaceIds.intersection(existingIds)
+        sidebarMultiSelection.replaceSelection(with: workspaceIds.intersection(existingIds))
     }
 
     func closeWorkspacesWithConfirmation(_ workspaceIds: [UUID], allowPinned: Bool) {
@@ -3952,7 +3283,7 @@ class TabManager: ObservableObject {
             if let groupId = workspace.groupId,
                let group = workspaceGroups.first(where: { $0.id == groupId }),
                group.anchorWorkspaceId == workspace.id,
-               !WorkspaceGroupAnchorCloseSettings.suppressed() {
+               !settings.value(for: settingsCatalog.workspaceGroups.anchorCloseSuppressed) {
                 let otherMemberCount = tabs.reduce(0) { partial, tab in
                     tab.groupId == groupId && tab.id != workspace.id ? partial + 1 : partial
                 }
@@ -4179,7 +3510,7 @@ class TabManager: ObservableObject {
         source: CloseConfirmationSource = .workspace
     ) {
         // Anchor-close ALWAYS prompts (subject to its own
-        // WorkspaceGroupAnchorCloseSettings.suppressed flag), regardless of
+        // workspaceGroups.anchorCloseSuppressed flag), regardless of
         // requiresConfirmation. Batch-close paths set requiresConfirmation=false
         // after their own generic prompt, but that generic prompt doesn't
         // mention group dissolution — silently ungrouping members during a
@@ -4237,9 +3568,9 @@ class TabManager: ObservableObject {
 
     /// Confirm before closing a workspace that is its group's anchor. Closing
     /// the anchor dissolves the group (other members survive ungrouped).
-    /// "Don't ask again" toggles `WorkspaceGroupAnchorCloseSettings.suppressed`.
+    /// "Don't ask again" sets the `workspaceGroups.anchorCloseSuppressed` flag.
     private func confirmAnchorWorkspaceClose(groupName: String, otherMemberCount: Int) -> Bool {
-        if WorkspaceGroupAnchorCloseSettings.suppressed() {
+        if settings.value(for: settingsCatalog.workspaceGroups.anchorCloseSuppressed) {
             return true
         }
         // Do NOT acquire beginCloseConfirmationSession here. The standard
@@ -4307,7 +3638,7 @@ class TabManager: ObservableObject {
         let response = runCloseConfirmationAlert(alert)
         guard response == .alertFirstButtonReturn else { return false }
         if suppressionButton.state == .on {
-            WorkspaceGroupAnchorCloseSettings.setSuppressed(true)
+            settings.set(true, for: settingsCatalog.workspaceGroups.anchorCloseSuppressed)
         }
         return true
     }
@@ -4325,7 +3656,9 @@ class TabManager: ObservableObject {
     }
 
     private func shouldCloseWorkspaceOnLastSurfaceShortcut(_ workspace: Workspace, panelId: UUID) -> Bool {
-        LastSurfaceCloseShortcutSettings.closesWorkspace() &&
+        // Stored under the legacy closeWorkspaceOnLastSurfaceShortcut key:
+        // true means the Close shortcut closes the workspace on its last surface.
+        settings.value(for: settingsCatalog.app.keepWorkspaceOpenWhenClosingLastSurface) &&
             workspace.panels.count <= 1 &&
             workspace.panels[panelId] != nil
     }
@@ -4872,51 +4205,28 @@ class TabManager: ObservableObject {
         selectedTabId != pendingTabId
     }
 
-    private enum NotificationDismissalContext: Sendable {
-        case activeFocus
-        case explicitWorkspaceResume
-        case directInteraction
-        case terminalInteraction
-
-        var requiresActiveApp: Bool {
-            switch self {
-            case .activeFocus, .explicitWorkspaceResume:
-                return true
-            case .directInteraction, .terminalInteraction:
-                return false
-            }
-        }
-
-        var canDismissManualUnreadIndicator: Bool {
-            self == .terminalInteraction
-        }
-
-        // Generic active focus can be produced by restore/programmatic selection.
-        // Keep this exhaustive so any future context must make an explicit
-        // restored-unread policy decision.
-        var canDismissRestoredUnreadIndicator: Bool {
-            switch self {
-            case .activeFocus:
-                return false
-            case .explicitWorkspaceResume, .directInteraction, .terminalInteraction:
-                return true
-            }
-        }
-    }
+    // MARK: Notification dismissal (CmuxNotifications)
+    //
+    // The dismissal decision flow lives in NotificationDismissalModel;
+    // TabManager hosts its seam (TabManager+NotificationDismissalHosting)
+    // and forwards the legacy entry points below.
 
     private func selectWorkspaceId(
         _ tabId: UUID,
         notificationDismissalContext: NotificationDismissalContext?
     ) {
         guard selectedTabId != tabId else {
-            pendingSelectedTabNotificationDismissContext = nil
+            notificationDismissal.setPendingSelectionContext(nil)
             if let notificationDismissalContext {
-                dismissFocusedPanelNotificationIfActive(tabId: tabId, context: notificationDismissalContext)
+                notificationDismissal.dismissFocusedPanelNotificationIfActive(
+                    workspaceId: tabId,
+                    context: notificationDismissalContext
+                )
             }
             return
         }
 
-        pendingSelectedTabNotificationDismissContext = notificationDismissalContext
+        notificationDismissal.setPendingSelectionContext(notificationDismissalContext)
         selectedTabId = tabId
     }
 
@@ -4924,136 +4234,27 @@ class TabManager: ObservableObject {
         tabId: UUID,
         context: NotificationDismissalContext = .activeFocus
     ) {
-        let shouldSuppressFlash = suppressFocusFlash
-        suppressFocusFlash = false
-        guard !shouldSuppressFlash else { return }
-        guard let panelId = focusedPanelId(for: tabId) else { return }
-        dismissPanelNotificationOnFocus(tabId: tabId, panelId: panelId, context: context)
+        notificationDismissal.dismissFocusedPanelNotificationIfActive(workspaceId: tabId, context: context)
     }
 
     private func dismissPanelNotificationOnFocus(tabId: UUID, panelId: UUID, explicitFocusIntent: Bool) {
-        dismissPanelNotificationOnFocus(
-            tabId: tabId,
+        notificationDismissal.dismissPanelNotificationOnFocus(
+            workspaceId: tabId,
             panelId: panelId,
-            context: explicitFocusIntent ? .directInteraction : .activeFocus
-        )
-    }
-
-    private func dismissPanelNotificationOnFocus(
-        tabId: UUID,
-        panelId: UUID,
-        context: NotificationDismissalContext
-    ) {
-        guard selectedTabId == tabId else { return }
-        guard !suppressFocusFlash else { return }
-        _ = dismissNotification(
-            tabId: tabId,
-            surfaceId: panelId,
-            context: context
+            explicitFocusIntent: explicitFocusIntent
         )
     }
 
     @discardableResult
     func dismissNotificationOnDirectInteraction(tabId: UUID, surfaceId: UUID?) -> Bool {
-        dismissNotification(tabId: tabId, surfaceId: surfaceId, context: .directInteraction)
+        notificationDismissal.dismissNotificationOnDirectInteraction(workspaceId: tabId, surfaceId: surfaceId)
     }
 
     @discardableResult
     func dismissNotificationOnTerminalInteraction(tabId: UUID, surfaceId: UUID?) -> Bool {
-        dismissNotification(tabId: tabId, surfaceId: surfaceId, context: .terminalInteraction)
+        notificationDismissal.dismissNotificationOnTerminalInteraction(workspaceId: tabId, surfaceId: surfaceId)
     }
 
-    @discardableResult
-    private func dismissNotification(
-        tabId: UUID,
-        surfaceId: UUID?,
-        context: NotificationDismissalContext
-    ) -> Bool {
-        guard selectedTabId == tabId else { return false }
-        if context.requiresActiveApp {
-            guard AppFocusState.isAppActive() else { return false }
-        }
-        guard let notificationStore = AppDelegate.shared?.notificationStore else { return false }
-        let workspace = tabs.first(where: { $0.id == tabId })
-        let targetPanelId = surfaceId.flatMap { surfaceOrPanelId in
-            workspace.flatMap { panelId(forSurfaceOrPanelId: surfaceOrPanelId, in: $0) }
-        }
-        var notificationSurfaceIds: [UUID] = []
-        if let surfaceId {
-            notificationSurfaceIds.append(surfaceId)
-        }
-        if let targetPanelId, !notificationSurfaceIds.contains(targetPanelId) {
-            notificationSurfaceIds.append(targetPanelId)
-        }
-        let hasManualPanelUnread = targetPanelId.map { workspace?.manualUnreadPanelIds.contains($0) ?? false } ?? false
-        let hasRestoredPanelUnread = targetPanelId.map { workspace?.hasRestoredUnreadIndicator(panelId: $0) ?? false } ?? false
-        let hasManualWorkspaceUnread = notificationStore.hasManualUnread(forTabId: tabId)
-        let hasRestoredWorkspaceUnread = notificationStore.hasRestoredUnreadIndicator(forTabId: tabId)
-        let canDismissManualUnreadIndicator = context.canDismissManualUnreadIndicator &&
-            (hasManualPanelUnread || hasManualWorkspaceUnread)
-        let canDismissRestoredUnreadIndicator = context.canDismissRestoredUnreadIndicator &&
-            (hasRestoredPanelUnread || hasRestoredWorkspaceUnread)
-        let canDismissUnreadIndicator = canDismissManualUnreadIndicator || canDismissRestoredUnreadIndicator
-        let hasUnreadNotification: Bool
-        let hasFocusedIndicator: Bool
-        if notificationSurfaceIds.isEmpty {
-            hasUnreadNotification = notificationStore.hasUnreadNotification(forTabId: tabId, surfaceId: nil)
-            hasFocusedIndicator = notificationStore.hasVisibleNotificationIndicator(forTabId: tabId, surfaceId: nil)
-        } else {
-            hasUnreadNotification = notificationSurfaceIds.contains {
-                notificationStore.hasUnreadNotification(forTabId: tabId, surfaceId: $0)
-            }
-            hasFocusedIndicator = notificationSurfaceIds.contains {
-                notificationStore.hasVisibleNotificationIndicator(forTabId: tabId, surfaceId: $0)
-            }
-        }
-        guard hasUnreadNotification || hasFocusedIndicator || canDismissUnreadIndicator else { return false }
-        if hasUnreadNotification {
-            if notificationSurfaceIds.isEmpty {
-                notificationStore.markRead(forTabId: tabId, surfaceId: nil)
-            } else {
-                for surfaceId in notificationSurfaceIds {
-                    notificationStore.markRead(forTabId: tabId, surfaceId: surfaceId)
-                }
-            }
-        }
-        var didDismissUnreadIndicator = false
-        if context.canDismissManualUnreadIndicator {
-            if let targetPanelId, hasManualPanelUnread {
-                workspace?.clearManualUnread(panelId: targetPanelId)
-                didDismissUnreadIndicator = true
-            }
-            if hasManualWorkspaceUnread {
-                didDismissUnreadIndicator = notificationStore.clearManualUnread(forTabId: tabId) || didDismissUnreadIndicator
-            }
-        }
-        if context.canDismissRestoredUnreadIndicator {
-            if let targetPanelId, hasRestoredPanelUnread {
-                workspace?.clearRestoredUnreadIndicator(panelId: targetPanelId)
-                didDismissUnreadIndicator = true
-            }
-            if hasRestoredWorkspaceUnread {
-                didDismissUnreadIndicator =
-                    notificationStore.clearRestoredUnreadIndicator(forTabId: tabId) || didDismissUnreadIndicator
-            }
-        }
-        if notificationSurfaceIds.isEmpty {
-            notificationStore.clearFocusedReadIndicator(forTabId: tabId, surfaceId: nil)
-        } else {
-            for surfaceId in notificationSurfaceIds {
-                notificationStore.clearFocusedReadIndicator(forTabId: tabId, surfaceId: surfaceId)
-            }
-        }
-        if let targetPanelId,
-           let workspace {
-            if hasUnreadNotification || hasFocusedIndicator {
-                workspace.triggerNotificationDismissFlash(panelId: targetPanelId)
-            } else if didDismissUnreadIndicator {
-                workspace.triggerUnreadIndicatorDismissFlash(panelId: targetPanelId)
-            }
-        }
-        return true
-    }
 
     private func enqueuePanelTitleUpdate(tabId: UUID, panelId: UUID, title: String) {
         let trimmed = title.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -5183,7 +4384,11 @@ class TabManager: ObservableObject {
                 tab.focusPanel(focusPanelId, focusIntent: focusIntent)
             }
             if let dismissalContext {
-                _ = dismissNotification(tabId: tabId, surfaceId: surfaceId, context: dismissalContext)
+                _ = notificationDismissal.dismissNotification(
+                    workspaceId: tabId,
+                    surfaceId: surfaceId,
+                    context: dismissalContext
+                )
             }
         }
     }
@@ -5214,9 +4419,9 @@ class TabManager: ObservableObject {
         // Jump-to-unread should reveal the destination pane instead of keeping an old split-zoom
         // state active around it.
         tab.clearSplitZoom()
-        suppressFocusFlash = true
+        notificationDismissal.setSuppressesFocusFlash(true)
         focusTab(tabId, surfaceId: desiredPanelId, suppressFlash: true)
-        suppressFocusFlash = false
+        notificationDismissal.setSuppressesFocusFlash(false)
 
         if let targetPanelId = desiredPanelId ?? tab.focusedPanelId,
            tab.panels[targetPanelId] != nil {
@@ -5230,7 +4435,7 @@ class TabManager: ObservableObject {
         tab.focusPanel(panelId(forSurfaceOrPanelId: surfaceId, in: tab) ?? surfaceId)
     }
 
-    private func panelId(forSurfaceOrPanelId surfaceOrPanelId: UUID, in workspace: Workspace) -> UUID? {
+    func panelId(forSurfaceOrPanelId surfaceOrPanelId: UUID, in workspace: Workspace) -> UUID? {
         if workspace.panels[surfaceOrPanelId] != nil {
             return surfaceOrPanelId
         }
@@ -5276,18 +4481,13 @@ class TabManager: ObservableObject {
     /// Reduce sidebar multi-selection to a single workspace (or clear if
     /// `except` isn't a known tab). Called from keyboard-nav paths so a
     /// stale Shift-click range doesn't survive after the user moves focus.
-    /// Posts `.sidebarMultiSelectionShouldCollapse` so the SwiftUI binding
+    /// Posts the should-collapse event so the SwiftUI binding
     /// in ContentView (a @State Set<UUID> separate from this tab manager)
     /// can collapse to the focused workspace too.
     private func clearSidebarMultiSelection(except workspaceId: UUID) {
-        let next: Set<UUID> = tabs.contains(where: { $0.id == workspaceId }) ? [workspaceId] : []
-        if sidebarSelectedWorkspaceIds != next {
-            sidebarSelectedWorkspaceIds = next
-        }
-        NotificationCenter.default.post(
-            name: .sidebarMultiSelectionShouldCollapse,
-            object: self,
-            userInfo: [SidebarMultiSelectionCollapseKey.focusedWorkspaceId: workspaceId]
+        sidebarMultiSelection.collapseSelection(
+            to: workspaceId,
+            isKnownWorkspace: tabs.contains(where: { $0.id == workspaceId })
         )
     }
 
@@ -6214,7 +5414,7 @@ class TabManager: ObservableObject {
     func reopenMostRecentlyClosedBrowserPanelFromLegacyStack() -> Bool {
         guard BrowserAvailabilitySettings.isEnabled() else { return false }
 
-        while let snapshot = recentlyClosedBrowsers.pop() {
+        while let snapshot = browserModel.popMostRecentlyClosedBrowserPanel() {
             // The legacy stack must restore into the workspace that originally owned the
             // browser. If that workspace is gone, the snapshot is stale and we drop it
             // instead of barging into whatever workspace happens to be selected now
@@ -6245,11 +5445,11 @@ class TabManager: ObservableObject {
     }
 
     func clearRecentlyClosedBrowserPanelHistory() {
-        recentlyClosedBrowsers = RecentlyClosedBrowserStack(capacity: 20)
+        browserModel.clearRecentlyClosedBrowserPanels()
     }
 
     func mostRecentLegacyClosedBrowserPanelClosedAt() -> Date? {
-        recentlyClosedBrowsers.mostRecentClosedAt
+        browserModel.mostRecentClosedBrowserPanelClosedAt
     }
 
     @discardableResult
@@ -8123,7 +7323,7 @@ extension TabManager {
         workspaceCycleCooldownTask = nil
         isWorkspaceCycleHot = false
         selectionSideEffectsGeneration &+= 1
-        recentlyClosedBrowsers = RecentlyClosedBrowserStack(capacity: 20)
+        browserModel.clearRecentlyClosedBrowserPanels()
 
         // Build the new workspace list locally to avoid intermediate @Published
         // emissions (empty tabs, nil selectedTabId) that can leave SwiftUI's
@@ -8221,7 +7421,7 @@ extension TabManager {
         selectedTabId = newSelectedId
         let existingIds = Set(newTabs.map(\.id))
         pruneBackgroundWorkspaceLoads(existingIds: existingIds)
-        sidebarSelectedWorkspaceIds.formIntersection(existingIds)
+        sidebarMultiSelection.intersectSelection(with: existingIds)
         for workspace in previousTabs {
             releaseRestoredAwayWorkspace(workspace)
         }
@@ -8303,28 +7503,9 @@ extension TabManager {
     }
 }
 
-enum SidebarMultiSelectionCollapseKey {
-    static let focusedWorkspaceId = "focusedWorkspaceId"
-}
-
-enum SidebarMultiSelectionHideKey {
-    static let hiddenWorkspaceIds = "hiddenWorkspaceIds"
-    static let focusedWorkspaceId = "focusedWorkspaceId"
-}
-
 extension Notification.Name {
-    /// Posted when keyboard-nav focuses a single workspace and the sidebar's
-    /// multi-selection state (SwiftUI @State Set<UUID> in VerticalTabsSidebar)
-    /// should collapse to that workspace. Subscribers read
-    /// `SidebarMultiSelectionCollapseKey.focusedWorkspaceId` from userInfo.
-    static let sidebarMultiSelectionShouldCollapse = Notification.Name("cmux.sidebarMultiSelectionShouldCollapse")
-    /// Posted when specific workspaces become hidden (group collapse). The
-    /// SwiftUI sidebar should drop only those ids from its multi-selection
-    /// without disturbing other entries. userInfo:
-    /// `SidebarMultiSelectionHideKey.hiddenWorkspaceIds` (Set<UUID>), and
-    /// optionally `SidebarMultiSelectionHideKey.focusedWorkspaceId` (UUID)
-    /// when focus moved (so the focused row stays in the selection set).
-    static let sidebarMultiSelectionDidHide = Notification.Name("cmux.sidebarMultiSelectionDidHide")
+    // The sidebar multi-selection sync events moved to CmuxSidebar as typed
+    // SidebarMultiSelectionShouldCollapseEvent / DidHideEvent (same names).
     static let commandPaletteToggleRequested = Notification.Name("cmux.commandPaletteToggleRequested")
     static let commandPaletteRequested = Notification.Name("cmux.commandPaletteRequested")
     static let commandPaletteSwitcherRequested = Notification.Name("cmux.commandPaletteSwitcherRequested")

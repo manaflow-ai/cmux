@@ -7,6 +7,7 @@ import CmuxSidebarProviderKit
 import CmuxExtensionSidebarExamples
 import CmuxSettings
 import CmuxSettingsUI
+import CmuxSidebar
 import CmuxSidebarRemoteRender
 import CmuxSwiftRender
 import CmuxSwiftRenderUI
@@ -10022,7 +10023,7 @@ struct SidebarTabItemSettingsSnapshot: Equatable {
     let openPullRequestLinksInCmuxBrowser: Bool
     let openPortLinksInCmuxBrowser: Bool
     let showsNotificationMessage: Bool
-    let activeTabIndicatorStyle: SidebarActiveTabIndicatorStyle
+    let activeTabIndicatorStyle: WorkspaceIndicatorStyle
     let selectionColorHex: String?
     let notificationBadgeColorHex: String?
     let visibleAuxiliaryDetails: SidebarWorkspaceAuxiliaryDetailVisibility
@@ -10036,13 +10037,15 @@ struct SidebarTabItemSettingsSnapshot: Equatable {
         sidebarShortcutHintYOffset = ShortcutHintDebugSettings.defaultSidebarHintY
         alwaysShowShortcutHints = ShortcutHintDebugSettings.alwaysShowHints()
         sidebarFontScale = SidebarTabItemFontScale.scale(for: sidebarFontSize)
+        let settings = UserDefaultsSettingsClient(defaults: defaults)
+        let catalog = SettingCatalog()
         showsGitBranch = Self.bool(defaults: defaults, key: "sidebarShowGitBranch", defaultValue: true)
-        usesVerticalBranchLayout = SidebarBranchLayoutSettings.usesVerticalLayout(defaults: defaults)
-        stacksBranchAndDirectory = SidebarBranchDirectoryStackedSettings.isStacked(defaults: defaults)
-        usesLastSegmentPath = SidebarPathLastSegmentSettings.isLastSegmentOnly(defaults: defaults)
+        usesVerticalBranchLayout = settings.value(for: catalog.sidebar.branchVerticalLayout)
+        stacksBranchAndDirectory = settings.value(for: catalog.sidebar.stackBranchDirectory)
+        usesLastSegmentPath = settings.value(for: catalog.sidebar.pathLastSegmentOnly)
         showsGitBranchIcon = Self.bool(defaults: defaults, key: "sidebarShowGitBranchIcon", defaultValue: false)
         showsSSH = Self.bool(defaults: defaults, key: "sidebarShowSSH", defaultValue: SidebarWorkspaceDetailDefaults.showSSH)
-        makesPullRequestsClickable = SidebarPullRequestClickabilitySettings.isClickable(defaults: defaults)
+        makesPullRequestsClickable = settings.value(for: catalog.sidebar.makePullRequestsClickable)
         openPullRequestLinksInCmuxBrowser = BrowserLinkOpenSettings.openSidebarPullRequestLinksInCmuxBrowser(
             defaults: defaults
         )
@@ -10050,22 +10053,15 @@ struct SidebarTabItemSettingsSnapshot: Equatable {
             defaults: defaults
         )
 
-        hidesAllDetails = SidebarWorkspaceDetailSettings.hidesAllDetails(defaults: defaults)
+        hidesAllDetails = settings.value(for: catalog.sidebar.hideAllDetails)
         wrapsWorkspaceTitles = SidebarWorkspaceTitleWrapSettings.wraps(defaults: defaults)
-        let showsWorkspaceDescriptionSetting = SidebarWorkspaceDetailSettings.showsWorkspaceDescription(
-            defaults: defaults
-        )
-        showsWorkspaceDescription = SidebarWorkspaceDetailSettings.resolvedWorkspaceDescriptionVisibility(
-            showWorkspaceDescription: showsWorkspaceDescriptionSetting,
+        let detailVisibility = SidebarWorkspaceDetailVisibility(
+            showWorkspaceDescription: settings.value(for: catalog.sidebar.showWorkspaceDescription),
+            showNotificationMessage: settings.value(for: catalog.sidebar.showNotificationMessage),
             hideAllDetails: hidesAllDetails
         )
-        let showsNotificationMessageSetting = SidebarWorkspaceDetailSettings.showsNotificationMessage(
-            defaults: defaults
-        )
-        showsNotificationMessage = SidebarWorkspaceDetailSettings.resolvedNotificationMessageVisibility(
-            showNotificationMessage: showsNotificationMessageSetting,
-            hideAllDetails: hidesAllDetails
-        )
+        showsWorkspaceDescription = detailVisibility.showsWorkspaceDescription
+        showsNotificationMessage = detailVisibility.showsNotificationMessage
 
         let showsMetadata = Self.bool(defaults: defaults, key: "sidebarShowStatusPills", defaultValue: SidebarWorkspaceDetailDefaults.showCustomMetadata)
         let showsLog = Self.bool(defaults: defaults, key: "sidebarShowLog", defaultValue: SidebarWorkspaceDetailDefaults.showLog)
@@ -10083,7 +10079,7 @@ struct SidebarTabItemSettingsSnapshot: Equatable {
             hideAllDetails: hidesAllDetails
         )
 
-        activeTabIndicatorStyle = SidebarActiveTabIndicatorSettings.current(defaults: defaults)
+        activeTabIndicatorStyle = settings.value(for: catalog.workspaceColors.indicatorStyle)
         selectionColorHex = defaults.string(forKey: "sidebarSelectionColorHex")
         notificationBadgeColorHex = defaults.string(forKey: "sidebarNotificationBadgeColorHex")
         iMessageModeEnabled = IMessageModeSettings.isEnabled(defaults: defaults)
@@ -11293,16 +11289,16 @@ struct VerticalTabsSidebar: View {
                     // unrelated sidebar event fires.
                     anchorCwdRevision &+= 1
                 }
-                .onReceive(NotificationCenter.default.publisher(for: .sidebarMultiSelectionDidHide)) { notification in
+                .onReceive(NotificationCenter.default.publisher(for: SidebarMultiSelectionDidHideEvent.notificationName)) { notification in
                     // Group collapse hides some workspaces without changing
                     // focus or wiping the rest of the multi-selection. Strip
                     // only the hidden ids; if focus moved, make sure the new
                     // focused id is still represented.
-                    guard let manager = notification.object as? TabManager,
-                          manager === tabManager,
-                          let hidden = notification.userInfo?[SidebarMultiSelectionHideKey.hiddenWorkspaceIds] as? Set<UUID> else { return }
-                    var next = selectedTabIds.subtracting(hidden)
-                    if let movedFocus = notification.userInfo?[SidebarMultiSelectionHideKey.focusedWorkspaceId] as? UUID {
+                    guard let model = notification.object as? SidebarMultiSelectionModel,
+                          model === tabManager.sidebarMultiSelection,
+                          let event = SidebarMultiSelectionDidHideEvent(notification) else { return }
+                    var next = selectedTabIds.subtracting(event.hiddenWorkspaceIds)
+                    if let movedFocus = event.focusedWorkspaceId {
                         next.insert(movedFocus)
                         if let index = tabManager.tabs.firstIndex(where: { $0.id == movedFocus }) {
                             lastSidebarSelectionIndex = index
@@ -11312,15 +11308,16 @@ struct VerticalTabsSidebar: View {
                         selectedTabIds = next
                     }
                 }
-                .onReceive(NotificationCenter.default.publisher(for: .sidebarMultiSelectionShouldCollapse)) { notification in
+                .onReceive(NotificationCenter.default.publisher(for: SidebarMultiSelectionShouldCollapseEvent.notificationName)) { notification in
                     // Keyboard nav (selectNextTab/selectPreviousTab) posts
                     // this so any stale Shift-click range in the sidebar's
                     // SwiftUI selectedTabIds collapses to just the newly-
                     // focused workspace. Without this, batch context-menu /
                     // shortcut actions would still target the stale range.
-                    guard let manager = notification.object as? TabManager,
-                          manager === tabManager,
-                          let focusedId = notification.userInfo?[SidebarMultiSelectionCollapseKey.focusedWorkspaceId] as? UUID else { return }
+                    guard let model = notification.object as? SidebarMultiSelectionModel,
+                          model === tabManager.sidebarMultiSelection,
+                          let event = SidebarMultiSelectionShouldCollapseEvent(notification) else { return }
+                    let focusedId = event.focusedWorkspaceId
                     let next: Set<UUID> = tabManager.tabs.contains(where: { $0.id == focusedId }) ? [focusedId] : []
                     if selectedTabIds != next {
                         selectedTabIds = next
@@ -15359,7 +15356,7 @@ struct TabItemView: View, Equatable {
         return makeWorkspaceSnapshot()
     }
 
-    private var activeTabIndicatorStyle: SidebarActiveTabIndicatorStyle {
+    private var activeTabIndicatorStyle: WorkspaceIndicatorStyle {
         settings.activeTabIndicatorStyle
     }
 

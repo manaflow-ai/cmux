@@ -13,6 +13,7 @@ import CmuxUpdater
 @testable import cmux_DEV
 #elseif canImport(cmux)
 @testable import cmux
+import CmuxSettings
 #endif
 
 final class SplitShortcutTransientFocusGuardTests: XCTestCase {
@@ -1636,7 +1637,8 @@ final class LastSurfaceCloseShortcutSettingsTests: XCTestCase {
         }
         defer { defaults.removePersistentDomain(forName: suiteName) }
 
-        XCTAssertTrue(LastSurfaceCloseShortcutSettings.closesWorkspace(defaults: defaults))
+        let key = SettingCatalog().app.keepWorkspaceOpenWhenClosingLastSurface
+        XCTAssertTrue(UserDefaultsSettingsClient(defaults: defaults).value(for: key))
     }
 
     func testStoredTrueClosesWorkspace() {
@@ -1647,8 +1649,9 @@ final class LastSurfaceCloseShortcutSettingsTests: XCTestCase {
         }
         defer { defaults.removePersistentDomain(forName: suiteName) }
 
-        defaults.set(true, forKey: LastSurfaceCloseShortcutSettings.key)
-        XCTAssertTrue(LastSurfaceCloseShortcutSettings.closesWorkspace(defaults: defaults))
+        let key = SettingCatalog().app.keepWorkspaceOpenWhenClosingLastSurface
+        defaults.set(true, forKey: key.userDefaultsKey)
+        XCTAssertTrue(UserDefaultsSettingsClient(defaults: defaults).value(for: key))
     }
 
     func testStoredFalseKeepsWorkspaceOpen() {
@@ -1659,8 +1662,9 @@ final class LastSurfaceCloseShortcutSettingsTests: XCTestCase {
         }
         defer { defaults.removePersistentDomain(forName: suiteName) }
 
-        defaults.set(false, forKey: LastSurfaceCloseShortcutSettings.key)
-        XCTAssertFalse(LastSurfaceCloseShortcutSettings.closesWorkspace(defaults: defaults))
+        let key = SettingCatalog().app.keepWorkspaceOpenWhenClosingLastSurface
+        defaults.set(false, forKey: key.userDefaultsKey)
+        XCTAssertFalse(UserDefaultsSettingsClient(defaults: defaults).value(for: key))
     }
 }
 

@@ -96,7 +96,7 @@ public final class NotificationDismissalModel: NotificationDismissing {
     }
 
     @discardableResult
-    private func dismissNotification(
+    public func dismissNotification(
         workspaceId: UUID,
         surfaceId: UUID?,
         context: NotificationDismissalContext

@@ -32,6 +32,11 @@ public protocol NotificationDismissing: AnyObject {
     /// Dismisses for a direct user interaction with the panel.
     @discardableResult
     func dismissNotificationOnDirectInteraction(workspaceId: UUID, surfaceId: UUID?) -> Bool
+    /// General dismissal entry point with an explicit context (the legacy
+    /// private `dismissNotification(tabId:surfaceId:context:)` core, used by
+    /// the focus-tab resume path).
+    @discardableResult
+    func dismissNotification(workspaceId: UUID, surfaceId: UUID?, context: NotificationDismissalContext) -> Bool
     /// Dismisses for typing into the terminal.
     @discardableResult
     func dismissNotificationOnTerminalInteraction(workspaceId: UUID, surfaceId: UUID?) -> Bool

@@ -5,6 +5,7 @@ import Testing
 @testable import cmux_DEV
 #elseif canImport(cmux)
 @testable import cmux
+import CmuxSettings
 #endif
 
 @MainActor
@@ -705,8 +706,10 @@ struct WorkspaceGroupTests {
         let manager = makeTabManager()
         let children = manager.tabs.map(\.id)
         let groupId = manager.createWorkspaceGroup(name: "G", childWorkspaceIds: children)!
-        WorkspaceGroupAnchorCloseSettings.setSuppressed(true)
-        defer { WorkspaceGroupAnchorCloseSettings.setSuppressed(false) }
+        let anchorCloseKey = SettingCatalog().workspaceGroups.anchorCloseSuppressed
+        let settings = UserDefaultsSettingsClient(defaults: .standard)
+        settings.set(true, for: anchorCloseKey)
+        defer { settings.reset(anchorCloseKey) }
         let group = try #require(manager.workspaceGroups.first(where: { $0.id == groupId }))
         let anchor = try #require(manager.tabs.first(where: { $0.id == group.anchorWorkspaceId }))
 

@@ -13,6 +13,7 @@ import Network
 @testable import cmux_DEV
 #elseif canImport(cmux)
 @testable import cmux
+import CmuxSettings
 #endif
 
 var cmuxUnitTestInspectorAssociationKey: UInt8 = 0
@@ -5146,9 +5147,11 @@ final class BrowserLinkOpenSettingsTests: XCTestCase {
         XCTAssertTrue(BrowserLinkOpenSettings.openSidebarPullRequestLinksInCmuxBrowser(defaults: defaults))
     }
     func testSidebarPullRequestClickabilityDefaultAndStoredValues() {
-        XCTAssertTrue(SidebarPullRequestClickabilitySettings.isClickable(defaults: defaults))
-        defaults.set(true, forKey: SidebarPullRequestClickabilitySettings.key); XCTAssertTrue(SidebarPullRequestClickabilitySettings.isClickable(defaults: defaults))
-        defaults.set(false, forKey: SidebarPullRequestClickabilitySettings.key); XCTAssertFalse(SidebarPullRequestClickabilitySettings.isClickable(defaults: defaults))
+        let key = SettingCatalog().sidebar.makePullRequestsClickable
+        let settings = UserDefaultsSettingsClient(defaults: defaults)
+        XCTAssertTrue(settings.value(for: key))
+        defaults.set(true, forKey: key.userDefaultsKey); XCTAssertTrue(settings.value(for: key))
+        defaults.set(false, forKey: key.userDefaultsKey); XCTAssertFalse(settings.value(for: key))
     }
     func testOpenCommandInterceptionDefaultsToCmuxBrowser() {
         XCTAssertTrue(BrowserLinkOpenSettings.interceptTerminalOpenCommandInCmuxBrowser(defaults: defaults))

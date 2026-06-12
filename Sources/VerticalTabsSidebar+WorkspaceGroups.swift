@@ -1,5 +1,6 @@
 import AppKit
 import SwiftUI
+import CmuxSettings
 
 extension VerticalTabsSidebar {
     @ViewBuilder
@@ -117,7 +118,8 @@ extension VerticalTabsSidebar {
             },
             onTapPlus: { [weak tabManager, groupId = group.id, placement = newWorkspacePlacement] in
                 guard let tabManager else { return }
-                let resolved = placement ?? WorkspaceGroupNewWorkspacePlacementSettings.resolved()
+                let resolved = placement
+                    ?? UserDefaultsSettingsClient(defaults: .standard).value(for: SettingCatalog().workspaceGroups.newWorkspacePlacement)
                 _ = tabManager.createWorkspaceInGroup(groupId: groupId, placement: resolved)
             },
             onRunResolvedItem: { [weak tabManager, groupId = group.id] item in
