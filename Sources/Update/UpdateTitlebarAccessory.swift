@@ -3255,6 +3255,17 @@ private struct RightSidebarToggleTitlebarView: View {
     }
 }
 
+/// Accessory container that only claims clicks landing on actual content:
+/// the container spans the full titlebar height for layout, and an opaque
+/// container would swallow clicks meant for chrome rendered underneath
+/// (e.g. the right sidebar's X button while the toggle overlaps it).
+private final class ClickPassThroughAccessoryContainerView: NSView {
+    override func hitTest(_ point: NSPoint) -> NSView? {
+        let hit = super.hitTest(point)
+        return hit === self ? nil : hit
+    }
+}
+
 @MainActor
 private final class RightSidebarToggleAccessoryViewController: NSTitlebarAccessoryViewController {
     private static let styleDefaultsKey = "titlebarControlsStyle"
@@ -3269,7 +3280,7 @@ private final class RightSidebarToggleAccessoryViewController: NSTitlebarAccesso
     private var isBindRetryScheduled = false
 
     init() {
-        let containerView = NSView()
+        let containerView = ClickPassThroughAccessoryContainerView()
         self.containerView = containerView
         let toggle = { [weak containerView] in
             #if DEBUG
