@@ -6,37 +6,43 @@ import Foundation
 /// The pairing QR encodes `cmux-ios://attach?v=1&payload=<base64url(JSON)>`.
 /// The legacy JSON spelled out full camelCase keys plus a vestigial
 /// `auth_token`, which pushed the QR into a denser version than necessary.
-/// The compact grammar keeps the same envelope and the same field semantics
-/// but uses short keys, drops empty optional fields, encodes the expiry as
-/// whole unix seconds, and omits the auth token entirely (the mobile host
-/// treats the owner's Stack access token as the sole authorization gate; see
-/// `MobileHostService.authorizationError(for:)`).
+/// The compact grammar keeps the same envelope but encodes only what pairing
+/// actually consumes: short keys, no empty optional fields, no auth token, no
+/// display name (read post-handshake from `mobile.host.status`), and no
+/// expiry. A pairing QR never expires; the owner's Stack access token is the
+/// host's sole authorization gate (`MobileHostService.authorizationError(for:)`),
+/// so ticket age authorizes nothing.
 ///
 /// Compatibility:
 /// - New decoders accept both grammars: ``CmxAttachTicketInput`` routes a
 ///   payload whose top-level object carries `"v"` here and everything else
 ///   (legacy `"version"` payloads) through the original `Codable` path.
+/// - Payloads from the first compact revision still decode: their extra `e`
+///   (expiry) and `n` (display name) keys are ignored, their explicit route
+///   `i` ids and endpoint `t` types are honored.
 /// - Old decoders reject the compact grammar loudly (a `DecodingError` from
 ///   the missing `"version"` key), so an outdated phone scanning a new QR
 ///   shows a pairing error instead of silently misreading the ticket.
 ///
 /// Key map (ticket): `v` version, `w` workspaceID (omitted when empty),
-/// `t` terminalID, `d` macDeviceID, `n` macDisplayName, `e` expiry (unix
-/// seconds), `r` routes.
-/// Key map (route): `i` id, `k` kind raw value, `p` priority (omitted when 0),
-/// `e` endpoint.
-/// Key map (endpoint): `t` type raw value (`host_port`/`peer`/`url`), then
-/// `h` host + `p` port, or `i` peer id + `rh` relay hint + `da` direct addrs +
-/// `ru` relay URL, or `u` url.
+/// `t` terminalID, `d` macDeviceID, `r` routes.
+/// Key map (route): `i` id (omitted when the decoder can resynthesize it:
+/// `kind` for the first route of a kind, `kind_N` for the Nth), `k` kind raw
+/// value, `p` priority (omitted when 0), `e` endpoint.
+/// Key map (endpoint): the type is implied by the keys present (accepted
+/// explicitly under `t` for first-revision payloads): `h` host + `p` port, or
+/// `i` peer id + `rh` relay hint + `da` direct addrs + `ru` relay URL, or
+/// `u` url.
 public struct CmxAttachTicketCompactCoder: Sendable {
     /// Creates a coder. The coder is stateless; instances are interchangeable.
     public init() {}
 
     /// Encode a ticket into the compact JSON grammar.
     ///
-    /// Any `authToken` on the ticket is intentionally not encoded: the token
-    /// never authorizes anything on the host (Stack auth is the sole gate),
-    /// so carrying it in the QR only inflated the payload.
+    /// Any `authToken`, `macDisplayName`, and `expiresAt` on the ticket are
+    /// intentionally not encoded: the token never authorizes anything on the
+    /// host (Stack auth is the sole gate), the name is read post-handshake
+    /// from `mobile.host.status`, and a pairing QR never expires.
     public func encode(_ ticket: CmxAttachTicket) throws -> Data {
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.sortedKeys, .withoutEscapingSlashes]
