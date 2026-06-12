@@ -46,7 +46,11 @@ def run_wrapper(
     node_options: str | None = None,
     tmpdir: str | None = None,
     hooks_disabled: bool = False,
+    agent_hook_emit: str | None = None,
 ) -> tuple[int, list[str], list[str], str, str, str, str, str, str, str]:
+    """agent_hook_emit: None (no agentconv env), "executable" (staged emit
+    relay + ingest socket env, the live hook ingest case), or "missing"
+    (env set but the binary is absent, which must skip injection)."""
     with tempfile.TemporaryDirectory(prefix="cmux-claude-wrapper-test-") as td:
         tmp = Path(td)
         wrapper_dir = tmp / "wrapper-bin"
@@ -167,6 +171,19 @@ exit 0
         env["PATH"] = f"{wrapper_dir}:{real_dir}:{env.get('PATH', '/usr/bin:/bin')}"
         env["CMUX_SURFACE_ID"] = "surface:test"
         env["CMUX_SOCKET_PATH"] = socket_path
+        # Never inherit live agent-conversation hook env from the terminal
+        # running this test; tests opt in explicitly via agent_hook_emit.
+        env.pop("CMUX_AGENT_HOOK_EMIT_BIN", None)
+        env.pop("CMUX_AGENT_HOOK_SOCKET", None)
+        if agent_hook_emit is not None:
+            # Directory with a space mirrors real DerivedData staging paths.
+            emit_dir = tmp / "remote daemons"
+            emit_dir.mkdir(parents=True, exist_ok=True)
+            emit_bin = emit_dir / "cmuxd-remote"
+            if agent_hook_emit == "executable":
+                make_executable(emit_bin, "#!/usr/bin/env bash\nexit 0\n")
+            env["CMUX_AGENT_HOOK_EMIT_BIN"] = str(emit_bin)
+            env["CMUX_AGENT_HOOK_SOCKET"] = str(tmp / "agentconv" / "ingest.sock")
         env["FAKE_REAL_ARGS_LOG"] = str(real_args_log)
         env["FAKE_REAL_CLAUDECODE_LOG"] = str(real_claudecode_log)
         env["FAKE_REAL_NODE_OPTIONS_LOG"] = str(real_node_options_log)
@@ -1163,9 +1180,121 @@ def test_stale_socket_skips_hook_injection(failures: list[str]) -> None:
     expect(hook_cmux_bin == "__UNSET__", f"stale socket: expected hook cmux unset, got {hook_cmux_bin!r}", failures)
 
 
+AGENTCONV_EMIT_COMMAND = '"$CMUX_AGENT_HOOK_EMIT_BIN" agent-hook-emit --socket "$CMUX_AGENT_HOOK_SOCKET"'
+AGENTCONV_HOOK_EVENTS = {
+    "UserPromptSubmit": False,
+    "PreToolUse": True,
+    "PostToolUse": True,
+    "Stop": False,
+    "Notification": False,
+    "PermissionRequest": False,
+}
+
+
+def agentconv_entries(hooks: dict, event: str) -> list[dict]:
+    return [
+        entry
+        for group in hooks.get(event, [])
+        for entry in group.get("hooks", [])
+        if "agent-hook-emit" in entry.get("command", "")
+    ]
+
+
+def test_agentconv_env_merges_emit_hooks_into_settings(failures: list[str]) -> None:
+    code, real_argv, _, stderr, *_ = run_wrapper(
+        socket_state="live",
+        argv=["hello"],
+        agent_hook_emit="executable",
+    )
+    expect(code == 0, f"agentconv: wrapper exited {code}: {stderr}", failures)
+    settings = parse_settings_arg(real_argv)
+    hooks = settings.get("hooks", {})
+    for event, expect_async in AGENTCONV_HOOK_EVENTS.items():
+        entries = agentconv_entries(hooks, event)
+        expect(len(entries) == 1, f"agentconv: expected one emit entry for {event}, got {entries}", failures)
+        if not entries:
+            continue
+        entry = entries[0]
+        expect(
+            entry.get("command") == AGENTCONV_EMIT_COMMAND,
+            f"agentconv: {event} command should defer path expansion to claude's hook shell, got {entry.get('command')!r}",
+            failures,
+        )
+        expect(entry.get("timeout") == 5, f"agentconv: {event} timeout should be 5, got {entry}", failures)
+        expect(
+            entry.get("async", False) is expect_async,
+            f"agentconv: {event} async should be {expect_async}, got {entry}",
+            failures,
+        )
+    # The lifecycle/feed hooks the wrapper has always injected must survive
+    # the merge untouched.
+    for event in ("SessionStart", "SessionEnd", "SubagentStop"):
+        expect(event in hooks, f"agentconv: existing {event} hook lost in merge: {sorted(hooks)}", failures)
+    feed_entries = [
+        entry
+        for group in hooks.get("PermissionRequest", [])
+        for entry in group.get("hooks", [])
+        if "hooks feed --source claude" in entry.get("command", "")
+    ]
+    expect(feed_entries and feed_entries[0].get("timeout") == 125,
+           f"agentconv: PermissionRequest feed hook lost or changed: {hooks.get('PermissionRequest')}", failures)
+    # Exactly one --settings: claude's --settings is last-wins, so the merge
+    # must never be expressed as a second flag.
+    expect(real_argv.count("--settings") == 1,
+           f"agentconv: expected exactly one --settings, got {real_argv}", failures)
+
+
+def test_agentconv_env_absent_keeps_settings_clean(failures: list[str]) -> None:
+    code, real_argv, _, stderr, *_ = run_wrapper(
+        socket_state="live",
+        argv=["hello"],
+    )
+    expect(code == 0, f"agentconv absent: wrapper exited {code}: {stderr}", failures)
+    settings = parse_settings_arg(real_argv)
+    expect("agent-hook-emit" not in json.dumps(settings),
+           f"agentconv absent: emit hooks should not be injected: {settings}", failures)
+    expect("PostToolUse" not in settings.get("hooks", {}),
+           f"agentconv absent: PostToolUse should not exist: {sorted(settings.get('hooks', {}))}", failures)
+
+
+def test_agentconv_missing_emit_binary_skips_injection(failures: list[str]) -> None:
+    code, real_argv, _, stderr, *_ = run_wrapper(
+        socket_state="live",
+        argv=["hello"],
+        agent_hook_emit="missing",
+    )
+    expect(code == 0, f"agentconv missing binary: wrapper exited {code}: {stderr}", failures)
+    settings = parse_settings_arg(real_argv)
+    expect("agent-hook-emit" not in json.dumps(settings),
+           f"agentconv missing binary: emit hooks should not be injected: {settings}", failures)
+
+
+def test_agentconv_does_not_clobber_user_settings_flag(failures: list[str]) -> None:
+    user_settings = '{"env":{"USER_SETTING":"1"}}'
+    code, real_argv, _, stderr, *_ = run_wrapper(
+        socket_state="live",
+        argv=["--settings", user_settings, "hello"],
+        agent_hook_emit="executable",
+    )
+    expect(code == 0, f"agentconv user settings: wrapper exited {code}: {stderr}", failures)
+    indexes = [i for i, arg in enumerate(real_argv) if arg == "--settings"]
+    expect(len(indexes) == 2, f"agentconv user settings: expected wrapper + user --settings, got {real_argv}", failures)
+    if len(indexes) == 2:
+        expect(
+            real_argv[indexes[1] + 1] == user_settings,
+            f"agentconv user settings: user value must pass through unmodified and last "
+            f"(claude's --settings is last-wins), got {real_argv[indexes[1] + 1]!r}",
+            failures,
+        )
+
+
 def main() -> int:
     failures: list[str] = []
     test_live_socket_injects_supported_hooks_without_unlocking_bypass(failures)
+    test_agentconv_env_merges_emit_hooks_into_settings(failures)
+    test_agentconv_env_absent_keeps_settings_clean(failures)
+    test_agentconv_missing_emit_binary_skips_injection(failures)
+    test_agentconv_does_not_clobber_user_settings_flag(failures)
     test_plain_claude_launch_argv_has_no_empty_argument(failures)
     test_command_like_invocations_bypass_hook_injection(failures)
     test_passthrough_flags_bypass_hook_injection(failures)

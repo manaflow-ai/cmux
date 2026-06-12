@@ -1,0 +1,91 @@
+#!/usr/bin/env bash
+# cmux codex wrapper - injects the agent conversation notify hook
+#
+# When running inside a cmux terminal (CMUX_SURFACE_ID is set) and the app
+# exported a staged cmuxd-remote emit relay (CMUX_AGENT_HOOK_EMIT_BIN) plus
+# this instance's ingest socket path (CMUX_AGENT_HOOK_SOCKET), this wrapper
+# adds a per-launch `notify` override so Codex turn completions flow into the
+# agent chat surface (docs/agent-conversation-protocol.md, "Hook ingest").
+# Codex invokes the notify program with the JSON payload as the final argv
+# argument; `cmuxd-remote agent-hook-emit` translates it and always exits 0,
+# so the hook can never slow down or break Codex.
+#
+# The override is per-launch only (`codex -c notify=[...]`); the user's
+# ~/.codex/config.toml is never written. Injection is skipped when the user
+# already has a notify program configured (their own -c override or an
+# uncommented `notify` key in config.toml) so cmux never replaces a
+# user-chosen notifier.
+
+find_real_codex() {
+    local self_dir
+    self_dir="$(cd "$(dirname "$0")" && pwd)"
+    local IFS=:
+    for d in $PATH; do
+        [[ "$d" == "$self_dir" ]] && continue
+        local candidate="$d/codex"
+        if [[ -e "$candidate" && "$candidate" -ef "$0" ]]; then
+            continue
+        fi
+        case "$candidate" in
+            */Contents/Resources/bin/codex|*/Resources/bin/codex)
+                continue
+                ;;
+        esac
+        [[ -x "$candidate" ]] && printf '%s' "$candidate" && return 0
+    done
+    return 1
+}
+
+REAL_CODEX="$(find_real_codex)" || { echo "Error: codex not found in PATH" >&2; exit 127; }
+
+# Pass through when not in a cmux terminal, when codex hooks are disabled, or
+# when the app did not stage the emit relay for this terminal.
+if [[ -z "${CMUX_SURFACE_ID:-}" ||
+      "${CMUX_CODEX_HOOKS_DISABLED:-}" == "1" ||
+      -z "${CMUX_AGENT_HOOK_EMIT_BIN:-}" ||
+      -z "${CMUX_AGENT_HOOK_SOCKET:-}" ]]; then
+    exec "$REAL_CODEX" "$@"
+fi
+if [[ ! -x "$CMUX_AGENT_HOOK_EMIT_BIN" ]]; then
+    exec "$REAL_CODEX" "$@"
+fi
+
+# The emit path and socket path are embedded literally in a TOML basic
+# string; skip injection rather than risk malformed config for paths that
+# would need escaping (never the case for DerivedData or /tmp paths).
+case "$CMUX_AGENT_HOOK_EMIT_BIN$CMUX_AGENT_HOOK_SOCKET" in
+    *'"'*|*'\'*|*$'\n'*|*$'\t'*)
+        exec "$REAL_CODEX" "$@"
+        ;;
+esac
+
+# Respect a user-provided notify override on the command line.
+prev=""
+for arg in "$@"; do
+    case "$arg" in
+        notify=*|notify.*)
+            if [[ "$prev" == "-c" || "$prev" == "--config" ]]; then
+                exec "$REAL_CODEX" "$@"
+            fi
+            ;;
+        -c=notify=*|--config=notify=*)
+            exec "$REAL_CODEX" "$@"
+            ;;
+        --help|-h|--version|-V)
+            exec "$REAL_CODEX" "$@"
+            ;;
+    esac
+    prev="$arg"
+done
+
+# Respect a notify program configured in the user's config.toml (cmux's own
+# codex integration never sets one, so a notify key is always user-chosen).
+CODEX_CONFIG_TOML="${CODEX_HOME:-$HOME/.codex}/config.toml"
+if [[ -f "$CODEX_CONFIG_TOML" ]] &&
+    grep -Eq '^[[:space:]]*notify[[:space:]]*=' "$CODEX_CONFIG_TOML" 2>/dev/null; then
+    exec "$REAL_CODEX" "$@"
+fi
+
+exec "$REAL_CODEX" \
+    -c "notify=[\"$CMUX_AGENT_HOOK_EMIT_BIN\",\"agent-hook-emit\",\"--socket\",\"$CMUX_AGENT_HOOK_SOCKET\",\"--provider\",\"codex\"]" \
+    "$@"

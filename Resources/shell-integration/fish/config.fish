@@ -177,11 +177,16 @@ if test "$_cmux_integration_enabled" != 0
                 function grok --wraps "$wrapper_path" --inherit-variable wrapper_path
                     "$wrapper_path" $argv
                 end
+            case codex
+                function codex --wraps "$wrapper_path" --inherit-variable wrapper_path
+                    "$wrapper_path" $argv
+                end
         end
     end
 
     _cmux_install_cli_wrapper claude cmux-claude-wrapper
     _cmux_install_cli_wrapper grok grok
+    _cmux_install_cli_wrapper codex cmux-codex-wrapper
 
     function _cmux_report_tty_once
         test "$_CMUX_TTY_REPORTED" = 1; and return 0

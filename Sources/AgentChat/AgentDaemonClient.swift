@@ -20,6 +20,7 @@ final class AgentDaemonClient: @unchecked Sendable {
     var onTermination: (@Sendable (Int32) -> Void)?
 
     private let binaryURL: URL
+    private let environment: [String: String]?
     private let process = Process()
     private let stdinPipe = Pipe()
     private let stdoutPipe = Pipe()
@@ -31,8 +32,13 @@ final class AgentDaemonClient: @unchecked Sendable {
     private var started = false
     private var terminated = false
 
-    init(binaryURL: URL) {
+    /// - Parameter environment: The child's environment; `nil` inherits the
+    ///   parent's. The chat surface passes the app environment with
+    ///   `CMUX_AGENT_HOOK_SOCKET` pinned so the daemon's hook ingest listener
+    ///   and the launch-injected hook emitters agree on one socket path.
+    init(binaryURL: URL, environment: [String: String]? = nil) {
         self.binaryURL = binaryURL
+        self.environment = environment
     }
 
     deinit {
@@ -48,6 +54,9 @@ final class AgentDaemonClient: @unchecked Sendable {
 
         process.executableURL = binaryURL
         process.arguments = ["serve", "--stdio"]
+        if let environment {
+            process.environment = environment
+        }
         process.standardInput = stdinPipe
         process.standardOutput = stdoutPipe
         process.standardError = FileHandle.nullDevice

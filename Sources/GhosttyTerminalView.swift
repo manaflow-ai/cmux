@@ -6602,6 +6602,23 @@ final class TerminalSurface: Identifiable, ObservableObject {
         if !AmpIntegrationSettings.hooksEnabled() {
             setManagedEnvironmentValue("CMUX_AMP_HOOKS_DISABLED", "1")
         }
+        // Live hook ingest for the agent chat surface: hand the launch
+        // wrappers the staged cmuxd-remote emit relay and this instance's
+        // ingest socket path. Skipped entirely when no daemon binary is
+        // cached or the cached one predates the agent-hook-emit verb, so
+        // agent launches never depend on the feature
+        // (docs/agent-conversation-protocol.md, "Hook ingest").
+        if let emitBinaryURL = AgentHookLaunchEnvironment.injectableEmitBinaryURL(
+               outcome: AgentDaemonBinaryLocator().locate()
+           ),
+           let agentHookEnvironment = AgentHookLaunchEnvironment.launchEnvironment(
+               emitBinaryURL: emitBinaryURL,
+               socketPath: AgentHookLaunchEnvironment.ingestSocketPath()
+           ) {
+            for (key, value) in agentHookEnvironment {
+                setManagedEnvironmentValue(key, value)
+            }
+        }
 
         if let cliBinPath = Bundle.main.resourceURL?.appendingPathComponent("bin").path {
             let currentPath = env["PATH"]
