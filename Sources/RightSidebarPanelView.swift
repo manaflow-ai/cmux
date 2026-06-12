@@ -323,6 +323,10 @@ struct RightSidebarPanelView: View {
             onOpenAsPane(mode)
         } label: {
             Image(systemName: "rectangle.split.2x1")
+                .cmuxSymbolRasterSize(
+                    RightSidebarChromeMetrics.headerIconSize,
+                    weight: HeaderChromeIconStyle.weight
+                )
         }
         .buttonStyle(RightSidebarHeaderIconButtonStyle(iconGeometryKeyPrefix: "rightSidebarHeaderOpenAsPaneIcon"))
         .frame(
@@ -356,6 +360,10 @@ struct RightSidebarPanelView: View {
         return ZStack {
             Button(action: onClose) {
                 Image(systemName: "xmark")
+                    .cmuxSymbolRasterSize(
+                        RightSidebarChromeMetrics.headerIconSize,
+                        weight: HeaderChromeIconStyle.weight
+                    )
             }
             .buttonStyle(RightSidebarHeaderIconButtonStyle(iconGeometryKeyPrefix: "rightSidebarHeaderCloseIcon"))
             .frame(

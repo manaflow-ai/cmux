@@ -164,7 +164,6 @@ private struct RightSidebarHeaderIconButtonStyleBody: View {
     var body: some View {
         configuration.label
             .symbolRenderingMode(.monochrome)
-            .font(.system(size: RightSidebarChromeMetrics.headerIconSize, weight: HeaderChromeIconStyle.weight))
             .frame(
                 width: RightSidebarChromeMetrics.headerIconFrameSize,
                 height: RightSidebarChromeMetrics.headerIconFrameSize
