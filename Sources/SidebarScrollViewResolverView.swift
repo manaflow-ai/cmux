@@ -50,7 +50,11 @@ final class SidebarScrollViewResolverView: NSView {
     }
 
     func resolveScrollView() {
-        DispatchQueue.main.async { [weak self] in
+        // Deferred one main-actor hop so the view hierarchy settles before
+        // enclosingScrollView is resolved and, on scroller-style changes,
+        // AppKit's own synchronous per-scroll-view reset lands before the
+        // configuration is re-applied.
+        Task { @MainActor [weak self] in
             guard let self else { return }
             onResolve?(self.enclosingScrollView)
         }

@@ -98,7 +98,7 @@ struct SidebarScrollViewConfiguratorTests {
             SidebarScrollViewConfigurator.apply(to: resolved)
         }
         documentView.addSubview(resolver)
-        await drainMainQueue()
+        await yieldUntil { resolveCount > 0 }
         #expect(scrollView.scrollerStyle == .overlay)
         let resolvesBeforeStyleChange = resolveCount
 
@@ -109,7 +109,7 @@ struct SidebarScrollViewConfiguratorTests {
             name: NSScroller.preferredScrollerStyleDidChangeNotification,
             object: nil
         )
-        await drainMainQueue()
+        await yieldUntil { resolveCount > resolvesBeforeStyleChange }
 
         #expect(
             resolveCount > resolvesBeforeStyleChange,
@@ -121,12 +121,15 @@ struct SidebarScrollViewConfiguratorTests {
         )
     }
 
-    /// Round-trips the main queue so `resolveScrollView()`'s async hop (and
-    /// anything it enqueued) has run before the test continues. FIFO order on
-    /// the main queue makes this deterministic — no timed sleeps.
-    private func drainMainQueue() async {
-        await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
-            DispatchQueue.main.async { continuation.resume() }
+    /// Yields the main actor until `condition` holds (bounded, no wall-clock
+    /// sleeps), so the resolver's deferred main-actor hop — enqueued
+    /// synchronously by the lifecycle callback or notification under test —
+    /// has run before the test continues. The bound keeps a regression a
+    /// clean assertion failure instead of a hang.
+    private func yieldUntil(_ condition: () -> Bool) async {
+        for _ in 0..<1000 {
+            if condition() { return }
+            await Task.yield()
         }
     }
 }
