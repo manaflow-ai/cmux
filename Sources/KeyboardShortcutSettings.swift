@@ -1,6 +1,8 @@
 import AppKit
 import Bonsplit
 import Carbon
+import CmuxSettings
+import CmuxSettingsUI
 import SwiftUI
 
 /// Stores customizable keyboard shortcuts (definitions + persistence).
@@ -71,6 +73,7 @@ enum KeyboardShortcutSettings {
         // Titlebar / primary UI
         case toggleSidebar
         case newTab
+        case newBrowserWorkspace
         case openFolder
         case reopenPreviousSession
         case goToWorkspace
@@ -172,6 +175,7 @@ enum KeyboardShortcutSettings {
             case .quit: return String(localized: "menu.quitCmux", defaultValue: "Quit cmux")
             case .toggleSidebar: return String(localized: "shortcut.toggleLeftSidebar.label", defaultValue: "Toggle Left Sidebar")
             case .newTab: return String(localized: "shortcut.newWorkspace.label", defaultValue: "New Workspace")
+            case .newBrowserWorkspace: return String(localized: "shortcut.newBrowserWorkspace.label", defaultValue: "New Browser Workspace")
             case .openFolder: return String(localized: "shortcut.openFolder.label", defaultValue: "Open Folder")
             case .reopenPreviousSession: return String(localized: "shortcut.reopenPreviousSession.label", defaultValue: "Restore Previous App Launch")
             case .goToWorkspace: return String(localized: "menu.file.goToWorkspace", defaultValue: "Go to Workspace…")
@@ -296,6 +300,11 @@ enum KeyboardShortcutSettings {
                 return StoredShortcut(key: "b", command: true, shift: false, option: false, control: false)
             case .newTab:
                 return StoredShortcut(key: "n", command: true, shift: false, option: false, control: false)
+            case .newBrowserWorkspace:
+                // Option+Cmd+N: sits next to New Workspace (Cmd+N) and New Window
+                // (Cmd+Shift+N) without colliding with any cmux default or an
+                // AppKit-reserved keystroke.
+                return StoredShortcut(key: "n", command: true, shift: false, option: true, control: false)
             case .openFolder:
                 return StoredShortcut(key: "o", command: true, shift: false, option: false, control: false)
             case .reopenPreviousSession:
@@ -541,7 +550,20 @@ enum KeyboardShortcutSettings {
             proposedAction: Action,
             configuredShortcut: StoredShortcut
         ) -> Bool {
-            guard shortcutContext.overlaps(proposedAction.shortcutContext) else {
+            // Two bindings on the same keystroke only collide when some focus
+            // state activates both AND router priority cannot decide the overlap.
+            // A `shortcuts.when` override (or the built-in context default) can
+            // make them non-overlapping — e.g. ⌃1 selecting a workspace only when
+            // the sidebar is NOT focused coexists with the sidebar's ⌃1 (issue
+            // #5189) — and a pre-routed action (sidebar modes) wins its context
+            // outright, so the factory Select Surface ⌃1…9 coexists with the
+            // sidebar's ⌃1…5 by priority.
+            guard ShortcutWhenClause.bindingsCollide(
+                KeyboardShortcutSettings.effectiveWhenClause(for: self),
+                lhsHasPriority: hasPriorityShortcutRouting,
+                KeyboardShortcutSettings.effectiveWhenClause(for: proposedAction),
+                rhsHasPriority: proposedAction.hasPriorityShortcutRouting
+            ) else {
                 return false
             }
             return KeyboardShortcutSettings.shortcutsConflict(
@@ -1100,6 +1122,7 @@ final class SystemWideHotkeyController {
     private var defaultsObserver: NSObjectProtocol?
     private var shortcutObserver: NSObjectProtocol?
     private var recorderObserver: NSObjectProtocol?
+    private var packageRecorderObserver: NSObjectProtocol?
     private var inputSourceObserver: NSObjectProtocol?
     private var appHideObserver: NSObjectProtocol?
     private var registeredShortcuts: [KeyboardShortcutSettings.Action: StoredShortcut] = [:]
@@ -1133,6 +1156,19 @@ final class SystemWideHotkeyController {
         ) { [weak self] _ in
             self?.refreshRegistration()
         }
+        // The live Settings UI uses the CmuxSettingsUI package recorder, which
+        // signals arm/disarm through its own notification (it cannot post the
+        // app-target `KeyboardShortcutRecorderActivity` one). Without this,
+        // recording a system-wide hotkey in Settings would not unregister the
+        // existing Carbon hotkey, so the keystroke would fire the global action
+        // instead of being captured (issue #5189).
+        packageRecorderObserver = NotificationCenter.default.addObserver(
+            forName: RecorderHostButton.activeRecordingDidChangeNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            self?.refreshRegistration()
+        }
         inputSourceObserver = DistributedNotificationCenter.default().addObserver(
             forName: Notification.Name(rawValue: kTISNotifySelectedKeyboardInputSourceChanged as String),
             object: nil,
@@ -1154,7 +1190,11 @@ final class SystemWideHotkeyController {
     }
 
     private func refreshRegistration() {
+        // Stand down while either recorder is armed (legacy app-target recorder
+        // or the CmuxSettingsUI package recorder) so a system-wide hotkey being
+        // rebound in Settings is captured rather than fired.
         let isShortcutRecordingActive = KeyboardShortcutRecorderActivity.isAnyRecorderActive
+            || RecorderHostButton.isActivelyRecording
 
         guard !isShortcutRecordingActive else {
             unregisterHotKeys()
@@ -1391,47 +1431,26 @@ struct ShortcutStroke: Equatable, Hashable {
     }
 
     var displayString: String {
-        modifierDisplayString + keyDisplayString
+        ShortcutDisplayFormatter().strokeDisplayString(
+            key: key,
+            command: command,
+            shift: shift,
+            option: option,
+            control: control
+        )
     }
 
     var modifierDisplayString: String {
-        var parts: [String] = []
-        if control { parts.append("⌃") }
-        if option { parts.append("⌥") }
-        if shift { parts.append("⇧") }
-        if command { parts.append("⌘") }
-        return parts.joined()
+        ShortcutDisplayFormatter().modifierDisplayString(
+            command: command,
+            shift: shift,
+            option: option,
+            control: control
+        )
     }
 
     var keyDisplayString: String {
-        switch key {
-        case "\t":
-            return String(localized: "shortcut.key.tab", defaultValue: "Tab")
-        case "space": return String(localized: "shortcut.key.space", defaultValue: "Space")
-        case "\r":
-            return "↩"
-        case "media.brightnessDown":
-            return String(localized: "shortcut.key.mediaBrightnessDown", defaultValue: "Brightness Down")
-        case "media.brightnessUp":
-            return String(localized: "shortcut.key.mediaBrightnessUp", defaultValue: "Brightness Up")
-        case "media.mute":
-            return String(localized: "shortcut.key.mediaMute", defaultValue: "Mute")
-        case "media.next":
-            return String(localized: "shortcut.key.mediaNext", defaultValue: "Next Track")
-        case "media.playPause":
-            return String(localized: "shortcut.key.mediaPlayPause", defaultValue: "Play/Pause")
-        case "media.previous":
-            return String(localized: "shortcut.key.mediaPrevious", defaultValue: "Previous Track")
-        case "media.volumeDown":
-            return String(localized: "shortcut.key.mediaVolumeDown", defaultValue: "Volume Down")
-        case "media.volumeUp":
-            return String(localized: "shortcut.key.mediaVolumeUp", defaultValue: "Volume Up")
-        default:
-            if let functionKeyDisplayString = Self.functionKeyDisplayString(for: key) {
-                return functionKeyDisplayString
-            }
-            return key.uppercased()
-        }
+        ShortcutDisplayFormatter().keyDisplayString(key)
     }
 
     var modifierFlags: NSEvent.ModifierFlags {
@@ -2187,10 +2206,16 @@ struct StoredShortcut: Codable, Equatable, Hashable {
         if isUnbound {
             return displayString
         }
-        if hasChord {
-            return numberedDigitHintPrefix + "1…9"
+        if let secondStroke {
+            if ShortcutDisplayFormatter().isNumberedDigitKey(secondStroke.key) {
+                return numberedDigitHintPrefix + ShortcutDisplayFormatter().numberedDigitRangeHint
+            }
+            return displayString
         }
-        return firstStroke.modifierDisplayString + "1…9"
+        if ShortcutDisplayFormatter().isNumberedDigitKey(firstStroke.key) {
+            return firstStroke.modifierDisplayString + ShortcutDisplayFormatter().numberedDigitRangeHint
+        }
+        return displayString
     }
 
     var numberedDigitHintPrefix: String {

@@ -100,6 +100,7 @@ private final class BrowserHiddenWebViewDiscardTestDelegate: BrowserHiddenWebVie
 @MainActor
 private func makeHiddenWebViewDiscardBlockerSnapshot(
     hasActiveMainFrameProvisionalNavigation: Bool = false,
+    isVisualAutomationCaptureActive: Bool = false,
     isCapturingMedia: Bool = false,
     isPlayingMedia: Bool = false
 ) -> BrowserHiddenWebViewDiscardManager.BlockerSnapshot {
@@ -118,6 +119,7 @@ private func makeHiddenWebViewDiscardBlockerSnapshot(
         isDeveloperToolsVisible: false,
         isElementFullscreenActive: false,
         isReactGrabActive: false,
+        isVisualAutomationCaptureActive: isVisualAutomationCaptureActive,
         hasPopups: false,
         isCapturingMedia: isCapturingMedia,
         isPlayingMedia: isPlayingMedia
@@ -218,6 +220,21 @@ final class BrowserHiddenWebViewDiscardManagerTests: XCTestCase {
         XCTAssertEqual(delegate.discardRequestCount, 0)
     }
 
+    func testVisualAutomationCaptureBlocksHiddenWebViewDiscardScheduling() {
+        let snapshot = makeHiddenWebViewDiscardBlockerSnapshot(isVisualAutomationCaptureActive: true)
+
+        let manager = BrowserHiddenWebViewDiscardManager()
+        let delegate = BrowserHiddenWebViewDiscardTestDelegate(snapshot: snapshot, hiddenAt: Date())
+        manager.delegate = delegate
+
+        XCTAssertEqual(manager.blockers(for: snapshot), ["visual_automation"])
+
+        manager.scheduleIfNeeded(reason: "test.visualAutomation")
+
+        XCTAssertFalse(manager.hasScheduledDiscard)
+        XCTAssertEqual(delegate.discardRequestCount, 0)
+    }
+
     // Regression coverage for https://github.com/manaflow-ai/cmux/issues/5261:
     // a main-frame provisional navigation (e.g. a cross-origin process swap in
     // flight) must block a hidden-webview discard from replacing the WKWebView.
@@ -281,6 +298,43 @@ final class BrowserHiddenWebViewDiscardManagerTests: XCTestCase {
         XCTAssertTrue(manager.hasScheduledDiscard)
         XCTAssertEqual(manager.blockers(for: snapshot), [])
         XCTAssertEqual(delegate.discardRequestCount, 0)
+    }
+}
+
+@MainActor
+final class BrowserPanelVisualAutomationRestoreHostTests: XCTestCase {
+    func testRestoredDiscardedHiddenWebViewGetsRestoreHostBeforeOffscreenCapture() {
+        let discardedAt = Date(timeIntervalSince1970: 400)
+        let panel = BrowserPanel(
+            workspaceId: UUID(),
+            initialURL: URL(string: "about:blank")!,
+            isRemoteWorkspace: false
+        )
+        defer { panel.close() }
+
+        let deadline = Date().addingTimeInterval(1.0)
+        while panel.webView.isLoading,
+              RunLoop.main.run(mode: .default, before: deadline),
+              Date() < deadline {}
+        XCTAssertFalse(panel.webView.isLoading, "Timed out waiting for about:blank to finish loading")
+
+        panel.noteWebViewVisibility(false, reason: "test.hidden", now: discardedAt)
+        let originalWebView = panel.webView
+
+        XCTAssertTrue(panel.discardHiddenWebViewForMemory(reason: "test.discard", now: discardedAt))
+        XCTAssertFalse(panel.webView === originalWebView)
+        XCTAssertNil(panel.webView.superview)
+        XCTAssertFalse(panel.hasBackgroundPreloadHost)
+
+        XCTAssertTrue(panel.restoreDiscardedWebViewIfNeeded(reason: "test.restore"))
+        XCTAssertEqual(panel.webViewLifecycleState, .liveHidden)
+        XCTAssertNil(panel.webView.superview)
+
+        XCTAssertTrue(panel.ensureVisualAutomationRestoreHostIfNeeded(reason: "test.visualAutomation"))
+        XCTAssertTrue(panel.hasBackgroundPreloadHost)
+        XCTAssertNotNil(panel.webView.superview)
+        XCTAssertNotNil(panel.webView.window)
+        XCTAssertFalse(panel.ensureVisualAutomationRestoreHostIfNeeded(reason: "test.visualAutomation.alreadyAttached"))
     }
 }
 
@@ -2933,6 +2987,169 @@ final class BrowserWindowPortalLifecycleTests: XCTestCase {
         )
     }
 
+    private func makeBrowserSearchOverlayConfiguration(panelId: UUID) -> BrowserPortalSearchOverlayConfiguration {
+        BrowserPortalSearchOverlayConfiguration(
+            panelId: panelId,
+            searchState: BrowserSearchState(),
+            focusRequestGeneration: 0,
+            canApplyFocusRequest: { _ in false },
+            onNext: {},
+            onPrevious: {},
+            onClose: {},
+            onFieldDidFocus: {}
+        )
+    }
+
+    // Regression guard for https://github.com/manaflow-ai/cmux/issues/5733.
+    // The per-keystroke find-overlay lookup (`searchOverlayPanelId`) used to scan
+    // `entriesByWebViewId.values`, copying each `Entry` struct. Every copy
+    // performs 3 `objc_copyWeak` ops (weak webView/containerView/anchorView)
+    // under the global Obj-C weak-table lock, so the lookup did O(panes)
+    // weak-table churn on every key event — the stack-exhaustion fault site in
+    // #5733 and a typing-latency contributor (#4405).
+    //
+    // The fix drives the lookup off the live slot view hierarchy instead. This
+    // test pins that structural property: a slot that is present in the portal
+    // host's view hierarchy but absent from `entriesByWebViewId` must still be
+    // found. The old dictionary scan never visited such a slot (returned nil);
+    // the hierarchy scan finds it. Reintroducing the `entriesByWebViewId.values`
+    // scan — the weak-copy bug class — would fail this test.
+    func testSearchOverlayLookupResolvesOffSlotHierarchyNotEntriesDictionary() {
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 600, height: 400),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        defer { window.orderOut(nil) }
+        realizeWindowLayout(window)
+        let portal = WindowBrowserPortal(window: window)
+
+        let slot = WindowBrowserSlotView(frame: NSRect(x: 0, y: 0, width: 200, height: 120))
+        let panelId = UUID()
+        slot.setSearchOverlay(makeBrowserSearchOverlayConfiguration(panelId: panelId))
+        // Install the slot into the live host hierarchy WITHOUT registering an Entry.
+        portal.browserPortalTestInstallSlotWithoutEntry(slot)
+
+        guard let overlayResponder = slot.browserPortalTestSearchOverlayView else {
+            XCTFail("Expected the slot to host a search overlay view")
+            return
+        }
+
+        XCTAssertEqual(
+            portal.searchOverlayPanelId(for: overlayResponder),
+            panelId,
+            "Find-overlay lookup must resolve off the live slot view hierarchy, not the "
+                + "entries dictionary, so it materializes zero Entry weak-copies per keystroke (#5733)"
+        )
+    }
+
+    // Companion to the regression guard above: the normal path where the slot is
+    // registered via `bind` must keep resolving its own search overlay after the
+    // hierarchy-scan rewrite (#5733).
+    func testSearchOverlayLookupResolvesBoundSlotOverlay() {
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 600, height: 400),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        defer { window.orderOut(nil) }
+        realizeWindowLayout(window)
+        let portal = WindowBrowserPortal(window: window)
+        guard let contentView = window.contentView else {
+            XCTFail("Expected content view")
+            return
+        }
+
+        let anchor = NSView(frame: NSRect(x: 20, y: 20, width: 160, height: 120))
+        contentView.addSubview(anchor)
+        let webView = CmuxWebView(frame: .zero, configuration: WKWebViewConfiguration())
+        portal.bind(webView: webView, to: anchor, visibleInUI: true)
+        portal.synchronizeWebViewForAnchor(anchor)
+
+        guard let slot = webView.superview as? WindowBrowserSlotView else {
+            XCTFail("Expected browser slot")
+            return
+        }
+
+        let panelId = UUID()
+        slot.setSearchOverlay(makeBrowserSearchOverlayConfiguration(panelId: panelId))
+        guard let overlayResponder = slot.browserPortalTestSearchOverlayView else {
+            XCTFail("Expected the slot to host a search overlay view")
+            return
+        }
+
+        XCTAssertEqual(portal.searchOverlayPanelId(for: overlayResponder), panelId)
+        // A responder no slot owns must not match.
+        XCTAssertNil(portal.searchOverlayPanelId(for: window))
+    }
+
+    // Crash regression for https://github.com/manaflow-ai/cmux/issues/5733.
+    //
+    // The production crash was a main-thread stack-exhaustion SIGSEGV
+    // (KERN_PROTECTION_FAILURE, "Could not determine thread index for stack guard
+    // region") whose fault site was the find-overlay lookup copying `Entry`
+    // structs out of `entriesByWebViewId.values`. Each Entry copy performs 3
+    // `objc_copyWeak` ops, so at the crash-time load of 166 browser panes the
+    // lookup did ~498 weak-table-locked operations on EVERY key event and EVERY
+    // first-responder change (the reproduced stack showed the scan reached from
+    // both `cmux_performKeyEquivalent` and `cmux_makeFirstResponder` ->
+    // `BrowserPanel.ownedFocusIntent`). That per-call O(panes) weak-copy churn,
+    // stacked on top of the WebKit `doneWithKeyEvent` re-dispatch nesting, is the
+    // bug class that exhausted the 8 MB main-thread stack.
+    //
+    // True 8 MB exhaustion is not cleanly unit-testable (it needs the WebKit IPC
+    // re-dispatch chain under load), so this pins the underlying invariant at the
+    // crash-time pane count: the lookup must resolve off the live slot view
+    // hierarchy, never by enumerating/copying the entries dictionary. The find
+    // overlay is opened on the LAST of 166 host slots (worst case for any scan),
+    // none of which are registered in `entriesByWebViewId`. The fixed
+    // hierarchy-scan finds it (0 Entry copies); the old `entriesByWebViewId.values`
+    // scan would enumerate an empty dictionary and return nil.
+    func testSearchOverlayLookupRemainsHierarchyDrivenAtCrashPaneCount() {
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 800, height: 600),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        defer { window.orderOut(nil) }
+        realizeWindowLayout(window)
+        let portal = WindowBrowserPortal(window: window)
+
+        // 166 = the browser-pane count at the time of the production crash (#5731).
+        let paneCount = 166
+        var slots: [WindowBrowserSlotView] = []
+        for index in 0..<paneCount {
+            let slot = WindowBrowserSlotView(
+                frame: NSRect(x: 0, y: CGFloat(index), width: 120, height: 1)
+            )
+            portal.browserPortalTestInstallSlotWithoutEntry(slot)
+            slots.append(slot)
+        }
+
+        let panelId = UUID()
+        guard let targetSlot = slots.last else {
+            XCTFail("Expected slots")
+            return
+        }
+        targetSlot.setSearchOverlay(makeBrowserSearchOverlayConfiguration(panelId: panelId))
+        guard let overlayResponder = targetSlot.browserPortalTestSearchOverlayView else {
+            XCTFail("Expected the slot to host a search overlay view")
+            return
+        }
+
+        XCTAssertEqual(
+            portal.searchOverlayPanelId(for: overlayResponder),
+            panelId,
+            "At the 166-pane crash profile the find-overlay lookup must resolve off the "
+                + "live slot hierarchy with zero Entry weak-copies (#5733)"
+        )
+        // A responder no slot owns must still return nil after scanning all 166 slots.
+        XCTAssertNil(portal.searchOverlayPanelId(for: window))
+    }
+
     func testBrowserPortalHostStaysAboveTerminalPortalHostDuringPortalChurn() {
         let window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 500, height: 320),
@@ -3977,6 +4194,7 @@ final class OmnibarNativeTextFieldCaretTests: XCTestCase {
         return OmnibarTextFieldRepresentable.Coordinator(
             parent: OmnibarTextFieldRepresentable(
                 panelId: panelId,
+                fontSize: 12,
                 text: Binding(
                     get: { text },
                     set: { text = $0 }

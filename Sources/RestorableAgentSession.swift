@@ -369,7 +369,19 @@ enum AgentResumeCommandBuilder {
                 workingDirectory: cwd
             )
             : commandParts
-        let shellCommand = sanitizedCommandParts.map(shellSingleQuoted).joined(separator: " ")
+        // Render the claude executable as the wrapper shim token so the executed
+        // command routes through cmux's `claude` wrapper (re-injecting the hook
+        // --settings) even inside the `$SHELL -lic` restore launcher, where the
+        // shell integration's PATH shim / `claude()` function are not active and an
+        // `env`-prefixed invocation would otherwise hit the user's real binary.
+        // The token is POSIX-only, and the launcher dispatches through the user's
+        // shell (fish/csh/tcsh included), so token-bearing commands are wrapped in
+        // `/bin/sh -c '…'` to parse everywhere; the cwd guard stays outside so
+        // cd-prefix rewriting keeps composing.
+        // https://github.com/manaflow-ai/cmux/issues/5639
+        let shellCommand = kind == .claude
+            ? AgentResumeArgv.renderedPortableClaudeResumeShellCommand(parts: sanitizedCommandParts, quote: shellSingleQuoted)
+            : sanitizedCommandParts.map(shellSingleQuoted).joined(separator: " ")
         return TerminalStartupWorkingDirectoryPrefix.prefix(shellCommand, workingDirectory: cwd)
     }
 
@@ -947,6 +959,13 @@ struct RestorableAgentSessionIndex: Sendable {
         !processIDs(workspaceId: workspaceId, panelId: panelId).isEmpty
     }
 
+    // WARNING: Expensive. This reads every agent kind's hook-store file from disk,
+    // resolves transcripts, and runs sysctl(KERN_PROCARGS2) per recorded session for
+    // live-PID filtering (measured 350ms-1.8s on machines with large agent history).
+    // NEVER call it synchronously on the main actor or in interactive paths (workspace/
+    // panel/window close, SwiftUI body, didSet, menu evaluation, socket handlers). Read
+    // the off-main, cached `SharedLiveAgentIndex.shared` instead. The only sanctioned
+    // synchronous callers are cold-cache fallbacks guarded by a nil cache check.
     static func load(
         homeDirectory: String = NSHomeDirectory(),
         fileManager: FileManager = .default
@@ -1024,13 +1043,20 @@ struct RestorableAgentSessionIndex: Sendable {
             }
 
             for record in state.sessions.values {
-                let effectiveRecord = kind == .claude
+                var effectiveRecord = kind == .claude
                     ? resolvedClaudeWorkflowRecord(
                         record,
                         fileManager: fileManager,
                         lookup: claudeTranscriptLookup
                     )
                     : record
+                // Drop untrusted launch captures before ANY derivation: the
+                // working directory below would otherwise inherit the foreign
+                // agent's launch cwd even though the launch command is stripped.
+                effectiveRecord.launchCommand = trustedLaunchCommand(
+                    effectiveRecord.launchCommand,
+                    kind: kind
+                )
                 let normalizedSessionId = effectiveRecord.sessionId.trimmingCharacters(in: .whitespacesAndNewlines)
                 guard !normalizedSessionId.isEmpty,
                       let workspaceId = UUID(uuidString: effectiveRecord.workspaceId),
@@ -1135,6 +1161,23 @@ struct RestorableAgentSessionIndex: Sendable {
 
     private static func normalizedWorkingDirectory(_ rawValue: String?) -> String? {
         normalizedNonEmptyValue(rawValue)
+    }
+
+    /// Drops launch captures that cannot describe this agent kind: a capture
+    /// inherited from a different agent's session (codex started under claude
+    /// carries claude's `CMUX_AGENT_LAUNCH_*`) or the hook dispatch shell's own
+    /// argv. Resume/fork then fall back to the kind's bare verbs instead of
+    /// rendering the foreign binary. Existing poisoned records heal on load.
+    private static func trustedLaunchCommand(
+        _ launchCommand: AgentLaunchCommandSnapshot?,
+        kind: RestorableAgentKind
+    ) -> AgentLaunchCommandSnapshot? {
+        guard let launchCommand else { return nil }
+        guard AgentLaunchCaptureTrust.launcherDescribesKind(launchCommand.launcher, kind: kind.rawValue),
+              !AgentLaunchCaptureTrust.argvLooksLikeShellWrapper(launchCommand.arguments) else {
+            return nil
+        }
+        return launchCommand
     }
 
     private static func hookRecordIsRestorable(

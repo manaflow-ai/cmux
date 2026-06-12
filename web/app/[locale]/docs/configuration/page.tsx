@@ -460,6 +460,39 @@ working-directory = ~/code`}</CodeBlock>
           </div>
         </section>
       ))}
+
+      <DocsHeading level={3} id="shortcuts-when">
+        <code>shortcuts.when</code>
+      </DocsHeading>
+      <p>{t("shortcutsWhenIntro")}</p>
+      <ul>
+        <li>
+          <code>sidebarFocus</code>, <code>browserFocus</code>, <code>markdownFocus</code>,{" "}
+          <code>terminalFocus</code>, <code>commandPaletteVisible</code>,{" "}
+          <code>terminalFindVisible</code> &mdash; {t("shortcutsWhenBooleanKeys")}
+        </li>
+        <li>
+          <code>sidebarMode</code> (<code>files</code>, <code>find</code>, <code>sessions</code>,{" "}
+          <code>feed</code>, <code>dock</code>), <code>paneCount</code>,{" "}
+          <code>workspaceCount</code> &mdash; {t("shortcutsWhenTypedKeys")}
+        </li>
+        <li>
+          <code>!</code>, <code>&amp;&amp;</code>, <code>||</code>, <code>(&hellip;)</code>,{" "}
+          <code>==</code>, <code>!=</code>, <code>=~</code>, <code>&lt;</code>, <code>&lt;=</code>,{" "}
+          <code>&gt;</code>, <code>&gt;=</code>, <code>in [a, b]</code> &mdash;{" "}
+          {t("shortcutsWhenOperators")}
+        </li>
+      </ul>
+      <p>{t("shortcutsWhenExample")}</p>
+      <pre className="not-prose overflow-x-auto rounded-xl border border-border/70 bg-background/40 p-4 text-sm">
+        <code>{`"shortcuts": {
+  "bindings": { "selectWorkspaceByNumber": "ctrl+1" },
+  "when": {
+    "selectWorkspaceByNumber": "!sidebarFocus",
+    "selectSurfaceByNumber": "sidebarMode == 'find' && paneCount > 1"
+  }
+}`}</code>
+      </pre>
     </>
   );
 }

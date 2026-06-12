@@ -915,6 +915,153 @@ final class RestorableAgentSessionIndexTests: XCTestCase {
         try writeHookStore(root: root, storeFilename: "claude-hook-sessions.json", sessions: sessions)
     }
 
+    // A codex launched from inside a claude session inherits claude's CMUX_AGENT_LAUNCH_*
+    // environment (every child of a claude process carries it), so the codex hook record can
+    // capture a claude launch command: launcher "claude" with the claude binary and
+    // claude-only flags. Resume/fork must never run the foreign binary; the cross-agent
+    // capture is discarded and the agent's bare verbs are used instead. This is the root
+    // cause of "Fork Conversation" breaking for codex sessions started under a claude session.
+    func testCrossAgentLaunchCaptureIsDiscardedForResumeAndFork() throws {
+        let fm = FileManager.default
+        let root = fm.temporaryDirectory
+            .appendingPathComponent("cmux-cross-agent-capture-\(UUID().uuidString)", isDirectory: true)
+        defer { try? fm.removeItem(at: root) }
+        let dir = root.appendingPathComponent("repo", isDirectory: true)
+        try fm.createDirectory(at: dir, withIntermediateDirectories: true)
+
+        let foreignDir = root.appendingPathComponent("claude-launch-dir", isDirectory: true)
+        try fm.createDirectory(at: foreignDir, withIntermediateDirectories: true)
+
+        let ws = UUID()
+        let panel = UUID()
+        let sid = "66666666-6666-6666-6666-666666666666"
+        var record = driftedAgentHookRecord(
+            launcher: "codex", sessionId: sid, workspaceId: ws, panelId: panel,
+            recordedCwd: dir.path, launchCwd: dir.path, updatedAt: 10
+        )
+        record["launchCommand"] = [
+            "launcher": "claude",
+            "executablePath": "/Users/someone/.local/bin/claude",
+            "arguments": [
+                "/Users/someone/.local/bin/claude",
+                "--dangerously-skip-permissions",
+                "--chrome",
+            ],
+            "workingDirectory": foreignDir.path,
+            "environment": ["CLAUDE_CONFIG_DIR": "/Users/someone/.claude"],
+            "capturedAt": 10,
+            "source": "environment",
+        ]
+        try writeHookStore(
+            root: root,
+            storeFilename: "codex-hook-sessions.json",
+            sessions: [sid: record]
+        )
+
+        let snapshot = try XCTUnwrap(
+            RestorableAgentSessionIndex.load(homeDirectory: root.path, fileManager: fm)
+                .snapshot(workspaceId: ws, panelId: panel)
+        )
+        XCTAssertEqual(
+            snapshot.workingDirectory,
+            dir.path,
+            "the foreign capture's launch cwd must not leak into the snapshot"
+        )
+        let resume = try XCTUnwrap(snapshot.resumeCommand)
+        XCTAssertFalse(resume.contains("claude"), "codex resume must not run the claude binary; got: \(resume)")
+        XCTAssertTrue(resume.contains("'codex' 'resume' '\(sid)'"), "codex resume must use the bare codex verb; got: \(resume)")
+        XCTAssertFalse(resume.contains(foreignDir.path), "codex resume must not cd into the foreign launch dir; got: \(resume)")
+        let fork = try XCTUnwrap(snapshot.forkCommand)
+        XCTAssertFalse(fork.contains("claude"), "codex fork must not run the claude binary; got: \(fork)")
+        XCTAssertTrue(fork.contains("'codex' 'fork' '\(sid)'"), "codex fork must use the bare codex verb; got: \(fork)")
+        XCTAssertFalse(fork.contains(foreignDir.path), "codex fork must not cd into the foreign launch dir; got: \(fork)")
+    }
+
+    // When the launch argv falls back to a PID that points at the hook dispatch shell instead of
+    // the agent (`sh -c 'payload=...'`), the captured argv describes the hook wrapper, not a
+    // launch. Resume/fork must discard it and use the agent's bare verbs.
+    func testShellWrapperArgvCaptureIsDiscardedForResumeAndFork() throws {
+        let fm = FileManager.default
+        let root = fm.temporaryDirectory
+            .appendingPathComponent("cmux-shell-argv-capture-\(UUID().uuidString)", isDirectory: true)
+        defer { try? fm.removeItem(at: root) }
+        let dir = root.appendingPathComponent("repo", isDirectory: true)
+        try fm.createDirectory(at: dir, withIntermediateDirectories: true)
+
+        let ws = UUID()
+        let panel = UUID()
+        let sid = "77777777-7777-7777-7777-777777777777"
+        var record = driftedAgentHookRecord(
+            launcher: "codex", sessionId: sid, workspaceId: ws, panelId: panel,
+            recordedCwd: dir.path, launchCwd: dir.path, updatedAt: 10
+        )
+        record["launchCommand"] = [
+            "launcher": "codex",
+            "executablePath": "sh",
+            "arguments": ["sh", "-c", "payload=\"${CMUX_HOOK_PAYLOAD:-}\"; eval \"$command\""],
+            "workingDirectory": dir.path,
+            "capturedAt": 10,
+            "source": "process",
+        ]
+        try writeHookStore(
+            root: root,
+            storeFilename: "codex-hook-sessions.json",
+            sessions: [sid: record]
+        )
+
+        let snapshot = try XCTUnwrap(
+            RestorableAgentSessionIndex.load(homeDirectory: root.path, fileManager: fm)
+                .snapshot(workspaceId: ws, panelId: panel)
+        )
+        let resume = try XCTUnwrap(snapshot.resumeCommand)
+        XCTAssertFalse(resume.contains("'sh'"), "codex resume must not run the hook shell wrapper; got: \(resume)")
+        XCTAssertTrue(resume.contains("'codex' 'resume' '\(sid)'"), "codex resume must use the bare codex verb; got: \(resume)")
+        let fork = try XCTUnwrap(snapshot.forkCommand)
+        XCTAssertFalse(fork.contains("'sh'"), "codex fork must not run the hook shell wrapper; got: \(fork)")
+        XCTAssertTrue(fork.contains("'codex' 'fork' '\(sid)'"), "codex fork must use the bare codex verb; got: \(fork)")
+    }
+
+    // Wrapper launchers legitimately differ from the hook kind; their captures must stay trusted.
+    func testWrapperLauncherCaptureStaysTrusted() throws {
+        let fm = FileManager.default
+        let root = fm.temporaryDirectory
+            .appendingPathComponent("cmux-wrapper-launcher-\(UUID().uuidString)", isDirectory: true)
+        defer { try? fm.removeItem(at: root) }
+        let dir = root.appendingPathComponent("repo", isDirectory: true)
+        try fm.createDirectory(at: dir, withIntermediateDirectories: true)
+
+        let ws = UUID()
+        let panel = UUID()
+        let sid = "88888888-8888-8888-8888-888888888888"
+        var record = driftedAgentHookRecord(
+            launcher: "codex", sessionId: sid, workspaceId: ws, panelId: panel,
+            recordedCwd: dir.path, launchCwd: dir.path, updatedAt: 10
+        )
+        record["launchCommand"] = [
+            "launcher": "codexTeams",
+            "executablePath": "/usr/local/bin/cmux",
+            "arguments": ["/usr/local/bin/cmux", "codex-teams"],
+            "workingDirectory": dir.path,
+            "capturedAt": 10,
+            "source": "environment",
+        ]
+        try writeHookStore(
+            root: root,
+            storeFilename: "codex-hook-sessions.json",
+            sessions: [sid: record]
+        )
+
+        let snapshot = try XCTUnwrap(
+            RestorableAgentSessionIndex.load(homeDirectory: root.path, fileManager: fm)
+                .snapshot(workspaceId: ws, panelId: panel)
+        )
+        let fork = try XCTUnwrap(snapshot.forkCommand)
+        XCTAssertTrue(
+            fork.contains("'codex-teams' 'fork' '\(sid)'"),
+            "codexTeams capture must keep routing fork through the cmux wrapper; got: \(fork)"
+        )
+    }
+
     private func writeHookStore(
         root: URL,
         storeFilename: String,

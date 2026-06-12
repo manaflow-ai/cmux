@@ -1,6 +1,7 @@
 import Foundation
 import CmuxAuthRuntime
 import CmuxMobileShell
+import CmuxMobileShellModel
 import CmuxMobileSupport
 import CmuxMobileWorkspace
 import SwiftUI
@@ -16,6 +17,15 @@ struct CMUXMobileRootView: View {
     @Environment(AuthCoordinator.self) private var authManager
     #if os(iOS)
     @Environment(MobilePushCoordinator.self) private var pushCoordinator
+    /// The persisted first-run onboarding "seen" flag store. The one-time
+    /// onboarding screen gates ahead of the never-paired add-device state.
+    private let onboardingStore: MobileOnboardingStore
+    /// Mirrors ``MobileOnboardingStore/hasSeenOnboarding`` so completing
+    /// onboarding (which calls `markSeen()` in the button action) re-renders the
+    /// root and falls through to the pairing flow. Seeded synchronously from the
+    /// store so the very first frame already reflects a prior install's state and
+    /// never flashes onboarding for a returning user.
+    @State private var hasSeenOnboarding: Bool
     #endif
     @State private var pendingAttachURL: String?
     @State private var didConsumeUITestAttachURL = false
@@ -23,6 +33,25 @@ struct CMUXMobileRootView: View {
     @State private var isShowingAddDeviceSheet = true
     #if os(iOS)
     @State private var addDeviceSheetDetent: PresentationDetent = .large
+    #endif
+    /// The app's one tailnet detector, built at the composition root and
+    /// injected through the environment so pairing, the disconnected shell,
+    /// and future setup-help surfaces share the same signal. Re-evaluates on
+    /// connectivity changes by itself; the scene-phase handler below covers
+    /// foreground returns. `nil` when unwired (previews), which shows no
+    /// Tailscale guidance.
+    @Environment(\.tailscaleStatusMonitor) private var tailscaleStatusMonitor
+
+    #if os(iOS)
+    init(store: CMUXMobileShellStore, onboardingStore: MobileOnboardingStore) {
+        self.store = store
+        self.onboardingStore = onboardingStore
+        _hasSeenOnboarding = State(initialValue: onboardingStore.hasSeenOnboarding)
+    }
+    #else
+    init(store: CMUXMobileShellStore) {
+        self.store = store
+    }
     #endif
 
     private var shouldShowTerminalLayoutPreview: Bool {
@@ -48,14 +77,31 @@ struct CMUXMobileRootView: View {
         .onAppear {
             syncShellAuthentication(isAuthenticated)
             store.resumeForegroundRefresh()
-            connectUITestAttachURLIfNeeded()
             #if os(iOS)
             pushCoordinator.bind(store: store)
             #endif
+            // If the view mounts already authenticated (cached session, or a
+            // mock/fixture launch), `onChange(of: isAuthenticated)` never fires,
+            // so kick off the stored-Mac reconnect here too. Without this the
+            // restoring gate could stay on RestoringSessionView forever because
+            // nothing ever resolves `didFinishStoredMacReconnectAttempt`.
+            reconnectStoredMacIfNeeded()
         }
+        #if os(iOS)
+        // A notification tap can arrive before the workspace (or terminal) it
+        // targets is loaded (cold launch, or attach still in flight); re-apply
+        // the parked deep link as the lists fill in. The version counter is a
+        // cheap change signal: it bumps on any workspace or terminal list
+        // mutation without allocating ID arrays on every body evaluation.
+        .onChange(of: store.workspaceTopologyVersion) { _, _ in
+            pushCoordinator.workspacesDidChange()
+        }
+        #endif
         .onChange(of: scenePhase) { _, phase in
             guard phase == .active else { return }
             store.resumeForegroundRefresh()
+            // The user may have toggled Tailscale while we were backgrounded.
+            tailscaleStatusMonitor?.refresh()
             // Re-check the Stack session on resume so one that died while
             // backgrounded routes to the sign-in page instead of waiting for a
             // failed connect to surface a confusing host-side message.
@@ -88,18 +134,7 @@ struct CMUXMobileRootView: View {
                 }
                 return
             }
-            let startedUITestAttachURL = connectUITestAttachURLIfNeeded()
-            if !startedUITestAttachURL,
-               MobileRootAuthGate.shouldReconnectStoredMac(
-                stackAuthenticated: authManager.isAuthenticated,
-                attachTicketAuthenticated: hasActiveAttachTicketAuthentication,
-                connectionState: store.connectionState
-            ) {
-                let stackUserID = authManager.currentUser?.id
-                Task {
-                    await store.reconnectActiveMacIfAvailable(stackUserID: stackUserID)
-                }
-            }
+            reconnectStoredMacIfNeeded()
         }
         .onChange(of: authManager.isRestoringSession) { _, isRestoringSession in
             syncShellAuthentication(isAuthenticated, isRestoringSession: isRestoringSession)
@@ -126,15 +161,36 @@ struct CMUXMobileRootView: View {
             RestoringSessionView()
         } else if !isAuthenticated {
             SignInView()
+        } else if store.connectionState != .connected && shouldShowRestoringStoredMac {
+            if store.hasKnownPairedMac || store.isReconnectingStoredMac {
+                // We know a Mac is being reconnected: it is honest to say so.
+                RestoringSessionView()
+            } else {
+                // Still determining whether a paired Mac exists (install predating
+                // the hint, or a fresh sign-in): a neutral spinner, since we do not
+                // yet know if there is a session to restore.
+                MobilePairedMacDeterminingView()
+            }
+        } else if shouldShowOnboarding {
+            // Placed after the reconnect-determining branch so `hasKnownPairedMac`
+            // has resolved: a genuine first run (never onboarded, never paired)
+            // sees the one-time explainer before the add-device flow; a returning
+            // paired-but-offline user (who can reach here after a failed
+            // reconnect) is excluded by the gate and falls through to pairing.
+            onboardingFlow
         } else if store.connectionState != .connected {
             DisconnectedWorkspaceShellView(
+                hasKnownPairedMac: store.hasKnownPairedMac,
                 showAddDevice: showAddDevice,
-                signOut: signOut
+                signOut: signOut,
+                setupHelpHighlight: disconnectedSetupHelpHighlight,
+                store: store
             )
             .sheet(isPresented: $isShowingAddDeviceSheet) {
                 PairingView(
                     pairingCode: $store.pairingCode,
                     connectionError: store.connectionError,
+                    connectionErrorGuidance: store.connectionErrorGuidance,
                     connectPairingCode: {
                         await store.connectPairingInput()
                     },
@@ -157,6 +213,54 @@ struct CMUXMobileRootView: View {
         }
     }
 
+    /// Which setup gate the disconnected screen's "Trouble connecting?" help marks
+    /// as the user's current step. When the host rejected this device on
+    /// authorization grounds (a different cmux account, or a token it could not
+    /// verify), the account gate wins, since retrying cannot fix it. Otherwise a
+    /// returning device whose stored Mac just failed to reconnect has a known
+    /// paired Mac, so its recovery path is "wake the Mac"; a device that has never
+    /// paired is guided to install and pair. `connectionRequiresReauth` is the
+    /// store's existing public signal for that auth rejection; this only reads it.
+    private var disconnectedSetupHelpHighlight: MobileSetupGuidanceState {
+        MobileSetupGuidancePolicy.state(
+            isSignedIn: isAuthenticated,
+            hasKnownPairedMac: store.hasKnownPairedMac,
+            hasAccountMismatch: store.connectionRequiresReauth
+        )
+    }
+
+    /// Whether the one-time first-run onboarding should be presented. Always
+    /// `false` off iOS (onboarding is iOS-only).
+    private var shouldShowOnboarding: Bool {
+        #if os(iOS)
+        return MobileOnboardingGate.shouldShowOnboarding(
+            hasSeenOnboarding: hasSeenOnboarding,
+            hasKnownPairedMac: store.hasKnownPairedMac
+        )
+        #else
+        return false
+        #endif
+    }
+
+    @ViewBuilder
+    private var onboardingFlow: some View {
+        #if os(iOS)
+        OnboardingFlowView(onComplete: completeOnboarding)
+        #else
+        EmptyView()
+        #endif
+    }
+
+    #if os(iOS)
+    /// Persists the onboarding "seen" flag and re-renders so the root falls
+    /// through to the pairing flow. Called from the onboarding button actions
+    /// (Skip / Get started), not a view-lifecycle callback.
+    private func completeOnboarding() {
+        onboardingStore.markSeen()
+        hasSeenOnboarding = true
+    }
+    #endif
+
     private var isAuthenticated: Bool {
         MobileRootAuthGate.isAuthenticated(
             stackAuthenticated: authManager.isAuthenticated,
@@ -169,6 +273,17 @@ struct CMUXMobileRootView: View {
             stackAuthenticated: authManager.isAuthenticated,
             attachTicketAuthenticated: hasActiveAttachTicketAuthentication,
             isRestoringSession: authManager.isRestoringSession
+        )
+    }
+
+    private var shouldShowRestoringStoredMac: Bool {
+        MobileRootAuthGate.shouldShowRestoringStoredMac(
+            authenticated: isAuthenticated,
+            connectionState: store.connectionState,
+            isReconnectingStoredMac: store.isReconnectingStoredMac,
+            hasKnownPairedMac: store.hasKnownPairedMac,
+            pairedMacHintUndetermined: store.pairedMacHintUndetermined,
+            didFinishStoredMacReconnectAttempt: store.didFinishStoredMacReconnectAttempt
         )
     }
 
@@ -185,6 +300,26 @@ struct CMUXMobileRootView: View {
             isRestoringSession: isRestoringSession ?? authManager.isRestoringSession,
             store: store
         )
+    }
+
+    /// Starts the stored-Mac reconnect when authenticated, unless a UITest attach
+    /// URL took over. Called from both initial `onAppear` (covers a mount that is
+    /// already authenticated) and `onChange(of: isAuthenticated)` (covers a
+    /// sign-in that completes after mount) so the restoring gate always resolves
+    /// even when the auth state never transitions while this view is mounted.
+    private func reconnectStoredMacIfNeeded() {
+        guard isAuthenticated else { return }
+        let startedUITestAttachURL = connectUITestAttachURLIfNeeded()
+        guard !startedUITestAttachURL,
+              MobileRootAuthGate.shouldReconnectStoredMac(
+                stackAuthenticated: authManager.isAuthenticated,
+                attachTicketAuthenticated: hasActiveAttachTicketAuthentication,
+                connectionState: store.connectionState
+              ) else { return }
+        let stackUserID = authManager.currentUser?.id
+        Task {
+            await store.reconnectActiveMacIfAvailable(stackUserID: stackUserID)
+        }
     }
 
     private func showAddDevice() {
@@ -235,15 +370,21 @@ struct CMUXMobileRootView: View {
     @discardableResult
     private func connectUITestAttachURLIfNeeded() -> Bool {
         #if DEBUG
-        // Auto-pair when CMUX_UITEST_ATTACH_URL is supplied at launch. Originally
-        // gated on mock data (the XCUITest harness), but the dev-launch tooling
-        // (scripts/mobile-dev-launch.sh) signs in for real (CMUX_UITEST_STACK_*
-        // with CMUX_UITEST_MOCK_DATA=0) and still wants to auto-attach, so this
-        // fires for any authenticated session once the attach URL is present.
-        // No-op unless that env var is set, so normal launches are unaffected.
+        // Auto-pair when an attach URL is supplied at launch. Two sources:
+        //   - CMUX_DOGFOOD_ATTACH_URL (UITestConfig.dogfoodAttachURL): NOT gated on
+        //     mock data, so it fires against the real backend. The dev-launch
+        //     tooling (scripts/mobile-dev-launch.sh, scripts/dev-setup.sh) signs in
+        //     for real (CMUX_UITEST_STACK_* with CMUX_UITEST_MOCK_DATA=0) and wants
+        //     the phone to auto-pair to the freshly built Mac dev app. With mock
+        //     off, UITestConfig.attachURL is always nil, so this dedicated accessor
+        //     is what un-breaks real-backend auto-pair.
+        //   - CMUX_UITEST_ATTACH_URL (UITestConfig.attachURL): gated on mock data,
+        //     kept intact for the XCUITest harness.
+        // No-op unless one of those env vars is set, so normal launches are
+        // unaffected.
         guard !didConsumeUITestAttachURL,
               isAuthenticated,
-              let attachURL = UITestConfig.attachURL else {
+              let attachURL = UITestConfig.dogfoodAttachURL ?? UITestConfig.attachURL else {
             return false
         }
         didConsumeUITestAttachURL = true

@@ -15,6 +15,9 @@ public struct MobileSyncWorkspaceListResponse: Decodable, Sendable {
         public let currentDirectory: String?
         /// Whether the Mac currently has this workspace selected.
         public let isSelected: Bool
+        /// Whether this workspace is pinned, if the Mac reported it. `nil` when
+        /// connected to a Mac old enough not to emit `is_pinned`.
+        public let isPinned: Bool?
         /// Terminals belonging to this workspace.
         public let terminals: [Terminal]
 
@@ -23,6 +26,7 @@ public struct MobileSyncWorkspaceListResponse: Decodable, Sendable {
             case title
             case currentDirectory = "current_directory"
             case isSelected = "is_selected"
+            case isPinned = "is_pinned"
             case terminals
         }
     }

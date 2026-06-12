@@ -1,3 +1,4 @@
+import CMUXMobileCore
 import Foundation
 import CmuxAuthRuntime
 import CmuxMobileSupport
@@ -12,6 +13,7 @@ import AppKit
 
 struct SignInView: View {
     @Environment(AuthCoordinator.self) private var authManager
+    @Environment(\.analytics) private var analytics
     @State private var email = ""
     @State private var code = ""
     @State private var showCodeEntry = false
@@ -20,6 +22,7 @@ struct SignInView: View {
     @State private var isGoogleSigningIn = false
     @State private var shouldAutofocusCode = false
     @State private var shouldAutofocusEmail = false
+    @State private var signInTask: Task<Void, Never>?
     @FocusState private var isEmailFocused: Bool
     @FocusState private var isCodeFocused: Bool
 
@@ -76,7 +79,7 @@ struct SignInView: View {
                 brandHeader
 
                 Button {
-                    Task {
+                    signInTask = Task {
                         await signInWithApple()
                     }
                 } label: {
@@ -93,7 +96,7 @@ struct SignInView: View {
                 .accessibilityIdentifier("signin.apple")
 
                 Button {
-                    Task {
+                    signInTask = Task {
                         await signInWithGoogle()
                     }
                 } label: {
@@ -131,7 +134,7 @@ struct SignInView: View {
 
                     Button {
                         let autofocusCodeOnSuccess = isEmailFocused
-                        Task {
+                        signInTask = Task {
                             await sendCode(autofocusCodeOnSuccess: autofocusCodeOnSuccess)
                         }
                     } label: {
@@ -148,6 +151,8 @@ struct SignInView: View {
                 if let error {
                     errorText(error)
                 }
+
+                cancelSignInButton
             }
         }
         .opacity(isAuthInProgress ? 0.6 : 1.0)
@@ -185,7 +190,7 @@ struct SignInView: View {
                             case let .assign(normalizedCode):
                                 code = normalizedCode
                             case .verify:
-                                Task {
+                                signInTask = Task {
                                     await verifyCode()
                                 }
                             case .none:
@@ -206,8 +211,10 @@ struct SignInView: View {
                     errorText(error)
                 }
 
+                cancelSignInButton
+
                 Button {
-                    Task {
+                    signInTask = Task {
                         await verifyCode()
                     }
                 } label: {
@@ -241,8 +248,27 @@ struct SignInView: View {
         authManager.isLoading || isAppleSigningIn || isGoogleSigningIn
     }
 
+    /// Escape hatch while a sign-in flow is in flight: cancels the running
+    /// task, which tears down any presented system auth sheet and ends the
+    /// loading state silently (no error). Without this, a stuck flow left the
+    /// whole screen disabled with no way out.
+    @ViewBuilder
+    private var cancelSignInButton: some View {
+        if isAuthInProgress {
+            Button {
+                signInTask?.cancel()
+            } label: {
+                Text(L10n.string("mobile.signIn.cancel", defaultValue: "Cancel"))
+                    .font(.subheadline)
+            }
+            .foregroundStyle(.secondary)
+            .accessibilityIdentifier("signin.cancel")
+        }
+    }
+
     private func sendCode(autofocusCodeOnSuccess: Bool) async {
         error = nil
+        analytics.capture("ios_sign_in_started", ["method": .string("email_code")])
         do {
             try await authManager.sendCode(to: email)
             guard !authManager.isAuthenticated else {
@@ -253,8 +279,16 @@ struct SignInView: View {
                 showCodeEntry = true
             }
         } catch {
+            if case AuthError.cancelled = error {
+                analytics.capture("ios_sign_in_cancelled", ["method": .string("email_code")])
+                return
+            }
             shouldAutofocusCode = false
             self.error = detailedErrorMessage(error)
+            analytics.capture("ios_sign_in_failed", [
+                "method": .string("email_code"),
+                "failure_reason": .string(Self.signInFailureReason(error)),
+            ])
         }
     }
 
@@ -263,8 +297,16 @@ struct SignInView: View {
         do {
             try await authManager.verifyCode(code)
         } catch {
+            if case AuthError.cancelled = error {
+                analytics.capture("ios_sign_in_cancelled", ["method": .string("email_code")])
+                return
+            }
             self.error = detailedErrorMessage(error)
             code = ""
+            analytics.capture("ios_sign_in_failed", [
+                "method": .string("email_code"),
+                "failure_reason": .string(Self.signInFailureReason(error)),
+            ])
         }
     }
 
@@ -272,16 +314,23 @@ struct SignInView: View {
         error = nil
         isAppleSigningIn = true
         defer { isAppleSigningIn = false }
+        analytics.capture("ios_sign_in_started", ["method": .string("apple")])
         do {
             try await authManager.signInWithApple()
         } catch {
             if case AuthError.cancelled = error {
+                analytics.capture("ios_sign_in_cancelled", ["method": .string("apple")])
                 return
             }
             if let stackError = error as? StackAuthErrorProtocol, stackError.code == "oauth_cancelled" {
+                analytics.capture("ios_sign_in_cancelled", ["method": .string("apple")])
                 return
             }
             self.error = detailedErrorMessage(error)
+            analytics.capture("ios_sign_in_failed", [
+                "method": .string("apple"),
+                "failure_reason": .string(Self.signInFailureReason(error)),
+            ])
         }
     }
 
@@ -289,17 +338,58 @@ struct SignInView: View {
         error = nil
         isGoogleSigningIn = true
         defer { isGoogleSigningIn = false }
+        analytics.capture("ios_sign_in_started", ["method": .string("google")])
         do {
             try await authManager.signInWithGoogle()
         } catch {
             if case AuthError.cancelled = error {
+                analytics.capture("ios_sign_in_cancelled", ["method": .string("google")])
                 return
             }
             if let stackError = error as? StackAuthErrorProtocol, stackError.code == "oauth_cancelled" {
+                analytics.capture("ios_sign_in_cancelled", ["method": .string("google")])
                 return
             }
             self.error = detailedErrorMessage(error)
+            analytics.capture("ios_sign_in_failed", [
+                "method": .string("google"),
+                "failure_reason": .string(Self.signInFailureReason(error)),
+            ])
         }
+    }
+
+    /// Maps a sign-in error to the `ios_sign_in_failed` `failure_reason` enum
+    /// (enums only, never the error text or the user's email).
+    private static func signInFailureReason(_ error: Error) -> String {
+        if let authError = error as? AuthError {
+            switch authError {
+            case .timedOut:
+                return "timeout"
+            case .offline:
+                return "offline"
+            case .networkError:
+                return "network"
+            default:
+                break
+            }
+        }
+        if let stackError = error as? StackAuthErrorProtocol {
+            switch stackError.code {
+            case "VERIFICATION_CODE_ERROR", "INVALID_OTP", "INVALID_TOTP_CODE":
+                return "invalid_code"
+            case "OTP_EXPIRED":
+                return "code_expired"
+            case "RATE_LIMIT":
+                return "rate_limit"
+            default:
+                return "oauth_error"
+            }
+        }
+        let nsError = error as NSError
+        if nsError.domain == NSURLErrorDomain {
+            return "network"
+        }
+        return "other"
     }
 
     private func errorText(_ message: String) -> some View {
@@ -313,7 +403,7 @@ struct SignInView: View {
     }
 
     private func detailedErrorMessage(_ error: Error) -> String {
-        let displayError = AuthErrorMapper().displaySafe(error)
+        let displayError = AuthError(displaySafe: error) ?? error
         if let stackError = displayError as? StackAuthErrorProtocol {
             switch stackError.code {
             case "SCHEMA_ERROR":

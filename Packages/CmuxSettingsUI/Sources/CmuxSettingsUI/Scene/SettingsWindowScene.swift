@@ -456,11 +456,19 @@ public struct SettingsWindowRoot: View {
         TextBoxSection(defaultsStore: defaultsStore, catalog: catalog)
             .id(anchorID(for: .textBox))
 
-        MobileSection(defaultsStore: defaultsStore, catalog: catalog)
+        MobileSection(defaultsStore: defaultsStore, catalog: catalog, hostActions: hostActions)
             .id(anchorID(for: .mobile))
 
         SidebarSection(defaultsStore: defaultsStore, catalog: catalog, hostActions: hostActions)
             .id(anchorID(for: .sidebarAppearance))
+
+        CustomSidebarsSection(
+            defaultsStore: defaultsStore,
+            jsonStore: jsonStore,
+            catalog: catalog,
+            errorLog: runtime.errorLog
+        )
+        .id(anchorID(for: .customSidebars))
 
         BetaFeaturesSection(defaultsStore: defaultsStore, catalog: catalog)
             .id(anchorID(for: .betaFeatures))

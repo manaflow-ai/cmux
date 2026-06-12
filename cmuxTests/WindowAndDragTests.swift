@@ -1908,6 +1908,53 @@ final class DraggableFolderHitTests: XCTestCase {
 
 
 @MainActor
+@Suite struct MainWindowHostingViewTests {
+    @Test func testReportsPolicyMinimumInsteadOfChildMinimum() {
+        _ = NSApplication.shared
+
+        let root = HStack(spacing: 0) {
+            Color.clear
+                .frame(width: 900, height: 240)
+        }
+            .frame(
+                minWidth: CGFloat(SessionPersistencePolicy.minimumWindowWidth),
+                minHeight: CGFloat(SessionPersistencePolicy.minimumWindowHeight)
+            )
+        let hostingView = MainWindowHostingView(rootView: root)
+        let expectedMinimumWidth = CGFloat(SessionPersistencePolicy.minimumWindowWidth)
+
+        for width in [520, 1_200] as [CGFloat] {
+            hostingView.frame = NSRect(x: 0, y: 0, width: width, height: 500)
+            hostingView.layoutSubtreeIfNeeded()
+
+            #expect(
+                abs(hostingView.fittingSize.width - expectedMinimumWidth) <= 0.001,
+                "Main window AppKit fitting width must equal minimumWindowWidth at \(width)pt."
+            )
+            #expect(
+                abs(hostingView.intrinsicContentSize.width - expectedMinimumWidth) <= 0.001,
+                "Main window AppKit intrinsic width must equal minimumWindowWidth at \(width)pt."
+            )
+        }
+    }
+
+    @Test func testStandardFrameKeepsAppKitDefaultFrameWhenLargerThanPolicyMinimum() {
+        let defaultFrame = NSRect(x: 20, y: 40, width: 1_000, height: 700)
+
+        #expect(CmuxMainWindow.standardFrame(forDefaultFrame: defaultFrame) == defaultFrame)
+    }
+
+    @Test func testStandardFrameDoesNotShrinkBelowPolicyMinimum() {
+        let tinyDefaultFrame = NSRect(x: 20, y: 40, width: 100, height: 80)
+        let standardFrame = CmuxMainWindow.standardFrame(forDefaultFrame: tinyDefaultFrame)
+
+        #expect(standardFrame.origin == tinyDefaultFrame.origin)
+        #expect(standardFrame.width == CGFloat(SessionPersistencePolicy.minimumWindowWidth))
+        #expect(standardFrame.height == CGFloat(SessionPersistencePolicy.minimumWindowHeight))
+    }
+}
+
+@MainActor
 final class TitlebarLeadingInsetPassthroughViewTests: XCTestCase {
     func testLeadingInsetViewDoesNotParticipateInHitTesting() {
         let view = TitlebarLeadingInsetPassthroughView(frame: NSRect(x: 0, y: 0, width: 200, height: 40))
@@ -2022,6 +2069,67 @@ struct CustomTitlebarLeadingPaddingTests {
                 titlebarLeadingInset: 82
             ) == 8
         )
+    }
+
+    // Regression: at the default (== minimum) sidebar width, toggling the sidebar
+    // must not move the folder/title. The title tracks the actual width only when
+    // the sidebar is wider than the minimum, so the default width must equal the
+    // minimum for the visible and hidden insets to match.
+    @Test func togglingSidebarAtDefaultWidthDoesNotMoveTitle() {
+        let width = CGFloat(SessionPersistencePolicy.defaultSidebarWidth)
+        let minimum = CGFloat(SessionPersistencePolicy.minimumSidebarWidth)
+        let visible = ContentView.customTitlebarLeadingPadding(
+            isFullScreen: false,
+            isSidebarVisible: true,
+            sidebarWidth: width,
+            minimumSidebarWidth: minimum,
+            titlebarLeadingInset: 82
+        )
+        let hidden = ContentView.customTitlebarLeadingPadding(
+            isFullScreen: false,
+            isSidebarVisible: false,
+            sidebarWidth: width,
+            minimumSidebarWidth: minimum,
+            titlebarLeadingInset: 82
+        )
+        #expect(visible == hidden)
+    }
+}
+
+
+@Suite("Fullscreen titlebar controls placement")
+struct FullscreenControlsPlacementTests {
+    @Test func notShownOutsideFullscreen() {
+        #expect(
+            ContentView.fullscreenControlsPlacement(
+                isFullScreen: false,
+                isSidebarVisible: true
+            ) == nil
+        )
+        #expect(
+            ContentView.fullscreenControlsPlacement(
+                isFullScreen: false,
+                isSidebarVisible: false
+            ) == nil
+        )
+    }
+
+    // Regression: in fullscreen, toggling the sidebar used to shift the accessory
+    // bar a few pixels left and up because the controls were mounted in two
+    // anchors with different padding. Placement must be identical regardless of
+    // sidebar visibility.
+    @Test func placementIsIndependentOfSidebarVisibility() {
+        let visible = ContentView.fullscreenControlsPlacement(
+            isFullScreen: true,
+            isSidebarVisible: true
+        )
+        let hidden = ContentView.fullscreenControlsPlacement(
+            isFullScreen: true,
+            isSidebarVisible: false
+        )
+
+        #expect(visible != nil)
+        #expect(visible == hidden)
     }
 }
 
