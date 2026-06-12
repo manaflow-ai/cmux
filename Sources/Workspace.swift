@@ -17792,12 +17792,13 @@ final class Workspace: Identifiable, ObservableObject {
 
     private func renderedVisiblePanelIdsForCurrentLayout() -> Set<UUID> {
         guard portalRenderingEnabled else { return [] }
-        // Canvas mode renders every panel in its own pane; bonsplit tab
-        // selection no longer decides what is on screen. Offscreen clipping
-        // is the canvas viewport's job (portal frames clamp to the visible
-        // intersection), so all panels count as rendered.
+        // Canvas mode renders one panel per canvas pane — its selected tab.
+        // Background tabs are unmounted, so reporting them as rendered makes
+        // the terminal window portal float them at stale frames (chromeless
+        // slivers). Offscreen clipping of the selected tabs is the canvas
+        // viewport's job.
         if layoutMode == .canvas {
-            return Set(panels.keys)
+            return Set(canvasModel.layout.panes.map(\.selectedPanelId.rawValue))
         }
         let renderedPaneIds = bonsplitController.zoomedPaneId.map { [$0] } ?? bonsplitController.allPaneIds
         var visiblePanelIds: Set<UUID> = []
