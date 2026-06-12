@@ -7224,13 +7224,14 @@ final class TerminalSurface: Identifiable, ObservableObject {
     var isRendererPortalVisible: Bool { rendererPortalVisible }
 
     /// Record the portal visibility transition for reclamation. Called from
-    /// `setVisibleInUI`. Becoming visible also stamps the LRU timestamp so
-    /// recently-used tabs stay warm.
+    /// `setVisibleInUI`. Stamps the LRU/idle timestamp on BOTH transitions: a
+    /// hide moment is the surface's last-visible time, so the planner's
+    /// `now - rendererLastVisibleAt` measures the true offscreen-idle duration
+    /// from the hide rather than from the last sampling tick (which could reclaim
+    /// the renderer well before `idleSeconds` of being offscreen has elapsed).
     func setRendererPortalVisible(_ visible: Bool) {
         rendererPortalVisible = visible
-        if visible {
-            noteBecameVisibleForRendererReclamation()
-        }
+        noteBecameVisibleForRendererReclamation()
     }
 
     /// Stamp the LRU "last visible" timestamp. The reclamation controller also
