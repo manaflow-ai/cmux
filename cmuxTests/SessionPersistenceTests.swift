@@ -3031,6 +3031,29 @@ final class SocketListenerAcceptPolicyTests: XCTestCase {
             "{ cd -- '/tmp/pi repo' 2>/dev/null || [ ! -d '/tmp/pi repo' ]; } && '/Users/example/.bun/bin/pi' '--fork' 'pi-session-123' '--model' 'anthropic/claude-sonnet-4-6'"
         )
 
+        // Scanner-detected pi sessions carry kind .custom("pi") (see
+        // VaultAgentProcessScanner) and fork through the registration's
+        // forkCommand template instead of the built-in .pi branch.
+        let scannerPi = SessionRestorableAgentSnapshot(
+            kind: .custom("pi"),
+            sessionId: "pi-session-123",
+            workingDirectory: "/tmp/pi repo",
+            launchCommand: AgentLaunchCommandSnapshot(
+                launcher: "pi",
+                executablePath: "/Users/example/.bun/bin/pi",
+                arguments: ["/Users/example/.bun/bin/pi"],
+                workingDirectory: "/tmp/pi repo",
+                environment: nil,
+                capturedAt: 123,
+                source: "process"
+            ),
+            registration: .builtInPi
+        )
+        XCTAssertEqual(
+            scannerPi.forkCommand,
+            "{ cd -- '/tmp/pi repo' 2>/dev/null || [ ! -d '/tmp/pi repo' ]; } && '/Users/example/.bun/bin/pi' '--fork' 'pi-session-123'"
+        )
+
         let omp = SessionRestorableAgentSnapshot(
             kind: .custom("omp"),
             sessionId: "omp-session-789",
