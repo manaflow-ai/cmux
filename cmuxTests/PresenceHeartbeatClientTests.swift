@@ -33,8 +33,10 @@ import Testing
         )
         let sent = try #require(body["routes"] as? [[String: Any]])
         #expect(sent.count == 1)
-        #expect(sent[0]["host"] as? String == "100.0.0.1")
-        #expect(sent[0]["port"] as? Int == 51000)
+        // Same wire shape as the registry POST: host/port nest under `endpoint`.
+        let endpoint = try #require(sent[0]["endpoint"] as? [String: Any])
+        #expect(endpoint["host"] as? String == "100.0.0.1")
+        #expect(endpoint["port"] as? Int == 51000)
         #expect(body["deviceId"] as? String == "11111111-2222-4333-8444-555555555555")
         #expect(body["platform"] as? String == "mac")
         #expect(body["tag"] as? String == "default")

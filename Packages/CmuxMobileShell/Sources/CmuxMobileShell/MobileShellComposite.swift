@@ -1602,11 +1602,24 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
 
     /// Per-instance store/registry write-through for the batch sync above.
     private func applyPushedRoutes(from instance: PresenceInstance, stackUserID: String?) async {
-        let routes = instance.routes ?? []
+        // `nil` means the host did not announce routes on this record
+        // ("unchanged" on the wire); an explicit `[]` is a live clear.
+        guard let routes = instance.routes else { return }
         let deviceId = instance.deviceId
         guard let mac = pairedMacs.first(where: { $0.macDeviceID == deviceId }) else {
             return
         }
+        // Mirror the in-memory registry tree's Connect affordances first, so
+        // an explicit empty set drops stale endpoints from the tree instead
+        // of leaving a Connect affordance pointing at routes the host no
+        // longer advertises.
+        if let deviceIndex = registryDevices.firstIndex(where: { $0.deviceId == deviceId }),
+           let instanceIndex = registryDevices[deviceIndex].instances
+               .firstIndex(where: { $0.tag == instance.tag }) {
+            registryDevices[deviceIndex].instances[instanceIndex].routes = routes
+        }
+        // The paired-Mac store keeps last-known-good reconnect routes, so only
+        // a non-empty push updates it (same merge the registry refresh uses).
         guard !routes.isEmpty,
               let pairedMacStore,
               let updated = DeviceRegistryService.selectReconnectRoutes(
@@ -1626,13 +1639,6 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             mobileShellLog.debug(
                 "presence route upsert failed: \(String(describing: error), privacy: .public)"
             )
-        }
-        // Keep the in-memory registry tree's Connect affordances on the
-        // fresh routes too, without waiting for the next registry fetch.
-        if let deviceIndex = registryDevices.firstIndex(where: { $0.deviceId == deviceId }),
-           let instanceIndex = registryDevices[deviceIndex].instances
-               .firstIndex(where: { $0.tag == instance.tag }) {
-            registryDevices[deviceIndex].instances[instanceIndex].routes = routes
         }
     }
 
