@@ -4825,7 +4825,9 @@ struct CMUXCLI {
              "paste-buffer",
              "list-buffers",
              "respawn-pane",
-             "display-message":
+             "display-message",
+             "show-options",
+             "show-option":
             try runTmuxCompatCommand(
                 command: command,
                 commandArgs: commandArgs,
@@ -21391,6 +21393,11 @@ struct CMUXCLI {
                 try tmuxPruneCompatWorkspaceState(workspaceId: workspaceId)
             }
 
+        case "show-options", "show-option":
+            // Stub: omx queries `tmux show-options -sv extended-keys` to check
+            // terminal key mode. cmux handles keys natively, so return empty.
+            print("")
+
         case "set-option", "set", "set-window-option", "setw", "source-file", "refresh-client", "attach-session", "detach-client":
             return
 
@@ -22062,6 +22069,11 @@ struct CMUXCLI {
             } else {
                 print(message)
             }
+
+        case "show-options":
+            // Stub: omx queries `tmux show-options -sv extended-keys` to check
+            // terminal key mode. cmux handles keys natively, so return empty.
+            print("")
 
         default:
             throw CLIError(message: "Unsupported tmux compatibility command: \(command)")
