@@ -694,7 +694,7 @@ struct SessionRestorableAgentSnapshot: Codable, Sendable {
         AgentResumeCommandBuilder.resumeShellCommand(
             kind: kind,
             sessionId: sessionId,
-            launchCommand: launchCommand,
+            launchCommand: trustedLaunchCommandForResume,
             workingDirectory: workingDirectory,
             registrationOverride: registration
         )
@@ -704,10 +704,19 @@ struct SessionRestorableAgentSnapshot: Codable, Sendable {
         AgentResumeCommandBuilder.forkShellCommand(
             kind: kind,
             sessionId: sessionId,
-            launchCommand: launchCommand,
+            launchCommand: trustedLaunchCommandForResume,
             workingDirectory: workingDirectory,
             registrationOverride: registration
         )
+    }
+
+    private var trustedLaunchCommandForResume: AgentLaunchCommandSnapshot? {
+        guard let launchCommand else { return nil }
+        guard AgentLaunchCaptureTrust.launcherDescribesKind(launchCommand.launcher, kind: kind.rawValue),
+              !AgentLaunchCaptureTrust.argvLooksLikeShellWrapper(launchCommand.arguments) else {
+            return nil
+        }
+        return launchCommand
     }
 
     func resumeStartupInput(
@@ -741,7 +750,7 @@ struct SessionRestorableAgentSnapshot: Codable, Sendable {
                   // the current directory (no cd), so the post-exit shell must not force the launch dir.
                   workingDirectory: registration?.cwd == .ignore
                       ? nil
-                      : (workingDirectory ?? launchCommand?.workingDirectory)
+                      : (workingDirectory ?? trustedLaunchCommandForResume?.workingDirectory)
               ) else {
             return nil
         }
