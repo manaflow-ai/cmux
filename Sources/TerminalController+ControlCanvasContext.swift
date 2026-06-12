@@ -141,6 +141,56 @@ extension TerminalController: ControlCanvasContext {
         }
         return .ok(mode: ws.layoutMode.rawValue)
     }
+
+    func controlCanvasJoin(
+        routing: ControlRoutingSelectors,
+        surfaceID: UUID,
+        targetSurfaceID: UUID
+    ) -> ControlCanvasActionResolution {
+        guard let ws = resolveCanvasWorkspace(routing: routing) else {
+            return .workspaceNotFound
+        }
+        guard ws.layoutMode == .canvas else { return .notCanvasMode }
+        guard ws.canvasModel.frame(of: surfaceID) != nil else { return .paneNotFound(surfaceID) }
+        guard ws.canvasModel.frame(of: targetSurfaceID) != nil else { return .paneNotFound(targetSurfaceID) }
+        if ws.canvasModel.joinPanel(surfaceID, withPaneContaining: targetSurfaceID) {
+            ws.canvasModel.viewport?.modelDidChangeExternally(animated: true)
+            ws.focusPanel(surfaceID)
+        }
+        return .ok(mode: ws.layoutMode.rawValue)
+    }
+
+    func controlCanvasBreak(
+        routing: ControlRoutingSelectors,
+        surfaceID: UUID
+    ) -> ControlCanvasActionResolution {
+        guard let ws = resolveCanvasWorkspace(routing: routing) else {
+            return .workspaceNotFound
+        }
+        guard ws.layoutMode == .canvas else { return .notCanvasMode }
+        guard ws.canvasModel.frame(of: surfaceID) != nil else { return .paneNotFound(surfaceID) }
+        if ws.canvasModel.breakOutPanel(surfaceID) {
+            ws.canvasModel.viewport?.modelDidChangeExternally(animated: true)
+            ws.focusPanel(surfaceID)
+            ws.canvasModel.viewport?.revealPane(surfaceID, animated: true)
+        }
+        return .ok(mode: ws.layoutMode.rawValue)
+    }
+
+    func controlCanvasSelectTab(
+        routing: ControlRoutingSelectors,
+        surfaceID: UUID
+    ) -> ControlCanvasActionResolution {
+        guard let ws = resolveCanvasWorkspace(routing: routing) else {
+            return .workspaceNotFound
+        }
+        guard ws.layoutMode == .canvas else { return .notCanvasMode }
+        guard ws.canvasModel.frame(of: surfaceID) != nil else { return .paneNotFound(surfaceID) }
+        // focusPanel selects the tab in canvas mode and moves keyboard focus.
+        ws.focusPanel(surfaceID)
+        ws.canvasModel.viewport?.modelDidChangeExternally(animated: false)
+        return .ok(mode: ws.layoutMode.rawValue)
+    }
 }
 
 extension ControlCanvasAlignCommand {

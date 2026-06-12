@@ -23,6 +23,12 @@ extension ControlCommandCoordinator {
             return canvasOverview(request.params)
         case "canvas.zoom":
             return canvasZoom(request.params)
+        case "canvas.join":
+            return canvasJoin(request.params)
+        case "canvas.break":
+            return canvasBreak(request.params)
+        case "canvas.select_tab":
+            return canvasSelectTab(request.params)
         default:
             return nil
         }
@@ -158,6 +164,47 @@ extension ControlCommandCoordinator {
         }
         let routing = routingSelectors(params)
         let resolution = context?.controlCanvasZoom(routing: routing, direction: direction)
+            ?? .tabManagerUnavailable
+        return canvasActionResult(resolution)
+    }
+
+    // MARK: - join / break / select_tab
+
+    /// `canvas.join` — move a surface into the pane hosting another surface.
+    func canvasJoin(_ params: [String: JSONValue]) -> ControlCallResult {
+        let routing = routingSelectors(params)
+        guard let surfaceID = routing.surfaceID else {
+            return .err(code: "invalid_params", message: "Missing or invalid surface_id", data: nil)
+        }
+        guard let targetSurfaceID = uuid(params, "target_surface_id") else {
+            return .err(code: "invalid_params", message: "Missing or invalid target_surface_id", data: nil)
+        }
+        let resolution = context?.controlCanvasJoin(
+            routing: routing,
+            surfaceID: surfaceID,
+            targetSurfaceID: targetSurfaceID
+        ) ?? .tabManagerUnavailable
+        return canvasActionResult(resolution)
+    }
+
+    /// `canvas.break` — tear a surface out of its multi-tab pane.
+    func canvasBreak(_ params: [String: JSONValue]) -> ControlCallResult {
+        let routing = routingSelectors(params)
+        guard let surfaceID = routing.surfaceID else {
+            return .err(code: "invalid_params", message: "Missing or invalid surface_id", data: nil)
+        }
+        let resolution = context?.controlCanvasBreak(routing: routing, surfaceID: surfaceID)
+            ?? .tabManagerUnavailable
+        return canvasActionResult(resolution)
+    }
+
+    /// `canvas.select_tab` — select a surface as its pane's visible tab.
+    func canvasSelectTab(_ params: [String: JSONValue]) -> ControlCallResult {
+        let routing = routingSelectors(params)
+        guard let surfaceID = routing.surfaceID else {
+            return .err(code: "invalid_params", message: "Missing or invalid surface_id", data: nil)
+        }
+        let resolution = context?.controlCanvasSelectTab(routing: routing, surfaceID: surfaceID)
             ?? .tabManagerUnavailable
         return canvasActionResult(resolution)
     }

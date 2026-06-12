@@ -34,12 +34,13 @@ struct WorkspaceCanvasHostView: View {
             guard let panel = workspace.panels[panelId] else { return nil }
             return CanvasPaneDescriptor(
                 id: panelId,
-                chrome: CanvasPaneChrome(
+                tab: CanvasTabChrome(
+                    id: panelId,
                     title: panel.displayTitle,
-                    iconSystemName: panel.displayIcon ?? Self.defaultIcon(for: panel.panelType),
-                    isFocused: isWorkspaceInputActive && focusedPanelId == panelId,
-                    closeActionLabel: closeActionLabel
+                    iconSystemName: panel.displayIcon ?? Self.defaultIcon(for: panel.panelType)
                 ),
+                isFocused: isWorkspaceInputActive && focusedPanelId == panelId,
+                closeActionLabel: closeActionLabel,
                 makeMount: { [weak workspace] container in
                     CanvasPaneContentMount(
                         content: Self.makeContent(

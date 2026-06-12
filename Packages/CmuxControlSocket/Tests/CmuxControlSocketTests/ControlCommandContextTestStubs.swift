@@ -97,6 +97,19 @@ extension ControlCanvasContext {
         routing: ControlRoutingSelectors,
         direction: ControlCanvasZoomDirection
     ) -> ControlCanvasActionResolution { .tabManagerUnavailable }
+    func controlCanvasJoin(
+        routing: ControlRoutingSelectors,
+        surfaceID: UUID,
+        targetSurfaceID: UUID
+    ) -> ControlCanvasActionResolution { .tabManagerUnavailable }
+    func controlCanvasBreak(
+        routing: ControlRoutingSelectors,
+        surfaceID: UUID
+    ) -> ControlCanvasActionResolution { .tabManagerUnavailable }
+    func controlCanvasSelectTab(
+        routing: ControlRoutingSelectors,
+        surfaceID: UUID
+    ) -> ControlCanvasActionResolution { .tabManagerUnavailable }
 }
 
 extension ControlNotificationContext {

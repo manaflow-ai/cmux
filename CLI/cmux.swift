@@ -7421,8 +7421,22 @@ struct CMUXCLI {
             }
             params["direction"] = direction
             method = "canvas.zoom"
+        case "join":
+            try surfaceParam(positional: positionals.first, required: true)
+            guard let targetRaw = positionals.dropFirst().first ?? optionValue(rest, name: "--target"),
+                  let targetId = try normalizeSurfaceHandle(targetRaw, client: client) else {
+                throw CLIError(message: "Usage: cmux canvas join <surface> <target-surface>")
+            }
+            params["target_surface_id"] = targetId
+            method = "canvas.join"
+        case "break":
+            try surfaceParam(positional: positionals.first, required: true)
+            method = "canvas.break"
+        case "select-tab":
+            try surfaceParam(positional: positionals.first, required: true)
+            method = "canvas.select_tab"
         default:
-            throw CLIError(message: "Unknown canvas subcommand: \(sub). Try: info, mode, set-frame, align, reveal, overview, zoom")
+            throw CLIError(message: "Unknown canvas subcommand: \(sub). Try: info, mode, set-frame, align, reveal, overview, zoom, join, break, select-tab")
         }
 
         let payload = try client.sendV2(method: method, params: params)
@@ -13444,6 +13458,9 @@ struct CMUXCLI {
               reveal [<surface>]            Scroll a pane into view (default: focused)
               overview                      Toggle fit-all overview zoom
               zoom <in|out|reset>           Step viewport magnification
+              join <surface> <target>       Move a surface into the pane hosting target (tab)
+              break <surface>               Tear a surface out of its multi-tab pane
+              select-tab <surface>          Select a surface as its pane's visible tab
 
             Example:
               cmux canvas mode canvas

@@ -8,7 +8,8 @@ protocol CanvasPaneViewDelegate: AnyObject {
     func paneView(_ view: CanvasPaneView, mouseDownAt documentPoint: CGPoint, region: CanvasPaneHitRegion)
     func paneView(_ view: CanvasPaneView, draggedTo documentPoint: CGPoint, modifiers: NSEvent.ModifierFlags)
     func paneViewDidEndDrag(_ view: CanvasPaneView)
-    func paneViewDidRequestClose(_ view: CanvasPaneView)
+    func paneView(_ view: CanvasPaneView, didSelectTab panelId: UUID)
+    func paneView(_ view: CanvasPaneView, didCloseTab panelId: UUID)
     func paneViewDidRequestFocus(_ view: CanvasPaneView)
 }
 
@@ -17,7 +18,7 @@ protocol CanvasPaneViewDelegate: AnyObject {
 /// container hosting the panel's view.
 @MainActor
 final class CanvasPaneView: NSView {
-    let panelId: UUID
+    let paneID: CanvasPaneID
     weak var delegate: (any CanvasPaneViewDelegate)?
 
     /// The container the panel content view is mounted into.
@@ -25,8 +26,8 @@ final class CanvasPaneView: NSView {
 
     private let titleBarHost: NSHostingView<CanvasPaneTitleBarView>
     private var chrome = CanvasPaneChrome(
-        title: "",
-        iconSystemName: nil,
+        tabs: [],
+        selectedTabId: nil,
         isFocused: false,
         closeActionLabel: ""
     )
@@ -48,16 +49,12 @@ final class CanvasPaneView: NSView {
     private static let cornerRadius: CGFloat = 9
     private static let dragActivationDistance: CGFloat = 2
 
-    init(panelId: UUID) {
-        self.panelId = panelId
+    init(paneID: CanvasPaneID) {
+        self.paneID = paneID
         self.titleBarHost = NSHostingView(rootView: CanvasPaneTitleBarView(
-            chrome: CanvasPaneChrome(
-                title: "",
-                iconSystemName: nil,
-                isFocused: false,
-                closeActionLabel: ""
-            ),
-            onClose: {}
+            chrome: CanvasPaneChrome(tabs: [], selectedTabId: nil, isFocused: false, closeActionLabel: ""),
+            onSelectTab: { _ in },
+            onCloseTab: { _ in }
         ))
         super.init(frame: .zero)
 
@@ -91,15 +88,19 @@ final class CanvasPaneView: NSView {
 
     override var isFlipped: Bool { true }
 
-    /// Updates the title strip and focus ring. No-op when nothing changed.
+    /// Updates the tab strip and focus ring. No-op when nothing changed.
     func updateChrome(_ chrome: CanvasPaneChrome) {
         guard chrome != self.chrome else { return }
         self.chrome = chrome
         titleBarHost.rootView = CanvasPaneTitleBarView(
             chrome: chrome,
-            onClose: { [weak self] in
+            onSelectTab: { [weak self] panelId in
                 guard let self else { return }
-                self.delegate?.paneViewDidRequestClose(self)
+                self.delegate?.paneView(self, didSelectTab: panelId)
+            },
+            onCloseTab: { [weak self] panelId in
+                guard let self else { return }
+                self.delegate?.paneView(self, didCloseTab: panelId)
             }
         )
         applyChromeColors()

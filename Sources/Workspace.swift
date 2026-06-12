@@ -16764,6 +16764,11 @@ final class Workspace: Identifiable, ObservableObject {
         )
 #endif
         guard let tabId = surfaceIdFromPanelId(panelId) else { return }
+        // In canvas mode, focusing a panel also brings it forward as its
+        // pane's selected tab so focus and visibility never diverge.
+        if layoutMode == .canvas {
+            canvasModel.selectPanel(panelId)
+        }
         let currentlyFocusedPanelId = focusedPanelId
 
         // Capture the currently focused terminal view so we can explicitly move AppKit first

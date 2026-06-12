@@ -18,9 +18,14 @@ public final class CanvasRootView: NSView {
     private let documentView = CanvasDocumentView()
     private let guidesView = CanvasGuidesView()
 
-    private var paneViews: [UUID: CanvasPaneView] = [:]
+    private var paneViews: [CanvasPaneID: CanvasPaneView] = [:]
+    /// One mount per pane: its selected tab's content. Keyed by panel id.
     private var mounts: [UUID: any CanvasPaneContentMounting] = [:]
-    private var renderingByPanelId: [UUID: Bool] = [:]
+    /// The panel currently mounted in each pane.
+    private var mountedPanelByPane: [CanvasPaneID: UUID] = [:]
+    /// The latest descriptors, by panel id, for mount/chrome lookups.
+    private var descriptorsByPanelId: [UUID: CanvasPaneDescriptor] = [:]
+    private var renderingByPane: [CanvasPaneID: Bool] = [:]
     private var isWorkspaceVisible = true
     /// Canvas coordinates of the document view's (0,0).
     private var documentOriginInCanvas: CGPoint = .zero
@@ -37,7 +42,7 @@ public final class CanvasRootView: NSView {
     private static let overviewPadding: CGFloat = 48
 
     private struct DragSession {
-        let panelId: UUID
+        let paneID: CanvasPaneID
         let region: CanvasPaneHitRegion
         let originalFrame: CGRect
         let startPoint: CGPoint
@@ -145,9 +150,11 @@ public final class CanvasRootView: NSView {
             mount.unmount()
         }
         mounts.removeAll()
+        mountedPanelByPane.removeAll()
+        descriptorsByPanelId.removeAll()
         paneViews.values.forEach { $0.removeFromSuperview() }
         paneViews.removeAll()
-        renderingByPanelId.removeAll()
+        renderingByPane.removeAll()
         if let clipBoundsObserver {
             NotificationCenter.default.removeObserver(clipBoundsObserver)
         }
@@ -160,36 +167,18 @@ public final class CanvasRootView: NSView {
 
     // MARK: Sync
 
-    /// Reconciles the canvas against the host's current panel set.
+    /// Reconciles the canvas against the host's current panel set: pane
+    /// views per model pane, one mounted content per pane (the selected
+    /// tab), chrome from the descriptors.
     public func sync(descriptors: [CanvasPaneDescriptor], focusedPanelId: UUID?, isWorkspaceVisible: Bool) {
         self.isWorkspaceVisible = isWorkspaceVisible
         let added = model.syncPanes(
             panelIds: descriptors.map(\.id),
             focusedPanelId: focusedPanelId
         )
+        descriptorsByPanelId = Dictionary(uniqueKeysWithValues: descriptors.map { ($0.id, $0) })
 
-        let descriptorIds = Set(descriptors.map(\.id))
-        for (panelId, paneView) in paneViews where !descriptorIds.contains(panelId) {
-            mounts[panelId]?.unmount()
-            mounts[panelId] = nil
-            renderingByPanelId[panelId] = nil
-            paneView.removeFromSuperview()
-            paneViews[panelId] = nil
-        }
-
-        applyTheme()
-        for descriptor in descriptors {
-            if paneViews[descriptor.id] == nil {
-                let paneView = CanvasPaneView(panelId: descriptor.id)
-                paneView.delegate = self
-                paneView.paneBackground = themeProvider().paneBackground
-                documentView.addSubview(paneView)
-                paneViews[descriptor.id] = paneView
-                mounts[descriptor.id] = descriptor.makeMount(paneView.contentContainer)
-            }
-            paneViews[descriptor.id]?.updateChrome(descriptor.chrome)
-        }
-
+        reconcilePanes()
         applyZOrder()
         recomputeDocumentGeometry()
         applyAllPaneFrames()
@@ -211,9 +200,79 @@ public final class CanvasRootView: NSView {
     }
 
 
+    /// Creates/removes pane views to match the model's pane set and brings
+    /// each pane's mount and chrome up to date from the cached descriptors.
+    /// Runs on every sync and after external model mutations (socket verbs).
+    private func reconcilePanes() {
+        let livePaneIDs = Set(model.layout.paneIDs)
+        for (paneID, paneView) in paneViews where !livePaneIDs.contains(paneID) {
+            if let mounted = mountedPanelByPane[paneID] {
+                mounts[mounted]?.unmount()
+                mounts[mounted] = nil
+            }
+            mountedPanelByPane[paneID] = nil
+            renderingByPane[paneID] = nil
+            paneView.removeFromSuperview()
+            paneViews[paneID] = nil
+        }
+
+        applyTheme()
+        for pane in model.layout.panes {
+            let paneView: CanvasPaneView
+            if let existing = paneViews[pane.id] {
+                paneView = existing
+            } else {
+                paneView = CanvasPaneView(paneID: pane.id)
+                paneView.delegate = self
+                paneView.paneBackground = themeProvider().paneBackground
+                documentView.addSubview(paneView)
+                paneViews[pane.id] = paneView
+            }
+            reconcileMount(for: pane, in: paneView)
+            paneView.updateChrome(chrome(for: pane))
+        }
+    }
+
+    /// Mounts the pane's selected tab, unmounting whatever was mounted
+    /// before. Content mounts exactly while it is the visible tab.
+    private func reconcileMount(for pane: CanvasPane, in paneView: CanvasPaneView) {
+        let selected = pane.selectedPanelId.rawValue
+        let mounted = mountedPanelByPane[pane.id]
+        guard mounted != selected else { return }
+        if let mounted {
+            mounts[mounted]?.unmount()
+            mounts[mounted] = nil
+        }
+        if let descriptor = descriptorsByPanelId[selected] {
+            mounts[selected] = descriptor.makeMount(paneView.contentContainer)
+            mountedPanelByPane[pane.id] = selected
+            // A fresh mount starts in the pane's current lifecycle state.
+            if renderingByPane[pane.id] == false {
+                mounts[selected]?.setRendering(false)
+            }
+        } else {
+            mountedPanelByPane[pane.id] = nil
+        }
+    }
+
+    /// Builds the pane's strip chrome from the latest descriptors.
+    private func chrome(for pane: CanvasPane) -> CanvasPaneChrome {
+        let tabs = pane.panelIds.compactMap { descriptorsByPanelId[$0.rawValue]?.tab }
+        let isFocused = pane.panelIds.contains { descriptorsByPanelId[$0.rawValue]?.isFocused == true }
+        let closeLabel = descriptorsByPanelId[pane.selectedPanelId.rawValue]?.closeActionLabel
+            ?? descriptorsByPanelId.values.first?.closeActionLabel
+            ?? ""
+        return CanvasPaneChrome(
+            tabs: tabs,
+            selectedTabId: pane.selectedPanelId.rawValue,
+            isFocused: isFocused,
+            closeActionLabel: closeLabel
+        )
+    }
+
     private func applyZOrder() {
         for paneID in model.layout.paneIDs {
-            if let paneView = paneViews[paneID.rawValue] {
+            if let paneView = paneViews[paneID] {
                 documentView.addSubview(paneView, positioned: .above, relativeTo: nil)
             }
         }
@@ -221,9 +280,9 @@ public final class CanvasRootView: NSView {
     }
 
     private func applyAllPaneFrames() {
-        for (panelId, paneView) in paneViews {
-            guard dragSession?.panelId != panelId else { continue }
-            if let frame = model.frame(of: panelId) {
+        for (paneID, paneView) in paneViews {
+            guard dragSession?.paneID != paneID else { continue }
+            if let frame = model.layout.frame(of: paneID)?.cgRect {
                 paneView.frame = documentRect(fromCanvas: frame)
             }
         }
@@ -297,11 +356,13 @@ public final class CanvasRootView: NSView {
             height: visible.height * Self.lifecycleMarginFraction
         )
         let renderRect = visible.insetBy(dx: -margin.width, dy: -margin.height)
-        for (panelId, paneView) in paneViews {
+        for (paneID, paneView) in paneViews {
             let rendering = isWorkspaceVisible && renderRect.intersects(paneView.frame)
-            if renderingByPanelId[panelId] != rendering {
-                renderingByPanelId[panelId] = rendering
-                mounts[panelId]?.setRendering(rendering)
+            if renderingByPane[paneID] != rendering {
+                renderingByPane[paneID] = rendering
+                if let mounted = mountedPanelByPane[paneID] {
+                    mounts[mounted]?.setRendering(rendering)
+                }
             }
         }
     }
@@ -336,6 +397,7 @@ public final class CanvasRootView: NSView {
 
 extension CanvasRootView: CanvasViewportControlling {
     public func modelDidChangeExternally(animated: Bool) {
+        reconcilePanes()
         applyZOrder()
         recomputeDocumentGeometry()
         if animated {
@@ -343,8 +405,8 @@ extension CanvasRootView: CanvasViewportControlling {
                 context.duration = 0.25
                 context.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
                 context.allowsImplicitAnimation = true
-                for (panelId, paneView) in paneViews {
-                    if let frame = model.frame(of: panelId) {
+                for (paneID, paneView) in paneViews {
+                    if let frame = model.layout.frame(of: paneID)?.cgRect {
                         paneView.animator().frame = documentRect(fromCanvas: frame)
                     }
                 }
@@ -458,21 +520,29 @@ extension CanvasRootView: CanvasViewportControlling {
 // MARK: - CanvasPaneViewDelegate
 
 extension CanvasRootView: CanvasPaneViewDelegate {
+    /// The selected panel of a pane view, used for panel-keyed model calls.
+    private func selectedPanelId(of view: CanvasPaneView) -> UUID? {
+        model.layout.selectedPanelId(in: view.paneID)?.rawValue
+    }
+
     func paneView(_ view: CanvasPaneView, mouseDownAt documentPoint: CGPoint, region: CanvasPaneHitRegion) {
-        guard let frame = model.frame(of: view.panelId) else { return }
+        guard let frame = model.layout.frame(of: view.paneID)?.cgRect else { return }
         dragSession = DragSession(
-            panelId: view.panelId,
+            paneID: view.paneID,
             region: region,
             originalFrame: frame,
             startPoint: documentPoint,
             lastFrame: frame
         )
-        model.bringToFront(view.panelId)
+        if let panelId = selectedPanelId(of: view) {
+            model.bringToFront(panelId)
+        }
         applyZOrder()
     }
 
     func paneView(_ view: CanvasPaneView, draggedTo documentPoint: CGPoint, modifiers: NSEvent.ModifierFlags) {
-        guard var session = dragSession, session.panelId == view.panelId else { return }
+        guard var session = dragSession, session.paneID == view.paneID,
+              let panelId = selectedPanelId(of: view) else { return }
         let dx = documentPoint.x - session.startPoint.x
         let dy = documentPoint.y - session.startPoint.y
         // Holding Command suspends snapping for free-form placement.
@@ -482,7 +552,7 @@ extension CanvasRootView: CanvasPaneViewDelegate {
         switch session.region {
         case .titleBar:
             let proposed = session.originalFrame.offsetBy(dx: dx, dy: dy)
-            result = model.snapForMove(proposed: proposed, movingPanelId: session.panelId, snapping: snapping)
+            result = model.snapForMove(proposed: proposed, movingPanelId: panelId, snapping: snapping)
         case .resize(let edges):
             var proposed = session.originalFrame
             if edges.contains(.left) {
@@ -500,7 +570,7 @@ extension CanvasRootView: CanvasPaneViewDelegate {
             result = model.snapForResize(
                 proposed: proposed,
                 edges: edges,
-                panelId: session.panelId,
+                panelId: panelId,
                 snapping: snapping
             )
         }
@@ -513,10 +583,11 @@ extension CanvasRootView: CanvasPaneViewDelegate {
     }
 
     func paneViewDidEndDrag(_ view: CanvasPaneView) {
-        guard let session = dragSession, session.panelId == view.panelId else { return }
+        guard let session = dragSession, session.paneID == view.paneID,
+              let panelId = selectedPanelId(of: view) else { return }
         dragSession = nil
         guidesView.setGuides([])
-        model.setFrame(session.lastFrame, for: session.panelId)
+        model.setFrame(session.lastFrame, for: panelId)
         recomputeDocumentGeometry()
         applyAllPaneFrames()
         updateLifecycle()
@@ -524,11 +595,23 @@ extension CanvasRootView: CanvasPaneViewDelegate {
         callbacks.onViewportGeometryChanged(window)
     }
 
-    func paneViewDidRequestClose(_ view: CanvasPaneView) {
-        callbacks.onClosePanel(view.panelId)
+    func paneView(_ view: CanvasPaneView, didSelectTab panelId: UUID) {
+        model.selectPanel(panelId)
+        if let pane = model.layout.panes.first(where: { $0.id == view.paneID }) {
+            reconcileMount(for: pane, in: view)
+            view.updateChrome(chrome(for: pane))
+        }
+        callbacks.onFocusPanel(panelId)
+        callbacks.onViewportGeometryChanged(window)
+    }
+
+    func paneView(_ view: CanvasPaneView, didCloseTab panelId: UUID) {
+        callbacks.onClosePanel(panelId)
     }
 
     func paneViewDidRequestFocus(_ view: CanvasPaneView) {
-        callbacks.onFocusPanel(view.panelId)
+        if let panelId = selectedPanelId(of: view) {
+            callbacks.onFocusPanel(panelId)
+        }
     }
 }

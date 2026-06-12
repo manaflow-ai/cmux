@@ -65,6 +65,35 @@ private final class FakeCanvasControlCommandContext: ControlCommandContext {
         lastZoomDirection = direction
         return actionResolution
     }
+
+    var lastJoin: (surfaceID: UUID, targetSurfaceID: UUID)?
+    var lastBreakSurfaceID: UUID?
+    var lastSelectTabSurfaceID: UUID?
+
+    func controlCanvasJoin(
+        routing: ControlRoutingSelectors,
+        surfaceID: UUID,
+        targetSurfaceID: UUID
+    ) -> ControlCanvasActionResolution {
+        lastJoin = (surfaceID, targetSurfaceID)
+        return actionResolution
+    }
+
+    func controlCanvasBreak(
+        routing: ControlRoutingSelectors,
+        surfaceID: UUID
+    ) -> ControlCanvasActionResolution {
+        lastBreakSurfaceID = surfaceID
+        return actionResolution
+    }
+
+    func controlCanvasSelectTab(
+        routing: ControlRoutingSelectors,
+        surfaceID: UUID
+    ) -> ControlCanvasActionResolution {
+        lastSelectTabSurfaceID = surfaceID
+        return actionResolution
+    }
 }
 
 @MainActor
@@ -215,6 +244,52 @@ struct ControlCommandCoordinatorCanvasTests {
             return
         }
         #expect(context.lastZoomDirection == .zoomIn)
+    }
+
+    @Test func joinRequiresBothSurfaces() {
+        let (coordinator, context) = makeCoordinator()
+        let surface = UUID()
+        guard case .err(let code, _, _) = coordinator.handle(
+            request("canvas.join", ["surface_id": .string(surface.uuidString)])
+        ) else {
+            Issue.record("expected err")
+            return
+        }
+        #expect(code == "invalid_params")
+        #expect(context.lastJoin == nil)
+
+        context.actionResolution = .ok(mode: "canvas")
+        let target = UUID()
+        guard case .ok = coordinator.handle(request("canvas.join", [
+            "surface_id": .string(surface.uuidString),
+            "target_surface_id": .string(target.uuidString),
+        ])) else {
+            Issue.record("expected ok")
+            return
+        }
+        #expect(context.lastJoin?.surfaceID == surface)
+        #expect(context.lastJoin?.targetSurfaceID == target)
+    }
+
+    @Test func breakAndSelectTabPassSurfaceThroughSeam() {
+        let (coordinator, context) = makeCoordinator()
+        context.actionResolution = .ok(mode: "canvas")
+        let surface = UUID()
+        guard case .ok = coordinator.handle(
+            request("canvas.break", ["surface_id": .string(surface.uuidString)])
+        ) else {
+            Issue.record("expected ok")
+            return
+        }
+        #expect(context.lastBreakSurfaceID == surface)
+
+        guard case .ok = coordinator.handle(
+            request("canvas.select_tab", ["surface_id": .string(surface.uuidString)])
+        ) else {
+            Issue.record("expected ok")
+            return
+        }
+        #expect(context.lastSelectTabSurfaceID == surface)
     }
 
     @Test func notCanvasModeMapsToInvalidState() {

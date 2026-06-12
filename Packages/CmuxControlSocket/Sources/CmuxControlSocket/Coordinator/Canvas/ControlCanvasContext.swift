@@ -49,4 +49,24 @@ public protocol ControlCanvasContext: AnyObject {
         routing: ControlRoutingSelectors,
         direction: ControlCanvasZoomDirection
     ) -> ControlCanvasActionResolution
+
+    /// Moves a surface into the pane hosting `targetSurfaceID` for
+    /// `canvas.join`.
+    func controlCanvasJoin(
+        routing: ControlRoutingSelectors,
+        surfaceID: UUID,
+        targetSurfaceID: UUID
+    ) -> ControlCanvasActionResolution
+
+    /// Tears a surface out of its multi-tab pane for `canvas.break`.
+    func controlCanvasBreak(
+        routing: ControlRoutingSelectors,
+        surfaceID: UUID
+    ) -> ControlCanvasActionResolution
+
+    /// Selects a surface as its pane's visible tab for `canvas.select_tab`.
+    func controlCanvasSelectTab(
+        routing: ControlRoutingSelectors,
+        surfaceID: UUID
+    ) -> ControlCanvasActionResolution
 }
