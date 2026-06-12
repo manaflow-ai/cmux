@@ -1176,6 +1176,8 @@
               "splitBrowserRight",
               "splitBrowserDown",
               "toggleFileExplorer",
+              "fileExplorerOpenSelection",
+              "fileExplorerOpenSelectionFinderAlias",
               "saveFilePreview",
               "openBrowser",
               "focusBrowserAddressBar",
@@ -1207,20 +1209,26 @@
             ]
           },
           "properties": {
+            "fileExplorerOpenSelection": {
+              "$ref": "#/$defs/bareFirstStrokeShortcutBindingNullable"
+            },
+            "fileExplorerOpenSelectionFinderAlias": {
+              "$ref": "#/$defs/bareFirstStrokeShortcutBindingNullable"
+            },
             "diffViewerScrollDown": {
-              "$ref": "#/$defs/diffViewerShortcutBindingNullable"
+              "$ref": "#/$defs/bareFirstStrokeShortcutBindingNullable"
             },
             "diffViewerScrollUp": {
-              "$ref": "#/$defs/diffViewerShortcutBindingNullable"
+              "$ref": "#/$defs/bareFirstStrokeShortcutBindingNullable"
             },
             "diffViewerScrollToBottom": {
-              "$ref": "#/$defs/diffViewerShortcutBindingNullable"
+              "$ref": "#/$defs/bareFirstStrokeShortcutBindingNullable"
             },
             "diffViewerScrollToTop": {
-              "$ref": "#/$defs/diffViewerShortcutBindingNullable"
+              "$ref": "#/$defs/bareFirstStrokeShortcutBindingNullable"
             },
             "diffViewerOpenFileSearch": {
-              "$ref": "#/$defs/diffViewerShortcutBindingNullable"
+              "$ref": "#/$defs/bareFirstStrokeShortcutBindingNullable"
             }
           },
           "additionalProperties": {
@@ -1292,15 +1300,15 @@
         }
       ]
     },
-    "diffViewerShortcutBinding": {
+    "bareFirstStrokeShortcutBinding": {
       "oneOf": [
         {
           "$ref": "#/$defs/unboundShortcutBinding",
           "description": "Unbind this shortcut. Accepted values are an empty string, none, clear, unbound, or disabled."
         },
         {
-          "$ref": "#/$defs/diffViewerShortcutFirstStroke",
-          "description": "Single-stroke diff viewer shortcut, for example j, k, /, or shift+g."
+          "$ref": "#/$defs/bareFirstStrokeShortcutFirstStroke",
+          "description": "Single-stroke shortcut. Bare first strokes are accepted for this action."
         },
         {
           "type": "array",
@@ -1308,20 +1316,20 @@
           "maxItems": 2,
           "prefixItems": [
             {
-              "$ref": "#/$defs/diffViewerShortcutFirstStroke"
+              "$ref": "#/$defs/bareFirstStrokeShortcutFirstStroke"
             },
             {
               "$ref": "#/$defs/shortcutStroke"
             }
           ],
-          "description": "Chorded diff viewer shortcut. Example: [\"g\", \"g\"]."
+          "description": "Chorded shortcut. Bare first strokes are accepted for this action. Example: [\"g\", \"g\"]."
         }
       ]
     },
-    "diffViewerShortcutBindingNullable": {
+    "bareFirstStrokeShortcutBindingNullable": {
       "oneOf": [
         {
-          "$ref": "#/$defs/diffViewerShortcutBinding"
+          "$ref": "#/$defs/bareFirstStrokeShortcutBinding"
         },
         {
           "type": "null",
@@ -1351,7 +1359,7 @@
       ],
       "description": "First or only shortcut stroke. Must include a modifier unless the key is Space."
     },
-    "diffViewerShortcutFirstStroke": {
+    "bareFirstStrokeShortcutFirstStroke": {
       "allOf": [
         {
           "$ref": "#/$defs/shortcutStroke"
@@ -1370,7 +1378,7 @@
           ]
         }
       ],
-      "description": "First or only diff viewer shortcut stroke. Bare printable keys are accepted."
+      "description": "First or only shortcut stroke. Bare printable keys are accepted for actions that opt into bare first strokes."
     },
     "shortcutStroke": {
       "type": "string",
