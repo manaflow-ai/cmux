@@ -24,3 +24,27 @@ enum SidebarScrollViewConfigurator {
         }
     }
 }
+
+/// Resolves the sidebar list's enclosing `NSScrollView` for the SwiftUI layer
+/// (`SidebarScrollViewResolver` in `ContentView.swift`), which applies the
+/// configuration above through `onResolve`.
+final class SidebarScrollViewResolverView: NSView {
+    var onResolve: ((NSScrollView?) -> Void)?
+
+    override func viewDidMoveToSuperview() {
+        super.viewDidMoveToSuperview()
+        resolveScrollView()
+    }
+
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        resolveScrollView()
+    }
+
+    func resolveScrollView() {
+        DispatchQueue.main.async { [weak self] in
+            guard let self else { return }
+            onResolve?(self.enclosingScrollView)
+        }
+    }
+}

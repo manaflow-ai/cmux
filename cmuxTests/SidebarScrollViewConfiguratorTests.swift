@@ -75,4 +75,58 @@ struct SidebarScrollViewConfiguratorTests {
 
         #expect(scrollView.configPropertyWrites == 0)
     }
+
+    @Test func resolverReassertsOverlayConfigurationAfterPreferredScrollerStyleChange() async {
+        // AppKit resets every NSScrollView's `scrollerStyle` to the new
+        // system preference when the preferred scroller style changes — a
+        // mouse is connected/disconnected, or System Settings → Appearance →
+        // "Show scroll bars" changes. That clobbers the sidebar's forced
+        // overlay configuration with a legacy, space-reserving scrollbar
+        // until some unrelated SwiftUI re-render happens to re-run the
+        // resolver (#3241, sidebar scope of the reopen). The resolver must
+        // re-apply the configuration when the style-change notification
+        // fires, without waiting for a re-render.
+        let scrollView = NSScrollView(frame: NSRect(x: 0, y: 0, width: 200, height: 400))
+        let documentView = NSView(frame: NSRect(x: 0, y: 0, width: 200, height: 800))
+        scrollView.documentView = documentView
+
+        let resolver = SidebarScrollViewResolverView(frame: .zero)
+        var resolveCount = 0
+        resolver.onResolve = { resolved in
+            resolveCount += 1
+            guard let resolved else { return }
+            SidebarScrollViewConfigurator.apply(to: resolved)
+        }
+        documentView.addSubview(resolver)
+        await drainMainQueue()
+        #expect(scrollView.scrollerStyle == .overlay)
+        let resolvesBeforeStyleChange = resolveCount
+
+        // Simulate AppKit's per-scroll-view reset that accompanies the
+        // preferred-style change, then post the notification AppKit sends.
+        scrollView.scrollerStyle = .legacy
+        NotificationCenter.default.post(
+            name: NSScroller.preferredScrollerStyleDidChangeNotification,
+            object: nil
+        )
+        await drainMainQueue()
+
+        #expect(
+            resolveCount > resolvesBeforeStyleChange,
+            "a preferred-scroller-style change must re-resolve so the sidebar config is re-applied"
+        )
+        #expect(
+            scrollView.scrollerStyle == .overlay,
+            "the sidebar must re-assert overlay scrollers after a scroller-style change"
+        )
+    }
+
+    /// Round-trips the main queue so `resolveScrollView()`'s async hop (and
+    /// anything it enqueued) has run before the test continues. FIFO order on
+    /// the main queue makes this deterministic — no timed sleeps.
+    private func drainMainQueue() async {
+        await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+            DispatchQueue.main.async { continuation.resume() }
+        }
+    }
 }
