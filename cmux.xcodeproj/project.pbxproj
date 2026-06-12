@@ -201,6 +201,7 @@
 		C0DE34020000000000000002 /* CmuxHelpResource.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE34020000000000000004 /* CmuxHelpResource.swift */; };
 		C0DE46010000000000000001 /* CMUXInstalledExtensionSidebarHostView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE46010000000000000002 /* CMUXInstalledExtensionSidebarHostView.swift */; };
 		A51807FF0000000000000002 /* CmuxIrohFFI in Frameworks */ = {isa = PBXBuildFile; productRef = A51807FF0000000000000001 /* CmuxIrohFFI */; };
+		A51807FF0000000000000004 /* CmuxIrohFFI in Frameworks */ = {isa = PBXBuildFile; productRef = A51807FF0000000000000001 /* CmuxIrohFFI */; };
 		E7E00000000000000000000B /* CmuxLifecycleEventPublishing.swift in Sources */ = {isa = PBXBuildFile; fileRef = E7E00000000000000000000C /* CmuxLifecycleEventPublishing.swift */; };
 		2F0C07000000000000000002 /* CmuxMainWindow.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2F0C07000000000000000001 /* CmuxMainWindow.swift */; };
 		799F1BEF876006EEB8CD1035 /* CMUXMobileCore in Frameworks */ = {isa = PBXBuildFile; productRef = EFB18E3B3099DFE2ECA3C263 /* CMUXMobileCore */; };
@@ -1666,6 +1667,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				5E2701040000000000000004 /* CmuxFoundation in Frameworks */,
+				A51807FF0000000000000004 /* CmuxIrohFFI in Frameworks */,
 				EFB18E3C0000000000000001 /* CMUXMobileCore in Frameworks */,
 				C52830000000000000000002 /* CmuxTerminalCopyMode in Frameworks */,
 				5E2701040000000000000003 /* Sentry in Frameworks */,
@@ -2640,6 +2642,7 @@
 			packageProductDependencies = (
 				A5B00002A1B2C3D4E5F60718 /* CMUXAgentLaunch */,
 				EFB18E3B3099DFE2ECA3C263 /* CMUXMobileCore */,
+				A51807FF0000000000000001 /* CmuxIrohFFI */,
 				C52830000000000000000004 /* CmuxTerminalCopyMode */,
 				5E2701040000000000000001 /* Sentry */,
 				5E2701040000000000000002 /* CmuxFoundation */,
