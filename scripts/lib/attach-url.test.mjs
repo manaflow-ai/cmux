@@ -52,6 +52,20 @@ test("filters routes by kind and narrows the encoded ticket", () => {
   assert.equal(decoded.routes[0].kind, "tailscale");
 });
 
+test("uses host-supplied attach_url when filtering preserves the route set", () => {
+  const payload = samplePayload();
+  payload.attach_url = "cmux-ios://attach?v=1&payload=compact-host-url";
+  payload.ticket.routes = [payload.ticket.routes[0]];
+
+  const { attachURL, routes, payload: result } = buildAttachURL(payload, {
+    routeKind: "tailscale",
+  });
+
+  assert.equal(routes.length, 1);
+  assert.equal(attachURL, payload.attach_url);
+  assert.equal(result.attach_url, payload.attach_url);
+});
+
 test("filters routes by id", () => {
   const { routes } = buildAttachURL(samplePayload(), { routeID: "lo" });
   assert.equal(routes.length, 1);

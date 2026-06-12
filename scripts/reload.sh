@@ -15,6 +15,14 @@ CMUX_DEV_PORT=""
 CMUX_DEV_PORT_END=""
 CMUX_DEV_PORT_RANGE=""
 CMUX_DEV_ORIGIN=""
+CMUX_DEV_AUTH_ORIGIN_MODE="${CMUX_DEV_AUTH_ORIGIN:-auto}"
+CMUX_AUTH_WWW_ORIGIN=""
+CMUX_WWW_ORIGIN=""
+CMUX_API_BASE_URL=""
+CMUX_VM_API_BASE_URL=""
+CMUX_STACK_PROJECT_ID=""
+CMUX_STACK_PUBLISHABLE_CLIENT_KEY=""
+CMUX_DEV_AUTH_RESOLVED_MODE=""
 CLI_PATH=""
 # Matches CmuxStateDirectory (non-TCC ~/.local/state/cmux) where the app/CLI now
 # read the last-socket-path markers (https://github.com/manaflow-ai/cmux/issues/5146).
@@ -230,6 +238,9 @@ Options:
                          so macOS launches the freshly-built binary on cmd-click or --launch.
   --launch               Launch the app after building. Without this flag, the script
                          builds and prints the app path but does not open it.
+  CMUX_DEV_AUTH_ORIGIN   Auth origin mode: auto (default), production/prod, or local.
+                         auto uses local auth only when the dev web origin is reachable;
+                         otherwise it uses production auth so dev sign-in works.
   --name <app name>      Override app display/bundle name.
   --bundle-id <id>       Override bundle identifier.
   --derived-data <path>  Override derived data path.
@@ -309,6 +320,53 @@ choose_cmux_dev_port_end() {
     end="$start_num"
   fi
   echo "$end"
+}
+
+cmux_dev_origin_is_reachable() {
+  command -v curl >/dev/null 2>&1 || return 1
+  curl -fsS --max-time 1 "$CMUX_DEV_ORIGIN" >/dev/null 2>&1
+}
+
+use_local_dev_auth_origin() {
+  CMUX_AUTH_WWW_ORIGIN="$CMUX_DEV_ORIGIN"
+  CMUX_WWW_ORIGIN="$CMUX_DEV_ORIGIN"
+  CMUX_API_BASE_URL="$CMUX_DEV_ORIGIN"
+  CMUX_VM_API_BASE_URL="$CMUX_DEV_ORIGIN"
+  CMUX_STACK_PROJECT_ID=""
+  CMUX_STACK_PUBLISHABLE_CLIENT_KEY=""
+  CMUX_DEV_AUTH_RESOLVED_MODE="local"
+}
+
+use_production_dev_auth_origin() {
+  CMUX_AUTH_WWW_ORIGIN="https://cmux.com"
+  CMUX_WWW_ORIGIN="https://cmux.com"
+  CMUX_API_BASE_URL="https://api.cmux.sh"
+  CMUX_VM_API_BASE_URL="https://cmux.com"
+  CMUX_STACK_PROJECT_ID="9790718f-14cd-4f7e-824d-eaf527a82b82"
+  CMUX_STACK_PUBLISHABLE_CLIENT_KEY="pck_kzj80gx4mh2jrzn1cx6y5e8jk0kwa01vkevh2p9zd4twr"
+  CMUX_DEV_AUTH_RESOLVED_MODE="production"
+}
+
+resolve_dev_auth_origin() {
+  case "$CMUX_DEV_AUTH_ORIGIN_MODE" in
+    local)
+      use_local_dev_auth_origin
+      ;;
+    production|prod)
+      use_production_dev_auth_origin
+      ;;
+    auto|"")
+      if cmux_dev_origin_is_reachable; then
+        use_local_dev_auth_origin
+      else
+        use_production_dev_auth_origin
+      fi
+      ;;
+    *)
+      echo "error: CMUX_DEV_AUTH_ORIGIN must be auto, local, or production (got '$CMUX_DEV_AUTH_ORIGIN_MODE')" >&2
+      exit 2
+      ;;
+  esac
 }
 
 set_plist_env() {
@@ -527,6 +585,14 @@ CMUX_DEV_PORT="$(choose_cmux_dev_port)"
 CMUX_DEV_PORT_RANGE="$(choose_cmux_dev_port_range)"
 CMUX_DEV_PORT_END="$(choose_cmux_dev_port_end "$CMUX_DEV_PORT" "$CMUX_DEV_PORT_RANGE")"
 CMUX_DEV_ORIGIN="http://localhost:${CMUX_DEV_PORT}"
+resolve_dev_auth_origin
+
+if [[ -n "${TAG_SLUG:-}" ]]; then
+  # The mobile pairing listener is opt-in and reads this default at app launch.
+  # Tagged dev builds are isolated, so enabling it here makes QR generation work
+  # without requiring every caller to remember a separate defaults write.
+  defaults write "$BUNDLE_ID" mobile.iOSPairingHost.enabled -bool true
+fi
 
 # Quiet logging: capture all noisy build output (xcodebuild, zig, codesign,
 # plistbuddy, etc.) to a single log file. On success we print only a one-line
@@ -589,6 +655,8 @@ reload_finalize() {
     echo
     echo "Dev web origin:"
     echo "  $CMUX_DEV_ORIGIN"
+    echo "Dev auth origin (${CMUX_DEV_AUTH_RESOLVED_MODE}):"
+    echo "  $CMUX_AUTH_WWW_ORIGIN"
     if [[ -n "${TAG_SLUG:-}" ]]; then
       echo "Dev web command:"
       echo "  cd web && CMUX_PORT=$CMUX_DEV_PORT CMUX_PORT_RANGE=$CMUX_DEV_PORT_RANGE CMUX_PORT_END=$CMUX_DEV_PORT_END CMUX_AUTH_CALLBACK_SCHEME=cmux-dev-$TAG_SLUG bun dev"
@@ -931,9 +999,16 @@ if [[ -n "$TAG" && "$APP_NAME" != "$SEARCH_APP_NAME" ]]; then
       set_plist_env "$INFO_PLIST" CMUX_PORT_END "$CMUX_DEV_PORT_END"
       set_plist_env "$INFO_PLIST" CMUX_PORT_RANGE "$CMUX_DEV_PORT_RANGE"
       set_plist_env "$INFO_PLIST" PORT "$CMUX_DEV_PORT"
-      set_plist_env "$INFO_PLIST" CMUX_AUTH_WWW_ORIGIN "$CMUX_DEV_ORIGIN"
-      set_plist_env "$INFO_PLIST" CMUX_API_BASE_URL "$CMUX_DEV_ORIGIN"
-      set_plist_env "$INFO_PLIST" CMUX_VM_API_BASE_URL "$CMUX_DEV_ORIGIN"
+      set_plist_env "$INFO_PLIST" CMUX_AUTH_WWW_ORIGIN "$CMUX_AUTH_WWW_ORIGIN"
+      set_plist_env "$INFO_PLIST" CMUX_WWW_ORIGIN "$CMUX_WWW_ORIGIN"
+      set_plist_env "$INFO_PLIST" CMUX_API_BASE_URL "$CMUX_API_BASE_URL"
+      set_plist_env "$INFO_PLIST" CMUX_VM_API_BASE_URL "$CMUX_VM_API_BASE_URL"
+      if [[ -n "$CMUX_STACK_PROJECT_ID" ]]; then
+        set_plist_env "$INFO_PLIST" CMUX_STACK_PROJECT_ID "$CMUX_STACK_PROJECT_ID"
+      fi
+      if [[ -n "$CMUX_STACK_PUBLISHABLE_CLIENT_KEY" ]]; then
+        set_plist_env "$INFO_PLIST" CMUX_STACK_PUBLISHABLE_CLIENT_KEY "$CMUX_STACK_PUBLISHABLE_CLIENT_KEY"
+      fi
       if [[ -S "$CMUXD_SOCKET" ]]; then
         for PID in $(lsof -t "$CMUXD_SOCKET" 2>/dev/null); do
           kill "$PID" 2>/dev/null || true
@@ -1086,27 +1161,26 @@ if [[ "$LAUNCH" -eq 1 ]]; then
     CMUX_PORT_END="$CMUX_DEV_PORT_END"
     CMUX_PORT_RANGE="$CMUX_DEV_PORT_RANGE"
     PORT="$CMUX_DEV_PORT"
-    CMUX_AUTH_WWW_ORIGIN="$CMUX_DEV_ORIGIN"
-    CMUX_API_BASE_URL="$CMUX_DEV_ORIGIN"
-    CMUX_VM_API_BASE_URL="$CMUX_DEV_ORIGIN"
+    CMUX_AUTH_WWW_ORIGIN="$CMUX_AUTH_WWW_ORIGIN"
+    CMUX_WWW_ORIGIN="$CMUX_WWW_ORIGIN"
+    CMUX_API_BASE_URL="$CMUX_API_BASE_URL"
+    CMUX_VM_API_BASE_URL="$CMUX_VM_API_BASE_URL"
   )
+  if [[ -n "$CMUX_STACK_PROJECT_ID" ]]; then
+    TAG_LAUNCH_ENV+=(CMUX_STACK_PROJECT_ID="$CMUX_STACK_PROJECT_ID")
+  fi
+  if [[ -n "$CMUX_STACK_PUBLISHABLE_CLIENT_KEY" ]]; then
+    TAG_LAUNCH_ENV+=(CMUX_STACK_PUBLISHABLE_CLIENT_KEY="$CMUX_STACK_PUBLISHABLE_CLIENT_KEY")
+  fi
 
   LAUNCH_CMD=()
   LAUNCH_RETRY_CMD=()
   if [[ -n "${TAG_SLUG:-}" ]]; then
-    # Launch tagged apps directly so LaunchServices cannot reuse a stale
-    # LSEnvironment for the tag's bundle id.
-    APP_EXECUTABLE="$APP_PATH/Contents/MacOS/${BASE_APP_NAME}"
-    if [[ ! -x "$APP_EXECUTABLE" ]]; then
-      echo "error: tagged app executable not found: $APP_EXECUTABLE" >&2
-      exit 1
-    fi
-    TAG_LAUNCH_LOG="/tmp/cmux-launch-${TAG_SLUG}.out"
-    if [[ -n "${CMUX_SOCKET_PATH_VALUE:-}" ]]; then
-      nohup "${OPEN_CLEAN_ENV[@]}" "${TAG_LAUNCH_ENV[@]}" CMUX_SOCKET_PATH="$CMUX_SOCKET_PATH_VALUE" CMUXD_UNIX_PATH="$CMUXD_SOCKET" "$APP_EXECUTABLE" >"$TAG_LAUNCH_LOG" 2>&1 &
-    else
-      nohup "${OPEN_CLEAN_ENV[@]}" "${TAG_LAUNCH_ENV[@]}" "$APP_EXECUTABLE" >"$TAG_LAUNCH_LOG" 2>&1 &
-    fi
+    # Tagged app bundles carry their tag/socket/auth settings in LSEnvironment.
+    # LaunchServices keeps the app registered as a normal GUI app; direct exec
+    # can exit after startup and leave a stale debug socket behind.
+    LAUNCH_CMD=("${OPEN_CLEAN_ENV[@]}" open -n -g "$APP_PATH")
+    LAUNCH_RETRY_CMD=("${OPEN_CLEAN_ENV[@]}" open -n -g "$APP_PATH")
   else
     echo "/tmp/cmux-debug.sock" > /tmp/cmux-last-socket-path || true
     echo "/tmp/cmux-debug.log" > /tmp/cmux-last-debug-log-path || true

@@ -61,6 +61,19 @@ export function buildAttachURL(payload, filter = {}) {
   const ticket = { ...payload.ticket, routes };
   const result = { ...payload, ticket, routes };
 
+  const routeIDs = (items) => items.map((route) => route.id).join("\n");
+  const filterPreservedRoutes =
+    routes.length === payload.ticket.routes.length &&
+    routeIDs(routes) === routeIDs(payload.ticket.routes);
+  if (
+    typeof payload.attach_url === "string" &&
+    payload.attach_url &&
+    filterPreservedRoutes
+  ) {
+    result.attach_url = payload.attach_url;
+    return { attachURL: result.attach_url, routes, payload: result };
+  }
+
   const encodedPayload = Buffer.from(JSON.stringify(ticket)).toString(
     "base64url",
   );
