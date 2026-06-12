@@ -1,13 +1,13 @@
 public import Foundation
 
-/// Resolves which presence service (the `workers/presence` Cloudflare Worker)
-/// this app talks to. Mirrors the Mac's `PresenceSettings` resolution: an env
-/// override wins (dev/tagged builds), then the defaults key, then — on Debug
-/// builds only — the dev/staging instance, whose Stack project matches the
-/// dev Stack identity Debug builds sign in with. Release resolves to `nil`
-/// until the production worker URL ships with its settings surface, which
-/// keeps presence entirely off for stable users.
-public enum PresenceServiceConfiguration {
+/// Service-resolution members: which presence service (the `workers/presence`
+/// Cloudflare Worker) this app talks to. Mirrors the Mac's `PresenceSettings`
+/// resolution: an env override wins (dev/tagged builds), then the defaults
+/// key, then — on Debug builds only — the dev/staging instance, whose Stack
+/// project matches the dev Stack identity Debug builds sign in with. Release
+/// resolves to `nil` until the production worker URL ships with its settings
+/// surface, which keeps presence entirely off for stable users.
+extension PresenceClient {
     /// Env override, mirroring the Mac's `CMUX_PRESENCE_BASE_URL`.
     public static let serviceURLEnvKey = "CMUX_PRESENCE_BASE_URL"
     /// UserDefaults override, mirroring the Mac's `presenceServiceURL`.
@@ -20,7 +20,7 @@ public enum PresenceServiceConfiguration {
     public static func resolvedServiceBaseURL(
         environment: [String: String] = ProcessInfo.processInfo.environment,
         defaults: UserDefaults = .standard,
-        isDebugBuild: Bool = Self.isDebugBuild
+        isDebugBuild: Bool = PresenceClient.isDebugBuild
     ) -> String? {
         let override = environment[serviceURLEnvKey]?
             .trimmingCharacters(in: .whitespacesAndNewlines)

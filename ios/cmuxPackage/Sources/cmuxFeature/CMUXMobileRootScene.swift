@@ -163,7 +163,7 @@ public struct CMUXMobileRootScene: View {
     /// the current session and selected team.
     @MainActor
     private func makePresenceClient() -> PresenceClient? {
-        guard let baseURL = PresenceServiceConfiguration.resolvedServiceBaseURL() else { return nil }
+        guard let baseURL = PresenceClient.resolvedServiceBaseURL() else { return nil }
         let coordinator = auth.coordinator
         return PresenceClient(
             serviceBaseURL: baseURL,
