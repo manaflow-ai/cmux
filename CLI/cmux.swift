@@ -22158,6 +22158,15 @@ struct CMUXCLI {
             )
             let shouldPromoteActiveSession = !isForkSessionLaunch && (isClearSessionStart || canReplaceStoppedSession)
             if let sessionId = parsedInput.sessionId, !isForkSessionLaunch {
+                let mappedSession = try? sessionStore.lookup(sessionId: sessionId)
+                let canPublishResumeBinding = shouldPublishClaudeResumeBinding(
+                    sessionId: sessionId,
+                    parsedInput: parsedInput,
+                    mappedSession: mappedSession,
+                    env: ProcessInfo.processInfo.environment,
+                    fallbackPID: claudePid
+                )
+                let shouldPromoteThisSession = shouldPromoteActiveSession && canPublishResumeBinding
                 // Non-clear SessionStart can arrive late from startup/resume/compact
                 // after /clear, so only /clear or replacement of a stopped owner
                 // establishes a new active boundary.
@@ -22170,11 +22179,11 @@ struct CMUXCLI {
                     pid: claudePid,
                     launchCommand: launchCommand,
                     isRestorable: false,
-                    agentLifecycle: shouldPromoteActiveSession ? .running : .unknown,
-                    markActive: shouldPromoteActiveSession,
+                    agentLifecycle: shouldPromoteThisSession ? .running : .unknown,
+                    markActive: shouldPromoteThisSession,
                     turnId: parsedInput.turnId
                 )
-                if shouldPromoteActiveSession {
+                if shouldPromoteThisSession {
                     publishAgentSurfaceResumeBinding(
                         client: client,
                         workspaceId: workspaceId,
@@ -22283,29 +22292,38 @@ struct CMUXCLI {
                     sessionRecord: mappedSession
                 )
                 if let sessionId = parsedInput.sessionId {
+                    let canPublishResumeBinding = shouldPublishClaudeResumeBinding(
+                        sessionId: sessionId,
+                        parsedInput: parsedInput,
+                        mappedSession: mappedSession,
+                        env: ProcessInfo.processInfo.environment,
+                        fallbackPID: claudePid
+                    )
                     try? sessionStore.upsert(
                         sessionId: sessionId,
                         workspaceId: workspaceId,
                         surfaceId: surfaceId,
                         cwd: parsedInput.cwd,
                         transcriptPath: parsedInput.transcriptPath,
-                        isRestorable: true,
+                        isRestorable: canPublishResumeBinding,
                         agentLifecycle: .idle,
                         lastSubtitle: completion?.subtitle,
                         lastBody: completion?.body,
                         markActive: true,
                         allowsNewSessionReplacement: true
                     )
-                    publishAgentSurfaceResumeBinding(
-                        client: client,
-                        workspaceId: workspaceId,
-                        surfaceId: surfaceId,
-                        kind: "claude",
-                        displayName: String(localized: "cli.claude-hook.notification.title", defaultValue: "Claude Code"),
-                        sessionId: sessionId,
-                        cwd: parsedInput.cwd ?? mappedSession?.cwd,
-                        launchCommand: mappedSession?.launchCommand
-                    )
+                    if canPublishResumeBinding {
+                        publishAgentSurfaceResumeBinding(
+                            client: client,
+                            workspaceId: workspaceId,
+                            surfaceId: surfaceId,
+                            kind: "claude",
+                            displayName: String(localized: "cli.claude-hook.notification.title", defaultValue: "Claude Code"),
+                            sessionId: sessionId,
+                            cwd: parsedInput.cwd ?? mappedSession?.cwd,
+                            launchCommand: mappedSession?.launchCommand
+                        )
+                    }
                 }
 
                 setAgentLifecycle(
@@ -22402,6 +22420,13 @@ struct CMUXCLI {
                         cwd: parsedInput.cwd
                     )
                     : nil
+                let canPublishResumeBinding = shouldPublishClaudeResumeBinding(
+                    sessionId: sessionId,
+                    parsedInput: parsedInput,
+                    mappedSession: mappedSession,
+                    env: ProcessInfo.processInfo.environment,
+                    fallbackPID: claudePid
+                )
                 try? sessionStore.upsert(
                     sessionId: sessionId,
                     workspaceId: workspaceId,
@@ -22410,21 +22435,23 @@ struct CMUXCLI {
                     transcriptPath: parsedInput.transcriptPath,
                     pid: mappedSession == nil ? claudePid : nil,
                     launchCommand: firstSightingLaunchCommand,
-                    isRestorable: true,
+                    isRestorable: canPublishResumeBinding,
                     agentLifecycle: .running,
                     markActive: true,
                     turnId: parsedInput.turnId
                 )
-                publishAgentSurfaceResumeBinding(
-                    client: client,
-                    workspaceId: workspaceId,
-                    surfaceId: surfaceId,
-                    kind: "claude",
-                    displayName: String(localized: "cli.claude-hook.notification.title", defaultValue: "Claude Code"),
-                    sessionId: sessionId,
-                    cwd: parsedInput.cwd ?? mappedSession?.cwd,
-                    launchCommand: mappedSession?.launchCommand ?? firstSightingLaunchCommand
-                )
+                if canPublishResumeBinding {
+                    publishAgentSurfaceResumeBinding(
+                        client: client,
+                        workspaceId: workspaceId,
+                        surfaceId: surfaceId,
+                        kind: "claude",
+                        displayName: String(localized: "cli.claude-hook.notification.title", defaultValue: "Claude Code"),
+                        sessionId: sessionId,
+                        cwd: parsedInput.cwd ?? mappedSession?.cwd,
+                        launchCommand: mappedSession?.launchCommand ?? firstSightingLaunchCommand
+                    )
+                }
             }
             _ = try sendV1Command("clear_notifications --tab=\(workspaceId)", client: client)
             setAgentLifecycle(
@@ -22942,6 +22969,40 @@ struct CMUXCLI {
             )
             return false
         }
+    }
+
+    private func shouldPublishClaudeResumeBinding(
+        sessionId: String,
+        parsedInput: ClaudeHookParsedInput,
+        mappedSession: ClaudeHookSessionRecord?,
+        env: [String: String],
+        fallbackPID: Int?
+    ) -> Bool {
+        guard let normalizedSessionId = normalizedHookValue(sessionId) else { return false }
+        if normalizedHookValue(parsedInput.transcriptPath ?? mappedSession?.transcriptPath) != nil {
+            return true
+        }
+        if let resumedSessionId = claudeResumeLaunchSessionId(env: env, fallbackPID: fallbackPID),
+           resumedSessionId == normalizedSessionId {
+            return false
+        }
+        return true
+    }
+
+    private func claudeResumeLaunchSessionId(env: [String: String], fallbackPID: Int?) -> String? {
+        guard let arguments = claudeRawLaunchArguments(env: env, fallbackPID: fallbackPID) else {
+            return nil
+        }
+        for (index, argument) in arguments.enumerated() {
+            if argument == "--resume" || argument == "-r" {
+                guard index + 1 < arguments.count else { return nil }
+                return normalizedHookValue(arguments[index + 1])
+            }
+            for prefix in ["--resume=", "-r="] where argument.hasPrefix(prefix) {
+                return normalizedHookValue(String(argument.dropFirst(prefix.count)))
+            }
+        }
+        return nil
     }
 
     private func isClaudeClearSessionStart(_ parsedInput: ClaudeHookParsedInput) -> Bool {
