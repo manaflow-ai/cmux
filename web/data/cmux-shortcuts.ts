@@ -90,8 +90,8 @@ export const shortcutCategories: ShortcutCategory[] = [
         combos: [["⌘", "["]],
         description: { en: "Focus back", ja: "フォーカスを戻す" },
         note: {
-          en: "cmux uses Cmd+[ and Cmd+] for focus history by default. Unbind Focus Back/Forward in Settings to let browser or terminal shortcuts handle those keys.",
-          ja: "cmux は標準で Cmd+[ と Cmd+] をフォーカス履歴に使います。ブラウザまたはターミナル側で使うには、設定で Focus Back/Forward の割り当てを解除します。",
+          en: "Outside browser panes. While a browser pane is focused, Cmd+[ goes back a page (Safari-style); use Cmd+Opt+[ for focus history there, or set { \"shortcuts\": { \"when\": { \"focusHistoryBack\": \"always\", \"focusHistoryForward\": \"always\" } } } in cmux.json to keep Cmd+[ on focus history everywhere.",
+          ja: "ブラウザペイン以外で有効。ブラウザペインのフォーカス中は Cmd+[ はページを戻ります（Safari と同じ）。その場合は Cmd+Opt+[ を使うか、cmux.json に { \"shortcuts\": { \"when\": { \"focusHistoryBack\": \"always\", \"focusHistoryForward\": \"always\" } } } を設定すると常にフォーカス履歴になります。",
         },
       },
       {
@@ -99,8 +99,26 @@ export const shortcutCategories: ShortcutCategory[] = [
         combos: [["⌘", "]"]],
         description: { en: "Focus forward", ja: "フォーカスを進める" },
         note: {
-          en: "cmux uses Cmd+[ and Cmd+] for focus history by default. Unbind Focus Back/Forward in Settings to let browser or terminal shortcuts handle those keys.",
-          ja: "cmux は標準で Cmd+[ と Cmd+] をフォーカス履歴に使います。ブラウザまたはターミナル側で使うには、設定で Focus Back/Forward の割り当てを解除します。",
+          en: "Outside browser panes. While a browser pane is focused, Cmd+] goes forward a page; use Cmd+Opt+] for focus history there.",
+          ja: "ブラウザペイン以外で有効。ブラウザペインのフォーカス中は Cmd+] はページを進みます。その場合は Cmd+Opt+] を使います。",
+        },
+      },
+      {
+        id: "focusHistoryBackGlobal",
+        combos: [["⌘", "⌥", "["]],
+        description: { en: "Focus back (global)", ja: "フォーカスを戻す（グローバル）" },
+        note: {
+          en: "Works in every context, including focused browser panes. On layouts where brackets are typed with Option (e.g. German), bracket shortcuts match the physical ANSI bracket keys.",
+          ja: "ブラウザペインのフォーカス中を含むすべてのコンテキストで有効。Option でブラケットを入力するレイアウト（ドイツ語など）では、ブラケットのショートカットは物理的な ANSI ブラケットキーに対応します。",
+        },
+      },
+      {
+        id: "focusHistoryForwardGlobal",
+        combos: [["⌘", "⌥", "]"]],
+        description: { en: "Focus forward (global)", ja: "フォーカスを進める（グローバル）" },
+        note: {
+          en: "Works in every context, including focused browser panes.",
+          ja: "ブラウザペインのフォーカス中を含むすべてのコンテキストで有効。",
         },
       },
       { id: "selectWorkspaceByNumber", combos: [["⌘", "1…9"]], description: { en: "Select workspace 1…9", ja: "ワークスペース1…9を選択" } },
@@ -174,8 +192,18 @@ export const shortcutCategories: ShortcutCategory[] = [
     shortcuts: [
       { id: "openBrowser", combos: [["⌘", "⇧", "L"]], description: { en: "Open browser", ja: "ブラウザを開く" } },
       { id: "focusBrowserAddressBar", combos: [["⌘", "L"]], description: { en: "Focus address bar", ja: "アドレスバーにフォーカス" } },
-      { id: "browserBack", combos: [["⌘", "["]], description: { en: "Back", ja: "戻る" } },
-      { id: "browserForward", combos: [["⌘", "]"]], description: { en: "Forward", ja: "進む" } },
+      {
+        id: "browserBack",
+        combos: [["⌘", "["]],
+        description: { en: "Back", ja: "戻る" },
+        note: { en: "focused browser; beeps when there is no page to go back to", ja: "フォーカス中のブラウザ。戻るページがない場合はビープ音" },
+      },
+      {
+        id: "browserForward",
+        combos: [["⌘", "]"]],
+        description: { en: "Forward", ja: "進む" },
+        note: { en: "focused browser", ja: "フォーカス中のブラウザ" },
+      },
       {
         id: "browserReload",
         combos: [["⌘", "R"]],

@@ -352,7 +352,7 @@ final class KeyboardShortcutContextTests: XCTestCase {
         )
     }
 
-    func testFocusHistoryMenuShortcutsSuppressDuplicateBrowserHistoryKeys() throws {
+    func testFocusHistoryMenuShortcutsAreSuppressedInFavorOfGlobalPair() throws {
         let originalSettingsFileStore = KeyboardShortcutSettings.settingsFileStore
         let directoryURL = try makeTemporaryDirectory()
         defer {
@@ -371,21 +371,119 @@ final class KeyboardShortcutContextTests: XCTestCase {
         )
         KeyboardShortcutSettings.resetAll()
 
-        let focusBack = KeyboardShortcutSettings.shortcut(for: .focusHistoryBack)
-        let focusForward = KeyboardShortcutSettings.shortcut(for: .focusHistoryForward)
+        // The ⌘[ / ⌘] pair is gated to non-browser focus by its built-in
+        // clause; a static menu equivalent would bypass that gate, so the
+        // History menu badges the always-available Global pair instead and the
+        // browser View-menu items keep their truthful ⌘[ / ⌘] badges.
+        XCTAssertEqual(KeyboardShortcutSettings.menuShortcut(for: .focusHistoryBack), .unbound)
+        XCTAssertEqual(KeyboardShortcutSettings.menuShortcut(for: .focusHistoryForward), .unbound)
+        XCTAssertEqual(
+            KeyboardShortcutSettings.menuShortcut(for: .focusHistoryBackGlobal),
+            KeyboardShortcutSettings.shortcut(for: .focusHistoryBackGlobal)
+        )
+        XCTAssertEqual(
+            KeyboardShortcutSettings.menuShortcut(for: .focusHistoryForwardGlobal),
+            KeyboardShortcutSettings.shortcut(for: .focusHistoryForwardGlobal)
+        )
+        XCTAssertEqual(
+            KeyboardShortcutSettings.menuShortcut(for: .browserBack),
+            KeyboardShortcutSettings.shortcut(for: .browserBack)
+        )
+        XCTAssertEqual(
+            KeyboardShortcutSettings.menuShortcut(for: .browserForward),
+            KeyboardShortcutSettings.shortcut(for: .browserForward)
+        )
+    }
 
-        XCTAssertEqual(focusBack, KeyboardShortcutSettings.shortcut(for: .browserBack))
-        XCTAssertEqual(focusForward, KeyboardShortcutSettings.shortcut(for: .browserForward))
-        XCTAssertEqual(KeyboardShortcutSettings.menuShortcut(for: .focusHistoryBack), focusBack)
-        XCTAssertEqual(KeyboardShortcutSettings.menuShortcut(for: .focusHistoryForward), focusForward)
-        XCTAssertEqual(KeyboardShortcutSettings.menuShortcut(for: .browserBack), .unbound)
-        XCTAssertEqual(KeyboardShortcutSettings.menuShortcut(for: .browserForward), .unbound)
+    func testFocusHistoryGlobalPairDefaultsToCommandOptionBrackets() {
+        XCTAssertEqual(
+            KeyboardShortcutSettings.Action.focusHistoryBackGlobal.defaultShortcut,
+            StoredShortcut(key: "[", command: true, shift: false, option: true, control: false)
+        )
+        XCTAssertEqual(
+            KeyboardShortcutSettings.Action.focusHistoryForwardGlobal.defaultShortcut,
+            StoredShortcut(key: "]", command: true, shift: false, option: true, control: false)
+        )
+        XCTAssertEqual(KeyboardShortcutSettings.Action.focusHistoryBackGlobal.shortcutContext, .application)
+        XCTAssertEqual(KeyboardShortcutSettings.Action.focusHistoryForwardGlobal.shortcutContext, .application)
+        XCTAssertTrue(KeyboardShortcutSettings.settingsVisibleActions.contains(.focusHistoryBackGlobal))
+        XCTAssertTrue(KeyboardShortcutSettings.settingsVisibleActions.contains(.focusHistoryForwardGlobal))
+    }
+
+    // Users who explicitly unbound Focus Back/Forward (the documented workaround
+    // to reclaim ⌘[ / ⌘] for browser panes) opted out of the focus-history verb;
+    // shipping the Global pair must not resurrect it on their keyboard.
+    func testExplicitFocusHistoryOptOutCarriesOverToGlobalPair() {
+        defer { KeyboardShortcutSettings.resetAll() }
+        KeyboardShortcutSettings.resetAll()
 
         KeyboardShortcutSettings.clearShortcut(for: .focusHistoryBack)
-        KeyboardShortcutSettings.clearShortcut(for: .focusHistoryForward)
+        XCTAssertEqual(
+            KeyboardShortcutSettings.shortcut(for: .focusHistoryBackGlobal),
+            KeyboardShortcutSettings.Action.focusHistoryBackGlobal.defaultShortcut,
+            "Unbinding only one direction is not a full opt-out; the Global pair keeps its default"
+        )
 
-        XCTAssertEqual(KeyboardShortcutSettings.menuShortcut(for: .browserBack), KeyboardShortcutSettings.shortcut(for: .browserBack))
-        XCTAssertEqual(KeyboardShortcutSettings.menuShortcut(for: .browserForward), KeyboardShortcutSettings.shortcut(for: .browserForward))
+        KeyboardShortcutSettings.clearShortcut(for: .focusHistoryForward)
+        XCTAssertEqual(KeyboardShortcutSettings.shortcut(for: .focusHistoryBackGlobal), .unbound)
+        XCTAssertEqual(KeyboardShortcutSettings.shortcut(for: .focusHistoryForwardGlobal), .unbound)
+
+        // An explicit user binding on a Global action always wins over the
+        // inherited opt-out.
+        let custom = StoredShortcut(key: "b", command: true, shift: true, option: true, control: false)
+        KeyboardShortcutSettings.setShortcut(custom, for: .focusHistoryBackGlobal)
+        XCTAssertEqual(KeyboardShortcutSettings.shortcut(for: .focusHistoryBackGlobal), custom)
+    }
+
+    func testExplicitFocusHistoryOptOutInSettingsFileCarriesOverToGlobalPair() throws {
+        let originalSettingsFileStore = KeyboardShortcutSettings.settingsFileStore
+        let directoryURL = try makeTemporaryDirectory()
+        defer {
+            KeyboardShortcutSettings.resetAll()
+            KeyboardShortcutSettings.settingsFileStore = originalSettingsFileStore
+            try? FileManager.default.removeItem(at: directoryURL)
+        }
+
+        let settingsFileURL = directoryURL.appendingPathComponent("cmux.json", isDirectory: false)
+        try writeSettingsFile(
+            """
+            {
+              "shortcuts": {
+                "bindings": {
+                  "focusHistoryBack": "none",
+                  "focusHistoryForward": "none"
+                }
+              }
+            }
+            """,
+            to: settingsFileURL
+        )
+        KeyboardShortcutSettings.settingsFileStore = KeyboardShortcutSettingsFileStore(
+            primaryPath: settingsFileURL.path,
+            fallbackPath: nil,
+            additionalFallbackPaths: [],
+            startWatching: false
+        )
+        KeyboardShortcutSettings.resetAll()
+
+        XCTAssertEqual(KeyboardShortcutSettings.shortcut(for: .focusHistoryBackGlobal), .unbound)
+        XCTAssertEqual(KeyboardShortcutSettings.shortcut(for: .focusHistoryForwardGlobal), .unbound)
+    }
+
+    func testUserCustomizationDetectionDistinguishesStoredValuesFromDefaults() {
+        defer { KeyboardShortcutSettings.resetAll() }
+        KeyboardShortcutSettings.resetAll()
+
+        XCTAssertFalse(KeyboardShortcutSettings.isUserCustomized(.focusHistoryBackGlobal))
+        XCTAssertFalse(KeyboardShortcutSettings.hasExplicitUnboundMarker(for: .focusHistoryBack))
+
+        let custom = StoredShortcut(key: "b", command: true, shift: true, option: true, control: false)
+        KeyboardShortcutSettings.setShortcut(custom, for: .focusHistoryBackGlobal)
+        XCTAssertTrue(KeyboardShortcutSettings.isUserCustomized(.focusHistoryBackGlobal))
+
+        KeyboardShortcutSettings.clearShortcut(for: .focusHistoryBack)
+        XCTAssertTrue(KeyboardShortcutSettings.hasExplicitUnboundMarker(for: .focusHistoryBack))
+        XCTAssertTrue(KeyboardShortcutSettings.isUserCustomized(.focusHistoryBack))
     }
 
     func testEmptyWhenClauseDoesNotSuppressMenuShortcut() throws {

@@ -14,10 +14,50 @@ extension KeyboardShortcutSettings {
 
         guard let data = UserDefaults.standard.data(forKey: action.defaultsKey),
               let shortcut = try? JSONDecoder().decode(StoredShortcut.self, from: data) else {
+            if inheritsFocusHistoryOptOut(action) { return nil }
             let defaultShortcut = action.defaultShortcut
             return defaultShortcut.isUnbound ? nil : defaultShortcut
         }
         return shortcut.isUnbound ? nil : shortcut
+    }
+
+    /// Whether the user has stored their own value for `action` (settings file
+    /// or legacy UserDefaults), as opposed to riding the factory default.
+    /// User-stored values are a sparse overlay over compiled defaults; runtime
+    /// routing uses this to keep a factory-default binding from shadowing a
+    /// user-configured one on the same keystroke.
+    static func isUserCustomized(_ action: Action) -> Bool {
+        if settingsFileStore.override(for: action) != nil { return true }
+        guard let data = UserDefaults.standard.data(forKey: action.defaultsKey) else { return false }
+        return (try? JSONDecoder().decode(StoredShortcut.self, from: data)) != nil
+    }
+
+    /// Whether the user explicitly unbound `action` (an unbound marker stored in
+    /// either layer), as opposed to never touching it.
+    static func hasExplicitUnboundMarker(for action: Action) -> Bool {
+        if let managedShortcut = settingsFileStore.override(for: action) {
+            return managedShortcut.isUnbound
+        }
+        guard let data = UserDefaults.standard.data(forKey: action.defaultsKey),
+              let shortcut = try? JSONDecoder().decode(StoredShortcut.self, from: data) else {
+            return false
+        }
+        return shortcut.isUnbound
+    }
+
+    /// Users who explicitly unbound Focus Back AND Focus Forward (the previously
+    /// documented workaround to reclaim ⌘[ / ⌘] for browser panes) opted out of
+    /// the focus-history verb on their keyboard; don't resurrect it through the
+    /// global pair's factory default. Read-side only — never writes the user's
+    /// config, and binding either global action explicitly always wins.
+    private static func inheritsFocusHistoryOptOut(_ action: Action) -> Bool {
+        switch action {
+        case .focusHistoryBackGlobal, .focusHistoryForwardGlobal:
+            return hasExplicitUnboundMarker(for: .focusHistoryBack)
+                && hasExplicitUnboundMarker(for: .focusHistoryForward)
+        default:
+            return false
+        }
     }
 
     static func shortcut(for action: Action) -> StoredShortcut {
@@ -40,16 +80,15 @@ extension KeyboardShortcutSettings {
             return .unbound
         }
 
-        let shortcut = shortcut(for: action)
+        // Focus Back/Forward are gated to non-browser focus by their built-in
+        // context, which a static menu equivalent would bypass (same hazard as
+        // issue #5189, but for a built-in clause). The History menu shows the
+        // always-available Global pair instead, so suppress the gated pair here.
         switch action {
-        case .browserBack
-            where !shortcut.isUnbound && shortcut == KeyboardShortcutSettings.shortcut(for: .focusHistoryBack):
-            return .unbound
-        case .browserForward
-            where !shortcut.isUnbound && shortcut == KeyboardShortcutSettings.shortcut(for: .focusHistoryForward):
+        case .focusHistoryBack, .focusHistoryForward:
             return .unbound
         default:
-            return shortcut
+            return shortcut(for: action)
         }
     }
 

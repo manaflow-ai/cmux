@@ -1123,6 +1123,8 @@
               "prevSidebarTab",
               "focusHistoryBack",
               "focusHistoryForward",
+              "focusHistoryBackGlobal",
+              "focusHistoryForwardGlobal",
               "selectWorkspaceByNumber",
               "renameTab",
               "renameWorkspace",

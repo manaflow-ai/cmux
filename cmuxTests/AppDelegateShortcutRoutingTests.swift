@@ -291,6 +291,64 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
 #endif
     }
 
+    // A factory-default binding must never shadow a user-configured binding on
+    // the same keystroke: user customizations are a sparse overlay over compiled
+    // defaults, so when a release ships a new default chord the dispatch chain's
+    // source order must not decide who wins. Here the user puts New Workspace on
+    // ⌘B; the factory Toggle Sidebar default on ⌘B sits earlier in the chain and
+    // must yield.
+    func testFactoryDefaultBindingYieldsToUserConfiguredBindingOnSameChord() {
+        guard let appDelegate = AppDelegate.shared else {
+            XCTFail("Expected AppDelegate.shared")
+            return
+        }
+
+        let windowId = appDelegate.createMainWindow()
+        defer {
+            KeyboardShortcutSettings.resetAll()
+            closeWindow(withId: windowId)
+        }
+
+        guard let window = window(withId: windowId),
+              let manager = appDelegate.tabManagerFor(windowId: windowId) else {
+            XCTFail("Expected test window and manager")
+            return
+        }
+
+        KeyboardShortcutSettings.resetAll()
+        let commandB = KeyboardShortcutSettings.Action.toggleSidebar.defaultShortcut
+        KeyboardShortcutSettings.setShortcut(commandB, for: .newTab)
+
+        let initialCount = manager.tabs.count
+        guard let event = NSEvent.keyEvent(
+            with: .keyDown,
+            location: .zero,
+            modifierFlags: [.command],
+            timestamp: ProcessInfo.processInfo.systemUptime,
+            windowNumber: window.windowNumber,
+            context: nil,
+            characters: "b",
+            charactersIgnoringModifiers: "b",
+            isARepeat: false,
+            keyCode: 11
+        ) else {
+            XCTFail("Failed to construct Cmd+B event")
+            return
+        }
+
+#if DEBUG
+        XCTAssertTrue(appDelegate.debugHandleCustomShortcut(event: event))
+#else
+        XCTFail("debugHandleCustomShortcut is only available in DEBUG")
+#endif
+
+        XCTAssertEqual(
+            manager.tabs.count,
+            initialCount + 1,
+            "User-configured ⌘B (New Workspace) must beat the factory Toggle Sidebar default on the same chord"
+        )
+    }
+
     func testCmdNUsesEventWindowContextWhenActiveManagerIsStale() {
         guard let appDelegate = AppDelegate.shared else {
             XCTFail("Expected AppDelegate.shared")

@@ -56,6 +56,8 @@ extension ShortcutAction {
         case .prevSidebarTab: return ShortcutStroke(key: "[", command: true, control: true)
         case .focusHistoryBack: return ShortcutStroke(key: "[", command: true)
         case .focusHistoryForward: return ShortcutStroke(key: "]", command: true)
+        case .focusHistoryBackGlobal: return ShortcutStroke(key: "[", command: true, option: true)
+        case .focusHistoryForwardGlobal: return ShortcutStroke(key: "]", command: true, option: true)
         case .renameTab: return ShortcutStroke(key: "r", command: true)
         case .renameWorkspace: return ShortcutStroke(key: "r", command: true, shift: true)
         case .editWorkspaceDescription: return ShortcutStroke(key: "e", command: true, option: true)

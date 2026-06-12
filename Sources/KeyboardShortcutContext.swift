@@ -31,6 +31,11 @@ struct ShortcutEventFocusContextCache {
 extension KeyboardShortcutSettings.Action {
     enum ShortcutContext: Equatable {
         case application
+        /// Available everywhere except a focused browser pane. Unlike
+        /// `.nonBrowserPanel`, a focused right sidebar keeps the action live.
+        /// Lets an app-wide chord (focus history ⌘[ / ⌘]) yield to a
+        /// browser-context action sharing the same stroke.
+        case outsideBrowserPanel
         case nonBrowserPanel
         case browserPanel
         case markdownPanel
@@ -44,6 +49,8 @@ extension KeyboardShortcutSettings.Action {
             switch self {
             case .application:
                 return true
+            case .outsideBrowserPanel:
+                return !focusedBrowserPanel
             case .nonBrowserPanel:
                 return !focusedBrowserPanel && !rightSidebarFocused
             case .browserPanel:
@@ -69,6 +76,8 @@ extension KeyboardShortcutSettings.Action {
             switch self {
             case .application:
                 return .always
+            case .outsideBrowserPanel:
+                return .not(.atom(.browserFocus))
             case .nonBrowserPanel:
                 return .and(.not(.atom(.browserFocus)), .not(.atom(.sidebarFocus)))
             case .browserPanel:
@@ -81,6 +90,13 @@ extension KeyboardShortcutSettings.Action {
         }
 
         func overlaps(_ other: ShortcutContext) -> Bool {
+            // `.outsideBrowserPanel` and `.browserPanel` partition focus states,
+            // so the same stroke can drive one action in each without conflict.
+            // Every other context can hold while no browser pane is focused,
+            // so `.outsideBrowserPanel` overlaps all of them.
+            if self == .outsideBrowserPanel || other == .outsideBrowserPanel {
+                return !(self == .browserPanel || other == .browserPanel)
+            }
             if self == .application || other == .application {
                 return true
             }
@@ -129,6 +145,10 @@ extension KeyboardShortcutSettings.Action {
             return .rightSidebarFocus
         case .renameTab, .renameWorkspace, .sendCtrlFToTerminal:
             return .nonBrowserPanel
+        case .focusHistoryBack, .focusHistoryForward:
+            // ⌘[ / ⌘] yield to browserBack/browserForward while a browser pane
+            // is focused; the Global variants keep the verb reachable there.
+            return .outsideBrowserPanel
         case .browserBack, .browserForward, .browserReload, .toggleBrowserDeveloperTools, .showBrowserJavaScriptConsole,
              .browserZoomIn, .browserZoomOut, .browserZoomReset, .toggleBrowserFocusMode:
             return .browserPanel

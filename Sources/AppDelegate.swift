@@ -13542,7 +13542,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             }
         }
 
-        if matchConfiguredShortcut(event: event, action: .focusHistoryBack) {
+        // Focus history rides ⌘[ / ⌘] outside browser panes (its built-in when
+        // clause yields those keys to browserBack/browserForward while a browser
+        // pane is focused) and stays reachable everywhere on the Global pair.
+        if matchConfiguredShortcut(event: event, action: .focusHistoryBack) ||
+            matchConfiguredShortcut(event: event, action: .focusHistoryBackGlobal) {
             let routedManager = preferredMainWindowContextForShortcutRouting(event: event)?.tabManager ?? tabManager
             if routedManager?.navigateBack() != true {
                 NSSound.beep()
@@ -13550,7 +13554,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             return true
         }
 
-        if matchConfiguredShortcut(event: event, action: .focusHistoryForward) {
+        if matchConfiguredShortcut(event: event, action: .focusHistoryForward) ||
+            matchConfiguredShortcut(event: event, action: .focusHistoryForwardGlobal) {
             let routedManager = preferredMainWindowContextForShortcutRouting(event: event)?.tabManager ?? tabManager
             if routedManager?.navigateForward() != true {
                 NSSound.beep()
@@ -13574,7 +13579,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             guard let focusedBrowserPanel = shortcutEventBrowserPanel(event) else {
                 return false
             }
-            focusedBrowserPanel.goBack()
+            // Consume with a beep at the history boundary: a silent no-op reads
+            // as a dead key, and falling through would jump focus elsewhere.
+            if focusedBrowserPanel.canGoBack {
+                focusedBrowserPanel.goBack()
+            } else {
+                NSSound.beep()
+            }
             return true
         }
 
@@ -13582,7 +13593,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             guard let focusedBrowserPanel = shortcutEventBrowserPanel(event) else {
                 return false
             }
-            focusedBrowserPanel.goForward()
+            if focusedBrowserPanel.canGoForward {
+                focusedBrowserPanel.goForward()
+            } else {
+                NSSound.beep()
+            }
             return true
         }
 
@@ -14802,7 +14817,34 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
     private func matchConfiguredShortcut(event: NSEvent, action: KeyboardShortcutSettings.Action) -> Bool {
         if !shortcutWhenClauseAllows(action: action, event: event) { return false }
-        return matchConfiguredShortcut(event: event, shortcut: KeyboardShortcutSettings.shortcut(for: action))
+        guard matchConfiguredShortcut(event: event, shortcut: KeyboardShortcutSettings.shortcut(for: action)) else {
+            return false
+        }
+        if factoryDefaultShortcutYieldsToUserBinding(event: event, action: action) { return false }
+        return true
+    }
+
+    /// A factory-default binding never shadows a user-configured binding on the
+    /// same keystroke. User customizations are a sparse overlay over compiled
+    /// defaults, so a release that ships a new default chord (e.g. the Focus
+    /// Back/Forward Global pair on ⌥⌘[ / ⌥⌘]) must lose to whatever the user
+    /// already put on that chord — the dispatch chain's source order must not
+    /// decide. Yielding here lets the chain fall through to the user's action.
+    private func factoryDefaultShortcutYieldsToUserBinding(
+        event: NSEvent,
+        action: KeyboardShortcutSettings.Action
+    ) -> Bool {
+        guard !KeyboardShortcutSettings.isUserCustomized(action) else { return false }
+        for other in KeyboardShortcutSettings.Action.allCases where other != action {
+            guard KeyboardShortcutSettings.isUserCustomized(other),
+                  let userShortcut = KeyboardShortcutSettings.shortcutIfBound(for: other),
+                  matchConfiguredShortcut(event: event, shortcut: userShortcut),
+                  shortcutWhenClauseAllows(action: other, event: event) else {
+                continue
+            }
+            return true
+        }
+        return false
     }
 
     /// Whether `action`'s effective `when` clause (its `shortcuts.when` override,
