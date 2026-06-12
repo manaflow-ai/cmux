@@ -73,10 +73,25 @@ final class CanvasPaneContentMount: CanvasPaneContentMounting {
             }
         }
 
-        view.translatesAutoresizingMaskIntoConstraints = true
-        view.autoresizingMask = [.width, .height]
-        view.frame = container.bounds
-        container.addSubview(view)
+        switch content {
+        case .terminal:
+            // Ghostty's scroll view manages its own constraints-free layout.
+            view.translatesAutoresizingMaskIntoConstraints = true
+            view.autoresizingMask = [.width, .height]
+            view.frame = container.bounds
+            container.addSubview(view)
+        case .hosted:
+            // Hosting views self-size to SwiftUI's ideal size under
+            // autoresizing; pin with constraints so the pane dictates size.
+            view.translatesAutoresizingMaskIntoConstraints = false
+            container.addSubview(view)
+            NSLayoutConstraint.activate([
+                view.topAnchor.constraint(equalTo: container.topAnchor),
+                view.bottomAnchor.constraint(equalTo: container.bottomAnchor),
+                view.leadingAnchor.constraint(equalTo: container.leadingAnchor),
+                view.trailingAnchor.constraint(equalTo: container.trailingAnchor),
+            ])
+        }
     }
 
     /// The terminal panel when this mount hosts a terminal directly.

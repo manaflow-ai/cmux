@@ -101,6 +101,9 @@ struct WorkspaceCanvasHostView: View {
                 }
             )
         ))
+        // The pane's content container dictates the size; never let the
+        // hosting view shrink to SwiftUI's ideal size.
+        hosted.sizingOptions = []
         return .hosted(panel, hosted)
     }
 }
