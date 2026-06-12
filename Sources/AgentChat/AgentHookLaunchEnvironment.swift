@@ -106,22 +106,36 @@ enum AgentHookLaunchEnvironment {
         }
     }
 
-    /// One-shot, app-session cache around the locator + provenance gate for
-    /// the terminal launch path: surface creation must not rescan the daemon
-    /// cache per surface. The first surface pays one small scan (a couple of
-    /// stats, in line with the bundled-CLI checks around it); a daemon cached
-    /// later in the session (first `cmux ssh`) is picked up on next launch.
+    /// App-session cache around the locator + provenance gate for the
+    /// terminal launch path: surface creation must not rescan the daemon
+    /// cache per surface. A found relay is cached for the session (one small
+    /// scan, a couple of stats, in line with the bundled-CLI checks around
+    /// it; if the binary disappears, the wrappers' `-x` gate skips
+    /// injection). A miss is re-probed at most every 30 seconds, so a daemon
+    /// cached later in the session (the user's first `cmux ssh`) enables
+    /// injection for subsequently created terminals without a restart while
+    /// a workspace-restore burst still costs one scan.
     @MainActor
-    static func injectableEmitBinaryURLForLaunch() -> URL? {
+    static func injectableEmitBinaryURLForLaunch(now: ContinuousClock.Instant = .now) -> URL? {
         if let cached = cachedInjectableEmitBinaryURL {
             return cached
         }
+        if let lastMiss = lastEmitBinaryMissProbe, now - lastMiss < Self.emitBinaryMissProbeInterval {
+            return nil
+        }
         let resolved = injectableEmitBinaryURL(outcome: AgentDaemonBinaryLocator().locate())
-        cachedInjectableEmitBinaryURL = .some(resolved)
+        if resolved != nil {
+            cachedInjectableEmitBinaryURL = resolved
+            lastEmitBinaryMissProbe = nil
+        } else {
+            lastEmitBinaryMissProbe = now
+        }
         return resolved
     }
 
-    @MainActor private static var cachedInjectableEmitBinaryURL: URL??
+    @MainActor private static var cachedInjectableEmitBinaryURL: URL?
+    @MainActor private static var lastEmitBinaryMissProbe: ContinuousClock.Instant?
+    private static let emitBinaryMissProbeInterval: Duration = .seconds(30)
 
     /// The environment pairs a terminal surface (or any agent launch) needs
     /// for hook injection, or `nil` when no staged daemon binary exists.
