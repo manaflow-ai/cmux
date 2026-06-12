@@ -371,12 +371,14 @@ final class KeyboardShortcutContextTests: XCTestCase {
         )
         KeyboardShortcutSettings.resetAll()
 
-        // The ⌘[ / ⌘] pair is gated to non-browser focus by its built-in
-        // clause; a static menu equivalent would bypass that gate, so the
-        // History menu badges the always-available Global pair instead and the
-        // browser View-menu items keep their truthful ⌘[ / ⌘] badges.
+        // Static menu equivalents bypass focus gates, so the focus-gated
+        // ⌘[ / ⌘] pair and the browser View-menu Back/Forward (which no-op
+        // without a focused browser) stay menu-unbound; only the History
+        // menu's always-available Global pair carries a badge.
         XCTAssertEqual(KeyboardShortcutSettings.menuShortcut(for: .focusHistoryBack), .unbound)
         XCTAssertEqual(KeyboardShortcutSettings.menuShortcut(for: .focusHistoryForward), .unbound)
+        XCTAssertEqual(KeyboardShortcutSettings.menuShortcut(for: .browserBack), .unbound)
+        XCTAssertEqual(KeyboardShortcutSettings.menuShortcut(for: .browserForward), .unbound)
         XCTAssertEqual(
             KeyboardShortcutSettings.menuShortcut(for: .focusHistoryBackGlobal),
             KeyboardShortcutSettings.shortcut(for: .focusHistoryBackGlobal)
@@ -384,14 +386,6 @@ final class KeyboardShortcutContextTests: XCTestCase {
         XCTAssertEqual(
             KeyboardShortcutSettings.menuShortcut(for: .focusHistoryForwardGlobal),
             KeyboardShortcutSettings.shortcut(for: .focusHistoryForwardGlobal)
-        )
-        XCTAssertEqual(
-            KeyboardShortcutSettings.menuShortcut(for: .browserBack),
-            KeyboardShortcutSettings.shortcut(for: .browserBack)
-        )
-        XCTAssertEqual(
-            KeyboardShortcutSettings.menuShortcut(for: .browserForward),
-            KeyboardShortcutSettings.shortcut(for: .browserForward)
         )
     }
 

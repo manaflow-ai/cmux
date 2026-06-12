@@ -90,8 +90,8 @@ export const shortcutCategories: ShortcutCategory[] = [
         combos: [["⌘", "["]],
         description: { en: "Focus back", ja: "フォーカスを戻す" },
         note: {
-          en: "Outside browser panes. While a browser pane is focused, Cmd+[ goes back a page (Safari-style); use Cmd+Opt+[ for focus history there, or set { \"shortcuts\": { \"when\": { \"focusHistoryBack\": \"always\", \"focusHistoryForward\": \"always\" } } } in cmux.json to keep Cmd+[ on focus history everywhere.",
-          ja: "ブラウザペイン以外で有効。ブラウザペインのフォーカス中は Cmd+[ はページを戻ります（Safari と同じ）。その場合は Cmd+Opt+[ を使うか、cmux.json に { \"shortcuts\": { \"when\": { \"focusHistoryBack\": \"always\", \"focusHistoryForward\": \"always\" } } } を設定すると常にフォーカス履歴になります。",
+          en: "Outside browser panes. While a browser pane is focused, Cmd+[ goes back a page (Safari-style); use Cmd+Opt+[ for focus history there, or set { \"shortcuts\": { \"when\": { \"focusHistoryBack\": \"true\", \"focusHistoryForward\": \"true\" } } } in cmux.json to keep Cmd+[ on focus history everywhere.",
+          ja: "ブラウザペイン以外で有効。ブラウザペインのフォーカス中は Cmd+[ はページを戻ります（Safari と同じ）。その場合は Cmd+Opt+[ を使うか、cmux.json に { \"shortcuts\": { \"when\": { \"focusHistoryBack\": \"true\", \"focusHistoryForward\": \"true\" } } } を設定すると常にフォーカス履歴になります。",
         },
       },
       {
@@ -202,7 +202,7 @@ export const shortcutCategories: ShortcutCategory[] = [
         id: "browserForward",
         combos: [["⌘", "]"]],
         description: { en: "Forward", ja: "進む" },
-        note: { en: "focused browser", ja: "フォーカス中のブラウザ" },
+        note: { en: "focused browser; beeps when there is no page to go forward to", ja: "フォーカス中のブラウザ。進むページがない場合はビープ音" },
       },
       {
         id: "browserReload",

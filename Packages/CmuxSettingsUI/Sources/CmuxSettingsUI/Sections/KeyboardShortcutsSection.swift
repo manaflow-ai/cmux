@@ -374,6 +374,11 @@ public struct KeyboardShortcutsSection: View {
                 localized: "shortcut.when.caption.markdownFocus",
                 defaultValue: "Only while a markdown preview is focused"
             )
+        case .not(.atom(.browserFocus)):
+            return String(
+                localized: "shortcut.when.caption.outsideBrowserFocus",
+                defaultValue: "Everywhere except focused browser panes"
+            )
         default:
             return String(
                 localized: "shortcut.when.caption.terminalFocus",

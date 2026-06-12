@@ -80,12 +80,16 @@ extension KeyboardShortcutSettings {
             return .unbound
         }
 
-        // Focus Back/Forward are gated to non-browser focus by their built-in
-        // context, which a static menu equivalent would bypass (same hazard as
-        // issue #5189, but for a built-in clause). The History menu shows the
-        // always-available Global pair instead, so suppress the gated pair here.
+        // A static menu key equivalent would bypass these actions' built-in
+        // focus gates (same hazard as issue #5189, but for built-in clauses):
+        // Focus Back/Forward are scoped outside browser panes, and the View
+        // menu's Back/Forward call into the focused browser as a silent no-op
+        // when none is focused, so a ⌘[ / ⌘] equivalent there would eat the
+        // chord whenever the keyDown router leaves it unhandled. The History
+        // menu badges the always-available Global pair instead; the keyDown
+        // router remains the sole dispatcher for the focus-gated ⌘[ / ⌘] pair.
         switch action {
-        case .focusHistoryBack, .focusHistoryForward:
+        case .focusHistoryBack, .focusHistoryForward, .browserBack, .browserForward:
             return .unbound
         default:
             return shortcut(for: action)

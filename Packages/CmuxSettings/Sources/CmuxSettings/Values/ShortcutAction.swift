@@ -312,8 +312,10 @@ extension ShortcutAction {
         case .prevSidebarTab: return "Previous Workspace"
         case .focusHistoryBack: return "Focus Back"
         case .focusHistoryForward: return "Focus Forward"
-        case .focusHistoryBackGlobal: return "Focus Back (Global)"
-        case .focusHistoryForwardGlobal: return "Focus Forward (Global)"
+        case .focusHistoryBackGlobal:
+            return String(localized: "shortcut.focusHistoryBackGlobal.label", defaultValue: "Focus Back (Global)")
+        case .focusHistoryForwardGlobal:
+            return String(localized: "shortcut.focusHistoryForwardGlobal.label", defaultValue: "Focus Forward (Global)")
         case .selectWorkspaceByNumber: return "Select Workspace 1…9"
         case .renameTab: return "Rename Tab"
         case .renameWorkspace: return "Rename Workspace"
