@@ -2991,6 +2991,15 @@ final class CmuxDiffViewerURLSchemeHandler: NSObject, WKURLSchemeHandler {
                 "style-src 'unsafe-inline'",
                 "img-src 'self' data:",
                 "connect-src 'self'",
+                // Monaco's base editor worker is a same-origin module worker
+                // (`new Worker(new URL("...editor.worker.js"), {type:"module"})`).
+                // Without an explicit worker-src it falls back to default-src
+                // 'none' and WebKit refuses to create it, which throws during
+                // mount and leaves session-restored editors (served over this
+                // scheme, not the HTTP server) stuck on the boot-error fallback.
+                // The HTTP server sets no CSP, which is why fresh editors work.
+                "worker-src 'self'",
+                "child-src 'self'",
                 "font-src 'none'",
                 "object-src 'none'",
                 "base-uri 'none'",
