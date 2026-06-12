@@ -1,5 +1,3 @@
-internal import Foundation
-
 /// The app-focus-domain slice of the control-command seam (a constituent of the
 /// ``ControlCommandContext`` umbrella).
 ///

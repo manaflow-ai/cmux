@@ -715,6 +715,57 @@
         }
       }
     },
+    "mobile.composer.close": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hide Composer"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "メッセージ作成を閉じる"
+          }
+        }
+      }
+    },
+    "mobile.composer.placeholder": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Message"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "メッセージ"
+          }
+        }
+      }
+    },
+    "mobile.composer.send": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Send"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "送信"
+          }
+        }
+      }
+    },
     "mobile.connection.connected": {
       "extractionState": "manual",
       "localizations": {
@@ -1357,6 +1408,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "ペアリングコードが無効です。"
+          }
+        }
+      }
+    },
+    "mobile.pairing.loopbackRejected": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This code points at the Mac itself (localhost), so your iPhone can't use it. Set up Tailscale on the Mac, then scan a fresh code."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このコードは Mac 自身（localhost）を指しているため、iPhone からは使えません。Mac に Tailscale を設定してから、新しいコードをスキャンしてください。"
           }
         }
       }
@@ -3605,6 +3673,23 @@
         }
       }
     },
+    "terminal.input_accessory.composer": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Composer"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "メッセージ作成"
+          }
+        }
+      }
+    },
     "terminal.input_accessory.customize": {
       "extractionState": "manual",
       "localizations": {
@@ -3618,6 +3703,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "ツールバーをカスタマイズ"
+          }
+        }
+      }
+    },
+    "terminal.input_accessory.hideChrome": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hide Toolbar"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ツールバーを隠す"
           }
         }
       }

@@ -39,4 +39,43 @@ import Testing
         #expect(flags >= 0)
         #expect(flags & FD_CLOEXEC != 0, "lock fd must not leak across fork/exec")
     }
+
+    @Test func listenerSocketIsCloseOnExec() {
+        let (fd, errnoCode) = transport.makeListenerSocket()
+        #expect(errnoCode == nil)
+        guard fd >= 0 else {
+            Issue.record("expected listener socket creation to succeed")
+            return
+        }
+        defer { Darwin.close(fd) }
+
+        let flags = fcntl(fd, F_GETFD)
+        #expect(flags >= 0)
+        #expect(flags & FD_CLOEXEC != 0, "listener fd must not leak into PTY-child forks")
+    }
+
+    @Test func acceptedClientSocketIsCloseOnExec() throws {
+        let path = UnixSocketFixture.makeTempSocketPath()
+        let listenerFD = try UnixSocketFixture.bindListeningSocket(at: path)
+        defer {
+            Darwin.close(listenerFD)
+            unlink(path)
+        }
+
+        let clientFD = try UnixSocketFixture.connectClient(to: path)
+        defer { Darwin.close(clientFD) }
+
+        let acceptedFD = accept(listenerFD, nil, nil)
+        guard acceptedFD >= 0 else {
+            Issue.record("expected accept to return a client descriptor")
+            return
+        }
+        defer { Darwin.close(acceptedFD) }
+
+        #expect(transport.configureAcceptedClientSocket(acceptedFD) == nil)
+
+        let flags = fcntl(acceptedFD, F_GETFD)
+        #expect(flags >= 0)
+        #expect(flags & FD_CLOEXEC != 0, "accepted client fd must not leak into PTY-child forks")
+    }
 }
