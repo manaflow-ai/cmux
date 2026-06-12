@@ -192,3 +192,38 @@ func TestDiscoveryAndResolve(t *testing.T) {
 		t.Error("resolve of unknown session should fail")
 	}
 }
+
+// Regression for the CodeRabbit finding on PR 5736: Codex writes session_meta
+// as the FIRST transcript line, so a tail-only replay of a transcript over the
+// snapshot cap lost the session id/cwd. The open path now recovers head
+// metadata with a bounded scan when the cap skips the head.
+func TestSnapshotCapKeepsCodexSessionMeta(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "rollout.jsonl")
+	meta := `{"timestamp":"t","type":"session_meta","payload":{"id":"cdx-cap","cwd":"/tmp/capped"}}` + "\n"
+	body := `{"timestamp":"t","type":"response_item","payload":{"type":"message","id":"m1","role":"user","content":[{"type":"input_text","text":"tail line"}]}}` + "\n"
+	content := meta + body
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	subscription, session, err := Open(Config{
+		Provider:       ProviderCodex,
+		TranscriptPath: path,
+		PollInterval:   time.Millisecond,
+		// Cap below the full size so the replay starts past the meta line.
+		MaxSnapshotBytes: int64(len(body)) + 10,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer subscription.Close()
+	if session.SessionID != "cdx-cap" || session.Cwd != "/tmp/capped" {
+		t.Fatalf("capped codex session = %+v, want id cdx-cap cwd /tmp/capped", session)
+	}
+	snapshot := awaitEvent(t, subscription.Events, EventSnapshot)
+	if snapshot.Session == nil || snapshot.Session.SessionID != "cdx-cap" {
+		t.Fatalf("capped snapshot session = %+v", snapshot.Session)
+	}
+	if len(snapshot.Items) != 1 || snapshot.Items[0].Text != "tail line" {
+		t.Fatalf("capped snapshot items = %+v", snapshot.Items)
+	}
+}
