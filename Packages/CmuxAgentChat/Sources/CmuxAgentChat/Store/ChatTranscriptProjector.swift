@@ -44,6 +44,7 @@ public struct ChatTranscriptProjector: Sendable {
 
         var currentDay: Date?
         var index = 0
+        var insertedUnreadSeparator = false
         while index < messages.count {
             let message = messages[index]
             let day = calendar.startOfDay(for: message.timestamp)
@@ -51,7 +52,8 @@ public struct ChatTranscriptProjector: Sendable {
                 currentDay = day
                 rows.append(.dateHeader(day: day))
             }
-            if let firstUnreadSeq, message.seq == firstUnreadSeq {
+            if let firstUnreadSeq, !insertedUnreadSeparator, message.seq >= firstUnreadSeq {
+                insertedUnreadSeparator = true
                 rows.append(.unreadSeparator)
             }
 
@@ -59,9 +61,10 @@ public struct ChatTranscriptProjector: Sendable {
             let groupLength = groupEnd - index
             for offset in 0..<groupLength {
                 let member = messages[index + offset]
-                if let firstUnreadSeq, offset > 0, member.seq == firstUnreadSeq {
+                if let firstUnreadSeq, !insertedUnreadSeparator, offset > 0, member.seq >= firstUnreadSeq {
                     // An unread boundary inside a group still gets the
                     // separator; the group visually splits there.
+                    insertedUnreadSeparator = true
                     rows.append(.unreadSeparator)
                 }
                 rows.append(
