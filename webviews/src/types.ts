@@ -9,6 +9,9 @@ export type DiffViewerPayload = {
   pendingReplacement?: boolean;
   statusMessage?: string;
   title?: string;
+  /** User-configured Monaco options from `editor.*` in cmux.json, already
+   * curated and validated by the CLI. The webview re-filters defensively. */
+  editorOptions?: Record<string, unknown>;
   [key: string]: any;
 };
 

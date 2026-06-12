@@ -2,6 +2,7 @@ import { RouterProvider } from "@tanstack/react-router";
 import { createRoot } from "react-dom/client";
 import { resolveDiffViewerAppearance } from "../appearance";
 // Side-effect import: installs `MonacoEnvironment` before any editor is created.
+import type * as monaco from "monaco-editor/esm/vs/editor/editor.api.js";
 import "../editor/monacoEnvironment";
 import { EditorApp } from "../editor/EditorApp";
 import editorStyles from "../editor/editor.css?inline";
@@ -12,6 +13,37 @@ import { EditorSaveController, mapEditorSaveReply, type EditorSaveRequest } from
 import { createWebviewsRouter } from "../router";
 import type { DiffViewerConfig } from "../types";
 import { installWebviewStyles } from "./installWebviewStyles";
+
+// Options the page must never accept from config, even though the CLI already
+// curates `editor.*`: these control the document model, theme, layout strategy,
+// or the editability invariant, and letting config override them would break
+// the surface or its read-only guarantee. Defense-in-depth — the page can be
+// served from hand-authored HTML, so we re-filter here too.
+const FORBIDDEN_MONACO_OPTIONS = new Set([
+  "model",
+  "value",
+  "language",
+  "theme",
+  "readOnly",
+  "domReadOnly",
+  "automaticLayout",
+]);
+
+/** Drop forbidden keys from a config-provided Monaco options object. */
+function pickSafeMonacoOptions(
+  raw: Record<string, unknown> | undefined,
+): monaco.editor.IStandaloneEditorConstructionOptions {
+  if (!raw || typeof raw !== "object") {
+    return {};
+  }
+  const safe: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(raw)) {
+    if (!FORBIDDEN_MONACO_OPTIONS.has(key)) {
+      safe[key] = value;
+    }
+  }
+  return safe as monaco.editor.IStandaloneEditorConstructionOptions;
+}
 
 function readConfig(): DiffViewerConfig {
   const element = document.getElementById("cmux-editor-config");
@@ -131,6 +163,10 @@ export async function mountEditorSurface(rootElement: HTMLElement): Promise<void
   // synchronously on first render (the WKWebView does not reliably repaint the
   // lazy async re-tokenization).
   await preloadGrammarForPath(filePath);
+  // User Monaco options from `editor.*` in cmux.json (CLI-curated, re-filtered
+  // here) are applied AFTER cmux's defaults so the user wins, but `readOnly` is
+  // re-applied last so configuration can never make a read-only file editable.
+  const userOptions = pickSafeMonacoOptions(config.payload?.editorOptions);
   const router = createWebviewsRouter(() => (
     <EditorApp
       filePath={filePath}
@@ -140,9 +176,10 @@ export async function mountEditorSurface(rootElement: HTMLElement): Promise<void
         fontFamily: appearance.fontFamily,
         fontSize: appearance.fontSize,
         lineHeight: appearance.lineHeight,
-        readOnly,
         minimap: { enabled: true },
         scrollBeyondLastLine: false,
+        ...userOptions,
+        readOnly,
       }}
       labels={labels}
       saveController={saveController}

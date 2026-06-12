@@ -809,6 +809,57 @@
       "settingsFileChords": "Use a string for a single shortcut or a two-item array for a chord. Example: [\"ctrl+b\", \"c\"] means press Ctrl+B, then C.",
       "exampleConfig": "Example config",
       "schemaDescriptions": {
+        "editor": {
+          "wordWrap": "How long lines wrap: off (scroll), on (viewport width), wordWrapColumn (at wordWrapColumn), or bounded.",
+          "wordWrapColumn": "Column to wrap at when wordWrap is wordWrapColumn or bounded.",
+          "wrappingIndent": "Indentation of wrapped lines.",
+          "scrollBeyondLastLine": "Allow scrolling past the last line.",
+          "smoothScrolling": "Animate scrolling.",
+          "tabSize": "Spaces a tab is rendered as (when detectIndentation does not override it).",
+          "insertSpaces": "Insert spaces instead of tabs.",
+          "detectIndentation": "Auto-detect tabSize and insertSpaces from the file contents.",
+          "trimAutoWhitespace": "Trim trailing auto-inserted whitespace.",
+          "lineNumbers": "Line number display.",
+          "renderWhitespace": "When to render whitespace characters.",
+          "renderLineHighlight": "How the current line is highlighted.",
+          "glyphMargin": "Show the glyph margin column.",
+          "folding": "Enable code folding.",
+          "showFoldingControls": "When folding controls are shown.",
+          "cursorStyle": "Cursor shape.",
+          "cursorBlinking": "Cursor blinking animation.",
+          "cursorSmoothCaretAnimation": "Smooth caret movement animation.",
+          "letterSpacing": "Extra letter spacing in pixels.",
+          "fontLigatures": "Enable font ligatures.",
+          "roundedSelection": "Render selection with rounded corners.",
+          "columnSelection": "Column (box) selection mode.",
+          "mouseWheelZoom": "Zoom font with Cmd/Ctrl + mouse wheel.",
+          "multiCursorModifier": "Modifier key for adding multiple cursors.",
+          "minimap": {
+            "enabled": "Show the minimap.",
+            "side": "Minimap side.",
+            "renderCharacters": "Render actual characters in the minimap.",
+            "maxColumn": "Maximum columns rendered in the minimap.",
+            "_section": "Minimap (code overview) settings."
+          },
+          "bracketPairColorization": {
+            "enabled": "Colorize matching bracket pairs.",
+            "independentColorPoolPerBracketType": "Use an independent color pool per bracket type.",
+            "_section": "Bracket pair colorization."
+          },
+          "guides": {
+            "indentation": "Show indentation guides.",
+            "highlightActiveIndentation": "Highlight the active indentation guide.",
+            "bracketPairs": "Show bracket pair guides (true, false, or 'active').",
+            "highlightActiveBracketPair": "Highlight the active bracket pair.",
+            "_section": "Indentation and bracket guide settings."
+          },
+          "stickyScroll": {
+            "enabled": "Pin enclosing scopes to the top while scrolling.",
+            "maxLineCount": "Maximum sticky lines.",
+            "_section": "Sticky scroll settings."
+          },
+          "rulers": "Vertical ruler columns."
+        },
         "automation": {
           "ampIntegration": "Enable cmux integration hooks for Amp. When disabled, the bundled plugin stays inactive without needing to be removed.",
           "suppressSubagentNotifications": "Suppress visible completion notifications and status mutations from nested Codex or Claude child agents while keeping their events in Feed telemetry."
