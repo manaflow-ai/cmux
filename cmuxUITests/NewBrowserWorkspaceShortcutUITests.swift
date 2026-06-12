@@ -39,26 +39,34 @@ final class NewBrowserWorkspaceShortcutUITests: XCTestCase {
     }
 
     /// Types into whatever currently has keyboard focus and waits for the text
-    /// to show up in the omnibar. Retries the first keystrokes briefly because
-    /// portal-mounted browser chrome can finish focus routing a beat after the
-    /// omnibar element appears.
+    /// to show up in the omnibar. Retries the keystrokes because portal-mounted
+    /// browser chrome can finish focus routing a beat after the omnibar element
+    /// appears; each retry first re-checks the omnibar so already-landed text
+    /// is never typed twice.
     private func waitForOmnibarTypedText(
         app: XCUIApplication,
         omnibar: XCUIElement,
         text: String,
         timeout: TimeInterval
     ) -> Bool {
+        func omnibarContainsText() -> Bool {
+            (omnibar.value as? String)?.contains(text) == true
+        }
+
         let deadline = Date().addingTimeInterval(timeout)
         while Date() < deadline {
+            if omnibarContainsText() {
+                return true
+            }
             app.typeText(text)
             let valueDeadline = Date().addingTimeInterval(2.0)
             while Date() < valueDeadline {
-                if let value = omnibar.value as? String, value.contains(text) {
+                if omnibarContainsText() {
                     return true
                 }
                 RunLoop.current.run(until: Date(timeIntervalSinceNow: 0.2))
             }
         }
-        return false
+        return omnibarContainsText()
     }
 }

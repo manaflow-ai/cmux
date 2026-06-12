@@ -721,7 +721,10 @@ struct cmuxApp: App {
                             tabManager: activeTabManager,
                             debugSource: "menu.newBrowserWorkspace"
                         )
-                    } else {
+                    } else if BrowserAvailabilitySettings.isEnabled() {
+                        // Last-resort fallback for a missing AppDelegate; keep
+                        // the browser-availability gate identical to the
+                        // shared action path.
                         activeTabManager.addWorkspace(initialSurface: .browser)
                     }
                 }

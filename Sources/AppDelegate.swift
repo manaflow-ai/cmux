@@ -7180,16 +7180,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             return true
         }
 
-        if let workspaceId = addWorkspaceInPreferredMainWindow(
+        if let workspace = addWorkspaceInPreferredMainWindow(
             initialSurface: initialSurface,
             event: event,
             debugSource: debugSource
         ) {
-            if initialSurface == .browser,
-               let workspace = mainWindowContexts.values
-                   .lazy
-                   .compactMap({ $0.tabManager.tabs.first(where: { $0.id == workspaceId }) })
-                   .first {
+            if initialSurface == .browser {
                 focusInitialBrowserAddressBar(in: workspace)
             }
         } else {
@@ -7777,7 +7773,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         shouldBringToFront: Bool = false,
         event: NSEvent? = nil,
         debugSource: String = "unspecified"
-    ) -> UUID? {
+    ) -> Workspace? {
         #if DEBUG
         logWorkspaceCreationRouting(
             phase: "request",
@@ -7844,7 +7840,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             workingDirectory: workingDirectory
         )
         #endif
-        return workspace.id
+        return workspace
     }
 
     private func preferredMainWindowContextForWorkspaceCreation(
