@@ -210,3 +210,36 @@ import Testing
     )
     await router.releaseAllHeld()
 }
+
+/// A transport that drops before the start handshake completes must converge
+/// to `.unavailable`, not livelock in `.reconnecting`: without the guard, the
+/// stream-end restart supersedes the listener generation, so the parked start
+/// ack's failure verdict is silently dropped by its generation check and the
+/// loop re-arms forever (observed as the ipad-only CI failure of
+/// `macConnectionStatusMarksUnavailableWhenEventStreamCloses`, where the race
+/// occasionally lands the other way on faster simulators).
+@MainActor
+@Test func streamEndingBeforeStartAckMarksUnavailable() async throws {
+    let clock = TestClock()
+    let router = LivenessHostRouter()
+    let box = TransportBox()
+    await router.setHoldSubscribe(true)
+    let store = try await makeConnectedStore(router: router, box: box, clock: clock)
+    defer {
+        Task { await router.releaseAllHeld() }
+    }
+
+    let sawSubscribe = try await pollUntil { await router.count(of: "mobile.events.subscribe") >= 1 }
+    #expect(sawSubscribe, "listener must send the start subscribe")
+
+    // The transport dies while the enable handshake is still parked.
+    let transport = try #require(box.get())
+    await transport.close()
+
+    let unavailable = try await pollUntil { store.macConnectionStatus == .unavailable }
+    #expect(
+        unavailable,
+        "a stream that ends before its subscribe ack must converge to unavailable, not loop reconnecting"
+    )
+    #expect(store.connectionRecoveryFailed)
+}
