@@ -119,6 +119,53 @@ enum CmuxSurfaceTabBarBuiltInAction: String, Codable, Sendable, CaseIterable, Ha
         }
     }
 
+    /// Short label for the surface tab bar's ⋯ menu, where the icon carries
+    /// most of the meaning. The command palette keeps the longer descriptive
+    /// titles from `CmuxResolvedConfigAction.builtIn` — a bare "Files" next
+    /// to "Show Sidebar Files" would be ambiguous there.
+    var menuTitle: String {
+        switch self {
+        case .newWorkspace:
+            return String(localized: "surfaceTabBar.menu.newWorkspace", defaultValue: "New Workspace")
+        case .cloudVM:
+            return String(localized: "surfaceTabBar.menu.cloudVM", defaultValue: "Cloud VM")
+        case .newTerminal:
+            return String(localized: "surfaceTabBar.menu.newTerminal", defaultValue: "New Terminal")
+        case .newBrowser:
+            return String(localized: "surfaceTabBar.menu.newBrowser", defaultValue: "New Browser")
+        case .newNote:
+            return String(localized: "surfaceTabBar.menu.newNote", defaultValue: "New Note")
+        case .splitRight:
+            return String(localized: "surfaceTabBar.menu.splitRight", defaultValue: "Split Right")
+        case .splitDown:
+            return String(localized: "surfaceTabBar.menu.splitDown", defaultValue: "Split Down")
+        case .more:
+            return String(localized: "surfaceTabBar.menu.more", defaultValue: "More")
+        case .rightSidebarFiles:
+            return String(localized: "surfaceTabBar.menu.rightSidebarFiles", defaultValue: "Sidebar Files")
+        case .rightSidebarFind:
+            return String(localized: "surfaceTabBar.menu.rightSidebarFind", defaultValue: "Sidebar Find")
+        case .rightSidebarVault:
+            return String(localized: "surfaceTabBar.menu.rightSidebarVault", defaultValue: "Sidebar Vault")
+        case .rightSidebarFeed:
+            return String(localized: "surfaceTabBar.menu.rightSidebarFeed", defaultValue: "Sidebar Feed")
+        case .rightSidebarDock:
+            return String(localized: "surfaceTabBar.menu.rightSidebarDock", defaultValue: "Sidebar Dock")
+        case .filesPane:
+            return String(localized: "surfaceTabBar.menu.filesPane", defaultValue: "Files")
+        case .findPane:
+            return String(localized: "surfaceTabBar.menu.findPane", defaultValue: "Find")
+        case .vaultPane:
+            return String(localized: "surfaceTabBar.menu.vaultPane", defaultValue: "Vault")
+        case .diffViewer:
+            return String(localized: "surfaceTabBar.menu.diffViewer", defaultValue: "Diff")
+        case .revealCurrentDirectoryInFinder:
+            return String(localized: "surfaceTabBar.menu.revealInFinder", defaultValue: "Reveal in Finder")
+        case .customizeSurfaceTabBar:
+            return String(localized: "surfaceTabBar.menu.customize", defaultValue: "Customize")
+        }
+    }
+
     var bonsplitAction: BonsplitConfiguration.SplitActionButton.Action? {
         switch self {
         case .newWorkspace, .cloudVM, .newNote, .more, .rightSidebarFiles, .rightSidebarFind,

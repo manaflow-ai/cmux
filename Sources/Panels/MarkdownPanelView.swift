@@ -111,36 +111,62 @@ struct MarkdownPanelView: View {
         }
     }
 
+    @ViewBuilder
     private var filePathHeader: some View {
-        PanelFilePathHeader(
-            iconSystemName: nil,
-            filePath: panel.filePath,
-            foregroundColor: themeForegroundColor
-        ) {
-            // Notes auto-save, so the Save control only appears for plain
-            // Markdown files (which still save explicitly).
-            if panel.displayMode == .text, !panel.behavesAsNote, panel.isDirty || panel.isSaving {
-                PanelHeaderIconButton(
-                    systemName: "square.and.arrow.down",
-                    label: String(localized: "markdown.toolbar.save", defaultValue: "Save"),
-                    isDisabled: !panel.isDirty || panel.isSaving,
-                    action: { panel.saveTextContent() }
+        if panel.isProjectNote {
+            // Project notes live at store-managed paths, so the header leads
+            // with the record title as a Google-Docs-style rename field
+            // instead of the meaningless file path (still available via the
+            // field's tooltip and the external-open menu).
+            HStack(spacing: 8) {
+                NoteTitleRenameField(
+                    title: panel.displayTitle,
+                    filePath: panel.filePath,
+                    foregroundColor: themeForegroundColor,
+                    onRename: { panel.renameNoteTitle($0) }
                 )
+                Spacer(minLength: 8)
+                headerTrailingControls
             }
-            if panel.displayMode == .preview {
-                MarkdownTypographyControl(panel: panel)
+            .padding(.horizontal, 12)
+            .frame(height: 30)
+            .background(Color.clear)
+        } else {
+            PanelFilePathHeader(
+                iconSystemName: nil,
+                filePath: panel.filePath,
+                foregroundColor: themeForegroundColor
+            ) {
+                headerTrailingControls
             }
-            markdownModeButton
-            MarkdownPanelToolbar(
-                confirmation: copyConfirmation?.label,
-                onCopyMarkdown: { copyAsMarkdown() },
-                onCopyHTML: { copyAsHTML() }
-            )
-            FileExternalOpenMenu(
-                fileURL: URL(fileURLWithPath: panel.filePath),
-                isDisabled: panel.isFileUnavailable
+        }
+    }
+
+    @ViewBuilder
+    private var headerTrailingControls: some View {
+        // Notes auto-save, so the Save control only appears for plain
+        // Markdown files (which still save explicitly).
+        if panel.displayMode == .text, !panel.behavesAsNote, panel.isDirty || panel.isSaving {
+            PanelHeaderIconButton(
+                systemName: "square.and.arrow.down",
+                label: String(localized: "markdown.toolbar.save", defaultValue: "Save"),
+                isDisabled: !panel.isDirty || panel.isSaving,
+                action: { panel.saveTextContent() }
             )
         }
+        if panel.displayMode == .preview {
+            MarkdownTypographyControl(panel: panel)
+        }
+        markdownModeButton
+        MarkdownPanelToolbar(
+            confirmation: copyConfirmation?.label,
+            onCopyMarkdown: { copyAsMarkdown() },
+            onCopyHTML: { copyAsHTML() }
+        )
+        FileExternalOpenMenu(
+            fileURL: URL(fileURLWithPath: panel.filePath),
+            isDisabled: panel.isFileUnavailable
+        )
     }
 
     // MARK: - Copy actions
@@ -261,6 +287,89 @@ struct MarkdownPanelView: View {
         case .easeOut:
             return .easeOut(duration: duration)
         }
+    }
+}
+
+/// Google-Docs-style inline rename for a note's title: reads as plain header
+/// text, grows a subtle outline on hover, and edits in place on click.
+/// Enter or clicking away commits through `onRename`; Escape restores the
+/// committed title. The committed title stays authoritative — external
+/// retitles (tree rename, another panel) overwrite an idle field but never
+/// an in-progress edit.
+private struct NoteTitleRenameField: View {
+    let title: String
+    let filePath: String
+    let foregroundColor: NSColor
+    let onRename: (String) -> Void
+
+    @State private var draft: String = ""
+    @State private var isHovering = false
+    @FocusState private var isFocused: Bool
+
+    private var placeholder: String {
+        String(localized: "note.title.placeholder", defaultValue: "Untitled note")
+    }
+
+    private var titleFont: Font {
+        .system(size: 12, weight: .semibold)
+    }
+
+    var body: some View {
+        // A bare TextField greedily fills its proposal, which would draw the
+        // hover outline across the whole header. Sizing against a hidden Text
+        // of the draft makes the field hug its content (and truncate with the
+        // header) the way an inline document title should.
+        Text(draft.isEmpty ? placeholder : draft)
+            .font(titleFont)
+            .lineLimit(1)
+            .truncationMode(.tail)
+            .opacity(0)
+            .accessibilityHidden(true)
+            .overlay(
+                TextField(placeholder, text: $draft)
+                    .textFieldStyle(.plain)
+                    .font(titleFont)
+                    .foregroundStyle(Color(nsColor: foregroundColor).opacity(0.88))
+                    .focused($isFocused)
+                    .onSubmit { isFocused = false }
+                    .onExitCommand {
+                        draft = title
+                        isFocused = false
+                    }
+            )
+            .padding(.horizontal, 6)
+            .padding(.vertical, 2)
+            .overlay(
+                RoundedRectangle(cornerRadius: 4)
+                    .strokeBorder(
+                        isFocused
+                            ? Color.accentColor.opacity(0.7)
+                            : (isHovering ? Color.secondary.opacity(0.35) : Color.clear),
+                        lineWidth: 1
+                    )
+            )
+            .frame(minWidth: 40, alignment: .leading)
+            .onHover { isHovering = $0 }
+            .onAppear { draft = title }
+            .onChange(of: title) { _, newValue in
+                guard !isFocused else { return }
+                draft = newValue
+            }
+            .onChange(of: isFocused) { _, focused in
+                guard !focused else { return }
+                commit()
+            }
+            .help(filePath)
+            .accessibilityLabel(String(localized: "note.title.accessibility", defaultValue: "Note title"))
+    }
+
+    private func commit() {
+        let trimmed = draft.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty, trimmed != title else {
+            draft = title
+            return
+        }
+        onRename(trimmed)
     }
 }
 

@@ -20300,6 +20300,14 @@ extension Workspace: BonsplitDelegate {
         to menu: NSMenu,
         target: SurfaceTabBarMenuTarget
     ) {
+        // New Note ships in the DEFAULT ⋯ menu, so while the Notes beta is
+        // off the item is dropped entirely — a permanently disabled entry
+        // would advertise a hidden feature to every fresh install. (Feed and
+        // Dock only appear in user-customized bars, where disabled is fine.)
+        if executable.builtInAction == .newNote,
+           !RightSidebarBetaFeatureSettings.isNotesEnabled() {
+            return
+        }
         let item = NSMenuItem(
             title: surfaceTabBarMenuTitle(for: executable),
             action: executable.menuItems.isEmpty ? #selector(SurfaceTabBarMenuTarget.performMenuItem(_:)) : nil,
@@ -20329,7 +20337,7 @@ extension Workspace: BonsplitDelegate {
             }
         }
         if let builtInAction = executable.builtInAction {
-            return CmuxResolvedConfigAction.builtIn(builtInAction).title
+            return builtInAction.menuTitle
         }
         if let workspaceCommand = executable.workspaceCommand {
             return workspaceCommand.command.name
@@ -20354,13 +20362,15 @@ extension Workspace: BonsplitDelegate {
             return RightSidebarMode.feed.isAvailable()
         case .rightSidebarDock:
             return RightSidebarMode.dock.isAvailable()
+        case .newNote:
+            return RightSidebarBetaFeatureSettings.isNotesEnabled()
         case .more:
             return !executable.menuItems.isEmpty
         case .filesPane, .findPane, .vaultPane:
             return !bonsplitController.allPaneIds.isEmpty
         case .diffViewer:
             return owningTabManager != nil
-        case .newWorkspace, .cloudVM, .newTerminal, .newBrowser, .newNote, .splitRight, .splitDown,
+        case .newWorkspace, .cloudVM, .newTerminal, .newBrowser, .splitRight, .splitDown,
              .rightSidebarFiles, .rightSidebarFind, .rightSidebarVault,
              .revealCurrentDirectoryInFinder, .customizeSurfaceTabBar:
             return true
@@ -20388,6 +20398,10 @@ extension Workspace: BonsplitDelegate {
             bonsplitController.focusPane(pane)
             _ = newBrowserSurface(inPane: pane, focus: true)
         case .newNote:
+            guard RightSidebarBetaFeatureSettings.isNotesEnabled() else {
+                NSSound.beep()
+                return
+            }
             bonsplitController.focusPane(pane)
             let selectedPanelId = bonsplitController.selectedTab(inPane: pane)
                 .flatMap { panelIdFromSurfaceId($0.id) }

@@ -88,6 +88,20 @@ final class RightSidebarCommandPaletteTests: XCTestCase {
         )
     }
 
+    func testNewNotePaletteCommandsGatedByNotesBeta() {
+        var context = ContentView.CommandPaletteContextSnapshot()
+        XCTAssertFalse(
+            ContentView.commandPaletteNewNoteCommandsVisible(context),
+            "New Note commands must stay hidden until the Notes beta context key is set"
+        )
+
+        context.setBool(ContentView.CommandPaletteContextKeys.notesBetaEnabled, false)
+        XCTAssertFalse(ContentView.commandPaletteNewNoteCommandsVisible(context))
+
+        context.setBool(ContentView.CommandPaletteContextKeys.notesBetaEnabled, true)
+        XCTAssertTrue(ContentView.commandPaletteNewNoteCommandsVisible(context))
+    }
+
     private func withSavedBetaFeatureDefaults(_ body: () throws -> Void) rethrows {
         let defaults = UserDefaults.standard
         let previousNotes = defaults.object(forKey: RightSidebarBetaFeatureSettings.notesEnabledKey)

@@ -16,6 +16,13 @@ They are browsable and movable in cmux's **Notes** sidebar tab, and editing them
 on disk updates the sidebar live (it watches the filesystem). Your job is to read,
 write, edit, create, and organize these `.md` files using ordinary file tools.
 
+> **Beta gate.** Notes is a beta feature behind the "Notes" toggle in
+> Settings → Beta Features (`rightSidebar.beta.notes.enabled`). While it is off,
+> `$CMUX_WORKSPACE_NOTES_DIR` is not exported to new terminals, the Notes sidebar
+> tab is hidden, and every `cmux note …` command fails with `notes_disabled`.
+> If you hit that, tell the user to enable the Notes beta in cmux Settings
+> instead of retrying or writing files manually.
+
 ## 1. Find the notes root
 
 Resolve the workspace notes root **once** at the start, then work inside it.
@@ -154,7 +161,8 @@ cmux note append <slug> "more text"  # also: write, path, open, new, rm
 
 - **Never `mv` or rename their body files** — `index.json` pins the body path, and
   a raw move orphans the record (the note vanishes from `cmux note` and panes).
-  Renaming them is done in the cmux Notes sidebar (it retitles the index record).
+  Renaming them is done in cmux — the title field at the top of the note editor,
+  or the Notes sidebar — which retitles the index record in place.
 - Unsure whether a file is index-owned? Check before moving it:
   ```bash
   grep -F "$(basename "$note_file")" "<project>/.cmux/notes/index.json"

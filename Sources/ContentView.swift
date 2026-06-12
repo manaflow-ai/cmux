@@ -1505,11 +1505,21 @@ struct ContentView: View {
         static let cliInstalledInPATH = "cli.installedInPATH"
         static let defaultTerminalIsDefault = "defaultTerminal.isDefault"
         static let browserDisabled = "browser.disabled"
+        static let notesBetaEnabled = "notes.betaEnabled"
         static let authSignedIn = "auth.signedIn"
         static let authWorking = "auth.working"
         static func terminalOpenTargetAvailable(_ target: TerminalDirectoryOpenTarget) -> String {
             "terminal.openTarget.\(target.rawValue).available"
         }
+    }
+
+    /// Note surfaces are part of the Notes beta: the New Note palette
+    /// commands stay hidden until `rightSidebar.beta.notes.enabled` is on,
+    /// matching the gated tab-bar and configured-action entry points.
+    nonisolated static func commandPaletteNewNoteCommandsVisible(
+        _ context: CommandPaletteContextSnapshot
+    ) -> Bool {
+        context.bool(CommandPaletteContextKeys.notesBetaEnabled)
     }
 
     struct CommandPaletteCommandContribution {
@@ -2639,6 +2649,10 @@ struct ContentView: View {
         // Register this window's resolver keyed by its TabManager so multiple
         // windows coexist (the static map is searched, not overwritten).
         TerminalSurface.registerWorkspaceNotesDirectoryResolver(owner: tabManager) { [weak tabManager] id in
+            // Notes is a beta feature: while it is off, don't export
+            // CMUX_WORKSPACE_NOTES_DIR — the variable is what steers agents
+            // (the cmux-notes skill) into a notes workflow nothing surfaces.
+            guard RightSidebarBetaFeatureSettings.isNotesEnabled() else { return nil }
             guard let tabManager,
                   let workspace = tabManager.tabs.first(where: { $0.id == id }) else { return nil }
             let cwd = workspace.currentDirectory.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -6737,6 +6751,7 @@ struct ContentView: View {
         snapshot.setBool(CommandPaletteContextKeys.workspaceMinimalModeEnabled, isMinimalMode)
         snapshot.setBool(CommandPaletteContextKeys.sidebarMatchTerminalBackground, sidebarMatchTerminalBackground)
         snapshot.setBool(CommandPaletteContextKeys.browserDisabled, BrowserAvailabilitySettings.isDisabled())
+        snapshot.setBool(CommandPaletteContextKeys.notesBetaEnabled, RightSidebarBetaFeatureSettings.isNotesEnabled())
         if let auth = AppDelegate.shared?.auth {
             snapshot.setBool(CommandPaletteContextKeys.authSignedIn, auth.coordinator.isAuthenticated)
             snapshot.setBool(
@@ -7012,7 +7027,8 @@ struct ContentView: View {
                 commandId: "palette.newNoteForCurrentSurface",
                 title: constant(String(localized: "command.newNoteForCurrentSurface.title", defaultValue: "New Note for Current Surface")),
                 subtitle: constant(String(localized: "command.newNoteForCurrentSurface.subtitle", defaultValue: "Note")),
-                keywords: ["new", "note", "markdown", "attach", "surface"]
+                keywords: ["new", "note", "markdown", "attach", "surface"],
+                when: Self.commandPaletteNewNoteCommandsVisible
             )
         )
         contributions.append(
@@ -7020,7 +7036,8 @@ struct ContentView: View {
                 commandId: "palette.newNoteForWorkspace",
                 title: constant(String(localized: "command.newNoteForWorkspace.title", defaultValue: "New Note for Workspace")),
                 subtitle: constant(String(localized: "command.newNoteForWorkspace.subtitle", defaultValue: "Note")),
-                keywords: ["new", "note", "markdown", "attach", "workspace"]
+                keywords: ["new", "note", "markdown", "attach", "workspace"],
+                when: Self.commandPaletteNewNoteCommandsVisible
             )
         )
         contributions.append(
@@ -8209,6 +8226,10 @@ struct ContentView: View {
             }
         }
         registry.register(commandId: "palette.newNoteForCurrentSurface") {
+            guard RightSidebarBetaFeatureSettings.isNotesEnabled() else {
+                NSSound.beep()
+                return
+            }
             if executeConfiguredAction(id: CmuxSurfaceTabBarBuiltInAction.newNote.configID) {
                 return
             }
@@ -8234,6 +8255,10 @@ struct ContentView: View {
             }
         }
         registry.register(commandId: "palette.newNoteForWorkspace") {
+            guard RightSidebarBetaFeatureSettings.isNotesEnabled() else {
+                NSSound.beep()
+                return
+            }
             guard let workspace = tabManager.selectedWorkspace,
                   let paneId = workspace.bonsplitController.focusedPaneId ?? workspace.bonsplitController.allPaneIds.first else {
                 NSSound.beep()

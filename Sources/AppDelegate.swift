@@ -15209,6 +15209,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 onExecuted?()
                 return true
             case .newNote:
+                guard RightSidebarBetaFeatureSettings.isNotesEnabled() else {
+                    return false
+                }
                 guard let workspace = context.tabManager.selectedWorkspace,
                       let paneId = workspace.bonsplitController.focusedPaneId ?? workspace.bonsplitController.allPaneIds.first else {
                     return false

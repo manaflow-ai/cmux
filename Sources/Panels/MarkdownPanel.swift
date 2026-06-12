@@ -219,6 +219,29 @@ final class MarkdownPanel: Panel, ObservableObject, FilePreviewTextEditingPanel 
         displayTitle = title
     }
 
+    /// Rename this note from its editor header (the Google-Docs-style title
+    /// field). Routes through `CmuxNoteStore.retitle` — the same record
+    /// mutation the Notes tree uses — then posts `.cmuxNoteRetitled` so this
+    /// panel, any sibling panels on the same note, and the tree (via its
+    /// `.cmux/notes` watcher on `index.json`) all adopt the new title.
+    func renameNoteTitle(_ rawTitle: String) {
+        guard !isClosed, let slug = noteSlug else { return }
+        let bodyPath = (filePath as NSString).standardizingPath
+        guard let projectRoot = NoteSupport.projectRoot(forNotePath: bodyPath) else { return }
+        Task.detached(priority: .userInitiated) {
+            guard let record = try? CmuxNoteStore.retitle(
+                slug: slug, projectRoot: projectRoot, title: rawTitle
+            ) else { return }
+            await MainActor.run {
+                NotificationCenter.default.post(
+                    name: .cmuxNoteRetitled,
+                    object: nil,
+                    userInfo: ["bodyPath": bodyPath, "title": record.title]
+                )
+            }
+        }
+    }
+
     /// True for paths inside a TRUSTED `.cmux/notes` tree (the per-workspace
     /// Notes filesystem). Note classification turns on implicit writes
     /// (debounced autosave and the close flush), so a bare substring match is
