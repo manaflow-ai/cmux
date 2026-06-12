@@ -8,12 +8,12 @@ import ObjectiveC.runtime
 import Bonsplit
 import UserNotifications
 import Network
+import CmuxSettings
 
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
 #elseif canImport(cmux)
 @testable import cmux
-import CmuxSettings
 #endif
 
 var cmuxUnitTestInspectorAssociationKey: UInt8 = 0

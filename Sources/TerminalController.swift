@@ -7110,11 +7110,11 @@ class TerminalController {
     /// `__cmuxClick(el)`, `__cmuxHover(el)`, `__cmuxSetChecked(el, desired)`, and `__cmuxKey(t,type,key)`.
     private nonisolated static let browserInputHelpers = """
     function __cmuxCenter(el){const r=el.getBoundingClientRect();return {x:Math.floor(r.left+Math.min(r.width,r.width/2)),y:Math.floor(r.top+Math.min(r.height,r.height/2))};}
-    function __cmuxPointer(el,type,c,buttons){try{el.dispatchEvent(new PointerEvent(type,{bubbles:true,cancelable:true,composed:true,view:window,pointerId:1,pointerType:'mouse',isPrimary:true,button:0,buttons:buttons,clientX:c.x,clientY:c.y,screenX:c.x,screenY:c.y}));}catch(e){}}
+    function __cmuxPointer(el,type,c,buttons,bubbles){try{el.dispatchEvent(new PointerEvent(type,{bubbles:(bubbles===false?false:true),cancelable:true,composed:true,view:window,pointerId:1,pointerType:'mouse',isPrimary:true,button:0,buttons:buttons,clientX:c.x,clientY:c.y,screenX:c.x,screenY:c.y}));}catch(e){}}
     function __cmuxMouse(el,type,c,buttons,detail,bubbles){el.dispatchEvent(new MouseEvent(type,{bubbles:(bubbles===false?false:true),cancelable:true,composed:true,view:window,button:0,buttons:buttons,detail:detail||0,clientX:c.x,clientY:c.y,screenX:c.x,screenY:c.y}));}
     function __cmuxClick(el){const c=__cmuxCenter(el);
       __cmuxPointer(el,'pointerover',c,0);__cmuxMouse(el,'mouseover',c,0);
-      __cmuxPointer(el,'pointerenter',c,0);__cmuxMouse(el,'mouseenter',c,0,0,false);
+      __cmuxPointer(el,'pointerenter',c,0,false);__cmuxMouse(el,'mouseenter',c,0,0,false);
       __cmuxPointer(el,'pointermove',c,0);__cmuxMouse(el,'mousemove',c,0);
       __cmuxPointer(el,'pointerdown',c,1);__cmuxMouse(el,'mousedown',c,1,1);
       if(typeof el.focus==='function'){try{el.focus({preventScroll:true});}catch(e){try{el.focus();}catch(e2){}}}
@@ -7123,7 +7123,7 @@ class TerminalController {
     }
     function __cmuxHover(el){const c=__cmuxCenter(el);
       __cmuxPointer(el,'pointerover',c,0);__cmuxMouse(el,'mouseover',c,0);
-      __cmuxPointer(el,'pointerenter',c,0);__cmuxMouse(el,'mouseenter',c,0,0,false);
+      __cmuxPointer(el,'pointerenter',c,0,false);__cmuxMouse(el,'mouseenter',c,0,0,false);
       __cmuxPointer(el,'pointermove',c,0);__cmuxMouse(el,'mousemove',c,0);
     }
     function __cmuxSetChecked(el,desired){

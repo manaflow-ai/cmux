@@ -598,6 +598,31 @@ final class CmuxSettingsFileStore {
             logInvalid("terminal.agentHibernation", sourcePath: sourcePath)
         }
 
+        if let rawRendererRealization = section["rendererRealization"],
+           let rendererRealization = rawRendererRealization as? [String: Any] {
+            if let value = jsonBool(rendererRealization["enabled"]) {
+                snapshot.managedUserDefaults[RendererRealizationSettings.enabledKey] = .bool(value)
+            } else if rendererRealization.keys.contains("enabled") {
+                logInvalid("terminal.rendererRealization.enabled", sourcePath: sourcePath)
+            }
+            if let value = jsonInt(rendererRealization["idleSeconds"]) {
+                snapshot.managedUserDefaults[RendererRealizationSettings.idleSecondsKey] = .double(
+                    RendererRealizationSettings.sanitizedIdleSeconds(TimeInterval(value))
+                )
+            } else if rendererRealization.keys.contains("idleSeconds") {
+                logInvalid("terminal.rendererRealization.idleSeconds", sourcePath: sourcePath)
+            }
+            if let value = jsonInt(rendererRealization["maxWarmRenderers"]) {
+                snapshot.managedUserDefaults[RendererRealizationSettings.maxWarmRenderersKey] = .int(
+                    RendererRealizationSettings.sanitizedMaxWarmRenderers(value)
+                )
+            } else if rendererRealization.keys.contains("maxWarmRenderers") {
+                logInvalid("terminal.rendererRealization.maxWarmRenderers", sourcePath: sourcePath)
+            }
+        } else if section.keys.contains("rendererRealization") {
+            logInvalid("terminal.rendererRealization", sourcePath: sourcePath)
+        }
+
         if let value = jsonInt(section["textBoxMaxLines"]) {
             if value >= TerminalTextBoxInputSettings.minimumMaxLines,
                value <= TerminalTextBoxInputSettings.maximumMaxLines {
@@ -1665,6 +1690,7 @@ final class CmuxSettingsFileStore {
         let apply = {
             var agentSessionAutoResumeDidChange = false
             var agentHibernationDidChange = false
+            var rendererRealizationDidChange = false
             for change in changes {
                 if change.defaultsKey == TerminalScrollBarSettings.showScrollBarKey {
                     TerminalScrollBarSettings.notifyDidChange(notificationCenter: notificationCenter)
@@ -1682,6 +1708,11 @@ final class CmuxSettingsFileStore {
                     change.defaultsKey == AgentHibernationSettings.maxLiveTerminalsKey ||
                     change.defaultsKey == AgentHibernationSettings.confirmationSecondsKey {
                     agentHibernationDidChange = true
+                }
+                if change.defaultsKey == RendererRealizationSettings.enabledKey ||
+                    change.defaultsKey == RendererRealizationSettings.idleSecondsKey ||
+                    change.defaultsKey == RendererRealizationSettings.maxWarmRenderersKey {
+                    rendererRealizationDidChange = true
                 }
 
                 if change.defaultsKey == LanguageSettings.languageKey {
@@ -1705,6 +1736,9 @@ final class CmuxSettingsFileStore {
             }
             if agentHibernationDidChange {
                 AgentHibernationSettings.notifyDidChange(notificationCenter: notificationCenter)
+            }
+            if rendererRealizationDidChange {
+                RendererRealizationSettings.notifyDidChange(notificationCenter: notificationCenter)
             }
         }
         if Thread.isMainThread {

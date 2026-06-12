@@ -65,6 +65,7 @@ private final class StubGroupHost: WorkspaceGroupHosting {
 
     func createWorkspaceForGroup(
         workingDirectory: String?,
+        initialSurface: NewWorkspaceInitialSurface,
         inheritWorkingDirectory: Bool,
         select: Bool
     ) -> CoordinatorStubTab {

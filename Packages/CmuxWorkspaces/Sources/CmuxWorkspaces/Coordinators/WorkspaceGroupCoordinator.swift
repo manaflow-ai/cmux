@@ -123,7 +123,8 @@ public final class WorkspaceGroupCoordinator<Tab: WorkspaceTabRepresenting> {
         groupId: UUID,
         placement explicitPlacement: WorkspaceGroupNewPlacement? = nil,
         referenceWorkspaceId: UUID? = nil,
-        select: Bool = true
+        select: Bool = true,
+        initialSurface: NewWorkspaceInitialSurface = .terminal
     ) -> Tab? {
         guard let host else { return nil }
         // nil resolves to the stored global default at call time, matching
@@ -135,6 +136,7 @@ public final class WorkspaceGroupCoordinator<Tab: WorkspaceTabRepresenting> {
         let cwd = model.tabs.first(where: { $0.id == group.anchorWorkspaceId })?.currentDirectory
         let newWorkspace = host.createWorkspaceForGroup(
             workingDirectory: cwd,
+            initialSurface: initialSurface,
             inheritWorkingDirectory: cwd == nil,
             select: select
         )

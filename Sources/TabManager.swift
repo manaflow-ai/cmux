@@ -900,6 +900,7 @@ class TabManager: ObservableObject {
         workingDirectory: String?,
         portOrdinal: Int,
         configTemplate: CmuxSurfaceConfigTemplate?,
+        initialSurface: NewWorkspaceInitialSurface = .terminal,
         initialTerminalCommand: String?,
         initialTerminalInput: String? = nil,
         initialTerminalEnvironment: [String: String]
@@ -909,6 +910,7 @@ class TabManager: ObservableObject {
             workingDirectory: workingDirectory,
             portOrdinal: portOrdinal,
             configTemplate: configTemplate,
+            initialSurface: initialSurface,
             initialTerminalCommand: initialTerminalCommand,
             initialTerminalInput: initialTerminalInput,
             initialTerminalEnvironment: initialTerminalEnvironment
@@ -984,6 +986,7 @@ class TabManager: ObservableObject {
     func addWorkspace(
         title: String? = nil,
         workingDirectory overrideWorkingDirectory: String? = nil,
+        initialSurface: NewWorkspaceInitialSurface = .terminal,
         initialTerminalCommand: String? = nil,
         initialTerminalInput: String? = nil,
         initialTerminalEnvironment: [String: String] = [:],
@@ -1032,11 +1035,22 @@ class TabManager: ObservableObject {
             let insertIndex = newTabInsertIndex(snapshot: snapshot, placementOverride: placementOverride)
             let ordinal = Self.nextPortOrdinal
             Self.nextPortOrdinal += 1
+            let defaultTitle: String
+            switch initialSurface {
+            case .terminal:
+                defaultTitle = "Terminal \(nextTabCount)"
+            case .browser:
+                // Match the browser surface's blank new-tab title; the
+                // single-panel title sync keeps the workspace title following
+                // the page title once the user navigates.
+                defaultTitle = String(localized: "browser.newTab", defaultValue: "New tab")
+            }
             let newWorkspace = makeWorkspaceForCreation(
-                title: title ?? "Terminal \(nextTabCount)",
+                title: title ?? defaultTitle,
                 workingDirectory: workingDirectory,
                 portOrdinal: ordinal,
                 configTemplate: inheritedConfig,
+                initialSurface: initialSurface,
                 initialTerminalCommand: initialTerminalCommand,
                 initialTerminalInput: initialTerminalInput,
                 initialTerminalEnvironment: initialTerminalEnvironment
@@ -1099,7 +1113,8 @@ class TabManager: ObservableObject {
                 "selectedTabId": select ? newWorkspace.id.uuidString : (snapshot.selectedTabId?.uuidString ?? "")
             ])
 #endif
-            if autoWelcomeIfNeeded && select && !UserDefaults.standard.bool(forKey: WelcomeSettings.shownKey) {
+            if autoWelcomeIfNeeded && select && initialSurface == .terminal
+                && !UserDefaults.standard.bool(forKey: WelcomeSettings.shownKey) {
                 if let appDelegate = AppDelegate.shared {
                     appDelegate.sendWelcomeCommandWhenReady(to: newWorkspace, markShownOnSend: true)
                 } else {
@@ -1701,13 +1716,15 @@ class TabManager: ObservableObject {
         groupId: UUID,
         placement explicitPlacement: WorkspaceGroupNewPlacement? = nil,
         referenceWorkspaceId: UUID? = nil,
-        select: Bool = true
+        select: Bool = true,
+        initialSurface: NewWorkspaceInitialSurface = .terminal
     ) -> Workspace? {
         workspaceGrouping.createWorkspaceInGroup(
             groupId: groupId,
             placement: explicitPlacement,
             referenceWorkspaceId: referenceWorkspaceId,
-            select: select
+            select: select,
+            initialSurface: initialSurface
         )
     }
 
@@ -1801,11 +1818,13 @@ class TabManager: ObservableObject {
 
     func createWorkspaceForGroup(
         workingDirectory: String?,
+        initialSurface: NewWorkspaceInitialSurface,
         inheritWorkingDirectory: Bool,
         select: Bool
     ) -> Workspace {
         addWorkspace(
             workingDirectory: workingDirectory,
+            initialSurface: initialSurface,
             inheritWorkingDirectory: inheritWorkingDirectory,
             select: select,
             autoWelcomeIfNeeded: false
