@@ -26,6 +26,13 @@ const defaultPollInterval = 300 * time.Millisecond
 // replay only their tail, starting at the first complete line.
 const defaultMaxSnapshotBytes = int64(32 * 1024 * 1024)
 
+// defaultReadBudgetBytes bounds how much of a transcript delta one
+// readNewLines call materializes. A huge append (or a backlog after a long
+// sleep) drains across successive polls instead of being allocated at once;
+// it matches the snapshot cap so the initial replay still completes in one
+// read. At the default poll interval this drains >100 MiB/s of backlog.
+const defaultReadBudgetBytes = defaultMaxSnapshotBytes
+
 type Config struct {
 	Provider       ProviderID
 	TranscriptPath string
@@ -240,6 +247,8 @@ type transcriptReader struct {
 	path    string
 	offset  int64
 	partial []byte
+	// readBudget overrides defaultReadBudgetBytes (tests use small values).
+	readBudget int64
 }
 
 // seekForSnapshot positions the reader so the initial replay reads at most
@@ -302,7 +311,17 @@ func (r *transcriptReader) readNewLines() ([][]byte, bool, error) {
 	if _, err := file.Seek(r.offset, io.SeekStart); err != nil {
 		return nil, false, err
 	}
-	data, err := io.ReadAll(io.LimitReader(file, info.Size()-r.offset))
+	budget := r.readBudget
+	if budget <= 0 {
+		budget = defaultReadBudgetBytes
+	}
+	remaining := info.Size() - r.offset
+	if remaining > budget {
+		// Bound the per-call allocation; the partial-line carry makes the
+		// next poll resume exactly where this one stopped.
+		remaining = budget
+	}
+	data, err := io.ReadAll(io.LimitReader(file, remaining))
 	if err != nil {
 		return nil, false, err
 	}

@@ -43,6 +43,19 @@ final class AgentChatWebViewController: NSViewController, WKScriptMessageHandler
 #endif
         resolution = nil
         teardownDaemon()
+        // addScriptMessageHandler retains self, and self owns the web view
+        // whose configuration owns that userContentController: without this
+        // removal every closed chat pane leaks its WKWebView and controller
+        // (and deinit never runs). Mirrors AgentSessionWebRendererCoordinator.
+        if let webView {
+            webView.stopLoading()
+            webView.configuration.userContentController.removeScriptMessageHandler(
+                forName: Self.handlerName,
+                contentWorld: .page
+            )
+            webView.navigationDelegate = nil
+        }
+        webView = nil
     }
 
     override func loadView() {

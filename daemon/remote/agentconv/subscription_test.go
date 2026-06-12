@@ -1,8 +1,10 @@
 package agentconv
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 )
@@ -225,5 +227,42 @@ func TestSnapshotCapKeepsCodexSessionMeta(t *testing.T) {
 	}
 	if len(snapshot.Items) != 1 || snapshot.Items[0].Text != "tail line" {
 		t.Fatalf("capped snapshot items = %+v", snapshot.Items)
+	}
+}
+
+// One readNewLines call must never materialize more than its budget: a large
+// append drains across successive calls, with the partial-line carry joining
+// lines that straddle the budget boundary.
+func TestReadNewLinesBoundedByBudget(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "big.jsonl")
+	var content string
+	for i := 0; i < 8; i++ {
+		content += fmt.Sprintf(`{"line":%d,"pad":"%s"}`, i, strings.Repeat("x", 40)) + "\n"
+	}
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	reader := &transcriptReader{path: path, readBudget: 96}
+	var lines [][]byte
+	for i := 0; i < 64; i++ {
+		batch, truncated, err := reader.readNewLines()
+		if err != nil {
+			t.Fatal(err)
+		}
+		if truncated {
+			t.Fatal("unexpected truncation")
+		}
+		if len(batch) == 0 && reader.offset == int64(len(content)) {
+			break
+		}
+		lines = append(lines, batch...)
+	}
+	if len(lines) != 8 {
+		t.Fatalf("drained %d lines across budgeted reads, want 8", len(lines))
+	}
+	for i, line := range lines {
+		if !strings.Contains(string(line), fmt.Sprintf(`"line":%d`, i)) {
+			t.Fatalf("line %d out of order or corrupted: %s", i, line)
+		}
 	}
 }
