@@ -7299,6 +7299,13 @@ final class TerminalSurface: Identifiable, ObservableObject {
         // never block the main actor waiting on the renderer thread.
         if ghostty_surface_set_renderer_realized(surface, true) {
             rendererRealized = true
+        } else {
+            // Enqueue dropped (full mailbox, i.e. the renderer thread is not
+            // draining). Kick an immediate reclamation pass so the controller
+            // re-realizes this now-visible surface on the next runloop turn
+            // instead of waiting for the periodic tick, minimizing how long a
+            // re-shown terminal could draw against a defunct swap chain.
+            RendererRealizationController.shared.scheduleImmediatePass()
         }
 #endif
     }

@@ -70,6 +70,17 @@ final class RendererRealizationController {
         self.timer = timer
     }
 
+    /// Schedule a reclamation pass on the next main-actor turn. Called when a
+    /// re-show realize enqueue dropped, so the controller re-realizes the
+    /// now-visible-but-unrealized surface immediately rather than waiting for the
+    /// periodic tick. Async (not re-entrant): the caller is already mid
+    /// `realizeRenderer`.
+    func scheduleImmediatePass() {
+        Task { @MainActor in
+            RendererRealizationController.shared.evaluate(now: Date())
+        }
+    }
+
     /// Run one reclamation pass. Internal so a unit/integration test can drive it
     /// deterministically without the timer.
     func evaluate(now: Date) {
