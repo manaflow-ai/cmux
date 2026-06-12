@@ -3936,6 +3936,14 @@ struct CMUXCLI {
                 windowOverride: windowId
             )
 
+        case "canvas":
+            try runCanvasNamespace(
+                commandArgs: commandArgs,
+                client: client,
+                jsonOutput: jsonOutput,
+                idFormat: idFormat
+            )
+
         case "workspace":
             try runWorkspaceNamespace(
                 commandArgs: commandArgs,
@@ -7332,6 +7340,91 @@ struct CMUXCLI {
         default:
             throw CLIError(message: "Unknown window subcommand: \(sub). Try: display, displays")
         }
+    }
+
+    /// `cmux canvas <info|mode|set-frame|align|reveal|overview>` — workspace
+    /// canvas-layout control over the v2 `canvas.*` methods.
+    private func runCanvasNamespace(
+        commandArgs: [String],
+        client: SocketClient,
+        jsonOutput: Bool,
+        idFormat: CLIIDFormat
+    ) throws {
+        guard let sub = commandArgs.first?.lowercased() else {
+            throw CLIError(message: "canvas requires a subcommand. Try: info, mode, set-frame, align, reveal, overview")
+        }
+        let rest = Array(commandArgs.dropFirst())
+        // Split flags ("--name value") from bare positionals so a flag's
+        // value is never mistaken for a positional argument.
+        var positionals: [String] = []
+        var index = 0
+        while index < rest.count {
+            let arg = rest[index]
+            if arg.hasPrefix("--") {
+                index += 2
+            } else {
+                positionals.append(arg)
+                index += 1
+            }
+        }
+
+        var params: [String: Any] = [:]
+        if let workspaceRaw = optionValue(rest, name: "--workspace"),
+           let wsId = try normalizeWorkspaceHandle(workspaceRaw, client: client) {
+            params["workspace_id"] = wsId
+        }
+
+        func surfaceParam(positional: String?, required: Bool) throws {
+            let raw = optionValue(rest, name: "--surface") ?? positional
+            if let raw, let surfaceId = try normalizeSurfaceHandle(raw, client: client) {
+                params["surface_id"] = surfaceId
+            } else if required {
+                throw CLIError(message: "canvas \(sub) requires a surface (positional or --surface <id|ref>)")
+            }
+        }
+
+        let method: String
+        switch sub {
+        case "info":
+            method = "canvas.info"
+        case "mode":
+            guard let mode = positionals.first?.lowercased(),
+                  ["canvas", "splits", "toggle"].contains(mode) else {
+                throw CLIError(message: "Usage: cmux canvas mode <canvas|splits|toggle>")
+            }
+            params["mode"] = mode
+            method = "canvas.set_mode"
+        case "set-frame":
+            try surfaceParam(positional: positionals.first, required: true)
+            for key in ["x", "y", "width", "height"] {
+                guard let raw = optionValue(rest, name: "--\(key)"), let value = Double(raw) else {
+                    throw CLIError(message: "canvas set-frame requires numeric --x --y --width --height")
+                }
+                params[key] = value
+            }
+            method = "canvas.set_frame"
+        case "align":
+            guard let command = positionals.first?.lowercased() else {
+                throw CLIError(message: "Usage: cmux canvas align <tidy|align-left|align-right|align-top|align-bottom|equalize-widths|equalize-heights|distribute-horizontally|distribute-vertically>")
+            }
+            params["command"] = command
+            method = "canvas.align"
+        case "reveal":
+            try surfaceParam(positional: positionals.first, required: false)
+            method = "canvas.reveal"
+        case "overview":
+            method = "canvas.overview"
+        default:
+            throw CLIError(message: "Unknown canvas subcommand: \(sub). Try: info, mode, set-frame, align, reveal, overview")
+        }
+
+        let payload = try client.sendV2(method: method, params: params)
+        printV2Payload(
+            payload,
+            jsonOutput: jsonOutput,
+            idFormat: idFormat,
+            fallbackText: v2OKSummary(payload, idFormat: idFormat, kinds: ["workspace", "surface"])
+        )
     }
 
     /// `cmux window displays` — list connected displays (name + index).
@@ -13326,6 +13419,28 @@ struct CMUXCLI {
             Usage: cmux capabilities
 
             Print server capabilities as JSON.
+            """
+        case "canvas":
+            return """
+            Usage: cmux canvas <subcommand> [args] [--workspace <id|ref>]
+
+            Control a workspace's freeform canvas layout.
+
+            Subcommands:
+              info                          Print layout mode and pane frames (z-order)
+              mode <canvas|splits|toggle>   Switch layout mode
+              set-frame <surface> --x <n> --y <n> --width <n> --height <n>
+                                            Place one pane at an explicit frame
+              align <command>               tidy, align-left, align-right, align-top,
+                                            align-bottom, equalize-widths, equalize-heights,
+                                            distribute-horizontally, distribute-vertically
+              reveal [<surface>]            Scroll a pane into view (default: focused)
+              overview                      Toggle fit-all overview zoom
+
+            Example:
+              cmux canvas mode canvas
+              cmux canvas set-frame surface:1 --x 0 --y 0 --width 800 --height 520
+              cmux canvas align tidy
             """
         case "events":
             return """

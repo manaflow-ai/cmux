@@ -13559,7 +13559,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         for action in KeyboardShortcutSettings.Action.canvasActions {
             if matchConfiguredShortcut(event: event, action: action),
                let canvasAction = action.canvasAction {
-                if let workspace = preferredMainWindowContextForShortcutRouting(event: event)?.tabManager?.selectedWorkspace
+                if let workspace = preferredMainWindowContextForShortcutRouting(event: event)?.tabManager.selectedWorkspace
                     ?? tabManager?.selectedWorkspace {
                     CanvasActionExecutor(workspace: workspace).perform(canvasAction)
                 }
