@@ -43,6 +43,34 @@ public struct ChatSessionDescriptor: Identifiable, Sendable, Equatable, Codable 
     ///   - workingDirectory: Session working directory when known.
     ///   - state: Live activity state.
     ///   - lastActivityAt: Most recent activity timestamp.
+    /// Orders a workspace's sessions for selection: the session most
+    /// likely to want the user opens first, and a dead session never
+    /// shadows a live one. Ended sessions appear only when every session
+    /// is ended; within a state, most recent activity wins.
+    ///
+    /// - Parameter sessions: The workspace's sessions in any order.
+    /// - Returns: The openable sessions, best first.
+    public static func openable(_ sessions: [ChatSessionDescriptor]) -> [ChatSessionDescriptor] {
+        let alive = sessions.filter { $0.state != .ended }
+        let pool = alive.isEmpty ? sessions : alive
+        return pool.sorted { lhs, rhs in
+            let lp = selectionPriority(lhs.state)
+            let rp = selectionPriority(rhs.state)
+            if lp != rp { return lp < rp }
+            return (lhs.lastActivityAt ?? .distantPast) > (rhs.lastActivityAt ?? .distantPast)
+        }
+    }
+
+    /// Selection rank for a state; lower opens first.
+    static func selectionPriority(_ state: ChatAgentState) -> Int {
+        switch state {
+        case .needsInput: return 0
+        case .working: return 1
+        case .idle: return 2
+        case .ended: return 3
+        }
+    }
+
     public init(
         id: String,
         agentKind: ChatAgentKind,

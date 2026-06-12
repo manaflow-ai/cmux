@@ -23,7 +23,7 @@ struct ChatSessionOrderingTests {
 
     @Test("a live session is picked over a more recent ended one")
     func liveBeatsRecentEnded() {
-        let result = ChatSessionOrdering.openable([
+        let result = ChatSessionDescriptor.openable([
             session("ended-new", .ended, ago: 1),
             session("idle-old", .idle, ago: 100),
         ])
@@ -34,7 +34,7 @@ struct ChatSessionOrderingTests {
 
     @Test("needs-input sorts ahead of working and idle")
     func attentionFirst() {
-        let result = ChatSessionOrdering.openable([
+        let result = ChatSessionDescriptor.openable([
             session("idle", .idle, ago: 1),
             session("working", .working(since: Self.base), ago: 2),
             session("needs", .needsInput(since: Self.base), ago: 50),
@@ -44,7 +44,7 @@ struct ChatSessionOrderingTests {
 
     @Test("within a state, most recent activity wins")
     func recencyWithinState() {
-        let result = ChatSessionOrdering.openable([
+        let result = ChatSessionDescriptor.openable([
             session("idle-old", .idle, ago: 100),
             session("idle-new", .idle, ago: 1),
         ])
@@ -53,7 +53,7 @@ struct ChatSessionOrderingTests {
 
     @Test("all ended falls back to showing ended, most recent first")
     func allEndedFallback() {
-        let result = ChatSessionOrdering.openable([
+        let result = ChatSessionDescriptor.openable([
             session("ended-old", .ended, ago: 100),
             session("ended-new", .ended, ago: 1),
         ])

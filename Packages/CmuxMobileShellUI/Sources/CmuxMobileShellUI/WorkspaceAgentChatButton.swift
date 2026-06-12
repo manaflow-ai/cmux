@@ -102,7 +102,7 @@ struct WorkspaceAgentChatButton: View {
     /// only when nothing is alive — a dead session must never shadow a
     /// live one.
     private var openableSessions: [ChatSessionDescriptor] {
-        ChatSessionOrdering.openable(sessions)
+        ChatSessionDescriptor.openable(sessions)
     }
 
     private func sessionMenuTitle(_ session: ChatSessionDescriptor) -> String {
