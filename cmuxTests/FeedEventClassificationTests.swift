@@ -115,6 +115,14 @@ struct FeedEventClassificationTests {
         #expect(classify("codex", "PermissionRequest", tool: "shell").actionable == false)
     }
 
+    @Test func codexLifecycleFeedEventsStayTelemetryAndPreserveNames() {
+        for event in ["PostToolUse", "PreCompact", "PostCompact", "SubagentStart", "SubagentStop"] {
+            let classification = classify("codex", event, tool: "shell")
+            #expect(classification.name == event)
+            #expect(classification.actionable == false)
+        }
+    }
+
     /// Unknown source + unknown event is safe by default.
     @Test func unknownSourceUnknownEventIsSafe() {
         #expect(classify("totally-new-agent", "some_future_event", tool: "Bash").actionable == false)

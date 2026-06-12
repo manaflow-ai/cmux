@@ -66,6 +66,12 @@ struct FeedEventClassifier {
         case response
         /// A subagent finished responding. Telemetry only.
         case subagentResponse
+        /// A subagent started. Telemetry only.
+        case subagentStart
+        /// Conversation compaction is about to run. Telemetry only.
+        case preCompact
+        /// Conversation compaction finished. Telemetry only.
+        case postCompact
         case sessionStart
         case sessionEnd
         /// A generic status/notification event. Telemetry only — real
@@ -132,6 +138,12 @@ struct FeedEventClassifier {
             return ("Stop", false)
         case .subagentResponse:
             return ("SubagentStop", false)
+        case .subagentStart:
+            return ("SubagentStart", false)
+        case .preCompact:
+            return ("PreCompact", false)
+        case .postCompact:
+            return ("PostCompact", false)
         case .sessionStart:
             return ("SessionStart", false)
         case .sessionEnd:
@@ -176,10 +188,13 @@ struct FeedEventClassifier {
             "PreToolUse": .toolStart,
             "beforeShellExecution": .toolStart,
             "PostToolUse": .toolEnd,
+            "PreCompact": .preCompact,
+            "PostCompact": .postCompact,
             "UserPromptSubmit": .promptSubmit,
             "SessionStart": .sessionStart,
             "SessionEnd": .sessionEnd,
             "Stop": .response,
+            "SubagentStart": .subagentStart,
             "SubagentStop": .subagentResponse,
             "Notification": .statusNotification,
         ],
@@ -226,10 +241,13 @@ struct FeedEventClassifier {
         "beforeShellExecution": .toolStartMaybeApproval,
         "PermissionRequest": .approvalRequest,
         "PostToolUse": .toolEnd,
+        "PreCompact": .preCompact,
+        "PostCompact": .postCompact,
         "UserPromptSubmit": .promptSubmit,
         "SessionStart": .sessionStart,
         "SessionEnd": .sessionEnd,
         "Stop": .response,
+        "SubagentStart": .subagentStart,
         "SubagentStop": .subagentResponse,
         "Notification": .statusNotification,
     ]
