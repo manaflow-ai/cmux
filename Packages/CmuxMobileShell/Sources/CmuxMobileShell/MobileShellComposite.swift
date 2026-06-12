@@ -444,9 +444,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             }
         }
     }
-    /// The live RPC client, narrowed for the agent-chat extension
-    /// (`MobileShellComposite+AgentChat.swift`); `remoteClient` itself stays
-    /// private to keep connection lifecycle ownership in this file.
+    /// `remoteClient` narrowed for `MobileShellComposite+AgentChat.swift`.
     var remoteClientForAgentChat: MobileCoreRPCClient? { remoteClient }
     private var terminalEventListenerTask: Task<Void, Never>?
     private var terminalEventListenerID: UUID?

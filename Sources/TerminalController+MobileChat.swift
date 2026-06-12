@@ -7,6 +7,27 @@ import Foundation
 /// the existing mobile terminal injection machinery so chat input behaves
 /// exactly like composer input.
 extension TerminalController {
+    /// Routes one `mobile.chat.*` method to its handler (single dispatch
+    /// case in `mobileHostHandleRPC` keeps the god-file growth flat).
+    func v2MobileChatDispatch(method: String, params: [String: Any]) async -> V2CallResult {
+        switch method {
+        case "mobile.chat.sessions":
+            return v2MobileChatSessions(params: params)
+        case "mobile.chat.history":
+            return await v2MobileChatHistory(params: params)
+        case "mobile.chat.send":
+            return v2MobileChatSend(params: params)
+        case "mobile.chat.interrupt":
+            return v2MobileChatInterrupt(params: params)
+        case "mobile.chat.answer":
+            return v2MobileChatAnswer(params: params)
+        default:
+            return .err(code: "method_not_found", message: "Unknown mobile method", data: [
+                "method": method
+            ])
+        }
+    }
+
     /// `mobile.chat.sessions`: list chat-capable sessions, optionally
     /// scoped to one workspace.
     func v2MobileChatSessions(params: [String: Any]) -> V2CallResult {

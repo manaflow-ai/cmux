@@ -5130,9 +5130,7 @@ class TerminalController {
 
         CmuxEventBus.shared.publishWorkstreamEvent(event, phase: "received")
         v2ApplyIMessageModeSideEffects(for: event)
-        Task { @MainActor in
-            AgentChatTranscriptService.shared.noteHookEvent(event)
-        }
+        Task { @MainActor in AgentChatTranscriptService.shared.noteHookEvent(event) }
 
         let result = FeedCoordinator.shared.ingestBlocking(
             event: event,
@@ -13388,16 +13386,8 @@ class TerminalController {
             result = v2MobileTerminalMouse(params: request.params)
         case "workspace.action":
             result = v2MobileWorkspaceAction(params: request.params)
-        case "mobile.chat.sessions":
-            result = v2MobileChatSessions(params: request.params)
-        case "mobile.chat.history":
-            result = await v2MobileChatHistory(params: request.params)
-        case "mobile.chat.send":
-            result = v2MobileChatSend(params: request.params)
-        case "mobile.chat.interrupt":
-            result = v2MobileChatInterrupt(params: request.params)
-        case "mobile.chat.answer":
-            result = v2MobileChatAnswer(params: request.params)
+        case let method where method.hasPrefix("mobile.chat."):
+            result = await v2MobileChatDispatch(method: method, params: request.params)
         case "dogfood.feedback.submit":
             result = await v2MobileDogfoodFeedbackSubmit(params: request.params)
         default:
