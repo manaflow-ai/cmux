@@ -183,7 +183,7 @@ struct WorkspaceGroupTests {
                 groupMemberIds = memberWorkspaceIds
             case .groupHeader:
                 break
-            case .workspace(let workspace):
+            case .workspace(let workspace, _):
                 visibleWorkspaceIds.append(workspace.id)
             }
         }
@@ -1048,97 +1048,6 @@ struct WorkspaceGroupTests {
         #expect(workspaceRowIds.contains(targetId) == false)
     }
 
-    // MARK: - Drag restore snapshot (cancelled / uncommitted live reorder)
-
-    @Test func dragRestoreSnapshotRestoresOrderAndGroupMembership() throws {
-        let manager = makeTabManager()
-        manager.addWorkspace(autoWelcomeIfNeeded: false)
-        manager.addWorkspace(autoWelcomeIfNeeded: false)
-        let originalIds = manager.tabs.map(\.id)
-        let groupId = try #require(manager.createWorkspaceGroup(name: "G", childWorkspaceIds: [originalIds[1]]))
-        let orderBefore = manager.tabs.map(\.id)
-        let draggedId = originalIds[3]
-
-        let snapshot = manager.captureSidebarDragRestoreSnapshot()
-        // Live-reorder the last (ungrouped) workspace between the anchor and
-        // its member: both neighbors share the group, so the drag inference
-        // absorbs it into the group.
-        let moved = manager.reorderSidebarWorkspace(
-            tabId: draggedId,
-            toIndex: 2,
-            isDragOperation: true
-        )
-        #expect(moved)
-        #expect(manager.tabs.first { $0.id == draggedId }?.groupId == groupId)
-        #expect(manager.tabs.map(\.id) != orderBefore)
-
-        let restored = manager.restoreSidebarDragSnapshot(snapshot)
-
-        #expect(restored)
-        #expect(manager.tabs.map(\.id) == orderBefore)
-        #expect(manager.tabs.first { $0.id == draggedId }?.groupId == nil)
-        let memberIds = manager.tabs.filter { $0.groupId == groupId }.map(\.id)
-        #expect(!memberIds.contains(draggedId))
-    }
-
-    @Test func dragRestoreSnapshotIsNoOpWhenNothingChanged() throws {
-        let manager = makeTabManager()
-        let orderBefore = manager.tabs.map(\.id)
-
-        let snapshot = manager.captureSidebarDragRestoreSnapshot()
-        let restored = manager.restoreSidebarDragSnapshot(snapshot)
-
-        #expect(!restored)
-        #expect(manager.tabs.map(\.id) == orderBefore)
-    }
-
-    @Test func dragRestoreSnapshotRestoresMembershipWhenOrderAlreadyMatches() throws {
-        let manager = makeTabManager()
-        manager.addWorkspace(autoWelcomeIfNeeded: false)
-        let originalIds = manager.tabs.map(\.id)
-        let groupId = try #require(manager.createWorkspaceGroup(name: "G", childWorkspaceIds: [originalIds[1]]))
-
-        let snapshot = manager.captureSidebarDragRestoreSnapshot()
-        // Membership flips while the id order happens to end up unchanged —
-        // the restore must still roll the membership back.
-        let lastTab = try #require(manager.tabs.last)
-        #expect(lastTab.groupId == nil)
-        lastTab.groupId = groupId
-
-        let restored = manager.restoreSidebarDragSnapshot(snapshot)
-
-        #expect(restored)
-        #expect(manager.tabs.first { $0.id == lastTab.id }?.groupId == nil)
-    }
-
-    @Test func dragRestoreSnapshotSkipsWorkspaceClosedMidDrag() throws {
-        let manager = makeTabManager()
-        manager.addWorkspace(autoWelcomeIfNeeded: false)
-        manager.addWorkspace(autoWelcomeIfNeeded: false)
-        let originalIds = manager.tabs.map(\.id)
-        let groupId = try #require(manager.createWorkspaceGroup(name: "G", childWorkspaceIds: [originalIds[1]]))
-        let draggedId = originalIds[3]
-
-        let snapshot = manager.captureSidebarDragRestoreSnapshot()
-        let moved = manager.reorderSidebarWorkspace(
-            tabId: draggedId,
-            toIndex: 2,
-            isDragOperation: true
-        )
-        #expect(moved)
-        let closingTab = try #require(manager.tabs.first { $0.id == originalIds[2] })
-        manager.closeWorkspace(closingTab)
-
-        let restored = manager.restoreSidebarDragSnapshot(snapshot)
-
-        #expect(restored)
-        #expect(manager.tabs.first { $0.id == draggedId }?.groupId == nil)
-        let expectedOrder = snapshot.orderedWorkspaceIds.filter { id in
-            manager.tabs.contains { $0.id == id }
-        }
-        #expect(manager.tabs.map(\.id) == expectedOrder)
-    }
-
     // MARK: - Grouping keeps sidebar selection on the focused workspace
 
     @Test func createGroupKeepsSidebarSelectionOnFocusedNonMember() throws {
@@ -1162,5 +1071,73 @@ struct WorkspaceGroupTests {
         // jumping to the new empty anchor.
         #expect(manager.selectedTabId == focusedTab.id)
         #expect(manager.sidebarSelectedWorkspaceIds == [focusedTab.id])
+    }
+}
+
+/// Covers the gesture-driven reorder hit-testing + hysteresis that
+/// `SidebarReorderIndicatorResolver` adds on top of `SidebarDropPlanner`.
+@Suite("Sidebar reorder indicator resolver")
+struct SidebarReorderIndicatorResolverTests {
+    private func band(_ id: UUID, _ minY: CGFloat, _ maxY: CGFloat) -> SidebarReorderIndicatorResolver.Band {
+        .init(id: id, minY: minY, maxY: maxY)
+    }
+
+    @Test func cursorBelowAllRowsAppendsToEnd() {
+        let a = UUID(); let b = UUID(); let c = UUID()
+        let bands = [band(a, 0, 20), band(b, 22, 42), band(c, 44, 64)]
+        let indicator = SidebarReorderIndicatorResolver.resolve(
+            cursorY: 200, bands: bands, draggedId: a, pinnedIds: [], current: nil, hysteresisMargin: 6
+        )
+        #expect(indicator?.tabId == nil)
+        #expect(indicator?.edge == .bottom)
+    }
+
+    @Test func cursorInTopHalfOfFirstRowTargetsItsTop() {
+        let a = UUID(); let b = UUID(); let c = UUID()
+        let bands = [band(a, 0, 20), band(b, 22, 42), band(c, 44, 64)]
+        // Dragging C; hovering the top half of A should land it before A.
+        let indicator = SidebarReorderIndicatorResolver.resolve(
+            cursorY: 3, bands: bands, draggedId: c, pinnedIds: [], current: nil, hysteresisMargin: 6
+        )
+        #expect(indicator?.tabId == a)
+        #expect(indicator?.edge == .top)
+    }
+
+    @Test func hysteresisHoldsCurrentEdgeNearMidpoint() {
+        let a = UUID(); let b = UUID(); let c = UUID()
+        let bands = [band(a, 0, 20), band(b, 20, 40), band(c, 40, 60)]
+        // Dragging A. Current landing slot is "after B" (canonicalized to top of C).
+        let current = SidebarDropIndicator(tabId: c, edge: .top)
+        // Cursor just above B's midpoint (30) and within the 6pt dead-zone: the
+        // raw decision flips to "before B", but stickiness keeps the current slot.
+        let held = SidebarReorderIndicatorResolver.resolve(
+            cursorY: 29, bands: bands, draggedId: a, pinnedIds: [], current: current, hysteresisMargin: 6
+        )
+        #expect(held == current)
+        // With no hysteresis the same cursor flips the slot.
+        let flipped = SidebarReorderIndicatorResolver.resolve(
+            cursorY: 29, bands: bands, draggedId: a, pinnedIds: [], current: current, hysteresisMargin: 0
+        )
+        #expect(flipped != current)
+    }
+
+    @Test func clearMidpointCrossingFlipsEdge() {
+        let a = UUID(); let b = UUID(); let c = UUID()
+        let bands = [band(a, 0, 20), band(b, 20, 40), band(c, 40, 60)]
+        let current = SidebarDropIndicator(tabId: c, edge: .top) // after B
+        // Dragging C; cursor well into the top of B (far outside the dead-zone)
+        // lands before B.
+        let indicator = SidebarReorderIndicatorResolver.resolve(
+            cursorY: 22, bands: bands, draggedId: c, pinnedIds: [], current: current, hysteresisMargin: 6
+        )
+        #expect(indicator?.tabId == b)
+        #expect(indicator?.edge == .top)
+    }
+
+    @Test func emptyBandsResolveToNil() {
+        let indicator = SidebarReorderIndicatorResolver.resolve(
+            cursorY: 10, bands: [], draggedId: UUID(), pinnedIds: [], current: nil, hysteresisMargin: 6
+        )
+        #expect(indicator == nil)
     }
 }

@@ -7,7 +7,8 @@ extension VerticalTabsSidebar {
         group: WorkspaceGroup,
         memberWorkspaceIds: [UUID],
         renderContext: WorkspaceListRenderContext,
-        shouldCollectWorkspaceDropTargets: Bool
+        shouldCollectWorkspaceDropTargets: Bool,
+        role: SidebarWorkspaceRowRenderRole = .list
     ) -> some View {
         let settings = renderContext.tabItemSettings
         let isAnchorActive = tabManager.selectedTabId == group.anchorWorkspaceId
@@ -36,44 +37,23 @@ extension VerticalTabsSidebar {
         )
         let modifierSymbol = renderContext.workspaceNumberShortcut.numberedDigitHintPrefix
         let showsHintForAnchor = modifierKeyMonitor.isModifierPressed
-        let topDropIndicatorVisible = SidebarTabDropIndicatorPredicate.topVisible(
-            forTabId: group.anchorWorkspaceId,
-            draggedTabId: dragState.draggedTabId,
-            dropIndicator: dragState.dropIndicator,
-            tabIds: renderContext.sidebarReorderIds
-        )
-        let onDragStart: () -> NSItemProvider = { [anchorId = group.anchorWorkspaceId] in
-            #if DEBUG
-            cmuxDebugLog("sidebar.onDrag groupAnchor=\(anchorId.uuidString.prefix(5))")
-            #endif
-            dragState.beginDragging(tabId: anchorId)
-            return SidebarTabDragPayload.provider(for: anchorId)
-        }
-        let tabDropDelegateFactory: (CGFloat) -> SidebarWorkspaceGroupHeaderDropDelegate = { [
-            groupId = group.id,
-            anchorId = group.anchorWorkspaceId,
-            selectedTabIds = $selectedTabIds,
-            lastSidebarSelectionIndex = $lastSidebarSelectionIndex
-        ] rowHeight in
-            let reorderDelegate = SidebarTabDropDelegate(
-                targetTabId: anchorId,
-                tabManager: tabManager,
-                dragState: dragState,
-                selectedTabIds: selectedTabIds,
-                lastSidebarSelectionIndex: lastSidebarSelectionIndex,
-                targetRowHeight: rowHeight,
-                dragAutoScrollController: dragAutoScrollController
-            )
-            return SidebarWorkspaceGroupHeaderDropDelegate(
-                targetGroupId: groupId,
-                targetAnchorWorkspaceId: anchorId,
-                tabManager: tabManager,
-                dragState: dragState,
-                targetRowHeight: rowHeight,
-                dragAutoScrollController: dragAutoScrollController,
-                reorderDelegate: reorderDelegate
+        // Dragging a group header reorders the whole group at top level; the
+        // shared reorder helpers handle the anchor/top-level scope.
+        let onReorderChanged: (CGPoint, CGPoint) -> Void = { [anchorId = group.anchorWorkspaceId, renderContext] startLocation, location in
+            sidebarReorderGestureChanged(
+                draggedId: anchorId,
+                startLocationY: startLocation.y,
+                cursorY: location.y,
+                renderContext: renderContext
             )
         }
+        let onReorderEnded: (CGPoint, CGPoint) -> Void = { [anchorId = group.anchorWorkspaceId] _, _ in
+            sidebarReorderGestureEnded(draggedId: anchorId)
+        }
+        // Computed in the parent and applied as opacity below (not passed into
+        // the header view) so the gesture-hosting header's inputs stay constant
+        // during a drag and its in-flight `DragGesture` is not torn down.
+        let isBeingDragged = role == .list && dragState.draggedTabId == group.anchorWorkspaceId
 
         let header = SidebarWorkspaceGroupHeaderView(
             groupId: group.id,
@@ -96,10 +76,10 @@ extension VerticalTabsSidebar {
             newWorkspacePlacement: newWorkspacePlacement,
             rowSpacing: tabRowSpacing,
             isFirstRow: renderContext.sidebarReorderIds.first == group.anchorWorkspaceId,
-            isBeingDragged: dragState.draggedTabId == group.anchorWorkspaceId,
-            topDropIndicatorVisible: topDropIndicatorVisible,
-            onDragStart: onDragStart,
-            tabDropDelegateFactory: tabDropDelegateFactory,
+            topDropIndicatorVisible: false,
+            onReorderChanged: onReorderChanged,
+            onReorderEnded: onReorderEnded,
+            isReorderEnabled: role == .list,
             onToggleCollapsed: { [weak tabManager, groupId = group.id] in
                 tabManager?.toggleWorkspaceGroupCollapsed(groupId: groupId)
             },
@@ -155,16 +135,23 @@ extension VerticalTabsSidebar {
             }
         )
         .equatable()
-        // No `.id(group.anchorWorkspaceId)` here: identity comes from the
-        // ForEach (`id: \.scrollAnchorWorkspaceId`, which equals the anchor id),
-        // so promote/ungroup keeps the same slot and the morph transition runs.
-        .accessibilityIdentifier("sidebarWorkspaceGroup.\(group.id.uuidString)")
-        .preference(key: SidebarWorkspaceRowIdsPreferenceKey.self, value: Set([group.anchorWorkspaceId]))
 
-        header
-            .sidebarWorkspaceFrameAnchor(
-                id: group.anchorWorkspaceId,
-                isEnabled: shouldCollectWorkspaceDropTargets
-            )
+        if role == .dragFollower {
+            header
+                .allowsHitTesting(false)
+                .accessibilityHidden(true)
+        } else {
+            header
+                .opacity(isBeingDragged ? 0 : 1)
+                // No `.id(group.anchorWorkspaceId)` here: identity comes from the
+                // ForEach (`id: \.scrollAnchorWorkspaceId`, which equals the anchor id),
+                // so promote/ungroup keeps the same slot and the morph transition runs.
+                .accessibilityIdentifier("sidebarWorkspaceGroup.\(group.id.uuidString)")
+                .preference(key: SidebarWorkspaceRowIdsPreferenceKey.self, value: Set([group.anchorWorkspaceId]))
+                .sidebarWorkspaceFrameAnchor(
+                    id: group.anchorWorkspaceId,
+                    isEnabled: shouldCollectWorkspaceDropTargets
+                )
+        }
     }
 }

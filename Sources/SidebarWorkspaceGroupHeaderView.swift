@@ -27,8 +27,8 @@ struct SidebarWorkspaceGroupHeaderView: View, Equatable {
             lhs.newWorkspacePlacement == rhs.newWorkspacePlacement &&
             lhs.rowSpacing == rhs.rowSpacing &&
             lhs.isFirstRow == rhs.isFirstRow &&
-            lhs.isBeingDragged == rhs.isBeingDragged &&
-            lhs.topDropIndicatorVisible == rhs.topDropIndicatorVisible
+            lhs.topDropIndicatorVisible == rhs.topDropIndicatorVisible &&
+            lhs.isReorderEnabled == rhs.isReorderEnabled
     }
 
     let groupId: UUID
@@ -51,10 +51,12 @@ struct SidebarWorkspaceGroupHeaderView: View, Equatable {
     let newWorkspacePlacement: WorkspaceGroupNewPlacement?
     let rowSpacing: CGFloat
     let isFirstRow: Bool
-    let isBeingDragged: Bool
     let topDropIndicatorVisible: Bool
-    let onDragStart: () -> NSItemProvider
-    let tabDropDelegateFactory: (CGFloat) -> SidebarWorkspaceGroupHeaderDropDelegate
+    /// Reorder gesture callbacks dispatched into the shared reorder helpers.
+    let onReorderChanged: (CGPoint, CGPoint) -> Void
+    let onReorderEnded: (CGPoint, CGPoint) -> Void
+    /// False for the floating follower copy.
+    let isReorderEnabled: Bool
     let onToggleCollapsed: () -> Void
     let onFocusAnchor: () -> Void
     let onTapPlus: () -> Void
@@ -235,11 +237,12 @@ struct SidebarWorkspaceGroupHeaderView: View, Equatable {
         .padding(.horizontal, 6)
         .background { rowHeightProbe }
         .shortcutHintVisibilityAnimation(value: showsShortcutHint)
-        // Live reorder moves the dragged row through the list instead of
-        // greying it in place, so don't dim during drag.
-        .onDrag(onDragStart)
-        .internalOnlyTabDrag()
-        .onDrop(of: SidebarTabDragPayload.dropContentTypes, delegate: tabDropDelegateFactory(rowHeight))
+        .modifier(SidebarReorderRowModifier(
+            enabled: isReorderEnabled,
+            workspaceId: anchorWorkspaceId,
+            onChanged: onReorderChanged,
+            onEnded: onReorderEnded
+        ))
         .onHover { hovering in
             isHovered = hovering
         }

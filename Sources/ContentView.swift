@@ -10368,13 +10368,13 @@ final class SidebarDragState {
     var draggedTabId: UUID?
     var dropIndicator: SidebarDropIndicator?
     var dropIndicatorUsesTopLevelRows = false
-    /// Global pointer location at the last committed live reorder. Used as the
-    /// loop-breaker: a live reorder shifts rows, which makes a drop delegate
-    /// re-fire even though the pointer hasn't moved, and the planner's index
-    /// flips back (observed in sidebar.liveReorder as from=N to=N+1 then back).
-    /// If the pointer hasn't physically moved since the last reorder, the update
-    /// was self-induced, so it's ignored. Reset on drag begin/clear.
-    var lastLiveReorderMouseLocation: CGPoint?
+    /// Cursor Y (in the workspace list's coordinate space) of the active
+    /// gesture-driven reorder. Read ONLY by the isolated `SidebarReorderFollowerView`
+    /// overlay so the floating follower can track the cursor every frame without
+    /// invalidating the `LazyVStack` body. The parent body and list rows must
+    /// never read this — doing so would re-run them per frame and reintroduce
+    /// the https://github.com/manaflow-ai/cmux/issues/2586 layout-thrash loop.
+    var followerCursorY: CGFloat?
     /// True while the `debug.sidebar.simulate_drag` debug-only V2 method is
     /// driving the drag state. The lifecycle observers honor this by not
     /// starting `SidebarDragFailsafeMonitor` (which would otherwise post a
@@ -10397,21 +10397,63 @@ final class SidebarDragState {
     /// pointer-move. `nil` when no foreign drag is mirrored here.
     var foreignDraggedIsPinned: Bool?
 
-    /// Pre-drag order + group membership, captured synchronously by
-    /// `commitLiveReorder` right before this drag's FIRST model mutation —
-    /// not in a view-update callback, because a native drag can hover (and
-    /// mutate) before SwiftUI delivers `.onChange`. Restored by the sidebar's
-    /// clear-request handler when the drag ends without committing; a
-    /// successful drop clears it via ``clearDrag()``. Nil while nothing has
-    /// been mutated, so a no-mutation drag restores nothing.
-    var dragRestoreSnapshot: TabManager.SidebarDragRestoreSnapshot?
+    /// Set when Escape (or another clear request) cancels an in-flight
+    /// gesture reorder. A cancelled `DragGesture` keeps streaming `onChanged`
+    /// until the mouse releases, and the reorder helper would re-begin the
+    /// drag from those events; this latch refuses re-begins for the cancelled
+    /// row until the gesture's `onEnded` releases it. Deliberately NOT reset
+    /// by ``clearDrag()`` — it is set immediately before the cancel's
+    /// clearDrag and must outlive it.
+    @ObservationIgnored var cancelledReorderTabId: UUID?
+
+    // MARK: Gesture-reorder geometry (not observed)
+    // These back the gesture-driven reorder hit-testing. They are
+    // `@ObservationIgnored` so updating them (including the high-frequency
+    // `rowFramesInList` push during a drag) never invalidates any view; only
+    // this type's own methods read them, and the indicator/cursor results they
+    // produce flow through the observed properties above.
+
+    /// The picked-up row's frame in list space, captured at drag start. Sizes
+    /// and positions the follower.
+    @ObservationIgnored var draggedRowFrame: CGRect?
+    /// Offset of the cursor within the picked-up row at drag start, so the
+    /// follower keeps the same grab point under the cursor.
+    @ObservationIgnored var grabOffsetY: CGFloat = 0
+    /// Live frames of the currently-rendered workspace rows + group headers,
+    /// keyed by represented workspace id, in list space.
+    @ObservationIgnored var rowFramesInList: [UUID: CGRect] = [:]
+    @ObservationIgnored private var reorderIds: [UUID] = []
+    @ObservationIgnored private var pinnedIds: Set<UUID> = []
+    /// For each reorder-scope id, the represented ids of the rendered rows that
+    /// compose its hit-test band (a single row normally; a group header plus its
+    /// members when dragging a group anchor at top level).
+    @ObservationIgnored private var scopeBandComposition: [UUID: [UUID]] = [:]
+
+    /// Dead-zone half-width around a row midpoint within which the landing edge
+    /// is held, so the gap does not flicker on sub-pixel jitter.
+    static let hysteresisMargin: CGFloat = 6
 
     init() {}
 
+    /// Pushes the latest rendered row frames. While a drag is active the
+    /// committed frames are frozen (only newly-rendered rows are added, existing
+    /// ones are not overwritten): the list reflows to preview the gap, but
+    /// hit-testing stays against the committed layout so the landing slot does
+    /// not feed back on its own preview and oscillate.
+    func updateRowFrames(_ frames: [UUID: CGRect]) {
+        guard draggedTabId != nil else {
+            rowFramesInList = frames
+            return
+        }
+        for (id, frame) in frames where rowFramesInList[id] == nil {
+            rowFramesInList[id] = frame
+        }
+    }
+
+    // MARK: simulate_drag / legacy API (drives observed state directly)
+
     func beginDragging(tabId: UUID) {
         draggedTabId = tabId
-        lastLiveReorderMouseLocation = nil
-        dragRestoreSnapshot = nil
         clearDropIndicator()
         originatedActiveDrag = true
         SidebarWorkspaceDragRegistry.begin(workspaceId: tabId)
@@ -10433,9 +10475,102 @@ final class SidebarDragState {
         originatedActiveDrag = false
         foreignDraggedIsPinned = nil
         draggedTabId = nil
-        lastLiveReorderMouseLocation = nil
-        dragRestoreSnapshot = nil
+        followerCursorY = nil
+        draggedRowFrame = nil
+        grabOffsetY = 0
+        reorderIds = []
+        pinnedIds = []
+        scopeBandComposition = [:]
         clearDropIndicator()
+    }
+
+    // MARK: Gesture-driven reorder
+
+    /// Begins a gesture-driven reorder of `tabId`.
+    func beginReorder(
+        tabId: UUID,
+        usesTopLevelRows: Bool,
+        reorderIds: [UUID],
+        pinnedIds: Set<UUID>,
+        scopeBandComposition: [UUID: [UUID]],
+        draggedRowFrame: CGRect?,
+        grabOffsetY: CGFloat,
+        cursorY: CGFloat
+    ) {
+        self.draggedTabId = tabId
+        self.dropIndicatorUsesTopLevelRows = usesTopLevelRows
+        self.reorderIds = reorderIds
+        self.pinnedIds = pinnedIds
+        self.scopeBandComposition = scopeBandComposition
+        self.draggedRowFrame = draggedRowFrame
+        self.grabOffsetY = grabOffsetY
+        self.followerCursorY = cursorY
+        recomputeIndicator(cursorY: cursorY)
+    }
+
+    /// Updates the follower position and landing slot for a moved cursor.
+    func updateReorder(cursorY: CGFloat) {
+        followerCursorY = cursorY
+        recomputeIndicator(cursorY: cursorY)
+    }
+
+    /// Advances the reorder by the distance the auto-scroll tick just moved
+    /// the content. The gesture's cursor Y lives in list (content) space, so
+    /// when content scrolls `delta` points under a stationary pointer, the
+    /// cursor's content-space position moves by the same `delta`. Keeps the
+    /// follower glued under the pointer and the landing slot advancing while
+    /// the pointer sits still at a list edge.
+    func applyAutoScrollDelta(_ delta: CGFloat) {
+        guard draggedTabId != nil, delta != 0, let cursorY = followerCursorY else { return }
+        updateReorder(cursorY: cursorY + delta)
+    }
+
+    /// The committed index the dragged workspace should move to on drop, or nil
+    /// for a no-op. Reads gesture geometry; call only at drop time, not in a
+    /// view body.
+    func gestureReorderTargetIndex() -> Int? {
+        guard let draggedTabId, dropIndicator != nil else { return nil }
+        return SidebarDropPlanner.targetIndex(
+            draggedTabId: draggedTabId,
+            targetTabId: dropIndicator?.tabId,
+            indicator: dropIndicator,
+            tabIds: reorderIds,
+            pinnedTabIds: pinnedIds
+        )
+    }
+
+    private func recomputeIndicator(cursorY: CGFloat) {
+        guard let draggedTabId else { return }
+        let bands = buildBands()
+        let indicator = SidebarReorderIndicatorResolver.resolve(
+            cursorY: cursorY,
+            bands: bands,
+            draggedId: draggedTabId,
+            pinnedIds: pinnedIds,
+            current: dropIndicator,
+            hysteresisMargin: Self.hysteresisMargin
+        )
+        if indicator != dropIndicator {
+            dropIndicator = indicator
+        }
+    }
+
+    private func buildBands() -> [SidebarReorderIndicatorResolver.Band] {
+        var bands: [SidebarReorderIndicatorResolver.Band] = []
+        bands.reserveCapacity(reorderIds.count)
+        for scopeId in reorderIds {
+            let composition = scopeBandComposition[scopeId] ?? [scopeId]
+            var minY = CGFloat.greatestFiniteMagnitude
+            var maxY = -CGFloat.greatestFiniteMagnitude
+            for renderedId in composition {
+                guard let frame = rowFramesInList[renderedId] else { continue }
+                minY = min(minY, frame.minY)
+                maxY = max(maxY, frame.maxY)
+            }
+            guard maxY > minY else { continue }
+            bands.append(.init(id: scopeId, minY: minY, maxY: maxY))
+        }
+        return bands.sorted { $0.minY < $1.minY }
     }
 }
 
@@ -11042,12 +11177,12 @@ struct VerticalTabsSidebar: View {
             modifierKeyMonitor.start()
             dragState.clearDrag()
             isBonsplitWorkspaceDropTargetCollectionActive = false
-            // Autoscroll moves new rows under a stationary pointer; re-arm
-            // the live-reorder loop-breaker on every real scroll so the
-            // dragged row keeps following at the edges without re-opening
-            // the stationary-pointer feedback loop.
-            dragAutoScrollController.onDidScroll = { [weak dragState] in
-                dragState?.lastLiveReorderMouseLocation = nil
+            // Autoscroll moves content under a stationary pointer; feed each
+            // tick's scroll distance into the reorder so the follower stays
+            // glued under the pointer and the landing slot keeps advancing
+            // while the pointer sits still at a list edge.
+            dragAutoScrollController.onDidScroll = { [weak dragState] delta in
+                dragState?.applyAutoScrollDelta(delta)
             }
             // Defensive reset: if a prior simulation died without running
             // its teardown (sidebar unmounted mid-loop, app crash, etc.) the
@@ -11088,11 +11223,6 @@ struct VerticalTabsSidebar: View {
             cmuxDebugLog("sidebar.dragState.sidebar tab=\(debugShortSidebarTabId(newDraggedTabId))")
 #endif
             if newDraggedTabId != nil {
-                // The undo snapshot is NOT captured here: this onChange runs
-                // on a later view update, and a native drag can hover (and
-                // live-reorder the model) before that. The drop delegate
-                // captures `dragState.dragRestoreSnapshot` synchronously
-                // before this drag's first mutation instead.
                 // The failsafe monitor probes the real mouse-button state and
                 // posts `mouse_up_failsafe` if no mouse is held down. That's
                 // correct for HID-driven drags, but `debug.sidebar.simulate_drag`
@@ -11115,23 +11245,17 @@ struct VerticalTabsSidebar: View {
 #if DEBUG
             cmuxDebugLog("sidebar.dragClear tab=\(debugShortSidebarTabId(dragState.draggedTabId)) reason=\(reason)")
 #endif
-            // Every clear request means the drag ended WITHOUT performDrop
-            // committing — Escape, the mouse-up failsafe, app deactivation, a
-            // drop outside the sidebar, or an aborted drop. The live reorder
-            // has already mutated the model on hover, so all of them must
-            // restore the order + group membership captured at drag start. A
-            // normal in-sidebar release commits via performDrop, which clears
-            // the drag state synchronously, so its trailing failsafe mouse-up
-            // never passes the guard above.
-            if let snapshot = dragState.dragRestoreSnapshot {
-#if DEBUG
-                cmuxDebugLog("sidebar.dragCancel.restoreOrder reason=\(reason)")
-#endif
-                _ = withAnimation(SidebarGroupAnimation.structure) {
-                    tabManager.restoreSidebarDragSnapshot(snapshot)
-                }
+            // A clear request (Escape, mouse-up failsafe, app deactivation)
+            // cancels the in-flight reorder. The gesture-driven reorder never
+            // mutates the model mid-drag — the gap is render-preview only and
+            // the single commit happens in `sidebarReorderGestureEnded` — so
+            // cancelling is simply "don't commit": clear the drag state and
+            // the preview snaps back. The latch stops the still-alive
+            // `DragGesture` (which keeps streaming `onChanged` until the
+            // mouse releases) from re-beginning the cancelled drag.
+            if let cancelledId = dragState.draggedTabId {
+                dragState.cancelledReorderTabId = cancelledId
             }
-            // Also clears the restore snapshot.
             dragState.clearDrag()
         }
         .onChange(of: tabManager.tabs.map(\.id)) { tabIds in
@@ -12427,7 +12551,7 @@ struct VerticalTabsSidebar: View {
 
     @ViewBuilder
     private func workspaceRows(renderContext: WorkspaceListRenderContext) -> some View {
-        let renderItems = SidebarWorkspaceRenderItem.renderItems(
+        let baseRenderItems = SidebarWorkspaceRenderItem.renderItems(
             tabs: renderContext.tabs,
             groupsById: renderContext.workspaceGroupById
         )
@@ -12435,32 +12559,37 @@ struct VerticalTabsSidebar: View {
             draggedTabId: dragState.draggedTabId,
             isBonsplitWorkspaceDropActive: isBonsplitWorkspaceDropTargetCollectionActive
         )
-        // LazyVStack is safe here because `dragState` is @Observable:
-        // drag mutations at 60fps invalidate only the rows/overlays that
-        // read them, never this sidebar body. See SidebarDragState and
+        // During a gesture-driven reorder the list reflows to `previewItems`
+        // (the dragged row moved to its landing slot) so the gap animates open.
+        // `dropIndicator` is discrete — it changes only when the landing slot
+        // crosses a row midpoint — so this body re-runs a handful of times per
+        // drag, never per frame. The per-frame follower position lives in the
+        // isolated `SidebarReorderFollowerView`, which alone reads
+        // `dragState.followerCursorY`. LazyVStack is safe here because
+        // `dragState` is @Observable. See SidebarDragState and
         // https://github.com/manaflow-ai/cmux/issues/2586.
-        //
+        let previewItems = SidebarWorkspaceRenderItem.dragPreviewItems(
+            baseRenderItems,
+            draggedWorkspaceId: dragState.draggedTabId,
+            dropIndicator: dragState.dropIndicator,
+            reorderWorkspaceIds: renderContext.sidebarReorderIds
+        )
         // No `.id(groupAnchorSignature)` rebuild hack here: a group header now
         // shares ForEach identity with its anchor workspace's row (see
-        // `SidebarWorkspaceRenderItem.id`), so promoting a workspace in place
-        // or ungrouping keeps the same slot identity and only swaps that row's
-        // `_ConditionalContent` branch between a `.workspace` row and a
-        // `.groupHeader`. SwiftUI keeps the materialized row instead of
-        // dropping it, so the header renders correctly without a whole-list
-        // rebuild, sidebar scroll is preserved, and the structural change can
-        // animate. The matching `.transition(.sidebarGroupRow)` on each branch
-        // crossfades the morph; the `withAnimation` transaction wrapped around
-        // the `TabManager` group mutations animates the list reflow.
-        // Identify rows by the anchor/workspace UUID rather than the render-item
-        // string id. The UUID is stable across promote/ungroup (a header keeps
-        // its anchor's id), so the slot survives the morph, AND it doubles as
-        // the `ScrollViewReader.scrollTo(selectedWorkspaceId)` target — which is
-        // why the inner `.id(...)` on each branch can be dropped. Without those
-        // inner ids pinning identity, the `_ConditionalContent` swap between a
-        // workspace row and a group header runs its `.transition`, so the
-        // promote/ungroup morph crossfades instead of replacing instantly.
+        // `SidebarWorkspaceRenderItem.representedWorkspaceId`), so promoting a
+        // workspace in place or ungrouping keeps the same slot identity and
+        // only swaps that row's `_ConditionalContent` branch between a
+        // `.workspace` row and a `.groupHeader`. SwiftUI keeps the
+        // materialized row instead of dropping it, so the header renders
+        // correctly without a whole-list rebuild, sidebar scroll is preserved,
+        // and the structural change can animate. The matching
+        // `.transition(.sidebarGroupRow)` on each branch crossfades the morph;
+        // the `withAnimation` transaction wrapped around the `TabManager`
+        // group mutations animates the list reflow. The UUID identity also
+        // doubles as the `ScrollViewReader.scrollTo(selectedWorkspaceId)`
+        // target, which is why the inner `.id(...)` on each branch is dropped.
         let rows = LazyVStack(spacing: tabRowSpacing) {
-            ForEach(renderItems, id: \.scrollAnchorWorkspaceId) { item in
+            ForEach(previewItems, id: \.representedWorkspaceId) { item in
                 switch item {
                 case .groupHeader(let group, let memberWorkspaceIds):
                     sidebarWorkspaceGroupHeader(
@@ -12470,7 +12599,7 @@ struct VerticalTabsSidebar: View {
                         shouldCollectWorkspaceDropTargets: shouldCollectWorkspaceDropTargets
                     )
                     .transition(.sidebarGroupRow)
-                case .workspace(let tab):
+                case .workspace(let tab, _):
                     workspaceRow(
                         tab,
                         renderContext: renderContext,
@@ -12480,6 +12609,7 @@ struct VerticalTabsSidebar: View {
                 }
             }
         }
+        .animation(Self.sidebarReorderAnimation, value: previewItems.map(\.id))
         .padding(.vertical, SidebarWorkspaceListMetrics.rowVerticalPadding)
         .frame(maxWidth: .infinity, alignment: .leading)
 
@@ -12498,6 +12628,35 @@ struct VerticalTabsSidebar: View {
         .overlay {
             bonsplitWorkspaceDropOverlay()
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
+        }
+        .coordinateSpace(.named(SidebarReorderListCoordinateSpace.name))
+        .onPreferenceChange(SidebarReorderRowFrameKey.self) { frames in
+            dragState.updateRowFrames(frames)
+        }
+        .overlay {
+            SidebarReorderFollowerView(
+                dragState: dragState,
+                sourceItems: baseRenderItems,
+                rowContent: { item in
+                    switch item {
+                    case .groupHeader(let group, let memberWorkspaceIds):
+                        AnyView(sidebarWorkspaceGroupHeader(
+                            group: group,
+                            memberWorkspaceIds: memberWorkspaceIds,
+                            renderContext: renderContext,
+                            shouldCollectWorkspaceDropTargets: false,
+                            role: .dragFollower
+                        ))
+                    case .workspace(let tab, _):
+                        AnyView(workspaceRow(
+                            tab,
+                            renderContext: renderContext,
+                            shouldCollectWorkspaceDropTargets: false,
+                            role: .dragFollower
+                        ))
+                    }
+                }
+            )
         }
     }
 
@@ -12588,7 +12747,8 @@ struct VerticalTabsSidebar: View {
     private func workspaceRow(
         _ tab: Workspace,
         renderContext: WorkspaceListRenderContext,
-        shouldCollectWorkspaceDropTargets: Bool
+        shouldCollectWorkspaceDropTargets: Bool,
+        role: SidebarWorkspaceRowRenderRole = .list
     ) -> some View {
         let index = renderContext.tabIndexById[tab.id] ?? 0
         let usesSelectedContextMenuTargets = selectedTabIds.contains(tab.id)
@@ -12646,36 +12806,25 @@ struct VerticalTabsSidebar: View {
         // is intentional: the parent owns the @Observable store, and these
         // value snapshots are what get passed to the row. The row's
         // Equatable conformance ignores closures, so rows whose snapshot is
-        // unchanged skip re-render when drag state moves.
-        let isBeingDragged = dragState.draggedTabId == tab.id
-        let sidebarReorderIds = renderContext.sidebarReorderIds
-        let topDropIndicatorVisible = SidebarTabDropIndicatorPredicate.topVisible(
-            forTabId: tab.id,
-            draggedTabId: dragState.draggedTabId,
-            dropIndicator: dragState.dropIndicator,
-            tabIds: sidebarReorderIds
-        )
-        let onDragStart: () -> NSItemProvider = { [tabId = tab.id] in
-            #if DEBUG
-            cmuxDebugLog("sidebar.onDrag tab=\(tabId.uuidString.prefix(5))")
-            #endif
-            dragState.beginDragging(tabId: tabId)
-            return SidebarTabDragPayload.provider(for: tabId)
-        }
-        let tabDropDelegateFactory: (CGFloat) -> SidebarTabDropDelegate = { [
-            tabId = tab.id,
-            selectedTabIds = $selectedTabIds,
-            lastSidebarSelectionIndex = $lastSidebarSelectionIndex
-        ] rowHeight in
-            SidebarTabDropDelegate(
-                targetTabId: tabId,
-                tabManager: tabManager,
-                dragState: dragState,
-                selectedTabIds: selectedTabIds,
-                lastSidebarSelectionIndex: lastSidebarSelectionIndex,
-                targetRowHeight: rowHeight,
-                dragAutoScrollController: dragAutoScrollController
+        // unchanged skip re-render when drag state moves. The dragged row in the
+        // list reads as `isBeingDragged` and renders invisible (the floating
+        // follower carries the visible copy); the follower copy itself
+        // (`role == .dragFollower`) renders fully visible.
+        let isBeingDragged = role == .list && dragState.draggedTabId == tab.id
+        // The reorder gesture, dispatched into the shared reorder helpers. Wired
+        // into `TabItemView` so it lives below `.equatable()` and survives the
+        // parent body re-evaluations that the discrete drop-indicator changes
+        // trigger, instead of being torn down mid-drag.
+        let onReorderChanged: (CGPoint, CGPoint) -> Void = { [tabId = tab.id, renderContext] startLocation, location in
+            sidebarReorderGestureChanged(
+                draggedId: tabId,
+                startLocationY: startLocation.y,
+                cursorY: location.y,
+                renderContext: renderContext
             )
+        }
+        let onReorderEnded: (CGPoint, CGPoint) -> Void = { [tabId = tab.id] _, _ in
+            sidebarReorderGestureEnded(draggedId: tabId)
         }
 
         let row = TabItemView(
@@ -12699,10 +12848,10 @@ struct VerticalTabsSidebar: View {
             lastSidebarSelectionIndex: $lastSidebarSelectionIndex,
             showsModifierShortcutHints: resolvedShowsModifierShortcutHints,
             dragAutoScrollController: dragAutoScrollController,
-            isBeingDragged: isBeingDragged,
-            topDropIndicatorVisible: topDropIndicatorVisible,
-            onDragStart: onDragStart,
-            tabDropDelegateFactory: tabDropDelegateFactory,
+            topDropIndicatorVisible: false,
+            onReorderChanged: onReorderChanged,
+            onReorderEnded: onReorderEnded,
+            isReorderEnabled: role == .list,
             contextMenuWorkspaceIds: contextMenuWorkspaceIds,
             remoteContextMenuWorkspaceIds: remoteContextMenuWorkspaceIds,
             allRemoteContextMenuTargetsConnecting: allRemoteContextMenuTargetsConnecting,
@@ -12714,16 +12863,29 @@ struct VerticalTabsSidebar: View {
             onContextMenuDisappear: onContextMenuDisappear
         )
         .equatable()
-        // No `.id(tab.id)` here: the row identity is set by the ForEach
-        // (`id: \.scrollAnchorWorkspaceId`), which also serves scroll-to. An
-        // inner `.id` would re-pin identity and suppress the workspace↔header
-        // morph transition.
-        .accessibilityIdentifier("sidebarWorkspace.\(tab.id.uuidString)")
-        .preference(key: SidebarWorkspaceRowIdsPreferenceKey.self, value: Set([tab.id]))
 
-        row
-            .sidebarWorkspaceFrameAnchor(id: tab.id, isEnabled: shouldCollectWorkspaceDropTargets)
-            .padding(.leading, tab.groupId != nil ? SidebarWorkspaceGroupingMetrics.memberIndent : 0)
+        let indent: CGFloat = tab.groupId != nil ? SidebarWorkspaceGroupingMetrics.memberIndent : 0
+        // Applying the dragged-row "invisible placeholder" opacity here in the
+        // parent (rather than inside `TabItemView`) keeps the gesture-hosting
+        // row's inputs constant during a drag, so `.equatable()` skips its body
+        // and the in-flight `DragGesture` is not torn down when the drag starts.
+        if role == .dragFollower {
+            row
+                .allowsHitTesting(false)
+                .accessibilityHidden(true)
+                .padding(.leading, indent)
+        } else {
+            row
+                .opacity(isBeingDragged ? 0 : 1)
+                // No `.id(tab.id)` here: the row identity is set by the ForEach
+                // (`id: \.representedWorkspaceId`), which also serves
+                // scroll-to. An inner `.id` would re-pin identity and suppress
+                // the workspace↔header morph transition.
+                .accessibilityIdentifier("sidebarWorkspace.\(tab.id.uuidString)")
+                .preference(key: SidebarWorkspaceRowIdsPreferenceKey.self, value: Set([tab.id]))
+                .sidebarWorkspaceFrameAnchor(id: tab.id, isEnabled: shouldCollectWorkspaceDropTargets)
+                .padding(.leading, indent)
+        }
     }
 
     private func debugShortSidebarTabId(_ id: UUID?) -> String {
@@ -15223,8 +15385,8 @@ struct TabItemView: View, Equatable {
         lhs.allRemoteContextMenuTargetsDisconnected == rhs.allRemoteContextMenuTargetsDisconnected &&
         lhs.contextMenuPinState == rhs.contextMenuPinState &&
         lhs.workspaceGroupMenuSnapshot == rhs.workspaceGroupMenuSnapshot &&
-        lhs.isBeingDragged == rhs.isBeingDragged &&
         lhs.topDropIndicatorVisible == rhs.topDropIndicatorVisible &&
+        lhs.isReorderEnabled == rhs.isReorderEnabled &&
         lhs.settings == rhs.settings
     }
 
@@ -15255,13 +15417,15 @@ struct TabItemView: View, Equatable {
     // (see CLAUDE.md). When drag state changes, the parent recomputes these
     // per-row snapshots and `==` skips re-render for rows whose snapshot is
     // unchanged.
-    let isBeingDragged: Bool
     let topDropIndicatorVisible: Bool
-    let onDragStart: () -> NSItemProvider
-    /// Factory invoked from `body` with the row's measured `rowHeight`. Closure
-    /// captures the parent's `dragState`, so TabItemView itself never holds an
-    /// `@Observable` store reference (snapshot-boundary rule).
-    let tabDropDelegateFactory: (CGFloat) -> SidebarTabDropDelegate
+    /// Reorder gesture callbacks (start location, current location), dispatched
+    /// into the shared `VerticalTabsSidebar` reorder helpers via closures so the
+    /// row never holds an `@Observable` store reference (snapshot-boundary rule).
+    let onReorderChanged: (CGPoint, CGPoint) -> Void
+    let onReorderEnded: (CGPoint, CGPoint) -> Void
+    /// False for the floating follower copy, which is non-interactive and must
+    /// not report a row frame.
+    let isReorderEnabled: Bool
     let contextMenuWorkspaceIds: [UUID]
     let remoteContextMenuWorkspaceIds: [UUID]
     let allRemoteContextMenuTargetsConnecting: Bool
@@ -15919,8 +16083,6 @@ struct TabItemView: View, Equatable {
         .padding(.horizontal, 6)
         .background { rowHeightProbe }
         .contentShape(Rectangle())
-        // Live reorder relocates the dragged row through the list as you drag,
-        // so it no longer sits greyed-out in place.
         .overlay {
             SidebarWorkspaceRowHoverTracker(rowInteractionState: $rowInteractionState)
         }
@@ -15985,9 +16147,12 @@ struct TabItemView: View, Equatable {
         .onChange(of: settings) { _ in
             refreshWorkspaceSnapshot(force: true)
         }
-        .onDrag(onDragStart)
-        .internalOnlyTabDrag()
-        .onDrop(of: SidebarTabDragPayload.dropContentTypes, delegate: tabDropDelegateFactory(rowHeight))
+        .modifier(SidebarReorderRowModifier(
+            enabled: isReorderEnabled,
+            workspaceId: tab.id,
+            onChanged: onReorderChanged,
+            onEnded: onReorderEnded
+        ))
         .onDrop(of: BonsplitTabDragPayload.dropContentTypes, delegate: SidebarBonsplitTabDropDelegate(
             targetWorkspaceId: tab.id,
             tabManager: tabManager,
@@ -17451,11 +17616,11 @@ final class SidebarDragAutoScrollController: ObservableObject {
     private weak var scrollView: NSScrollView?
     private var timer: Timer?
     private var activePlan: SidebarAutoScrollPlan?
-    /// Fired after every tick that actually moved the scroll content. The
-    /// sidebar uses it to re-arm the live-reorder loop-breaker: autoscroll
-    /// moves new rows under a stationary pointer, and only the controller
-    /// knows a scroll really happened (pointer movement does not).
-    var onDidScroll: (() -> Void)?
+    /// Fired after every tick that actually moved the scroll content, with the
+    /// signed distance (in content points) the origin moved. The sidebar feeds
+    /// it into the gesture reorder so the landing slot and follower keep
+    /// advancing while the pointer sits still at a list edge.
+    var onDidScroll: ((CGFloat) -> Void)?
 
     func attach(scrollView: NSScrollView?) {
         self.scrollView = scrollView
@@ -17501,10 +17666,11 @@ final class SidebarDragAutoScrollController: ObservableObject {
             return
         }
 
+        let originYBeforeScroll = scrollView.contentView.bounds.origin.y
         // AppKit drag/drop autoscroll guidance recommends autoscroll(with:)
         // when periodic drag updates are available; use it first.
         if applyNativeAutoscroll(to: scrollView) {
-            onDidScroll?()
+            reportScrollDelta(from: originYBeforeScroll, in: scrollView)
             activePlan = plan(for: scrollView)
             if activePlan == nil {
                 stop()
@@ -17518,8 +17684,14 @@ final class SidebarDragAutoScrollController: ObservableObject {
             return
         }
         if apply(plan: plan, to: scrollView) {
-            onDidScroll?()
+            reportScrollDelta(from: originYBeforeScroll, in: scrollView)
         }
+    }
+
+    private func reportScrollDelta(from originYBeforeScroll: CGFloat, in scrollView: NSScrollView) {
+        let delta = scrollView.contentView.bounds.origin.y - originYBeforeScroll
+        guard delta != 0 else { return }
+        onDidScroll?(delta)
     }
 
     private func applyNativeAutoscroll(to scrollView: NSScrollView) -> Bool {
@@ -17978,7 +18150,6 @@ struct SidebarTabDropDelegate: DropDelegate {
         activateForeignDragIfNeeded()
         dragAutoScrollController.updateFromDragLocation()
         updateDropIndicator(for: info)
-        commitLiveReorder(for: info)
     }
 
     func dropExited(info: DropInfo) {
@@ -17994,7 +18165,6 @@ struct SidebarTabDropDelegate: DropDelegate {
         activateForeignDragIfNeeded()
         dragAutoScrollController.updateFromDragLocation()
         updateDropIndicator(for: info)
-        commitLiveReorder(for: info)
 #if DEBUG
         cmuxDebugLog(
             "sidebar.dropUpdated target=\(targetTabId?.uuidString.prefix(5) ?? "end") " +
@@ -18116,11 +18286,7 @@ struct SidebarTabDropDelegate: DropDelegate {
             preserving: selectionBeforeReorder,
             preferredAnchorWorkspaceId: anchorWorkspaceIdBeforeReorder
         )
-        // A clamped final nudge must not fail the drop once the live reorder
-        // has already mutated the model (snapshot captured): the row sits
-        // where the user saw it land, and returning false would let the
-        // failsafe roll the whole drag back.
-        return didReorder || dragState.dragRestoreSnapshot != nil
+        return didReorder
     }
 
     /// Move a workspace dragged in from another window into this window at the
@@ -18255,108 +18421,6 @@ struct SidebarTabDropDelegate: DropDelegate {
         dragState.setDropIndicator(nextIndicator, usesTopLevelRows: usesTopLevelRows)
     }
 
-    /// Live intra-window reorder: as the drag moves over rows, immediately move
-    /// the dragged workspace to the hovered drop slot (within `withAnimation`)
-    /// instead of only previewing with an indicator and committing on drop. The
-    /// dragged row physically travels through the list; the actual commit on
-    /// `performDrop` then no-ops because the order is already correct.
-    ///
-    /// Reuses the exact planner the drop commit uses (`targetIndex` from the
-    /// freshly-set indicator, with the same pinned/group/legal-range inputs), so
-    /// pinned tiers and group boundaries are respected on every step. Only fires
-    /// when the resolved index actually changes, so it runs once per row crossed
-    /// rather than on every pointer move. Cross-window drags are skipped (the
-    /// workspace isn't in this window yet).
-    private func commitLiveReorder(for info: DropInfo) {
-        guard let draggedTabId = effectiveDraggedTabId,
-              !isCrossWindowDrag(draggedTabId) else { return }
-        // Hovering the dragged row itself: nothing to move.
-        guard targetTabId != draggedTabId else { return }
-        // `updateDropIndicator` just ran for this hover; a nil indicator means
-        // the planner resolved "the dragged row already sits at the pointer's
-        // insertion point" (the indicator is suppressed in that case).
-        // Recomputing targetIndex below would fall back to preferredEdge —
-        // which can pick the OTHER side of the hovered row and bounce the row
-        // back across it on every hover tick. Already in place: nothing to do.
-        guard dragState.dropIndicator != nil else { return }
-        // Loop-breaker: a live reorder animates rows under the pointer, and
-        // SwiftUI's drop tracking hit-tests those in-flight rows — each one
-        // re-fires this delegate and, left unchecked, re-reorders, which
-        // restarts the animations and sustains the loop (dogfooded as the
-        // dragged row "walking" across whole bands of rows on its own). Only
-        // genuine VERTICAL pointer travel since the last committed reorder
-        // may reorder again; reordering is a vertical axis, so horizontal
-        // hand jitter must not re-arm. An earlier "hovered row changed"
-        // exemption here re-opened the loop — rows animating past the
-        // pointer change the hovered row by definition. Autoscroll (the one
-        // legitimate way rows move under a held pointer) re-arms explicitly
-        // via SidebarDragAutoScrollController.onDidScroll instead.
-        let mouseLocation = NSEvent.mouseLocation
-        if let last = dragState.lastLiveReorderMouseLocation,
-           abs(mouseLocation.y - last.y) < 8 {
-            return
-        }
-        let usesTopLevelRows = tabManager.sidebarReorderUsesTopLevelRows(
-            forDraggedWorkspaceId: draggedTabId,
-            targetWorkspaceId: targetTabId
-        )
-        let reorderTabIds = tabManager.sidebarReorderWorkspaceIds(
-            forDraggedWorkspaceId: draggedTabId,
-            targetWorkspaceId: targetTabId
-        )
-        let pinnedTabIds = tabManager.sidebarReorderPinnedWorkspaceIds(
-            forDraggedWorkspaceId: draggedTabId,
-            targetWorkspaceId: targetTabId
-        )
-        let legalInsertionRange = tabManager.sidebarReorderLegalInsertionRange(
-            forDraggedWorkspaceId: draggedTabId,
-            targetWorkspaceId: targetTabId,
-            usesTopLevelRows: usesTopLevelRows
-        )
-        guard let fromIndex = reorderTabIds.firstIndex(of: draggedTabId),
-              let targetIndex = SidebarDropPlanner.targetIndex(
-                draggedTabId: draggedTabId,
-                targetTabId: targetTabId,
-                indicator: dragState.dropIndicator,
-                tabIds: reorderTabIds,
-                pinnedTabIds: pinnedTabIds,
-                legalInsertionRange: legalInsertionRange
-              ),
-              fromIndex != targetIndex else { return }
-#if DEBUG
-        cmuxDebugLog(
-            "sidebar.liveReorder tab=\(draggedTabId.uuidString.prefix(5)) " +
-            "from=\(fromIndex) to=\(targetIndex) " +
-            "target=\(targetTabId?.uuidString.prefix(5) ?? "end") topLevel=\(usesTopLevelRows)"
-        )
-#endif
-        // Capture the rollback snapshot synchronously before this drag's
-        // FIRST mutation. Drag start can't capture it: `.onChange` of the
-        // dragged tab runs on a later view update, and a native drag can
-        // reach this hover first.
-        if dragState.dragRestoreSnapshot == nil {
-            dragState.dragRestoreSnapshot = tabManager.captureSidebarDragRestoreSnapshot()
-        }
-        let orderBeforeReorder = tabManager.tabs.map(\.id)
-        _ = withAnimation(SidebarGroupAnimation.liveReorder) {
-            tabManager.reorderSidebarWorkspace(
-                tabId: draggedTabId,
-                toIndex: targetIndex,
-                isDragOperation: true,
-                usesTopLevelRows: usesTopLevelRows
-            )
-        }
-        // Anchor the loop-breaker to where the pointer is now: re-fires from
-        // rows animating under an (almost) unmoved pointer are skipped. Only
-        // an actual row shift can self-induce re-fires, and the reorder's
-        // Bool is not that proof — `reorderWorkspace` reports true for
-        // clamped no-ops (the planner index differs but clamping lands on
-        // fromIndex). Compare the order itself so a no-op never arms the
-        // breaker and suppresses later genuine hovers over the same row.
-        if tabManager.tabs.map(\.id) != orderBeforeReorder {
-            dragState.lastLiveReorderMouseLocation = mouseLocation
-        }
-    }
 
     /// Drop indicator for a foreign workspace hovering this window. The dragged
     /// workspace is not in this window's list, so the reorder planner (which
