@@ -36,6 +36,13 @@ describe("applyAgentEvent", () => {
     expect(state.hasSnapshot).toBe(true);
   });
 
+  test("a snapshot without items renders the empty state (Go omitempty drops the field)", () => {
+    const state = applyAgentEvent(initialConversationState(), { type: "snapshot", seq: 1, session });
+    expect(state.items).toEqual([]);
+    expect(state.hasSnapshot).toBe(true);
+    expect(state.session).toEqual(session);
+  });
+
   test("a fresh snapshot applies even when its seq is lower (reconnect)", () => {
     const state = snapshotted([item("a")], 50);
     const next = applyAgentEvent(state, { type: "snapshot", seq: 1, session, items: [item("z")] });

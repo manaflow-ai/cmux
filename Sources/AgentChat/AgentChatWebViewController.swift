@@ -17,9 +17,15 @@ final class AgentChatWebViewController: NSViewController, WKScriptMessageHandler
     /// The resolved target session for this presentation.
     private var resolution: AgentChatTranscriptResolver.Resolution?
 
-    private var webView: WKWebView?
+    private var webView: AgentSessionWebView?
     private var daemonClient: AgentDaemonClient?
     private var subscriptionId: String?
+
+    /// Pointer-down hook so clicks inside the web content focus the owning
+    /// panel (same path as the agent-session and markdown panels).
+    var onPointerDown: (() -> Void)? {
+        didSet { webView?.onPointerDown = onPointerDown }
+    }
 
     /// Replaces the presented session; reloads the surface so the page state
     /// restarts from `chat.init` for the new target.
@@ -54,6 +60,7 @@ final class AgentChatWebViewController: NSViewController, WKScriptMessageHandler
                 contentWorld: .page
             )
             webView.navigationDelegate = nil
+            webView.onPointerDown = nil
         }
         webView = nil
     }
@@ -82,7 +89,11 @@ final class AgentChatWebViewController: NSViewController, WKScriptMessageHandler
             forMainFrameOnly: true
         ))
 #endif
-        let webView = WKWebView(frame: .zero, configuration: configuration)
+        // AgentSessionWebView is a plain WKWebView with the pointer-down focus
+        // hook and the first-click-focus setting; nothing in it is
+        // session-specific.
+        let webView = AgentSessionWebView(frame: .zero, configuration: configuration)
+        webView.onPointerDown = onPointerDown
         webView.navigationDelegate = self
         webView.allowsBackForwardNavigationGestures = false
         webView.allowsLinkPreview = false

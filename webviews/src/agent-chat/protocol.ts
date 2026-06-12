@@ -83,7 +83,12 @@ export type AgentEvent =
       type: "snapshot";
       seq: number;
       session: AgentSessionRef;
-      items: ConversationItem[];
+      /**
+       * Absent means empty: the Go producer's omitempty drops the field for
+       * a zero-item session (a fresh transcript), so consumers must default
+       * to [] instead of treating items as required.
+       */
+      items?: ConversationItem[];
     }
   | { type: "item.started"; seq: number; item: ConversationItem }
   | { type: "item.updated"; seq: number; item: ConversationItem }
