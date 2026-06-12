@@ -1,6 +1,7 @@
 import AppKit
 import CmuxPanes
 import CmuxSocketControl
+import CmuxWorkspaces
 import Bonsplit
 import Combine
 import CmuxSidebarInterpreterClient

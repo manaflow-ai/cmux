@@ -1,6 +1,7 @@
 import AppKit
 import SwiftUI
 import CmuxSettings
+import CmuxWorkspaces
 
 extension VerticalTabsSidebar {
     @ViewBuilder

@@ -2,8 +2,8 @@
 # Format: max_lines<TAB>relative path
 # Reduce counts as files shrink. CI fails if tracked files exceed this budget.
 33266	CLI/cmux.swift
-19961	Sources/Workspace.swift
-19254	Sources/ContentView.swift
+19962	Sources/Workspace.swift
+19255	Sources/ContentView.swift
 18024	Sources/AppDelegate.swift
 16540	Sources/GhosttyTerminalView.swift
 14775	Sources/TerminalController.swift
@@ -11,8 +11,8 @@
 11916	cmuxTests/AppDelegateShortcutRoutingTests.swift
 9345	cmuxTests/CLINotifyProcessIntegrationRegressionTests.swift
 7737	Sources/Panels/BrowserPanelView.swift
-7206	cmuxTests/WorkspaceUnitTests.swift
-7146	Sources/TabManager.swift
+7207	cmuxTests/WorkspaceUnitTests.swift
+7094	Sources/TabManager.swift
 6948	cmuxTests/WorkspaceRemoteConnectionTests.swift
 6543	cmuxTests/GhosttyConfigTests.swift
 6299	cmuxTests/TerminalAndGhosttyTests.swift
@@ -111,8 +111,8 @@
 760	Packages/CMUXAgentLaunch/Tests/CMUXAgentLaunchTests/AgentLaunchSanitizerTests.swift
 757	Packages/CmuxAuthRuntime/Sources/CmuxAuthRuntime/Coordinator/AuthCoordinator.swift
 756	Sources/Panels/AgentSessionWebRendererCoordinator.swift
+752	Sources/TerminalController+ControlWorkspaceContext.swift
 752	cmuxUITests/CloseWorkspaceCmdDUITests.swift
-751	Sources/TerminalController+ControlWorkspaceContext.swift
 739	Sources/App/MenuBarExtraController.swift
 738	Packages/CMUXProjectModel/Sources/CMUXProjectModel/XcodeProjectAdapter.swift
 716	Sources/TaskManagerSnapshot.swift

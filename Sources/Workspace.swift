@@ -5,6 +5,7 @@ import Bonsplit
 import CMUXAgentLaunch
 import CmuxBrowser
 import CmuxPanes
+import CmuxWorkspaces
 import CmuxSocketControl
 import Combine
 import CryptoKit

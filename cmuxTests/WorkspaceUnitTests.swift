@@ -7,6 +7,7 @@ import ObjectiveC.runtime
 import Bonsplit
 import CmuxPanes
 import CmuxSettings
+import CmuxWorkspaces
 import CmuxSidebar
 import UserNotifications
 import Combine

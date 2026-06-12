@@ -12,6 +12,7 @@ import CmuxSettings
 import CmuxSidebar
 import CmuxSidebarGit
 import CmuxWorkspaceNavigation
+import CmuxWorkspaces
 import CoreVideo
 import Combine
 import CoreServices
@@ -26,17 +27,6 @@ private let tabManagerLogger = Logger(subsystem: "com.cmuxterm.app", category: "
 
 enum WorkspaceOrderChangeNotificationKey {
     static let movedWorkspaceIds = "movedWorkspaceIds"
-}
-
-struct WorkspaceReorderPlanItem: Equatable {
-    let workspaceId: UUID
-    let fromIndex: Int
-    let toIndex: Int
-}
-
-enum WorkspaceBatchReorderError: Error, Equatable {
-    case duplicateWorkspace(UUID)
-    case workspaceNotFound(UUID)
 }
 
 /// Coalesces repeated main-thread signals into one callback after a short delay.
@@ -218,31 +208,8 @@ fileprivate func cmuxVsyncIOSurfaceTimelineCallback(
 }
 #endif
 
-/// Named collapsible sidebar group containing one or more workspaces.
-/// The membership relation lives on `Workspace.groupId`; this struct stores
-/// the group's identity, display name, collapse/pin state, and the explicit
-/// anchor workspace whose lifecycle gates the group itself.
-///
-/// The anchor workspace is always a real member workspace. It is created
-/// fresh when the group is created (never promoted from an existing member),
-/// rendered IMPLICITLY as the group header (no separate sidebar row), and
-/// when closed dissolves the group while keeping other members alive.
-struct WorkspaceGroup: Identifiable, Equatable, Sendable {
-    let id: UUID
-    var name: String
-    var isCollapsed: Bool
-    var isPinned: Bool
-    /// Identifier of the member workspace that owns this group's lifecycle.
-    /// Always present and always points to a workspace in `TabManager.tabs`
-    /// whose `groupId == self.id`. Closing this workspace dissolves the group.
-    var anchorWorkspaceId: UUID
-    /// Group-level color override (hex string). When nil, falls back to the
-    /// cwd-config color resolved from `cmux.json` for the anchor's cwd, then
-    /// to no tint.
-    var customColor: String?
-    /// SF symbol name for the header icon. When nil, defaults to `folder.fill`.
-    var iconSymbol: String?
-}
+// WorkspaceGroup, WorkspaceReorderPlanItem, WorkspaceBatchReorderError, and
+// the pure batch-reorder planning live in CmuxWorkspaces.
 
 @MainActor
 class TabManager: ObservableObject {
@@ -412,6 +379,9 @@ class TabManager: ObservableObject {
     // Stateless split-geometry application (equalize/resize divider moves);
     // the pure planning lives in CmuxPanes' ExternalTreeNode extensions.
     let paneLayout = PaneLayoutService()
+    // Pure batch-reorder planning (CmuxWorkspaces); applying the plan to
+    // tabs[] and renormalizing groups stays here.
+    let workspaceReorder = WorkspaceReorderPlanner()
     private var shouldRecordFocusHistory: Bool {
         focusHistoryNavigation.shouldRecordFocusHistory
     }
@@ -1795,29 +1765,10 @@ class TabManager: ObservableObject {
     func workspaceBatchReorderPlan(
         orderedWorkspaceIds: [UUID]
     ) -> Result<[WorkspaceReorderPlanItem], WorkspaceBatchReorderError> {
-        var seen = Set<UUID>()
-        for workspaceId in orderedWorkspaceIds {
-            guard seen.insert(workspaceId).inserted else {
-                return .failure(.duplicateWorkspace(workspaceId))
-            }
-        }
-
-        let currentIndexes = Dictionary(uniqueKeysWithValues: tabs.enumerated().map { ($0.element.id, $0.offset) })
-        for workspaceId in orderedWorkspaceIds where currentIndexes[workspaceId] == nil {
-            return .failure(.workspaceNotFound(workspaceId))
-        }
-
-        let finalIds = batchWorkspaceReorderFinalIds(orderedWorkspaceIds: orderedWorkspaceIds)
-        let finalIndexes = Dictionary(uniqueKeysWithValues: finalIds.enumerated().map { ($0.element, $0.offset) })
-
-        let plan = orderedWorkspaceIds.map { workspaceId in
-            WorkspaceReorderPlanItem(
-                workspaceId: workspaceId,
-                fromIndex: currentIndexes[workspaceId] ?? 0,
-                toIndex: finalIndexes[workspaceId] ?? 0
-            )
-        }
-        return .success(plan)
+        workspaceReorder.batchReorderPlan(
+            orderedWorkspaceIds: orderedWorkspaceIds,
+            current: workspaceOrderSnapshots()
+        )
     }
 
     @discardableResult
@@ -1854,17 +1805,14 @@ class TabManager: ObservableObject {
     }
 
     private func batchWorkspaceReorderFinalIds(orderedWorkspaceIds: [UUID]) -> [UUID] {
-        let orderedSet = Set(orderedWorkspaceIds)
-        let workspacesById = Dictionary(uniqueKeysWithValues: tabs.map { ($0.id, $0) })
-        let orderedPinnedIds = orderedWorkspaceIds.filter { workspacesById[$0]?.isPinned == true }
-        let orderedUnpinnedIds = orderedWorkspaceIds.filter { workspacesById[$0]?.isPinned == false }
-        let remainingPinnedIds = tabs
-            .map(\.id)
-            .filter { !orderedSet.contains($0) && workspacesById[$0]?.isPinned == true }
-        let remainingUnpinnedIds = tabs
-            .map(\.id)
-            .filter { !orderedSet.contains($0) && workspacesById[$0]?.isPinned == false }
-        return orderedPinnedIds + remainingPinnedIds + orderedUnpinnedIds + remainingUnpinnedIds
+        workspaceReorder.batchReorderFinalIds(
+            orderedWorkspaceIds: orderedWorkspaceIds,
+            current: workspaceOrderSnapshots()
+        )
+    }
+
+    private func workspaceOrderSnapshots() -> [WorkspaceOrderSnapshot] {
+        tabs.map { WorkspaceOrderSnapshot(id: $0.id, isPinned: $0.isPinned) }
     }
 
     func setCustomTitle(tabId: UUID, title: String?) {
