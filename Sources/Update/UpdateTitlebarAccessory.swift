@@ -3261,6 +3261,10 @@ private final class RightSidebarToggleAccessoryViewController: NSTitlebarAccesso
     private let hostingView: NonDraggableHostingView<RightSidebarToggleTitlebarView>
     private let containerView: NSView
     private var isObservingStyleDefault = false
+    private var sidebarVisibilityCancellable: AnyCancellable?
+    private weak var observedFileExplorerState: FileExplorerState?
+    private var lastAppliedContentSize: NSSize = .zero
+    private var lastAppliedYOffset: CGFloat = .nan
 
     init() {
         let containerView = NSView()
@@ -3284,7 +3288,7 @@ private final class RightSidebarToggleAccessoryViewController: NSTitlebarAccesso
         hostingView.translatesAutoresizingMaskIntoConstraints = true
         hostingView.autoresizingMask = []
         containerView.addSubview(hostingView)
-        applyFittingSize()
+        applyLayout()
 
         // The button size follows the titlebar controls style; resize when
         // that specific default changes (KVO on the key, not the broad
@@ -3308,6 +3312,18 @@ private final class RightSidebarToggleAccessoryViewController: NSTitlebarAccesso
         }
     }
 
+    override func viewDidAppear() {
+        super.viewDidAppear()
+        applyLayout()
+        bindSidebarVisibilityIfNeeded()
+    }
+
+    override func viewDidLayout() {
+        super.viewDidLayout()
+        applyLayout()
+        bindSidebarVisibilityIfNeeded()
+    }
+
     override func observeValue(
         forKeyPath keyPath: String?,
         of object: Any?,
@@ -3319,14 +3335,67 @@ private final class RightSidebarToggleAccessoryViewController: NSTitlebarAccesso
             return
         }
         Task { @MainActor [weak self] in
-            self?.applyFittingSize()
+            self?.applyLayout()
         }
     }
 
-    private func applyFittingSize() {
-        let size = hostingView.fittingSize
-        guard size != .zero, containerView.frame.size != size else { return }
-        containerView.setFrameSize(size)
-        hostingView.frame = NSRect(origin: .zero, size: size)
+    /// Mirrors the leading cluster's vertical strategy: the container spans the
+    /// titlebar height and the button centers on the traffic lights' midY, so
+    /// the toggle sits on the same row as the other titlebar controls — which
+    /// is also where the sidebar's own X button appears once it opens.
+    private func applyLayout() {
+        let contentSize = hostingView.fittingSize
+        guard contentSize.width > 0, contentSize.height > 0 else { return }
+        let closeButton = view.window?.standardWindowButton(.closeButton)
+        let titlebarView = closeButton?.superview
+        let titlebarHeight = (titlebarView?.frame.height ?? 0) > 0
+            ? titlebarView?.frame.height ?? contentSize.height
+            : view.window.map { window in
+                window.frame.height - window.contentLayoutRect.height
+            } ?? contentSize.height
+        let containerHeight = max(contentSize.height, titlebarHeight)
+        let trafficLightFrame = closeButton.map { button in
+            view.convert(button.convert(button.bounds, to: nil), from: nil)
+        }
+        let yOffset: CGFloat
+        if let trafficLightFrame, !trafficLightFrame.isEmpty {
+            yOffset = max(0, trafficLightFrame.midY - (contentSize.height / 2.0))
+        } else {
+            yOffset = max(0, (containerHeight - contentSize.height) / 2.0)
+        }
+        if contentSize == lastAppliedContentSize, yOffset == lastAppliedYOffset {
+            return
+        }
+        lastAppliedContentSize = contentSize
+        lastAppliedYOffset = yOffset
+        preferredContentSize = NSSize(width: contentSize.width, height: containerHeight)
+        containerView.setFrameSize(NSSize(width: contentSize.width, height: containerHeight))
+        hostingView.frame = NSRect(x: 0, y: yOffset, width: contentSize.width, height: contentSize.height)
+    }
+
+    /// The titlebar toggle only shows while the right sidebar is closed: once
+    /// it opens, the sidebar's own X button (in the chrome, at the same
+    /// trailing position — see #3757) takes over, so the control appears to
+    /// move into the sidebar the way the left sidebar toggle reads as part of
+    /// the open left sidebar.
+    private func bindSidebarVisibilityIfNeeded() {
+        guard let window = view.window,
+              let state = AppDelegate.shared?.contextForMainTerminalWindow(window, reindex: false)?.fileExplorerState
+        else { return }
+        guard state !== observedFileExplorerState else { return }
+        observedFileExplorerState = state
+        sidebarVisibilityCancellable = state.$isVisible
+            .removeDuplicates()
+            .receive(on: RunLoop.main)
+            .sink { [weak self] sidebarVisible in
+                self?.setToggleHidden(sidebarVisible)
+            }
+    }
+
+    private func setToggleHidden(_ hidden: Bool) {
+        guard isHidden != hidden else { return }
+        isHidden = hidden
+        view.isHidden = hidden
+        view.alphaValue = hidden ? 0 : 1
     }
 }
