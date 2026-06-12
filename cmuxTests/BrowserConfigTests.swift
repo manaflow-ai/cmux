@@ -14,8 +14,17 @@ import CmuxSidebar
 
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
+// The app target still declares its legacy BrowserThemeMode /
+// BrowserSearchEngine (Sources/Panels/BrowserPanel.swift); with
+// CmuxSettings imported unconditionally those names are ambiguous.
+// These tests exercise the app's BrowserThemeSettings/BrowserSearchSettings
+// paths, so pin the app types.
+private typealias BrowserThemeMode = cmux_DEV.BrowserThemeMode
+private typealias BrowserSearchEngine = cmux_DEV.BrowserSearchEngine
 #elseif canImport(cmux)
 @testable import cmux
+private typealias BrowserThemeMode = cmux.BrowserThemeMode
+private typealias BrowserSearchEngine = cmux.BrowserSearchEngine
 #endif
 
 var cmuxUnitTestInspectorAssociationKey: UInt8 = 0
