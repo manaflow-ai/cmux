@@ -2213,7 +2213,7 @@ final class FileExplorerNSOutlineView: NSOutlineView {
         }
     }
 
-    private var fileExplorerCoordinator: FileExplorerPanelView.Coordinator? {
+    var fileExplorerCoordinator: FileExplorerPanelView.Coordinator? {
         dataSource as? FileExplorerPanelView.Coordinator
     }
 
