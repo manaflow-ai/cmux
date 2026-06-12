@@ -146,6 +146,11 @@ extension WindowAppearanceSnapshot {
         )
     }
 
+    func windowRootBackdropSnapshot(surfaceBackgroundColor color: NSColor?) -> Self {
+        guard let color else { return self }
+        return replacingTerminalBackgroundColor(color)
+    }
+
     var appKitWindowMutationID: String {
         backdropPlan().appKitMutationID
     }

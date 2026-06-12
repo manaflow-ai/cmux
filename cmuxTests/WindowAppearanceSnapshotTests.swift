@@ -326,6 +326,29 @@ final class WindowAppearanceSnapshotTests: XCTestCase {
         XCTAssertFalse(plan.clearsSharedWindowBackdrop)
     }
 
+    /// Verifies pane-local OSC colors do not replace the shared window root backdrop.
+    func testSurfaceOSCOverrideDoesNotReplaceSharedWindowRootBackdrop() throws {
+        let snapshot = makeSnapshot(
+            unifySurfaceBackdrops: true,
+            backgroundHex: "#272822",
+            backgroundOpacity: 1.0
+        )
+        let override = try XCTUnwrap(NSColor(hex: "#E6BE78"))
+        let windowRootSnapshot = snapshot.windowRootBackdropSnapshot(
+            surfaceBackgroundColor: override
+        )
+
+        XCTAssertEqual(windowRootSnapshot.terminalBackgroundColor.hexString(), "#272822")
+        XCTAssertEqual(
+            windowRootSnapshot.compositedTerminalBackgroundColor.hexString(includeAlpha: true),
+            "#272822FF"
+        )
+        XCTAssertEqual(
+            windowRootSnapshot.windowGlassSettings.terminalGlassTintColor?.hexString(includeAlpha: true),
+            "#272822FF"
+        )
+    }
+
     private func makeSnapshot(
         unifySurfaceBackdrops: Bool,
         backgroundHex: String = "#272822",
