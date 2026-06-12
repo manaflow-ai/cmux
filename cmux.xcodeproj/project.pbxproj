@@ -433,6 +433,7 @@
 		1A8BEE693C9E4C3190CB7F20 /* MenuBarExtraController.swift in Sources */ = {isa = PBXBuildFile; fileRef = C7934BB35B66491B1BCA8064 /* MenuBarExtraController.swift */; };
 		3865A0033865A0033865A003 /* MenubarSearchPopover.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3865B0033865B0033865B003 /* MenubarSearchPopover.swift */; };
 		E1000000A1B2C3D4E5F60718 /* MenuKeyEquivalentRoutingUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = E1000001A1B2C3D4E5F60718 /* MenuKeyEquivalentRoutingUITests.swift */; };
+		A5732001 /* MinimalModeChromeSwap.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5732002 /* MinimalModeChromeSwap.swift */; };
 		C0DE3150A00000000000001 /* MinimalModeSidebarControls.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE3150A00000000000002 /* MinimalModeSidebarControls.swift */; };
 		284FD21ACF8BD1ED6AEBD7A0 /* MobileAttachTicketStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8D6D2AC715764ECC1F6B26A2 /* MobileAttachTicketStore.swift */; };
 		6AA2F2E8BEB19ED6B8E125DB /* MobileHostAuthorizationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9BD519CFE74530A46DF0925D /* MobileHostAuthorizationTests.swift */; };
@@ -718,6 +719,7 @@
 		D7AB3605C10DEF0000000003 /* WorkspaceCloseTabsBatching.swift in Sources */ = {isa = PBXBuildFile; fileRef = D7AB3605C10DEF0000000004 /* WorkspaceCloseTabsBatching.swift */; };
 		D7AB3605C10DEF0000000001 /* WorkspaceCloseTabsContextMenuTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D7AB3605C10DEF0000000002 /* WorkspaceCloseTabsContextMenuTests.swift */; };
 		A5001407 /* WorkspaceContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001417 /* WorkspaceContentView.swift */; };
+		A5732005 /* WorkspaceContentViewEquatableTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5732006 /* WorkspaceContentViewEquatableTests.swift */; };
 		F7000000A1B2C3D4E5F60718 /* WorkspaceContentViewVisibilityTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F7000001A1B2C3D4E5F60718 /* WorkspaceContentViewVisibilityTests.swift */; };
 		281F3AEA52379AF45C5C1189 /* WorkspaceCustomSidebarPullRequestContextTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = CE74DFAC5946F9C2EEDBE577 /* WorkspaceCustomSidebarPullRequestContextTests.swift */; };
 		E6FA9084A1B2C3D4E5F60718 /* WorkspaceDescriptionUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = E6FA9085A1B2C3D4E5F60718 /* WorkspaceDescriptionUITests.swift */; };
@@ -1205,6 +1207,7 @@
 		C7934BB35B66491B1BCA8064 /* MenuBarExtraController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/MenuBarExtraController.swift; sourceTree = "<group>"; };
 		3865B0033865B0033865B003 /* MenubarSearchPopover.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Search/MenubarSearchPopover.swift; sourceTree = "<group>"; };
 		E1000001A1B2C3D4E5F60718 /* MenuKeyEquivalentRoutingUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MenuKeyEquivalentRoutingUITests.swift; sourceTree = "<group>"; };
+		A5732002 /* MinimalModeChromeSwap.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MinimalModeChromeSwap.swift; sourceTree = "<group>"; };
 		C0DE3150A00000000000002 /* MinimalModeSidebarControls.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Update/MinimalModeSidebarControls.swift; sourceTree = "<group>"; };
 		8D6D2AC715764ECC1F6B26A2 /* MobileAttachTicketStore.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = MobileAttachTicketStore.swift; sourceTree = "<group>"; };
 		9BD519CFE74530A46DF0925D /* MobileHostAuthorizationTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = MobileHostAuthorizationTests.swift; sourceTree = "<group>"; };
@@ -1480,6 +1483,7 @@
 		D7AB3605C10DEF0000000004 /* WorkspaceCloseTabsBatching.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceCloseTabsBatching.swift; sourceTree = "<group>"; };
 		D7AB3605C10DEF0000000002 /* WorkspaceCloseTabsContextMenuTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceCloseTabsContextMenuTests.swift; sourceTree = "<group>"; };
 		A5001417 /* WorkspaceContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceContentView.swift; sourceTree = "<group>"; };
+		A5732006 /* WorkspaceContentViewEquatableTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceContentViewEquatableTests.swift; sourceTree = "<group>"; };
 		F7000001A1B2C3D4E5F60718 /* WorkspaceContentViewVisibilityTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceContentViewVisibilityTests.swift; sourceTree = "<group>"; };
 		CE74DFAC5946F9C2EEDBE577 /* WorkspaceCustomSidebarPullRequestContextTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceCustomSidebarPullRequestContextTests.swift; sourceTree = "<group>"; };
 		E6FA9085A1B2C3D4E5F60718 /* WorkspaceDescriptionUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceDescriptionUITests.swift; sourceTree = "<group>"; };
@@ -1883,6 +1887,7 @@
 				D0B10005A1B2C3D4E5F60001 /* WorkspacePortalPaneDrop.swift */,
 				C0DE32470000000000000004 /* WorkspaceSurfaceIdentifierClipboardText.swift */,
 				A5001417 /* WorkspaceContentView.swift */,
+				A5732002 /* MinimalModeChromeSwap.swift */,
 				A5732004 /* TerminalController+PresentationModeProbe.swift */,
 				E30760000000000000000001 /* TmuxWorkspacePaneOverlayView.swift */,
 				A5001014 /* GhosttyConfig.swift */,
@@ -2325,6 +2330,7 @@
 				51D800000000000000000002 /* SidebarIdentifierFormattingTests.swift */,
 				C7A507000000000000000001 /* TaskManagerResourcesTests.swift */,
 				C7A507000000000000004530 /* TaskManagerViewSnapshotBoundaryTests.swift */,
+				A5732006 /* WorkspaceContentViewEquatableTests.swift */,
 				C7A509000000000000000001 /* CmuxTopSnapshotScopeTests.swift */,
 				C7A5090000000000000005A1 /* CmuxTopSnapshotScopeCacheTests.swift */,
 				C7A50C000000000000000001 /* CmuxTopProcessCPUTests.swift */,
@@ -2999,6 +3005,7 @@
 				A50014F9 /* MarkdownWebSupport.swift in Sources */,
 				1A8BEE693C9E4C3190CB7F20 /* MenuBarExtraController.swift in Sources */,
 				3865A0033865A0033865A003 /* MenubarSearchPopover.swift in Sources */,
+				A5732001 /* MinimalModeChromeSwap.swift in Sources */,
 				C0DE3150A00000000000001 /* MinimalModeSidebarControls.swift in Sources */,
 				284FD21ACF8BD1ED6AEBD7A0 /* MobileAttachTicketStore.swift in Sources */,
 				4E673EDE464BF3AB80E94C1D /* MobileHostRPC.swift in Sources */,
@@ -3463,6 +3470,7 @@
 				D7AB00000000000000000011 /* WorkspaceAdjacentPaneMoveTests.swift in Sources */,
 				A11EAE000000000000000000 /* WorkspaceAppearanceConfigResolutionTests.swift in Sources */,
 				D7AB3605C10DEF0000000001 /* WorkspaceCloseTabsContextMenuTests.swift in Sources */,
+				A5732005 /* WorkspaceContentViewEquatableTests.swift in Sources */,
 				F7000000A1B2C3D4E5F60718 /* WorkspaceContentViewVisibilityTests.swift in Sources */,
 				281F3AEA52379AF45C5C1189 /* WorkspaceCustomSidebarPullRequestContextTests.swift in Sources */,
 				C9A57001C9A57001C9A57001 /* WorkspaceGroupTests.swift in Sources */,

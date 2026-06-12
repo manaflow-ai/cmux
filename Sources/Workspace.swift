@@ -10771,7 +10771,15 @@ final class Workspace: Identifiable, ObservableObject {
     var restoredUnreadPanelIds: Set<UUID> {
         Set(restoredUnreadPanelIndicators.keys)
     }
-    @Published private(set) var tmuxLayoutSnapshot: LayoutSnapshot?
+    /// Latest bonsplit layout snapshot, consumed by the tmux pane-overlay
+    /// experiment. Deliberately NOT `@Published`: bonsplit reports geometry on
+    /// every divider drag, window resize, and chrome relayout (e.g. the
+    /// minimal-mode toggle), and publishing each tick re-evaluated every
+    /// mounted workspace's entire Bonsplit body mid-layout (#5732). Writes go
+    /// through `storeTmuxLayoutSnapshot`, which still fires `objectWillChange`
+    /// while an overlay experiment target is active so the overlay controllers
+    /// keep refreshing.
+    private(set) var tmuxLayoutSnapshot: LayoutSnapshot?
     @Published private(set) var tmuxWorkspaceFlashPanelId: UUID?
     @Published private(set) var tmuxWorkspaceFlashReason: WorkspaceAttentionFlashReason?
     @Published private(set) var tmuxWorkspaceFlashToken: UInt64 = 0
@@ -11409,7 +11417,7 @@ final class Workspace: Identifiable, ObservableObject {
             }
             bonsplitController.selectTab(initialTabId)
         }
-        tmuxLayoutSnapshot = bonsplitController.layoutSnapshot()
+        storeTmuxLayoutSnapshot(bonsplitController.layoutSnapshot())
         scheduleExtensionSidebarProjectRootRefresh(for: currentDirectory)
 
         // Forward shared agent-index refreshes as our own objectWillChange so the bonsplit
@@ -19933,7 +19941,7 @@ extension Workspace: BonsplitDelegate {
     }
 
     func splitTabBar(_ controller: BonsplitController, didChangeGeometry snapshot: LayoutSnapshot) {
-        tmuxLayoutSnapshot = snapshot
+        storeTmuxLayoutSnapshot(snapshot)
         // Every order/membership mutation (same-pane reorder, cross-pane move,
         // split, close) routes through here. A pure reorder mutates only
         // bonsplit's internal state, which is not `@Published`, so observers
@@ -19949,6 +19957,17 @@ extension Workspace: BonsplitDelegate {
         if !isDetachingCloseTransaction {
             scheduleFocusReconcile()
         }
+    }
+
+    /// See the `tmuxLayoutSnapshot` declaration: geometry churn must not fire
+    /// `objectWillChange` unless the tmux pane-overlay experiment is actually
+    /// rendering from the snapshot.
+    private func storeTmuxLayoutSnapshot(_ snapshot: LayoutSnapshot?) {
+        let overlayTarget = TmuxOverlayExperimentSettings.target()
+        if overlayTarget.usesWorkspacePaneOverlay || overlayTarget.usesTmuxActivePaneOverlay {
+            objectWillChange.send()
+        }
+        tmuxLayoutSnapshot = snapshot
     }
 
     // No post-close polling refresh loop: we rely on view invariants and Ghostty's wakeups.
