@@ -80,3 +80,32 @@ func TestHookMergeCodexNotifyResolvesPending(t *testing.T) {
 		t.Fatalf("stop with pending request = %+v", events)
 	}
 }
+
+// Providers that bracket turns (prompt-submit observed, native turn id on the
+// stop) complete the synthesized active turn, and a redelivered stop for the
+// same native id is dropped instead of being mistaken for a fresh external
+// completion.
+func TestHookMergeNativeStopIDDedupedAcrossActiveTurn(t *testing.T) {
+	parser := newCodexParser("/tmp/sess-bracket.jsonl")
+	merger := newHookMerger(parser.conv())
+
+	started := merger.consumeHookFrame(HookFrame{Provider: ProviderCodex, SessionID: "s", Hook: HookUserPromptSubmit, Prompt: "go"})
+	if len(started) != 1 || started[0].Type != EventTurnStarted {
+		t.Fatalf("prompt submit = %+v, want turn.started", started)
+	}
+	stop := HookFrame{Provider: ProviderCodex, SessionID: "s", Hook: HookStop, TurnID: "native-1"}
+	completed := merger.consumeHookFrame(stop)
+	if len(completed) != 1 || completed[0].Type != EventTurnCompleted || completed[0].TurnID != started[0].TurnID {
+		t.Fatalf("stop with active turn = %+v, want turn.completed %s", completed, started[0].TurnID)
+	}
+	if events := merger.consumeHookFrame(stop); len(events) != 0 {
+		t.Fatalf("redelivered native stop emitted %+v, want drop", events)
+	}
+	// And a stale redelivery must not close a NEW turn either.
+	if next := merger.consumeHookFrame(HookFrame{Provider: ProviderCodex, SessionID: "s", Hook: HookUserPromptSubmit, Prompt: "more"}); len(next) != 1 {
+		t.Fatalf("second prompt submit = %+v", next)
+	}
+	if events := merger.consumeHookFrame(stop); len(events) != 0 {
+		t.Fatalf("stale stop closed the new turn: %+v", events)
+	}
+}

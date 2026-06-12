@@ -137,13 +137,14 @@ func (m *hookMerger) consumeHookFrame(frame HookFrame) []Event {
 			Prompt: frame.Prompt,
 		})
 	case HookStop:
+		if frame.TurnID != "" && m.externalTurnSeen(frame.TurnID) {
+			// A redelivered notification for an already-completed turn is not
+			// new progress evidence: it must not resolve requests opened
+			// since, not re-emit the completion, and not close an unrelated
+			// turn that started after it.
+			return nil
+		}
 		if m.activeTurnID == "" {
-			if frame.TurnID != "" && m.externalTurnSeen(frame.TurnID) {
-				// A redelivered notification for an already-completed turn is
-				// not new progress evidence: it must not resolve requests
-				// opened since, and not re-emit the completion.
-				return nil
-			}
 			events := m.resolveAllPending()
 			// No observed turn.started. A frame carrying the provider's own
 			// turn id (Codex notify, which only fires at turn end) still
@@ -155,6 +156,12 @@ func (m *hookMerger) consumeHookFrame(frame HookFrame) []Event {
 			return append(events, Event{Type: EventTurnCompleted, TurnID: frame.TurnID})
 		}
 		events := m.resolveAllPending()
+		if frame.TurnID != "" {
+			// Providers that bracket turns with their own ids (turn.started
+			// observed, native id on the stop) get redeliveries deduplicated
+			// too, not only the notify-at-end shape.
+			m.markExternalTurnSeen(frame.TurnID)
+		}
 		turnID := m.activeTurnID
 		m.activeTurnID = ""
 		return append(events, Event{Type: EventTurnCompleted, TurnID: turnID})
