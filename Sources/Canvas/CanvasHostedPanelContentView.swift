@@ -41,15 +41,13 @@ struct CanvasHostedPanelContentView: View {
         .padding(.horizontal, 2)
         .padding(.bottom, 2)
         // Inline hosting parents the webview inside the pane hierarchy: pans
-        // track frame-perfectly and content scales with magnification. The
-        // portal tug-of-war is fixed (reconcilers skip
-        // canvasInlineHostingActive panels) and content renders live inline,
-        // but the webview's slot frame still comes up partial-width, so it
-        // ships default-off. The launch-time debug default
-        // `canvasInlineBrowserHostingDebug` flips it on for diagnosis.
+        // track frame-perfectly (no window-portal trailing), content scales
+        // with magnification, and z-order is native. Default-on; the
+        // launch-time default `canvasInlineBrowserHostingDisabled` is the
+        // escape hatch back to window-portal hosting.
         .environment(
             \.cmuxCanvasInlineBrowserHosting,
-            UserDefaults.standard.bool(forKey: "canvasInlineBrowserHostingDebug")
+            !UserDefaults.standard.bool(forKey: "canvasInlineBrowserHostingDisabled")
         )
     }
 }
