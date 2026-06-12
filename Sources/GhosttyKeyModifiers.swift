@@ -11,6 +11,16 @@ nonisolated func cmuxGhosttyModsFromFlags(modifierFlagsRawValue rawValue: UInt) 
     if flags.contains(.control) { mods |= GHOSTTY_MODS_CTRL.rawValue }
     if flags.contains(.option) { mods |= GHOSTTY_MODS_ALT.rawValue }
     if flags.contains(.command) { mods |= GHOSTTY_MODS_SUPER.rawValue }
+
+    // Sided input (mirrors Ghostty.app's ghosttyMods). libghostty applies
+    // `macos-option-as-alt = left|right` and the key encoder's per-side
+    // Alt-prefix rules from these bits; without them every modifier reads
+    // as the left key (https://github.com/manaflow-ai/cmux/issues/5993).
+    if rawValue & UInt(NX_DEVICERSHIFTKEYMASK) != 0 { mods |= GHOSTTY_MODS_SHIFT_RIGHT.rawValue }
+    if rawValue & UInt(NX_DEVICERCTLKEYMASK) != 0 { mods |= GHOSTTY_MODS_CTRL_RIGHT.rawValue }
+    if rawValue & UInt(NX_DEVICERALTKEYMASK) != 0 { mods |= GHOSTTY_MODS_ALT_RIGHT.rawValue }
+    if rawValue & UInt(NX_DEVICERCMDKEYMASK) != 0 { mods |= GHOSTTY_MODS_SUPER_RIGHT.rawValue }
+
     return ghostty_input_mods_e(rawValue: mods)
 }
 
