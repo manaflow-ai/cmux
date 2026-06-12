@@ -1659,15 +1659,8 @@ struct BrowserPanelView: View {
                 onTap: {
                     handleOmnibarTap()
                 },
-                onSubmit: {
-                    if canHandleOmnibarSuggestionInteraction() {
-                        commitSelectedSuggestion()
-                    } else {
-                        panel.navigateSmart(omnibarState.buffer)
-                        hideSuggestions()
-                        suppressNextFocusLostRevert = true
-                        setAddressBarFocused(false, reason: "omnibar.submit.navigate")
-                    }
+                onSubmit: { liveField in
+                    handleOmnibarSubmit(liveField: liveField)
                 },
                 onEscape: {
                     handleOmnibarEscape()
@@ -2435,6 +2428,30 @@ struct BrowserPanelView: View {
         suggestionTask?.cancel()
         suggestionTask = nil
         isLoadingRemoteSuggestions = false
+    }
+
+    private func handleOmnibarSubmit(liveField: OmnibarLiveFieldSnapshot?) {
+        let decision = omnibarSubmitDecision(
+            liveField: liveField,
+            state: omnibarState,
+            inlineCompletion: inlineCompletion,
+            canInteractWithSuggestions: canHandleOmnibarSuggestionInteraction()
+        )
+        switch decision {
+        case .commitSelectedSuggestion:
+            commitSelectedSuggestion()
+        case .navigate(let text):
+            if text != omnibarState.buffer {
+                // Reconcile the reducer with the live field before navigating so
+                // blur and URL-change handling see the text that was submitted.
+                let effects = omnibarReduce(state: &omnibarState, event: .bufferChanged(text))
+                applyOmnibarEffects(effects)
+            }
+            panel.navigateSmart(text)
+            hideSuggestions()
+            suppressNextFocusLostRevert = true
+            setAddressBarFocused(false, reason: "omnibar.submit.navigate")
+        }
     }
 
     private func commitSelectedSuggestion() {
@@ -3591,6 +3608,11 @@ struct OmnibarState: Equatable {
     var suggestions: [OmnibarSuggestion] = []
     var selectedSuggestionIndex: Int = 0
     var selectedSuggestionID: String?
+    /// True only while the current suggestion selection came from an explicit
+    /// user action (arrow keys, Ctrl+N/P). Automatic highlighting (preferred
+    /// autocompletion pick, popup reopen, pointer hover) leaves this false so
+    /// a row auto-selected for an older query can never hijack Return.
+    var selectionIsExplicit: Bool = false
     var isUserEditing: Bool = false
 }
 
@@ -3628,6 +3650,7 @@ func omnibarReduce(state: inout OmnibarState, event: OmnibarEvent) -> OmnibarEff
         state.suggestions = []
         state.selectedSuggestionIndex = 0
         state.selectedSuggestionID = nil
+        state.selectionIsExplicit = false
         effects.shouldSelectAll = shouldSelectAll
         effects.shouldCancelPendingSuggestionRefresh = true
 
@@ -3643,6 +3666,7 @@ func omnibarReduce(state: inout OmnibarState, event: OmnibarEvent) -> OmnibarEff
         state.suggestions = []
         state.selectedSuggestionIndex = 0
         state.selectedSuggestionID = nil
+        state.selectionIsExplicit = false
         effects.shouldCancelPendingSuggestionRefresh = true
 
     case .focusLostPreserveBuffer(let url):
@@ -3652,6 +3676,7 @@ func omnibarReduce(state: inout OmnibarState, event: OmnibarEvent) -> OmnibarEff
         state.suggestions = []
         state.selectedSuggestionIndex = 0
         state.selectedSuggestionID = nil
+        state.selectionIsExplicit = false
         effects.shouldCancelPendingSuggestionRefresh = true
 
     case .panelURLChanged(let url):
@@ -3661,6 +3686,7 @@ func omnibarReduce(state: inout OmnibarState, event: OmnibarEvent) -> OmnibarEff
             state.suggestions = []
             state.selectedSuggestionIndex = 0
             state.selectedSuggestionID = nil
+            state.selectionIsExplicit = false
             effects.shouldCancelPendingSuggestionRefresh = true
         }
 
@@ -3671,6 +3697,7 @@ func omnibarReduce(state: inout OmnibarState, event: OmnibarEvent) -> OmnibarEff
             state.isUserEditing = (newValue != state.currentURLString)
             state.selectedSuggestionIndex = 0
             state.selectedSuggestionID = nil
+            state.selectionIsExplicit = false
             effects.shouldRefreshSuggestions = true
             effects.shouldClearInlineCompletion = bufferChanged
         }
@@ -3682,8 +3709,10 @@ func omnibarReduce(state: inout OmnibarState, event: OmnibarEvent) -> OmnibarEff
         if items.isEmpty {
             state.selectedSuggestionIndex = 0
             state.selectedSuggestionID = nil
+            state.selectionIsExplicit = false
         } else if let previousSelectedID,
                   let existingIdx = items.firstIndex(where: { $0.id == previousSelectedID }) {
+            // Same row carried across a refresh: an explicit selection stays explicit.
             state.selectedSuggestionIndex = existingIdx
             state.selectedSuggestionID = items[existingIdx].id
         } else if let preferredSuggestionIndex = omnibarPreferredAutocompletionSuggestionIndex(
@@ -3692,10 +3721,12 @@ func omnibarReduce(state: inout OmnibarState, event: OmnibarEvent) -> OmnibarEff
         ) {
             state.selectedSuggestionIndex = preferredSuggestionIndex
             state.selectedSuggestionID = items[preferredSuggestionIndex].id
+            state.selectionIsExplicit = false
         } else if previousItems.isEmpty {
             // Popup reopened: start keyboard focus from the first row.
             state.selectedSuggestionIndex = 0
             state.selectedSuggestionID = items[0].id
+            state.selectionIsExplicit = false
         } else if let previousSelectedID,
                   let idx = items.firstIndex(where: { $0.id == previousSelectedID }) {
             state.selectedSuggestionIndex = idx
@@ -3703,6 +3734,7 @@ func omnibarReduce(state: inout OmnibarState, event: OmnibarEvent) -> OmnibarEff
         } else {
             state.selectedSuggestionIndex = min(max(0, state.selectedSuggestionIndex), items.count - 1)
             state.selectedSuggestionID = items[state.selectedSuggestionIndex].id
+            state.selectionIsExplicit = false
         }
 
     case .moveSelection(let delta):
@@ -3712,11 +3744,15 @@ func omnibarReduce(state: inout OmnibarState, event: OmnibarEvent) -> OmnibarEff
             state.suggestions.count - 1
         )
         state.selectedSuggestionID = state.suggestions[state.selectedSuggestionIndex].id
+        state.selectionIsExplicit = true
 
     case .highlightIndex(let idx):
         guard !state.suggestions.isEmpty else { break }
         state.selectedSuggestionIndex = min(max(0, idx), state.suggestions.count - 1)
         state.selectedSuggestionID = state.suggestions[state.selectedSuggestionIndex].id
+        // Pointer hover tracks the highlight but is not an explicit selection:
+        // the popup can appear underneath a stationary cursor.
+        state.selectionIsExplicit = false
 
     case .escape:
         guard state.isFocused else { break }
@@ -3729,6 +3765,7 @@ func omnibarReduce(state: inout OmnibarState, event: OmnibarEvent) -> OmnibarEff
             state.suggestions = []
             state.selectedSuggestionIndex = 0
             state.selectedSuggestionID = nil
+            state.selectionIsExplicit = false
             effects.shouldSelectAll = true
             effects.shouldCancelPendingSuggestionRefresh = true
         } else {
@@ -4161,7 +4198,7 @@ struct OmnibarTextFieldRepresentable: NSViewRepresentable {
     let inlineCompletion: OmnibarInlineCompletion?
     let placeholder: String
     let onTap: () -> Void
-    let onSubmit: () -> Void
+    let onSubmit: (OmnibarLiveFieldSnapshot?) -> Void
     let onEscape: () -> Void
     let onFieldLostFocus: () -> Void
     let onMoveSelection: (Int) -> Void
@@ -4445,7 +4482,7 @@ struct OmnibarTextFieldRepresentable: NSViewRepresentable {
             case #selector(NSResponder.insertNewline(_:)):
                 let currentFlags = NSApp.currentEvent?.modifierFlags ?? []
                 guard browserOmnibarShouldSubmitOnReturn(flags: currentFlags) else { return false }
-                parent.onSubmit()
+                parent.onSubmit(liveFieldSnapshot(preferredEditor: textView))
 #if DEBUG
                 handled = true
 #endif
@@ -4583,6 +4620,27 @@ struct OmnibarTextFieldRepresentable: NSViewRepresentable {
             }
         }
 
+        /// Captures the field-editor text synchronously at submit time. Both
+        /// Return interception paths (`doCommandBy` and `handleKeyEvent`) go
+        /// through here so the submit decision always starts from what the
+        /// field actually shows, not the possibly lagging published state.
+        private func liveFieldSnapshot(preferredEditor: NSTextView?) -> OmnibarLiveFieldSnapshot? {
+            let editor = preferredEditor ?? (parentField?.currentEditor() as? NSTextView)
+            if let editor {
+                return OmnibarLiveFieldSnapshot(
+                    text: editor.string,
+                    selectionRange: editor.selectedRange(),
+                    hasMarkedText: editor.hasMarkedText()
+                )
+            }
+            guard let field = parentField else { return nil }
+            return OmnibarLiveFieldSnapshot(
+                text: field.stringValue,
+                selectionRange: nil,
+                hasMarkedText: false
+            )
+        }
+
         private func inlineCompletionSelectionIsActive(_ editor: NSTextView?, inline: OmnibarInlineCompletion?) -> Bool {
             suffixSelectionMatchesInline(editor, inline: inline) || selectionIsTypedPrefixBoundary(editor, inline: inline)
         }
@@ -4646,7 +4704,7 @@ struct OmnibarTextFieldRepresentable: NSViewRepresentable {
             switch keyCode {
             case 36, 76: // Return / keypad Enter
                 guard browserOmnibarShouldSubmitOnReturn(flags: event.modifierFlags) else { return false }
-                parent.onSubmit()
+                parent.onSubmit(liveFieldSnapshot(preferredEditor: editor))
 #if DEBUG
                 handled = true
 #endif

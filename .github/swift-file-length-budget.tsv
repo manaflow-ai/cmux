@@ -11,7 +11,7 @@
 11916	cmuxTests/AppDelegateShortcutRoutingTests.swift
 9992	Sources/TabManager.swift
 8494	cmuxTests/CLINotifyProcessIntegrationRegressionTests.swift
-7737	Sources/Panels/BrowserPanelView.swift
+7795	Sources/Panels/BrowserPanelView.swift
 7198	cmuxTests/WorkspaceUnitTests.swift
 6948	cmuxTests/WorkspaceRemoteConnectionTests.swift
 6542	cmuxTests/GhosttyConfigTests.swift
@@ -59,7 +59,7 @@
 1643	cmuxUITests/BrowserPaneNavigationKeybindUITests.swift
 1574	cmuxTests/MarkdownPanelTests.swift
 1560	cmuxTests/TextBoxMentionCompletionTests.swift
-1498	cmuxTests/OmnibarAndToolsTests.swift
+1497	cmuxTests/OmnibarAndToolsTests.swift
 1496	cmuxUITests/MultiWindowNotificationsUITests.swift
 1450	Sources/FileExplorerStore.swift
 1410	Sources/CommandPalette/CommandPaletteSearch.swift
