@@ -1256,6 +1256,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         )
         AppIconLaunchState.markDidFinishLaunching()
         AppearanceSettingsUserDefaultsObserver.shared.startObserving()
+        BrowserSystemProxyWatcher.shared.startObserving()
         if isRunningUnderXCTest {
             NSApp.setActivationPolicy(.regular)
         } else {
@@ -3072,7 +3073,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         Self.removeLegacyPersistedWindowGeometry()
         SessionPersistenceStore.syncManualRestoreSnapshotCache()
         guard SessionRestorePolicy.shouldAttemptRestore() else { return }
-        startupSessionSnapshot = SessionPersistenceStore.load()
+        startupSessionSnapshot = SessionPersistenceStore.loadStartupSnapshot()
     }
 
     private func persistedWindowGeometry(defaults: UserDefaults = .standard) -> PersistedWindowGeometry? {
