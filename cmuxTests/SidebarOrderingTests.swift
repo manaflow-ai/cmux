@@ -9,11 +9,12 @@ import CmuxSettings
 import UserNotifications
 import Testing
 
+import CmuxSidebar
+
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
 #elseif canImport(cmux)
 @testable import cmux
-import CmuxSidebar
 #endif
 
 final class SidebarActiveForegroundColorTests: XCTestCase {

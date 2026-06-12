@@ -10,11 +10,12 @@ import UserNotifications
 import Network
 import CmuxSettings
 
+import CmuxSidebar
+
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
 #elseif canImport(cmux)
 @testable import cmux
-import CmuxSidebar
 #endif
 
 var cmuxUnitTestInspectorAssociationKey: UInt8 = 0
