@@ -9,39 +9,80 @@ import { renderMarkdownHTML } from "../../agent-session/shared/markdown";
 import { agentChatLabels } from "../labels";
 import type { PendingRequest } from "../conversationStore";
 import type { ConversationItem } from "../protocol";
+import { highlightSegments } from "../search";
 import { isToolItemType } from "./display";
 import { RichToolRow, StatusIndicator, rowDataProps } from "./toolRows";
 
 export function ItemRow({
   item,
   provider = null,
+  searchQuery = "",
+  isSearchMatch = false,
+  isCurrentSearchMatch = false,
 }: {
   item: ConversationItem;
   /** Session provider id snapshot, threaded to provider-aware tool rows. */
   provider?: string | null;
+  /** Active search query when this row matches it; "" otherwise. */
+  searchQuery?: string;
+  isSearchMatch?: boolean;
+  isCurrentSearchMatch?: boolean;
 }) {
+  let row;
   if (item.type === "user_message") {
-    return <UserMessageRow item={item} />;
+    row = <UserMessageRow item={item} searchQuery={searchQuery} />;
+  } else if (item.type === "assistant_message") {
+    row = <AssistantMessageRow item={item} />;
+  } else if (item.type === "reasoning") {
+    row = <ReasoningRow item={item} />;
+  } else if (item.type === "plan") {
+    row = <PlanRow item={item} />;
+  } else if (isToolItemType(item.type)) {
+    row = <RichToolRow item={item} provider={provider} />;
+  } else {
+    row = <SystemRow item={item} />;
   }
-  if (item.type === "assistant_message") {
-    return <AssistantMessageRow item={item} />;
-  }
-  if (item.type === "reasoning") {
-    return <ReasoningRow item={item} />;
-  }
-  if (item.type === "plan") {
-    return <PlanRow item={item} />;
-  }
-  if (isToolItemType(item.type)) {
-    return <RichToolRow item={item} provider={provider} />;
-  }
-  return <SystemRow item={item} />;
+  // display:contents — the wrapper generates no box, so row layout is
+  // untouched; CSS targets matches via the data attributes without threading
+  // search props through every row family.
+  return (
+    <div
+      className="agent-chat-search-wrap"
+      data-search-match={isSearchMatch ? "true" : "false"}
+      data-search-current={isCurrentSearchMatch ? "true" : "false"}
+    >
+      {row}
+    </div>
+  );
 }
 
-function UserMessageRow({ item }: { item: ConversationItem }) {
+function UserMessageRow({
+  item,
+  searchQuery = "",
+}: {
+  item: ConversationItem;
+  searchQuery?: string;
+}) {
+  const text = item.text ?? "";
   return (
     <div className="agent-chat-row agent-chat-user-row" {...rowDataProps(item)}>
-      <div className="agent-chat-user-bubble">{item.text ?? ""}</div>
+      <div className="agent-chat-user-bubble">
+        {searchQuery === ""
+          ? text
+          : highlightSegments(text, searchQuery).map((segment, index) =>
+              segment.match ? (
+                // Segment lists are derived per render from (text, query);
+                // index keys are stable for that pair.
+                // eslint-disable-next-line react/no-array-index-key
+                <mark key={index} className="agent-chat-search-mark">
+                  {segment.text}
+                </mark>
+              ) : (
+                // eslint-disable-next-line react/no-array-index-key
+                <span key={index}>{segment.text}</span>
+              ),
+            )}
+      </div>
     </div>
   );
 }

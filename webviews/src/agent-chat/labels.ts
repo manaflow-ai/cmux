@@ -60,6 +60,15 @@ export const agentChatLabels = {
   diffFallbackTitle: "File change",
   diffSourceTruncated: "Change too large to diff fully; later lines not shown",
 
+  // In-conversation search.
+  searchOpen: "Search",
+  searchPlaceholder: "Search conversation",
+  searchNoMatches: "No matches",
+  searchNextMatch: "Next match",
+  searchPreviousMatch: "Previous match",
+  searchClose: "Close search",
+  searchFilterToggle: "Only show matches",
+
   // Pending-request banner.
   waitingForInput: "Agent is waiting for your input",
   waitingForPermission: "Agent is waiting for permission",
@@ -98,4 +107,9 @@ export function exitCodeLabel(code: number): string {
 /** Note for diff lines dropped by the parse-time cap (not expandable). */
 export function moreLinesNotShownLabel(count: number): string {
   return count === 1 ? "1 more line not shown" : `${count} more lines not shown`;
+}
+
+/** Search bar match counter, 1-based ("2/14"). */
+export function matchCounterLabel(current: number, total: number): string {
+  return `${current}/${total}`;
 }

@@ -697,3 +697,112 @@ html[data-cmux-webview-kind="agent-chat"][data-theme="light"] {
     opacity: 1;
   }
 }
+
+/* In-conversation search */
+
+.agent-chat-header-search {
+  margin-left: auto;
+  flex: none;
+  border: none;
+  background: transparent;
+  color: var(--agent-muted, rgba(127, 127, 127, 0.9));
+  font-size: 14px;
+  line-height: 1;
+  padding: 2px 6px;
+  border-radius: 4px;
+  cursor: pointer;
+}
+
+.agent-chat-header-search:hover {
+  background: var(--agent-control, rgba(127, 127, 127, 0.15));
+  color: var(--agent-text, inherit);
+}
+
+.agent-chat-search-bar {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  border-bottom: 1px solid var(--agent-border, rgba(127, 127, 127, 0.25));
+  flex: none;
+}
+
+.agent-chat-search-input {
+  flex: 1;
+  min-width: 0;
+  font: inherit;
+  font-size: 12px;
+  color: var(--agent-text, inherit);
+  background: var(--agent-input-bg, rgba(127, 127, 127, 0.08));
+  border: 1px solid var(--agent-border, rgba(127, 127, 127, 0.25));
+  border-radius: 5px;
+  padding: 3px 8px;
+  outline: none;
+}
+
+.agent-chat-search-input:focus {
+  border-color: var(--agent-accent, #4a8df0);
+}
+
+.agent-chat-search-counter {
+  flex: none;
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  color: var(--agent-muted, rgba(127, 127, 127, 0.9));
+  min-width: 48px;
+  text-align: right;
+}
+
+.agent-chat-search-counter[data-empty="true"] {
+  color: var(--agent-warning, #c77f1a);
+}
+
+.agent-chat-search-button {
+  flex: none;
+  border: none;
+  background: transparent;
+  color: var(--agent-muted, rgba(127, 127, 127, 0.9));
+  font-size: 12px;
+  line-height: 1;
+  padding: 3px 6px;
+  border-radius: 4px;
+  cursor: pointer;
+}
+
+.agent-chat-search-button:hover:not(:disabled) {
+  background: var(--agent-control, rgba(127, 127, 127, 0.15));
+  color: var(--agent-text, inherit);
+}
+
+.agent-chat-search-button:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+.agent-chat-search-button.is-toggle[data-active="true"] {
+  background: var(--agent-accent, #4a8df0);
+  color: var(--agent-page-bg, #fff);
+}
+
+/* The wrapper renders no box (display: contents); match styling lands on the
+   row element inside it. */
+.agent-chat-search-wrap {
+  display: contents;
+}
+
+.agent-chat-search-wrap[data-search-match="true"] > .agent-chat-row {
+  border-radius: 6px;
+  box-shadow: inset 2px 0 0 var(--agent-accent, #4a8df0);
+}
+
+.agent-chat-search-wrap[data-search-current="true"] > .agent-chat-row {
+  outline: 1px solid var(--agent-accent, #4a8df0);
+  outline-offset: -1px;
+  border-radius: 6px;
+}
+
+mark.agent-chat-search-mark {
+  background: color-mix(in srgb, var(--agent-accent, #4a8df0) 35%, transparent);
+  color: inherit;
+  border-radius: 2px;
+}
