@@ -651,6 +651,47 @@ final class KeyboardShortcutContextTests: XCTestCase {
         XCTAssertFalse(surfaceWhen.evaluate(filesMode))
     }
 
+    // ⌘[ / ⌘] are Safari-muscle-memory page back/forward inside browser panes.
+    // Focus history shares those defaults, so its built-in clause must yield to
+    // browser focus — otherwise browserBack/browserForward are unreachable from
+    // the keyboard (the regression shipped with the focus-history feature).
+    func testFocusHistoryDefaultClauseYieldsToBrowserFocus() {
+        let browserFocused = ShortcutFocusState(browser: true, markdown: false, sidebar: false)
+        let terminalFocused = ShortcutFocusState(browser: false, markdown: false, sidebar: false)
+        let sidebarFocused = ShortcutFocusState(browser: false, markdown: false, sidebar: true)
+
+        for action in [KeyboardShortcutSettings.Action.focusHistoryBack, .focusHistoryForward] {
+            let clause = KeyboardShortcutSettings.effectiveWhenClause(for: action)
+            XCTAssertFalse(
+                clause.evaluate(browserFocused),
+                "\(action.rawValue) must yield ⌘[ / ⌘] to browser page navigation while a browser pane is focused"
+            )
+            XCTAssertTrue(clause.evaluate(terminalFocused), "\(action.rawValue) must stay live outside browser panes")
+            XCTAssertTrue(clause.evaluate(sidebarFocused), "\(action.rawValue) must stay live while the sidebar is focused")
+        }
+    }
+
+    func testFocusHistoryAndBrowserHistoryCoexistOnSharedDefaultChord() {
+        let commandBracket = KeyboardShortcutSettings.Action.focusHistoryBack.defaultShortcut
+        XCTAssertEqual(commandBracket, KeyboardShortcutSettings.Action.browserBack.defaultShortcut)
+
+        XCTAssertFalse(
+            KeyboardShortcutSettings.Action.focusHistoryBack.conflicts(
+                with: commandBracket,
+                proposedAction: .browserBack,
+                configuredShortcut: commandBracket
+            ),
+            "focusHistoryBack (non-browser) and browserBack (browser) partition focus states; ⌘[ must be recordable on both"
+        )
+        XCTAssertFalse(
+            KeyboardShortcutSettings.Action.browserBack.conflicts(
+                with: commandBracket,
+                proposedAction: .focusHistoryBack,
+                configuredShortcut: commandBracket
+            )
+        )
+    }
+
     private func makeTemporaryDirectory() throws -> URL {
         let url = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-shortcut-context-\(UUID().uuidString)", isDirectory: true)
