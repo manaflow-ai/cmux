@@ -18,6 +18,7 @@ import Combine
 import CoreServices
 import Darwin
 import OSLog
+import CmuxWorkspaceCore
 
 // MARK: - Tab Type Alias for Backwards Compatibility
 // The old Tab class is replaced by Workspace
@@ -1905,7 +1906,7 @@ class TabManager: ObservableObject {
     func updateSurfaceShellActivity(
         tabId: UUID,
         surfaceId: UUID,
-        state: Workspace.PanelShellActivityState
+        state: PanelShellActivityState
     ) {
         guard let tab = tabs.first(where: { $0.id == tabId }) else { return }
         tab.updatePanelShellActivityState(panelId: surfaceId, state: state)

@@ -5,7 +5,9 @@ import Bonsplit
 import CMUXAgentLaunch
 import CmuxBrowser
 import CmuxPanes
+import CmuxWorkspaceCore
 import CmuxWorkspaces
+import CmuxNotifications
 import CmuxSocketControl
 import Combine
 import CryptoKit
@@ -27,19 +29,6 @@ private func debugWorkspaceDescriptionPreview(_ text: String?, limit: Int = 120)
     return "\(escaped.prefix(limit))..."
 }
 #endif
-
-enum WorkspacePendingTerminalInputReason {
-    case configurationCommand
-}
-
-enum WorkspacePendingTerminalInputPolicy {
-    static func timeout(for reason: WorkspacePendingTerminalInputReason) -> TimeInterval? {
-        switch reason {
-        case .configurationCommand:
-            return 3.0
-        }
-    }
-}
 
 private final class WorkspacePendingTerminalInputObserver: @unchecked Sendable {
     var observer: NSObjectProtocol?
@@ -2289,7 +2278,7 @@ extension Workspace {
             return
         }
 
-        let timeout = WorkspacePendingTerminalInputPolicy.timeout(for: reason)
+        let timeout = reason.timeout
         let panelId = panel.id
         let registration = WorkspacePendingTerminalInputObserver()
 
@@ -10740,24 +10729,6 @@ final class Workspace: Identifiable, ObservableObject {
         bonsplitController.selectedTab(inPane: paneId).flatMap { panelIdFromSurfaceId($0.id) }
     }
 
-    enum FocusPanelTrigger {
-        case standard
-        case terminalFirstResponder
-    }
-
-    nonisolated enum RestoredPanelUnreadIndicator: Equatable, Sendable {
-        case visualOnly
-        case workspaceUnread
-
-        init(contributesToWorkspaceUnread: Bool) {
-            self = contributesToWorkspaceUnread ? .workspaceUnread : .visualOnly
-        }
-
-        var contributesToWorkspaceUnread: Bool {
-            self == .workspaceUnread
-        }
-    }
-
     /// Published directory for each panel
     @Published var panelDirectories: [UUID: String] = [:]
     @Published var panelTitles: [UUID: String] = [:]
@@ -10946,23 +10917,6 @@ final class Workspace: Identifiable, ObservableObject {
     }
 
     private var processTitle: String
-
-    enum SurfaceKind {
-        static let terminal = "terminal"
-        static let browser = "browser"
-        static let markdown = "markdown"
-        static let filePreview = "filePreview"
-        static let rightSidebarTool = "rightSidebarTool"
-        static let agentSession = "agentSession"
-        static let project = "project"
-        static let extensionBrowser = "extensionBrowser"
-    }
-
-    enum PanelShellActivityState: String {
-        case unknown
-        case promptIdle
-        case commandRunning
-    }
 
     nonisolated static func resolveCloseConfirmation(
         shellActivityState: PanelShellActivityState?,

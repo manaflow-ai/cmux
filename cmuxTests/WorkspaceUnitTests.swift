@@ -16,6 +16,7 @@ import Combine
 @testable import cmux_DEV
 #elseif canImport(cmux)
 @testable import cmux
+import CmuxWorkspaceCore
 #endif
 
 @MainActor
@@ -3559,7 +3560,7 @@ final class NewBrowserWorkspaceCreationTests: XCTestCase {
         XCTAssertEqual(tabIds.count, 1)
         XCTAssertEqual(
             tabIds.first.flatMap { workspace.bonsplitController.tab($0)?.kind },
-            Workspace.SurfaceKind.browser
+            SurfaceKind.browser
         )
         XCTAssertEqual(workspace.title, String(localized: "browser.newTab", defaultValue: "New tab"))
     }
@@ -5642,7 +5643,7 @@ final class WorkspacePanelGitBranchTests: XCTestCase {
         )
         XCTAssertEqual(
             workspace.surfaceIdFromPanelId(newPanel.id).flatMap { workspace.bonsplitController.tab($0)?.kind },
-            Workspace.SurfaceKind.rightSidebarTool
+            SurfaceKind.rightSidebarTool
         )
     }
 

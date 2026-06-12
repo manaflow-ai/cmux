@@ -1,5 +1,6 @@
 import CmuxControlSocket
 import Foundation
+import CmuxWorkspaceCore
 
 /// The live-app half of the v1 sidebar telemetry/report commands
 /// (`report_git_branch` / `report_pr` / `report_ports` / `report_pwd` /
@@ -212,7 +213,7 @@ extension TerminalController {
     }
 
     func controlSidebarScheduleScopedShellState(scope: ControlSidebarPanelScope, stateRawValue: String) {
-        guard let state = Workspace.PanelShellActivityState(rawValue: stateRawValue) else {
+        guard let state = PanelShellActivityState(rawValue: stateRawValue) else {
             // Unreachable: the coordinator only forwards a value this app produced.
             return
         }
@@ -230,7 +231,7 @@ extension TerminalController {
     }
 
     func controlSidebarUpdateShellState(tabArg: String?, panelArg: String?, stateRawValue: String) -> ControlSidebarPanelWriteResolution {
-        guard let state = Workspace.PanelShellActivityState(rawValue: stateRawValue) else {
+        guard let state = PanelShellActivityState(rawValue: stateRawValue) else {
             // Unreachable: the coordinator only forwards a value this app produced.
             return .tabNotFound
         }
