@@ -211,6 +211,13 @@ struct ControlCommandCoordinatorWindowTests {
                 "window_ref": .string("window:1"),
             ])))
         #expect(context.closedID == windowID)
+
+        context.closeResult = false
+        let notFound = coordinator.handle(request("window.close", ["window_id": .string(windowID.uuidString)]))
+        #expect(notFound == .err(code: "not_found", message: "Window not found", data: .object([
+            "window_id": .string(windowID.uuidString),
+            "window_ref": .string("window:1"),
+        ])))
     }
 
     @Test func windowDisplaysBuildsPayload() {

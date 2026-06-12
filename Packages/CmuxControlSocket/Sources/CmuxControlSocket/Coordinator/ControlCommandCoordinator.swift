@@ -35,7 +35,11 @@ public final class ControlCommandCoordinator {
     public weak var context: (any ControlCommandContext)?
 
     /// The shared `kind:N` handle registry. Single source of truth for ref
-    /// minting across the RPC layer.
+    /// minting across the RPC layer. Not observation-tracked: it is RPC
+    /// book-keeping (a struct mutated by `ref()` on nearly every response),
+    /// not UI state, and tracking it would invalidate any observer on every
+    /// socket command.
+    @ObservationIgnored
     public var handles: ControlHandleRegistry
 
     /// Creates a coordinator.
@@ -75,8 +79,10 @@ public final class ControlCommandCoordinator {
         if let result = handleSystem(request) { return result }
         if let result = handleProject(request) { return result }
         if let result = handleDebug(request) { return result }
-        if let result = handleBrowser(request) { return result }
-        if let result = handleBrowserAutomation(request) { return result }
+        // The v2 browser.* domain stays app-side: PR 5778 moved its
+        // JS-evaluating methods onto the socket-worker lane (nonisolated
+        // bodies + v2MainSync), which the @MainActor coordinator seam cannot
+        // host; re-lift it against that architecture in a follow-up.
         // handleSidebarV1 / handleBrowserPanelV1 are V1 string-command handlers;
         // the app's v1 dispatcher calls them directly with (command:args:).
         return nil

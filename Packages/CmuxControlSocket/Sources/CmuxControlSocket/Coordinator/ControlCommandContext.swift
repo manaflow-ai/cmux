@@ -27,7 +27,5 @@ public protocol ControlCommandContext:
     ControlProjectContext,
     ControlDebugContext,
     ControlSidebarContext,
-    ControlBrowserContext,
-    ControlBrowserAutomationContext,
     ControlBrowserPanelContext
 {}
