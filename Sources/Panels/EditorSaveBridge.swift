@@ -17,11 +17,25 @@ final class CmuxEditorSaveRegistry: @unchecked Sendable {
         let fileURL: URL
         let expectedOrigin: String
         let createdAt: Date
+        /// Pins the capability against TTL reaping while the page has unsaved
+        /// changes. An editor reports `dirty` whenever its buffer diverges from
+        /// disk, and once dirty the page goes quiet (no periodic ping), so a
+        /// plain sliding TTL would reap an editor left idle with unsaved work
+        /// past `maxEntryAge` and then refuse to save it. While this is true the
+        /// entry never expires; it clears when the page reports a clean buffer
+        /// (after a save or revert).
+        let hasUnsavedChanges: Bool
     }
 
     private let lock = NSLock()
     private var entries: [String: Entry] = [:]
     private let maxEntryAge: TimeInterval = 24 * 60 * 60
+
+    /// An entry is live while it has unsaved changes (pinned) or is still within
+    /// the sliding TTL. Reaping only ever drops clean, abandoned registrations.
+    private func isLive(_ entry: Entry, now: Date) -> Bool {
+        entry.hasUnsavedChanges || now.timeIntervalSince(entry.createdAt) < maxEntryAge
+    }
 
     /// The uid-owned diff-viewer serving directory (same trust root as
     /// ``CmuxDiffViewerURLSchemeHandler``). Only same-uid processes can write
@@ -84,28 +98,56 @@ final class CmuxEditorSaveRegistry: @unchecked Sendable {
         }
         lock.lock()
         defer { lock.unlock() }
-        entries = entries.filter { now.timeIntervalSince($0.value.createdAt) < maxEntryAge }
-        entries[token] = Entry(fileURL: standardized, expectedOrigin: expectedOrigin, createdAt: now)
+        entries = entries.filter { isLive($0.value, now: now) }
+        entries[token] = Entry(
+            fileURL: standardized,
+            expectedOrigin: expectedOrigin,
+            createdAt: now,
+            hasUnsavedChanges: false
+        )
     }
 
     /// Resolves the write target for `token`, but only when the requesting
     /// page's serving origin matches the one the capability was minted for
     /// (exact scheme/host/port, so a localhost page on another port that
     /// learned a live token still resolves nothing).
-    func fileURL(forToken token: String, requestOrigin: String) -> URL? {
+    func fileURL(forToken token: String, requestOrigin: String, now: Date = Date()) -> URL? {
         lock.lock()
         defer { lock.unlock() }
-        let now = Date()
         guard let entry = entries[token],
-              now.timeIntervalSince(entry.createdAt) < maxEntryAge,
+              isLive(entry, now: now),
               entry.expectedOrigin == requestOrigin else {
             return nil
         }
         // Sliding expiry: every authorized access (probe, dirty report, save)
-        // renews the entry, so the TTL only reaps abandoned registrations and
-        // a long-lived open editor never silently loses its save capability.
-        entries[token] = Entry(fileURL: entry.fileURL, expectedOrigin: entry.expectedOrigin, createdAt: now)
+        // renews the entry, so the TTL only reaps abandoned registrations.
+        // Editors with unsaved changes are additionally pinned (see Entry), so
+        // even a long-idle dirty buffer never silently loses its save capability.
+        entries[token] = Entry(
+            fileURL: entry.fileURL,
+            expectedOrigin: entry.expectedOrigin,
+            createdAt: now,
+            hasUnsavedChanges: entry.hasUnsavedChanges
+        )
         return entry.fileURL
+    }
+
+    /// Records whether the page for `token` currently has unsaved changes,
+    /// pinning the capability against TTL reaping while it does. Authorized by
+    /// origin like every other access, and slides the entry. A no-op for an
+    /// unknown token or origin mismatch.
+    func setUnsavedChanges(_ unsaved: Bool, forToken token: String, requestOrigin: String, now: Date = Date()) {
+        lock.lock()
+        defer { lock.unlock() }
+        guard let entry = entries[token], entry.expectedOrigin == requestOrigin else {
+            return
+        }
+        entries[token] = Entry(
+            fileURL: entry.fileURL,
+            expectedOrigin: entry.expectedOrigin,
+            createdAt: now,
+            hasUnsavedChanges: unsaved
+        )
     }
 }
 
@@ -159,6 +201,10 @@ final class EditorSaveMessageHandler: NSObject, WKScriptMessageHandlerWithReply 
             return
         }
         if let dirty = body["dirty"] as? Bool {
+            // Pin the capability against TTL reaping while the buffer is dirty:
+            // an editor goes quiet once dirty, so without this an idle unsaved
+            // buffer past the TTL would lose its save capability.
+            CmuxEditorSaveRegistry.shared.setUnsavedChanges(dirty, forToken: token, requestOrigin: requestOrigin)
             // WebKit delivers script messages on the main thread.
             MainActor.assumeIsolated {
                 onDirtyChanged(dirty)
