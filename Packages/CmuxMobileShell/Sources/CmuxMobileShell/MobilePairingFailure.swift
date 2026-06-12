@@ -50,6 +50,9 @@ public enum MobilePairingFailureCategory: Equatable, Sendable {
     case ticketExpired
     /// The scanned/typed code was not a valid pairing code.
     case invalidCode
+    /// The scanned/pasted code only points back at the Mac itself (loopback),
+    /// which the phone can never dial.
+    case loopbackRejected
     /// The pairing code carried only an untrusted manual route that cannot carry
     /// the account credential.
     case unsupportedRoute
@@ -79,6 +82,7 @@ extension MobilePairingFailureCategory {
         case .authFailed: return "auth"
         case .ticketExpired: return "ticket_expired"
         case .invalidCode: return "invalid_code"
+        case .loopbackRejected: return "loopback_rejected"
         case .unsupportedRoute: return "unsupported_route"
         case .noSupportedRoute: return "no_supported_route"
         case .cancelled: return "cancelled"
@@ -177,6 +181,11 @@ extension MobilePairingFailureCategory {
                 "mobile.pairing.invalidCode",
                 defaultValue: "Invalid pairing code."
             )
+        case .loopbackRejected:
+            return L10n.string(
+                "mobile.pairing.loopbackRejected",
+                defaultValue: "This code points at the Mac itself (localhost), so your iPhone can't use it. Set up Tailscale on the Mac, then scan a fresh code."
+            )
         case .unsupportedRoute:
             return L10n.string(
                 "mobile.pairing.secureRouteRequired",
@@ -233,7 +242,7 @@ extension MobilePairingFailureCategory {
                 "mobile.pairing.guidance.rescanFresh",
                 defaultValue: "Open the pairing window on your Mac and scan a fresh QR or link."
             )
-        case .invalidCode, .cancelled, .unknown:
+        case .invalidCode, .loopbackRejected, .cancelled, .unknown:
             return nil
         }
     }

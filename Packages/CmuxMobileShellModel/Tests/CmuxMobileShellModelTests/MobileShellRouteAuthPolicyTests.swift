@@ -79,4 +79,33 @@ import Testing
         #expect(MobileShellRouteAuthPolicy.manualHostNeedsTrustWarning("192.168.1.77"))
         #expect(MobileShellRouteAuthPolicy.manualHostNeedsTrustWarning("devbox.local"))
     }
+
+    @Test func physicalDeviceRejectsLoopbackTicketsInEveryGrammar() throws {
+        // The v2 QR decoder rejects loopback itself; this policy is what stops
+        // the LEGACY payload grammars from being a bypass on a physical phone,
+        // where a loopback route dials the phone itself and loopback's
+        // Stack-auth trust would hand the bearer token to a local listener.
+        let loopback = try hostPortRoute(kind: .debugLoopback, host: "127.0.0.1", port: 56577)
+        let loopbackUnderTailscaleKind = try hostPortRoute(kind: .tailscale, host: "127.0.0.1", port: 56577)
+        let tailscale = try hostPortRoute(kind: .tailscale, host: "100.71.210.41", port: 56577)
+
+        #expect(MobileShellRouteAuthPolicy.ticketRejectsLoopbackRoutes(
+            [loopback], isPhysicalDevice: true
+        ))
+        #expect(MobileShellRouteAuthPolicy.ticketRejectsLoopbackRoutes(
+            [loopbackUnderTailscaleKind], isPhysicalDevice: true
+        ))
+        // One loopback route poisons the ticket even when a real route rides along.
+        #expect(MobileShellRouteAuthPolicy.ticketRejectsLoopbackRoutes(
+            [tailscale, loopback], isPhysicalDevice: true
+        ))
+        #expect(!MobileShellRouteAuthPolicy.ticketRejectsLoopbackRoutes(
+            [tailscale], isPhysicalDevice: true
+        ))
+        // The simulator flow legitimately pairs over loopback (127.0.0.1 IS
+        // the host Mac there), so the policy never fires off-device.
+        #expect(!MobileShellRouteAuthPolicy.ticketRejectsLoopbackRoutes(
+            [loopback], isPhysicalDevice: false
+        ))
+    }
 }

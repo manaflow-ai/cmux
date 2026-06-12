@@ -152,7 +152,6 @@ public struct CmxAttachRoute: Codable, Equatable, Sendable {
 
 public enum CmxAttachTicketError: Error, Equatable, Sendable {
     case unsupportedVersion(Int)
-    case expired
     case noRoutes
     case emptyAuthToken
 }
@@ -197,7 +196,12 @@ public struct CmxAttachTicket: Codable, Equatable, Sendable {
     public let macDeviceID: String
     public let macDisplayName: String?
     public let routes: [CmxAttachRoute]
-    public let expiresAt: Date
+    /// When the ticket's attach token stops being usable, or `nil` for tickets
+    /// that never expire (the pairing QR carries no token and no expiry; Stack
+    /// auth is the host's sole authorization gate). Expiry is data for the
+    /// token consumers (`MobileCoreRPCClient`, the host's ticket store), not a
+    /// structural validity condition; see ``isExpired(at:)``.
+    public let expiresAt: Date?
     public let authToken: String?
 
     public init(from decoder: Decoder) throws {
@@ -209,10 +213,10 @@ public struct CmxAttachTicket: Codable, Equatable, Sendable {
             macDeviceID: container.decode(String.self, forKey: .macDeviceID),
             macDisplayName: container.decodeIfPresent(String.self, forKey: .macDisplayName),
             routes: container.decode([CmxAttachRoute].self, forKey: .routes),
-            expiresAt: container.decode(Date.self, forKey: .expiresAt),
+            expiresAt: container.decodeIfPresent(Date.self, forKey: .expiresAt),
             authToken: try Self.decodeAuthToken(from: decoder)
         )
-        try validate(now: Date())
+        try validate()
     }
 
     /// Decode the auth token tolerantly, accepting either the canonical
@@ -236,7 +240,7 @@ public struct CmxAttachTicket: Codable, Equatable, Sendable {
         macDeviceID: String,
         macDisplayName: String?,
         routes: [CmxAttachRoute],
-        expiresAt: Date,
+        expiresAt: Date? = nil,
         authToken: String? = nil
     ) throws {
         self.version = version
@@ -247,15 +251,16 @@ public struct CmxAttachTicket: Codable, Equatable, Sendable {
         self.routes = routes
         self.expiresAt = expiresAt
         self.authToken = authToken
-        try validate(now: Date())
+        try validate()
     }
 
-    public func validate(now: Date = Date()) throws {
+    /// Structural validity only. Expiry is intentionally NOT validated here:
+    /// a scanned pairing QR must keep working however long it sat on screen
+    /// (the host authorizes by Stack account, not by ticket age). Token-based
+    /// consumers check ``isExpired(at:)`` where the token is actually used.
+    public func validate() throws {
         guard version == Self.currentVersion else {
             throw CmxAttachTicketError.unsupportedVersion(version)
-        }
-        guard expiresAt > now else {
-            throw CmxAttachTicketError.expired
         }
         if let authToken {
             guard !authToken.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
@@ -268,6 +273,16 @@ public struct CmxAttachTicket: Codable, Equatable, Sendable {
         for route in routes {
             try route.validate()
         }
+    }
+
+    /// Whether the ticket's attach token lifetime has elapsed at `now`.
+    /// Tickets without an expiry (`expiresAt == nil`, e.g. decoded from the
+    /// pairing QR) never expire.
+    public func isExpired(at now: Date) -> Bool {
+        guard let expiresAt else {
+            return false
+        }
+        return expiresAt <= now
     }
 
     public func preferredRoute(supportedKinds: [CmxAttachTransportKind]) -> CmxAttachRoute? {
