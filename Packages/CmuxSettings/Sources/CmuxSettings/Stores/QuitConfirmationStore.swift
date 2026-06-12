@@ -46,6 +46,37 @@ public struct QuitConfirmationStore: Sendable {
         confirmQuitMode != .never
     }
 
+    /// Whether the quit flow should show the confirmation dialog.
+    ///
+    /// Semantics are kept verbatim from the legacy `QuitWarningSettings`
+    /// namespace: a prior in-session confirmation always skips the dialog,
+    /// dev builds never warn, and otherwise ``confirmQuitMode`` decides
+    /// (`dirtyOnly` consults `hasDirtyWorkspaces`).
+    ///
+    /// - Parameters:
+    ///   - isQuitWarningConfirmed: Whether the user already confirmed the
+    ///     quit warning earlier in this terminate flow.
+    ///   - hasDirtyWorkspaces: Whether any workspace has unsaved/dirty state.
+    ///   - isDevBuild: Whether this is a dev-flavor build (the app resolves
+    ///     its build flavor; dev builds skip the warning entirely).
+    public func shouldShowConfirmation(
+        isQuitWarningConfirmed: Bool,
+        hasDirtyWorkspaces: Bool,
+        isDevBuild: Bool
+    ) -> Bool {
+        guard !isQuitWarningConfirmed else { return false }
+        guard !isDevBuild else { return false }
+
+        switch confirmQuitMode {
+        case .always:
+            return true
+        case .dirtyOnly:
+            return hasDirtyWorkspaces
+        case .never:
+            return false
+        }
+    }
+
     /// Persists `mode`, mirroring the legacy boolean key for downgrades.
     public func setMode(_ mode: ConfirmQuitMode) {
         keys.confirmQuitMode.set(mode, in: defaults)

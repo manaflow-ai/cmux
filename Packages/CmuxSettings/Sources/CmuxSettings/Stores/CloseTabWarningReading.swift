@@ -16,3 +16,27 @@ public protocol CloseTabWarningReading: Sendable {
     /// Whether the tab close (X) button is hidden entirely.
     var hidesTabCloseButton: Bool { get }
 }
+
+extension CloseTabWarningReading {
+    /// Whether closing should show a confirmation dialog, combining the
+    /// caller's per-tab `requiresConfirmation` state with the warning
+    /// toggles per ``CloseTabCloseSource``.
+    ///
+    /// Semantics are kept verbatim from the legacy
+    /// `CloseTabConfirmationPolicy` namespace: the shortcut path warns only
+    /// when the tab requires confirmation and the shortcut warning is
+    /// enabled; the X-button path additionally warns whenever the X-button
+    /// warning is enabled, regardless of the tab's state.
+    public func shouldConfirmClose(
+        requiresConfirmation: Bool,
+        source: CloseTabCloseSource
+    ) -> Bool {
+        switch source {
+        case .shortcut:
+            return requiresConfirmation && warnsBeforeClosingTab
+        case .tabCloseButton:
+            return warnsBeforeClosingTabXButton
+                || (requiresConfirmation && warnsBeforeClosingTab)
+        }
+    }
+}

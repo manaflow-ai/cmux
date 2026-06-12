@@ -374,3 +374,98 @@ struct LanguageSettingsStoreTests {
         #expect(defaults.persistentDomain(forName: suiteName)?["AppleLanguages"] == nil)
     }
 }
+
+@Suite("Close-tab confirmation policy")
+struct CloseTabConfirmationPolicyTests {
+    private struct FixedWarnings: CloseTabWarningReading {
+        var warnsBeforeClosingTab: Bool
+        var warnsBeforeClosingTabXButton: Bool
+        var hidesTabCloseButton: Bool = false
+    }
+
+    @Test func shortcutWarnsOnlyForConfirmationRequiringTabsWithWarningOn() {
+        let warningOn = FixedWarnings(warnsBeforeClosingTab: true, warnsBeforeClosingTabXButton: false)
+        let warningOff = FixedWarnings(warnsBeforeClosingTab: false, warnsBeforeClosingTabXButton: false)
+
+        #expect(warningOn.shouldConfirmClose(requiresConfirmation: true, source: .shortcut))
+        #expect(!warningOn.shouldConfirmClose(requiresConfirmation: false, source: .shortcut))
+        #expect(!warningOff.shouldConfirmClose(requiresConfirmation: true, source: .shortcut))
+        #expect(!warningOff.shouldConfirmClose(requiresConfirmation: false, source: .shortcut))
+    }
+
+    @Test func xButtonWarnsUnconditionallyWhenItsToggleIsOn() {
+        let xButtonOnly = FixedWarnings(warnsBeforeClosingTab: false, warnsBeforeClosingTabXButton: true)
+        #expect(xButtonOnly.shouldConfirmClose(requiresConfirmation: false, source: .tabCloseButton))
+        #expect(xButtonOnly.shouldConfirmClose(requiresConfirmation: true, source: .tabCloseButton))
+    }
+
+    @Test func xButtonAlsoWarnsThroughTheShortcutToggleForConfirmationRequiringTabs() {
+        let shortcutOnly = FixedWarnings(warnsBeforeClosingTab: true, warnsBeforeClosingTabXButton: false)
+        #expect(shortcutOnly.shouldConfirmClose(requiresConfirmation: true, source: .tabCloseButton))
+        #expect(!shortcutOnly.shouldConfirmClose(requiresConfirmation: false, source: .tabCloseButton))
+
+        let bothOff = FixedWarnings(warnsBeforeClosingTab: false, warnsBeforeClosingTabXButton: false)
+        #expect(!bothOff.shouldConfirmClose(requiresConfirmation: true, source: .tabCloseButton))
+        #expect(!bothOff.shouldConfirmClose(requiresConfirmation: false, source: .tabCloseButton))
+    }
+
+    @Test func liveStoreReadsTogglesFromDefaults() {
+        let defaults = makeScratchDefaults()
+        defaults.set(false, forKey: "warnBeforeClosingTabShortcut")
+        defaults.set(true, forKey: "warnBeforeClosingTabXButton")
+        let store = CloseTabWarningStore(defaults: defaults)
+
+        #expect(!store.shouldConfirmClose(requiresConfirmation: true, source: .shortcut))
+        #expect(store.shouldConfirmClose(requiresConfirmation: false, source: .tabCloseButton))
+    }
+}
+
+@Suite("Quit confirmation policy")
+struct QuitConfirmationPolicyTests {
+    @Test func priorConfirmationSkipsTheDialog() {
+        let store = QuitConfirmationStore(defaults: makeScratchDefaults())
+        #expect(!store.shouldShowConfirmation(
+            isQuitWarningConfirmed: true, hasDirtyWorkspaces: true, isDevBuild: false
+        ))
+    }
+
+    @Test func devBuildsNeverWarn() {
+        let store = QuitConfirmationStore(defaults: makeScratchDefaults())
+        #expect(!store.shouldShowConfirmation(
+            isQuitWarningConfirmed: false, hasDirtyWorkspaces: true, isDevBuild: true
+        ))
+    }
+
+    @Test func alwaysModeWarnsRegardlessOfDirtyState() {
+        let store = QuitConfirmationStore(defaults: makeScratchDefaults())
+        #expect(store.shouldShowConfirmation(
+            isQuitWarningConfirmed: false, hasDirtyWorkspaces: false, isDevBuild: false
+        ))
+        #expect(store.shouldShowConfirmation(
+            isQuitWarningConfirmed: false, hasDirtyWorkspaces: true, isDevBuild: false
+        ))
+    }
+
+    @Test func dirtyOnlyModeWarnsOnlyWithDirtyWorkspaces() {
+        let defaults = makeScratchDefaults()
+        defaults.set("dirty-only", forKey: "confirmQuit")
+        let store = QuitConfirmationStore(defaults: defaults)
+
+        #expect(store.shouldShowConfirmation(
+            isQuitWarningConfirmed: false, hasDirtyWorkspaces: true, isDevBuild: false
+        ))
+        #expect(!store.shouldShowConfirmation(
+            isQuitWarningConfirmed: false, hasDirtyWorkspaces: false, isDevBuild: false
+        ))
+    }
+
+    @Test func neverModeNeverWarns() {
+        let defaults = makeScratchDefaults()
+        defaults.set("never", forKey: "confirmQuit")
+        let store = QuitConfirmationStore(defaults: defaults)
+
+        #expect(!store.shouldShowConfirmation(
+            isQuitWarningConfirmed: false, hasDirtyWorkspaces: true, isDevBuild: false
+        ))
+    }
+}
