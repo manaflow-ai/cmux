@@ -1523,6 +1523,10 @@ struct SessionBrowserPanelSnapshot: Codable, Sendable {
     /// independent of the (possibly-dead) local HTTP server.
     var diffViewerToken: String? = nil
     var diffViewerRequestPath: String? = nil
+    /// True when the workspace's remote connection is pane-scoped and this browser
+    /// was created from a remote-attached pane, so restore re-joins it to the
+    /// connection (remote proxy + remote data store) instead of leaving it local.
+    var isRemoteScoped: Bool? = nil
 
     init(
         urlString: String?,
@@ -1536,7 +1540,8 @@ struct SessionBrowserPanelSnapshot: Codable, Sendable {
         forwardHistoryURLStrings: [String]?,
         transparentBackground: Bool? = nil,
         diffViewerToken: String? = nil,
-        diffViewerRequestPath: String? = nil
+        diffViewerRequestPath: String? = nil,
+        isRemoteScoped: Bool? = nil
     ) {
         self.urlString = urlString
         self.profileID = profileID
@@ -1550,6 +1555,7 @@ struct SessionBrowserPanelSnapshot: Codable, Sendable {
         self.transparentBackground = transparentBackground
         self.diffViewerToken = diffViewerToken
         self.diffViewerRequestPath = diffViewerRequestPath
+        self.isRemoteScoped = isRemoteScoped
     }
 
     private enum CodingKeys: String, CodingKey {
@@ -1565,6 +1571,7 @@ struct SessionBrowserPanelSnapshot: Codable, Sendable {
         case transparentBackground
         case diffViewerToken
         case diffViewerRequestPath
+        case isRemoteScoped
     }
 
     init(from decoder: Decoder) throws {
@@ -1581,6 +1588,7 @@ struct SessionBrowserPanelSnapshot: Codable, Sendable {
         transparentBackground = try container.decodeIfPresent(Bool.self, forKey: .transparentBackground)
         diffViewerToken = try container.decodeIfPresent(String.self, forKey: .diffViewerToken)
         diffViewerRequestPath = try container.decodeIfPresent(String.self, forKey: .diffViewerRequestPath)
+        isRemoteScoped = try container.decodeIfPresent(Bool.self, forKey: .isRemoteScoped)
     }
 }
 struct SessionMarkdownPanelSnapshot: Codable, Sendable {

@@ -637,7 +637,8 @@ extension Workspace {
                 forwardHistoryURLStrings: historySnapshot.forwardHistoryURLStrings,
                 transparentBackground: browserPanel.sessionSnapshotTransparentBackground,
                 diffViewerToken: diffViewerComponents?.token,
-                diffViewerRequestPath: diffViewerComponents?.requestPath
+                diffViewerRequestPath: diffViewerComponents?.requestPath,
+                isRemoteScoped: remoteScopedBrowserPanelIds.contains(panelId) ? true : nil
             )
             markdownSnapshot = nil
             filePreviewSnapshot = nil
@@ -1791,7 +1792,10 @@ extension Workspace {
                 initialInput: restoredStartupInput,
                 startupEnvironment: replayEnvironment,
                 remotePTYSessionID: restoredRemotePTYSessionID,
-                suppressWorkspaceRemoteStartupCommand: suppressWorkspaceRemoteStartupCommand
+                // The snapshot already recorded this pane's remote membership; restore
+                // runs before any member pane exists, so source-pane inheritance cannot
+                // apply here.
+                remoteInheritance: suppressWorkspaceRemoteStartupCommand ? .never : .always
             ) else {
                 return nil
             }
@@ -1852,13 +1856,20 @@ extension Workspace {
             applySessionPanelMetadata(snapshot, toPanelId: terminalPanel.id)
             return terminalPanel.id
         case .browser:
+            // Pane scope: the snapshot recorded whether this browser belonged to the
+            // remote connection; mid-restore source-pane inheritance would be arbitrary.
+            let restoredRemoteInheritance: WorkspaceRemoteInheritance =
+                remoteConfiguration?.scope == .pane && snapshot.browser?.isRemoteScoped != true
+                ? .never
+                : .always
             guard let browserPanel = newBrowserSurface(
                 inPane: paneId,
                 url: nil,
                 focus: false,
                 preferredProfileID: snapshot.browser?.profileID,
                 creationPolicy: .restoration,
-                transparentBackground: snapshot.browser?.transparentBackground ?? false
+                transparentBackground: snapshot.browser?.transparentBackground ?? false,
+                remoteInheritance: restoredRemoteInheritance
             ) else {
                 return nil
             }
@@ -10714,6 +10725,10 @@ final class Workspace: Identifiable, ObservableObject {
     private var remoteLastPortConflictFingerprint: String?
     private var remoteDetectedSurfaceIds: Set<UUID> = []
     private var activeRemoteTerminalSurfaceIds: Set<UUID> = []
+    /// Browser panels that belong to a pane-scoped remote connection (created from a
+    /// remote-attached pane). Only these receive the remote proxy endpoint and remote
+    /// status when `remoteConfiguration.scope == .pane`.
+    var remoteScopedBrowserPanelIds: Set<UUID> = []
     private var endedPersistentRemotePTYAttachSurfaceIds: Set<UUID> = []
     private var remotePTYSessionIDsByPanelId: [UUID: String] = [:]
     private var remoteRelayWorkspaceIDAliases: [UUID: UUID] = [:]
@@ -11278,6 +11293,11 @@ final class Workspace: Identifiable, ObservableObject {
         bonsplitController.tabContextForkConversationDefaultActionProvider = { _, _ in
             AgentConversationForkDefaultSettings.current().tabContextAction
         }
+        bonsplitController.tabContextDisconnectRemoteAvailabilityProvider = { [weak self] tabId, _ in
+            guard let self,
+                  let panelId = self.panelIdFromSurfaceId(tabId) else { return false }
+            return self.canDisconnectRemoteSurface(panelId: panelId)
+        }
         bonsplitController.onTabCloseRequest = { [weak self] tabId, _, source in
             switch source {
             case .closeButton:
@@ -11800,9 +11820,13 @@ final class Workspace: Identifiable, ObservableObject {
 
     private func applyBrowserRemoteWorkspaceStatusToPanels() {
         let snapshot = browserRemoteWorkspaceStatusSnapshot()
-        for panel in panels.values {
+        let paneScoped = remoteConfiguration?.scope == .pane
+        for (panelId, panel) in panels {
             guard let browserPanel = panel as? BrowserPanel else { continue }
-            browserPanel.setRemoteWorkspaceStatus(snapshot)
+            let panelSnapshot = paneScoped && !remoteScopedBrowserPanelIds.contains(panelId)
+                ? nil
+                : snapshot
+            browserPanel.setRemoteWorkspaceStatus(panelSnapshot)
         }
     }
 
@@ -13386,7 +13410,11 @@ final class Workspace: Identifiable, ObservableObject {
         return payload
     }
 
-    func configureRemoteConnection(_ configuration: WorkspaceRemoteConfiguration, autoConnect: Bool = true) {
+    func configureRemoteConnection(
+        _ configuration: WorkspaceRemoteConfiguration,
+        autoConnect: Bool = true,
+        seedPanelId: UUID? = nil
+    ) {
         defer { TerminalController.shared.notifyRemotePTYControllerAvailabilityChanged() }
         let previousConfiguration = remoteConfiguration
         skipControlMasterCleanupAfterDetachedRemoteTransfer = false
@@ -13398,7 +13426,15 @@ final class Workspace: Identifiable, ObservableObject {
             clearRemoteRelayIDAliases()
         }
         remoteConfiguration = configuration
-        seedInitialRemoteTerminalSessionIfNeeded(configuration: configuration)
+        if configuration.scope == .pane {
+            // Pane scope: only the explicitly named seed pane (the one that ran
+            // `cmux ssh --pane`) joins the connection; other panes stay local.
+            if let seedPanelId, terminalPanel(for: seedPanelId) != nil {
+                trackRemoteTerminalSurface(seedPanelId)
+            }
+        } else {
+            seedInitialRemoteTerminalSessionIfNeeded(configuration: configuration)
+        }
         clearRemoteDetectedSurfacePorts()
         remoteDetectedPorts = []
         remoteForwardedPorts = []
@@ -13497,9 +13533,13 @@ final class Workspace: Identifiable, ObservableObject {
         remoteSessionController = nil
         previousController?.stop()
         pendingRemoteForegroundAuthToken = nil
+        let previouslyTrackedRemoteSurfaceIds = activeRemoteTerminalSurfaceIds
         activeRemoteTerminalSurfaceIds.removeAll()
         endedPersistentRemotePTYAttachSurfaceIds.removeAll()
         activeRemoteTerminalSessionCount = 0
+        for panelId in previouslyTrackedRemoteSurfaceIds {
+            syncRemoteTabIndicator(panelId: panelId)
+        }
         pendingRemoteSurfaceTTYName = nil
         pendingRemoteSurfaceTTYSurfaceId = nil
         pendingRemoteSurfacePortKickReason = nil
@@ -13522,6 +13562,7 @@ final class Workspace: Identifiable, ObservableObject {
         if clearConfiguration {
             remotePTYSessionIDsByPanelId.removeAll()
             endedPersistentRemotePTYAttachSurfaceIds.removeAll()
+            remoteScopedBrowserPanelIds.removeAll()
             clearRemoteRelayIDAliases()
             remoteConfiguration = nil
             skipControlMasterCleanupAfterDetachedRemoteTransfer = false
@@ -13565,6 +13606,7 @@ final class Workspace: Identifiable, ObservableObject {
         }
         guard activeRemoteTerminalSurfaceIds.insert(panelId).inserted else { return }
         activeRemoteTerminalSessionCount = activeRemoteTerminalSurfaceIds.count
+        syncRemoteTabIndicator(panelId: panelId)
         applyPendingRemoteSurfaceTTYIfNeeded(to: panelId)
         _ = applyPendingRemoteSurfacePortKickIfNeeded(to: panelId)
     }
@@ -13572,8 +13614,80 @@ final class Workspace: Identifiable, ObservableObject {
     func untrackRemoteTerminalSurface(_ panelId: UUID) {
         guard activeRemoteTerminalSurfaceIds.remove(panelId) != nil else { return }
         activeRemoteTerminalSessionCount = activeRemoteTerminalSurfaceIds.count
+        syncRemoteTabIndicator(panelId: panelId)
         guard !isDetachingCloseTransaction else { return }
         maybeDemoteRemoteWorkspaceAfterSSHSessionEnded()
+    }
+
+    /// Reflect a pane's remote membership in its bonsplit tab. The indicator is only
+    /// shown for pane-scoped connections; workspace-scoped remotes keep the existing
+    /// workspace-level sidebar indicator without per-tab glyph noise.
+    func syncRemoteTabIndicator(panelId: UUID) {
+        guard let tabId = surfaceIdFromPanelId(panelId) else { return }
+        let showsIndicator =
+            remoteConfiguration?.scope == .pane
+            && activeRemoteTerminalSurfaceIds.contains(panelId)
+        bonsplitController.updateTab(tabId, showsRemoteIndicator: showsIndicator)
+    }
+
+    /// True when the pane's bonsplit tab context menu should offer "Disconnect SSH".
+    func canDisconnectRemoteSurface(panelId: UUID) -> Bool {
+        remoteConfiguration?.scope == .pane && activeRemoteTerminalSurfaceIds.contains(panelId)
+    }
+
+    /// Join another pane to an existing pane-scoped remote connection (a second
+    /// `cmux ssh --pane` to the same target in this workspace). Tracks the pane as a
+    /// connection member and returns the startup command it should exec, the same one
+    /// app-created member splits run. Returns nil when there is no pane-scoped
+    /// connection or the pane is not a terminal in this workspace.
+    func joinPaneScopedRemoteConnection(seedPanelId: UUID) -> String? {
+        guard remoteConfiguration?.scope == .pane,
+              terminalPanel(for: seedPanelId) != nil,
+              let startupCommand = remoteTerminalStartupCommand() else {
+            return nil
+        }
+        trackRemoteTerminalSurface(seedPanelId)
+        return startupCommand
+    }
+
+    /// Detach a single pane from a pane-scoped remote connection: close its remote PTY
+    /// session, stop treating the pane as remote (so future splits/tabs created from it
+    /// spawn local shells), and respawn the pane as a local shell behind a banner that
+    /// explains the session ended. When the last member pane disconnects, the existing
+    /// demotion path tears down the connection.
+    func disconnectRemoteSurface(panelId: UUID) {
+        guard canDisconnectRemoteSurface(panelId: panelId) else { return }
+        let displayTarget = remoteConfiguration?.displayTarget
+        let sessionID = normalizedRemotePTYSessionID(remotePTYSessionIDsByPanelId[panelId])
+            ?? Self.defaultSSHPTYSessionID(workspaceId: id, panelId: panelId)
+        if remoteSessionController != nil {
+            do {
+                try closeRemotePTYSession(sessionID: sessionID)
+            } catch {
+#if DEBUG
+                cmuxDebugLog(
+                    "remote.surface.disconnect pty_close failed panel=\(panelId.uuidString.prefix(5)) " +
+                    "session=\(sessionID) error=\(error.localizedDescription)"
+                )
+#endif
+            }
+        }
+        discardRemotePTYSessionID(panelId: panelId)
+        untrackRemoteTerminalSurface(panelId)
+        syncRemotePortScanTTYs()
+        applyBrowserRemoteWorkspaceStatusToPanels()
+        // Closing the remote PTY alone is not enough: the pane's ssh wrapper script
+        // treats it as a transport drop and auto-reconnects (and an app-spawned member
+        // pane would otherwise sit dead behind wait-after-command). Respawning the
+        // surface tears the wrapper down deterministically and leaves a local shell
+        // behind a banner explaining what happened, preserving the tab identity.
+        if let displayTarget {
+            _ = respawnTerminalSurface(
+                panelId: panelId,
+                command: Self.replacementShellScriptWithBanner(target: displayTarget)
+            )
+            syncRemoteTabIndicator(panelId: panelId)
+        }
     }
 
     private func terminalStartupEnvironment(
@@ -13948,7 +14062,11 @@ final class Workspace: Identifiable, ObservableObject {
         if remoteConfiguration?.preserveAfterTerminalExit == true {
             return
         }
-        let hasBrowserPanels = panels.values.contains { $0 is BrowserPanel }
+        // Pane scope: local browser panels never used the connection, so only
+        // remote-scoped browsers should keep it alive after the last ssh pane ends.
+        let hasBrowserPanels = remoteConfiguration?.scope == .pane
+            ? !remoteScopedBrowserPanelIds.isEmpty
+            : panels.values.contains { $0 is BrowserPanel }
         if !hasBrowserPanels {
             if remoteConnectionState == .error ||
                 remoteDaemonStatus.state == .error ||
@@ -14238,9 +14356,13 @@ final class Workspace: Identifiable, ObservableObject {
 
     fileprivate func applyRemoteProxyEndpointUpdate(_ endpoint: BrowserProxyEndpoint?) {
         remoteProxyEndpoint = endpoint
-        for panel in panels.values {
+        let paneScoped = remoteConfiguration?.scope == .pane
+        for (panelId, panel) in panels {
             guard let browserPanel = panel as? BrowserPanel else { continue }
-            browserPanel.setRemoteProxyEndpoint(endpoint)
+            let panelEndpoint = paneScoped && !remoteScopedBrowserPanelIds.contains(panelId)
+                ? nil
+                : endpoint
+            browserPanel.setRemoteProxyEndpoint(panelEndpoint)
         }
         applyBrowserRemoteWorkspaceStatusToPanels()
     }
@@ -14530,7 +14652,7 @@ final class Workspace: Identifiable, ObservableObject {
         var inheritedConfig = inheritedTerminalConfig(preferredPanelId: panelId, inPane: paneId)
         let requestedInitialCommand = initialCommand?.trimmingCharacters(in: .whitespacesAndNewlines)
         let explicitInitialCommand = (requestedInitialCommand?.isEmpty == false) ? requestedInitialCommand : nil
-        let remoteTerminalStartupCommand = remoteTerminalStartupCommand()
+        let remoteTerminalStartupCommand = remoteTerminalStartupCommand(inheritance: .fromSourcePane(panelId))
         let startupCommand = explicitInitialCommand ?? remoteTerminalStartupCommand
         let remoteStartupCommandForEnvironment = explicitInitialCommand == nil ? remoteTerminalStartupCommand : nil
         let effectiveStartupEnvironment = terminalStartupEnvironment(
@@ -14621,7 +14743,8 @@ final class Workspace: Identifiable, ObservableObject {
             icon: newPanel.displayIcon,
             kind: SurfaceKind.terminal,
             isDirty: newPanel.isDirty,
-            isPinned: false
+            isPinned: false,
+            showsRemoteIndicator: tracksRemoteTerminalSurface && remoteConfiguration?.scope == .pane
         )
         surfaceIdToPanelId[newTab.id] = newPanel.id
         let previousFocusedPanelId = focusedPanelId
@@ -14706,7 +14829,7 @@ final class Workspace: Identifiable, ObservableObject {
         autoRefreshMetadata: Bool = true,
         preserveFocusWhenUnfocused: Bool = true,
         remotePTYSessionID: String? = nil,
-        suppressWorkspaceRemoteStartupCommand: Bool = false
+        remoteInheritance: WorkspaceRemoteInheritance? = nil
     ) -> TerminalPanel? {
         let shouldFocusNewTab = focus ?? (bonsplitController.focusedPaneId == paneId)
         let previousFocusedPanelId = focusedPanelId
@@ -14715,7 +14838,9 @@ final class Workspace: Identifiable, ObservableObject {
         var inheritedConfig = inheritedTerminalConfig(inPane: paneId)
         let requestedInitialCommand = initialCommand?.trimmingCharacters(in: .whitespacesAndNewlines)
         let explicitInitialCommand = (requestedInitialCommand?.isEmpty == false) ? requestedInitialCommand : nil
-        let remoteTerminalStartupCommand = suppressWorkspaceRemoteStartupCommand ? nil : remoteTerminalStartupCommand()
+        let remoteTerminalStartupCommand = self.remoteTerminalStartupCommand(
+            inheritance: remoteInheritance ?? .fromSourcePane(effectiveSelectedPanelId(inPane: paneId))
+        )
         let startupCommand = explicitInitialCommand ?? remoteTerminalStartupCommand
         let remoteStartupCommandForEnvironment = explicitInitialCommand == nil ? remoteTerminalStartupCommand : nil
         let effectiveStartupEnvironment = terminalStartupEnvironment(
@@ -14764,6 +14889,7 @@ final class Workspace: Identifiable, ObservableObject {
             kind: SurfaceKind.terminal,
             isDirty: newPanel.isDirty,
             isPinned: false,
+            showsRemoteIndicator: tracksRemoteTerminalSurface && remoteConfiguration?.scope == .pane,
             inPane: paneId
         ) else {
             panels.removeValue(forKey: newPanel.id)
@@ -14947,6 +15073,28 @@ final class Workspace: Identifiable, ObservableObject {
         return command
     }
 
+    /// Whether a new surface joins the workspace's remote connection under `policy`.
+    /// `.fromSourcePane`: workspace scope always inherits; pane scope inherits only when
+    /// the source pane is itself remote. `.always`/`.never` bypass the source-pane check
+    /// for session restore, where remote membership was recorded in the snapshot.
+    private func remoteInheritanceAllows(_ policy: WorkspaceRemoteInheritance) -> Bool {
+        switch policy {
+        case .always:
+            return true
+        case .never:
+            return false
+        case .fromSourcePane(let sourcePanelId):
+            guard remoteConfiguration?.scope == .pane else { return true }
+            guard let sourcePanelId else { return false }
+            return activeRemoteTerminalSurfaceIds.contains(sourcePanelId)
+        }
+    }
+
+    private func remoteTerminalStartupCommand(inheritance policy: WorkspaceRemoteInheritance) -> String? {
+        guard remoteInheritanceAllows(policy) else { return nil }
+        return remoteTerminalStartupCommand()
+    }
+
     /// Create a new browser panel split
     @discardableResult
     func newBrowserSplit(
@@ -14984,6 +15132,7 @@ final class Workspace: Identifiable, ObservableObject {
         guard let paneId = sourcePaneId else { return nil }
 
         // Create browser panel
+        let inheritsRemoteConnection = remoteInheritanceAllows(.fromSourcePane(panelId))
         let browserPanel = BrowserPanel(
             workspaceId: id,
             profileID: resolvedNewBrowserProfileID(
@@ -14995,14 +15144,17 @@ final class Workspace: Identifiable, ObservableObject {
             preloadInitialNavigationInBackground: creationPolicy.preloadsInitialNavigationInBackground,
             omnibarVisible: omnibarVisible,
             transparentBackground: transparentBackground,
-            proxyEndpoint: remoteProxyEndpoint,
+            proxyEndpoint: inheritsRemoteConnection ? remoteProxyEndpoint : nil,
             bypassRemoteProxy: bypassRemoteProxy,
-            isRemoteWorkspace: isRemoteWorkspace,
-            remoteWebsiteDataStoreIdentifier: isRemoteWorkspace ? id : nil
+            isRemoteWorkspace: isRemoteWorkspace && inheritsRemoteConnection,
+            remoteWebsiteDataStoreIdentifier: isRemoteWorkspace && inheritsRemoteConnection ? id : nil
         )
         configureBrowserPanel(browserPanel)
         panels[browserPanel.id] = browserPanel
         panelTitles[browserPanel.id] = browserPanel.displayTitle
+        if remoteConfiguration?.scope == .pane, inheritsRemoteConnection {
+            remoteScopedBrowserPanelIds.insert(browserPanel.id)
+        }
 
         // Pre-generate the bonsplit tab ID so the mapping exists before the split lands.
         let newTab = Bonsplit.Tab(
@@ -15070,7 +15222,8 @@ final class Workspace: Identifiable, ObservableObject {
         creationPolicy: BrowserPanelCreationPolicy = .userInitiated,
         omnibarVisible: Bool = true,
         transparentBackground: Bool = false,
-        bypassRemoteProxy: Bool = false
+        bypassRemoteProxy: Bool = false,
+        remoteInheritance: WorkspaceRemoteInheritance? = nil
     ) -> BrowserPanel? {
         let browserEnabled = BrowserAvailabilitySettings.isEnabled()
         guard browserEnabled || creationPolicy.permitsCreationWhenBrowserDisabled else {
@@ -15085,6 +15238,9 @@ final class Workspace: Identifiable, ObservableObject {
         let previousFocusedPanelId = focusedPanelId
         let previousHostedView = focusedTerminalPanel?.hostedView
 
+        let inheritsRemoteConnection = remoteInheritanceAllows(
+            remoteInheritance ?? .fromSourcePane(sourcePanelId)
+        )
         let browserPanel = BrowserPanel(
             workspaceId: id,
             profileID: resolvedNewBrowserProfileID(
@@ -15098,14 +15254,17 @@ final class Workspace: Identifiable, ObservableObject {
             bypassInsecureHTTPHostOnce: bypassInsecureHTTPHostOnce,
             omnibarVisible: omnibarVisible,
             transparentBackground: transparentBackground,
-            proxyEndpoint: remoteProxyEndpoint,
+            proxyEndpoint: inheritsRemoteConnection ? remoteProxyEndpoint : nil,
             bypassRemoteProxy: bypassRemoteProxy,
-            isRemoteWorkspace: isRemoteWorkspace,
-            remoteWebsiteDataStoreIdentifier: isRemoteWorkspace ? id : nil
+            isRemoteWorkspace: isRemoteWorkspace && inheritsRemoteConnection,
+            remoteWebsiteDataStoreIdentifier: isRemoteWorkspace && inheritsRemoteConnection ? id : nil
         )
         configureBrowserPanel(browserPanel)
         panels[browserPanel.id] = browserPanel
         panelTitles[browserPanel.id] = browserPanel.displayTitle
+        if remoteConfiguration?.scope == .pane, inheritsRemoteConnection {
+            remoteScopedBrowserPanelIds.insert(browserPanel.id)
+        }
 
         guard let newTabId = bonsplitController.createTab(
             title: browserPanel.displayTitle,
@@ -16369,12 +16528,15 @@ final class Workspace: Identifiable, ObservableObject {
             terminalPanel.updateWorkspaceId(id)
             configureTerminalPanel(terminalPanel)
         } else if let browserPanel = detached.panel as? BrowserPanel {
+            // Pane scope: a browser moved into this workspace was never part of the
+            // pane-scoped connection, so it stays local.
+            let joinsRemoteConnection = isRemoteWorkspace && remoteConfiguration?.scope != .pane
             browserPanel.reattachToWorkspace(
                 id,
-                isRemoteWorkspace: isRemoteWorkspace,
-                remoteWebsiteDataStoreIdentifier: isRemoteWorkspace ? id : nil,
-                proxyEndpoint: remoteProxyEndpoint,
-                remoteStatus: browserRemoteWorkspaceStatusSnapshot()
+                isRemoteWorkspace: joinsRemoteConnection,
+                remoteWebsiteDataStoreIdentifier: joinsRemoteConnection ? id : nil,
+                proxyEndpoint: joinsRemoteConnection ? remoteProxyEndpoint : nil,
+                remoteStatus: joinsRemoteConnection ? browserRemoteWorkspaceStatusSnapshot() : nil
             )
             configureBrowserPanel(browserPanel)
             installBrowserPanelSubscription(browserPanel)
@@ -18096,7 +18258,8 @@ final class Workspace: Identifiable, ObservableObject {
             icon: newPanel.displayIcon,
             kind: SurfaceKind.terminal,
             isDirty: newPanel.isDirty,
-            isPinned: false
+            isPinned: false,
+            showsRemoteIndicator: startupCommand != nil && remoteConfiguration?.scope == .pane
         )
         surfaceIdToPanelId[newTab.id] = newPanel.id
 
@@ -19679,6 +19842,9 @@ extension Workspace: BonsplitDelegate {
         case .toggleZoom:
             guard let panelId = panelIdFromSurfaceId(tab.id) else { return }
             toggleSplitZoom(panelId: panelId)
+        case .disconnectRemote:
+            guard let panelId = panelIdFromSurfaceId(tab.id) else { return }
+            disconnectRemoteSurface(panelId: panelId)
         case .forkConversation,
              .forkConversationRight,
              .forkConversationLeft,

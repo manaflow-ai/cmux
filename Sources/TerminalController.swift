@@ -5566,6 +5566,26 @@ class TerminalController {
             .lowercased()
         let transport = WorkspaceRemoteTransport(rawValue: transportRaw ?? "") ?? .ssh
         let autoConnect = v2Bool(params, "auto_connect") ?? true
+        var scope: WorkspaceRemoteScope = .workspace
+        if v2HasNonNullParam(params, "scope") {
+            let scopeRaw = v2RawString(params, "scope")?
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+                .lowercased()
+            guard let parsedScope = WorkspaceRemoteScope(rawValue: scopeRaw ?? "") else {
+                return .err(code: "invalid_params", message: "scope must be \"workspace\" or \"pane\"", data: nil)
+            }
+            scope = parsedScope
+        }
+        var seedSurfaceId: UUID?
+        if v2HasNonNullParam(params, "seed_surface_id") {
+            guard let parsedSeedSurfaceId = v2UUID(params, "seed_surface_id") else {
+                return .err(code: "invalid_params", message: "Missing or invalid seed_surface_id", data: nil)
+            }
+            seedSurfaceId = parsedSeedSurfaceId
+        }
+        if scope == .pane, seedSurfaceId == nil {
+            return .err(code: "invalid_params", message: "seed_surface_id is required when scope is \"pane\"", data: nil)
+        }
         var relayPort: Int?
         if v2HasNonNullParam(params, "relay_port") {
             guard let parsedRelayPort = v2StrictInt(params, "relay_port"),
@@ -5708,9 +5728,81 @@ class TerminalController {
                 daemonWebSocketEndpoint: daemonWebSocketEndpoint,
                 preserveAfterTerminalExit: preserveAfterTerminalExit,
                 persistentDaemonSlot: persistentDaemonSlot?.isEmpty == true ? nil : persistentDaemonSlot,
+                scope: scope,
                 skipDaemonBootstrap: skipDaemonBootstrap
             )
-            workspace.configureRemoteConnection(config, autoConnect: autoConnect)
+            if let seedSurfaceId, workspace.terminalPanel(for: seedSurfaceId) == nil {
+                result = .err(code: "not_found", message: "seed_surface_id does not match a terminal surface in the workspace", data: [
+                    "workspace_id": workspace.id.uuidString,
+                    "workspace_ref": v2Ref(kind: .workspace, uuid: workspace.id),
+                    "seed_surface_id": seedSurfaceId.uuidString,
+                ])
+                return
+            }
+            // A pane-scoped configure must not clobber an existing connection: replacing
+            // the configuration stops the live session controller and strands every
+            // other remote pane. Same target joins; anything else is an explicit error.
+            if scope == .pane, let existing = workspace.remoteConfiguration {
+                guard existing.scope == .pane else {
+                    result = .err(
+                        code: "invalid_state",
+                        message: "Workspace is already a remote workspace (\(existing.displayTarget)); run ssh --pane from a workspace that is not connected as a whole",
+                        data: [
+                            "workspace_id": workspace.id.uuidString,
+                            "workspace_ref": v2Ref(kind: .workspace, uuid: workspace.id),
+                            "destination": existing.displayTarget,
+                        ]
+                    )
+                    return
+                }
+                guard existing.hasSamePaneScopeTarget(as: config) else {
+                    result = .err(
+                        code: "invalid_state",
+                        message: "Workspace already has a pane-scoped SSH connection to \(existing.displayTarget); disconnect it first or connect from another workspace",
+                        data: [
+                            "workspace_id": workspace.id.uuidString,
+                            "workspace_ref": v2Ref(kind: .workspace, uuid: workspace.id),
+                            "destination": existing.displayTarget,
+                        ]
+                    )
+                    return
+                }
+                guard let seedSurfaceId,
+                      let startupCommand = workspace.joinPaneScopedRemoteConnection(seedPanelId: seedSurfaceId) else {
+                    result = .err(
+                        code: "invalid_state",
+                        message: "Workspace already has a pane-scoped SSH connection to \(existing.displayTarget) but the pane could not join it",
+                        data: [
+                            "workspace_id": workspace.id.uuidString,
+                            "workspace_ref": v2Ref(kind: .workspace, uuid: workspace.id),
+                        ]
+                    )
+                    return
+                }
+                let windowId = v2ResolveWindowId(tabManager: owner)
+                result = .ok([
+                    "window_id": v2OrNull(windowId?.uuidString),
+                    "window_ref": v2Ref(kind: .window, uuid: windowId),
+                    "workspace_id": workspace.id.uuidString,
+                    "workspace_ref": v2Ref(kind: .workspace, uuid: workspace.id),
+                    "joined_existing": true,
+                    "startup_command": startupCommand,
+                    "remote": workspace.remoteStatusPayload(),
+                ])
+                return
+            }
+            if scope == .workspace, workspace.remoteConfiguration?.scope == .pane {
+                result = .err(
+                    code: "invalid_state",
+                    message: "Workspace has a pane-scoped SSH connection (\(workspace.remoteConfiguration?.displayTarget ?? "")); disconnect it before configuring a workspace-scoped remote",
+                    data: [
+                        "workspace_id": workspace.id.uuidString,
+                        "workspace_ref": v2Ref(kind: .workspace, uuid: workspace.id),
+                    ]
+                )
+                return
+            }
+            workspace.configureRemoteConnection(config, autoConnect: autoConnect, seedPanelId: seedSurfaceId)
             notifyRemotePTYControllerAvailabilityChanged()
 
             let windowId = v2ResolveWindowId(tabManager: owner)
@@ -7047,7 +7139,8 @@ class TerminalController {
             "close_left", "close_right", "close_others",
             "new_terminal_right", "new_browser_right",
             "reload", "duplicate", "move_to_new_workspace", "detach_to_workspace", "detach_to_new_workspace",
-            "pin", "unpin", "mark_read", "mark_unread"
+            "pin", "unpin", "mark_read", "mark_unread",
+            "disconnect_remote"
         ]
         var result: V2CallResult = .err(code: "invalid_params", message: "Unknown tab action", data: [
             "action": action,
@@ -7167,6 +7260,18 @@ class TerminalController {
 
             case "mark_unread", "mark_as_unread":
                 workspace.markPanelUnread(surfaceId)
+                finish()
+
+            case "disconnect_remote", "disconnect_ssh":
+                guard workspace.canDisconnectRemoteSurface(panelId: surfaceId) else {
+                    result = .err(
+                        code: "invalid_state",
+                        message: "Tab is not attached to a pane-scoped SSH connection",
+                        data: nil
+                    )
+                    return
+                }
+                workspace.disconnectRemoteSurface(panelId: surfaceId)
                 finish()
 
             case "move_to_new_workspace", "detach_to_workspace", "detach_to_new_workspace":

@@ -314,6 +314,7 @@ extension Workspace {
 
         panels.removeValue(forKey: panelId)
         untrackRemoteTerminalSurface(panelId)
+        remoteScopedBrowserPanelIds.remove(panelId)
         pendingRemoteTerminalChildExitSurfaceIds.remove(panelId)
         if let tabId {
             surfaceIdToPanelId.removeValue(forKey: tabId)

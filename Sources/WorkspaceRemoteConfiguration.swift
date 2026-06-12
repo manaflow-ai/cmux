@@ -85,6 +85,27 @@ nonisolated enum WorkspaceRemoteTransport: String, Codable, Equatable, Sendable 
     case websocket
 }
 
+/// Which surfaces inherit the remote connection when new panes/tabs are created.
+/// `.workspace` (default): every new terminal/browser surface in the workspace is remote.
+/// `.pane`: only surfaces created from a remote-attached pane inherit the connection;
+/// surfaces created from local panes stay local.
+nonisolated enum WorkspaceRemoteScope: String, Codable, Equatable, Sendable {
+    case workspace
+    case pane
+}
+
+/// How a newly created surface decides whether it belongs to the workspace's remote
+/// connection. `.fromSourcePane` is the interactive default: in workspace scope every
+/// surface is remote; in pane scope only surfaces created from a remote-attached pane
+/// inherit the connection. `.always`/`.never` are for session restore, where the
+/// snapshot already recorded the surface's remote membership and no live source pane
+/// exists to inherit from.
+nonisolated enum WorkspaceRemoteInheritance {
+    case fromSourcePane(UUID?)
+    case always
+    case never
+}
+
 nonisolated struct SessionRemoteWorkspaceSnapshot: Codable, Equatable, Sendable {
     var transport: WorkspaceRemoteTransport
     var destination: String
@@ -95,6 +116,7 @@ nonisolated struct SessionRemoteWorkspaceSnapshot: Codable, Equatable, Sendable 
     var skipDaemonBootstrap: Bool?
     var relayPort: Int? = nil
     var persistentDaemonSlot: String? = nil
+    var scope: WorkspaceRemoteScope? = nil
 }
 
 struct WorkspaceRemoteWebSocketDaemonEndpoint: Equatable {
@@ -320,6 +342,9 @@ struct WorkspaceRemoteConfiguration: Equatable {
     let daemonWebSocketEndpoint: WorkspaceRemoteWebSocketDaemonEndpoint?
     let preserveAfterTerminalExit: Bool
     let persistentDaemonSlot: String?
+    /// See `WorkspaceRemoteScope`: whether all new surfaces inherit the connection
+    /// (`.workspace`) or only surfaces created from remote-attached panes (`.pane`).
+    let scope: WorkspaceRemoteScope
     /// True for cloud-VM remotes (Freestyle snapshots) where cmuxd-remote is pre-baked in
     /// the image and started via systemd. Skip the upload+exec bootstrap entirely and synthesize
     /// a `DaemonHello`. Reverse-relay still stays off, but SSH-backed VM workspaces can talk to
@@ -343,6 +368,7 @@ struct WorkspaceRemoteConfiguration: Equatable {
         daemonWebSocketEndpoint: WorkspaceRemoteWebSocketDaemonEndpoint? = nil,
         preserveAfterTerminalExit: Bool = false,
         persistentDaemonSlot: String? = nil,
+        scope: WorkspaceRemoteScope = .workspace,
         skipDaemonBootstrap: Bool = false
     ) {
         self.transport = transport
@@ -363,6 +389,7 @@ struct WorkspaceRemoteConfiguration: Equatable {
         self.persistentDaemonSlot = preserveAfterTerminalExit
             ? WorkspaceRemoteSSHOptionFilter.normalizedPersistentDaemonSlot(persistentDaemonSlot)
             : nil
+        self.scope = scope
         self.skipDaemonBootstrap = skipDaemonBootstrap
     }
 
@@ -526,6 +553,7 @@ extension SessionRemoteWorkspaceSnapshot {
             daemonWebSocketEndpoint: nil,
             preserveAfterTerminalExit: preservePTYSession,
             persistentDaemonSlot: preservePTYSession ? normalizedPersistentDaemonSlot : nil,
+            scope: scope ?? .workspace,
             skipDaemonBootstrap: skipDaemonBootstrap == true
         )
     }
@@ -587,6 +615,18 @@ extension SessionRemoteWorkspaceSnapshot {
 }
 
 extension WorkspaceRemoteConfiguration {
+    /// True when `other` targets the same host the same way, so a second
+    /// `cmux ssh --pane` in the workspace can join this connection instead of
+    /// replacing it. Relay/auth tokens differ per CLI invocation and are
+    /// intentionally not part of the identity.
+    func hasSamePaneScopeTarget(as other: WorkspaceRemoteConfiguration) -> Bool {
+        transport == other.transport
+            && destination == other.destination
+            && port == other.port
+            && WorkspaceRemoteSSHOptionFilter.normalizedIdentityPath(identityFile)
+                == WorkspaceRemoteSSHOptionFilter.normalizedIdentityPath(other.identityFile)
+    }
+
     var sshTerminalStartupEnvironment: [String: String]? {
         guard let agentSocketPath = self.agentSocketPath else {
             return nil
@@ -621,7 +661,8 @@ extension WorkspaceRemoteConfiguration {
             preserveAfterTerminalExit: preserveAfterTerminalExit ? true : nil,
             skipDaemonBootstrap: skipDaemonBootstrap,
             relayPort: preserveAfterTerminalExit ? relayPort : nil,
-            persistentDaemonSlot: preserveAfterTerminalExit ? persistentDaemonSlot : nil
+            persistentDaemonSlot: preserveAfterTerminalExit ? persistentDaemonSlot : nil,
+            scope: scope == .pane ? .pane : nil
         )
     }
 }
