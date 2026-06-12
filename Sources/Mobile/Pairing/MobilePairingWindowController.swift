@@ -12,7 +12,11 @@ final class MobilePairingWindowController {
     /// singletons (see the task-manager and debug windows).
     static let shared = MobilePairingWindowController()
 
-    private static let windowIdentifier = "cmux.mobilePairingWindow"
+    /// The pairing window's identifier. Listed in
+    /// `cmuxAuxiliaryWindowIdentifiers` (cmuxApp.swift) so the standard close
+    /// shortcut closes this window instead of a terminal tab in the main
+    /// window behind it; referenced from the Cmd+W regression test.
+    static let windowIdentifier = "cmux.mobilePairingWindow"
 
     private var window: NSWindow?
 
