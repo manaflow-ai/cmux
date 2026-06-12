@@ -182,3 +182,20 @@ describe("input field coverage and incremental scanning", () => {
     expect(scans).toEqual(["a", "b"]);
   });
 });
+
+describe("rich tool input shapes", () => {
+  test("matches Codex argv commands, edit pairs, and file contents", () => {
+    const lower = normalizeSearchQuery("needle");
+    expect(itemMatchesQuery(item("a", { input: { command: ["bash", "-lc", "grep needle src"] } }), lower)).toBe(true);
+    expect(itemMatchesQuery(item("b", { input: { old_string: "old needle text" } }), lower)).toBe(true);
+    expect(itemMatchesQuery(item("c", { input: { new_string: "new needle text" } }), lower)).toBe(true);
+    expect(itemMatchesQuery(item("d", { input: { content: "file with needle" } }), lower)).toBe(true);
+    expect(
+      itemMatchesQuery(
+        item("e", { input: { edits: [{ old_string: "x" }, { new_string: "deep needle" }] } }),
+        lower,
+      ),
+    ).toBe(true);
+    expect(itemMatchesQuery(item("f", { input: { command: ["bash", "-lc", "ls"] } }), lower)).toBe(false);
+  });
+});

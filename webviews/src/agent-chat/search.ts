@@ -110,22 +110,45 @@ const SEARCHED_INPUT_KEYS = [
   "query",
   "url",
   "patch",
+  "old_string",
+  "new_string",
+  "content",
+  "new_source",
+  "edits",
 ] as const;
 
-function inputMatches(input: unknown, lowerQuery: string): boolean {
-  if (typeof input === "string") {
-    return fieldMatches(input, lowerQuery);
+/** Cap on array entries scanned per field (argv elements, MultiEdit edits). */
+const MAX_SCANNED_ARRAY_ENTRIES = 64;
+
+function valueMatches(value: unknown, lowerQuery: string, depth: number): boolean {
+  if (typeof value === "string") {
+    return fieldMatches(value, lowerQuery);
   }
-  if (typeof input === "object" && input !== null) {
-    const record = input as Record<string, unknown>;
+  // Codex argv commands (["bash","-lc","..."]) and MultiEdit `edits` arrays:
+  // scan a bounded number of entries one level down.
+  if (Array.isArray(value) && depth > 0) {
+    for (const entry of value.slice(0, MAX_SCANNED_ARRAY_ENTRIES)) {
+      if (valueMatches(entry, lowerQuery, depth - 1)) {
+        return true;
+      }
+    }
+  }
+  if (typeof value === "object" && value !== null && !Array.isArray(value) && depth > 0) {
+    const record = value as Record<string, unknown>;
     for (const key of SEARCHED_INPUT_KEYS) {
-      const value = record[key];
-      if (typeof value === "string" && fieldMatches(value, lowerQuery)) {
+      if (valueMatches(record[key], lowerQuery, depth - 1)) {
         return true;
       }
     }
   }
   return false;
+}
+
+function inputMatches(input: unknown, lowerQuery: string): boolean {
+  // Depth 3 covers every shape the rich rows render: top-level fields (1),
+  // argv arrays and the `edits` array (2), and each edit entry's
+  // old_string/new_string (3).
+  return valueMatches(input, lowerQuery, 3);
 }
 
 /**
