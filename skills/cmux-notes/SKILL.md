@@ -28,10 +28,16 @@ Resolve the workspace notes root **once** at the start, then work inside it.
 
 2. **Fallback — resolve from the project.** If the variable is empty (older app,
    or running outside a cmux terminal), walk up from the current directory to the
-   nearest ancestor containing `.cmux/`, then use `<that>/.cmux/notes/`. If exactly
-   one subfolder there contains a `_workspace.json`, use it; otherwise operate at
-   `<project>/.cmux/notes/` and tell the user the workspace folder will appear once
-   they open the Notes tab.
+   nearest ancestor containing `.cmux/` and use `<that>/.cmux/notes/` as the notes
+   root. If no ancestor has a `.cmux/`, cmux keeps the project's notes in the
+   home-level store `~/.cmux/notes/` — use that as the root. Then pick the
+   workspace subfolder whose `_workspace.json` binds your cwd:
+   ```bash
+   find <notes-root> -maxdepth 2 -name '_workspace.json' -print -exec cat {} \;
+   # use the folder whose "cwd" matches your project directory
+   ```
+   If none matches, operate at the notes root and tell the user the workspace
+   folder will appear once they open the Notes tab.
 
 Create the root on first write if it does not exist:
 ```bash
@@ -72,8 +78,10 @@ straight there.
    in: the session folder whose `_session.json` carries your session id (compare
    `$CLAUDE_SESSION_ID` when set, or your harness's session id). To inspect them:
    ```bash
-   for f in "$CMUX_WORKSPACE_NOTES_DIR"/*/_session.json; do echo "== $f"; cat "$f"; done
+   find "$CMUX_WORKSPACE_NOTES_DIR" -name '_session.json' -print -exec cat {} \;
    ```
+   (Use `find`, not a `*/` glob — zsh aborts the whole command when a glob
+   matches nothing, and workspaces with no session folders are common.)
    If you can't match an id, take the folder for your agent with the newest
    `modified`. No session folder existing is normal — move on to the workspace.
 2. **The workspace** — everything under `$CMUX_WORKSPACE_NOTES_DIR`, including
@@ -126,7 +134,9 @@ mv "$CMUX_WORKSPACE_NOTES_DIR/todo.md" "$CMUX_WORKSPACE_NOTES_DIR/research/"
 ```
 
 **File a note under an agent session**: find the session folder (a directory with
-a `_session.json`, see §3) and create/move the note inside it.
+a `_session.json`, see §3) and create/move the note inside it. If the session has
+no folder on disk yet (its row in the sidebar is virtual), write at the workspace
+root instead — only cmux can materialize session folders.
 
 ## 5. Flat `cmux note` notes (index-owned) — CLI only
 
