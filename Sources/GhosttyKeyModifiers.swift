@@ -1,9 +1,8 @@
 import AppKit
 import GhosttyKit
 
-/// Translates NSEvent modifier flags into the libghostty mods bitfield used by
-/// `ghostty_surface_key`, `ghostty_surface_key_translation_mods`, and the
-/// mouse APIs.
+/// Translates NSEvent modifier flags into the libghostty mods bitfield for
+/// key events (`ghostty_surface_key`, `ghostty_surface_key_translation_mods`).
 nonisolated func cmuxGhosttyModsFromFlags(modifierFlagsRawValue rawValue: UInt) -> ghostty_input_mods_e {
     let flags = NSEvent.ModifierFlags(rawValue: rawValue)
     var mods = GHOSTTY_MODS_NONE.rawValue
@@ -21,6 +20,24 @@ nonisolated func cmuxGhosttyModsFromFlags(modifierFlagsRawValue rawValue: UInt) 
     if rawValue & UInt(NX_DEVICERALTKEYMASK) != 0 { mods |= GHOSTTY_MODS_ALT_RIGHT.rawValue }
     if rawValue & UInt(NX_DEVICERCMDKEYMASK) != 0 { mods |= GHOSTTY_MODS_SUPER_RIGHT.rawValue }
 
+    return ghostty_input_mods_e(rawValue: mods)
+}
+
+/// Translates NSEvent modifier flags into libghostty mods for mouse, hover,
+/// and link updates. libghostty keeps only binding modifiers for mouse state
+/// (`Mods.binding()` — "we don't want caps/num lock or sided modifiers to
+/// affect the mouse") but compares incoming mods against that stored value,
+/// so sending side bits would make every event with a held right-side
+/// modifier look like a modifier change and re-dirty the screen. Key events
+/// must keep the side bits (`cmuxGhosttyModsFromFlags`); mouse paths send
+/// the normalized binding bits libghostty stores.
+nonisolated func cmuxGhosttyMouseModsFromFlags(modifierFlagsRawValue rawValue: UInt) -> ghostty_input_mods_e {
+    let flags = NSEvent.ModifierFlags(rawValue: rawValue)
+    var mods = GHOSTTY_MODS_NONE.rawValue
+    if flags.contains(.shift) { mods |= GHOSTTY_MODS_SHIFT.rawValue }
+    if flags.contains(.control) { mods |= GHOSTTY_MODS_CTRL.rawValue }
+    if flags.contains(.option) { mods |= GHOSTTY_MODS_ALT.rawValue }
+    if flags.contains(.command) { mods |= GHOSTTY_MODS_SUPER.rawValue }
     return ghostty_input_mods_e(rawValue: mods)
 }
 

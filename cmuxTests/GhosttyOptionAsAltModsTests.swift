@@ -77,6 +77,22 @@ import Testing
         #expect(mods.rawValue & GHOSTTY_MODS_SUPER_RIGHT.rawValue == 0)
     }
 
+    @Test func mouseModsNeverCarrySideBits() {
+        // libghostty stores only binding modifiers for mouse/link state and
+        // compares incoming mods against that stored value; side bits on the
+        // mouse path would make every event with a held right-side modifier
+        // look like a modifier change and re-dirty the screen.
+        let raw = NSEvent.ModifierFlags.option.rawValue
+            | NSEvent.ModifierFlags.shift.rawValue
+            | UInt(NX_DEVICERALTKEYMASK)
+            | UInt(NX_DEVICERSHIFTKEYMASK)
+        let mods = cmuxGhosttyMouseModsFromFlags(modifierFlagsRawValue: raw)
+        #expect(mods.rawValue & GHOSTTY_MODS_ALT.rawValue != 0)
+        #expect(mods.rawValue & GHOSTTY_MODS_SHIFT.rawValue != 0)
+        #expect(mods.rawValue & GHOSTTY_MODS_ALT_RIGHT.rawValue == 0)
+        #expect(mods.rawValue & GHOSTTY_MODS_SHIFT_RIGHT.rawValue == 0)
+    }
+
     // MARK: libghostty translation mods -> AppKit translation flags
 
     @Test func translationFlagsDropOptionWhenGhosttyStripsAlt() {
