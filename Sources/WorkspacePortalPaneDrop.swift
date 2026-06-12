@@ -15,11 +15,11 @@ extension Workspace {
         }
 
         if proposedZone == .left,
-           bonsplitController.adjacentPane(to: sourcePane, direction: .right) == paneId {
+           spatialAdjacentPane(to: sourcePane, direction: .right) == paneId {
             return .center
         }
         if proposedZone == .right,
-           bonsplitController.adjacentPane(to: sourcePane, direction: .left) == paneId {
+           spatialAdjacentPane(to: sourcePane, direction: .left) == paneId {
             return .center
         }
         return proposedZone
