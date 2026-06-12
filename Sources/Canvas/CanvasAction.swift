@@ -17,6 +17,43 @@ enum CanvasAction: Equatable {
     case alignment(CanvasAlignmentCommand)
 }
 
+extension KeyboardShortcutSettings.Action {
+    /// All shortcut actions that map onto canvas actions, in dispatch order.
+    static let canvasActions: [KeyboardShortcutSettings.Action] = [
+        .toggleCanvasLayout,
+        .canvasRevealFocusedPane,
+        .canvasOverview,
+        .canvasTidy,
+        .canvasAlignLeft,
+        .canvasAlignRight,
+        .canvasAlignTop,
+        .canvasAlignBottom,
+        .canvasEqualizeWidths,
+        .canvasEqualizeHeights,
+        .canvasDistributeHorizontally,
+        .canvasDistributeVertically,
+    ]
+
+    /// The canvas action this shortcut action runs, if any.
+    var canvasAction: CanvasAction? {
+        switch self {
+        case .toggleCanvasLayout: return .toggleLayout
+        case .canvasRevealFocusedPane: return .revealFocusedPane
+        case .canvasOverview: return .toggleOverview
+        case .canvasTidy: return .alignment(.tidy)
+        case .canvasAlignLeft: return .alignment(.alignLeft)
+        case .canvasAlignRight: return .alignment(.alignRight)
+        case .canvasAlignTop: return .alignment(.alignTop)
+        case .canvasAlignBottom: return .alignment(.alignBottom)
+        case .canvasEqualizeWidths: return .alignment(.equalizeWidths)
+        case .canvasEqualizeHeights: return .alignment(.equalizeHeights)
+        case .canvasDistributeHorizontally: return .alignment(.distributeHorizontally)
+        case .canvasDistributeVertically: return .alignment(.distributeVertically)
+        default: return nil
+        }
+    }
+}
+
 /// Executes ``CanvasAction``s against a workspace. The single shared
 /// execution path for every canvas entrypoint.
 @MainActor
