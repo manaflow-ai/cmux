@@ -188,6 +188,68 @@ normalize_claude_config_dir() {
     esac
 }
 
+claude_config_dir_is_subrouter_managed() {
+    [[ -n "${HOME:-}" ]] || return 1
+
+    local legacy_root="$HOME/.subrouter/codex/claude"
+    local account_root="$HOME/.codex-accounts/claude"
+    if [[ -z "${CLAUDE_CONFIG_DIR:-}" ]]; then
+        [[ -d "$account_root" || -d "$legacy_root" ]] && return 0
+        return 1
+    fi
+
+    local value="$CLAUDE_CONFIG_DIR"
+    if [[ "$value" == "~/"* ]]; then
+        value="$HOME/${value#~/}"
+    fi
+
+    case "$value" in
+        "$legacy_root"|"$legacy_root"/*|"$account_root"|"$account_root"/*)
+            return 0
+            ;;
+    esac
+    return 1
+}
+
+parse_subrouter_claude_env_config_dir() {
+    local line value
+    while IFS= read -r line; do
+        case "$line" in
+            "export CLAUDE_CONFIG_DIR="*)
+                value="${line#export CLAUDE_CONFIG_DIR=}"
+                value="${value%$'\r'}"
+                value="${value%\"}"
+                value="${value#\"}"
+                value="${value%\'}"
+                value="${value#\'}"
+                [[ -n "$value" ]] || return 1
+                printf '%s' "$value"
+                return 0
+                ;;
+        esac
+    done
+    return 1
+}
+
+pick_subrouter_claude_profile_for_fresh_launch() {
+    case "${CMUX_CLAUDE_SUBROUTER_PICK_DISABLED:-}" in
+        1|true|TRUE|yes|YES) return 0 ;;
+    esac
+    claude_config_dir_is_subrouter_managed || return 0
+
+    local subrouter_bin
+    subrouter_bin="$(command -v subrouter || true)"
+    [[ -n "$subrouter_bin" && -x "$subrouter_bin" ]] || return 0
+
+    "$subrouter_bin" claude pick >/dev/null 2>&1 || return 0
+
+    local picked_config_dir
+    picked_config_dir="$("$subrouter_bin" claude env 2>/dev/null | parse_subrouter_claude_env_config_dir)" || return 0
+    [[ -n "$picked_config_dir" ]] || return 0
+    export CLAUDE_CONFIG_DIR="$picked_config_dir"
+    normalize_claude_config_dir
+}
+
 clear_inherited_claude_auth_selection_env() {
     if [[ "${IN_CMUX:-0}" == "1" ]]; then
         local key
@@ -460,14 +522,22 @@ clear_inherited_claude_auth_selection_env
 # Check if the user already specified a session/resume flag.
 # If so, don't inject our own --session-id (it would conflict).
 SKIP_SESSION_ID=false
+SKIP_SUBROUTER_PROFILE_PICK=false
 for arg in "$@"; do
     case "$arg" in
         --resume|--resume=*|-r|--session-id|--session-id=*|--continue|-c)
             SKIP_SESSION_ID=true
-            break
+            case "$arg" in
+                --resume|--resume=*|-r|--continue|-c)
+                    SKIP_SUBROUTER_PROFILE_PICK=true
+                    ;;
+            esac
             ;;
     esac
 done
+if [[ "$SKIP_SUBROUTER_PROFILE_PICK" == false ]]; then
+    pick_subrouter_claude_profile_for_fresh_launch
+fi
 
 # Export the wrapper's PID. Because we exec claude below, this PID becomes
 # the actual claude process PID, which hooks use for stale-session detection.
