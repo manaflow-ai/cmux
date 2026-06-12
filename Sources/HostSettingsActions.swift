@@ -1,5 +1,6 @@
 import AppKit
 import CMUXMobileCore
+import CmuxSettings
 import CmuxSettingsUI
 import Foundation
 import OSLog
@@ -88,8 +89,7 @@ final class HostSettingsActions: SettingsHostActions {
     }
 
     func openSystemNotificationSettings() {
-        guard let url = URL(string: "x-apple.systempreferences:com.apple.preference.notifications") else { return }
-        NSWorkspace.shared.open(url)
+        TerminalNotificationStore.shared.openNotificationSettings()
     }
 
     func restartApp() {
@@ -105,8 +105,18 @@ final class HostSettingsActions: SettingsHostActions {
         BrowserDataImportCoordinator.shared.presentImportDialog()
     }
 
-    func requestNotificationAuthorization() {
-        TerminalNotificationStore.shared.requestAuthorizationFromSettings()
+    func desktopNotificationAuthorizationState() -> DesktopNotificationAuthorizationState {
+        DesktopNotificationAuthorizationState(TerminalNotificationStore.shared.authorizationState)
+    }
+
+    func refreshDesktopNotificationAuthorizationState() async -> DesktopNotificationAuthorizationState {
+        let state = await TerminalNotificationStore.shared.refreshAuthorizationStatusFromSettings()
+        return DesktopNotificationAuthorizationState(state)
+    }
+
+    func requestNotificationAuthorization() async -> DesktopNotificationAuthorizationState {
+        let state = await TerminalNotificationStore.shared.requestAuthorizationFromSettings()
+        return DesktopNotificationAuthorizationState(state)
     }
 
     func openTerminalConfigWindow() {
@@ -315,6 +325,25 @@ final class HostSettingsActions: SettingsHostActions {
         }
         GhosttyApp.shared.reloadConfiguration(source: reloadSource)
         return true
+    }
+}
+
+private extension DesktopNotificationAuthorizationState {
+    init(_ state: NotificationAuthorizationState) {
+        switch state {
+        case .unknown:
+            self = .unknown
+        case .notDetermined:
+            self = .notDetermined
+        case .authorized:
+            self = .authorized
+        case .denied:
+            self = .denied
+        case .provisional:
+            self = .provisional
+        case .ephemeral:
+            self = .ephemeral
+        }
     }
 }
 

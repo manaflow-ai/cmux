@@ -46,6 +46,7 @@ public struct AppSection: View {
     @State private var showInMenuBar: DefaultsValueModel<Bool>
     @State private var paneRing: DefaultsValueModel<Bool>
     @State private var paneFlash: DefaultsValueModel<Bool>
+    @State private var desktopNotificationAuthorization: DesktopNotificationAuthorizationState
     @State private var soundName: DefaultsValueModel<String>
     @State private var soundCommand: DefaultsValueModel<String>
     @State private var customSoundFile: DefaultsValueModel<String>
@@ -90,6 +91,7 @@ public struct AppSection: View {
         _showInMenuBar = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.notifications.showInMenuBar))
         _paneRing = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.notifications.unreadPaneRing))
         _paneFlash = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.notifications.paneFlash))
+        _desktopNotificationAuthorization = State(initialValue: hostActions.desktopNotificationAuthorizationState())
         _soundName = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.notifications.sound))
         _soundCommand = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.notifications.command))
         _customSoundFile = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.notifications.customSoundFilePath))
@@ -124,6 +126,7 @@ public struct AppSection: View {
         .task {
             if languageAtAppear == nil { languageAtAppear = language.current }
             if telemetryAtAppear == nil { telemetryAtAppear = telemetry.current }
+            await refreshDesktopNotificationAuthorization()
         }
     }
 
@@ -480,28 +483,24 @@ public struct AppSection: View {
                     .controlSize(.small)
             }
 
-            // Desktop Notifications — legacy renders this row
-            // unconditionally with a permission-state status text +
-            // one dynamic action button + Send Test. Without a host
-            // signal for the permission state, the package falls
-            // back to the .notDetermined baseline: subtitle "Desktop
-            // notifications are not enabled yet.", "Enable" action
-            // (which maps to requestNotificationAuthorization), and
-            // Send Test. Buttons disable when no host is wired.
+            // Desktop Notifications
             SettingsCardDivider()
+            let desktopNotificationPresentation = DesktopNotificationSettingsRowPresentation(
+                authorizationState: desktopNotificationAuthorization
+            )
             SettingsCardRow(
                 configurationReview: .action,
                 searchAnchorID: "setting:app:desktop-notifications",
                 String(localized: "settings.notifications.desktop", defaultValue: "Desktop Notifications"),
-                subtitle: String(localized: "settings.notifications.desktop.subtitle.notDetermined", defaultValue: "Desktop notifications are not enabled yet.")
+                subtitle: desktopNotificationPresentation.subtitle.localizedString
             ) {
                 HStack(spacing: 6) {
-                    Text(String(localized: "settings.notifications.desktop.status.unknown", defaultValue: "Permission unknown"))
+                    Text(desktopNotificationPresentation.status.localizedString)
                         .font(.system(size: 11, weight: .semibold))
                         .foregroundStyle(.secondary)
                         .frame(width: 98, alignment: .trailing)
-                    Button(String(localized: "settings.notifications.desktop.action.enable", defaultValue: "Enable")) {
-                        hostActions.requestNotificationAuthorization()
+                    Button(desktopNotificationPresentation.primaryActionTitle.localizedString) {
+                        performDesktopNotificationPrimaryAction()
                     }
                     .controlSize(.small)
                     Button(String(localized: "settings.notifications.desktop.sendTest", defaultValue: "Send Test")) {
@@ -634,6 +633,17 @@ public struct AppSection: View {
                     .controlSize(.small)
                     .accessibilityIdentifier("CommandPaletteSearchAllSurfacesToggle")
             }
+        }
+    }
+
+    private func refreshDesktopNotificationAuthorization() async {
+        desktopNotificationAuthorization = await hostActions.refreshDesktopNotificationAuthorizationState()
+    }
+
+    private func performDesktopNotificationPrimaryAction() {
+        Task { @MainActor in
+            desktopNotificationAuthorization = await DesktopNotificationSettingsRowActions(hostActions: hostActions)
+                .performPrimaryAction(for: desktopNotificationAuthorization)
         }
     }
 
