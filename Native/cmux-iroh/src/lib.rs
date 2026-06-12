@@ -238,6 +238,15 @@ struct ConnectionInner {
     send_poisoned: AtomicBool,
 }
 
+/// Application close code for a clean close; the peer's `recv` maps it to
+/// end of stream.
+const CLOSE_CODE_CLEAN: u32 = 0;
+
+/// Application close code when close abandons a poisoned (timed-out) send.
+/// Nonzero so the peer's `recv` reports `ConnectionLost` instead of mapping
+/// the close to a clean end of stream and accepting a truncated write.
+const CLOSE_CODE_SEND_ABORTED: u32 = 1;
+
 fn next_handle_id() -> usize {
     // Start at 1 so a handle value never collides with null.
     static NEXT: AtomicUsize = AtomicUsize::new(1);
@@ -871,6 +880,12 @@ fn send_impl(connection: &ConnectionInner, bytes: &[u8], timeout_ms: u64) -> Res
 /// skipped and `Connection::close` fires immediately, which also forces the
 /// stalled `write_all` to return `ConnectionLost`.
 ///
+/// After a timed-out send the stream carries a truncated write, so close
+/// abandons the stream (no FIN) and closes the connection with
+/// [`CLOSE_CODE_SEND_ABORTED`]; the peer's `recv` then reports
+/// `ConnectionLost` instead of presenting the prefix as a clean end of
+/// stream.
+///
 /// Safe to call concurrently with in-flight recv/send on the same handle:
 /// handles are registry keys and in-flight calls hold their own reference, so
 /// close never frees memory another call is using. The forced QUIC close
@@ -887,16 +902,22 @@ pub extern "C" fn cmux_iroh_connection_close(connection: *mut CmuxIrohConnection
     runtime.block_on(async {
         // After a timed-out send the stream carries a truncated write, so the
         // graceful FIN+drain would present it to the peer as a clean end of
-        // stream; abandon the stream and let the connection close signal the
-        // abort instead.
-        if !connection.send_poisoned.load(Ordering::Relaxed)
+        // stream; abandon the stream and close with a nonzero application
+        // error so the peer reads an abort, not EOF.
+        let poisoned = connection.send_poisoned.load(Ordering::Relaxed);
+        if !poisoned
             && let Ok(mut send) =
                 tokio::time::timeout(Duration::from_secs(5), connection.send.lock()).await
             && send.finish().is_ok()
         {
             let _ = tokio::time::timeout(Duration::from_secs(5), send.stopped()).await;
         }
-        connection.connection.close(0u32.into(), b"close");
+        let code = if poisoned {
+            CLOSE_CODE_SEND_ABORTED
+        } else {
+            CLOSE_CODE_CLEAN
+        };
+        connection.connection.close(code.into(), b"close");
     });
 }
 
@@ -1713,6 +1734,140 @@ mod ffi_seam_tests {
         };
         assert_eq!(read, -1);
         assert_eq!(err.kind(), CmuxIrohErrorKind::InvalidArgument as i32);
+        cmux_iroh_connection_close(connection);
+
+        accept_thread.join().expect("accept thread joins");
+        cmux_iroh_endpoint_close(dialer);
+        cmux_iroh_endpoint_close(listener);
+    }
+
+    #[test]
+    #[allow(
+        clippy::too_many_lines,
+        reason = "one deliberate scenario: poisoned send, abort close, peer recv reports an error"
+    )]
+    fn close_after_poisoned_send_errors_peer_recv_instead_of_eof() {
+        let listener_key = generate_key();
+        let dialer_key = generate_key();
+        let listener = bind(&listener_key, true);
+        let dialer = bind(&dialer_key, false);
+
+        let listener_id = take_string(cmux_iroh_endpoint_id(listener));
+        let route = take_string(cmux_iroh_endpoint_route_json(listener));
+        let parsed: serde_json::Value = serde_json::from_str(&route).expect("route JSON parses");
+        let direct_addrs: Vec<String> = parsed["endpoint"]["direct_addrs"]
+            .as_array()
+            .expect("direct_addrs is an array")
+            .iter()
+            .map(|value| value.as_str().expect("addr is a string").to_owned())
+            .collect();
+
+        let (opener_read_tx, opener_read_rx) = std::sync::mpsc::channel::<()>();
+        let listener_ptr = ListenerPtr(listener);
+        let accept_thread = std::thread::spawn(move || {
+            let listener = listener_ptr;
+            let mut err = ErrOut::new();
+            let connection = unsafe {
+                cmux_iroh_endpoint_accept(
+                    listener.0,
+                    30_000,
+                    &raw mut err.kind,
+                    err.buf.as_mut_ptr(),
+                    ERR_CAP,
+                )
+            };
+            assert!(!connection.is_null(), "accept: {}", err.message());
+
+            // Read the opener byte first so the dialer's abort close below
+            // cannot race the delivery of in-flight stream data.
+            let mut buf = [0u8; 16];
+            let mut err = ErrOut::new();
+            let read = unsafe {
+                cmux_iroh_connection_recv(
+                    connection,
+                    buf.as_mut_ptr(),
+                    buf.len(),
+                    30_000,
+                    &raw mut err.kind,
+                    err.buf.as_mut_ptr(),
+                    ERR_CAP,
+                )
+            };
+            assert_eq!(read, 1, "opener recv: {}", err.message());
+            opener_read_tx.send(()).expect("signal opener read");
+
+            // The dialer closes after a poisoned send: that must surface as
+            // an error, never as a clean end of stream (read == 0), or a
+            // truncated write would read as a complete message.
+            let mut err = ErrOut::new();
+            let read = unsafe {
+                cmux_iroh_connection_recv(
+                    connection,
+                    buf.as_mut_ptr(),
+                    buf.len(),
+                    30_000,
+                    &raw mut err.kind,
+                    err.buf.as_mut_ptr(),
+                    ERR_CAP,
+                )
+            };
+            assert_eq!(read, -1, "poisoned close must not read as clean EOF");
+            assert_eq!(
+                err.kind(),
+                CmuxIrohErrorKind::ConnectionLost as i32,
+                "kind {} ({})",
+                err.kind(),
+                err.message()
+            );
+            cmux_iroh_connection_close(connection);
+        });
+
+        let id_cstr = CString::new(listener_id).expect("cstring");
+        let addr_cstrs: Vec<CString> = direct_addrs
+            .iter()
+            .map(|addr| CString::new(addr.as_str()).expect("cstring"))
+            .collect();
+        let addr_ptrs: Vec<*const c_char> = addr_cstrs.iter().map(|addr| addr.as_ptr()).collect();
+        let mut err = ErrOut::new();
+        let connection = unsafe {
+            cmux_iroh_endpoint_connect(
+                dialer,
+                id_cstr.as_ptr(),
+                ptr::null(),
+                addr_ptrs.as_ptr(),
+                addr_ptrs.len(),
+                30_000,
+                &raw mut err.kind,
+                err.buf.as_mut_ptr(),
+                ERR_CAP,
+            )
+        };
+        assert!(!connection.is_null(), "connect: {}", err.message());
+
+        let opener = [0x42u8; 1];
+        let mut err = ErrOut::new();
+        let rc = unsafe {
+            cmux_iroh_connection_send(
+                connection,
+                opener.as_ptr(),
+                opener.len(),
+                30_000,
+                &raw mut err.kind,
+                err.buf.as_mut_ptr(),
+                ERR_CAP,
+            )
+        };
+        assert_eq!(rc, 0, "opener send: {}", err.message());
+        opener_read_rx.recv().expect("listener read opener");
+
+        // Force the poisoned state directly: deterministically provoking a
+        // real send timeout would need a peer wedged on flow control. The
+        // flag is exactly what a timed-out send sets before returning.
+        let Ok(inner) = lookup_connection(connection) else {
+            panic!("live connection handle");
+        };
+        inner.send_poisoned.store(true, Ordering::Relaxed);
+        drop(inner);
         cmux_iroh_connection_close(connection);
 
         accept_thread.join().expect("accept thread joins");

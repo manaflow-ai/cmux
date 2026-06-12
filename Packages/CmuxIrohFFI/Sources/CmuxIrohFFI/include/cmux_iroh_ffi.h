@@ -139,7 +139,10 @@ int cmux_iroh_connection_send(
 // concurrently with in-flight recv/send on the same handle (they are forced
 // to return, reporting CMUX_IROH_ERROR_CONNECTION_LOST). Bounded even when a
 // send is stalled on flow control (the graceful drain is skipped and the
-// QUIC close forces the stalled write to return).
+// QUIC close forces the stalled write to return). After a timed-out send the
+// stream is abandoned (no FIN) and the connection closes with a nonzero
+// application error code, so the peer's recv reports
+// CMUX_IROH_ERROR_CONNECTION_LOST instead of a clean end of stream.
 void cmux_iroh_connection_close(CmuxIrohConnection *connection);
 
 // Closes the endpoint and releases its handle. Idempotent; safe to call

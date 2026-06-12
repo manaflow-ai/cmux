@@ -46,14 +46,23 @@ if [[ ! -d "$CRATE_DIR" ]]; then
 fi
 
 # Content key: tracked blob SHAs + dirty diff + untracked file hashes of the
-# crate, plus this script and the layout version. Mirrors ensure-ghosttykit's
-# clean/dirty keying so a dirty crate never reuses a clean cache entry.
+# crate, plus this script, the layout version, and the active Apple toolchain
+# (ring, via cc, compiles C/asm with the selected Xcode's clang and SDKs, so
+# the static libs are not toolchain-independent; an Xcode or SDK change must
+# not reuse a cache entry built by another toolchain). Mirrors
+# ensure-ghosttykit's clean/dirty keying so a dirty crate never reuses a
+# clean cache entry.
 UNTRACKED_FILES="$(git -C "$PROJECT_DIR" ls-files --others --exclude-standard -- "$CRATE_REL")"
 IROH_KEY="$(
   {
     printf 'layout=%s\n' "$LAYOUT_VERSION"
     printf '%s\n' '--script--'
     hash_file "$SCRIPT_DIR/ensure-cmux-iroh.sh"
+    printf '%s\n' '--apple-toolchain--'
+    xcodebuild -version 2>/dev/null || true
+    xcrun --sdk macosx --show-sdk-build-version 2>/dev/null || true
+    xcrun --sdk iphoneos --show-sdk-build-version 2>/dev/null || true
+    xcrun --sdk iphonesimulator --show-sdk-build-version 2>/dev/null || true
     printf '%s\n' '--tracked--'
     git -C "$PROJECT_DIR" ls-files -s -- "$CRATE_REL"
     printf '%s\n' '--dirty--'
