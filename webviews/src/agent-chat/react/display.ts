@@ -1,23 +1,24 @@
 // Pure display helpers for the agent-chat timeline.
 
+import { agentChatLabels } from "../labels";
 import type { AgentSessionRef, ConversationItem, ItemType } from "../protocol";
 
 export function providerDisplayName(provider: string | undefined): string {
   if (!provider) {
-    return "Agent";
+    return agentChatLabels.providerFallback;
   }
   if (provider === "claude") {
-    return "Claude";
+    return agentChatLabels.providerClaude;
   }
   if (provider === "codex") {
-    return "Codex";
+    return agentChatLabels.providerCodex;
   }
   return provider.charAt(0).toUpperCase() + provider.slice(1);
 }
 
 export function sessionDisplayTitle(session: AgentSessionRef | null): string {
   if (!session) {
-    return "Agent session";
+    return agentChatLabels.sessionFallbackTitle;
   }
   if (session.title && session.title.trim() !== "") {
     return session.title;
@@ -27,11 +28,11 @@ export function sessionDisplayTitle(session: AgentSessionRef | null): string {
 }
 
 const toolTypeLabels: Partial<Record<ItemType, string>> = {
-  command_execution: "Run",
-  file_change: "Edit",
-  mcp_tool_call: "MCP",
-  dynamic_tool_call: "Tool",
-  web_search: "Search",
+  command_execution: agentChatLabels.toolRun,
+  file_change: agentChatLabels.toolEdit,
+  mcp_tool_call: agentChatLabels.toolMCP,
+  dynamic_tool_call: agentChatLabels.toolGeneric,
+  web_search: agentChatLabels.toolSearch,
 };
 
 export function isToolItemType(type: ItemType): boolean {
@@ -39,7 +40,7 @@ export function isToolItemType(type: ItemType): boolean {
 }
 
 export function toolTypeLabel(type: ItemType): string {
-  return toolTypeLabels[type] ?? "Tool";
+  return toolTypeLabels[type] ?? agentChatLabels.toolGeneric;
 }
 
 export function toolItemTitle(item: ConversationItem): string {

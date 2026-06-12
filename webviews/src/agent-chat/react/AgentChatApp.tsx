@@ -16,6 +16,7 @@ import {
   type ConversationAction,
   type ConversationState,
 } from "../conversationStore";
+import { agentChatLabels } from "../labels";
 import { providerDisplayName, sessionDisplayTitle } from "./display";
 import { ItemRow, PendingRequestBanner, TurnSeparator } from "./rows";
 
@@ -43,18 +44,31 @@ function useAgentChatConnection(
     });
     let cancelled = false;
     void (async () => {
+      let result;
       try {
-        const result = await bridge.init();
-        if (cancelled) {
-          return;
-        }
-        dispatch({ type: "init", result });
-        await bridge.subscribe();
+        result = await bridge.init();
       } catch (error) {
         if (!cancelled) {
           dispatch({
             type: "init-failed",
-            detail: error instanceof Error ? error.message : "Agent bridge request failed.",
+            detail: error instanceof Error ? error.message : agentChatLabels.bridgeRequestFailed,
+          });
+        }
+        return;
+      }
+      if (cancelled) {
+        return;
+      }
+      dispatch({ type: "init", result });
+      try {
+        await bridge.subscribe();
+      } catch (error) {
+        // A failed subscribe after a successful init is a per-session stream
+        // failure (e.g. missing transcript), not daemon unavailability.
+        if (!cancelled) {
+          dispatch({
+            type: "subscribe-failed",
+            detail: error instanceof Error ? error.message : agentChatLabels.bridgeRequestFailed,
           });
         }
       }
@@ -104,7 +118,9 @@ function HeaderStrip({ state }: { state: ConversationState }) {
         title={state.daemonStatus === "unavailable" ? (state.daemonDetail ?? undefined) : undefined}
       >
         <span className="agent-chat-daemon-dot" aria-hidden="true" />
-        {state.daemonStatus === "unavailable" ? "Daemon unavailable" : "Live"}
+        {state.daemonStatus === "unavailable"
+          ? agentChatLabels.statusDaemonUnavailable
+          : agentChatLabels.statusLive}
       </span>
     </header>
   );
@@ -113,39 +129,55 @@ function HeaderStrip({ state }: { state: ConversationState }) {
 function DaemonBanner({ detail }: { detail: string | null }) {
   return (
     <output className="agent-chat-daemon-banner">
-      Agent daemon unavailable{detail ? `: ${detail}` : "."} Showing the last known transcript.
+      {agentChatLabels.daemonBannerTitle}
+      {detail ? `: ${detail}` : "."} {agentChatLabels.daemonBannerSuffix}
     </output>
   );
 }
 
 function TimelineBody({ state }: { state: ConversationState }) {
   if (state.phase === "connecting") {
-    return <EmptyState title="Connecting" detail="Reaching the agent daemon…" />;
+    return (
+      <EmptyState
+        title={agentChatLabels.connectingTitle}
+        detail={agentChatLabels.connectingDetail}
+      />
+    );
   }
   if (state.daemonStatus === "unavailable" && state.items.length === 0) {
     return (
       <EmptyState
-        title="Agent daemon unavailable"
-        detail={state.daemonDetail ?? "The conversation daemon could not be reached."}
+        title={agentChatLabels.daemonUnavailableTitle}
+        detail={state.daemonDetail ?? agentChatLabels.daemonUnavailableDetail}
+      />
+    );
+  }
+  if (state.subscribeError !== null && !state.hasSnapshot) {
+    return (
+      <EmptyState
+        title={agentChatLabels.subscribeFailedTitle}
+        detail={state.subscribeError || agentChatLabels.subscribeFailedDetail}
       />
     );
   }
   if (!state.hasSnapshot && state.session === null) {
     return (
       <EmptyState
-        title="No session"
-        detail="No agent session was resolved for this pane."
+        title={agentChatLabels.noSessionTitle}
+        detail={agentChatLabels.noSessionDetail}
       />
     );
   }
   if (!state.hasSnapshot) {
-    return <EmptyState title="Loading transcript" detail="Waiting for the first snapshot…" />;
+    return (
+      <EmptyState title={agentChatLabels.loadingTitle} detail={agentChatLabels.loadingDetail} />
+    );
   }
   if (state.items.length === 0) {
     return (
       <EmptyState
-        title="No conversation yet"
-        detail="This session's transcript has no items so far."
+        title={agentChatLabels.noConversationTitle}
+        detail={agentChatLabels.noConversationDetail}
       />
     );
   }
@@ -230,15 +262,15 @@ function Timeline({ state }: { state: ConversationState }) {
             <span className="agent-chat-working-dot" aria-hidden="true" />
             <span className="agent-chat-working-dot" aria-hidden="true" />
             <span className="agent-chat-working-dot" aria-hidden="true" />
-            <span className="agent-chat-visually-hidden">Agent is working</span>
+            <span className="agent-chat-visually-hidden">{agentChatLabels.agentWorking}</span>
           </output>
         ) : null}
         {state.streamError ? (
           <div className="agent-chat-row agent-chat-system-row is-error" data-stream-error="true">
-            <span className="agent-chat-system-label">Stream error</span>
+            <span className="agent-chat-system-label">{agentChatLabels.streamError}</span>
             <span className="agent-chat-system-text">
               {state.streamError.message}
-              {state.streamError.recoverable ? " (retrying)" : ""}
+              {state.streamError.recoverable ? agentChatLabels.streamErrorRetrying : ""}
             </span>
           </div>
         ) : null}
@@ -253,7 +285,7 @@ function Timeline({ state }: { state: ConversationState }) {
             setUnfollowedAtSeq(null);
           }}
         >
-          ↓ Jump to latest
+          {agentChatLabels.jumpToLatest}
         </button>
       ) : null}
     </div>

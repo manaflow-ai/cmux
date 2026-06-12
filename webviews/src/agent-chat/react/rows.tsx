@@ -4,6 +4,7 @@
 
 import { useState } from "react";
 import { renderMarkdownHTML } from "../../agent-session/shared/markdown";
+import { agentChatLabels, imageAttachmentLabel } from "../labels";
 import type { PendingRequest } from "../conversationStore";
 import type { ConversationItem } from "../protocol";
 import {
@@ -77,7 +78,7 @@ function ReasoningRow({ item }: { item: ConversationItem }) {
         <span className="agent-chat-disclosure-chevron" aria-hidden="true">
           {expanded ? "▾" : "▸"}
         </span>
-        <span className="agent-chat-reasoning-label">Reasoning</span>
+        <span className="agent-chat-reasoning-label">{agentChatLabels.reasoning}</span>
         {item.status !== "completed" ? <StatusIndicator status={item.status} /> : null}
       </button>
       {expanded ? (
@@ -94,7 +95,7 @@ function PlanRow({ item }: { item: ConversationItem }) {
   return (
     <div className="agent-chat-row agent-chat-plan-row" {...rowDataProps(item)}>
       <div className="agent-chat-plan-header">
-        <span className="agent-chat-badge">Plan</span>
+        <span className="agent-chat-badge">{agentChatLabels.plan}</span>
         {item.status !== "completed" ? <StatusIndicator status={item.status} /> : null}
       </div>
       <div
@@ -142,11 +143,11 @@ function ToolRow({ item }: { item: ConversationItem }) {
           ) : null}
           {imageCount > 0 ? (
             <div className="agent-chat-tool-images">
-              {imageCount === 1 ? "1 image attachment" : `${imageCount} image attachments`}
+              {imageAttachmentLabel(imageCount)}
             </div>
           ) : null}
           {input === "" && outputText === "" && imageCount === 0 ? (
-            <div className="agent-chat-tool-images">No input or output recorded.</div>
+            <div className="agent-chat-tool-images">{agentChatLabels.noToolPayload}</div>
           ) : null}
         </div>
       ) : null}
@@ -157,12 +158,12 @@ function ToolRow({ item }: { item: ConversationItem }) {
 function SystemRow({ item }: { item: ConversationItem }) {
   const label =
     item.type === "context_compaction"
-      ? "Context compacted"
+      ? agentChatLabels.contextCompacted
       : item.type === "error"
-        ? "Error"
+        ? agentChatLabels.errorRow
         : item.type === "interrupted"
-          ? "Stopped"
-          : "Event";
+          ? agentChatLabels.stoppedRow
+          : agentChatLabels.eventRow;
   return (
     <div
       className={`agent-chat-row agent-chat-system-row${item.type === "error" ? " is-error" : ""}`}
@@ -179,7 +180,7 @@ export function StatusIndicator({ status }: { status: ConversationItem["status"]
     return (
       <output className="agent-chat-status is-in-progress" data-status={status}>
         <span className="agent-chat-spinner" aria-hidden="true" />
-        <span className="agent-chat-visually-hidden">In progress</span>
+        <span className="agent-chat-visually-hidden">{agentChatLabels.statusInProgress}</span>
       </output>
     );
   }
@@ -187,7 +188,13 @@ export function StatusIndicator({ status }: { status: ConversationItem["status"]
     <span
       className={`agent-chat-status is-${status}`}
       data-status={status}
-      aria-label={status === "failed" ? "Failed" : status === "declined" ? "Declined" : "Completed"}
+      aria-label={
+        status === "failed"
+          ? agentChatLabels.statusFailed
+          : status === "declined"
+            ? agentChatLabels.statusDeclined
+            : agentChatLabels.statusCompleted
+      }
     >
       {statusGlyph(status)}
     </span>
@@ -205,10 +212,10 @@ export function TurnSeparator() {
 export function PendingRequestBanner({ request }: { request: PendingRequest }) {
   const label =
     request.request_type === "user_input"
-      ? "Agent is waiting for your input"
+      ? agentChatLabels.waitingForInput
       : request.request_type === "tool_approval"
-        ? "Agent is waiting for permission"
-        : "Agent is waiting";
+        ? agentChatLabels.waitingForPermission
+        : agentChatLabels.waiting;
   return (
     <output
       className="agent-chat-request-banner"
