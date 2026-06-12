@@ -1,6 +1,7 @@
 import CmuxControlSocket
 import Foundation
 import CmuxWorkspaceCore
+import CmuxSidebar
 
 /// The live-app half of the v1 sidebar telemetry/report commands
 /// (`report_git_branch` / `report_pr` / `report_ports` / `report_pwd` /

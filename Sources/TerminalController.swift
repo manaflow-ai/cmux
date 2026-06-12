@@ -12,6 +12,7 @@ import Foundation
 import Bonsplit
 import WebKit
 import CmuxWorkspaceCore
+import CmuxSidebar
 
 extension Notification.Name {
     static let socketListenerDidStart = Notification.Name("cmux.socketListenerDidStart")

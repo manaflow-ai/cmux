@@ -6,6 +6,7 @@ import CmuxProcess
 @testable import cmux_DEV
 #elseif canImport(cmux)
 @testable import cmux
+import CmuxSidebar
 #endif
 
 /// A `CommandRunning` fake that routes each call through a closure, replacing the

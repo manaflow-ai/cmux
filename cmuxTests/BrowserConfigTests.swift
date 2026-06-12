@@ -14,6 +14,7 @@ import CmuxSettings
 @testable import cmux_DEV
 #elseif canImport(cmux)
 @testable import cmux
+import CmuxSidebar
 #endif
 
 var cmuxUnitTestInspectorAssociationKey: UInt8 = 0

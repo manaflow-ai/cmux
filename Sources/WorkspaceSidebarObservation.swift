@@ -1,5 +1,6 @@
 import Combine
 import Foundation
+import CmuxSidebar
 
 private struct SidebarPanelObservationState: Equatable {
     let panelIds: [UUID]

@@ -1,6 +1,7 @@
 import Bonsplit
 import Darwin
 import Foundation
+import CmuxSidebar
 
 extension Workspace {
     private static let structuredAgentHookStatusKeys = AgentHibernationLifecycleStatusKeys.allowedStatusKeys

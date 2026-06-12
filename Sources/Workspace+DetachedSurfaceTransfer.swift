@@ -1,6 +1,7 @@
 import Foundation
 import Darwin
 import CmuxNotifications
+import CmuxSidebar
 
 extension Workspace {
     struct DetachedAgentRuntimeState {
