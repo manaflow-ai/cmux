@@ -2474,7 +2474,8 @@ class GhosttyApp {
     func loadDefaultConfigFilesWithLegacyFallback(
         _ config: ghostty_config_t,
         preferredColorScheme: GhosttyConfig.ColorSchemePreference = GhosttyConfig.currentColorSchemePreference(),
-        conditionalThemeColorScheme: GhosttyConfig.ColorSchemePreference? = nil
+        conditionalThemeColorScheme: GhosttyConfig.ColorSchemePreference? = nil,
+        additionalConfigContents: String? = nil
     ) -> Bool {
         // Surface-only reloads may use a terminal-derived scheme for background
         // handling, while Ghostty split-theme pairs follow app appearance.
@@ -2520,6 +2521,15 @@ class GhosttyApp {
             )
         }
         #endif
+        if let additionalConfigContents,
+           !additionalConfigContents.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            loadInlineGhosttyConfig(
+                additionalConfigContents,
+                into: config,
+                prefix: "cmux-workspace-theme",
+                logLabel: "workspace theme override"
+            )
+        }
         loadCJKFontFallbackIfNeeded(config)
         let renderingModeChanged = setUsesHostLayerBackground(
             true,
@@ -4746,7 +4756,7 @@ class GhosttyApp {
                     )
                 }
                 DispatchQueue.main.async { [self] in
-                    surfaceView.backgroundColor = newColor
+                    surfaceView.setTerminalBackgroundOverride(newColor)
                     surfaceView.applySurfaceBackground()
                     if backgroundLogEnabled {
                         logBackground("OSC background change tab=\(surfaceView.tabId?.uuidString ?? "unknown") color=\(surfaceView.backgroundColor?.description ?? "nil")")
@@ -4761,8 +4771,8 @@ class GhosttyApp {
             return true
         case GHOSTTY_ACTION_CONFIG_CHANGE:
             DispatchQueue.main.async { [self] in
-                if let staleOverride = surfaceView.backgroundColor {
-                    surfaceView.backgroundColor = nil
+                if let staleOverride = surfaceView.terminalBackgroundOverride {
+                    surfaceView.setTerminalBackgroundOverride(nil)
                     if backgroundLogEnabled {
                         logBackground(
                             "surface override cleared tab=\(surfaceView.tabId?.uuidString ?? "nil") surface=\(surfaceView.terminalSurface?.id.uuidString ?? "nil") cleared=\(staleOverride.hexString()) source=action.config_change.surface"
@@ -4809,7 +4819,16 @@ class GhosttyApp {
                     target.target.surface,
                     soft: soft,
                     source: source,
-                    preferredColorScheme: preferredColorScheme
+                    preferredColorScheme: preferredColorScheme,
+                    workspaceTheme: surfaceView.terminalSurface?.workspaceThemeSelection
+                )
+                let workspaceThemeColorScheme = surfaceView.terminalSurface?.workspaceThemeSelection == nil
+                    ? preferredColorScheme
+                    : GhosttyConfig.currentColorSchemePreference()
+                surfaceView.terminalSurface?.hostedView.applyWorkspaceThemeBackground(
+                    selection: surfaceView.terminalSurface?.workspaceThemeSelection,
+                    preferredColorScheme: workspaceThemeColorScheme,
+                    reason: "surface.reloadConfig"
                 )
                 surfaceView.terminalSurface?.hostedView.refreshHostBackgroundAfterGhosttyConfigReload()
                 surfaceView.terminalSurface?.forceRefresh(reason: "surface.reloadConfig")
@@ -5466,6 +5485,10 @@ final class TerminalSurface: Identifiable, ObservableObject {
         var environment = additionalEnvironment
         environment.removeValue(forKey: SessionScrollbackReplayStore.environmentKey)
         return environment
+    }
+    var workspaceThemeSelectionProvider: (() -> WorkspaceGhosttyThemeSelection?)?
+    var workspaceThemeSelection: WorkspaceGhosttyThemeSelection? {
+        workspaceThemeSelectionProvider?()
     }
     let hostedView: GhosttySurfaceScrollView
     private let surfaceView: GhosttyNSView
@@ -6803,6 +6826,22 @@ final class TerminalSurface: Identifiable, ObservableObject {
             lastUncappedPixelHeight = hpx
             lastXScale = scaleFactors.x
             lastYScale = scaleFactors.y
+        }
+
+        if let surface, let workspaceThemeSelection {
+            let workspaceThemeColorScheme = GhosttyConfig.currentColorSchemePreference()
+            GhosttyApp.shared.reloadSurfaceConfiguration(
+                surface,
+                soft: false,
+                source: "surface.create.workspaceTheme",
+                preferredColorScheme: GhosttyApp.shared.effectiveTerminalColorSchemePreference,
+                workspaceTheme: workspaceThemeSelection
+            )
+            hostedView.applyWorkspaceThemeBackground(
+                selection: workspaceThemeSelection,
+                preferredColorScheme: workspaceThemeColorScheme,
+                reason: "surface.create.workspaceTheme"
+            )
         }
 
         // Some GhosttyKit builds can drop inherited font_size during post-create
@@ -8332,7 +8371,17 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     var tabId: UUID?
     var onFocus: (() -> Void)?
     var onTriggerFlash: (() -> Void)?
-    var backgroundColor: NSColor?
+    private(set) var terminalBackgroundOverride: NSColor?
+    private var workspaceThemeBackgroundColor: NSColor?
+    private var workspaceThemeBackgroundOpacity: Double?
+    var backgroundColor: NSColor? {
+        terminalBackgroundOverride ?? workspaceThemeBackgroundColor
+    }
+    private var backgroundOpacity: Double {
+        terminalBackgroundOverride == nil
+            ? workspaceThemeBackgroundOpacity ?? GhosttyApp.shared.defaultBackgroundOpacity
+            : GhosttyApp.shared.defaultBackgroundOpacity
+    }
     private var appliedColorScheme: ghostty_color_scheme_e?
     private var lastLoggedSurfaceBackgroundSignature: String?
     private var lastLoggedWindowBackgroundSignature: String?
@@ -8469,8 +8518,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
 
     private func effectiveBackgroundColor() -> NSColor {
         let base = backgroundColor ?? GhosttyApp.shared.defaultBackgroundColor
-        let opacity = GhosttyApp.shared.defaultBackgroundOpacity
-        return base.withAlphaComponent(opacity)
+        return base.withAlphaComponent(backgroundOpacity)
     }
 
     func applySurfaceBackground() {
@@ -8486,7 +8534,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             renderingMode: renderingMode,
             surfaceBackgroundColor: backgroundColor,
             defaultBackgroundColor: GhosttyApp.shared.defaultBackgroundColor,
-            backgroundOpacity: GhosttyApp.shared.defaultBackgroundOpacity,
+            backgroundOpacity: backgroundOpacity,
             sharesWindowBackdrop: sharesWindowBackdrop,
             usesBonsplitPaneBackdrop: usesBonsplitPaneBackdrop
         )
@@ -8516,6 +8564,19 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
                 )
             }
         }
+    }
+
+    func setTerminalBackgroundOverride(_ color: NSColor?) {
+        terminalBackgroundOverride = color
+        lastLoggedSurfaceBackgroundSignature = nil
+        lastLoggedWindowBackgroundSignature = nil
+    }
+
+    func setWorkspaceThemeBackground(_ color: NSColor?, opacity: Double?) {
+        workspaceThemeBackgroundColor = color
+        workspaceThemeBackgroundOpacity = opacity
+        lastLoggedSurfaceBackgroundSignature = nil
+        lastLoggedWindowBackgroundSignature = nil
     }
 
     // Theme/background application is window-local. During cross-window workspace
@@ -8556,7 +8617,10 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         let color = effectiveBackgroundColor()
         let snapshot = WindowAppearanceSnapshot
             .currentFromUserDefaults(app: GhosttyApp.shared)
-            .replacingTerminalBackgroundColor(backgroundColor ?? GhosttyApp.shared.defaultBackgroundColor)
+            .replacingTerminalBackground(
+                color: backgroundColor ?? GhosttyApp.shared.defaultBackgroundColor,
+                opacity: backgroundOpacity
+            )
         let plan = snapshot.backdropPlan()
         _ = WindowBackdropController.apply(plan: plan, to: window)
         if GhosttyApp.shared.backgroundLogEnabled {
@@ -13789,6 +13853,21 @@ final class GhosttySurfaceScrollView: NSView {
         _ = synchronizeGeometryAndContent()
         surfaceView.applySurfaceBackground()
         surfaceView.applyWindowBackgroundIfActive()
+    }
+
+    func applyWorkspaceThemeBackground(
+        selection: WorkspaceGhosttyThemeSelection?,
+        preferredColorScheme: GhosttyConfig.ColorSchemePreference,
+        reason: String
+    ) {
+        let config = selection?.resolvedGhosttyConfig(preferredColorScheme: preferredColorScheme)
+        surfaceView.setWorkspaceThemeBackground(config?.backgroundColor, opacity: config?.backgroundOpacity)
+        if GhosttyApp.shared.backgroundLogEnabled {
+            GhosttyApp.shared.logBackground(
+                "workspace theme surface background tab=\(surfaceView.tabId?.uuidString ?? "nil") surface=\(surfaceView.terminalSurface?.id.uuidString ?? "nil") reason=\(reason) color=\(config?.backgroundColor.hexString() ?? "nil") opacity=\(config.map { String(format: "%.3f", $0.backgroundOpacity) } ?? "nil")"
+            )
+        }
+        refreshHostBackgroundAfterGhosttyConfigReload()
     }
 
     func reapplySurfaceColorSchemeAfterGhosttyConfigReload(

@@ -240,6 +240,7 @@ extension Workspace {
             customTitle: customTitle,
             customDescription: customDescription,
             customColor: customColor,
+            ghosttyThemeSelection: ghosttyThemeSelection,
             isPinned: isPinned,
             groupId: groupId,
             isManuallyUnread: isWorkspaceManuallyUnread,
@@ -294,6 +295,7 @@ extension Workspace {
         if !normalizedCurrentDirectory.isEmpty {
             currentDirectory = normalizedCurrentDirectory
         }
+        setGhosttyThemeSelection(snapshot.ghosttyThemeSelection, reload: false)
 
         let panelSnapshotsById = Dictionary(uniqueKeysWithValues: snapshot.panels.map { ($0.id, $0) })
         let leafEntries: [SessionPaneRestoreEntry] = {
@@ -10583,6 +10585,7 @@ final class Workspace: Identifiable, ObservableObject {
     /// The group entity itself lives in `TabManager.workspaceGroups`.
     @Published var groupId: UUID?
     @Published var customColor: String?  // hex string, e.g. "#C0392B"
+    private(set) var ghosttyThemeSelection: WorkspaceGhosttyThemeSelection?
     // Legacy in-memory state for old helpers/tests. Product UI, rendering, and
     // session persistence no longer honor per-workspace scrollbar overrides.
     @Published private(set) var terminalScrollBarHidden: Bool = false
@@ -11265,6 +11268,7 @@ final class Workspace: Identifiable, ObservableObject {
         self.title = title
         self.customTitle = nil
         self.customDescription = nil
+        self.ghosttyThemeSelection = nil
 
         let trimmedWorkingDirectory = workingDirectory?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         let hasWorkingDirectory = !trimmedWorkingDirectory.isEmpty
@@ -11681,6 +11685,10 @@ final class Workspace: Identifiable, ObservableObject {
     }
 
     private func configureTerminalPanel(_ terminalPanel: TerminalPanel) {
+        terminalPanel.surface.workspaceThemeSelectionProvider = { [weak self] in
+            self?.ghosttyThemeSelection
+        }
+        applyGhosttyTheme(to: terminalPanel, source: "workspace.configureTerminalPanel.theme")
         terminalPanel.onRequestWorkspacePaneFlash = { [weak self, weak terminalPanel] reason in
             guard let self, let terminalPanel else { return }
             self.triggerWorkspacePaneFlash(panelId: terminalPanel.id, reason: reason)
@@ -12375,6 +12383,85 @@ final class Workspace: Identifiable, ObservableObject {
         } else {
             customColor = nil
         }
+    }
+
+    func setGhosttyThemeSelection(
+        _ selection: WorkspaceGhosttyThemeSelection?,
+        reload: Bool = true
+    ) {
+        let normalized = selection?.isEmpty == true || selection?.isComplete == false ? nil : selection
+        guard ghosttyThemeSelection != normalized else { return }
+        ghosttyThemeSelection = normalized
+        if reload {
+            reloadTerminalGhosttyTheme(source: "workspace.theme.set")
+            NotificationCenter.default.post(name: .workspaceGhosttyThemeDidChange, object: self)
+        }
+    }
+
+    func setGhosttyTheme(_ theme: String) {
+        setGhosttyThemeSelection(.single(theme))
+    }
+
+    func clearGhosttyTheme() {
+        setGhosttyThemeSelection(nil)
+    }
+
+    func reloadTerminalGhosttyTheme(source: String) {
+        for panel in panels.values {
+            guard let terminalPanel = panel as? TerminalPanel else { continue }
+            applyGhosttyTheme(to: terminalPanel, source: source)
+        }
+
+        let preferredColorScheme = workspaceThemeColorSchemePreference()
+        let config = ghosttyAppearanceConfigForWorkspaceTheme(preferredColorScheme: preferredColorScheme)
+        applyGhosttyChrome(from: config, reason: source)
+    }
+
+    private func applyGhosttyTheme(to terminalPanel: TerminalPanel, source: String) {
+        let preferredColorScheme = workspaceThemeColorSchemePreference()
+        let liveSurface = terminalPanel.surface.liveSurfaceForGhosttyAccess(
+            reason: "workspace.applyGhosttyTheme"
+        )
+        guard let liveSurface else {
+            terminalPanel.hostedView.applyWorkspaceThemeBackground(
+                selection: ghosttyThemeSelection,
+                preferredColorScheme: preferredColorScheme,
+                reason: source
+            )
+            return
+        }
+        GhosttyApp.shared.reloadSurfaceConfiguration(
+            liveSurface,
+            soft: false,
+            source: source,
+            preferredColorScheme: preferredColorScheme,
+            workspaceTheme: ghosttyThemeSelection
+        )
+        terminalPanel.hostedView.applyWorkspaceThemeBackground(
+            selection: ghosttyThemeSelection,
+            preferredColorScheme: preferredColorScheme,
+            reason: source
+        )
+        terminalPanel.hostedView.reapplySurfaceColorSchemeAfterGhosttyConfigReload(
+            preferredColorScheme: preferredColorScheme
+        )
+        terminalPanel.hostedView.refreshHostBackgroundAfterGhosttyConfigReload()
+        terminalPanel.surface.forceRefresh(reason: "workspace.theme.reload")
+    }
+
+    private func ghosttyAppearanceConfigForWorkspaceTheme(
+        preferredColorScheme: GhosttyConfig.ColorSchemePreference
+    ) -> GhosttyConfig {
+        if let ghosttyThemeSelection {
+            return ghosttyThemeSelection.resolvedGhosttyConfig(preferredColorScheme: preferredColorScheme)
+        }
+        return GhosttyConfig.load(preferredColorScheme: preferredColorScheme, useCache: false)
+    }
+
+    private func workspaceThemeColorSchemePreference() -> GhosttyConfig.ColorSchemePreference {
+        ghosttyThemeSelection == nil
+            ? GhosttyApp.shared.effectiveTerminalColorSchemePreference
+            : GhosttyConfig.currentColorSchemePreference()
     }
 
     func setTerminalScrollBarHidden(_ hidden: Bool) {

@@ -4067,6 +4067,21 @@ class TabManager: ObservableObject {
         applyWorkspaceColor(color, toWorkspaceIds: workspaceIds)
     }
 
+    func setWorkspaceGhosttyTheme(
+        _ selection: WorkspaceGhosttyThemeSelection?,
+        toWorkspaceIds workspaceIds: [UUID]
+    ) {
+        guard !workspaceIds.isEmpty else { return }
+        let targetIds = Set(workspaceIds)
+        for tab in tabs where targetIds.contains(tab.id) {
+            tab.setGhosttyThemeSelection(selection)
+        }
+    }
+
+    func applyWorkspaceGhosttyTheme(named name: String, toWorkspaceIds workspaceIds: [UUID]) {
+        setWorkspaceGhosttyTheme(.single(name), toWorkspaceIds: workspaceIds)
+    }
+
     func setWorkspaceTerminalScrollBarHidden(tabId: UUID, hidden: Bool) {
         guard let tab = tabs.first(where: { $0.id == tabId }) else { return }
         tab.setTerminalScrollBarHidden(hidden)
@@ -9378,6 +9393,7 @@ extension TabManager {
             hasher.combine(workspace.customTitle ?? "")
             hasher.combine(workspace.customDescription ?? "")
             hasher.combine(workspace.customColor ?? "")
+            hasher.combine(workspace.ghosttyThemeSelection?.rawValue ?? "")
             hasher.combine(workspace.isPinned)
             hasher.combine(workspace.panels.count)
             hasher.combine(workspace.statusEntries.count)
@@ -9984,6 +10000,7 @@ extension Notification.Name {
     /// a grouped anchor's displayed name from `group.name` and refresh on this.
     static let workspaceGroupNameDidChange = Notification.Name("cmux.workspaceGroupNameDidChange")
     static let workspaceCurrentDirectoryDidChange = Notification.Name("cmux.workspaceCurrentDirectoryDidChange")
+    static let workspaceGhosttyThemeDidChange = Notification.Name("cmux.workspaceGhosttyThemeDidChange")
     static let tabManagerFocusHistoryRevisionDidChange = Notification.Name("cmux.tabManagerFocusHistoryRevisionDidChange")
 }
 

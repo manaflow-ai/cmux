@@ -1984,6 +1984,14 @@ class TerminalController {
             return v2Result(id: id, self.v2WorkspacePromptSubmit(params: params))
         case "workspace.rename":
             return v2Result(id: id, self.v2WorkspaceRename(params: params))
+        case "workspace.theme.list":
+            return v2Result(id: id, self.v2WorkspaceThemeList(params: params))
+        case "workspace.theme.get":
+            return v2Result(id: id, self.v2WorkspaceThemeGet(params: params))
+        case "workspace.theme.set":
+            return v2Result(id: id, self.v2WorkspaceThemeSet(params: params))
+        case "workspace.theme.clear":
+            return v2Result(id: id, self.v2WorkspaceThemeClear(params: params))
         case "workspace.group.list":
             return v2Result(id: id, self.v2WorkspaceGroupList(params: params))
         case "workspace.group.create":
@@ -2428,6 +2436,10 @@ class TerminalController {
             "workspace.reorder_many",
             "workspace.prompt_submit",
             "workspace.rename",
+            "workspace.theme.list",
+            "workspace.theme.get",
+            "workspace.theme.set",
+            "workspace.theme.clear",
             "workspace.group.list",
             "workspace.group.create",
             "workspace.group.ungroup",
@@ -4126,6 +4138,7 @@ class TerminalController {
             "remote": workspace.remoteStatusPayload(),
             "current_directory": v2OrNull(workspace.currentDirectory),
             "custom_color": v2OrNull(workspace.customColor),
+            "ghostty_theme": v2WorkspaceGhosttyThemePayload(workspace.ghosttyThemeSelection),
             "latest_conversation_message": v2OrNull(workspace.latestConversationMessage),
             "latest_submitted_message": v2OrNull(workspace.latestSubmittedMessage),
             "latest_submitted_at": v2OrNull(workspace.latestSubmittedAt.map(CmuxEventBus.isoTimestamp))
@@ -4134,6 +4147,16 @@ class TerminalController {
             payload["index"] = index
         }
         return payload
+    }
+
+    private func v2WorkspaceGhosttyThemePayload(_ selection: WorkspaceGhosttyThemeSelection?) -> Any {
+        guard let selection else { return NSNull() }
+        return [
+            "raw_value": v2OrNull(selection.rawValue),
+            "light": v2OrNull(selection.light),
+            "dark": v2OrNull(selection.dark),
+            "display_name": v2OrNull(selection.displayName)
+        ] as [String: Any]
     }
 
     private func v2WorkspaceList(params: [String: Any]) -> V2CallResult {
@@ -4158,6 +4181,99 @@ class TerminalController {
             "window_ref": v2Ref(kind: .window, uuid: windowId),
             "workspaces": workspaces
         ])
+    }
+
+    private func v2WorkspaceThemeList(params _: [String: Any]) -> V2CallResult {
+        let themes = WorkspaceGhosttyThemeCatalog.availableThemeNames()
+        return .ok(["themes": themes.map { ["name": $0] }])
+    }
+
+    private func v2WorkspaceThemeGet(params: [String: Any]) -> V2CallResult {
+        guard let tabManager = v2ResolveTabManager(params: params) else {
+            return .err(code: "unavailable", message: "TabManager not available", data: nil)
+        }
+
+        var result: V2CallResult = .err(code: "not_found", message: "Workspace not found", data: nil)
+        v2MainSync {
+            guard let workspace = v2ResolveWorkspace(params: params, tabManager: tabManager) else { return }
+            result = .ok(v2WorkspaceThemeResponse(workspace: workspace, tabManager: tabManager))
+        }
+        return result
+    }
+
+    private func v2WorkspaceThemeSet(params: [String: Any]) -> V2CallResult {
+        guard let tabManager = v2ResolveTabManager(params: params) else {
+            return .err(code: "unavailable", message: "TabManager not available", data: nil)
+        }
+
+        let rawTheme = v2RawString(params, "theme")?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let rawLight = v2RawString(params, "light")?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let rawDark = v2RawString(params, "dark")?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let availableThemes = WorkspaceGhosttyThemeCatalog.availableThemeNames()
+
+        let selection: WorkspaceGhosttyThemeSelection?
+        if let rawTheme, !rawTheme.isEmpty {
+            guard rawLight?.isEmpty != false, rawDark?.isEmpty != false else {
+                return .err(code: "invalid_params", message: "theme cannot be combined with light or dark", data: nil)
+            }
+            guard let theme = WorkspaceGhosttyThemeCatalog.validatedThemeName(rawTheme, availableThemes: availableThemes) else {
+                return .err(code: "invalid_params", message: "Unknown theme", data: ["theme": rawTheme])
+            }
+            selection = .single(theme)
+        } else {
+            guard rawLight?.isEmpty == false, rawDark?.isEmpty == false else {
+                return .err(code: "invalid_params", message: "light and dark themes must be provided together", data: nil)
+            }
+            let light = rawLight?.isEmpty == false
+                ? WorkspaceGhosttyThemeCatalog.validatedThemeName(rawLight ?? "", availableThemes: availableThemes)
+                : nil
+            let dark = rawDark?.isEmpty == false
+                ? WorkspaceGhosttyThemeCatalog.validatedThemeName(rawDark ?? "", availableThemes: availableThemes)
+                : nil
+            if rawLight?.isEmpty == false, light == nil {
+                return .err(code: "invalid_params", message: "Unknown light theme", data: ["theme": rawLight ?? ""])
+            }
+            if rawDark?.isEmpty == false, dark == nil {
+                return .err(code: "invalid_params", message: "Unknown dark theme", data: ["theme": rawDark ?? ""])
+            }
+            selection = WorkspaceGhosttyThemeSelection(light: light, dark: dark)
+            guard selection?.isEmpty == false else {
+                return .err(code: "invalid_params", message: "Missing theme", data: nil)
+            }
+        }
+
+        var result: V2CallResult = .err(code: "not_found", message: "Workspace not found", data: nil)
+        v2MainSync {
+            guard let workspace = v2ResolveWorkspace(params: params, tabManager: tabManager) else { return }
+            workspace.setGhosttyThemeSelection(selection)
+            result = .ok(v2WorkspaceThemeResponse(workspace: workspace, tabManager: tabManager))
+        }
+        return result
+    }
+
+    private func v2WorkspaceThemeClear(params: [String: Any]) -> V2CallResult {
+        guard let tabManager = v2ResolveTabManager(params: params) else {
+            return .err(code: "unavailable", message: "TabManager not available", data: nil)
+        }
+
+        var result: V2CallResult = .err(code: "not_found", message: "Workspace not found", data: nil)
+        v2MainSync {
+            guard let workspace = v2ResolveWorkspace(params: params, tabManager: tabManager) else { return }
+            workspace.clearGhosttyTheme()
+            result = .ok(v2WorkspaceThemeResponse(workspace: workspace, tabManager: tabManager))
+        }
+        return result
+    }
+
+    private func v2WorkspaceThemeResponse(workspace: Workspace, tabManager: TabManager) -> [String: Any] {
+        let windowId = v2ResolveWindowId(tabManager: tabManager)
+        return [
+            "window_id": v2OrNull(windowId?.uuidString),
+            "window_ref": v2Ref(kind: .window, uuid: windowId),
+            "workspace_id": workspace.id.uuidString,
+            "workspace_ref": v2Ref(kind: .workspace, uuid: workspace.id),
+            "ghostty_theme": v2WorkspaceGhosttyThemePayload(workspace.ghosttyThemeSelection)
+        ]
     }
 
     private nonisolated func v2CustomSidebarValidate(params: [String: Any]) -> V2CallResult {

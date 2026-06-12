@@ -1147,6 +1147,7 @@ struct ContentView: View {
     @State private var commandPaletteResolvedSearchFingerprint: Int?
     @State private var commandPaletteResolvedMatchingQuery = ""
     @State private var commandPaletteTerminalOpenTargetAvailability: Set<TerminalDirectoryOpenTarget> = []
+    @State private var commandPaletteWorkspaceGhosttyThemeNames: [String] = []
     @State private var commandPaletteForkableAgentActivePanelKey: String?
     @State private var commandPaletteForkableAgentProbeIDsByPanelKey: [String: UUID] = [:]
     @State var commandPaletteForkableAgentSupportedPanelKeys: Set<String> = []
@@ -2855,6 +2856,9 @@ struct ContentView: View {
             applyUITestSidebarSelectionIfNeeded(tabs: tabManager.tabs)
             updateTitlebarText()
             syncTrafficLightInset()
+            Task {
+                await refreshCommandPaletteWorkspaceGhosttyThemeNames()
+            }
 
             // Startup recovery (#399): if session restore or a race condition leaves the
             // view in a broken state (empty tabs, no selection, unmounted workspaces),
@@ -2984,6 +2988,12 @@ struct ContentView: View {
                 backgroundSource: source,
                 notificationPayloadHex: payloadHex
             )
+        })
+
+        view = AnyView(view.onReceive(NotificationCenter.default.publisher(for: .ghosttyConfigDidReload)) { _ in
+            Task {
+                await refreshCommandPaletteWorkspaceGhosttyThemeNames()
+            }
         })
 
         view = AnyView(view.onReceive(NotificationCenter.default.publisher(for: .ghosttyDidFocusTab)) { _ in
@@ -6466,6 +6476,24 @@ struct ContentView: View {
         }
     }
 
+    private func refreshCommandPaletteWorkspaceGhosttyThemeNames() async {
+        let names = await Task.detached(priority: .utility) {
+            WorkspaceGhosttyThemeCatalog.availableThemeNames()
+        }.value
+        guard names != commandPaletteWorkspaceGhosttyThemeNames else { return }
+
+        commandPaletteWorkspaceGhosttyThemeNames = names
+        cachedCommandPaletteFingerprint = nil
+        if isCommandPalettePresented {
+            scheduleCommandPaletteResultsRefresh(
+                forceSearchCorpusRefresh: true,
+                preservePendingActivation: true
+            )
+            syncCommandPaletteOverlayCommandListState()
+            syncCommandPaletteDebugStateForObservedWindow()
+        }
+    }
+
     private func commandPaletteCommandsContext(
         terminalOpenTargets: Set<TerminalDirectoryOpenTarget>
     ) -> CommandPaletteCommandsContext {
@@ -6790,6 +6818,13 @@ struct ContentView: View {
                     defaultValue: "Workspace Color: \(paletteName)"
                 )
             }
+        }
+
+        func workspaceGhosttyThemeCommandTitle(_ themeName: String) -> String {
+            String(
+                localized: "command.workspaceGhosttyTheme.named",
+                defaultValue: "Workspace Theme: \(themeName)"
+            )
         }
 
         var contributions: [CommandPaletteCommandContribution] = []
@@ -7206,6 +7241,26 @@ struct ContentView: View {
                     title: constant(workspaceColorCommandTitle(entry.name)),
                     subtitle: workspaceSubtitle,
                     keywords: ["workspace", "color", "palette", entry.name.lowercased()],
+                    when: { $0.bool(CommandPaletteContextKeys.hasWorkspace) }
+                )
+            )
+        }
+        contributions.append(
+            CommandPaletteCommandContribution(
+                commandId: "palette.resetWorkspaceGhosttyTheme",
+                title: constant(String(localized: "command.resetWorkspaceGhosttyTheme.title", defaultValue: "Reset Workspace Theme")),
+                subtitle: workspaceSubtitle,
+                keywords: ["workspace", "ghostty", "theme", "reset", "clear"],
+                when: { $0.bool(CommandPaletteContextKeys.hasWorkspace) }
+            )
+        )
+        for themeName in commandPaletteWorkspaceGhosttyThemeNames {
+            contributions.append(
+                CommandPaletteCommandContribution(
+                    commandId: commandPaletteWorkspaceGhosttyThemeCommandID(themeName),
+                    title: constant(workspaceGhosttyThemeCommandTitle(themeName)),
+                    subtitle: workspaceSubtitle,
+                    keywords: ["workspace", "ghostty", "theme", themeName.lowercased()],
                     when: { $0.bool(CommandPaletteContextKeys.hasWorkspace) }
                 )
             )
@@ -7933,6 +7988,15 @@ struct ContentView: View {
         return "palette.workspaceColor.\(String(hash, radix: 16))"
     }
 
+    private func commandPaletteWorkspaceGhosttyThemeCommandID(_ themeName: String) -> String {
+        var hash: UInt64 = 1_469_598_103_934_665_603
+        for byte in themeName.utf8 {
+            hash ^= UInt64(byte)
+            hash &*= 1_099_511_628_211
+        }
+        return "palette.workspaceGhosttyTheme.\(String(hash, radix: 16))"
+    }
+
     private func commandPaletteExtensionSidebarCommandID(_ providerId: String) -> String {
         var hash: UInt64 = 1_469_598_103_934_665_603
         for byte in providerId.utf8 {
@@ -8236,6 +8300,22 @@ struct ContentView: View {
                     return
                 }
                 tabManager.applyWorkspacePaletteColor(named: entry.name, toWorkspaceIds: [workspace.id])
+            }
+        }
+        registry.register(commandId: "palette.resetWorkspaceGhosttyTheme") {
+            guard let workspace = tabManager.selectedWorkspace else {
+                NSSound.beep()
+                return
+            }
+            tabManager.setWorkspaceGhosttyTheme(nil, toWorkspaceIds: [workspace.id])
+        }
+        for themeName in commandPaletteWorkspaceGhosttyThemeNames {
+            registry.register(commandId: commandPaletteWorkspaceGhosttyThemeCommandID(themeName)) {
+                guard let workspace = tabManager.selectedWorkspace else {
+                    NSSound.beep()
+                    return
+                }
+                tabManager.applyWorkspaceGhosttyTheme(named: themeName, toWorkspaceIds: [workspace.id])
             }
         }
         registry.register(commandId: "palette.nextWorkspace") {
@@ -10652,6 +10732,8 @@ struct VerticalTabsSidebar: View {
     @State private var collapsedExtensionSidebarSectionIds: Set<String> = []
     @State private var extensionSidebarWorktreeCreationInFlightSectionIds: Set<String> = []
     @State private var extensionSidebarUpdateToken: UInt64 = 0
+    @State private var workspaceGhosttyThemeNames: [String] = []
+    @State private var workspaceGhosttyThemeNamesRevision: UInt64 = 0
     /// Bumped whenever any workspace's currentDirectory changes; the group
     /// header's resolved cwd-based config (color/icon/context menu /
     /// newWorkspacePlacement) reads it through the body, so a state
@@ -11003,6 +11085,8 @@ struct VerticalTabsSidebar: View {
         let workspaceGroups: [WorkspaceGroup]
         let workspaceGroupById: [UUID: WorkspaceGroup]
         let workspaceGroupMenuSnapshot: WorkspaceGroupMenuSnapshot
+        let workspaceGhosttyThemeNames: [String]
+        let workspaceGhosttyThemeNamesRevision: UInt64
         let workspaceRenderItems: [SidebarWorkspaceRenderItem]
         let visibleWorkspaceRowIds: [UUID]
 
@@ -11035,6 +11119,8 @@ struct VerticalTabsSidebar: View {
         let workspaceGroupMenuSnapshot = WorkspaceGroupMenuSnapshot(
             items: workspaceGroups.map { WorkspaceGroupMenuSnapshot.Item(id: $0.id, name: $0.name) }
         )
+        let workspaceGhosttyThemeNamesSnapshot = workspaceGhosttyThemeNames
+        let workspaceGhosttyThemeNamesRevisionSnapshot = workspaceGhosttyThemeNamesRevision
         let workspaceRenderItems = SidebarWorkspaceRenderItem.renderItems(
             tabs: tabs,
             groupsById: workspaceGroupById
@@ -11065,6 +11151,8 @@ struct VerticalTabsSidebar: View {
             workspaceGroups: workspaceGroups,
             workspaceGroupById: workspaceGroupById,
             workspaceGroupMenuSnapshot: workspaceGroupMenuSnapshot,
+            workspaceGhosttyThemeNames: workspaceGhosttyThemeNamesSnapshot,
+            workspaceGhosttyThemeNamesRevision: workspaceGhosttyThemeNamesRevisionSnapshot,
             workspaceRenderItems: workspaceRenderItems,
             visibleWorkspaceRowIds: visibleWorkspaceRowIds
         )
@@ -11105,6 +11193,14 @@ struct VerticalTabsSidebar: View {
                 tabId: nil,
                 reason: "sidebar_appear"
             )
+        }
+        .task {
+            await refreshWorkspaceGhosttyThemeNames()
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .ghosttyConfigDidReload)) { _ in
+            Task {
+                await refreshWorkspaceGhosttyThemeNames()
+            }
         }
         .onDisappear {
             modifierKeyMonitor.stop()
@@ -11361,6 +11457,15 @@ struct VerticalTabsSidebar: View {
                 }
             }
         }
+    }
+
+    private func refreshWorkspaceGhosttyThemeNames() async {
+        let names = await Task.detached(priority: .utility) {
+            WorkspaceGhosttyThemeCatalog.availableThemeNames()
+        }.value
+        guard names != workspaceGhosttyThemeNames else { return }
+        workspaceGhosttyThemeNames = names
+        workspaceGhosttyThemeNamesRevision &+= 1
     }
 
     // Applies one stable overlay/autohide scroller config and never toggles it.
@@ -12756,6 +12861,8 @@ struct VerticalTabsSidebar: View {
             allRemoteContextMenuTargetsDisconnected: allRemoteContextMenuTargetsDisconnected,
             contextMenuPinState: contextMenuPinState,
             workspaceGroupMenuSnapshot: renderContext.workspaceGroupMenuSnapshot,
+            workspaceGhosttyThemeNames: renderContext.workspaceGhosttyThemeNames,
+            workspaceGhosttyThemeNamesRevision: renderContext.workspaceGhosttyThemeNamesRevision,
             settings: renderContext.tabItemSettings,
             onContextMenuAppear: onContextMenuAppear,
             onContextMenuDisappear: onContextMenuDisappear
@@ -15263,6 +15370,7 @@ struct TabItemView: View, Equatable {
         lhs.allRemoteContextMenuTargetsDisconnected == rhs.allRemoteContextMenuTargetsDisconnected &&
         lhs.contextMenuPinState == rhs.contextMenuPinState &&
         lhs.workspaceGroupMenuSnapshot == rhs.workspaceGroupMenuSnapshot &&
+        lhs.workspaceGhosttyThemeNamesRevision == rhs.workspaceGhosttyThemeNamesRevision &&
         lhs.isBeingDragged == rhs.isBeingDragged &&
         lhs.topDropIndicatorVisible == rhs.topDropIndicatorVisible &&
         lhs.settings == rhs.settings
@@ -15308,6 +15416,8 @@ struct TabItemView: View, Equatable {
     let allRemoteContextMenuTargetsDisconnected: Bool
     let contextMenuPinState: WorkspaceActionDispatcher.PinState?
     let workspaceGroupMenuSnapshot: WorkspaceGroupMenuSnapshot
+    let workspaceGhosttyThemeNames: [String]
+    let workspaceGhosttyThemeNamesRevision: UInt64
     let settings: SidebarTabItemSettingsSnapshot
     /// Called from this row's contextMenu.onAppear so the parent can freeze
     /// `showsModifierShortcutHints` to the value it last passed in. Prevents
@@ -16296,6 +16406,33 @@ struct TabItemView: View, Equatable {
             }
         }
 
+        Menu(String(localized: "contextMenu.workspaceGhosttyTheme", defaultValue: "Workspace Theme")) {
+            if tab.ghosttyThemeSelection != nil {
+                Button {
+                    applyWorkspaceGhosttyTheme(nil, targetIds: targetIds)
+                } label: {
+                    Label(String(localized: "contextMenu.clearWorkspaceGhosttyTheme", defaultValue: "Clear Theme"), systemImage: "xmark.circle")
+                }
+            }
+
+            let themeNames = workspaceGhosttyThemeNames
+            if themeNames.isEmpty {
+                Text(String(localized: "contextMenu.noGhosttyThemesFound", defaultValue: "No themes found"))
+            } else {
+                ForEach(themeNames, id: \.self) { themeName in
+                    Button {
+                        applyWorkspaceGhosttyTheme(.single(themeName), targetIds: targetIds)
+                    } label: {
+                        if tab.ghosttyThemeSelection?.displayName == themeName {
+                            Label(themeName, systemImage: "checkmark")
+                        } else {
+                            Text(themeName)
+                        }
+                    }
+                }
+            }
+        }
+
         if let copyableSidebarSSHError = workspaceSnapshot.copyableSidebarSSHError {
             Button(String(localized: "contextMenu.copySshError", defaultValue: "Copy SSH Error")) {
                 WorkspaceSurfaceIdentifierClipboardText.copy(copyableSidebarSSHError)
@@ -17101,6 +17238,10 @@ struct TabItemView: View, Equatable {
 
     private func applyTabColor(_ hex: String?, targetIds: [UUID]) {
         tabManager.applyWorkspaceColor(hex, toWorkspaceIds: targetIds)
+    }
+
+    private func applyWorkspaceGhosttyTheme(_ selection: WorkspaceGhosttyThemeSelection?, targetIds: [UUID]) {
+        tabManager.setWorkspaceGhosttyTheme(selection, toWorkspaceIds: targetIds)
     }
 
     private func promptCustomColor(targetIds: [UUID]) {

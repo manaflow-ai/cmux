@@ -5544,7 +5544,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                         surface,
                         soft: soft,
                         source: source,
-                        preferredColorScheme: preferredColorScheme
+                        preferredColorScheme: preferredColorScheme,
+                        workspaceTheme: terminalPanel.surface.workspaceThemeSelection
                     )
                 },
                 applySurfaceColorScheme: {
@@ -5553,6 +5554,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                     )
                 },
                 refreshHostBackground: {
+                    let workspaceThemeSelection = terminalPanel.surface.workspaceThemeSelection
+                    let workspaceThemeColorScheme = workspaceThemeSelection == nil
+                        ? preferredColorScheme
+                        : GhosttyConfig.currentColorSchemePreference()
+                    terminalPanel.hostedView.applyWorkspaceThemeBackground(
+                        selection: workspaceThemeSelection,
+                        preferredColorScheme: workspaceThemeColorScheme,
+                        reason: source
+                    )
                     terminalPanel.hostedView.refreshHostBackgroundAfterGhosttyConfigReload()
                 },
                 forceRefresh: { reason in
