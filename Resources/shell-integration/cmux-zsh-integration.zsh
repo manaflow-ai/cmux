@@ -263,7 +263,7 @@ _cmux_install_cli_wrapper() {
     local wrapper_path="$bundle_dir/bin/$wrapper_file"
     [[ -x "$wrapper_path" ]] || return 0
 
-    existing_type="$(builtin whence -w "$command_name" 2>/dev/null)"
+    existing_type="$(builtin whence -w "$command_name" 2>/dev/null || true)"
     typeset -g "$wrapper_variable=$wrapper_path"
     if [[ "$command_name" == "claude" ]]; then
         _cmux_install_cli_command_shim "$command_name" "$wrapper_path"
