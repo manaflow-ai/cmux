@@ -74,6 +74,23 @@ jobs:
       - name: Install dependencies
         run: bun install --frozen-lockfile
 
+      - name: Check Cloudflare secrets
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          missing=()
+          [ -n "$CLOUDFLARE_API_TOKEN" ] || missing+=(CLOUDFLARE_API_TOKEN)
+          [ -n "$CLOUDFLARE_ACCOUNT_ID" ] || missing+=(CLOUDFLARE_ACCOUNT_ID)
+          if [ "${#missing[@]}" -gt 0 ]; then
+            echo "::error::Presence deploy needs repository secrets ${missing[*]}." \
+              "This is the one manual setup step: create an API token with" \
+              "Workers Scripts:Edit on the Cloudflare account and add both" \
+              "secrets in repo Settings -> Secrets and variables -> Actions" \
+              "(see workers/presence/README.md, Deploy)."
+            exit 1
+          fi
+
       - name: Deploy (applies DO migrations atomically)
         run: bunx wrangler deploy
         env:

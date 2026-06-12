@@ -115,15 +115,23 @@ dev Mac build at it.
 
 ## Clients
 
-- **Mac sender** (`Sources/Cloud/PresenceHeartbeatClient.swift`): flagged off
-  by default (`presenceHeartbeatEnabled` + `presenceServiceURL` defaults
-  keys), follows the `DeviceRegistryClient` / `PhonePushClient` pattern: same
-  device UUID, same tag, best-effort, never disturbs the Mac. Sends a goodbye
-  on clean app termination.
+- **Mac sender** (`Sources/Cloud/PresenceHeartbeatClient.swift`): Debug builds
+  default on against the dev instance (dev Stack identity); Release defaults
+  off until the production worker URL ships with its Settings surface. Both
+  are explicitly overridable (`presenceHeartbeatEnabled` +
+  `presenceServiceURL` / `CMUX_PRESENCE_BASE_URL`). Follows the
+  `DeviceRegistryClient` / `PhonePushClient` pattern: same device UUID, same
+  tag, best-effort, never disturbs the Mac. Every beat carries the full
+  current attach-route set, a route change triggers one immediate
+  out-of-cadence beat, and a clean quit sends a goodbye.
 - **iOS** (`Packages/CmuxMobileShell/Sources/CmuxMobileShell/PresenceClient.swift`):
-  typed wire models + a WebSocket subscribe stub for the device tree
-  (https://github.com/manaflow-ai/cmux/pull/5648). Wiring presence dots into
-  the device tree UI is a follow-up.
+  typed WebSocket subscribe client. `MobileShellComposite` owns the
+  subscription (starts on sign-in, blanks and stops on sign-out, backoff
+  reconnect with snapshot-first resync), reduces frames into `PresenceMap`,
+  overlays live online/offline on the device tree
+  (https://github.com/manaflow-ai/cmux/pull/5648) rows, writes pushed routes
+  through to the paired-Mac store, and kicks a reconnect when the active Mac
+  comes online while the phone is disconnected.
 
 ## Local development
 
