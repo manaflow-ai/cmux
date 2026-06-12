@@ -1616,23 +1616,16 @@ private struct TerminalSurfaceRuntimeTeardownRequest: @unchecked Sendable {
 private actor TerminalSurfaceRuntimeTeardownCoordinator {
     static let shared = TerminalSurfaceRuntimeTeardownCoordinator()
 
-    private let timeout: Duration = .seconds(5)
-    private var pendingReasonsById: [UUID: String] = [:]
     private var queuedRequests: [TerminalSurfaceRuntimeTeardownRequest] = []
     private var isWorkerRunning = false
 
     func enqueue(_ request: TerminalSurfaceRuntimeTeardownRequest) {
-        pendingReasonsById[request.id] = request.reason
         queuedRequests.append(request)
         if !isWorkerRunning {
             isWorkerRunning = true
             Task.detached(priority: .utility) {
                 while let request = await self.nextRequestForWorker() {
-                    Task {
-                        await self.observeTimeout(id: request.id)
-                    }
                     await Self.free(request)
-                    await self.complete(id: request.id)
                 }
             }
         }
@@ -1663,26 +1656,6 @@ private actor TerminalSurfaceRuntimeTeardownCoordinator {
         cmuxDebugLog(
             "surface.lifecycle.nativeFree.end surface=\(request.surfaceToken) " +
             "workspace=\(request.workspaceToken) reason=\(request.reason)"
-        )
-#endif
-    }
-
-    private func complete(id: UUID) {
-        pendingReasonsById.removeValue(forKey: id)
-    }
-
-    private func observeTimeout(id: UUID) async {
-        do {
-            // Genuine teardown deadline: report a stuck native free without blocking close.
-            try await Task.sleep(for: timeout)
-        } catch {
-            return
-        }
-        guard let reason = pendingReasonsById[id] else { return }
-#if DEBUG
-        cmuxDebugLog(
-            "surface.lifecycle.nativeFree.timeout surface=\(id.uuidString.prefix(5)) " +
-            "reason=\(reason)"
         )
 #endif
     }
@@ -4682,11 +4655,20 @@ class GhosttyApp {
             }
             return true
         case GHOSTTY_ACTION_SET_TITLE:
-            let title = action.action.set_title.title
+            let rawTitle = action.action.set_title.title
                 .flatMap { String(cString: $0) } ?? ""
+            let title = GhosttyNSView.normalizedTerminalTitleForNotification(rawTitle)
             if let tabId = surfaceView.tabId,
                let surfaceId = surfaceView.terminalSurface?.id {
-                DispatchQueue.main.async {
+                DispatchQueue.main.async { [weak surfaceView] in
+                    guard let surfaceView else { return }
+                    guard surfaceView.shouldPostTerminalTitleNotification(
+                        tabId: tabId,
+                        surfaceId: surfaceId,
+                        title: title
+                    ) else {
+                        return
+                    }
                     NotificationCenter.default.post(
                         name: .ghosttyDidSetTitle,
                         object: surfaceView,
@@ -5534,6 +5516,7 @@ final class TerminalSurface: Identifiable, ObservableObject {
 #if DEBUG
     private var needsConfirmCloseOverrideForTesting: Bool?
     private var runtimeSurfaceFreedOutOfBandForTesting = false
+    private var runtimeSurfaceInstalledForTesting = false
     private var runtimeSurfaceCreateAttemptCountForTesting = 0
     private let debugForceRefreshCountLock = NSLock()
     private var debugForceRefreshCountValue = 0
@@ -5894,6 +5877,9 @@ final class TerminalSurface: Identifiable, ObservableObject {
             mobileByteTeeContext = nil
             registry.unregisterRuntimeSurface(surface, ownerId: id)
             self.surface = nil
+#if DEBUG
+            runtimeSurfaceInstalledForTesting = false
+#endif
             activePortalHostLease = nil
             recordTeardownRequest(reason: reason)
             markPortalLifecycleClosed(reason: reason)
@@ -6169,6 +6155,9 @@ final class TerminalSurface: Identifiable, ObservableObject {
             TerminalSurfaceRegistry.shared.unregisterRuntimeSurface(surfaceToFree, ownerId: id)
         }
         surface = nil
+#if DEBUG
+        runtimeSurfaceInstalledForTesting = false
+#endif
 
         guard let surfaceToFree else {
             callbackContext?.release()
@@ -6227,6 +6216,9 @@ final class TerminalSurface: Identifiable, ObservableObject {
             TerminalSurfaceRegistry.shared.unregisterRuntimeSurface(surfaceToFree, ownerId: id)
         }
         surface = nil
+#if DEBUG
+        runtimeSurfaceInstalledForTesting = false
+#endif
         activePortalHostLease = nil
         pendingSocketInputQueue.removeAll(keepingCapacity: false)
         pendingSocketInputBytes = 0
@@ -6705,6 +6697,9 @@ final class TerminalSurface: Identifiable, ObservableObject {
             } else {
                 self.surface = ghostty_surface_new(app, &surfaceConfig)
             }
+#if DEBUG
+            runtimeSurfaceInstalledForTesting = false
+#endif
         }
 
         let resolvedWorkingDirectory: String? = {
@@ -7208,6 +7203,9 @@ final class TerminalSurface: Identifiable, ObservableObject {
 
     func setOcclusion(_ visible: Bool) {
         guard let surface = surface else { return }
+#if DEBUG
+        guard !runtimeSurfaceInstalledForTesting else { return }
+#endif
         ghostty_surface_set_occlusion(surface, visible)
     }
 
@@ -8182,6 +8180,7 @@ final class TerminalSurface: Identifiable, ObservableObject {
 
         TerminalSurfaceRegistry.shared.unregisterRuntimeSurface(surfaceToFree, ownerId: id)
         surface = nil
+        runtimeSurfaceInstalledForTesting = false
         ghostty_surface_free(surfaceToFree)
         callbackContext?.release()
     }
@@ -8203,6 +8202,7 @@ final class TerminalSurface: Identifiable, ObservableObject {
         TerminalSurfaceRegistry.shared.unregisterRuntimeSurface(surfaceToFree, ownerId: id)
         ghostty_surface_free(surfaceToFree)
         runtimeSurfaceFreedOutOfBandForTesting = true
+        runtimeSurfaceInstalledForTesting = false
         callbackContext?.release()
     }
 
@@ -8211,6 +8211,7 @@ final class TerminalSurface: Identifiable, ObservableObject {
         surface = runtimeSurface
         portalLifecycleState = .live
         runtimeSurfaceFreedOutOfBandForTesting = false
+        runtimeSurfaceInstalledForTesting = true
     }
 #endif
 
@@ -8247,6 +8248,9 @@ final class TerminalSurface: Identifiable, ObservableObject {
             TerminalSurfaceRegistry.shared.unregisterRuntimeSurface(surfaceToFree, ownerId: id)
         }
         surface = nil
+#if DEBUG
+        runtimeSurfaceInstalledForTesting = false
+#endif
 
         guard let surfaceToFree else {
 #if DEBUG
@@ -8368,10 +8372,40 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     private var _pendingScrollbar: GhosttyScrollbar?
     private var _scrollbarFlushScheduled = false
     private let _scrollbarLock = NSLock()
+    private struct PostedTerminalTitleNotification: Equatable {
+        let tabId: UUID
+        let surfaceId: UUID
+        let title: String
+    }
+
+    private var _lastPostedTerminalTitleNotification: PostedTerminalTitleNotification?
     private var _renderedFrameFlushScheduled = false
     private let _renderedFrameLock = NSLock()
     var cellSize: CGSize = .zero
     private var lastKnownMousePointInView: NSPoint?
+
+    private static let volatileTitleSpinnerCharacters: Set<Character> = [
+        "⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"
+    ]
+
+    static func normalizedTerminalTitleForNotification(_ title: String) -> String {
+        guard let first = title.first,
+              volatileTitleSpinnerCharacters.contains(first) else {
+            return title
+        }
+        let afterSpinner = title.dropFirst()
+        guard afterSpinner.first == " " else { return title }
+        let normalized = afterSpinner.drop { $0 == " " }
+        return normalized.isEmpty ? title : String(normalized)
+    }
+
+    func shouldPostTerminalTitleNotification(tabId: UUID, surfaceId: UUID, title: String) -> Bool {
+        assert(Thread.isMainThread)
+        let next = PostedTerminalTitleNotification(tabId: tabId, surfaceId: surfaceId, title: title)
+        guard _lastPostedTerminalTitleNotification != next else { return false }
+        _lastPostedTerminalTitleNotification = next
+        return true
+    }
 
     static func retainRenderedFrameNotifications() -> () -> Void {
         GhosttyRenderedFrameNotificationDemand.retain()
@@ -14129,7 +14163,7 @@ final class GhosttySurfaceScrollView: NSView {
         }
     }
 
-    func setVisibleInUI(_ visible: Bool) {
+    func setVisibleInUI(_ visible: Bool, updateRuntimeOcclusion: Bool = true) {
         let wasVisible = surfaceView.isVisibleInUI
         // Record portal visibility for renderer reclamation. When becoming
         // visible, re-realize the GPU renderer BEFORE marking the surface
@@ -14143,7 +14177,9 @@ final class GhosttySurfaceScrollView: NSView {
         }
         surfaceView.setVisibleInUI(visible)
         isHidden = !visible
-        if wasVisible != visible, lastRequestedPortalOcclusionVisible != visible {
+        if updateRuntimeOcclusion,
+           wasVisible != visible,
+           lastRequestedPortalOcclusionVisible != visible {
             lastRequestedPortalOcclusionVisible = visible
             surfaceView.terminalSurface?.setOcclusion(visible)
         }

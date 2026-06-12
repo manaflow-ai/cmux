@@ -761,26 +761,11 @@ extension Workspace {
                 anchorPanelId: fallbackAnchorPanelId
             )
         }
-        // Prefer the warm cached agent index over a synchronous
-        // `RestorableAgentSessionIndex.load()` (sysctl-per-record + disk, ~350ms-1.8s on
-        // machines with large agent history) so closing a tab does not freeze the main
-        // thread. Fall back to a fresh load only when the cache has not loaded yet (the
-        // brief window after launch before the first refresh completes; the cache is
-        // prewarmed at launch so this is rare). A cached entry at most one refresh stale
-        // is acceptable here because restore prefers the always-fresh in-memory
-        // resumeBinding and only consults this agent snapshot when no binding exists, so
-        // cmux-launched agents reopen correctly regardless of cache freshness.
-        let agentIndex = SharedLiveAgentIndex.shared.currentIndexSchedulingRefresh()
-            ?? RestorableAgentSessionIndex.load()
-        let restorableAgent = agentIndex.snapshot(workspaceId: id, panelId: panelId)
         guard let snapshot = sessionPanelSnapshot(
             panelId: panelId,
             includeScrollback: true,
-            restorableAgent: restorableAgent,
-            resumeBinding: effectiveSurfaceResumeBinding(
-                panelId: panelId,
-                surfaceResumeBindingIndex: nil
-            )
+            restorableAgent: nil,
+            resumeBinding: cachedSurfaceResumeBinding(panelId: panelId)
         ) else {
             return nil
         }
@@ -816,8 +801,32 @@ extension Workspace {
         guard let entry = closedPanelHistoryEntry(panelId: panelId, tabId: tab.id, pane: pane) else {
             return false
         }
-        ClosedItemHistoryStore.shared.push(.panel(entry))
+        pushClosedPanelHistoryUsingCachedResumeMetadata(entry)
         return true
+    }
+
+    private func pushClosedPanelHistoryUsingCachedResumeMetadata(_ entry: ClosedPanelHistoryEntry) {
+        let restorableAgentIndex = SharedLiveAgentIndex.shared.currentIndexSchedulingRefresh()
+        pushClosedPanelHistory(entry, restorableAgentIndex: restorableAgentIndex)
+    }
+
+    private func pushClosedPanelHistory(
+        _ entry: ClosedPanelHistoryEntry,
+        restorableAgentIndex: RestorableAgentSessionIndex
+    ) {
+        let snapshot = entry.snapshot.applyingRestorableAgentIndex(
+            restorableAgentIndex,
+            workspaceId: entry.workspaceId
+        )
+        ClosedItemHistoryStore.shared.push(.panel(ClosedPanelHistoryEntry(
+            workspaceId: entry.workspaceId,
+            paneId: entry.paneId,
+            paneAnchorPanelId: entry.paneAnchorPanelId,
+            restoreInOriginalPane: entry.restoreInOriginalPane,
+            tabIndex: entry.tabIndex,
+            snapshot: snapshot,
+            fallbackSplitPlacement: entry.fallbackSplitPlacement
+        )))
     }
 
     @discardableResult
@@ -1628,6 +1637,10 @@ extension Workspace {
         if storedBinding.shouldYieldToDetectedSurfaceResumeBinding(detectedBinding) { return detectedBinding }
         if storedBinding.isProcessDetected { return nil }
         return storedBinding
+    }
+
+    func cachedSurfaceResumeBinding(panelId: UUID) -> SurfaceResumeBindingSnapshot? {
+        surfaceResumeBindingsByPanelId[panelId]
     }
 
     private func createPanel(
@@ -10393,18 +10406,17 @@ struct ClosedBrowserPanelRestoreSnapshot {
     }
 }
 
-/// Process-wide, event-driven cache of `RestorableAgentSessionIndex.load()` results, used
-/// by the right-click "Fork Conversation" availability check and the close-history undo
-/// snapshot. `load()` runs `sysctl(KERN_PROCARGS2)` per hook record plus disk reads
-/// (350ms-1.8s on large agent histories), far too expensive to do synchronously on the
-/// main actor, so reloads run on a `Task.detached(priority: .utility)` and callers read
-/// the cached snapshot synchronously.
+/// Process-wide, event-driven cache of restorable agent session snapshots, used by the
+/// right-click "Fork Conversation" availability check and close-history undo snapshots.
+/// Refreshes run on a `Task.detached(priority: .utility)` and use stale-tolerant metadata:
+/// agent `--resume` / `--fork-session` paths read transcripts from disk and don't care
+/// whether the cmux-recorded PID is still alive. Keeping this stale-tolerant avoids
+/// repeated process-argument probes while SwiftUI evaluates menu availability.
 ///
 /// Freshness is driven by a watcher on the hook-store directory (`~/.cmuxterm`), which the
 /// `cmux hooks` CLI writes when an agent session starts or updates. The cache reloads
 /// shortly after an actual change (coalesced + rate-limited) and otherwise idles, with a
-/// long fallback TTL for pull access. This replaced a 1s pull TTL that reloaded
-/// near-continuously while the sidebar was visible, because each load outlasts a 1s TTL.
+/// long fallback TTL for pull access.
 ///
 /// `ObservableObject` conformance lets each workspace forward `objectWillChange` when a
 /// reload lands so ContentView re-renders and bonsplit's TabBarView picks up the new
@@ -10438,14 +10450,14 @@ final class SharedLiveAgentIndex: ObservableObject {
         return index?.snapshot(workspaceId: workspaceId, panelId: panelId)
     }
 
-    /// Current cached index. Never blocks. Used by the close-history undo snapshot so
-    /// closing a tab does not pay the synchronous `RestorableAgentSessionIndex.load()`
-    /// cost on the main thread. The directory watcher keeps this current; stale tolerance
-    /// is fine because restore/resume re-reads transcripts from disk and only uses the
-    /// cached snapshot's session identity, not the live PID set.
-    func currentIndexSchedulingRefresh() -> RestorableAgentSessionIndex? {
+    /// Returns cached resume metadata immediately and schedules a refresh when needed.
+    ///
+    /// Interactive close-history paths must preserve the closed item even when the
+    /// metadata cache is cold. Returning `.empty` on cache miss avoids main-actor
+    /// process probing and prevents a deferred background load from gating history.
+    func currentIndexSchedulingRefresh() -> RestorableAgentSessionIndex {
         scheduleRefreshIfStale()
-        return index
+        return index ?? .empty
     }
 
     /// Ensure the hook-store watcher is running and refresh if the cache has aged past the
@@ -10464,9 +10476,7 @@ final class SharedLiveAgentIndex: ObservableObject {
         deferredReloadTask = nil
         refreshTask = Task { @MainActor [weak self] in
             let newIndex = await Task.detached(priority: .utility) {
-                // agent-index-load-ok: off-main cache loader (this IS the sanctioned home
-                // for load(); everything else should read SharedLiveAgentIndex.shared).
-                RestorableAgentSessionIndex.load()
+                RestorableAgentSessionIndex.loadStaleTolerant()
             }.value
             guard let self else { return }
             // Assigning to `@Published` fires objectWillChange, which subscribed
@@ -15910,7 +15920,7 @@ final class Workspace: Identifiable, ObservableObject {
     func teardownAllPanels() {
         portalRenderingEnabled = false
         clearLayoutFollowUp()
-        hideAllTerminalPortalViews()
+        hideAllTerminalPortalViews(updateRuntimeOcclusion: false)
         hideAllBrowserPortalViews()
         let panelEntries = Array(panels)
         for (panelId, panel) in panelEntries {
@@ -17067,10 +17077,10 @@ final class Workspace: Identifiable, ObservableObject {
     /// Hide all terminal portal views for this workspace.
     /// Called before the workspace is unmounted to prevent portal-hosted terminal
     /// views from covering browser panes in the newly selected workspace.
-    func hideAllTerminalPortalViews() {
+    func hideAllTerminalPortalViews(updateRuntimeOcclusion: Bool = true) {
         for panel in panels.values {
             guard let terminal = panel as? TerminalPanel else { continue }
-            terminal.hostedView.setVisibleInUI(false)
+            terminal.hostedView.setVisibleInUI(false, updateRuntimeOcclusion: updateRuntimeOcclusion)
             TerminalWindowPortalRegistry.hideHostedView(terminal.hostedView)
         }
     }
@@ -18403,13 +18413,8 @@ final class Workspace: Identifiable, ObservableObject {
     /// Snapshot used by the right-click fork path. Prefers the workspace's restored snapshot
     /// (filled on session restore / hibernation), then falls back to the process-wide
     /// `SharedLiveAgentIndex`. The shared index loads the on-disk hook session store off the
-    /// main actor (it runs `sysctl(KERN_PROCARGS2)` per live record for live-PID filtering,
-    /// which is too expensive to do synchronously during SwiftUI menu evaluation) and a
-    /// single load serves every workspace. The Workspace subscribes to the shared store's
-    /// `objectWillChange` in its initializer so that when a refresh lands, this workspace's
-    /// own `objectWillChange` fires, ContentView re-renders, and bonsplit's TabBarView re-
-    /// evaluates the menu state on the same frame — Fork Conversation appears the moment
-    /// the index is loaded without requiring a second right-click.
+    /// main actor and avoids live-PID verification because this menu path only needs a
+    /// stale-tolerant transcript/resume snapshot. A single load serves every workspace.
     func forkableAgentSnapshot(forPanelId panelId: UUID) -> SessionRestorableAgentSnapshot? {
         if let snapshot = restoredAgentSnapshotsByPanelId[panelId] {
             return snapshot
@@ -19192,10 +19197,7 @@ extension Workspace: BonsplitDelegate {
             let transferFallbackTitle = cachedTitle ?? panel.displayTitle
             let restorableAgent = restoredAgentSnapshotsByPanelId[panelId]
             let restorableAgentResumeState = restoredAgentResumeStatesByPanelId[panelId]
-            let resumeBinding = effectiveSurfaceResumeBinding(
-                panelId: panelId,
-                surfaceResumeBindingIndex: nil
-            )
+            let resumeBinding = cachedSurfaceResumeBinding(panelId: panelId)
             let agentRuntime = agentRuntimeState(forPanelId: panelId)
             pendingDetachedSurfaces[tabId] = DetachedSurfaceTransfer(
                 sourceWorkspaceId: id,
@@ -19393,7 +19395,7 @@ extension Workspace: BonsplitDelegate {
         if !closedPanelIds.isEmpty {
             if !isDetachingCloseTransaction && !suppressClosedPanelHistory {
                 for entry in closedHistoryEntries {
-                    ClosedItemHistoryStore.shared.push(.panel(entry))
+                    pushClosedPanelHistoryUsingCachedResumeMetadata(entry)
                 }
             }
 

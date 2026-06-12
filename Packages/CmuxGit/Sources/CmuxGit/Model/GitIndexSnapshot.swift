@@ -13,6 +13,7 @@ struct GitIndexSnapshot: Sendable {
     let signature: String
 
     /// A content signature over all entries' paths, modes, and object IDs that
-    /// is stable across index rewrites which don't change tracked content.
-    let contentSignature: String
+    /// is stable across index rewrites which don't change tracked content. Nil
+    /// when the caller requested a cheap parse.
+    let contentSignature: String?
 }

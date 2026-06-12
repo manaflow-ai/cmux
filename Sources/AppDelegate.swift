@@ -17,6 +17,9 @@ import Combine
 import ObjectiveC.runtime
 import Darwin
 import CmuxFoundation
+import SessionAutosave
+
+private typealias AppSessionAutosaveCoordinator = SessionAutosaveCoordinator<ProcessDetectedResumeIndexes>
 
 private struct MultiWindowRouteCLIResult {
     let status: String
@@ -1055,9 +1058,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     var didAttemptStartupSessionRestore = false
     private var isApplyingSessionRestore = false
     private var sessionAutosaveTimer: DispatchSourceTimer?
-    private var sessionAutosaveTickInFlight = false
-    private var sessionAutosaveDeferredRetryPending = false
-    private var processDetectedSessionSaveGeneration: UInt64 = 0
+    private let sessionAutosaveCoordinator = AppSessionAutosaveCoordinator()
     private let sessionPersistenceQueue = DispatchQueue(
         label: "com.cmuxterm.app.sessionPersistence",
         qos: .utility
@@ -1069,9 +1070,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private nonisolated static func enqueueLaunchServicesRegistrationWork(_ work: @escaping @Sendable () -> Void) {
         launchServicesRegistrationQueue.async(execute: work)
     }
-    private var lastSessionAutosaveFingerprint: Int?
-    private var lastSessionAutosavePersistedAt: Date = .distantPast
-    private var lastTypingActivityAt: TimeInterval = 0
     var didHandleExplicitOpenIntentAtStartup = false
     private var didScheduleInitialMainWindowBootstrap = false
     var shouldDeferInitialMainWindowBootstrapForExternalConfirmation = false
@@ -1266,7 +1264,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
         // Prewarm the shared restorable-agent index off the main thread so the first
         // tab/workspace/window close after launch reads a warm cache instead of paying a
-        // synchronous RestorableAgentSessionIndex.load() on the main thread. See
+        // synchronous restorable-agent index load on the main thread. See
         // closedPanelHistoryEntry.
         if !isRunningUnderXCTest {
             SharedLiveAgentIndex.shared.scheduleRefreshIfStale()
@@ -1808,7 +1806,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             ]
         )
         isTerminatingApp = true
-        _ = saveSessionSnapshotIncludingProcessDetectedIndexes(includeScrollback: true, removeWhenEmpty: false)
+        _ = saveTerminatingSessionSnapshotSynchronously(includeScrollback: true, removeWhenEmpty: false)
         ClosedItemHistoryStore.shared.flushPendingSaves()
 
         // If the user already confirmed via the Cmd+Q shortcut warning dialog,
@@ -1901,7 +1899,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         StartupBreadcrumbLog.append("appDelegate.willTerminate.begin")
         isTerminatingApp = true
         closeAllWebInspectorsBeforeAppTeardown()
-        _ = saveSessionSnapshotIncludingProcessDetectedIndexes(includeScrollback: true, removeWhenEmpty: false)
+        _ = saveTerminatingSessionSnapshotSynchronously(includeScrollback: true, removeWhenEmpty: false)
         ClosedItemHistoryStore.shared.flushPendingSaves()
         stopSessionAutosaveTimer()
         CloudVMActionLauncher.shared.terminateAll()
@@ -1932,7 +1930,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
     func persistSessionForUpdateRelaunch() {
         isTerminatingApp = true
-        _ = saveSessionSnapshotIncludingProcessDetectedIndexes(includeScrollback: true, removeWhenEmpty: false)
+        _ = saveTerminatingSessionSnapshotSynchronously(includeScrollback: true, removeWhenEmpty: false)
         ClosedItemHistoryStore.shared.flushPendingSaves()
     }
 
@@ -3235,8 +3233,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         isApplyingSessionRestore = false
         if Self.shouldSaveSessionSnapshotOnRestoreCompletion(isManualReopen: isManualReopen) {
             // Auto-resume input can be queued before tmux has spawned; preserve
-            // restored process-detected bindings until a later live scan.
-            _ = saveSessionSnapshot(includeScrollback: false)
+            // restored process-detected bindings without triggering a live scan.
+            _ = saveSessionSnapshotUsingCachedResumeMetadata(includeScrollback: false)
         }
     }
 
@@ -3698,8 +3696,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private func stopSessionAutosaveTimer() {
         sessionAutosaveTimer?.cancel()
         sessionAutosaveTimer = nil
-        sessionAutosaveTickInFlight = false
-        sessionAutosaveDeferredRetryPending = false
+        sessionAutosaveCoordinator.cancelInFlightTick()
     }
 
     private func installLifecycleSnapshotObserversIfNeeded() {
@@ -3715,7 +3712,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             Task { @MainActor [weak self] in
                 guard let self else { return }
                 self.isTerminatingApp = true
-                _ = self.saveSessionSnapshotIncludingProcessDetectedIndexes(includeScrollback: true, removeWhenEmpty: false)
+                _ = self.saveTerminatingSessionSnapshotSynchronously(includeScrollback: true, removeWhenEmpty: false)
                 ClosedItemHistoryStore.shared.flushPendingSaves()
             }
         }
@@ -3729,7 +3726,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             Task { @MainActor [weak self] in
                 guard let self else { return }
                 if self.isTerminatingApp {
-                    _ = self.saveSessionSnapshotIncludingProcessDetectedIndexes(includeScrollback: true, removeWhenEmpty: false)
+                    _ = self.saveTerminatingSessionSnapshotSynchronously(includeScrollback: true, removeWhenEmpty: false)
                     ClosedItemHistoryStore.shared.flushPendingSaves()
                 } else {
                     self.saveSessionSnapshotAfterLoadingProcessDetectedIndexes(includeScrollback: false)
@@ -3831,7 +3828,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private func sessionAutosaveFingerprint(
         includeScrollback: Bool,
         restorableAgentIndex: RestorableAgentSessionIndex,
-        surfaceResumeBindingIndex: SurfaceResumeBindingIndex
+        surfaceResumeBindingIndex: SurfaceResumeBindingIndex?
     ) -> Int? {
         guard !includeScrollback else { return nil }
 
@@ -3947,7 +3944,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             includeScrollback: includeScrollback,
             persist: persist,
             buildSnapshot: { [self] includeScrollback in
-                buildSessionSnapshot(includeScrollback: includeScrollback)
+                buildSessionSnapshot(
+                    includeScrollback: includeScrollback,
+                    restorableAgentIndex: .empty
+                )
             },
             persistedGeometryData: { snapshot in
                 snapshot?.windows.first.flatMap { primaryWindow in
@@ -3974,6 +3974,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     ) -> AppSessionSnapshot? {
         buildSessionSnapshot(
             includeScrollback: includeScrollback,
+            restorableAgentIndex: .empty,
             surfaceResumeBindingIndex: surfaceResumeBindingIndex
         )
     }
@@ -4021,52 +4022,43 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private func remainingSessionAutosaveTypingQuietPeriod(
         nowUptime: TimeInterval = ProcessInfo.processInfo.systemUptime
     ) -> TimeInterval? {
-        guard lastTypingActivityAt > 0 else { return nil }
-        let elapsed = nowUptime - lastTypingActivityAt
-        guard elapsed < Self.sessionAutosaveTypingQuietPeriod else { return nil }
-        return Self.sessionAutosaveTypingQuietPeriod - elapsed
-    }
-
-    private func scheduleDeferredSessionAutosaveRetry(after delay: TimeInterval) {
-        guard delay.isFinite, delay > 0 else { return }
-        guard !sessionAutosaveDeferredRetryPending else { return }
-        sessionAutosaveDeferredRetryPending = true
-        sessionPersistenceQueue.asyncAfter(deadline: .now() + delay) { [weak self] in
-            Task { @MainActor [weak self] in
-                guard let self else { return }
-                self.sessionAutosaveDeferredRetryPending = false
-                self.runSessionAutosaveTick(source: "typingQuietRetry")
-            }
-        }
+        sessionAutosaveCoordinator.remainingTypingQuietPeriod(
+            quietPeriod: Self.sessionAutosaveTypingQuietPeriod,
+            nowUptime: nowUptime
+        )
     }
 
     private func runSessionAutosaveTick(source: String) {
         guard Self.shouldRunSessionAutosaveTick(isTerminatingApp: isTerminatingApp) else { return }
-        guard !sessionAutosaveTickInFlight else { return }
         if let remainingQuietPeriod = remainingSessionAutosaveTypingQuietPeriod() {
 #if DEBUG
             cmuxDebugLog(
                 "session.save.skipped reason=typing_recent includeScrollback=0 source=\(source) " +
-                "retryMs=\(Int((remainingQuietPeriod * 1000).rounded()))"
+                "remainingQuietMs=\(Int((remainingQuietPeriod * 1000).rounded()))"
             )
 #endif
-            scheduleDeferredSessionAutosaveRetry(after: remainingQuietPeriod)
             return
         }
 
-        sessionAutosaveTickInFlight = true
-        let generation = nextProcessDetectedSessionSaveGeneration()
-        Task { @MainActor in await self.finishSessionAutosaveTick(source: source, generation: generation) }
+        sessionAutosaveCoordinator.beginTick { runToken in
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                await self.finishSessionAutosaveTick(source: source, runToken: runToken)
+            }
+        }
     }
 
-    private func finishSessionAutosaveTick(source: String, generation: UInt64) async {
+    private func finishSessionAutosaveTick(
+        source: String,
+        runToken: AppSessionAutosaveCoordinator.RunToken
+    ) async {
 #if DEBUG
         let timingStart = CmuxTypingTiming.start()
         let phaseStart = ProcessInfo.processInfo.systemUptime
         var fingerprintMs: Double = 0
         var saveMs: Double = 0
         defer {
-            sessionAutosaveTickInFlight = false
+            sessionAutosaveCoordinator.finishTick(runToken: runToken)
             let totalMs = (ProcessInfo.processInfo.systemUptime - phaseStart) * 1000.0
             CmuxTypingTiming.logBreakdown(
                 path: "session.autosaveTick.phase",
@@ -4085,23 +4077,27 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             )
         }
 #else
-        defer { sessionAutosaveTickInFlight = false }
+        defer {
+            sessionAutosaveCoordinator.finishTick(runToken: runToken)
+        }
 #endif
 
+        guard !Task.isCancelled else { return }
         let now = Date()
 #if DEBUG
         let fingerprintStart = ProcessInfo.processInfo.systemUptime
 #endif
-        let resumeIndexes = await ProcessDetectedResumeIndexes.load()
-        guard !isTerminatingApp,
-              isCurrentProcessDetectedSessionSaveGeneration(generation) else {
+        guard !isTerminatingApp else {
 #if DEBUG
             cmuxDebugLog(
-                "session.save.skipped reason=stale_process_detected_scan includeScrollback=0 source=\(source)"
+                "session.save.skipped reason=terminating includeScrollback=0 source=\(source)"
             )
 #endif
             return
         }
+        let resumeIndexes = await ProcessDetectedResumeIndexes.load()
+        guard !Task.isCancelled else { return }
+        sessionAutosaveCoordinator.cacheSnapshot(resumeIndexes)
         let autosaveFingerprint = sessionAutosaveFingerprint(
             includeScrollback: false,
             restorableAgentIndex: resumeIndexes.restorableAgentIndex,
@@ -4110,12 +4106,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 #if DEBUG
         fingerprintMs = (ProcessInfo.processInfo.systemUptime - fingerprintStart) * 1000.0
 #endif
-        if Self.shouldSkipSessionAutosaveForUnchangedFingerprint(
+        if sessionAutosaveCoordinator.shouldSkipSaveForUnchangedFingerprint(
             isTerminatingApp: isTerminatingApp,
             includeScrollback: false,
-            previousFingerprint: lastSessionAutosaveFingerprint,
             currentFingerprint: autosaveFingerprint,
-            lastPersistedAt: lastSessionAutosavePersistedAt,
             now: now
         ) {
 #if DEBUG
@@ -4129,27 +4123,42 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 #if DEBUG
         let saveStart = ProcessInfo.processInfo.systemUptime
 #endif
-        _ = saveSessionSnapshot(
+        guard !Task.isCancelled else { return }
+        _ = saveSessionSnapshotUsingCachedResumeMetadata(
             includeScrollback: false,
-            restorableAgentIndex: resumeIndexes.restorableAgentIndex,
-            surfaceResumeBindingIndex: resumeIndexes.surfaceResumeBindingIndex
+            resumeMetadata: resumeIndexes
         )
 #if DEBUG
         saveMs = (ProcessInfo.processInfo.systemUptime - saveStart) * 1000.0
 #endif
-        updateSessionAutosaveSaveState(
+        sessionAutosaveCoordinator.recordSuccessfulSave(
+            isTerminatingApp: isTerminatingApp,
             includeScrollback: false,
             persistedAt: now,
             fingerprint: autosaveFingerprint
         )
     }
 
+    /// Writes the final termination snapshot on the main actor so macOS teardown
+    /// cannot exit before scrollback and process-detected resume metadata persist.
+    /// Normal lifecycle saves must use the async process-detected path instead.
     @discardableResult
-    private func saveSessionSnapshotIncludingProcessDetectedIndexes(
+    private func saveTerminatingSessionSnapshotSynchronously(
         includeScrollback: Bool,
         removeWhenEmpty: Bool = false
     ) -> Bool {
-        let resumeIndexes = ProcessDetectedResumeIndexes.loadSynchronously()
+        guard Self.shouldWriteSessionSnapshotSynchronously(
+            isTerminatingApp: isTerminatingApp,
+            includeScrollback: includeScrollback
+        ) else {
+            saveSessionSnapshotAfterLoadingProcessDetectedIndexes(
+                includeScrollback: includeScrollback,
+                removeWhenEmpty: removeWhenEmpty
+            )
+            return false
+        }
+        let resumeIndexes = ProcessDetectedResumeIndexes.loadForTerminationSnapshotSynchronously()
+        sessionAutosaveCoordinator.cacheSnapshot(resumeIndexes)
         return saveSessionSnapshot(
             includeScrollback: includeScrollback,
             removeWhenEmpty: removeWhenEmpty,
@@ -4162,33 +4171,60 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         includeScrollback: Bool,
         removeWhenEmpty: Bool = false
     ) {
-        let generation = nextProcessDetectedSessionSaveGeneration()
-        Task { @MainActor [weak self] in
-            let resumeIndexes = await ProcessDetectedResumeIndexes.load()
-            guard let self,
-                  !self.isTerminatingApp,
-                  self.isCurrentProcessDetectedSessionSaveGeneration(generation) else { return }
-            _ = self.saveSessionSnapshot(
-                includeScrollback: includeScrollback,
-                removeWhenEmpty: removeWhenEmpty,
-                restorableAgentIndex: resumeIndexes.restorableAgentIndex,
-                surfaceResumeBindingIndex: resumeIndexes.surfaceResumeBindingIndex
-            )
+        sessionAutosaveCoordinator.cancelInFlightTick()
+        sessionAutosaveCoordinator.beginTick { runToken in
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                defer {
+                    self.sessionAutosaveCoordinator.finishTick(runToken: runToken)
+                }
+
+                let resumeIndexes = await ProcessDetectedResumeIndexes.load()
+                guard !Task.isCancelled,
+                      !self.isTerminatingApp else { return }
+                self.sessionAutosaveCoordinator.cacheSnapshot(resumeIndexes)
+                _ = self.saveSessionSnapshot(
+                    includeScrollback: includeScrollback,
+                    removeWhenEmpty: removeWhenEmpty,
+                    restorableAgentIndex: resumeIndexes.restorableAgentIndex,
+                    surfaceResumeBindingIndex: resumeIndexes.surfaceResumeBindingIndex
+                )
+            }
         }
     }
 
     @discardableResult
-    private func nextProcessDetectedSessionSaveGeneration() -> UInt64 {
-        processDetectedSessionSaveGeneration &+= 1
-        return processDetectedSessionSaveGeneration
+    private func saveSessionSnapshotUsingCachedResumeMetadata(
+        includeScrollback: Bool,
+        removeWhenEmpty: Bool = false,
+        resumeMetadata: ProcessDetectedResumeIndexes? = nil
+    ) -> Bool {
+        guard let resumeMetadata = resumeMetadataForCheapSessionSnapshot(
+            explicitMetadata: resumeMetadata
+        ) else {
+#if DEBUG
+            cmuxDebugLog("session.save.skipped reason=missing_cached_resume_metadata includeScrollback=\(includeScrollback ? 1 : 0)")
+#endif
+            return false
+        }
+        return saveSessionSnapshot(
+            includeScrollback: includeScrollback,
+            removeWhenEmpty: removeWhenEmpty,
+            restorableAgentIndex: resumeMetadata.restorableAgentIndex,
+            surfaceResumeBindingIndex: resumeMetadata.surfaceResumeBindingIndex
+        )
     }
 
-    private func isCurrentProcessDetectedSessionSaveGeneration(_ generation: UInt64) -> Bool {
-        generation == processDetectedSessionSaveGeneration
+    private func resumeMetadataForCheapSessionSnapshot(
+        explicitMetadata: ProcessDetectedResumeIndexes?
+    ) -> ProcessDetectedResumeIndexes? {
+        sessionAutosaveCoordinator.snapshotForCheapSave(
+            explicitSnapshot: explicitMetadata
+        )
     }
 
     fileprivate func recordTypingActivity() {
-        lastTypingActivityAt = ProcessInfo.processInfo.systemUptime
+        sessionAutosaveCoordinator.recordTypingActivity()
     }
 
     nonisolated static func shouldWriteSessionSnapshotSynchronously(
@@ -4205,7 +4241,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         currentFingerprint: Int?,
         lastPersistedAt: Date,
         now: Date,
-        maximumAutosaveSkippableInterval: TimeInterval = 60
+        maximumAutosaveSkippableInterval: TimeInterval = 5 * 60
     ) -> Bool {
         guard !isTerminatingApp,
               !includeScrollback,
@@ -4216,16 +4252,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
 
         return now.timeIntervalSince(lastPersistedAt) < maximumAutosaveSkippableInterval
-    }
-
-    private func updateSessionAutosaveSaveState(
-        includeScrollback: Bool,
-        persistedAt: Date,
-        fingerprint: Int?
-    ) {
-        guard !isTerminatingApp, !includeScrollback else { return }
-        lastSessionAutosaveFingerprint = fingerprint
-        lastSessionAutosavePersistedAt = persistedAt
     }
 
     private nonisolated static func hashFrame(_ frame: NSRect, into hasher: inout Hasher) {
@@ -4290,7 +4316,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         let contexts = sortedMainWindowContextsForSessionSnapshot()
 
         guard !contexts.isEmpty else { return nil }
-        let restorableAgentIndex = suppliedRestorableAgentIndex ?? RestorableAgentSessionIndex.load()
+        guard let restorableAgentIndex = suppliedRestorableAgentIndex else { return nil }
 
         let windows: [SessionWindowSnapshot] = contexts
             .prefix(SessionPersistencePolicy.maxWindowsPerSnapshot)
@@ -4314,7 +4340,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private func sessionWindowSnapshot(
         for context: MainWindowContext,
         includeScrollback: Bool,
-        restorableAgentIndex: RestorableAgentSessionIndex,
+        restorableAgentIndex: RestorableAgentSessionIndex?,
         surfaceResumeBindingIndex: SurfaceResumeBindingIndex? = nil
     ) -> SessionWindowSnapshot {
         let tabManagerSnapshot = context.tabManager.sessionSnapshot(
@@ -4511,7 +4537,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             didApplyStartupSessionRestore: didApplyStartupSessionRestore,
             isApplyingSessionRestore: isApplyingSessionRestore
         ) {
-            saveSessionSnapshotAfterLoadingProcessDetectedIndexes(includeScrollback: false)
+            _ = saveSessionSnapshotUsingCachedResumeMetadata(includeScrollback: false)
         }
     }
 
@@ -4538,7 +4564,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
     func sessionSnapshotForTesting(includeScrollback: Bool = false) -> AppSessionSnapshot? {
-        buildSessionSnapshot(includeScrollback: includeScrollback)
+        buildSessionSnapshot(
+            includeScrollback: includeScrollback,
+            restorableAgentIndex: .empty
+        )
     }
 
 #endif
@@ -15758,7 +15787,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             ])
 
             if registerStatus != noErr {
+#if DEBUG
                 NSLog("LaunchServices registration failed (status: \(registerStatus)) for \(normalizedURL.path)")
+#endif
             }
         }
     }
@@ -16248,23 +16279,35 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
               !isApplyingSessionRestore else {
             return
         }
-        // Closing the last tab closes the window, recording undo history. Prefer the warm
-        // cached agent index over a synchronous `RestorableAgentSessionIndex.load()` so the
-        // close does not freeze the main thread; fall back to a fresh load only while the
-        // cache has not loaded yet (see closedPanelHistoryEntry).
-        let snapshot = sessionWindowSnapshot(
+        let baseSnapshot = sessionWindowSnapshot(
             for: context,
             includeScrollback: true,
-            restorableAgentIndex: SharedLiveAgentIndex.shared.currentIndexSchedulingRefresh()
-                ?? RestorableAgentSessionIndex.load()
+            restorableAgentIndex: nil
         )
+        let workspaceIds = context.tabManager.sessionSnapshotWorkspaceIds()
+        let restorableAgentIndex = SharedLiveAgentIndex.shared.currentIndexSchedulingRefresh()
+        recordClosedWindowHistory(
+            windowId: context.windowId,
+            snapshot: baseSnapshot,
+            workspaceIds: workspaceIds,
+            restorableAgentIndex: restorableAgentIndex
+        )
+    }
+
+    private func recordClosedWindowHistory(
+        windowId: UUID?,
+        snapshot baseSnapshot: SessionWindowSnapshot,
+        workspaceIds: [UUID],
+        restorableAgentIndex: RestorableAgentSessionIndex
+    ) {
+        let snapshot = baseSnapshot.applyingRestorableAgentIndex(restorableAgentIndex)
         guard !snapshot.tabManager.workspaces.isEmpty else {
             return
         }
         ClosedItemHistoryStore.shared.push(.window(ClosedWindowHistoryEntry(
-            windowId: context.windowId,
+            windowId: windowId,
             snapshot: snapshot,
-            workspaceIds: context.tabManager.sessionSnapshotWorkspaceIds()
+            workspaceIds: workspaceIds
         )))
     }
 

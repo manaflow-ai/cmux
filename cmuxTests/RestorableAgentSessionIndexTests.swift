@@ -756,6 +756,33 @@ final class RestorableAgentSessionIndexTests: XCTestCase {
         )
     }
 
+    func testStaleTolerantLoadIncludesRecordedPIDWithoutLiveVerification() throws {
+        let fm = FileManager.default
+        let root = fm.temporaryDirectory
+            .appendingPathComponent("cmux-stale-tolerant-pid-\(UUID().uuidString)", isDirectory: true)
+        defer { try? fm.removeItem(at: root) }
+        let dir = root.appendingPathComponent("repo", isDirectory: true)
+        try fm.createDirectory(at: dir, withIntermediateDirectories: true)
+
+        let ws = UUID()
+        let panel = UUID()
+        let sid = "55555555-5555-5555-5555-555555555555"
+        try writeHookStore(
+            root: root,
+            storeFilename: "gemini-hook-sessions.json",
+            sessions: [
+                sid: driftedAgentHookRecord(
+                    launcher: "gemini", sessionId: sid, workspaceId: ws, panelId: panel,
+                    recordedCwd: dir.path, launchCwd: dir.path, updatedAt: 10, pid: 999_999
+                ),
+            ]
+        )
+
+        let index = RestorableAgentSessionIndex.loadStaleTolerant(homeDirectory: root.path, fileManager: fm)
+        XCTAssertEqual(index.snapshot(workspaceId: ws, panelId: panel)?.sessionId, sid)
+        XCTAssertTrue(index.processIDs(workspaceId: ws, panelId: panel).isEmpty)
+    }
+
     private func driftedHookRecord(
         sessionId: String,
         workspaceId: UUID,

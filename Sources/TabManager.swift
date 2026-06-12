@@ -18,10 +18,21 @@ typealias Tab = Workspace
 private let tabManagerLogger = Logger(subsystem: "com.cmuxterm.app", category: "TabManager")
 
 protocol WorkspaceGitMetadataReading: Sendable {
-    func workspaceMetadata(for directory: String) async -> GitWorkspaceMetadata
+    @concurrent
+    nonisolated func workspaceMetadata(for directory: String) async -> GitWorkspaceMetadata
 }
 
 extension GitMetadataService: WorkspaceGitMetadataReading {}
+
+private struct SidebarWorkspaceGitMetadataReader: WorkspaceGitMetadataReading {
+    let service: GitMetadataService
+    let options: GitMetadataReadOptions
+
+    @concurrent
+    nonisolated func workspaceMetadata(for directory: String) async -> GitWorkspaceMetadata {
+        await service.workspaceMetadata(for: directory, options: options)
+    }
+}
 
 private struct WorkspaceGitMetadataProbeWaiter {
     let id: UUID
@@ -783,7 +794,7 @@ struct RecentlyClosedBrowserStack {
 // catch a single compositor-frame blank flash and any transient compositor scaling (stretched text).
 //
 // This is DEBUG-only and used only for UI tests; no polling or display-link loops exist in normal app runtime.
-fileprivate final class VsyncIOSurfaceTimelineState {
+fileprivate final class VsyncIOSurfaceTimelineState: @unchecked Sendable {
     struct Target {
         let label: String
         let sample: @MainActor () -> GhosttySurfaceScrollView.DebugFrameSample?
@@ -830,17 +841,88 @@ fileprivate final class VsyncIOSurfaceTimelineState {
         lock.unlock()
     }
 
-    func finish() {
+    @discardableResult
+    func finish() -> Bool {
         lock.lock()
         if finished {
             lock.unlock()
-            return
+            return false
         }
         finished = true
         let cont = continuation
         continuation = nil
         lock.unlock()
         cont?.resume()
+        return true
+    }
+}
+
+@MainActor
+private func cmuxCaptureVsyncIOSurfaceTimelineFrame(
+    state st: VsyncIOSurfaceTimelineState,
+    context: UnsafeMutableRawPointer
+) {
+    guard st.framesWritten < st.frameCount else {
+        st.endCapture()
+        return
+    }
+
+    while st.nextActionIndex < st.scheduledActions.count {
+        let next = st.scheduledActions[st.nextActionIndex]
+        if next.frame != st.framesWritten { break }
+        st.nextActionIndex += 1
+        next.action()
+    }
+
+    for t in st.targets {
+        guard let s = t.sample() else { continue }
+
+        let iosW = s.iosurfaceWidthPx
+        let iosH = s.iosurfaceHeightPx
+        let expW = s.expectedWidthPx
+        let expH = s.expectedHeightPx
+        let gravity = s.layerContentsGravity
+        let hasDimensions = iosW > 0 && iosH > 0 && expW > 0 && expH > 0
+        let dw = hasDimensions ? abs(iosW - expW) : 0
+        let dh = hasDimensions ? abs(iosH - expH) : 0
+        let hasSizeMismatch = hasDimensions && (dw > 2 || dh > 2)
+        let stretchRisk = (gravity == CALayerContentsGravity.resize.rawValue)
+
+        // Ignore setup/warmup frames before the close action. We only care about
+        // regressions that happen at/after the close mutation.
+        if st.firstBlank == nil, st.framesWritten >= st.closeFrame, s.isProbablyBlank {
+            st.firstBlank = (label: t.label, frame: st.framesWritten)
+        }
+
+        if st.firstSizeMismatch == nil,
+           st.framesWritten >= st.closeFrame,
+           stretchRisk,
+           hasSizeMismatch {
+            st.firstSizeMismatch = (
+                label: t.label,
+                frame: st.framesWritten,
+                ios: "\(iosW)x\(iosH)",
+                expected: "\(expW)x\(expH)"
+            )
+        }
+
+        if st.trace.count < 200 {
+            st.trace.append("\(st.framesWritten):\(t.label):blank=\(s.isProbablyBlank ? 1 : 0):ios=\(iosW)x\(iosH):exp=\(expW)x\(expH):gravity=\(gravity):key=\(s.layerContentsKey)")
+        }
+    }
+
+    st.framesWritten += 1
+    let shouldFinish = st.framesWritten >= st.frameCount
+    let link = st.link
+    st.endCapture()
+
+    if shouldFinish {
+        if let link {
+            CVDisplayLinkStop(link)
+        }
+        if st.finish() {
+            Unmanaged<VsyncIOSurfaceTimelineState>.fromOpaque(context).release()
+        }
     }
 }
 
@@ -856,64 +938,8 @@ fileprivate func cmuxVsyncIOSurfaceTimelineCallback(
     let st = Unmanaged<VsyncIOSurfaceTimelineState>.fromOpaque(ctx).takeUnretainedValue()
     if !st.tryBeginCapture() { return kCVReturnSuccess }
 
-    // Sample on the main thread synchronously so we don't "miss" a single compositor frame.
-    // (The previous Task/@MainActor hop could be delayed long enough to skip the blank frame.)
-    DispatchQueue.main.sync {
-        defer { st.endCapture() }
-        guard st.framesWritten < st.frameCount else { return }
-
-        while st.nextActionIndex < st.scheduledActions.count {
-            let next = st.scheduledActions[st.nextActionIndex]
-            if next.frame != st.framesWritten { break }
-            st.nextActionIndex += 1
-            next.action()
-        }
-
-        for t in st.targets {
-            guard let s = t.sample() else { continue }
-
-            let iosW = s.iosurfaceWidthPx
-            let iosH = s.iosurfaceHeightPx
-            let expW = s.expectedWidthPx
-            let expH = s.expectedHeightPx
-            let gravity = s.layerContentsGravity
-            let hasDimensions = iosW > 0 && iosH > 0 && expW > 0 && expH > 0
-            let dw = hasDimensions ? abs(iosW - expW) : 0
-            let dh = hasDimensions ? abs(iosH - expH) : 0
-            let hasSizeMismatch = hasDimensions && (dw > 2 || dh > 2)
-            let stretchRisk = (gravity == CALayerContentsGravity.resize.rawValue)
-
-            // Ignore setup/warmup frames before the close action. We only care about
-            // regressions that happen at/after the close mutation.
-            if st.firstBlank == nil, st.framesWritten >= st.closeFrame, s.isProbablyBlank {
-                st.firstBlank = (label: t.label, frame: st.framesWritten)
-            }
-
-            if st.firstSizeMismatch == nil,
-               st.framesWritten >= st.closeFrame,
-               stretchRisk,
-               hasSizeMismatch {
-                st.firstSizeMismatch = (
-                    label: t.label,
-                    frame: st.framesWritten,
-                    ios: "\(iosW)x\(iosH)",
-                    expected: "\(expW)x\(expH)"
-                )
-            }
-
-            if st.trace.count < 200 {
-                st.trace.append("\(st.framesWritten):\(t.label):blank=\(s.isProbablyBlank ? 1 : 0):ios=\(iosW)x\(iosH):exp=\(expW)x\(expH):gravity=\(gravity):key=\(s.layerContentsKey)")
-            }
-        }
-
-        st.framesWritten += 1
-    }
-
-    // Stop/resume outside the main-thread sync block to avoid reentrancy issues.
-    if st.framesWritten >= st.frameCount, let link = st.link {
-        CVDisplayLinkStop(link)
-        st.finish()
-        Unmanaged<VsyncIOSurfaceTimelineState>.fromOpaque(ctx).release()
+    Task { @MainActor in
+        cmuxCaptureVsyncIOSurfaceTimelineFrame(state: st, context: ctx)
     }
 
     return kCVReturnSuccess
@@ -1293,6 +1319,7 @@ class TabManager: ObservableObject {
     // directory argument.
     private let gitMetadataService: GitMetadataService
     private let workspaceGitMetadataReader: any WorkspaceGitMetadataReading
+    private let workspaceGitMetadataReadOptions: GitMetadataReadOptions
 
     // Resolves GitHub PR badges (slug resolution, REST fetch, candidate
     // matching). Stateless; the repo cache stays here in
@@ -1311,11 +1338,17 @@ class TabManager: ObservableObject {
         commandRunner: any CommandRunning = CommandRunner(),
         gitMetadataService: GitMetadataService = GitMetadataService(),
         workspaceGitMetadataReader: (any WorkspaceGitMetadataReading)? = nil,
+        workspaceGitMetadataReadOptions: GitMetadataReadOptions = .sidebarLargeRepository,
         gitPollClock: any GitPollClock = SystemGitPollClock()
     ) {
         self.commandRunner = commandRunner
         self.gitMetadataService = gitMetadataService
-        self.workspaceGitMetadataReader = workspaceGitMetadataReader ?? gitMetadataService
+        self.workspaceGitMetadataReadOptions = workspaceGitMetadataReadOptions
+        self.workspaceGitMetadataReader = workspaceGitMetadataReader
+            ?? SidebarWorkspaceGitMetadataReader(
+                service: gitMetadataService,
+                options: workspaceGitMetadataReadOptions
+            )
         self.gitPollClock = gitPollClock
 #if DEBUG
         self.pullRequestProbeService = PullRequestProbeService(
@@ -1626,8 +1659,13 @@ class TabManager: ObservableObject {
         workspaceGitMetadataWatcherDescriptorRequestsByKey[key] = request
 
         Task { [weak self] in
-            guard let gitMetadataService = self?.gitMetadataService else { return }
-            let watchedPaths = await gitMetadataService.watchedPaths(for: directory)
+            guard let self else { return }
+            let gitMetadataService = self.gitMetadataService
+            let options = self.workspaceGitMetadataReadOptions
+            let watchedPaths = await gitMetadataService.watchedPaths(
+                for: directory,
+                options: options
+            )
             await MainActor.run { [weak self] in
                 self?.applyWorkspaceGitMetadataWatcherDescriptor(
                     watchedPaths,
@@ -3162,15 +3200,6 @@ class TabManager: ObservableObject {
 
         workspace.updatePanelDirectory(panelId: probeKey.panelId, directory: expectedDirectory)
 
-        if shouldTrackGitDirectory {
-            workspaceGitTrackedDirectoryByKey[probeKey] = expectedDirectory
-            updateWorkspaceGitMetadataWatcher(for: probeKey, directory: expectedDirectory)
-        } else {
-            workspaceGitTrackedDirectoryByKey.removeValue(forKey: probeKey)
-            stopWorkspaceGitMetadataWatcher(for: probeKey)
-        }
-        updateWorkspaceGitMetadataFallbackTimer()
-
         let nextBranch = snapshot.branch
         if let nextBranch {
             if let headSignature = snapshot.headSignature {
@@ -3253,6 +3282,15 @@ class TabManager: ObservableObject {
                 reason: "localGitProbe"
             )
         }
+
+        if shouldTrackGitDirectory {
+            workspaceGitTrackedDirectoryByKey[probeKey] = expectedDirectory
+            updateWorkspaceGitMetadataWatcher(for: probeKey, directory: expectedDirectory)
+        } else {
+            workspaceGitTrackedDirectoryByKey.removeValue(forKey: probeKey)
+            stopWorkspaceGitMetadataWatcher(for: probeKey)
+        }
+        updateWorkspaceGitMetadataFallbackTimer()
 
 #if DEBUG
         let branchLabel = snapshot.branch ?? "none"
@@ -5320,25 +5358,24 @@ class TabManager: ObservableObject {
     func closeWorkspace(_ workspace: Workspace, recordHistory: Bool = true) {
         guard tabs.count > 1 else { return }
         sentryBreadcrumb("workspace.close", data: ["tabCount": tabs.count - 1])
-        if recordHistory,
-           workspace.isRestorableInSessionSnapshot,
-           let index = tabs.firstIndex(where: { $0.id == workspace.id }) {
-            // Prefer the warm cached agent index over a synchronous
-            // RestorableAgentSessionIndex.load() (sysctl-per-record + disk) so closing a
-            // workspace does not freeze the main thread; fall back to a fresh load only
-            // while the cache has not loaded yet. See closedPanelHistoryEntry.
-            let snapshot = workspace.sessionSnapshot(
-                includeScrollback: true,
-                restorableAgentIndex: SharedLiveAgentIndex.shared.currentIndexSchedulingRefresh()
-                    ?? RestorableAgentSessionIndex.load()
+        let closedWorkspaceHistoryPayload: (
+            workspaceId: UUID,
+            windowId: UUID?,
+            workspaceIndex: Int,
+            snapshot: SessionWorkspaceSnapshot
+        )? = {
+            guard recordHistory,
+                  workspace.isRestorableInSessionSnapshot,
+                  let index = tabs.firstIndex(where: { $0.id == workspace.id }) else {
+                return nil
+            }
+            return (
+                workspace.id,
+                AppDelegate.shared?.windowId(for: self),
+                index,
+                workspace.sessionSnapshot(includeScrollback: true)
             )
-            ClosedItemHistoryStore.shared.push(.workspace(ClosedWorkspaceHistoryEntry(
-                workspaceId: workspace.id,
-                windowId: AppDelegate.shared?.windowId(for: self),
-                workspaceIndex: index,
-                snapshot: snapshot
-            )))
-        }
+        }()
         clearWorkspaceGitProbes(workspaceId: workspace.id)
         clearWorkspacePullRequestTracking(workspaceId: workspace.id)
         sidebarSelectedWorkspaceIds.remove(workspace.id)
@@ -5370,7 +5407,43 @@ class TabManager: ObservableObject {
                 selectedTabId = tabs[newIndex].id
             }
         }
+        if let closedWorkspaceHistoryPayload {
+            pushClosedWorkspaceHistoryUsingCachedResumeMetadata(closedWorkspaceHistoryPayload)
+        }
         publishCmuxWorkspaceClosed(workspace)
+    }
+
+    private func pushClosedWorkspaceHistoryUsingCachedResumeMetadata(
+        _ payload: (
+            workspaceId: UUID,
+            windowId: UUID?,
+            workspaceIndex: Int,
+            snapshot: SessionWorkspaceSnapshot
+        )
+    ) {
+        let restorableAgentIndex = SharedLiveAgentIndex.shared.currentIndexSchedulingRefresh()
+        pushClosedWorkspaceHistory(payload, restorableAgentIndex: restorableAgentIndex)
+    }
+
+    private func pushClosedWorkspaceHistory(
+        _ payload: (
+            workspaceId: UUID,
+            windowId: UUID?,
+            workspaceIndex: Int,
+            snapshot: SessionWorkspaceSnapshot
+        ),
+        restorableAgentIndex: RestorableAgentSessionIndex
+    ) {
+        let snapshot = payload.snapshot.applyingRestorableAgentIndex(
+            restorableAgentIndex,
+            workspaceId: payload.workspaceId
+        )
+        ClosedItemHistoryStore.shared.push(.workspace(ClosedWorkspaceHistoryEntry(
+            workspaceId: payload.workspaceId,
+            windowId: payload.windowId,
+            workspaceIndex: payload.workspaceIndex,
+            snapshot: snapshot
+        )))
     }
 
     /// If `closedWorkspaceId` was the anchor of any group, dissolve that group:
@@ -6761,6 +6834,7 @@ class TabManager: ObservableObject {
     private func updateWindowTitle(for tab: Workspace?) {
         let title = windowTitle(for: tab)
         guard let targetWindow = window else { return }
+        guard targetWindow.title != title else { return }
         targetWindow.title = title
     }
 
@@ -6965,6 +7039,7 @@ class TabManager: ObservableObject {
             )
         }
 #endif
+        // The short cooldown coalesces rapid workspace-cycle key repeats before SwiftUI remounts idle views.
         workspaceCycleCooldownTask = Task { [weak self, generation] in
             do {
                 try await Task.sleep(nanoseconds: 220_000_000)
@@ -9376,8 +9451,8 @@ class TabManager: ObservableObject {
 
 extension TabManager {
     func sessionAutosaveFingerprint(
-        restorableAgentIndex: RestorableAgentSessionIndex = .empty,
-        surfaceResumeBindingIndex: SurfaceResumeBindingIndex = .empty
+        restorableAgentIndex: RestorableAgentSessionIndex? = nil,
+        surfaceResumeBindingIndex: SurfaceResumeBindingIndex? = nil
     ) -> Int {
         var hasher = Hasher()
         hasher.combine(selectedTabId)
@@ -9441,7 +9516,7 @@ extension TabManager {
                     into: &hasher
                 )
                 Self.hashRestorableAgentSnapshot(
-                    restorableAgentIndex.snapshot(
+                    restorableAgentIndex?.snapshot(
                         workspaceId: workspace.id,
                         panelId: panelId
                     ),
@@ -9667,7 +9742,7 @@ extension TabManager {
 
     func sessionSnapshot(
         includeScrollback: Bool,
-        restorableAgentIndex: RestorableAgentSessionIndex = .empty,
+        restorableAgentIndex: RestorableAgentSessionIndex? = nil,
         surfaceResumeBindingIndex: SurfaceResumeBindingIndex? = nil
     ) -> SessionTabManagerSnapshot {
         let restorableTabs = tabs

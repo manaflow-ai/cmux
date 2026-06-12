@@ -3936,6 +3936,34 @@ final class WindowTerminalHostViewTests: XCTestCase {
 
 
 @MainActor
+final class GhosttyTerminalTitleNotificationTests: XCTestCase {
+    func testTerminalTitleNotificationStripsVolatileSpinnerPrefix() {
+        XCTAssertEqual(GhosttyNSView.normalizedTerminalTitleForNotification("⠦ server-wt"), "server-wt")
+        XCTAssertEqual(GhosttyNSView.normalizedTerminalTitleForNotification("⠦   server-wt"), "server-wt")
+        XCTAssertEqual(GhosttyNSView.normalizedTerminalTitleForNotification("⠧ server-wt"), "server-wt")
+        XCTAssertEqual(GhosttyNSView.normalizedTerminalTitleForNotification("server-wt"), "server-wt")
+        XCTAssertEqual(GhosttyNSView.normalizedTerminalTitleForNotification("⠦"), "⠦")
+        XCTAssertEqual(GhosttyNSView.normalizedTerminalTitleForNotification("⠦server-wt"), "⠦server-wt")
+    }
+
+    func testDuplicateTerminalTitleNotificationsAreSuppressedPerSurface() {
+        let view = GhosttyNSView(frame: NSRect(x: 0, y: 0, width: 120, height: 80))
+        let tabId = UUID()
+        let surfaceId = UUID()
+
+        XCTAssertTrue(view.shouldPostTerminalTitleNotification(tabId: tabId, surfaceId: surfaceId, title: "Build"))
+        XCTAssertFalse(view.shouldPostTerminalTitleNotification(tabId: tabId, surfaceId: surfaceId, title: "Build"))
+
+        XCTAssertTrue(view.shouldPostTerminalTitleNotification(tabId: tabId, surfaceId: surfaceId, title: "Test"))
+        XCTAssertFalse(view.shouldPostTerminalTitleNotification(tabId: tabId, surfaceId: surfaceId, title: "Test"))
+
+        XCTAssertTrue(view.shouldPostTerminalTitleNotification(tabId: tabId, surfaceId: UUID(), title: "Test"))
+        XCTAssertTrue(view.shouldPostTerminalTitleNotification(tabId: UUID(), surfaceId: surfaceId, title: "Test"))
+    }
+}
+
+
+@MainActor
 final class GhosttySurfaceOverlayTests: XCTestCase {
     private var surfacesToRelease: [TerminalSurface] = []
 

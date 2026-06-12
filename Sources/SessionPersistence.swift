@@ -25,7 +25,7 @@ enum SessionPersistencePolicy {
     static let maximumSidebarWidth: Double = 600
     static let minimumWindowWidth: Double = 300
     static let minimumWindowHeight: Double = 200
-    static let autosaveInterval: TimeInterval = 8.0
+    static let autosaveInterval: TimeInterval = 30.0
     static let maxWindowsPerSnapshot: Int = 12
     static let maxWorkspacesPerWindow: Int = 128
     static let maxPanelsPerWorkspace: Int = 512
@@ -1859,6 +1859,75 @@ struct SessionWindowSnapshot: Codable, Sendable {
     var display: SessionDisplaySnapshot?
     var tabManager: SessionTabManagerSnapshot
     var sidebar: SessionSidebarSnapshot
+}
+
+extension SessionPanelSnapshot {
+    /// Returns a copy that includes restorable-agent metadata for this terminal panel.
+    func applyingRestorableAgentIndex(
+        _ restorableAgentIndex: RestorableAgentSessionIndex,
+        workspaceId: UUID
+    ) -> SessionPanelSnapshot {
+        guard var terminal,
+              let agent = restorableAgentIndex.snapshot(
+                workspaceId: workspaceId,
+                panelId: id
+              ) else {
+            return self
+        }
+
+        var snapshot = self
+        terminal.agent = agent
+        terminal.wasAgentRunning = restorableAgentIndex.hasLiveProcess(
+            workspaceId: workspaceId,
+            panelId: id
+        )
+        terminal.tmuxStartCommand = nil
+        terminal.scrollback = nil
+        snapshot.terminal = terminal
+        return snapshot
+    }
+}
+
+extension SessionWorkspaceSnapshot {
+    /// Returns a copy whose terminal panels include restorable-agent metadata from an index.
+    func applyingRestorableAgentIndex(
+        _ restorableAgentIndex: RestorableAgentSessionIndex,
+        workspaceId fallbackWorkspaceId: UUID? = nil
+    ) -> SessionWorkspaceSnapshot {
+        guard let resolvedWorkspaceId = workspaceId ?? fallbackWorkspaceId else { return self }
+        var snapshot = self
+        snapshot.panels = panels.map { panel in
+            panel.applyingRestorableAgentIndex(
+                restorableAgentIndex,
+                workspaceId: resolvedWorkspaceId
+            )
+        }
+        return snapshot
+    }
+}
+
+extension SessionTabManagerSnapshot {
+    /// Returns a copy whose workspace snapshots include restorable-agent metadata.
+    func applyingRestorableAgentIndex(
+        _ restorableAgentIndex: RestorableAgentSessionIndex
+    ) -> SessionTabManagerSnapshot {
+        var snapshot = self
+        snapshot.workspaces = workspaces.map {
+            $0.applyingRestorableAgentIndex(restorableAgentIndex)
+        }
+        return snapshot
+    }
+}
+
+extension SessionWindowSnapshot {
+    /// Returns a copy whose terminal panels include restorable-agent metadata.
+    func applyingRestorableAgentIndex(
+        _ restorableAgentIndex: RestorableAgentSessionIndex
+    ) -> SessionWindowSnapshot {
+        var snapshot = self
+        snapshot.tabManager = tabManager.applyingRestorableAgentIndex(restorableAgentIndex)
+        return snapshot
+    }
 }
 
 struct AppSessionSnapshot: Codable, Sendable {

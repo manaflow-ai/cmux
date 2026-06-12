@@ -955,6 +955,31 @@ struct RestorableAgentSessionIndex: Sendable {
         )
     }
 
+    /// Loads recorded agent resume metadata without verifying live process state.
+    ///
+    /// Use this stale-tolerant entry point for background refreshes and longer-lived
+    /// caches where approximate restore metadata is acceptable. Unlike
+    /// ``RestorableAgentSessionIndex/load(homeDirectory:fileManager:)``, this path
+    /// includes hook records whose PIDs cannot be verified and avoids sampling process
+    /// arguments for performance. Entries returned from this loader intentionally have
+    /// empty `processIDs` sets even when the hook record contains a PID.
+    static func loadStaleTolerant(
+        homeDirectory: String = NSHomeDirectory(),
+        fileManager: FileManager = .default
+    ) -> RestorableAgentSessionIndex {
+        let registry = CmuxVaultAgentRegistry.load(homeDirectory: homeDirectory, fileManager: fileManager)
+        return load(
+            homeDirectory: homeDirectory,
+            fileManager: fileManager,
+            registry: registry,
+            detectedSnapshots: [:],
+            includeUnverifiedProcessRecords: true,
+            // This processArgumentsProvider deliberately fails liveness checks so load(...)
+            // keeps stale records without doing argv lookups.
+            processArgumentsProvider: { _ in nil }
+        )
+    }
+
     static func loadIncludingProcessDetectedSnapshots(
         homeDirectory: String = NSHomeDirectory(),
         fileManager: FileManager = .default
@@ -989,6 +1014,7 @@ struct RestorableAgentSessionIndex: Sendable {
         fileManager: FileManager,
         registry: CmuxVaultAgentRegistry,
         detectedSnapshots: [PanelKey: (snapshot: SessionRestorableAgentSnapshot, updatedAt: TimeInterval, processIDs: Set<Int>)],
+        includeUnverifiedProcessRecords: Bool = false,
         processArgumentsProvider: (Int) -> CmuxTopProcessArguments? = {
             CmuxTopProcessSnapshot.processArgumentsAndEnvironment(for: $0)
         }
@@ -1080,7 +1106,7 @@ struct RestorableAgentSessionIndex: Sendable {
                 if hookCandidatesBySession[sessionKey]?.updatedAt ?? -Double.infinity <= effectiveRecord.updatedAt {
                     hookCandidatesBySession[sessionKey] = entry
                 }
-                guard effectiveRecord.pid == nil || liveProcessID != nil else {
+                guard effectiveRecord.pid == nil || liveProcessID != nil || includeUnverifiedProcessRecords else {
                     continue
                 }
                 if let existing = resolved[key], existing.updatedAt > effectiveRecord.updatedAt {
@@ -1702,7 +1728,16 @@ struct ProcessDetectedResumeIndexes: Sendable {
         }.value
     }
 
-    static func loadSynchronously(
+    /// Loads process-detected metadata synchronously for final app-termination snapshots.
+    /// Normal lifecycle saves should use ``load(homeDirectory:fileManager:)``.
+    static func loadForTerminationSnapshotSynchronously(
+        homeDirectory: String = NSHomeDirectory(),
+        fileManager: FileManager = .default
+    ) -> ProcessDetectedResumeIndexes {
+        loadSynchronously(homeDirectory: homeDirectory, fileManager: fileManager)
+    }
+
+    private static func loadSynchronously(
         homeDirectory: String = NSHomeDirectory(),
         fileManager: FileManager = .default
     ) -> ProcessDetectedResumeIndexes {

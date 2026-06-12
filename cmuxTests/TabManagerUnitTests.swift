@@ -62,6 +62,28 @@ private func waitForCondition(
     return true
 }
 
+@discardableResult
+private func waitForAsyncCondition(
+    timeout: TimeInterval = 3.0,
+    pollInterval: TimeInterval = 0.05,
+    file: StaticString = #filePath,
+    line: UInt = #line,
+    _ condition: @escaping @MainActor () -> Bool
+) async -> Bool {
+    let deadline = Date().addingTimeInterval(timeout)
+    while Date() < deadline {
+        if await condition() {
+            return true
+        }
+        try? await Task.sleep(nanoseconds: UInt64(pollInterval * 1_000_000_000))
+    }
+    if await condition() {
+        return true
+    }
+    XCTFail("Timed out waiting for condition", file: file, line: line)
+    return false
+}
+
 private func restoreUserDefaultForTabManagerTests(_ value: Any?, key: String) {
     let defaults = UserDefaults.standard
     if let value {
@@ -628,6 +650,22 @@ final class TabManagerChildExitCloseTests: XCTestCase {
 
 @MainActor
 final class TabManagerWorkspaceOwnershipTests: XCTestCase {
+    private final class RecordingTitleWindow: NSWindow {
+        private(set) var titleAssignments: [String] = []
+
+        override var title: String {
+            get { super.title }
+            set {
+                titleAssignments.append(newValue)
+                super.title = newValue
+            }
+        }
+
+        func resetTitleAssignments() {
+            titleAssignments.removeAll()
+        }
+    }
+
     func testCloseWorkspaceIgnoresWorkspaceNotOwnedByManager() {
         let manager = TabManager()
         _ = manager.addWorkspace()
@@ -644,6 +682,26 @@ final class TabManagerWorkspaceOwnershipTests: XCTestCase {
         XCTAssertEqual(manager.selectedTabId, initialSelectedTabId)
         XCTAssertEqual(externalWorkspace.panels.count, externalPanelCountBefore)
         XCTAssertEqual(externalWorkspace.panelTitles, externalPanelTitlesBefore)
+    }
+
+    func testWindowTitleUpdateSkipsRedundantAssignment() throws {
+        let manager = TabManager()
+        let workspace = try XCTUnwrap(manager.selectedWorkspace)
+        let window = RecordingTitleWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 640, height: 480),
+            styleMask: [.titled],
+            backing: .buffered,
+            defer: false
+        )
+        manager.window = window
+        window.resetTitleAssignments()
+
+        manager.setCustomTitle(tabId: workspace.id, title: "Build")
+        XCTAssertEqual(window.title, "Build")
+        XCTAssertEqual(window.titleAssignments, ["Build"])
+
+        manager.setCustomTitle(tabId: workspace.id, title: "Build")
+        XCTAssertEqual(window.titleAssignments, ["Build"])
     }
 
     func testFocusedPanelTitleRefreshesAutoWorkspaceTitleInSplitWorkspace() throws {
@@ -822,10 +880,11 @@ final class TabManagerPullRequestProbeTests: XCTestCase {
         XCTAssertEqual(observedMaxActiveCallCount, 1)
 
         await reader.releaseAll()
+        let didApplySharedSnapshot = await waitForAsyncCondition {
+            panelIds.allSatisfy { workspace.panelGitBranches[$0]?.branch == "main" }
+        }
         XCTAssertTrue(
-            waitForCondition {
-                panelIds.allSatisfy { workspace.panelGitBranches[$0]?.branch == "main" }
-            },
+            didApplySharedSnapshot,
             "One same-directory snapshot should update every queued panel."
         )
         let finalObservedCallCount = await reader.observedCallCount

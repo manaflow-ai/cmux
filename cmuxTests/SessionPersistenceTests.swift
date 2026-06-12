@@ -903,6 +903,30 @@ final class SessionPersistenceTests: XCTestCase {
         )
     }
 
+    func testUnchangedAutosaveFingerprintDefaultSkipsForFiveMinuteIdleWindow() {
+        let now = Date()
+        XCTAssertTrue(
+            AppDelegate.shouldSkipSessionAutosaveForUnchangedFingerprint(
+                isTerminatingApp: false,
+                includeScrollback: false,
+                previousFingerprint: 1234,
+                currentFingerprint: 1234,
+                lastPersistedAt: now.addingTimeInterval(-120),
+                now: now
+            )
+        )
+        XCTAssertFalse(
+            AppDelegate.shouldSkipSessionAutosaveForUnchangedFingerprint(
+                isTerminatingApp: false,
+                includeScrollback: false,
+                previousFingerprint: 1234,
+                currentFingerprint: 1234,
+                lastPersistedAt: now.addingTimeInterval(-360),
+                now: now
+            )
+        )
+    }
+
     func testUnchangedAutosaveFingerprintDoesNotSkipAfterStalenessWindow() {
         let now = Date()
         XCTAssertFalse(
@@ -1745,6 +1769,59 @@ final class SessionPersistenceTests: XCTestCase {
             restorableAgentIndex: runningIndex
         )
         XCTAssertNil(idleSnapshot.panels.first?.terminal?.agent)
+    }
+
+    @MainActor
+    func testApplyingRestorableAgentIndexRecordsDetectedLiveProcessState() throws {
+        let workspace = Workspace()
+        let panelId = try XCTUnwrap(workspace.focusedPanelId)
+        let baseSnapshot = workspace.sessionSnapshot(includeScrollback: false)
+        let agent = SessionRestorableAgentSnapshot(
+            kind: .codex,
+            sessionId: "codex-detected-session",
+            workingDirectory: "/tmp/repo",
+            launchCommand: AgentLaunchCommandSnapshot(
+                launcher: "codex",
+                executablePath: "/usr/local/bin/codex",
+                arguments: ["/usr/local/bin/codex"],
+                workingDirectory: "/tmp/repo",
+                source: "process"
+            )
+        )
+        let key = RestorableAgentSessionIndex.PanelKey(
+            workspaceId: workspace.id,
+            panelId: panelId
+        )
+
+        let liveIndex = RestorableAgentSessionIndex.load(
+            homeDirectory: FileManager.default.temporaryDirectory.path,
+            fileManager: .default,
+            registry: CmuxVaultAgentRegistry(registrations: []),
+            detectedSnapshots: [
+                key: (snapshot: agent, updatedAt: 10, processIDs: [1234]),
+            ]
+        )
+        let liveSnapshot = baseSnapshot.applyingRestorableAgentIndex(
+            liveIndex,
+            workspaceId: workspace.id
+        )
+        XCTAssertEqual(liveSnapshot.panels.first?.terminal?.agent?.sessionId, "codex-detected-session")
+        XCTAssertEqual(liveSnapshot.panels.first?.terminal?.wasAgentRunning, true)
+
+        let staleIndex = RestorableAgentSessionIndex.load(
+            homeDirectory: FileManager.default.temporaryDirectory.path,
+            fileManager: .default,
+            registry: CmuxVaultAgentRegistry(registrations: []),
+            detectedSnapshots: [
+                key: (snapshot: agent, updatedAt: 10, processIDs: []),
+            ]
+        )
+        let staleSnapshot = baseSnapshot.applyingRestorableAgentIndex(
+            staleIndex,
+            workspaceId: workspace.id
+        )
+        XCTAssertEqual(staleSnapshot.panels.first?.terminal?.agent?.sessionId, "codex-detected-session")
+        XCTAssertEqual(staleSnapshot.panels.first?.terminal?.wasAgentRunning, false)
     }
 
     private func makeRestorableAgentIndex(
