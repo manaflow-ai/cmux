@@ -27,6 +27,18 @@ export function useSearchHotkey(onOpen: () => void) {
   }, [onOpen]);
 }
 
+// Focus exactly once per mounted input node (the input is re-keyed per open
+// request, so each open mounts a fresh node). Module-level and WeakSet-guarded:
+// the ref identity is stable across renders, so ordinary search-bar updates
+// (typing, next/prev, filter toggle) never steal focus back to the field.
+const focusedOnMount = new WeakSet<HTMLInputElement>();
+function focusOnFirstMount(node: HTMLInputElement | null) {
+  if (node && !focusedOnMount.has(node)) {
+    focusedOnMount.add(node);
+    node.focus();
+  }
+}
+
 export function SearchBar({
   openCount,
   query,
@@ -62,10 +74,10 @@ export function SearchBar({
     <search className="agent-chat-search-bar">
       <input
         // Re-keying on every open request re-mounts the input, and the
-        // callback ref focuses the fresh mount (repeat Cmd+F refocuses the
-        // field without an effect).
+        // first-mount ref focuses the fresh node (repeat Cmd+F refocuses the
+        // field without an effect, later renders never steal focus).
         key={`search-input-${openCount}`}
-        ref={(node) => node?.focus()}
+        ref={focusOnFirstMount}
         className="agent-chat-search-input"
         type="text"
         value={query}
