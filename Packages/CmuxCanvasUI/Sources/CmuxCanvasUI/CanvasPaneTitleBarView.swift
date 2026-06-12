@@ -1,76 +1,54 @@
 import SwiftUI
 
-/// The SwiftUI chrome strip at the top of a canvas pane: its tabs and a
-/// close button. With one tab it reads as a plain title bar; with several it
-/// becomes a tab strip. The strip is also the pane's move-drag handle (drag
-/// handling lives in `CanvasPaneView`; tab buttons consume their own clicks,
-/// the surrounding strip does not). All text arrives pre-localized through
-/// ``CanvasPaneChrome``.
+/// The tab bar at the top of a canvas pane, mirroring the workspace split
+/// pane tab bar's anatomy (30pt bar, full-height square tabs, right-edge
+/// separators, selected/hover fills, 14pt icon slot that becomes a close
+/// button on hover, 11pt centered titles). The bar is also the pane's
+/// move-drag handle: empty bar area drags via the AppKit path, and tabs
+/// relay drags through `onTabStripDrag`. All text arrives pre-localized
+/// through ``CanvasPaneChrome``.
 struct CanvasPaneTitleBarView: View {
     let chrome: CanvasPaneChrome
     let onSelectTab: (UUID) -> Void
     let onCloseTab: (UUID) -> Void
-    /// Pane-drag relay for drags that start on a tab pill (pills consume
+    /// Pane-drag relay for drags that start on a tab (tabs consume
     /// mouse-down, so the AppKit title-bar drag path never sees them).
     /// Translation is in pane-local points, which equals document points at
     /// any magnification because the strip renders inside the scaled space.
     let onTabStripDrag: (CGSize) -> Void
     let onTabStripDragEnded: () -> Void
 
-    static let height: CGFloat = 28
+    /// Matches the split pane tab bar height.
+    static let height: CGFloat = 30
 
     var body: some View {
-        HStack(spacing: 2) {
-            if chrome.tabs.count == 1, let tab = chrome.tabs.first {
-                singleTitle(tab)
-            } else {
-                ForEach(chrome.tabs) { tab in
-                    CanvasPaneTabButton(
-                        tab: tab,
-                        isSelected: tab.id == chrome.selectedTabId,
-                        paneIsFocused: chrome.isFocused,
-                        closeActionLabel: chrome.closeActionLabel,
-                        onSelect: { onSelectTab(tab.id) },
-                        onClose: { onCloseTab(tab.id) }
-                    )
-                    .simultaneousGesture(
-                        DragGesture(minimumDistance: 4)
-                            .onChanged { onTabStripDrag($0.translation) }
-                            .onEnded { _ in onTabStripDragEnded() }
-                    )
-                }
+        HStack(spacing: 0) {
+            ForEach(chrome.tabs) { tab in
+                CanvasPaneTabItem(
+                    tab: tab,
+                    isSelected: chrome.tabs.count == 1 || tab.id == chrome.selectedTabId,
+                    paneIsFocused: chrome.isFocused,
+                    closeActionLabel: chrome.closeActionLabel,
+                    onSelect: { onSelectTab(tab.id) },
+                    onClose: { onCloseTab(tab.id) }
+                )
+                .simultaneousGesture(
+                    DragGesture(minimumDistance: 4)
+                        .onChanged { onTabStripDrag($0.translation) }
+                        .onEnded { _ in onTabStripDragEnded() }
+                )
             }
-            Spacer(minLength: 4)
-            if chrome.tabs.count == 1, let tab = chrome.tabs.first {
-                CanvasPaneCloseButton(label: chrome.closeActionLabel) {
-                    onCloseTab(tab.id)
-                }
-            }
+            Spacer(minLength: 0)
         }
-        .padding(.horizontal, 8)
         .frame(height: Self.height)
         .contentShape(Rectangle())
     }
-
-    private func singleTitle(_ tab: CanvasTabChrome) -> some View {
-        HStack(spacing: 6) {
-            if let iconSystemName = tab.iconSystemName {
-                Image(systemName: iconSystemName)
-                    .font(.system(size: 11, weight: .medium))
-                    .foregroundStyle(chrome.isFocused ? .primary : .secondary)
-            }
-            Text(tab.title)
-                .font(.system(size: 12, weight: chrome.isFocused ? .semibold : .regular))
-                .foregroundStyle(chrome.isFocused ? .primary : .secondary)
-                .lineLimit(1)
-                .truncationMode(.middle)
-        }
-        .padding(.leading, 2)
-    }
 }
 
-/// One tab in a multi-tab pane strip.
-private struct CanvasPaneTabButton: View {
+/// One tab, visually matching the workspace split pane tabs: full-height
+/// rectangle, selected/hover background fill, a 1px trailing separator, and
+/// an icon slot that swaps to a close button on hover.
+private struct CanvasPaneTabItem: View {
     let tab: CanvasTabChrome
     let isSelected: Bool
     let paneIsFocused: Bool
@@ -78,73 +56,76 @@ private struct CanvasPaneTabButton: View {
     let onSelect: () -> Void
     let onClose: () -> Void
 
-    @State private var isHovering = false
+    @State private var isHovered = false
+    @State private var isCloseHovered = false
+
+    private var textOpacity: Double {
+        isSelected && paneIsFocused ? 0.82 : 0.62
+    }
 
     var body: some View {
         Button(action: onSelect) {
-            HStack(spacing: 4) {
-                if let iconSystemName = tab.iconSystemName {
-                    Image(systemName: iconSystemName)
-                        .font(.system(size: 10, weight: .medium))
-                }
+            HStack(spacing: 6) {
+                iconOrClose
                 Text(tab.title)
-                    .font(.system(size: 11, weight: isSelected ? .semibold : .regular))
+                    .font(.system(size: 11))
+                    .foregroundStyle(.primary.opacity(textOpacity))
                     .lineLimit(1)
                     .truncationMode(.middle)
-                    .frame(maxWidth: 140)
-                if isHovering {
-                    CanvasPaneCloseButton(label: closeActionLabel, size: 14, onClose: onClose)
-                }
             }
-            .foregroundStyle(selectedForeground)
-            .padding(.horizontal, 8)
-            .padding(.vertical, 4)
-            .background(
-                RoundedRectangle(cornerRadius: 5, style: .continuous)
-                    .fill(isSelected ? Color.primary.opacity(0.12) : (isHovering ? Color.primary.opacity(0.06) : .clear))
-            )
+            .padding(.horizontal, 6)
+            .frame(maxWidth: 220, minHeight: CanvasPaneTitleBarView.height, maxHeight: CanvasPaneTitleBarView.height)
+            .background(tabBackground)
         }
         .buttonStyle(.plain)
-        .onHover { isHovering = $0 }
+        .onHover { isHovered = $0 }
+        .help(tab.title)
         .accessibilityLabel(tab.title)
         .accessibilityAddTraits(isSelected ? .isSelected : [])
     }
 
-    private var selectedForeground: HierarchicalShapeStyle {
-        if isSelected {
-            return paneIsFocused ? .primary : .secondary
+    @ViewBuilder
+    private var iconOrClose: some View {
+        ZStack {
+            if isHovered {
+                Button(action: onClose) {
+                    Image(systemName: "xmark")
+                        .font(.system(size: 9, weight: .bold))
+                        .foregroundStyle(.primary.opacity(isCloseHovered ? 0.82 : 0.62))
+                        .frame(width: 16, height: 16)
+                        .background(
+                            RoundedRectangle(cornerRadius: 3)
+                                .fill(isCloseHovered ? Color.primary.opacity(0.12) : .clear)
+                        )
+                }
+                .buttonStyle(.plain)
+                .onHover { isCloseHovered = $0 }
+                .help(closeActionLabel)
+                .accessibilityLabel(closeActionLabel)
+            } else if let iconSystemName = tab.iconSystemName {
+                Image(systemName: iconSystemName)
+                    .font(.system(size: 11, weight: .medium))
+                    .foregroundStyle(.primary.opacity(textOpacity))
+            }
         }
-        return .tertiary
-    }
-}
-
-/// The shared hover-circle close button used by the strip.
-private struct CanvasPaneCloseButton: View {
-    let label: String
-    var size: CGFloat = 18
-    let onClose: () -> Void
-
-    @State private var isHovering = false
-
-    init(label: String, size: CGFloat = 18, onClose: @escaping () -> Void) {
-        self.label = label
-        self.size = size
-        self.onClose = onClose
+        .frame(width: 14, height: 14)
     }
 
-    var body: some View {
-        Button(action: onClose) {
-            Image(systemName: "xmark")
-                .font(.system(size: size / 2, weight: .bold))
-                .foregroundStyle(isHovering ? .primary : .secondary)
-                .frame(width: size, height: size)
-                .background(
-                    Circle().fill(isHovering ? Color.primary.opacity(0.12) : .clear)
-                )
+    private var tabBackground: some View {
+        ZStack {
+            if isSelected {
+                Rectangle().fill(Color.primary.opacity(0.10))
+            } else if isHovered {
+                Rectangle().fill(Color.primary.opacity(0.05))
+            } else {
+                Color.clear
+            }
+            HStack {
+                Spacer()
+                Rectangle()
+                    .fill(Color(nsColor: .separatorColor))
+                    .frame(width: 1)
+            }
         }
-        .buttonStyle(.plain)
-        .onHover { isHovering = $0 }
-        .help(label)
-        .accessibilityLabel(label)
     }
 }
