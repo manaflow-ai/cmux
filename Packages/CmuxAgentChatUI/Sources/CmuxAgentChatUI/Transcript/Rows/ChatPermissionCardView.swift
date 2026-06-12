@@ -120,6 +120,7 @@ public struct ChatPermissionCardView: View {
         HStack(spacing: 4) {
             Image(systemName: receiptSymbolName(resolution: resolution))
                 .font(.caption2.weight(.semibold))
+                .accessibilityHidden(true)
             Text(verbatim: "\(receiptLabel(resolution: resolution)) · \(timestamp.formatted(.dateTime.hour().minute()))")
         }
         .font(.caption)

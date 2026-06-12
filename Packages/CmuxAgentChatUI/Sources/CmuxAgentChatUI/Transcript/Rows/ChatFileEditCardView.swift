@@ -63,10 +63,36 @@ public struct ChatFileEditCardView: View {
                 counts
             }
             .padding(.horizontal, 10)
-            .frame(height: 32)
+            .frame(minHeight: 32)
             .contentShape(.rect)
         }
         .buttonStyle(.plain)
+        .accessibilityValue(
+            isExpanded
+                ? String(
+                    localized: "chat.row.expanded.accessibility",
+                    defaultValue: "Expanded",
+                    bundle: .module
+                )
+                : String(
+                    localized: "chat.row.collapsed.accessibility",
+                    defaultValue: "Collapsed",
+                    bundle: .module
+                )
+        )
+        .accessibilityHint(
+            isExpanded
+                ? String(
+                    localized: "chat.row.collapse.hint",
+                    defaultValue: "Double tap to collapse",
+                    bundle: .module
+                )
+                : String(
+                    localized: "chat.row.expand.hint",
+                    defaultValue: "Double tap to expand",
+                    bundle: .module
+                )
+        )
     }
 
     /// SF symbol for the edit operation.
@@ -110,7 +136,7 @@ public struct ChatFileEditCardView: View {
                             bundle: .module
                         )
                     )
-                    .font(.system(size: 12, design: .monospaced))
+                    .font(.system(.caption, design: .monospaced))
                     .foregroundStyle(.secondary)
                     .padding(.horizontal, 8)
                     .padding(.vertical, 2)

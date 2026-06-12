@@ -48,6 +48,32 @@ public struct ChatToolUseRowView: View {
                 .contentShape(.rect)
             }
             .buttonStyle(.plain)
+            .accessibilityValue(
+                isExpanded
+                    ? String(
+                        localized: "chat.row.expanded.accessibility",
+                        defaultValue: "Expanded",
+                        bundle: .module
+                    )
+                    : String(
+                        localized: "chat.row.collapsed.accessibility",
+                        defaultValue: "Collapsed",
+                        bundle: .module
+                    )
+            )
+            .accessibilityHint(
+                isExpanded
+                    ? String(
+                        localized: "chat.row.collapse.hint",
+                        defaultValue: "Double tap to collapse",
+                        bundle: .module
+                    )
+                    : String(
+                        localized: "chat.row.expand.hint",
+                        defaultValue: "Double tap to expand",
+                        bundle: .module
+                    )
+            )
             if isExpanded {
                 detailCard
             }
@@ -77,10 +103,24 @@ public struct ChatToolUseRowView: View {
             Image(systemName: "checkmark")
                 .font(.caption2.weight(.semibold))
                 .foregroundStyle(.green)
+                .accessibilityLabel(
+                    String(
+                        localized: "chat.tool.succeeded.accessibility",
+                        defaultValue: "Succeeded",
+                        bundle: .module
+                    )
+                )
         case .failed:
             Image(systemName: "xmark")
                 .font(.caption2.weight(.semibold))
                 .foregroundStyle(.red)
+                .accessibilityLabel(
+                    String(
+                        localized: "chat.tool.failed.accessibility",
+                        defaultValue: "Failed",
+                        bundle: .module
+                    )
+                )
         }
     }
 
@@ -108,12 +148,12 @@ public struct ChatToolUseRowView: View {
     private func clampedText(_ text: String, lineCap: Int) -> some View {
         let lines = text.split(separator: "\n", omittingEmptySubsequences: false)
         Text(lines.prefix(lineCap).joined(separator: "\n"))
-            .font(.system(size: 11, design: .monospaced))
+            .font(.system(.caption2, design: .monospaced))
             .foregroundStyle(theme.terminalCardText)
             .textSelection(.enabled)
         if lines.count > lineCap {
             Text(String(localized: "chat.tool.truncated", defaultValue: "⋯ truncated", bundle: .module))
-                .font(.system(size: 11, design: .monospaced))
+                .font(.system(.caption2, design: .monospaced))
                 .foregroundStyle(.secondary)
         }
     }

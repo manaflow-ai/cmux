@@ -807,14 +807,12 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         let trimmed = title.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty, let client = remoteClient else { return }
         do {
+            var params = workspaceMutationParams(id: id)
+            params["action"] = "rename"
+            params["title"] = trimmed
             let request = try MobileCoreRPCClient.requestData(
                 method: "workspace.action",
-                params: [
-                    "workspace_id": id.rawValue,
-                    "action": "rename",
-                    "title": trimmed,
-                    "client_id": clientID,
-                ]
+                params: params
             )
             _ = try await client.sendRequest(request)
         } catch {
@@ -834,18 +832,45 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     public func setWorkspacePinned(id: MobileWorkspacePreview.ID, _ pinned: Bool) async {
         guard let client = remoteClient else { return }
         do {
+            var params = workspaceMutationParams(id: id)
+            params["action"] = pinned ? "pin" : "unpin"
             let request = try MobileCoreRPCClient.requestData(
                 method: "workspace.action",
-                params: [
-                    "workspace_id": id.rawValue,
-                    "action": pinned ? "pin" : "unpin",
-                    "client_id": clientID,
-                ]
+                params: params
             )
             _ = try await client.sendRequest(request)
         } catch {
             mobileShellLog.error("workspace pin failed id=\(id.rawValue, privacy: .public) error=\(String(describing: error), privacy: .public)")
         }
+    }
+
+    /// Close a workspace on the Mac.
+    ///
+    /// The Mac remains authoritative: pinned-workspace protection and actual
+    /// removal happen there, then the workspace-list observer reconciles iOS.
+    /// - Parameter id: The workspace to close.
+    public func closeWorkspace(id: MobileWorkspacePreview.ID) async {
+        guard let client = remoteClient else { return }
+        do {
+            let request = try MobileCoreRPCClient.requestData(
+                method: "workspace.close",
+                params: workspaceMutationParams(id: id)
+            )
+            _ = try await client.sendRequest(request)
+        } catch {
+            mobileShellLog.error("workspace close failed id=\(id.rawValue, privacy: .public) error=\(String(describing: error), privacy: .public)")
+        }
+    }
+
+    private func workspaceMutationParams(id: MobileWorkspacePreview.ID) -> [String: Any] {
+        var params: [String: Any] = [
+            "workspace_id": id.rawValue,
+            "client_id": clientID,
+        ]
+        if let windowID = workspaces.first(where: { $0.id == id })?.windowID {
+            params["window_id"] = windowID
+        }
+        return params
     }
 
     /// Privileged direct-to-agent feedback round-trip: export the structured

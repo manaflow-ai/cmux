@@ -164,7 +164,10 @@ final class AgentChatSessionRegistry {
            lastConsult.map({ event.receivedAt.timeIntervalSince($0) > 30 }) ?? true {
             hookStoreConsultedAt[sessionID] = event.receivedAt
             if let entry = hookStore.entry(agentSource: event.source, sessionID: sessionID) {
-                record.adoptBindings(from: entry)
+                // Adopt the store pid only when the record has none: the
+                // record's pid comes from the event's own ppid and is
+                // fresher than a store entry that may predate a resume.
+                record.adoptBindings(from: entry, includingPID: record.pid == nil)
             }
         }
         if let workspaceID = event.workspaceId, !workspaceID.isEmpty {

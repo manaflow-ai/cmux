@@ -280,7 +280,12 @@ public final class ChatConversationStore {
             lastErrorDescription = nil
             reproject()
         } catch {
-            initialLoadFailed = true
+            // Only flag failure while the initial load is still pending: a
+            // racing duplicate fetch (retry button vs reconnect) that fails
+            // AFTER another succeeded must not strand a dead error UI.
+            if !hasLoadedInitialHistory {
+                initialLoadFailed = true
+            }
             lastErrorDescription = error.localizedDescription
         }
     }

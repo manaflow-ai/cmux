@@ -27,8 +27,14 @@ public struct ChatPendingBubbleView: View {
                     .opacity(bubbleOpacity)
                 deliveryLine
             }
+            .accessibilityElement(children: isFailed ? .contain : .combine)
         }
         .frame(maxWidth: .infinity, alignment: .trailing)
+    }
+
+    private var isFailed: Bool {
+        if case .failed = pending.delivery { return true }
+        return false
     }
 
     private var bubble: some View {
@@ -41,6 +47,13 @@ public struct ChatPendingBubbleView: View {
                         .font(.caption)
                 }
                 .foregroundStyle(.white.opacity(0.8))
+                .accessibilityLabel(
+                    String(
+                        localized: "chat.pending.attachments.accessibility",
+                        defaultValue: "\(pending.attachmentCount) attachments",
+                        bundle: .module
+                    )
+                )
             }
             Text(pending.text)
                 .font(.body)
@@ -69,12 +82,33 @@ public struct ChatPendingBubbleView: View {
             Image(systemName: "clock")
                 .font(.caption2)
                 .foregroundStyle(.tertiary)
+                .accessibilityLabel(
+                    String(
+                        localized: "chat.pending.queued.accessibility",
+                        defaultValue: "Queued",
+                        bundle: .module
+                    )
+                )
         case .sending:
             ChatPendingPulseGlyph()
+                .accessibilityLabel(
+                    String(
+                        localized: "chat.pending.sending.accessibility",
+                        defaultValue: "Sending",
+                        bundle: .module
+                    )
+                )
         case .delivered:
             Image(systemName: "checkmark")
                 .font(.caption2)
                 .foregroundStyle(.tertiary)
+                .accessibilityLabel(
+                    String(
+                        localized: "chat.pending.delivered.accessibility",
+                        defaultValue: "Delivered",
+                        bundle: .module
+                    )
+                )
         case .failed:
             failedLine
         }
@@ -85,22 +119,39 @@ public struct ChatPendingBubbleView: View {
             Image(systemName: "exclamationmark.circle.fill")
                 .font(.caption)
                 .foregroundStyle(.red)
+                .accessibilityLabel(
+                    String(
+                        localized: "chat.pending.failed.accessibility",
+                        defaultValue: "Failed to send",
+                        bundle: .module
+                    )
+                )
             Button {
                 actions.retryPending(pending.id)
             } label: {
                 Text(String(localized: "chat.pending.retry", defaultValue: "Retry", bundle: .module))
                     .font(.caption.weight(.semibold))
                     .foregroundStyle(theme.accent)
+                    .padding(.vertical, 14)
+                    .padding(.horizontal, 8)
+                    .contentShape(.rect)
             }
             .buttonStyle(.plain)
+            .padding(.vertical, -14)
+            .padding(.horizontal, -8)
             Button {
                 actions.discardPending(pending.id)
             } label: {
                 Text(String(localized: "chat.pending.discard", defaultValue: "Discard", bundle: .module))
                     .font(.caption.weight(.semibold))
                     .foregroundStyle(.secondary)
+                    .padding(.vertical, 14)
+                    .padding(.horizontal, 8)
+                    .contentShape(.rect)
             }
             .buttonStyle(.plain)
+            .padding(.vertical, -14)
+            .padding(.horizontal, -8)
         }
     }
 }
@@ -109,12 +160,19 @@ public struct ChatPendingBubbleView: View {
 struct ChatPendingPulseGlyph: View {
     @State private var pulsing = false
 
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
     var body: some View {
         Image(systemName: "clock")
             .font(.caption2)
             .foregroundStyle(.tertiary)
-            .opacity(pulsing ? 0.3 : 1)
-            .animation(.easeInOut(duration: 0.7).repeatForever(autoreverses: true), value: pulsing)
+            .opacity(reduceMotion ? 1 : (pulsing ? 0.3 : 1))
+            .animation(
+                reduceMotion
+                    ? nil
+                    : .easeInOut(duration: 0.7).repeatForever(autoreverses: true),
+                value: pulsing
+            )
             .onAppear { pulsing = true }
     }
 }

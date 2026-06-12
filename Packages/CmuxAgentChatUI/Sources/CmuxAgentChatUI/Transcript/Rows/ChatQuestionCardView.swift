@@ -104,6 +104,7 @@ public struct ChatQuestionCardView: View {
         HStack(spacing: 4) {
             Image(systemName: "checkmark")
                 .font(.caption2.weight(.semibold))
+                .accessibilityHidden(true)
             Text(selected)
         }
         .font(.caption)

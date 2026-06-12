@@ -40,6 +40,32 @@ public struct ChatThoughtRowView: View {
             .contentShape(.rect)
         }
         .buttonStyle(.plain)
+        .accessibilityValue(
+            isExpanded
+                ? String(
+                    localized: "chat.row.expanded.accessibility",
+                    defaultValue: "Expanded",
+                    bundle: .module
+                )
+                : String(
+                    localized: "chat.row.collapsed.accessibility",
+                    defaultValue: "Collapsed",
+                    bundle: .module
+                )
+        )
+        .accessibilityHint(
+            isExpanded
+                ? String(
+                    localized: "chat.row.collapse.hint",
+                    defaultValue: "Double tap to collapse",
+                    bundle: .module
+                )
+                : String(
+                    localized: "chat.row.expand.hint",
+                    defaultValue: "Double tap to expand",
+                    bundle: .module
+                )
+        )
         .frame(maxWidth: .infinity, alignment: .leading)
     }
 

@@ -35,6 +35,7 @@ public struct ChatSessionHeaderView: View {
                     .lineLimit(1)
             }
         }
+        .accessibilityElement(children: .combine)
     }
 
     private var isWorking: Bool {
@@ -95,17 +96,20 @@ struct ChatStateDotView: View {
 
     @State private var pulsing = false
 
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
     var body: some View {
         Circle()
             .fill(color)
             .frame(width: 7, height: 7)
-            .opacity(pulses && pulsing ? 0.45 : 1)
+            .opacity(!reduceMotion && pulses && pulsing ? 0.45 : 1)
             .animation(
-                pulses
+                pulses && !reduceMotion
                     ? .easeInOut(duration: 0.9).repeatForever(autoreverses: true)
                     : .default,
                 value: pulsing
             )
             .onAppear { pulsing = true }
+            .accessibilityHidden(true)
     }
 }

@@ -26,6 +26,10 @@ public struct ChatComposerView: View {
 
     @Environment(\.chatTheme) private var theme
 
+    @ScaledMetric(relativeTo: .title) private var sendGlyphSize: CGFloat = 30
+    @ScaledMetric(relativeTo: .title) private var sendButtonSize: CGFloat = 36
+    @ScaledMetric(relativeTo: .body) private var attachGlyphSize: CGFloat = 17
+
     private static let maxAttachmentDimension: CGFloat = 2048
     private static let jpegQuality: CGFloat = 0.85
     private static let hardStopWindow: TimeInterval = 2
@@ -174,10 +178,10 @@ public struct ChatComposerView: View {
         if hasContent {
             Button(action: performSend) {
                 Image(systemName: "arrow.up.circle.fill")
-                    .font(.system(size: 30))
+                    .font(.system(size: sendGlyphSize))
                     .foregroundStyle(isConnected ? theme.accent : Color.secondary)
-                    .frame(width: 36, height: 36)
-                    .contentShape(.circle)
+                    .frame(width: sendButtonSize, height: sendButtonSize)
+                    .contentShape(Circle().inset(by: -4))
             }
             .buttonStyle(.plain)
             .disabled(!isConnected)
@@ -198,9 +202,9 @@ public struct ChatComposerView: View {
                         .font(.system(size: 11))
                         .foregroundStyle(.white)
                 }
-                .frame(width: 32, height: 32)
-                .frame(width: 36, height: 36)
-                .contentShape(.circle)
+                .frame(width: sendButtonSize - 4, height: sendButtonSize - 4)
+                .frame(width: sendButtonSize, height: sendButtonSize)
+                .contentShape(Circle().inset(by: -4))
             }
             .buttonStyle(.plain)
             .accessibilityLabel(
@@ -211,11 +215,22 @@ public struct ChatComposerView: View {
                 )
             )
         } else {
-            Image(systemName: "arrow.up.circle.fill")
-                .font(.system(size: 30))
-                .foregroundStyle(.secondary)
-                .opacity(0.4)
-                .frame(width: 36, height: 36)
+            Button(action: performSend) {
+                Image(systemName: "arrow.up.circle.fill")
+                    .font(.system(size: sendGlyphSize))
+                    .foregroundStyle(.secondary)
+                    .opacity(0.4)
+                    .frame(width: sendButtonSize, height: sendButtonSize)
+            }
+            .buttonStyle(.plain)
+            .disabled(true)
+            .accessibilityLabel(
+                String(
+                    localized: "chat.composer.send.accessibility",
+                    defaultValue: "Send",
+                    bundle: .module
+                )
+            )
         }
     }
 
@@ -256,11 +271,11 @@ public struct ChatComposerView: View {
     private var attachButton: some View {
         PhotosPicker(selection: $pickedItems, maxSelectionCount: 4, matching: .images) {
             Image(systemName: "plus")
-                .font(.system(size: 17, weight: .medium))
+                .font(.system(size: attachGlyphSize, weight: .medium))
                 .foregroundStyle(.secondary)
                 .frame(width: 36, height: 36)
                 .background(Color.secondary.opacity(0.15), in: .circle)
-                .contentShape(.circle)
+                .contentShape(Circle().inset(by: -4))
         }
         .buttonStyle(.plain)
         .accessibilityLabel(
@@ -302,7 +317,8 @@ public struct ChatComposerView: View {
                 .font(.system(size: 16))
                 .foregroundStyle(.white, .black.opacity(0.6))
                 .padding(3)
-                .contentShape(.circle)
+                .frame(width: 44, height: 44, alignment: .topTrailing)
+                .contentShape(.rect)
         }
         .buttonStyle(.plain)
         .accessibilityLabel(

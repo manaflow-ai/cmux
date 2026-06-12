@@ -78,10 +78,10 @@ public struct ChatTerminalCardView: View {
         } label: {
             HStack(spacing: 6) {
                 Text(verbatim: "$")
-                    .font(.system(size: 13, weight: .semibold, design: .monospaced))
+                    .font(.system(.footnote, design: .monospaced).weight(.semibold))
                     .foregroundStyle(theme.accent)
                 Text(capture.command)
-                    .font(.system(size: 13, design: .monospaced))
+                    .font(.system(.footnote, design: .monospaced))
                     .foregroundStyle(theme.terminalCardText)
                     .lineLimit(1)
                     .truncationMode(.middle)
@@ -89,10 +89,67 @@ public struct ChatTerminalCardView: View {
                 trailingStatus
             }
             .padding(.horizontal, 10)
-            .frame(height: 32)
+            .frame(minHeight: 32)
             .contentShape(.rect)
         }
         .buttonStyle(.plain)
+        .accessibilityLabel(headerAccessibilityLabel)
+        .accessibilityValue(
+            isExpanded
+                ? String(
+                    localized: "chat.row.expanded.accessibility",
+                    defaultValue: "Expanded",
+                    bundle: .module
+                )
+                : String(
+                    localized: "chat.row.collapsed.accessibility",
+                    defaultValue: "Collapsed",
+                    bundle: .module
+                )
+        )
+        .accessibilityHint(
+            isExpanded
+                ? String(
+                    localized: "chat.row.collapse.hint",
+                    defaultValue: "Double tap to collapse",
+                    bundle: .module
+                )
+                : String(
+                    localized: "chat.row.expand.hint",
+                    defaultValue: "Double tap to expand",
+                    bundle: .module
+                )
+        )
+    }
+
+    /// VoiceOver label for the header: the command plus its run outcome.
+    private var headerAccessibilityLabel: String {
+        if capture.isRunning {
+            return String(
+                localized: "chat.terminal.running.accessibility",
+                defaultValue: "Command \(capture.command), running",
+                bundle: .module
+            )
+        }
+        if let exitCode = capture.exitCode {
+            if exitCode == 0 {
+                return String(
+                    localized: "chat.terminal.succeeded.accessibility",
+                    defaultValue: "Command \(capture.command), succeeded",
+                    bundle: .module
+                )
+            }
+            return String(
+                localized: "chat.terminal.failed.accessibility",
+                defaultValue: "Command \(capture.command), failed, exit code \(exitCode)",
+                bundle: .module
+            )
+        }
+        return String(
+            localized: "chat.terminal.command.accessibility",
+            defaultValue: "Command \(capture.command)",
+            bundle: .module
+        )
     }
 
     @ViewBuilder

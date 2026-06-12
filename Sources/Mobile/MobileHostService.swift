@@ -1384,6 +1384,12 @@ final class MobileHostService {
             return nil
         case "workspace.create":
             return nil
+        case "workspace.close":
+            return ticketTerminalAuthorizationError(
+                authorization: authorization,
+                workspaceSelection: workspaceSelection.value,
+                terminalSelection: nil
+            )
         case "mobile.terminal.create", "terminal.create":
             return nil
         case "mobile.terminal.input", "terminal.input",

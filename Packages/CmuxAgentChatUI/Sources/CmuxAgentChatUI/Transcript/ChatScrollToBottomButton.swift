@@ -21,6 +21,7 @@ public struct ChatScrollToBottomButton: View {
                 .frame(width: 38, height: 38)
                 .background(.thinMaterial, in: .circle)
                 .overlay(Circle().strokeBorder(.separator.opacity(0.4), lineWidth: 0.5))
+                .contentShape(Circle().inset(by: -3))
         }
         .buttonStyle(.plain)
         .accessibilityLabel(

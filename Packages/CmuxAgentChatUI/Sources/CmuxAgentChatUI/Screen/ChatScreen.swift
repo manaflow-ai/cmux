@@ -1,6 +1,11 @@
 import CmuxAgentChat
 import SwiftUI
 
+#if canImport(UIKit)
+import Accessibility
+import UIKit
+#endif
+
 /// The full conversation surface: header state, transcript, typing
 /// indicator, and the keyboard-attached composer.
 ///
@@ -105,7 +110,32 @@ public struct ChatScreen: View {
         }
         #endif
         .task { await store.run() }
+        #if canImport(UIKit)
+        .onChange(of: store.rows.last?.id) { announceLatestAgentProse() }
+        .onChange(of: store.lastErrorDescription) { announceLastError() }
+        #endif
     }
+
+    #if canImport(UIKit)
+    /// Speaks newly arrived agent prose so VoiceOver users hear replies
+    /// without re-scanning the transcript.
+    private func announceLatestAgentProse() {
+        guard UIAccessibility.isVoiceOverRunning,
+              case .message(let snapshot)? = store.rows.last,
+              snapshot.message.role == .agent,
+              case .prose(let prose) = snapshot.message.kind
+        else { return }
+        AccessibilityNotification.Announcement(prose.text).post()
+    }
+
+    /// Speaks the error banner's text when an error surfaces.
+    private func announceLastError() {
+        guard UIAccessibility.isVoiceOverRunning,
+              let error = store.lastErrorDescription
+        else { return }
+        AccessibilityNotification.Announcement(error).post()
+    }
+    #endif
 
     private var rowActions: ChatRowActions {
         ChatRowActions(

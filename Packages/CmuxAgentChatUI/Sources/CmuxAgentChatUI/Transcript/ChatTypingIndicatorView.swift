@@ -69,17 +69,21 @@ public struct ChatTypingIndicatorView: View {
 struct ChatTypingDotsView: View {
     @State private var animating = false
 
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
     var body: some View {
         HStack(spacing: 4) {
             ForEach(0..<3, id: \.self) { index in
                 Circle()
                     .fill(.secondary)
                     .frame(width: 7, height: 7)
-                    .opacity(animating ? 1 : 0.3)
+                    .opacity(reduceMotion || animating ? 1 : 0.3)
                     .animation(
-                        .easeInOut(duration: 0.6)
-                            .repeatForever(autoreverses: true)
-                            .delay(Double(index) * 0.2),
+                        reduceMotion
+                            ? nil
+                            : .easeInOut(duration: 0.6)
+                                .repeatForever(autoreverses: true)
+                                .delay(Double(index) * 0.2),
                         value: animating
                     )
             }

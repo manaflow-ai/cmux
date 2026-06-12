@@ -82,7 +82,8 @@ struct WorkspaceShellView: View {
                 signOut: signOut,
                 store: store,
                 renameWorkspace: renameWorkspaceClosure,
-                setPinned: setWorkspacePinnedClosure
+                setPinned: setWorkspacePinnedClosure,
+                closeWorkspace: closeWorkspaceClosure
             )
             .navigationDestination(for: MobileWorkspacePreview.ID.self) { workspaceID in
                 workspaceDestination(for: workspaceID, createWorkspace: createWorkspaceInCompactStack)
@@ -137,7 +138,8 @@ struct WorkspaceShellView: View {
                 signOut: signOut,
                 store: store,
                 renameWorkspace: renameWorkspaceClosure,
-                setPinned: setWorkspacePinnedClosure
+                setPinned: setWorkspacePinnedClosure,
+                closeWorkspace: closeWorkspaceClosure
             )
             .navigationSplitViewColumnWidth(min: 320, ideal: 380, max: 440)
         } detail: {
@@ -189,6 +191,12 @@ struct WorkspaceShellView: View {
         guard store.supportsWorkspaceActions else { return nil }
         let store = store
         return { id, pinned in Task { await store.setWorkspacePinned(id: id, pinned) } }
+    }
+
+    private var closeWorkspaceClosure: ((MobileWorkspacePreview.ID) -> Void)? {
+        guard store.supportsWorkspaceActions else { return nil }
+        let store = store
+        return { id in Task { await store.closeWorkspace(id: id) } }
     }
 
     /// Pull-to-refresh closure for the workspace list. Awaits the store's real

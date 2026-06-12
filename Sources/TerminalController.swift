@@ -13368,6 +13368,8 @@ class TerminalController {
             result = v2MobileWorkspaceList(params: request.params)
         case "workspace.create":
             result = v2MobileWorkspaceCreate(params: request.params)
+        case "workspace.close":
+            result = v2MobileWorkspaceClose(params: request.params)
         case "mobile.terminal.create", "terminal.create":
             result = v2MobileTerminalCreate(params: request.params)
         case "mobile.terminal.input", "terminal.input":
@@ -13834,6 +13836,7 @@ class TerminalController {
             let scopedWorkspaces = visibleWorkspaces.map { workspace in
                 mobileWorkspacePayload(
                     workspace: workspace,
+                    windowID: v2ResolveWindowId(tabManager: tabManager),
                     isSelected: workspace.id == tabManager.selectedTabId,
                     requestedTerminalID: requestedTerminalID
                 )
@@ -13867,6 +13870,7 @@ class TerminalController {
                     flattened.append(
                         mobileWorkspacePayload(
                             workspace: workspace,
+                            windowID: summary.windowId,
                             isSelected: workspace.id == selectedWorkspaceID,
                             requestedTerminalID: requestedTerminalID
                         )
@@ -13898,6 +13902,7 @@ class TerminalController {
     /// terminal-not-found check is enforced by the caller after the list is built.
     private func mobileWorkspacePayload(
         workspace: Workspace,
+        windowID: UUID?,
         isSelected: Bool,
         requestedTerminalID: UUID?
     ) -> [String: Any] {
@@ -13920,6 +13925,7 @@ class TerminalController {
 
         return [
             "id": workspace.id.uuidString,
+            "window_id": v2OrNull(windowID?.uuidString),
             "title": workspace.title,
             "current_directory": v2OrNull(mobileNonEmpty(workspace.currentDirectory)),
             "is_selected": isSelected,
@@ -14136,9 +14142,8 @@ class TerminalController {
             return .err(code: "unavailable", message: "Workspace context is unavailable", data: nil)
         }
         var createParams = params
-        createParams["focus"] = false
-        createParams["eager_load_terminal"] = false
-        createParams["auto_refresh_metadata"] = false
+        createParams["focus"] = true
+        createParams["auto_refresh_metadata"] = true
         let createResult = v2WorkspaceCreate(params: createParams, tabManager: tabManager)
         switch createResult {
         case let .ok(payload):
@@ -14155,6 +14160,43 @@ class TerminalController {
             )
         case .err:
             return createResult
+        }
+    }
+
+    private func v2MobileWorkspaceClose(params: [String: Any]) -> V2CallResult {
+        guard let tabManager = v2ResolveTabManager(params: params) else {
+            return .err(code: "unavailable", message: "Workspace context is unavailable", data: nil)
+        }
+        if let error = mobileWorkspaceIDValidationError(params: params) {
+            return error
+        }
+        guard let workspaceID = v2UUID(params, "workspace_id") else {
+            return .err(code: "invalid_params", message: "Missing or invalid workspace_id", data: nil)
+        }
+        let windowID = v2ResolveWindowId(tabManager: tabManager)
+        return v2MainSync {
+            guard let workspace = tabManager.tabs.first(where: { $0.id == workspaceID }) else {
+                return .err(code: "not_found", message: "Workspace not found", data: [
+                    "workspace_id": workspaceID.uuidString,
+                    "workspace_ref": v2Ref(kind: .workspace, uuid: workspaceID)
+                ])
+            }
+            guard tabManager.canCloseWorkspace(workspace) else {
+                return .err(code: "protected", message: workspaceCloseProtectedMessage(), data: [
+                    "window_id": v2OrNull(windowID?.uuidString),
+                    "window_ref": v2Ref(kind: .window, uuid: windowID),
+                    "workspace_id": workspaceID.uuidString,
+                    "workspace_ref": v2Ref(kind: .workspace, uuid: workspaceID),
+                    "pinned": true
+                ])
+            }
+            tabManager.closeWorkspace(workspace)
+            return .ok([
+                "window_id": v2OrNull(windowID?.uuidString),
+                "window_ref": v2Ref(kind: .window, uuid: windowID),
+                "workspace_id": workspaceID.uuidString,
+                "workspace_ref": v2Ref(kind: .workspace, uuid: workspaceID)
+            ])
         }
     }
 

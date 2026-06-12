@@ -52,15 +52,20 @@ extension TerminalController {
         let beforeSeq = v2Int(params, "before_seq")
         let service = AgentChatTranscriptService.shared
         var page = await service.history(sessionID: sessionID, beforeSeq: beforeSeq, limit: limit)
-        if page == nil, service.sessionRecord(sessionID: sessionID) != nil {
+        if page == nil, let staleRecord = service.sessionRecord(sessionID: sessionID) {
             // The record exists but its transcript didn't resolve — the
             // recorded path can be stale the same way terminal bindings
-            // are. Re-adopt from the hook store and retry once.
+            // are. Re-adopt from the hook store and retry once, but only
+            // when the refresh actually changed the resolution inputs (a
+            // pointless retry re-runs the codex directory walk).
             #if DEBUG
             cmuxDebugLog("mobile.chat.history transcript unresolved session=\(sessionID.prefix(8)); refreshing bindings")
             #endif
-            AgentChatTranscriptService.shared.refreshSessionBindings(sessionID: sessionID)
-            page = await service.history(sessionID: sessionID, beforeSeq: beforeSeq, limit: limit)
+            let refreshed = AgentChatTranscriptService.shared.refreshSessionBindings(sessionID: sessionID)
+            if refreshed?.transcriptPath != staleRecord.transcriptPath
+                || refreshed?.workingDirectory != staleRecord.workingDirectory {
+                page = await service.history(sessionID: sessionID, beforeSeq: beforeSeq, limit: limit)
+            }
         }
         guard let page else {
             #if DEBUG

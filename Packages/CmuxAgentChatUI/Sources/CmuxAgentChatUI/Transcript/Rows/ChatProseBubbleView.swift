@@ -45,11 +45,7 @@ public struct ChatProseBubbleView: View {
                 bubble
                     .frame(maxWidth: bubbleMaxWidth, alignment: isUser ? .trailing : .leading)
                     .contextMenu {
-                        Button {
-                            #if canImport(UIKit)
-                            UIPasteboard.general.string = prose.text
-                            #endif
-                        } label: {
+                        Button(action: copyProse) {
                             Label(
                                 String(localized: "chat.bubble.copy", defaultValue: "Copy", bundle: .module),
                                 systemImage: "doc.on.doc"
@@ -63,12 +59,27 @@ public struct ChatProseBubbleView: View {
                         .padding(.horizontal, 4)
                 }
             }
+            .accessibilityElement(children: .combine)
+            .accessibilityAction(
+                named: Text(
+                    String(localized: "chat.bubble.copy", defaultValue: "Copy", bundle: .module)
+                ),
+                copyProse
+            )
             if !isUser { Spacer(minLength: 64) }
         }
         .frame(maxWidth: .infinity, alignment: isUser ? .trailing : .leading)
     }
 
     private var isUser: Bool { message.role == .user }
+
+    /// Copies the bubble's full prose text to the system pasteboard; shared
+    /// by the context menu and the VoiceOver custom action.
+    private func copyProse() {
+        #if canImport(UIKit)
+        UIPasteboard.general.string = prose.text
+        #endif
+    }
 
     private var proseSegments: [ChatProseSegment] {
         contentCache?.proseSegments(messageID: message.id, text: prose.text)
@@ -109,7 +120,7 @@ public struct ChatProseBubbleView: View {
         case .code:
             ScrollView(.horizontal, showsIndicators: false) {
                 Text(segment.content)
-                    .font(.system(size: 12, design: .monospaced))
+                    .font(.system(.caption, design: .monospaced))
                     .foregroundStyle(theme.terminalCardText)
                     .textSelection(.enabled)
                     .padding(8)
