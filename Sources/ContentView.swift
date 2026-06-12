@@ -12745,6 +12745,10 @@ struct VerticalTabsSidebar: View {
             SidebarReorderFollowerView(
                 dragState: dragState,
                 sourceItems: baseRenderItems,
+                previewExtraIndent: followerPreviewExtraIndent(
+                    baseRenderItems: baseRenderItems,
+                    previewItems: previewItems
+                ),
                 rowContent: { item in
                     switch item {
                     case .groupHeader(let group, let memberWorkspaceIds):
@@ -12798,6 +12802,24 @@ struct VerticalTabsSidebar: View {
         } else {
             rows
         }
+    }
+
+    /// Extra leading indent the follower previews for the dragged row: the
+    /// member indent when the current landing slot is inside a group the row
+    /// is not yet a member of, 0 otherwise. Members are clamped to their own
+    /// group, so only ungrouped rows ever gain preview indent.
+    private func followerPreviewExtraIndent(
+        baseRenderItems: [SidebarWorkspaceRenderItem],
+        previewItems: [SidebarWorkspaceRenderItem]
+    ) -> CGFloat {
+        guard let draggedId = dragState.draggedTabId,
+              let committed = baseRenderItems.first(where: { $0.representedWorkspaceId == draggedId }),
+              committed.effectiveGroupId == nil,
+              let previewed = previewItems.first(where: { $0.representedWorkspaceId == draggedId }),
+              previewed.effectiveGroupId != nil else {
+            return 0
+        }
+        return SidebarWorkspaceGroupingMetrics.memberIndent
     }
 
     private func bonsplitWorkspaceDropOverlay() -> some View {
