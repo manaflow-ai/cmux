@@ -65,6 +65,10 @@ func (s *rpcServer) handleAgentSessionOpen(req rpcRequest) rpcResponse {
 	subscription, session, err := agentconv.Open(agentconv.Config{
 		Provider:       provider,
 		TranscriptPath: transcriptPath,
+		// Providers without a native parser are opened by explicit
+		// transcript_path + session_id; the supplied id must come back in the
+		// open result and snapshot, not just in hook routing.
+		SessionIDHint: stringParam(req.Params, "session_id"),
 	})
 	if err != nil {
 		return rpcResponse{ID: req.ID, OK: false, Error: &rpcError{
@@ -77,12 +81,6 @@ func (s *rpcServer) handleAgentSessionOpen(req rpcRequest) rpcResponse {
 		subscription: subscription,
 		provider:     provider,
 		sessionID:    session.SessionID,
-	}
-	if state.sessionID == "" {
-		// Transcripts the parser cannot identify (providers without a native
-		// parser, opened by explicit transcript_path) still route hook frames
-		// when the caller supplied the session id.
-		state.sessionID = stringParam(req.Params, "session_id")
 	}
 	s.mu.Lock()
 	subscriptionID := fmt.Sprintf("agent-%d", s.nextAgentSubID)

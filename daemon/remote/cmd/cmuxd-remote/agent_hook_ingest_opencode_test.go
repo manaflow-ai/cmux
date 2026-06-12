@@ -87,6 +87,11 @@ func TestHookIngestRoutesOpencodeProviderFrames(t *testing.T) {
 	if subscriptionID == "" {
 		t.Fatalf("open failed: %v", opened)
 	}
+	// The caller-supplied id must round-trip into the public session metadata
+	// (there is no parser to derive one), not just into hook routing.
+	if session, _ := result["session"].(map[string]any); session["session_id"] != "oc-sess-1" {
+		t.Errorf("open result session = %v, want session_id oc-sess-1", session)
+	}
 	payloadOfType := func(frame map[string]any, eventType string) map[string]any {
 		if frame["event"] != "agent.session.event" || frame["subscription_id"] != subscriptionID {
 			return nil
@@ -97,7 +102,10 @@ func TestHookIngestRoutesOpencodeProviderFrames(t *testing.T) {
 		}
 		return payload
 	}
-	awaitFrame(func(frame map[string]any) bool { return payloadOfType(frame, "snapshot") != nil }, "snapshot")
+	snapshot := awaitFrame(func(frame map[string]any) bool { return payloadOfType(frame, "snapshot") != nil }, "snapshot")
+	if session, _ := payloadOfType(snapshot, "snapshot")["session"].(map[string]any); session["session_id"] != "oc-sess-1" {
+		t.Errorf("snapshot session = %v, want session_id oc-sess-1", session)
+	}
 
 	awaitSocket(t, socketPath)
 	// Routing is provider-scoped: a claude frame for the same session id must

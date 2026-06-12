@@ -29,6 +29,12 @@ const defaultMaxSnapshotBytes = int64(32 * 1024 * 1024)
 type Config struct {
 	Provider       ProviderID
 	TranscriptPath string
+	// SessionIDHint names the session when the transcript itself cannot:
+	// providers without a native parser are opened by explicit
+	// transcript_path + session_id, and that id must come back in the open
+	// result, the snapshot, and every session.meta. A parser-derived id wins
+	// when present.
+	SessionIDHint string
 	// PollInterval overrides the tail poll cadence (tests use ~1ms).
 	PollInterval time.Duration
 	// MaxSnapshotBytes overrides the initial replay cap.
@@ -84,7 +90,7 @@ func Open(config Config) (*Subscription, SessionRef, error) {
 	for _, line := range lines {
 		parser.consumeLine(line)
 	}
-	session := snapshotSessionRef(parser, config.TranscriptPath)
+	session := snapshotSessionRef(parser, config)
 
 	events := make(chan Event, 256)
 	subscription := &Subscription{
@@ -178,7 +184,7 @@ func (s *Subscription) run(config Config, parser transcriptParser, reader *trans
 			for _, line := range lines {
 				parser.consumeLine(line)
 			}
-			refreshed := snapshotSessionRef(parser, config.TranscriptPath)
+			refreshed := snapshotSessionRef(parser, config)
 			conversation.sessionDirty = false
 			items := make([]Item, len(conversation.items))
 			copy(items, conversation.items)
@@ -198,7 +204,7 @@ func (s *Subscription) run(config Config, parser transcriptParser, reader *trans
 		}
 		if conversation.sessionDirty {
 			conversation.sessionDirty = false
-			refreshed := snapshotSessionRef(parser, config.TranscriptPath)
+			refreshed := snapshotSessionRef(parser, config)
 			if !emit(Event{Type: EventSessionMeta, Seq: nextSeq(), Session: &refreshed}) {
 				return
 			}
@@ -206,10 +212,13 @@ func (s *Subscription) run(config Config, parser transcriptParser, reader *trans
 	}
 }
 
-func snapshotSessionRef(parser transcriptParser, transcriptPath string) SessionRef {
+func snapshotSessionRef(parser transcriptParser, config Config) SessionRef {
 	session := parser.conv().session
-	session.TranscriptPath = transcriptPath
-	if info, err := os.Stat(transcriptPath); err == nil {
+	session.TranscriptPath = config.TranscriptPath
+	if session.SessionID == "" {
+		session.SessionID = config.SessionIDHint
+	}
+	if info, err := os.Stat(config.TranscriptPath); err == nil {
 		session.UpdatedAt = info.ModTime().UTC().Format(time.RFC3339)
 	}
 	return session
