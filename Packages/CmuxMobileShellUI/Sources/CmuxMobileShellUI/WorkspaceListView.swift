@@ -20,6 +20,13 @@ struct WorkspaceListView: View {
     let wrapWorkspaceTitles: Bool
     let selectWorkspace: (MobileWorkspacePreview.ID) -> Void
     let createWorkspace: () -> Void
+    /// Pull-to-refresh action. Awaits the real workspace-list re-sync from the
+    /// paired Mac so the system refresh spinner reflects actual completion (and
+    /// ends gracefully, leaving the list intact, when the Mac is offline). Passed
+    /// as a closure so no `@Observable` store crosses the `List` boundary. `nil`
+    /// in previews, where pull-to-refresh is hidden. `@Sendable` to match
+    /// SwiftUI's `refreshable(action:)` action type under Swift 6.
+    var refresh: (@Sendable () async -> Void)?
     /// Optional: when present, the toolbar shows a "settings" menu offering
     /// "Rescan QR" (disconnect + re-pair) and "Sign out". When nil (e.g.
     /// previews), the menu is hidden.
@@ -37,6 +44,7 @@ struct WorkspaceListView: View {
     @State private var searchText = ""
     @State private var showingShortcutsSettings = false
     @State private var showingSettings = false
+    @State private var showingDeviceTree = false
 
     /// Workspaces after search filtering, pinned ones first (stable within each
     /// group so the Mac's order is otherwise preserved).
@@ -89,6 +97,7 @@ struct WorkspaceListView: View {
             }
         }
         .listStyle(.plain)
+        .workspaceListRefreshable(refresh)
         .navigationTitle(L10n.string("mobile.workspaces.title", defaultValue: "Workspaces"))
         .mobileInlineNavigationTitle()
         .searchable(text: $searchText)
@@ -96,6 +105,11 @@ struct WorkspaceListView: View {
             #if os(iOS)
             ToolbarItem(placement: .topBarLeading) {
                 settingsMenu
+            }
+            if store != nil {
+                ToolbarItem(placement: .topBarLeading) {
+                    devicesButton
+                }
             }
             ToolbarItem(placement: .topBarTrailing) {
                 newWorkspaceButton
@@ -119,8 +133,29 @@ struct WorkspaceListView: View {
                 store: store
             )
         }
+        // Present the device tree at the workspace-list level (a single sheet,
+        // not nested under Settings), so selecting a workspace dismisses straight
+        // back to the workspace shell and reveals the opened workspace rather than
+        // leaving a parent sheet covering it.
+        .sheet(isPresented: $showingDeviceTree) {
+            if let store {
+                DeviceTreeView(store: store, selectWorkspace: selectWorkspace)
+            }
+        }
         #endif
     }
+
+    #if os(iOS)
+    private var devicesButton: some View {
+        Button {
+            showingDeviceTree = true
+        } label: {
+            Image(systemName: "rectangle.stack")
+        }
+        .accessibilityLabel(L10n.string("mobile.settings.devices", defaultValue: "Devices"))
+        .accessibilityIdentifier("MobileWorkspaceDevicesButton")
+    }
+    #endif
 
     private var newWorkspaceButton: some View {
         Button(action: createWorkspace) {

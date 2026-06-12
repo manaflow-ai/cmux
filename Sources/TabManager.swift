@@ -126,6 +126,17 @@ enum NewWorkspacePlacement: String, CaseIterable, Identifiable {
     }
 }
 
+/// The kind of surface a brand-new workspace boots with.
+///
+/// `.terminal` is the historical default. `.browser` backs the
+/// "New Browser Workspace" action: identical placement and naming
+/// semantics, but the initial surface is a browser pane in its
+/// default new-tab state instead of a terminal.
+enum NewWorkspaceInitialSurface {
+    case terminal
+    case browser
+}
+
 enum WorkspaceAutoReorderSettings {
     static let key = "workspaceAutoReorderOnNotification"
     static let defaultValue = true
@@ -2521,6 +2532,7 @@ class TabManager: ObservableObject {
         workingDirectory: String?,
         portOrdinal: Int,
         configTemplate: CmuxSurfaceConfigTemplate?,
+        initialSurface: NewWorkspaceInitialSurface = .terminal,
         initialTerminalCommand: String?,
         initialTerminalInput: String? = nil,
         initialTerminalEnvironment: [String: String]
@@ -2530,6 +2542,7 @@ class TabManager: ObservableObject {
             workingDirectory: workingDirectory,
             portOrdinal: portOrdinal,
             configTemplate: configTemplate,
+            initialSurface: initialSurface,
             initialTerminalCommand: initialTerminalCommand,
             initialTerminalInput: initialTerminalInput,
             initialTerminalEnvironment: initialTerminalEnvironment
@@ -2605,6 +2618,7 @@ class TabManager: ObservableObject {
     func addWorkspace(
         title: String? = nil,
         workingDirectory overrideWorkingDirectory: String? = nil,
+        initialSurface: NewWorkspaceInitialSurface = .terminal,
         initialTerminalCommand: String? = nil,
         initialTerminalInput: String? = nil,
         initialTerminalEnvironment: [String: String] = [:],
@@ -2653,11 +2667,22 @@ class TabManager: ObservableObject {
             let insertIndex = newTabInsertIndex(snapshot: snapshot, placementOverride: placementOverride)
             let ordinal = Self.nextPortOrdinal
             Self.nextPortOrdinal += 1
+            let defaultTitle: String
+            switch initialSurface {
+            case .terminal:
+                defaultTitle = "Terminal \(nextTabCount)"
+            case .browser:
+                // Match the browser surface's blank new-tab title; the
+                // single-panel title sync keeps the workspace title following
+                // the page title once the user navigates.
+                defaultTitle = String(localized: "browser.newTab", defaultValue: "New tab")
+            }
             let newWorkspace = makeWorkspaceForCreation(
-                title: title ?? "Terminal \(nextTabCount)",
+                title: title ?? defaultTitle,
                 workingDirectory: workingDirectory,
                 portOrdinal: ordinal,
                 configTemplate: inheritedConfig,
+                initialSurface: initialSurface,
                 initialTerminalCommand: initialTerminalCommand,
                 initialTerminalInput: initialTerminalInput,
                 initialTerminalEnvironment: initialTerminalEnvironment
@@ -2720,7 +2745,8 @@ class TabManager: ObservableObject {
                 "selectedTabId": select ? newWorkspace.id.uuidString : (snapshot.selectedTabId?.uuidString ?? "")
             ])
 #endif
-            if autoWelcomeIfNeeded && select && !UserDefaults.standard.bool(forKey: WelcomeSettings.shownKey) {
+            if autoWelcomeIfNeeded && select && initialSurface == .terminal
+                && !UserDefaults.standard.bool(forKey: WelcomeSettings.shownKey) {
                 if let appDelegate = AppDelegate.shared {
                     appDelegate.sendWelcomeCommandWhenReady(to: newWorkspace, markShownOnSend: true)
                 } else {
@@ -4266,12 +4292,14 @@ class TabManager: ObservableObject {
         groupId: UUID,
         placement: WorkspaceGroupNewPlacement = WorkspaceGroupNewWorkspacePlacementSettings.resolved(),
         referenceWorkspaceId: UUID? = nil,
-        select: Bool = true
+        select: Bool = true,
+        initialSurface: NewWorkspaceInitialSurface = .terminal
     ) -> Workspace? {
         guard let group = workspaceGroups.first(where: { $0.id == groupId }) else { return nil }
         let cwd = tabs.first(where: { $0.id == group.anchorWorkspaceId })?.currentDirectory
         let newWorkspace = addWorkspace(
             workingDirectory: cwd,
+            initialSurface: initialSurface,
             inheritWorkingDirectory: cwd == nil,
             select: select,
             autoWelcomeIfNeeded: false
@@ -6241,7 +6269,22 @@ class TabManager: ObservableObject {
     @discardableResult
     func toggleReactGrabFromCurrentFocus() -> Bool {
         guard let workspace = selectedWorkspace else { return false }
+        return toggleReactGrab(in: workspace, browserSurfaceId: nil, returnTerminalSurfaceId: nil) != nil
+    }
 
+    /// Toggles React Grab for a specific workspace. When `browserSurfaceId`/`returnTerminalSurfaceId`
+    /// are nil this mirrors the keyboard shortcut: it resolves the browser + return terminal from the
+    /// focused panel layout. An explicit browser surface (must be a browser) or return terminal
+    /// (must be a terminal) overrides that route. Used by both the Cmd+Shift+G shortcut and the
+    /// `cmux browser react-grab toggle` CLI command so both share one action path.
+    /// Returns the resolved browser surface id it acted on, or nil if it could not resolve/act
+    /// (so callers can report the actual browser surface rather than the focused panel).
+    @discardableResult
+    func toggleReactGrab(
+        in workspace: Workspace,
+        browserSurfaceId: UUID?,
+        returnTerminalSurfaceId: UUID?
+    ) -> UUID? {
         let snapshots = workspace.panels.values.map { panel in
             ReactGrabShortcutPanelSnapshot(
                 id: panel.id,
@@ -6249,12 +6292,50 @@ class TabManager: ObservableObject {
                 isFocused: panel.id == workspace.focusedPanelId
             )
         }
-        guard let route = resolveReactGrabShortcutRoute(panels: snapshots),
-              let browserPanel = workspace.browserPanel(for: route.browserPanelId) else {
-            return false
+        let route = resolveReactGrabShortcutRoute(panels: snapshots)
+
+        // Browser target: an explicit surface is authoritative (it must be a browser, no
+        // fallback to a different browser); otherwise resolve the route's browser from focus.
+        let browserPanelId: UUID?
+        if let explicit = browserSurfaceId {
+            guard workspace.browserPanel(for: explicit) != nil else { return nil }
+            browserPanelId = explicit
+        } else {
+            browserPanelId = route?.browserPanelId
+        }
+        guard let browserPanelId else { return nil }
+
+        // Return terminal: an explicit return surface is authoritative (must be a terminal in
+        // this workspace, no fallback) so pasteback never silently goes to the wrong terminal.
+        // With no explicit return, adopt the route's terminal only when the browser also came
+        // from the route (matching shortcut semantics).
+        let returnTerminalPanelId: UUID?
+        if let explicit = returnTerminalSurfaceId {
+            guard workspace.panels[explicit]?.panelType == .terminal else { return nil }
+            returnTerminalPanelId = explicit
+        } else if browserSurfaceId == nil {
+            returnTerminalPanelId = route?.returnTerminalPanelId
+        } else {
+            returnTerminalPanelId = nil
         }
 
-        if let returnTerminalPanelId = route.returnTerminalPanelId {
+        let didToggle = performReactGrabToggle(
+            in: workspace,
+            browserPanelId: browserPanelId,
+            returnTerminalPanelId: returnTerminalPanelId
+        )
+        return didToggle ? browserPanelId : nil
+    }
+
+    @discardableResult
+    private func performReactGrabToggle(
+        in workspace: Workspace,
+        browserPanelId: UUID,
+        returnTerminalPanelId: UUID?
+    ) -> Bool {
+        guard let browserPanel = workspace.browserPanel(for: browserPanelId) else { return false }
+
+        if let returnTerminalPanelId {
             browserPanel.armReactGrabRoundTrip(returnTo: returnTerminalPanelId)
         } else {
             browserPanel.clearReactGrabRoundTrip(reason: "shortcut.noReturnTarget")
@@ -6271,14 +6352,14 @@ class TabManager: ObservableObject {
             "reactGrab.pasteback h1.focusRequestResult " +
             "workspace=\(workspace.id.uuidString.prefix(5)) " +
             "browser=\(browserPanel.id.uuidString.prefix(5)) " +
-            "return=\(route.returnTerminalPanelId.map { String($0.uuidString.prefix(5)) } ?? "nil") " +
+            "return=\(returnTerminalPanelId.map { String($0.uuidString.prefix(5)) } ?? "nil") " +
             "success=\(didRequestExplicitWebViewFocus ? 1 : 0)"
         )
 #endif
 
         Task { @MainActor [weak browserPanel] in
             guard let browserPanel else { return }
-            if route.returnTerminalPanelId != nil {
+            if returnTerminalPanelId != nil {
                 await browserPanel.ensureReactGrabActive()
             } else {
                 await browserPanel.toggleOrInjectReactGrab()
