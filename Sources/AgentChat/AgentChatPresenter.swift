@@ -91,6 +91,19 @@ struct AgentChatPresenter {
                 presentNoSessionAlert()
                 return
             }
+            guard resolution.transcriptURL != nil else {
+                // The session is indexed but its transcript file is gone
+                // (cleanup, remote-only session); an empty chat pane would
+                // just render the subscribe error, so explain instead.
+#if DEBUG
+                cmuxDebugLog(
+                    "agentChat.present.resolve.noTranscript provider=\(resolution.provider.rawValue) " +
+                    "session=\(resolution.sessionId.prefix(8))"
+                )
+#endif
+                presentNoTranscriptAlert()
+                return
+            }
 #if DEBUG
             cmuxDebugLog(
                 "agentChat.present.resolve.hit provider=\(resolution.provider.rawValue) " +
@@ -127,6 +140,26 @@ struct AgentChatPresenter {
         alert.informativeText = String(
             localized: "agentChat.noSession.message",
             defaultValue: "Focus a terminal running Claude Code or Codex, then try View Chat again."
+        )
+        alert.alertStyle = .informational
+        alert.addButton(withTitle: String(localized: "agentChat.noSession.ok", defaultValue: "OK"))
+        alert.runModal()
+    }
+
+    /// Shows an alert explaining that the panel's agent session has no
+    /// transcript file on disk (so there is nothing for the chat to render).
+    private func presentNoTranscriptAlert() {
+#if DEBUG
+        cmuxDebugLog("agentChat.present.alert reason=noTranscript")
+#endif
+        let alert = NSAlert()
+        alert.messageText = String(
+            localized: "agentChat.noSession.title",
+            defaultValue: "No agent conversation"
+        )
+        alert.informativeText = String(
+            localized: "agentChat.error.noTranscript",
+            defaultValue: "No transcript file was found for this agent session."
         )
         alert.alertStyle = .informational
         alert.addButton(withTitle: String(localized: "agentChat.noSession.ok", defaultValue: "OK"))

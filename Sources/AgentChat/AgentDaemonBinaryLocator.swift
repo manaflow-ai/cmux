@@ -15,7 +15,10 @@ import Foundation
 /// unavailable instead of downloading.
 struct AgentDaemonBinaryLocator {
     /// The locator outcome: a runnable binary or a human-readable reason.
-    enum Outcome {
+    /// The `detail` is user-facing copy (it lands in the chat surface's
+    /// status UI), so it must be localized and free of implementation
+    /// internals; technical specifics go to the debug log instead.
+    enum Outcome: Sendable {
         case found(URL)
         case unavailable(detail: String)
     }
@@ -36,7 +39,13 @@ struct AgentDaemonBinaryLocator {
             if isExecutableFile(override) {
                 return .found(override)
             }
-            return .unavailable(detail: "CMUX_REMOTE_DAEMON_BINARY points to a missing or non-executable file: \(override.path)")
+#if DEBUG
+            cmuxDebugLog("agentChat.locator.overrideInvalid path=\(override.path)")
+#endif
+            return .unavailable(detail: String(
+                localized: "agentChat.daemon.overrideInvalid",
+                defaultValue: "The configured agent daemon binary is missing or can't be run."
+            ))
         }
         let (goOS, goArch) = hostPlatform()
         let version = appVersionString()
@@ -48,9 +57,13 @@ struct AgentDaemonBinaryLocator {
         if let fallback = newestCachedBinary(goOS: goOS, goArch: goArch, excludingVersion: version) {
             return .found(fallback)
         }
-        return .unavailable(
-            detail: "No cached cmuxd-remote binary for \(goOS)-\(goArch); connect a remote host once (cmux ssh) or set CMUX_REMOTE_DAEMON_BINARY with CMUX_REMOTE_DAEMON_ALLOW_LOCAL_BUILD=1."
-        )
+#if DEBUG
+        cmuxDebugLog("agentChat.locator.noCachedBinary platform=\(goOS)-\(goArch) version=\(version)")
+#endif
+        return .unavailable(detail: String(
+            localized: "agentChat.daemon.notCached",
+            defaultValue: "The agent chat daemon isn't installed yet. Connect to a remote host once with cmux ssh to install it."
+        ))
     }
 
     private func explicitOverrideURL() -> URL? {

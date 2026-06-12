@@ -123,7 +123,14 @@ final class AgentChatWebViewController: NSViewController, WKScriptMessageHandler
 #if DEBUG
             cmuxDebugLog("agentChat.web.bridge method=chat.init")
 #endif
-            replyHandler(["ok": true, "value": initResultPayload()], nil)
+            Task { [weak self] in
+                guard let self else {
+                    // The page awaits every reply; never leak the handler.
+                    replyHandler(["ok": false, "error": ["code": "cancelled"]], nil)
+                    return
+                }
+                replyHandler(["ok": true, "value": await self.initResultPayload()], nil)
+            }
         case "chat.subscribe":
 #if DEBUG
             cmuxDebugLog("agentChat.web.bridge method=chat.subscribe")
@@ -167,9 +174,9 @@ final class AgentChatWebViewController: NSViewController, WKScriptMessageHandler
         }
     }
 
-    private func initResultPayload() -> [String: Any] {
+    private func initResultPayload() async -> [String: Any] {
         var payload: [String: Any] = [:]
-        switch AgentDaemonBinaryLocator().locate() {
+        switch await Self.locateDaemonBinary() {
         case .found:
             payload["daemon_status"] = "ready"
         case .unavailable(let detail):
@@ -180,6 +187,14 @@ final class AgentChatWebViewController: NSViewController, WKScriptMessageHandler
             payload["session"] = session
         }
         return payload
+    }
+
+    /// Runs the locator's directory scans off the main actor (it stats and
+    /// lists the daemon cache, which must not block the UI thread).
+    private nonisolated static func locateDaemonBinary() async -> AgentDaemonBinaryLocator.Outcome {
+        await Task.detached(priority: .userInitiated) {
+            AgentDaemonBinaryLocator().locate()
+        }.value
     }
 
     private func sessionRefPayload() -> [String: Any]? {
@@ -206,7 +221,7 @@ final class AgentChatWebViewController: NSViewController, WKScriptMessageHandler
             )
         }
         let binaryURL: URL
-        switch AgentDaemonBinaryLocator().locate() {
+        switch await Self.locateDaemonBinary() {
         case .found(let url):
             binaryURL = url
         case .unavailable(let detail):
@@ -230,13 +245,44 @@ final class AgentChatWebViewController: NSViewController, WKScriptMessageHandler
             }
         }
         daemonClient = client
-        try client.start()
-        _ = try await client.request(method: "hello")
-        let opened = try await client.request(method: "agent.session.open", params: [
-            "provider": resolution.provider.rawValue,
-            "transcript_path": transcriptURL.path,
-        ])
-        subscriptionId = opened["subscription_id"] as? String
+        do {
+            try client.start()
+            let hello = try await client.request(method: "hello")
+            // The locator can fall back to a cached daemon from another app
+            // version; gate on the hello capability handshake instead of
+            // trusting it to speak the agent conversation protocol.
+            let capabilities = (hello["capabilities"] as? [String]) ?? []
+            guard capabilities.contains("agent.conversation") else {
+                throw AgentDaemonClient.DaemonError(
+                    code: "daemon_incompatible",
+                    message: String(
+                        localized: "agentChat.daemon.incompatible",
+                        defaultValue: "The cached agent daemon is too old for chat. Connect to a remote host once to update it."
+                    )
+                )
+            }
+            let opened = try await client.request(method: "agent.session.open", params: [
+                "provider": resolution.provider.rawValue,
+                "transcript_path": transcriptURL.path,
+            ])
+            // A present()/teardown during the awaits above replaces the client;
+            // do not adopt a subscription for a daemon this surface no longer owns.
+            guard daemonClient === client else {
+                throw AgentDaemonClient.DaemonError(code: "cancelled", message: "agent daemon was replaced")
+            }
+            subscriptionId = opened["subscription_id"] as? String
+        } catch {
+            // A failed subscribe must not leave the spawned child running:
+            // the pane stays open (showing the error) with no owner to ever
+            // reap the process. Terminate it, clearing our reference only if
+            // a racing present()/teardown has not already replaced it.
+            client.terminate()
+            if daemonClient === client {
+                daemonClient = nil
+                subscriptionId = nil
+            }
+            throw error
+        }
     }
 
     private func handleDaemonEvent(_ frame: [String: Any]) {
