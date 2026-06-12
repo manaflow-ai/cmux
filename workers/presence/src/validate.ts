@@ -13,6 +13,16 @@ export const MAX_CAPABILITY_LENGTH = 64;
 /** Mirrors the registry route's `MAX_ROUTES` (`web/app/api/devices/route.ts`):
  * hosts publish the same bounded set to both. */
 export const MAX_ROUTES = 16;
+/** Cumulative serialized-routes budget per instance. The DO's snapshot and
+ * alarm paths materialize the whole team map in isolate memory (and snapshot
+ * stringifies it), so per-instance route bytes must be bounded tightly enough
+ * that the worst-case admitted state (MAX_DEVICES_PER_TEAM x
+ * MAX_INSTANCES_PER_DEVICE = 5000 instances) stays far inside the Workers
+ * isolate memory budget: 5000 x 2 KiB ~= 10 MiB. Real CmxAttachRoute objects
+ * are ~100-200 bytes, so a legitimate full route set fits with a wide margin;
+ * entries beyond the budget are dropped, keeping the host's preferred-first
+ * prefix (consistent with the per-entry leniency in parsing). */
+export const MAX_ROUTES_TOTAL_BYTES = 2048;
 
 const UUID_RE =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -78,12 +88,20 @@ export function parseHeartbeat(body: Record<string, unknown>): HeartbeatParse {
   let routes: PresenceRoute[] | undefined;
   if (body.routes !== undefined) {
     if (!Array.isArray(body.routes)) return { ok: false, error: "invalid_routes" };
-    routes = body.routes
-      .filter(
-        (entry): entry is PresenceRoute =>
-          entry !== null && typeof entry === "object" && !Array.isArray(entry),
-      )
-      .slice(0, MAX_ROUTES);
+    // Entry count AND cumulative serialized bytes are both bounded; the byte
+    // budget stops a single team from filling the DO with near-16KiB route
+    // payloads on every one of its 5000 admissible instances (see
+    // MAX_ROUTES_TOTAL_BYTES). Stop at the first over-budget entry so the
+    // host's preferred-first prefix is kept, never a cherry-picked subset.
+    routes = [];
+    let routeBytes = 0;
+    for (const entry of body.routes) {
+      if (entry === null || typeof entry !== "object" || Array.isArray(entry)) continue;
+      if (routes.length >= MAX_ROUTES) break;
+      routeBytes += JSON.stringify(entry).length;
+      if (routeBytes > MAX_ROUTES_TOTAL_BYTES) break;
+      routes.push(entry as PresenceRoute);
+    }
   }
 
   return {

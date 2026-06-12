@@ -181,4 +181,24 @@ describe("parseHeartbeat routes", () => {
     if (!result.ok) throw new Error(result.error);
     expect(result.beat.routes).toHaveLength(MAX_ROUTES);
   });
+
+  it("bounds cumulative serialized route bytes, keeping the preferred-first prefix", () => {
+    // Each entry serializes to ~1100 bytes, so only the first fits the budget.
+    const big = (id: string) => ({ id, blob: "x".repeat(1080) });
+    const result = parseHeartbeat(body([big("first"), big("second"), big("third")]));
+    if (!result.ok) throw new Error(result.error);
+    expect(result.beat.routes).toHaveLength(1);
+    expect((result.beat.routes?.[0] as { id?: string }).id).toBe("first");
+  });
+
+  it("a realistic full route set fits the byte budget untouched", () => {
+    const routes = Array.from({ length: MAX_ROUTES }, (_, i) => ({
+      id: `route-${i}`,
+      kind: "tailscale",
+      endpoint: { type: "host_port", host: `host-${i}.tailnet.ts.net`, port: 49152 + i },
+    }));
+    const result = parseHeartbeat(body(routes));
+    if (!result.ok) throw new Error(result.error);
+    expect(result.beat.routes).toHaveLength(MAX_ROUTES);
+  });
 });
