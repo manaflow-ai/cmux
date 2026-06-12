@@ -19,6 +19,10 @@ public struct ChatComposerView: View {
 
     @Binding private var draft: String
     @State private var lastStopTap: Date?
+    /// True while picked photos are still loading from the library; a
+    /// send in that window would silently drop them. Declared outside the
+    /// iOS block so shared send logic can read it (always false on macOS).
+    @State private var isStagingAttachments = false
     #if os(iOS)
     @State private var pickedItems: [PhotosPickerItem] = []
     @State private var attachments: [ChatComposerAttachment] = []
@@ -184,7 +188,7 @@ public struct ChatComposerView: View {
                     .contentShape(Circle().inset(by: -4))
             }
             .buttonStyle(.plain)
-            .disabled(!isConnected)
+            .disabled(!isConnected || isStagingAttachments)
             .accessibilityIdentifier("ChatComposerSend")
             .accessibilityLabel(
                 String(
@@ -235,7 +239,9 @@ public struct ChatComposerView: View {
     }
 
     private func performSend() {
-        guard hasContent else { return }
+        // A send mid-staging would silently drop the images still loading
+        // from the photo library.
+        guard hasContent, !isStagingAttachments else { return }
         #if os(iOS)
         let outbound = attachments.map(\.outbound)
         UIImpactFeedbackGenerator(style: .light).impactOccurred()
@@ -341,6 +347,8 @@ public struct ChatComposerView: View {
     /// Loads the picker selection into staged attachments: each item is
     /// decoded, downscaled to the size cap, and re-encoded as JPEG.
     private func loadPickedItems(_ items: [PhotosPickerItem]) async {
+        isStagingAttachments = true
+        defer { isStagingAttachments = false }
         var staged: [ChatComposerAttachment] = []
         for (index, item) in items.enumerated() {
             guard let data = try? await item.loadTransferable(type: Data.self),

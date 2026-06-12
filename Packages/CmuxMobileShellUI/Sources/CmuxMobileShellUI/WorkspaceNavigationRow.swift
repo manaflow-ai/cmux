@@ -14,43 +14,41 @@ struct WorkspaceNavigationRow: View {
     var renameWorkspace: ((MobileWorkspacePreview.ID, String) -> Void)?
     /// Pin or unpin the workspace on the Mac. When `nil` the pin affordance is
     /// hidden.
-    var setPinned: ((MobileWorkspacePreview.ID, Bool) -> Void)?
+    var setPinned: ((MobileWorkspacePreview.ID, Bool) -> Void)? = nil
+    /// Mark the workspace read or unread on the Mac. When `nil` the read-state
+    /// affordance is hidden.
+    var setUnread: ((MobileWorkspacePreview.ID, Bool) -> Void)? = nil
     /// Close the workspace on the Mac. When `nil` the delete affordance is
     /// hidden.
-    var closeWorkspace: ((MobileWorkspacePreview.ID) -> Void)?
+    var closeWorkspace: ((MobileWorkspacePreview.ID) -> Void)? = nil
 
     @State private var isRenaming = false
 
     var body: some View {
-        Group {
-            switch navigationStyle {
-            case .push:
-                NavigationLink(value: workspace.id) {
-                    WorkspaceRow(
-                        workspace: workspace,
-                        connectionStatus: connectionStatus,
-                        isSelected: false,
-                        wrapWorkspaceTitles: wrapWorkspaceTitles
-                    )
-                }
-                .simultaneousGesture(TapGesture().onEnded {
-                    selectWorkspace(workspace.id)
-                })
-            case .sidebar:
+        Button {
+            selectWorkspace(workspace.id)
+        } label: {
+            WorkspaceRow(
+                workspace: workspace,
+                connectionStatus: connectionStatus,
+                isSelected: navigationStyle == .sidebar && isSelected,
+                wrapWorkspaceTitles: wrapWorkspaceTitles
+            )
+        }
+        .buttonStyle(.plain)
+        .contentShape(Rectangle())
+        .contextMenu { contextMenu }
+        .swipeActions(edge: .leading, allowsFullSwipe: false) {
+            if let setUnread {
                 Button {
-                    selectWorkspace(workspace.id)
+                    setUnread(workspace.id, !workspace.isUnread)
                 } label: {
-                    WorkspaceRow(
-                        workspace: workspace,
-                        connectionStatus: connectionStatus,
-                        isSelected: isSelected,
-                        wrapWorkspaceTitles: wrapWorkspaceTitles
-                    )
+                    Label(readStateActionTitle, systemImage: readStateActionSystemImage)
                 }
-                .buttonStyle(.plain)
+                .tint(.blue)
+                .accessibilityIdentifier("MobileWorkspaceReadStateSwipeButton-\(workspace.id.rawValue)")
             }
         }
-        .contextMenu { contextMenu }
         .swipeActions(edge: .trailing, allowsFullSwipe: false) {
             if let closeWorkspace {
                 Button(role: .destructive) {
@@ -71,6 +69,18 @@ struct WorkspaceNavigationRow: View {
                 renameWorkspace?(workspace.id, newName)
             }
         }
+    }
+
+    private var readStateActionTitle: String {
+        if workspace.isUnread {
+            L10n.string("mobile.workspace.markRead", defaultValue: "Mark as Read")
+        } else {
+            L10n.string("mobile.workspace.markUnread", defaultValue: "Mark as Unread")
+        }
+    }
+
+    private var readStateActionSystemImage: String {
+        workspace.isUnread ? "envelope.open" : "envelope.badge"
     }
 
     @ViewBuilder

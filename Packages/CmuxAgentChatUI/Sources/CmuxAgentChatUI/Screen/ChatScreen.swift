@@ -66,6 +66,15 @@ public struct ChatScreen: View {
                     .padding(.top, 4)
                     .transition(.move(edge: .top).combined(with: .opacity))
                     .accessibilityIdentifier("ChatErrorBanner")
+                    .onTapGesture { store.dismissError() }
+                    // Bounded auto-dismiss: the task is keyed on the error
+                    // text, so a new error restarts the window, and SwiftUI
+                    // cancels the sleep when the banner leaves.
+                    .task(id: error) {
+                        try? await Task.sleep(for: .seconds(8))
+                        guard !Task.isCancelled else { return }
+                        store.dismissError()
+                    }
             }
         }
         .animation(.snappy(duration: 0.2), value: store.lastErrorDescription)

@@ -297,7 +297,7 @@ final class MobileHostService {
     /// clients via `mobile.host.status`. Every status path (the public-status
     /// cache, the network status gate, and `TerminalController`'s full
     /// status) reads this so the lists cannot drift; iOS gates features
-    /// like rename/pin on the entries present here.
+    /// like rename/pin/read-state changes on the entries present here.
     ///
     /// This also advertises `dogfood.v1`, the agent feedback round-trip
     /// (`dogfood.feedback.submit`). It is advertised on every build type so the
@@ -1385,6 +1385,15 @@ final class MobileHostService {
         case "workspace.create":
             return nil
         case "workspace.close":
+            return ticketTerminalAuthorizationError(
+                authorization: authorization,
+                workspaceSelection: workspaceSelection.value,
+                terminalSelection: nil
+            )
+        case "workspace.action":
+            guard TerminalController.mobileAllowsWorkspaceAction(request.params["action"] as? String) else {
+                return scopedTicketError
+            }
             return ticketTerminalAuthorizationError(
                 authorization: authorization,
                 workspaceSelection: workspaceSelection.value,

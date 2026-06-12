@@ -20,6 +20,9 @@ public struct MobileSyncWorkspaceListResponse: Decodable, Sendable {
         /// Whether this workspace is pinned, if the Mac reported it. `nil` when
         /// connected to a Mac old enough not to emit `is_pinned`.
         public let isPinned: Bool?
+        /// Unread notification count, if the Mac reported it. `nil` when
+        /// connected to an older Mac that does not emit `unread_count`.
+        public let unreadCount: Int?
         /// Terminals belonging to this workspace.
         public let terminals: [Terminal]
 
@@ -30,6 +33,7 @@ public struct MobileSyncWorkspaceListResponse: Decodable, Sendable {
             case currentDirectory = "current_directory"
             case isSelected = "is_selected"
             case isPinned = "is_pinned"
+            case unreadCount = "unread_count"
             case terminals
         }
     }

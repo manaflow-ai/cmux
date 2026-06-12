@@ -15,6 +15,7 @@ final class MobileWorkspaceListObserver {
     private weak var tabManager: TabManager?
     private var tabsCancellable: AnyCancellable?
     private var selectionCancellable: AnyCancellable?
+    private var unreadCancellable: AnyCancellable?
     private var perWorkspaceCancellables: [UUID: AnyCancellable] = [:]
     private var lastSummaryHash: Int = 0
     /// Throttle window with `latest: true`. First event in a burst emits
@@ -54,6 +55,11 @@ final class MobileWorkspaceListObserver {
         // to push to iPhone too. iPhone's selectedWorkspaceID drives which
         // terminal it displays.
         selectionCancellable = tabManager.$selectedTabId
+            .throttle(for: .milliseconds(throttleMilliseconds), scheduler: RunLoop.main, latest: true)
+            .sink { [weak self] _ in
+                self?.emitIfNeeded(force: false)
+            }
+        unreadCancellable = TerminalNotificationStore.shared.sidebarUnread.$summaryByWorkspaceId
             .throttle(for: .milliseconds(throttleMilliseconds), scheduler: RunLoop.main, latest: true)
             .sink { [weak self] _ in
                 self?.emitIfNeeded(force: false)
@@ -135,6 +141,7 @@ final class MobileWorkspaceListObserver {
             hasher.combine(workspace.id)
             hasher.combine(workspace.title)
             hasher.combine(workspace.isPinned)
+            hasher.combine(TerminalNotificationStore.shared.unreadCount(forTabId: workspace.id))
             // Spatial order is significant: hash the ordered id sequence so a
             // reorder of the same panel set changes the hash.
             let panelIDs = workspace.orderedPanelIds

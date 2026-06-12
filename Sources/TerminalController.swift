@@ -1000,6 +1000,8 @@ class TerminalController {
             return v2Ok(id: request.id, result: v2AuthStatusPayload(timedOut: false))
         case "feedback.submit":
             return v2Result(id: request.id, v2FeedbackSubmit(params: request.params))
+        case "chat.sessions.dump":
+            return v2Result(id: request.id, v2ChatSessionsDump())
         case "feed.push":
             return v2Result(id: request.id, v2FeedPush(params: request.params))
         case "feed.permission.reply":
@@ -13606,23 +13608,24 @@ class TerminalController {
 
     /// The `workspace.action` sub-actions the mobile data plane may invoke.
     ///
-    /// Mobile gets pin/unpin/rename only. The other sub-actions of
-    /// ``v2WorkspaceAction(params:)`` (`move_*`, `close_*`, `set_color`,
-    /// `set_description`, `mark_*`, …) reorder the global sidebar or destroy
-    /// sibling workspaces, so they stay on the Mac/automation socket. The action
-    /// is normalized exactly as ``v2ActionKey(_:_:)`` so this gate and the
-    /// handler can never disagree on which action runs.
+    /// Mobile gets pin/unpin/rename and read-state changes only. The other
+    /// sub-actions of ``v2WorkspaceAction(params:)`` (`move_*`, `close_*`,
+    /// `set_color`, `set_description`, …) reorder the global sidebar, destroy
+    /// sibling workspaces, or change Mac-only metadata, so they stay on the
+    /// Mac/automation socket. The action is normalized exactly as
+    /// ``v2ActionKey(_:_:)`` so this gate and the handler can never disagree on
+    /// which action runs.
     /// - Parameter rawAction: The raw `action` param value.
     /// - Returns: `true` when the normalized action is mobile-allowed.
     nonisolated static func mobileAllowsWorkspaceAction(_ rawAction: String?) -> Bool {
         guard let trimmed = rawAction?.trimmingCharacters(in: .whitespacesAndNewlines),
               !trimmed.isEmpty else { return false }
         let normalized = trimmed.lowercased().replacingOccurrences(of: "-", with: "_")
-        return ["pin", "unpin", "rename"].contains(normalized)
+        return ["pin", "unpin", "rename", "mark_read", "mark_unread"].contains(normalized)
     }
 
     /// Mobile-gated wrapper over ``v2WorkspaceAction(params:)``: rejects every
-    /// sub-action except pin/unpin/rename before dispatching.
+    /// sub-action except pin/unpin/rename/mark_read/mark_unread before dispatching.
     private func v2MobileWorkspaceAction(params: [String: Any]) -> V2CallResult {
         let rawAction = v2RawString(params, "action")
         guard Self.mobileAllowsWorkspaceAction(rawAction) else {
@@ -13664,8 +13667,8 @@ class TerminalController {
         let status = MobileHostService.shared.statusSnapshot()
         // Single source of truth shared with the mobile listener's public-status
         // paths, so the advertised capabilities can never drift. Includes
-        // workspace.actions.v1 (the mobile-gated pin/unpin/rename handler), which
-        // the iOS client uses to show or hide rename/pin.
+        // workspace.actions.v1 (the mobile-gated pin/unpin/rename/read-state
+        // handler), which the iOS client uses to show or hide workspace actions.
         let capabilities = MobileHostService.mobileHostCapabilities
         guard includePrivateMetadata else {
             return .ok(MobileHostService.publicStatusPayload(
@@ -13930,6 +13933,7 @@ class TerminalController {
             "current_directory": v2OrNull(mobileNonEmpty(workspace.currentDirectory)),
             "is_selected": isSelected,
             "is_pinned": workspace.isPinned,
+            "unread_count": AppDelegate.shared?.notificationStore?.unreadCount(forTabId: workspace.id) ?? 0,
             "terminals": terminals
         ]
     }

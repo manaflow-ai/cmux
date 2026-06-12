@@ -264,6 +264,19 @@ public final class MobileCoreRPCClient: MobileSyncing, Sendable {
                 workspaceSelection: workspaceSelection.value,
                 terminalSelection: nil
             )
+        case "workspace.action":
+            guard let action = (params["action"] as? String)?
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+                .lowercased()
+                .replacingOccurrences(of: "-", with: "_"),
+                ["pin", "unpin", "rename", "mark_read", "mark_unread"].contains(action) else {
+                return true
+            }
+            return !ticketCoversTerminalRequest(
+                ticket: ticket,
+                workspaceSelection: workspaceSelection.value,
+                terminalSelection: nil
+            )
         case "mobile.terminal.create", "terminal.create":
             return false
         case "mobile.terminal.input", "terminal.input",

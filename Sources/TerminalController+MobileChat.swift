@@ -33,6 +33,19 @@ extension TerminalController {
         }
     }
 
+    /// `chat.sessions.dump` (local debug socket): the full chat-session
+    /// registry state, for diagnosing inconsistent phone-side states.
+    nonisolated func v2ChatSessionsDump() -> V2CallResult {
+        let semaphore = DispatchSemaphore(value: 0)
+        nonisolated(unsafe) var sessions: [[String: Any]] = []
+        Task { @MainActor in
+            sessions = AgentChatTranscriptService.shared.debugSessionDump()
+            semaphore.signal()
+        }
+        semaphore.wait()
+        return .ok(["sessions": sessions])
+    }
+
     /// `mobile.chat.sessions`: list chat-capable sessions, optionally
     /// scoped to one workspace.
     func v2MobileChatSessions(params: [String: Any]) -> V2CallResult {

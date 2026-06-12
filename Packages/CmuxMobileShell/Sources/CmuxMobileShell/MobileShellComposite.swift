@@ -186,9 +186,10 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// changed" signal (e.g. for retrying a parked notification deep link).
     public private(set) var workspaceTopologyVersion: UInt64 = 0
     /// Whether the connected Mac advertises the `workspace.actions.v1` capability
-    /// (rename/pin over the mobile RPC). `false` until host status is read, and
-    /// for older Macs that lack the handler, so the UI can hide rename/pin rather
-    /// than offer actions that would fail with `method_not_found`.
+    /// (rename/pin/read-state changes over the mobile RPC). `false` until host
+    /// status is read, and for older Macs that lack the handler, so the UI can
+    /// hide workspace actions rather than offer actions that would fail with
+    /// `method_not_found`.
     public private(set) var supportsWorkspaceActions: Bool = false
     /// Whether the connected Mac advertises the `dogfood.v1` capability (the
     /// `dogfood.feedback.submit` agent sink). `false` until host status is read,
@@ -841,6 +842,27 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             _ = try await client.sendRequest(request)
         } catch {
             mobileShellLog.error("workspace pin failed id=\(id.rawValue, privacy: .public) error=\(String(describing: error), privacy: .public)")
+        }
+    }
+
+    /// Mark a workspace read or unread on the Mac, then re-sync the authoritative
+    /// list so the swipe label flips even if the push event is delayed.
+    /// - Parameters:
+    ///   - id: The workspace to mark.
+    ///   - unread: `true` to mark unread, `false` to mark read.
+    public func setWorkspaceUnread(id: MobileWorkspacePreview.ID, _ unread: Bool) async {
+        guard let client = remoteClient else { return }
+        do {
+            var params = workspaceMutationParams(id: id)
+            params["action"] = unread ? "mark_unread" : "mark_read"
+            let request = try MobileCoreRPCClient.requestData(
+                method: "workspace.action",
+                params: params
+            )
+            _ = try await client.sendRequest(request)
+            await reloadWorkspaceListFromMac()
+        } catch {
+            mobileShellLog.error("workspace read-state update failed id=\(id.rawValue, privacy: .public) error=\(String(describing: error), privacy: .public)")
         }
     }
 

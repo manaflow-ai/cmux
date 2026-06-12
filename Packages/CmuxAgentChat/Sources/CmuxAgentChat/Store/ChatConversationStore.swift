@@ -290,6 +290,12 @@ public final class ChatConversationStore {
         }
     }
 
+    /// Clears the transient error banner (user dismissal or auto-expiry;
+    /// the owning view drives timing through a cancellable task).
+    public func dismissError() {
+        lastErrorDescription = nil
+    }
+
     /// Retries a failed initial history load (user-invoked).
     public func retryInitialLoad() async {
         guard !hasLoadedInitialHistory else { return }

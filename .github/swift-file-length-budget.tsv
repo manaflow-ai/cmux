@@ -6,7 +6,7 @@
 19275	Sources/ContentView.swift
 18117	Sources/AppDelegate.swift
 16539	Sources/GhosttyTerminalView.swift
-14777	Sources/TerminalController.swift
+14823	Sources/TerminalController.swift
 13606	Sources/Panels/BrowserPanel.swift
 12044	cmuxTests/AppDelegateShortcutRoutingTests.swift
 10020	Sources/TabManager.swift
@@ -21,7 +21,7 @@
 6071	Sources/TextBoxInput.swift
 5482	cmuxTests/BrowserConfigTests.swift
 5462	Sources/cmuxApp.swift
-4829	Packages/CmuxMobileShell/Sources/CmuxMobileShell/MobileShellComposite.swift
+4876	Packages/CmuxMobileShell/Sources/CmuxMobileShell/MobileShellComposite.swift
 4460	Sources/Panels/FilePreviewPanel.swift
 4400	cmuxTests/BrowserPanelTests.swift
 4227	Sources/BrowserWindowPortal.swift
@@ -40,7 +40,7 @@
 2544	cmuxTests/CommandPaletteSearchEngineTests.swift
 2527	Sources/TerminalNotificationStore.swift
 2516	Sources/KeyboardShortcutSettings.swift
-2340	Sources/Mobile/MobileHostService.swift
+2355	Sources/Mobile/MobileHostService.swift
 2327	cmuxTests/CJKIMEInputTests.swift
 2290	Sources/FileExplorerView.swift
 2260	Sources/TerminalWindowPortal.swift
@@ -126,6 +126,7 @@
 696	cmuxTests/UpdatePillReleaseVisibilityTests.swift
 693	Sources/Panels/BrowserPopupWindowController.swift
 691	cmuxTests/TaskManagerResourcesTests.swift
+685	Packages/CmuxAgentChat/Tests/CmuxAgentChatTests/ChatConversationStoreTests.swift
 685	Sources/RightSidebarPanelView.swift
 683	Packages/CmuxSwiftRender/Sources/CmuxSwiftRender/SwiftViewInterpreter.swift
 683	Sources/Panels/CodexAppServerSession.swift
@@ -183,6 +184,7 @@
 518	Packages/CmuxControlSocket/Sources/CmuxControlSocket/Coordinator/Surface/ControlCommandCoordinator+Surface.swift
 518	Packages/CmuxSwiftRender/Tests/CmuxSwiftRenderTests/Corpus/stress-git-review-queue-command-deck.swift
 516	Sources/CmuxConfigExecutor.swift
+515	Packages/CmuxAgentChat/Sources/CmuxAgentChat/Store/ChatConversationStore.swift
 514	Packages/CmuxSwiftRender/Sources/CmuxSwiftRender/ExpressionEvaluator.swift
 514	cmuxUITests/UpdatePillUITests.swift
 509	Packages/CMUXAgentLaunch/Sources/CMUXAgentLaunch/AgentLaunchSanitizerAdditionalPolicies.swift

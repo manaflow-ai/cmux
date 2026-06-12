@@ -117,6 +117,28 @@ final class AgentChatTranscriptService {
         return page
     }
 
+    /// Debug-socket dump of every registry record plus tailer liveness.
+    func debugSessionDump() -> [[String: Any]] {
+        registry.sessions(workspaceID: nil).map { record in
+            var entry: [String: Any] = [
+                "session_id": record.sessionID,
+                "agent": record.agentKind.sourceName,
+                "state": String(describing: record.state),
+                "last_activity": record.lastActivityAt.timeIntervalSince1970,
+                "tailer_active": tailers[record.sessionID] != nil,
+                "resolution_failed": failedResolutions.contains(record.sessionID),
+            ]
+            entry["workspace_id"] = record.workspaceID
+            entry["surface_id"] = record.surfaceID
+            entry["transcript_path"] = record.transcriptPath
+            if let pid = record.pid {
+                entry["pid"] = pid
+                entry["pid_alive"] = kill(pid_t(pid), 0) == 0
+            }
+            return entry
+        }
+    }
+
     // MARK: - Internals
 
     @discardableResult
