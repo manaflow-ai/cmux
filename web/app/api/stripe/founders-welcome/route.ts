@@ -170,8 +170,14 @@ export async function POST(request: Request) {
         "cmux.stripe.is_founders": isFounders,
         "cmux.stripe.has_customer_email": Boolean(customerEmail),
       });
-      if (!isFounders || !customerEmail) {
+      if (!isFounders) {
         return NextResponse.json({ ok: true, skipped: "not_founders" });
+      }
+      if (!customerEmail) {
+        // Distinct from "not_founders" so a Founder's session that arrives
+        // without a customer email is diagnosable in telemetry rather than a
+        // silent miss.
+        return NextResponse.json({ ok: true, skipped: "no_customer_email" });
       }
 
       const name = firstName(session?.customer_details?.name);
@@ -181,10 +187,17 @@ export async function POST(request: Request) {
       // deduplicates identical sends for 24h, so redelivery of the same
       // purchase will not send a second welcome email.
       const idempotencyKey = `founders-welcome/${session?.id ?? event.id ?? customerEmail}`;
+      // Only attach the personal display name to the default sender. If the
+      // address is overridden to a shared/team inbox, send from the bare
+      // address rather than a mismatched "Austin Wang" identity.
+      const fromAddress =
+        config.fromEmail === DEFAULT_FROM_EMAIL
+          ? `Austin Wang <${config.fromEmail}>`
+          : config.fromEmail;
       const resend = new Resend(config.resendApiKey);
       const { error } = await resend.emails.send(
         {
-          from: `Austin Wang <${config.fromEmail}>`,
+          from: fromAddress,
           to: [customerEmail],
           cc: FOUNDER_CC,
           replyTo: REPLY_TO,
