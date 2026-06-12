@@ -79,6 +79,10 @@ extension ControlCommandCoordinator {
             "id": .string(summary.id.uuidString),
             "ref": ref(.workspace, summary.id),
             "title": .string(summary.title),
+            "custom_title": orNull(summary.customTitle),
+            "has_custom_title": .bool(
+                !(summary.customTitle?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ?? true)
+            ),
             "description": orNull(summary.customDescription),
             "selected": .bool(selected),
             "pinned": .bool(summary.isPinned),

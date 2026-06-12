@@ -58,6 +58,7 @@ extension TerminalController: ControlWorkspaceContext {
         ControlWorkspaceSummary(
             id: workspace.id,
             title: workspace.title,
+            customTitle: workspace.customTitle,
             customDescription: workspace.customDescription,
             isPinned: workspace.isPinned,
             listeningPorts: workspace.listeningPorts,
