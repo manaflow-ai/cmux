@@ -47,6 +47,19 @@ struct WorkspaceShellView: View {
             }
             compactNavigationPath = [selectedWorkspaceID]
         }
+        // A notification-tap deep link must actually navigate, not just mark a
+        // selection: on the compact stack an empty path ignores selection
+        // changes by design (the attach-time auto-selection must not yank the
+        // user off the home list), so the deep link carries an explicit
+        // one-shot push intent. Consumed on change and on mount in case the
+        // request landed before this view appeared.
+        .onChange(of: store.deeplinkWorkspaceNavigationRequest) { _, request in
+            guard request != nil else { return }
+            consumeDeeplinkNavigationRequestIfNeeded()
+        }
+        .onAppear {
+            consumeDeeplinkNavigationRequestIfNeeded()
+        }
         .accessibilityIdentifier("MobileWorkspaceShell")
         .overlay(alignment: .top) {
             MobileConnectionRecoveryBanner(store: store, signOut: signOut)
@@ -137,6 +150,19 @@ struct WorkspaceShellView: View {
         .navigationSplitViewStyle(.balanced)
         .onAppear {
             hasPresentedSplitDetail = true
+        }
+    }
+
+    /// Apply (and clear) a pending deep-link navigation intent. On the compact
+    /// stack this pushes the workspace; on the split layout the store's
+    /// selection already presents the detail column, so consuming just clears
+    /// the request so a later size-class change cannot replay a stale push.
+    private func consumeDeeplinkNavigationRequestIfNeeded() {
+        guard store.deeplinkWorkspaceNavigationRequest != nil else { return }
+        guard let workspaceID = store.consumeDeeplinkWorkspaceNavigationRequest() else { return }
+        guard usesCompactStack else { return }
+        if compactNavigationPath.last != workspaceID {
+            compactNavigationPath = [workspaceID]
         }
     }
 
