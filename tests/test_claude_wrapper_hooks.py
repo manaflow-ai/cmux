@@ -374,6 +374,7 @@ keys=(
   ANTHROPIC_AUTH_TOKEN
   ANTHROPIC_BASE_URL
   ANTHROPIC_BEDROCK_BASE_URL
+  ANTHROPIC_CUSTOM_HEADERS
   ANTHROPIC_MODEL
   ANTHROPIC_SMALL_FAST_MODEL
   ANTHROPIC_VERTEX_BASE_URL
@@ -387,7 +388,11 @@ keys=(
 )
 for key in "${keys[@]}"; do
   if [[ ${!key+x} ]]; then
-    printf '%s=%s\\n' "$key" "${!key}" >> "$FAKE_AUTH_ENV_LOG"
+    value="${!key}"
+    if [[ "$key" == "ANTHROPIC_CUSTOM_HEADERS" ]]; then
+      value="${value//$'\\n'/\\\\n}"
+    fi
+    printf '%s=%s\\n' "$key" "$value" >> "$FAKE_AUTH_ENV_LOG"
   else
     printf '%s=__UNSET__\\n' "$key" >> "$FAKE_AUTH_ENV_LOG"
   fi
@@ -395,6 +400,7 @@ done
 for arg in "$@"; do
   printf '%s\\n' "$arg" >> "$FAKE_ARGS_LOG"
 done
+exit 0
 """,
         )
 
@@ -426,6 +432,7 @@ exit 0
                 "ANTHROPIC_AUTH_TOKEN",
                 "ANTHROPIC_BASE_URL",
                 "ANTHROPIC_BEDROCK_BASE_URL",
+                "ANTHROPIC_CUSTOM_HEADERS",
                 "ANTHROPIC_MODEL",
                 "ANTHROPIC_SMALL_FAST_MODEL",
                 "ANTHROPIC_VERTEX_BASE_URL",
@@ -772,27 +779,95 @@ def test_live_socket_normalizes_subrouter_claude_config_dir(failures: list[str])
     expect(auth_env.get("CLAUDE_CONFIG_DIR") == expected["path"], f"normalize config dir: expected {expected['path']!r}, got {auth_env.get('CLAUDE_CONFIG_DIR')!r}", failures)
 
 
+def test_live_socket_sets_subrouter_headers_for_fable_fresh_launch(failures: list[str]) -> None:
+    code, auth_env, real_argv, stderr = run_wrapper_auth_env(
+        argv=["--model", "claude-fable-5", "hello"],
+        inherited_env={
+            "CMUX_CLAUDE_SUBROUTER_PICK_DISABLED": "1",
+            "ANTHROPIC_AUTH_TOKEN": "subrouter",
+            "ANTHROPIC_BASE_URL": "http://subrouter-team:31415",
+        },
+    )
+    expect(code == 0, f"subrouter headers fresh launch: wrapper exited {code}: {stderr}", failures)
+    expect("--session-id" in real_argv, f"subrouter headers fresh launch: expected session injection, got {real_argv}", failures)
+    session_index = real_argv.index("--session-id")
+    session_id = real_argv[session_index + 1] if session_index + 1 < len(real_argv) else ""
+    headers = auth_env.get("ANTHROPIC_CUSTOM_HEADERS", "").replace("\\n", "\n")
+    expect(
+        f"X-Subrouter-Session: {session_id}" in headers,
+        f"subrouter headers fresh launch: expected X-Subrouter-Session for {session_id!r}, got {headers!r}",
+        failures,
+    )
+    expect(
+        "X-Subrouter-Agent: claude" in headers,
+        f"subrouter headers fresh launch: expected X-Subrouter-Agent, got {headers!r}",
+        failures,
+    )
+
+
+def test_live_socket_sets_subrouter_headers_for_resume_launch(failures: list[str]) -> None:
+    code, auth_env, real_argv, stderr = run_wrapper_auth_env(
+        argv=["--resume", "claude-session-123", "--model", "claude-fable-5"],
+        inherited_env={
+            "CMUX_CLAUDE_SUBROUTER_PICK_DISABLED": "1",
+            "ANTHROPIC_AUTH_TOKEN": "subrouter",
+            "ANTHROPIC_BASE_URL": "http://subrouter-team:31415",
+        },
+    )
+    expect(code == 0, f"subrouter headers resume launch: wrapper exited {code}: {stderr}", failures)
+    headers = auth_env.get("ANTHROPIC_CUSTOM_HEADERS", "").replace("\\n", "\n")
+    expect(
+        "X-Subrouter-Session: claude-session-123" in headers,
+        f"subrouter headers resume launch: expected resume X-Subrouter-Session, got {headers!r}",
+        failures,
+    )
+    expect(
+        "X-Subrouter-Agent: claude" in headers,
+        f"subrouter headers resume launch: expected X-Subrouter-Agent, got {headers!r}",
+        failures,
+    )
+    expect("--session-id" not in real_argv, f"subrouter headers resume launch: expected no injected session id, got {real_argv}", failures)
+
+
+def test_live_socket_appends_subrouter_headers_to_existing_custom_headers(failures: list[str]) -> None:
+    code, auth_env, _, stderr = run_wrapper_auth_env(
+        argv=["hello"],
+        inherited_env={
+            "CMUX_CLAUDE_SUBROUTER_PICK_DISABLED": "1",
+            "ANTHROPIC_AUTH_TOKEN": "subrouter",
+            "ANTHROPIC_BASE_URL": "http://subrouter-team:31415",
+            "ANTHROPIC_CUSTOM_HEADERS": "X-Existing: yes",
+        },
+    )
+    expect(code == 0, f"subrouter headers append: wrapper exited {code}: {stderr}", failures)
+    headers = auth_env.get("ANTHROPIC_CUSTOM_HEADERS", "").replace("\\n", "\n")
+    expect(headers.startswith("X-Existing: yes\n"), f"subrouter headers append: expected existing header preserved first, got {headers!r}", failures)
+    expect("X-Subrouter-Session: " in headers, f"subrouter headers append: expected X-Subrouter-Session, got {headers!r}", failures)
+    expect("X-Subrouter-Agent: claude" in headers, f"subrouter headers append: expected X-Subrouter-Agent, got {headers!r}", failures)
+
+
 def test_live_socket_picks_subrouter_claude_profile_for_fable_fresh_launch(failures: list[str]) -> None:
     expected: dict[str, str] = {}
+    with tempfile.TemporaryDirectory(prefix="cmux-subrouter-pick-log-") as log_dir:
+        pick_log = Path(log_dir) / "subrouter-pick.log"
 
-    def setup(tmp: Path) -> dict[str, str]:
-        home = tmp / "home"
-        fake_bin = tmp / "fake-bin"
-        fake_bin.mkdir(parents=True)
-        old_profile = home / ".codex-accounts" / "claude" / "_old"
-        new_profile = home / ".codex-accounts" / "claude" / "_new"
-        old_profile.mkdir(parents=True)
-        new_profile.mkdir(parents=True)
-        pick_log = tmp / "subrouter-pick.log"
-        expected["old_profile"] = str(old_profile)
-        expected["new_profile"] = str(new_profile)
-        expected["pick_log"] = str(pick_log)
-        make_executable(
-            fake_bin / "subrouter",
-            f"""#!/usr/bin/env bash
+        def setup(tmp: Path) -> dict[str, str]:
+            home = tmp / "home"
+            fake_bin = tmp / "fake-bin"
+            fake_bin.mkdir(parents=True)
+            old_profile = home / ".codex-accounts" / "claude" / "_old"
+            new_profile = home / ".codex-accounts" / "claude" / "_new"
+            old_profile.mkdir(parents=True)
+            new_profile.mkdir(parents=True)
+            expected["old_profile"] = str(old_profile)
+            expected["new_profile"] = str(new_profile)
+            expected["pick_log"] = str(pick_log)
+            make_executable(
+                fake_bin / "subrouter",
+                f"""#!/usr/bin/env bash
 set -euo pipefail
+printf '%s\\n' "$*" >> {str(pick_log)!r}
 if [[ "${{1:-}}" == "claude" && "${{2:-}}" == "pick" ]]; then
-  printf 'pick\\n' >> {str(pick_log)!r}
   exit 0
 fi
 if [[ "${{1:-}}" == "claude" && "${{2:-}}" == "env" ]]; then
@@ -801,59 +876,61 @@ if [[ "${{1:-}}" == "claude" && "${{2:-}}" == "env" ]]; then
 fi
 exit 2
 """,
-        )
-        return {
-            "HOME": str(home),
-            "PATH": f"{fake_bin}:{tmp / 'wrapper-bin'}:{tmp / 'real-bin'}:{os.environ.get('PATH', '/usr/bin:/bin')}",
-            "CLAUDE_CONFIG_DIR": str(old_profile),
-        }
+            )
+            return {
+                "HOME": str(home),
+                "PATH": f"{fake_bin}:{tmp / 'wrapper-bin'}:{tmp / 'real-bin'}:{os.environ.get('PATH', '/usr/bin:/bin')}",
+                "CLAUDE_CONFIG_DIR": str(old_profile),
+            }
 
-    code, auth_env, real_argv, stderr = run_wrapper_auth_env(
-        argv=["--model", "claude-fable-5", "hello"],
-        inherited_env={},
-        setup_env=setup,
-    )
-    expect(code == 0, f"subrouter pick fresh launch: wrapper exited {code}: {stderr}", failures)
-    expect(auth_env.get("CLAUDE_CONFIG_DIR") == expected["new_profile"], f"subrouter pick fresh launch: expected picked CLAUDE_CONFIG_DIR {expected['new_profile']!r}, got {auth_env.get('CLAUDE_CONFIG_DIR')!r}", failures)
-    expect(read_lines(Path(expected["pick_log"])) == ["pick"], "subrouter pick fresh launch: expected one pick call", failures)
-    expect("--session-id" in real_argv, f"subrouter pick fresh launch: expected session injection, got {real_argv}", failures)
+        code, auth_env, real_argv, stderr = run_wrapper_auth_env(
+            argv=["--model", "claude-fable-5", "hello"],
+            inherited_env={},
+            setup_env=setup,
+        )
+        expect(code == 0, f"subrouter pick fresh launch: wrapper exited {code}: {stderr}", failures)
+        expect(auth_env.get("CLAUDE_CONFIG_DIR") == expected["new_profile"], f"subrouter pick fresh launch: expected picked CLAUDE_CONFIG_DIR {expected['new_profile']!r}, got {auth_env.get('CLAUDE_CONFIG_DIR')!r}", failures)
+        pick_lines = read_lines(Path(expected["pick_log"]))
+        expect(pick_lines == ["claude pick", "claude env"], f"subrouter pick fresh launch: expected pick then env, got {pick_lines}", failures)
+        expect("--session-id" in real_argv, f"subrouter pick fresh launch: expected session injection, got {real_argv}", failures)
 
 
 def test_live_socket_keeps_subrouter_claude_profile_for_resume_launch(failures: list[str]) -> None:
     expected: dict[str, str] = {}
+    with tempfile.TemporaryDirectory(prefix="cmux-subrouter-resume-log-") as log_dir:
+        pick_log = Path(log_dir) / "subrouter-pick.log"
 
-    def setup(tmp: Path) -> dict[str, str]:
-        home = tmp / "home"
-        fake_bin = tmp / "fake-bin"
-        fake_bin.mkdir(parents=True)
-        profile = home / ".codex-accounts" / "claude" / "_resume"
-        profile.mkdir(parents=True)
-        pick_log = tmp / "subrouter-pick.log"
-        expected["profile"] = str(profile)
-        expected["pick_log"] = str(pick_log)
-        make_executable(
-            fake_bin / "subrouter",
-            f"""#!/usr/bin/env bash
+        def setup(tmp: Path) -> dict[str, str]:
+            home = tmp / "home"
+            fake_bin = tmp / "fake-bin"
+            fake_bin.mkdir(parents=True)
+            profile = home / ".codex-accounts" / "claude" / "_resume"
+            profile.mkdir(parents=True)
+            expected["profile"] = str(profile)
+            expected["pick_log"] = str(pick_log)
+            make_executable(
+                fake_bin / "subrouter",
+                f"""#!/usr/bin/env bash
 set -euo pipefail
 printf '%s\\n' "$*" >> {str(pick_log)!r}
 exit 42
 """,
-        )
-        return {
-            "HOME": str(home),
-            "PATH": f"{fake_bin}:{tmp / 'wrapper-bin'}:{tmp / 'real-bin'}:{os.environ.get('PATH', '/usr/bin:/bin')}",
-            "CLAUDE_CONFIG_DIR": str(profile),
-        }
+            )
+            return {
+                "HOME": str(home),
+                "PATH": f"{fake_bin}:{tmp / 'wrapper-bin'}:{tmp / 'real-bin'}:{os.environ.get('PATH', '/usr/bin:/bin')}",
+                "CLAUDE_CONFIG_DIR": str(profile),
+            }
 
-    code, auth_env, real_argv, stderr = run_wrapper_auth_env(
-        argv=["--resume", "claude-session-123", "--model", "claude-fable-5"],
-        inherited_env={},
-        setup_env=setup,
-    )
-    expect(code == 0, f"subrouter pick resume launch: wrapper exited {code}: {stderr}", failures)
-    expect(auth_env.get("CLAUDE_CONFIG_DIR") == expected["profile"], f"subrouter pick resume launch: expected resume CLAUDE_CONFIG_DIR {expected['profile']!r}, got {auth_env.get('CLAUDE_CONFIG_DIR')!r}", failures)
-    expect(read_lines(Path(expected["pick_log"])) == [], "subrouter pick resume launch: did not expect subrouter calls", failures)
-    expect("--session-id" not in real_argv, f"subrouter pick resume launch: expected no injected session id, got {real_argv}", failures)
+        code, auth_env, real_argv, stderr = run_wrapper_auth_env(
+            argv=["--resume", "claude-session-123", "--model", "claude-fable-5"],
+            inherited_env={},
+            setup_env=setup,
+        )
+        expect(code == 0, f"subrouter pick resume launch: wrapper exited {code}: {stderr}", failures)
+        expect(auth_env.get("CLAUDE_CONFIG_DIR") == expected["profile"], f"subrouter pick resume launch: expected resume CLAUDE_CONFIG_DIR {expected['profile']!r}, got {auth_env.get('CLAUDE_CONFIG_DIR')!r}", failures)
+        expect(read_lines(Path(expected["pick_log"])) == [], "subrouter pick resume launch: did not expect subrouter calls", failures)
+        expect("--session-id" not in real_argv, f"subrouter pick resume launch: expected no injected session id, got {real_argv}", failures)
 
 
 def test_live_socket_preserves_claude_auth_for_resume_launch(failures: list[str]) -> None:
@@ -1258,6 +1335,11 @@ def main() -> int:
     test_live_socket_preserves_third_party_claude_auth_for_fresh_launch(failures)
     test_hooks_disabled_clears_stale_auth_selection_before_passthrough(failures)
     test_live_socket_normalizes_subrouter_claude_config_dir(failures)
+    test_live_socket_sets_subrouter_headers_for_fable_fresh_launch(failures)
+    test_live_socket_sets_subrouter_headers_for_resume_launch(failures)
+    test_live_socket_appends_subrouter_headers_to_existing_custom_headers(failures)
+    test_live_socket_picks_subrouter_claude_profile_for_fable_fresh_launch(failures)
+    test_live_socket_keeps_subrouter_claude_profile_for_resume_launch(failures)
     test_live_socket_preserves_claude_auth_for_resume_launch(failures)
     test_live_socket_preserves_only_listed_claude_auth_keys(failures)
     test_live_socket_auto_preserves_vertex_auth_when_truthy(failures)
