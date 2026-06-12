@@ -453,6 +453,9 @@ private struct ClaudeHookSessionRecord: Codable {
     var terminalPromptTurnIds: [String]?
     var startedAt: TimeInterval
     var updatedAt: TimeInterval
+    // Only advances when agentLifecycle is set to a definitive value (.idle/.running/.needsInput).
+    // Unlike updatedAt, does NOT advance on .unknown SessionStart upserts.
+    var lifecycleUpdatedAt: TimeInterval? = nil
 }
 
 private struct ClaudeHookActiveSessionRecord: Codable {
@@ -1087,7 +1090,20 @@ private final class ClaudeHookSessionStore {
             record.isRestorable = isRestorable || record.isRestorable == true
         }
         if let agentLifecycle {
-            record.agentLifecycle = agentLifecycle
+            // A SessionStart on resume/relaunch reports `.unknown`; never let it
+            // erase a previously-proven definitive lifecycle, or a quiescent
+            // resumed agent stays stuck at `.unknown` and never re-hibernates.
+            record.agentLifecycle = AgentHibernationLifecycleState.preservingDefinitive(
+                existing: record.agentLifecycle,
+                incoming: agentLifecycle
+            )
+            // Only advance lifecycleUpdatedAt for definitive updates. An .unknown
+            // SessionStart must not push this timestamp past a terminal-input
+            // timestamp recorded after the last idle notification (which would
+            // incorrectly clear the mid-turn input guard after a restart).
+            if agentLifecycle != .unknown {
+                record.lifecycleUpdatedAt = now
+            }
         }
         if let subtitle = normalizeOptional(lastSubtitle) {
             record.lastSubtitle = subtitle
@@ -1097,6 +1113,14 @@ private final class ClaudeHookSessionStore {
         }
         if updateLastNotificationStatus {
             record.lastNotificationStatus = lastNotificationStatus
+            // A notification with idle status is a lifecycle event for agents that
+            // do not emit set_agent_lifecycle (e.g., opencode). Advance lifecycleUpdatedAt
+            // so the durable hasUnconfirmedTerminalInput guard has a valid baseline after
+            // restart; without this, lifecycleUpdatedAt stays nil and any persisted
+            // terminal-input timestamp permanently blocks hibernation for those agents.
+            if lastNotificationStatus == .idle {
+                record.lifecycleUpdatedAt = now
+            }
         }
         if updateRuntimeStatus {
             record.runtimeStatus = runtimeStatus
@@ -22293,6 +22317,12 @@ struct CMUXCLI {
                         agentLifecycle: .idle,
                         lastSubtitle: completion?.subtitle,
                         lastBody: completion?.body,
+                        // Persist the idle notification status so claude's index
+                        // fallback (effectiveHibernationLifecycle) resolves to idle
+                        // even if agentLifecycle is later read as nil/unknown,
+                        // matching the generic stop handler's semantics exactly.
+                        lastNotificationStatus: .idle,
+                        updateLastNotificationStatus: true,
                         markActive: true,
                         allowsNewSessionReplacement: true
                     )
@@ -22495,6 +22525,35 @@ struct CMUXCLI {
             )
             let payload = notificationPayload(title: title, subtitle: summary.subtitle, body: summary.body)
 
+            // Hibernation lifecycle only (the user-facing notification and sidebar
+            // status below are unchanged). Classification mirrors the generic path
+            // (classifyAgentHookNotification):
+            // - Permission/approval → .needsInput (blocked mid-tool, must stay live)
+            // - "Error" subtitle → .needsInput (mirrors generic .error → .needsInput)
+            // - "Attention" with a specific message → nil (informational; don't change
+            //   lifecycle so an in-flight turn isn't prematurely marked idle)
+            // - Everything else ("Completed", "Waiting", generic attention fallback) →
+            //   .idle (turn finished, safe to hibernate)
+            let classifiedLifecycle: AgentHibernationLifecycleState?
+            let notifSubtitle = summary.subtitle
+            if notifSubtitle == "Attention" && summary.body != "Claude needs your attention" {
+                classifiedLifecycle = nil
+            } else if notifSubtitle == "Error"
+                || AgentHibernationLifecycleState.notificationIndicatesBlocked(
+                    subtitle: notifSubtitle,
+                    body: summary.body
+                ) {
+                classifiedLifecycle = .needsInput
+            } else {
+                classifiedLifecycle = .idle
+            }
+            // A plain notification must not downgrade .needsInput set by a preceding
+            // AskUserQuestion PreToolUse: the agent is still blocked waiting for the
+            // user's answer, so hibernate eligibility must not change.
+            let hibernationLifecycle: AgentHibernationLifecycleState? = classifiedLifecycle.map {
+                $0 == .idle && mappedSession?.agentLifecycle == .needsInput ? .needsInput : $0
+            }
+
             if let sessionId = parsedInput.sessionId {
                 try? sessionStore.upsert(
                     sessionId: sessionId,
@@ -22502,19 +22561,21 @@ struct CMUXCLI {
                     surfaceId: surfaceId,
                     cwd: parsedInput.cwd,
                     transcriptPath: parsedInput.transcriptPath,
-                    agentLifecycle: .needsInput,
+                    agentLifecycle: hibernationLifecycle,
                     lastSubtitle: summary.subtitle,
                     lastBody: summary.body
                 )
             }
 
-            setAgentLifecycle(
-                client: client,
-                key: Self.claudeCodeStatusKey,
-                lifecycle: .needsInput,
-                workspaceId: workspaceId,
-                surfaceId: surfaceId
-            )
+            if let hibernationLifecycle {
+                setAgentLifecycle(
+                    client: client,
+                    key: Self.claudeCodeStatusKey,
+                    lifecycle: hibernationLifecycle,
+                    workspaceId: workspaceId,
+                    surfaceId: surfaceId
+                )
+            }
             _ = try? setClaudeStatus(
                 client: client,
                 workspaceId: workspaceId,
@@ -22826,15 +22887,17 @@ struct CMUXCLI {
         key: String,
         lifecycle: AgentHibernationLifecycleState,
         workspaceId: String,
-        surfaceId: String?
+        surfaceId: String?,
+        preserveIdle: Bool = false
     ) {
         guard Self.allowedAgentLifecycleStatusKeys.contains(key) else {
             fputs("Warning: unsupported agent lifecycle key\n", stderr)
             return
         }
         do {
+            let preserveFlag = preserveIdle ? " --preserve-idle" : ""
             _ = try sendV1Command(
-                "set_agent_lifecycle \(key) \(lifecycle.rawValue) --tab=\(workspaceId)\(socketPanelOption(surfaceId))",
+                "set_agent_lifecycle \(key) \(lifecycle.rawValue) --tab=\(workspaceId)\(socketPanelOption(surfaceId))\(preserveFlag)",
                 client: client
             )
         } catch {
@@ -28987,13 +29050,33 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                     client: client
                 )
             }
-            setAgentLifecycle(
-                client: client,
-                key: def.statusKey,
-                lifecycle: .unknown,
-                workspaceId: workspaceId,
-                surfaceId: surfaceId
+            // SessionStart `.unknown` handling:
+            // - When the prior record proves a definitive lifecycle (e.g. `.idle`
+            //   from a same-session resume): skip the write entirely, keeping the
+            //   live map empty so Workspace.agentHibernationLifecycleState falls
+            //   through to the persisted fallback.
+            // - Otherwise (new session, fresh agent, or prior record indeterminate):
+            //   send `.unknown --preserve-idle` so Workspace's preservingDefinitive
+            //   keeps any resume-seeded `.idle` alive even when the new session ID
+            //   has no prior store record (mapped == nil). Without --preserve-idle,
+            //   the write would overwrite the seeded `.idle` with `.unknown` and
+            //   re-introduce the hibernation-is-one-shot bug for new-session resumes.
+            // Use effective() so a record with only lastNotificationStatus=idle
+            // (no explicit agentLifecycle) is also treated as proven-definitive.
+            let mappedEffectiveLifecycle = AgentHibernationLifecycleState.effective(
+                agentLifecycle: mapped?.agentLifecycle,
+                lastNotificationStatus: mapped?.lastNotificationStatus?.rawValue
             )
+            if !(mappedEffectiveLifecycle.map { $0 != .unknown } ?? false) {
+                setAgentLifecycle(
+                    client: client,
+                    key: def.statusKey,
+                    lifecycle: .unknown,
+                    workspaceId: workspaceId,
+                    surfaceId: surfaceId,
+                    preserveIdle: true
+                )
+            }
 
         case .promptSubmit:
             let mapped = sessionId.isEmpty ? nil : (try? store.lookup(sessionId: sessionId))

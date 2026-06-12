@@ -259,7 +259,7 @@ extension ControlCommandCoordinator {
     /// `set_agent_lifecycle` — record a restorable agent session's lifecycle.
     func sidebarSetAgentLifecycle(_ args: String) -> String {
         let parsed = sidebarParseOptions(args)
-        let usage = "set_agent_lifecycle <key> <unknown|running|idle|needsInput> [--tab=<id>] [--panel=<id>]"
+        let usage = "set_agent_lifecycle <key> <unknown|running|idle|needsInput> [--tab=<id>] [--panel=<id>] [--preserve-idle]"
         guard parsed.positional.count >= 2 else {
             return "ERROR: Usage: \(usage)"
         }
@@ -283,11 +283,16 @@ extension ControlCommandCoordinator {
         ) ?? false else {
             return "ERROR: Unsupported agent lifecycle key '\(key)'"
         }
+        // --preserve-idle: apply preservingDefinitive so a `.unknown` SessionStart
+        // cannot overwrite a resume-seeded `.idle`. Only the SessionStart hook path
+        // in the CLI sets this flag; direct callers omit it and get the raw value.
+        let preserveIdle = parsed.options["preserve-idle"] != nil
         sidebarContext?.controlSidebarScheduleAgentLifecycle(
             target: target,
             key: key,
             lifecycleRawValue: lifecycleRawValue,
-            panelID: panelResolution.panelId
+            panelID: panelResolution.panelId,
+            preserveIdle: preserveIdle
         )
         return "OK"
     }

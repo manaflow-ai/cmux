@@ -63,7 +63,8 @@ extension ControlSidebarContext {
         target: ControlSidebarTabTarget,
         key: String,
         lifecycleRawValue: String,
-        panelID: UUID?
+        panelID: UUID?,
+        preserveIdle: Bool
     ) {}
 
     func controlSidebarSetAgentHibernation(enabled: Bool) {}

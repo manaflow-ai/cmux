@@ -1,8 +1,8 @@
 # cmux-owned Swift file length budget.
 # Format: max_lines<TAB>relative path
 # Reduce counts as files shrink. CI fails if tracked files exceed this budget.
-33285	CLI/cmux.swift
-19985	Sources/Workspace.swift
+33368	CLI/cmux.swift
+20028	Sources/Workspace.swift
 19265	Sources/ContentView.swift
 18118	Sources/AppDelegate.swift
 16674	Sources/GhosttyTerminalView.swift
@@ -22,13 +22,13 @@
 5482	cmuxTests/BrowserConfigTests.swift
 5462	Sources/cmuxApp.swift
 4827	Packages/CmuxMobileShell/Sources/CmuxMobileShell/MobileShellComposite.swift
+4532	cmuxTests/CLIGenericHookPersistenceTests.swift
 4460	Sources/Panels/FilePreviewPanel.swift
 4400	cmuxTests/BrowserPanelTests.swift
 4227	Sources/BrowserWindowPortal.swift
 4009	cmuxTests/WindowAndDragTests.swift
 3937	Sources/Feed/FeedPanelView.swift
 3760	cmuxTests/TabManagerUnitTests.swift
-3699	cmuxTests/CLIGenericHookPersistenceTests.swift
 3665	Packages/CmuxMobileTerminal/Sources/CmuxMobileTerminal/GhosttySurfaceView.swift
 3396	Sources/CmuxConfig.swift
 3316	cmuxTests/TabManagerSessionSnapshotTests.swift
@@ -51,8 +51,8 @@
 1949	Sources/Panels/BrowserWebAuthnSupport.swift
 1860	cmuxTests/NotificationAndMenuBarTests.swift
 1793	Sources/SessionIndexStore.swift
+1771	Sources/RestorableAgentSession.swift
 1751	Sources/WindowDragHandleView.swift
-1744	Sources/RestorableAgentSession.swift
 1721	cmuxTests/TerminalControllerSocketSecurityTests.swift
 1693	cmuxTests/WorkspacePullRequestSidebarTests.swift
 1677	cmuxUITests/BrowserPaneNavigationKeybindUITests.swift
@@ -66,6 +66,7 @@
 1380	cmuxUITests/MenuKeyEquivalentRoutingUITests.swift
 1376	cmuxTests/KeyboardShortcutSettingsFileStoreStartupTests.swift
 1372	cmuxTests/AppDelegateIssue2907RoutingTests.swift
+1367	cmuxTests/AgentHibernationTests.swift
 1365	Sources/Feed/FeedButtonStyleDebugWindowController.swift
 1362	Sources/CMUXInstalledExtensionSidebarHostView.swift
 1313	cmuxTests/MobileHostAuthorizationTests.swift
@@ -80,7 +81,6 @@
 1107	Sources/AppDelegate+CmuxSSHURL.swift
 1096	Sources/GhosttyConfig.swift
 1093	cmuxUITests/BonsplitTabDragUITests.swift
-1084	cmuxTests/AgentHibernationTests.swift
 1084	cmuxTests/RestorableAgentSessionIndexTests.swift
 1021	cmuxUITests/TerminalCmdClickUITests.swift
 1006	cmuxTests/CmuxSSHURLRequestTests.swift
@@ -153,6 +153,7 @@
 588	cmuxTests/CommandPaletteShortcutCustomizationTests.swift
 586	Sources/JSONCParser.swift
 585	Sources/Cloud/VMClient.swift
+582	Sources/App/AgentHibernationController.swift
 580	Packages/CmuxExtensionKit/Tests/CmuxExtensionKitTests/CmuxExtensionKitTests.swift
 580	cmuxTests/CLIHookNoResponseTests.swift
 578	cmuxUITests/FeedSidebarUITests.swift

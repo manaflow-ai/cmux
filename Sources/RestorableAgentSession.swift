@@ -880,7 +880,26 @@ private struct RestorableAgentHookSessionRecord: Codable, Sendable {
     var launchCommand: AgentLaunchCommandSnapshot?
     var isRestorable: Bool?
     var agentLifecycle: AgentHibernationLifecycleState?
+    // Completion signal recorded by every agent integration (including plugin-based
+    // agents like opencode that never emit a live hibernation lifecycle). Used as a
+    // fallback so those agents still become hibernation-eligible when they finish.
+    var lastNotificationStatus: String?
     var updatedAt: TimeInterval
+    // Advances only when agentLifecycle is set to a definitive value; never on
+    // .unknown SessionStart events. Used as the durable lifecycle-change baseline
+    // so that a SessionStart cannot push this past terminal-input recorded after
+    // the last definitive idle/running/needsInput change.
+    var lifecycleUpdatedAt: TimeInterval?
+
+    // Effective hibernation lifecycle: prefer a definitive emitted lifecycle, but
+    // when none was emitted (nil/unknown) treat a recorded idle completion
+    // notification as idle so plugin/no-emit agents can hibernate like codex.
+    var effectiveHibernationLifecycle: AgentHibernationLifecycleState? {
+        AgentHibernationLifecycleState.effective(
+            agentLifecycle: agentLifecycle,
+            lastNotificationStatus: lastNotificationStatus
+        )
+    }
 }
 
 private struct RestorableAgentHookSessionStoreFile: Codable, Sendable {
@@ -900,6 +919,7 @@ struct RestorableAgentSessionIndex: Sendable {
         let snapshot: SessionRestorableAgentSnapshot
         let lifecycle: AgentHibernationLifecycleState?
         let updatedAt: TimeInterval
+        let lifecycleUpdatedAt: TimeInterval?
         let processIDs: Set<Int>
     }
 
@@ -925,6 +945,10 @@ struct RestorableAgentSessionIndex: Sendable {
 
     func updatedAt(workspaceId: UUID, panelId: UUID) -> TimeInterval? {
         entry(workspaceId: workspaceId, panelId: panelId)?.updatedAt
+    }
+
+    func lifecycleUpdatedAt(workspaceId: UUID, panelId: UUID) -> TimeInterval? {
+        entry(workspaceId: workspaceId, panelId: panelId)?.lifecycleUpdatedAt
     }
 
     func processIDs(workspaceId: UUID, panelId: UUID) -> Set<Int> {
@@ -1070,8 +1094,9 @@ struct RestorableAgentSessionIndex: Sendable {
                 )
                 let entry = Entry(
                     snapshot: snapshot,
-                    lifecycle: effectiveRecord.agentLifecycle,
+                    lifecycle: effectiveRecord.effectiveHibernationLifecycle,
                     updatedAt: effectiveRecord.updatedAt,
+                    lifecycleUpdatedAt: effectiveRecord.lifecycleUpdatedAt,
                     processIDs: liveProcessID.map { [$0] } ?? []
                 )
                 if hookCandidatesByPanel[key]?.updatedAt ?? -Double.infinity <= effectiveRecord.updatedAt {
@@ -1103,6 +1128,7 @@ struct RestorableAgentSessionIndex: Sendable {
                     snapshot: detected.snapshot,
                     lifecycle: existing.lifecycle,
                     updatedAt: existing.updatedAt,
+                    lifecycleUpdatedAt: existing.lifecycleUpdatedAt,
                     processIDs: detected.processIDs
                 )
             } else {
@@ -1110,6 +1136,7 @@ struct RestorableAgentSessionIndex: Sendable {
                     snapshot: detected.snapshot,
                     lifecycle: nil,
                     updatedAt: 0,
+                    lifecycleUpdatedAt: nil,
                     processIDs: detected.processIDs
                 )
             }

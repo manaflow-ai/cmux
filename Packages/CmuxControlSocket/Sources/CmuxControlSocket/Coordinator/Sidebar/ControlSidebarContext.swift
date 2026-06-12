@@ -59,12 +59,15 @@ public protocol ControlSidebarContext: AnyObject {
         panelID: UUID?
     ) -> Bool
 
-    /// Enqueues the `set_agent_lifecycle` mutation.
+    /// Enqueues the `set_agent_lifecycle` mutation. `preserveIdle` mirrors the
+    /// `--preserve-idle` flag: when true the app applies `preservingDefinitive`
+    /// so a `.unknown` SessionStart cannot clobber a resume-seeded `.idle`.
     func controlSidebarScheduleAgentLifecycle(
         target: ControlSidebarTabTarget,
         key: String,
         lifecycleRawValue: String,
-        panelID: UUID?
+        panelID: UUID?,
+        preserveIdle: Bool
     )
 
     /// Applies the `agent_hibernation` global toggle.

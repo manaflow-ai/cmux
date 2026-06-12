@@ -12586,12 +12586,33 @@ final class Workspace: Identifiable, ObservableObject {
     func setAgentLifecycle(
         key: String,
         panelId: UUID?,
-        lifecycle: AgentHibernationLifecycleState
+        lifecycle: AgentHibernationLifecycleState,
+        preserveIdle: Bool = false
     ) {
         let targetPanelId = panelId ?? focusedPanelId
         guard let targetPanelId, panels[targetPanelId] != nil else { return }
-        agentLifecycleStatesByPanelId[targetPanelId, default: [:]][key] = lifecycle
-        recordAgentLifecycleChange(panelId: targetPanelId)
+        let existing = agentLifecycleStatesByPanelId[targetPanelId]?[key]
+        // When preserveIdle is true (SessionStart path), apply preservingDefinitive so
+        // an `.unknown` from a process restart cannot clobber a resume-seeded `.idle`.
+        // This is deliberately scoped to the SessionStart caller via the socket command
+        // flag `--preserve-idle`; direct `set_agent_lifecycle` calls without that flag
+        // take the incoming value as-is, preserving the expected API contract.
+        let resolved = preserveIdle
+            ? AgentHibernationLifecycleState.preservingDefinitive(existing: existing, incoming: lifecycle)
+            : lifecycle
+        agentLifecycleStatesByPanelId[targetPanelId, default: [:]][key] = resolved
+        // Advance lifecycleChangeAt only when the caller's *incoming* lifecycle was
+        // definitive (non-unknown). Using `lifecycle` (the caller's intent) rather than
+        // `resolved` (the post-preservation value) is critical: when --preserve-idle
+        // keeps the existing `.idle` over an incoming `.unknown`, `resolved` is `.idle`
+        // but no new definitive event was emitted by the agent. Advancing the timestamp
+        // there would push lifecycleChangeAt past terminalInputAt, clearing the
+        // hasUnconfirmedTerminalInput guard and allowing premature hibernation mid-turn.
+        // Repeated definitive `.idle` events still advance the timestamp so the guard
+        // clears normally after the resumed agent completes its first turn.
+        if lifecycle != .unknown {
+            recordAgentLifecycleChange(panelId: targetPanelId)
+        }
     }
 
     @discardableResult
@@ -12635,16 +12656,10 @@ final class Workspace: Identifiable, ObservableObject {
         panelId: UUID,
         fallback: AgentHibernationLifecycleState?
     ) -> AgentHibernationLifecycleState {
-        guard let panelStates = agentLifecycleStatesByPanelId[panelId],
-              !panelStates.isEmpty else {
-            return fallback ?? .unknown
-        }
-        let states = Array(panelStates.values)
-        if states.contains(.running) { return .running }
-        if states.contains(.needsInput) { return .needsInput }
-        if states.contains(.unknown) { return .unknown }
-        if states.contains(.idle) { return .idle }
-        return fallback ?? .unknown
+        AgentHibernationLifecycleState.resolved(
+            from: agentLifecycleStatesByPanelId[panelId].map { Array($0.values) } ?? [],
+            fallback: fallback
+        )
     }
 
     func restorableAgentForHibernation(
@@ -12701,7 +12716,35 @@ final class Workspace: Identifiable, ObservableObject {
                 : .manualResumeAvailable
             invalidatedRestoredAgentFingerprintsByPanelId.removeValue(forKey: panelId)
         }
-        clearAgentLifecycleStates(panelId: panelId)
+        // Re-seed the panel's hibernation lifecycle to idle on resume. A
+        // hibernated agent is idle by construction (only idle agents hibernate),
+        // and the resumed process restarts at its prompt, so it is still idle.
+        // The PID/session teardown around hibernation already cleared the live
+        // lifecycle, and the resumed agent may even relaunch under a brand-new
+        // session id, so positive evidence cannot otherwise survive. Seeding idle
+        // here keeps the panel hibernation-eligible until it actually runs a turn,
+        // fixing the hibernation-is-one-shot bug. The CLI SessionStart hook uses
+        // `--preserve-idle` so the seeded `.idle` survives the resumed process's
+        // `.unknown` report (see `setAgentLifecycle` `preserveIdle` parameter).
+        // A real new turn still wins: prompt-submit emits `.running`, a blocking
+        // prompt `.needsInput`, both of which outrank idle in the resolver.
+        // recordTerminalFocus below resets the idle timer so it waits a fresh
+        // idle window after you leave.
+        if let resumedKind = restoredAgentSnapshotsByPanelId[panelId]?.kind {
+            setAgentLifecycle(key: resumedKind.lifecycleStatusKey, panelId: panelId, lifecycle: .idle)
+        }
+        // When the resume queued a startup command the terminal input is recorded
+        // asynchronously (Task { @MainActor in }) by GhosttyTerminalView, so
+        // terminalInputAt would not advance past the lifecycleChangeAt written above.
+        // Record it here synchronously so hasUnconfirmedTerminalInput stays true
+        // until the resumed process confirms its first lifecycle update, keeping the
+        // planner from re-hibernating the panel during the startup window.
+        // Use durable: false — a startup-window guard only needs to survive the
+        // current session; making it durable would permanently block re-hibernation
+        // across restarts if the agent crashes before completing its first turn.
+        if preparation.queuedStartupInput {
+            AgentHibernationController.shared.recordTerminalInput(workspaceId: id, panelId: panelId, durable: false)
+        }
         AgentHibernationController.shared.recordTerminalFocus(workspaceId: id, panelId: panelId)
         if focus {
             focusPanel(panelId)
