@@ -361,11 +361,13 @@ jobs:
           )
 
           set +e
-          OUTPUT=$("${RUN_XCODEBUILD[@]}" "${XCODEBUILD_CMD[@]}" 2>&1)
-          EXIT_CODE=$?
+          # Stream xcodebuild output into the live job log (and a file for the
+          # summary parsing below). The previous buffered capture lost all
+          # build/test output whenever the job hit its timeout mid-run.
+          "${RUN_XCODEBUILD[@]}" "${XCODEBUILD_CMD[@]}" 2>&1 | tee /tmp/xcodebuild-e2e.log
+          EXIT_CODE=${PIPESTATUS[0]}
           set -e
-
-          echo "$OUTPUT"
+          OUTPUT=$(cat /tmp/xcodebuild-e2e.log)
 
           # Save summary for the issue
           SUMMARY=$(echo "$OUTPUT" | grep -E "(Test Suite|Executed|FAIL|PASS)" | tail -20)
