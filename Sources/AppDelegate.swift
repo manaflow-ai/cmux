@@ -13556,6 +13556,24 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             return true
         }
         if matchConfiguredShortcut(event: event, action: .equalizeSplits) { performEqualizeSplitsShortcut(); return true }
+
+        if matchConfiguredDirectionalShortcut(event: event, action: .growPaneLeft, arrowGlyph: "←", arrowKeyCode: 123) {
+            _ = performGrowPaneShortcut(direction: .left)
+            return true
+        }
+        if matchConfiguredDirectionalShortcut(event: event, action: .growPaneRight, arrowGlyph: "→", arrowKeyCode: 124) {
+            _ = performGrowPaneShortcut(direction: .right)
+            return true
+        }
+        if matchConfiguredDirectionalShortcut(event: event, action: .growPaneUp, arrowGlyph: "↑", arrowKeyCode: 126) {
+            _ = performGrowPaneShortcut(direction: .up)
+            return true
+        }
+        if matchConfiguredDirectionalShortcut(event: event, action: .growPaneDown, arrowGlyph: "↓", arrowKeyCode: 125) {
+            _ = performGrowPaneShortcut(direction: .down)
+            return true
+        }
+
         // Configured split actions.
         if matchConfiguredShortcut(event: event, action: .splitRight) {
 #if DEBUG

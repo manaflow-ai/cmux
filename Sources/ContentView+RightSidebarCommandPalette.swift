@@ -83,6 +83,14 @@ extension ContentView {
             return .sendCtrlFToTerminal
         case "palette.toggleSplitZoom":
             return .toggleSplitZoom
+        case "palette.growPaneLeft":
+            return .growPaneLeft
+        case "palette.growPaneRight":
+            return .growPaneRight
+        case "palette.growPaneUp":
+            return .growPaneUp
+        case "palette.growPaneDown":
+            return .growPaneDown
         case "palette.equalizeSplits":
             return .equalizeSplits
         case "palette.triggerFlash":

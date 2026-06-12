@@ -76,6 +76,10 @@ public enum ShortcutAction: String, CaseIterable, Sendable, Hashable, SettingCod
     case focusRight
     case focusUp
     case focusDown
+    case growPaneLeft
+    case growPaneRight
+    case growPaneUp
+    case growPaneDown
     case splitRight
     case splitDown
     case toggleSplitZoom
@@ -161,9 +165,10 @@ extension ShortcutAction {
              .reopenClosedBrowserPanel, .newSurface, .toggleTerminalCopyMode,
              .focusTextBoxInput, .attachTextBoxFile, .sendCtrlFToTerminal:
             return .navigation
-        case .focusLeft, .focusRight, .focusUp, .focusDown, .splitRight, .splitDown,
-             .toggleSplitZoom, .equalizeSplits, .splitBrowserRight, .splitBrowserDown,
-             .toggleRightSidebar:
+        case .focusLeft, .focusRight, .focusUp, .focusDown,
+             .growPaneLeft, .growPaneRight, .growPaneUp, .growPaneDown,
+             .splitRight, .splitDown, .toggleSplitZoom, .equalizeSplits,
+             .splitBrowserRight, .splitBrowserDown, .toggleRightSidebar:
             return .panes
         case .openDiffViewer, .saveFilePreview, .openBrowser, .focusBrowserAddressBar, .browserBack,
              .browserForward, .browserReload, .browserZoomIn, .browserZoomOut,
@@ -327,6 +332,10 @@ extension ShortcutAction {
         case .focusRight: return "Focus Pane Right"
         case .focusUp: return "Focus Pane Up"
         case .focusDown: return "Focus Pane Down"
+        case .growPaneLeft: return "Grow Pane Left"
+        case .growPaneRight: return "Grow Pane Right"
+        case .growPaneUp: return "Grow Pane Up"
+        case .growPaneDown: return "Grow Pane Down"
         case .splitRight: return "Split Right"
         case .splitDown: return "Split Down"
         case .toggleSplitZoom: return "Toggle Pane Zoom"

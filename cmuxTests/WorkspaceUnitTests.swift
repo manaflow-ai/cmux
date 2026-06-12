@@ -536,6 +536,26 @@ final class WorkspaceRenameShortcutDefaultsTests: XCTestCase {
         )
     }
 
+    func testGrowPaneShortcutsUseCommandOptionShiftArrowDefaults() {
+        let cases: [(KeyboardShortcutSettings.Action, String)] = [
+            (.growPaneLeft, "←"),
+            (.growPaneRight, "→"),
+            (.growPaneUp, "↑"),
+            (.growPaneDown, "↓"),
+        ]
+
+        for (action, key) in cases {
+            let shortcut = action.defaultShortcut
+            XCTAssertEqual(shortcut.key, key)
+            XCTAssertTrue(shortcut.command)
+            XCTAssertTrue(shortcut.shift)
+            XCTAssertTrue(shortcut.option)
+            XCTAssertFalse(shortcut.control)
+            XCTAssertTrue(KeyboardShortcutSettings.publicShortcutActions.contains(action))
+            XCTAssertTrue(KeyboardShortcutSettings.settingsVisibleActions.contains(action))
+        }
+    }
+
     func testShortcutDefaultsKeysRemainUnique() {
         let keys = KeyboardShortcutSettings.Action.allCases.map(\.defaultsKey)
         XCTAssertEqual(Set(keys).count, keys.count)

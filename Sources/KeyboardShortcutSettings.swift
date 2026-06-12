@@ -122,6 +122,10 @@ enum KeyboardShortcutSettings {
         case focusRight
         case focusUp
         case focusDown
+        case growPaneLeft
+        case growPaneRight
+        case growPaneUp
+        case growPaneDown
         case splitRight
         case splitDown, toggleSplitZoom
         case equalizeSplits
@@ -221,6 +225,10 @@ enum KeyboardShortcutSettings {
             case .focusRight: return String(localized: "shortcut.focusPaneRight.label", defaultValue: "Focus Pane Right")
             case .focusUp: return String(localized: "shortcut.focusPaneUp.label", defaultValue: "Focus Pane Up")
             case .focusDown: return String(localized: "shortcut.focusPaneDown.label", defaultValue: "Focus Pane Down")
+            case .growPaneLeft: return String(localized: "shortcut.growPaneLeft.label", defaultValue: "Grow Pane Left")
+            case .growPaneRight: return String(localized: "shortcut.growPaneRight.label", defaultValue: "Grow Pane Right")
+            case .growPaneUp: return String(localized: "shortcut.growPaneUp.label", defaultValue: "Grow Pane Up")
+            case .growPaneDown: return String(localized: "shortcut.growPaneDown.label", defaultValue: "Grow Pane Down")
             case .splitRight: return String(localized: "shortcut.splitRight.label", defaultValue: "Split Right")
             case .splitDown: return String(localized: "shortcut.splitDown.label", defaultValue: "Split Down")
             case .toggleSplitZoom: return String(localized: "shortcut.togglePaneZoom.label", defaultValue: "Toggle Pane Zoom")
@@ -385,6 +393,14 @@ enum KeyboardShortcutSettings {
                 return StoredShortcut(key: "↑", command: true, shift: false, option: true, control: false)
             case .focusDown:
                 return StoredShortcut(key: "↓", command: true, shift: false, option: true, control: false)
+            case .growPaneLeft:
+                return StoredShortcut(key: "←", command: true, shift: true, option: true, control: false)
+            case .growPaneRight:
+                return StoredShortcut(key: "→", command: true, shift: true, option: true, control: false)
+            case .growPaneUp:
+                return StoredShortcut(key: "↑", command: true, shift: true, option: true, control: false)
+            case .growPaneDown:
+                return StoredShortcut(key: "↓", command: true, shift: true, option: true, control: false)
             case .splitRight:
                 return StoredShortcut(key: "d", command: true, shift: false, option: false, control: false)
             case .splitDown: return StoredShortcut(key: "d", command: true, shift: true, option: false, control: false)
@@ -1007,6 +1023,10 @@ enum KeyboardShortcutSettings {
     static func focusRightShortcut() -> StoredShortcut { shortcut(for: .focusRight) }
     static func focusUpShortcut() -> StoredShortcut { shortcut(for: .focusUp) }
     static func focusDownShortcut() -> StoredShortcut { shortcut(for: .focusDown) }
+    static func growPaneLeftShortcut() -> StoredShortcut { shortcut(for: .growPaneLeft) }
+    static func growPaneRightShortcut() -> StoredShortcut { shortcut(for: .growPaneRight) }
+    static func growPaneUpShortcut() -> StoredShortcut { shortcut(for: .growPaneUp) }
+    static func growPaneDownShortcut() -> StoredShortcut { shortcut(for: .growPaneDown) }
 
     static func splitRightShortcut() -> StoredShortcut { shortcut(for: .splitRight) }
     static func splitDownShortcut() -> StoredShortcut { shortcut(for: .splitDown) }

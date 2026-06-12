@@ -14,4 +14,23 @@ extension cmuxApp {
             }
         }
     }
+
+    @ViewBuilder
+    func growPaneCommandButtons() -> some View {
+        splitCommandButton(title: KeyboardShortcutSettings.Action.growPaneLeft.label, shortcut: menuShortcut(for: .growPaneLeft)) {
+            _ = activeTabManager.resizeFocusedSplit(direction: .left)
+        }
+
+        splitCommandButton(title: KeyboardShortcutSettings.Action.growPaneRight.label, shortcut: menuShortcut(for: .growPaneRight)) {
+            _ = activeTabManager.resizeFocusedSplit(direction: .right)
+        }
+
+        splitCommandButton(title: KeyboardShortcutSettings.Action.growPaneUp.label, shortcut: menuShortcut(for: .growPaneUp)) {
+            _ = activeTabManager.resizeFocusedSplit(direction: .up)
+        }
+
+        splitCommandButton(title: KeyboardShortcutSettings.Action.growPaneDown.label, shortcut: menuShortcut(for: .growPaneDown)) {
+            _ = activeTabManager.resizeFocusedSplit(direction: .down)
+        }
+    }
 }

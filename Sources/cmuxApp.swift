@@ -1015,6 +1015,7 @@ struct cmuxApp: App {
                 performBrowserSplitFromMenu(direction: .down)
             }
 
+            growPaneCommandButtons()
             equalizeSplitsCommandButton()
             Divider()
 

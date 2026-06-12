@@ -188,7 +188,7 @@ public struct KeyboardShortcutsSection: View {
                     localized: "shortcut.recorder.error.conflictsWithAction",
                     defaultValue: "This shortcut conflicts with %@ (%@)."
                 )
-                return String.localizedStringWithFormat(messageFormat, conflict.displayName, conflictShortcutString)
+                return String.localizedStringWithFormat(messageFormat, displayName(for: conflict), conflictShortcutString)
             }
             return nil
         }()
@@ -197,7 +197,7 @@ public struct KeyboardShortcutsSection: View {
         VStack(alignment: .leading, spacing: 4) {
             HStack(alignment: subtitle == nil ? .center : .top, spacing: 12) {
                 VStack(alignment: .leading, spacing: 2) {
-                    Text(action.displayName)
+                    Text(displayName(for: action))
                     if let subtitle {
                         Text(subtitle)
                             .font(.caption)
@@ -291,6 +291,21 @@ public struct KeyboardShortcutsSection: View {
         }
         .padding(.horizontal, 14)
         .padding(.vertical, 9)
+    }
+
+    private func displayName(for action: ShortcutAction) -> String {
+        switch action {
+        case .growPaneLeft:
+            return String(localized: "shortcut.growPaneLeft.label", defaultValue: "Grow Pane Left")
+        case .growPaneRight:
+            return String(localized: "shortcut.growPaneRight.label", defaultValue: "Grow Pane Right")
+        case .growPaneUp:
+            return String(localized: "shortcut.growPaneUp.label", defaultValue: "Grow Pane Up")
+        case .growPaneDown:
+            return String(localized: "shortcut.growPaneDown.label", defaultValue: "Grow Pane Down")
+        default:
+            return action.displayName
+        }
     }
 
     /// Mirrors legacy `KeyboardShortcutSettings.settingsVisibleActions`:

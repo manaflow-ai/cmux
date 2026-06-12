@@ -7884,6 +7884,24 @@ struct ContentView: View {
                 }
             )
         )
+        let growPaneSubtitle = constant(String(localized: "command.growPane.subtitle", defaultValue: "Pane Resize"))
+        let growPaneCommands: [(commandId: String, action: KeyboardShortcutSettings.Action, keywords: [String])] = [
+            ("palette.growPaneLeft", .growPaneLeft, ["terminal", "pane", "split", "resize", "grow", "left", "width"]),
+            ("palette.growPaneRight", .growPaneRight, ["terminal", "pane", "split", "resize", "grow", "right", "width"]),
+            ("palette.growPaneUp", .growPaneUp, ["terminal", "pane", "split", "resize", "grow", "up", "height"]),
+            ("palette.growPaneDown", .growPaneDown, ["terminal", "pane", "split", "resize", "grow", "down", "height"]),
+        ]
+        for command in growPaneCommands {
+            contributions.append(
+                CommandPaletteCommandContribution(
+                    commandId: command.commandId,
+                    title: constant(command.action.label),
+                    subtitle: growPaneSubtitle,
+                    keywords: command.keywords,
+                    when: { $0.bool(CommandPaletteContextKeys.workspaceHasSplits) }
+                )
+            )
+        }
         contributions.append(
             CommandPaletteCommandContribution(
                 commandId: "palette.equalizeSplits",
@@ -8548,6 +8566,26 @@ struct ContentView: View {
         }
         registry.register(commandId: "palette.toggleSplitZoom") {
             if !tabManager.toggleFocusedSplitZoom() {
+                NSSound.beep()
+            }
+        }
+        registry.register(commandId: "palette.growPaneLeft") {
+            if !tabManager.resizeFocusedSplit(direction: .left) {
+                NSSound.beep()
+            }
+        }
+        registry.register(commandId: "palette.growPaneRight") {
+            if !tabManager.resizeFocusedSplit(direction: .right) {
+                NSSound.beep()
+            }
+        }
+        registry.register(commandId: "palette.growPaneUp") {
+            if !tabManager.resizeFocusedSplit(direction: .up) {
+                NSSound.beep()
+            }
+        }
+        registry.register(commandId: "palette.growPaneDown") {
+            if !tabManager.resizeFocusedSplit(direction: .down) {
                 NSSound.beep()
             }
         }

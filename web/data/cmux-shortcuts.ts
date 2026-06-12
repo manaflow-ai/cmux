@@ -1,6 +1,24 @@
 export type LocalizedText = {
   en: string;
   ja: string;
+  "zh-CN"?: string;
+  "zh-TW"?: string;
+  ko?: string;
+  de?: string;
+  es?: string;
+  fr?: string;
+  it?: string;
+  da?: string;
+  pl?: string;
+  ru?: string;
+  bs?: string;
+  ar?: string;
+  no?: string;
+  "pt-BR"?: string;
+  th?: string;
+  tr?: string;
+  km?: string;
+  uk?: string;
 };
 
 export type Shortcut = {
@@ -169,6 +187,110 @@ export const shortcutCategories: ShortcutCategory[] = [
       { id: "focusRight", combos: [["⌥", "⌘", "→"]], description: { en: "Focus pane right", ja: "右のペインにフォーカス" } },
       { id: "focusUp", combos: [["⌥", "⌘", "↑"]], description: { en: "Focus pane up", ja: "上のペインにフォーカス" } },
       { id: "focusDown", combos: [["⌥", "⌘", "↓"]], description: { en: "Focus pane down", ja: "下のペインにフォーカス" } },
+      {
+        id: "growPaneLeft",
+        combos: [["⌥", "⌘", "⇧", "←"]],
+        description: {
+          en: "Grow pane left",
+          ja: "ペインを左に拡大",
+          "zh-CN": "向左扩大窗格",
+          "zh-TW": "向左擴大窗格",
+          ko: "패널을 왼쪽으로 키우기",
+          de: "Bereich nach links vergrößern",
+          es: "Ampliar panel hacia la izquierda",
+          fr: "Agrandir le panneau vers la gauche",
+          it: "Espandi pannello a sinistra",
+          da: "Udvid panel til venstre",
+          pl: "Powiększ panel w lewo",
+          ru: "Увеличить панель влево",
+          bs: "Povećaj panel ulijevo",
+          ar: "تكبير اللوحة إلى اليسار",
+          no: "Utvid panel til venstre",
+          "pt-BR": "Aumentar painel para a esquerda",
+          th: "ขยายบานหน้าต่างไปทางซ้าย",
+          tr: "Bölmeyi sola büyüt",
+          km: "ពង្រីកផ្ទាំងទៅឆ្វេង",
+          uk: "Збільшити панель ліворуч",
+        },
+      },
+      {
+        id: "growPaneRight",
+        combos: [["⌥", "⌘", "⇧", "→"]],
+        description: {
+          en: "Grow pane right",
+          ja: "ペインを右に拡大",
+          "zh-CN": "向右扩大窗格",
+          "zh-TW": "向右擴大窗格",
+          ko: "패널을 오른쪽으로 키우기",
+          de: "Bereich nach rechts vergrößern",
+          es: "Ampliar panel hacia la derecha",
+          fr: "Agrandir le panneau vers la droite",
+          it: "Espandi pannello a destra",
+          da: "Udvid panel til højre",
+          pl: "Powiększ panel w prawo",
+          ru: "Увеличить панель вправо",
+          bs: "Povećaj panel udesno",
+          ar: "تكبير اللوحة إلى اليمين",
+          no: "Utvid panel til høyre",
+          "pt-BR": "Aumentar painel para a direita",
+          th: "ขยายบานหน้าต่างไปทางขวา",
+          tr: "Bölmeyi sağa büyüt",
+          km: "ពង្រីកផ្ទាំងទៅស្តាំ",
+          uk: "Збільшити панель праворуч",
+        },
+      },
+      {
+        id: "growPaneUp",
+        combos: [["⌥", "⌘", "⇧", "↑"]],
+        description: {
+          en: "Grow pane up",
+          ja: "ペインを上に拡大",
+          "zh-CN": "向上扩大窗格",
+          "zh-TW": "向上擴大窗格",
+          ko: "패널을 위쪽으로 키우기",
+          de: "Bereich nach oben vergrößern",
+          es: "Ampliar panel hacia arriba",
+          fr: "Agrandir le panneau vers le haut",
+          it: "Espandi pannello in alto",
+          da: "Udvid panel opad",
+          pl: "Powiększ panel w górę",
+          ru: "Увеличить панель вверх",
+          bs: "Povećaj panel prema gore",
+          ar: "تكبير اللوحة إلى الأعلى",
+          no: "Utvid panel oppover",
+          "pt-BR": "Aumentar painel para cima",
+          th: "ขยายบานหน้าต่างขึ้น",
+          tr: "Bölmeyi yukarı büyüt",
+          km: "ពង្រីកផ្ទាំងឡើងលើ",
+          uk: "Збільшити панель угору",
+        },
+      },
+      {
+        id: "growPaneDown",
+        combos: [["⌥", "⌘", "⇧", "↓"]],
+        description: {
+          en: "Grow pane down",
+          ja: "ペインを下に拡大",
+          "zh-CN": "向下扩大窗格",
+          "zh-TW": "向下擴大窗格",
+          ko: "패널을 아래쪽으로 키우기",
+          de: "Bereich nach unten vergrößern",
+          es: "Ampliar panel hacia abajo",
+          fr: "Agrandir le panneau vers le bas",
+          it: "Espandi pannello in basso",
+          da: "Udvid panel nedad",
+          pl: "Powiększ panel w dół",
+          ru: "Увеличить панель вниз",
+          bs: "Povećaj panel prema dolje",
+          ar: "تكبير اللوحة إلى الأسفل",
+          no: "Utvid panel nedover",
+          "pt-BR": "Aumentar painel para baixo",
+          th: "ขยายบานหน้าต่างลง",
+          tr: "Bölmeyi aşağı büyüt",
+          km: "ពង្រីកផ្ទាំងចុះក្រោម",
+          uk: "Збільшити панель униз",
+        },
+      },
       { id: "splitRight", combos: [["⌘", "D"]], description: { en: "Split right", ja: "右に分割" } },
       { id: "splitDown", combos: [["⌘", "⇧", "D"]], description: { en: "Split down", ja: "下に分割" } },
       { id: "splitBrowserRight", combos: [["⌥", "⌘", "D"]], description: { en: "Split browser right", ja: "右にブラウザ分割" } },

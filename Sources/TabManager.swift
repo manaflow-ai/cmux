@@ -7625,6 +7625,19 @@ class TabManager: ObservableObject {
         return tab.bonsplitController.setDividerPosition(clamped, forSplit: candidate.splitId, fromExternal: true)
     }
 
+    /// Resize the focused pane in the selected workspace by a visible keyboard-step amount.
+    @discardableResult
+    func resizeFocusedSplit(direction: ResizeDirection, amount: UInt16 = 80) -> Bool {
+        guard let tab = selectedWorkspace,
+              let focusedPanelId = tab.focusedPanelId else { return false }
+        return resizeSplit(
+            tabId: tab.id,
+            surfaceId: focusedPanelId,
+            direction: direction,
+            amount: amount
+        )
+    }
+
     /// Toggle zoom on a panel.
     func toggleSplitZoom(tabId: UUID, surfaceId: UUID) -> Bool {
         guard let tab = tabs.first(where: { $0.id == tabId }) else { return false }
