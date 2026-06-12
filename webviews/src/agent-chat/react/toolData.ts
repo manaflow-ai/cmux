@@ -405,7 +405,7 @@ const EXIT_CODE_PATTERN = /\bexit code:?\s+(\d+)\b/i;
 
 /** Builds the structured command view for a command_execution item. */
 export function commandExecutionView(
-  item: Pick<ConversationItem, "input" | "output" | "title">,
+  item: Pick<ConversationItem, "input" | "output" | "title" | "status">,
 ): CommandView {
   const record = asRecord(item.input);
   let command: string | null = null;
@@ -429,10 +429,15 @@ export function commandExecutionView(
   let exitCode: number | null = null;
   let durationText: string | null = null;
 
-  // Codex shell results arrive as a JSON envelope in the output text:
+  // Codex shell results arrive as a JSON envelope in the transcript:
   // {"output": "...", "metadata": {"exit_code": 0, "duration_seconds": 0.1}}.
-  // Require both fields so a command that itself prints JSON with an
-  // `output` key is not misread as the envelope.
+  // The daemon's Codex parser usually unwraps it (keeping only is_error, see
+  // decodeCodexToolOutput in daemon/remote/agentconv/codex.go), but the raw
+  // envelope still reaches us when the inner output is empty, and hook-only
+  // or future producers may pass it through verbatim. Parsing it here is the
+  // only way to surface exit code/duration until the protocol carries them
+  // as structured ToolOutput fields. Require both envelope fields so a
+  // command that itself prints JSON with an `output` key is not misread.
   if (output !== null && output.startsWith("{")) {
     try {
       const parsed = asRecord(JSON.parse(output));
@@ -457,8 +462,15 @@ export function commandExecutionView(
       exitCode = Number.parseInt(match[1], 10);
     }
   }
-  if (exitCode === null && item.output?.is_error !== true && item.output !== undefined) {
-    // A successful completed result with no explicit code is exit 0.
+  if (
+    exitCode === null &&
+    item.status === "completed" &&
+    item.output?.is_error !== true &&
+    item.output !== undefined
+  ) {
+    // A successful completed result with no explicit code is exit 0. Never
+    // inferred while in_progress: live items can carry partial output before
+    // the command finishes.
     exitCode = 0;
   }
 

@@ -185,6 +185,7 @@ describe("fileChangeDiffs", () => {
 describe("commandExecutionView", () => {
   test("Claude Bash input: command string, raw output, implicit exit 0", () => {
     const view = commandExecutionView({
+      status: "completed",
       input: { command: "bun test", description: "Run tests" },
       output: { text: "12 pass\n0 fail" },
     });
@@ -196,6 +197,7 @@ describe("commandExecutionView", () => {
 
   test("failed output with no explicit code shows no exit badge", () => {
     const view = commandExecutionView({
+      status: "failed",
       input: { command: "false" },
       output: { text: "boom", is_error: true },
     });
@@ -204,6 +206,7 @@ describe("commandExecutionView", () => {
 
   test("extracts the exit code from error text", () => {
     const view = commandExecutionView({
+      status: "failed",
       input: { command: "make" },
       output: { text: "make: *** [all] Error 2\nExit code: 2", is_error: true },
     });
@@ -212,6 +215,7 @@ describe("commandExecutionView", () => {
 
   test("Codex argv input unwraps bash -lc and parses the JSON envelope", () => {
     const view = commandExecutionView({
+      status: "completed",
       input: { command: ["bash", "-lc", "ls -la"], timeout_ms: 10_000 },
       output: {
         text: JSON.stringify({
@@ -227,27 +231,41 @@ describe("commandExecutionView", () => {
   });
 
   test("plain argv joins with spaces", () => {
-    const view = commandExecutionView({ input: { command: ["git", "status", "--short"] } });
+    const view = commandExecutionView({
+      status: "completed",
+      input: { command: ["git", "status", "--short"] },
+    });
     expect(view.command).toBe("git status --short");
   });
 
   test("JSON-looking command output without the envelope is kept verbatim", () => {
     const text = '{"output": "not codex"}';
     const view = commandExecutionView({
+      status: "completed",
       input: { command: "curl api" },
       output: { text },
     });
     expect(view.output).toBe(text);
   });
 
+  test("in-progress item with partial output does not claim exit 0", () => {
+    const view = commandExecutionView({
+      status: "in_progress",
+      input: { command: "bun run typecheck" },
+      output: { text: "$ tsc --noEmit" },
+    });
+    expect(view.exitCode).toBeNull();
+    expect(view.output).toBe("$ tsc --noEmit");
+  });
+
   test("in-progress item (no output) has no exit code", () => {
-    const view = commandExecutionView({ input: { command: "sleep 5" } });
+    const view = commandExecutionView({ status: "in_progress", input: { command: "sleep 5" } });
     expect(view.exitCode).toBeNull();
     expect(view.output).toBeNull();
   });
 
   test("falls back to the item title when input is sparse", () => {
-    const view = commandExecutionView({ input: undefined, title: "bun test" });
+    const view = commandExecutionView({ status: "in_progress", input: undefined, title: "bun test" });
     expect(view.command).toBe("bun test");
   });
 });
