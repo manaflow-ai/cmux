@@ -1265,12 +1265,27 @@ private final class ClaudeHookSessionStore {
         }
     }
 
-    func canReplaceActiveSession(sessionId: String?, workspaceId: String) throws -> Bool {
+    func canReplaceActiveSession(
+        sessionId: String?,
+        workspaceId: String,
+        surfaceId: String? = nil
+    ) throws -> Bool {
         guard let normalizedSessionId = normalizeOptional(sessionId),
               let normalizedWorkspace = normalizeOptional(workspaceId) else {
             return false
         }
         return try withLockedState { state in
+            // Replacement is pane-scoped like staleness: a stopped session in
+            // THIS surface allows its own pane to start a new session even when
+            // another pane currently holds the workspace-active slot.
+            // https://github.com/manaflow-ai/cmux/issues/5908
+            if let normalizedSurfaceId = normalizeOptional(surfaceId),
+               let surfaceActive = state.activeSessionsBySurface[normalizedSurfaceId] {
+                guard surfaceActive.sessionId != normalizedSessionId else {
+                    return false
+                }
+                return surfaceActive.allowsNewSessionReplacement == true
+            }
             guard let active = state.activeSessionsByWorkspace[normalizedWorkspace],
                   active.sessionId != normalizedSessionId else {
                 return false
@@ -22094,6 +22109,7 @@ struct CMUXCLI {
                 sessionStore: sessionStore,
                 parsedInput: parsedInput,
                 workspaceId: workspaceId,
+                surfaceId: resolvedSurface.isAuthoritative ? surfaceId : nil,
                 telemetry: telemetry
             )
             let shouldPromoteActiveSession = !isForkSessionLaunch && (isClearSessionStart || canReplaceStoppedSession)
@@ -22308,6 +22324,7 @@ struct CMUXCLI {
                     sessionStore: sessionStore,
                     parsedInput: parsedInput,
                     workspaceId: workspaceId,
+                    surfaceId: resolvedSurface.isAuthoritative ? surfaceId : nil,
                     telemetry: telemetry
                 )
             guard shouldApplyPromptSubmit else {
@@ -22855,12 +22872,14 @@ struct CMUXCLI {
         sessionStore: ClaudeHookSessionStore,
         parsedInput: ClaudeHookParsedInput,
         workspaceId: String,
+        surfaceId: String?,
         telemetry: CLISocketSentryTelemetry
     ) -> Bool {
         do {
             return try sessionStore.canReplaceActiveSession(
                 sessionId: parsedInput.sessionId,
-                workspaceId: workspaceId
+                workspaceId: workspaceId,
+                surfaceId: surfaceId
             )
         } catch {
             telemetry.breadcrumb(
