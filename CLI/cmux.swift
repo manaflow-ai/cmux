@@ -10927,9 +10927,15 @@ struct CMUXCLI {
         attachmentToken: String,
         socketLock: NSLock
     ) {
-        let size = currentCLITerminalSize()
+        // Sample the size *inside* the lock so the lock serializes the read as
+        // well as the send. The SIGWINCH handler and the post-attach reconcile
+        // both call this helper; if the ioctl ran outside the lock, two calls
+        // could sample different sizes and then serialize only the sends,
+        // letting a stale sample win the lock last and overwrite a fresher size
+        // on the daemon — re-creating the frozen-PTY symptom this fix targets.
         socketLock.lock()
         defer { socketLock.unlock() }
+        let size = currentCLITerminalSize()
         var params: [String: Any] = [
             "workspace_id": workspaceId,
             "session_id": sessionID,
