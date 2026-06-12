@@ -110,7 +110,10 @@ enum FileExplorerDragSource {
     ) -> (any NSPasteboardWriting)? {
         guard isLocalProvider else { return nil }
         if node.isDirectory {
-            return URL(fileURLWithPath: node.path).standardizedFileURL as NSURL
+            // Plain (non-standardized) URL, matching DraggableFolderNSView:
+            // standardizing resolves symlinks (e.g. /tmp -> /private/tmp) and
+            // the inserted path should read as the path the user sees.
+            return URL(fileURLWithPath: node.path) as NSURL
         }
         return FilePreviewDragPasteboardWriter(filePath: node.path, displayTitle: node.name)
     }
