@@ -1,5 +1,6 @@
 import Foundation
 import CMUXAgentLaunch
+import OSLog
 
 extension TerminalSurface {
     typealias ClaudeCommandShim = TerminalSurfaceClaudeCommandShim
@@ -151,8 +152,7 @@ extension TerminalSurface {
     static func applyManagedFishStartupEnvironment(
         integrationDir: String,
         to environment: inout [String: String],
-        protectedKeys: inout Set<String>,
-        ambientEnvironment: [String: String] = ProcessInfo.processInfo.environment
+        protectedKeys: inout Set<String>
     ) {
         let normalizedIntegrationDir = URL(fileURLWithPath: integrationDir, isDirectory: true)
             .standardizedFileURL
@@ -165,6 +165,94 @@ extension TerminalSurface {
         environment["CMUX_FISH_USER_CONFIG_ALREADY_LOADED"] = "1"
         protectedKeys.insert("CMUX_FISH_INTEGRATION_FILE")
         protectedKeys.insert("CMUX_FISH_USER_CONFIG_ALREADY_LOADED")
+    }
+
+    /// Whether the bundled shell-integration dir is present on disk. The dir
+    /// lives inside the app bundle, which can be deleted while the app runs
+    /// (e.g. a tagged dev build's DerivedData gets pruned); when it is gone,
+    /// callers must not advertise it (CMUX_SHELL_INTEGRATION_DIR) or redirect
+    /// shell startup at it.
+    static func shellIntegrationDirectoryExists(
+        _ integrationDir: String,
+        fileManager: FileManager = .default
+    ) -> Bool {
+        var isDirectory: ObjCBool = false
+        if fileManager.fileExists(atPath: integrationDir, isDirectory: &isDirectory), isDirectory.boolValue {
+            return true
+        }
+        Logger(subsystem: "com.cmuxterm.app", category: "ghostty.initialization")
+            .error("cmux shell-integration dir missing at \(integrationDir, privacy: .private); spawning shell without cmux shell integration so the user's shell config still loads")
+        return false
+    }
+
+    static func applyManagedShellSpecificStartupEnvironment(
+        shell: String,
+        integrationDir: String,
+        userGhosttyShellIntegrationMode: String,
+        to environment: inout [String: String],
+        protectedKeys: inout Set<String>,
+        readFile: (String) throws -> String = { try String(contentsOfFile: $0, encoding: .utf8) }
+    ) -> String? {
+        let shellName = URL(fileURLWithPath: shell).lastPathComponent
+        func setManagedEnvironmentValue(_ key: String, _ value: String) {
+            environment[key] = value
+            protectedKeys.insert(key)
+        }
+        // The integration dir lives inside the app bundle, which can disappear
+        // while the app is running (e.g. a tagged dev build's DerivedData gets
+        // pruned). Redirecting shell startup at a missing bootstrap would make
+        // the shell silently skip the user's own config (for zsh, ZDOTDIR would
+        // point at a dir with no .zshenv to restore the real ZDOTDIR, so
+        // ~/.zshenv, ~/.zprofile, and ~/.zshrc all stop loading). When the
+        // bundled bootstrap is unreadable, skip the shell-startup redirection
+        // (set no keys here) so the shell starts vanilla, and log so the
+        // degradation is diagnosable.
+        func bundledBootstrapIsReadable(_ relativePath: String) -> Bool {
+            let path = (integrationDir as NSString).appendingPathComponent(relativePath)
+            if FileManager.default.isReadableFile(atPath: path) { return true }
+            Logger(subsystem: "com.cmuxterm.app", category: "ghostty.initialization")
+                .error("cmux \(shellName, privacy: .public) bootstrap unreadable at \(path, privacy: .private); skipping cmux shell-startup redirection so the user's shell config still loads")
+            return false
+        }
+        switch shellName {
+        case "zsh":
+            guard bundledBootstrapIsReadable(".zshenv") else { return nil }
+            if userGhosttyShellIntegrationMode != "none" { setManagedEnvironmentValue("CMUX_LOAD_GHOSTTY_ZSH_INTEGRATION", "1") }
+            let candidateZdotdir = (environment["ZDOTDIR"]?.isEmpty == false ? environment["ZDOTDIR"] : nil)
+                ?? getenv("ZDOTDIR").map { String(cString: $0) }
+                ?? (ProcessInfo.processInfo.environment["ZDOTDIR"]?.isEmpty == false ? ProcessInfo.processInfo.environment["ZDOTDIR"] : nil)
+            if let candidateZdotdir, !candidateZdotdir.isEmpty {
+                let ghosttyResources = (environment["GHOSTTY_RESOURCES_DIR"]?.isEmpty == false ? environment["GHOSTTY_RESOURCES_DIR"] : nil)
+                    ?? getenv("GHOSTTY_RESOURCES_DIR").map { String(cString: $0) }
+                    ?? (ProcessInfo.processInfo.environment["GHOSTTY_RESOURCES_DIR"]?.isEmpty == false ? ProcessInfo.processInfo.environment["GHOSTTY_RESOURCES_DIR"] : nil)
+                let ghosttyZdotdir = ghosttyResources.map { URL(fileURLWithPath: $0).appendingPathComponent("shell-integration/zsh").path }
+                if candidateZdotdir != ghosttyZdotdir { setManagedEnvironmentValue("CMUX_ZSH_ZDOTDIR", candidateZdotdir) }
+            }
+            setManagedEnvironmentValue("ZDOTDIR", integrationDir)
+        case "bash":
+            if userGhosttyShellIntegrationMode != "none" { setManagedEnvironmentValue("CMUX_LOAD_GHOSTTY_BASH_INTEGRATION", "1") }
+            let bashBootstrapPath = (integrationDir as NSString).appendingPathComponent("cmux-bash-bootstrap.bash")
+            do {
+                let bootstrap = try readFile(bashBootstrapPath)
+                    .components(separatedBy: "\n")
+                    .filter {
+                        let trimmed = $0.trimmingCharacters(in: .whitespacesAndNewlines)
+                        return !trimmed.isEmpty && !trimmed.hasPrefix("#")
+                    }
+                    .joined(separator: "\n")
+                if !bootstrap.isEmpty { setManagedEnvironmentValue("PROMPT_COMMAND", bootstrap) }
+            } catch {
+                Logger(subsystem: "com.cmuxterm.app", category: "ghostty.initialization")
+                    .error("cmux bash bootstrap unreadable at \(bashBootstrapPath, privacy: .private): \(error.localizedDescription, privacy: .public); bash shell integration will not load")
+            }
+        case "fish":
+            guard bundledBootstrapIsReadable("fish/config.fish") else { return nil }
+            applyManagedFishStartupEnvironment(integrationDir: integrationDir, to: &environment, protectedKeys: &protectedKeys)
+            return managedFishShellCommand(shell: shell)
+        default:
+            break
+        }
+        return nil
     }
 
     static func managedFishShellCommand(shell: String) -> String {

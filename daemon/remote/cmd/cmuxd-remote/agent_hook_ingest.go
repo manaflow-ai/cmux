@@ -20,9 +20,20 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"syscall"
 
 	"github.com/manaflow-ai/cmux/daemon/remote/agentconv"
 )
+
+// dirOwnedByCurrentUser reports whether the stat'd entry belongs to this uid;
+// anything unknowable counts as not owned (fail closed).
+func dirOwnedByCurrentUser(info os.FileInfo) bool {
+	stat, ok := info.Sys().(*syscall.Stat_t)
+	if !ok {
+		return false
+	}
+	return int(stat.Uid) == os.Getuid()
+}
 
 // agentHookSocketEnv overrides the ingest socket path (tests and tagged dev
 // builds that must not collide with the user's stable daemon).
@@ -118,6 +129,18 @@ func (r *hookIngestRegistry) startListenerLocked() {
 	dir := filepath.Dir(socketPath)
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		r.logf("cmuxd-remote: agent hook ingest disabled: %v", err)
+		return
+	}
+	// The parent lives at a well-known name in /tmp, so a pre-created entry
+	// could be someone else's directory or a symlink redirecting the socket
+	// elsewhere. Require a real directory owned by this uid before using it.
+	info, err := os.Lstat(dir)
+	if err != nil || !info.IsDir() {
+		r.logf("cmuxd-remote: agent hook ingest disabled: %s is not a directory (symlink or replaced)", dir)
+		return
+	}
+	if !dirOwnedByCurrentUser(info) {
+		r.logf("cmuxd-remote: agent hook ingest disabled: %s is not owned by this user", dir)
 		return
 	}
 	// MkdirAll keeps existing permissions; enforce 0700 on the parent.

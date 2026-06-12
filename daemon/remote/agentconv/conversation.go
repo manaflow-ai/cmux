@@ -68,6 +68,28 @@ func (c *conversation) appendItem(item Item) change {
 	return change{itemIndex: index, kind: kind}
 }
 
+// trimToNewest drops the oldest items beyond keep and rebuilds the id maps
+// with the shifted indexes. Live tailing calls this so a subscription held
+// open on a busy session cannot grow without bound; consumers observe the
+// trim as a fresh snapshot.
+func (c *conversation) trimToNewest(keep int) {
+	if keep < 0 || len(c.items) <= keep {
+		return
+	}
+	drop := len(c.items) - keep
+	c.items = append([]Item(nil), c.items[drop:]...)
+	c.byID = make(map[string]int, len(c.items))
+	c.byToolUseID = make(map[string]int, len(c.items))
+	for index := range c.items {
+		if id := c.items[index].ID; id != "" {
+			c.byID[id] = index
+		}
+		if toolUseID := c.items[index].ToolUseID; toolUseID != "" {
+			c.byToolUseID[toolUseID] = index
+		}
+	}
+}
+
 // mergeItem folds incoming content into an existing item (same logical item
 // seen by two sources). Incoming fields win where set, except status never
 // regresses from a terminal state back to in_progress.

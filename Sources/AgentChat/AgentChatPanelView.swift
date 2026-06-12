@@ -13,7 +13,10 @@ struct AgentChatPanelView: View {
     var body: some View {
         Group {
             if isVisibleInUI {
-                AgentChatWebViewRepresentable(controller: panel.chatViewController)
+                AgentChatWebViewRepresentable(
+                    controller: panel.chatViewController,
+                    onRequestPanelFocus: onRequestPanelFocus
+                )
                     .id(panel.id)
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
                     .zIndex(Double(portalPriority))
@@ -31,10 +34,14 @@ struct AgentChatPanelView: View {
 /// owns the controller's lifetime.
 private struct AgentChatWebViewRepresentable: NSViewControllerRepresentable {
     let controller: AgentChatWebViewController
+    let onRequestPanelFocus: () -> Void
 
     func makeNSViewController(context: Context) -> AgentChatWebViewController {
-        controller
+        controller.onPointerDown = onRequestPanelFocus
+        return controller
     }
 
-    func updateNSViewController(_ nsViewController: AgentChatWebViewController, context: Context) {}
+    func updateNSViewController(_ nsViewController: AgentChatWebViewController, context: Context) {
+        nsViewController.onPointerDown = onRequestPanelFocus
+    }
 }

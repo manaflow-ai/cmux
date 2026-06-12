@@ -1,8 +1,10 @@
 package agentconv
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 )
@@ -190,5 +192,118 @@ func TestDiscoveryAndResolve(t *testing.T) {
 	}
 	if _, ok := ResolveTranscriptPath(roots, ProviderClaude, "missing", ""); ok {
 		t.Error("resolve of unknown session should fail")
+	}
+}
+
+// Regression for the CodeRabbit finding on PR 5736: Codex writes session_meta
+// as the FIRST transcript line, so a tail-only replay of a transcript over the
+// snapshot cap lost the session id/cwd. The open path now recovers head
+// metadata with a bounded scan when the cap skips the head.
+func TestSnapshotCapKeepsCodexSessionMeta(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "rollout.jsonl")
+	meta := `{"timestamp":"t","type":"session_meta","payload":{"id":"cdx-cap","cwd":"/tmp/capped"}}` + "\n"
+	body := `{"timestamp":"t","type":"response_item","payload":{"type":"message","id":"m1","role":"user","content":[{"type":"input_text","text":"tail line"}]}}` + "\n"
+	content := meta + body
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	subscription, session, err := Open(Config{
+		Provider:       ProviderCodex,
+		TranscriptPath: path,
+		PollInterval:   time.Millisecond,
+		// Cap below the full size so the replay starts past the meta line.
+		MaxSnapshotBytes: int64(len(body)) + 10,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer subscription.Close()
+	if session.SessionID != "cdx-cap" || session.Cwd != "/tmp/capped" {
+		t.Fatalf("capped codex session = %+v, want id cdx-cap cwd /tmp/capped", session)
+	}
+	snapshot := awaitEvent(t, subscription.Events, EventSnapshot)
+	if snapshot.Session == nil || snapshot.Session.SessionID != "cdx-cap" {
+		t.Fatalf("capped snapshot session = %+v", snapshot.Session)
+	}
+	if len(snapshot.Items) != 1 || snapshot.Items[0].Text != "tail line" {
+		t.Fatalf("capped snapshot items = %+v", snapshot.Items)
+	}
+}
+
+// One readNewLines call must never materialize more than its budget: a large
+// append drains across successive calls, with the partial-line carry joining
+// lines that straddle the budget boundary.
+func TestReadNewLinesBoundedByBudget(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "big.jsonl")
+	var content string
+	for i := 0; i < 8; i++ {
+		content += fmt.Sprintf(`{"line":%d,"pad":"%s"}`, i, strings.Repeat("x", 40)) + "\n"
+	}
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	reader := &transcriptReader{path: path, readBudget: 96}
+	var lines [][]byte
+	for i := 0; i < 64; i++ {
+		batch, truncated, err := reader.readNewLines()
+		if err != nil {
+			t.Fatal(err)
+		}
+		if truncated {
+			t.Fatal("unexpected truncation")
+		}
+		if len(batch) == 0 && reader.offset == int64(len(content)) {
+			break
+		}
+		lines = append(lines, batch...)
+	}
+	if len(lines) != 8 {
+		t.Fatalf("drained %d lines across budgeted reads, want 8", len(lines))
+	}
+	for i, line := range lines {
+		if !strings.Contains(string(line), fmt.Sprintf(`"line":%d`, i)) {
+			t.Fatalf("line %d out of order or corrupted: %s", i, line)
+		}
+	}
+}
+
+// A live subscription must not retain conversation items without bound: past
+// MaxLiveItems the oldest history is dropped and the client resynchronizes
+// via a fresh snapshot holding only the newest items.
+func TestLiveRetentionTrimsAndResnapshots(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "session.jsonl")
+	if err := os.WriteFile(path, []byte(claudeUserLine("u0", "first")), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	subscription, _, err := Open(Config{
+		Provider:       ProviderClaude,
+		TranscriptPath: path,
+		PollInterval:   time.Millisecond,
+		MaxLiveItems:   8,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer subscription.Close()
+	awaitEvent(t, subscription.Events, EventSnapshot)
+
+	file, err := os.OpenFile(path, os.O_APPEND|os.O_WRONLY, 0o644)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for i := 1; i <= 12; i++ {
+		if _, err := file.WriteString(claudeUserLine(fmt.Sprintf("u%d", i), fmt.Sprintf("msg %d", i))); err != nil {
+			t.Fatal(err)
+		}
+	}
+	file.Close()
+
+	resnapshot := awaitEvent(t, subscription.Events, EventSnapshot)
+	if len(resnapshot.Items) != 6 {
+		t.Fatalf("retention snapshot has %d items, want 6 (3/4 of 8)", len(resnapshot.Items))
+	}
+	last := resnapshot.Items[len(resnapshot.Items)-1]
+	if last.Text != "msg 12" {
+		t.Fatalf("retention snapshot tail = %q, want the newest item", last.Text)
 	}
 }

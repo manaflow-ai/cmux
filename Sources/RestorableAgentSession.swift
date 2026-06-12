@@ -369,7 +369,19 @@ enum AgentResumeCommandBuilder {
                 workingDirectory: cwd
             )
             : commandParts
-        let shellCommand = sanitizedCommandParts.map(shellSingleQuoted).joined(separator: " ")
+        // Render the claude executable as the wrapper shim token so the executed
+        // command routes through cmux's `claude` wrapper (re-injecting the hook
+        // --settings) even inside the `$SHELL -lic` restore launcher, where the
+        // shell integration's PATH shim / `claude()` function are not active and an
+        // `env`-prefixed invocation would otherwise hit the user's real binary.
+        // The token is POSIX-only, and the launcher dispatches through the user's
+        // shell (fish/csh/tcsh included), so token-bearing commands are wrapped in
+        // `/bin/sh -c '…'` to parse everywhere; the cwd guard stays outside so
+        // cd-prefix rewriting keeps composing.
+        // https://github.com/manaflow-ai/cmux/issues/5639
+        let shellCommand = kind == .claude
+            ? AgentResumeArgv.renderedPortableClaudeResumeShellCommand(parts: sanitizedCommandParts, quote: shellSingleQuoted)
+            : sanitizedCommandParts.map(shellSingleQuoted).joined(separator: " ")
         return TerminalStartupWorkingDirectoryPrefix.prefix(shellCommand, workingDirectory: cwd)
     }
 
@@ -1395,11 +1407,22 @@ struct RestorableAgentSessionIndex: Sendable {
     }
 
     static func encodeClaudeProjectDir(_ path: String) -> String {
-        // Claude derives a project directory name by replacing both "/" and "." with "-"
-        // (e.g. "/Users/x/repo/.claude" -> "-Users-x-repo--claude"). Missing the "." case
-        // sent dotted paths to the wrong project directory.
-        path.replacingOccurrences(of: "/", with: "-")
-            .replacingOccurrences(of: ".", with: "-")
+        // Claude derives a project directory name by replacing every non-alphanumeric
+        // character with "-" (e.g. "/Users/x/my_repo/.claude" -> "-Users-x-my-repo--claude").
+        // Only replacing "/" and "." sent paths with underscores, spaces, or other
+        // punctuation to a project directory Claude never writes. Mirrors the Go
+        // daemon's agentconv.EncodeClaudeProjectDir (per Unicode scalar, ASCII
+        // alphanumerics pass through).
+        var encoded = String.UnicodeScalarView()
+        for scalar in path.unicodeScalars {
+            switch scalar {
+            case "a"..."z", "A"..."Z", "0"..."9":
+                encoded.append(scalar)
+            default:
+                encoded.append("-")
+            }
+        }
+        return String(encoded)
     }
 
     private static func claudeTranscriptFileExists(

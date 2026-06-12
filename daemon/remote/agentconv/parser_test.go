@@ -25,6 +25,9 @@ func parseFixture(t *testing.T, provider ProviderID, path string) *conversation 
 	for scanner.Scan() {
 		parser.consumeLine(scanner.Bytes())
 	}
+	if err := scanner.Err(); err != nil {
+		t.Fatalf("scan fixture: %v", err)
+	}
 	return parser.conv()
 }
 

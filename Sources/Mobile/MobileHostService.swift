@@ -160,15 +160,16 @@ private enum MobileHostPublicStatusCache {
         NotificationCenter.default.post(name: .mobileHostStatusDidChange, object: nil)
     }
 
-    static func result() -> MobileHostRPCResult {
+    static func result(includeIdentity: Bool = false) -> MobileHostRPCResult {
         lock.lock()
         let cachedRoutes = routes
         lock.unlock()
-        return .ok([
-            "routes": cachedRoutes.map(\.mobileHostJSONObject),
-            "terminal_fidelity": "render_grid",
-            "capabilities": MobileHostService.mobileHostCapabilities,
-        ])
+        let routesPayload = cachedRoutes.map(\.mobileHostJSONObject)
+        return .ok(
+            includeIdentity
+                ? MobileHostService.identityStatusPayload(routesPayload: routesPayload)
+                : MobileHostService.publicStatusPayload(routesPayload: routesPayload)
+        )
     }
 }
 
@@ -294,26 +295,94 @@ final class MobileHostService {
 
     /// The single source of truth for the capabilities advertised to mobile
     /// clients via `mobile.host.status`. Every status path (the public-status
-    /// cache, the live `publicHostStatusResult`, and `TerminalController`'s
-    /// full status) reads this so the lists cannot drift; iOS gates features
+    /// cache, the network status gate, and `TerminalController`'s full
+    /// status) reads this so the lists cannot drift; iOS gates features
     /// like rename/pin on the entries present here.
     ///
-    /// In DEBUG builds this also advertises `dogfood.v1`, the DEV dogfood
-    /// feedback round-trip (`dogfood.feedback.submit`). It is absent from
-    /// release builds, so a release client never sees the verb advertised.
+    /// This also advertises `dogfood.v1`, the agent feedback round-trip
+    /// (`dogfood.feedback.submit`). It is advertised on every build type so the
+    /// privileged Send Feedback path (offered only to `@manaflow.ai` users on an
+    /// active connection) works on Release (beta/prod) too; the sink itself is
+    /// still gated by the same-account Stack-auth check the rest of the mobile
+    /// data plane enforces.
     nonisolated static var mobileHostCapabilities: [String] {
-        var capabilities = [
+        [
             "events.v1",
             "terminal.bytes.v1",
             "terminal.render_grid.v1",
             "terminal.replay.v1",
             "terminal.viewport.v1",
             "workspace.actions.v1",
+            "dogfood.v1",
         ]
-        #if DEBUG
-        capabilities.append("dogfood.v1")
-        #endif
-        return capabilities
+    }
+
+    /// The single shape every public `mobile.host.status` reply uses (the
+    /// public-status cache, the network status gate, and
+    /// `TerminalController`'s no-private-metadata branch), so the fields
+    /// cannot drift. Identity-free: routes, fidelity, and capabilities are a
+    /// reachability probe any peer may ask for, but the Mac's stable identity
+    /// (`mac_device_id`, `mac_display_name`) is never on this unauthenticated
+    /// surface — see ``networkStatusResult(for:)`` for the verified-caller
+    /// reply that carries it.
+    nonisolated static func publicStatusPayload(routesPayload: [[String: Any]]) -> [String: Any] {
+        [
+            "routes": routesPayload,
+            "terminal_fidelity": "render_grid",
+            "capabilities": mobileHostCapabilities,
+        ]
+    }
+
+    /// `publicStatusPayload` plus the Mac's identity, for a caller that has
+    /// proven same-account Stack ownership. The pairing QR no longer carries
+    /// the display name or the device id, so this reply is where a freshly
+    /// paired phone learns what to call this Mac and which paired-Mac record
+    /// the connection belongs to.
+    nonisolated static func identityStatusPayload(routesPayload: [[String: Any]]) -> [String: Any] {
+        var payload = publicStatusPayload(routesPayload: routesPayload)
+        payload["mac_device_id"] = MobileHostIdentity.deviceID()
+        if let displayName = MobileHostIdentity.displayName() {
+            payload["mac_display_name"] = displayName
+        }
+        return payload
+    }
+
+    /// The `mobile.host.status` reply for a network caller.
+    ///
+    /// Status is the one unauthenticated verb (a phone probes reachability
+    /// before it has anything to present), so a tokenless request gets the
+    /// cached identity-free payload without touching the main actor or the
+    /// Stack verifier — the DoS posture of the public probe is unchanged, and
+    /// an arbitrary process that can reach the port learns nothing that
+    /// identifies or fingerprints this Mac. A request that does present the
+    /// owner's same-account Stack token (the iOS client attaches it to status
+    /// whenever it has one) is verified and answered with the Mac's identity,
+    /// which is what a freshly QR-paired phone needs to key its paired-Mac
+    /// record. A token that fails verification degrades to the identity-free
+    /// payload rather than an error: reachability stays observable, and the
+    /// authorized verbs that follow surface the auth failure properly.
+    /// Verification goes through the same gate as the authorized verbs
+    /// (``verifiedStackCaller(for:)``), so a DEBUG dev-token client that can
+    /// list workspaces also sees identity.
+    ///
+    /// Because status is unauthenticated, the network verifications a
+    /// token-bearing status request can trigger are bounded: an
+    /// already-verified token answers from the verifier's cache, and
+    /// cache-miss lookups are capped by
+    /// ``MobileHostStatusVerificationLimiter`` (over the cap the reply
+    /// degrades to identity-free and the phone's identity-recovery retry
+    /// picks it up later). A flood of unique garbage tokens therefore cannot
+    /// queue unbounded Stack lookups behind this verb.
+    nonisolated static func networkStatusResult(for request: MobileHostRPCRequest) async -> MobileHostRPCResult {
+        let trimmedToken = request.auth?.stackAccessToken?.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard trimmedToken?.isEmpty == false else {
+            return MobileHostPublicStatusCache.result(includeIdentity: false)
+        }
+        let verified = await MobileHostService.shared.verifiedStackCaller(for: request)
+        if !verified {
+            mobileHostLog.error("mobile host status identity withheld: stack verification failed")
+        }
+        return MobileHostPublicStatusCache.result(includeIdentity: verified)
     }
 
     private let callbackQueue = DispatchQueue(label: "dev.cmux.mobile.host-listener")
@@ -354,6 +423,21 @@ final class MobileHostService {
         await auth.awaitBootstrapped()
         guard auth.isAuthenticated else { return nil }
         return auth.currentUser?.id
+    }
+
+    /// This Mac's authenticated Stack email, or `nil` when signed out or before
+    /// the auth graph is configured.
+    ///
+    /// The mobile data plane only accepts same-account connections, so the
+    /// caller is this Mac's own Stack account. The privileged agent feedback
+    /// sink (`dogfood.feedback.submit`) checks this email's domain at the trust
+    /// boundary, so a crafted RPC from a non-privileged account is rejected
+    /// regardless of which route the phone UI chose.
+    func currentAuthenticatedLocalUserEmail() async -> String? {
+        guard let auth else { return nil }
+        await auth.awaitBootstrapped()
+        guard auth.isAuthenticated else { return nil }
+        return auth.currentUser?.primaryEmail
     }
 
     /// Fan out a server-pushed event to every connection subscribed to `topic`.
@@ -845,16 +929,6 @@ final class MobileHostService {
         }
     }
 
-    private func publicStatusSnapshot() async -> MobileHostServiceStatus {
-        let routes: [CmxAttachRoute]
-        if let listenerPort {
-            routes = routeResolver.routes(port: listenerPort).routes
-        } else {
-            routes = []
-        }
-        return makeStatus(routes: routes)
-    }
-
     private func makeStatus(routes: [CmxAttachRoute]) -> MobileHostServiceStatus {
         let isRunning = listener != nil && listenerPort != nil
         return MobileHostServiceStatus(
@@ -909,15 +983,6 @@ final class MobileHostService {
         start()
     }
 
-    private func publicHostStatusResult() async -> MobileHostRPCResult {
-        let status = await publicStatusSnapshot()
-        return .ok([
-            "routes": status.routes.map(\.mobileHostJSONObject),
-            "terminal_fidelity": "render_grid",
-            "capabilities": MobileHostService.mobileHostCapabilities,
-        ])
-    }
-
     nonisolated private static func acceptConnectionOffMain(
         _ connection: NWConnection,
         generation: UUID
@@ -965,7 +1030,7 @@ final class MobileHostService {
                 },
                 handleRequest: { request in
                     if request.method == "mobile.host.status" {
-                        return MobileHostPublicStatusCache.result()
+                        return await MobileHostService.networkStatusResult(for: request)
                     }
                     let result = await TerminalController.shared.mobileHostHandleRPC(request)
                     await MobileHostService.shared.recordCreatedResourcesIfNeeded(
@@ -1079,7 +1144,7 @@ final class MobileHostService {
             },
             handleRequest: { request in
                 if request.method == "mobile.host.status" {
-                    return await MobileHostService.shared.publicHostStatusResult()
+                    return await MobileHostService.networkStatusResult(for: request)
                 }
                 let result = await TerminalController.shared.mobileHostHandleRPC(request)
                 await MobileHostService.shared.recordCreatedResourcesIfNeeded(
@@ -1159,6 +1224,60 @@ final class MobileHostService {
         await authorizationError(for: request)
     }
 
+    /// Whether `request`'s Stack token passes the DEBUG dev-token policy.
+    /// Always `false` in release builds. Shared by the authorization gate and
+    /// the status identity gate so a dev-token client is treated identically
+    /// on both.
+    private func devStackTokenAuthorized(_ request: MobileHostRPCRequest) -> Bool {
+        #if DEBUG
+        if let stackAccessToken = request.auth?.stackAccessToken {
+            return MobileHostDevStackAuthPolicy.authorize(
+                providedToken: stackAccessToken,
+                acceptedToken: debugAcceptedStackAuthToken
+            )
+        }
+        #endif
+        return false
+    }
+
+    /// Whether `request` presents credentials that pass the same Stack gate
+    /// as the authorized verbs (including the DEBUG dev-token policy),
+    /// independent of whether the method itself requires authorization. The
+    /// status path uses this to decide if the caller may see the Mac's
+    /// identity.
+    ///
+    /// Unlike ``authorizationError(for:)`` (whose verbs are authorized, so a
+    /// caller burning a network verification is at least failing auth), this
+    /// gate is reachable from the UNAUTHENTICATED status verb. It therefore
+    /// answers from the verifier's cache when it can, and caps concurrent
+    /// cache-miss network lookups: saturated means "withhold identity now",
+    /// never an unbounded queue of attacker-minted token verifications. The
+    /// legitimate client recovers via its identity-recovery retry once its
+    /// token is cache-verified by the authorized verbs that follow connect.
+    func verifiedStackCaller(for request: MobileHostRPCRequest) async -> Bool {
+        if devStackTokenAuthorized(request) {
+            return true
+        }
+        if let cachedVerdict = await MobileHostStackAuthVerifier.shared.cachedVerdict(auth: request.auth) {
+            return cachedVerdict
+        }
+        guard await MobileHostStatusVerificationLimiter.shared.acquire() else {
+            mobileHostLog.error("mobile host status identity withheld: verification limiter saturated")
+            return false
+        }
+        let verified: Bool
+        do {
+            try await Self.verifyStackAuthOffMainActor(auth: request.auth)
+            verified = true
+        } catch {
+            verified = false
+        }
+        // Non-throwing actor call: runs even if this task was cancelled
+        // mid-verification, so a slot can never leak.
+        await MobileHostStatusVerificationLimiter.shared.release()
+        return verified
+    }
+
     private func authorizationError(for request: MobileHostRPCRequest) async -> MobileHostRPCResult? {
         guard Self.requiresAuthorization(method: request.method) else {
             return nil
@@ -1170,15 +1289,9 @@ final class MobileHostService {
         // photographed QR is useless without the owner's signed-in account, and
         // pairing is bound to "who is signed in on this Mac" rather than a stored
         // ticket, so it survives Mac restarts and ticket expiry.
-        #if DEBUG
-        if let stackAccessToken = request.auth?.stackAccessToken,
-           MobileHostDevStackAuthPolicy.authorize(
-                providedToken: stackAccessToken,
-                acceptedToken: debugAcceptedStackAuthToken
-           ) {
+        if devStackTokenAuthorized(request) {
             return nil
         }
-        #endif
         do {
             try await Self.verifyStackAuthOffMainActor(auth: request.auth)
             return nil
@@ -1274,6 +1387,7 @@ final class MobileHostService {
         case "mobile.terminal.create", "terminal.create":
             return nil
         case "mobile.terminal.input", "terminal.input",
+             "mobile.terminal.paste", "terminal.paste",
              "mobile.terminal.paste_image", "terminal.paste_image",
              "mobile.terminal.replay", "terminal.replay",
              "mobile.terminal.viewport", "terminal.viewport",
@@ -1607,6 +1721,25 @@ private actor MobileHostStackAuthVerifier {
     private var refreshingKeys: Set<String> = []
     private static let cacheTTLSeconds: TimeInterval = 60
     private static let refreshAheadWindowSeconds: TimeInterval = 15
+
+    /// The verification verdict for `auth`'s token using only the cache, or
+    /// `nil` when no fresh cached binding exists (deciding would need a Stack
+    /// network lookup). Lets the unauthenticated status path answer
+    /// already-verified callers without spending a capped network slot.
+    func cachedVerdict(auth: MobileHostRPCAuth?) async -> Bool? {
+        guard let accessToken = auth?.stackAccessToken else {
+            return false
+        }
+        guard let cached = cache[Self.cacheKey(for: accessToken)],
+              cached.expiresAt > Date() else {
+            return nil
+        }
+        let localUserID = await currentAuthenticatedLocalUserID()
+        return (try? MobileHostAuthorizationPolicy.authorizeStackUser(
+            localUserID: localUserID,
+            remoteUserID: cached.userID
+        )) != nil
+    }
 
     func verify(auth: MobileHostRPCAuth?) async throws {
         guard let accessToken = auth?.stackAccessToken else {
@@ -2033,13 +2166,21 @@ actor MobileHostConnection {
             guard !topics.isEmpty else {
                 return .failure(MobileHostRPCError(code: "invalid_params", message: "topics is required"))
             }
+            // Report whether this stream id was already registered BEFORE the
+            // idempotent replace. The phone's render-grid liveness probe
+            // re-asserts its subscription on prolonged silence; `false` tells
+            // it the registration had been lost (events emitted in the gap
+            // were never delivered), so it requests a catch-up replay instead
+            // of trusting delta continuity.
+            let alreadySubscribed = subscriptions[streamID] != nil
             subscribe(streamID: streamID, topics: topics)
             #if DEBUG
-            cmuxDebugLog("mobile.subscribe streamID=\(streamID) topics=\(topics.sorted()) connID=\(self.id.uuidString)")
+            cmuxDebugLog("mobile.subscribe streamID=\(streamID) topics=\(topics.sorted()) existing=\(alreadySubscribed) connID=\(self.id.uuidString)")
             #endif
             return .ok([
                 "stream_id": streamID,
                 "topics": Array(topics).sorted(),
+                "already_subscribed": alreadySubscribed,
             ])
         case "mobile.events.unsubscribe":
             let streamID = request.params["stream_id"] as? String ?? ""
@@ -2055,7 +2196,13 @@ actor MobileHostConnection {
 
     private static func isInteractiveMobileRequest(_ method: String) -> Bool {
         switch method {
-        case "mobile.host.status", "mobile.terminal.replay", "terminal.replay":
+        case "mobile.host.status", "mobile.terminal.replay", "terminal.replay",
+             // Subscription management is plumbing, not user interaction: the
+             // phone's render-grid liveness watchdog re-asserts its
+             // subscription on every silence window (~9s when idle), and
+             // counting that as interactive activity starves host work gated
+             // on mobile quiet (e.g. TabManager background git/PR refresh).
+             "mobile.events.subscribe", "mobile.events.unsubscribe":
             return false
         default:
             return true

@@ -36,6 +36,13 @@ describe("applyAgentEvent", () => {
     expect(state.hasSnapshot).toBe(true);
   });
 
+  test("a snapshot without items renders the empty state (Go omitempty drops the field)", () => {
+    const state = applyAgentEvent(initialConversationState(), { type: "snapshot", seq: 1, session });
+    expect(state.items).toEqual([]);
+    expect(state.hasSnapshot).toBe(true);
+    expect(state.session).toEqual(session);
+  });
+
   test("a fresh snapshot applies even when its seq is lower (reconnect)", () => {
     const state = snapshotted([item("a")], 50);
     const next = applyAgentEvent(state, { type: "snapshot", seq: 1, session, items: [item("z")] });
@@ -196,6 +203,30 @@ describe("applyAgentEvent", () => {
   });
 });
 
+describe("unknown agent events", () => {
+  test("an unknown event type is counted and skipped, not crashed on", () => {
+    const state = snapshotted([item("a")]);
+    const next = applyAgentEvent(state, {
+      type: "content.delta",
+      seq: 2,
+      delta: "partial",
+    } as never);
+    expect(next).toBeDefined();
+    expect(next.items.map((entry) => entry.id)).toEqual(["a"]);
+    expect(next.unknownEventCount).toBe(1);
+    expect(next.lastSeq).toBe(2);
+  });
+
+  test("known events still apply after an unknown one", () => {
+    const state = applyAgentEvent(snapshotted([item("a")]), {
+      type: "content.delta",
+      seq: 2,
+    } as never);
+    const next = applyAgentEvent(state, { type: "item.started", seq: 3, item: item("b") });
+    expect(next.items.map((entry) => entry.id)).toEqual(["a", "b"]);
+  });
+});
+
 describe("reduceConversation", () => {
   test("init applies daemon status and optional session", () => {
     const next = reduceConversation(initialConversationState(), {
@@ -215,6 +246,21 @@ describe("reduceConversation", () => {
     expect(next.phase).toBe("failed");
     expect(next.daemonStatus).toBe("unavailable");
     expect(next.daemonDetail).toBe("binary missing");
+  });
+
+  test("subscribe-failed keeps daemonStatus from init (not daemon-unavailable)", () => {
+    const ready = reduceConversation(initialConversationState(), {
+      type: "init",
+      result: { session, daemon_status: "ready" },
+    });
+    const next = reduceConversation(ready, {
+      type: "subscribe-failed",
+      detail: "no transcript for this session",
+    });
+    expect(next.phase).toBe("failed");
+    expect(next.daemonStatus).toBe("ready");
+    expect(next.daemonDetail).toBeNull();
+    expect(next.subscribeError).toBe("no transcript for this session");
   });
 
   test("daemon.status frames update status without touching items", () => {

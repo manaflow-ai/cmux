@@ -17,9 +17,15 @@ final class AgentChatWebViewController: NSViewController, WKScriptMessageHandler
     /// The resolved target session for this presentation.
     private var resolution: AgentChatTranscriptResolver.Resolution?
 
-    private var webView: WKWebView?
+    private var webView: AgentSessionWebView?
     private var daemonClient: AgentDaemonClient?
     private var subscriptionId: String?
+
+    /// Pointer-down hook so clicks inside the web content focus the owning
+    /// panel (same path as the agent-session and markdown panels).
+    var onPointerDown: (() -> Void)? {
+        didSet { webView?.onPointerDown = onPointerDown }
+    }
 
     /// Replaces the presented session; reloads the surface so the page state
     /// restarts from `chat.init` for the new target.
@@ -43,6 +49,20 @@ final class AgentChatWebViewController: NSViewController, WKScriptMessageHandler
 #endif
         resolution = nil
         teardownDaemon()
+        // addScriptMessageHandler retains self, and self owns the web view
+        // whose configuration owns that userContentController: without this
+        // removal every closed chat pane leaks its WKWebView and controller
+        // (and deinit never runs). Mirrors AgentSessionWebRendererCoordinator.
+        if let webView {
+            webView.stopLoading()
+            webView.configuration.userContentController.removeScriptMessageHandler(
+                forName: Self.handlerName,
+                contentWorld: .page
+            )
+            webView.navigationDelegate = nil
+            webView.onPointerDown = nil
+        }
+        webView = nil
     }
 
     override func loadView() {
@@ -69,7 +89,11 @@ final class AgentChatWebViewController: NSViewController, WKScriptMessageHandler
             forMainFrameOnly: true
         ))
 #endif
-        let webView = WKWebView(frame: .zero, configuration: configuration)
+        // AgentSessionWebView is a plain WKWebView with the pointer-down focus
+        // hook and the first-click-focus setting; nothing in it is
+        // session-specific.
+        let webView = AgentSessionWebView(frame: .zero, configuration: configuration)
+        webView.onPointerDown = onPointerDown
         webView.navigationDelegate = self
         webView.allowsBackForwardNavigationGestures = false
         webView.allowsLinkPreview = false
@@ -123,7 +147,14 @@ final class AgentChatWebViewController: NSViewController, WKScriptMessageHandler
 #if DEBUG
             cmuxDebugLog("agentChat.web.bridge method=chat.init")
 #endif
-            replyHandler(["ok": true, "value": initResultPayload()], nil)
+            Task { [weak self] in
+                guard let self else {
+                    // The page awaits every reply; never leak the handler.
+                    replyHandler(["ok": false, "error": ["code": "cancelled"]], nil)
+                    return
+                }
+                replyHandler(["ok": true, "value": await self.initResultPayload()], nil)
+            }
         case "chat.subscribe":
 #if DEBUG
             cmuxDebugLog("agentChat.web.bridge method=chat.subscribe")
@@ -167,9 +198,9 @@ final class AgentChatWebViewController: NSViewController, WKScriptMessageHandler
         }
     }
 
-    private func initResultPayload() -> [String: Any] {
+    private func initResultPayload() async -> [String: Any] {
         var payload: [String: Any] = [:]
-        switch AgentDaemonBinaryLocator().locate() {
+        switch await Self.locateDaemonBinary() {
         case .found:
             payload["daemon_status"] = "ready"
         case .unavailable(let detail):
@@ -180,6 +211,14 @@ final class AgentChatWebViewController: NSViewController, WKScriptMessageHandler
             payload["session"] = session
         }
         return payload
+    }
+
+    /// Runs the locator's directory scans off the main actor (it stats and
+    /// lists the daemon cache, which must not block the UI thread).
+    private nonisolated static func locateDaemonBinary() async -> AgentDaemonBinaryLocator.Outcome {
+        await Task.detached(priority: .userInitiated) {
+            AgentDaemonBinaryLocator().locate()
+        }.value
     }
 
     private func sessionRefPayload() -> [String: Any]? {
@@ -206,7 +245,7 @@ final class AgentChatWebViewController: NSViewController, WKScriptMessageHandler
             )
         }
         let binaryURL: URL
-        switch AgentDaemonBinaryLocator().locate() {
+        switch await Self.locateDaemonBinary() {
         case .found(let url):
             binaryURL = url
         case .unavailable(let detail):
@@ -230,13 +269,44 @@ final class AgentChatWebViewController: NSViewController, WKScriptMessageHandler
             }
         }
         daemonClient = client
-        try client.start()
-        _ = try await client.request(method: "hello")
-        let opened = try await client.request(method: "agent.session.open", params: [
-            "provider": resolution.provider.rawValue,
-            "transcript_path": transcriptURL.path,
-        ])
-        subscriptionId = opened["subscription_id"] as? String
+        do {
+            try client.start()
+            let hello = try await client.request(method: "hello")
+            // The locator can fall back to a cached daemon from another app
+            // version; gate on the hello capability handshake instead of
+            // trusting it to speak the agent conversation protocol.
+            let capabilities = (hello["capabilities"] as? [String]) ?? []
+            guard capabilities.contains("agent.conversation") else {
+                throw AgentDaemonClient.DaemonError(
+                    code: "daemon_incompatible",
+                    message: String(
+                        localized: "agentChat.daemon.incompatible",
+                        defaultValue: "The cached agent daemon is too old for chat. Connect to a remote host once to update it."
+                    )
+                )
+            }
+            let opened = try await client.request(method: "agent.session.open", params: [
+                "provider": resolution.provider.rawValue,
+                "transcript_path": transcriptURL.path,
+            ])
+            // A present()/teardown during the awaits above replaces the client;
+            // do not adopt a subscription for a daemon this surface no longer owns.
+            guard daemonClient === client else {
+                throw AgentDaemonClient.DaemonError(code: "cancelled", message: "agent daemon was replaced")
+            }
+            subscriptionId = opened["subscription_id"] as? String
+        } catch {
+            // A failed subscribe must not leave the spawned child running:
+            // the pane stays open (showing the error) with no owner to ever
+            // reap the process. Terminate it, clearing our reference only if
+            // a racing present()/teardown has not already replaced it.
+            client.terminate()
+            if daemonClient === client {
+                daemonClient = nil
+                subscriptionId = nil
+            }
+            throw error
+        }
     }
 
     private func handleDaemonEvent(_ frame: [String: Any]) {

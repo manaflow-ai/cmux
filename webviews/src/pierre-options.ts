@@ -104,6 +104,28 @@ export function codeViewUnsafeCSS(): string {
     [data-separator='line-info'] {
       background-color: var(--diffs-bg-separator);
     }
+    [data-utility-button] {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      width: 18px;
+      height: 18px;
+      padding: 0;
+      border: 0;
+      border-radius: 4px;
+      background: var(--cmux-diff-accent, light-dark(#0a84ff, #7ab7ff));
+      color: light-dark(#fff, #08233f);
+      cursor: pointer;
+      transform: scale(0.9);
+      transition: transform 80ms ease;
+    }
+    [data-utility-button]:hover {
+      transform: scale(1.1);
+    }
+    [data-utility-button] [data-icon] {
+      width: 12px;
+      height: 12px;
+    }
     [data-separator='line-info'] [data-separator-wrapper],
     [data-separator='line-info'] [data-separator-content],
     [data-separator='line-info'] [data-expand-button] {

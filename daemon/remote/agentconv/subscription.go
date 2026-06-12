@@ -26,6 +26,19 @@ const defaultPollInterval = 300 * time.Millisecond
 // replay only their tail, starting at the first complete line.
 const defaultMaxSnapshotBytes = int64(32 * 1024 * 1024)
 
+// defaultReadBudgetBytes bounds how much of a transcript delta one
+// readNewLines call materializes. A huge append (or a backlog after a long
+// sleep) drains across successive polls instead of being allocated at once;
+// it matches the snapshot cap so the initial replay still completes in one
+// read. At the default poll interval this drains >100 MiB/s of backlog.
+const defaultReadBudgetBytes = defaultMaxSnapshotBytes
+
+// defaultMaxLiveItems bounds the conversation items a live subscription (and
+// the GUI mirroring it) retains. At typical item sizes this is a few MB; a
+// long-lived pane on a busy session trims its oldest history rather than
+// growing daemon and WebView memory without bound.
+const defaultMaxLiveItems = 4096
+
 type Config struct {
 	Provider       ProviderID
 	TranscriptPath string
@@ -39,6 +52,10 @@ type Config struct {
 	PollInterval time.Duration
 	// MaxSnapshotBytes overrides the initial replay cap.
 	MaxSnapshotBytes int64
+	// MaxLiveItems bounds how many conversation items a subscription retains
+	// (the GUI mirrors the same list). Crossing the bound trims to 3/4 of it
+	// and emits a fresh snapshot, exactly like a transcript truncation.
+	MaxLiveItems int
 }
 
 type Subscription struct {
@@ -78,17 +95,38 @@ func Open(config Config) (*Subscription, SessionRef, error) {
 	if config.MaxSnapshotBytes <= 0 {
 		config.MaxSnapshotBytes = defaultMaxSnapshotBytes
 	}
+	if config.MaxLiveItems <= 0 {
+		config.MaxLiveItems = defaultMaxLiveItems
+	}
 	reader := &transcriptReader{path: config.TranscriptPath}
 	parser := newTranscriptParser(config.Provider, config.TranscriptPath)
 	if err := reader.seekForSnapshot(config.MaxSnapshotBytes); err != nil {
 		return nil, SessionRef{}, err
 	}
+	headSkipped := reader.offset > 0
 	lines, _, err := reader.readNewLines()
 	if err != nil {
 		return nil, SessionRef{}, err
 	}
 	for _, line := range lines {
 		parser.consumeLine(line)
+	}
+	if headSkipped {
+		// The snapshot cap cut off the transcript head, which is where Codex
+		// writes its session_meta line: a tail-only replay would report an
+		// empty session id/cwd/title. Recover them with the same bounded head
+		// scan discovery uses; fields the tail replay already produced win.
+		conversation := parser.conv()
+		head := scanTranscriptHead(config.Provider, config.TranscriptPath)
+		if conversation.session.SessionID == "" {
+			conversation.session.SessionID = head.SessionID
+		}
+		if conversation.session.Cwd == "" {
+			conversation.session.Cwd = head.Cwd
+		}
+		if conversation.session.Title == "" {
+			conversation.session.Title = head.Title
+		}
 	}
 	session := snapshotSessionRef(parser, config)
 
@@ -124,8 +162,13 @@ func (s *Subscription) run(config Config, parser transcriptParser, reader *trans
 		}
 	}
 
+	// keepOnTrim leaves headroom below the bound so a busy session does not
+	// re-snapshot on every appended item.
+	keepOnTrim := config.MaxLiveItems * 3 / 4
+
 	conversation := parser.conv()
 	conversation.sessionDirty = false
+	conversation.trimToNewest(config.MaxLiveItems)
 	snapshotItems := make([]Item, len(conversation.items))
 	copy(snapshotItems, conversation.items)
 	sessionCopy := session
@@ -184,6 +227,7 @@ func (s *Subscription) run(config Config, parser transcriptParser, reader *trans
 			for _, line := range lines {
 				parser.consumeLine(line)
 			}
+			conversation.trimToNewest(config.MaxLiveItems)
 			refreshed := snapshotSessionRef(parser, config)
 			conversation.sessionDirty = false
 			items := make([]Item, len(conversation.items))
@@ -209,6 +253,20 @@ func (s *Subscription) run(config Config, parser transcriptParser, reader *trans
 				return
 			}
 		}
+		if len(conversation.items) > config.MaxLiveItems {
+			// Retention bound: drop the oldest history and resynchronize the
+			// client with a fresh snapshot (hook merge state is ephemeral and
+			// resets with it, same as a transcript truncation).
+			conversation.trimToNewest(keepOnTrim)
+			merger = newHookMerger(conversation)
+			refreshed := snapshotSessionRef(parser, config)
+			conversation.sessionDirty = false
+			items := make([]Item, len(conversation.items))
+			copy(items, conversation.items)
+			if !emit(Event{Type: EventSnapshot, Seq: nextSeq(), Session: &refreshed, Items: items}) {
+				return
+			}
+		}
 	}
 }
 
@@ -231,6 +289,8 @@ type transcriptReader struct {
 	path    string
 	offset  int64
 	partial []byte
+	// readBudget overrides defaultReadBudgetBytes (tests use small values).
+	readBudget int64
 }
 
 // seekForSnapshot positions the reader so the initial replay reads at most
@@ -293,7 +353,17 @@ func (r *transcriptReader) readNewLines() ([][]byte, bool, error) {
 	if _, err := file.Seek(r.offset, io.SeekStart); err != nil {
 		return nil, false, err
 	}
-	data, err := io.ReadAll(io.LimitReader(file, info.Size()-r.offset))
+	budget := r.readBudget
+	if budget <= 0 {
+		budget = defaultReadBudgetBytes
+	}
+	remaining := info.Size() - r.offset
+	if remaining > budget {
+		// Bound the per-call allocation; the partial-line carry makes the
+		// next poll resume exactly where this one stopped.
+		remaining = budget
+	}
+	data, err := io.ReadAll(io.LimitReader(file, remaining))
 	if err != nil {
 		return nil, false, err
 	}

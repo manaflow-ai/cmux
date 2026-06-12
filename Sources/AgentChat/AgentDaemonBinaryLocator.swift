@@ -15,7 +15,10 @@ import Foundation
 /// unavailable instead of downloading.
 struct AgentDaemonBinaryLocator {
     /// The locator outcome: a runnable binary or a human-readable reason.
-    enum Outcome {
+    /// The `detail` is user-facing copy (it lands in the chat surface's
+    /// status UI), so it must be localized and free of implementation
+    /// internals; technical specifics go to the debug log instead.
+    enum Outcome: Sendable {
         case found(URL)
         case unavailable(detail: String)
     }
@@ -36,7 +39,13 @@ struct AgentDaemonBinaryLocator {
             if isExecutableFile(override) {
                 return .found(override)
             }
-            return .unavailable(detail: "CMUX_REMOTE_DAEMON_BINARY points to a missing or non-executable file: \(override.path)")
+#if DEBUG
+            cmuxDebugLog("agentChat.locator.overrideInvalid path=\(override.path)")
+#endif
+            return .unavailable(detail: String(
+                localized: "agentChat.daemon.overrideInvalid",
+                defaultValue: "The configured agent daemon binary is missing or can't be run."
+            ))
         }
         let (goOS, goArch) = hostPlatform()
         let version = appVersionString()
@@ -48,9 +57,13 @@ struct AgentDaemonBinaryLocator {
         if let fallback = newestCachedBinary(goOS: goOS, goArch: goArch, excludingVersion: version) {
             return .found(fallback)
         }
-        return .unavailable(
-            detail: "No cached cmuxd-remote binary for \(goOS)-\(goArch); connect a remote host once (cmux ssh) or set CMUX_REMOTE_DAEMON_BINARY with CMUX_REMOTE_DAEMON_ALLOW_LOCAL_BUILD=1."
-        )
+#if DEBUG
+        cmuxDebugLog("agentChat.locator.noCachedBinary platform=\(goOS)-\(goArch) version=\(version)")
+#endif
+        return .unavailable(detail: String(
+            localized: "agentChat.daemon.notCached",
+            defaultValue: "The agent chat daemon isn't installed yet. Connect to a remote host once with cmux ssh to install it."
+        ))
     }
 
     private func explicitOverrideURL() -> URL? {
@@ -62,10 +75,27 @@ struct AgentDaemonBinaryLocator {
         return URL(fileURLWithPath: path, isDirectory: false).standardizedFileURL
     }
 
+    /// Orders dotted versions numerically per component ("0.10.0" beats
+    /// "0.9.0", which plain lexicographic sorting gets backwards); missing
+    /// components count as 0 and non-numeric components fall back to string
+    /// comparison.
+    static func isVersionNewer(_ lhs: String, _ rhs: String) -> Bool {
+        let left = lhs.split(separator: ".")
+        let right = rhs.split(separator: ".")
+        for index in 0..<max(left.count, right.count) {
+            let leftPart = index < left.count ? left[index] : "0"
+            let rightPart = index < right.count ? right[index] : "0"
+            if leftPart == rightPart { continue }
+            if let leftNumber = Int(leftPart), let rightNumber = Int(rightPart) {
+                return leftNumber > rightNumber
+            }
+            return leftPart > rightPart
+        }
+        return false
+    }
+
     /// Scans the cache root for the newest other version holding a runnable
-    /// binary for this platform. Versions sort newest-first lexicographically
-    /// descending, which is correct for dotted versions of equal arity and an
-    /// acceptable tiebreak otherwise.
+    /// binary for this platform.
     private func newestCachedBinary(goOS: String, goArch: String, excludingVersion: String) -> URL? {
         guard let anyVersion = try? Workspace.remoteDaemonCachedBinaryURL(
             version: "x", goOS: goOS, goArch: goArch, fileManager: fileManager
@@ -77,7 +107,7 @@ struct AgentDaemonBinaryLocator {
         guard let versions = try? fileManager.contentsOfDirectory(atPath: cacheRoot.path) else {
             return nil
         }
-        for version in versions.sorted(by: >) where version != excludingVersion {
+        for version in versions.sorted(by: Self.isVersionNewer) where version != excludingVersion {
             if let url = try? Workspace.remoteDaemonCachedBinaryURL(
                 version: version, goOS: goOS, goArch: goArch, fileManager: fileManager
             ), isExecutableFile(url) {

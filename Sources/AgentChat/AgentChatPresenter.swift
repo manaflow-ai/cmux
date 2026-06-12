@@ -62,10 +62,15 @@ struct AgentChatPresenter {
         // freshly restored panel misses there, so capture the workspace's own
         // restored-agent snapshot (the resume path's source) as the fallback.
         let restoredSnapshot = workspace.restoredAgentSnapshotForAgentChat(panelId: panelId)
+        // Capture the panel's persisted resume binding on the main actor so the
+        // resolver can fall back to it when both the live index and the
+        // restored snapshot miss (a terminal restored after an app relaunch).
+        let resumeBinding = workspace.surfaceResumeBinding(panelId: panelId)
 #if DEBUG
         cmuxDebugLog(
             "agentChat.present.resolve.start ws=\(workspaceId.uuidString.prefix(5)) " +
-            "panel=\(panelId.uuidString.prefix(5)) restoredSnapshot=\(restoredSnapshot != nil ? 1 : 0)"
+            "panel=\(panelId.uuidString.prefix(5)) restoredSnapshot=\(restoredSnapshot != nil ? 1 : 0) " +
+            "resumeBinding=\(resumeBinding != nil ? 1 : 0)"
         )
 #endif
 
@@ -77,7 +82,8 @@ struct AgentChatPresenter {
                     index: RestorableAgentSessionIndex.load(),
                     restoredSnapshot: restoredSnapshot,
                     workspaceId: workspaceId,
-                    panelId: panelId
+                    panelId: panelId,
+                    resumeBinding: resumeBinding
                 )
             }.value
 
@@ -89,6 +95,19 @@ struct AgentChatPresenter {
                 )
 #endif
                 presentNoSessionAlert()
+                return
+            }
+            guard resolution.transcriptURL != nil else {
+                // The session is indexed but its transcript file is gone
+                // (cleanup, remote-only session); an empty chat pane would
+                // just render the subscribe error, so explain instead.
+#if DEBUG
+                cmuxDebugLog(
+                    "agentChat.present.resolve.noTranscript provider=\(resolution.provider.rawValue) " +
+                    "session=\(resolution.sessionId.prefix(8))"
+                )
+#endif
+                presentNoTranscriptAlert()
                 return
             }
 #if DEBUG
@@ -127,6 +146,26 @@ struct AgentChatPresenter {
         alert.informativeText = String(
             localized: "agentChat.noSession.message",
             defaultValue: "Focus a terminal running Claude Code or Codex, then try View Chat again."
+        )
+        alert.alertStyle = .informational
+        alert.addButton(withTitle: String(localized: "agentChat.noSession.ok", defaultValue: "OK"))
+        alert.runModal()
+    }
+
+    /// Shows an alert explaining that the panel's agent session has no
+    /// transcript file on disk (so there is nothing for the chat to render).
+    private func presentNoTranscriptAlert() {
+#if DEBUG
+        cmuxDebugLog("agentChat.present.alert reason=noTranscript")
+#endif
+        let alert = NSAlert()
+        alert.messageText = String(
+            localized: "agentChat.noSession.title",
+            defaultValue: "No agent conversation"
+        )
+        alert.informativeText = String(
+            localized: "agentChat.error.noTranscript",
+            defaultValue: "No transcript file was found for this agent session."
         )
         alert.alertStyle = .informational
         alert.addButton(withTitle: String(localized: "agentChat.noSession.ok", defaultValue: "OK"))

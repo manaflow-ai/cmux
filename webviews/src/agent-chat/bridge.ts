@@ -13,6 +13,7 @@ import { makeClientId } from "../agent-session/shared/ids";
 import type { AgentSessionTheme } from "../agent-session/shared/types";
 import type { AgentChatBridgeInbound, AgentChatInitResult } from "./protocol";
 import { createMockAgentChatBridge } from "./mockBridge";
+import { agentChatLabels } from "./labels";
 
 type NativeReply<T> =
   | { ok: true; value: T }
@@ -113,7 +114,7 @@ async function callNative<T>(
   })) as NativeReply<T>;
   if (!reply.ok) {
     throw new AgentChatBridgeError(
-      reply.error?.userMessage || "Native bridge request failed.",
+      reply.error?.userMessage || agentChatLabels.bridgeRequestFailed,
       reply.error?.code,
     );
   }
@@ -143,8 +144,10 @@ export function resolveAgentChatBridge(): AgentChatBridgeClient {
   }
   return {
     kind: "native",
-    init: () => Promise.reject(new AgentChatBridgeError("Native bridge is unavailable.", "no_bridge")),
-    subscribe: () => Promise.reject(new AgentChatBridgeError("Native bridge is unavailable.", "no_bridge")),
+    init: () =>
+      Promise.reject(new AgentChatBridgeError(agentChatLabels.bridgeUnavailable, "no_bridge")),
+    subscribe: () =>
+      Promise.reject(new AgentChatBridgeError(agentChatLabels.bridgeUnavailable, "no_bridge")),
     dispose() {},
   };
 }
