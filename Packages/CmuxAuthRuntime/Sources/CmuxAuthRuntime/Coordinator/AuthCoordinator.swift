@@ -32,9 +32,9 @@ private let authLog = Logger(subsystem: "ai.manaflow.cmux", category: "auth")
 @Observable
 public final class AuthCoordinator {
     /// Whether a user session is currently active.
-    public private(set) var isAuthenticated = false
+    public internal(set) var isAuthenticated = false
     /// The signed-in user, if any.
-    public private(set) var currentUser: CMUXAuthUser?
+    public internal(set) var currentUser: CMUXAuthUser?
     /// Whether an interactive sign-in flow is in flight (drives spinners).
     public private(set) var isLoading = false
     /// Whether a cached session is being restored/validated at launch.
@@ -56,23 +56,23 @@ public final class AuthCoordinator {
         Self.resolveTeamID(selectedTeamID: selectedTeamID, teams: availableTeams)
     }
 
-    private let client: any AuthClient
-    private let sessionCache: CMUXAuthSessionCache
+    let client: any AuthClient
+    let sessionCache: CMUXAuthSessionCache
     private let userCache: CMUXAuthIdentityStore
     private let teamSelection: CMUXAuthTeamSelectionStore
     private let anchor: any AuthPresentationAnchoring
     private let config: AuthConfig
-    private let launch: AuthLaunchOptions
-    private let timeouts: AuthTimeouts
+    let launch: AuthLaunchOptions
+    let timeouts: AuthTimeouts
     private let clock: any Clock<Duration>
     private let isOnline: @Sendable () async -> Bool
     private let onSignedIn: @Sendable () async -> Void
     private let log = AuthDebugLog()
 
     private var pendingNonce: String?
-    private var debugCredentials: CMUXAuthAutoLoginCredentials?
+    var debugCredentials: CMUXAuthAutoLoginCredentials?
     private var bootstrapTask: Task<Void, Never>?
-    private var isRevalidatingSession = false
+    var isRevalidatingSession = false
     /// Monotonic session epoch, advanced by every session transition: each
     /// ``clearAuthState()`` AND each published sign-in
     /// (``applySignedInUser(_:)``). Flows that touch session state after
@@ -84,7 +84,7 @@ public final class AuthCoordinator {
     /// result; conversely a stale validation failure must not wipe a newer
     /// session, including one published with no clear in between. Same
     /// pattern as `HostBrowserSignInFlow.signOutGeneration`.
-    @ObservationIgnored private var sessionGeneration: UInt64 = 0
+    @ObservationIgnored var sessionGeneration: UInt64 = 0
     /// Monotonic sign-out epoch, advanced synchronously at the top of every
     /// ``signOut(onSignedOut:teardownTimeout:)`` before its first await.
     /// Distinguishes "a sign-out began after this flow started" from
@@ -104,7 +104,7 @@ public final class AuthCoordinator {
     /// written, so a newer in-flight attempt's tokens survive even before it
     /// publishes, while a newer attempt that failed before writing does not
     /// block the cleanup.
-    @ObservationIgnored private var tokenStoreWriteHighWater: UInt64 = 0
+    @ObservationIgnored var tokenStoreWriteHighWater: UInt64 = 0
     /// In-flight credential-exchange tasks by attempt id, registered by
     /// ``runExchange(_:flow:timeout:_:)`` so ``signOut(onSignedOut:teardownTimeout:)``
     /// can cancel them. The vendored SDK's token-write chokepoint
@@ -242,279 +242,6 @@ public final class AuthCoordinator {
     /// flight returns immediately.
     public func revalidateSession() async {
         await checkExistingSession()
-    }
-
-    // MARK: - Priming
-
-    private func primeSessionState() {
-        if launch.clearAuthRequested {
-            clearAuthState()
-            Task { await clearPersistedAuthForUITest() }
-            return
-        }
-
-        #if DEBUG
-        if launch.mockDataEnabled {
-            apply(.primed(
-                clearAuthRequested: false,
-                mockDataEnabled: true,
-                fixtureUser: nil,
-                autoLoginCredentials: nil,
-                cachedUser: nil,
-                hasTokens: false,
-                mockUser: Self.uiTestMockUser
-            ))
-            return
-        }
-
-        if let fixtureUser {
-            authLog.debug("Using auth fixture user")
-            apply(.primed(
-                clearAuthRequested: false,
-                mockDataEnabled: false,
-                fixtureUser: fixtureUser,
-                autoLoginCredentials: nil,
-                cachedUser: fixtureUser,
-                hasTokens: true,
-                mockUser: Self.uiTestMockUser
-            ))
-            return
-        }
-
-        if autoLoginCredentials != nil {
-            authLog.debug("Auto-login credentials detected")
-            apply(.primed(
-                clearAuthRequested: false,
-                mockDataEnabled: false,
-                fixtureUser: nil,
-                autoLoginCredentials: autoLoginCredentials,
-                cachedUser: loadCachedUser(),
-                hasTokens: sessionCache.hasTokens,
-                mockUser: Self.uiTestMockUser
-            ))
-            return
-        }
-        #endif
-
-        apply(.primed(
-            clearAuthRequested: false,
-            mockDataEnabled: false,
-            fixtureUser: nil,
-            autoLoginCredentials: nil,
-            cachedUser: loadCachedUser(),
-            hasTokens: sessionCache.hasTokens,
-            mockUser: Self.uiTestMockUser
-        ))
-    }
-
-    private func checkExistingSession() async {
-        if launch.clearAuthRequested { return }
-        // Coalesce overlapping runs (rapid foreground transitions): a second
-        // call while one is in flight would race coordinator-state writes
-        // (one run clearing while another re-validates the same stale token).
-        if isRevalidatingSession { return }
-        isRevalidatingSession = true
-        defer { isRevalidatingSession = false }
-        let generation = sessionGeneration
-        let storeWriteHighWater = tokenStoreWriteHighWater
-
-        let cachedUser = loadCachedUser()
-        // accessToken() may refresh over the network; a sign-out can land
-        // while these reads are parked, so re-check the generation after.
-        let hasAccessToken = await client.accessToken() != nil
-        let hasRefreshToken = await client.refreshToken() != nil
-        guard generation == sessionGeneration else { return }
-        let hasStoredTokens = hasAccessToken || hasRefreshToken
-
-        #if DEBUG
-        if launch.mockDataEnabled { return }
-
-        if let fixtureUser {
-            authLog.debug("Applying auth fixture user")
-            saveCachedUser(fixtureUser)
-            sessionCache.setHasTokens(true)
-            currentUser = fixtureUser
-            isAuthenticated = true
-            return
-        }
-
-        if let credentials = autoLoginCredentials,
-           AuthLaunchOptions.shouldStartAutoLogin(
-               hasCredentials: true,
-               hasStoredTokens: hasStoredTokens
-           ),
-           credentials.email.isEmpty == false {
-            authLog.debug("Starting auto-login")
-            await performAutoLogin(credentials, generation: generation, storeWriteHighWater: storeWriteHighWater)
-            return
-        }
-        #endif
-
-        if hasStoredTokens {
-            sessionCache.setHasTokens(true)
-            if currentUser == nil, let cachedUser {
-                currentUser = cachedUser
-            }
-            await validateCachedSession(generation: generation, storeWriteHighWater: storeWriteHighWater)
-            return
-        }
-
-        if launch.includesDevAuth, let creds = debugCredentials {
-            authLog.debug("Auto-login with persisted debug credentials")
-            await performAutoLogin(creds, generation: generation, storeWriteHighWater: storeWriteHighWater)
-            return
-        }
-
-        clearAuthState()
-    }
-
-    /// Run the launch/dev auto-login, capturing the same staleness context as
-    /// the validation flows (`generation` / `storeWriteHighWater` from the
-    /// caller's entry) so its failure cleanup cannot wipe a session
-    /// established after the auto-login began.
-    private func performAutoLogin(
-        _ credentials: CMUXAuthAutoLoginCredentials,
-        generation: UInt64,
-        storeWriteHighWater: UInt64
-    ) async {
-        do {
-            try await signInWithPassword(
-                email: credentials.email,
-                password: credentials.password,
-                setLoading: false
-            )
-        } catch {
-            // A cancellation means a competing session transition won:
-            // sign-out cancelled this auto-login's exchange, or a newer
-            // sign-in/clear bumped the epoch and the completion dropped
-            // itself. The winner owns all session state; clearing here would
-            // wipe the NEWER session, not the failed auto-login.
-            if error is CancellationError || (error as? AuthError) == .cancelled {
-                authLog.info("Auto-login superseded by a newer session transition; leaving state untouched")
-                return
-            }
-            authLog.error("Auto-login failed: \(error.localizedDescription, privacy: .private)")
-            // No expected refresh token: auto-login only starts against an
-            // empty token store, so there is no dead session's token to
-            // compare against; the staleness guards inside cover the rest.
-            await clearStaleSessionState(
-                generation: generation,
-                storeWriteHighWater: storeWriteHighWater,
-                expectedRefreshToken: nil
-            )
-        }
-    }
-
-    private func validateCachedSession(generation: UInt64, storeWriteHighWater: UInt64) async {
-        do {
-            let client = self.client
-            let user = try await runPhase(.validateSession, timeout: timeouts.network) {
-                try await client.currentUser(throwOnMissing: true)
-            }
-            // A sign-out landed while the fetch was in flight: the user's
-            // later intent wins. Drop the stale result instead of
-            // republishing a session whose local tokens are already gone.
-            guard generation == sessionGeneration else { return }
-            if let user {
-                await applySignedInUser(user)
-                return
-            }
-            authLog.info("Cached session validation returned no current user")
-            // Snapshot the dead session's refresh token right before the
-            // clear so the clear can be compare-and-clear at the token store.
-            let expectedRefreshToken = await client.refreshToken()
-            guard generation == sessionGeneration else { return }
-            await clearStaleSessionState(
-                generation: generation,
-                storeWriteHighWater: storeWriteHighWater,
-                expectedRefreshToken: expectedRefreshToken
-            )
-        } catch {
-            // Same staleness rule for the failure paths: a stale clear here
-            // could wipe a session established after this flow began.
-            guard generation == sessionGeneration else { return }
-            // Drive the clear-vs-preserve decision from LIVE session validity, not
-            // the error code alone. The SDK throws the same `UserNotSignedInError`
-            // ("USER_NOT_SIGNED_IN") for two opposite situations: a genuine
-            // definitive rejection (the refresh token was 400/401'd and the SDK
-            // deleted it from the store) and a transient `/users/me` failure (the
-            // SDK's getUser swallows network/server errors into the same "no user"
-            // path). The error code cannot tell them apart, so the code-based
-            // decision would preserve a session whose tokens are already
-            // gone — exactly the stale "signed in" shell that then fails at connect
-            // time with a confusing host-side message. The live token store is the
-            // ground truth: if no refresh token survives, the session is genuinely
-            // gone and the user must see the sign-in page.
-            let survivingRefreshToken = await client.refreshToken()
-            guard generation == sessionGeneration else { return }
-            if survivingRefreshToken == nil {
-                authLog.error(
-                    "Session validation failed and no refresh token survives; routing to login error=\(error.localizedDescription, privacy: .private)"
-                )
-                await clearStaleSessionState(
-                    generation: generation,
-                    storeWriteHighWater: storeWriteHighWater,
-                    expectedRefreshToken: nil
-                )
-                return
-            }
-            let action = AuthError(displaySafe: error)?.cachedSessionValidationFailureAction
-                ?? .preserveCachedSession
-            authLog.error(
-                "Session validation failed action=\(action.rawValue, privacy: .public) error=\(error.localizedDescription, privacy: .private)"
-            )
-            switch action {
-            case .clearSession:
-                await clearStaleSessionState(
-                    generation: generation,
-                    storeWriteHighWater: storeWriteHighWater,
-                    expectedRefreshToken: survivingRefreshToken
-                )
-            case .preserveCachedSession:
-                preserveCachedSessionAfterValidationFailure()
-            }
-        }
-    }
-
-    /// Clear the persisted token store and published auth state on behalf of
-    /// a validation flow that captured `generation` and `storeWriteHighWater`
-    /// at entry, re-checking staleness around the suspension points.
-    ///
-    /// When a newer sign-in exchange has written the store since the flow
-    /// began, the store has a new in-flight owner and the failed validation
-    /// of the OLD session must touch nothing at all: clearing the store
-    /// would wipe the new owner's tokens, and clearing the published state
-    /// would bump the epoch and spuriously cancel the in-flight sign-in
-    /// while leaving its tokens orphaned for the next launch restore. The
-    /// published-state clear also re-checks both markers after the awaited
-    /// store clear, so a session transition landing inside that suspension
-    /// is not unpublished by the stale failure.
-    ///
-    /// The store clear itself is a compare-and-clear against
-    /// `expectedRefreshToken` (the dead session's refresh token, snapshotted
-    /// by the caller right before this call), atomic at the token store: the
-    /// high-water check above can only see writes that have already advanced
-    /// the mark, so a fresh sign-in writing while this clear is suspended
-    /// in flight would otherwise be wiped underneath its own publish. With
-    /// the compare, a store that changed owners after the cleanup decision
-    /// is left alone. `nil` means the dead session had no refresh token to
-    /// compare against; the clear falls back to unconditional, where the
-    /// only exposure is a refresh-less store racing a sign-in's write
-    /// (anomalous: the SDK always persists a refresh token with a session).
-    private func clearStaleSessionState(
-        generation: UInt64,
-        storeWriteHighWater: UInt64,
-        expectedRefreshToken: String?
-    ) async {
-        guard tokenStoreWriteHighWater == storeWriteHighWater else { return }
-        if let expectedRefreshToken {
-            await client.clearLocalSession(ifRefreshTokenMatches: expectedRefreshToken)
-        } else {
-            await clearPersistedStackSession()
-        }
-        guard generation == sessionGeneration,
-              tokenStoreWriteHighWater == storeWriteHighWater else { return }
-        clearAuthState()
     }
 
     // MARK: - Sign-in flows
@@ -847,109 +574,9 @@ public final class AuthCoordinator {
         }
     }
 
-    // MARK: - Tokens
-
-    /// The current access token.
-    ///
-    /// Classifies a missing token the same way ``forceRefreshAccessToken()``
-    /// does, so the connection layer can tell a recoverable session from a dead
-    /// one: when the SDK could not hand back an access token but a refresh token
-    /// is still stored, the failure was transient (network/server) and this
-    /// throws ``AuthError/networkError`` so the caller retries without signing
-    /// out. When neither token survives, the session is genuinely gone, so this
-    /// calls ``clearAuthState()`` (flipping ``isAuthenticated`` to `false`, which
-    /// routes the root scene to the sign-in page) and throws
-    /// ``AuthError/unauthorized``.
-    /// - Returns: A current access token.
-    /// - Throws: ``AuthError/networkError`` on a transient failure with a
-    ///   surviving refresh token (retryable); ``AuthError/unauthorized`` once the
-    ///   session is definitively gone (also clears local auth state).
-    public func accessToken() async throws -> String {
-        if let token = await client.accessToken() {
-            return token
-        }
-        #if DEBUG
-        if launch.mockDataEnabled {
-            return "cmux-ui-test-stack-token"
-        }
-        #endif
-        if launch.includesDevAuth, let credentials = debugCredentials {
-            try? await signInWithPassword(
-                email: credentials.email,
-                password: credentials.password,
-                setLoading: false
-            )
-            if let token = await client.accessToken() {
-                return token
-            }
-        }
-        // A surviving refresh token means the failure was transient
-        // (network/server), so stay retryable; a missing one means the SDK
-        // definitively cleared the session and the user must sign in again.
-        if await client.refreshToken() != nil {
-            throw AuthError.networkError
-        }
-        clearAuthState()
-        throw AuthError.unauthorized
-    }
-
-    /// The current refresh token, if any. Native API calls authenticate with
-    /// `Authorization: Bearer <access>` + `X-Stack-Refresh-Token: <refresh>`.
-    public func refreshToken() async -> String? {
-        await client.refreshToken()
-    }
-
-    /// Both tokens for the current session, for callers that talk to
-    /// cmux-owned backend endpoints (e.g. the cloud VM service) with the
-    /// `Authorization: Bearer <access>` + `X-Stack-Refresh-Token: <refresh>`
-    /// header pair.
-    ///
-    /// Awaits the launch restore first: RPCs firing before the restore
-    /// finishes could otherwise observe an empty token store on a
-    /// refresh-token-only start and report "Not signed in" even though a valid
-    /// session becomes available moments later.
-    /// - Returns: The access and refresh tokens.
-    /// - Throws: ``AuthError/unauthorized`` when either token is missing.
-    public func currentTokens() async throws -> (accessToken: String, refreshToken: String) {
-        await awaitBootstrapped()
-        guard let access = await client.accessToken(), !access.isEmpty else {
-            throw AuthError.unauthorized
-        }
-        guard let refresh = await client.refreshToken(), !refresh.isEmpty else {
-            throw AuthError.unauthorized
-        }
-        return (access, refresh)
-    }
-
-    /// Force-mint a fresh access token, bypassing the cached-token freshness
-    /// check. Call this after the host rejected the current token so the retry
-    /// presents a genuinely new credential instead of the same rejected one.
-    ///
-    /// - Returns: A freshly minted access token.
-    /// - Throws: ``AuthError/networkError`` when the refresh failed transiently
-    ///   but the session is intact (a refresh token is still stored), so the
-    ///   caller should retry rather than sign out; ``AuthError/unauthorized``
-    ///   only when the session is genuinely gone (the refresh token was
-    ///   definitively rejected and cleared). The definitive case also calls
-    ///   ``clearAuthState()`` so ``isAuthenticated`` flips to `false` and the
-    ///   root scene routes to the sign-in page instead of showing a stale shell.
-    public func forceRefreshAccessToken() async throws -> String {
-        if let token = await client.forceRefreshAccessToken() {
-            return token
-        }
-        // A surviving refresh token means the failure was transient
-        // (network/server), so stay retryable; a missing one means the SDK
-        // definitively cleared the session.
-        if await client.refreshToken() != nil {
-            throw AuthError.networkError
-        }
-        clearAuthState()
-        throw AuthError.unauthorized
-    }
-
     // MARK: - State helpers
 
-    private func applySignedInUser(_ user: CMUXAuthUser) async {
+    func applySignedInUser(_ user: CMUXAuthUser) async {
         // Publishing a session advances the epoch exactly like clearing one:
         // any other flow that captured the pre-publish generation (a stale
         // revalidation of the previous session still parked in its fetch)
@@ -1005,7 +632,7 @@ public final class AuthCoordinator {
         return teams.first?.id
     }
 
-    private func clearAuthState() {
+    func clearAuthState() {
         sessionGeneration &+= 1
         pendingNonce = nil
         userCache.clear()
@@ -1015,7 +642,7 @@ public final class AuthCoordinator {
         apply(.cleared())
     }
 
-    private func preserveCachedSessionAfterValidationFailure() {
+    func preserveCachedSessionAfterValidationFailure() {
         sessionCache.setHasTokens(true)
         let cachedUser = currentUser ?? loadCachedUser()
         currentUser = cachedUser
@@ -1023,7 +650,7 @@ public final class AuthCoordinator {
         isRestoringSession = false
     }
 
-    private func clearPersistedAuthForUITest() async {
+    func clearPersistedAuthForUITest() async {
         if launch.includesDevAuth { debugCredentials = nil }
         await clearPersistedStackSession()
     }
@@ -1038,11 +665,11 @@ public final class AuthCoordinator {
     /// nothing, so they clear locally only. Interactive sign-out
     /// (``signOut(onSignedOut:teardownTimeout:)``) still attempts a bounded
     /// best-effort revocation.
-    private func clearPersistedStackSession() async {
+    func clearPersistedStackSession() async {
         await client.clearLocalSession()
     }
 
-    private func requireOnline() async throws {
+    func requireOnline() async throws {
         guard await isOnline() else {
             throw AuthError.offline
         }
@@ -1050,7 +677,7 @@ public final class AuthCoordinator {
 
     /// Race `operation` against the phase deadline on the injected clock.
     /// See ``withAuthPhaseTimeout(_:duration:clock:log:operation:)``.
-    private func runPhase<T: Sendable>(
+    func runPhase<T: Sendable>(
         _ phase: AuthPhase,
         timeout: Duration,
         _ operation: @escaping @Sendable () async throws -> T
@@ -1064,13 +691,13 @@ public final class AuthCoordinator {
         )
     }
 
-    private func apply(_ state: CMUXAuthState) {
+    func apply(_ state: CMUXAuthState) {
         currentUser = state.currentUser
         isAuthenticated = state.isAuthenticated
         isRestoringSession = state.isRestoringSession
     }
 
-    private func loadCachedUser() -> CMUXAuthUser? {
+    func loadCachedUser() -> CMUXAuthUser? {
         do {
             return try userCache.load()
         } catch {
@@ -1079,7 +706,7 @@ public final class AuthCoordinator {
         }
     }
 
-    private func saveCachedUser(_ user: CMUXAuthUser) {
+    func saveCachedUser(_ user: CMUXAuthUser) {
         do {
             try userCache.save(user)
         } catch {
@@ -1087,7 +714,7 @@ public final class AuthCoordinator {
         }
     }
 
-    private var autoLoginCredentials: CMUXAuthAutoLoginCredentials? {
+    var autoLoginCredentials: CMUXAuthAutoLoginCredentials? {
         CMUXAuthAutoLoginCredentials(
             environment: launch.environment,
             clearAuth: launch.clearAuthRequested,
@@ -1095,7 +722,7 @@ public final class AuthCoordinator {
         )
     }
 
-    private var fixtureUser: CMUXAuthUser? {
+    var fixtureUser: CMUXAuthUser? {
         CMUXAuthUser(
             uiTestFixtureEnvironment: launch.environment,
             clearAuth: launch.clearAuthRequested,
@@ -1103,7 +730,7 @@ public final class AuthCoordinator {
         )
     }
 
-    private static let uiTestMockUser = CMUXAuthUser(
+    static let uiTestMockUser = CMUXAuthUser(
         id: "uitest_user",
         primaryEmail: "uitest@cmux.local",
         displayName: "UI Test"
