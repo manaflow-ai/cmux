@@ -70,6 +70,8 @@ public enum ShortcutAction: String, CaseIterable, Sendable, Hashable, SettingCod
     case attachTextBoxFile
     /// Sends a Ctrl-F keystroke through to the focused terminal.
     case sendCtrlFToTerminal
+    /// Opens (or focuses) the agent chat pane for the focused terminal.
+    case openAgentChat
 
     // MARK: Panes
     case focusLeft
@@ -159,7 +161,8 @@ extension ShortcutAction {
              .editWorkspaceDescription, .closeTab, .closeOtherTabsInPane, .closeWorkspace,
              .groupSelectedWorkspaces, .toggleFocusedWorkspaceGroupCollapsed,
              .reopenClosedBrowserPanel, .newSurface, .toggleTerminalCopyMode,
-             .focusTextBoxInput, .attachTextBoxFile, .sendCtrlFToTerminal:
+             .focusTextBoxInput, .attachTextBoxFile, .sendCtrlFToTerminal,
+             .openAgentChat:
             return .navigation
         case .focusLeft, .focusRight, .focusUp, .focusDown, .splitRight, .splitDown,
              .toggleSplitZoom, .equalizeSplits, .splitBrowserRight, .splitBrowserDown,
@@ -323,6 +326,8 @@ extension ShortcutAction {
         case .attachTextBoxFile: return "Attach File to TextBox Input"
         case .sendCtrlFToTerminal:
             return String(localized: "shortcut.sendCtrlFToTerminal.label", defaultValue: "Send Ctrl-F to Terminal")
+        case .openAgentChat:
+            return String(localized: "shortcut.openAgentChat.label", defaultValue: "Open Agent Chat")
         case .focusLeft: return "Focus Pane Left"
         case .focusRight: return "Focus Pane Right"
         case .focusUp: return "Focus Pane Up"

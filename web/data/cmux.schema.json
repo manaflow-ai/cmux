@@ -1139,6 +1139,7 @@
               "focusTextBoxInput",
               "attachTextBoxFile",
               "sendCtrlFToTerminal",
+              "openAgentChat",
               "focusLeft",
               "focusRight",
               "focusUp",

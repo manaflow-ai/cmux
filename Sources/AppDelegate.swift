@@ -13284,6 +13284,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             return true
         }
 
+        // Open (or focus) the agent chat pane for the focused terminal through
+        // the shared presenter path (same as Window → View Chat, the command
+        // palette, the terminal context menu, and `cmux agent-chat`).
+        if matchConfiguredShortcut(event: event, action: .openAgentChat) {
+            AgentChatPresenter().presentForFocusedPanel()
+            return true
+        }
+
         // Surface navigation: Cmd+Shift+] / Cmd+Shift+[
         if matchConfiguredShortcut(event: event, action: .nextSurface) {
             tabManager?.selectNextSurface()

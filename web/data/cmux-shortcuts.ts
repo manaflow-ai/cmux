@@ -145,6 +145,11 @@ export const shortcutCategories: ShortcutCategory[] = [
       { id: "focusTextBoxInput", combos: [["⌘", "⇧", "A"]], description: { en: "Switch focus between terminal and TextBox input", ja: "ターミナルとTextBox入力のフォーカスを切り替え" } },
       { id: "attachTextBoxFile", combos: [["⌥", "⌘", "⇧", "A"]], description: { en: "Attach file to TextBox input", ja: "TextBox入力にファイルを添付" } },
       {
+        id: "openAgentChat",
+        combos: [["⌘", "⇧", "C"]],
+        description: { en: "Open agent chat for the focused terminal", ja: "フォーカス中のターミナルのエージェントチャットを開く" },
+      },
+      {
         id: "sendCtrlFToTerminal",
         combos: [],
         description: { en: "Send Ctrl-F to terminal", ja: "ターミナルにCtrl-Fを送信" },
