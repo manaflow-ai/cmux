@@ -17,7 +17,10 @@ struct WorkspaceAgentChatButton: View {
     @State private var presentation: Presentation?
 
     var body: some View {
-        Group {
+        // The empty state still renders a zero-sized view (not EmptyView):
+        // `.task` never fires on a modifier chain whose content resolves to
+        // EmptyView, and this button must poll even when currently hidden.
+        ZStack {
             if let session = sessions.first {
                 Button {
                     open(session)
@@ -26,6 +29,10 @@ struct WorkspaceAgentChatButton: View {
                 }
                 .accessibilityLabel(L10n.string("mobile.workspace.agentChat", defaultValue: "Agent Chat"))
                 .accessibilityIdentifier("MobileWorkspaceAgentChatButton")
+            } else {
+                Color.clear
+                    .frame(width: 0, height: 0)
+                    .accessibilityHidden(true)
             }
         }
         .task(id: workspace.id) {
