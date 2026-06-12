@@ -31,7 +31,12 @@ private final class RouteRetireRecorder: MainWindowRouteRetiring {
         }
     }
 
-    func nextRetire() async {
+    /// Suspends until at least one retire has been recorded. Returns
+    /// immediately when one already happened, so callers cannot lose the
+    /// signal no matter how the retire task interleaves with this call
+    /// (a lost-signal version of this hung CI for the full job timeout).
+    func awaitFirstRetire() async {
+        if !reasons.isEmpty { return }
         await withCheckedContinuation { continuation in
             waiters.append(continuation)
         }
@@ -139,9 +144,8 @@ struct TerminalSurfaceRegistryTests {
         let surface = FakeSurface()
         registry.register(surface)
 
-        async let retire: Void = recorder.nextRetire()
         registry.unregister(surface)
-        await retire
+        await recorder.awaitFirstRetire()
         let reasons = await recorder.reasons
         #expect(reasons == ["terminalSurface.unregister"])
     }
