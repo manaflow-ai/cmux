@@ -10714,7 +10714,18 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         _ flags: NSEvent.ModifierFlags,
         suppressCommandPathHover: Bool
     ) -> ghostty_input_mods_e {
-        let effectiveFlags = suppressCommandPathHover ? flags.subtracting(.command) : flags
+        // When suppressing, clear the device-dependent Command bits along with
+        // the generic flag: modsFromFlags maps them to GHOSTTY_MODS_SUPER_RIGHT,
+        // and a side-only Super mod would re-dirty libghostty's mouse-mods
+        // state on every hover event while suppression is active.
+        let effectiveFlags = suppressCommandPathHover
+            ? NSEvent.ModifierFlags(
+                rawValue: flags.rawValue
+                    & ~NSEvent.ModifierFlags.command.rawValue
+                    & ~UInt(NX_DEVICELCMDKEYMASK)
+                    & ~UInt(NX_DEVICERCMDKEYMASK)
+            )
+            : flags
 #if DEBUG
         if suppressCommandPathHover, flags.contains(.command) {
             _ = CmuxUITestCapture.mutateJSONObjectIfConfigured(
