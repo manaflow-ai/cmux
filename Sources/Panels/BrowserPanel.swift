@@ -55,18 +55,6 @@ private struct BrowserFocusModePlainEscapeEventFingerprint: Equatable {
     }
 }
 
-struct BrowserProxyEndpoint: Equatable {
-    let host: String
-    let port: Int
-}
-
-struct BrowserRemoteWorkspaceStatus: Equatable {
-    let target: String
-    let connectionState: WorkspaceRemoteConnectionState
-    let heartbeatCount: Int
-    let lastHeartbeatAt: Date?
-}
-
 enum GhosttyBackgroundTheme {
     static func clampedOpacity(_ opacity: Double) -> CGFloat {
         WindowAppearanceSnapshot.clampedOpacity(opacity)
@@ -3886,7 +3874,7 @@ final class BrowserPanel: Panel, ObservableObject {
         lockedPortalHost = nil
 
         bindWebView(replacement)
-        applyRemoteProxyConfigurationIfAvailable()
+        applyProxyConfigurationIfAvailable()
         applyBrowserThemeModeIfNeeded()
         restoreSessionNavigationHistory(
             backHistoryURLStrings: history.backHistoryURLStrings,
@@ -4443,7 +4431,7 @@ final class BrowserPanel: Panel, ObservableObject {
         self.webView = webView
         self.insecureHTTPAlertFactory = { NSAlert() }
         hiddenWebViewDiscardManager.delegate = self
-        applyRemoteProxyConfigurationIfAvailable()
+        applyProxyConfigurationIfAvailable()
         BrowserProfileStore.shared.noteUsed(resolvedProfileID)
 
         // Set up navigation delegate
@@ -4750,7 +4738,7 @@ final class BrowserPanel: Panel, ObservableObject {
         guard !bypassesRemoteWorkspaceProxy else { return }
         guard remoteProxyEndpoint != endpoint else { return }
         remoteProxyEndpoint = endpoint
-        applyRemoteProxyConfigurationIfAvailable()
+        applyProxyConfigurationIfAvailable()
         resumePendingRemoteNavigationIfNeeded()
     }
 
@@ -4759,12 +4747,15 @@ final class BrowserPanel: Panel, ObservableObject {
         remoteWorkspaceStatus = status
     }
 
-    private func applyRemoteProxyConfigurationIfAvailable() {
+    private func applyProxyConfigurationIfAvailable() {
         guard #available(macOS 14.0, *) else { return }
 
         let store = webView.configuration.websiteDataStore
         guard let endpoint = remoteProxyEndpoint else {
-            store.proxyConfigurations = []
+            // Local panes mirror an active system proxy with loopback excluded
+            // (#5888); remote panes keep [] while their endpoint is pending/lost.
+            store.proxyConfigurations = usesRemoteWorkspaceProxy
+                ? [] : BrowserSystemProxyMirror.currentProxyConfigurations()
             return
         }
 
@@ -4840,7 +4831,7 @@ final class BrowserPanel: Panel, ObservableObject {
                 reason: "workspace_reattach"
             )
         }
-        applyRemoteProxyConfigurationIfAvailable()
+        applyProxyConfigurationIfAvailable()
         resumePendingRemoteNavigationIfNeeded()
     }
 
@@ -4909,6 +4900,7 @@ final class BrowserPanel: Panel, ObservableObject {
         refreshWebViewLifecycleState()
 
         bindWebView(replacement)
+        applyProxyConfigurationIfAvailable()
         applyBrowserThemeModeIfNeeded()
 
         if !history.backHistoryURLStrings.isEmpty || !history.forwardHistoryURLStrings.isEmpty {
@@ -5297,6 +5289,12 @@ final class BrowserPanel: Panel, ObservableObject {
                 guard let self else { return }
                 self.applyWebViewBackground(color: GhosttyBackgroundTheme.color(from: notification))
             }
+            .store(in: &webViewCancellables)
+
+        // Keep the local-workspace system-proxy mirror fresh when the user
+        // toggles a global proxy or switches network locations mid-session.
+        NotificationCenter.default.publisher(for: .browserSystemProxySettingsDidChange)
+            .sink { [weak self] _ in self?.applyProxyConfigurationIfAvailable() }
             .store(in: &webViewCancellables)
 
         // Apply the configured background for the freshly bound webview (covers
@@ -6119,7 +6117,9 @@ final class BrowserPanel: Panel, ObservableObject {
     }
 
     private func resumePendingRemoteNavigationIfNeeded() {
-        guard remoteProxyEndpoint != nil,
+        // Resume on endpoint arrival, or directly once the pane turned local
+        // (a stranded queue pins the hidden pane as non-discardable forever).
+        guard remoteProxyEndpoint != nil || !usesRemoteWorkspaceProxy,
               let navigation = pendingRemoteNavigation else {
             return
         }
