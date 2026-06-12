@@ -10590,6 +10590,25 @@ struct CMUXCLI {
         )
         defer { resizeSource.cancel() }
 
+        // Reconcile the remote PTY size once now that the SIGWINCH source is
+        // armed. The handshake captured the terminal size before the source
+        // existed (see `currentCLITerminalSize()` above); any SIGWINCH that
+        // arrived in that window was delivered with SIGWINCH's default
+        // disposition (ignore) and lost, with no later correction. On
+        // attach/reattach the surface's final grid size frequently lands inside
+        // that window, leaving the remote PTY frozen at the handshake size and
+        // corrupting full-screen TUIs. Pushing the current size here closes the
+        // gap; it is a no-op on the daemon when the size already matches.
+        sendSSHPTYResize(
+            client: client,
+            workspaceId: workspaceId,
+            surfaceID: surfaceID,
+            sessionID: sessionID,
+            attachmentID: attachmentID,
+            attachmentToken: attachmentToken,
+            socketLock: controlSocketLock
+        )
+
         DispatchQueue.global(qos: .userInteractive).async {
             var buffer = [UInt8](repeating: 0, count: 8192)
             while true {
@@ -10882,25 +10901,48 @@ struct CMUXCLI {
             queue: DispatchQueue(label: "com.cmux.ssh-pty.resize")
         )
         source.setEventHandler {
-            let size = self.currentCLITerminalSize()
-            socketLock.lock()
-            defer { socketLock.unlock() }
-            var params: [String: Any] = [
-                "workspace_id": workspaceId,
-                "session_id": sessionID,
-                "attachment_id": attachmentID,
-                "attachment_token": attachmentToken,
-                "cols": size.cols,
-                "rows": size.rows,
-            ]
-            if let surfaceID {
-                params["surface_id"] = surfaceID
-                params["allow_moved_surface"] = true
-            }
-            _ = try? client.sendV2(method: "workspace.remote.pty_resize", params: params)
+            self.sendSSHPTYResize(
+                client: client,
+                workspaceId: workspaceId,
+                surfaceID: surfaceID,
+                sessionID: sessionID,
+                attachmentID: attachmentID,
+                attachmentToken: attachmentToken,
+                socketLock: socketLock
+            )
         }
         source.resume()
         return source
+    }
+
+    /// Send the current terminal size to the remote PTY over the control
+    /// socket. Shared by the SIGWINCH handler and the post-attach reconcile so
+    /// both paths read the freshest size and serialize on `socketLock`.
+    private func sendSSHPTYResize(
+        client: SocketClient,
+        workspaceId: String,
+        surfaceID: String?,
+        sessionID: String,
+        attachmentID: String,
+        attachmentToken: String,
+        socketLock: NSLock
+    ) {
+        let size = currentCLITerminalSize()
+        socketLock.lock()
+        defer { socketLock.unlock() }
+        var params: [String: Any] = [
+            "workspace_id": workspaceId,
+            "session_id": sessionID,
+            "attachment_id": attachmentID,
+            "attachment_token": attachmentToken,
+            "cols": size.cols,
+            "rows": size.rows,
+        ]
+        if let surfaceID {
+            params["surface_id"] = surfaceID
+            params["allow_moved_surface"] = true
+        }
+        _ = try? client.sendV2(method: "workspace.remote.pty_resize", params: params)
     }
 
     private func connectLoopbackTCP(host: String, port: Int) throws -> Int32 {
