@@ -42,7 +42,7 @@
 2516	Sources/KeyboardShortcutSettings.swift
 2340	Sources/Mobile/MobileHostService.swift
 2327	cmuxTests/CJKIMEInputTests.swift
-2288	Sources/FileExplorerView.swift
+2314	Sources/FileExplorerView.swift
 2260	Sources/TerminalWindowPortal.swift
 2138	Sources/SessionPersistence.swift
 2123	cmuxTests/ShortcutAndCommandPaletteTests.swift
@@ -76,12 +76,12 @@
 1156	cmuxTests/SidebarOrderingTests.swift
 1144	Sources/VaultAgentProcessScanner.swift
 1139	cmuxTests/PiVaultAgentPersistenceTests.swift
+1126	cmuxTests/FileExplorerStoreTests.swift
 1107	Sources/AppDelegate+CmuxSSHURL.swift
 1096	Sources/GhosttyConfig.swift
+1093	cmuxUITests/BonsplitTabDragUITests.swift
 1084	cmuxTests/AgentHibernationTests.swift
 1084	cmuxTests/RestorableAgentSessionIndexTests.swift
-1068	cmuxTests/FileExplorerStoreTests.swift
-1058	cmuxUITests/BonsplitTabDragUITests.swift
 1021	cmuxUITests/TerminalCmdClickUITests.swift
 1006	cmuxTests/CmuxSSHURLRequestTests.swift
 1000	cmuxTests/CmuxTopSnapshotScopeTests.swift
@@ -121,12 +121,12 @@
 705	CLI/CMUXCLI+Config.swift
 705	cmuxUITests/BrowserOmnibarSuggestionsUITests.swift
 701	CLI/CMUXCLI+AgentHookDefinitions.swift
+698	Sources/RightSidebarPanelView.swift
 698	cmuxTests/RestorableAgentHookProviderResumeTests.swift
 697	cmuxTests/TerminalNotificationClearAllTests.swift
 696	cmuxTests/UpdatePillReleaseVisibilityTests.swift
 693	Sources/Panels/BrowserPopupWindowController.swift
 691	cmuxTests/TaskManagerResourcesTests.swift
-685	Sources/RightSidebarPanelView.swift
 683	Packages/CmuxSwiftRender/Sources/CmuxSwiftRender/SwiftViewInterpreter.swift
 683	Sources/Panels/CodexAppServerSession.swift
 681	Sources/Panels/AgentSessionProcessStore.swift

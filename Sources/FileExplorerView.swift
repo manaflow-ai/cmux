@@ -1033,7 +1033,8 @@ final class FileExplorerContainerView: NSView {
 
     func updatePresentation(_ nextPresentation: FileExplorerPanelPresentation) {
         guard presentation != nextPresentation else {
-            if presentation == .find {
+            // Re-selecting the active presentation is a no-op unless visibility drifted.
+            if presentation == .find, !isSearchVisible {
                 isSearchVisible = true
                 updateSearchLayout()
             }
@@ -1057,18 +1058,23 @@ final class FileExplorerContainerView: NSView {
         let normalizedStatus = statusMessage?.trimmingCharacters(in: .whitespacesAndNewlines)
         let hasStatus = normalizedStatus?.isEmpty == false
         let canShowTree = hasContent && !hasStatus
-        headerView.isHidden = !hasContent && !hasStatus
+        applyHidden(headerView, !hasContent && !hasStatus)
         updateSearchLayout(hasContent: canShowTree, isLoading: isLoading)
         let searchCanShow = isSearchVisible && canShowTree && !isLoading
-        emptyLabel.stringValue = hasStatus
+        let nextEmptyText = hasStatus
             ? normalizedStatus!
             : String(localized: "fileExplorer.empty", defaultValue: "No folder open")
-        emptyLabel.isHidden = canShowTree || searchCanShow || isLoading
-        loadingIndicator.isHidden = !isLoading
-        if isLoading {
-            loadingIndicator.startAnimation(nil)
-        } else {
-            loadingIndicator.stopAnimation(nil)
+        if emptyLabel.stringValue != nextEmptyText {
+            emptyLabel.stringValue = nextEmptyText
+        }
+        applyHidden(emptyLabel, canShowTree || searchCanShow || isLoading)
+        // Toggle the spinner only when the loading state actually changes.
+        if applyHidden(loadingIndicator, !isLoading) {
+            if isLoading {
+                loadingIndicator.startAnimation(nil)
+            } else {
+                loadingIndicator.stopAnimation(nil)
+            }
         }
     }
 
@@ -1235,11 +1241,29 @@ final class FileExplorerContainerView: NSView {
         let effectiveHasContent = hasContent ?? !currentRootPath.isEmpty
         let effectiveIsLoading = isLoading ?? false
         let showSearch = isSearchVisible && effectiveHasContent && !effectiveIsLoading
-        searchBarView.isHidden = !showSearch
-        searchBarHeightConstraint.constant = showSearch ? searchBarVisibleHeight : 0
-        searchScrollView.isHidden = !showSearch
-        scrollView.isHidden = showSearch || !effectiveHasContent || effectiveIsLoading
-        needsLayout = true
+        let nextSearchBarHeight = showSearch ? searchBarVisibleHeight : 0
+
+        // Assigning isHidden/constraints unconditionally fires KVO even when unchanged,
+        // which re-enters updateNSView and spins the main thread on macOS 26 (#4931).
+        var changed = false
+        if applyHidden(searchBarView, !showSearch) { changed = true }
+        if searchBarHeightConstraint.constant != nextSearchBarHeight {
+            searchBarHeightConstraint.constant = nextSearchBarHeight
+            changed = true
+        }
+        if applyHidden(searchScrollView, !showSearch) { changed = true }
+        if applyHidden(scrollView, showSearch || !effectiveHasContent || effectiveIsLoading) { changed = true }
+        if changed {
+            needsLayout = true
+        }
+    }
+
+    /// Sets `isHidden` only when it changes (a redundant write still fires KVO), returning whether it changed.
+    @discardableResult
+    private func applyHidden(_ view: NSView, _ hidden: Bool) -> Bool {
+        guard view.isHidden != hidden else { return false }
+        view.isHidden = hidden
+        return true
     }
 
     private func applySearchSnapshot(_ snapshot: FileSearchSnapshot) {
@@ -1886,11 +1910,13 @@ final class FileExplorerHeaderView: NSView {
     }
 
     func update(displayPath: String) {
+        guard self.displayPath != displayPath else { return }
         self.displayPath = displayPath
         applyHeaderState()
     }
 
     func updateQuickSearch(query: String?) {
+        guard quickSearchQuery != query else { return }
         quickSearchQuery = query
         applyHeaderState()
     }
