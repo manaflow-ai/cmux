@@ -420,6 +420,7 @@ jobs:
           # is confirmed to resolve standalone.
           PACKAGES=(
             CMUXAuthCore
+            CmuxAgentConversation
             CmuxAuthRuntime
             CmuxControlSocket
             CmuxFileWatch
