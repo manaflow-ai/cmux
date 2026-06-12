@@ -8,12 +8,14 @@ import CmuxSettings
 // value types; with CmuxSettings imported unconditionally the names are
 // ambiguous. These tests exercise the app-side paths, so pin the app types.
 private typealias StoredShortcut = cmux_DEV.StoredShortcut
-private typealias ShortcutStroke = cmux_DEV.ShortcutStroke
 #elseif canImport(cmux)
 @testable import cmux
 private typealias StoredShortcut = cmux.StoredShortcut
-private typealias ShortcutStroke = cmux.ShortcutStroke
 #endif
+
+// Line ~253 compares CmuxSettings.ShortcutAction.defaultStroke, so the
+// package stroke is the intended type here (unlike StoredShortcut above).
+private typealias ShortcutStroke = CmuxSettings.ShortcutStroke
 
 final class KeyboardShortcutContextTests: XCTestCase {
     func testRenameTabAndBrowserReloadCanShareDefaultChordAcrossContexts() {
