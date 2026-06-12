@@ -6,8 +6,11 @@ import Foundation
 ///
 /// Lives in the model package (with ``MobileConnectionState``) so it stays
 /// platform-neutral and `swift test` exercises it on any host, following the
-/// `MobileShellRouteAuthPolicy` pattern.
-public enum DeviceTreeAddDevicePolicy {
+/// `MobileShellRouteAuthPolicy` pattern. A value type (not a static-helper
+/// namespace) per the package API design policy.
+public struct DeviceTreeAddDevicePolicy: Sendable {
+    public init() {}
+
     /// Whether tapping Cancel in the add-device sheet may reset the store's
     /// pairing state via `cancelPairing()`.
     ///
@@ -17,7 +20,7 @@ public enum DeviceTreeAddDevicePolicy {
     /// already replaced the live client), but cancelling a freshly opened
     /// sheet while the shell is still connected must NOT tear down the live
     /// connection the user is actively using.
-    public static func cancelResetsPairingState(connectionState: MobileConnectionState) -> Bool {
+    public func cancelResetsPairingState(connectionState: MobileConnectionState) -> Bool {
         connectionState != .connected
     }
 
@@ -25,7 +28,25 @@ public enum DeviceTreeAddDevicePolicy {
     /// completes. Success leaves the shell connected (to the newly added
     /// device); failure leaves it disconnected with `connectionError` set, and
     /// the sheet stays up so the user can read the error and retry.
-    public static func dismissesAfterPairingAttempt(connectionState: MobileConnectionState) -> Bool {
+    public func dismissesAfterPairingAttempt(connectionState: MobileConnectionState) -> Bool {
         connectionState == .connected
+    }
+
+    /// Whether a completed add-device attempt should reconnect the Mac that
+    /// was live when the attempt started.
+    ///
+    /// The underlying pairing path is destructive: a failed (or cancelled)
+    /// attempt leaves the shell `.disconnected` even when a healthy connection
+    /// existed before it began. When the attempt started over a live
+    /// connection (`previousMacDeviceID` non-nil) and ended disconnected,
+    /// restore that Mac via `switchToMac` instead of stranding the user —
+    /// the same "never strand the user" contract `switchToMac` documents for
+    /// its own failure path. A successful attempt is connected (to the new
+    /// device), so no restore happens.
+    public func restoresPreviousConnection(
+        connectionState: MobileConnectionState,
+        previousMacDeviceID: String?
+    ) -> Bool {
+        connectionState != .connected && previousMacDeviceID != nil
     }
 }
