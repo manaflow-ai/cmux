@@ -131,6 +131,45 @@ private actor BlockingWorkspaceGitMetadataReader: WorkspaceGitMetadataReading {
     }
 }
 
+private actor CountingWorkspaceGitMetadataReader: WorkspaceGitMetadataReading {
+    private let metadata: GitWorkspaceMetadata
+    private var callCount = 0
+    private var callCountWaiters: [(Int, CheckedContinuation<Void, Never>)] = []
+
+    init(metadata: GitWorkspaceMetadata) {
+        self.metadata = metadata
+    }
+
+    func workspaceMetadata(for directory: String) async -> GitWorkspaceMetadata {
+        callCount += 1
+        resumeSatisfiedCallCountWaiters()
+        return metadata
+    }
+
+    func waitForCallCount(_ expected: Int) async {
+        guard callCount < expected else { return }
+        await withCheckedContinuation { continuation in
+            callCountWaiters.append((expected, continuation))
+        }
+    }
+
+    var observedCallCount: Int {
+        callCount
+    }
+
+    private func resumeSatisfiedCallCountWaiters() {
+        var remaining: [(Int, CheckedContinuation<Void, Never>)] = []
+        for waiter in callCountWaiters {
+            if callCount >= waiter.0 {
+                waiter.1.resume()
+            } else {
+                remaining.append(waiter)
+            }
+        }
+        callCountWaiters = remaining
+    }
+}
+
 private struct ProcessRunResult {
     let status: Int32
     let stdout: String
@@ -830,6 +869,78 @@ final class TabManagerPullRequestProbeTests: XCTestCase {
         )
         let finalObservedCallCount = await reader.observedCallCount
         XCTAssertEqual(finalObservedCallCount, 1)
+    }
+
+    func testInitialGitMetadataProbeStopsAfterRepositorySnapshot() async throws {
+        let defaults = UserDefaults.standard
+        let previousWatchGitStatus = defaults.object(forKey: SidebarWorkspaceDetailDefaults.watchGitStatusKey)
+        defaults.set(false, forKey: SidebarWorkspaceDetailDefaults.watchGitStatusKey)
+        defer {
+            restoreUserDefaultForTabManagerTests(
+                previousWatchGitStatus,
+                key: SidebarWorkspaceDetailDefaults.watchGitStatusKey
+            )
+        }
+
+        let directoryURL = FileManager.default.temporaryDirectory.appendingPathComponent(
+            "cmux-git-stop-after-repo-\(UUID().uuidString)",
+            isDirectory: true
+        )
+        try FileManager.default.createDirectory(at: directoryURL, withIntermediateDirectories: true)
+        defer {
+            try? FileManager.default.removeItem(at: directoryURL)
+        }
+
+        let reader = CountingWorkspaceGitMetadataReader(
+            metadata: GitWorkspaceMetadata(
+                isRepository: true,
+                branch: "main",
+                isDirty: false,
+                indexSignature: "index",
+                indexContentSignature: "content",
+                headSignature: "head"
+            )
+        )
+        let manager = TabManager(
+            autoWelcomeIfNeeded: false,
+            workspaceGitMetadataReader: reader
+        )
+        guard let workspace = manager.selectedWorkspace,
+              let panelId = workspace.focusedPanelId else {
+            XCTFail("Expected selected workspace with focused panel")
+            return
+        }
+
+        manager.updateSurfaceDirectory(
+            tabId: workspace.id,
+            surfaceId: panelId,
+            directory: directoryURL.path
+        )
+        defaults.set(true, forKey: SidebarWorkspaceDetailDefaults.watchGitStatusKey)
+        manager.scheduleInitialWorkspaceGitMetadataRefreshIfPossible(
+            workspaceId: workspace.id,
+            panelId: panelId,
+            reason: "test"
+        )
+
+        await reader.waitForCallCount(1)
+
+        XCTAssertTrue(
+            waitForCondition {
+                workspace.panelGitBranches[panelId]?.branch == "main"
+            },
+            "The first successful repository snapshot should update sidebar git metadata."
+        )
+
+        let secondRead = expectation(description: "retry read after repository snapshot")
+        secondRead.isInverted = true
+        Task {
+            await reader.waitForCallCount(2)
+            secondRead.fulfill()
+        }
+        await fulfillment(of: [secondRead], timeout: 0.8)
+        let observedCallCount = await reader.observedCallCount
+        XCTAssertEqual(observedCallCount, 1)
     }
 
     func testTrackedWorkspaceGitMetadataPollCandidatesExcludeDirectoriesWithoutResolvedGitMetadata() throws {
