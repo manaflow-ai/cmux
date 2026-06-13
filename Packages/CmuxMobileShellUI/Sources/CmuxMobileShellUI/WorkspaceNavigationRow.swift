@@ -35,16 +35,18 @@ struct WorkspaceNavigationRow: View {
     @State private var isRenaming = false
 
     var body: some View {
-        WorkspaceRow(
-            workspace: workspace,
-            connectionStatus: connectionStatus,
-            isSelected: navigationStyle == .sidebar && isSelected,
-            wrapWorkspaceTitles: wrapWorkspaceTitles,
-            previewLineLimit: previewLineLimit
-        )
-        .onTapGesture {
+        Button {
             selectWorkspace(workspace.id)
+        } label: {
+            WorkspaceRow(
+                workspace: workspace,
+                connectionStatus: connectionStatus,
+                isSelected: navigationStyle == .sidebar && isSelected,
+                wrapWorkspaceTitles: wrapWorkspaceTitles,
+                previewLineLimit: previewLineLimit
+            )
         }
+        .buttonStyle(.plain)
         .contentShape(Rectangle())
         .contextMenu { contextMenu }
         .swipeActions(edge: .leading, allowsFullSwipe: true) {

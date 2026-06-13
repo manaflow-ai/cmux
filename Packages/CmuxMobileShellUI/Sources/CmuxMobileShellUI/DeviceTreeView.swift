@@ -135,7 +135,11 @@ struct DeviceTreeView: View {
 
             if expansion.isExpanded(deviceExpansionID(device)) {
                 ForEach(device.instances) { instance in
-                    instanceRows(device: device, instance: instance, isConnectedDevice: isConnectedDevice)
+                    instanceRows(
+                        device: device,
+                        instance: instance,
+                        isConnectedDevice: isConnectedDevice
+                    )
                 }
             }
         }
