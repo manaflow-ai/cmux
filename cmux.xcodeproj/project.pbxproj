@@ -155,6 +155,7 @@
 		D35110010000000000000003 /* CmuxApplicationSupportDirectories.swift in Sources */ = {isa = PBXBuildFile; fileRef = D35110010000000000000002 /* CmuxApplicationSupportDirectories.swift */; };
 		5EDB6027B346C46521A93C74 /* CMUXAuthCore in Frameworks */ = {isa = PBXBuildFile; productRef = 29813FE5A6CBC1019289A251 /* CMUXAuthCore */; };
 		53750003A0B1C2D3E4F50003 /* CmuxAuthRuntime in Frameworks */ = {isa = PBXBuildFile; productRef = 53750002A0B1C2D3E4F50002 /* CmuxAuthRuntime */; };
+		5E55100000000000000000B3 /* CmuxBrowserPanel in Frameworks */ = {isa = PBXBuildFile; productRef = 5E55100000000000000000B2 /* CmuxBrowserPanel */; };
 		B9000063A1B2C3D4E5F60719 /* CMUXCLI+AgentHookDefinitions.swift in Sources */ = {isa = PBXBuildFile; fileRef = B9000062A1B2C3D4E5F60719 /* CMUXCLI+AgentHookDefinitions.swift */; };
 		B9000068A1B2C3D4E5F60719 /* CMUXCLI+AmpExtension.swift in Sources */ = {isa = PBXBuildFile; fileRef = B9000069A1B2C3D4E5F60719 /* CMUXCLI+AmpExtension.swift */; };
 		B9000050A1B2C3D4E5F60719 /* CMUXCLI+Config.swift in Sources */ = {isa = PBXBuildFile; fileRef = B9000051A1B2C3D4E5F60719 /* CMUXCLI+Config.swift */; };
@@ -1602,6 +1603,7 @@
 				F53000A0A1B2C3D4E5F60718 /* CMUXAgentVault in Frameworks */,
 				5EDB6027B346C46521A93C74 /* CMUXAuthCore in Frameworks */,
 				53750003A0B1C2D3E4F50003 /* CmuxAuthRuntime in Frameworks */,
+				5E55100000000000000000B3 /* CmuxBrowserPanel in Frameworks */,
 				5E55500000000000000000E3 /* CmuxCommandPalette in Frameworks */,
 				5E55300000000000000000C3 /* CmuxCommandPaletteUI in Frameworks */,
 				C750100000000000000000A3 /* CmuxControlSocket in Frameworks */,
@@ -2556,6 +2558,7 @@
 				C5A1FED200000000000000E6 /* CmuxSidebarRemoteRender */,
 				C19C5E0200000000000000A2 /* CmuxIPCService */,
 				5E55100000000000000000A2 /* CmuxSession */,
+				5E55100000000000000000B2 /* CmuxBrowserPanel */,
 				5E55200000000000000000B2 /* CmuxWindowing */,
 				5E55300000000000000000C2 /* CmuxCommandPaletteUI */,
 				5E55500000000000000000E2 /* CmuxCommandPalette */,
@@ -2724,6 +2727,7 @@
 				C5A1FED200000000000000E4 /* XCLocalSwiftPackageReference "CmuxSidebarInterpreterService" */,
 				C19C5E0100000000000000A1 /* XCLocalSwiftPackageReference "CmuxIPCService" */,
 				5E55100000000000000000A1 /* XCLocalSwiftPackageReference "CmuxSession" */,
+				5E55100000000000000000B1 /* XCLocalSwiftPackageReference "CmuxBrowserPanel" */,
 				5E55200000000000000000B1 /* XCLocalSwiftPackageReference "CmuxWindowing" */,
 				5E55300000000000000000C1 /* XCLocalSwiftPackageReference "CmuxCommandPaletteUI" */,
 				5E55500000000000000000E1 /* XCLocalSwiftPackageReference "CmuxCommandPalette" */,
@@ -4129,6 +4133,10 @@
 			isa = XCLocalSwiftPackageReference;
 			relativePath = Packages/CmuxSession;
 		};
+		5E55100000000000000000B1 /* XCLocalSwiftPackageReference "CmuxBrowserPanel" */ = {
+			isa = XCLocalSwiftPackageReference;
+			relativePath = Packages/CmuxBrowserPanel;
+		};
 		5E55200000000000000000B1 /* XCLocalSwiftPackageReference "CmuxWindowing" */ = {
 			isa = XCLocalSwiftPackageReference;
 			relativePath = Packages/CmuxWindowing;
@@ -4333,6 +4341,11 @@
 			isa = XCSwiftPackageProductDependency;
 			package = 5E55100000000000000000A1 /* XCLocalSwiftPackageReference "CmuxSession" */;
 			productName = CmuxSession;
+		};
+		5E55100000000000000000B2 /* CmuxBrowserPanel */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 5E55100000000000000000B1 /* XCLocalSwiftPackageReference "CmuxBrowserPanel" */;
+			productName = CmuxBrowserPanel;
 		};
 		5E55200000000000000000B2 /* CmuxWindowing */ = {
 			isa = XCSwiftPackageProductDependency;

@@ -3,6 +3,7 @@ import Combine
 import WebKit
 import AppKit
 import Bonsplit
+import CmuxBrowserPanel
 import Network
 import CFNetwork
 import SQLite3
@@ -7364,7 +7365,7 @@ extension BrowserPanel {
         // WebKit inspector show can trigger transient first-responder churn while
         // panel attachment is still stabilizing. Keep this auto-restore path from
         // mutating first responder so AppKit doesn't walk tearing-down responder chains.
-        cmuxWithWindowFirstResponderBypass {
+        AppDelegate.shared?.browserFirstResponderBypass.withBypass {
             _ = revealDeveloperTools(inspector)
         }
         setPreferredDeveloperToolsVisible(true)
