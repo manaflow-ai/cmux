@@ -56,11 +56,28 @@ struct NotesTreeAnonymousAgentObservation: Equatable, Sendable {
     var startedAt: TimeInterval
 }
 
+/// A live terminal pane. Every terminal in the workspace appears in the Notes
+/// tree as a virtual folder row carrying a pointer back to its panel; the
+/// pane's attached flat notes and the agent sessions observed in it nest
+/// beneath it, so "the note attached to this terminal" has a stable home even
+/// before (or without) an agent running there.
+struct NotesTreeObservedTerminal: Equatable, Sendable {
+    /// The terminal panel's UUID string — the pointer used to focus it.
+    var panelId: String
+    /// The pane's note anchor (`Workspace.noteAnchorIdsByPanelId`) when one
+    /// was minted — links pane-attached flat notes and session records to
+    /// this terminal for nesting.
+    var anchorId: String?
+    /// The tab title at observation time.
+    var title: String
+}
+
 /// Everything the app layer can tell the store about agents in this
 /// workspace's panes for one refresh pass.
 struct NotesTreeObservation: Equatable, Sendable {
     var sessions: [NotesTreeObservedSession] = []
     var anonymousAgents: [NotesTreeAnonymousAgentObservation] = []
+    var terminals: [NotesTreeObservedTerminal] = []
 }
 
 /// `ps -t` helper for pane↔process correlation. Agent processes survive app
@@ -454,7 +471,8 @@ enum NotesTreeStorage {
         switch kind {
         case .folder: return 0
         case .note: return 1
-        case .sessionFolder: return 2
+        case .terminalFolder: return 2
+        case .sessionFolder: return 3
         }
     }
 

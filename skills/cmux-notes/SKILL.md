@@ -69,6 +69,10 @@ $CMUX_WORKSPACE_NOTES_DIR/
 - **Session folders** are directories containing a `_session.json` marker
   (`{agent, sessionId, cwd, title, modified}`). File a note "under a session" by
   creating/moving it **inside** that folder.
+- **Terminal rows** (sidebar-only): the workspace's live terminal panes also
+  appear in cmux's Notes tab as virtual folders, with their attached `cmux note`
+  notes and agent sessions nested beneath them. They are not directories on
+  disk — never look for (or try to create) them in the filesystem.
 - **Never create, edit, move, or delete `_workspace.json` or `_session.json`**, and
   ignore dotfiles. They are cmux-managed; touching them breaks the sidebar binding.
   If your session has no folder yet, don't fabricate one — write at the workspace

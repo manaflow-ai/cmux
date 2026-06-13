@@ -193,6 +193,7 @@ struct RightSidebarPanelView: View {
     let onOpenFilePreview: (String) -> Void
     let onOpenNote: (NotesTreeNode, _ editImmediately: Bool) -> Void
     let onResumeNoteSession: (NotesSessionMarker) -> Void
+    let onFocusNoteTerminal: (UUID) -> Void
     let onOpenAsPane: (RightSidebarMode) -> Void
     let onClose: () -> Void
 
@@ -454,7 +455,8 @@ struct RightSidebarPanelView: View {
                 NotesTreePanelView(
                     store: notesTreeStore,
                     onOpenNote: onOpenNote,
-                    onResumeMarker: onResumeNoteSession
+                    onResumeMarker: onResumeNoteSession,
+                    onFocusTerminalPanel: onFocusNoteTerminal
                 )
                 .onAppear {
                     notesTreeStore.setVisible(true)

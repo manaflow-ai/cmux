@@ -2283,6 +2283,11 @@ struct ContentView: View {
             onResumeNoteSession: { marker in
                 resumeNoteSession(marker: marker)
             },
+            onFocusNoteTerminal: { panelId in
+                guard let workspace = tabManager.selectedWorkspace,
+                      workspace.panels[panelId] != nil else { return }
+                workspace.focusPanel(panelId)
+            },
             onOpenAsPane: { mode in
                 openRightSidebarToolPane(mode)
             },

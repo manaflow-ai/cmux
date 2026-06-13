@@ -50,6 +50,11 @@ final class NotesTreeStore: ObservableObject {
     /// default; only entries listed here stay collapsed across reloads.
     private var collapsedPaths: Set<String> = []
 
+    /// The workspace's live terminal panes from the latest observation pass.
+    /// Each becomes a virtual folder row pointing back at its panel, with the
+    /// pane's attached flat notes and observed sessions nested beneath it.
+    private(set) var observedTerminals: [NotesTreeObservedTerminal] = []
+
     private var watchers: [FileWatcher] = []
     private var watcherTasks: [Task<Void, Never>] = []
     private var watchedDirs: Set<String> = []
@@ -118,6 +123,7 @@ final class NotesTreeStore: ObservableObject {
         emptyObservationRetryTask = nil
         lastMarkerRefresh = nil
         emptyObservationRetries = 0
+        observedTerminals = []
         reload()
         refreshSessions()
     }
@@ -140,9 +146,18 @@ final class NotesTreeStore: ObservableObject {
         observedSessionsProvider = nil
         resolvedRootPath = nil
         notesDirPath = nil
+        observedTerminals = []
         rootNodes = []
         headerDisplayPath = ""
         contentRevision &+= 1
+    }
+
+    /// Adopt the latest terminal-pane observation; reloads when it changed.
+    /// Called from the session-refresh pass (and tests).
+    func applyObservedTerminals(_ terminals: [NotesTreeObservedTerminal]) {
+        guard terminals != observedTerminals else { return }
+        observedTerminals = terminals
+        reload()
     }
 
     /// Reload from disk (Notes-tab appear). Also kicks the throttled session
@@ -212,7 +227,43 @@ final class NotesTreeStore: ObservableObject {
         let records = NotesTreeStorage.readWorkspaceSessions(inRoot: root)
         nodes.append(contentsOf: sessionRowNodes(records: records, materializedInto: nodes))
 
-        // Session lookup for nesting (virtual rows + materialized folders).
+        // Terminal rows: every live terminal pane, in pane order, as a virtual
+        // folder pointing back at its panel. Built before nesting so anchored
+        // notes and sessions can land beneath the terminal that owns them.
+        var terminalNodeByAnchor: [String: NotesTreeNode] = [:]
+        let terminalNodes = observedTerminals.map { terminal in
+            let node = NotesTreeNode(
+                name: terminal.title,
+                path: "cmux-virtual-terminal://\(terminal.panelId)",
+                kind: .terminalFolder(terminal),
+                isVirtual: true,
+                children: []
+            )
+            if let anchor = terminal.anchorId { terminalNodeByAnchor[anchor] = node }
+            return node
+        }
+
+        // A VIRTUAL session row whose record anchors to a live terminal nests
+        // under that terminal — "claude running in this pane" sits beneath the
+        // pane. Materialized session folders keep their real disk position.
+        if !terminalNodeByAnchor.isEmpty {
+            var anchorBySessionId: [String: String] = [:]
+            for record in records {
+                if let anchor = record.surfaceAnchorId { anchorBySessionId[record.sessionId] = anchor }
+            }
+            nodes.removeAll { node in
+                guard node.isVirtual,
+                      let marker = node.kind.sessionMarker,
+                      let anchor = anchorBySessionId[marker.sessionId],
+                      let terminalNode = terminalNodeByAnchor[anchor] else { return false }
+                terminalNode.children = (terminalNode.children ?? []) + [node]
+                return true
+            }
+        }
+        nodes.append(contentsOf: terminalNodes)
+
+        // Session lookup for nesting (virtual rows + materialized folders),
+        // including rows already moved under a terminal.
         var sessionNodeById: [String: NotesTreeNode] = [:]
         func indexSessions(_ nodes: [NotesTreeNode]) {
             for node in nodes {
@@ -226,8 +277,8 @@ final class NotesTreeStore: ObservableObject {
             if let anchor = record.surfaceAnchorId { sessionIdBySurfaceAnchor[anchor] = record.sessionId }
         }
 
-        // This workspace's flat notes: nested under their pane's session when
-        // known, top-level otherwise.
+        // This workspace's flat notes: nested under their pane's live terminal
+        // when one matches, else under their pane's session, top-level last.
         if let projectRoot, let anchorId = workspaceAnchorId {
             for ref in NotesTreeStorage.listIndexedNotes(projectRoot: projectRoot, workspaceAnchorId: anchorId) {
                 // A flat note whose body was moved INSIDE the workspace folder
@@ -236,8 +287,11 @@ final class NotesTreeStore: ObservableObject {
                 guard !NotesTreeStorage.isWithin(child: ref.path, orEqualTo: root) else { continue }
                 let node = NotesTreeNode(name: ref.title, path: ref.path, kind: .note)
                 if let anchor = ref.surfaceAnchorId,
-                   let sessionId = sessionIdBySurfaceAnchor[anchor],
-                   let sessionNode = sessionNodeById[sessionId] {
+                   let terminalNode = terminalNodeByAnchor[anchor] {
+                    terminalNode.children = (terminalNode.children ?? []) + [node]
+                } else if let anchor = ref.surfaceAnchorId,
+                          let sessionId = sessionIdBySurfaceAnchor[anchor],
+                          let sessionNode = sessionNodeById[sessionId] {
                     sessionNode.children = (sessionNode.children ?? []) + [node]
                 } else {
                     nodes.append(node)
@@ -248,7 +302,21 @@ final class NotesTreeStore: ObservableObject {
         for sessionNode in sessionNodeById.values {
             sessionNode.children?.sort(by: nodeDisplayOrder)
         }
-        nodes.sort(by: nodeDisplayOrder)
+        for terminalNode in terminalNodes {
+            terminalNode.children?.sort(by: nodeDisplayOrder)
+        }
+        // Terminals keep pane order (the order they sit in the workspace),
+        // not name order; everything else uses the standard display order.
+        let terminalPaneOrder: [String: Int] = Dictionary(
+            uniqueKeysWithValues: observedTerminals.enumerated().map { ($0.element.panelId, $0.offset) }
+        )
+        nodes.sort { lhs, rhs in
+            if let lhsTerminal = lhs.kind.terminalMarker, let rhsTerminal = rhs.kind.terminalMarker {
+                return (terminalPaneOrder[lhsTerminal.panelId] ?? 0)
+                    < (terminalPaneOrder[rhsTerminal.panelId] ?? 0)
+            }
+            return nodeDisplayOrder(lhs, rhs)
+        }
         rootNodes = nodes
         contentRevision &+= 1
         refreshWatchers(forRoot: root)
@@ -492,10 +560,20 @@ final class NotesTreeStore: ObservableObject {
                 "notes.refresh observed=\(observed.count) late=\(lateObserved.count) "
                 + "anon=\(anonymous.count) anonResolved=\(resolvedAnonymous.count) "
                 + "folders=\(folders.count) live=\(liveSnapshot.count) changed=\(changed) "
+                + "terminals=\(lateObservation.terminals.count) "
                 + "records=\(NotesTreeStorage.readWorkspaceSessions(inRoot: root).count)"
             )
             #endif
-            if changed { self.reload() }
+            // The late pass re-observed the panes; prefer it (it includes any
+            // terminal the cold first pass missed). applyObservedTerminals
+            // reloads when the pane set changed, so the plain `changed` reload
+            // below only runs when it didn't already.
+            let terminals = lateObservation.terminals.isEmpty
+                ? observation.terminals
+                : lateObservation.terminals
+            let terminalsChanged = terminals != self.observedTerminals
+            self.applyObservedTerminals(terminals)
+            if changed, !terminalsChanged { self.reload() }
             if allObserved.isEmpty, self.emptyObservationRetries < self.maxEmptyObservationRetries {
                 self.emptyObservationRetries += 1
                 self.emptyObservationRetryTask?.cancel()

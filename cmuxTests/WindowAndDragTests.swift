@@ -1831,6 +1831,7 @@ final class WindowDragHandleHitTests: XCTestCase {
             onOpenFilePreview: { _ in },
             onOpenNote: { _, _ in },
             onResumeNoteSession: { _ in },
+            onFocusNoteTerminal: { _ in },
             onOpenAsPane: { _ in },
             onClose: {}
         )

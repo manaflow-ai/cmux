@@ -527,6 +527,83 @@ import Testing
         }
     }
 
+    /// Every observed terminal becomes a virtual folder row; a pane-attached
+    /// flat note and the session record carrying the pane's anchor nest under
+    /// that terminal instead of floating at the root, so "the note attached
+    /// to this terminal" has a stable home with or without an agent running.
+    @Test @MainActor func terminalRowsNestAnchoredNotesAndSessions() throws {
+        let root = try NotesTreeStorage.ensureWorkspaceRoot(
+            projectRoot: projectRoot, cwd: "/work", title: "WS", anchorId: "anchor-term"
+        )
+        let notesDir = NoteSupport.notesDirectory(forProjectRoot: projectRoot)
+        struct IndexFixture: Codable {
+            var version = 1
+            var notes: [CmuxNoteRecord]
+        }
+        let fixture = IndexFixture(notes: [
+            CmuxNoteRecord(
+                id: "pane",
+                slug: "pane-note",
+                title: "Pane note",
+                bodyPath: "notes/pane.md",
+                attachments: [
+                    CmuxNoteAttachment(
+                        kind: .surface,
+                        workspaceAnchorId: "anchor-term",
+                        surfaceAnchorId: "anchor-pane-1",
+                        surfaceKind: "terminal",
+                        createdAt: 1
+                    )
+                ],
+                createdAt: 1,
+                updatedAt: 2
+            )
+        ])
+        try JSONEncoder().encode(fixture).write(
+            to: URL(fileURLWithPath: (notesDir as NSString).appendingPathComponent("index.json"))
+        )
+        try write("pane body", to: (notesDir as NSString).appendingPathComponent("pane.md"))
+        _ = NotesTreeStorage.updateWorkspaceSessions(
+            inRoot: root,
+            observed: [
+                NotesTreeObservedSession(agent: "claude", sessionId: "s-term", surfaceAnchorId: "anchor-pane-1")
+            ],
+            live: [],
+            now: 100
+        )
+
+        let store = NotesTreeStore()
+        store.setWorkspace(
+            title: "WS", projectRoot: projectRoot, currentDirectory: "/work", anchorId: "anchor-term"
+        )
+        store.applyObservedTerminals([
+            NotesTreeObservedTerminal(panelId: UUID().uuidString, anchorId: "anchor-pane-1", title: "build shell"),
+            NotesTreeObservedTerminal(panelId: UUID().uuidString, anchorId: nil, title: "scratch")
+        ])
+
+        // Both terminals appear, in pane order, as virtual rows.
+        let terminalRows = store.rootNodes.compactMap { node in
+            node.kind.terminalMarker.map { (node: node, marker: $0) }
+        }
+        #expect(terminalRows.map(\.marker.title) == ["build shell", "scratch"])
+        #expect(terminalRows.allSatisfy(\.node.isVirtual))
+
+        // The anchored terminal owns the pane note and the session row …
+        let anchored = try #require(terminalRows.first { $0.marker.anchorId == "anchor-pane-1" })
+        let children = anchored.node.children ?? []
+        #expect(children.contains { $0.displayName == "Pane note" })
+        #expect(children.contains { $0.kind.sessionMarker?.sessionId == "s-term" })
+
+        // … and neither floats at the root anymore.
+        #expect(!store.rootNodes.contains { $0.displayName == "Pane note" })
+        #expect(!store.rootNodes.contains { $0.kind.sessionMarker?.sessionId == "s-term" })
+
+        // The anchorless terminal stays an empty pointer row.
+        let bare = try #require(terminalRows.first { $0.marker.anchorId == nil })
+        #expect((bare.node.children ?? []).isEmpty)
+        #expect(!bare.node.isExpandable)
+    }
+
     /// Note classification (which enables implicit autosave) must reject
     /// symlinked note files and untrusted roots — a committed
     /// `.cmux/notes/x.md -> elsewhere` must stay a plain markdown file.

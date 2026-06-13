@@ -102,6 +102,9 @@ final class NotesTreeCellView: NSTableCellView, NSTextFieldDelegate {
         case .sessionFolder(let marker):
             applyAgentIcon(forAgent: marker.agent)
             setTime(marker.modified)
+        case .terminalFolder:
+            applySymbolIcon("terminal", style: style, tint: style.folderIconTint)
+            setTime(nil)
         }
     }
 

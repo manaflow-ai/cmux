@@ -12204,8 +12204,28 @@ final class Workspace: Identifiable, ObservableObject {
     /// them, but the pane TTY and the live pid are current-run ground truth.
     /// Each entry carries the pane's note anchor (when one was minted, never
     /// minting) so pane-attached flat notes can nest under their session.
+    /// Every terminal pane in this workspace, in pane/tab order, as Notes-tree
+    /// terminal rows: panel pointer + note anchor (when minted) + tab title.
+    private func notesTreeObservedTerminals() -> [NotesTreeObservedTerminal] {
+        var terminals: [NotesTreeObservedTerminal] = []
+        for paneId in bonsplitController.allPaneIds {
+            for tab in bonsplitController.tabs(inPane: paneId) {
+                guard let panelId = panelIdFromSurfaceId(tab.id),
+                      let terminal = panels[panelId] as? TerminalPanel else { continue }
+                let title = panelCustomTitles[panelId] ?? terminal.displayTitle
+                terminals.append(NotesTreeObservedTerminal(
+                    panelId: panelId.uuidString,
+                    anchorId: noteAnchorIdsByPanelId[panelId],
+                    title: title
+                ))
+            }
+        }
+        return terminals
+    }
+
     func notesTreeObservedAgentSessions() async -> NotesTreeObservation {
         SharedLiveAgentIndex.shared.scheduleRefreshIfStale()
+        let terminals = notesTreeObservedTerminals()
         var seen = Set<String>()
         var observed: [NotesTreeObservedSession] = []
         func add(_ snapshot: SessionRestorableAgentSnapshot, panelId: UUID?) {
@@ -12241,7 +12261,9 @@ final class Workspace: Identifiable, ObservableObject {
         // carry — and the only signal at all for bare launches that bypassed
         // the hook wrapper (user PATH/alias shadowing).
         let ttyByPanel = surfaceTTYNames
-        guard !ttyByPanel.isEmpty else { return NotesTreeObservation(sessions: observed) }
+        guard !ttyByPanel.isEmpty else {
+            return NotesTreeObservation(sessions: observed, terminals: terminals)
+        }
         var panelByTTY: [String: UUID] = [:]
         for (panelId, tty) in ttyByPanel {
             panelByTTY[NotesTreePaneProcessLookup.normalizeTTY(tty)] = panelId
@@ -12286,7 +12308,7 @@ final class Workspace: Identifiable, ObservableObject {
             + "observed=\(observed.count) anon=\(anonymous.count)"
         )
         #endif
-        return NotesTreeObservation(sessions: observed, anonymousAgents: anonymous)
+        return NotesTreeObservation(sessions: observed, anonymousAgents: anonymous, terminals: terminals)
     }
 
     /// The working directory app-level actions (diff viewer, configured commands)

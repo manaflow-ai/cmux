@@ -14,11 +14,15 @@ enum NotesTreeKind: Equatable, Sendable {
     case note
     /// A directory backed by an agent session, carrying its resume metadata.
     case sessionFolder(NotesSessionMarker)
+    /// A live terminal pane in this workspace (always virtual): a pointer row
+    /// that focuses its panel, with the pane's attached notes and observed
+    /// agent sessions nested beneath it.
+    case terminalFolder(NotesTreeObservedTerminal)
 
-    /// Whether this kind is a directory (folder or session folder).
+    /// Whether this kind is a directory (folder, session, or terminal folder).
     var isDirectory: Bool {
         switch self {
-        case .folder, .sessionFolder:
+        case .folder, .sessionFolder, .terminalFolder:
             return true
         case .note:
             return false
@@ -28,6 +32,12 @@ enum NotesTreeKind: Equatable, Sendable {
     /// The session marker when this is a session folder, else `nil`.
     var sessionMarker: NotesSessionMarker? {
         if case .sessionFolder(let marker) = self { return marker }
+        return nil
+    }
+
+    /// The terminal observation when this is a terminal row, else `nil`.
+    var terminalMarker: NotesTreeObservedTerminal? {
+        if case .terminalFolder(let marker) = self { return marker }
         return nil
     }
 }
@@ -81,7 +91,7 @@ final class NotesTreeNode: Identifiable {
         switch kind {
         case .folder:
             return true
-        case .sessionFolder:
+        case .sessionFolder, .terminalFolder:
             return !(children?.isEmpty ?? true)
         case .note:
             return false
@@ -98,6 +108,11 @@ final class NotesTreeNode: Identifiable {
             // a single-line label renders as blank; collapse for display.
             let trimmed = NotesTreeStorage.sanitizedSessionTitle(marker.title)
             return trimmed.isEmpty ? name : trimmed
+        case .terminalFolder(let marker):
+            let trimmed = NotesTreeStorage.sanitizedSessionTitle(marker.title)
+            return trimmed.isEmpty
+                ? String(localized: "notes.tree.terminalRow.fallback", defaultValue: "Terminal")
+                : trimmed
         case .note:
             return name.hasSuffix(".md") ? String(name.dropLast(3)) : name
         case .folder:

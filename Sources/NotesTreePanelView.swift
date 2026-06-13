@@ -17,6 +17,8 @@ struct NotesTreePanelView: NSViewRepresentable {
     let onOpenNote: (NotesTreeNode, _ editImmediately: Bool) -> Void
     /// Resume the Claude session backing a session folder.
     let onResumeMarker: (NotesSessionMarker) -> Void
+    /// Focus the terminal panel a terminal row points at.
+    let onFocusTerminalPanel: (UUID) -> Void
 
     static let movePasteboardType = NSPasteboard.PasteboardType("com.cmux.notes-tree-move")
     /// Set on the drag pasteboard when the dragged item is a session folder, so
@@ -33,7 +35,12 @@ struct NotesTreePanelView: NSViewRepresentable {
     static let tabTransferPasteboardType = NSPasteboard.PasteboardType("com.splittabbar.tabtransfer")
 
     func makeCoordinator() -> Coordinator {
-        Coordinator(store: store, onOpenNote: onOpenNote, onResumeMarker: onResumeMarker)
+        Coordinator(
+            store: store,
+            onOpenNote: onOpenNote,
+            onResumeMarker: onResumeMarker,
+            onFocusTerminalPanel: onFocusTerminalPanel
+        )
     }
 
     func makeNSView(context: Context) -> NotesTreeContainerView {
@@ -47,6 +54,7 @@ struct NotesTreePanelView: NSViewRepresentable {
         coordinator.store = store
         coordinator.onOpenNote = onOpenNote
         coordinator.onResumeMarker = onResumeMarker
+        coordinator.onFocusTerminalPanel = onFocusTerminalPanel
         // Defer reloads while an inline rename is typing (reloadData would tear
         // the field editor down mid-edit); the rename's end flushes the miss.
         if container.appliedRevision != store.contentRevision, !coordinator.isRenaming {
@@ -97,16 +105,19 @@ struct NotesTreePanelView: NSViewRepresentable {
         var store: NotesTreeStore
         var onOpenNote: (NotesTreeNode, _ editImmediately: Bool) -> Void
         var onResumeMarker: (NotesSessionMarker) -> Void
+        var onFocusTerminalPanel: (UUID) -> Void
         weak var container: NotesTreeContainerView?
 
         init(
             store: NotesTreeStore,
             onOpenNote: @escaping (NotesTreeNode, _ editImmediately: Bool) -> Void,
-            onResumeMarker: @escaping (NotesSessionMarker) -> Void
+            onResumeMarker: @escaping (NotesSessionMarker) -> Void,
+            onFocusTerminalPanel: @escaping (UUID) -> Void
         ) {
             self.store = store
             self.onOpenNote = onOpenNote
             self.onResumeMarker = onResumeMarker
+            self.onFocusTerminalPanel = onFocusTerminalPanel
         }
 
         // MARK: Data source
@@ -228,6 +239,7 @@ struct NotesTreePanelView: NSViewRepresentable {
             switch node.kind {
             case .note: onOpenNote(node, false)
             case .sessionFolder(let marker): onResumeMarker(marker)
+            case .terminalFolder(let marker): focusTerminal(marker)
             case .folder: break
             }
         }
@@ -235,14 +247,18 @@ struct NotesTreePanelView: NSViewRepresentable {
         /// Double-click and keyboard Return share this: open notes; click into
         /// directories like the Files tree. A session row with notes filed
         /// under it is a directory; a bare session row (virtual or empty) acts
-        /// like a Vault row and resumes.
+        /// like a Vault row and resumes. Terminal rows behave the same way:
+        /// empty ones are pure pointers that focus their panel, ones with
+        /// content expand.
         func activate(_ node: NotesTreeNode, in outlineView: NSOutlineView) {
             switch node.kind {
             case .note:
                 onOpenNote(node, false)
             case .sessionFolder(let marker) where !node.isExpandable:
                 onResumeMarker(marker)
-            case .folder, .sessionFolder:
+            case .terminalFolder(let marker) where !node.isExpandable:
+                focusTerminal(marker)
+            case .folder, .sessionFolder, .terminalFolder:
                 if outlineView.isItemExpanded(node) {
                     outlineView.collapseItem(node)
                 } else {
@@ -253,6 +269,11 @@ struct NotesTreePanelView: NSViewRepresentable {
 
         func resume(_ node: NotesTreeNode) {
             if case .sessionFolder(let marker) = node.kind { onResumeMarker(marker) }
+        }
+
+        func focusTerminal(_ marker: NotesTreeObservedTerminal) {
+            guard let panelId = UUID(uuidString: marker.panelId) else { return }
+            onFocusTerminalPanel(panelId)
         }
 
         func revealInFinder(_ node: NotesTreeNode) {
@@ -393,6 +414,9 @@ struct NotesTreePanelView: NSViewRepresentable {
 
         func outlineView(_ outlineView: NSOutlineView, pasteboardWriterForItem item: Any) -> NSPasteboardWriting? {
             guard let node = item as? NotesTreeNode, !node.path.isEmpty else { return nil }
+            // Terminal rows are pure pointers: nothing on disk to move and no
+            // session payload to carry, so they don't drag.
+            if case .terminalFolder = node.kind { return nil }
             // Note rows drag with the full Files-tab payload (fileURL +
             // preview transfer types) so terminal drops insert the path or
             // open the preview, with Shift toggling the alternate. The window
@@ -457,6 +481,9 @@ struct NotesTreePanelView: NSViewRepresentable {
         ) -> NSDragOperation {
             let pb = info.draggingPasteboard
             let destNode = dropDestination(for: item, in: outlineView)
+            // Terminal rows have no disk location to receive a drop; attach
+            // notes to a terminal through New Note / `cmux note` instead.
+            if let destNode, case .terminalFolder = destNode.kind { return [] }
             guard let destFolder = destNode?.path ?? store.resolvedRootPath else { return [] }
 
             // Internal move of a note/folder/session already in this tree.

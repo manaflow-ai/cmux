@@ -437,12 +437,19 @@ final class NotesTreeOutlineView: NSOutlineView {
                 menu.addItem(.separator())
                 add(String(localized: "notes.action.delete", defaultValue: "Delete"), #selector(deleteContext))
             }
+        case .terminalFolder:
+            // A live pane pointer: nothing on disk to mutate. Notes attach to
+            // it via New Note on the surface or `cmux note new`.
+            add(String(localized: "notes.terminal.focus", defaultValue: "Focus terminal"), #selector(focusTerminalContext))
         }
         return menu
     }
 
     @objc private func openContext() { if let node = contextNode { coordinator?.open(node) } }
     @objc private func resumeContext() { if let node = contextNode { coordinator?.resume(node) } }
+    @objc private func focusTerminalContext() {
+        if let marker = contextNode?.kind.terminalMarker { coordinator?.focusTerminal(marker) }
+    }
     @objc private func renameContext() { if let node = contextNode { coordinator?.beginRename(node, in: self) } }
     @objc private func revealContext() { if let node = contextNode { coordinator?.revealInFinder(node) } }
     @objc private func deleteContext() { if let node = contextNode { coordinator?.delete(node) } }
