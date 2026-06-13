@@ -127,15 +127,17 @@ import Testing
         // New-phone-scans-new-QR: the minimal v2 grammar (bare routes, no
         // payload blob) routes through the same input decoder as everything
         // else the scanner or a deep link can hand us.
+        let binding = try #require(CmxPairingQRCode.emailBinding(for: "user@example.com"))
         let decoded = try CmxAttachTicketInput.decode(
-            "cmux-ios://attach?v=2&e=user@example.com&av=0.64.15&ab=42&r=lawrences-mac.tail1234.ts.net:58465&r=100.64.0.5:58465"
+            "cmux-ios://attach?v=2&eb=\(binding)&av=0.64.15&ab=42&r=lawrences-mac.tail1234.ts.net:58465&r=100.64.0.5:58465"
         )
         #expect(decoded.workspaceID == "")
         #expect(decoded.macDeviceID == "")
         #expect(decoded.macDisplayName == nil)
         #expect(decoded.expiresAt == nil)
         #expect(decoded.authToken == nil)
-        #expect(decoded.macUserEmail == "user@example.com")
+        #expect(decoded.macUserEmail == nil)
+        #expect(decoded.macUserEmailBinding == binding)
         #expect(decoded.macAppVersion == "0.64.15")
         #expect(decoded.macAppBuild == "42")
         #expect(decoded.routes.count == 2)

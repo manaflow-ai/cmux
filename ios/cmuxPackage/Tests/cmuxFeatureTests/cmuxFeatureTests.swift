@@ -1540,14 +1540,16 @@ final class TerminalOutputCollector {
     )
 
     store.signIn()
+    let binding = try #require(CmxPairingQRCode.emailBinding(for: "mac@example.com"))
     let result = await store.connectPairingURLResult(
-        "cmux-ios://attach?v=2&e=mac@example.com&r=100.71.210.41:\(CmxMobileDefaults.defaultHostPort)"
+        "cmux-ios://attach?v=2&eb=\(binding)&r=100.71.210.41:\(CmxMobileDefaults.defaultHostPort)"
     )
 
     #expect(result == .failed)
     #expect(store.connectionState == .disconnected)
-    #expect(store.connectionError?.contains("mac@example.com") == true)
-    #expect(store.connectionError?.contains("phone@example.com") == true)
+    #expect(store.connectionError?.contains("same email") == true)
+    #expect(store.connectionError?.contains("mac@example.com") == false)
+    #expect(store.connectionError?.contains("phone@example.com") == false)
     #expect(try await responses.sentRequests().isEmpty)
 }
 
@@ -1570,8 +1572,9 @@ final class TerminalOutputCollector {
     )
 
     store.signIn()
+    let binding = try #require(CmxPairingQRCode.emailBinding(for: "mac@example.com"))
     let result = await store.connectPairingURLResult(
-        "cmux-ios://attach?v=2&e=mac@example.com&r=100.71.210.41:\(CmxMobileDefaults.defaultHostPort)"
+        "cmux-ios://attach?v=2&eb=\(binding)&r=100.71.210.41:\(CmxMobileDefaults.defaultHostPort)"
     )
 
     #expect(result == .connected)
@@ -1582,6 +1585,7 @@ final class TerminalOutputCollector {
 
 @MainActor
 @Test func minimalPairingCodeBuildMismatchWarnsAndContinuesAfterAcceptance() async throws {
+    let binding = try #require(CmxPairingQRCode.emailBinding(for: "user@example.com"))
     let responses = ScriptedTransportResponses([
         try rpcWorkspaceListFrame(workspaceID: "qr-workspace", title: "QR Workspace"),
         try rpcHostStatusFrame(
@@ -1595,6 +1599,7 @@ final class TerminalOutputCollector {
         transportFactory: ScriptedTransportFactory(responses: responses),
         supportsServerPushEvents: false
     )
+    let analytics = RecordingAnalytics()
     let store = CMUXMobileShellStore(
         runtime: runtime,
         workspaces: PreviewMobileHost.workspaces,
@@ -1602,6 +1607,7 @@ final class TerminalOutputCollector {
             currentUserIDValue: "phone-user",
             currentUserEmailValue: "user@example.com"
         ),
+        analytics: analytics,
         feedbackStampProvider: {
             MobileFeedbackStamp(
                 buildType: .dev,
@@ -1616,13 +1622,14 @@ final class TerminalOutputCollector {
 
     store.signIn()
     let result = await store.connectPairingURLResult(
-        "cmux-ios://attach?v=2&e=user@example.com&av=0.65.0&ab=9&r=100.71.210.41:\(CmxMobileDefaults.defaultHostPort)"
+        "cmux-ios://attach?v=2&eb=\(binding)&av=0.65.0&ab=9&r=100.71.210.41:\(CmxMobileDefaults.defaultHostPort)"
     )
 
     #expect(result == .needsUserApproval)
     #expect(store.connectionState == .disconnected)
     #expect(store.pairingVersionWarning?.contains("0.65.0 (10)") == true)
     #expect(store.pairingVersionWarning?.contains("0.65.0 (9)") == true)
+    #expect(analytics.eventCount(named: "ios_pairing_started") == 0)
     #expect(try await responses.sentRequests().isEmpty)
 
     await store.acceptPairingVersionWarning()
@@ -1630,6 +1637,8 @@ final class TerminalOutputCollector {
     #expect(store.pairingVersionWarning == nil)
     #expect(store.connectionState == .connected)
     #expect(store.selectedWorkspace?.id.rawValue == "qr-workspace")
+    #expect(analytics.eventCount(named: "ios_pairing_started") == 1)
+    #expect(analytics.eventCount(named: "ios_pairing_succeeded") == 1)
     #expect(try await responses.sentRequests().contains { $0.method == "workspace.list" })
 }
 
@@ -2494,6 +2503,29 @@ private struct TestIdentityProvider: MobileIdentityProviding {
 
     @MainActor var currentUserID: String? { currentUserIDValue }
     @MainActor var currentUserEmail: String? { currentUserEmailValue }
+}
+
+private final class RecordingAnalytics: AnalyticsEmitting, @unchecked Sendable {
+    private let lock = NSLock()
+    private var events: [String] = []
+
+    func capture(_ event: String, _ properties: [String: AnalyticsValue]) {
+        lock.lock()
+        events.append(event)
+        lock.unlock()
+    }
+
+    func identify(userId: String?, alias: String?, properties: [String: AnalyticsValue]) {}
+
+    func setSuperProperties(_ properties: [String: AnalyticsValue]) {}
+
+    func flush() async {}
+
+    func eventCount(named name: String) -> Int {
+        lock.lock()
+        defer { lock.unlock() }
+        return events.filter { $0 == name }.count
+    }
 }
 
 private func testRuntime(

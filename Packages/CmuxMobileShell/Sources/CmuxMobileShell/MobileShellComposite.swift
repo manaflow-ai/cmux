@@ -1915,6 +1915,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                macDeviceID: reportedID,
                macDisplayName: ticket.macDisplayName,
                macUserEmail: ticket.macUserEmail,
+               macUserEmailBinding: ticket.macUserEmailBinding,
                macAppVersion: ticket.macAppVersion,
                macAppBuild: ticket.macAppBuild,
                routes: ticket.routes,
@@ -2018,7 +2019,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         acceptedVersionWarning: Bool
     ) async -> MobilePairingURLConnectionResult {
         let rawURL = Self.normalizedPairingURL(rawValue ?? pairingCode)
-        _ = beginPairingValidationAttempt(method: "qr")
+        _ = beginPairingValidationAttempt()
         connectionAttemptGeneration = UUID()
         if connectionState != .connected {
             clearActiveConnectionContext()
@@ -3171,10 +3172,18 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         for ticket: CmxAttachTicket,
         actualEmail: String?
     ) -> MobilePairingFailureCategory? {
-        guard let expected = mobileShellNormalizedEmail(ticket.macUserEmail) else { return nil }
         guard let actual = mobileShellNormalizedEmail(actualEmail) else { return nil }
-        guard actual == expected else {
-            return .emailMismatch(expected: expected, actual: actual)
+        if let expected = mobileShellNormalizedEmail(ticket.macUserEmail) {
+            guard actual == expected else {
+                return .emailMismatch(expected: expected, actual: actual)
+            }
+            return nil
+        }
+        guard let expectedBinding = mobileShellNormalizedNonEmpty(ticket.macUserEmailBinding) else {
+            return nil
+        }
+        guard CmxPairingQRCode.emailBinding(for: actual) == expectedBinding else {
+            return .authFailed
         }
         return nil
     }
@@ -4866,6 +4875,10 @@ private extension CmxAttachTicket {
             terminalID: terminalID,
             macDeviceID: macDeviceID,
             macDisplayName: macDisplayName ?? fallbackDisplayName,
+            macUserEmail: macUserEmail,
+            macUserEmailBinding: macUserEmailBinding,
+            macAppVersion: macAppVersion,
+            macAppBuild: macAppBuild,
             routes: routes,
             expiresAt: expiresAt,
             authToken: authToken

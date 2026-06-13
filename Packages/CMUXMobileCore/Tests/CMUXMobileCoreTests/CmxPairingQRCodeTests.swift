@@ -72,7 +72,7 @@ import Testing
         #expect(decoded.routes.map(\.priority) == [10, 20])
     }
 
-    @Test func roundTripsEmailAndBuildMetadata() throws {
+    @Test func roundTripsEmailBindingAndBuildMetadataWithoutExposingEmail() throws {
         let ticket = try CmxAttachTicket(
             workspaceID: "",
             terminalID: nil,
@@ -89,12 +89,16 @@ import Testing
         )
 
         let url = try #require(CmxPairingQRCode().encode(ticket))
-        #expect(url.contains("e=Lawrence@Example.com"))
+        let binding = try #require(CmxPairingQRCode.emailBinding(for: "Lawrence@Example.com"))
+        #expect(url.contains("eb=\(binding)"))
+        #expect(!url.contains("Lawrence@Example.com"))
+        #expect(!url.lowercased().contains("lawrence@example.com"))
         #expect(url.contains("av=0.64.15"))
         #expect(url.contains("ab=42"))
 
         let decoded = try CmxPairingQRCode().decode(try components(url))
-        #expect(decoded.macUserEmail == "Lawrence@Example.com")
+        #expect(decoded.macUserEmail == nil)
+        #expect(decoded.macUserEmailBinding == binding)
         #expect(decoded.macAppVersion == "0.64.15")
         #expect(decoded.macAppBuild == "42")
         #expect(decoded.routes == ticket.routes)
