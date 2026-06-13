@@ -1,5 +1,8 @@
 import CmuxAgentChat
 import SwiftUI
+#if canImport(UIKit)
+import UIKit
+#endif
 
 /// An optimistic outgoing bubble for a prompt that has not yet echoed back
 /// through the transcript, with a delivery glyph and failed-send actions.
@@ -38,33 +41,67 @@ public struct ChatPendingBubbleView: View {
     }
 
     private var bubble: some View {
-        HStack(spacing: 5) {
-            if pending.attachmentCount > 0 {
-                HStack(spacing: 2) {
-                    Image(systemName: "paperclip")
-                        .font(.caption)
-                    Text(verbatim: "\(pending.attachmentCount)")
-                        .font(.caption)
-                }
-                .foregroundStyle(.white.opacity(0.8))
-                .accessibilityLabel(
-                    String(
-                        localized: "chat.pending.attachments.accessibility",
-                        defaultValue: "\(pending.attachmentCount) attachments",
-                        bundle: .module
-                    )
-                )
+        VStack(alignment: .trailing, spacing: 6) {
+            if !pending.attachments.isEmpty {
+                attachmentThumbnails
             }
-            Text(pending.text)
-                .font(.body)
-                .foregroundStyle(.white)
+            if !pending.text.isEmpty {
+                textRow
+            }
         }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 8)
-        .background(
-            theme.outgoingBubbleFill,
-            in: .rect(cornerRadius: theme.bubbleCornerRadius)
+        .padding(.horizontal, pending.text.isEmpty && !pending.attachments.isEmpty ? 6 : 12)
+        .padding(.vertical, pending.text.isEmpty && !pending.attachments.isEmpty ? 6 : 8)
+        .background(theme.outgoingBubbleFill, in: .rect(cornerRadius: theme.bubbleCornerRadius))
+    }
+
+    /// Real previews of the images being sent (the pending row holds the
+    /// encoded bytes; the reconciled transcript message is metadata-only).
+    private var attachmentThumbnails: some View {
+        HStack(spacing: 4) {
+            ForEach(Array(pending.attachments.enumerated()), id: \.offset) { _, attachment in
+                thumbnail(for: attachment)
+            }
+        }
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(
+            String(
+                localized: "chat.pending.attachments.accessibility",
+                defaultValue: "\(pending.attachmentCount) attachments",
+                bundle: .module
+            )
         )
+    }
+
+    @ViewBuilder
+    private func thumbnail(for attachment: ChatOutboundAttachment) -> some View {
+        #if canImport(UIKit)
+        if let image = UIImage(data: attachment.data) {
+            Image(uiImage: image)
+                .resizable()
+                .scaledToFill()
+                .frame(width: 96, height: 96)
+                .clipShape(.rect(cornerRadius: 10))
+        } else {
+            thumbnailFallback
+        }
+        #else
+        thumbnailFallback
+        #endif
+    }
+
+    private var thumbnailFallback: some View {
+        Image(systemName: "photo")
+            .font(.title2)
+            .foregroundStyle(.white.opacity(0.8))
+            .frame(width: 96, height: 96)
+            .background(.white.opacity(0.12), in: .rect(cornerRadius: 10))
+    }
+
+    private var textRow: some View {
+        Text(pending.text)
+            .font(.body)
+            .foregroundStyle(.white)
+            .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     private var bubbleOpacity: Double {
