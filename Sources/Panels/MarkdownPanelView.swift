@@ -1,4 +1,5 @@
 import AppKit
+import CmuxTerminalCore
 import SwiftUI
 import WebKit
 
