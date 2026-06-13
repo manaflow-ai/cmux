@@ -83,30 +83,79 @@ extension RemoteSessionCoordinator {
         return hello
     }
 
-    func probeRemoteBootstrapStateLocked(version: String) throws -> RemoteBootstrapState {
-        let script = """
+    /// Builds the remote shell probe that reports platform and daemon availability markers.
+    ///
+    /// The OS/arch normalization uses literal `case` alternatives rather than
+    /// `tr '[:upper:]' '[:lower:]'` so the probe stays correct on OpenWrt
+    /// BusyBox builds compiled without `FEATURE_TR_CLASSES` (where the class
+    /// arguments are mapped positionally and corrupt the value). The version
+    /// segment is sanitized before interpolation to keep it shell-safe.
+    static func remotePlatformProbeScript(version: String) -> String {
+        let scriptVersion = normalizedRemotePlatformProbeVersion(version)
+        return """
         cmux_uname_os="$(uname -s)"
         cmux_uname_arch="$(uname -m)"
         printf '%s%s\\n' '\(Self.remotePlatformProbeHomeMarker)' "$HOME"
         printf '%s%s\\n' '\(Self.remotePlatformProbeOSMarker)' "$cmux_uname_os"
         printf '%s%s\\n' '\(Self.remotePlatformProbeArchMarker)' "$cmux_uname_arch"
-        case "$(printf '%s' "$cmux_uname_os" | tr '[:upper:]' '[:lower:]')" in
-          linux|darwin|freebsd) cmux_go_os="$(printf '%s' "$cmux_uname_os" | tr '[:upper:]' '[:lower:]')" ;;
+        case "$cmux_uname_os" in
+          Linux|linux|LINUX) cmux_go_os=linux ;;
+          Darwin|darwin|DARWIN) cmux_go_os=darwin ;;
+          FreeBSD|freebsd|FREEBSD) cmux_go_os=freebsd ;;
           *) exit 70 ;;
         esac
-        case "$(printf '%s' "$cmux_uname_arch" | tr '[:upper:]' '[:lower:]')" in
-          x86_64|amd64) cmux_go_arch=amd64 ;;
-          aarch64|arm64) cmux_go_arch=arm64 ;;
-          armv7l) cmux_go_arch=arm ;;
+        case "$cmux_uname_arch" in
+          x86_64|X86_64|amd64|AMD64) cmux_go_arch=amd64 ;;
+          aarch64|AARCH64|arm64|ARM64) cmux_go_arch=arm64 ;;
+          armv7l|ARMV7L|armv7|ARMV7) cmux_go_arch=arm ;;
           *) exit 71 ;;
         esac
-        cmux_remote_path="$HOME/.cmux/bin/cmuxd-remote/\(version)/${cmux_go_os}-${cmux_go_arch}/cmuxd-remote"
+        cmux_remote_path="$HOME/.cmux/bin/cmuxd-remote/\(scriptVersion)/${cmux_go_os}-${cmux_go_arch}/cmuxd-remote"
         if [ -x "$cmux_remote_path" ]; then
           printf '%syes\\n' '\(Self.remotePlatformProbeExistsMarker)'
         else
           printf '%sno\\n' '\(Self.remotePlatformProbeExistsMarker)'
         fi
         """
+    }
+
+    /// Returns stdout suitable for user-facing error details by removing internal probe markers.
+    static func remotePlatformProbeUserFacingStdout(_ stdout: String) -> String {
+        stdout
+            .split(separator: "\n", omittingEmptySubsequences: false)
+            .filter { !isRemotePlatformProbeMarkerLine(String($0).trimmingCharacters(in: .whitespacesAndNewlines)) }
+            .joined(separator: "\n")
+    }
+
+    /// Normalizes the daemon version path segment before it is interpolated into remote shell.
+    static func normalizedRemotePlatformProbeVersion(_ version: String) -> String {
+        guard !version.isEmpty,
+              version.count <= 128,
+              version != ".",
+              version != ".." else {
+            return "dev"
+        }
+        let isSafePathSegment = version.utf8.allSatisfy { byte in
+            (byte >= 65 && byte <= 90) ||
+                (byte >= 97 && byte <= 122) ||
+                (byte >= 48 && byte <= 57) ||
+                byte == 45 ||
+                byte == 46 ||
+                byte == 95
+        }
+        return isSafePathSegment ? version : "dev"
+    }
+
+    /// Returns true when a line is one of the internal markers emitted by the probe.
+    static func isRemotePlatformProbeMarkerLine(_ line: String) -> Bool {
+        line.hasPrefix(remotePlatformProbeHomeMarker) ||
+            line.hasPrefix(remotePlatformProbeOSMarker) ||
+            line.hasPrefix(remotePlatformProbeArchMarker) ||
+            line.hasPrefix(remotePlatformProbeExistsMarker)
+    }
+
+    func probeRemoteBootstrapStateLocked(version: String) throws -> RemoteBootstrapState {
+        let script = Self.remotePlatformProbeScript(version: version)
         let command = "sh -c \(script.shellSingleQuoted)"
         let result = try sshExec(arguments: sshCommonArguments(batchMode: true) + [configuration.destination, command], timeout: 20)
 
@@ -120,8 +169,9 @@ extension RemoteSessionCoordinator {
             .map { String($0.dropFirst(Self.remotePlatformProbeArchMarker.count)) }
         let homeDirectory = lines.first { $0.hasPrefix(Self.remotePlatformProbeHomeMarker) }
             .map { String($0.dropFirst(Self.remotePlatformProbeHomeMarker.count)) }
+        let userFacingStdout = Self.remotePlatformProbeUserFacingStdout(result.stdout)
         guard let unameOS, let unameArch, let homeDirectory else {
-            let detail = Self.bestErrorLine(stderr: result.stderr, stdout: result.stdout) ?? "ssh exited \(result.status)"
+            let detail = Self.bestErrorLine(stderr: result.stderr, stdout: userFacingStdout) ?? "ssh exited \(result.status)"
             throw NSError(domain: "cmux.remote.daemon", code: 11, userInfo: [
                 NSLocalizedDescriptionKey: "failed to query remote platform: \(detail)",
             ])
@@ -137,7 +187,7 @@ extension RemoteSessionCoordinator {
         let binaryExists = lines.first { $0.hasPrefix(Self.remotePlatformProbeExistsMarker) }
             .map { String($0.dropFirst(Self.remotePlatformProbeExistsMarker.count)) == "yes" }
         if result.status != 0, binaryExists == nil {
-            let detail = Self.bestErrorLine(stderr: result.stderr, stdout: result.stdout) ?? "ssh exited \(result.status)"
+            let detail = Self.bestErrorLine(stderr: result.stderr, stdout: userFacingStdout) ?? "ssh exited \(result.status)"
             throw NSError(domain: "cmux.remote.daemon", code: 13, userInfo: [
                 NSLocalizedDescriptionKey: "failed to query remote daemon state: \(detail)",
             ])
@@ -378,7 +428,7 @@ extension RemoteSessionCoordinator {
             return "amd64"
         case "aarch64", "arm64":
             return "arm64"
-        case "armv7l":
+        case "armv7l", "armv7":
             return "arm"
         default:
             return nil
