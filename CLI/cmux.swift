@@ -22435,7 +22435,7 @@ struct CMUXCLI {
                     surfaceId: surfaceId,
                     cwd: parsedInput.cwd,
                     transcriptPath: parsedInput.transcriptPath,
-                    pid: hookClaudePid ?? (mappedSession == nil ? claudePid : nil),
+                    pid: resolvedSurface.isAuthoritative ? (hookClaudePid ?? (mappedSession == nil ? claudePid : nil)) : nil,
                     launchCommand: firstSightingLaunchCommand,
                     isRestorable: true,
                     agentLifecycle: .running,

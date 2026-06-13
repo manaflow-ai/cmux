@@ -252,6 +252,7 @@ struct ClaudeNoFlickerHookTransientTests {
         defer { context.cleanup() }
 
         let livePID = 6048
+        let sessionId = "fallback-no-pid-gate-session"
         let server = support.startMockServer(listenerFD: context.listenerFD, state: context.state) { line in
             guard let payload = ClaudeHookRoutingTestSupport.jsonObject(line) else {
                 return "OK"
@@ -279,7 +280,7 @@ struct ClaudeNoFlickerHookTransientTests {
             executablePath: context.cliPath,
             arguments: ["hooks", "claude", "prompt-submit"],
             environment: environment,
-            standardInput: #"{"turn_id":"turn-1","cwd":"\#(context.root.path)","hook_event_name":"UserPromptSubmit","prompt":"run"}"#,
+            standardInput: #"{"session_id":"\#(sessionId)","turn_id":"turn-1","cwd":"\#(context.root.path)","hook_event_name":"UserPromptSubmit","prompt":"run"}"#,
             timeout: 5
         )
 
@@ -289,6 +290,11 @@ struct ClaudeNoFlickerHookTransientTests {
         let commands = context.state.snapshot()
         #expect(commands.contains { $0.hasPrefix("set_status claude_code Running --icon=bolt.fill --color=#4C8DFF --tab=\(context.workspaceId)") && $0.contains("--panel=\(context.surfaceId)") }, "Expected fallback surface to receive best-effort status, saw \(commands)")
         #expect(!commands.contains { $0.hasPrefix("set_agent_pid claude_code ") || $0.contains("--pid=\(livePID)") }, "Fallback surface must not receive durable Claude PID metadata, saw \(commands)")
+        let persistedData = try Data(contentsOf: context.root.appendingPathComponent("claude-hook-sessions.json"))
+        let persisted = try #require(JSONSerialization.jsonObject(with: persistedData) as? [String: Any])
+        let sessions = try #require(persisted["sessions"] as? [String: Any])
+        let session = try #require(sessions[sessionId] as? [String: Any])
+        #expect(session["pid"] == nil, "Fallback surface must not persist Claude PID metadata, saw \(session)")
     }
 
     @Test
