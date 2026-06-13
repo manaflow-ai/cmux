@@ -22254,7 +22254,7 @@ struct CMUXCLI {
                 // Turn ended. Don't consume session or clear PID — Claude is still alive.
                 // Notification hook handles user-facing notifications; SessionEnd handles cleanup.
                 let mappedSession = parsedInput.sessionId.flatMap { try? sessionStore.lookup(sessionId: $0) }
-                let claudePid = mappedSession?.pid ?? hookClaudePid
+                let claudePid = hookClaudePid ?? mappedSession?.pid
                 var terminalBindingCache: ClaudeHookTerminalBindingCache = (didResolve: false, agentPID: nil, allowProcessSnapshotBinding: true, socketPassword: socketPassword, binding: nil)
                 let workspaceId = try resolvePreferredWorkspaceIdForClaudeHook(
                     preferred: mappedSession?.workspaceId,
@@ -22365,7 +22365,7 @@ struct CMUXCLI {
         case "prompt-submit":
             telemetry.breadcrumb("claude-hook.prompt-submit")
             let mappedSession = parsedInput.sessionId.flatMap { try? sessionStore.lookup(sessionId: $0) }
-            let claudePid = mappedSession?.pid ?? hookClaudePid
+            let claudePid = hookClaudePid ?? mappedSession?.pid
             var terminalBindingCache: ClaudeHookTerminalBindingCache = (didResolve: false, agentPID: nil, allowProcessSnapshotBinding: true, socketPassword: socketPassword, binding: nil)
             let workspaceId = try resolvePreferredWorkspaceIdForClaudeHook(
                 preferred: mappedSession?.workspaceId,
@@ -22484,7 +22484,7 @@ struct CMUXCLI {
             var summary = summarizeClaudeHookNotification(parsedInput: parsedInput)
 
             let mappedSession = parsedInput.sessionId.flatMap { try? sessionStore.lookup(sessionId: $0) }
-            let claudePid = mappedSession?.pid ?? hookClaudePid
+            let claudePid = hookClaudePid ?? mappedSession?.pid
             var terminalBindingCache: ClaudeHookTerminalBindingCache = (didResolve: false, agentPID: nil, allowProcessSnapshotBinding: true, socketPassword: socketPassword, binding: nil)
             let workspaceId = try resolvePreferredWorkspaceIdForClaudeHook(
                 preferred: mappedSession?.workspaceId,
@@ -22630,7 +22630,7 @@ struct CMUXCLI {
             // If Stop already consumed the session, consumedSession is nil and we skip
             // to avoid wiping the completion notification that Stop just delivered.
             let mappedSession = parsedInput.sessionId.flatMap { try? sessionStore.lookup(sessionId: $0) }
-            let fallbackClaudePid = mappedSession?.pid ?? hookClaudePid
+            let fallbackClaudePid = hookClaudePid ?? mappedSession?.pid
             var fallbackTerminalBindingCache: ClaudeHookTerminalBindingCache = (didResolve: false, agentPID: nil, allowProcessSnapshotBinding: true, socketPassword: socketPassword, binding: nil)
             let fallbackWorkspaceId = try? resolvePreferredWorkspaceIdForClaudeHook(
                 preferred: mappedSession?.workspaceId,
@@ -22680,7 +22680,7 @@ struct CMUXCLI {
                     surfaceId: consumedSession.surfaceId,
                     telemetry: telemetry
                 )
-                let claudePid = consumedSession.pid ?? hookClaudePid
+                let claudePid = hookClaudePid ?? consumedSession.pid
                 let suppressVisibleMutations = shouldSuppressNestedAgentVisibleMutations(
                     currentAgentPID: claudePid,
                     env: env
@@ -22714,7 +22714,7 @@ struct CMUXCLI {
             // Clears "Needs input" status and notification when Claude resumes work
             // (e.g. after permission grant). Runs async so it doesn't block tool execution.
             let mappedSession = parsedInput.sessionId.flatMap { try? sessionStore.lookup(sessionId: $0) }
-            let claudePid = mappedSession?.pid ?? hookClaudePid
+            let claudePid = hookClaudePid ?? mappedSession?.pid
             var terminalBindingCache: ClaudeHookTerminalBindingCache = (didResolve: false, agentPID: nil, allowProcessSnapshotBinding: true, socketPassword: socketPassword, binding: nil)
             let workspaceId = try resolvePreferredWorkspaceIdForClaudeHook(
                 preferred: mappedSession?.workspaceId,
