@@ -242,6 +242,7 @@ struct ClaudeNoFlickerHookTransientTests {
         #expect(result.status == 0, Comment(rawValue: result.stderr))
         #expect(result.stdout == "OK\n")
         let commands = context.state.snapshot()
+        #expect(!commands.contains { ClaudeHookRoutingTestSupport.jsonObject($0)?["method"] as? String == "system.top" }, "Current stored PID target must not trigger process snapshot recovery, saw \(commands)")
         #expect(commands.contains { $0.hasPrefix("set_status claude_code Running --icon=bolt.fill --color=#4C8DFF --tab=\(context.workspaceId)") && $0.contains("--panel=\(context.surfaceId)") }, "Expected stored target to be used without terminal recovery, saw \(commands)")
     }
 
