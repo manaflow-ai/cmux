@@ -14,7 +14,7 @@
 7737	Sources/Panels/BrowserPanelView.swift
 7292	cmuxTests/WorkspaceUnitTests.swift
 6949	cmuxTests/WorkspaceRemoteConnectionTests.swift
-6543	cmuxTests/GhosttyConfigTests.swift
+6544	cmuxTests/GhosttyConfigTests.swift
 6330	cmuxTests/SessionPersistenceTests.swift
 6153	CLI/cmux_open.swift
 6074	Sources/TextBoxInput.swift
@@ -78,7 +78,7 @@
 1139	cmuxTests/PiVaultAgentPersistenceTests.swift
 1126	cmuxTests/FileExplorerStoreTests.swift
 1107	Sources/AppDelegate+CmuxSSHURL.swift
-1096	Sources/GhosttyConfig.swift
+1097	Sources/GhosttyConfig.swift
 1093	cmuxUITests/BonsplitTabDragUITests.swift
 1085	cmuxTests/AgentHibernationTests.swift
 1084	cmuxTests/RestorableAgentSessionIndexTests.swift
@@ -163,7 +163,7 @@
 568	Packages/CMUXMobileCore/Sources/CMUXMobileCore/MobileTerminalRenderGrid.swift
 566	Packages/CMUXAgentLaunch/Sources/CMUXAgentLaunch/AgentLaunchSanitizer.swift
 562	cmuxTests/AgentExecutableResolverTests.swift
-560	cmuxTests/GhosttyConfigPathResolverTests.swift
+561	cmuxTests/GhosttyConfigPathResolverTests.swift
 558	Packages/CmuxGit/Sources/CmuxGit/Parsing/GitMetadataService+Config.swift
 554	Sources/Panels/BrowserAutomation.swift
 551	Packages/CmuxSettingsUI/Sources/CmuxSettingsUI/Sections/BrowserSection.swift
@@ -194,5 +194,5 @@
 506	Sources/App/MainWindowVisibilityController.swift
 505	cmuxUITests/DisplayResolutionRegressionUITests.swift
 504	cmuxTests/TerminalNotificationSocketActionTests.swift
+503	Sources/Settings/ConfigSource.swift
 502	Sources/CmuxEventPublishing.swift
-502	Sources/Settings/ConfigSource.swift

@@ -1,6 +1,7 @@
 @preconcurrency import XCTest
 import CmuxSettings
 import CmuxSocketControl
+import CmuxTerminalCore
 import AppKit
 import Combine
 import CoreText

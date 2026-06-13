@@ -1,4 +1,5 @@
 import Foundation
+import CmuxTerminalCore
 
 struct ConfigSourceEnvironment {
     let homeDirectoryURL: URL

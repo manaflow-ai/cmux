@@ -1,6 +1,7 @@
 import AppKit
 import CMUXMobileCore
 import CmuxSettingsUI
+import CmuxTerminalCore
 import Foundation
 import OSLog
 import SwiftUI
