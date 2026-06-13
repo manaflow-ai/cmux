@@ -40,9 +40,9 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         var eventTopics: [String] {
             switch self {
             case .renderGrid:
-                return ["workspace.updated", "terminal.render_grid"]
+                return ["workspace.updated", "terminal.render_grid", "notification.dismissed", "notification.badge"]
             case .rawBytes:
-                return ["workspace.updated", "terminal.bytes"]
+                return ["workspace.updated", "terminal.bytes", "notification.dismissed", "notification.badge"]
             }
         }
     }
@@ -403,7 +403,16 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     private let deviceRegistry: (any DeviceRegistryRefreshing)?
     private let identityProvider: (any MobileIdentityProviding)?
     private let reachability: any ReachabilityProviding
+    // Internal (not private): used by the dismiss-sync extension file.
+    let deliveredNotificationClearer: any DeliveredNotificationClearing
+    /// Durable outbox for phone→Mac dismissals (see
+    /// ``PendingNotificationDismissQueue``): ids are enqueued before the RPC is
+    /// attempted, removed only on confirmed delivery, and re-flushed on every
+    /// successful (re)subscribe.
+    let pendingDismissQueue: PendingNotificationDismissQueue
     private let pairingHintDefaults: UserDefaults
+    // Internal (not private): used by the dismiss-sync and dogfood-feedback
+    // extension files.
     let clientID: String
     /// Delivers the email path of Send Feedback (`/api/feedback`). `nil` when the
     /// web API base URL is unavailable; the email path then fails closed and the
@@ -445,6 +454,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// `public` so the DEV feedback-submit affordance can ``DiagnosticLog/export()``
     /// it.
     public let diagnosticLog: DiagnosticLog?
+    // Internal (not private): used by the dismiss-sync and dogfood-feedback
+    // extension files.
     var remoteClient: MobileCoreRPCClient? {
         didSet {
             if remoteClient == nil {
@@ -568,6 +579,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         clientIDRepository: MobileClientIDRepository = MobileClientIDRepository(defaults: .standard),
         identityProvider: (any MobileIdentityProviding)? = nil,
         reachability: any ReachabilityProviding = ReachabilityService(),
+        deliveredNotificationClearer: any DeliveredNotificationClearing = SystemDeliveredNotificationClearer(),
+        pendingDismissQueue: PendingNotificationDismissQueue = PendingNotificationDismissQueue(),
         pairingHintDefaults: UserDefaults = .standard,
         analytics: any AnalyticsEmitting = NoopAnalytics(),
         diagnosticLog: DiagnosticLog? = nil,
@@ -581,6 +594,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         self.deviceRegistry = deviceRegistry
         self.identityProvider = identityProvider
         self.reachability = reachability
+        self.deliveredNotificationClearer = deliveredNotificationClearer
+        self.pendingDismissQueue = pendingDismissQueue
         self.pairingHintDefaults = pairingHintDefaults
         self.analytics = analytics
         self.diagnosticLog = diagnosticLog
@@ -648,7 +663,11 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     }
 
     public static func preview(runtime: (any MobileSyncRuntime)? = nil) -> CMUXMobileShellStore {
-        CMUXMobileShellStore(runtime: runtime, workspaces: PreviewMobileHost.workspaces)
+        CMUXMobileShellStore(
+            runtime: runtime,
+            workspaces: PreviewMobileHost.workspaces,
+            deliveredNotificationClearer: NoopDeliveredNotificationClearer()
+        )
     }
 
     public func signIn() {
@@ -805,113 +824,6 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         } catch {
             mobileShellLog.error("click forward failed surface=\(surfaceID, privacy: .public) error=\(String(describing: error), privacy: .public)")
         }
-    }
-
-    /// Privileged direct-to-agent feedback round-trip: export the structured
-    /// diagnostic log, package it with the supplied debug-log text, visible
-    /// terminal text, and an optional freeform note, and submit it to the paired
-    /// Mac's `dogfood.feedback.submit` sink so the existing watcher under
-    /// `~/.cache/cmux-dogfood-feedback/` catches it.
-    ///
-    /// This is the privileged path of the Send Feedback feature: it is offered
-    /// only to `@manaflow.ai` users on an active mobile-host connection (see
-    /// ``MobileFeedbackRoute/resolve(email:hasActiveMacConnection:hostSupportsAgentSink:)``), and is NOT
-    /// `#if DEBUG`-gated, so it works on Release (beta/prod) builds for the team.
-    ///
-    /// The structured log is exported here (the store owns ``diagnosticLog``);
-    /// the string snapshots are gathered by the caller on the UI layer, where the
-    /// `GhosttySurfaceView`/`MobileDebugLog` accessors live. Fire-and-forget; a
-    /// transport failure is logged and surfaced via the returned `Bool`.
-    ///
-    /// - Parameters:
-    ///   - text: An optional freeform note from the user.
-    ///   - debugLogText: The string debug-log snapshot (from `MobileDebugLog`).
-    ///   - terminalText: The visible terminal text (from `GhosttySurfaceView`).
-    ///   - buildStamp: The build-identity stamp (build type + version + OS +
-    ///     device) written into the bundle. Defaults to the diagnostic log's
-    ///     stamp when not supplied.
-    /// - Returns: `true` when the Mac acknowledged the bundle.
-    @discardableResult
-    public func submitPrivilegedAgentFeedback(
-        text: String,
-        debugLogText: String,
-        terminalText: String,
-        buildStamp: String? = nil
-    ) async -> Bool {
-        guard let client = remoteClient else { return false }
-        let diagnosticBlob = await diagnosticLog?.export() ?? Data()
-        let buildStamp = buildStamp ?? diagnosticLog?.buildStamp ?? ""
-        let clientID = clientID
-        // Cap inputs and build the (potentially multi-MiB) combined blob +
-        // base64 + JSON request OFF the main actor: the store is `@MainActor`, so
-        // doing the concat/encode here would block the UI on a large bundle. A
-        // detached task returns the finished request bytes (`Data` is `Sendable`).
-        let request: Data?
-        do {
-            request = try await Task.detached(priority: .utility) { () -> Data in
-                try Self.buildDogfoodFeedbackRequest(
-                    text: text,
-                    debugLogText: debugLogText,
-                    terminalText: terminalText,
-                    buildStamp: buildStamp,
-                    clientID: clientID,
-                    diagnosticBlob: diagnosticBlob
-                )
-            }.value
-        } catch {
-            mobileShellLog.error("dogfood feedback encode failed error=\(String(describing: error), privacy: .public)")
-            return false
-        }
-        guard let request else { return false }
-        do {
-            _ = try await client.sendRequest(request)
-            return true
-        } catch {
-            mobileShellLog.error("dogfood feedback submit failed error=\(String(describing: error), privacy: .public)")
-            return false
-        }
-    }
-
-    /// Client-side caps mirroring the Mac sink, applied before any large
-    /// allocation so a huge debug log or note can't be encoded into a multi-MiB
-    /// request on the phone. `nonisolated` so the off-main request builder can
-    /// read them.
-    nonisolated private static let dogfoodFeedbackMaxTextChars = 16_384
-    nonisolated private static let dogfoodFeedbackMaxTerminalChars = 262_144
-    nonisolated private static let dogfoodFeedbackMaxDebugLogChars = 1_048_576
-
-    /// Combine the structured + string diagnostics into one self-contained blob,
-    /// base64-encode it, and build the RPC request — all off the main actor.
-    ///
-    /// The string debug log rides inside the same diagnostic file as the compact
-    /// structured rows (rows, a divider, then the human-readable log) so the Mac
-    /// bundle is self-contained. Inputs are size-capped first.
-    nonisolated private static func buildDogfoodFeedbackRequest(
-        text: String,
-        debugLogText: String,
-        terminalText: String,
-        buildStamp: String,
-        clientID: String,
-        diagnosticBlob: Data
-    ) throws -> Data {
-        let cappedText = String(text.prefix(dogfoodFeedbackMaxTextChars))
-        let cappedTerminal = String(terminalText.prefix(dogfoodFeedbackMaxTerminalChars))
-        let cappedDebugLog = String(debugLogText.prefix(dogfoodFeedbackMaxDebugLogChars))
-        var combined = diagnosticBlob
-        if !cappedDebugLog.isEmpty {
-            combined.append(Data("\n----- mobile debug log -----\n".utf8))
-            combined.append(Data(cappedDebugLog.utf8))
-        }
-        return try MobileCoreRPCClient.requestData(
-            method: "dogfood.feedback.submit",
-            params: [
-                "text": cappedText,
-                "terminal_text": cappedTerminal,
-                "build_stamp": buildStamp,
-                "diagnostic_blob_base64": combined.base64EncodedString(),
-                "client_id": clientID,
-            ]
-        )
     }
 
     // MARK: - Feedback routing
@@ -3803,6 +3715,14 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                     // pty-tee. This is the compatibility fallback when the Mac
                     // host does not advertise `terminal.render_grid.v1`.
                     self.handleTerminalBytesEvent(event)
+                } else if event.topic == "notification.dismissed" {
+                    // The Mac dismissed/cleared notifications; clear the matching
+                    // mirrored banners on this phone.
+                    await self.handleNotificationDismissedEvent(event)
+                } else if event.topic == "notification.badge" {
+                    // The Mac's unread count changed; SET the app-icon badge to
+                    // the authoritative total.
+                    self.handleNotificationBadgeEvent(event)
                 }
             }
             guard let self else { return }
@@ -3844,6 +3764,11 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             }
             self.markMacConnectionHealthy()
             MobileDebugLog.anchormux("sync.subscribe_ok topics=\(topics.count) transport=\(transport)")
+            // Lane 3 of dismiss-sync: every successful (re)subscribe — initial
+            // connect, app foreground, network recovery, liveness restart —
+            // runs one reconcile sweep so banners/badge heal anything missed
+            // while the app was closed or detached.
+            self.scheduleNotificationReconcile(client: client)
         }
     }
 
@@ -4424,6 +4349,32 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         #endif
         guard !bytes.isEmpty else { return }
         deliverTerminalBytes(bytes, surfaceID: renderGrid.surfaceID)
+    }
+
+    private func handleNotificationDismissedEvent(_ event: MobileEventEnvelope) async {
+        guard
+            let json = event.payloadJSON,
+            let payload = MobileNotificationDismissedEvent.decode(json)
+        else {
+            return
+        }
+        if !payload.ids.isEmpty {
+            await clearDeliveredNotifications(ids: payload.ids)
+        }
+        if let unreadCount = payload.unreadCount {
+            applyAuthoritativeUnreadBadge(unreadCount)
+        }
+    }
+
+    private func handleNotificationBadgeEvent(_ event: MobileEventEnvelope) {
+        guard
+            let json = event.payloadJSON,
+            let payload = MobileNotificationBadgeEvent.decode(json),
+            let unreadCount = payload.unreadCount
+        else {
+            return
+        }
+        applyAuthoritativeUnreadBadge(unreadCount)
     }
 
     private func handleTerminalBytesEvent(_ event: MobileEventEnvelope) {
