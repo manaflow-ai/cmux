@@ -37,6 +37,46 @@ import Testing
     #expect(queue.isIdle)
 }
 
+@Test func terminalScrollQueueCoalescesLargestScrollbackPrefetchWindow() throws {
+    var queue = TerminalScrollDeliveryQueue()
+    let inFlight = TerminalScrollDelivery(surfaceID: "surface", lines: 1, col: 1, row: 1)
+    let firstPending = TerminalScrollDelivery(
+        surfaceID: "surface",
+        lines: 2,
+        col: 2,
+        row: 2,
+        maxScrollbackRows: 240
+    )
+    let latestPending = TerminalScrollDelivery(
+        surfaceID: "surface",
+        lines: 3,
+        col: 3,
+        row: 3,
+        maxScrollbackRows: 600
+    )
+
+    #expect(queue.enqueue(inFlight) == inFlight)
+    #expect(queue.enqueue(firstPending) == nil)
+    #expect(queue.enqueue(latestPending) == nil)
+
+    let maybeCoalesced = queue.completeInFlight()
+    let coalesced = try #require(maybeCoalesced)
+    #expect(coalesced.lines == 5)
+    #expect(coalesced.col == 3)
+    #expect(coalesced.row == 3)
+    #expect(coalesced.maxScrollbackRows == 600)
+}
+
+@Test func terminalScrollbackPrefetchStatePrimesThenRefreshesByDistance() {
+    var state = TerminalScrollbackPrefetchState(windowRows: 600, refreshDistanceRows: 10)
+
+    #expect(state.rowsToPrefetch(forScrollLines: 0) == nil)
+    #expect(state.rowsToPrefetch(forScrollLines: 1) == 600)
+    #expect(state.rowsToPrefetch(forScrollLines: 4) == nil)
+    #expect(state.rowsToPrefetch(forScrollLines: -5.5) == nil)
+    #expect(state.rowsToPrefetch(forScrollLines: 0.5) == 600)
+}
+
 @Test func terminalScrollQueueResetDropsPendingWork() {
     var queue = TerminalScrollDeliveryQueue()
     let inFlight = TerminalScrollDelivery(surfaceID: "surface", lines: 1, col: 1, row: 1)
