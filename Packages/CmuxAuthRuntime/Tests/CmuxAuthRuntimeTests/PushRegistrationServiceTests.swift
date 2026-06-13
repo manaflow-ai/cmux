@@ -29,8 +29,15 @@ final class RecordingURLProtocol: URLProtocol, @unchecked Sendable {
 
 actor RequestRecorder {
     private(set) var methods: [String] = []
-    func record(_ request: URLRequest) { methods.append(request.httpMethod ?? "?") }
-    func reset() { methods = [] }
+    private(set) var requests: [URLRequest] = []
+    func record(_ request: URLRequest) {
+        methods.append(request.httpMethod ?? "?")
+        requests.append(request)
+    }
+    func reset() {
+        methods = []
+        requests = []
+    }
 }
 
 struct FakeTokenProvider: TokenProviding {
@@ -95,5 +102,55 @@ struct FakeTokenProvider: TokenProviding {
         await service.setEnabled(true)
         await service.setEnabled(false)
         #expect(await RecordingURLProtocol.recorder.methods.contains("DELETE"))
+    }
+
+    @Test func signOutUnregisterAuthenticatesWithCapturedCredentials() async {
+        // Local-first sign-out clears the live token provider before the
+        // push-token DELETE runs, so the captured pair must authenticate the
+        // request on its own (the provider would return nothing and the DELETE
+        // used to be silently skipped).
+        let (service, _) = makeService(
+            tokenProvider: FakeTokenProvider(access: nil, refresh: nil)
+        )
+        await service.register(deviceToken: Data([0xAB, 0xCD]))
+
+        await service.unregisterFromServer(
+            accessToken: "captured-access",
+            refreshToken: "captured-refresh"
+        )
+
+        // The recorder is shared by parallel tests; select this test's request
+        // by its unique captured credential instead of taking the first one.
+        var request: URLRequest?
+        for _ in 0..<1000 where request == nil {
+            request = await RecordingURLProtocol.recorder.requests.first {
+                $0.value(forHTTPHeaderField: "Authorization") == "Bearer captured-access"
+            }
+            await Task.yield()
+        }
+        #expect(request?.httpMethod == "DELETE")
+        #expect(request?.value(forHTTPHeaderField: "X-Stack-Refresh-Token") == "captured-refresh")
+    }
+
+    @Test func signOutUnregisterNeverFallsBackToLiveProvider() async {
+        // The sign-out overload runs after the local-first clear emptied the
+        // live token provider. When the captured pair is incomplete (the
+        // access-token mint failed offline), it must skip the DELETE rather
+        // than fall back to the live provider: a sign-in racing the bounded
+        // teardown can repopulate the provider with the NEXT account's
+        // tokens, and the DELETE would then unregister the wrong account.
+        let (service, _) = makeService(
+            tokenProvider: FakeTokenProvider(access: "next-user-access", refresh: "next-user-refresh")
+        )
+        await service.register(deviceToken: Data([0xEE, 0xFF]))
+
+        await service.unregisterFromServer(accessToken: nil, refreshToken: "captured-refresh")
+
+        // The unregister call has fully completed, so any DELETE it issued is
+        // already recorded. None may carry the live (next account's) Bearer.
+        let hijacked = await RecordingURLProtocol.recorder.requests.contains {
+            $0.value(forHTTPHeaderField: "Authorization") == "Bearer next-user-access"
+        }
+        #expect(hijacked == false)
     }
 }
