@@ -23462,11 +23462,9 @@ struct CMUXCLI {
 
     private func resolveAgentProcessTerminalBinding(pid: Int?, client: SocketClient) -> CallerTerminalBinding? {
         guard let pid else { return nil }
-        guard let payload = try? client.sendV2(
-            method: "system.top",
-            params: ["all_windows": true, "include_processes": true],
-            responseTimeout: 2.0
-        ) else {
+        let snapshotClient = SocketClient(path: client.socketPath); defer { snapshotClient.close() }
+        guard (try? snapshotClient.connectWithoutRetry(responseTimeout: 2.0)) != nil,
+              let payload = try? snapshotClient.sendV2(method: "system.top", params: ["all_windows": true, "include_processes": true], responseTimeout: 2.0) else {
             return nil
         }
         let windows = payload["windows"] as? [[String: Any]] ?? []
