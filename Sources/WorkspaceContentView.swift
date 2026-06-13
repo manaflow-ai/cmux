@@ -298,6 +298,25 @@ struct WorkspaceContentView: View {
         // Recreate the Bonsplit subtree on zoom enter/exit so stale pre-zoom pane chrome
         // cannot remain stacked above portal-hosted browser content.
         .id(splitZoomRenderIdentity)
+
+        Group {
+            switch workspace.layoutMode {
+            case .bonsplit:
+                bonsplitView
+            case .paper:
+                PaperCanvasWorkspaceView(
+                    workspace: workspace,
+                    isWorkspaceVisible: isWorkspaceVisible,
+                    isWorkspaceInputActive: isWorkspaceInputActive,
+                    workspacePortalPriority: workspacePortalPriority,
+                    appearance: appearance,
+                    isSplit: isSplit,
+                    usesWorkspacePaneOverlay: usesWorkspacePaneOverlay,
+                    isWorkspaceManuallyUnread: isWorkspaceManuallyUnread,
+                    workspaceManualUnreadPanelId: workspaceManualUnreadPanelId
+                )
+            }
+        }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .onAppear {
             updateAgentHibernationPresentationVisibility()
@@ -355,9 +374,7 @@ struct WorkspaceContentView: View {
                 notificationPayloadHex: payloadHex
             )
         }
-
-        bonsplitView
-            .ignoresSafeArea(.container, edges: (isMinimalMode && !isFullScreen) ? .top : [])
+        .ignoresSafeArea(.container, edges: (isMinimalMode && !isFullScreen) ? .top : [])
     }
 
     private func syncBonsplitNotificationBadges() {
@@ -752,6 +769,315 @@ extension WorkspaceContentView {
         _ = workspace
     }
     #endif
+}
+
+struct PaperCanvasWorkspaceView: View {
+    private struct RenderedPaperPane: Identifiable, Equatable {
+        let pane: PaperPane
+        let selectedTabId: UUID?
+        let panelId: UUID?
+
+        var id: String {
+            "\(pane.id.uuidString):\(selectedTabId?.uuidString ?? "nil")"
+        }
+
+        var shortDescription: String {
+            "\(pane.id.uuidString.prefix(5)):\(selectedTabId.map { String($0.uuidString.prefix(5)) } ?? "nil")"
+        }
+    }
+
+    private struct RenderedPaperColumn: Identifiable, Equatable {
+        let sourceX: CGFloat
+        let panes: [RenderedPaperPane]
+
+        var id: String {
+            panes.map(\.id).joined(separator: "|")
+        }
+    }
+
+    private struct PaperRenderPlan: Equatable {
+        let columns: [RenderedPaperColumn]
+        let duplicatePaneIds: [UUID]
+        let duplicateSelectedTabIds: [UUID]
+        let duplicatePanelIds: [UUID]
+        let missingPanels: [RenderedPaperPane]
+
+        var visibleColumnCount: Int {
+            max(1, columns.count)
+        }
+
+        var visiblePaneDescriptions: String {
+            columns
+                .flatMap(\.panes)
+                .map(\.shortDescription)
+                .joined(separator: ",")
+        }
+
+        var debugSignature: String {
+            [
+                "visible=\(visiblePaneDescriptions)",
+                "duplicatePanes=\(duplicatePaneIds.map { String($0.uuidString.prefix(5)) }.joined(separator: ","))",
+                "duplicateTabs=\(duplicateSelectedTabIds.map { String($0.uuidString.prefix(5)) }.joined(separator: ","))",
+                "duplicatePanels=\(duplicatePanelIds.map { String($0.uuidString.prefix(5)) }.joined(separator: ","))",
+                "missing=\(missingPanels.map(\.shortDescription).joined(separator: ","))"
+            ].joined(separator: " ")
+        }
+    }
+
+    @ObservedObject var workspace: Workspace
+    let isWorkspaceVisible: Bool
+    let isWorkspaceInputActive: Bool
+    let workspacePortalPriority: Int
+    let appearance: PanelAppearance
+    let isSplit: Bool
+    let usesWorkspacePaneOverlay: Bool
+    let isWorkspaceManuallyUnread: Bool
+    let workspaceManualUnreadPanelId: UUID?
+    @EnvironmentObject var notificationStore: TerminalNotificationStore
+    private let paperColumnSpacing: CGFloat = 24
+    private let paperRowSpacing: CGFloat = 24
+
+    var body: some View {
+        GeometryReader { proxy in
+            ZStack(alignment: .topLeading) {
+                if let paperLayoutState = workspace.paperLayoutState {
+                    paperCanvasView(paperLayoutState, viewportSize: proxy.size)
+                }
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+            .clipped()
+            .onAppear {
+                initializePaperLayoutIfNeeded(viewportSize: proxy.size)
+            }
+            .onChange(of: proxy.size) { _, viewportSize in
+                initializePaperLayoutIfNeeded(viewportSize: viewportSize)
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func paperCanvasView(_ paperLayoutState: PaperLayoutState, viewportSize: CGSize) -> some View {
+        let renderPlan = paperRenderPlan(paperLayoutState)
+        let visibleColumnCount = renderPlan.visibleColumnCount
+        let visibleRowCount = min(4, max(1, workspace.paperVisibleRowCount))
+        let totalColumnSpacing = paperColumnSpacing * CGFloat(max(0, visibleColumnCount - 1))
+        let totalRowSpacing = paperRowSpacing * CGFloat(max(0, visibleRowCount - 1))
+        let paneSize = CGSize(
+            width: max(1, (viewportSize.width - totalColumnSpacing) / CGFloat(visibleColumnCount)),
+            height: max(1, (viewportSize.height - totalRowSpacing) / CGFloat(visibleRowCount))
+        )
+
+        HStack(alignment: .top, spacing: paperColumnSpacing) {
+            ForEach(renderPlan.columns) { column in
+                VStack(alignment: .leading, spacing: paperRowSpacing) {
+                    ForEach(column.panes) { renderedPane in
+                        paperPaneView(renderedPane, paneSize: paneSize)
+                    }
+                }
+            }
+        }
+        .frame(width: viewportSize.width, height: viewportSize.height, alignment: .topLeading)
+#if DEBUG
+        .onAppear {
+            logPaperRenderPlan(renderPlan, visibleColumnCount: visibleColumnCount, visibleRowCount: visibleRowCount)
+        }
+        .onChange(of: renderPlan.debugSignature) { _, _ in
+            logPaperRenderPlan(renderPlan, visibleColumnCount: visibleColumnCount, visibleRowCount: visibleRowCount)
+        }
+#endif
+    }
+
+    private func paperRenderPlan(_ paperLayoutState: PaperLayoutState) -> PaperRenderPlan {
+        var seenPaneIds: Set<UUID> = []
+        var seenSelectedTabIds: Set<UUID> = []
+        var seenPanelIds: Set<UUID> = []
+        var duplicatePaneIds: [UUID] = []
+        var duplicateSelectedTabIds: [UUID] = []
+        var duplicatePanelIds: [UUID] = []
+        var missingPanels: [RenderedPaperPane] = []
+
+        let visibleColumns = paperLayoutState.visibleColumns(count: workspace.paperVisibleColumnCount)
+        let visibleRowCount = min(4, max(1, workspace.paperVisibleRowCount))
+
+        let renderedColumns = visibleColumns.compactMap { column -> RenderedPaperColumn? in
+            let renderedPanes = paperLayoutState
+                .visiblePanes(in: column, rowCount: visibleRowCount)
+                .compactMap { pane -> RenderedPaperPane? in
+                    guard seenPaneIds.insert(pane.id).inserted else {
+                        duplicatePaneIds.append(pane.id)
+                        return nil
+                    }
+
+                    let selectedTabId = pane.selectedTabId ?? pane.tabIds.first
+                    if let selectedTabId,
+                       !seenSelectedTabIds.insert(selectedTabId).inserted {
+                        duplicateSelectedTabIds.append(selectedTabId)
+                        return nil
+                    }
+
+                    let panelId = selectedTabId.flatMap { workspace.panel(for: TabID(uuid: $0))?.id }
+                    let renderedPane = RenderedPaperPane(
+                        pane: pane,
+                        selectedTabId: selectedTabId,
+                        panelId: panelId
+                    )
+                    if let selectedTabId, panelId == nil {
+                        missingPanels.append(renderedPane)
+                    }
+                    if let panelId,
+                       !seenPanelIds.insert(panelId).inserted {
+                        duplicatePanelIds.append(panelId)
+                        return nil
+                    }
+
+                    return renderedPane
+                }
+
+            guard !renderedPanes.isEmpty else { return nil }
+            return RenderedPaperColumn(sourceX: column.x, panes: renderedPanes)
+        }
+
+        return PaperRenderPlan(
+            columns: renderedColumns,
+            duplicatePaneIds: duplicatePaneIds,
+            duplicateSelectedTabIds: duplicateSelectedTabIds,
+            duplicatePanelIds: duplicatePanelIds,
+            missingPanels: missingPanels
+        )
+    }
+
+#if DEBUG
+    private func logPaperRenderPlan(
+        _ renderPlan: PaperRenderPlan,
+        visibleColumnCount: Int,
+        visibleRowCount: Int
+    ) {
+        cmuxDebugLog(
+            "paper.render.visible workspace=\(workspace.id.uuidString.prefix(5)) " +
+            "columns=\(visibleColumnCount) rows=\(visibleRowCount) panes=\(renderPlan.visiblePaneDescriptions)"
+        )
+
+        if !renderPlan.duplicatePaneIds.isEmpty ||
+            !renderPlan.duplicateSelectedTabIds.isEmpty ||
+            !renderPlan.duplicatePanelIds.isEmpty {
+            cmuxDebugLog(
+                "paper.render.duplicates workspace=\(workspace.id.uuidString.prefix(5)) " +
+                "paneIds=\(renderPlan.duplicatePaneIds.map { String($0.uuidString.prefix(5)) }.joined(separator: ",")) " +
+                "selectedTabIds=\(renderPlan.duplicateSelectedTabIds.map { String($0.uuidString.prefix(5)) }.joined(separator: ",")) " +
+                "panelIds=\(renderPlan.duplicatePanelIds.map { String($0.uuidString.prefix(5)) }.joined(separator: ","))"
+            )
+        }
+
+        for missingPanel in renderPlan.missingPanels {
+            cmuxDebugLog(
+                "paper.render.missingPanel workspace=\(workspace.id.uuidString.prefix(5)) " +
+                "pane=\(missingPanel.pane.id.uuidString.prefix(5)) " +
+                "selectedTab=\(missingPanel.selectedTabId.map { String($0.uuidString.prefix(5)) } ?? "nil") " +
+                "tabIds=\(missingPanel.pane.tabIds.map { String($0.uuidString.prefix(5)) }.joined(separator: ","))"
+            )
+        }
+    }
+#endif
+
+    @ViewBuilder
+    private func paperPaneView(_ renderedPane: RenderedPaperPane, paneSize: CGSize) -> some View {
+        let pane = renderedPane.pane
+        let paneId = PaneID(id: pane.id)
+        let selectedTabId = renderedPane.selectedTabId
+        let panel = selectedTabId.flatMap { workspace.panel(for: TabID(uuid: $0)) }
+
+        Group {
+            if let panel {
+                paperPanelContentView(panel: panel, paneId: paneId, paneSize: paneSize)
+            } else {
+                ZStack {
+                    EmptyPanelView(workspace: workspace, paneId: paneId)
+                }
+                .frame(width: paneSize.width, height: paneSize.height)
+#if DEBUG
+                .onAppear {
+                    let selectedTabDescription = selectedTabId.map { String($0.uuidString.prefix(5)) } ?? "nil"
+                    cmuxDebugLog(
+                        "paper.render.missingPanel workspace=\(workspace.id.uuidString.prefix(5)) " +
+                        "pane=\(pane.id.uuidString.prefix(5)) selectedTab=\(selectedTabDescription) " +
+                        "tabIds=\(pane.tabIds.map { String($0.uuidString.prefix(5)) }.joined(separator: ","))"
+                    )
+                }
+#endif
+                .onTapGesture {
+                    workspace.bonsplitController.focusPane(paneId)
+                }
+            }
+        }
+        .id(renderedPane.id)
+    }
+
+    @ViewBuilder
+    private func paperPanelContentView(panel: any Panel, paneId: PaneID, paneSize: CGSize) -> some View {
+        let isFocused = isWorkspaceInputActive && workspace.focusedPanelId == panel.id
+        let isVisibleInUI = WorkspaceContentView.panelVisibleInUI(
+            isWorkspaceVisible: isWorkspaceVisible,
+            isSelectedInPane: true,
+            isFocused: isFocused
+        )
+        let showsNotificationRing = Workspace.shouldShowUnreadIndicator(
+            hasUnreadNotification: notificationStore.hasVisibleNotificationIndicator(
+                forTabId: workspace.id,
+                surfaceId: panel.id
+            ),
+            hasPanelUnreadIndicator: workspace.manualUnreadPanelIds.contains(panel.id) ||
+                workspace.restoredUnreadPanelIds.contains(panel.id),
+            isWorkspaceManuallyUnread: isWorkspaceManuallyUnread,
+            isWorkspaceManualUnreadRepresentative: workspaceManualUnreadPanelId == panel.id
+        )
+
+        PanelContentView(
+            panel: panel,
+            workspaceId: workspace.id,
+            paneId: paneId,
+            isFocused: isFocused,
+            isSelectedInPane: true,
+            isVisibleInUI: isVisibleInUI,
+            portalPriority: workspacePortalPriority,
+            isSplit: isSplit,
+            appearance: appearance,
+            hasUnreadNotification: showsNotificationRing && !usesWorkspacePaneOverlay,
+            terminalAgentContext: WorkspaceContentView.terminalAgentContext(panel: panel, workspace: workspace),
+            onFocus: {
+                guard isWorkspaceInputActive else { return }
+                guard workspace.panels[panel.id] != nil else { return }
+                workspace.focusPanel(panel.id, trigger: .terminalFirstResponder)
+            },
+            onRequestPanelFocus: {
+                guard isWorkspaceInputActive else { return }
+                guard workspace.panels[panel.id] != nil else { return }
+                AppDelegate.shared?.noteMainPanelKeyboardFocusIntent(
+                    workspaceId: workspace.id,
+                    panelId: panel.id,
+                    in: NSApp.keyWindow ?? NSApp.mainWindow
+                )
+                workspace.focusPanel(panel.id)
+            },
+            onResumeAgentHibernation: {
+                guard isWorkspaceInputActive else { return }
+                guard workspace.panels[panel.id] != nil else { return }
+                workspace.resumeAgentHibernation(panelId: panel.id, focus: true)
+            },
+            onAutoResumeAgentHibernation: {
+                guard isWorkspaceInputActive else { return }
+                guard workspace.panels[panel.id] != nil else { return }
+                workspace.resumeAgentHibernation(panelId: panel.id, focus: false)
+            },
+            onTriggerFlash: {
+                workspace.triggerDebugFlash(panelId: panel.id)
+            }
+        )
+        .frame(width: paneSize.width, height: paneSize.height)
+    }
+
+    private func initializePaperLayoutIfNeeded(viewportSize: CGSize) {
+        workspace.ensurePaperLayoutState(viewportSize: viewportSize)
+    }
 }
 
 /// View shown for empty panes
