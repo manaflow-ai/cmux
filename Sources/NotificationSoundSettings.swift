@@ -1,4 +1,5 @@
 import AppKit
+import CmuxFoundation
 import Foundation
 import UserNotifications
 
@@ -593,7 +594,7 @@ enum NotificationSoundSettings {
         try process.run()
         process.waitUntilExit()
         guard process.terminationStatus == 0 else {
-            let errorData = ProcessPipeReader.readDataToEndOfFileOrEmpty(from: errorPipe.fileHandleForReading)
+            let errorData = errorPipe.fileHandleForReading.readDataToEndOfFileOrEmpty()
             let errorOutput = String(data: errorData, encoding: .utf8)?
                 .trimmingCharacters(in: .whitespacesAndNewlines)
             if fileManager.fileExists(atPath: normalizedDestination.path) {

@@ -442,6 +442,10 @@ jobs:
           # symbol instead of the GhosttyKit archive.
           PACKAGES=(
             CMUXAuthCore
+            CmuxCore
+            CmuxRemoteDaemon
+            CmuxRemoteWorkspace
+            CmuxRemoteSession
             CmuxAuthRuntime
             CmuxControlSocket
             CmuxFileWatch

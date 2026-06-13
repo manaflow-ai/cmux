@@ -24,9 +24,15 @@ struct WorkspaceNavigationRow: View {
     /// Close the workspace on the Mac. When `nil` the delete affordance is
     /// hidden.
     var closeWorkspace: ((MobileWorkspacePreview.ID) -> Void)? = nil
+    /// Whether this row's destructive close action is awaiting confirmation.
+    /// The binding is owned by the list so recycled rows do not own presentation
+    /// state, but the presenter stays attached to the swiped row.
+    var isConfirmingClose: Binding<Bool> = .constant(false)
+    /// Performs the confirmed close. Separate from ``closeWorkspace`` so a
+    /// full-swipe can request confirmation without directly closing the row.
+    var confirmCloseWorkspace: ((MobileWorkspacePreview.ID) -> Void)? = nil
 
     @State private var isRenaming = false
-    @State private var isConfirmingClose = false
 
     var body: some View {
         WorkspaceRow(
@@ -54,11 +60,12 @@ struct WorkspaceNavigationRow: View {
         }
         .swipeActions(edge: .trailing, allowsFullSwipe: true) {
             if let closeWorkspace {
-                Button(role: .destructive) {
-                    requestCloseWorkspace()
+                Button {
+                    closeWorkspace(workspace.id)
                 } label: {
                     Label(L10n.string("mobile.workspace.delete", defaultValue: "Delete"), systemImage: "trash")
                 }
+                .tint(.red)
                 .accessibilityIdentifier("MobileWorkspaceDeleteSwipeButton-\(workspace.id.rawValue)")
             }
         }
@@ -74,16 +81,18 @@ struct WorkspaceNavigationRow: View {
         }
         .confirmationDialog(
             L10n.string("mobile.workspace.delete.confirmTitle", defaultValue: "Delete Workspace?"),
-            isPresented: $isConfirmingClose,
+            isPresented: isConfirmingClose,
             titleVisibility: .visible
         ) {
-            if let closeWorkspace {
+            if let confirmCloseWorkspace {
                 Button(L10n.string("mobile.workspace.delete.confirmAction", defaultValue: "Delete"), role: .destructive) {
-                    closeWorkspace(workspace.id)
+                    confirmCloseWorkspace(workspace.id)
                 }
                 .accessibilityIdentifier("MobileWorkspaceDeleteConfirmButton-\(workspace.id.rawValue)")
             }
-            Button(L10n.string("mobile.common.cancel", defaultValue: "Cancel"), role: .cancel) {}
+            Button(L10n.string("mobile.common.cancel", defaultValue: "Cancel"), role: .cancel) {
+                isConfirmingClose.wrappedValue = false
+            }
         } message: {
             Text(L10n.string("mobile.workspace.delete.confirmMessage", defaultValue: "This will close the workspace on your Mac."))
         }
@@ -121,7 +130,7 @@ struct WorkspaceNavigationRow: View {
         }
         if let closeWorkspace {
             Button(role: .destructive) {
-                requestCloseWorkspace()
+                closeWorkspace(workspace.id)
             } label: {
                 Label(L10n.string("mobile.workspace.delete", defaultValue: "Delete"), systemImage: "trash")
             }
@@ -137,9 +146,5 @@ struct WorkspaceNavigationRow: View {
 
     private var readStateActionSystemImage: String {
         workspace.hasUnread ? "envelope.open" : "envelope.badge"
-    }
-
-    private func requestCloseWorkspace() {
-        isConfirmingClose = true
     }
 }
