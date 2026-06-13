@@ -1,14 +1,15 @@
 import Foundation
 import Testing
+@testable import CmuxRemoteSession
 
-#if canImport(cmux_DEV)
-@testable import cmux_DEV
-#elseif canImport(cmux)
-@testable import cmux
-#endif
-
+// Remote platform probe coverage, retargeted from the app's
+// WorkspaceRemotePlatformProbeTests onto the lifted package type
+// (`WorkspaceRemoteSessionController` -> `RemoteSessionCoordinator`);
+// assertions unchanged. Pins the OpenWrt BusyBox `tr`-without-classes fix
+// (https://github.com/manaflow-ai/cmux/pull/6056), the version
+// sanitization, and the marker-stripped user-facing stdout.
 @Suite(.serialized)
-struct WorkspaceRemotePlatformProbeTests {
+struct RemotePlatformProbeTests {
     private struct ProcessResult {
         let status: Int32
         let stdout: String
@@ -87,7 +88,7 @@ struct WorkspaceRemotePlatformProbeTests {
                 "PATH=\(bin.path):/usr/bin:/bin",
                 "/bin/sh",
                 "-c",
-                WorkspaceRemoteSessionController.remotePlatformProbeScript(version: "test-version"),
+                RemoteSessionCoordinator.remotePlatformProbeScript(version: "test-version"),
             ]
         )
 
@@ -95,15 +96,15 @@ struct WorkspaceRemotePlatformProbeTests {
         let stdoutComment = Comment(rawValue: result.stdout)
         #expect(result.status == 0, outputComment)
         #expect(
-            result.stdout.contains("\(WorkspaceRemoteSessionController.remotePlatformProbeOSMarker)Linux"),
+            result.stdout.contains("\(RemoteSessionCoordinator.remotePlatformProbeOSMarker)Linux"),
             stdoutComment
         )
         #expect(
-            result.stdout.contains("\(WorkspaceRemoteSessionController.remotePlatformProbeArchMarker)x86_64"),
+            result.stdout.contains("\(RemoteSessionCoordinator.remotePlatformProbeArchMarker)x86_64"),
             stdoutComment
         )
         #expect(
-            result.stdout.contains("\(WorkspaceRemoteSessionController.remotePlatformProbeExistsMarker)yes"),
+            result.stdout.contains("\(RemoteSessionCoordinator.remotePlatformProbeExistsMarker)yes"),
             stdoutComment
         )
     }
@@ -150,7 +151,7 @@ struct WorkspaceRemotePlatformProbeTests {
                 "PATH=\(bin.path):/usr/bin:/bin",
                 "/bin/sh",
                 "-c",
-                WorkspaceRemoteSessionController.remotePlatformProbeScript(
+                RemoteSessionCoordinator.remotePlatformProbeScript(
                     version: #""; printf "__CMUX_INJECTED__\n"; #"#
                 ),
             ]
@@ -161,7 +162,7 @@ struct WorkspaceRemotePlatformProbeTests {
         #expect(result.status == 0, outputComment)
         #expect(!result.stdout.contains("__CMUX_INJECTED__"), stdoutComment)
         #expect(
-            result.stdout.contains("\(WorkspaceRemoteSessionController.remotePlatformProbeExistsMarker)yes"),
+            result.stdout.contains("\(RemoteSessionCoordinator.remotePlatformProbeExistsMarker)yes"),
             stdoutComment
         )
     }
@@ -169,13 +170,13 @@ struct WorkspaceRemotePlatformProbeTests {
     @Test
     func userFacingStdoutOmitsInternalProbeMarkers() {
         let stdout = """
-        \(WorkspaceRemoteSessionController.remotePlatformProbeHomeMarker)/root
-        \(WorkspaceRemoteSessionController.remotePlatformProbeOSMarker)Linux
+        \(RemoteSessionCoordinator.remotePlatformProbeHomeMarker)/root
+        \(RemoteSessionCoordinator.remotePlatformProbeOSMarker)Linux
         actual failure detail
-        \(WorkspaceRemoteSessionController.remotePlatformProbeArchMarker)x86_64
+        \(RemoteSessionCoordinator.remotePlatformProbeArchMarker)x86_64
         """
 
-        #expect(WorkspaceRemoteSessionController.remotePlatformProbeUserFacingStdout(stdout) == "actual failure detail")
+        #expect(RemoteSessionCoordinator.remotePlatformProbeUserFacingStdout(stdout) == "actual failure detail")
     }
 
     private static func writeExecutableShellFile(at url: URL, body: String) throws {
