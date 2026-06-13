@@ -90,27 +90,51 @@ enum SidebarWorkspaceScrollLayout {
         return max(0, (viewportHeight - insets.total).rounded(.down))
     }
 
-    /// Height of the empty drop/tap area placed below the last workspace row.
+    /// Height of the empty drop/tap area `SidebarRowsFillLayout` places below the
+    /// last workspace row: the space remaining in the layout's concrete container.
     ///
-    /// The area fills the remaining viewport (so the content fills the visible
-    /// height when the rows fit) but is clamped to `0` once the rows already
-    /// reach or exceed `contentMinHeight`. Sizing it to this finite remainder —
-    /// rather than `maxHeight: .infinity` — is what keeps the document view
-    /// from perpetually overflowing, so the overlay scroller stays hidden when
-    /// there is nothing to scroll
-    /// (https://github.com/manaflow-ai/cmux/issues/3241).
+    /// The container height is the viewport floor (`.frame(minHeight:)`) when the
+    /// rows fit, or the rows' natural height when they overflow it. Because it is
+    /// derived from the layout's own bounds rather than a measured whole-content
+    /// height, the rows are never read into SwiftUI `@State` — which is what fed
+    /// the relayout loop
+    /// (https://github.com/manaflow-ai/cmux/issues/2586,
+    /// https://github.com/manaflow-ai/cmux/issues/5764). When the rows fit, rows +
+    /// empty area exactly fill the viewport, so there is no overflow and the
+    /// overlay scroller stays hidden (https://github.com/manaflow-ai/cmux/issues/3241);
+    /// when the rows overflow, this is `0` and the document view genuinely scrolls.
     ///
     /// - Parameters:
-    ///   - contentMinHeight: The viewport height available to the scroll content.
-    ///   - rowsHeight: The measured height of the laid-out rows, or `nil` when
-    ///     no measurement is available yet (in which case the area collapses to
-    ///     `0` and the content's `minHeight` frame still fills the viewport).
+    ///   - containerHeight: The layout's resolved container height.
+    ///   - rowsHeight: The rows' natural height.
     /// - Returns: The non-negative height for the empty area.
-    nonisolated static func emptyAreaHeight(
-        contentMinHeight: CGFloat,
-        rowsHeight: CGFloat?
+    nonisolated static func emptyAreaFillHeight(
+        containerHeight: CGFloat,
+        rowsHeight: CGFloat
     ) -> CGFloat {
-        guard let rowsHeight, rowsHeight > 0 else { return 0 }
-        return max(0, contentMinHeight - rowsHeight)
+        return max(0, containerHeight - rowsHeight)
+    }
+
+    /// Empty-area height from the explicit viewport, the way `SidebarRowsFillLayout`
+    /// computes it. The container is the viewport when the rows fit, or the rows'
+    /// height when they overflow it, so the empty area fills the remaining
+    /// viewport below the rows (keeping the blank area a drop/tap target) and
+    /// collapses to `0` once the rows overflow. Driven by the explicit viewport,
+    /// not a layout proposal — a vertical `ScrollView` leaves the scroll-axis
+    /// height unspecified, so deriving it from the proposal would collapse the
+    /// area to a placeholder height when the rows fit.
+    ///
+    /// - Parameters:
+    ///   - viewportHeight: The floored viewport height available to the content.
+    ///   - rowsHeight: The rows' natural height.
+    /// - Returns: The non-negative height for the empty area.
+    nonisolated static func emptyAreaFillHeight(
+        viewportHeight: CGFloat,
+        rowsHeight: CGFloat
+    ) -> CGFloat {
+        return emptyAreaFillHeight(
+            containerHeight: max(viewportHeight, rowsHeight),
+            rowsHeight: rowsHeight
+        )
     }
 }
