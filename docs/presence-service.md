@@ -96,6 +96,38 @@ column, the Drizzle migration must land in `web/db/migrations` and is applied
 by the `web-db-migrations` CI job and the cloud-vm migrate workflow
 (`.github/workflows/cloud-vm-migrate.yml`), per the cloud-vm-ops runbook.
 
+### Upgrading running Durable Objects
+
+There are two distinct "migrations" and they do different jobs. The
+`[[migrations]]` tags above are **class migrations**: they manage the DO class
+registry (`new_sqlite_classes`, `renamed_classes`, `deleted_classes`,
+`transferred_classes`), are append-only (never edit a past tag, add a new
+one), and apply atomically with `wrangler deploy`. Deleting or renaming a
+class is destructive and not auto-reversible (it drops that class's storage),
+so treat those like a database drop; additive class migrations roll back
+safely.
+
+Class migrations do not touch the shape of data stored inside an object, and
+there is no automatic per-instance data migration. A DO is a single-threaded
+actor, so at most one instance per id is alive at once and two code versions of
+the same id never run simultaneously. A `wrangler deploy` does not kill running
+objects mid-execution: the live instance keeps the old code until it is evicted
+(idle eviction, or hibernation for the WebSocket-hibernation path), and the
+next hydration (a request, an alarm, or a hibernated socket waking) runs the
+new code against the same persisted storage. So "upgrading running instances"
+means making new code safely read data the old code wrote: prefer additive
+changes (new optional fields with defaults for missing values); for anything
+breaking, stamp a `schemaVersion` on the stored record and lazily upgrade it on
+first touch in the constructor or alarm; and keep new code tolerant of
+old-format reads during the gradual cross-colo rollout window.
+
+For this service that discipline only bites in one place. The live instance map
+and the 24h "last seen" tail self-heal because hosts re-announce every 15s, so
+a breaking change to those costs nothing in practice. The durable **owner
+pins** are never pruned, so a change to their shape is the one case that
+genuinely requires the versioned-record plus lazy-upgrade treatment. Most
+presence deploys can ship freely; only owner-pin schema changes need care.
+
 ## CI/CD
 
 `.github/workflows/presence.yml`, path-filtered to `workers/presence/**`:
