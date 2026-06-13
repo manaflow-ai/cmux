@@ -109,4 +109,40 @@ struct SidebarWorkspaceScrollLayoutTests {
         )
         #expect(abs(emptyAreaHeight - containerHeight) <= 0.001)
     }
+
+    // SidebarRowsFillLayout sizes the empty area from the *explicit* viewport,
+    // not from a layout proposal. A vertical ScrollView leaves the scroll-axis
+    // height unspecified, so deriving the viewport from the proposal would
+    // collapse the empty area to a placeholder height when the rows fit, dropping
+    // the blank area below the last row out of the drop/tap target. These cover
+    // the viewport-based path directly (the regression Codex flagged on #6033).
+
+    @Test func emptyAreaFromViewportFillsRemainderWhenRowsFit() {
+        // Mirrors the observed runtime values (viewport 628, rows 421 -> 207).
+        let emptyAreaHeight = SidebarWorkspaceScrollLayout.emptyAreaFillHeight(
+            viewportHeight: 628,
+            rowsHeight: 421
+        )
+        #expect(abs(emptyAreaHeight - 207) <= 0.001)
+        // rows + empty exactly fill the viewport, so the blank area below the
+        // last row stays a drop/tap target and the overlay scroller stays hidden.
+        #expect(abs((421 + emptyAreaHeight) - 628) <= 0.001)
+    }
+
+    @Test func emptyAreaFromViewportCollapsesWhenRowsOverflow() {
+        // Mirrors the observed overflow values (viewport 628, rows 676 -> 0).
+        let emptyAreaHeight = SidebarWorkspaceScrollLayout.emptyAreaFillHeight(
+            viewportHeight: 628,
+            rowsHeight: 676
+        )
+        #expect(abs(emptyAreaHeight) <= 0.001)
+    }
+
+    @Test func emptyAreaFromViewportFillsEntireViewportWhenNoRows() {
+        let emptyAreaHeight = SidebarWorkspaceScrollLayout.emptyAreaFillHeight(
+            viewportHeight: 612,
+            rowsHeight: 0
+        )
+        #expect(abs(emptyAreaHeight - 612) <= 0.001)
+    }
 }

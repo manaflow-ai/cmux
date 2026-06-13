@@ -10,25 +10,37 @@ import SwiftUI
 /// layout fed a non-converging relayout transaction
 /// (https://github.com/manaflow-ai/cmux/issues/2586,
 /// https://github.com/manaflow-ai/cmux/issues/5764,
-/// https://github.com/manaflow-ai/cmux/issues/5845). This `Layout` instead reads
-/// its own concrete `bounds` (the parent `.frame(minHeight:)` resolves to the
-/// viewport during placement) and derives the empty-area height from it, so the
-/// rows are never measured into SwiftUI state. The bounds are always finite, so
-/// when the rows fit, rows + empty area exactly fill the viewport (no overflow,
-/// overlay scroller stays hidden — https://github.com/manaflow-ai/cmux/issues/3241);
-/// when the rows overflow, the empty area is `0` and the document view scrolls.
+/// https://github.com/manaflow-ai/cmux/issues/5845).
+///
+/// This `Layout` takes the viewport height as an explicit input
+/// (`viewportHeight`, the floored content height the call site already computes
+/// from the scroll geometry) and sizes the empty area from it directly. It does
+/// NOT derive the viewport from the layout proposal: a vertical `ScrollView`
+/// leaves the scroll-axis height unspecified, and
+/// `ProposedViewSize.replacingUnspecifiedDimensions()` would then fall back to a
+/// 10pt placeholder, collapsing the empty area to `0` and dropping the blank
+/// area below the last row out of the drop/tap target. With the explicit
+/// viewport: when the rows fit, rows + empty area exactly fill the viewport (no
+/// overflow, overlay scroller stays hidden —
+/// https://github.com/manaflow-ai/cmux/issues/3241); when the rows overflow, the
+/// empty area is `0` and the document view scrolls. The rows are never measured
+/// into SwiftUI state.
 ///
 /// Expects exactly two subviews in order: `[rows, emptyArea]`.
 struct SidebarRowsFillLayout: Layout {
+    /// The floored viewport height available to the scroll content. The empty
+    /// area fills the remainder of this height below the rows.
+    let viewportHeight: CGFloat
+
     func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
-        let resolved = proposal.replacingUnspecifiedDimensions()
+        let width = proposal.replacingUnspecifiedDimensions().width
         let rowsHeight = subviews.first?.sizeThatFits(
-            ProposedViewSize(width: resolved.width, height: nil)
+            ProposedViewSize(width: width, height: nil)
         ).height ?? 0
-        // Fill the proposed (viewport) height when the rows are shorter; grow to
-        // the rows' natural height when they overflow it. The parent
-        // `.frame(minHeight:)` supplies the viewport floor.
-        return CGSize(width: resolved.width, height: max(rowsHeight, resolved.height))
+        // Fill the viewport when the rows are shorter; grow to the rows' natural
+        // height when they overflow it. Driven by the explicit viewport, not the
+        // (unspecified in a vertical ScrollView) proposed height.
+        return CGSize(width: width, height: max(rowsHeight, viewportHeight))
     }
 
     func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
@@ -41,8 +53,12 @@ struct SidebarRowsFillLayout: Layout {
             proposal: ProposedViewSize(width: bounds.width, height: rowsHeight)
         )
         guard subviews.count > 1 else { return }
+        // Size the empty area against the explicit viewport (or the rows' height
+        // when they overflow it), never against `bounds.height` — which could be
+        // the rows' natural height alone if the parent placed us at our content
+        // size.
         let emptyHeight = SidebarWorkspaceScrollLayout.emptyAreaFillHeight(
-            containerHeight: bounds.height,
+            viewportHeight: viewportHeight,
             rowsHeight: rowsHeight
         )
         subviews[1].place(

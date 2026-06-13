@@ -114,4 +114,27 @@ enum SidebarWorkspaceScrollLayout {
     ) -> CGFloat {
         return max(0, containerHeight - rowsHeight)
     }
+
+    /// Empty-area height from the explicit viewport, the way `SidebarRowsFillLayout`
+    /// computes it. The container is the viewport when the rows fit, or the rows'
+    /// height when they overflow it, so the empty area fills the remaining
+    /// viewport below the rows (keeping the blank area a drop/tap target) and
+    /// collapses to `0` once the rows overflow. Driven by the explicit viewport,
+    /// not a layout proposal — a vertical `ScrollView` leaves the scroll-axis
+    /// height unspecified, so deriving it from the proposal would collapse the
+    /// area to a placeholder height when the rows fit.
+    ///
+    /// - Parameters:
+    ///   - viewportHeight: The floored viewport height available to the content.
+    ///   - rowsHeight: The rows' natural height.
+    /// - Returns: The non-negative height for the empty area.
+    nonisolated static func emptyAreaFillHeight(
+        viewportHeight: CGFloat,
+        rowsHeight: CGFloat
+    ) -> CGFloat {
+        return emptyAreaFillHeight(
+            containerHeight: max(viewportHeight, rowsHeight),
+            rowsHeight: rowsHeight
+        )
+    }
 }

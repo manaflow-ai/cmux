@@ -12463,15 +12463,18 @@ struct VerticalTabsSidebar: View {
         minHeight: CGFloat
     ) -> some View {
         // Rows take their natural height; the empty drop/tap area stretches to
-        // fill the remaining viewport. SidebarRowsFillLayout derives that
-        // remainder from its own concrete bounds (the parent .frame(minHeight:)
-        // resolves to the viewport during placement), so we never measure the
-        // LazyVStack's whole-content height into @State. That measurement (a
-        // .background GeometryReader writing a PreferenceKey) fed a
-        // non-converging relayout loop (#2586 / #5764 / #5845). The layout's
-        // bounds are always finite, so the document view never overflows when
-        // the rows fit and the overlay scroller stays hidden (#3241).
-        SidebarRowsFillLayout {
+        // fill the remaining viewport. SidebarRowsFillLayout sizes that
+        // remainder from the explicit viewport height (`minHeight`, the floored
+        // content height from the scroll geometry) rather than from a layout
+        // proposal, which a vertical ScrollView leaves unspecified in the
+        // scroll axis. So we never measure the LazyVStack's whole-content height
+        // into @State. That measurement (a .background GeometryReader writing a
+        // PreferenceKey) fed a non-converging relayout loop (#2586 / #5764 /
+        // #5845). The empty area fills exactly to the viewport when rows fit and
+        // collapses to 0 when they overflow, so the overlay scroller stays
+        // hidden (#3241) and the blank area below the last row stays a
+        // drop/tap target.
+        SidebarRowsFillLayout(viewportHeight: minHeight) {
             workspaceRows(renderContext: renderContext)
 
             SidebarEmptyArea(
