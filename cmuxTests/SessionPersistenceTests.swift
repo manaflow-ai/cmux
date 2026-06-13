@@ -1,5 +1,6 @@
 import CMUXAgentLaunch
 import CmuxSession
+import CmuxCore
 import Darwin
 import XCTest
 

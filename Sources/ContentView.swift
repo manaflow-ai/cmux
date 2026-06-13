@@ -1,6 +1,9 @@
 import AppKit
 import CmuxCommandPalette
+import CmuxCore
+import CmuxPanes
 import CmuxSocketControl
+import CmuxWorkspaces
 import Bonsplit
 import Combine
 import CmuxSidebarInterpreterClient
@@ -9,6 +12,7 @@ import CmuxSidebarProviderKit
 import CmuxExtensionSidebarExamples
 import CmuxSettings
 import CmuxSettingsUI
+import CmuxSidebar
 import CmuxSidebarRemoteRender
 import CmuxSwiftRender
 import CmuxSwiftRenderUI
@@ -996,7 +1000,7 @@ private final class SelectedWorkspaceDirectoryObserver: ObservableObject {
     func wire(tabManager: TabManager) {
         guard self.tabManager !== tabManager || cancellable == nil else { return }
         self.tabManager = tabManager
-        cancellable = tabManager.$selectedTabId
+        cancellable = tabManager.selectedTabIdPublisher
             .map { [weak tabManager] tabId -> Workspace? in
                 guard let tabId, let tabManager else { return nil }
                 return tabManager.tabs.first(where: { $0.id == tabId })
@@ -3095,7 +3099,7 @@ struct ContentView: View {
             }
         })
 
-        view = AnyView(view.onReceive(tabManager.$tabs) { tabs in
+        view = AnyView(view.onReceive(tabManager.tabsPublisher) { tabs in
             let existingIds = Set(tabs.map { $0.id })
             if let retiringWorkspaceId, !existingIds.contains(retiringWorkspaceId) {
                 self.retiringWorkspaceId = nil
@@ -10061,7 +10065,7 @@ struct SidebarTabItemSettingsSnapshot: Equatable {
     let openPullRequestLinksInCmuxBrowser: Bool
     let openPortLinksInCmuxBrowser: Bool
     let showsNotificationMessage: Bool
-    let activeTabIndicatorStyle: SidebarActiveTabIndicatorStyle
+    let activeTabIndicatorStyle: WorkspaceIndicatorStyle
     let selectionColorHex: String?
     let notificationBadgeColorHex: String?
     let visibleAuxiliaryDetails: SidebarWorkspaceAuxiliaryDetailVisibility
@@ -10075,13 +10079,15 @@ struct SidebarTabItemSettingsSnapshot: Equatable {
         sidebarShortcutHintYOffset = ShortcutHintDebugSettings.defaultSidebarHintY
         alwaysShowShortcutHints = ShortcutHintDebugSettings.alwaysShowHints()
         sidebarFontScale = SidebarTabItemFontScale.scale(for: sidebarFontSize)
+        let settings = UserDefaultsSettingsClient(defaults: defaults)
+        let catalog = SettingCatalog()
         showsGitBranch = Self.bool(defaults: defaults, key: "sidebarShowGitBranch", defaultValue: true)
-        usesVerticalBranchLayout = SidebarBranchLayoutSettings.usesVerticalLayout(defaults: defaults)
-        stacksBranchAndDirectory = SidebarBranchDirectoryStackedSettings.isStacked(defaults: defaults)
-        usesLastSegmentPath = SidebarPathLastSegmentSettings.isLastSegmentOnly(defaults: defaults)
+        usesVerticalBranchLayout = settings.value(for: catalog.sidebar.branchVerticalLayout)
+        stacksBranchAndDirectory = settings.value(for: catalog.sidebar.stackBranchDirectory)
+        usesLastSegmentPath = settings.value(for: catalog.sidebar.pathLastSegmentOnly)
         showsGitBranchIcon = Self.bool(defaults: defaults, key: "sidebarShowGitBranchIcon", defaultValue: false)
         showsSSH = Self.bool(defaults: defaults, key: "sidebarShowSSH", defaultValue: SidebarWorkspaceDetailDefaults.showSSH)
-        makesPullRequestsClickable = SidebarPullRequestClickabilitySettings.isClickable(defaults: defaults)
+        makesPullRequestsClickable = settings.value(for: catalog.sidebar.makePullRequestsClickable)
         openPullRequestLinksInCmuxBrowser = BrowserLinkOpenSettings.openSidebarPullRequestLinksInCmuxBrowser(
             defaults: defaults
         )
@@ -10089,22 +10095,15 @@ struct SidebarTabItemSettingsSnapshot: Equatable {
             defaults: defaults
         )
 
-        hidesAllDetails = SidebarWorkspaceDetailSettings.hidesAllDetails(defaults: defaults)
+        hidesAllDetails = settings.value(for: catalog.sidebar.hideAllDetails)
         wrapsWorkspaceTitles = SidebarWorkspaceTitleWrapSettings.wraps(defaults: defaults)
-        let showsWorkspaceDescriptionSetting = SidebarWorkspaceDetailSettings.showsWorkspaceDescription(
-            defaults: defaults
-        )
-        showsWorkspaceDescription = SidebarWorkspaceDetailSettings.resolvedWorkspaceDescriptionVisibility(
-            showWorkspaceDescription: showsWorkspaceDescriptionSetting,
+        let detailVisibility = SidebarWorkspaceDetailVisibility(
+            showWorkspaceDescription: settings.value(for: catalog.sidebar.showWorkspaceDescription),
+            showNotificationMessage: settings.value(for: catalog.sidebar.showNotificationMessage),
             hideAllDetails: hidesAllDetails
         )
-        let showsNotificationMessageSetting = SidebarWorkspaceDetailSettings.showsNotificationMessage(
-            defaults: defaults
-        )
-        showsNotificationMessage = SidebarWorkspaceDetailSettings.resolvedNotificationMessageVisibility(
-            showNotificationMessage: showsNotificationMessageSetting,
-            hideAllDetails: hidesAllDetails
-        )
+        showsWorkspaceDescription = detailVisibility.showsWorkspaceDescription
+        showsNotificationMessage = detailVisibility.showsNotificationMessage
 
         let showsMetadata = Self.bool(defaults: defaults, key: "sidebarShowStatusPills", defaultValue: SidebarWorkspaceDetailDefaults.showCustomMetadata)
         let showsLog = Self.bool(defaults: defaults, key: "sidebarShowLog", defaultValue: SidebarWorkspaceDetailDefaults.showLog)
@@ -10122,7 +10121,7 @@ struct SidebarTabItemSettingsSnapshot: Equatable {
             hideAllDetails: hidesAllDetails
         )
 
-        activeTabIndicatorStyle = SidebarActiveTabIndicatorSettings.current(defaults: defaults)
+        activeTabIndicatorStyle = settings.value(for: catalog.workspaceColors.indicatorStyle)
         selectionColorHex = defaults.string(forKey: "sidebarSelectionColorHex")
         notificationBadgeColorHex = defaults.string(forKey: "sidebarNotificationBadgeColorHex")
         iMessageModeEnabled = IMessageModeSettings.isEnabled(defaults: defaults)
@@ -11316,16 +11315,16 @@ struct VerticalTabsSidebar: View {
                     // unrelated sidebar event fires.
                     anchorCwdRevision &+= 1
                 }
-                .onReceive(NotificationCenter.default.publisher(for: .sidebarMultiSelectionDidHide)) { notification in
+                .onReceive(NotificationCenter.default.publisher(for: SidebarMultiSelectionDidHideEvent.notificationName)) { notification in
                     // Group collapse hides some workspaces without changing
                     // focus or wiping the rest of the multi-selection. Strip
                     // only the hidden ids; if focus moved, make sure the new
                     // focused id is still represented.
-                    guard let manager = notification.object as? TabManager,
-                          manager === tabManager,
-                          let hidden = notification.userInfo?[SidebarMultiSelectionHideKey.hiddenWorkspaceIds] as? Set<UUID> else { return }
-                    var next = selectedTabIds.subtracting(hidden)
-                    if let movedFocus = notification.userInfo?[SidebarMultiSelectionHideKey.focusedWorkspaceId] as? UUID {
+                    guard let model = notification.object as? SidebarMultiSelectionModel,
+                          model === tabManager.sidebarMultiSelection,
+                          let event = SidebarMultiSelectionDidHideEvent(notification) else { return }
+                    var next = selectedTabIds.subtracting(event.hiddenWorkspaceIds)
+                    if let movedFocus = event.focusedWorkspaceId {
                         next.insert(movedFocus)
                         if let index = tabManager.tabs.firstIndex(where: { $0.id == movedFocus }) {
                             lastSidebarSelectionIndex = index
@@ -11335,15 +11334,16 @@ struct VerticalTabsSidebar: View {
                         selectedTabIds = next
                     }
                 }
-                .onReceive(NotificationCenter.default.publisher(for: .sidebarMultiSelectionShouldCollapse)) { notification in
+                .onReceive(NotificationCenter.default.publisher(for: SidebarMultiSelectionShouldCollapseEvent.notificationName)) { notification in
                     // Keyboard nav (selectNextTab/selectPreviousTab) posts
                     // this so any stale Shift-click range in the sidebar's
                     // SwiftUI selectedTabIds collapses to just the newly-
                     // focused workspace. Without this, batch context-menu /
                     // shortcut actions would still target the stale range.
-                    guard let manager = notification.object as? TabManager,
-                          manager === tabManager,
-                          let focusedId = notification.userInfo?[SidebarMultiSelectionCollapseKey.focusedWorkspaceId] as? UUID else { return }
+                    guard let model = notification.object as? SidebarMultiSelectionModel,
+                          model === tabManager.sidebarMultiSelection,
+                          let event = SidebarMultiSelectionShouldCollapseEvent(notification) else { return }
+                    let focusedId = event.focusedWorkspaceId
                     let next: Set<UUID> = tabManager.tabs.contains(where: { $0.id == focusedId }) ? [focusedId] : []
                     if selectedTabIds != next {
                         selectedTabIds = next
@@ -12775,14 +12775,14 @@ struct SidebarWorkspaceFrameAnchorModifier: ViewModifier {
     let id: UUID
     let isEnabled: Bool
 
-    @ViewBuilder
     func body(content: Content) -> some View {
-        if isEnabled {
-            content.anchorPreference(key: SidebarWorkspaceRowFramePreferenceKey.self, value: .bounds) { anchor in
-                [id: anchor]
-            }
-        } else {
-            content
+        // Branchless: always apply anchorPreference, emit [:] when disabled. An
+        // if/else gives `content` distinct identity per state, so flipping
+        // isEnabled at drag start/end recreated every visible row's subtree
+        // (lost @State, fresh snapshot builds + relayout mid-drag). The frame
+        // *reader* stays gated on the drag (#5325), so an empty emit costs nothing.
+        content.anchorPreference(key: SidebarWorkspaceRowFramePreferenceKey.self, value: .bounds) { anchor in
+            isEnabled ? [id: anchor] : [:]
         }
     }
 }
@@ -15294,7 +15294,6 @@ struct TabItemView: View, Equatable {
     @StateObject private var contextMenuState = SidebarTabItemContextMenuState()
     @State private var rowInteractionState = SidebarWorkspaceRowInteractionState()
     @State private var rowHeight: CGFloat = 1
-    @State private var workspaceFinderDirectoryCache = WorkspaceFinderDirectoryCache()
     @State private var workspaceFinderDirectoryOpenRequest: WorkspaceFinderDirectoryOpenRequest?
 
     var isMultiSelected: Bool {
@@ -15345,7 +15344,7 @@ struct TabItemView: View, Equatable {
         return makeWorkspaceSnapshot()
     }
 
-    private var activeTabIndicatorStyle: SidebarActiveTabIndicatorStyle {
+    private var activeTabIndicatorStyle: WorkspaceIndicatorStyle {
         settings.activeTabIndicatorStyle
     }
 
@@ -15623,8 +15622,6 @@ struct TabItemView: View, Equatable {
         let accessibilityHintText = String(localized: "sidebar.workspace.accessibilityHint", defaultValue: "Activate to focus this workspace. Drag to reorder, or use Move Up and Move Down actions.")
         let moveUpActionText = String(localized: "sidebar.workspace.moveUpAction", defaultValue: "Move Up")
         let moveDownActionText = String(localized: "sidebar.workspace.moveDownAction", defaultValue: "Move Down")
-        let finderDirectoryPath = WorkspaceFinderDirectoryResolver.path(for: tab)
-        let finderDirectoryCacheKey = WorkspaceFinderDirectoryCacheKey(path: finderDirectoryPath)
         let latestNotificationSubtitle = latestNotificationText
         let conversationMessageSubtitle = !settings.hidesAllDetails && settings.iMessageModeEnabled
             ? workspaceSnapshot.latestConversationMessage?
@@ -15702,7 +15699,6 @@ struct TabItemView: View, Equatable {
                     activeForegroundColor: activeSecondaryColor(0.84),
                     fontScale: fontScale
                 )
-                .id(description)
             }
 
             if let subtitle = effectiveSubtitle {
@@ -15990,11 +15986,6 @@ struct TabItemView: View, Equatable {
         .onAppear {
             refreshWorkspaceSnapshot(force: true)
         }
-        .task(id: finderDirectoryCacheKey) {
-            let cache = await WorkspaceFinderDirectoryResolver.cache(for: finderDirectoryCacheKey)
-            guard !Task.isCancelled else { return }
-            workspaceFinderDirectoryCache = cache
-        }
         .task(id: workspaceFinderDirectoryOpenRequest) {
             guard let request = workspaceFinderDirectoryOpenRequest else { return }
             await WorkspaceFinderDirectoryOpener.openInFinder(request.directoryURL)
@@ -16168,10 +16159,13 @@ struct TabItemView: View, Equatable {
         let renameWorkspaceShortcut = KeyboardShortcutSettings.shortcut(for: .renameWorkspace)
         let editWorkspaceDescriptionShortcut = KeyboardShortcutSettings.shortcut(for: .editWorkspaceDescription)
         let closeWorkspaceShortcut = KeyboardShortcutSettings.shortcut(for: .closeWorkspace)
-        let finderDirectoryCacheKey = WorkspaceFinderDirectoryCacheKey(
-            path: isMulti ? nil : WorkspaceFinderDirectoryResolver.path(for: tab)
-        )
-        let finderDirectoryURL = workspaceFinderDirectoryCache.url(for: finderDirectoryCacheKey)
+        // Gate "Show in Finder" on whether a directory is *configured* (IO-free),
+        // not on a disk stat: this menu builder runs as part of the row body, a
+        // hot path. The stat happens once at click time (WorkspaceFinderDirectoryOpener
+        // re-validates and beeps if the directory is gone).
+        let finderDirectoryPath: String? = isMulti
+            ? nil
+            : WorkspaceFinderDirectoryResolver.path(for: tab)
         Button(pinLabel) {
             guard let contextMenuPinState else {
                 NSSound.beep()
@@ -16383,9 +16377,11 @@ struct TabItemView: View, Equatable {
 
         if !isMulti {
             Button(String(localized: "contextMenu.showWorkspaceInFinder", defaultValue: "Show in Finder")) {
-                workspaceFinderDirectoryOpenRequest = WorkspaceFinderDirectoryOpenRequest(directoryURL: finderDirectoryURL)
+                guard let finderDirectoryPath else { return }
+                let url = URL(fileURLWithPath: finderDirectoryPath, isDirectory: true)
+                workspaceFinderDirectoryOpenRequest = WorkspaceFinderDirectoryOpenRequest(directoryURL: url)
             }
-            .disabled(finderDirectoryURL == nil)
+            .disabled(finderDirectoryPath == nil)
         }
     }
 

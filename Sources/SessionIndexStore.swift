@@ -1,3 +1,4 @@
+import CmuxFoundation
 import AppKit
 import Bonsplit
 import CMUXAgentLaunch
@@ -1361,7 +1362,7 @@ final class SessionIndexStore: ObservableObject {
             // terminationStatus observable. (Setting terminationHandler here
             // would race: if rg already exited, the handler is registered too
             // late and never fires → deadlock.)
-            let data = ProcessPipeReader.readDataToEndOfFileOrEmpty(from: outPipe.fileHandleForReading)
+            let data = outPipe.fileHandleForReading.readDataToEndOfFileOrEmpty()
             process.waitUntilExit()
             cancellation.markFinished(processIdentifier: process.processIdentifier)
             if Task.isCancelled { return [] }

@@ -1,4 +1,5 @@
 import CoreGraphics
+import CmuxCore
 import Foundation
 import Bonsplit
 import CmuxSession
