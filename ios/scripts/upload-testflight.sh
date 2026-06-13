@@ -468,6 +468,21 @@ fi
 # and only `codesign -d --entitlements` on the EXPORTED app proves that. So we
 # re-sign here with the export baseline MERGED with the Release entitlements file.
 #
+# The merged set MUST then be reconciled against the provisioning profile, in
+# both directions (hit 2026-06-11, ASC error 90163): App Store Connect rejects
+# any signed entitlement key the profile does not authorize. The Release file
+# carries com.apple.developer.usernotifications.time-sensitive, the App ID has
+# the capability enabled, but the installed "cmux Beta Distribution" profile
+# predates it and does not list the key, so a naive baseline+Release merge is
+# rejected at upload ("bundle contains a key not in the provisioning profile").
+# The same naive merge also SHIPS WITHOUT keychain-access-groups (authorized by
+# the profile but absent from both the export baseline and the Release file).
+# So below we (1) seed from the profile's own Entitlements dict, the exact set
+# ASC validates against, and (2) drop any merged key the profile does not
+# authorize, warning per key. Restoring a dropped capability (e.g.
+# time-sensitive) requires REGENERATING the profile so it snapshots the App
+# ID's current capabilities, not editing this script or the Release file.
+#
 # This runs on the MANUAL signing path only: it re-signs with the named
 # distribution cert from the local keychain ("Apple Distribution: Manaflow,
 # Inc."), which is present for local/fleet-archive beta cuts. The cmux iOS app is
@@ -503,22 +518,56 @@ if [[ "$SIGNING" == "manual" ]]; then
   fi
 
   # Start from the exported app's current (profile-baseline) entitlements, then
-  # MERGE every key from the Release entitlements file. The merge is GENERIC:
-  # PlistBuddy Merge copies all keys from the Release file and skips any that
-  # already exist in the baseline, so future entitlements survive automatically
-  # and existing baseline values (e.g. get-task-allow=false) are preserved.
+  # MERGE the profile's authorized Entitlements dict, then every key from the
+  # Release entitlements file. The merge is GENERIC: PlistBuddy Merge copies all
+  # keys from the source and skips any that already exist, so future entitlements
+  # survive automatically and existing baseline values (e.g. get-task-allow=false)
+  # are preserved. Seeding from the profile is what carries profile-authorized
+  # keys that appear in NEITHER the baseline NOR the Release file (concretely:
+  # keychain-access-groups, which the 2026-06-10 accepted upload shipped and a
+  # baseline+Release-only merge silently lost).
   MERGED_ENTITLEMENTS="$RESIGN_DIR/entitlements.plist"
   codesign -d --entitlements :- --xml "$RESIGN_APP" > "$MERGED_ENTITLEMENTS" 2>/dev/null || {
     echo "error: could not read current entitlements from the exported app: $RESIGN_APP" >&2
     exit 1
   }
-  # `|| true`: PlistBuddy Merge prints "Duplicate Entry Was Skipped" if a future
-  # Release key ever overlaps a baseline key. That is the intended behavior
-  # (baseline wins), but its exit code on that path is not contractually 0 across
+  PROFILE_ENTITLEMENTS="$RESIGN_DIR/profile-entitlements.plist"
+  security cms -D -i "$RESIGN_APP/embedded.mobileprovision" > "$RESIGN_DIR/profile.plist" || {
+    echo "error: could not decode embedded.mobileprovision from the exported app: $RESIGN_APP" >&2
+    exit 1
+  }
+  plutil -extract Entitlements xml1 -o "$PROFILE_ENTITLEMENTS" "$RESIGN_DIR/profile.plist"
+  # `|| true`: PlistBuddy Merge prints "Duplicate Entry Was Skipped" if a
+  # source key overlaps an existing key. That is the intended behavior
+  # (existing wins), but its exit code on that path is not contractually 0 across
   # OS versions, and a stray non-zero would kill the script under `set -e`. The
   # exit code is non-load-bearing anyway: a genuinely failed merge produces no
   # aps-environment and is caught by the hard gate below with a clear error.
+  /usr/libexec/PlistBuddy -c "Merge $PROFILE_ENTITLEMENTS" "$MERGED_ENTITLEMENTS" >/dev/null || true
   /usr/libexec/PlistBuddy -c "Merge $RELEASE_ENTITLEMENTS" "$MERGED_ENTITLEMENTS" >/dev/null || true
+  # Intersect against the profile: ASC rejects the upload (error 90163, "bundle
+  # contains a key not in the provisioning profile") for ANY signed key the
+  # profile does not authorize. Baseline keys are authorized by construction
+  # (the export minted them FROM this profile), so a strict top-level-key
+  # intersection is safe. Each dropped key is warned so the loss is visible in
+  # the cut log (e.g. time-sensitive until the profile is regenerated).
+  python3 - "$MERGED_ENTITLEMENTS" "$PROFILE_ENTITLEMENTS" <<'PY'
+import plistlib, sys
+merged_path, profile_path = sys.argv[1], sys.argv[2]
+with open(merged_path, "rb") as f:
+    merged = plistlib.load(f)
+with open(profile_path, "rb") as f:
+    profile = plistlib.load(f)
+for key in [k for k in merged if k not in profile]:
+    del merged[key]
+    print(
+        f"warning: dropping entitlement the provisioning profile does not "
+        f"authorize (ASC error 90163 otherwise): {key}",
+        file=sys.stderr,
+    )
+with open(merged_path, "wb") as f:
+    plistlib.dump(merged, f)
+PY
   plutil -lint "$MERGED_ENTITLEMENTS" >/dev/null
 
   codesign --force --sign "$RESIGN_IDENTITY" --entitlements "$MERGED_ENTITLEMENTS" --timestamp "$RESIGN_APP"
