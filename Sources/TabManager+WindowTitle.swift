@@ -54,7 +54,7 @@ extension TabManager {
             appName: "cmux"
         ))
         let trimmedResolvedTitle = resolvedTitle.trimmingCharacters(in: .whitespacesAndNewlines)
-        return trimmedResolvedTitle.isEmpty ? defaultTitle : resolvedTitle
+        return trimmedResolvedTitle.isEmpty ? defaultTitle : trimmedResolvedTitle
     }
 
     private func defaultWindowTitle(for tab: Workspace?) -> String {
