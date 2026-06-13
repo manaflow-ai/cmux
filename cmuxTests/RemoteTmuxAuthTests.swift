@@ -109,6 +109,21 @@ import Testing
         #expect(base.controlSocketPath == RemoteTmuxHost(destination: "user@host").controlSocketPath)
     }
 
+    @Test func controlModeCommandNameRejectsLineDelimitersAndControlScalars() {
+        #expect(RemoteTmuxHost.controlModeCommandName("work session") == "work session")
+        #expect(RemoteTmuxHost.controlModeCommandName("  work session  ") == "work session")
+        #expect(RemoteTmuxHost.controlModeCommandName("") == nil)
+        #expect(RemoteTmuxHost.controlModeCommandName("safe\nrename-window injected") == nil)
+        #expect(RemoteTmuxHost.controlModeCommandName("safe\rrename-window injected") == nil)
+        #expect(RemoteTmuxHost.controlModeCommandName("safe\u{7f}") == nil)
+    }
+
+    @Test func confirmedControlModeNamesPreserveSafeSpacing() {
+        #expect(RemoteTmuxHost.controlModeLineSafeName(" work session ") == " work session ")
+        #expect(RemoteTmuxHost.controlModeLineSafeName("work\tbad") == nil)
+        #expect(RemoteTmuxHost.controlModeLineSafeName("work\nbad") == nil)
+    }
+
     // MARK: - Interactive auth invocation (what `cmux ssh-tmux` runs in the tty)
 
     @Test func interactiveAuthInvocationShape() {
