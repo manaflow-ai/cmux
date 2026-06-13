@@ -21,15 +21,23 @@ enum SidebarMetadataMarkdownRenderer {
     private static var cache: [String: AttributedString?] = [:]
     private static var insertionOrder: [String] = []
     private static let capacity = 512
+    /// Only small blocks are cached. Metadata markdown is agent/control-socket
+    /// supplied and uncapped at this boundary, so a key churning large unique
+    /// values could otherwise retain hundreds of big payloads after the
+    /// workspace metadata is overwritten or cleared. Skipping the cache above
+    /// this size bounds total retained bytes to `capacity * maxCacheableBytes`
+    /// instead of growing with whatever has ever been rendered; large blocks
+    /// parse inline each eval (rare, and still attributed from the first frame).
+    private static let maxCacheableBytes = 4096
 
     static func rendered(_ markdown: String) -> AttributedString? {
+        guard markdown.utf8.count <= maxCacheableBytes else {
+            return parse(markdown)
+        }
         if let hit = cache[markdown] {
             return hit
         }
-        let parsed = try? AttributedString(
-            markdown: markdown,
-            options: .init(interpretedSyntax: .full)
-        )
+        let parsed = parse(markdown)
         if insertionOrder.count >= capacity, let oldest = insertionOrder.first {
             insertionOrder.removeFirst()
             cache.removeValue(forKey: oldest)
@@ -41,5 +49,12 @@ enum SidebarMetadataMarkdownRenderer {
         cache.updateValue(parsed, forKey: markdown)
         insertionOrder.append(markdown)
         return parsed
+    }
+
+    private static func parse(_ markdown: String) -> AttributedString? {
+        try? AttributedString(
+            markdown: markdown,
+            options: .init(interpretedSyntax: .full)
+        )
     }
 }
