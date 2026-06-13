@@ -3327,10 +3327,12 @@ struct CMUXCLI {
             if try runHooksNoSocketCommand(commandArgs: commandArgs) {
                 return
             }
+            let hasRecoverableClaudeHookTarget = commandArgs.first?.lowercased() == "claude" && (claudeAgentPID(from: processEnv) != nil || ["CMUX_CLI_TTY_NAME", "CMUX_TTY_NAME", "TTY", "SSH_TTY"].contains { processEnv[$0]?.isEmpty == false })
             if Self.hooksCommandNeedsCmuxTarget(commandArgs),
                processEnv["CMUX_SURFACE_ID"]?.isEmpty != false,
                processEnv["CMUX_WORKSPACE_ID"]?.isEmpty != false,
-               !commandArgs.contains(where: { $0 == "--workspace" || $0 == "--surface" || $0.hasPrefix("--workspace=") || $0.hasPrefix("--surface=") }) {
+               !commandArgs.contains(where: { $0 == "--workspace" || $0 == "--surface" || $0.hasPrefix("--workspace=") || $0.hasPrefix("--surface=") }),
+               !hasRecoverableClaudeHookTarget {
                 print("{}")
                 return
             }
