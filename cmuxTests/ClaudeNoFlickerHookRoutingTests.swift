@@ -299,6 +299,7 @@ struct ClaudeNoFlickerHookRoutingTests {
         defer { context.cleanup() }
 
         let sessionId = "stored-stale-pid-session"
+        let staleWorkspaceId = "55555555-5555-5555-5555-555555555555"
         let staleSurfaceId = "66666666-6666-6666-6666-666666666666"
         let stalePID = 1111
         let livePID = 6048
@@ -308,7 +309,7 @@ struct ClaudeNoFlickerHookRoutingTests {
             "sessions": [
                 sessionId: [
                     "sessionId": sessionId,
-                    "workspaceId": context.workspaceId,
+                    "workspaceId": staleWorkspaceId,
                     "surfaceId": staleSurfaceId,
                     "cwd": context.root.path,
                     "pid": stalePID,
@@ -317,7 +318,7 @@ struct ClaudeNoFlickerHookRoutingTests {
                     "updatedAt": now,
                 ],
             ],
-            "activeSessionsByWorkspace": [context.workspaceId: ["sessionId": sessionId, "updatedAt": now]],
+            "activeSessionsByWorkspace": [staleWorkspaceId: ["sessionId": sessionId, "updatedAt": now]],
         ]
         try JSONSerialization.data(withJSONObject: store, options: [.prettyPrinted])
             .write(to: context.root.appendingPathComponent("claude-hook-sessions.json"), options: .atomic)
@@ -331,10 +332,11 @@ struct ClaudeNoFlickerHookRoutingTests {
             }
             switch method {
             case "surface.list":
+                let workspaceId = (payload["params"] as? [String: Any])?["workspace_id"] as? String
                 return ClaudeHookRoutingTestSupport.v2Response(
                     id: id,
                     ok: true,
-                    result: ["surfaces": [["id": staleSurfaceId, "ref": "surface:1"], ["id": context.surfaceId, "ref": "surface:2"]]]
+                    result: ["surfaces": [["id": workspaceId == staleWorkspaceId ? staleSurfaceId : context.surfaceId, "ref": "surface:1"]]]
                 )
             case "system.top":
                 return ClaudeHookRoutingTestSupport.v2Response(

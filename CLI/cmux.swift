@@ -23039,6 +23039,7 @@ struct CMUXCLI {
         client: SocketClient
     ) throws -> String {
         if let preferred = nonEmptyClaudeHookIdentifier(preferred), let resolvedPreferred = try? resolveWorkspaceId(preferred, client: client), claudeHookWorkspaceIsAccessible(resolvedPreferred, client: client, allowUnknown: true) {
+            if let binding = resolveClaudeHookTerminalBinding(agentPID: agentPID, allowProcessSnapshotBinding: allowProcessSnapshotBinding, terminalBindingCache: &terminalBindingCache, client: client), let boundWorkspaceId = resolveClaudeHookWorkspaceId(binding.workspaceId, client: client), boundWorkspaceId != resolvedPreferred, resolveClaudeHookBindingSurfaceId(binding, workspaceId: boundWorkspaceId, client: client) != nil { return boundWorkspaceId }
             return resolvedPreferred
         }
         if let fallback = nonEmptyClaudeHookIdentifier(fallback) {
@@ -23151,10 +23152,7 @@ struct CMUXCLI {
     }
 
     private func resolveClaudeHookWorkspaceId(_ raw: String?, client: SocketClient) -> String? {
-        guard let raw = nonEmptyClaudeHookIdentifier(raw),
-              let candidate = try? resolveWorkspaceId(raw, client: client) else {
-            return nil
-        }
+        guard let raw = nonEmptyClaudeHookIdentifier(raw), let candidate = try? resolveWorkspaceId(raw, client: client) else { return nil }
         return candidate
     }
 
