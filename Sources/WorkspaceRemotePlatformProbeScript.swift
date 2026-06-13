@@ -1,3 +1,5 @@
+import Foundation
+
 extension WorkspaceRemoteSessionController {
     static let remotePlatformProbeHomeMarker = "__CMUX_REMOTE_HOME__="
     static let remotePlatformProbeOSMarker = "__CMUX_REMOTE_OS__="
@@ -33,6 +35,13 @@ extension WorkspaceRemoteSessionController {
         """
     }
 
+    static func remotePlatformProbeUserFacingStdout(_ stdout: String) -> String {
+        stdout
+            .split(separator: "\n", omittingEmptySubsequences: false)
+            .filter { !isRemotePlatformProbeMarkerLine(String($0).trimmingCharacters(in: .whitespacesAndNewlines)) }
+            .joined(separator: "\n")
+    }
+
     private static func normalizedRemotePlatformProbeVersion(_ version: String) -> String {
         guard !version.isEmpty,
               version.count <= 128,
@@ -49,5 +58,12 @@ extension WorkspaceRemoteSessionController {
                 byte == 95
         }
         return isSafePathSegment ? version : "dev"
+    }
+
+    private static func isRemotePlatformProbeMarkerLine(_ line: String) -> Bool {
+        line.hasPrefix(remotePlatformProbeHomeMarker) ||
+            line.hasPrefix(remotePlatformProbeOSMarker) ||
+            line.hasPrefix(remotePlatformProbeArchMarker) ||
+            line.hasPrefix(remotePlatformProbeExistsMarker)
     }
 }

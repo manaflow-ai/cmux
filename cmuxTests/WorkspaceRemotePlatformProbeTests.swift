@@ -166,6 +166,18 @@ struct WorkspaceRemotePlatformProbeTests {
         )
     }
 
+    @Test
+    func userFacingStdoutOmitsInternalProbeMarkers() {
+        let stdout = """
+        \(WorkspaceRemoteSessionController.remotePlatformProbeHomeMarker)/root
+        \(WorkspaceRemoteSessionController.remotePlatformProbeOSMarker)Linux
+        actual failure detail
+        \(WorkspaceRemoteSessionController.remotePlatformProbeArchMarker)x86_64
+        """
+
+        #expect(WorkspaceRemoteSessionController.remotePlatformProbeUserFacingStdout(stdout) == "actual failure detail")
+    }
+
     private static func writeExecutableShellFile(at url: URL, body: String) throws {
         try body.write(to: url, atomically: true, encoding: .utf8)
         try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: url.path)

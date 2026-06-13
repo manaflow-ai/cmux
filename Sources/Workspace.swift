@@ -8248,8 +8248,9 @@ final class WorkspaceRemoteSessionController {
             .map { String($0.dropFirst(Self.remotePlatformProbeArchMarker.count)) }
         let homeDirectory = lines.first { $0.hasPrefix(Self.remotePlatformProbeHomeMarker) }
             .map { String($0.dropFirst(Self.remotePlatformProbeHomeMarker.count)) }
+        let userFacingStdout = Self.remotePlatformProbeUserFacingStdout(result.stdout)
         guard let unameOS, let unameArch, let homeDirectory else {
-            let detail = Self.bestErrorLine(stderr: result.stderr, stdout: result.stdout) ?? "ssh exited \(result.status)"
+            let detail = Self.bestErrorLine(stderr: result.stderr, stdout: userFacingStdout) ?? "ssh exited \(result.status)"
             throw NSError(domain: "cmux.remote.daemon", code: 11, userInfo: [
                 NSLocalizedDescriptionKey: "failed to query remote platform: \(detail)",
             ])
@@ -8265,7 +8266,7 @@ final class WorkspaceRemoteSessionController {
         let binaryExists = lines.first { $0.hasPrefix(Self.remotePlatformProbeExistsMarker) }
             .map { String($0.dropFirst(Self.remotePlatformProbeExistsMarker.count)) == "yes" }
         if result.status != 0, binaryExists == nil {
-            let detail = Self.bestErrorLine(stderr: result.stderr, stdout: result.stdout) ?? "ssh exited \(result.status)"
+            let detail = Self.bestErrorLine(stderr: result.stderr, stdout: userFacingStdout) ?? "ssh exited \(result.status)"
             throw NSError(domain: "cmux.remote.daemon", code: 13, userInfo: [
                 NSLocalizedDescriptionKey: "failed to query remote daemon state: \(detail)",
             ])
