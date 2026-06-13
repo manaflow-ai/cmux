@@ -3580,23 +3580,16 @@ final class Workspace: Identifiable, ObservableObject {
         set { surfaceRegistry.nonFocusSplitFocusReassertGeneration = newValue }
     }
 
-    /// Surface ids currently being detached; stored in the split-layout
-    /// sub-model.
-    private var detachingTabIds: Set<TabID> {
-        get { splitLayout.detachingTabIds }
-        set { splitLayout.detachingTabIds = newValue }
-    }
     /// Captured detach transfer payloads; stored in the split-layout
-    /// sub-model.
+    /// sub-model. Mutations go through the model's detach-choreography
+    /// verbs; this read-only view feeds the empty/count checks.
     private var pendingDetachedSurfaces: [TabID: DetachedSurfaceTransfer] {
-        get { splitLayout.pendingDetachedSurfaces }
-        set { splitLayout.pendingDetachedSurfaces = newValue }
+        splitLayout.pendingDetachedSurfaces
     }
     /// Open detach-close transaction count; stored in the split-layout
-    /// sub-model.
+    /// sub-model, mutated through its transaction verbs.
     private var activeDetachCloseTransactions: Int {
-        get { splitLayout.activeDetachCloseTransactions }
-        set { splitLayout.activeDetachCloseTransactions = newValue }
+        splitLayout.activeDetachCloseTransactions
     }
     private var isDetachingCloseTransaction: Bool { splitLayout.isDetachingCloseTransaction }
     private var pendingRemoteSurfaceTTYName: String?
@@ -8357,13 +8350,12 @@ final class Workspace: Identifiable, ObservableObject {
         )
 #endif
 
-        detachingTabIds.insert(tabId)
+        splitLayout.markDetaching(tabId)
         forceCloseTabIds.insert(tabId)
-        activeDetachCloseTransactions += 1
-        defer { activeDetachCloseTransactions = max(0, activeDetachCloseTransactions - 1) }
+        splitLayout.openDetachCloseTransaction()
+        defer { splitLayout.closeDetachCloseTransaction() }
         guard bonsplitController.closeTab(tabId) else {
-            detachingTabIds.remove(tabId)
-            pendingDetachedSurfaces.removeValue(forKey: tabId)
+            splitLayout.cancelDetach(tabId)
             forceCloseTabIds.remove(tabId)
 #if DEBUG
             cmuxDebugLog(
@@ -8374,7 +8366,7 @@ final class Workspace: Identifiable, ObservableObject {
             return nil
         }
 
-        var detached = pendingDetachedSurfaces.removeValue(forKey: tabId)
+        var detached = splitLayout.takeDetachedTransfer(tabId)
         if shouldSkipControlMasterCleanupAfterDetach, let detachedTransfer = detached, detachedTransfer.isRemoteTerminal {
             skipControlMasterCleanupAfterDetachedRemoteTransfer = true
             if detachedTransfer.remoteCleanupConfiguration == nil {
@@ -11147,7 +11139,7 @@ extension Workspace: BonsplitDelegate {
         let selectTabId = postCloseSelectTabId.removeValue(forKey: tabId)
         let shouldClearSplitZoom = postCloseClearSplitZoomTabIds.remove(tabId) != nil
         let closedBrowserRestoreSnapshot = pendingClosedBrowserRestoreSnapshots.removeValue(forKey: tabId)
-        let isDetaching = detachingTabIds.remove(tabId) != nil || isDetachingCloseTransaction
+        let isDetaching = splitLayout.consumeDetachingMark(tabId)
         if shouldClearSplitZoom {
             clearSplitZoom()
         }
@@ -11184,7 +11176,7 @@ extension Workspace: BonsplitDelegate {
                 surfaceResumeBindingIndex: nil
             )
             let agentRuntime = agentRuntimeState(forPanelId: panelId)
-            pendingDetachedSurfaces[tabId] = DetachedSurfaceTransfer(
+            splitLayout.storeDetachedTransfer(DetachedSurfaceTransfer(
                 sourceWorkspaceId: id,
                 panelId: panelId,
                 panel: panel,
@@ -11210,7 +11202,7 @@ extension Workspace: BonsplitDelegate {
                     : nil,
                 remotePTYSessionID: remotePTYSessionIDForSnapshot(panelId: panelId),
                 remoteCleanupConfiguration: transferredRemoteCleanupConfiguration
-            )
+            ), for: tabId)
         } else {
             if let closedBrowserRestoreSnapshot {
                 onClosedBrowserPanel?(closedBrowserRestoreSnapshot)
