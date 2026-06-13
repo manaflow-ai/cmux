@@ -1,6 +1,11 @@
 import XCTest
 import AppKit
-import CmuxSettings
+// Selective imports: the app target also defines AppIconMode/StoredShortcut/etc.,
+// so a blanket `import CmuxSettings` here makes those names ambiguous. Import only
+// the settings symbols this file needs.
+import struct CmuxSettings.AppCatalogSection
+import struct CmuxSettings.QuitConfirmationStore
+import enum CmuxSettings.ConfirmQuitMode
 
 #if canImport(cmux_DEV)
 @testable import cmux_DEV

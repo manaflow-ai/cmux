@@ -12,7 +12,7 @@
 10021	Sources/TabManager.swift
 9345	cmuxTests/CLINotifyProcessIntegrationRegressionTests.swift
 7737	Sources/Panels/BrowserPanelView.swift
-7292	cmuxTests/WorkspaceUnitTests.swift
+7296	cmuxTests/WorkspaceUnitTests.swift
 6948	cmuxTests/WorkspaceRemoteConnectionTests.swift
 6542	cmuxTests/GhosttyConfigTests.swift
 6329	cmuxTests/SessionPersistenceTests.swift
@@ -25,7 +25,7 @@
 4460	Sources/Panels/FilePreviewPanel.swift
 4400	cmuxTests/BrowserPanelTests.swift
 4227	Sources/BrowserWindowPortal.swift
-4010	cmuxTests/WindowAndDragTests.swift
+4014	cmuxTests/WindowAndDragTests.swift
 3937	Sources/Feed/FeedPanelView.swift
 3761	cmuxTests/TabManagerUnitTests.swift
 3699	cmuxTests/CLIGenericHookPersistenceTests.swift
@@ -44,8 +44,8 @@
 2314	Sources/FileExplorerView.swift
 2260	Sources/TerminalWindowPortal.swift
 2198	Sources/SessionPersistence.swift
+2118	cmuxTests/ShortcutAndCommandPaletteTests.swift
 2117	cmuxTests/CmuxConfigTests.swift
-2112	cmuxTests/ShortcutAndCommandPaletteTests.swift
 2032	Sources/KeyboardShortcutSettingsFileStore.swift
 1949	Sources/Panels/BrowserWebAuthnSupport.swift
 1941	Sources/TerminalNotificationStore.swift
@@ -63,8 +63,8 @@
 1496	cmuxUITests/MultiWindowNotificationsUITests.swift
 1448	Sources/FileExplorerStore.swift
 1410	Sources/CommandPalette/CommandPaletteSearch.swift
+1382	cmuxTests/KeyboardShortcutSettingsFileStoreStartupTests.swift
 1380	cmuxUITests/MenuKeyEquivalentRoutingUITests.swift
-1377	cmuxTests/KeyboardShortcutSettingsFileStoreStartupTests.swift
 1372	cmuxTests/AppDelegateIssue2907RoutingTests.swift
 1365	Sources/Feed/FeedButtonStyleDebugWindowController.swift
 1362	Sources/CMUXInstalledExtensionSidebarHostView.swift

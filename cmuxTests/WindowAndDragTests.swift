@@ -10,7 +10,11 @@ import WebKit
 import ObjectiveC.runtime
 @testable import Bonsplit
 import UserNotifications
-import CmuxSettings
+// Selective imports: the app target also defines AppIconMode/StoredShortcut/etc.,
+// so a blanket `import CmuxSettings` here makes those names ambiguous. Import only
+// the settings symbols this file needs.
+import struct CmuxSettings.AppCatalogSection
+import struct CmuxSettings.FileRouteSettingsStore
 
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
