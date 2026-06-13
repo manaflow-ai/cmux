@@ -175,6 +175,9 @@ public struct CmxAttachTicket: Codable, Equatable, Sendable {
         case terminalID
         case macDeviceID
         case macDisplayName
+        case macUserEmail
+        case macAppVersion
+        case macAppBuild
         case routes
         case expiresAt
         case authToken = "auth_token"
@@ -195,6 +198,12 @@ public struct CmxAttachTicket: Codable, Equatable, Sendable {
     public let terminalID: String?
     public let macDeviceID: String
     public let macDisplayName: String?
+    /// The signed-in Mac account email the phone must match before pairing.
+    public let macUserEmail: String?
+    /// The Mac app's marketing version, used for warning-only compatibility checks.
+    public let macAppVersion: String?
+    /// The Mac app's build number, displayed with version mismatch warnings when present.
+    public let macAppBuild: String?
     public let routes: [CmxAttachRoute]
     /// When the ticket's attach token stops being usable, or `nil` for tickets
     /// that never expire (the pairing QR carries no token and no expiry; Stack
@@ -212,6 +221,9 @@ public struct CmxAttachTicket: Codable, Equatable, Sendable {
             terminalID: container.decodeIfPresent(String.self, forKey: .terminalID),
             macDeviceID: container.decode(String.self, forKey: .macDeviceID),
             macDisplayName: container.decodeIfPresent(String.self, forKey: .macDisplayName),
+            macUserEmail: container.decodeIfPresent(String.self, forKey: .macUserEmail),
+            macAppVersion: container.decodeIfPresent(String.self, forKey: .macAppVersion),
+            macAppBuild: container.decodeIfPresent(String.self, forKey: .macAppBuild),
             routes: container.decode([CmxAttachRoute].self, forKey: .routes),
             expiresAt: container.decodeIfPresent(Date.self, forKey: .expiresAt),
             authToken: try Self.decodeAuthToken(from: decoder)
@@ -239,6 +251,9 @@ public struct CmxAttachTicket: Codable, Equatable, Sendable {
         terminalID: String?,
         macDeviceID: String,
         macDisplayName: String?,
+        macUserEmail: String? = nil,
+        macAppVersion: String? = nil,
+        macAppBuild: String? = nil,
         routes: [CmxAttachRoute],
         expiresAt: Date? = nil,
         authToken: String? = nil
@@ -248,6 +263,9 @@ public struct CmxAttachTicket: Codable, Equatable, Sendable {
         self.terminalID = terminalID
         self.macDeviceID = macDeviceID
         self.macDisplayName = macDisplayName
+        self.macUserEmail = macUserEmail
+        self.macAppVersion = macAppVersion
+        self.macAppBuild = macAppBuild
         self.routes = routes
         self.expiresAt = expiresAt
         self.authToken = authToken

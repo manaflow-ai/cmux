@@ -1405,6 +1405,89 @@ final class TerminalOutputCollector {
 }
 
 @MainActor
+@Test func minimalPairingCodeRequiresMatchingEmailBeforeDialing() async throws {
+    let responses = ScriptedTransportResponses([
+        try rpcWorkspaceListFrame(workspaceID: "qr-workspace", title: "QR Workspace"),
+    ])
+    let runtime = testRuntime(
+        supportedRouteKinds: [.tailscale],
+        transportFactory: ScriptedTransportFactory(responses: responses)
+    )
+    let store = CMUXMobileShellStore(
+        runtime: runtime,
+        workspaces: PreviewMobileHost.workspaces,
+        identityProvider: TestIdentityProvider(
+            currentUserIDValue: "phone-user",
+            currentUserEmailValue: "phone@example.com"
+        )
+    )
+
+    store.signIn()
+    let result = await store.connectPairingURLResult(
+        "cmux-ios://attach?v=2&e=mac@example.com&r=100.71.210.41:\(CmxMobileDefaults.defaultHostPort)"
+    )
+
+    #expect(result == .failed)
+    #expect(store.connectionState == .disconnected)
+    #expect(store.connectionError?.contains("mac@example.com") == true)
+    #expect(store.connectionError?.contains("phone@example.com") == true)
+    #expect(try await responses.sentRequests().isEmpty)
+}
+
+@MainActor
+@Test func minimalPairingCodeVersionMismatchWarnsAndContinuesAfterAcceptance() async throws {
+    let responses = ScriptedTransportResponses([
+        try rpcWorkspaceListFrame(workspaceID: "qr-workspace", title: "QR Workspace"),
+        try rpcHostStatusFrame(
+            renderGrid: false,
+            macDeviceID: "status-reported-mac",
+            macDisplayName: "Status Mac"
+        ),
+    ])
+    let runtime = testRuntime(
+        supportedRouteKinds: [.tailscale],
+        transportFactory: ScriptedTransportFactory(responses: responses),
+        supportsServerPushEvents: false
+    )
+    let store = CMUXMobileShellStore(
+        runtime: runtime,
+        workspaces: PreviewMobileHost.workspaces,
+        identityProvider: TestIdentityProvider(
+            currentUserIDValue: "phone-user",
+            currentUserEmailValue: "user@example.com"
+        ),
+        feedbackStampProvider: {
+            MobileFeedbackStamp(
+                buildType: .dev,
+                appVersion: "0.65.0",
+                appBuild: "10",
+                bundleIdentifier: "dev.cmux.ios.test",
+                osVersion: "iOS test",
+                deviceModel: "test"
+            )
+        }
+    )
+
+    store.signIn()
+    let result = await store.connectPairingURLResult(
+        "cmux-ios://attach?v=2&e=user@example.com&av=0.64.0&ab=9&r=100.71.210.41:\(CmxMobileDefaults.defaultHostPort)"
+    )
+
+    #expect(result == .needsUserApproval)
+    #expect(store.connectionState == .disconnected)
+    #expect(store.pairingVersionWarning?.contains("0.65.0 (10)") == true)
+    #expect(store.pairingVersionWarning?.contains("0.64.0 (9)") == true)
+    #expect(try await responses.sentRequests().isEmpty)
+
+    await store.acceptPairingVersionWarning()
+
+    #expect(store.pairingVersionWarning == nil)
+    #expect(store.connectionState == .connected)
+    #expect(store.selectedWorkspace?.id.rawValue == "qr-workspace")
+    #expect(try await responses.sentRequests().contains { $0.method == "workspace.list" })
+}
+
+@MainActor
 @Test func minimalPairingCodePersistsPairedMacWithoutServerPushEvents() async throws {
     // Identity recovery for an anonymous v2 ticket must not be coupled to
     // the push-event listener: on a runtime without server-push events the
@@ -2258,6 +2341,14 @@ final class TerminalOutputCollector {
 }
 
 private struct MissingTestStackAccessToken: Error {}
+
+private struct TestIdentityProvider: MobileIdentityProviding {
+    let currentUserIDValue: String?
+    let currentUserEmailValue: String?
+
+    @MainActor var currentUserID: String? { currentUserIDValue }
+    @MainActor var currentUserEmail: String? { currentUserEmailValue }
+}
 
 private func testRuntime(
     supportedRouteKinds: [CmxAttachTransportKind] = [.tailscale, .debugLoopback, .websocket],

@@ -14,6 +14,9 @@ import Testing
             terminalID: nil,
             macDeviceID: "mac-1",
             macDisplayName: "Studio",
+            macUserEmail: "user@example.com",
+            macAppVersion: "0.64.15",
+            macAppBuild: "42",
             routes: [
                 try CmxAttachRoute(
                     id: "tailscale",
@@ -41,6 +44,9 @@ import Testing
 
         let decoded = try CmxAttachTicketInput.decode(url)
         #expect(decoded.macDeviceID == "mac-1")
+        #expect(decoded.macUserEmail == "user@example.com")
+        #expect(decoded.macAppVersion == "0.64.15")
+        #expect(decoded.macAppBuild == "42")
         #expect(decoded.workspaceID == "")
         #expect(decoded.routes == ticket.routes)
         // The compact QR grammar intentionally drops the auth token (it
@@ -122,13 +128,16 @@ import Testing
         // payload blob) routes through the same input decoder as everything
         // else the scanner or a deep link can hand us.
         let decoded = try CmxAttachTicketInput.decode(
-            "cmux-ios://attach?v=2&r=lawrences-mac.tail1234.ts.net:58465&r=100.64.0.5:58465"
+            "cmux-ios://attach?v=2&e=user@example.com&av=0.64.15&ab=42&r=lawrences-mac.tail1234.ts.net:58465&r=100.64.0.5:58465"
         )
         #expect(decoded.workspaceID == "")
         #expect(decoded.macDeviceID == "")
         #expect(decoded.macDisplayName == nil)
         #expect(decoded.expiresAt == nil)
         #expect(decoded.authToken == nil)
+        #expect(decoded.macUserEmail == "user@example.com")
+        #expect(decoded.macAppVersion == "0.64.15")
+        #expect(decoded.macAppBuild == "42")
         #expect(decoded.routes.count == 2)
         #expect(decoded.routes.map(\.id) == ["tailscale", "tailscale_2"])
         #expect(decoded.routes.allSatisfy { $0.kind == .tailscale })

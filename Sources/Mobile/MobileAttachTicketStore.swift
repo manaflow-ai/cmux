@@ -27,6 +27,9 @@ final class MobileAttachTicketStore {
         terminalID: String?,
         routes: [CmxAttachRoute],
         ttl: TimeInterval,
+        macUserEmail: String? = nil,
+        macAppVersion: String? = nil,
+        macAppBuild: String? = nil,
         now: Date = Date()
     ) throws -> CmxAttachTicket {
         lock.lock()
@@ -42,6 +45,9 @@ final class MobileAttachTicketStore {
             terminalID: terminalID,
             macDeviceID: MobileHostIdentity.deviceID(),
             macDisplayName: MobileHostIdentity.displayName(),
+            macUserEmail: macUserEmail,
+            macAppVersion: macAppVersion,
+            macAppBuild: macAppBuild,
             routes: routes,
             expiresAt: now.addingTimeInterval(max(30, ttl)),
             authToken: Self.randomBearerToken()

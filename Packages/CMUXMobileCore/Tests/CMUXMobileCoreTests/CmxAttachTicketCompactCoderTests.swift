@@ -41,6 +41,9 @@ private func legacyDecoder() -> JSONDecoder {
         terminalID: "terminal-9",
         macDeviceID: "mac-1",
         macDisplayName: "Studio",
+        macUserEmail: "user@example.com",
+        macAppVersion: "0.64.15",
+        macAppBuild: "42",
         routes: [try hostPortRoute(priority: 1)],
         expiresAt: wholeSecondFutureExpiry(),
         authToken: "ticket-secret"
@@ -57,6 +60,9 @@ private func legacyDecoder() -> JSONDecoder {
     #expect(json.contains("\"v\":1"))
     #expect(json.contains("\"w\":\"workspace-1\""))
     #expect(json.contains("\"d\":\"mac-1\""))
+    #expect(json.contains("\"u\":\"user@example.com\""))
+    #expect(json.contains("\"av\":\"0.64.15\""))
+    #expect(json.contains("\"ab\":\"42\""))
     // The grammar no longer carries the display name or an expiry: the name
     // arrives post-handshake via `mobile.host.status`, and a pairing QR never
     // expires.
@@ -94,6 +100,9 @@ private func legacyDecoder() -> JSONDecoder {
         terminalID: "terminal-9",
         macDeviceID: "mac-1",
         macDisplayName: "Studio",
+        macUserEmail: "user@example.com",
+        macAppVersion: "0.64.15",
+        macAppBuild: "42",
         routes: routes,
         expiresAt: wholeSecondFutureExpiry(),
         authToken: "ticket-secret"
@@ -107,6 +116,9 @@ private func legacyDecoder() -> JSONDecoder {
     #expect(decoded.workspaceID == ticket.workspaceID)
     #expect(decoded.terminalID == ticket.terminalID)
     #expect(decoded.macDeviceID == ticket.macDeviceID)
+    #expect(decoded.macUserEmail == ticket.macUserEmail)
+    #expect(decoded.macAppVersion == ticket.macAppVersion)
+    #expect(decoded.macAppBuild == ticket.macAppBuild)
     // Routes round-trip losslessly even with custom ids ("ws" differs from
     // the synthesized "websocket", so it is carried verbatim).
     #expect(decoded.routes == ticket.routes)

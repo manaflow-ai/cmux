@@ -126,6 +126,9 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// "Check that both devices are on the same Tailscale"). Set and cleared
     /// together with the error by the pairing-failure classifier sink.
     public private(set) var connectionErrorGuidance: String?
+    /// A warning that must be accepted before pairing continues, currently used
+    /// for Mac/iPhone app-version skew.
+    public private(set) var pairingVersionWarning: String?
     public private(set) var activeTicket: CmxAttachTicket?
     public private(set) var activeRoute: CmxAttachRoute?
 
@@ -436,6 +439,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// reading it again would report the first successful pair as `is_first_pair:
     /// false` and break the first-pair funnel.
     private var pairingAttemptIsFirstPair = false
+    private var pendingPairingVersionWarningURL: String?
 
     /// The structured diagnostic log, injected from the app composition root.
     ///
@@ -608,6 +612,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         self.terminalInputText = ""
         self.connectionError = nil
         self.connectionErrorGuidance = nil
+        self.pairingVersionWarning = nil
         self.activeTicket = nil
         self.activeRoute = nil
         self.selectedWorkspaceID = workspaces.first?.id
@@ -686,6 +691,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         macConnectionStatus = .unavailable
         connectedHostName = ""
         pairingCode = ""
+        clearPairingVersionWarning()
         // Wipe every saved draft so the next account never sees the previous
         // user's unsent text. Guard the in-memory clear (and the selection resets
         // below) so the per-terminal draft hooks do not write partial state into a
@@ -1906,6 +1912,9 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                terminalID: ticket.terminalID,
                macDeviceID: reportedID,
                macDisplayName: ticket.macDisplayName,
+               macUserEmail: ticket.macUserEmail,
+               macAppVersion: ticket.macAppVersion,
+               macAppBuild: ticket.macAppBuild,
                routes: ticket.routes,
                expiresAt: ticket.expiresAt,
                authToken: ticket.authToken
@@ -1998,6 +2007,14 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
 
     @discardableResult
     public func connectPairingURLResult(_ rawValue: String? = nil) async -> MobilePairingURLConnectionResult {
+        await connectPairingURLResult(rawValue, acceptedVersionWarning: false)
+    }
+
+    @discardableResult
+    private func connectPairingURLResult(
+        _ rawValue: String? = nil,
+        acceptedVersionWarning: Bool
+    ) async -> MobilePairingURLConnectionResult {
         let rawURL = Self.normalizedPairingURL(rawValue ?? pairingCode)
         let attemptID = beginPairingAttempt(method: "qr")
         let ticket: CmxAttachTicket
@@ -2033,6 +2050,27 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             clearRemoteConnectionContext()
             return .failed
         }
+
+        if let emailFailure = Self.emailFailure(for: ticket, actualEmail: identityProvider?.currentUserEmail) {
+            guard isCurrentPairingAttempt(attemptID) else { return .superseded }
+            applyPairingFailure(emailFailure, phase: "validation")
+            connectionState = .disconnected
+            macConnectionStatus = .unavailable
+            clearRemoteConnectionContext()
+            return .failed
+        }
+
+        if !acceptedVersionWarning,
+           let warning = versionWarning(for: ticket) {
+            guard isCurrentPairingAttempt(attemptID) else { return .superseded }
+            pendingPairingVersionWarningURL = rawURL
+            pairingVersionWarning = warning
+            connectionState = .disconnected
+            macConnectionStatus = .unavailable
+            clearRemoteConnectionContext()
+            return .needsUserApproval
+        }
+        clearPairingVersionWarning()
 
         // Offline preflight: fail fast instead of stacking per-route connect
         // timeouts into the opaque ~60s wait. Skipped only when no route is
@@ -2087,9 +2125,19 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     public func cancelPairing() {
         invalidatePairingAttempt()
         clearPairingError()
+        clearPairingVersionWarning()
         connectionState = .disconnected
         macConnectionStatus = .unavailable
         clearRemoteConnectionContext()
+    }
+
+    public func acceptPairingVersionWarning() async {
+        guard let rawURL = pendingPairingVersionWarningURL else {
+            clearPairingVersionWarning()
+            return
+        }
+        clearPairingVersionWarning()
+        await connectPairingURLResult(rawURL, acceptedVersionWarning: true)
     }
 
     /// Tear down the live connection and reset connection UI state, without
@@ -2987,6 +3035,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         cancelRemoteOperationTasks()
         rawTerminalInputBuffer.clear()
         clearPairingError()
+        clearPairingVersionWarning()
         if let method {
             pairingAttemptStartedAt = runtime?.now() ?? Date()
             pairingAttemptMethod = method
@@ -3082,6 +3131,54 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     private func clearPairingError() {
         connectionError = nil
         connectionErrorGuidance = nil
+    }
+
+    private func clearPairingVersionWarning() {
+        pairingVersionWarning = nil
+        pendingPairingVersionWarningURL = nil
+    }
+
+    static func emailFailure(
+        for ticket: CmxAttachTicket,
+        actualEmail: String?
+    ) -> MobilePairingFailureCategory? {
+        guard let expected = normalizedEmail(ticket.macUserEmail) else { return nil }
+        guard normalizedEmail(actualEmail) == expected else {
+            return .emailMismatch(expected: expected, actual: normalizedEmail(actualEmail))
+        }
+        return nil
+    }
+
+    private func versionWarning(for ticket: CmxAttachTicket) -> String? {
+        guard let macVersion = Self.normalizedNonEmpty(ticket.macAppVersion) else { return nil }
+        let phoneStamp = feedbackStampProvider()
+        guard let phoneVersion = Self.normalizedNonEmpty(phoneStamp.appVersion),
+              phoneVersion != macVersion else {
+            return nil
+        }
+        let format = L10n.string(
+            "mobile.pairing.versionWarningFormat",
+            defaultValue: "This iPhone is running cmux %@, but the Mac is running cmux %@. Pairing across different versions can break terminal input, workspace sync, or notifications. Continue only if you trust this Mac and accept that some features may fail."
+        )
+        return String(
+            format: format,
+            Self.versionDisplay(version: phoneVersion, build: phoneStamp.appBuild),
+            Self.versionDisplay(version: macVersion, build: ticket.macAppBuild)
+        )
+    }
+
+    private static func versionDisplay(version: String, build: String?) -> String {
+        guard let build = normalizedNonEmpty(build) else { return version }
+        return "\(version) (\(build))"
+    }
+
+    private static func normalizedEmail(_ value: String?) -> String? {
+        normalizedNonEmpty(value)?.lowercased()
+    }
+
+    private static func normalizedNonEmpty(_ value: String?) -> String? {
+        let trimmed = value?.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed?.isEmpty == false ? trimmed : nil
     }
 
     /// Record an `ios_pairing_failed` for a `connect()` that returned without

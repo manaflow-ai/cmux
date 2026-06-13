@@ -1,13 +1,13 @@
 import Foundation
 
-/// The minimal pairing-QR grammar: plain `host:port` routes in the URL query,
-/// nothing else.
+/// The minimal pairing-QR grammar: expected Mac email/build metadata plus plain
+/// `host:port` routes in the URL query.
 ///
-/// `cmux-ios://attach?v=2&r=<host>:<port>[&r=<host>:<port>...]`
+/// `cmux-ios://attach?v=2&e=<email>&av=<version>&ab=<build>&r=<host>:<port>[&r=<host>:<port>...]`
 ///
-/// A pairing QR needs to tell the phone exactly one thing: where to dial.
-/// Everything else the earlier grammars carried has a better channel or no
-/// reason to exist:
+/// A pairing QR needs to tell the phone where to dial and which non-secret
+/// account/build context to check before dialing. Everything else the earlier
+/// grammars carried has a better channel or no reason to exist:
 /// - **No auth token.** The owner's Stack access token is the host's sole
 ///   authorization gate; a token in the QR authorized nothing and made the
 ///   code look like a leaked credential.
@@ -62,6 +62,16 @@ public struct CmxPairingQRCode: Sendable {
         guard let routes = encodableRoutes(of: ticket) else {
             return nil
         }
+        var items: [String] = ["v=\(Self.version)"]
+        if let email = normalizedNonEmpty(ticket.macUserEmail) {
+            items.append("e=\(percentEncodeQueryValue(email))")
+        }
+        if let version = normalizedNonEmpty(ticket.macAppVersion) {
+            items.append("av=\(percentEncodeQueryValue(version))")
+        }
+        if let build = normalizedNonEmpty(ticket.macAppBuild) {
+            items.append("ab=\(percentEncodeQueryValue(build))")
+        }
         let routeItems = routes.map { route -> String in
             guard case let .hostPort(host, port) = route.endpoint else {
                 // Unreachable: `encodableRoutes` admits host/port endpoints only.
@@ -69,7 +79,8 @@ public struct CmxPairingQRCode: Sendable {
             }
             return "r=\(hostPortString(host: host, port: port))"
         }
-        return "cmux-ios://attach?v=\(Self.version)&" + routeItems.joined(separator: "&")
+        items.append(contentsOf: routeItems)
+        return "cmux-ios://attach?" + items.joined(separator: "&")
     }
 
     /// Whether `ticket` is expressible in the minimal grammar; see
@@ -171,6 +182,9 @@ public struct CmxPairingQRCode: Sendable {
             terminalID: nil,
             macDeviceID: "",
             macDisplayName: nil,
+            macUserEmail: queryValue(named: "e", in: components),
+            macAppVersion: queryValue(named: "av", in: components),
+            macAppBuild: queryValue(named: "ab", in: components),
             routes: routes,
             expiresAt: nil,
             authToken: nil
@@ -242,5 +256,20 @@ private extension CmxPairingQRCode {
                 || byte == UInt8(ascii: "_")
                 || byte == UInt8(ascii: ":")
         }
+    }
+
+    func queryValue(named name: String, in components: URLComponents) -> String? {
+        normalizedNonEmpty(components.queryItems?.first(where: { $0.name == name })?.value)
+    }
+
+    func normalizedNonEmpty(_ value: String?) -> String? {
+        let trimmed = value?.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed?.isEmpty == false ? trimmed : nil
+    }
+
+    func percentEncodeQueryValue(_ value: String) -> String {
+        var allowed = CharacterSet.urlQueryAllowed
+        allowed.remove(charactersIn: "&=+")
+        return value.addingPercentEncoding(withAllowedCharacters: allowed) ?? value
     }
 }

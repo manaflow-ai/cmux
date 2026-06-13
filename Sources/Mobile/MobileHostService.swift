@@ -320,6 +320,13 @@ final class MobileHostService {
         if let displayName = MobileHostIdentity.displayName() {
             payload["mac_display_name"] = displayName
         }
+        let build = MobileHostBuildIdentity.current()
+        if let appVersion = build.appVersion {
+            payload["mac_app_version"] = appVersion
+        }
+        if let appBuild = build.appBuild {
+            payload["mac_app_build"] = appBuild
+        }
         return payload
     }
 
@@ -1060,7 +1067,10 @@ final class MobileHostService {
             workspaceID: workspaceID,
             terminalID: terminalID,
             routes: selectedRoutes,
-            ttl: ttl
+            ttl: ttl,
+            macUserEmail: await currentAuthenticatedLocalUserEmail(),
+            macAppVersion: MobileHostBuildIdentity.current().appVersion,
+            macAppBuild: MobileHostBuildIdentity.current().appBuild
         )
         return try ticketStore.payload(for: ticket)
     }
@@ -1587,6 +1597,7 @@ final class MobileHostService {
     }
 }
 
+
 #if DEBUG
 extension MobileHostService {
     func debugResetMobileLifecycleStateForTesting() {
@@ -1664,13 +1675,18 @@ private enum MobileHostAuthorizationError: Error {
 }
 
 enum MobileHostAuthorizationPolicy {
-    static func authorizeStackUser(localUserID: String?, remoteUserID: String) throws {
-        guard let localUserID, !localUserID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+    static func authorizeStackEmail(localEmail: String?, remoteEmail: String?) throws {
+        guard let localEmail = normalizedEmail(localEmail) else {
             throw MobileHostAuthorizationError.missingLocalUser
         }
-        guard localUserID == remoteUserID else {
+        guard normalizedEmail(remoteEmail) == localEmail else {
             throw MobileHostAuthorizationError.accountMismatch
         }
+    }
+
+    private static func normalizedEmail(_ value: String?) -> String? {
+        let trimmed = value?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        return trimmed?.isEmpty == false ? trimmed : nil
     }
 }
 
@@ -1695,7 +1711,7 @@ private actor MobileHostStackAuthVerifier {
     private static let verificationTimeoutNanoseconds: UInt64 = 10 * 1_000_000_000
 
     private struct CacheEntry {
-        let userID: String
+        let email: String?
         let expiresAt: Date
     }
 
@@ -1716,10 +1732,10 @@ private actor MobileHostStackAuthVerifier {
               cached.expiresAt > Date() else {
             return nil
         }
-        let localUserID = await currentAuthenticatedLocalUserID()
-        return (try? MobileHostAuthorizationPolicy.authorizeStackUser(
-            localUserID: localUserID,
-            remoteUserID: cached.userID
+        let localEmail = await currentAuthenticatedLocalUserEmail()
+        return (try? MobileHostAuthorizationPolicy.authorizeStackEmail(
+            localEmail: localEmail,
+            remoteEmail: cached.email
         )) != nil
     }
 
@@ -1730,10 +1746,10 @@ private actor MobileHostStackAuthVerifier {
 
         let cacheKey = Self.cacheKey(for: accessToken)
         let now = Date()
-        let remoteUserID: String
+        let remoteEmail: String?
         cache = cache.filter { $0.value.expiresAt > now }
         if let cached = cache[cacheKey], cached.expiresAt > now {
-            remoteUserID = cached.userID
+            remoteEmail = cached.email
             // Refresh-ahead: when the cached binding is near expiry, re-verify in
             // the background so an actively-typing client never blocks a keystroke
             // on the network round-trip. Every mobile request now requires Stack
@@ -1742,29 +1758,29 @@ private actor MobileHostStackAuthVerifier {
                 scheduleRefreshAhead(cacheKey: cacheKey, accessToken: accessToken)
             }
         } else {
-            remoteUserID = try await fetchAndCacheRemoteUserID(cacheKey: cacheKey, accessToken: accessToken)
+            remoteEmail = try await fetchAndCacheRemoteEmail(cacheKey: cacheKey, accessToken: accessToken)
         }
 
-        let localUserID = await currentAuthenticatedLocalUserID()
-        try MobileHostAuthorizationPolicy.authorizeStackUser(
-            localUserID: localUserID,
-            remoteUserID: remoteUserID
+        let localEmail = await currentAuthenticatedLocalUserEmail()
+        try MobileHostAuthorizationPolicy.authorizeStackEmail(
+            localEmail: localEmail,
+            remoteEmail: remoteEmail
         )
     }
 
-    private func fetchAndCacheRemoteUserID(cacheKey: String, accessToken: String) async throws -> String {
+    private func fetchAndCacheRemoteEmail(cacheKey: String, accessToken: String) async throws -> String? {
         let stack = Self.makeStackClient(accessToken: accessToken)
         guard let user = try await Self.withVerificationTimeout({
             try await stack.getUser(or: .throw)
         }) else {
             throw MobileHostAuthorizationError.invalidStackUser
         }
-        let remoteUserID = await user.id
+        let remoteEmail = await user.primaryEmail
         cache[cacheKey] = CacheEntry(
-            userID: remoteUserID,
+            email: remoteEmail,
             expiresAt: Date().addingTimeInterval(Self.cacheTTLSeconds)
         )
-        return remoteUserID
+        return remoteEmail
     }
 
     private func scheduleRefreshAhead(cacheKey: String, accessToken: String) {
@@ -1776,7 +1792,7 @@ private actor MobileHostStackAuthVerifier {
     private func refreshAhead(cacheKey: String, accessToken: String) async {
         defer { refreshingKeys.remove(cacheKey) }
         // Best-effort: on failure leave the existing entry to expire naturally.
-        _ = try? await fetchAndCacheRemoteUserID(cacheKey: cacheKey, accessToken: accessToken)
+        _ = try? await fetchAndCacheRemoteEmail(cacheKey: cacheKey, accessToken: accessToken)
     }
 
     private static func makeStackClient(accessToken: String) -> StackClientApp {
@@ -1825,8 +1841,8 @@ private actor MobileHostStackAuthVerifier {
         }
     }
 
-    private func currentAuthenticatedLocalUserID() async -> String? {
-        await MobileHostService.shared.currentAuthenticatedLocalUserID()
+    private func currentAuthenticatedLocalUserEmail() async -> String? {
+        await MobileHostService.shared.currentAuthenticatedLocalUserEmail()
     }
 }
 

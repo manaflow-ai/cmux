@@ -1265,13 +1265,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Couldn't verify your account with this Mac. Make sure both devices use the same cmux account and a matching build (both release, or both development), then try again."
+            "value": "Couldn't verify your account with this Mac. Make sure both devices are signed in with the same email, then try again."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "この Mac でアカウントを確認できませんでした。両方のデバイスで同じ cmux アカウントと一致するビルド（どちらもリリース版、またはどちらも開発版）を使用していることを確認してから、もう一度お試しください。"
+            "value": "この Mac でアカウントを確認できませんでした。両方のデバイスが同じメールアドレスでサインインしていることを確認してから、もう一度お試しください。"
           }
         }
       }
@@ -4179,6 +4179,91 @@
           "stringUnit": {
             "state": "translated",
             "value": "このMacは別のcmuxアカウントでサインインしています。サインアウトして、このMacを所有するアカウントでサインインし直してください。"
+          }
+        }
+      }
+    },
+    "mobile.pairing.emailMismatchFormat": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This QR is for %@, but this iPhone is signed in as %@. Sign in with the same email as the Mac, then scan again."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "この QR は %@ 用ですが、この iPhone は %@ としてサインインしています。Mac と同じメールアドレスでサインインしてから、もう一度スキャンしてください。"
+          }
+        }
+      }
+    },
+    "mobile.pairing.emailMissingFormat": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This QR is for %@. Sign in with the same email as the Mac, then scan again."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "この QR は %@ 用です。Mac と同じメールアドレスでサインインしてから、もう一度スキャンしてください。"
+          }
+        }
+      }
+    },
+    "mobile.pairing.versionWarningContinue": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Continue anyway"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "それでも続行"
+          }
+        }
+      }
+    },
+    "mobile.pairing.versionWarningFormat": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This iPhone is running cmux %@, but the Mac is running cmux %@. Pairing across different versions can break terminal input, workspace sync, or notifications. Continue only if you trust this Mac and accept that some features may fail."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "この iPhone は cmux %@ を実行していますが、Mac は cmux %@ を実行しています。異なるバージョン間でペアリングすると、ターミナル入力、ワークスペース同期、通知が壊れる可能性があります。この Mac を信頼し、一部の機能が失敗する可能性を受け入れる場合のみ続行してください。"
+          }
+        }
+      }
+    },
+    "mobile.pairing.versionWarningTitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Version mismatch"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "バージョンが一致していません"
           }
         }
       }
