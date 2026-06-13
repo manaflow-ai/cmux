@@ -127,6 +127,7 @@ struct WindowTitleTemplateTests {
         let workspace = try #require(manager.tabs.first)
         let panelId = try #require(workspace.focusedPanelId)
         #expect(workspace.updatePanelDirectory(panelId: panelId, directory: "/tmp/new"))
+        manager.workspaceCurrentDirectoryDidChange(workspaceId: workspace.id)
         #expect(window.title == "[cmux:01234567] /tmp/new")
     }
 

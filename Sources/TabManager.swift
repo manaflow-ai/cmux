@@ -1244,7 +1244,7 @@ class TabManager: ObservableObject {
         observers.append(NotificationCenter.default.addObserver(
             forName: .workspaceCurrentDirectoryDidChange,
             object: nil,
-            queue: nil
+            queue: .main
         ) { [weak self] notification in
             MainActor.assumeIsolated { [weak self] in
                 guard let self else { return }
