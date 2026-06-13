@@ -13,6 +13,7 @@ import CMUXMobileCore
 import ObjectiveC.runtime
 import Bonsplit
 import UserNotifications
+import CmuxTerminal
 
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
