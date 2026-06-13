@@ -52,4 +52,26 @@ struct ChatProseSegmenterTests {
         #expect(segments.map(\.id) == [0, 1, 2, 3, 4])
         #expect(segments[3].content == "two")
     }
+
+    @Test func emptyFenceProducesAnEmptyCodeSegment() {
+        // A fence the agent just opened (streaming) renders as an empty
+        // code box rather than vanishing — intentional feedback.
+        let segments = segmenter.segments(from: "```")
+        #expect(segments.count == 1)
+        #expect(segments[0].kind == .code(language: nil))
+        #expect(segments[0].content.isEmpty)
+    }
+
+    @Test func languageTaggedFenceWithNoBodyKeepsLanguage() {
+        let segments = segmenter.segments(from: "```swift\n```")
+        #expect(segments.count == 1)
+        #expect(segments[0].kind == .code(language: "swift"))
+        #expect(segments[0].content.isEmpty)
+    }
+
+    @Test func textAfterAClosedFenceIsItsOwnSegment() {
+        let segments = segmenter.segments(from: "```\ncode\n```\nafter")
+        #expect(segments.map(\.kind) == [.code(language: nil), .text])
+        #expect(segments[1].content == "after")
+    }
 }
