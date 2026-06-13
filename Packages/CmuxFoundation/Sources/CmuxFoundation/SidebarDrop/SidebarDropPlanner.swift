@@ -1,18 +1,12 @@
-import CoreGraphics
-import Foundation
+public import CoreGraphics
+public import Foundation
 
-enum SidebarDropEdge: Equatable {
-    case top
-    case bottom
-}
-
-struct SidebarDropIndicator: Equatable {
-    let tabId: UUID?
-    let edge: SidebarDropEdge
-}
-
-enum SidebarDropPlanner {
-    static func indicator(
+/// Pure planner for sidebar tab/workspace drag-and-drop. Computes the drop
+/// indicator to render, the final insertion index, cross-window insertion
+/// landing, and workspace drop-target hit testing, all clamped to the legal
+/// pinned/unpinned regions. No UI or AppKit dependencies.
+public enum SidebarDropPlanner {
+    public static func indicator(
         draggedTabId: UUID?,
         targetTabId: UUID?,
         tabIds: [UUID],
@@ -54,7 +48,7 @@ enum SidebarDropPlanner {
         return indicatorForInsertionPosition(legalInsertionPosition, tabIds: tabIds)
     }
 
-    static func targetIndex(
+    public static func targetIndex(
         draggedTabId: UUID,
         targetTabId: UUID?,
         indicator: SidebarDropIndicator?,
@@ -109,7 +103,7 @@ enum SidebarDropPlanner {
     ///   - pointerY: Pointer y within the hovered row, used to pick the edge.
     ///   - targetHeight: The hovered row's height, paired with `pointerY`.
     /// - Returns: The clamped insertion index and the indicator to render.
-    static func crossWindowInsertion(
+    public static func crossWindowInsertion(
         targetTabId: UUID?,
         draggedIsPinned: Bool,
         indicator: SidebarDropIndicator?,
@@ -164,26 +158,32 @@ enum SidebarDropPlanner {
         return draggedIsPinned ? min(clampedInsertion, pinnedCount) : max(clampedInsertion, pinnedCount)
     }
 
-    struct WorkspaceDropTarget: Equatable {
-        let workspaceId: UUID
-        let isPinned: Bool
-        let frame: CGRect
+    public struct WorkspaceDropTarget: Equatable {
+        public let workspaceId: UUID
+        public let isPinned: Bool
+        public let frame: CGRect
+
+        public init(workspaceId: UUID, isPinned: Bool, frame: CGRect) {
+            self.workspaceId = workspaceId
+            self.isPinned = isPinned
+            self.frame = frame
+        }
     }
 
     /// Returns whether sidebar rows should publish frame anchors for workspace drop targeting.
-    static func shouldCollectWorkspaceDropTargets(
+    public static func shouldCollectWorkspaceDropTargets(
         draggedTabId: UUID?,
         isBonsplitWorkspaceDropActive: Bool = false
     ) -> Bool {
         draggedTabId != nil || isBonsplitWorkspaceDropActive
     }
 
-    enum WorkspaceDropAction: Equatable {
+    public enum WorkspaceDropAction: Equatable {
         case newWorkspace(insertionIndex: Int, indicator: SidebarDropIndicator)
         case existingWorkspace(UUID)
     }
 
-    static func workspaceAction(
+    public static func workspaceAction(
         for point: CGPoint,
         targets: [WorkspaceDropTarget]
     ) -> WorkspaceDropAction? {
@@ -308,7 +308,7 @@ enum SidebarDropPlanner {
         return clampedInsertion
     }
 
-    static func edgeForPointer(locationY: CGFloat, targetHeight: CGFloat) -> SidebarDropEdge {
+    public static func edgeForPointer(locationY: CGFloat, targetHeight: CGFloat) -> SidebarDropEdge {
         guard targetHeight > 0 else { return .top }
         let clampedY = min(max(locationY, 0), targetHeight)
         return clampedY < (targetHeight / 2) ? .top : .bottom

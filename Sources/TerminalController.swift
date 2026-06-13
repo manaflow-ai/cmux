@@ -2,6 +2,7 @@ import AppKit
 import CmuxAuthRuntime
 import CmuxFeedback
 import CmuxControlSocket
+import CmuxFoundation
 import CmuxSettings
 import CmuxSocketControl
 import CmuxSwiftRenderUI

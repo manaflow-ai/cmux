@@ -6,7 +6,7 @@
 18118	Sources/AppDelegate.swift
 17761	Sources/ContentView.swift
 16675	Sources/GhosttyTerminalView.swift
-14623	Sources/TerminalController.swift
+14624	Sources/TerminalController.swift
 13606	Sources/Panels/BrowserPanel.swift
 12044	cmuxTests/AppDelegateShortcutRoutingTests.swift
 10020	Sources/TabManager.swift
@@ -92,7 +92,7 @@
 944	Sources/App/ShortcutRoutingSupport.swift
 937	Sources/TextBoxMentionIndexStore.swift
 924	Sources/DockPanelView.swift
-913	cmuxTests/WorkspaceGroupTests.swift
+915	cmuxTests/WorkspaceGroupTests.swift
 905	Sources/CmuxSSHURLRequest.swift
 897	Sources/CommandPalette/CommandPaletteSettingsToggle.swift
 879	Sources/WorkspaceContentView.swift
