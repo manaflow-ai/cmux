@@ -12418,41 +12418,6 @@ struct SidebarWorkspaceRowFramePreferenceKey: PreferenceKey {
     }
 }
 
-enum SidebarDragLifecycleNotification {
-    static let stateDidChange = Notification.Name("cmux.sidebarDragStateDidChange")
-    static let requestClear = Notification.Name("cmux.sidebarDragRequestClear")
-    static let tabIdKey = "tabId"
-    static let reasonKey = "reason"
-
-    static func postStateDidChange(tabId: UUID?, reason: String) {
-        var userInfo: [AnyHashable: Any] = [reasonKey: reason]
-        if let tabId {
-            userInfo[tabIdKey] = tabId
-        }
-        NotificationCenter.default.post(
-            name: stateDidChange,
-            object: nil,
-            userInfo: userInfo
-        )
-    }
-
-    static func postClearRequest(reason: String) {
-        NotificationCenter.default.post(
-            name: requestClear,
-            object: nil,
-            userInfo: [reasonKey: reason]
-        )
-    }
-
-    static func tabId(from notification: Notification) -> UUID? {
-        notification.userInfo?[tabIdKey] as? UUID
-    }
-
-    static func reason(from notification: Notification) -> String {
-        notification.userInfo?[reasonKey] as? String ?? "unknown"
-    }
-}
-
 @MainActor
 private final class SidebarDragFailsafeMonitor: ObservableObject {
     private static let escapeKeyCode: UInt16 = 53
