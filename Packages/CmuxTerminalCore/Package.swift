@@ -61,6 +61,7 @@ let package = Package(
             dependencies: [
                 "CmuxTerminalCore",
                 "GhosttyRuntimeTestStubs",
+                .product(name: "CmuxFoundation", package: "CmuxFoundation"),
                 .product(name: "CmuxTerminalCopyMode", package: "CmuxTerminalCopyMode"),
             ],
             swiftSettings: [

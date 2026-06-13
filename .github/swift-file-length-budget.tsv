@@ -14,8 +14,8 @@
 7737	Sources/Panels/BrowserPanelView.swift
 7294	cmuxTests/WorkspaceUnitTests.swift
 6949	cmuxTests/WorkspaceRemoteConnectionTests.swift
-6464	cmuxTests/GhosttyConfigTests.swift
 6330	cmuxTests/SessionPersistenceTests.swift
+6283	cmuxTests/GhosttyConfigTests.swift
 6153	CLI/cmux_open.swift
 6074	Sources/TextBoxInput.swift
 5969	cmuxTests/TerminalAndGhosttyTests.swift
