@@ -391,6 +391,31 @@ struct ClaudeNoFlickerHookBindingTests {
         )
     }
 
+    @Test
+    func claudePromptSubmitIgnoresRawShellTTYWithoutCmuxTarget() throws {
+        let context = try support.makeHookContext(name: "claude-raw-tty-no-target")
+        defer { context.cleanup() }
+
+        var environment = support.baseHookEnvironment(context: context)
+        environment["CMUX_WORKSPACE_ID"] = ""
+        environment["CMUX_SURFACE_ID"] = ""
+        environment["TTY"] = "/dev/ttys6048"
+        environment["SSH_TTY"] = "/dev/ttys6049"
+
+        let result = support.runProcess(
+            executablePath: context.cliPath,
+            arguments: ["hooks", "claude", "prompt-submit"],
+            environment: environment,
+            standardInput: #"{"session_id":"raw-tty-session","turn_id":"turn-1","cwd":"\#(context.root.path)","hook_event_name":"UserPromptSubmit","prompt":"run"}"#,
+            timeout: 5
+        )
+
+        #expect(!result.timedOut, Comment(rawValue: result.stderr))
+        #expect(result.status == 0, Comment(rawValue: result.stderr))
+        #expect(result.stdout == "{}\n")
+        #expect(context.state.snapshot().isEmpty)
+    }
+
     private func seedStoredClaudeSession(
         context: ClaudeHookRoutingTestSupport.HookContext,
         sessionId: String,

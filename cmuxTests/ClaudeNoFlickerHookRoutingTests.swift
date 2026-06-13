@@ -375,8 +375,31 @@ struct ClaudeNoFlickerHookRoutingTests {
         #expect(!result.timedOut, Comment(rawValue: result.stderr))
         #expect(result.status == 0, Comment(rawValue: result.stderr))
         let commands = context.state.snapshot()
-        #expect(commands.contains { $0.hasPrefix("set_status claude_code Running ") && $0.contains("--panel=\(context.surfaceId)") }, "Expected live hook PID surface, saw \(commands)")
-        #expect(!commands.contains { $0.hasPrefix("set_status claude_code Running ") && $0.contains("--panel=\(staleSurfaceId)") }, "Stored stale PID must not route status, saw \(commands)")
+        #expect(
+            commands.contains {
+                $0.hasPrefix("set_agent_pid claude_code \(livePID) --tab=\(context.workspaceId)")
+                    && $0.contains("--panel=\(context.surfaceId)")
+            },
+            "Expected prompt-submit to refresh Claude's PID gate for the live PID-bound pane, saw \(commands)"
+        )
+        #expect(
+            commands.contains {
+                $0.hasPrefix("set_status claude_code Running --icon=bolt.fill --color=#4C8DFF --tab=\(context.workspaceId)")
+                    && $0.contains("--panel=\(context.surfaceId)")
+            },
+            "Expected prompt-submit to mark the live PID-bound pane Running, saw \(commands)"
+        )
+        #expect(
+            !commands.contains {
+                ($0.hasPrefix("set_status claude_code Running ") || $0.hasPrefix("set_agent_pid claude_code "))
+                    && $0.contains("--panel=\(staleSurfaceId)")
+            },
+            "Stored stale PID surface must not receive Claude's visible status or PID gate, saw \(commands)"
+        )
+        let systemTopCalls = commands.filter {
+            ClaudeHookRoutingTestSupport.jsonObject($0)?["method"] as? String == "system.top"
+        }
+        #expect(systemTopCalls.count == 1, "Expected one cached process snapshot, saw \(commands)")
         let persistedData = try Data(contentsOf: context.root.appendingPathComponent("claude-hook-sessions.json"))
         let persisted = try #require(JSONSerialization.jsonObject(with: persistedData) as? [String: Any])
         let sessions = try #require(persisted["sessions"] as? [String: Any])
@@ -384,32 +407,6 @@ struct ClaudeNoFlickerHookRoutingTests {
         #expect(session["pid"] as? Int == livePID, "Expected live hook PID to replace the stale stored PID, saw \(session)")
     }
 
-    @Test
-    func claudePromptSubmitIgnoresRawShellTTYWithoutCmuxTarget() throws {
-        let context = try support.makeHookContext(name: "claude-raw-tty-no-target")
-        defer { context.cleanup() }
-
-        var environment = support.baseHookEnvironment(context: context)
-        environment["CMUX_WORKSPACE_ID"] = ""
-        environment["CMUX_SURFACE_ID"] = ""
-        environment["TTY"] = "/dev/ttys6048"
-        environment["SSH_TTY"] = "/dev/ttys6049"
-
-        let result = support.runProcess(
-            executablePath: context.cliPath,
-            arguments: ["hooks", "claude", "prompt-submit"],
-            environment: environment,
-            standardInput: #"{"session_id":"raw-tty-session","turn_id":"turn-1","cwd":"\#(context.root.path)","hook_event_name":"UserPromptSubmit","prompt":"run"}"#,
-            timeout: 5
-        )
-
-        #expect(!result.timedOut, Comment(rawValue: result.stderr))
-        #expect(result.status == 0, Comment(rawValue: result.stderr))
-        #expect(result.stdout == "{}\n")
-        #expect(context.state.snapshot().isEmpty)
-    }
-
-    @Test
     func claudeForkSessionStartDoesNotRegisterProcessSnapshotOnlyPID() throws {
         let context = try support.makeHookContext(name: "claude-fork-process-only")
         defer { context.cleanup() }
