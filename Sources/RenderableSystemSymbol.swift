@@ -1,4 +1,24 @@
 import AppKit
+import SwiftUI
+
+extension Image {
+    /// Sizes an SF Symbol from an explicit frame rather than font metrics.
+    ///
+    /// A `.font(.system(size:))`-sized symbol can rasterize at 0×0 during a
+    /// transient layout pass (e.g. while a view's hosting layer is first added
+    /// to the window, before font metrics resolve). macOS 26+ rejects a zero
+    /// raster size with an uncaught `NSInvalidArgumentException`
+    /// (`targetSizeInPoints.width>0 && targetSizeInPoints.height>0`), which
+    /// AppKit turns into a hard crash. Driving the raster size from a fixed
+    /// frame keeps it positive across every layout pass (#5670, #5841).
+    func cmuxSymbolPixelSize(_ size: CGFloat, weight: Font.Weight = .regular) -> some View {
+        self
+            .resizable()
+            .scaledToFit()
+            .fontWeight(weight)
+            .frame(width: size, height: size, alignment: .center)
+    }
+}
 
 enum RenderableSystemSymbol {
     static let defaultWorkspaceGroupIcon = "folder.fill"
