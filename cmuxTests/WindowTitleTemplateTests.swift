@@ -84,6 +84,7 @@ struct WindowTitleTemplateTests {
         _ = KeyboardShortcutSettingsFileStore(
             primaryPath: settingsFileURL.path,
             fallbackPath: nil,
+            additionalFallbackPaths: [],
             startWatching: false
         )
 
