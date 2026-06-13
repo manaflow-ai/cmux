@@ -4124,21 +4124,33 @@ final class Workspace: Identifiable, ObservableObject {
     /// while leaving the remote tmux window alive.
     @discardableResult
     func requestNonInteractiveCloseTabRecordingHistory(_ tabId: TabID) -> Bool {
-        if routeRemoteTmuxNonInteractiveTabCloseIfNeeded(tabId) {
+        switch routeRemoteTmuxNonInteractiveTabCloseIfNeeded(tabId) {
+        case .routed:
             return true
+        case .rejectedMirrorTab:
+            return false
+        case .notMirrorTab:
+            return requestCloseTabRecordingHistory(tabId, force: true)
         }
-        return requestCloseTabRecordingHistory(tabId, force: true)
     }
 
-    private func routeRemoteTmuxNonInteractiveTabCloseIfNeeded(_ tabId: TabID) -> Bool {
+    private enum RemoteTmuxNonInteractiveCloseRoute {
+        case notMirrorTab
+        case rejectedMirrorTab
+        case routed
+    }
+
+    private func routeRemoteTmuxNonInteractiveTabCloseIfNeeded(_ tabId: TabID) -> RemoteTmuxNonInteractiveCloseRoute {
         guard isRemoteTmuxMirror,
               let panelId = panelIdFromSurfaceId(tabId),
               let remoteTmuxController = AppDelegate.shared?.remoteTmuxController,
               remoteTmuxController.isMirrorWindowTab(workspaceId: id, panelId: panelId)
         else {
-            return false
+            return .notMirrorTab
         }
         return remoteTmuxController.handleMirrorTabCloseRequested(workspaceId: id, panelId: panelId)
+            ? .routed
+            : .rejectedMirrorTab
     }
 
     func withClosedPanelHistorySuppressed(_ body: () -> Void) {

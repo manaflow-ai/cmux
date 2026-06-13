@@ -1,4 +1,81 @@
 import Foundation
+import os
+
+/// Bounded off-main writer for the SSH control client's stdin pipe.
+///
+/// `RemoteTmuxControlConnection` records command FIFO entries on the main actor
+/// before this writer can emit bytes, so tmux `%begin`/`%end` replies cannot
+/// outrun their local correlation slot. The write itself may block on a stalled
+/// SSH pipe; keeping it on this serial queue prevents that from freezing UI.
+private final class RemoteTmuxControlPipeWriter: @unchecked Sendable {
+    private struct State {
+        var closed = false
+        var pendingBytes = 0
+    }
+
+    private let handle: FileHandle
+    private let queue: DispatchQueue
+    private let maxPendingBytes: Int
+    private let onFailure: @Sendable (Error) -> Void
+    private let state = OSAllocatedUnfairLock(initialState: State())
+
+    init(
+        handle: FileHandle,
+        label: String,
+        maxPendingBytes: Int,
+        onFailure: @escaping @Sendable (Error) -> Void
+    ) {
+        self.handle = handle
+        self.queue = DispatchQueue(label: label, qos: .userInitiated)
+        self.maxPendingBytes = maxPendingBytes
+        self.onFailure = onFailure
+    }
+
+    func enqueue(_ data: Data) -> Bool {
+        guard !data.isEmpty else { return true }
+        let accepted = state.withLock { state in
+            guard !state.closed,
+                  data.count <= maxPendingBytes - state.pendingBytes else {
+                return false
+            }
+            state.pendingBytes += data.count
+            return true
+        }
+        guard accepted else { return false }
+
+        queue.async { [handle, onFailure, state] in
+            var writeError: Error?
+            let shouldWrite = state.withLock { !$0.closed }
+            if shouldWrite {
+                do {
+                    try handle.write(contentsOf: data)
+                } catch {
+                    writeError = error
+                }
+            }
+
+            let shouldReportFailure = state.withLock { state in
+                state.pendingBytes = max(0, state.pendingBytes - data.count)
+                return !state.closed
+            }
+            if let writeError, shouldReportFailure {
+                onFailure(writeError)
+            }
+        }
+        return true
+    }
+
+    func close() {
+        let shouldClose = state.withLock { state in
+            guard !state.closed else { return false }
+            state.closed = true
+            return true
+        }
+        if shouldClose {
+            try? handle.close()
+        }
+    }
+}
 
 /// A live tmux control-mode connection to one remote session.
 ///
@@ -65,7 +142,7 @@ final class RemoteTmuxControlConnection {
     private var activityQueryCompletions: [UUID: ([Int: PaneForegroundState]?) -> Void] = [:]
 
     private var process: Process?
-    private var stdinHandle: FileHandle?
+    private var stdinWriter: RemoteTmuxControlPipeWriter?
     private var stdoutReader: FileHandle?
     private var stderrReader: FileHandle?
     private var streamContinuation: AsyncStream<Data>.Continuation?
@@ -150,6 +227,10 @@ final class RemoteTmuxControlConnection {
     private static let reconnectMaxDelaySeconds: Double = 10
     /// Cap on captured stderr (bytes) so a noisy/hostile remote can't grow it unbounded.
     private static let maxStderrBytes = 8 * 1024
+    /// Cap queued stdin bytes while the dedicated writer is backpressured. Above
+    /// this, mutations are rejected and the connection reconnects instead of
+    /// accepting unbounded user input that may never reach tmux.
+    private static let maxPendingStdinBytes = 256 * 1024
 
     private enum CommandKind: Equatable {
         case listWindows, capturePane(Int), paneState(Int), panePath(Int), paneReflow(Int), paneAltScreen(Int),
@@ -367,7 +448,16 @@ final class RemoteTmuxControlConnection {
         proc.standardInput = inPipe
         proc.standardOutput = outPipe
         proc.standardError = errPipe
-        stdinHandle = inPipe.fileHandleForWriting
+        let stdinWriter = RemoteTmuxControlPipeWriter(
+            handle: inPipe.fileHandleForWriting,
+            label: "com.cmux.remote-tmux.stdin.\(UUID().uuidString)",
+            maxPendingBytes: Self.maxPendingStdinBytes,
+            onFailure: { [weak self] _ in
+                Task { @MainActor [weak self] in
+                    self?.handleStdinWriteFailure()
+                }
+            }
+        )
 
         let (stream, continuation) = AsyncStream<Data>.makeStream()
         let reader = outPipe.fileHandleForReading
@@ -407,17 +497,17 @@ final class RemoteTmuxControlConnection {
         } catch {
             // Don't latch `started` on a failed launch, so a later attach can
             // replace this connection instead of reusing a dead one. Close the
-            // stdin handle too, so the connection is left in a clean, retry-safe
+            // stdin writer too, so the connection is left in a clean, retry-safe
             // state instead of holding a dead pipe that silently EPIPEs on write.
             reader.readabilityHandler = nil
             errReader.readabilityHandler = nil
             continuation.finish()
             errContinuation.finish()
-            try? stdinHandle?.close()
-            stdinHandle = nil
+            stdinWriter.close()
             throw error
         }
         process = proc
+        self.stdinWriter = stdinWriter
         stdoutReader = reader
         stderrReader = errReader
         streamContinuation = continuation
@@ -447,7 +537,8 @@ final class RemoteTmuxControlConnection {
     }
 
     /// Sends a tmux command on the control stream (newline-terminated).
-    func send(_ command: String) {
+    @discardableResult
+    func send(_ command: String) -> Bool {
         sendInternal(command, kind: .other)
     }
 
@@ -803,22 +894,17 @@ final class RemoteTmuxControlConnection {
     private func sendActivityQuery(
         _ command: String, completion: @escaping ([Int: PaneForegroundState]?) -> Void
     ) {
-        guard !exited else {
+        guard connectionState == .connected else {
             completion(nil)
             return
         }
         let token = UUID()
         activityQueryCompletions[token] = completion
-        sendInternal(command, kind: .activityQuery(token))
-        // sendInternal enqueues the kind only after a successful write; a dead
-        // pipe (write failure, or no stdin while reconnecting) means no result
-        // will ever correlate — fail the query now so the close decision can
-        // proceed on the cache. (A write failure triggers beginReconnecting,
-        // which may already have flushed this completion — removeValue makes
-        // the fail-once exactly once.)
-        if !pendingCommands.contains(.activityQuery(token)),
-           let orphaned = activityQueryCompletions.removeValue(forKey: token) {
-            orphaned(nil)
+        guard sendInternal(command, kind: .activityQuery(token)) else {
+            // The stream could not accept the query, so no result can correlate.
+            // Fail now and let the close decision proceed on the cached state.
+            activityQueryCompletions.removeValue(forKey: token)?(nil)
+            return
         }
     }
 
@@ -851,10 +937,24 @@ final class RemoteTmuxControlConnection {
 
     /// Sends literal key bytes to a pane via tmux `send-keys -H` (hex-encoded),
     /// which is binary-safe and needs no shell quoting.
-    func sendKeys(paneId: Int, data: Data) {
-        guard !data.isEmpty else { return }
-        let hex = data.map { String(format: "%02x", $0) }.joined(separator: " ")
-        sendInternal("send-keys -t %\(paneId) -H \(hex)", kind: .other)
+    @discardableResult
+    func sendKeys(paneId: Int, data: Data) -> Bool {
+        guard !data.isEmpty else { return true }
+        let hex = Self.hexByteArguments(data)
+        return sendInternal("send-keys -t %\(paneId) -H \(hex)", kind: .other)
+    }
+
+    nonisolated static func hexByteArguments(_ data: Data) -> String {
+        guard !data.isEmpty else { return "" }
+        let digits = Array("0123456789abcdef".utf8)
+        var bytes: [UInt8] = []
+        bytes.reserveCapacity(data.count * 3 - 1)
+        for byte in data {
+            if !bytes.isEmpty { bytes.append(UInt8(ascii: " ")) }
+            bytes.append(digits[Int(byte >> 4)])
+            bytes.append(digits[Int(byte & 0x0f)])
+        }
+        return String(decoding: bytes, as: UTF8.self)
     }
 
     /// Pastes `text` into `paneId` as a tmux paste (`paste-buffer -p`), which wraps
@@ -919,35 +1019,39 @@ final class RemoteTmuxControlConnection {
         streamContinuation = nil
         stderrContinuation?.finish()
         stderrContinuation = nil
-        try? stdinHandle?.close()
-        stdinHandle = nil
+        stdinWriter?.close()
+        stdinWriter = nil
         process?.terminate()
         process = nil
     }
 
     // MARK: - Internals
 
-    private func sendInternal(_ command: String, kind: CommandKind) {
-        guard let stdinHandle else { return }
+    @discardableResult
+    private func sendInternal(_ command: String, kind: CommandKind) -> Bool {
+        guard connectionState == .connected, let stdinWriter else { return false }
         let line = command.hasSuffix("\n") ? command : command + "\n"
-        guard let data = line.data(using: .utf8) else { return }
-        do {
-            try stdinHandle.write(contentsOf: data)
-        } catch {
-            // The control pipe is dead (broken pipe). Crucially, do NOT enqueue
-            // a pending command for a write that never reached tmux: the
-            // %begin/%end correlation FIFO is positional, so one phantom entry
-            // permanently misaligns every subsequent command result. Keep the
-            // mirror frozen and reconnect instead — the remote tmux session
-            // survives an ssh client death (`beginReconnecting` guards the
-            // source state).
-            record("stdin-write-failed")
-            beginReconnecting()
-            return
-        }
-        // Record only after the bytes are confirmed written, so the pending
-        // FIFO stays in lock-step with what tmux actually received.
+        guard let data = line.data(using: .utf8) else { return false }
+        // Record before the writer can emit bytes, so a fast `%begin`/`%end`
+        // reply never outruns its local FIFO slot. If the bounded writer rejects
+        // the command, remove this slot immediately and reconnect.
         pendingCommands.append(kind)
+        guard stdinWriter.enqueue(data) else {
+            pendingCommands.removeLast()
+            record("stdin-write-backpressure")
+            beginReconnecting()
+            return false
+        }
+        return true
+    }
+
+    private func handleStdinWriteFailure() {
+        guard connectionState == .connected || connectionState == .connecting else { return }
+        // The control pipe is dead (broken pipe or a closed SSH child). Keep the
+        // mirror frozen and reconnect; teardown finishes the old streams so
+        // pending command correlation cannot consume replies from a dead client.
+        record("stdin-write-failed")
+        beginReconnecting()
     }
 
     private func ingest(_ data: Data) {

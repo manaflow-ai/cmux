@@ -124,6 +124,11 @@ import Testing
         #expect(RemoteTmuxHost.controlModeLineSafeName("work\nbad") == nil)
     }
 
+    @Test func sendKeysHexArgumentsAreLowercaseSpaceSeparatedBytes() {
+        #expect(RemoteTmuxControlConnection.hexByteArguments(Data([0x00, 0x0f, 0x10, 0xff])) == "00 0f 10 ff")
+        #expect(RemoteTmuxControlConnection.hexByteArguments(Data()) == "")
+    }
+
     // MARK: - Interactive auth invocation (what `cmux ssh-tmux` runs in the tty)
 
     @Test func interactiveAuthInvocationShape() {

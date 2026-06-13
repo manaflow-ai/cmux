@@ -294,8 +294,7 @@ final class RemoteTmuxController {
     func handleMirrorNewTabRequested(workspaceId: UUID) -> Bool {
         guard let mirror = sessionMirrors.values.first(where: { $0.mirroredWorkspaceId == workspaceId }),
               mirror.connection.connectionState == .connected else { return false }
-        mirror.connection.send("new-window")
-        return true
+        return mirror.connection.send("new-window")
     }
 
     /// A mirrored workspace was renamed → `rename-session` on the remote so the
@@ -306,13 +305,13 @@ final class RemoteTmuxController {
         else { return }
         let mirror = entry.value
         let oldName = mirror.sessionName
-        guard name != oldName, !mirror.connection.exited else { return }
+        guard name != oldName, mirror.connection.connectionState == .connected else { return }
         // Target by the stable session id when known, so the rename can't race a
         // prior rename's name.
         guard let target = mirror.connection.sessionId.map({ "$\($0)" })
             ?? RemoteTmuxHost.controlModeLineSafeName(oldName).map(RemoteTmuxHost.shellSingleQuoted)
         else { return }
-        mirror.connection.send("rename-session -t \(target) \(RemoteTmuxHost.shellSingleQuoted(name))")
+        _ = mirror.connection.send("rename-session -t \(target) \(RemoteTmuxHost.shellSingleQuoted(name))")
         // Do not re-key local state here. tmux can reject a rename (for example
         // duplicate session name); `%session-changed` is the confirmation point.
     }
@@ -364,7 +363,7 @@ final class RemoteTmuxController {
     /// churn. `-d` keeps the active window unchanged.
     func handleMirrorWindowsReordered(workspaceId: UUID, orderedPanelIds: [UUID]) {
         guard let mirror = sessionMirrors.values.first(where: { $0.mirroredWorkspaceId == workspaceId }),
-              !mirror.connection.exited else { return }
+              mirror.connection.connectionState == .connected else { return }
         let desired = orderedPanelIds.compactMap { mirror.windowId(forPanel: $0) }
         guard desired.count >= 2 else { return }
         // Current tmux window order (as last reported by list-windows), restricted
@@ -376,7 +375,9 @@ final class RemoteTmuxController {
         var swapped = false
         for index in desired.indices where current[index] != desired[index] {
             guard let swapFrom = current.firstIndex(of: desired[index]) else { continue }
-            mirror.connection.send("swap-window -d -s @\(current[index]) -t @\(current[swapFrom])")
+            guard mirror.connection.send("swap-window -d -s @\(current[index]) -t @\(current[swapFrom])") else {
+                return
+            }
             current.swapAt(index, swapFrom)
             swapped = true
         }
@@ -465,9 +466,9 @@ final class RemoteTmuxController {
     func handleMirrorWindowRenamed(workspaceId: UUID, panelId: UUID, title: String?) {
         guard let name = RemoteTmuxHost.controlModeCommandName(title),
               let mirror = sessionMirrors.values.first(where: { $0.mirroredWorkspaceId == workspaceId }),
-              !mirror.connection.exited,
+              mirror.connection.connectionState == .connected,
               let windowId = mirror.windowId(forPanel: panelId) else { return }
-        mirror.connection.send("rename-window -t @\(windowId) \(RemoteTmuxHost.shellSingleQuoted(name))")
+        _ = mirror.connection.send("rename-window -t @\(windowId) \(RemoteTmuxHost.shellSingleQuoted(name))")
     }
 
     /// The live session mirror + tmux window id behind a mirrored window-tab, or
@@ -478,7 +479,6 @@ final class RemoteTmuxController {
         -> (mirror: RemoteTmuxSessionMirror, windowId: Int)?
     {
         guard let mirror = sessionMirrors.values.first(where: { $0.mirroredWorkspaceId == workspaceId }),
-              !mirror.connection.exited,
               let windowId = mirror.windowId(forPanel: panelId) else { return nil }
         return (mirror, windowId)
     }
@@ -498,9 +498,9 @@ final class RemoteTmuxController {
     ///   `false` if there is no live mirror/connection or the panel isn't a
     ///   mirrored window (caller proceeds with the normal local close).
     func handleMirrorTabCloseRequested(workspaceId: UUID, panelId: UUID) -> Bool {
-        guard let target = mirrorWindowTarget(workspaceId: workspaceId, panelId: panelId) else { return false }
-        target.mirror.connection.send("kill-window -t @\(target.windowId)")
-        return true
+        guard let target = mirrorWindowTarget(workspaceId: workspaceId, panelId: panelId),
+              target.mirror.connection.connectionState == .connected else { return false }
+        return target.mirror.connection.send("kill-window -t @\(target.windowId)")
     }
 
     /// A close-time answer for a mirrored window-tab: whether any pane runs an
