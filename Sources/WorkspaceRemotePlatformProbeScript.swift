@@ -6,6 +6,7 @@ extension WorkspaceRemoteSessionController {
     static let remotePlatformProbeArchMarker = "__CMUX_REMOTE_ARCH__="
     static let remotePlatformProbeExistsMarker = "__CMUX_REMOTE_EXISTS__="
 
+    /// Builds the remote shell probe that reports platform and daemon availability markers.
     static func remotePlatformProbeScript(version: String) -> String {
         let scriptVersion = normalizedRemotePlatformProbeVersion(version)
         return """
@@ -35,6 +36,7 @@ extension WorkspaceRemoteSessionController {
         """
     }
 
+    /// Returns stdout suitable for user-facing error details by removing internal probe markers.
     static func remotePlatformProbeUserFacingStdout(_ stdout: String) -> String {
         stdout
             .split(separator: "\n", omittingEmptySubsequences: false)
@@ -42,6 +44,7 @@ extension WorkspaceRemoteSessionController {
             .joined(separator: "\n")
     }
 
+    /// Normalizes the daemon version path segment before it is interpolated into remote shell.
     private static func normalizedRemotePlatformProbeVersion(_ version: String) -> String {
         guard !version.isEmpty,
               version.count <= 128,
@@ -60,6 +63,7 @@ extension WorkspaceRemoteSessionController {
         return isSafePathSegment ? version : "dev"
     }
 
+    /// Returns true when a line is one of the internal markers emitted by the probe.
     private static func isRemotePlatformProbeMarkerLine(_ line: String) -> Bool {
         line.hasPrefix(remotePlatformProbeHomeMarker) ||
             line.hasPrefix(remotePlatformProbeOSMarker) ||
