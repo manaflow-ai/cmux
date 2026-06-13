@@ -63,8 +63,9 @@ final class FileExplorerHeaderView: NSView {
     }
 
     func updateQuickSearch(query: String?) {
-        guard quickSearchQuery != query else { return }
-        quickSearchQuery = query
+        let normalizedQuery = query?.isEmpty == true ? nil : query
+        guard quickSearchQuery != normalizedQuery else { return }
+        quickSearchQuery = normalizedQuery
         applyHeaderState()
     }
 
