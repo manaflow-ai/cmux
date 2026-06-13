@@ -10,6 +10,7 @@ public struct ChatFileEditCardView: View {
     private let actions: ChatRowActions
 
     @Environment(\.chatTheme) private var theme
+    @Environment(\.chatContentCache) private var contentCache
 
     private static let collapsedLineCap = 8
     private static let expandedLineCap = 400
@@ -120,7 +121,8 @@ public struct ChatFileEditCardView: View {
     }
 
     private func diffBlock(diff: String) -> some View {
-        let lines = diff.split(separator: "\n", omittingEmptySubsequences: false).map(String.init)
+        let lines = contentCache?.diffLines(messageID: rowID, diff: diff)
+            ?? diff.split(separator: "\n", omittingEmptySubsequences: false).map(String.init)
         let cap = isExpanded ? Self.expandedLineCap : Self.collapsedLineCap
         let visible = Array(lines.prefix(cap))
         return ScrollView(.horizontal, showsIndicators: false) {

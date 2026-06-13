@@ -12,9 +12,11 @@ import SwiftUI
 @MainActor
 public final class ChatContentCache {
     private var lines: [String: [String]] = [:]
+    private var diffs: [String: [String]] = [:]
     private var segments: [String: [ChatProseSegment]] = [:]
     private var blocks: [String: [ChatTextBlock]] = [:]
     private var lineOrder: [String] = []
+    private var diffOrder: [String] = []
     private var segmentOrder: [String] = []
     private var blockOrder: [String] = []
     private let capacity: Int
@@ -63,6 +65,26 @@ public final class ChatContentCache {
         }
         blocks[key] = result
         blockOrder.append(key)
+        return result
+    }
+
+    /// A unified diff split into display lines, cached. The file-edit card
+    /// re-runs this on every lazy re-materialization otherwise.
+    ///
+    /// - Parameters:
+    ///   - messageID: Stable identity of the owning row.
+    ///   - diff: The unified diff text.
+    /// - Returns: Diff lines (empty preserved).
+    public func diffLines(messageID: String, diff: String) -> [String] {
+        let key = "\(messageID)-\(diff.hashValue)"
+        if let cached = diffs[key] { return cached }
+        let result = diff.split(separator: "\n", omittingEmptySubsequences: false).map(String.init)
+        if diffs.count >= capacity, let oldest = diffOrder.first {
+            diffs[oldest] = nil
+            diffOrder.removeFirst()
+        }
+        diffs[key] = result
+        diffOrder.append(key)
         return result
     }
 
