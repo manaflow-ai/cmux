@@ -14008,7 +14008,7 @@ class TerminalController {
             inPane: paneId,
             focus: false,
             autoRefreshMetadata: false,
-            preserveFocusWhenUnfocused: false
+            preserveFocusWhenUnfocused: false, inheritWorkingDirectoryFallback: true
         ) else {
             return .err(code: "internal_error", message: "Failed to create terminal", data: nil)
         }

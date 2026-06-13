@@ -14543,6 +14543,23 @@ final class Workspace: Identifiable, ObservableObject {
         lastTerminalConfigInheritanceFontPoints
     }
 
+    nonisolated private static func normalizedTerminalWorkingDirectory(_ workingDirectory: String?) -> String? {
+        let trimmed = workingDirectory?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        return trimmed.isEmpty ? nil : trimmed
+    }
+
+    private func resolvedTerminalStartupWorkingDirectory(
+        requestedWorkingDirectory: String?,
+        sourcePanelId: UUID?
+    ) -> String? {
+        [
+            requestedWorkingDirectory,
+            sourcePanelId.flatMap { panelDirectories[$0] },
+            sourcePanelId.flatMap { terminalPanel(for: $0)?.requestedWorkingDirectory },
+            currentDirectory,
+        ].lazy.compactMap(Self.normalizedTerminalWorkingDirectory).first
+    }
+
     /// Candidate terminal panels used as the source when creating inherited Ghostty config.
     /// Preference order:
     /// 1) explicitly preferred terminal panel (when the caller has one),
@@ -14725,27 +14742,12 @@ final class Workspace: Identifiable, ObservableObject {
         )
 #endif
 
-        // Inherit working directory: prefer the source panel's reported cwd,
-        // then its requested startup cwd if shell integration has not reported
-        // back yet, and finally fall back to the workspace's current directory.
-        let splitWorkingDirectory: String? = {
-            if let workingDirectory = workingDirectory?.trimmingCharacters(in: .whitespacesAndNewlines),
-               !workingDirectory.isEmpty {
-                return workingDirectory
-            }
-            if let panelDirectory = panelDirectories[panelId]?.trimmingCharacters(in: .whitespacesAndNewlines),
-               !panelDirectory.isEmpty {
-                return panelDirectory
-            }
-            if let requestedWorkingDirectory = terminalPanel(for: panelId)?
-                .requestedWorkingDirectory?
-                .trimmingCharacters(in: .whitespacesAndNewlines),
-               !requestedWorkingDirectory.isEmpty {
-                return requestedWorkingDirectory
-            }
-            let workspaceDirectory = currentDirectory.trimmingCharacters(in: .whitespacesAndNewlines)
-            return workspaceDirectory.isEmpty ? nil : workspaceDirectory
-        }()
+        // Resolve cwd as explicit request, source reported cwd, source requested
+        // startup cwd, then workspace currentDirectory.
+        let splitWorkingDirectory = resolvedTerminalStartupWorkingDirectory(
+            requestedWorkingDirectory: workingDirectory,
+            sourcePanelId: panelId
+        )
 #if DEBUG
         cmuxDebugLog(
             "split.cwd panelId=\(panelId.uuidString.prefix(5)) panelDir=\(panelDirectories[panelId] ?? "nil") requestedDir=\(terminalPanel(for: panelId)?.requestedWorkingDirectory ?? "nil") currentDir=\(currentDirectory) resolved=\(splitWorkingDirectory ?? "nil")"
@@ -14876,7 +14878,9 @@ final class Workspace: Identifiable, ObservableObject {
         autoRefreshMetadata: Bool = true,
         preserveFocusWhenUnfocused: Bool = true,
         remotePTYSessionID: String? = nil,
-        suppressWorkspaceRemoteStartupCommand: Bool = false
+        suppressWorkspaceRemoteStartupCommand: Bool = false,
+        inheritWorkingDirectoryFallback: Bool = false,
+        workingDirectoryFallbackSourcePanelId: UUID? = nil
     ) -> TerminalPanel? {
         let shouldFocusNewTab = focus ?? (bonsplitController.focusedPaneId == paneId)
         let previousFocusedPanelId = focusedPanelId
@@ -14900,13 +14904,20 @@ final class Workspace: Identifiable, ObservableObject {
             template.waitAfterCommand = true
             inheritedConfig = template
         }
+        let fallbackSourcePanelId = workingDirectoryFallbackSourcePanelId ?? bonsplitController.selectedTab(inPane: paneId).map(\.id).flatMap(panelIdFromSurfaceId)
+        let requestedWorkingDirectory = inheritWorkingDirectoryFallback && startupCommand == nil
+            ? resolvedTerminalStartupWorkingDirectory(
+                requestedWorkingDirectory: workingDirectory,
+                sourcePanelId: fallbackSourcePanelId
+            )
+            : workingDirectory
 
         // Create new terminal panel
         let newPanel = TerminalPanel(
             workspaceId: id,
             context: GHOSTTY_SURFACE_CONTEXT_SPLIT,
             configTemplate: inheritedConfig,
-            workingDirectory: workingDirectory,
+            workingDirectory: requestedWorkingDirectory,
             portOrdinal: portOrdinal,
             initialCommand: startupCommand,
             tmuxStartCommand: tmuxStartCommand,
@@ -14997,22 +15008,10 @@ final class Workspace: Identifiable, ObservableObject {
         guard !trimmedCommand.isEmpty else { return nil }
 
         let inheritedConfig = inheritedTerminalConfig(preferredPanelId: panelId, inPane: paneId)
-        let requestedWorkingDirectory: String? = {
-            if let workingDirectory = workingDirectory?.trimmingCharacters(in: .whitespacesAndNewlines),
-               !workingDirectory.isEmpty {
-                return workingDirectory
-            }
-            if let panelDirectory = panelDirectories[panelId]?.trimmingCharacters(in: .whitespacesAndNewlines),
-               !panelDirectory.isEmpty {
-                return panelDirectory
-            }
-            if let requestedWorkingDirectory = oldPanel.requestedWorkingDirectory?.trimmingCharacters(in: .whitespacesAndNewlines),
-               !requestedWorkingDirectory.isEmpty {
-                return requestedWorkingDirectory
-            }
-            let workspaceDirectory = currentDirectory.trimmingCharacters(in: .whitespacesAndNewlines)
-            return workspaceDirectory.isEmpty ? nil : workspaceDirectory
-        }()
+        let requestedWorkingDirectory = resolvedTerminalStartupWorkingDirectory(
+            requestedWorkingDirectory: workingDirectory,
+            sourcePanelId: panelId
+        )
         let selectedInPane = bonsplitController.selectedTab(inPane: paneId)?.id == tabId
         let paneWasFocused = bonsplitController.focusedPaneId == paneId
         let shouldFocus = focus ?? (selectedInPane && paneWasFocused)
@@ -16968,7 +16967,7 @@ final class Workspace: Identifiable, ObservableObject {
     @discardableResult
     func newTerminalSurfaceInFocusedPane(focus: Bool? = nil, initialInput: String? = nil) -> TerminalPanel? {
         guard let focusedPaneId = bonsplitController.focusedPaneId else { return nil }
-        return newTerminalSurface(inPane: focusedPaneId, focus: focus, initialInput: initialInput)
+        return newTerminalSurface(inPane: focusedPaneId, focus: focus, initialInput: initialInput, inheritWorkingDirectoryFallback: true)
     }
 
     @discardableResult
@@ -17980,7 +17979,8 @@ final class Workspace: Identifiable, ObservableObject {
 
     private func createTerminalToRight(of anchorTabId: TabID, inPane paneId: PaneID) {
         let targetIndex = insertionIndexToRight(of: anchorTabId, inPane: paneId)
-        guard let newPanel = newTerminalSurface(inPane: paneId, focus: true) else { return }
+        let sourcePanelId = panelIdFromSurfaceId(anchorTabId)
+        guard let newPanel = newTerminalSurface(inPane: paneId, focus: true, inheritWorkingDirectoryFallback: true, workingDirectoryFallbackSourcePanelId: sourcePanelId) else { return }
         _ = reorderSurface(panelId: newPanel.id, toIndex: targetIndex)
     }
 
@@ -19760,7 +19760,7 @@ extension Workspace: BonsplitDelegate {
             case .currentTerminal:
                 self.selectedTerminalPanel(inPane: pane)?.sendInput(shellInput)
             case .newTabInCurrentPane:
-                _ = self.newTerminalSurface(inPane: pane, focus: true, initialInput: shellInput)
+                _ = self.newTerminalSurface(inPane: pane, focus: true, initialInput: shellInput, inheritWorkingDirectoryFallback: true)
             }
         }
         guard didExecute else {
@@ -19771,11 +19771,11 @@ extension Workspace: BonsplitDelegate {
     func splitTabBar(_ controller: BonsplitController, didRequestNewTab kind: String, inPane pane: PaneID) {
         switch kind {
         case "terminal":
-            _ = newTerminalSurface(inPane: pane)
+            _ = newTerminalSurface(inPane: pane, inheritWorkingDirectoryFallback: true)
         case "browser":
             _ = newBrowserSurface(inPane: pane)
         default:
-            _ = newTerminalSurface(inPane: pane)
+            _ = newTerminalSurface(inPane: pane, inheritWorkingDirectoryFallback: true)
         }
     }
 

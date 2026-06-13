@@ -77,4 +77,112 @@ struct WorkspaceTerminalTabWorkingDirectoryTests {
         let createdPanel = try #require(restored.newTerminalSurfaceInFocusedPane(focus: false))
         #expect(createdPanel.requestedWorkingDirectory == workspaceDirectory)
     }
+
+    @MainActor
+    @Test("remote restore keeps intentional nil terminal cwd")
+    func remoteRestoreDoesNotReplaceIntentionalNilTerminalWorkingDirectoryWithWorkspaceCurrentDirectory() throws {
+        let workspaceDirectory = "/tmp/cmux-remote-restore-\(UUID().uuidString)"
+        let remotePanelId = UUID()
+        let snapshot = SessionWorkspaceSnapshot(
+            workspaceId: UUID(),
+            processTitle: "Remote",
+            customTitle: nil,
+            customDescription: nil,
+            customColor: nil,
+            isPinned: false,
+            groupId: nil,
+            isManuallyUnread: false,
+            hasUnreadIndicator: false,
+            notifications: nil,
+            terminalScrollBarHidden: nil,
+            currentDirectory: workspaceDirectory,
+            focusedPanelId: remotePanelId,
+            layout: .pane(SessionPaneLayoutSnapshot(
+                panelIds: [remotePanelId],
+                selectedPanelId: remotePanelId
+            )),
+            panels: [
+                SessionPanelSnapshot(
+                    id: remotePanelId,
+                    type: .terminal,
+                    title: "Remote Shell",
+                    customTitle: nil,
+                    directory: "/home/dev/project",
+                    isPinned: false,
+                    isManuallyUnread: false,
+                    hasUnreadIndicator: false,
+                    restoredUnreadContributesToWorkspace: nil,
+                    notifications: nil,
+                    gitBranch: nil,
+                    listeningPorts: [],
+                    ttyName: nil,
+                    terminal: SessionTerminalPanelSnapshot(isRemoteTerminal: true),
+                    browser: nil,
+                    markdown: nil,
+                    filePreview: nil,
+                    rightSidebarTool: nil,
+                    agentSession: nil,
+                    project: nil
+                ),
+            ],
+            statusEntries: [],
+            logEntries: [],
+            progress: nil,
+            gitBranch: nil,
+            remote: SessionRemoteWorkspaceSnapshot(
+                transport: .ssh,
+                destination: "dev@example.com",
+                port: 2222,
+                identityFile: nil,
+                sshOptions: [],
+                preserveAfterTerminalExit: nil,
+                skipDaemonBootstrap: nil
+            )
+        )
+
+        let restored = Workspace()
+        let restoredIds = restored.restoreSessionSnapshot(snapshot)
+        let restoredRemotePanelId = try #require(restoredIds[remotePanelId])
+        let restoredPanel = try #require(restored.terminalPanel(for: restoredRemotePanelId))
+
+        #expect(restored.currentDirectory == workspaceDirectory)
+        #expect(restoredPanel.requestedWorkingDirectory == nil)
+    }
+
+    @MainActor
+    @Test("new terminal to right inherits cwd from non-selected anchor tab")
+    func newTerminalToRightUsesAnchorTabWorkingDirectoryWhenAnchorIsNotSelected() throws {
+        let selectedDirectory = "/tmp/cmux-selected-\(UUID().uuidString)"
+        let anchorDirectory = "/tmp/cmux-anchor-\(UUID().uuidString)"
+        let workspace = Workspace(workingDirectory: "/tmp/cmux-workspace-\(UUID().uuidString)")
+        let paneId = try #require(workspace.bonsplitController.focusedPaneId)
+        let selectedPanel = try #require(workspace.focusedTerminalPanel)
+        let selectedTabId = try #require(workspace.surfaceIdFromPanelId(selectedPanel.id))
+        workspace.updatePanelDirectory(panelId: selectedPanel.id, directory: selectedDirectory)
+
+        let anchorPanel = try #require(workspace.newTerminalSurface(
+            inPane: paneId,
+            focus: false,
+            workingDirectory: anchorDirectory
+        ))
+        workspace.updatePanelDirectory(panelId: anchorPanel.id, directory: anchorDirectory)
+        let anchorTabId = try #require(workspace.surfaceIdFromPanelId(anchorPanel.id))
+
+        workspace.bonsplitController.selectTab(selectedTabId)
+        let anchorTab = try #require(workspace.bonsplitController.tabs(inPane: paneId).first { $0.id == anchorTabId })
+        workspace.splitTabBar(
+            workspace.bonsplitController,
+            didRequestTabContextAction: .newTerminalToRight,
+            for: anchorTab,
+            inPane: paneId
+        )
+
+        let tabs = workspace.bonsplitController.tabs(inPane: paneId)
+        let anchorIndex = try #require(tabs.firstIndex { $0.id == anchorTabId })
+        let createdTab = try #require(tabs.dropFirst(anchorIndex + 1).first)
+        let createdPanelId = try #require(workspace.panelIdFromSurfaceId(createdTab.id))
+        let createdPanel = try #require(workspace.terminalPanel(for: createdPanelId))
+
+        #expect(createdPanel.requestedWorkingDirectory == anchorDirectory)
+    }
 }
