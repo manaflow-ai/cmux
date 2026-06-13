@@ -26,6 +26,7 @@ struct GhosttyConfig {
     var sidebarFontSize: CGFloat = Self.defaultSidebarFontSize
     var theme: String?
     var workingDirectory: String?
+    var windowInheritWorkingDirectory = true
     // Ghostty measures scrollback-limit in bytes, not lines.
     var scrollbackLimit: Int = 10_000_000
     var unfocusedSplitOpacity: Double = 0.7
@@ -84,6 +85,25 @@ struct GhosttyConfig {
 
         let isLightBackground = backgroundColor.isLightColor
         return backgroundColor.darken(by: isLightBackground ? 0.08 : 0.4)
+    }
+
+    func resolvedWorkingDirectoryPath(homeDirectory: String = FileManager.default.homeDirectoryForCurrentUser.path) -> String? {
+        guard let workingDirectory else { return nil }
+        let trimmed = workingDirectory.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return nil }
+        if trimmed == "~" {
+            return homeDirectory
+        }
+        if trimmed.hasPrefix("~/") {
+            let suffix = String(trimmed.dropFirst(2))
+            return URL(fileURLWithPath: homeDirectory, isDirectory: true)
+                .appendingPathComponent(suffix)
+                .path
+        }
+        if trimmed.hasPrefix("/") {
+            return trimmed
+        }
+        return nil
     }
 
     static func load(
@@ -424,6 +444,10 @@ struct GhosttyConfig {
                     }
                 case "working-directory":
                     workingDirectory = value
+                case "window-inherit-working-directory":
+                    if let parsed = Self.parseBool(value) {
+                        windowInheritWorkingDirectory = parsed
+                    }
                 case "scrollback-limit":
                     if let limit = Self.parseIntegerLiteral(value) {
                         scrollbackLimit = limit
@@ -671,6 +695,17 @@ struct GhosttyConfig {
             return nil
         }
         return parsed
+    }
+
+    private static func parseBool(_ value: String) -> Bool? {
+        switch value.lowercased() {
+        case "true", "1", "yes", "on":
+            return true
+        case "false", "0", "no", "off":
+            return false
+        default:
+            return nil
+        }
     }
 
     static func clampedSidebarFontSize(_ value: CGFloat) -> CGFloat {

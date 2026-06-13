@@ -767,6 +767,7 @@
           "warnBeforeQuit": "Fallback booléen hérité pour la confirmation de fermeture. Utilisez app.confirmQuit pour les nouvelles configurations.",
           "warnBeforeClosingTabXButton": "Afficher une confirmation avant de fermer un onglet avec le bouton de fermeture d’onglet.",
           "hideTabCloseButton": "Masquer les boutons de fermeture d’onglet dans la barre d’onglets du volet.",
+          "workspaceInheritWorkingDirectory": "Lorsque cette option est omise, les nouveaux espaces de travail suivent le réglage window-inherit-working-directory de Ghostty. Définissez true pour toujours hériter du répertoire de travail de l’espace actuel, ou false pour laisser le répertoire de travail non défini afin que le réglage working-directory de Ghostty fournisse la valeur par défaut.",
           "forkConversationDefaultDestination": "Destination par défaut de l'action principale Fork Conversation dans le menu contextuel de l'onglet. Le sous-menu affiche toujours toutes les destinations."
         },
         "terminal": {

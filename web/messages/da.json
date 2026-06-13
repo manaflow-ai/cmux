@@ -767,6 +767,7 @@
           "warnBeforeQuit": "Ældre boolesk fallback til afslutningsbekræftelse. Brug app.confirmQuit til nye konfigurationer.",
           "warnBeforeClosingTabXButton": "Vis en bekræftelse, før en fane lukkes med fanens luk-knap.",
           "hideTabCloseButton": "Skjul fanernes luk-knapper i rudens fanelinje.",
+          "workspaceInheritWorkingDirectory": "Når den udelades, følger nye arbejdsområder Ghosttys window-inherit-working-directory-indstilling. Sæt til true for altid at arve den aktuelle arbejdsområdemappe, eller false for at lade arbejdsmappen være uindstillet, så Ghosttys working-directory-indstilling kan levere standardværdien.",
           "forkConversationDefaultDestination": "Standarddestinationen for fanens primære Fork Conversation-handling i genvejsmenuen. Undermenuen viser stadig alle destinationer."
         },
         "terminal": {

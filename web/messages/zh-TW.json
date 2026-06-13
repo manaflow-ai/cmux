@@ -767,6 +767,7 @@
           "warnBeforeQuit": "用於退出確認的舊版布林後備值。新設定請使用 app.confirmQuit。",
           "warnBeforeClosingTabXButton": "使用分頁關閉按鈕關閉分頁前顯示確認。",
           "hideTabCloseButton": "在窗格分頁列中隱藏分頁關閉按鈕。",
+          "workspaceInheritWorkingDirectory": "省略時，新工作區會遵循 Ghostty 的 window-inherit-working-directory 設定。設為 true 會一律繼承目前工作區的工作目錄；設為 false 會讓工作目錄保持未設定，以便 Ghostty 的 working-directory 設定提供預設值。",
           "forkConversationDefaultDestination": "分頁內容選單中主要 Fork Conversation 動作的預設目標。子選單仍會顯示所有目標。"
         },
         "terminal": {

@@ -767,6 +767,7 @@
           "warnBeforeQuit": "Alternativa booleana heredada para la confirmación de salida. Usa app.confirmQuit para configuraciones nuevas.",
           "warnBeforeClosingTabXButton": "Mostrar una confirmación antes de cerrar una pestaña con el botón de cerrar pestaña.",
           "hideTabCloseButton": "Ocultar los botones de cerrar pestaña en la barra de pestañas del panel.",
+          "workspaceInheritWorkingDirectory": "Si se omite, los espacios de trabajo nuevos siguen la opción window-inherit-working-directory de Ghostty. Usa true para heredar siempre el directorio de trabajo del espacio actual, o false para dejar el directorio de trabajo sin definir y permitir que la opción working-directory de Ghostty proporcione el valor predeterminado.",
           "forkConversationDefaultDestination": "Destino predeterminado de la acción principal Fork Conversation en el menú contextual de la pestaña. El submenú sigue mostrando todos los destinos."
         },
         "terminal": {

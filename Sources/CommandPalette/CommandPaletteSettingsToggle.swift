@@ -138,8 +138,12 @@ enum CommandPaletteSettingsToggleCommands {
                 },
                 sectionTitle: app,
                 keywords: ["app.workspaceInheritWorkingDirectory", "workspace", "working", "directory", "cwd", "inherit"],
-                defaultValue: WorkspaceWorkingDirectoryInheritanceSettings.defaultValue,
-                defaultsKey: WorkspaceWorkingDirectoryInheritanceSettings.key
+                isOn: { defaults in
+                    WorkspaceWorkingDirectoryInheritanceSettings.isEnabled(defaults: defaults)
+                },
+                setOn: { newValue, defaults, _ in
+                    defaults.set(newValue, forKey: WorkspaceWorkingDirectoryInheritanceSettings.key)
+                }
             ),
             CommandPaletteSettingToggleDescriptor(
                 commandId: commandIdPrefix + "keepWorkspaceOpenWhenClosingLastSurface",

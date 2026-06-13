@@ -868,6 +868,7 @@
           "warnBeforeQuit": "Legacy boolean fallback for quit confirmation. Use app.confirmQuit for new configs.",
           "warnBeforeClosingTabXButton": "Show a confirmation before closing a tab with the tab close button.",
           "hideTabCloseButton": "Hide tab close buttons in the pane tab bar.",
+          "workspaceInheritWorkingDirectory": "When omitted, new workspaces follow Ghostty's window-inherit-working-directory setting. Set true to always inherit the current workspace directory, or false to leave the working directory unset so Ghostty's working-directory setting can provide the default.",
           "forkConversationDefaultDestination": "Default destination for the tab context menu's primary Fork Conversation action. The submenu still exposes every destination."
         },
         "terminal": {

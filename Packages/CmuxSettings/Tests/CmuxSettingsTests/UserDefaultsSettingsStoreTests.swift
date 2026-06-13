@@ -31,6 +31,25 @@ struct UserDefaultsSettingsStoreTests {
         #expect(value == .system)
     }
 
+    @Test func stateDistinguishesUnsetFromStoredDefaultValue() async {
+        let (store, catalog) = makeStore()
+        let key = catalog.app.workspaceInheritWorkingDirectory
+
+        let unset = await store.state(for: key)
+        #expect(unset.value == true)
+        #expect(unset.hasStoredValue == false)
+
+        await store.set(true, for: key)
+        let storedDefault = await store.state(for: key)
+        #expect(storedDefault.value == true)
+        #expect(storedDefault.hasStoredValue == true)
+
+        await store.reset(key)
+        let reset = await store.state(for: key)
+        #expect(reset.value == true)
+        #expect(reset.hasStoredValue == false)
+    }
+
     @Test func valuesStreamYieldsInitialThenChanges() async {
         let (store, catalog) = makeStore()
         await store.set(.light, for: catalog.app.appearance)
@@ -51,6 +70,32 @@ struct UserDefaultsSettingsStoreTests {
 
         let collected = await observed.value
         #expect(collected == [.light, .dark, .system])
+    }
+
+    @Test func statesStreamYieldsOverridePresenceChangesWhenValueIsUnchanged() async {
+        let (store, catalog) = makeStore()
+        let key = catalog.app.workspaceInheritWorkingDirectory
+
+        let observed = Task<[UserDefaultsSettingState<Bool>], Never> {
+            var collected: [UserDefaultsSettingState<Bool>] = []
+            for await state in store.states(for: key) {
+                collected.append(state)
+                if collected.count == 3 { break }
+            }
+            return collected
+        }
+
+        try? await Task.sleep(nanoseconds: 50_000_000)
+        await store.set(true, for: key)
+        try? await Task.sleep(nanoseconds: 50_000_000)
+        await store.reset(key)
+
+        let collected = await observed.value
+        #expect(collected == [
+            UserDefaultsSettingState(value: true, hasStoredValue: false),
+            UserDefaultsSettingState(value: true, hasStoredValue: true),
+            UserDefaultsSettingState(value: true, hasStoredValue: false),
+        ])
     }
 
     @Test func migratesLegacyKey() async {

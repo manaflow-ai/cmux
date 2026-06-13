@@ -286,8 +286,8 @@
         },
         "workspaceInheritWorkingDirectory": {
           "type": "boolean",
-          "default": true,
-          "description": "When true, new workspaces inherit the current workspace working directory. When false, new workspaces leave the working directory unset so Ghostty's working-directory setting can provide the default."
+          "descriptionKey": "schemaDescriptions.app.workspaceInheritWorkingDirectory",
+          "description": "When omitted, new workspaces follow Ghostty's window-inherit-working-directory setting. Set true to always inherit the current workspace directory, or false to leave the working directory unset so Ghostty's working-directory setting can provide the default."
         },
         "minimalMode": {
           "type": "boolean",

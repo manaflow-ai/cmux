@@ -827,6 +827,7 @@
           "warnBeforeQuit": "終了確認用の従来の boolean フォールバックです。新しい設定では app.confirmQuit を使ってください。",
           "warnBeforeClosingTabXButton": "タブの閉じるボタンでタブを閉じる前に確認を表示します。",
           "hideTabCloseButton": "ペインのタブバーでタブの閉じるボタンを非表示にします。",
+          "workspaceInheritWorkingDirectory": "未指定の場合、新規ワークスペースは Ghostty の window-inherit-working-directory 設定に従います。true にすると常に現在のワークスペースの作業ディレクトリを継承し、false にすると作業ディレクトリを未設定にして Ghostty の working-directory 設定を既定値として使います。",
           "forkConversationDefaultDestination": "タブのコンテキストメニューにある主要な「会話をフォーク」操作のデフォルトのフォーク先です。サブメニューには引き続きすべてのフォーク先が表示されます。"
         },
         "terminal": {

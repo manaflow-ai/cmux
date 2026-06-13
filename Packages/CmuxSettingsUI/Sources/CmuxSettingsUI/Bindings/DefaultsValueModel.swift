@@ -30,13 +30,14 @@ import Observation
 public final class DefaultsValueModel<Value: SettingCodable> {
     /// The most recently observed value. SwiftUI views read this synchronously.
     public private(set) var current: Value
+    public private(set) var hasStoredValue: Bool
 
     private let store: UserDefaultsSettingsStore
     private let key: DefaultsKey<Value>
 
     /// Owns the change-stream subscription and cancels it when this model
     /// deallocates.
-    @ObservationIgnored private let observation = SettingReadDriver<Value>()
+    @ObservationIgnored private let observation = SettingReadDriver<UserDefaultsSettingState<Value>>()
 
     /// Creates a model bound to ``key`` in ``store``.
     ///
@@ -44,24 +45,24 @@ public final class DefaultsValueModel<Value: SettingCodable> {
     ///   - store: The UserDefaults store to read from and write to.
     ///   - key: The setting to observe.
     public convenience init(store: UserDefaultsSettingsStore, key: DefaultsKey<Value>) {
-        self.init(store: store, key: key, makeStream: { store.values(for: key) })
+        self.init(store: store, key: key, makeStateStream: { store.states(for: key) })
     }
 
-    /// Designated initializer with an injectable change-stream factory.
+    /// Designated initializer with an injectable state-stream factory.
     ///
-    /// The `makeStream` seam lets tests drive the observation with a stream
+    /// The `makeStateStream` seam lets tests drive the observation with a stream
     /// whose teardown they can observe, proving the model cancels its
     /// observation on deallocation. Production code uses the public
-    /// `init(store:key:)`, which wires `makeStream` to the store.
+    /// `init(store:key:)`, which wires `makeStateStream` to the store.
     ///
     /// - Parameters:
     ///   - store: The UserDefaults store used for writes (`set`/`reset`).
     ///   - key: The setting to observe.
-    ///   - makeStream: Builds the change stream this model iterates.
+    ///   - makeStateStream: Builds the value + override-presence stream this model iterates.
     init(
         store: UserDefaultsSettingsStore,
         key: DefaultsKey<Value>,
-        makeStream: @escaping () -> AsyncStream<Value>
+        makeStateStream: @escaping () -> AsyncStream<UserDefaultsSettingState<Value>>
     ) {
         self.store = store
         self.key = key
@@ -69,8 +70,10 @@ public final class DefaultsValueModel<Value: SettingCodable> {
         // element (the actual stored value) lands immediately after and
         // is the sole writer of `current` thereafter.
         self.current = key.defaultValue
-        observation.activate(makeStream) { [weak self] value in
-            self?.current = value
+        self.hasStoredValue = false
+        observation.activate(makeStateStream) { [weak self] state in
+            self?.current = state.value
+            self?.hasStoredValue = state.hasStoredValue
         }
     }
 
@@ -81,6 +84,7 @@ public final class DefaultsValueModel<Value: SettingCodable> {
     /// fire-and-forget `Task`.
     public func set(_ value: Value) {
         current = value
+        hasStoredValue = true
         Task { [store, key] in
             await store.set(value, for: key)
         }
@@ -90,6 +94,7 @@ public final class DefaultsValueModel<Value: SettingCodable> {
     /// the reset.
     public func reset() {
         current = key.defaultValue
+        hasStoredValue = false
         Task { [store, key] in
             await store.reset(key)
         }

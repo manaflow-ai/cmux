@@ -767,6 +767,7 @@
           "warnBeforeQuit": "Fallback booleano legado para confirmação de saída. Use app.confirmQuit em novas configurações.",
           "warnBeforeClosingTabXButton": "Mostrar uma confirmação antes de fechar uma aba com o botão de fechar aba.",
           "hideTabCloseButton": "Ocultar os botões de fechar aba na barra de abas do painel.",
+          "workspaceInheritWorkingDirectory": "Quando omitido, novos workspaces seguem a configuração window-inherit-working-directory do Ghostty. Defina como true para sempre herdar o diretório de trabalho do workspace atual, ou false para deixar o diretório de trabalho sem definição para que a configuração working-directory do Ghostty forneça o padrão.",
           "forkConversationDefaultDestination": "Destino padrão da ação principal Fork Conversation no menu de contexto da aba. O submenu ainda mostra todos os destinos."
         },
         "terminal": {

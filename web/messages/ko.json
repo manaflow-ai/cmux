@@ -767,6 +767,7 @@
           "warnBeforeQuit": "종료 확인을 위한 기존 boolean 대체값입니다. 새 구성에는 app.confirmQuit을 사용하세요.",
           "warnBeforeClosingTabXButton": "탭 닫기 버튼으로 탭을 닫기 전에 확인을 표시합니다.",
           "hideTabCloseButton": "창 영역 탭 막대에서 탭 닫기 버튼을 숨깁니다.",
+          "workspaceInheritWorkingDirectory": "생략하면 새 워크스페이스는 Ghostty의 window-inherit-working-directory 설정을 따릅니다. 현재 워크스페이스의 작업 디렉터리를 항상 상속하려면 true로 설정하고, 작업 디렉터리를 설정하지 않은 상태로 두어 Ghostty의 working-directory 설정이 기본값을 제공하게 하려면 false로 설정하세요.",
           "forkConversationDefaultDestination": "탭 컨텍스트 메뉴의 기본 Fork Conversation 동작에 사용할 기본 대상입니다. 하위 메뉴에는 여전히 모든 대상이 표시됩니다."
         },
         "terminal": {

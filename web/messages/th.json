@@ -767,6 +767,7 @@
           "warnBeforeQuit": "ตัวเลือกสำรองแบบบูลีนเดิมสำหรับการยืนยันก่อนออก ใช้ app.confirmQuit สำหรับการกำหนดค่าใหม่",
           "warnBeforeClosingTabXButton": "แสดงการยืนยันก่อนปิดแท็บด้วยปุ่มปิดแท็บ",
           "hideTabCloseButton": "ซ่อนปุ่มปิดแท็บในแถบแท็บของพาเนล",
+          "workspaceInheritWorkingDirectory": "เมื่อไม่ระบุ เวิร์กสเปซใหม่จะทำตามการตั้งค่า window-inherit-working-directory ของ Ghostty ตั้งค่าเป็น true เพื่อสืบทอดไดเรกทอรีทำงานของเวิร์กสเปซปัจจุบันเสมอ หรือ false เพื่อปล่อยให้ไดเรกทอรีทำงานไม่ได้ตั้งค่า เพื่อให้การตั้งค่า working-directory ของ Ghostty ใช้เป็นค่าเริ่มต้นได้",
           "forkConversationDefaultDestination": "ปลายทางเริ่มต้นสำหรับคำสั่งหลัก Fork Conversation ในเมนูบริบทของแท็บ เมนูย่อยยังคงแสดงปลายทางทั้งหมด"
         },
         "terminal": {

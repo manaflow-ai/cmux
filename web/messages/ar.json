@@ -767,6 +767,7 @@
           "warnBeforeQuit": "خيار منطقي قديم احتياطي لتأكيد الإنهاء. استخدم app.confirmQuit للإعدادات الجديدة.",
           "warnBeforeClosingTabXButton": "اعرض تأكيدًا قبل إغلاق تبويب بزر إغلاق التبويب.",
           "hideTabCloseButton": "أخفِ أزرار إغلاق التبويبات في شريط تبويبات الجزء.",
+          "workspaceInheritWorkingDirectory": "عند حذفه، تتبع مساحات العمل الجديدة إعداد Ghostty ‏window-inherit-working-directory. اضبطه على true لوراثة دليل العمل لمساحة العمل الحالية دائمًا، أو على false لترك دليل العمل غير معيّن بحيث يمكن لإعداد Ghostty ‏working-directory توفير القيمة الافتراضية.",
           "forkConversationDefaultDestination": "الوجهة الافتراضية لإجراء Fork Conversation الأساسي في قائمة سياق التبويب. تظل القائمة الفرعية تعرض كل الوجهات."
         },
         "terminal": {

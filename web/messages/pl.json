@@ -767,6 +767,7 @@
           "warnBeforeQuit": "Starsza zapasowa wartość logiczna dla potwierdzenia zamknięcia. W nowych konfiguracjach używaj app.confirmQuit.",
           "warnBeforeClosingTabXButton": "Pokaż potwierdzenie przed zamknięciem karty przyciskiem zamykania karty.",
           "hideTabCloseButton": "Ukryj przyciski zamykania kart na pasku kart panelu.",
+          "workspaceInheritWorkingDirectory": "Gdy pominięte, nowe obszary robocze używają ustawienia Ghostty window-inherit-working-directory. Ustaw true, aby zawsze dziedziczyć katalog roboczy bieżącego obszaru roboczego, albo false, aby pozostawić katalog roboczy nieustawiony, dzięki czemu ustawienie Ghostty working-directory może dostarczyć wartość domyślną.",
           "forkConversationDefaultDestination": "Domyślne miejsce docelowe głównej akcji Fork Conversation w menu kontekstowym karty. Podmenu nadal pokazuje wszystkie miejsca docelowe."
         },
         "terminal": {

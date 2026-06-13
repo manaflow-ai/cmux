@@ -767,6 +767,7 @@
           "warnBeforeQuit": "用于退出确认的旧布尔回退值。新配置请使用 app.confirmQuit。",
           "warnBeforeClosingTabXButton": "使用标签关闭按钮关闭标签前显示确认。",
           "hideTabCloseButton": "在窗格标签栏中隐藏标签关闭按钮。",
+          "workspaceInheritWorkingDirectory": "省略时，新工作区会遵循 Ghostty 的 window-inherit-working-directory 设置。设为 true 会始终继承当前工作区的工作目录；设为 false 会让工作目录保持未设置，以便 Ghostty 的 working-directory 设置提供默认值。",
           "forkConversationDefaultDestination": "标签页上下文菜单中主要 Fork Conversation 操作的默认目标。子菜单仍会显示所有目标。"
         },
         "terminal": {

@@ -339,11 +339,20 @@ enum WorkspaceWorkingDirectoryInheritanceSettings {
     static let key = "workspaceInheritWorkingDirectory"
     static let defaultValue = true
 
-    static func isEnabled(defaults: UserDefaults = .standard) -> Bool {
-        guard defaults.object(forKey: key) != nil else {
-            return defaultValue
-        }
+    static func explicitOverride(defaults: UserDefaults = .standard) -> Bool? {
+        guard defaults.object(forKey: key) != nil else { return nil }
         return defaults.bool(forKey: key)
+    }
+
+    static func isEnabled(defaults: UserDefaults = .standard) -> Bool {
+        if let explicit = explicitOverride(defaults: defaults) {
+            return explicit
+        }
+        return GhosttyConfig.load().windowInheritWorkingDirectory
+    }
+
+    static func isEnabled(defaults: UserDefaults, ghosttyConfig: GhosttyConfig) -> Bool {
+        explicitOverride(defaults: defaults) ?? ghosttyConfig.windowInheritWorkingDirectory
     }
 }
 

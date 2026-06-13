@@ -13,7 +13,7 @@ General app preferences from Settings > App.
 | `app.appIcon` | `"automatic"` or `"light"` or `"dark"` | `"automatic"` | Dock and app switcher icon style. |
 | `app.menuBarOnly` | boolean | `false` | Hide the Dock icon and app switcher entry while keeping cmux available from the menu bar. |
 | `app.newWorkspacePlacement` | `"top"` or `"afterCurrent"` or `"end"` | `"afterCurrent"` | Where new workspaces are inserted in the sidebar. |
-| `app.workspaceInheritWorkingDirectory` | boolean | `true` | When true, new workspaces inherit the current workspace working directory. When false, new workspaces leave the working directory unset so Ghostty's working-directory setting can provide the default. |
+| `app.workspaceInheritWorkingDirectory` | boolean | Ghostty `window-inherit-working-directory` | When omitted, new workspaces follow Ghostty's window-inherit-working-directory setting. Set true to always inherit the current workspace directory, or false to leave the working directory unset so Ghostty's working-directory setting can provide the default. |
 | `app.minimalMode` | boolean | `false` | Hide the workspace title bar and move controls into the sidebar. |
 | `app.keepWorkspaceOpenWhenClosingLastSurface` | boolean | `false` | When true, closing the last surface keeps the workspace open. |
 | `app.focusPaneOnFirstClick` | boolean | `true` | When cmux is inactive, the first click can activate and focus the clicked pane. |

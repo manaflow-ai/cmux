@@ -53,6 +53,12 @@ public protocol SettingsHostActions: AnyObject {
     /// window scene so the package can't open it directly.
     func openTerminalConfigWindow()
 
+    /// Effective fallback for `app.workspaceInheritWorkingDirectory` when the
+    /// cmux UserDefaults override is absent. The host owns this because the
+    /// fallback comes from the loaded Ghostty config, which the settings
+    /// package intentionally does not import.
+    func workspaceInheritWorkingDirectoryFallback() -> Bool
+
     /// Opens the iOS pairing window, which shows a scannable QR code for
     /// pairing an iPhone with this Mac. The host owns the window so the
     /// package can't open it directly.
@@ -140,6 +146,8 @@ public protocol SettingsHostActions: AnyObject {
 }
 
 public extension SettingsHostActions {
+    func workspaceInheritWorkingDirectoryFallback() -> Bool { true }
+
     func openMobilePairingWindow() {}
 
     func browserHistoryEntryCount() -> Int? { nil }
@@ -198,6 +206,7 @@ public final class NoopSettingsHostActions: SettingsHostActions {
     public func openBrowserImportFlow() {}
     public func requestNotificationAuthorization() {}
     public func openTerminalConfigWindow() {}
+    public func workspaceInheritWorkingDirectoryFallback() -> Bool { true }
     public func openMobilePairingWindow() {}
     /// No-op notification sound preview used by tests, previews, and
     /// package-only settings hosts.

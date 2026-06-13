@@ -11274,19 +11274,18 @@ final class Workspace: Identifiable, ObservableObject {
 
         let trimmedWorkingDirectory = workingDirectory?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         let hasWorkingDirectory = !trimmedWorkingDirectory.isEmpty
-        let initialDirectory = hasWorkingDirectory
-            ? trimmedWorkingDirectory
-            : FileManager.default.homeDirectoryForCurrentUser.path
-        self.currentDirectory = hasWorkingDirectory
-            ? trimmedWorkingDirectory
-            : FileManager.default.homeDirectoryForCurrentUser.path
+        let ghosttyConfig = GhosttyConfig.load()
+        let defaultWorkingDirectory = ghosttyConfig.resolvedWorkingDirectoryPath()
+            ?? FileManager.default.homeDirectoryForCurrentUser.path
+        let initialDirectory = hasWorkingDirectory ? trimmedWorkingDirectory : defaultWorkingDirectory
+        self.currentDirectory = initialDirectory
         self.surfaceTabBarDirectory = initialDirectory
 
         // Configure bonsplit with keepAllAlive to preserve terminal state
         // and keep split entry instantaneous.
         // Use the cached Ghostty config so new workspaces inherit tab-strip sizing
         // without paying repeated parse costs on the workspace-creation hot path.
-        let initialSurfaceTabBarFontSize = GhosttyConfig.load().surfaceTabBarFontSize
+        let initialSurfaceTabBarFontSize = ghosttyConfig.surfaceTabBarFontSize
         let appearance = Self.bonsplitAppearance(
             from: GhosttyApp.shared.defaultBackgroundColor,
             backgroundOpacity: GhosttyApp.shared.defaultBackgroundOpacity,

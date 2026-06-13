@@ -1,5 +1,15 @@
 import Foundation
 
+public struct UserDefaultsSettingState<Value: SettingCodable>: Sendable, Equatable {
+    public let value: Value
+    public let hasStoredValue: Bool
+
+    public init(value: Value, hasStoredValue: Bool) {
+        self.value = value
+        self.hasStoredValue = hasStoredValue
+    }
+}
+
 /// Typed read/write/observe access to settings persisted in `UserDefaults`.
 ///
 /// The store is an `actor`. Reads, writes, and reset are all `async`. There
@@ -53,8 +63,19 @@ public actor UserDefaultsSettingsStore {
 
     /// Returns the current value for the key.
     public func value<Value>(for key: DefaultsKey<Value>) -> Value {
+        state(for: key).value
+    }
+
+    /// Returns the current value and whether it came from an explicit
+    /// UserDefaults override. Invalid stored values are treated as absent so a
+    /// malformed override cannot mask a dynamic host fallback.
+    public func state<Value>(for key: DefaultsKey<Value>) -> UserDefaultsSettingState<Value> {
         let raw = underlyingDefaults.object(forKey: key.userDefaultsKey)
-        return Value.decodeFromUserDefaults(raw) ?? key.defaultValue
+        let decoded = Value.decodeFromUserDefaults(raw)
+        return UserDefaultsSettingState(
+            value: decoded ?? key.defaultValue,
+            hasStoredValue: decoded != nil
+        )
     }
 
     /// Writes a value for the key.
@@ -130,6 +151,53 @@ public actor UserDefaultsSettingsStore {
                 for await _ in signals {
                     if Task.isCancelled { break }
                     let current = await self.value(for: key)
+                    if current != lastYielded {
+                        lastYielded = current
+                        continuation.yield(current)
+                    }
+                }
+                continuation.finish()
+            }
+
+            continuation.onTermination = { _ in
+                drainTask.cancel()
+                signalContinuation.finish()
+                observer.remove()
+            }
+        }
+    }
+
+    /// Returns an `AsyncStream` that yields the current typed value plus
+    /// whether that value is an explicit override. Use this for settings whose
+    /// unset state has meaning beyond the catalog's static default.
+    public nonisolated func states<Value>(for key: DefaultsKey<Value>) -> AsyncStream<UserDefaultsSettingState<Value>> {
+        AsyncStream<UserDefaultsSettingState<Value>>(bufferingPolicy: .bufferingNewest(1)) { continuation in
+            let (signals, signalContinuation) = AsyncStream<Void>.makeStream(
+                bufferingPolicy: .bufferingNewest(1)
+            )
+
+            let observer = NotificationObserverToken(
+                NotificationCenter.default.addObserver(
+                    forName: UserDefaults.didChangeNotification,
+                    object: nil,
+                    queue: nil
+                ) { [weak self] _ in
+                    guard self != nil else { return }
+                    signalContinuation.yield(())
+                }
+            )
+
+            let drainTask = Task { [weak self] in
+                guard let self else {
+                    continuation.finish()
+                    return
+                }
+                var lastYielded = await self.state(for: key)
+                continuation.yield(lastYielded)
+
+                for await _ in signals {
+                    if Task.isCancelled { break }
+                    let current = await self.state(for: key)
                     if current != lastYielded {
                         lastYielded = current
                         continuation.yield(current)

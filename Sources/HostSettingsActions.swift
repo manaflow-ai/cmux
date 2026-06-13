@@ -144,6 +144,10 @@ final class HostSettingsActions: SettingsHostActions {
         MobilePairingWindowController.shared.show()
     }
 
+    func workspaceInheritWorkingDirectoryFallback() -> Bool {
+        GhosttyConfig.load().windowInheritWorkingDirectory
+    }
+
     private func existingConfigWindow() -> NSWindow? {
         if let configWindow, configWindow.isVisible || configWindow.isMiniaturized {
             return configWindow

@@ -35,7 +35,7 @@ import Testing
         )
         let key = SettingCatalog().betaFeatures.extensions
 
-        let (stream, continuation) = AsyncStream<Bool>.makeStream()
+        let (stream, continuation) = AsyncStream<UserDefaultsSettingState<Bool>>.makeStream()
         let flag = TerminationFlag()
         continuation.onTermination = { _ in
             Task { @MainActor in flag.didTerminate = true }
@@ -44,13 +44,13 @@ import Testing
         var model: DefaultsValueModel<Bool>? = DefaultsValueModel(
             store: store,
             key: key,
-            makeStream: { stream }
+            makeStateStream: { stream }
         )
 
         // Drive one value through so the model's task is parked awaiting the
         // next element — the exact suspended state where `weak self` teardown
         // never runs.
-        continuation.yield(true)
+        continuation.yield(UserDefaultsSettingState(value: true, hasStoredValue: true))
         var settleSpins = 0
         while model?.current != true, settleSpins < 100_000 {
             await Task.yield()
@@ -76,18 +76,55 @@ import Testing
             defaults: UserDefaults(suiteName: "defaults-value-model-optimistic-set")!
         )
         let key = SettingCatalog().betaFeatures.extensions
-        let (stream, _) = AsyncStream<Bool>.makeStream()
+        let (stream, _) = AsyncStream<UserDefaultsSettingState<Bool>>.makeStream()
         let model = DefaultsValueModel(
             store: store,
             key: key,
-            makeStream: { stream }
+            makeStateStream: { stream }
         )
 
         #expect(model.current == false)
+        #expect(model.hasStoredValue == false)
         model.set(true)
         #expect(model.current == true)
+        #expect(model.hasStoredValue == true)
 
         model.reset()
         #expect(model.current == false)
+        #expect(model.hasStoredValue == false)
+    }
+
+    @Test func observationTracksExplicitOverrideStateSeparatelyFromValue() async {
+        let store = UserDefaultsSettingsStore(
+            defaults: UserDefaults(suiteName: "defaults-value-model-explicit-state")!
+        )
+        let key = SettingCatalog().app.workspaceInheritWorkingDirectory
+        let (stream, continuation) = AsyncStream<UserDefaultsSettingState<Bool>>.makeStream()
+        let model = DefaultsValueModel(
+            store: store,
+            key: key,
+            makeStateStream: { stream }
+        )
+
+        #expect(model.current == true)
+        #expect(model.hasStoredValue == false)
+
+        continuation.yield(UserDefaultsSettingState(value: true, hasStoredValue: true))
+        var storedSpins = 0
+        while model.hasStoredValue == false, storedSpins < 100_000 {
+            await Task.yield()
+            storedSpins += 1
+        }
+        #expect(model.current == true)
+        #expect(model.hasStoredValue == true)
+
+        continuation.yield(UserDefaultsSettingState(value: true, hasStoredValue: false))
+        var resetSpins = 0
+        while model.hasStoredValue == true, resetSpins < 100_000 {
+            await Task.yield()
+            resetSpins += 1
+        }
+        #expect(model.current == true)
+        #expect(model.hasStoredValue == false)
     }
 }

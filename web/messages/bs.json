@@ -767,6 +767,7 @@
           "warnBeforeQuit": "Naslijeđena boolean rezervna opcija za potvrdu izlaska. Za nove konfiguracije koristite app.confirmQuit.",
           "warnBeforeClosingTabXButton": "Prikaži potvrdu prije zatvaranja taba dugmetom za zatvaranje taba.",
           "hideTabCloseButton": "Sakrij dugmad za zatvaranje tabova na traci tabova okna.",
+          "workspaceInheritWorkingDirectory": "Kada je izostavljeno, novi radni prostori prate Ghostty postavku window-inherit-working-directory. Postavite na true da uvijek naslijede direktorij trenutnog radnog prostora, ili na false da radni direktorij ostane nepostavljen kako bi Ghostty postavka working-directory mogla dati zadanu vrijednost.",
           "forkConversationDefaultDestination": "Zadano odredište za primarnu radnju Fork Conversation u kontekstnom meniju kartice. Podmeni i dalje prikazuje sva odredišta."
         },
         "terminal": {

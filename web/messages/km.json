@@ -767,6 +767,7 @@
           "warnBeforeQuit": "ជម្រើសបម្រុង boolean ចាស់សម្រាប់ការបញ្ជាក់មុនចាកចេញ។ ប្រើ app.confirmQuit សម្រាប់ការកំណត់ថ្មី។",
           "warnBeforeClosingTabXButton": "បង្ហាញការបញ្ជាក់ មុនពេលបិទផ្ទាំងដោយប៊ូតុងបិទផ្ទាំង។",
           "hideTabCloseButton": "លាក់ប៊ូតុងបិទផ្ទាំងនៅក្នុងរបារផ្ទាំងរបស់ផ្ទាំងបង្អួច។",
+          "workspaceInheritWorkingDirectory": "នៅពេលមិនបញ្ចូល វើកស្ពេសថ្មីៗនឹងអនុវត្តតាមការកំណត់ window-inherit-working-directory របស់ Ghostty។ កំណត់ជា true ដើម្បីទទួលយកថតការងាររបស់វើកស្ពេសបច្ចុប្បន្នជានិច្ច ឬ false ដើម្បីទុកថតការងារមិនបានកំណត់ ដើម្បីឱ្យការកំណត់ working-directory របស់ Ghostty ផ្តល់តម្លៃលំនាំដើមបាន។",
           "forkConversationDefaultDestination": "Default destination for the tab context menu's primary Fork Conversation action. The submenu still exposes every destination."
         },
         "terminal": {

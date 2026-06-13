@@ -115,6 +115,12 @@ public struct AppSection: View {
         .it, .ja, .ko, .nb, .pl, .ptBR, .ru, .th, .tr,
     ]
 
+    private var effectiveWorkspaceInheritWorkingDirectory: Bool {
+        inheritDir.hasStoredValue
+            ? inheritDir.current
+            : hostActions.workspaceInheritWorkingDirectoryFallback()
+    }
+
     public var body: some View {
         Group {
             SettingsSectionHeader(String(localized: "settings.section.app", defaultValue: "App"), section: .app)
@@ -188,11 +194,17 @@ public struct AppSection: View {
             SettingsCardRow(
                 configurationReview: .json("app.workspaceInheritWorkingDirectory"),
                 String(localized: "settings.app.workspaceInheritWorkingDirectory", defaultValue: "Inherit Workspace Working Directory"),
-                subtitle: inheritDir.current
+                subtitle: effectiveWorkspaceInheritWorkingDirectory
                     ? String(localized: "settings.app.workspaceInheritWorkingDirectory.subtitleOn", defaultValue: "New workspaces start in the focused workspace's working directory.")
                     : String(localized: "settings.app.workspaceInheritWorkingDirectory.subtitleOff", defaultValue: "New workspaces leave their working directory unset so Ghostty's working-directory setting can apply.")
             ) {
-                Toggle("", isOn: Binding(get: { inheritDir.current }, set: { inheritDir.set($0) }))
+                Toggle(
+                    "",
+                    isOn: Binding(
+                        get: { effectiveWorkspaceInheritWorkingDirectory },
+                        set: { inheritDir.set($0) }
+                    )
+                )
                     .labelsHidden()
                     .controlSize(.small)
                     .accessibilityIdentifier("SettingsWorkspaceInheritWorkingDirectoryToggle")
