@@ -4704,7 +4704,17 @@ class GhosttyApp {
                   let surfaceId = surfaceView.terminalSurface?.id else { return true }
             let pwd = action.action.pwd.pwd.flatMap { String(cString: $0) } ?? ""
             DispatchQueue.main.async {
-                AppDelegate.shared?.tabManagerFor(tabId: tabId)?.updateSurfaceDirectory(
+                guard let tabManager = AppDelegate.shared?.tabManagerFor(tabId: tabId) else { return }
+                // Skip OSC 7 reports from SSH workspaces: the local Ghostty surface is
+                // the parent of an `ssh user@host` invocation, and its OSC 7 carries
+                // the LOCAL shell's pwd (e.g. /Users/<mac-user>), not the remote shell's
+                // pwd. The remote shell delivers its pwd via the relay
+                // (`surface.report_pwd` -> updateSurfaceDirectory) instead.
+                if let workspace = tabManager.tabs.first(where: { $0.id == tabId }),
+                   workspace.isRemoteWorkspace {
+                    return
+                }
+                tabManager.updateSurfaceDirectory(
                     tabId: tabId,
                     surfaceId: surfaceId,
                     directory: pwd
