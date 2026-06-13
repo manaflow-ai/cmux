@@ -513,7 +513,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     private var pendingTerminalByteEndSeqBySurfaceID: [String: UInt64]
     private var terminalReplaySurfaceIDsInFlight: Set<String>
     private var terminalOutputTransport: TerminalOutputTransport
-    private var terminalOutputQueuesBySurfaceID: [String: TerminalOutputDeliveryQueue]
+    var terminalByteContinuationsBySurfaceID: [String: AsyncStream<Data>.Continuation]
+    var terminalOutputQueuesBySurfaceID: [String: TerminalOutputDeliveryQueue]
     private var rawTerminalInputBuffer: MobileTerminalInputSendBuffer
     private var pairingAttemptID: UUID
 
@@ -629,6 +630,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         self.pendingTerminalByteEndSeqBySurfaceID = [:]
         self.terminalReplaySurfaceIDsInFlight = []
         self.terminalOutputTransport = .rawBytes
+        self.terminalByteContinuationsBySurfaceID = [:]
         self.terminalOutputQueuesBySurfaceID = [:]
         self.rawTerminalInputBuffer = MobileTerminalInputSendBuffer()
         self.pairingAttemptID = UUID()
@@ -4223,41 +4225,6 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         return bytes
     }
 
-    /// Per-surface output continuations for the libghostty render path. A mounted
-    /// `GhosttySurfaceView` obtains a stream via ``terminalOutputStream(surfaceID:)``
-    /// and receives VT patch bytes derived from render-grid frames. Raw PTY bytes
-    /// flow through the same continuation as a compatibility fallback for older
-    /// Mac hosts.
-    private var terminalByteContinuationsBySurfaceID: [String: AsyncStream<Data>.Continuation] = [:]
-
-    /// Yield a chunk of output bytes to the surface's stream, if one is attached.
-    private func deliverTerminalBytes(_ bytes: Data, surfaceID: String) {
-        deliverTerminalOutput(
-            TerminalOutputDelivery(bytes: bytes, replaceable: false),
-            surfaceID: surfaceID
-        )
-    }
-
-    private func deliverTerminalRenderGrid(_ frame: MobileTerminalRenderGridFrame, surfaceID: String) {
-        deliverTerminalOutput(
-            TerminalOutputDelivery(
-                renderGrid: frame,
-                replaceable: frame.isReplaceableViewportPatchForMobileDelivery
-            ),
-            surfaceID: surfaceID
-        )
-    }
-
-    private func deliverTerminalOutput(_ delivery: TerminalOutputDelivery, surfaceID: String) {
-        guard let continuation = terminalByteContinuationsBySurfaceID[surfaceID] else { return }
-        var queue = terminalOutputQueuesBySurfaceID[surfaceID] ?? TerminalOutputDeliveryQueue()
-        let immediate = queue.enqueue(delivery)
-        terminalOutputQueuesBySurfaceID[surfaceID] = queue
-        if let immediate {
-            continuation.yield(immediate.bytes)
-        }
-    }
-
     /// Whether a surface currently has an attached output stream consumer.
     private func hasTerminalOutputSink(surfaceID: String) -> Bool {
         terminalByteContinuationsBySurfaceID[surfaceID] != nil
@@ -4303,24 +4270,6 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                 }
             }
         }
-    }
-
-    /// Mark the current yielded terminal-output chunk as applied by the iOS surface.
-    ///
-    /// The mobile terminal render path keeps at most one chunk in flight per
-    /// mounted surface. Calling this method releases the next buffered chunk, if
-    /// any, and lets replaceable render-grid viewport frames collapse while
-    /// Ghostty is still processing older output.
-    /// - Parameter surfaceID: The terminal surface identifier.
-    public func terminalOutputDidProcess(surfaceID: String) {
-        guard var queue = terminalOutputQueuesBySurfaceID[surfaceID] else { return }
-        let next = queue.completeInFlight()
-        terminalOutputQueuesBySurfaceID[surfaceID] = queue
-        guard let next,
-              let continuation = terminalByteContinuationsBySurfaceID[surfaceID] else {
-            return
-        }
-        continuation.yield(next.bytes)
     }
 
     /// Report this device's natural terminal grid to the Mac and return the
