@@ -248,9 +248,7 @@ extension TerminalController: ControlWorkspaceGroupContext {
         // Placement resolution: explicit `placement` param wins, then the group's
         // per-cwd `newWorkspacePlacement` from cmux.json, then the global default.
         let explicitPlacement = WorkspaceGroupNewPlacement(rawString: placementRaw)
-        if let raw = placementRaw,
-           !raw.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
-           explicitPlacement == nil {
+        if let raw = placementRaw, explicitPlacement == nil {
             return .invalidPlacement(raw)
         }
         guard let group = tabManager.workspaceGroups.first(where: { $0.id == groupID }) else {

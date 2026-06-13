@@ -1305,7 +1305,7 @@ final class MobileHostService {
               let object = payload as? [String: Any] else { return }
 
         switch request.method {
-        case "workspace.create":
+        case "workspace.create", "workspace.group.new_workspace":
             ticketStore.recordCreatedResources(
                 authToken: attachToken,
                 workspaceID: object["created_workspace_id"] as? String,
@@ -1360,10 +1360,10 @@ final class MobileHostService {
             return nil
         case "workspace.create":
             return nil
-        case "workspace.group.collapse", "workspace.group.expand":
-            // Display-only group state. Keyed by `group_id` (not a workspace or
-            // terminal selection), so it is Mac-scoped like the workspace list and
-            // not constrained by the ticket's workspace/terminal pin. The Stack
+        case "workspace.group.collapse", "workspace.group.expand", "workspace.group.new_workspace":
+            // Group actions are keyed by `group_id` (not a workspace or terminal
+            // selection), so they are Mac-scoped like the workspace list and not
+            // constrained by the ticket's workspace/terminal pin. The Stack
             // same-account gate in `authorizationError` remains authoritative.
             return nil
         case "mobile.terminal.create", "terminal.create":

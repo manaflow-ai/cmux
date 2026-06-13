@@ -19,6 +19,7 @@ private final class FakeControlCommandContext: ControlCommandContext {
     var moveWindowResult: String?
     var movedWindow: (id: UUID, query: String)?
     var moveAllResult: ControlMoveAllWindowsResult?
+    var lastGroupNewWorkspacePlacementRaw: String?
 
     func controlWindowSummaries() -> [ControlWindowSummary] { windowSummaries }
 
@@ -51,6 +52,16 @@ private final class FakeControlCommandContext: ControlCommandContext {
     func controlMoveAllWindows(toDisplayMatching query: String) -> ControlMoveAllWindowsResult? {
         moveAllResult
     }
+
+    func controlCreateWorkspaceInGroup(
+        routing: ControlRoutingSelectors,
+        groupID: UUID,
+        placementRaw: String?
+    ) -> ControlWorkspaceGroupNewWorkspaceResolution {
+        lastGroupNewWorkspacePlacementRaw = placementRaw
+        if let placementRaw { return .invalidPlacement(placementRaw) }
+        return .created(workspaceID: UUID())
+    }
 }
 
 @MainActor
@@ -71,6 +82,22 @@ struct ControlCommandCoordinatorWindowTests {
         // A method no coordinator domain owns (still served by the legacy
         // app-side dispatcher), so `handle` falls through with `nil`.
         #expect(coordinator.handle(request("legacy.unowned_method")) == nil)
+    }
+
+    @Test func groupNewWorkspaceRejectsPresentEmptyPlacement() {
+        let (coordinator, context) = makeCoordinator()
+        let groupID = UUID()
+        let result = coordinator.handle(request("workspace.group.new_workspace", [
+            "group_id": .string(groupID.uuidString),
+            "placement": .string(""),
+        ]))
+
+        #expect(context.lastGroupNewWorkspacePlacementRaw == "")
+        #expect(result == .err(
+            code: "invalid_params",
+            message: "placement must be one of: afterCurrent, top, end",
+            data: .object(["placement": .string("")])
+        ))
     }
 
     @Test func windowListBuildsRowsWithMintedRefs() {

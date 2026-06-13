@@ -326,7 +326,7 @@ extension ControlCommandCoordinator {
         let resolution = context?.controlCreateWorkspaceInGroup(
             routing: routingSelectors(params),
             groupID: gid,
-            placementRaw: string(params, "placement")
+            placementRaw: rawString(params, "placement")
         ) ?? .tabManagerUnavailable
         switch resolution {
         case .tabManagerUnavailable:

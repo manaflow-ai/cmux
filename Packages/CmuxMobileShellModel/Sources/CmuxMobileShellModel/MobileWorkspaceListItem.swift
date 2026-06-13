@@ -115,4 +115,59 @@ public enum MobileWorkspaceListItem: Identifiable, Equatable, Sendable {
         }
         return items
     }
+
+    /// Build list items for search and narrowing filters.
+    ///
+    /// This intentionally ignores group collapse state: a search or "Unread"
+    /// filter must be able to surface matching members even when their Mac group
+    /// is folded. It still preserves the anchor model, so an anchor workspace
+    /// renders as the group header instead of falling back to a normal workspace
+    /// row and making the group look like a workspace.
+    ///
+    /// If `includeGroup` matches a group, every workspace in that group is
+    /// included. This lets a query matching the group name show the group and
+    /// its contents, not an empty header.
+    public static func filteredItems(
+        workspaces: [MobileWorkspacePreview],
+        groups: [MobileWorkspaceGroupPreview],
+        includeWorkspace: (MobileWorkspacePreview) -> Bool,
+        includeGroup: (MobileWorkspaceGroupPreview) -> Bool = { _ in false }
+    ) -> [MobileWorkspaceListItem] {
+        guard !workspaces.isEmpty else { return [] }
+        let groupsByID = Dictionary(groups.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+        let matchedGroupIDs = Set(groups.filter(includeGroup).map(\.id))
+
+        var anchorUnreadByGroupID: [MobileWorkspaceGroupPreview.ID: Bool] = [:]
+        for workspace in workspaces {
+            guard let groupID = workspace.groupID,
+                  let group = groupsByID[groupID],
+                  group.anchorWorkspaceID == workspace.id else { continue }
+            anchorUnreadByGroupID[groupID] = workspace.hasUnread
+        }
+
+        var items: [MobileWorkspaceListItem] = []
+        items.reserveCapacity(workspaces.count + groups.count)
+        var emittedHeaders: Set<MobileWorkspaceGroupPreview.ID> = []
+
+        for workspace in workspaces {
+            let resolvedGroupID = workspace.groupID.flatMap { groupsByID[$0] != nil ? $0 : nil }
+            let isIncluded = includeWorkspace(workspace)
+                || resolvedGroupID.map { matchedGroupIDs.contains($0) } == true
+            guard isIncluded else { continue }
+
+            if let groupID = resolvedGroupID, let group = groupsByID[groupID] {
+                if emittedHeaders.insert(groupID).inserted {
+                    items.append(.groupHeader(group, hasUnread: anchorUnreadByGroupID[groupID, default: false]))
+                }
+                if group.anchorWorkspaceID == workspace.id {
+                    continue
+                }
+                items.append(.workspace(workspace, indented: true))
+            } else {
+                items.append(.workspace(workspace, indented: false))
+            }
+        }
+
+        return items
+    }
 }

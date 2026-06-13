@@ -63,6 +63,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     private static let workspaceCloseCapability = "workspace.close.v1"
     private static let dogfoodFeedbackCapability = "dogfood.v1"
     private static let workspaceGroupsCapability = "workspace.groups.v1"
+    private static let workspaceGroupNewWorkspaceCapability = "workspace.group.new_workspace.v1"
     private static let terminalOutputCapabilityTimeoutNanoseconds: UInt64 = 750_000_000
 
     /// How long the render-grid stream may stay silent (no event of any topic)
@@ -182,29 +183,25 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         return Self.attachTicketIsUnexpired(activeTicket, now: runtime?.now() ?? Date())
     }
     public var pairingCode: String
-    public var workspaces: [MobileWorkspacePreview] {
-        didSet { workspaceTopologyVersion &+= 1 }
-    }
-    /// Bumped on every ``workspaces`` mutation: a cheap "lists may have
-    /// changed" signal (e.g. for retrying a parked notification deep link).
+    /// The current Mac workspace previews.
+    public var workspaces: [MobileWorkspacePreview] { didSet { workspaceTopologyVersion &+= 1 } }
+    /// Incremented whenever ``workspaces`` changes.
     public private(set) var workspaceTopologyVersion: UInt64 = 0
-    /// The Mac's workspace groups, in section order. Empty when the Mac reports no
-    /// groups (or is old enough not to emit them). Drives the collapsible group
-    /// sections in the workspace list.
+    /// The current Mac workspace groups.
     public var workspaceGroups: [MobileWorkspaceGroupPreview] = []
-    /// The connected Mac's `mobile.host.status` capabilities. Feature gates are
-    /// computed from this set so version-skew checks cannot drift from the raw
-    /// host payload.
+    /// The connected Mac's advertised capability strings.
     public private(set) var supportedHostCapabilities: Set<String> = []
-    /// Whether the Mac supports workspace group sections and collapse/expand RPCs.
+    /// Whether group list and collapse actions are available.
     public var supportsWorkspaceGroups: Bool { supportedHostCapabilities.contains(Self.workspaceGroupsCapability) }
-    /// Whether the Mac supports rename/pin workspace actions.
+    /// Whether creating a workspace inside an existing group is available.
+    public var supportsWorkspaceGroupNewWorkspace: Bool { supportedHostCapabilities.contains(Self.workspaceGroupNewWorkspaceCapability) }
+    /// Whether rename and pin workspace actions are available.
     public var supportsWorkspaceActions: Bool { supportedHostCapabilities.contains(Self.workspaceActionsCapability) }
-    /// Whether the Mac supports mark read/unread workspace actions.
+    /// Whether mark read/unread workspace actions are available.
     public var supportsWorkspaceReadStateActions: Bool { supportedHostCapabilities.contains(Self.workspaceReadStateCapability) }
-    /// Whether the Mac supports workspace close requests.
+    /// Whether workspace close actions are available.
     public var supportsWorkspaceCloseActions: Bool { supportedHostCapabilities.contains(Self.workspaceCloseCapability) }
-    /// Whether the Mac supports dogfood feedback submission.
+    /// Whether dogfood feedback submission is available.
     public var supportsDogfoodFeedback: Bool { supportedHostCapabilities.contains(Self.dogfoodFeedbackCapability) }
     /// The composer's live draft for the currently selected terminal.
     ///
@@ -215,40 +212,18 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     public var terminalInputText: String {
         didSet {
             #if DEBUG
-            // COMPOSER: record every draft change so a captured trace shows whether
-            // the draft was cleared at the store (b == 1) during a keyboard-dismiss
-            // cycle, vs. only disappearing from the view. `didSet` does not fire on
-            // the `init` assignment, so this is safe to read `diagnosticLog`.
             diagnosticLog?.record(DiagnosticEvent(
                 .composerInputTextChanged,
                 a: terminalInputText.utf8.count,
                 b: terminalInputText.isEmpty ? 1 : 0
             ))
             #endif
-            // Persist the live edit under the CURRENT terminal so it survives a
-            // terminal switch. Skipped while a draft is being loaded (the load is
-            // the saved value, re-saving it is redundant and would race the
-            // per-terminal key swap) and when the value is unchanged.
             guard !isLoadingDraft, terminalInputText != oldValue else { return }
-            // A user edit claims field ownership for the selected terminal: the
-            // live input is now authoritative, so a still-in-flight stored-draft
-            // load must not apply over it (see ``applyLoadedDraft``).
             draftLoadPendingTerminalID = nil
             persistCurrentDraft()
         }
     }
-    /// Whether the iMessage-style composer is shown above the terminal, observed
-    /// by the terminal screen to present ``terminalInputText`` for multi-line
-    /// editing.
-    ///
-    /// OPEN BY DEFAULT per terminal: like iMessage showing its input bar in every
-    /// conversation, the composer is presented for any selected terminal the user
-    /// has not explicitly dismissed (``composerDismissedTerminalIDs`` records the
-    /// exception, not the rule). Presented does NOT mean focused — the keyboard
-    /// comes up only when the user taps the field or an explicit open/reveal
-    /// requests focus (``composerFocusRequest``). Derived from observable stored
-    /// state (`selectedTerminalID` + the dismissed set), so views tracking it
-    /// re-render on terminal switches and explicit toggles alike.
+    /// Whether the iMessage-style composer is shown above the terminal.
     public var isComposerPresented: Bool {
         guard let terminalID = selectedTerminalID?.rawValue else { return false }
         return !composerDismissedTerminalIDs.contains(terminalID)
@@ -2151,6 +2126,15 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     }
 
     public func createWorkspace() {
+        createWorkspace(groupID: nil)
+    }
+
+    /// Creates a workspace inside the specified group.
+    public func createWorkspace(inGroup groupID: MobileWorkspaceGroupPreview.ID) {
+        createWorkspace(groupID: groupID)
+    }
+
+    private func createWorkspace(groupID: MobileWorkspaceGroupPreview.ID?) {
         guard remoteClient == nil else {
             guard createWorkspaceTask == nil else { return }
             let taskID = UUID()
@@ -2158,7 +2142,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             createWorkspaceTask = Task { @MainActor [weak self] in
                 defer { self?.clearCreateWorkspaceTask(id: taskID) }
                 guard let self else { return }
-                await self.createRemoteWorkspace()
+                await self.createRemoteWorkspace(groupID: groupID)
             }
             return
         }
@@ -2166,6 +2150,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         let workspace = MobileWorkspacePreview(
             id: .init(rawValue: "workspace-\(nextIndex)"),
             name: L10n.workspaceName(index: nextIndex),
+            groupID: groupID,
             terminals: [
                 MobileTerminalPreview(
                     id: .init(rawValue: "workspace-\(nextIndex)-terminal-1"),
@@ -2173,6 +2158,9 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                 ),
             ]
         )
+        if let groupID, let index = workspaceGroups.firstIndex(where: { $0.id == groupID }) {
+            workspaceGroups[index].isCollapsed = false
+        }
         workspaces.append(workspace)
         selectedWorkspaceID = workspace.id
         selectedTerminalID = workspace.terminals.first?.id
@@ -3260,27 +3248,31 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         MobileTerminalViewportKey(workspaceID: workspaceID, terminalID: terminalID)
     }
 
-    private func createRemoteWorkspace() async {
+    private func createRemoteWorkspace(groupID: MobileWorkspaceGroupPreview.ID? = nil) async {
         guard let client = remoteClient else { return }
         let generation = connectionGeneration
         do {
-            let resultData = try await client.sendRequest(
-                MobileCoreRPCClient.requestData(method: "workspace.create")
-            )
+            let request = try groupID.map {
+                try MobileCoreRPCClient.requestData(
+                    method: "workspace.group.new_workspace",
+                    params: [
+                        "group_id": $0.rawValue,
+                        "client_id": clientID,
+                    ]
+                )
+            } ?? MobileCoreRPCClient.requestData(method: "workspace.create")
+            let resultData = try await client.sendRequest(request)
             let response = try MobileSyncWorkspaceListResponse.decode(resultData)
             guard isCurrentRemoteOperation(client: client, generation: generation),
                   !Task.isCancelled else { return }
-            applyRemoteWorkspaceList(response, mergeExistingWorkspaces: true)
+            applyRemoteWorkspaceList(response, mergeExistingWorkspaces: true, mergeWorkspaceGroups: groupID != nil)
             let createdWorkspace = response.createdWorkspaceID.map(MobileWorkspacePreview.ID.init(rawValue:))
             if let createdWorkspace {
                 setSelectedWorkspaceID(createdWorkspace)
             }
             syncSelectedTerminalForWorkspace()
             if createdWorkspace != nil {
-                // A "+" actually created and selected a new workspace, so its
-                // terminal is freshly created: don't pop the keyboard on mount.
-                // When no workspace was created the selection never moved, so we
-                // must not suppress the user's current terminal.
+                // Chrome-created terminals should not pop the keyboard on mount.
                 suppressTerminalAutoFocusOnNextAttach(for: selectedTerminalID)
             }
         } catch {
@@ -4503,47 +4495,65 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         selectedWorkspaceID = id
     }
 
-    private func applyRemoteWorkspaceList(
+    func applyRemoteWorkspaceList(
         _ response: MobileSyncWorkspaceListResponse,
         preferActiveTicketTarget: Bool = false,
-        mergeExistingWorkspaces: Bool = false
+        mergeExistingWorkspaces: Bool = false, mergeWorkspaceGroups: Bool = false
     ) {
         let remoteWorkspaces = remoteWorkspacesPreservingSnapshots(from: response)
+        let replacedWorkspaceIDs: Set<MobileWorkspacePreview.ID>
         if mergeExistingWorkspaces {
-            var mergedWorkspaces = workspaces
-            for remoteWorkspace in remoteWorkspaces {
-                if let existingIndex = mergedWorkspaces.firstIndex(where: { $0.id == remoteWorkspace.id }) {
-                    mergedWorkspaces[existingIndex] = remoteWorkspace
-                } else {
-                    mergedWorkspaces.append(remoteWorkspace)
-                }
-            }
-            workspaces = mergedWorkspaces
+            replacedWorkspaceIDs = applyMergedRemoteWorkspaces(
+                remoteWorkspaces,
+                replacingWindowSlices: mergeWorkspaceGroups
+            )
         } else {
+            replacedWorkspaceIDs = []
             workspaces = remoteWorkspaces
         }
-        // Group sections always reflect the latest full response (never merged):
-        // a merge path is a single-entry create/refresh that omits groups, so
-        // applying its empty groups array would wrongly clear the sections. Only a
-        // full-list response (the non-merge path, which the event-driven refresh
-        // and initial sync use) carries authoritative group state.
-        if !mergeExistingWorkspaces {
+        if mergeWorkspaceGroups {
+            mergeRemoteWorkspaceGroups(response.groups, replacingGroupsAnchoredIn: replacedWorkspaceIDs)
+        } else if !mergeExistingWorkspaces {
             workspaceGroups = response.groups.map { MobileWorkspaceGroupPreview(remote: $0) }
         }
         if preferActiveTicketTarget, selectActiveTicketTargetIfAvailable() {
             return
         }
-        if let selectedWorkspaceID,
-           workspaces.contains(where: { $0.id == selectedWorkspaceID }) {
+        if reconcileSelectedWorkspaceWithVisibleGroupState() {
             syncSelectedTerminalForWorkspace()
             return
         }
-        setSelectedWorkspaceID(
-            response.workspaces.first(where: \.isSelected)
-                .map { MobileWorkspacePreview.ID(rawValue: $0.id) }
-                ?? workspaces.first?.id
-        )
+        let remoteSelectedWorkspaceID = response.workspaces.first(where: \.isSelected)
+            .map { MobileWorkspacePreview.ID(rawValue: $0.id) }
+        let fallbackWorkspaceID = remoteSelectedWorkspaceID ?? workspaces.first?.id
+        setSelectedWorkspaceID(visibleWorkspaceSelectionID(for: fallbackWorkspaceID) ?? workspaces.first?.id)
         syncSelectedTerminalForWorkspace()
+    }
+
+    @discardableResult
+    func reconcileSelectedWorkspaceWithVisibleGroupState() -> Bool {
+        guard let selectedWorkspaceID,
+              let visibleWorkspaceID = visibleWorkspaceSelectionID(for: selectedWorkspaceID)
+        else { return false }
+        setSelectedWorkspaceID(visibleWorkspaceID)
+        return true
+    }
+
+    private func visibleWorkspaceSelectionID(
+        for workspaceID: MobileWorkspacePreview.ID?
+    ) -> MobileWorkspacePreview.ID? {
+        guard let workspaceID,
+              let workspace = workspaces.first(where: { $0.id == workspaceID })
+        else { return nil }
+        guard let groupID = workspace.groupID,
+              let group = workspaceGroups.first(where: { $0.id == groupID }),
+              group.isCollapsed,
+              group.anchorWorkspaceID != workspaceID
+        else { return workspaceID }
+        guard workspaces.contains(where: { $0.id == group.anchorWorkspaceID }) else {
+            return workspaceID
+        }
+        return group.anchorWorkspaceID
     }
 
     private func remoteWorkspacesPreservingSnapshots(

@@ -28,10 +28,12 @@ extension MobileHostService {
             "workspace.close.v1",
             "dogfood.v1",
             // The workspace list carries group sections (group_id per workspace +
-            // a top-level groups array) and the host accepts
-            // workspace.group.collapse/expand from mobile. iOS feature-detects
-            // this to render collapsible groups only against a Mac that emits them.
+            // a top-level groups array) and the host accepts collapse/expand from
+            // mobile. The new-workspace action has its own capability below so
+            // iOS can avoid showing the group plus against older Macs that only
+            // support display/collapse.
             "workspace.groups.v1",
+            "workspace.group.new_workspace.v1",
         ]
     }
 }

@@ -177,4 +177,77 @@ import Testing
             .workspace(workspace("mid"), indented: false),
         ])
     }
+
+    // MARK: Filtered/search projection
+
+    @Test func filteredProjectionRendersMatchedAnchorAsHeader() {
+        let anchor = workspace("anchor", group: "g", unread: true)
+        let member = workspace("member", group: "g")
+
+        let items = MobileWorkspaceListItem.filteredItems(
+            workspaces: [anchor, member],
+            groups: [group("g", anchor: "anchor")],
+            includeWorkspace: { $0.id == anchor.id }
+        )
+
+        #expect(items == [
+            .groupHeader(group("g", anchor: "anchor"), hasUnread: true),
+        ])
+    }
+
+    @Test func filteredProjectionShowsMatchedMemberWithGroupContextEvenWhenCollapsed() {
+        let items = MobileWorkspaceListItem.filteredItems(
+            workspaces: [
+                workspace("anchor", group: "g"),
+                workspace("member", group: "g", unread: true),
+            ],
+            groups: [group("g", anchor: "anchor", collapsed: true)],
+            includeWorkspace: { $0.id.rawValue == "member" }
+        )
+
+        #expect(items == [
+            .groupHeader(group("g", anchor: "anchor", collapsed: true), hasUnread: false),
+            .workspace(workspace("member", group: "g", unread: true), indented: true),
+        ])
+    }
+
+    @Test func filteredProjectionMatchingGroupNameIncludesWholeGroup() {
+        let items = MobileWorkspaceListItem.filteredItems(
+            workspaces: [
+                workspace("anchor", group: "g"),
+                workspace("member", group: "g"),
+                workspace("other"),
+            ],
+            groups: [group("g", anchor: "anchor", name: "Build Agents")],
+            includeWorkspace: { _ in false },
+            includeGroup: { $0.name == "Build Agents" }
+        )
+
+        #expect(items == [
+            .groupHeader(group("g", anchor: "anchor", name: "Build Agents"), hasUnread: false),
+            .workspace(workspace("member", group: "g"), indented: true),
+        ])
+    }
+
+    @Test func filteredProjectionCanKeepOnlyUnreadMembersFromMatchingGroup() {
+        let matchedGroupIDs: Set<MobileWorkspaceGroupPreview.ID> = [.init(rawValue: "g")]
+        let items = MobileWorkspaceListItem.filteredItems(
+            workspaces: [
+                workspace("anchor", group: "g"),
+                workspace("read", group: "g"),
+                workspace("unread", group: "g", unread: true),
+                workspace("other", unread: true),
+            ],
+            groups: [group("g", anchor: "anchor", name: "Build Agents")],
+            includeWorkspace: { workspace in
+                workspace.hasUnread
+                    && workspace.groupID.map { matchedGroupIDs.contains($0) } == true
+            }
+        )
+
+        #expect(items == [
+            .groupHeader(group("g", anchor: "anchor", name: "Build Agents"), hasUnread: false),
+            .workspace(workspace("unread", group: "g", unread: true), indented: true),
+        ])
+    }
 }

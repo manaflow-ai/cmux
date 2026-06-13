@@ -13391,6 +13391,8 @@ class TerminalController {
             result = v2MobileWorkspaceGroupSetCollapsed(params: request.params, isCollapsed: true)
         case "workspace.group.expand":
             result = v2MobileWorkspaceGroupSetCollapsed(params: request.params, isCollapsed: false)
+        case "workspace.group.new_workspace":
+            result = v2MobileWorkspaceGroupNewWorkspace(params: request.params)
         case "notification.dismiss":
             result = v2MobileNotificationDismiss(params: request.params)
         case "notification.reconcile":
