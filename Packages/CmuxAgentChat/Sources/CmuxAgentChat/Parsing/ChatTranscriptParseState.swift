@@ -16,7 +16,7 @@ public struct ChatTranscriptParseState: Sendable, Equatable, Codable {
     /// Each value is the already-emitted message in its running form; when
     /// the result line arrives the parser re-emits a completed copy through
     /// ``ChatTranscriptParseResult/updatedMessages``.
-    public var pendingToolUses: [String: ChatMessage]
+    public var pendingToolUses: [String: [ChatMessage]]
 
     /// Timestamp of the last line that carried one, used as the fallback
     /// for subsequent lines that omit a timestamp.
@@ -28,7 +28,7 @@ public struct ChatTranscriptParseState: Sendable, Equatable, Codable {
     ///   - pendingToolUses: Tool invocations awaiting a result, keyed by
     ///     tool call identifier.
     ///   - lastTimestamp: Timestamp fallback for lines without one.
-    public init(pendingToolUses: [String: ChatMessage] = [:], lastTimestamp: Date? = nil) {
+    public init(pendingToolUses: [String: [ChatMessage]] = [:], lastTimestamp: Date? = nil) {
         self.pendingToolUses = pendingToolUses
         self.lastTimestamp = lastTimestamp
     }

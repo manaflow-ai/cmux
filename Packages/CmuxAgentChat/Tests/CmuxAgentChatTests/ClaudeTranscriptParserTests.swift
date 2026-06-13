@@ -298,6 +298,63 @@ struct ClaudeTranscriptParserTests {
         #expect(question.selectedOptionLabel == "Slow")
     }
 
+    @Test("a multi-question AskUserQuestion resolves every card by its prompt")
+    func multiQuestionAskUserQuestion() {
+        let lines = [
+            assistantLine(blocks: [
+                ["type": "tool_use", "id": "toolu_multi", "name": "AskUserQuestion",
+                 "input": ["questions": [
+                    ["question": "Which path?", "header": "Path", "multiSelect": false,
+                     "options": [["label": "Fast", "description": "rough"],
+                                 ["label": "Slow", "description": "thorough"]]],
+                    ["question": "Which env?", "header": "Env", "multiSelect": false,
+                     "options": [["label": "Dev", "description": "local"],
+                                 ["label": "Prod", "description": "live"]]],
+                 ]]],
+            ]),
+            toolResultLine(
+                toolUseID: "toolu_multi",
+                content: "Your questions have been answered: \"Which path?\"=\"Slow\", \"Which env?\"=\"Dev\". Continue."
+            ),
+        ]
+        let result = parser.parse(lines: lines, startingSeq: 0)
+        let questions = result.messages.compactMap { msg -> ChatQuestion? in
+            if case .question(let q) = msg.kind { return q }
+            return nil
+        }
+        #expect(questions.count == 2)
+        // Both cards must be resolved (not left actionable), each with its
+        // own answer matched by prompt.
+        #expect(questions.first(where: { $0.prompt == "Which path?" })?.selectedOptionLabel == "Slow")
+        #expect(questions.first(where: { $0.prompt == "Which env?" })?.selectedOptionLabel == "Dev")
+    }
+
+    @Test("a sidechain line's timestamp does not leak into a later visible line")
+    func sidechainTimestampDoesNotLeak() {
+        let lines = [
+            userLine(uuid: "u-real", content: "first", timestamp: "2026-06-12T10:00:00.000Z"),
+            { var d: [String: Any] = [
+                "parentUuid": NSNull(), "isSidechain": true, "type": "assistant",
+                "message": ["role": "assistant", "content": [["type": "text", "text": "subagent work"]]],
+                "uuid": "side-x", "sessionId": "s-1",
+                "timestamp": "2026-06-12T23:59:59.000Z",
+              ]; return Self.json(d) }(),
+            // visible assistant line with NO timestamp: must inherit the
+            // visible user line's 10:00, not the sidechain's 23:59.
+            { var d: [String: Any] = [
+                "parentUuid": NSNull(), "isSidechain": false, "type": "assistant",
+                "message": ["role": "assistant", "content": [["type": "text", "text": "real reply"]]],
+                "uuid": "a-real", "sessionId": "s-1",
+              ]; return Self.json(d) }(),
+        ]
+        let result = parser.parse(lines: lines, startingSeq: 0)
+        guard let reply = result.messages.first(where: {
+            if case .prose(let p) = $0.kind { return p.text == "real reply" }
+            return false
+        }) else { Issue.record("missing real reply"); return }
+        #expect(reply.timestamp == ISO8601DateFormatter().date(from: "2026-06-12T10:00:00Z"))
+    }
+
     @Test("tool_result content arrays join their text blocks")
     func toolResultArrayContent() {
         let lines = [

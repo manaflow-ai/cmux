@@ -50,17 +50,19 @@ public struct ClaudeTranscriptParser: Sendable {
             guard let root = TranscriptJSONValue(jsonLine: line), root.object != nil else {
                 continue
             }
+            // Task-subagent traffic shares the session JSONL with
+            // `isSidechain: true`; its "user" lines are injected prompts the
+            // human never typed. Skip them BEFORE touching lastTimestamp
+            // (the seq is still consumed, so line indexing never drifts),
+            // so a subagent line's timestamp can't leak into a later
+            // visible line that lacks one.
+            if root["isSidechain"]?.bool == true {
+                continue
+            }
             if let stamped = timestamps.date(from: root["timestamp"]?.string) {
                 lastTimestamp = stamped
             }
             let timestamp = lastTimestamp ?? Date(timeIntervalSince1970: 0)
-            // Task-subagent traffic shares the session JSONL with
-            // `isSidechain: true`; its "user" lines are injected prompts the
-            // human never typed. Skip them (the seq is still consumed, so
-            // line indexing never drifts).
-            if root["isSidechain"]?.bool == true {
-                continue
-            }
             switch root["type"]?.string {
             case "user":
                 appendUserLine(root, seq: seq, timestamp: timestamp, into: &assembler)
@@ -272,9 +274,11 @@ public struct ClaudeTranscriptParser: Sendable {
                 timestamp: timestamp,
                 kind: kind
             )
-            // Register only the first emitted message for result pairing;
-            // multi-question AskUserQuestion answers are best-effort.
-            assembler.append(message, pendingKey: index == 0 ? callID : nil)
+            // Register every emitted message under the call id so the
+            // result resolves all of them (a multi-question
+            // AskUserQuestion emits one card per question, each resolved by
+            // its own prompt).
+            assembler.append(message, pendingKey: callID)
             emitted += 1
         }
     }
