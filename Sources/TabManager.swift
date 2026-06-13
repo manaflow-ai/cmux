@@ -249,6 +249,12 @@ class TabManager: ObservableObject {
     /// Legacy Combine bridge for the remaining `tabManager.$selectedTabId`
     /// subscribers; same contract as `tabsPublisher`.
     let selectedTabIdPublisher = CurrentValueSubject<UUID?, Never>(nil)
+    /// Legacy Combine bridge for the remaining `tabManager.$workspaceGroups`
+    /// subscribers (e.g. MobileWorkspaceListObserver); same contract as
+    /// `tabsPublisher`. Emits during willSet and replays the current value
+    /// on subscribe — the `Published.Publisher` semantics those call sites
+    /// were written against.
+    let workspaceGroupsPublisher = CurrentValueSubject<[WorkspaceGroup], Never>([])
     /// Set by `restoreSessionSnapshot` to suppress side-effects (like auto-
     /// expanding a group on focus) that would mutate restored state mid-restore.
     private var isRestoringSessionSnapshot: Bool = false
@@ -277,6 +283,7 @@ class TabManager: ObservableObject {
     /// Legacy `@Published workspaceGroups` willSet.
     func workspaceGroupsWillChange(to newValue: [WorkspaceGroup]) {
         objectWillChange.send()
+        workspaceGroupsPublisher.send(newValue)
     }
 
     /// Legacy `@Published selectedTabId` willSet; `selectedTabId` still

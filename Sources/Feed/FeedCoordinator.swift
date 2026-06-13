@@ -908,9 +908,13 @@ private extension FeedCoordinator {
                         effects: effects
                     )
                 case .notDetermined:
-                    let granted = (
-                        try? await center.requestAuthorization(options: [.alert, .sound])
-                    ) ?? false
+                    var granted = false
+                    var requestFailed = false
+                    do {
+                        granted = try await center.requestAuthorization(options: [.alert, .sound])
+                    } catch {
+                        requestFailed = true
+                    }
                     guard self.isAwaitingDecision(requestId: requestId) else { return }
                     if granted {
                         self.addNotificationIfStillAwaiting(
@@ -920,12 +924,19 @@ private extension FeedCoordinator {
                             effects: effects
                         )
                     } else {
+                        // A non-grant without an error is the user declining
+                        // the prompt just now: honor the fresh denial on this
+                        // very notification. A request error is not a user
+                        // decision, so the fallback stays audible (fail-open).
                         self.runFallbackEffectsIfStillAwaiting(
                             requestId: requestId,
                             title: title,
                             subtitle: subtitle,
                             body: body,
-                            effects: effects
+                            effects: TerminalNotificationStore.fallbackEffects(
+                                effects,
+                                authorizationState: requestFailed ? .unknown : .denied
+                            )
                         )
                     }
                 default:
@@ -934,7 +945,12 @@ private extension FeedCoordinator {
                         title: title,
                         subtitle: subtitle,
                         body: body,
-                        effects: effects
+                        effects: TerminalNotificationStore.fallbackEffects(
+                            effects,
+                            authorizationState: TerminalNotificationStore.authorizationState(
+                                from: settings.authorizationStatus
+                            )
+                        )
                     )
                 }
             }
