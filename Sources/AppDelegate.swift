@@ -899,7 +899,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     /// Accessibility window-hierarchy cache (CmuxWindowing); composition-root
     /// owned. The `NSApplication` AX swizzle forwards to it behind
     /// ``AccessibilityWindowCaching``.
-    nonisolated let accessibilityWindowCache: any AccessibilityWindowCaching = AccessibilityWindowCache()
+    /// `nonisolated(unsafe)`: the existential is non-Sendable, but it is only
+    /// touched from the main-actor AX swizzle path (callers hold it on main),
+    /// matching the other non-Sendable composition-root members (`shared`).
+    nonisolated(unsafe) let accessibilityWindowCache: any AccessibilityWindowCaching = AccessibilityWindowCache()
     /// First-responder bypass guard (CmuxBrowserPanel); composition-root owned.
     /// The `NSWindow.makeFirstResponder` swizzle reads `isActive` and
     /// `BrowserPanel` wraps responder-churning devtools work in `withBypass(_:)`.
@@ -4229,7 +4232,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     func ensureMobileWorkspaceListObserver(for tabManager: TabManager) {
         let id = ObjectIdentifier(tabManager)
         if mobileWorkspaceListObservers[id] == nil {
-            mobileWorkspaceListObservers[id] = MobileWorkspaceListObserver(tabManager: tabManager)
+            mobileWorkspaceListObservers[id] = MobileWorkspaceListObserver(tabManager: tabManager, notificationStore: notificationStore)
         }
     }
 
