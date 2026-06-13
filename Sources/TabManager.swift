@@ -1241,6 +1241,19 @@ class TabManager: ObservableObject {
                 focusedSurfaceTitleDidChange(tabId: tabId)
             }
         })
+        observers.append(NotificationCenter.default.addObserver(
+            forName: .workspaceCurrentDirectoryDidChange,
+            object: nil,
+            queue: nil
+        ) { [weak self] notification in
+            MainActor.assumeIsolated { [weak self] in
+                guard let self else { return }
+                let workspaceId = notification.userInfo?["workspaceId"] as? UUID
+                    ?? (notification.object as? Workspace)?.id
+                guard let workspaceId else { return }
+                workspaceCurrentDirectoryDidChange(workspaceId: workspaceId)
+            }
+        })
 
         startAgentPIDSweepTimer()
         observers.append(NotificationCenter.default.addObserver(

@@ -1,4 +1,5 @@
 import Foundation
+import AppKit
 import Testing
 
 #if canImport(cmux_DEV)
@@ -87,6 +88,46 @@ struct WindowTitleTemplateTests {
         )
 
         #expect(defaults.string(forKey: WindowTitleTemplate.userDefaultsKey) == "[cmux:{windowToken}] {activeWorkspace}")
+    }
+
+    @MainActor
+    @Test func selectedWorkspaceDirectoryChangeRefreshesActiveDirectoryTitle() throws {
+        let defaults = UserDefaults.standard
+        let previousValues: [String: Any?] = [
+            WindowTitleTemplate.userDefaultsKey: defaults.object(forKey: WindowTitleTemplate.userDefaultsKey),
+        ]
+        defer {
+            restore(previousValues, defaults: defaults)
+        }
+        defaults.set("[cmux:{windowToken}] {activeDirectory}", forKey: WindowTitleTemplate.userDefaultsKey)
+
+        let windowId = try #require(UUID(uuidString: "01234567-89AB-CDEF-0123-456789ABCDEF"))
+        let manager = TabManager(
+            initialWorkspaceTitle: "Build",
+            initialWorkingDirectory: "/tmp/old",
+            autoWelcomeIfNeeded: false
+        )
+        manager.windowId = windowId
+
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 640, height: 420),
+            styleMask: [.titled],
+            backing: .buffered,
+            defer: false
+        )
+        manager.window = window
+        defer {
+            manager.window = nil
+            window.close()
+        }
+
+        manager.refreshWindowTitle()
+        #expect(window.title == "[cmux:01234567] /tmp/old")
+
+        let workspace = try #require(manager.tabs.first)
+        let panelId = try #require(workspace.focusedPanelId)
+        #expect(workspace.updatePanelDirectory(panelId: panelId, directory: "/tmp/new"))
+        #expect(window.title == "[cmux:01234567] /tmp/new")
     }
 
     private func isolatedDefaults() throws -> UserDefaults {

@@ -6,6 +6,11 @@ extension TabManager {
         updateWindowTitleForSelectedTab()
     }
 
+    func workspaceCurrentDirectoryDidChange(workspaceId: UUID) {
+        guard workspaceId == selectedTabId else { return }
+        refreshWindowTitle()
+    }
+
     func updateWindowTitleForSelectedTab() {
         guard let selectedTabId,
               let tab = tabs.first(where: { $0.id == selectedTabId }) else {
