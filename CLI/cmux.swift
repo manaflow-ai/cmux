@@ -23132,6 +23132,7 @@ struct CMUXCLI {
         }
         if let preferred = nonEmptyClaudeHookIdentifier(preferred),
            let surfaceId = resolveAccessibleClaudeHookSurfaceId(preferred, workspaceId: workspaceId, client: client) {
+            if let boundSurface = terminalBindingSurface(), boundSurface.surfaceId != surfaceId { return boundSurface }
             return ClaudeHookResolvedSurface(surfaceId: surfaceId, isAuthoritative: true)
         }
         if let fallback = nonEmptyClaudeHookIdentifier(fallback) {
@@ -23375,7 +23376,6 @@ struct CMUXCLI {
         }
         return try resolveWorkspaceId(nil, client: client)
     }
-
     private struct ClaudeHookResolvedSurface {
         let surfaceId: String
         /// Resolved from the hook's own identity (the supplied surface value or
