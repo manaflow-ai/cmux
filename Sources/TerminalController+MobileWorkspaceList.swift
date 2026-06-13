@@ -263,7 +263,7 @@ extension TerminalController {
                 ])
                 return
             }
-            guard tabManager.canCloseWorkspace(workspace) else {
+            guard tabManager.tabs.count > 1, tabManager.canCloseWorkspace(workspace) else {
                 result = .err(
                     code: "protected",
                     message: String(
