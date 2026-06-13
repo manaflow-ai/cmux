@@ -4579,7 +4579,7 @@ final class Workspace: Identifiable, ObservableObject {
             if previous != nil, (panelCustomTitleSources[panelId] ?? .user) == .user { return false }
         }
         if trimmed.isEmpty {
-            guard previous != nil else { return true }
+            guard previous != nil else { return false }
             panelCustomTitles.removeValue(forKey: panelId)
             panelCustomTitleSources.removeValue(forKey: panelId)
         } else {

@@ -22287,7 +22287,10 @@ struct CMUXCLI {
         let policy = AutoNamingEnvironmentPolicy()
         let customPath = env["CMUX_CUSTOM_CLAUDE_PATH"]?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         let executable: String? = {
+            var isDirectory = ObjCBool(false)
             if !customPath.isEmpty,
+               FileManager.default.fileExists(atPath: customPath, isDirectory: &isDirectory),
+               !isDirectory.boolValue,
                FileManager.default.isExecutableFile(atPath: customPath),
                !isCmuxClaudeWrapper(at: customPath) {
                 return customPath
@@ -22398,8 +22401,12 @@ struct CMUXCLI {
         // backgrounding the real pass with '&' - it reaps sh without blocking
         // on the naming work itself. Bounded so a pathologically stalled sh
         // can never eat the sync hook budget.
-        if ((try? waitForProcessExit(process, timeout: 5)) ?? false) == false {
+        if ((try? waitForProcessExit(process, timeout: 2)) ?? false) == false {
             process.terminate()
+            if ((try? waitForProcessExit(process, timeout: 1)) ?? false) == false {
+                kill(process.processIdentifier, SIGKILL)
+                _ = try? waitForProcessExit(process, timeout: 1)
+            }
         }
     }
 
@@ -22761,9 +22768,18 @@ struct CMUXCLI {
         process.environment = environment
 
         let stdinPipe = Pipe()
-        let stdoutPipe = Pipe()
+        let outputURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-autoname-stdout-\(UUID().uuidString).txt")
+        guard FileManager.default.createFile(atPath: outputURL.path, contents: nil),
+              let stdoutHandle = try? FileHandle(forWritingTo: outputURL) else {
+            return nil
+        }
+        defer {
+            try? stdoutHandle.close()
+            try? FileManager.default.removeItem(at: outputURL)
+        }
         process.standardInput = stdinPipe
-        process.standardOutput = stdoutPipe
+        process.standardOutput = stdoutHandle
         process.standardError = FileHandle.nullDevice
 
         do {
@@ -22776,28 +22792,20 @@ struct CMUXCLI {
         }
         try? stdinPipe.fileHandleForWriting.close()
 
-        // Drain stdout on a separate queue so the child never blocks on a
-        // full pipe while we wait for exit.
-        let stdoutHandle = stdoutPipe.fileHandleForReading
-        var output = Data()
-        let drainQueue = DispatchQueue(label: "cmux.auto-name.stdout-drain")
-        let drainItem = DispatchWorkItem {
-            output = (try? stdoutHandle.readToEnd()) ?? Data()
-        }
-        drainQueue.async(execute: drainItem)
-
         let exited = (try? waitForProcessExit(process, timeout: timeout)) ?? false
         if !exited {
             process.terminate()
-            _ = try? waitForProcessExit(process, timeout: 2)
+            if ((try? waitForProcessExit(process, timeout: 2)) ?? false) == false {
+                kill(process.processIdentifier, SIGKILL)
+                _ = try? waitForProcessExit(process, timeout: 1)
+            }
+            return nil
         }
-        // Bounded: a grandchild inheriting the pipe's write end could keep it
-        // open past the child's exit, and an unbounded wait would hang the
-        // hook process on its readToEnd. `output` is only read after a
-        // successful wait (which establishes the happens-before with the
-        // drain queue); on timeout the captured var is never touched here.
-        let drained = drainItem.wait(timeout: .now() + 5) == .success
-        guard exited, drained, process.terminationStatus == 0 else { return nil }
+        try? stdoutHandle.close()
+        guard process.terminationStatus == 0,
+              let output = try? Data(contentsOf: outputURL) else {
+            return nil
+        }
         return String(data: output, encoding: .utf8)
     }
 

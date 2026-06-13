@@ -36,8 +36,6 @@ struct AutoNamingConfig: Sendable {
     var contextTailMessages: Int = 4
     /// Per-message truncation applied to context excerpts.
     var contextMessageMaxChars: Int = 240
-
-    init() {}
 }
 
 /// Projection of one session's persisted auto-naming state, read from the
@@ -78,11 +76,6 @@ enum AutoNamingThrottleDecision: Equatable, Sendable {
 struct AutoNamingTranscriptMessage: Codable, Equatable, Sendable {
     var role: String
     var text: String
-
-    init(role: String, text: String) {
-        self.role = role
-        self.text = text
-    }
 }
 
 /// Environment policy for the summarizer subprocess: scrub the variables
@@ -100,8 +93,6 @@ struct AutoNamingEnvironmentPolicy: Sendable {
         "CLAUDE_CODE_SSE_PORT",
         "NODE_OPTIONS"
     ]
-
-    init() {}
 
     func summarizerEnvironment(from env: [String: String]) -> [String: String] {
         env.filter { key, _ in

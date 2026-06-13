@@ -3433,7 +3433,8 @@ class TerminalController {
     /// user-set title is never overwritten. Gated on the opt-in
     /// `workspaceAutoNamingEnabled` setting; `{"probe": true}` reads the live
     /// setting state without writing, which lets hook processes honor
-    /// mid-session toggles.
+    /// mid-session toggles. `panel_id` accepts either a panel UUID or a
+    /// surface UUID.
     private func v2WorkspaceSetAutoTitle(params: [String: Any]) -> V2CallResult {
         let enabled = WorkspaceAutoNamingSettings.enabled()
         if v2Bool(params, "probe") == true {

@@ -761,7 +761,7 @@
         "automation": {
           "ampIntegration": "启用 cmux 与 Amp 的集成钩子。禁用时，捆绑插件将保持非活动状态，无需移除。",
           "suppressSubagentNotifications": "隐藏嵌套 Codex 或 Claude 子代理的可见完成通知和状态变更，同时将其事件保留在 Feed 遥测中。",
-          "workspaceAutoNaming": "可选的 AI 自动命名：根据代理对话内容自动命名工作区和标签页。启用后,cmux 会使用你自己的代理二进制文件将 Claude Code 和 Codex 会话总结为简短标题;手动重命名始终优先。"
+          "workspaceAutoNaming": "可选的 AI 自动命名：根据代理对话内容自动命名工作区和标签页。启用后，cmux 会使用各受支持代理自己的二进制文件将会话总结为简短标题；手动重命名始终优先。"
         },
         "app": {
           "confirmQuit": "控制 cmux 在退出前何时请求确认。无论此设置如何，DEV 构建都会立即退出。旧的 app.warnBeforeQuit 仍作为布尔回退值接受。",
