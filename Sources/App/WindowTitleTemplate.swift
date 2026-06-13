@@ -1,14 +1,6 @@
 import Foundation
 
 struct WindowTitleTemplate: Equatable, Sendable {
-    struct Context: Equatable, Sendable {
-        var defaultTitle: String
-        var activeWorkspace: String
-        var activeDirectory: String
-        var windowId: UUID
-        var appName: String
-    }
-
     static let userDefaultsKey = "windowTitleTemplate"
     static let defaultRawValue = ""
 
@@ -22,7 +14,7 @@ struct WindowTitleTemplate: Equatable, Sendable {
         return WindowTitleTemplate(rawValue: rawValue)
     }
 
-    func resolved(context: Context) -> String {
+    func resolved(context: WindowTitleTemplateContext) -> String {
         let replacements = Dictionary(uniqueKeysWithValues: replacements(context: context))
         var resolved = ""
         var index = rawValue.startIndex
@@ -46,7 +38,7 @@ struct WindowTitleTemplate: Equatable, Sendable {
         return resolved
     }
 
-    private func replacements(context: Context) -> [(String, String)] {
+    private func replacements(context: WindowTitleTemplateContext) -> [(String, String)] {
         [
             ("windowId", context.windowId.uuidString.lowercased()),
             ("windowToken", Self.windowToken(for: context.windowId)),

@@ -19,7 +19,7 @@ struct WindowTitleTemplateTests {
             rawValue: "[cmux:{windowToken}] {activeWorkspace} {activeDirectory} {windowId} {defaultTitle} {appName} {unknown}"
         )
 
-        let resolved = template.resolved(context: WindowTitleTemplate.Context(
+        let resolved = template.resolved(context: WindowTitleTemplateContext(
             defaultTitle: "Fallback",
             activeWorkspace: "Build",
             activeDirectory: "/tmp/project",
@@ -41,7 +41,7 @@ struct WindowTitleTemplateTests {
         let windowId = try #require(UUID(uuidString: "01234567-89AB-CDEF-0123-456789ABCDEF"))
         let template = WindowTitleTemplate(rawValue: "{activeWorkspace} {appName}")
 
-        let resolved = template.resolved(context: WindowTitleTemplate.Context(
+        let resolved = template.resolved(context: WindowTitleTemplateContext(
             defaultTitle: "Fallback",
             activeWorkspace: "{windowId}",
             activeDirectory: "{windowToken}",

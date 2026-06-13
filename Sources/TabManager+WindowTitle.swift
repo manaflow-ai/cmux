@@ -51,7 +51,7 @@ extension TabManager {
                 .trimmingCharacters(in: .whitespacesAndNewlines)
         } ?? ""
         let activeDirectory = tab?.currentDirectory.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-        let resolvedTitle = template.resolved(context: WindowTitleTemplate.Context(
+        let resolvedTitle = template.resolved(context: WindowTitleTemplateContext(
             defaultTitle: defaultTitle,
             activeWorkspace: workspaceTitle.isEmpty ? defaultTitle : workspaceTitle,
             activeDirectory: activeDirectory,
