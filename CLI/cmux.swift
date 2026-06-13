@@ -22118,7 +22118,7 @@ struct CMUXCLI {
                 sendClaudeFeedTelemetry()
             }
         }
-        func missingRecoveredHookTarget(agentPID: Int?, allowProcessSnapshotBinding: Bool = true, terminalBindingCache: inout ClaudeHookTerminalBindingCache) -> Bool {
+        func missingRecoveredHookTarget(agentPID: Int?, allowProcessSnapshotBinding: Bool? = nil, terminalBindingCache: inout ClaudeHookTerminalBindingCache) -> Bool {
             guard needsRecoveredHookTarget else { return false }
             guard let binding = resolveClaudeHookTerminalBinding(agentPID: agentPID, allowProcessSnapshotBinding: allowProcessSnapshotBinding, terminalBindingCache: &terminalBindingCache, client: client),
                   let workspaceId = resolveClaudeHookWorkspaceId(binding.workspaceId, client: client),
@@ -22130,7 +22130,7 @@ struct CMUXCLI {
         case "session-start", "active":
             telemetry.breadcrumb("claude-hook.session-start")
             let claudePid = hookClaudePid
-            var terminalBindingCache: ClaudeHookTerminalBindingCache = (didResolve: false, agentPID: nil, allowProcessSnapshotBinding: true, socketPassword: socketPassword, binding: nil)
+            var terminalBindingCache: ClaudeHookTerminalBindingCache = (didResolve: false, agentPID: nil, allowProcessSnapshotBinding: hookClaudePid != nil, socketPassword: socketPassword, binding: nil)
             guard !missingRecoveredHookTarget(agentPID: claudePid, terminalBindingCache: &terminalBindingCache) else { didSendFeedTelemetry = true; print("{}"); return }
             let workspaceId = try resolvePreferredWorkspaceIdForClaudeHook(
                 preferred: nil,
@@ -22252,7 +22252,7 @@ struct CMUXCLI {
                 // Notification hook handles user-facing notifications; SessionEnd handles cleanup.
                 let mappedSession = parsedInput.sessionId.flatMap { try? sessionStore.lookup(sessionId: $0) }
                 let claudePid = hookClaudePid ?? mappedSession?.pid
-                var terminalBindingCache: ClaudeHookTerminalBindingCache = (didResolve: false, agentPID: nil, allowProcessSnapshotBinding: true, socketPassword: socketPassword, binding: nil)
+                var terminalBindingCache: ClaudeHookTerminalBindingCache = (didResolve: false, agentPID: nil, allowProcessSnapshotBinding: hookClaudePid != nil && mappedSession?.pid != hookClaudePid, socketPassword: socketPassword, binding: nil)
                 guard !missingRecoveredHookTarget(agentPID: claudePid, terminalBindingCache: &terminalBindingCache) else { didSendFeedTelemetry = true; print("{}"); return }
                 let workspaceId = try resolvePreferredWorkspaceIdForClaudeHook(
                     preferred: mappedSession?.workspaceId,
@@ -22364,7 +22364,7 @@ struct CMUXCLI {
             telemetry.breadcrumb("claude-hook.prompt-submit")
             let mappedSession = parsedInput.sessionId.flatMap { try? sessionStore.lookup(sessionId: $0) }
             let claudePid = hookClaudePid ?? mappedSession?.pid
-            var terminalBindingCache: ClaudeHookTerminalBindingCache = (didResolve: false, agentPID: nil, allowProcessSnapshotBinding: true, socketPassword: socketPassword, binding: nil)
+            var terminalBindingCache: ClaudeHookTerminalBindingCache = (didResolve: false, agentPID: nil, allowProcessSnapshotBinding: hookClaudePid != nil && mappedSession?.pid != hookClaudePid, socketPassword: socketPassword, binding: nil)
             guard !missingRecoveredHookTarget(agentPID: claudePid, terminalBindingCache: &terminalBindingCache) else { didSendFeedTelemetry = true; print("{}"); return }
             let workspaceId = try resolvePreferredWorkspaceIdForClaudeHook(
                 preferred: mappedSession?.workspaceId,
@@ -22484,7 +22484,7 @@ struct CMUXCLI {
 
             let mappedSession = parsedInput.sessionId.flatMap { try? sessionStore.lookup(sessionId: $0) }
             let claudePid = hookClaudePid ?? mappedSession?.pid
-            var terminalBindingCache: ClaudeHookTerminalBindingCache = (didResolve: false, agentPID: nil, allowProcessSnapshotBinding: true, socketPassword: socketPassword, binding: nil)
+            var terminalBindingCache: ClaudeHookTerminalBindingCache = (didResolve: false, agentPID: nil, allowProcessSnapshotBinding: hookClaudePid != nil && mappedSession?.pid != hookClaudePid, socketPassword: socketPassword, binding: nil)
             guard !missingRecoveredHookTarget(agentPID: claudePid, terminalBindingCache: &terminalBindingCache) else { didSendFeedTelemetry = true; print("{}"); return }
             let workspaceId = try resolvePreferredWorkspaceIdForClaudeHook(
                 preferred: mappedSession?.workspaceId,
@@ -22629,7 +22629,7 @@ struct CMUXCLI {
             // to avoid wiping the completion notification that Stop just delivered.
             let mappedSession = parsedInput.sessionId.flatMap { try? sessionStore.lookup(sessionId: $0) }
             let fallbackClaudePid = hookClaudePid ?? mappedSession?.pid
-            var fallbackTerminalBindingCache: ClaudeHookTerminalBindingCache = (didResolve: false, agentPID: nil, allowProcessSnapshotBinding: true, socketPassword: socketPassword, binding: nil)
+            var fallbackTerminalBindingCache: ClaudeHookTerminalBindingCache = (didResolve: false, agentPID: nil, allowProcessSnapshotBinding: hookClaudePid != nil && mappedSession?.pid != hookClaudePid, socketPassword: socketPassword, binding: nil)
             guard mappedSession != nil || !missingRecoveredHookTarget(agentPID: fallbackClaudePid, allowProcessSnapshotBinding: false, terminalBindingCache: &fallbackTerminalBindingCache) else { didSendFeedTelemetry = true; print("{}"); return }
             let fallbackWorkspaceId = try? resolvePreferredWorkspaceIdForClaudeHook(
                 preferred: mappedSession?.workspaceId,
@@ -22714,7 +22714,7 @@ struct CMUXCLI {
             // (e.g. after permission grant). Runs async so it doesn't block tool execution.
             let mappedSession = parsedInput.sessionId.flatMap { try? sessionStore.lookup(sessionId: $0) }
             let claudePid = hookClaudePid ?? mappedSession?.pid
-            var terminalBindingCache: ClaudeHookTerminalBindingCache = (didResolve: false, agentPID: nil, allowProcessSnapshotBinding: true, socketPassword: socketPassword, binding: nil)
+            var terminalBindingCache: ClaudeHookTerminalBindingCache = (didResolve: false, agentPID: nil, allowProcessSnapshotBinding: hookClaudePid != nil && mappedSession?.pid != hookClaudePid, socketPassword: socketPassword, binding: nil)
             guard !missingRecoveredHookTarget(agentPID: claudePid, terminalBindingCache: &terminalBindingCache) else { didSendFeedTelemetry = true; print("{}"); return }
             let workspaceId = try resolvePreferredWorkspaceIdForClaudeHook(
                 preferred: mappedSession?.workspaceId,
@@ -23034,7 +23034,7 @@ struct CMUXCLI {
         fallback: String?,
         fallbackIsAmbient: Bool = false,
         agentPID: Int? = nil,
-        allowProcessSnapshotBinding: Bool = true,
+        allowProcessSnapshotBinding: Bool? = nil,
         terminalBindingCache: inout ClaudeHookTerminalBindingCache,
         client: SocketClient
     ) throws -> String {
@@ -23081,7 +23081,7 @@ struct CMUXCLI {
         fallbackIsAmbient: Bool = false,
         workspaceId: String,
         agentPID: Int? = nil,
-        allowProcessSnapshotBinding: Bool = true,
+        allowProcessSnapshotBinding: Bool? = nil,
         terminalBindingCache: inout ClaudeHookTerminalBindingCache,
         client: SocketClient
     ) throws -> String {
@@ -23110,7 +23110,7 @@ struct CMUXCLI {
         fallbackIsAmbient: Bool = false,
         workspaceId: String,
         agentPID: Int? = nil,
-        allowProcessSnapshotBinding: Bool = true,
+        allowProcessSnapshotBinding: Bool? = nil,
         terminalBindingCache: inout ClaudeHookTerminalBindingCache,
         client: SocketClient
     ) throws -> ClaudeHookResolvedSurface {
@@ -23190,20 +23190,20 @@ struct CMUXCLI {
 
     private func resolveClaudeHookTerminalBinding(
         agentPID: Int?,
-        allowProcessSnapshotBinding: Bool = true,
+        allowProcessSnapshotBinding: Bool? = nil,
         terminalBindingCache: inout ClaudeHookTerminalBindingCache,
         client: SocketClient
     ) -> CallerTerminalBinding? {
         if terminalBindingCache.didResolve, terminalBindingCache.agentPID == agentPID,
-           terminalBindingCache.allowProcessSnapshotBinding == allowProcessSnapshotBinding {
+           terminalBindingCache.allowProcessSnapshotBinding == (allowProcessSnapshotBinding ?? terminalBindingCache.allowProcessSnapshotBinding) {
             return terminalBindingCache.binding
         }
         terminalBindingCache.didResolve = true
         terminalBindingCache.agentPID = agentPID
-        terminalBindingCache.allowProcessSnapshotBinding = allowProcessSnapshotBinding
+        terminalBindingCache.allowProcessSnapshotBinding = allowProcessSnapshotBinding ?? terminalBindingCache.allowProcessSnapshotBinding
         terminalBindingCache.binding = resolveClaudeHookTerminalBinding(
             agentPID: agentPID,
-            allowProcessSnapshotBinding: allowProcessSnapshotBinding,
+            allowProcessSnapshotBinding: terminalBindingCache.allowProcessSnapshotBinding,
             socketPassword: terminalBindingCache.socketPassword,
             client: client
         )
