@@ -1435,7 +1435,7 @@ final class TerminalOutputCollector {
 }
 
 @MainActor
-@Test func minimalPairingCodeVersionMismatchWarnsAndContinuesAfterAcceptance() async throws {
+@Test func minimalPairingCodeBuildMismatchWarnsAndContinuesAfterAcceptance() async throws {
     let responses = ScriptedTransportResponses([
         try rpcWorkspaceListFrame(workspaceID: "qr-workspace", title: "QR Workspace"),
         try rpcHostStatusFrame(
@@ -1470,13 +1470,13 @@ final class TerminalOutputCollector {
 
     store.signIn()
     let result = await store.connectPairingURLResult(
-        "cmux-ios://attach?v=2&e=user@example.com&av=0.64.0&ab=9&r=100.71.210.41:\(CmxMobileDefaults.defaultHostPort)"
+        "cmux-ios://attach?v=2&e=user@example.com&av=0.65.0&ab=9&r=100.71.210.41:\(CmxMobileDefaults.defaultHostPort)"
     )
 
     #expect(result == .needsUserApproval)
     #expect(store.connectionState == .disconnected)
     #expect(store.pairingVersionWarning?.contains("0.65.0 (10)") == true)
-    #expect(store.pairingVersionWarning?.contains("0.64.0 (9)") == true)
+    #expect(store.pairingVersionWarning?.contains("0.65.0 (9)") == true)
     #expect(try await responses.sentRequests().isEmpty)
 
     await store.acceptPairingVersionWarning()

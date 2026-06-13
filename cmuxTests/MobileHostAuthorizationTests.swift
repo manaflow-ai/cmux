@@ -709,27 +709,27 @@ final class MobileHostAuthorizationTests: XCTestCase {
         XCTAssertNil(error)
     }
 
-    func testStackEmailAuthorizationRequiresSignedInMacUser() throws {
+    func testStackUserIDAuthorizationRequiresSignedInMacUser() throws {
         XCTAssertThrowsError(
-            try MobileHostAuthorizationPolicy.authorizeStackEmail(
-                localEmail: nil,
-                remoteEmail: "user@example.com"
+            try MobileHostAuthorizationPolicy.authorizeStackUserID(
+                localUserID: nil,
+                remoteUserID: "user_123"
             )
         )
     }
 
-    func testStackEmailAuthorizationRequiresMatchingEmail() throws {
+    func testStackUserIDAuthorizationRequiresMatchingUserID() throws {
         XCTAssertThrowsError(
-            try MobileHostAuthorizationPolicy.authorizeStackEmail(
-                localEmail: "local@example.com",
-                remoteEmail: "remote@example.com"
+            try MobileHostAuthorizationPolicy.authorizeStackUserID(
+                localUserID: "user_local",
+                remoteUserID: "user_remote"
             )
         )
 
         XCTAssertNoThrow(
-            try MobileHostAuthorizationPolicy.authorizeStackEmail(
-                localEmail: " User@Example.com ",
-                remoteEmail: "user@example.com"
+            try MobileHostAuthorizationPolicy.authorizeStackUserID(
+                localUserID: " user_123 ",
+                remoteUserID: "user_123"
             )
         )
     }

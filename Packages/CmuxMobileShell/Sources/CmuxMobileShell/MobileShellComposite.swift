@@ -3149,10 +3149,14 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     private func versionWarning(for ticket: CmxAttachTicket) -> String? {
         guard let macVersion = Self.normalizedNonEmpty(ticket.macAppVersion) else { return nil }
         let phoneStamp = feedbackStampProvider()
-        guard let phoneVersion = Self.normalizedNonEmpty(phoneStamp.appVersion),
-              phoneVersion != macVersion else {
+        guard let phoneVersion = Self.normalizedNonEmpty(phoneStamp.appVersion) else {
             return nil
         }
+        let phoneBuild = Self.normalizedNonEmpty(phoneStamp.appBuild)
+        let macBuild = Self.normalizedNonEmpty(ticket.macAppBuild)
+        let versionDiffers = phoneVersion != macVersion
+        let buildDiffers = phoneBuild != nil && macBuild != nil && phoneBuild != macBuild
+        guard versionDiffers || buildDiffers else { return nil }
         let format = L10n.string(
             "mobile.pairing.versionWarningFormat",
             defaultValue: "This iPhone is running cmux %@, but the Mac is running cmux %@. Pairing across different versions can break terminal input, workspace sync, or notifications. Continue only if you trust this Mac and accept that some features may fail."
