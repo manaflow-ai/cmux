@@ -96,6 +96,10 @@ final class MarkdownRendererSession {
     func renderedText() async -> String? {
         await ownedCoordinator.renderedText()
     }
+
+    var webView: MarkdownWebView? {
+        ownedCoordinator.webView
+    }
 }
 
 extension NSColor {
