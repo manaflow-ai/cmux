@@ -1666,6 +1666,13 @@ _cmux_precmd() {
         if (( cmd_dur >= 2 || now - _CMUX_PORTS_LAST_RUN >= 10 )); then
             _cmux_ports_kick refresh
         fi
+        # CWD report — relay path only sends via JSON-RPC (issue #5360);
+        # the rest of _cmux_prompt_command is gated on a Unix socket.
+        local relay_pwd="$PWD"
+        if [[ "$relay_pwd" != "$_CMUX_PWD_LAST_PWD" ]]; then
+            _CMUX_PWD_LAST_PWD="$relay_pwd"
+            _cmux_report_pwd_via_relay "$relay_pwd" || true
+        fi
         return 0
     fi
 
@@ -1692,12 +1699,8 @@ _cmux_precmd() {
     # This is also the simplest way to test sidebar directory behavior end-to-end.
     if [[ "$pwd" != "$_CMUX_PWD_LAST_PWD" ]]; then
         _CMUX_PWD_LAST_PWD="$pwd"
-        if _cmux_socket_uses_remote_relay; then
-            _cmux_report_pwd_via_relay "$pwd" || true
-        else
-            local qpwd="${pwd//\"/\\\"}"
-            _cmux_send_bg "report_pwd \"${qpwd}\" --tab=$CMUX_TAB_ID --panel=$CMUX_PANEL_ID"
-        fi
+        local qpwd="${pwd//\"/\\\"}"
+        _cmux_send_bg "report_pwd \"${qpwd}\" --tab=$CMUX_TAB_ID --panel=$CMUX_PANEL_ID"
     fi
 
     # Git branch/dirty: update immediately on directory change, otherwise every ~3s.
