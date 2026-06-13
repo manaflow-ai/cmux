@@ -178,6 +178,7 @@
 		C0DE31390000000000000105 /* CMUXCLIErrorOutputRegressionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE31390000000000000106 /* CMUXCLIErrorOutputRegressionTests.swift */; };
 		A72C9F4179B54DF38E99A021 /* CmuxCLIPathInstaller.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8A4FE96C3F394FC6A6D4B018 /* CmuxCLIPathInstaller.swift */; };
 		C9A1C00000000000000000A3 /* CmuxCommandPalette in Frameworks */ = {isa = PBXBuildFile; productRef = C9A1C00000000000000000A2 /* CmuxCommandPalette */; };
+		C9A1C00000000000000000A4 /* CmuxCommandPalette in Frameworks */ = {isa = PBXBuildFile; productRef = C9A1C00000000000000000A5 /* CmuxCommandPalette */; };
 		A5001650 /* CmuxConfig.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001651 /* CmuxConfig.swift */; };
 		C0DEF0A40000000000000001 /* CmuxConfigContextMenuTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DEF0A40000000000000002 /* CmuxConfigContextMenuTests.swift */; };
 		A5001652 /* CmuxConfigExecutor.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001653 /* CmuxConfigExecutor.swift */; };
@@ -1669,6 +1670,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				C9A2B00000000000000000C3 /* CmuxAppKitSupportUI in Frameworks */,
+				C9A1C00000000000000000A4 /* CmuxCommandPalette in Frameworks */,
 				5E2701040000000000000004 /* CmuxFoundation in Frameworks */,
 				EFB18E3C0000000000000001 /* CMUXMobileCore in Frameworks */,
 				C52830000000000000000002 /* CmuxTerminalCopyMode in Frameworks */,
@@ -2645,6 +2647,7 @@
 				5E2701040000000000000001 /* Sentry */,
 				5E2701040000000000000002 /* CmuxFoundation */,
 				C9A2B00000000000000000C2 /* CmuxAppKitSupportUI */,
+				C9A1C00000000000000000A5 /* CmuxCommandPalette */,
 			);
 			productName = cmuxTests;
 			productReference = F1000002A1B2C3D4E5F60718 /* cmuxTests.xctest */;
@@ -4304,6 +4307,11 @@
 			productName = CmuxControlSocket;
 		};
 		C9A1C00000000000000000A2 /* CmuxCommandPalette */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = C9A1C00000000000000000A1 /* XCLocalSwiftPackageReference "CmuxCommandPalette" */;
+			productName = CmuxCommandPalette;
+		};
+		C9A1C00000000000000000A5 /* CmuxCommandPalette */ = {
 			isa = XCSwiftPackageProductDependency;
 			package = C9A1C00000000000000000A1 /* XCLocalSwiftPackageReference "CmuxCommandPalette" */;
 			productName = CmuxCommandPalette;
