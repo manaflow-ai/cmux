@@ -10904,7 +10904,7 @@ struct VerticalTabsSidebar: View {
             dragState: dragState,
             selectedTabIds: $selectedTabIds,
             lastSidebarSelectionIndex: $lastSidebarSelectionIndex,
-            targetRowHeight: nil,
+            rowHeightStore: nil,
             dragAutoScrollController: dragAutoScrollController
         )
     }
@@ -11247,7 +11247,7 @@ struct VerticalTabsSidebar: View {
                                 dragState: dragState,
                                 selectedTabIds: $selectedTabIds,
                                 lastSidebarSelectionIndex: $lastSidebarSelectionIndex,
-                                targetRowHeight: nil,
+                                rowHeightStore: nil,
                                 dragAutoScrollController: dragAutoScrollController
                             ))
                     }
@@ -12703,11 +12703,11 @@ struct VerticalTabsSidebar: View {
             dragState.beginDragging(tabId: tabId)
             return SidebarTabDragPayload.provider(for: tabId)
         }
-        let tabDropDelegateFactory: (CGFloat) -> SidebarTabDropDelegate = { [
+        let tabDropDelegateFactory: (SidebarRowHeightStore) -> SidebarTabDropDelegate = { [
             tabId = tab.id,
             selectedTabIds = $selectedTabIds,
             lastSidebarSelectionIndex = $lastSidebarSelectionIndex
-        ] rowHeight in
+        ] rowHeightStore in
             SidebarTabDropDelegate(
                 targetTabId: tabId,
                 tabManager: tabManager,
@@ -12715,7 +12715,7 @@ struct VerticalTabsSidebar: View {
                 dragState: dragState,
                 selectedTabIds: selectedTabIds,
                 lastSidebarSelectionIndex: lastSidebarSelectionIndex,
-                targetRowHeight: rowHeight,
+                rowHeightStore: rowHeightStore,
                 dragAutoScrollController: dragAutoScrollController
             )
         }
@@ -15272,10 +15272,10 @@ struct TabItemView: View, Equatable {
     let isBeingDragged: Bool
     let topDropIndicatorVisible: Bool
     let onDragStart: () -> NSItemProvider
-    /// Factory invoked from `body` with the row's measured `rowHeight`. Closure
-    /// captures the parent's `dragState`, so TabItemView itself never holds an
-    /// `@Observable` store reference (snapshot-boundary rule).
-    let tabDropDelegateFactory: (CGFloat) -> SidebarTabDropDelegate
+    /// Factory invoked from `body` with the row's `SidebarRowHeightStore`. Closure
+    /// captures the parent's `dragState` (snapshot-boundary rule); the delegate
+    /// reads the store's height lazily at drop time, so the probe never writes @State.
+    let tabDropDelegateFactory: (SidebarRowHeightStore) -> SidebarTabDropDelegate
     let contextMenuWorkspaceIds: [UUID]
     let remoteContextMenuWorkspaceIds: [UUID]
     let allRemoteContextMenuTargetsConnecting: Bool
@@ -15292,7 +15292,7 @@ struct TabItemView: View, Equatable {
     @State private var workspaceSnapshotStorage: SidebarWorkspaceSnapshotBuilder.Snapshot?
     @StateObject private var contextMenuState = SidebarTabItemContextMenuState()
     @State private var rowInteractionState = SidebarWorkspaceRowInteractionState()
-    @State private var rowHeight: CGFloat = 1
+    @State private var rowHeightStore = SidebarRowHeightStore()
     @State private var workspaceFinderDirectoryOpenRequest: WorkspaceFinderDirectoryOpenRequest?
 
     var isMultiSelected: Bool {
@@ -15530,10 +15530,10 @@ struct TabItemView: View, Equatable {
         GeometryReader { proxy in
             Color.clear
                 .onAppear {
-                    rowHeight = max(proxy.size.height, 1)
+                    rowHeightStore.height = max(proxy.size.height, 1)
                 }
                 .onChange(of: proxy.size.height) { newHeight in
-                    rowHeight = max(newHeight, 1)
+                    rowHeightStore.height = max(newHeight, 1)
                 }
         }
     }
@@ -16032,7 +16032,7 @@ struct TabItemView: View, Equatable {
         }
         .onDrag(onDragStart)
         .internalOnlyTabDrag()
-        .onDrop(of: SidebarTabDragPayload.dropContentTypes, delegate: tabDropDelegateFactory(rowHeight))
+        .onDrop(of: SidebarTabDragPayload.dropContentTypes, delegate: tabDropDelegateFactory(rowHeightStore))
         .onDrop(of: BonsplitTabDragPayload.dropContentTypes, delegate: SidebarBonsplitTabDropDelegate(
             targetWorkspaceId: tab.id,
             tabManager: tabManager,
@@ -17872,8 +17872,12 @@ struct SidebarTabDropDelegate: DropDelegate {
     let dragState: SidebarDragState
     @Binding var selectedTabIds: Set<UUID>
     @Binding var lastSidebarSelectionIndex: Int?
-    let targetRowHeight: CGFloat?
+    /// Read lazily at drop time so the row's height probe updates it without a
+    /// body re-eval. `nil` for targets with no measured row (empty area, gap).
+    let rowHeightStore: SidebarRowHeightStore?
     let dragAutoScrollController: SidebarDragAutoScrollController
+
+    private var targetRowHeight: CGFloat? { rowHeightStore?.height }
 
     /// The identity of the workspace being dragged, resolved from this window's
     /// `SidebarDragState` first and falling back to the process-wide

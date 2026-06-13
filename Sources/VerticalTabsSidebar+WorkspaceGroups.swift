@@ -48,13 +48,13 @@ extension VerticalTabsSidebar {
             dragState.beginDragging(tabId: anchorId)
             return SidebarTabDragPayload.provider(for: anchorId)
         }
-        let tabDropDelegateFactory: (CGFloat) -> SidebarWorkspaceGroupHeaderDropDelegate = { [
+        let tabDropDelegateFactory: (SidebarRowHeightStore) -> SidebarWorkspaceGroupHeaderDropDelegate = { [
             groupId = group.id,
             anchorId = group.anchorWorkspaceId,
             workspaceGroupIdByWorkspaceId = renderContext.workspaceGroupIdByWorkspaceId,
             selectedTabIds = $selectedTabIds,
             lastSidebarSelectionIndex = $lastSidebarSelectionIndex
-        ] rowHeight in
+        ] rowHeightStore in
             let reorderDelegate = SidebarTabDropDelegate(
                 targetTabId: anchorId,
                 tabManager: tabManager,
@@ -62,7 +62,7 @@ extension VerticalTabsSidebar {
                 dragState: dragState,
                 selectedTabIds: selectedTabIds,
                 lastSidebarSelectionIndex: lastSidebarSelectionIndex,
-                targetRowHeight: rowHeight,
+                rowHeightStore: rowHeightStore,
                 dragAutoScrollController: dragAutoScrollController
             )
             return SidebarWorkspaceGroupHeaderDropDelegate(
@@ -70,7 +70,7 @@ extension VerticalTabsSidebar {
                 targetAnchorWorkspaceId: anchorId,
                 tabManager: tabManager,
                 dragState: dragState,
-                targetRowHeight: rowHeight,
+                rowHeightStore: rowHeightStore,
                 dragAutoScrollController: dragAutoScrollController,
                 reorderDelegate: reorderDelegate
             )
