@@ -1,3 +1,4 @@
+import Foundation
 import Testing
 
 @Suite(.serialized)
@@ -197,6 +198,98 @@ struct ClaudeNoFlickerHookRoutingTests {
                     && $0.contains("--tab=\(staleWorkspaceId)")
             },
             "Stale ambient CMUX_WORKSPACE_ID must not receive Claude visible state without a terminal/PID binding, saw \(commands)"
+        )
+    }
+
+    @Test
+    func claudePromptSubmitIgnoresStalePIDBoundWorkspace() throws {
+        let context = try support.makeHookContext(name: "claude-stale-pid-bound-workspace")
+        defer { context.cleanup() }
+
+        let staleWorkspaceId = "55555555-5555-5555-5555-555555555555"
+        let staleSurfaceId = "66666666-6666-6666-6666-666666666666"
+        let claudePID = "6048"
+        let server = support.startMockServer(listenerFD: context.listenerFD, state: context.state) { line in
+            guard let payload = ClaudeHookRoutingTestSupport.jsonObject(line) else {
+                return "OK"
+            }
+            guard let id = payload["id"] as? String, let method = payload["method"] as? String else {
+                return ClaudeHookRoutingTestSupport.malformedRequestResponse(id: payload["id"] as? String, raw: line)
+            }
+            switch method {
+            case "surface.list":
+                let params = payload["params"] as? [String: Any] ?? [:]
+                if params["workspace_id"] as? String == staleWorkspaceId {
+                    return ClaudeHookRoutingTestSupport.v2Response(
+                        id: id,
+                        ok: false,
+                        error: ["code": "workspace_not_found", "message": "workspace not found"]
+                    )
+                }
+                return ClaudeHookRoutingTestSupport.surfaceListResponse(id: id, surfaceId: context.surfaceId)
+            case "system.top":
+                return ClaudeHookRoutingTestSupport.v2Response(
+                    id: id,
+                    ok: true,
+                    result: [
+                        "windows": [
+                            [
+                                "workspaces": [
+                                    [
+                                        "id": staleWorkspaceId,
+                                        "panes": [
+                                            [
+                                                "surfaces": [
+                                                    [
+                                                        "id": staleSurfaceId,
+                                                        "top_level_pids": [Int(claudePID)!],
+                                                    ],
+                                                ],
+                                            ],
+                                        ],
+                                    ],
+                                ],
+                            ],
+                        ],
+                    ]
+                )
+            case "feed.push":
+                return ClaudeHookRoutingTestSupport.v2Response(id: id, ok: true, result: [:])
+            case "surface.resume.set":
+                return ClaudeHookRoutingTestSupport.v2Response(id: id, ok: true, result: ["resume_binding": [:]])
+            default:
+                return ClaudeHookRoutingTestSupport.v2Response(id: id, ok: false, error: ["code": "unrecognized_method", "message": "unexpected method: \(method)"])
+            }
+        }
+
+        var environment = support.baseHookEnvironment(context: context)
+        environment["CMUX_CLAUDE_PID"] = claudePID
+
+        let result = support.runProcess(
+            executablePath: context.cliPath,
+            arguments: ["hooks", "claude", "prompt-submit"],
+            environment: environment,
+            standardInput: #"{"session_id":"stale-pid-workspace-session","turn_id":"turn-1","cwd":"\#(context.root.path)","hook_event_name":"UserPromptSubmit","prompt":"run"}"#,
+            timeout: 5
+        )
+
+        #expect(server.wait(timeout: .now() + 5) == .success, "mock server did not finish")
+        #expect(!result.timedOut, Comment(rawValue: result.stderr))
+        #expect(result.status == 0, Comment(rawValue: result.stderr))
+        let commands = context.state.snapshot()
+        #expect(
+            commands.contains {
+                $0.hasPrefix("set_status claude_code Running --icon=bolt.fill --color=#4C8DFF --tab=\(context.workspaceId)")
+                    && $0.contains("--panel=\(context.surfaceId)")
+            },
+            "Expected stale PID-bound workspace to fall back to the ambient workspace, saw \(commands)"
+        )
+        #expect(
+            !commands.contains {
+                ($0.hasPrefix("set_status claude_code Running ") || $0.hasPrefix("set_agent_pid claude_code "))
+                    && $0.contains("--tab=\(staleWorkspaceId)")
+            },
+            "Stale PID-bound workspace must not receive Claude visible state, saw \(commands)"
         )
     }
 

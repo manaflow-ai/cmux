@@ -23050,7 +23050,7 @@ struct CMUXCLI {
                 terminalBindingCache: &terminalBindingCache,
                 client: client
             ),
-               let boundWorkspaceId = resolveClaudeHookWorkspaceId(binding.workspaceId, client: client) {
+               let boundWorkspaceId = resolveClaudeHookWorkspaceId(binding.workspaceId, client: client), claudeHookWorkspaceIsAccessible(boundWorkspaceId, client: client) {
                 return boundWorkspaceId
             }
             if let resolvedFallback,
@@ -23065,7 +23065,7 @@ struct CMUXCLI {
             terminalBindingCache: &terminalBindingCache,
             client: client
         ),
-           let workspaceId = resolveClaudeHookWorkspaceId(binding.workspaceId, client: client) {
+           let workspaceId = resolveClaudeHookWorkspaceId(binding.workspaceId, client: client), claudeHookWorkspaceIsAccessible(workspaceId, client: client) {
             return workspaceId
         }
         return try resolveWorkspaceIdForClaudeHook(nil, client: client)
