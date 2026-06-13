@@ -16158,15 +16158,13 @@ struct TabItemView: View, Equatable {
         let renameWorkspaceShortcut = KeyboardShortcutSettings.shortcut(for: .renameWorkspace)
         let editWorkspaceDescriptionShortcut = KeyboardShortcutSettings.shortcut(for: .editWorkspaceDescription)
         let closeWorkspaceShortcut = KeyboardShortcutSettings.shortcut(for: .closeWorkspace)
-        // Resolve the Finder directory synchronously while building the menu
-        // (right-click, one stat) instead of pre-warming a per-row `.task` that
-        // stat'd every row on appearance. "Show in Finder" re-validates at click
-        // time anyway (WorkspaceFinderDirectoryOpener), so this only gates the
-        // item's enabled state.
-        let finderDirectoryURL: URL? = isMulti
+        // Gate "Show in Finder" on whether a directory is *configured* (IO-free),
+        // not on a disk stat: this menu builder runs as part of the row body, a
+        // hot path. The stat happens once at click time (WorkspaceFinderDirectoryOpener
+        // re-validates and beeps if the directory is gone).
+        let finderDirectoryPath: String? = isMulti
             ? nil
             : WorkspaceFinderDirectoryResolver.path(for: tab)
-                .flatMap(WorkspaceFinderDirectoryResolver.existingDirectoryURLNow(for:))
         Button(pinLabel) {
             guard let contextMenuPinState else {
                 NSSound.beep()
@@ -16378,9 +16376,11 @@ struct TabItemView: View, Equatable {
 
         if !isMulti {
             Button(String(localized: "contextMenu.showWorkspaceInFinder", defaultValue: "Show in Finder")) {
-                workspaceFinderDirectoryOpenRequest = WorkspaceFinderDirectoryOpenRequest(directoryURL: finderDirectoryURL)
+                guard let finderDirectoryPath else { return }
+                let url = URL(fileURLWithPath: finderDirectoryPath, isDirectory: true)
+                workspaceFinderDirectoryOpenRequest = WorkspaceFinderDirectoryOpenRequest(directoryURL: url)
             }
-            .disabled(finderDirectoryURL == nil)
+            .disabled(finderDirectoryPath == nil)
         }
     }
 

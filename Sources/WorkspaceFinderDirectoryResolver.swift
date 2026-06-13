@@ -23,14 +23,6 @@ enum WorkspaceFinderDirectoryResolver {
         return directoryURL
     }
 
-    /// Synchronous existence check for user-interaction moments (building the
-    /// row's context menu on right-click), where a single stat on the calling
-    /// thread is fine. The `async` variant above stays for scroll/hot paths; this
-    /// replaces a per-row pre-warm `.task` that stat'd every row on appearance.
-    nonisolated static func existingDirectoryURLNow(for path: String) -> URL? {
-        existingDirectoryURLUnchecked(for: path)
-    }
-
     private nonisolated static func existingDirectoryURLUnchecked(for path: String) -> URL? {
         var isDirectory: ObjCBool = false
         guard FileManager.default.fileExists(atPath: path, isDirectory: &isDirectory),
