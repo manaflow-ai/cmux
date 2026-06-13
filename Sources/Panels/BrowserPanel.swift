@@ -7581,6 +7581,32 @@ extension BrowserPanel {
     }
 
     @discardableResult
+    func beginAutomationCommandLease(reason: String) -> BrowserScreenshotWebViewSnapshotter.OffscreenRenderHostLease? {
+        activeVisualAutomationCaptureCount += 1
+        cancelHiddenWebViewDiscard()
+        restoreDiscardedWebViewIfNeeded(reason: "\(reason).restore")
+        refreshWebViewLifecycleState()
+
+        guard shouldUseOffscreenRenderHostForVisualAutomation else { return nil }
+        return BrowserScreenshotWebViewSnapshotter.OffscreenRenderHostLease(
+            webView: webView,
+            viewportSize: visualAutomationViewportSize()
+        )
+    }
+
+    func endAutomationCommandLease(
+        _ lease: BrowserScreenshotWebViewSnapshotter.OffscreenRenderHostLease?,
+        reason: String
+    ) {
+        lease?.end()
+        activeVisualAutomationCaptureCount = max(0, activeVisualAutomationCaptureCount - 1)
+        refreshWebViewLifecycleState()
+        if activeVisualAutomationCaptureCount == 0, !isWebViewVisibleInUI {
+            scheduleHiddenWebViewDiscardIfNeeded(reason: "\(reason).finished")
+        }
+    }
+
+    @discardableResult
     func ensureVisualAutomationRestoreHostIfNeeded(reason: String) -> Bool {
         guard shouldUseOffscreenRenderHostForVisualAutomation else { return false }
         guard webView.superview == nil else { return false }
