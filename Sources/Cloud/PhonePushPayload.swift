@@ -1,14 +1,7 @@
 import Foundation
 
 struct PhonePushPayload: Sendable {
-    enum Kind: String, Sendable {
-        /// Visible banner mirror of a Mac notification.
-        case notify
-        /// Silent banner-removal + badge push (Mac-side dismiss, cold lane).
-        case dismiss
-    }
-
-    let kind: Kind
+    let kind: PhonePushPayloadKind
     let title: String
     let subtitle: String
     let body: String

@@ -37,8 +37,8 @@ struct CompactAttachTicket: Codable {
             terminalID: t,
             macDeviceID: d,
             macDisplayName: nil,
-            macUserEmail: Self.legacyEmail(from: u),
-            macUserID: Self.opaqueUserID(from: u),
+            macUserEmail: legacyCompactEmail(from: u),
+            macUserID: compactOpaqueUserID(from: u),
             macPairingCompatibilityVersion: pc,
             macAppVersion: av,
             macAppBuild: ab,
@@ -54,16 +54,18 @@ struct CompactAttachTicket: Codable {
         return value
     }
 
-    private static func legacyEmail(from value: String?) -> String? {
-        guard let value, value.contains("@") else { return nil }
-        return value
-    }
-
-    private static func opaqueUserID(from value: String?) -> String? {
-        guard let value, !value.contains("@") else { return nil }
-        return value
-    }
 }
+
+private func legacyCompactEmail(from value: String?) -> String? {
+    guard let value, value.contains("@") else { return nil }
+    return value
+}
+
+private func compactOpaqueUserID(from value: String?) -> String? {
+    guard let value, !value.contains("@") else { return nil }
+    return value
+}
+
 private extension CompactAttachTicket {
     /// Encode routes, omitting each route id the decoder can resynthesize
     /// (`kind` for the first route of a kind, `kind_N` for the Nth; exactly
