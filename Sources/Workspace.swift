@@ -19669,6 +19669,8 @@ extension Workspace: BonsplitDelegate {
         ) else {
             panels.removeValue(forKey: newPanel.id)
             panelTitles.removeValue(forKey: newPanel.id)
+            remotePTYSessionIDsByPanelId.removeValue(forKey: newPanel.id)
+            removeRemoteRelaySurfaceAliases(targeting: newPanel.id)
             if remoteTerminalStartupCommand != nil {
                 untrackRemoteTerminalSurface(newPanel.id)
             }
