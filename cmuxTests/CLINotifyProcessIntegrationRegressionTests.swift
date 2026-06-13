@@ -453,6 +453,118 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         )
     }
 
+    func testClaudePromptSubmitUsesCallerTTYWhenNoFlickerHookInheritsStaleSurface() throws {
+        let context = try makeClaudeHookContext(name: "claude-no-flicker-stale-surface")
+        defer { context.cleanup() }
+
+        let staleSurfaceId = "33333333-3333-3333-3333-333333333333"
+        let callerTTY = "/dev/ttys6048"
+        let claudePID = "6048"
+        let serverHandled = startMockServer(listenerFD: context.listenerFD, state: context.state) { line in
+            guard let payload = self.jsonObject(line) else {
+                return "OK"
+            }
+            guard let id = payload["id"] as? String, let method = payload["method"] as? String else {
+                return self.malformedRequestResponse(id: payload["id"] as? String, raw: line)
+            }
+            switch method {
+            case "surface.list":
+                return self.v2Response(
+                    id: id,
+                    ok: true,
+                    result: [
+                        "surfaces": [
+                            [
+                                "id": context.surfaceId,
+                                "ref": "surface:1",
+                                "focused": false,
+                            ],
+                            [
+                                "id": staleSurfaceId,
+                                "ref": "surface:2",
+                                "focused": true,
+                            ],
+                        ],
+                    ]
+                )
+            case "debug.terminals":
+                return self.v2Response(
+                    id: id,
+                    ok: true,
+                    result: [
+                        "terminals": [
+                            [
+                                "workspace_id": context.workspaceId,
+                                "surface_id": context.surfaceId,
+                                "tty": callerTTY,
+                            ],
+                            [
+                                "workspace_id": context.workspaceId,
+                                "surface_id": staleSurfaceId,
+                                "tty": "/dev/ttys6049",
+                            ],
+                        ],
+                    ]
+                )
+            case "feed.push":
+                return self.v2Response(id: id, ok: true, result: [:])
+            case "surface.resume.set":
+                return self.v2Response(id: id, ok: true, result: ["resume_binding": [:]])
+            default:
+                return self.v2Response(id: id, ok: false, error: ["code": "unrecognized_method", "message": "unexpected method: \(method)"])
+            }
+        }
+
+        var environment = [
+            "HOME": context.root.path,
+            "PATH": "/usr/bin:/bin:/usr/sbin:/sbin",
+            "CMUX_SOCKET_PATH": context.socketPath,
+            "CMUX_WORKSPACE_ID": context.workspaceId,
+            "CMUX_SURFACE_ID": staleSurfaceId,
+            "CMUX_CLI_TTY_NAME": callerTTY,
+            "CMUX_CLAUDE_PID": claudePID,
+            "CMUX_CLAUDE_HOOK_STATE_PATH": context.root.appendingPathComponent("claude-hook-sessions.json").path,
+            "CMUX_CLI_SENTRY_DISABLED": "1",
+            "CMUX_CLAUDE_HOOK_SENTRY_DISABLED": "1",
+            "CLAUDE_CODE_NO_FLICKER": "1",
+        ]
+        environment.merge(agentLaunchEnvironment(context: context, kind: "claude", executable: "/usr/local/bin/claude")) { _, new in new }
+
+        let result = runProcess(
+            executablePath: context.cliPath,
+            arguments: ["hooks", "claude", "prompt-submit"],
+            environment: environment,
+            standardInput: #"{"session_id":"no-flicker-session","turn_id":"turn-1","cwd":"\#(context.root.path)","hook_event_name":"UserPromptSubmit","prompt":"run"}"#,
+            timeout: 5
+        )
+
+        wait(for: [serverHandled], timeout: 5)
+        XCTAssertFalse(result.timedOut, result.stderr)
+        XCTAssertEqual(result.status, 0, result.stderr)
+        XCTAssertEqual(result.stdout, "OK\n")
+        XCTAssertTrue(
+            context.state.commands.contains {
+                $0.hasPrefix("set_agent_pid claude_code \(claudePID) --tab=\(context.workspaceId)")
+                    && $0.contains("--panel=\(context.surfaceId)")
+            },
+            "Expected prompt-submit to refresh Claude's PID gate for the TTY-bound pane, saw \(context.state.commands)"
+        )
+        XCTAssertTrue(
+            context.state.commands.contains {
+                $0.hasPrefix("set_status claude_code Running --icon=bolt.fill --color=#4C8DFF --tab=\(context.workspaceId)")
+                    && $0.contains("--panel=\(context.surfaceId)")
+            },
+            "Expected prompt-submit to mark the TTY-bound pane Running, saw \(context.state.commands)"
+        )
+        XCTAssertFalse(
+            context.state.commands.contains {
+                ($0.hasPrefix("set_status claude_code Running ") || $0.hasPrefix("set_agent_pid claude_code "))
+                    && $0.contains("--panel=\(staleSurfaceId)")
+            },
+            "Stale ambient CMUX_SURFACE_ID must not receive Claude's visible status or PID gate, saw \(context.state.commands)"
+        )
+    }
+
     // MARK: - Forked conversation restore (https://github.com/manaflow-ai/cmux/issues/5908)
     //
     // `claude --resume <parent> --fork-session` fires SessionStart with the PARENT
