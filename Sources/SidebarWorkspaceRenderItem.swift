@@ -1,3 +1,4 @@
+import CmuxWorkspaces
 import Foundation
 
 /// Stable, allocation-free identity for a `SidebarWorkspaceRenderItem`.

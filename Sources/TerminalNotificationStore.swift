@@ -3,6 +3,7 @@ import Foundation
 import os
 import UserNotifications
 import Bonsplit
+import CmuxSettings
 
 nonisolated private let terminalNotificationLogger = Logger(
     subsystem: "com.cmuxterm.app",
@@ -1120,7 +1121,8 @@ final class TerminalNotificationStore: ObservableObject {
             "notification.store.effectsOnly workspace=\(notification.tabId.uuidString.prefix(8)) surface=\(notification.surfaceId?.uuidString.prefix(8) ?? "nil") desktop=\(effects.desktop ? 1 : 0) sound=\(effects.sound ? 1 : 0) command=\(effects.command ? 1 : 0) suppressExternal=\(shouldSuppressExternalDelivery ? 1 : 0)"
         )
 #endif
-        if effects.reorderWorkspace, WorkspaceAutoReorderSettings.isEnabled() {
+        if effects.reorderWorkspace,
+           UserDefaultsSettingsClient(defaults: .standard).value(for: SettingCatalog().app.reorderOnNotification) {
             AppDelegate.shared?.tabManagerFor(tabId: notification.tabId)?
                 .moveTabToTopForNotification(notification.tabId)
         }
@@ -1160,7 +1162,8 @@ final class TerminalNotificationStore: ObservableObject {
             setFocusedReadIndicator(forTabId: notification.tabId, surfaceId: notification.surfaceId)
         }
 
-        if effects.reorderWorkspace, WorkspaceAutoReorderSettings.isEnabled() {
+        if effects.reorderWorkspace,
+           UserDefaultsSettingsClient(defaults: .standard).value(for: SettingCatalog().app.reorderOnNotification) {
             AppDelegate.shared?.tabManagerFor(tabId: notification.tabId)?
                 .moveTabToTopForNotification(notification.tabId)
         }
