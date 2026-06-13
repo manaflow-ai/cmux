@@ -455,15 +455,12 @@ final class MarkdownPanel: Panel, ObservableObject, FilePreviewTextEditingPanel 
 // MARK: - Find in panel
 
 extension MarkdownPanel: FindablePanel {
-    /// The AppKit find bar visibility is not publicly exposed on `NSTextView`,
-    /// and `WKWebView` does not report its find panel state, so this is
-    /// conservative and reports `false` until a public signal exists.
-    var isFindVisible: Bool { false }
-
+    /// Text-edit mode supports "Use Selection for Find" when text is selected.
     var hasSelectionForFind: Bool {
         displayMode == .text && (textView?.selectedRange.length ?? 0) > 0
     }
 
+    /// Shows the find UI for the current display mode.
     @discardableResult
     func startFind() -> Bool {
         switch displayMode {
@@ -476,6 +473,7 @@ extension MarkdownPanel: FindablePanel {
         }
     }
 
+    /// Jumps to the next match in the current display mode.
     func findNext() {
         switch displayMode {
         case .text:
@@ -485,6 +483,7 @@ extension MarkdownPanel: FindablePanel {
         }
     }
 
+    /// Jumps to the previous match in the current display mode.
     func findPrevious() {
         switch displayMode {
         case .text:
@@ -494,23 +493,24 @@ extension MarkdownPanel: FindablePanel {
         }
     }
 
+    /// Hides the find UI. Preview mode is a no-op because `WKWebView` does not
+    /// expose a hide action (`NSFindPanelAction` only defines values 1-10).
     func hideFind() {
         switch displayMode {
         case .text:
             textView?.performTextFinderAction(NSTextFinder.Action.hideFindInterface.menuItemSender)
         case .preview:
-            // WKWebView's `performFindPanelAction:` does not support hiding the
-            // find panel (NSFindPanelAction only defines values 1-10). The user
-            // can still close it with Esc or the UI close button.
             break
         }
     }
 
+    /// Uses the current text selection as the find needle in text-edit mode.
     func useSelectionForFind() {
         guard displayMode == .text, let textView else { return }
         textView.performTextFinderAction(NSTextFinder.Action.setSearchString.menuItemSender)
     }
 
+    /// Sends a find action to the preview `WKWebView`.
     @discardableResult
     private func sendFindPanelAction(_ action: NSTextFinder.Action) -> Bool {
         guard let webView = rendererSession.webView else { return false }

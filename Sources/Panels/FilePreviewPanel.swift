@@ -4470,14 +4470,12 @@ private final class FilePreviewPointerObserverView: NSView {
 // MARK: - Find in text mode
 
 extension FilePreviewPanel: FindablePanel {
-    /// The AppKit find bar visibility is not publicly exposed on `NSTextView`,
-    /// so this is conservative and reports `false` until a public signal exists.
-    var isFindVisible: Bool { false }
-
+    /// Text-mode previews support "Use Selection for Find" when text is selected.
     var hasSelectionForFind: Bool {
         previewMode == .text && (textView?.selectedRange.length ?? 0) > 0
     }
 
+    /// Shows the AppKit find bar when the panel is in text preview mode.
     @discardableResult
     func startFind() -> Bool {
         guard previewMode == .text, let textView else { return false }
@@ -4485,21 +4483,25 @@ extension FilePreviewPanel: FindablePanel {
         return true
     }
 
+    /// Jumps to the next match in the text preview.
     func findNext() {
         guard previewMode == .text, let textView else { return }
         textView.performTextFinderAction(NSTextFinder.Action.nextMatch.menuItemSender)
     }
 
+    /// Jumps to the previous match in the text preview.
     func findPrevious() {
         guard previewMode == .text, let textView else { return }
         textView.performTextFinderAction(NSTextFinder.Action.previousMatch.menuItemSender)
     }
 
+    /// Hides the AppKit find bar in the text preview.
     func hideFind() {
         guard previewMode == .text, let textView else { return }
         textView.performTextFinderAction(NSTextFinder.Action.hideFindInterface.menuItemSender)
     }
 
+    /// Uses the current text selection as the find needle.
     func useSelectionForFind() {
         guard previewMode == .text, let textView else { return }
         textView.performTextFinderAction(NSTextFinder.Action.setSearchString.menuItemSender)

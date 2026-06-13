@@ -796,7 +796,8 @@ class TabManager: ObservableObject {
     }
 
     var isFindVisible: Bool {
-        selectedTerminalPanel?.searchState != nil || isNonTerminalFindVisible
+        selectedTerminalPanel?.searchState != nil
+            || focusedBrowserPanel?.searchState != nil
     }
 
     var canUseSelectionForFind: Bool {
@@ -6184,11 +6185,7 @@ extension TabManager {
         return tab.panels[panelId] as? FindablePanel
     }
 
-    var isNonTerminalFindVisible: Bool {
-        focusedBrowserPanel?.searchState != nil
-            || focusedFindablePanel?.isFindVisible == true
-    }
-
+    /// Opens find in the focused browser or findable panel.
     func startFindInFocusedNonTerminalPanel() -> Bool {
         if let browserPanel = focusedBrowserPanel {
             browserPanel.startFind()
@@ -6197,16 +6194,19 @@ extension TabManager {
         return focusedFindablePanel?.startFind() ?? false
     }
 
+    /// Navigates to the next find result in the focused browser or findable panel.
     func findNextInFocusedNonTerminalPanel() {
         focusedBrowserPanel?.findNext()
         focusedFindablePanel?.findNext()
     }
 
+    /// Navigates to the previous find result in the focused browser or findable panel.
     func findPreviousInFocusedNonTerminalPanel() {
         focusedBrowserPanel?.findPrevious()
         focusedFindablePanel?.findPrevious()
     }
 
+    /// Hides find UI in the focused browser or findable panel.
     func hideFindInFocusedNonTerminalPanel() {
         focusedBrowserPanel?.hideFind()
         focusedFindablePanel?.hideFind()
