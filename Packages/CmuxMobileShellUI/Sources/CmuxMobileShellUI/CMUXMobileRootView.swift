@@ -196,12 +196,13 @@ struct CMUXMobileRootView: View {
                         await store.connectPairingInput()
                     },
                     acceptVersionWarning: {
-                        await store.acceptPairingVersionWarning()
+                        let result = await store.acceptPairingVersionWarning()
+                        clearAttachTicketAuthentication(after: result)
                     },
                     connectManualHost: { name, host, port in
                         await store.connectManualHost(name: name, host: host, port: port)
                     },
-                    cancelPairing: store.cancelPairing,
+                    cancelPairing: cancelPairing,
                     cancel: { isShowingAddDeviceSheet = false }
                 )
                 #if os(iOS)
@@ -338,14 +339,26 @@ struct CMUXMobileRootView: View {
         syncShellAuthentication(true)
         Task {
             let result = await store.connectPairingURLResult(rawURL)
-            guard MobileRootAuthGate.shouldClearAttachTicketAuthentication(
-                pairingResult: result,
-                connectionState: store.connectionState,
-                hasActiveUnexpiredTicket: store.hasActiveUnexpiredAttachTicket
-            ) else { return }
-            didAuthenticateWithAttachTicket = false
-            syncShellAuthentication(authManager.isAuthenticated)
+            if result == .needsUserApproval {
+                isShowingAddDeviceSheet = true
+            }
+            clearAttachTicketAuthentication(after: result)
         }
+    }
+
+    private func cancelPairing() {
+        store.cancelPairing()
+        clearAttachTicketAuthenticationIfNeeded()
+    }
+
+    private func clearAttachTicketAuthentication(after result: MobilePairingURLConnectionResult) {
+        guard MobileRootAuthGate.shouldClearAttachTicketAuthentication(
+            pairingResult: result,
+            connectionState: store.connectionState,
+            hasActiveUnexpiredTicket: store.hasActiveUnexpiredAttachTicket
+        ) else { return }
+        didAuthenticateWithAttachTicket = false
+        syncShellAuthentication(authManager.isAuthenticated)
     }
 
     private func clearAttachTicketAuthenticationIfNeeded() {

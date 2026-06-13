@@ -2064,9 +2064,6 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             guard isCurrentPairingAttempt(attemptID) else { return .superseded }
             pendingPairingVersionWarningURL = rawURL
             pairingVersionWarning = warning
-            connectionState = .disconnected
-            macConnectionStatus = .unavailable
-            clearRemoteConnectionContext()
             return .needsUserApproval
         }
         clearPairingVersionWarning()
@@ -2124,19 +2121,24 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     public func cancelPairing() {
         invalidatePairingAttempt()
         clearPairingError()
+        if pairingVersionWarning != nil || pendingPairingVersionWarningURL != nil {
+            clearPairingVersionWarning()
+            return
+        }
         clearPairingVersionWarning()
         connectionState = .disconnected
         macConnectionStatus = .unavailable
         clearRemoteConnectionContext()
     }
 
-    public func acceptPairingVersionWarning() async {
+    @discardableResult
+    public func acceptPairingVersionWarning() async -> MobilePairingURLConnectionResult {
         guard let rawURL = pendingPairingVersionWarningURL else {
             clearPairingVersionWarning()
-            return
+            return .failed
         }
         clearPairingVersionWarning()
-        await connectPairingURLResult(rawURL, acceptedVersionWarning: true)
+        return await connectPairingURLResult(rawURL, acceptedVersionWarning: true)
     }
 
     /// Tear down the live connection and reset connection UI state, without
