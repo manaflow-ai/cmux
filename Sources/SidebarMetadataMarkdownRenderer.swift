@@ -34,7 +34,11 @@ enum SidebarMetadataMarkdownRenderer {
             insertionOrder.removeFirst()
             cache.removeValue(forKey: oldest)
         }
-        cache[markdown] = parsed
+        // updateValue, not subscript assignment: with an Optional value type,
+        // `cache[markdown] = nil` removes the key instead of caching the failed
+        // parse, so unparseable blocks would re-parse on every body eval and
+        // append phantom keys to insertionOrder.
+        cache.updateValue(parsed, forKey: markdown)
         insertionOrder.append(markdown)
         return parsed
     }
