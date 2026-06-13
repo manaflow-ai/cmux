@@ -96,21 +96,29 @@ public struct ChatScreen: View {
         }
         .animation(.snappy(duration: 0.2), value: store.lastErrorDescription)
         .safeAreaInset(edge: .bottom, spacing: 0) {
-            ChatComposerView(
-                agentState: store.agentState,
-                agentKind: store.descriptor.agentKind,
-                isTerminal: store.descriptor.kind == .terminal,
-                isConnected: store.isConnected,
-                draft: $draft,
-                onSend: { text, attachments in
-                    Task { await store.send(text: text, attachments: attachments) }
-                },
-                onInterrupt: { hard in
-                    Task { await store.interrupt(hard: hard) }
-                },
-                onOpenTerminal: onOpenTerminal
-            )
+            // A past/ended coding-agent session is read-only: keep the
+            // transcript history but drop the text field and control
+            // buttons (there is nothing live to send to). An active agent
+            // gets the full interactive composer.
+            if store.agentState != .ended {
+                ChatComposerView(
+                    agentState: store.agentState,
+                    agentKind: store.descriptor.agentKind,
+                    isTerminal: store.descriptor.kind == .terminal,
+                    isConnected: store.isConnected,
+                    draft: $draft,
+                    onSend: { text, attachments in
+                        Task { await store.send(text: text, attachments: attachments) }
+                    },
+                    onInterrupt: { hard in
+                        Task { await store.interrupt(hard: hard) }
+                    },
+                    onOpenTerminal: onOpenTerminal
+                )
+                .transition(.move(edge: .bottom).combined(with: .opacity))
+            }
         }
+        .animation(.snappy(duration: 0.22), value: store.agentState == .ended)
         .modifier(ChatScreenChrome(
             store: store,
             providesOwnChrome: providesOwnChrome,

@@ -96,6 +96,9 @@ struct WorkspaceDetailView: View {
         #if os(iOS)
         if isChatMode, let session = chosenChatSession {
             chatContent(session)
+                // Emerge from the toolbar (top edge) rather than snapping in,
+                // matching standard toolbar-driven transitions.
+                .transition(.move(edge: .top).combined(with: .opacity))
         } else if let browser = activeBrowser {
             browserContent(browser)
         } else {
@@ -121,7 +124,9 @@ struct WorkspaceDetailView: View {
                 set: { chatDrafts[session.id] = $0 }
             ),
             onExitChat: {
-                isChatMode = false
+                withAnimation(.snappy(duration: 0.28)) {
+                    isChatMode = false
+                }
                 pinnedChatSessionID = nil
             }
         )
@@ -149,7 +154,9 @@ struct WorkspaceDetailView: View {
     private var chatToggleButton: some View {
         if isChatMode || sessionForSelectedTerminal != nil {
             Button {
-                isChatMode.toggle()
+                withAnimation(.snappy(duration: 0.28)) {
+                    isChatMode.toggle()
+                }
                 pinnedChatSessionID = isChatMode ? chosenChatSession?.id : nil
             } label: {
                 Image(systemName: isChatMode
@@ -169,13 +176,21 @@ struct WorkspaceDetailView: View {
         "\(workspace.id.rawValue)#\(store.connectionState == .connected ? 1 : 0)"
     }
 
+    /// Continuously refreshes the chat-capable session list while this
+    /// workspace is shown, so the toggle appears as soon as a coding agent
+    /// becomes active (not only after leaving and returning to the tab). The
+    /// loop is owned by a `.task(id:)`, so it cancels on workspace/connection
+    /// change and when the view goes away.
     private func refreshChatSessions() async {
-        chatSessions = await store.chatSessions(workspaceID: workspace.id.rawValue)
-        // If the session backing chat mode disappeared, fall back to the
-        // terminal rather than showing an empty chat.
-        if isChatMode, chosenChatSession == nil {
-            isChatMode = false
-            pinnedChatSessionID = nil
+        while !Task.isCancelled {
+            chatSessions = await store.chatSessions(workspaceID: workspace.id.rawValue)
+            // If the session backing chat mode disappeared, fall back to the
+            // terminal rather than showing an empty chat.
+            if isChatMode, chosenChatSession == nil {
+                isChatMode = false
+                pinnedChatSessionID = nil
+            }
+            try? await Task.sleep(for: .seconds(2.5))
         }
     }
     #endif
