@@ -15,16 +15,18 @@ import Testing
 @Suite struct MobileHostNetworkPathRefreshTests {
     // MARK: - Path signature
 
-    @Test func signatureIsOrderInsensitiveOverInterfacesAndGateways() {
+    @Test func signatureIsOrderInsensitiveOverInterfacesGatewaysAndAddresses() {
         let a = MobileHostNetworkPathMonitor.signature(
             status: "satisfied",
             interfaceNames: ["en0", "utun4"],
-            gateways: ["192.168.1.1", "fe80::1"]
+            gateways: ["192.168.1.1", "fe80::1"],
+            localAddresses: ["192.168.1.42", "100.64.0.7"]
         )
         let b = MobileHostNetworkPathMonitor.signature(
             status: "satisfied",
             interfaceNames: ["utun4", "en0"],
-            gateways: ["fe80::1", "192.168.1.1"]
+            gateways: ["fe80::1", "192.168.1.1"],
+            localAddresses: ["100.64.0.7", "192.168.1.42"]
         )
         #expect(a == b)
     }
@@ -34,12 +36,14 @@ import Testing
         let withoutTailscale = MobileHostNetworkPathMonitor.signature(
             status: "satisfied",
             interfaceNames: ["en0"],
-            gateways: ["192.168.1.1"]
+            gateways: ["192.168.1.1"],
+            localAddresses: ["192.168.1.42"]
         )
         let withTailscale = MobileHostNetworkPathMonitor.signature(
             status: "satisfied",
             interfaceNames: ["en0", "utun4"],
-            gateways: ["192.168.1.1"]
+            gateways: ["192.168.1.1"],
+            localAddresses: ["192.168.1.42"]
         )
         #expect(withoutTailscale != withTailscale)
     }
@@ -50,14 +54,43 @@ import Testing
         let homeNetwork = MobileHostNetworkPathMonitor.signature(
             status: "satisfied",
             interfaceNames: ["en0"],
-            gateways: ["192.168.1.1"]
+            gateways: ["192.168.1.1"],
+            localAddresses: ["192.168.1.42"]
         )
         let officeNetwork = MobileHostNetworkPathMonitor.signature(
             status: "satisfied",
             interfaceNames: ["en0"],
-            gateways: ["10.0.0.1"]
+            gateways: ["10.0.0.1"],
+            localAddresses: ["192.168.1.42"]
         )
         #expect(homeNetwork != officeNetwork)
+    }
+
+    @Test func signatureChangesWhenOnlyTheLocalAddressChanges() {
+        // Two networks can present the same interface name and gateway (two
+        // home LANs both `en0` + `192.168.1.1`) while assigning a different
+        // local address. The advertised routes are built from the local
+        // addresses, so this must read as a change or the move would be
+        // deduped and the stale routes never republished.
+        let firstLAN = MobileHostNetworkPathMonitor.signature(
+            status: "satisfied",
+            interfaceNames: ["en0"],
+            gateways: ["192.168.1.1"],
+            localAddresses: ["192.168.1.42"]
+        )
+        let secondLAN = MobileHostNetworkPathMonitor.signature(
+            status: "satisfied",
+            interfaceNames: ["en0"],
+            gateways: ["192.168.1.1"],
+            localAddresses: ["192.168.1.77"]
+        )
+        #expect(firstLAN != secondLAN)
+    }
+
+    @Test func systemLocalIPv4AddressesExcludesLoopbackAndIPv6() {
+        let addresses = MobileHostNetworkPathMonitor.systemLocalIPv4Addresses()
+        #expect(!addresses.contains("127.0.0.1"))
+        #expect(addresses.allSatisfy { !$0.contains(":") })
     }
 
     // MARK: - Republish policy

@@ -1610,8 +1610,12 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                 }
                 guard userIsCurrent() else { return }
                 // The Mac this phone wants is online and we are not
-                // connected: reconnect now (routes above are already
-                // persisted), instead of waiting for the user to pull Retry.
+                // connected: reconnect now instead of waiting for the user to
+                // pull Retry. Unambiguous pushes were persisted above, so the
+                // reconnect dials fresh routes; under the multi-instance
+                // ambiguity guard the stored last-known-good routes are
+                // deliberately kept and the reconnect uses those, the same
+                // outcome a manual Retry would have.
                 if self.connectionState != .connected,
                    let activeMacID = self.pairedMacs.first(where: { $0.isActive })?.macDeviceID,
                    onlineDeviceIds.contains(activeMacID) {
