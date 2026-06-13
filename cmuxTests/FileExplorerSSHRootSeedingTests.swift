@@ -59,9 +59,11 @@ final class FileExplorerSSHRootSeedingTests: XCTestCase {
         XCTAssertEqual(workspace.fileExplorerRemoteRootPath, "/home/dev/proj")
     }
 
-    func testLegacySnapshotMissingOriginDecodesAsLocalSeed() throws {
+    func testLegacySnapshotMissingOriginDecodesAsNil() throws {
         // Old session-com.cmuxterm.app.json files do not carry currentDirectoryOrigin.
-        // They must decode to .localSeed for back-compat.
+        // The decode contract is: missing field → nil; restoreSessionSnapshot then
+        // coerces nil → .localSeed via `?? .localSeed` so the SSH file explorer
+        // falls back to remote $HOME on legacy snapshots.
         let json = """
         {
             "processTitle": "Terminal",

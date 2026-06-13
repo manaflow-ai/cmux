@@ -718,8 +718,16 @@ enum FileExplorerError: LocalizedError {
         case .providerUnavailable:
             return String(localized: "fileExplorer.error.unavailable", defaultValue: "File explorer is not available")
         case .sshCommandFailed(let detail):
-            let trimmed = detail.trimmingCharacters(in: .whitespacesAndNewlines)
-            if trimmed.isEmpty {
+            // Surface only the first non-empty line so multi-line SSH banners
+            // (host-key notices, connection warnings) don't appear verbatim in
+            // the Files panel; the full stderr is still passed in via the
+            // associated value for log/telemetry callers.
+            let firstLine = detail
+                .components(separatedBy: .newlines)
+                .lazy
+                .map { $0.trimmingCharacters(in: .whitespaces) }
+                .first(where: { !$0.isEmpty }) ?? ""
+            if firstLine.isEmpty {
                 return String(
                     localized: "fileExplorer.error.sshFailed",
                     defaultValue: "SSH command failed"
@@ -729,7 +737,7 @@ enum FileExplorerError: LocalizedError {
                 localized: "fileExplorer.error.sshFailedWithDetail",
                 defaultValue: "SSH command failed: %@"
             )
-            return String(format: format, trimmed)
+            return String(format: format, firstLine)
         }
     }
 }

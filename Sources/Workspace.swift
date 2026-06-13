@@ -295,7 +295,19 @@ extension Workspace {
         if !normalizedCurrentDirectory.isEmpty {
             currentDirectory = normalizedCurrentDirectory
         }
-        currentDirectoryOrigin = snapshot.currentDirectoryOrigin ?? .localSeed
+        // Restored origin: never trust a persisted .remoteReport. The semantic of
+        // .remoteReport is "confirmed by a live remote shell", but a relaunched
+        // workspace has not re-confirmed anything yet — the remote shell may have
+        // started in a different cwd, or the persisted path may no longer exist.
+        // Treat .remoteReport as .localSeed so the SSH file explorer falls back
+        // to remote $HOME via resolveRemoteHome; the first .liveReport from the
+        // reconnected shell will flip the origin back to .remoteReport.
+        switch snapshot.currentDirectoryOrigin {
+        case nil, .remoteReport:
+            currentDirectoryOrigin = .localSeed
+        case .localSeed?, .localKnown?:
+            currentDirectoryOrigin = snapshot.currentDirectoryOrigin ?? .localSeed
+        }
 
         let panelSnapshotsById = Dictionary(uniqueKeysWithValues: snapshot.panels.map { ($0.id, $0) })
         let leafEntries: [SessionPaneRestoreEntry] = {

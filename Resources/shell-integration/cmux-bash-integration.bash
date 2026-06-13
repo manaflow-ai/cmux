@@ -1476,10 +1476,14 @@ _cmux_prompt_command() {
         fi
         # CWD report — relay path only sends via JSON-RPC (issue #5360);
         # the rest of _cmux_prompt_command is gated on a Unix socket.
+        # Cache _CMUX_PWD_LAST_PWD only after the dispatch succeeds so a
+        # transient failure (relay CLI missing, socket not ready, etc.) is
+        # retried on the next prompt instead of being silently suppressed.
         local relay_pwd="$PWD"
         if [[ "$relay_pwd" != "$_CMUX_PWD_LAST_PWD" ]]; then
-            _CMUX_PWD_LAST_PWD="$relay_pwd"
-            _cmux_report_pwd_via_relay "$relay_pwd" || true
+            if _cmux_report_pwd_via_relay "$relay_pwd"; then
+                _CMUX_PWD_LAST_PWD="$relay_pwd"
+            fi
         fi
         return 0
     fi
