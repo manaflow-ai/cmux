@@ -4,10 +4,11 @@ import CmuxFoundation
 import CmuxTerminalCore
 
 struct GhosttyConfig {
-    enum ColorSchemePreference: Hashable {
-        case light
-        case dark
-    }
+    /// The light/dark terminal theme preference. Lifted to
+    /// ``TerminalColorSchemePreference`` in CmuxTerminalCore; this nested alias
+    /// keeps the `GhosttyConfig.ColorSchemePreference` call-site name
+    /// byte-identical across the terminal view/engine code.
+    typealias ColorSchemePreference = TerminalColorSchemePreference
 
     // Native fallback for fresh installs when the user hasn't chosen terminal colors yet.
     static let cmuxDefaultLightThemeName = "Apple System Colors Light"
