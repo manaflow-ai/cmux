@@ -9,16 +9,16 @@
 13609	Sources/Panels/BrowserPanel.swift
 12084	Sources/GhosttyTerminalView.swift
 12046	cmuxTests/AppDelegateShortcutRoutingTests.swift
-10022	Sources/TabManager.swift
+10023	Sources/TabManager.swift
 9345	cmuxTests/CLINotifyProcessIntegrationRegressionTests.swift
 7737	Sources/Panels/BrowserPanelView.swift
-7293	cmuxTests/WorkspaceUnitTests.swift
+7294	cmuxTests/WorkspaceUnitTests.swift
 6949	cmuxTests/WorkspaceRemoteConnectionTests.swift
-6545	cmuxTests/GhosttyConfigTests.swift
+6544	cmuxTests/GhosttyConfigTests.swift
 6330	cmuxTests/SessionPersistenceTests.swift
 6153	CLI/cmux_open.swift
 6074	Sources/TextBoxInput.swift
-5968	cmuxTests/TerminalAndGhosttyTests.swift
+5969	cmuxTests/TerminalAndGhosttyTests.swift
 5482	cmuxTests/BrowserConfigTests.swift
 5464	Sources/cmuxApp.swift
 4827	Packages/CmuxMobileShell/Sources/CmuxMobileShell/MobileShellComposite.swift
@@ -73,7 +73,7 @@
 1239	Sources/Feed/FeedCoordinator.swift
 1205	Packages/CmuxMobileTerminal/Sources/CmuxMobileTerminal/TerminalInputTextView.swift
 1197	cmuxTests/CodexAppServerSessionTests.swift
-1159	Sources/GhosttyConfig.swift
+1158	Sources/GhosttyConfig.swift
 1156	cmuxTests/SidebarOrderingTests.swift
 1144	Sources/VaultAgentProcessScanner.swift
 1139	cmuxTests/PiVaultAgentPersistenceTests.swift
@@ -193,6 +193,6 @@
 507	Sources/TerminalControllerTopSupport.swift
 506	Sources/App/MainWindowVisibilityController.swift
 505	cmuxUITests/DisplayResolutionRegressionUITests.swift
-504	Sources/Settings/ConfigSource.swift
 504	cmuxTests/TerminalNotificationSocketActionTests.swift
+503	Sources/Settings/ConfigSource.swift
 502	Sources/CmuxEventPublishing.swift

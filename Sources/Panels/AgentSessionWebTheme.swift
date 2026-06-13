@@ -1,5 +1,5 @@
 import AppKit
-import CmuxTerminalCore
+import CmuxFoundation
 
 struct AgentSessionWebTheme: Equatable {
     let isDark: Bool

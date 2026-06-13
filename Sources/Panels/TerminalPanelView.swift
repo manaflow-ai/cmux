@@ -3,7 +3,7 @@ import Foundation
 import AppKit
 import Bonsplit
 import CmuxTerminal
-import CmuxTerminalCore
+import CmuxFoundation
 
 /// View for rendering a terminal panel
 struct TerminalPanelView: View {

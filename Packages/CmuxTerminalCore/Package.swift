@@ -24,7 +24,6 @@ let package = Package(
     dependencies: [
         .package(path: "../CmuxTerminalCopyMode"),
         .package(path: "../CMUXDebugLog"),
-        .package(path: "../CmuxFoundation"),
     ],
     targets: [
         // The same libghostty the app links; the terminal core's value types and
@@ -40,7 +39,6 @@ let package = Package(
                 "GhosttyKit",
                 .product(name: "CmuxTerminalCopyMode", package: "CmuxTerminalCopyMode"),
                 .product(name: "CMUXDebugLog", package: "CMUXDebugLog"),
-                .product(name: "CmuxFoundation", package: "CmuxFoundation"),
             ],
             swiftSettings: [
                 .swiftLanguageMode(.v6),

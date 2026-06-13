@@ -2,6 +2,7 @@ import XCTest
 import CmuxTerminalServices
 import Testing
 import CmuxControlSocket
+import CmuxFoundation
 import CmuxTerminalCore
 import CmuxTerminalCopyMode
 import CmuxSocketControl

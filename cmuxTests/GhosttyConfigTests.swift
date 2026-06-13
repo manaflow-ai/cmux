@@ -2,7 +2,6 @@
 import CmuxSettings
 import CmuxSocketControl
 import CmuxFoundation
-import CmuxTerminalCore
 import AppKit
 import Combine
 import CoreText

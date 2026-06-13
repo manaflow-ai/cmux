@@ -1,5 +1,5 @@
 import AppKit
-import CmuxTerminalCore
+import CmuxFoundation
 import CmuxSocketControl
 import Bonsplit
 import Combine

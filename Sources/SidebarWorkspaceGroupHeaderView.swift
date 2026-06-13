@@ -1,5 +1,5 @@
 import AppKit
-import CmuxTerminalCore
+import CmuxFoundation
 import SwiftUI
 
 /// Collapsible group header that doubles as the anchor workspace row.
