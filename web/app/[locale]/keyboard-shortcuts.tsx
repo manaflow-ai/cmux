@@ -2,11 +2,7 @@
 
 import { useMemo, useState } from "react";
 import { useLocale, useTranslations } from "next-intl";
-import { shortcutCategories, type LocalizedText, type Shortcut } from "../../data/cmux-shortcuts";
-
-function localizedText(text: LocalizedText, locale: string) {
-  return locale.startsWith("ja") ? text.ja : text.en;
-}
+import { localizedText, shortcutCategories, type Shortcut } from "../../data/cmux-shortcuts";
 
 function normalize(s: string) {
   return s.toLowerCase().replace(/\s+/g, " ").trim();

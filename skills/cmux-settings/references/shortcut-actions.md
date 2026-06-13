@@ -108,5 +108,6 @@ Values for `shortcuts.bindings.<action>`:
 ## Files and React Grab
 
 - `shortcuts.bindings.toggleFileExplorer`
+- `shortcuts.bindings.openFileExplorerSelection`
 - `shortcuts.bindings.saveFilePreview`
 - `shortcuts.bindings.toggleReactGrab`

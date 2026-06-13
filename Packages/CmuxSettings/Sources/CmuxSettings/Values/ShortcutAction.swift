@@ -83,6 +83,7 @@ public enum ShortcutAction: String, CaseIterable, Sendable, Hashable, SettingCod
     case splitBrowserRight
     case splitBrowserDown
     case toggleRightSidebar = "toggleFileExplorer"
+    case openFileExplorerSelection
 
     // MARK: Browser & Find
     case openDiffViewer
@@ -163,7 +164,7 @@ extension ShortcutAction {
             return .navigation
         case .focusLeft, .focusRight, .focusUp, .focusDown, .splitRight, .splitDown,
              .toggleSplitZoom, .equalizeSplits, .splitBrowserRight, .splitBrowserDown,
-             .toggleRightSidebar:
+             .toggleRightSidebar, .openFileExplorerSelection:
             return .panes
         case .openDiffViewer, .saveFilePreview, .openBrowser, .focusBrowserAddressBar, .browserBack,
              .browserForward, .browserReload, .browserZoomIn, .browserZoomOut,
@@ -226,6 +227,8 @@ extension ShortcutAction {
         switch self {
         case .switchRightSidebarToFiles, .switchRightSidebarToFind,
              .switchRightSidebarToSessions, .switchRightSidebarToFeed, .switchRightSidebarToDock:
+            return .atom(.sidebarFocus)
+        case .openFileExplorerSelection:
             return .atom(.sidebarFocus)
         case .renameTab, .renameWorkspace:
             return .and(.not(.atom(.browserFocus)), .not(.atom(.sidebarFocus)))
@@ -334,6 +337,8 @@ extension ShortcutAction {
         case .splitBrowserRight: return "Split Browser Right"
         case .splitBrowserDown: return "Split Browser Down"
         case .toggleRightSidebar: return "Toggle Right Sidebar"
+        case .openFileExplorerSelection:
+            return String(localized: "shortcut.openFileExplorerSelection.label", defaultValue: "File Explorer: Open Selection")
         case .openDiffViewer: return "Open Diff Viewer"
         case .saveFilePreview: return "Save File Preview"
         case .openBrowser: return "Open Browser"

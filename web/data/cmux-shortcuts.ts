@@ -1,7 +1,9 @@
+import type { Locale } from "../i18n/routing";
+
 export type LocalizedText = {
   en: string;
   ja: string;
-};
+} & Partial<Record<Exclude<Locale, "en" | "ja">, string>>;
 
 export type Shortcut = {
   id: string;
@@ -17,6 +19,10 @@ export type ShortcutCategory = {
   blurbKey?: string;
   shortcuts: Shortcut[];
 };
+
+export function localizedText(text: LocalizedText, locale: string) {
+  return text[locale as Locale] ?? (locale.startsWith("ja") ? text.ja : text.en);
+}
 
 export const shortcutCategories: ShortcutCategory[] = [
   {
@@ -116,6 +122,54 @@ export const shortcutCategories: ShortcutCategory[] = [
       { id: "renameWorkspace", combos: [["⌘", "⇧", "R"]], description: { en: "Rename workspace", ja: "ワークスペース名を変更" } },
       { id: "editWorkspaceDescription", combos: [["⌥", "⌘", "E"]], description: { en: "Edit workspace description", ja: "ワークスペースの説明を編集" } },
       { id: "focusRightSidebar", combos: [["⌘", "⇧", "E"]], description: { en: "Toggle right-sidebar focus", ja: "右サイドバーのフォーカスを切り替え" } },
+      {
+        id: "openFileExplorerSelection",
+        combos: [["⌘", "↓"]],
+        description: {
+          en: "Open selected file explorer item",
+          ja: "ファイルエクスプローラの選択項目を開く",
+          "zh-CN": "打开文件浏览器中的所选项",
+          "zh-TW": "開啟檔案瀏覽器中的所選項",
+          ko: "파일 탐색기에서 선택한 항목 열기",
+          de: "Ausgewähltes Dateiexplorer-Element öffnen",
+          es: "Abrir el elemento seleccionado del explorador de archivos",
+          fr: "Ouvrir l'élément sélectionné dans l'explorateur de fichiers",
+          it: "Apri l'elemento selezionato nell'esplora file",
+          da: "Åbn det valgte element i filoversigten",
+          pl: "Otwórz zaznaczony element eksploratora plików",
+          ru: "Открыть выбранный элемент проводника файлов",
+          bs: "Otvori odabranu stavku istraživača datoteka",
+          ar: "فتح العنصر المحدد في مستكشف الملفات",
+          no: "Åpne valgt element i filutforskeren",
+          "pt-BR": "Abrir o item selecionado do explorador de arquivos",
+          th: "เปิดรายการที่เลือกในตัวสำรวจไฟล์",
+          tr: "Dosya gezgininde seçili öğeyi aç",
+          km: "បើកធាតុដែលបានជ្រើសក្នុងកម្មវិធីរុករកឯកសារ",
+          uk: "Відкрити вибраний елемент провідника файлів",
+        },
+        note: {
+          en: "Return and keypad Enter also open files or toggle folders while the file explorer is focused.",
+          ja: "ファイルエクスプローラにフォーカスがある間は、Return とテンキー Enter でもファイルを開くかフォルダを展開/折りたたみできます。",
+          "zh-CN": "文件浏览器获得焦点时，Return 和数字键盘 Enter 也会打开文件或切换文件夹展开状态。",
+          "zh-TW": "檔案瀏覽器取得焦點時，Return 和數字鍵盤 Enter 也會開啟檔案或切換資料夾展開狀態。",
+          ko: "파일 탐색기에 포커스가 있을 때 Return 및 숫자 키패드 Enter도 파일을 열거나 폴더 펼침 상태를 전환합니다.",
+          de: "Wenn der Dateiexplorer fokussiert ist, öffnen Return und Ziffernblock-Enter ebenfalls Dateien oder klappen Ordner um.",
+          es: "Cuando el explorador de archivos tiene el foco, Return y Enter del teclado numérico también abren archivos o alternan carpetas.",
+          fr: "Lorsque l'explorateur de fichiers a le focus, Return et Entrée du pavé numérique ouvrent aussi les fichiers ou replient/déplient les dossiers.",
+          it: "Quando l'esplora file ha il focus, Return e Invio del tastierino aprono anche i file o espandono/comprimono le cartelle.",
+          da: "Når filoversigten har fokus, åbner Return og Enter på det numeriske tastatur også filer eller slår mapper til/fra.",
+          pl: "Gdy eksplorator plików ma fokus, Return i Enter z klawiatury numerycznej także otwierają pliki lub przełączają foldery.",
+          ru: "Когда проводник файлов в фокусе, Return и Enter на цифровой клавиатуре также открывают файлы или переключают папки.",
+          bs: "Kada je istraživač datoteka u fokusu, Return i Enter na numeričkoj tastaturi također otvaraju datoteke ili prebacuju mape.",
+          ar: "عندما يكون مستكشف الملفات في التركيز، يفتح Return وEnter في لوحة الأرقام الملفات أيضًا أو يبدلان حالة المجلدات.",
+          no: "Når filutforskeren har fokus, åpner Return og Enter på talltastaturet også filer eller veksler mapper.",
+          "pt-BR": "Quando o explorador de arquivos está em foco, Return e Enter do teclado numérico também abrem arquivos ou alternam pastas.",
+          th: "เมื่อตัวสำรวจไฟล์มีโฟกัส Return และ Enter บนแป้นตัวเลขจะเปิดไฟล์หรือสลับการขยายโฟลเดอร์ได้ด้วย",
+          tr: "Dosya gezgini odaktayken Return ve sayısal klavye Enter da dosyaları açar veya klasörleri açıp kapatır.",
+          km: "នៅពេលកម្មវិធីរុករកឯកសារមានផ្តោត Return និង Enter លើក្តារលេខក៏បើកឯកសារ ឬប្តូរថតឱ្យបង្ហាញ/លាក់បានដែរ។",
+          uk: "Коли провідник файлів у фокусі, Return і Enter на цифровій клавіатурі також відкривають файли або перемикають папки.",
+        },
+      },
       {
         id: "navigateRightSidebarRows",
         combos: [["J / K"], ["⌃", "N / P"], ["H / L"]],

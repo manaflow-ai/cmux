@@ -295,8 +295,7 @@ public struct KeyboardShortcutsSection: View {
 
     /// Mirrors legacy `KeyboardShortcutSettings.settingsVisibleActions`:
     /// filters out `.showHideAllWindows` (owned by Global Hotkey section)
-    /// then re-orders so `focusRightSidebar`, `toggleRightSidebar`, and
-    /// `findInDirectory` sit immediately after `markOldestUnreadAndJumpNext`
+    /// then re-orders the right-sidebar/find actions after `markOldestUnreadAndJumpNext`
     /// or `jumpToUnread` (the unread navigation cluster), so colocated
     /// sidebar/find shortcuts appear together in the settings UI.
     private static var settingsVisibleActions: [ShortcutAction] {
@@ -304,6 +303,7 @@ public struct KeyboardShortcutsSection: View {
         let colocated: [ShortcutAction] = [
             .focusRightSidebar,
             .toggleRightSidebar,
+            .openFileExplorerSelection,
             .findInDirectory,
         ].filter(base.contains)
         let colocatedSet = Set(colocated)

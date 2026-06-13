@@ -1176,6 +1176,7 @@
               "splitBrowserRight",
               "splitBrowserDown",
               "toggleFileExplorer",
+              "openFileExplorerSelection",
               "saveFilePreview",
               "openBrowser",
               "focusBrowserAddressBar",
