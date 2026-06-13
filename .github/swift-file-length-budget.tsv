@@ -21,7 +21,7 @@
 6071	Sources/TextBoxInput.swift
 5482	cmuxTests/BrowserConfigTests.swift
 5462	Sources/cmuxApp.swift
-4726	Packages/CmuxMobileShell/Sources/CmuxMobileShell/MobileShellComposite.swift
+4894	Packages/CmuxMobileShell/Sources/CmuxMobileShell/MobileShellComposite.swift
 4460	Sources/Panels/FilePreviewPanel.swift
 4400	cmuxTests/BrowserPanelTests.swift
 4227	Sources/BrowserWindowPortal.swift
@@ -39,11 +39,11 @@
 2545	cmuxTests/WorkspaceManualUnreadTests.swift
 2544	cmuxTests/CommandPaletteSearchEngineTests.swift
 2516	Sources/KeyboardShortcutSettings.swift
+2340	Sources/Mobile/MobileHostService.swift
 2327	cmuxTests/CJKIMEInputTests.swift
-2322	Sources/Mobile/MobileHostService.swift
 2314	Sources/FileExplorerView.swift
-2291	Sources/TerminalNotificationStore.swift
 2260	Sources/TerminalWindowPortal.swift
+2232	Sources/TerminalNotificationStore.swift
 2198	Sources/SessionPersistence.swift
 2123	cmuxTests/ShortcutAndCommandPaletteTests.swift
 2117	cmuxTests/CmuxConfigTests.swift
@@ -68,8 +68,8 @@
 1372	cmuxTests/AppDelegateIssue2907RoutingTests.swift
 1365	Sources/Feed/FeedButtonStyleDebugWindowController.swift
 1362	Sources/CMUXInstalledExtensionSidebarHostView.swift
-1312	cmuxTests/MobileHostAuthorizationTests.swift
 1285	cmuxUITests/SidebarHelpMenuUITests.swift
+1272	cmuxTests/MobileHostAuthorizationTests.swift
 1255	Sources/Feed/FeedCoordinator.swift
 1205	Packages/CmuxMobileTerminal/Sources/CmuxMobileTerminal/TerminalInputTextView.swift
 1197	cmuxTests/CodexAppServerSessionTests.swift
