@@ -350,6 +350,25 @@ jobs:
             -only-testing:cmuxTests/BrowserSystemProxyMirrorTests \
             test
 
+      - name: Run Option/Alt sided-modifier regression
+        run: |
+          # Focused gate for https://github.com/manaflow-ai/cmux/issues/5993.
+          # The full "Run unit tests" step tolerates app-host crashes by
+          # parsing only the last test summary, so suites that run late can
+          # be silently skipped when an earlier crash aborts the run. This
+          # step makes the Option/Alt sided-modifier and Option-composition
+          # regression an unconditional gate.
+          set -euo pipefail
+          SOURCE_PACKAGES_DIR="$PWD/.ci-source-packages"
+          xcodebuild -project cmux.xcodeproj -scheme cmux-unit -configuration Debug \
+            -derivedDataPath "$CMUX_DERIVED_DATA_PATH" \
+            -clonedSourcePackagesDirPath "$SOURCE_PACKAGES_DIR" \
+            -disableAutomaticPackageResolution \
+            -destination "platform=macOS" \
+            CMUX_SKIP_ZIG_BUILD=1 \
+            -only-testing:cmuxTests/GhosttyOptionAsAltModsTests \
+            test
+
       - name: Run unit tests
         run: |
           set -euo pipefail
@@ -442,6 +461,10 @@ jobs:
           # symbol instead of the GhosttyKit archive.
           PACKAGES=(
             CMUXAuthCore
+            CmuxCore
+            CmuxRemoteDaemon
+            CmuxRemoteWorkspace
+            CmuxRemoteSession
             CmuxAuthRuntime
             CmuxControlSocket
             CmuxFileWatch

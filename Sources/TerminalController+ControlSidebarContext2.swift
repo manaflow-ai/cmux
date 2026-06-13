@@ -1,4 +1,5 @@
 import CmuxControlSocket
+import CmuxRemoteSession
 import Foundation
 
 /// The live-app half of the v1 sidebar telemetry/report commands
@@ -282,7 +283,7 @@ extension TerminalController {
     }
 
     func controlSidebarScheduleScopedPortsKick(scope: ControlSidebarPanelScope, reasonRawValue: String) {
-        guard let reason = WorkspaceRemoteSessionController.PortScanKickReason(rawValue: reasonRawValue) else {
+        guard let reason = PortScanKickReason(rawValue: reasonRawValue) else {
             // Unreachable: the coordinator only forwards a value this app produced.
             return
         }
@@ -303,7 +304,7 @@ extension TerminalController {
     }
 
     func controlSidebarPortsKick(tabArg: String?, panelArg: String?, reasonRawValue: String) -> ControlSidebarPanelWriteResolution {
-        guard let reason = WorkspaceRemoteSessionController.PortScanKickReason(rawValue: reasonRawValue) else {
+        guard let reason = PortScanKickReason(rawValue: reasonRawValue) else {
             // Unreachable: the coordinator only forwards a value this app produced.
             return .tabNotFound
         }
