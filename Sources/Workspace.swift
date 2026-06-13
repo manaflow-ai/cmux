@@ -7644,10 +7644,6 @@ final class WorkspaceRemoteSessionController {
         _ = try? sshExec(arguments: arguments, timeout: 4)
     }
 
-    private static let remotePlatformProbeHomeMarker = "__CMUX_REMOTE_HOME__="
-    private static let remotePlatformProbeOSMarker = "__CMUX_REMOTE_OS__="
-    private static let remotePlatformProbeArchMarker = "__CMUX_REMOTE_ARCH__="
-    private static let remotePlatformProbeExistsMarker = "__CMUX_REMOTE_EXISTS__="
     private static let bootstrapRemoteTTYRetryDelay: TimeInterval = 0.5
     private static let bootstrapRemoteTTYRetryLimit = 8
 
@@ -8238,29 +8234,7 @@ final class WorkspaceRemoteSessionController {
     }
 
     private func probeRemoteBootstrapStateLocked(version: String) throws -> RemoteBootstrapState {
-        let script = """
-        cmux_uname_os="$(uname -s)"
-        cmux_uname_arch="$(uname -m)"
-        printf '%s%s\\n' '\(Self.remotePlatformProbeHomeMarker)' "$HOME"
-        printf '%s%s\\n' '\(Self.remotePlatformProbeOSMarker)' "$cmux_uname_os"
-        printf '%s%s\\n' '\(Self.remotePlatformProbeArchMarker)' "$cmux_uname_arch"
-        case "$(printf '%s' "$cmux_uname_os" | tr '[:upper:]' '[:lower:]')" in
-          linux|darwin|freebsd) cmux_go_os="$(printf '%s' "$cmux_uname_os" | tr '[:upper:]' '[:lower:]')" ;;
-          *) exit 70 ;;
-        esac
-        case "$(printf '%s' "$cmux_uname_arch" | tr '[:upper:]' '[:lower:]')" in
-          x86_64|amd64) cmux_go_arch=amd64 ;;
-          aarch64|arm64) cmux_go_arch=arm64 ;;
-          armv7l) cmux_go_arch=arm ;;
-          *) exit 71 ;;
-        esac
-        cmux_remote_path="$HOME/.cmux/bin/cmuxd-remote/\(version)/${cmux_go_os}-${cmux_go_arch}/cmuxd-remote"
-        if [ -x "$cmux_remote_path" ]; then
-          printf '%syes\\n' '\(Self.remotePlatformProbeExistsMarker)'
-        else
-          printf '%sno\\n' '\(Self.remotePlatformProbeExistsMarker)'
-        fi
-        """
+        let script = Self.remotePlatformProbeScript(version: version)
         let command = "sh -c \(Self.shellSingleQuoted(script))"
         let result = try sshExec(arguments: sshCommonArguments(batchMode: true) + [configuration.destination, command], timeout: 20)
 
@@ -8274,8 +8248,9 @@ final class WorkspaceRemoteSessionController {
             .map { String($0.dropFirst(Self.remotePlatformProbeArchMarker.count)) }
         let homeDirectory = lines.first { $0.hasPrefix(Self.remotePlatformProbeHomeMarker) }
             .map { String($0.dropFirst(Self.remotePlatformProbeHomeMarker.count)) }
+        let userFacingStdout = Self.remotePlatformProbeUserFacingStdout(result.stdout)
         guard let unameOS, let unameArch, let homeDirectory else {
-            let detail = Self.bestErrorLine(stderr: result.stderr, stdout: result.stdout) ?? "ssh exited \(result.status)"
+            let detail = Self.bestErrorLine(stderr: result.stderr, stdout: userFacingStdout) ?? "ssh exited \(result.status)"
             throw NSError(domain: "cmux.remote.daemon", code: 11, userInfo: [
                 NSLocalizedDescriptionKey: "failed to query remote platform: \(detail)",
             ])
@@ -8291,7 +8266,7 @@ final class WorkspaceRemoteSessionController {
         let binaryExists = lines.first { $0.hasPrefix(Self.remotePlatformProbeExistsMarker) }
             .map { String($0.dropFirst(Self.remotePlatformProbeExistsMarker.count)) == "yes" }
         if result.status != 0, binaryExists == nil {
-            let detail = Self.bestErrorLine(stderr: result.stderr, stdout: result.stdout) ?? "ssh exited \(result.status)"
+            let detail = Self.bestErrorLine(stderr: result.stderr, stdout: userFacingStdout) ?? "ssh exited \(result.status)"
             throw NSError(domain: "cmux.remote.daemon", code: 13, userInfo: [
                 NSLocalizedDescriptionKey: "failed to query remote daemon state: \(detail)",
             ])
@@ -8860,7 +8835,7 @@ final class WorkspaceRemoteSessionController {
             return "amd64"
         case "aarch64", "arm64":
             return "arm64"
-        case "armv7l":
+        case "armv7l", "armv7":
             return "arm"
         default:
             return nil
