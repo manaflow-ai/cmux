@@ -78,6 +78,27 @@ struct ChatTextBlockParserTests {
         #expect(blocks[0].kind == .paragraph)
     }
 
+    @Test("horizontal rules parse, including spaced and other markers")
+    func horizontalRules() {
+        for rule in ["---", "***", "___", "- - -", "* * *", "-----"] {
+            let blocks = parser.blocks(from: rule)
+            #expect(blocks.count == 1, "\(rule) should be one block")
+            #expect(blocks[0].kind == .rule, "\(rule) should be a rule, got \(blocks[0].kind)")
+        }
+    }
+
+    @Test("a rule separates surrounding paragraphs into distinct blocks")
+    func ruleSeparates() {
+        let blocks = parser.blocks(from: "before\n---\nafter")
+        #expect(blocks.map(\.kind) == [.paragraph, .rule, .paragraph])
+    }
+
+    @Test("two dashes is not a rule")
+    func twoDashesNotRule() {
+        let blocks = parser.blocks(from: "-- not a rule")
+        #expect(blocks[0].kind == .paragraph)
+    }
+
     @Test("a hyphen without a trailing space is not a bullet")
     func hyphenWord() {
         let blocks = parser.blocks(from: "-rf is a flag, not a bullet")

@@ -168,6 +168,13 @@ public struct ChatProseBubbleView: View {
                     .foregroundStyle(.secondary)
                     .textSelection(.enabled)
             }
+        case .rule:
+            Rectangle()
+                .fill(theme.hairline)
+                .frame(height: 1)
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 4)
+                .accessibilityHidden(true)
         }
     }
 

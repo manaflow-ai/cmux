@@ -27,6 +27,7 @@ public struct ChatTranscriptListView: View {
 
     #if os(iOS)
     @State private var isAtBottom = true
+    @State private var scrollPosition = ScrollPosition(idType: String.self)
     #endif
     @State private var containerWidth: CGFloat = 0
 
@@ -87,6 +88,8 @@ public struct ChatTranscriptListView: View {
                 .overlay(alignment: .bottomTrailing) {
                     if !isAtBottom {
                         ChatScrollToBottomButton {
+                            isAtBottom = true
+                            scrollPosition.scrollTo(id: Self.bottomAnchorID, anchor: .bottom)
                             withAnimation(.snappy(duration: 0.25)) {
                                 proxy.scrollTo(Self.bottomAnchorID, anchor: .bottom)
                             }
@@ -200,6 +203,9 @@ public struct ChatTranscriptListView: View {
             \.chatBubbleMaxWidth,
             containerWidth > 0 ? containerWidth * theme.bubbleMaxWidthFraction : .infinity
         )
+        #if os(iOS)
+        .scrollPosition($scrollPosition)
+        #endif
     }
 
     @ViewBuilder

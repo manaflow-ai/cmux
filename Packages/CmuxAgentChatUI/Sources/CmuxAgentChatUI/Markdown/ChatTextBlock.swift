@@ -19,6 +19,8 @@ public struct ChatTextBlock: Sendable, Equatable, Identifiable {
         case ordered(marker: String, indent: Int)
         /// A block quote.
         case quote
+        /// A horizontal rule / section divider (`---`, `***`, `___`).
+        case rule
     }
 
     /// Position within the segment, for stable identity.
@@ -106,6 +108,17 @@ public struct ChatTextBlockParser: Sendable {
                     )
                 }
             }
+        }
+
+        // Horizontal rule: 3+ of a single marker char (-, *, _), allowing
+        // spaces between them and nothing else (`---`, `***`, `- - -`).
+        // Checked before bullets so `* * *` / `- - -` aren't read as a
+        // bullet whose text is "* *".
+        let ruleChars = trimmed.filter { !$0.isWhitespace }
+        if ruleChars.count >= 3,
+           let marker = ruleChars.first, "-*_".contains(marker),
+           ruleChars.allSatisfy({ $0 == marker }) {
+            return ChatTextBlock(index: index, kind: .rule, text: "")
         }
 
         // Bullet: -, *, or + then a space.
