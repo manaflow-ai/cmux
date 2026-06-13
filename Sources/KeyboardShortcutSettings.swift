@@ -412,11 +412,8 @@ enum KeyboardShortcutSettings {
             case .attachTextBoxFile:
                 return StoredShortcut(key: "a", command: true, shift: true, option: true, control: false)
             case .sendCtrlFToTerminal:
-                // Unbound by default: this is a deliberate escape hatch for forwarding a
-                // control chord (e.g. Claude Code's Ctrl-F force-stop) to the focused
-                // terminal. Binding it to plain Ctrl-F would be self-referential, so users
-                // opt in via Settings; it stays reachable through the command palette and
-                // the `send_key ctrl-f` socket command.
+                // Unbound by default: users opt in via Settings when they need
+                // Ctrl-F forwarded to terminal apps such as Claude Code.
                 return .unbound
             case .selectWorkspaceByNumber:
                 return StoredShortcut(key: "1", command: true, shift: false, option: false, control: false)
@@ -443,8 +440,6 @@ enum KeyboardShortcutSettings {
             case .browserZoomReset:
                 return StoredShortcut(key: "0", command: true, shift: false, option: false, control: false)
             case .markdownZoomIn:
-                // Same chord as browser zoom, but scoped to the markdown panel
-                // context so the two never collide.
                 return StoredShortcut(key: "=", command: true, shift: false, option: false, control: false)
             case .markdownZoomOut:
                 return StoredShortcut(key: "-", command: true, shift: false, option: false, control: false)
