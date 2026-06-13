@@ -23065,7 +23065,7 @@ struct CMUXCLI {
             if fallbackIsAmbient,
                let binding = resolveClaudeHookTerminalBinding(
                    agentPID: agentPID,
-                   allowProcessSnapshotBinding: allowProcessSnapshotBinding && !resolved.isAuthoritative,
+                   allowProcessSnapshotBinding: allowProcessSnapshotBinding,
                    client: client
                ),
                let boundSurface = resolveClaudeHookBindingSurfaceId(

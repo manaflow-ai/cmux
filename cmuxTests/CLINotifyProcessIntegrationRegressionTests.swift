@@ -453,12 +453,11 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         )
     }
 
-    func testClaudePromptSubmitUsesCallerTTYWhenNoFlickerHookInheritsStaleSurface() throws {
+    func testClaudePromptSubmitUsesAgentPIDWhenNoFlickerHookInheritsStaleSurface() throws {
         let context = try makeClaudeHookContext(name: "claude-no-flicker-stale-surface")
         defer { context.cleanup() }
 
         let staleSurfaceId = "33333333-3333-3333-3333-333333333333"
-        let callerTTY = "/dev/ttys6048"
         let claudePID = "6048"
         let serverHandled = startMockServer(listenerFD: context.listenerFD, state: context.state) { line in
             guard let payload = self.jsonObject(line) else {
@@ -487,21 +486,32 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
                         ],
                     ]
                 )
-            case "debug.terminals":
+            case "system.top":
                 return self.v2Response(
                     id: id,
                     ok: true,
                     result: [
-                        "terminals": [
+                        "windows": [
                             [
-                                "workspace_id": context.workspaceId,
-                                "surface_id": context.surfaceId,
-                                "tty": callerTTY,
-                            ],
-                            [
-                                "workspace_id": context.workspaceId,
-                                "surface_id": staleSurfaceId,
-                                "tty": "/dev/ttys6049",
+                                "workspaces": [
+                                    [
+                                        "id": context.workspaceId,
+                                        "panes": [
+                                            [
+                                                "surfaces": [
+                                                    [
+                                                        "id": context.surfaceId,
+                                                        "top_level_pids": [Int(claudePID)!],
+                                                    ],
+                                                    [
+                                                        "id": staleSurfaceId,
+                                                        "top_level_pids": [],
+                                                    ],
+                                                ],
+                                            ],
+                                        ],
+                                    ],
+                                ],
                             ],
                         ],
                     ]
@@ -521,7 +531,6 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
             "CMUX_SOCKET_PATH": context.socketPath,
             "CMUX_WORKSPACE_ID": context.workspaceId,
             "CMUX_SURFACE_ID": staleSurfaceId,
-            "CMUX_CLI_TTY_NAME": callerTTY,
             "CMUX_CLAUDE_PID": claudePID,
             "CMUX_CLAUDE_HOOK_STATE_PATH": context.root.appendingPathComponent("claude-hook-sessions.json").path,
             "CMUX_CLI_SENTRY_DISABLED": "1",
@@ -547,14 +556,14 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
                 $0.hasPrefix("set_agent_pid claude_code \(claudePID) --tab=\(context.workspaceId)")
                     && $0.contains("--panel=\(context.surfaceId)")
             },
-            "Expected prompt-submit to refresh Claude's PID gate for the TTY-bound pane, saw \(context.state.commands)"
+            "Expected prompt-submit to refresh Claude's PID gate for the PID-bound pane, saw \(context.state.commands)"
         )
         XCTAssertTrue(
             context.state.commands.contains {
                 $0.hasPrefix("set_status claude_code Running --icon=bolt.fill --color=#4C8DFF --tab=\(context.workspaceId)")
                     && $0.contains("--panel=\(context.surfaceId)")
             },
-            "Expected prompt-submit to mark the TTY-bound pane Running, saw \(context.state.commands)"
+            "Expected prompt-submit to mark the PID-bound pane Running, saw \(context.state.commands)"
         )
         XCTAssertFalse(
             context.state.commands.contains {
