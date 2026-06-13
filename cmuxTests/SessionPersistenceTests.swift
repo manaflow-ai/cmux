@@ -1,4 +1,5 @@
 import CMUXAgentLaunch
+import CmuxFoundation
 import Darwin
 import XCTest
 

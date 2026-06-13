@@ -6,6 +6,7 @@ import WebKit
 import ObjectiveC.runtime
 import Bonsplit
 import CmuxAppKitSupportUI
+import CmuxFoundation
 import UserNotifications
 import Testing
 

@@ -15,7 +15,7 @@
 7292	cmuxTests/WorkspaceUnitTests.swift
 6948	cmuxTests/WorkspaceRemoteConnectionTests.swift
 6543	cmuxTests/GhosttyConfigTests.swift
-6329	cmuxTests/SessionPersistenceTests.swift
+6330	cmuxTests/SessionPersistenceTests.swift
 6255	cmuxTests/TerminalAndGhosttyTests.swift
 6153	CLI/cmux_open.swift
 6071	Sources/TextBoxInput.swift
@@ -73,7 +73,7 @@
 1216	Packages/CmuxCommandPalette/Tests/CmuxCommandPaletteTests/CommandPaletteSearchEngineTests.swift
 1205	Packages/CmuxMobileTerminal/Sources/CmuxMobileTerminal/TerminalInputTextView.swift
 1197	cmuxTests/CodexAppServerSessionTests.swift
-1157	cmuxTests/SidebarOrderingTests.swift
+1158	cmuxTests/SidebarOrderingTests.swift
 1144	Sources/VaultAgentProcessScanner.swift
 1139	cmuxTests/PiVaultAgentPersistenceTests.swift
 1126	cmuxTests/FileExplorerStoreTests.swift
