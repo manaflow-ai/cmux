@@ -26,10 +26,17 @@ struct DeviceTreeView: View {
     /// Open a workspace (the existing tap-to-open path). Forwarded from the shell.
     let selectWorkspace: (MobileWorkspacePreview.ID) -> Void
     @Environment(\.dismiss) private var dismiss
+    /// Display preferences (title wrapping, preview line count) shared with the
+    /// flat workspace list, read here at the snapshot boundary and passed down
+    /// as values so tree workspace rows render identically to flat-list rows.
+    @Environment(MobileDisplaySettings.self) private var displaySettings
 
     /// Persisted expansion shape, encoded as a newline-separated id string.
     @AppStorage("cmux.mobile.deviceTree.expanded") private var expandedStorage = ""
     @State private var isRefreshing = false
+    /// The active workspace-row filter (All / Unread), the same shared model the
+    /// flat list uses, applied to every expanded instance's workspace leaves.
+    @State private var filter: MobileWorkspaceListFilter = .all
 
     private var expansion: DeviceTreeExpansionStore {
         DeviceTreeExpansionStore(storage: expandedStorage)
@@ -58,6 +65,9 @@ struct DeviceTreeView: View {
             .navigationTitle(L10n.string("mobile.deviceTree.title", defaultValue: "Devices"))
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
+                ToolbarItem(placement: .topBarLeading) {
+                    WorkspaceListFilterMenu(filter: $filter)
+                }
                 ToolbarItem(placement: .confirmationAction) {
                     Button(L10n.string("mobile.common.done", defaultValue: "Done")) {
                         dismiss()
@@ -146,7 +156,11 @@ struct DeviceTreeView: View {
         // actually connected; the other tags offer a Connect affordance instead
         // of (wrongly) mirroring another build's workspaces.
         let isActiveInstance = isConnectedDevice && instanceMatchesActiveRoute(instance)
-        let workspaces = isActiveInstance ? store.workspaces : []
+        let allWorkspaces = isActiveInstance ? store.workspaces : []
+        // The same shared row filter the flat list applies; the instance row's
+        // workspace count keeps describing the build (all workspaces), only the
+        // visible leaves narrow.
+        let workspaces = allWorkspaces.filter { filter.matches($0) }
         let captured = DeviceTreeInstanceCapture(
             deviceId: device.deviceId,
             displayName: device.displayName,
@@ -162,7 +176,7 @@ struct DeviceTreeView: View {
                 tag: instance.tag,
                 lastSeenAt: instance.lastSeenAt,
                 hasRoutes: instance.hasRoutes,
-                workspaceCount: workspaces.count,
+                workspaceCount: allWorkspaces.count,
                 isActiveInstance: isActiveInstance
             ),
             isExpanded: expansion.isExpanded(expansionID),
@@ -172,11 +186,17 @@ struct DeviceTreeView: View {
 
         if expansion.isExpanded(expansionID) {
             if workspaces.isEmpty {
-                DeviceTreeWorkspacePlaceholderRow(
-                    isActiveInstance: isActiveInstance,
-                    hasRoutes: instance.hasRoutes,
-                    connect: connect
-                )
+                if filter.isActive && !allWorkspaces.isEmpty {
+                    // The filter (not the build) emptied the leaves; offer the
+                    // shared way back instead of the connect placeholder.
+                    WorkspaceListFilterEmptyRow(filter: filter) { filter = .all }
+                } else {
+                    DeviceTreeWorkspacePlaceholderRow(
+                        isActiveInstance: isActiveInstance,
+                        hasRoutes: instance.hasRoutes,
+                        connect: connect
+                    )
+                }
             } else {
                 ForEach(workspaces) { workspace in
                     WorkspaceNavigationRow(
@@ -184,7 +204,8 @@ struct DeviceTreeView: View {
                         connectionStatus: store.macConnectionStatus,
                         isSelected: false,
                         navigationStyle: .push,
-                        wrapWorkspaceTitles: false,
+                        wrapWorkspaceTitles: displaySettings.wrapWorkspaceTitles,
+                        previewLineLimit: displaySettings.workspacePreviewLineCount,
                         selectWorkspace: { id in
                             selectWorkspace(id)
                             dismiss()
