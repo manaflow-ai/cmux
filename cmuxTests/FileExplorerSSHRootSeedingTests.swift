@@ -67,8 +67,7 @@ final class FileExplorerSSHRootSeedingTests: XCTestCase {
             "processTitle": "Terminal",
             "isPinned": false,
             "currentDirectory": "/Users/legacy",
-            "layout": {"orientation": "horizontal", "kind": "pane",
-                       "pane": {"id": "00000000-0000-0000-0000-000000000001", "tabIds": []}},
+            "layout": {"type": "pane", "pane": {"panelIds": []}},
             "panels": [],
             "statusEntries": [],
             "logEntries": []
