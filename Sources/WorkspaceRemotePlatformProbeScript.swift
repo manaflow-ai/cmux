@@ -8,7 +8,7 @@ extension WorkspaceRemoteSessionController {
 
     static func remotePlatformProbeScript(version: String) -> String {
         let scriptVersion = normalizedRemotePlatformProbeVersion(version)
-        """
+        return """
         cmux_uname_os="$(uname -s)"
         cmux_uname_arch="$(uname -m)"
         printf '%s%s\\n' '\(Self.remotePlatformProbeHomeMarker)' "$HOME"
