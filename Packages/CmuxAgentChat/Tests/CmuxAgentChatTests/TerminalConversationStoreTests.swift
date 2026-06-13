@@ -28,6 +28,41 @@ struct TerminalConversationStoreTests {
         return await MainActor.run(body: condition)
     }
 
+    private static func pendings(_ rows: [ChatTranscriptRow]) -> [ChatPendingOutbound] {
+        rows.compactMap { if case .pendingOutbound(let p) = $0 { return p }; return nil }
+    }
+
+    @Test("reset clears terminal blocks (no stale render after a transcript reset)")
+    @MainActor func resetClearsBlocks() async {
+        let source = FixtureChatEventSource(terminalBacklog: [
+            TerminalCommandBlock(id: 0, command: "ls", output: "a\n", exitCode: 0, isRunning: false),
+            TerminalCommandBlock(id: 1, command: "pwd", output: "/tmp\n", exitCode: 0, isRunning: false),
+        ])
+        let store = Self.makeStore(source)
+        let run = Task { await store.run() }
+        defer { run.cancel() }
+        #expect(await Self.waitUntil { store.isConnected && Self.blocks(store.rows).count == 2 })
+        await source.emit(.reset)
+        #expect(await Self.waitUntil { Self.blocks(store.rows).isEmpty })
+    }
+
+    @Test("a terminal send shows a pending row, then reconciles when its command echoes as a block")
+    @MainActor func sendPendingReconciles() async {
+        let source = FixtureChatEventSource(terminalBacklog: [])
+        let store = Self.makeStore(source)
+        let run = Task { await store.run() }
+        defer { run.cancel() }
+        #expect(await Self.waitUntil { store.isConnected })
+        await store.send(text: "echo hi")
+        #expect(await Self.waitUntil { Self.pendings(store.rows).count == 1 })
+        await source.emitTerminalBlocks([
+            TerminalCommandBlock(id: 0, command: "echo hi", output: "hi\n", exitCode: 0, isRunning: false),
+        ])
+        #expect(await Self.waitUntil {
+            Self.pendings(store.rows).isEmpty && Self.blocks(store.rows).count == 1
+        })
+    }
+
     @Test("terminal history seeds command-block rows in order")
     @MainActor func historySeedsRows() async {
         let source = FixtureChatEventSource(terminalBacklog: [

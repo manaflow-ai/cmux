@@ -462,6 +462,9 @@ public final class ChatConversationStore {
                 if terminalBlocks[block.id] == nil { terminalBlockOrder.append(block.id) }
                 terminalBlocks[block.id] = block
             }
+            // A typed command echoes back as its own command block; clear the
+            // optimistic pending row it came from so it doesn't linger or leak.
+            reconcileTerminalPending(against: blocks)
             reproject()
         case .reset:
             // The transcript was truncated/replaced on the Mac (tailer
@@ -471,6 +474,12 @@ public final class ChatConversationStore {
             // their retry and in-flight sends may still land in the new
             // transcript and reconcile normally.
             messages = []
+            // Terminal blocks must clear here too: the terminal reproject()
+            // does not consult `messages`, so without this the synchronous
+            // reproject below would re-render stale blocks (and they'd persist
+            // permanently if the resync history fetch fails).
+            terminalBlocks = [:]
+            terminalBlockOrder = []
             pending.removeAll { $0.delivery == .delivered }
             hasMoreHistory = false
             reproject()
@@ -572,6 +581,23 @@ public final class ChatConversationStore {
         reproject()
     }
 
+    /// Removes optimistic pending rows whose command echoed back as a
+    /// terminal command-block (the terminal analogue of `reconcilePending`).
+    /// Failed pendings keep their retry row (`isReconcilable` is false).
+    private func reconcileTerminalPending(against blocks: [TerminalCommandBlock]) {
+        guard !pending.isEmpty else { return }
+        for block in blocks {
+            let command = block.command.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !command.isEmpty else { continue }
+            if let index = pending.firstIndex(where: {
+                $0.isReconcilable
+                    && $0.text.trimmingCharacters(in: .whitespacesAndNewlines) == command
+            }) {
+                pending.remove(at: index)
+            }
+        }
+    }
+
     /// Replaces the terminal block window from a history page (oldest first).
     private func seedTerminalBlocks(_ blocks: [TerminalCommandBlock]) {
         terminalBlocks = [:]
@@ -587,8 +613,12 @@ public final class ChatConversationStore {
         // conversation, so it bypasses the bubble-grouping projector. The
         // agent branch is unchanged.
         if descriptor.kind == .terminal {
+            // Include optimistic sends so the user sees their command (and any
+            // failure/retry) until the shell echoes it back as a command
+            // block; otherwise a terminal send would be invisible.
             rows = terminalBlockOrder.compactMap { terminalBlocks[$0] }
                 .map(ChatTranscriptRow.terminalCommand)
+                + pending.map(ChatTranscriptRow.pendingOutbound)
             return
         }
         rows = projector.rows(

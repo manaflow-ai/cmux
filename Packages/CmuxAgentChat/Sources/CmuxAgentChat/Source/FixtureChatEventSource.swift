@@ -76,6 +76,10 @@ public actor FixtureChatEventSource: ChatEventSource {
     }
 
     public func send(text: String, attachments: [ChatOutboundAttachment], sessionID: String) async throws {
+        // A real terminal echoes the typed command back as a command BLOCK
+        // (via the PTY), not as a transcript message; tests/demo drive that
+        // with emitTerminalBlocks, so don't fake a message echo here.
+        if isTerminal { return }
         var appended: [ChatMessage] = []
         for _ in attachments {
             appended.append(
