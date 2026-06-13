@@ -4,6 +4,7 @@ import CmuxControlSocket
 import CmuxTerminalCopyMode
 import CmuxSocketControl
 import AppKit
+import CmuxFoundation
 import SwiftUI
 import UniformTypeIdentifiers
 import WebKit

@@ -2,6 +2,7 @@
 import CmuxSettings
 import CmuxSocketControl
 import AppKit
+import CmuxFoundation
 import Combine
 import CoreText
 import WebKit
