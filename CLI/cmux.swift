@@ -28822,6 +28822,10 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
         // then env, then the caller process. Grok strips CMUX_* from hook
         // subprocesses, so PID attribution is the only reliable live binding.
         var inferredPID: Int?
+        func agentPID() -> Int? {
+            inferredPID = inferredPID ?? inferredAgentPID()
+            return inferredPID
+        }
         let hookWsFlag = optionValue(hookArgs, name: "--workspace")
         let directWorkspaceArg = hookWsFlag ?? normalizedHookValue(env["CMUX_WORKSPACE_ID"])
         let explicitSurfaceFlag = optionValue(hookArgs, name: "--surface")
@@ -28861,10 +28865,7 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
         func processBinding() -> CallerTerminalBinding? {
             if !didResolveProcessBinding {
                 didResolveProcessBinding = true
-                // Resolve only on demand: stale ambient env can point at a closed pane,
-                // while TTY/PID binding is the live local-terminal source.
-                let agentPID = inferredPID ?? inferredAgentPID()
-                inferredPID = agentPID
+                let agentPID = agentPID()
                 processBindingCache = resolveCallerTerminalBindingByTTY(client: client)
                     ?? resolveAgentProcessTerminalBinding(pid: agentPID, client: client, socketPassword: socketPassword)
             }
@@ -29169,7 +29170,7 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
             let workspaceId = target.workspaceId
             let surfaceId = target.surfaceId
             sendAgentFeedTelemetryUnlessSuppressed(workspaceId: workspaceId)
-            let pid = inferredPID
+            let pid = agentPID()
             let suppressVisibleMutations = shouldSuppressNestedAgentVisibleMutations(currentAgentPID: pid, env: env)
             let launchCommand = agentLaunchCommandFromEnvironment(
                 env,
@@ -29242,7 +29243,7 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
             let workspaceId = target.workspaceId
             let surfaceId = target.surfaceId
             sendAgentFeedTelemetryUnlessSuppressed(workspaceId: workspaceId)
-            let pid = mapped?.pid ?? inferredPID
+            let pid = mapped?.pid ?? agentPID()
             let launchCommand = agentLaunchCommandFromEnvironment(
                 env,
                 fallbackPID: pid,
@@ -29409,7 +29410,7 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
             let workspaceId = target.workspaceId
             let surfaceId = target.surfaceId
             sendAgentFeedTelemetry(workspaceId: workspaceId)
-            let pid = mapped?.pid ?? inferredPID
+            let pid = mapped?.pid ?? agentPID()
             let codexFailure: CodexHookFailureSummary?
             let codexSubagentSignals: CodexTranscriptSubagentSignals
             if def.name == "codex" {
@@ -29699,7 +29700,7 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
             let workspaceId = target.workspaceId
             let surfaceId = target.surfaceId
             sendAgentFeedTelemetryUnlessSuppressed(workspaceId: workspaceId)
-            let pid = mapped?.pid ?? inferredPID
+            let pid = mapped?.pid ?? agentPID()
             let launchCommand = agentLaunchCommandFromEnvironment(
                 env,
                 fallbackPID: pid,
@@ -29860,7 +29861,7 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
             }
 
             if !sessionId.isEmpty {
-                let pid = mapped?.pid ?? inferredPID
+                let pid = mapped?.pid ?? agentPID()
                 let launchCommand = agentLaunchCommandFromEnvironment(
                     env,
                     fallbackPID: pid,
