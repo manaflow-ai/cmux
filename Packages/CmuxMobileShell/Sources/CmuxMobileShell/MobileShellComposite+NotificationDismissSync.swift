@@ -9,6 +9,11 @@ private let mobileShellLog = Logger(
 )
 
 extension MobileShellComposite {
+    /// Enqueue and send phone-side notification dismissals to the connected Mac.
+    ///
+    /// IDs are stable Mac notification identifiers from `cmux.notificationId`.
+    /// They are stored before the RPC and removed only after the Mac confirms,
+    /// so a dropped connection flushes them on the next successful subscribe.
     public func dismissNotification(ids: [String]) async {
         let trimmed = ids
             .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
@@ -37,6 +42,10 @@ extension MobileShellComposite {
         await dismissNotification(ids: pending)
     }
 
+    /// Clear delivered iOS banners for Mac notification identifiers.
+    ///
+    /// Called from live `notification.dismissed` events and foreground reconcile
+    /// responses so Mac-side reads/removals clear mirrored phone banners.
     public func clearDeliveredNotifications(ids: [String]) async {
         let trimmed = ids
             .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
@@ -45,6 +54,10 @@ extension MobileShellComposite {
         await deliveredNotificationClearer.removeDelivered(ids: trimmed)
     }
 
+    /// Set the phone app icon badge to the Mac's authoritative unread total.
+    ///
+    /// The badge is absolute, not locally incremented/decremented, so drift
+    /// self-heals on the next event, push, or reconcile response.
     public func applyAuthoritativeUnreadBadge(_ count: Int) {
         deliveredNotificationClearer.setBadgeCount(max(0, count))
     }
