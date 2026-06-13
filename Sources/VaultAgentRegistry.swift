@@ -16,11 +16,15 @@ struct CmuxVaultAgentRegistration: Codable, Hashable, Sendable {
     var detect: CmuxVaultAgentDetectRule
     var sessionIdSource: CmuxVaultAgentSessionIDSource
     var resumeCommand: String
+    /// Optional template that forks the session into a new one (original left
+    /// untouched), e.g. `{{executable}} --fork {{sessionId}}`. Agents without a
+    /// fork-capable CLI leave this nil, which hides the Fork Conversation actions.
+    var forkCommand: String?
     var cwd: CmuxVaultAgentCWDPolicy
     var sessionDirectory: String?
 
     private enum CodingKeys: String, CodingKey {
-        case id, name, iconAssetName, detect, sessionIdSource, resumeCommand, cwd, sessionDirectory
+        case id, name, iconAssetName, detect, sessionIdSource, resumeCommand, forkCommand, cwd, sessionDirectory
     }
 
     init(
@@ -30,6 +34,7 @@ struct CmuxVaultAgentRegistration: Codable, Hashable, Sendable {
         detect: CmuxVaultAgentDetectRule,
         sessionIdSource: CmuxVaultAgentSessionIDSource,
         resumeCommand: String,
+        forkCommand: String? = nil,
         cwd: CmuxVaultAgentCWDPolicy = .preserve,
         sessionDirectory: String? = nil
     ) {
@@ -39,6 +44,7 @@ struct CmuxVaultAgentRegistration: Codable, Hashable, Sendable {
         self.detect = detect
         self.sessionIdSource = sessionIdSource
         self.resumeCommand = resumeCommand
+        self.forkCommand = Self.normalizedOptional(forkCommand)
         self.cwd = cwd
         self.sessionDirectory = sessionDirectory
     }
@@ -75,12 +81,26 @@ struct CmuxVaultAgentRegistration: Codable, Hashable, Sendable {
             )
         }
 
+        let forkCommand = Self.normalizedOptional(
+            try container.decodeIfPresent(String.self, forKey: .forkCommand)
+        )
+        if let forkCommand,
+           !forkCommand.contains("{{sessionId}}"),
+           !forkCommand.contains("{{sessionPath}}") {
+            throw DecodingError.dataCorruptedError(
+                forKey: .forkCommand,
+                in: container,
+                debugDescription: "Vault agent forkCommand must include {{sessionId}} or {{sessionPath}}"
+            )
+        }
+
         self.id = id
         self.name = name
         self.iconAssetName = Self.normalizedOptional(try container.decodeIfPresent(String.self, forKey: .iconAssetName))
         self.detect = try container.decodeIfPresent(CmuxVaultAgentDetectRule.self, forKey: .detect) ?? .init()
         self.sessionIdSource = try container.decode(CmuxVaultAgentSessionIDSource.self, forKey: .sessionIdSource)
         self.resumeCommand = resumeCommand
+        self.forkCommand = forkCommand
         self.cwd = try container.decodeIfPresent(CmuxVaultAgentCWDPolicy.self, forKey: .cwd) ?? .preserve
         let directory = try container.decodeIfPresent(String.self, forKey: .sessionDirectory)?
             .trimmingCharacters(in: .whitespacesAndNewlines)
@@ -121,6 +141,7 @@ struct CmuxVaultAgentRegistration: Codable, Hashable, Sendable {
             detect: CmuxVaultAgentDetectRule(processName: "pi", argvContains: ["pi"]),
             sessionIdSource: .piSessionFile,
             resumeCommand: "{{executable}} --session {{sessionId}}",
+            forkCommand: "{{executable}} --fork {{sessionId}}",
             cwd: .preserve,
             sessionDirectory: "~/.pi/agent/sessions"
         )
@@ -136,6 +157,7 @@ struct CmuxVaultAgentRegistration: Codable, Hashable, Sendable {
             ),
             sessionIdSource: .piSessionFile,
             resumeCommand: "{{executable}} --session {{sessionId}}",
+            forkCommand: "{{executable}} --fork {{sessionId}}",
             cwd: .preserve,
             sessionDirectory: "~/.omp/agent/sessions"
         )
