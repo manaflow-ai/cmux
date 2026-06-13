@@ -12774,14 +12774,14 @@ struct SidebarWorkspaceFrameAnchorModifier: ViewModifier {
     let id: UUID
     let isEnabled: Bool
 
-    @ViewBuilder
     func body(content: Content) -> some View {
-        if isEnabled {
-            content.anchorPreference(key: SidebarWorkspaceRowFramePreferenceKey.self, value: .bounds) { anchor in
-                [id: anchor]
-            }
-        } else {
-            content
+        // Branchless: always apply anchorPreference, emit [:] when disabled. An
+        // if/else gives `content` distinct identity per state, so flipping
+        // isEnabled at drag start/end recreated every visible row's subtree
+        // (lost @State, fresh snapshot builds + relayout mid-drag). The frame
+        // *reader* stays gated on the drag (#5325), so an empty emit costs nothing.
+        content.anchorPreference(key: SidebarWorkspaceRowFramePreferenceKey.self, value: .bounds) { anchor in
+            isEnabled ? [id: anchor] : [:]
         }
     }
 }
@@ -15701,7 +15701,6 @@ struct TabItemView: View, Equatable {
                     activeForegroundColor: activeSecondaryColor(0.84),
                     fontScale: fontScale
                 )
-                .id(description)
             }
 
             if let subtitle = effectiveSubtitle {
