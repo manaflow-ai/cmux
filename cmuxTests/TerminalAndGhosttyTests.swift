@@ -5964,3 +5964,133 @@ final class TerminalControllerSocketListenerHealthTests: XCTestCase {
     }
 
 }
+
+@Suite("TerminalForegroundDirectoryResolver")
+struct TerminalForegroundDirectoryResolverTests {
+    private typealias Fact = TerminalForegroundDirectoryResolver.ProcessFact
+
+    private func makeResolver(
+        facts: [Fact],
+        device: Int64?,
+        directories: [Int32: String],
+        existingDirectories: Set<String>
+    ) -> TerminalForegroundDirectoryResolver {
+        TerminalForegroundDirectoryResolver(
+            enumerateProcessFacts: { facts },
+            deviceForTTYName: { _ in device },
+            currentDirectoryForPID: { directories[$0] },
+            isDirectory: { existingDirectories.contains($0) }
+        )
+    }
+
+    @Test("prefers the foreground job's worktree over the shell's repo root")
+    func prefersForegroundWorktree() {
+        // The exact `claude --worktree` shape observed on the reporter's
+        // machine: the prompt shell stays in the repo root while the agent
+        // process (the foreground group leader) runs inside a nested worktree.
+        let device: Int64 = 0x4242
+        let repoRoot = "/Users/x/projekty/cmux"
+        let worktree = "/Users/x/projekty/cmux/.claude/worktrees/twinkly-kindling-bubble"
+        let facts: [Fact] = [
+            Fact(pid: 1000, processGroupID: 1000, terminalDevice: device, terminalProcessGroupID: 2000),
+            Fact(pid: 2000, processGroupID: 2000, terminalDevice: device, terminalProcessGroupID: 2000),
+        ]
+        let resolver = makeResolver(
+            facts: facts,
+            device: device,
+            directories: [1000: repoRoot, 2000: worktree],
+            existingDirectories: [repoRoot, worktree]
+        )
+        #expect(resolver.foregroundDirectory(forTTYName: "ttys003") == worktree)
+    }
+
+    @Test("returns the shell's directory when sitting at the prompt")
+    func atPromptReturnsShellDirectory() {
+        let device: Int64 = 7
+        let repoRoot = "/repo"
+        let facts: [Fact] = [
+            Fact(pid: 1000, processGroupID: 1000, terminalDevice: device, terminalProcessGroupID: 1000),
+        ]
+        let resolver = makeResolver(
+            facts: facts,
+            device: device,
+            directories: [1000: repoRoot],
+            existingDirectories: [repoRoot]
+        )
+        #expect(resolver.foregroundDirectory(forTTYName: "ttys001") == repoRoot)
+    }
+
+    @Test("returns nil when the TTY name maps to no local device")
+    func noDeviceReturnsNil() {
+        let resolver = makeResolver(facts: [], device: nil, directories: [:], existingDirectories: [])
+        #expect(resolver.foregroundDirectory(forTTYName: "ttys001") == nil)
+    }
+
+    @Test("returns nil for a blank TTY name without probing processes or devices")
+    func blankTTYShortCircuits() {
+        let resolver = TerminalForegroundDirectoryResolver(
+            enumerateProcessFacts: {
+                Issue.record("must not enumerate processes for a blank TTY")
+                return []
+            },
+            deviceForTTYName: { _ in
+                Issue.record("must not resolve a device for a blank TTY")
+                return 1
+            },
+            currentDirectoryForPID: { _ in nil },
+            isDirectory: { _ in false }
+        )
+        #expect(resolver.foregroundDirectory(forTTYName: "   ") == nil)
+    }
+
+    @Test("falls through to another foreground member when the leader's cwd is unreadable")
+    func fallsThroughWhenLeaderUnreadable() {
+        let device: Int64 = 9
+        let worktree = "/wt"
+        let facts: [Fact] = [
+            Fact(pid: 1000, processGroupID: 1000, terminalDevice: device, terminalProcessGroupID: 2000),
+            Fact(pid: 2000, processGroupID: 2000, terminalDevice: device, terminalProcessGroupID: 2000),
+            Fact(pid: 2001, processGroupID: 2000, terminalDevice: device, terminalProcessGroupID: 2000),
+        ]
+        // pid 2000 is the group leader but has no readable cwd entry.
+        let resolver = makeResolver(
+            facts: facts,
+            device: device,
+            directories: [1000: "/repo", 2001: worktree],
+            existingDirectories: ["/repo", worktree]
+        )
+        #expect(resolver.foregroundDirectory(forTTYName: "ttys004") == worktree)
+    }
+
+    @Test("prefers the group leader even when a member has a lower pid")
+    func prefersGroupLeaderOverLowerPid() {
+        let device: Int64 = 11
+        let leaderDirectory = "/wt"
+        let facts: [Fact] = [
+            Fact(pid: 1999, processGroupID: 2000, terminalDevice: device, terminalProcessGroupID: 2000),
+            Fact(pid: 2000, processGroupID: 2000, terminalDevice: device, terminalProcessGroupID: 2000),
+        ]
+        let resolver = makeResolver(
+            facts: facts,
+            device: device,
+            directories: [1999: "/other", 2000: leaderDirectory],
+            existingDirectories: ["/other", leaderDirectory]
+        )
+        #expect(resolver.foregroundDirectory(forTTYName: "ttys005") == leaderDirectory)
+    }
+
+    @Test("ignores a foreground cwd that is not an existing directory")
+    func ignoresNonDirectoryCwd() {
+        let device: Int64 = 13
+        let facts: [Fact] = [
+            Fact(pid: 2000, processGroupID: 2000, terminalDevice: device, terminalProcessGroupID: 2000),
+        ]
+        let resolver = makeResolver(
+            facts: facts,
+            device: device,
+            directories: [2000: "/repo/Makefile"],
+            existingDirectories: []
+        )
+        #expect(resolver.foregroundDirectory(forTTYName: "ttys006") == nil)
+    }
+}

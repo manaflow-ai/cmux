@@ -939,3 +939,124 @@ enum WorkspaceShortcutMapper {
         return nil
     }
 }
+
+/// Resolves the working directory of a terminal's foreground job from its TTY.
+///
+/// "Open Current Directory in <IDE>" should open the directory the user is
+/// actually working in. When a foreground process runs from a different
+/// directory than the interactive shell — most notably `claude --worktree`,
+/// which runs the agent inside a git worktree while the prompt shell stays in
+/// the repository root — the shell's OSC 7 report no longer reflects that
+/// directory. This resolver reads the foreground process group's working
+/// directory straight from the kernel so the action follows the active job.
+///
+/// Every system access is injected, so the foreground-selection logic is
+/// unit-testable without spawning processes or touching the filesystem.
+struct TerminalForegroundDirectoryResolver {
+    /// The minimal per-process facts needed to locate a TTY's foreground job.
+    struct ProcessFact: Equatable {
+        /// The process identifier.
+        let pid: Int32
+        /// The process group the process belongs to (`pbi_pgid`).
+        let processGroupID: Int32
+        /// The controlling-terminal device number (`e_tdev`), or 0 when none.
+        let terminalDevice: Int64
+        /// The controlling terminal's foreground process group (`e_tpgid`).
+        let terminalProcessGroupID: Int32
+    }
+
+    private let enumerateProcessFacts: () -> [ProcessFact]
+    private let deviceForTTYName: (String) -> Int64?
+    private let currentDirectoryForPID: (Int32) -> String?
+    private let isDirectory: (String) -> Bool
+
+    init(
+        enumerateProcessFacts: @escaping () -> [ProcessFact] = TerminalForegroundDirectoryResolver.liveProcessFacts,
+        deviceForTTYName: @escaping (String) -> Int64? = { CmuxTopProcessSnapshot.deviceIdentifier(forTTYName: $0) },
+        currentDirectoryForPID: @escaping (Int32) -> String? = TerminalForegroundDirectoryResolver.liveCurrentDirectory,
+        isDirectory: @escaping (String) -> Bool = TerminalForegroundDirectoryResolver.liveIsDirectory
+    ) {
+        self.enumerateProcessFacts = enumerateProcessFacts
+        self.deviceForTTYName = deviceForTTYName
+        self.currentDirectoryForPID = currentDirectoryForPID
+        self.isDirectory = isDirectory
+    }
+
+    /// Returns the foreground job's working directory for `ttyName`, or `nil`.
+    ///
+    /// `nil` when the name is empty, maps to no local device (e.g. a remote
+    /// session — callers must gate those out separately, since a remote TTY
+    /// name can collide with a local device number), has no resolvable
+    /// foreground process, or that process's cwd cannot be read / is not a
+    /// directory.
+    func foregroundDirectory(forTTYName ttyName: String) -> String? {
+        let trimmed = ttyName.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty, let device = deviceForTTYName(trimmed) else { return nil }
+        return foregroundDirectory(onDevice: device, facts: enumerateProcessFacts())
+    }
+
+    /// Pure selection step: picks the foreground job for `device` from `facts`
+    /// and returns the first readable working directory among its members,
+    /// preferring the process group leader.
+    func foregroundDirectory(onDevice device: Int64, facts: [ProcessFact]) -> String? {
+        guard device != 0 else { return nil }
+
+        // Every process on a TTY shares that TTY's foreground process group
+        // (`e_tpgid`), so any positive value identifies it; `.max()` picks it
+        // deterministically.
+        guard let foregroundGroupID = facts
+            .filter({ $0.terminalDevice == device && $0.terminalProcessGroupID > 0 })
+            .map(\.terminalProcessGroupID)
+            .max() else { return nil }
+
+        let members = facts
+            .filter { $0.processGroupID == foregroundGroupID }
+            .sorted { lhs, rhs in
+                let lhsIsLeader = lhs.pid == foregroundGroupID
+                let rhsIsLeader = rhs.pid == foregroundGroupID
+                if lhsIsLeader != rhsIsLeader { return lhsIsLeader }
+                return lhs.pid < rhs.pid
+            }
+
+        for member in members {
+            guard let directory = currentDirectoryForPID(member.pid)?
+                .trimmingCharacters(in: .whitespacesAndNewlines),
+                  !directory.isEmpty,
+                  isDirectory(directory) else {
+                continue
+            }
+            return directory
+        }
+        return nil
+    }
+
+    /// Live enumeration of every process's TTY/process-group facts, reusing the
+    /// shared libproc scan from ``CmuxTopProcessSnapshot``.
+    static func liveProcessFacts() -> [ProcessFact] {
+        CmuxTopProcessSnapshot.allBSDProcesses().compactMap { info in
+            let pid = Int32(info.pbi_pid)
+            guard pid > 0 else { return nil }
+            return ProcessFact(
+                pid: pid,
+                processGroupID: Int32(info.pbi_pgid),
+                terminalDevice: Int64(info.e_tdev),
+                terminalProcessGroupID: Int32(info.e_tpgid)
+            )
+        }
+    }
+
+    /// Live working-directory read for `pid` via `PROC_PIDVNODEPATHINFO`.
+    static func liveCurrentDirectory(forPID pid: Int32) -> String? {
+        var info = proc_vnodepathinfo()
+        let expectedSize = Int32(MemoryLayout<proc_vnodepathinfo>.stride)
+        let size = proc_pidinfo(pid, PROC_PIDVNODEPATHINFO, 0, &info, expectedSize)
+        guard size == expectedSize else { return nil }
+        let path = CmuxTopProcessSnapshot.fixedString(info.pvi_cdir.vip_path)
+        return path.isEmpty ? nil : path
+    }
+
+    static func liveIsDirectory(_ path: String) -> Bool {
+        var isDirectory: ObjCBool = false
+        return FileManager.default.fileExists(atPath: path, isDirectory: &isDirectory) && isDirectory.boolValue
+    }
+}

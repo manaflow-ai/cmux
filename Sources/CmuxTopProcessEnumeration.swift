@@ -148,7 +148,7 @@ nonisolated extension CmuxTopProcessSnapshot {
         ), cpuSampleKey)
     }
 
-    private static func allBSDProcesses() -> [proc_bsdinfo] {
+    static func allBSDProcesses() -> [proc_bsdinfo] {
         let pidStride = MemoryLayout<pid_t>.stride
         func bsdInfos(from pids: [pid_t], count: Int) -> [proc_bsdinfo] {
             pids.prefix(count).compactMap { pid in
@@ -231,7 +231,7 @@ nonisolated extension CmuxTopProcessSnapshot {
         return path.isEmpty ? nil : path
     }
 
-    private static func fixedString<T>(_ value: T) -> String {
+    static func fixedString<T>(_ value: T) -> String {
         withUnsafeBytes(of: value) { rawBuffer in
             let endIndex = rawBuffer.firstIndex(of: 0) ?? rawBuffer.endIndex
             return String(decoding: rawBuffer[..<endIndex], as: UTF8.self)
