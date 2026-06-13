@@ -1,4 +1,5 @@
 import Bonsplit
+import CmuxSettings
 import Darwin
 import Foundation
 
@@ -115,7 +116,7 @@ extension Workspace {
             return false
         }
 
-        if AgentSubagentNotificationSettings.suppressNotifications(),
+        if AgentIntegrationSettingsStore(defaults: .standard).suppressesSubagentNotifications,
            terminalPanelHasManagedSubagentStartupEnvironment(panelId: panelId) {
             return true
         }

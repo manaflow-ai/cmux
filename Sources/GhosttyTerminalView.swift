@@ -2,6 +2,7 @@ import Foundation
 import CmuxTerminalCopyMode
 import CmuxSocketControl
 import CmuxFileOpen
+import CmuxSettings
 import CmuxTestSupport
 import SwiftUI
 import AppKit
@@ -6600,28 +6601,29 @@ final class TerminalSurface: Identifiable, ObservableObject {
             setManagedEnvironmentValue("CMUX_PORT_RANGE", String(Self.sessionPortRangeSize))
         }
 
-        let claudeHooksEnabled = ClaudeCodeIntegrationSettings.hooksEnabled()
+        let agentIntegrationSettings = AgentIntegrationSettingsStore(defaults: .standard)
+        let claudeHooksEnabled = agentIntegrationSettings.claudeCodeHooksEnabled
         if !claudeHooksEnabled {
             setManagedEnvironmentValue("CMUX_CLAUDE_HOOKS_DISABLED", "1")
         }
-        if let customClaudePath = ClaudeCodeIntegrationSettings.customClaudePath() {
+        if let customClaudePath = agentIntegrationSettings.customClaudePath {
             setManagedEnvironmentValue("CMUX_CUSTOM_CLAUDE_PATH", customClaudePath)
         }
         setManagedEnvironmentValue(
-            AgentSubagentNotificationSettings.environmentKey,
-            AgentSubagentNotificationSettings.suppressNotifications() ? "1" : "0"
+            AgentIntegrationSettingsStore.subagentSuppressionEnvironmentKey,
+            agentIntegrationSettings.suppressesSubagentNotifications ? "1" : "0"
         )
-        if !CursorIntegrationSettings.hooksEnabled() {
+        if !agentIntegrationSettings.cursorHooksEnabled {
             setManagedEnvironmentValue("CMUX_CURSOR_HOOKS_DISABLED", "1")
         }
-        if !GeminiIntegrationSettings.hooksEnabled() {
+        if !agentIntegrationSettings.geminiHooksEnabled {
             setManagedEnvironmentValue("CMUX_GEMINI_HOOKS_DISABLED", "1")
         }
-        if !KiroIntegrationSettings.hooksEnabled() {
+        if !agentIntegrationSettings.kiroHooksEnabled {
             setManagedEnvironmentValue("CMUX_KIRO_HOOKS_DISABLED", "1")
         }
-        setManagedEnvironmentValue("CMUX_KIRO_NOTIFICATION_LEVEL", KiroIntegrationSettings.notificationLevel().rawValue)
-        if !AmpIntegrationSettings.hooksEnabled() {
+        setManagedEnvironmentValue("CMUX_KIRO_NOTIFICATION_LEVEL", agentIntegrationSettings.kiroNotificationLevel.rawValue)
+        if !agentIntegrationSettings.ampHooksEnabled {
             setManagedEnvironmentValue("CMUX_AMP_HOOKS_DISABLED", "1")
         }
 

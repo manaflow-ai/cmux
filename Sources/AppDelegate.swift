@@ -1794,8 +1794,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
         let buildFlavor = BuildFlavor.current
+        let quitConfirmationStore = QuitConfirmationStore(defaults: .standard)
         let hasDirtyWorkspaces = hasQuitConfirmationDirtyWorkspaces()
-        let confirmQuitMode = QuitWarningSettings.confirmQuitMode()
+        let confirmQuitMode = quitConfirmationStore.confirmQuitMode
 
         StartupBreadcrumbLog.append(
             "appDelegate.shouldTerminate.begin",
@@ -1804,7 +1805,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 "confirmQuitMode": confirmQuitMode.rawValue,
                 "hasDirtyWorkspaces": hasDirtyWorkspaces ? "1" : "0",
                 "quitWarningConfirmed": isQuitWarningConfirmed ? "1" : "0",
-                "quitWarningEnabled": QuitWarningSettings.isEnabled() ? "1" : "0"
+                "quitWarningEnabled": quitConfirmationStore.isEnabled ? "1" : "0"
             ]
         )
         isTerminatingApp = true
@@ -1813,10 +1814,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
         // If the user already confirmed via the Cmd+Q shortcut warning dialog,
         // or policy skips the warning, avoid a second alert.
-        if !QuitWarningSettings.shouldShowConfirmation(
+        if !quitConfirmationStore.shouldShowConfirmation(
             isQuitWarningConfirmed: isQuitWarningConfirmed,
             hasDirtyWorkspaces: hasDirtyWorkspaces,
-            buildFlavor: buildFlavor
+            isDevBuild: buildFlavor == .dev
         ) {
             closeAllWebInspectorsBeforeAppTeardown()
             let reason: String
@@ -1845,7 +1846,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
             let response = alert.runModal()
             if alert.suppressionButton?.state == .on {
-                QuitWarningSettings.setEnabled(false)
+                QuitConfirmationStore(defaults: .standard).setEnabled(false)
             }
 
             let shouldQuit = response == .alertFirstButtonReturn
@@ -2056,12 +2057,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         if let rawOpenSupportedFiles = env["CMUX_UI_TEST_OPEN_SUPPORTED_FILES_IN_CMUX"]?
             .trimmingCharacters(in: .whitespacesAndNewlines),
            !rawOpenSupportedFiles.isEmpty {
-            CmdClickSupportedFileRouteSettings.setEnabled(rawOpenSupportedFiles == "1")
+            FileRouteSettingsStore(defaults: .standard).setSupportedFileRouteEnabled(rawOpenSupportedFiles == "1")
         }
         if let rawOpenMarkdown = env["CMUX_UI_TEST_OPEN_MARKDOWN_IN_CMUX_VIEWER"]?
             .trimmingCharacters(in: .whitespacesAndNewlines),
            !rawOpenMarkdown.isEmpty {
-            CmdClickMarkdownRouteSettings.setEnabled(rawOpenMarkdown == "1")
+            FileRouteSettingsStore(defaults: .standard).setMarkdownRouteEnabled(rawOpenMarkdown == "1")
         }
         let extraFileNamesJSON = env["CMUX_UI_TEST_TERMINAL_CMD_CLICK_EXTRA_FILE_NAMES_JSON"]?
             .trimmingCharacters(in: .whitespacesAndNewlines)
@@ -12528,10 +12529,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
     private func handleQuitShortcutWarning() -> Bool {
-        if !QuitWarningSettings.shouldShowConfirmation(
+        if !QuitConfirmationStore(defaults: .standard).shouldShowConfirmation(
             isQuitWarningConfirmed: false,
             hasDirtyWorkspaces: hasQuitConfirmationDirtyWorkspaces(),
-            buildFlavor: .current
+            isDevBuild: BuildFlavor.current == .dev
         ) {
             NSApp.terminate(nil)
             return true
@@ -12548,7 +12549,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
         let response = alert.runModal()
         if alert.suppressionButton?.state == .on {
-            QuitWarningSettings.setEnabled(false)
+            QuitConfirmationStore(defaults: .standard).setEnabled(false)
         }
 
         if response == .alertFirstButtonReturn {

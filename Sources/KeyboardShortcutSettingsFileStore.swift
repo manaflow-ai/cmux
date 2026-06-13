@@ -457,10 +457,10 @@ final class CmuxSettingsFileStore {
             snapshot.managedUserDefaults[AppCatalogSection().preferredEditor.userDefaultsKey] = .string(value)
         }
         if let value = jsonBool(section["openSupportedFilesInCmux"]) {
-            snapshot.managedUserDefaults[CmdClickSupportedFileRouteSettings.key] = .bool(value)
+            snapshot.managedUserDefaults[AppCatalogSection().openSupportedFilesInCmux.userDefaultsKey] = .bool(value)
         }
         if let value = jsonBool(section["openMarkdownInCmuxViewer"]) {
-            snapshot.managedUserDefaults[CmdClickMarkdownRouteSettings.key] = .bool(value)
+            snapshot.managedUserDefaults[AppCatalogSection().openMarkdownInCmuxViewer.userDefaultsKey] = .bool(value)
         }
         if let value = jsonBool(section["reorderOnNotification"]) {
             snapshot.managedUserDefaults[WorkspaceAutoReorderSettings.key] = .bool(value)
@@ -471,37 +471,39 @@ final class CmuxSettingsFileStore {
         if let value = jsonBool(section["sendAnonymousTelemetry"]) {
             snapshot.managedUserDefaults[TelemetrySettings.sendAnonymousTelemetryKey] = .bool(value)
         }
-        var parsedConfirmQuitMode: QuitConfirmationMode?
+        var parsedConfirmQuitMode: ConfirmQuitMode?
+        let confirmQuitKey = AppCatalogSection().confirmQuitMode.userDefaultsKey
+        let warnBeforeQuitKey = AppCatalogSection().warnBeforeQuit.userDefaultsKey
         if let raw = jsonString(section["confirmQuit"]) {
-            if let mode = QuitConfirmationMode(rawValue: raw) {
+            if let mode = ConfirmQuitMode(rawValue: raw) {
                 parsedConfirmQuitMode = mode
-                snapshot.managedUserDefaults[QuitWarningSettings.confirmQuitKey] = .string(mode.rawValue)
+                snapshot.managedUserDefaults[confirmQuitKey] = .string(mode.rawValue)
             } else {
                 logInvalid("app.confirmQuit", sourcePath: sourcePath)
             }
         }
         if let value = jsonBool(section["warnBeforeQuit"]) {
-            snapshot.managedUserDefaults[QuitWarningSettings.warnBeforeQuitKey] = .bool(value)
+            snapshot.managedUserDefaults[warnBeforeQuitKey] = .bool(value)
             if parsedConfirmQuitMode == nil {
-                let mode: QuitConfirmationMode = value ? .always : .never
-                snapshot.managedUserDefaults[QuitWarningSettings.confirmQuitKey] = .string(mode.rawValue)
-                snapshot.legacyDerivedManagedUserDefaultKeys.insert(QuitWarningSettings.confirmQuitKey)
+                let mode: ConfirmQuitMode = value ? .always : .never
+                snapshot.managedUserDefaults[confirmQuitKey] = .string(mode.rawValue)
+                snapshot.legacyDerivedManagedUserDefaultKeys.insert(confirmQuitKey)
             }
         }
         if let value = jsonBool(section["warnBeforeClosingTab"]) {
-            snapshot.managedUserDefaults[CloseTabWarningSettings.warnBeforeClosingTabKey] = .bool(value)
+            snapshot.managedUserDefaults[AppCatalogSection().warnBeforeClosingTab.userDefaultsKey] = .bool(value)
         }
         if let value = jsonBool(section["warnBeforeClosingTabXButton"]) {
-            snapshot.managedUserDefaults[CloseTabWarningSettings.warnBeforeClosingTabXButtonKey] = .bool(value)
+            snapshot.managedUserDefaults[AppCatalogSection().warnBeforeClosingTabXButton.userDefaultsKey] = .bool(value)
         }
         if let value = jsonBool(section["hideTabCloseButton"]) {
-            snapshot.managedUserDefaults[CloseTabWarningSettings.hideTabCloseButtonKey] = .bool(value)
+            snapshot.managedUserDefaults[AppCatalogSection().hideTabCloseButton.userDefaultsKey] = .bool(value)
         }
         if let value = jsonBool(section["renameSelectsExistingName"]) {
-            snapshot.managedUserDefaults[CommandPaletteRenameSelectionSettings.selectAllOnFocusKey] = .bool(value)
+            snapshot.managedUserDefaults[AppCatalogSection().renameSelectsExistingName.userDefaultsKey] = .bool(value)
         }
         if let value = jsonBool(section["commandPaletteSearchesAllSurfaces"]) {
-            snapshot.managedUserDefaults[CommandPaletteSwitcherSearchSettings.searchAllSurfacesKey] = .bool(value)
+            snapshot.managedUserDefaults[AppCatalogSection().commandPaletteSearchesAllSurfaces.userDefaultsKey] = .bool(value)
         }
     }
 
@@ -910,32 +912,32 @@ final class CmuxSettingsFileStore {
             }
         }
         if let value = jsonBool(section["claudeCodeIntegration"]) {
-            snapshot.managedUserDefaults[ClaudeCodeIntegrationSettings.hooksEnabledKey] = .bool(value)
+            snapshot.managedUserDefaults[IntegrationsCatalogSection().claudeCodeHooksEnabled.userDefaultsKey] = .bool(value)
         }
         if let raw = jsonString(section["claudeBinaryPath"]) {
-            snapshot.managedUserDefaults[ClaudeCodeIntegrationSettings.customClaudePathKey] = .string(raw)
+            snapshot.managedUserDefaults[IntegrationsCatalogSection().claudeCodeCustomClaudePath.userDefaultsKey] = .string(raw)
         }
         if let raw = jsonString(section["ripgrepBinaryPath"]) {
             snapshot.managedUserDefaults[RipgrepIntegrationSettings.customRipgrepPathKey] = .string(raw)
         }
         if let value = jsonBool(section["suppressSubagentNotifications"]) {
-            snapshot.managedUserDefaults[AgentSubagentNotificationSettings.suppressNotificationsKey] = .bool(value)
+            snapshot.managedUserDefaults[IntegrationsCatalogSection().suppressSubagentNotifications.userDefaultsKey] = .bool(value)
         }
         if let value = jsonBool(section["ampIntegration"]) {
-            snapshot.managedUserDefaults[AmpIntegrationSettings.hooksEnabledKey] = .bool(value)
+            snapshot.managedUserDefaults[IntegrationsCatalogSection().ampHooksEnabled.userDefaultsKey] = .bool(value)
         }
         if let value = jsonBool(section["cursorIntegration"]) {
-            snapshot.managedUserDefaults[CursorIntegrationSettings.hooksEnabledKey] = .bool(value)
+            snapshot.managedUserDefaults[IntegrationsCatalogSection().cursorHooksEnabled.userDefaultsKey] = .bool(value)
         }
         if let value = jsonBool(section["geminiIntegration"]) {
-            snapshot.managedUserDefaults[GeminiIntegrationSettings.hooksEnabledKey] = .bool(value)
+            snapshot.managedUserDefaults[IntegrationsCatalogSection().geminiHooksEnabled.userDefaultsKey] = .bool(value)
         }
         if let value = jsonBool(section["kiroIntegration"]) {
-            snapshot.managedUserDefaults[KiroIntegrationSettings.hooksEnabledKey] = .bool(value)
+            snapshot.managedUserDefaults[IntegrationsCatalogSection().kiroHooksEnabled.userDefaultsKey] = .bool(value)
         }
         if let raw = jsonString(section["kiroNotificationLevel"]) {
-            if KiroIntegrationSettings.NotificationLevel(rawValue: raw) != nil {
-                snapshot.managedUserDefaults[KiroIntegrationSettings.notificationLevelKey] = .string(raw)
+            if KiroNotificationLevel(rawValue: raw) != nil {
+                snapshot.managedUserDefaults[IntegrationsCatalogSection().kiroNotificationLevel.userDefaultsKey] = .string(raw)
             } else {
                 logInvalid("automation.kiroNotificationLevel", sourcePath: sourcePath)
             }
@@ -1284,7 +1286,7 @@ final class CmuxSettingsFileStore {
                     forceApply: changedManagedDefaultKeys.contains(defaultsKey),
                     synchronizeManagedAppearanceTerminalTheme: synchronizeManagedAppearanceTerminalTheme,
                     isDerivedFromLegacyWarnBeforeQuit: snapshot.legacyDerivedManagedUserDefaultKeys.contains(defaultsKey),
-                    importedLegacyWarnBeforeQuitDefault: importedManagedDefaults[QuitWarningSettings.warnBeforeQuitKey]
+                    importedLegacyWarnBeforeQuitDefault: importedManagedDefaults[AppCatalogSection().warnBeforeQuit.userDefaultsKey]
                 )
             )
         }
@@ -1616,10 +1618,10 @@ final class CmuxSettingsFileStore {
         importedLegacyWarnBeforeQuitDefault: ManagedSettingsValue?,
         defaults: UserDefaults
     ) -> Bool {
-        if defaultsKey == QuitWarningSettings.confirmQuitKey,
+        if defaultsKey == AppCatalogSection().confirmQuitMode.userDefaultsKey,
            isDerivedFromLegacyWarnBeforeQuit,
            case .bool(let importedLegacyValue)? = importedLegacyWarnBeforeQuitDefault,
-           let currentLegacyValue = defaults.object(forKey: QuitWarningSettings.warnBeforeQuitKey) as? Bool,
+           let currentLegacyValue = defaults.object(forKey: AppCatalogSection().warnBeforeQuit.userDefaultsKey) as? Bool,
            currentLegacyValue != importedLegacyValue {
             return false
         }
@@ -1763,10 +1765,10 @@ final class CmuxSettingsFileStore {
            ) as? Bool {
             imported[SidebarMatchTerminalBackgroundSettings.userDefaultsKey] = .bool(legacyValue)
         }
-        if imported[QuitWarningSettings.confirmQuitKey] == nil,
-           case .bool(let importedLegacyValue)? = imported[QuitWarningSettings.warnBeforeQuitKey] {
-            imported[QuitWarningSettings.confirmQuitKey] = .string(
-                (importedLegacyValue ? QuitConfirmationMode.always : .never).rawValue
+        if imported[AppCatalogSection().confirmQuitMode.userDefaultsKey] == nil,
+           case .bool(let importedLegacyValue)? = imported[AppCatalogSection().warnBeforeQuit.userDefaultsKey] {
+            imported[AppCatalogSection().confirmQuitMode.userDefaultsKey] = .string(
+                (importedLegacyValue ? ConfirmQuitMode.always : .never).rawValue
             )
         }
         return imported

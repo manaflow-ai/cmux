@@ -5,6 +5,7 @@ import Bonsplit
 import CmuxFileWatch
 import CmuxGit
 import CmuxProcess
+import CmuxSettings
 import CoreVideo
 import Combine
 import CoreServices
@@ -5483,7 +5484,7 @@ class TabManager: ObservableObject {
         guard !closeConfirmationInFlight else { return }
         guard let plan = closeOtherTabsInFocusedPanePlan() else { return }
 
-        if CloseTabConfirmationPolicy.shouldConfirm(requiresConfirmation: true, source: .shortcut) {
+        if CloseTabWarningStore(defaults: .standard).shouldConfirmClose(requiresConfirmation: true, source: .shortcut) {
             let prompt = CloseOtherTabsConfirmationPrompt(titles: plan.titles)
             guard confirmClose(
                 title: prompt.title,
@@ -5870,12 +5871,12 @@ class TabManager: ObservableObject {
         case .workspace:
             return requiresConfirmation
         case .tabClose:
-            return CloseTabConfirmationPolicy.shouldConfirm(
+            return CloseTabWarningStore(defaults: .standard).shouldConfirmClose(
                 requiresConfirmation: requiresConfirmation,
                 source: .shortcut
             )
         case .tabCloseButton:
-            return CloseTabConfirmationPolicy.shouldConfirm(
+            return CloseTabWarningStore(defaults: .standard).shouldConfirmClose(
                 requiresConfirmation: requiresConfirmation,
                 source: .tabCloseButton
             )
@@ -6066,7 +6067,7 @@ class TabManager: ObservableObject {
             requiresConfirmation = false
         }
 
-        if CloseTabConfirmationPolicy.shouldConfirm(
+        if CloseTabWarningStore(defaults: .standard).shouldConfirmClose(
             requiresConfirmation: requiresConfirmation,
             source: .shortcut
         ) {
