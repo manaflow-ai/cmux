@@ -1,4 +1,5 @@
 import CMUXMobileCore
+import CmuxMobileShellModel
 import Foundation
 import Testing
 @testable import CmuxMobileRPC
@@ -158,6 +159,85 @@ import Testing
         #expect(workspace.isSelected)
         #expect(workspace.terminals.first?.isFocused == true)
         #expect(workspace.terminals.first?.isReady == true)
+    }
+
+    /// The Mac emits an optional per-workspace `preview` + `preview_at` (latest
+    /// notification text + epoch seconds) for the iMessage-style row preview.
+    /// Both must decode when present and stay `nil` when an older Mac omits them.
+    @Test func workspaceListResponseDecodesOptionalActivityPreview() throws {
+        let json = Data("""
+        {
+          "workspaces": [
+            {
+              "id": "ws-1",
+              "title": "cmux",
+              "is_selected": true,
+              "preview": "Build finished in 12s",
+              "preview_at": 1765000000.5,
+              "terminals": []
+            },
+            {
+              "id": "ws-2",
+              "title": "older-mac",
+              "is_selected": false,
+              "terminals": []
+            }
+          ]
+        }
+        """.utf8)
+
+        let response = try MobileSyncWorkspaceListResponse.decode(json)
+        #expect(response.workspaces.count == 2)
+        let withPreview = try #require(response.workspaces.first)
+        #expect(withPreview.preview == "Build finished in 12s")
+        #expect(withPreview.previewAt == 1765000000.5)
+        let withoutPreview = try #require(response.workspaces.last)
+        #expect(withoutPreview.preview == nil)
+        #expect(withoutPreview.previewAt == nil)
+    }
+
+    /// The Mac stamps `last_activity_at` on every workspace (falling back to
+    /// creation time when there is no notification) and emits `has_unread` for
+    /// the row's unread dot. Both must decode when present and degrade safely
+    /// (nil timestamp, read state) when an older Mac omits them.
+    @Test func workspaceListResponseDecodesLastActivityAndUnread() throws {
+        let json = Data("""
+        {
+          "workspaces": [
+            {
+              "id": "ws-1",
+              "title": "cmux",
+              "is_selected": true,
+              "last_activity_at": 1765000100.25,
+              "has_unread": true,
+              "terminals": []
+            },
+            {
+              "id": "ws-2",
+              "title": "older-mac",
+              "is_selected": false,
+              "terminals": []
+            }
+          ]
+        }
+        """.utf8)
+
+        let response = try MobileSyncWorkspaceListResponse.decode(json)
+        let stamped = try #require(response.workspaces.first)
+        #expect(stamped.lastActivityAt == 1765000100.25)
+        #expect(stamped.hasUnread == true)
+        let olderMac = try #require(response.workspaces.last)
+        #expect(olderMac.lastActivityAt == nil)
+        #expect(olderMac.hasUnread == nil)
+
+        // The mapped model treats a missing unread flag as read and carries the
+        // optional timestamp through for the row's relative time.
+        let mappedStamped = MobileWorkspacePreview(remote: stamped)
+        #expect(mappedStamped.hasUnread)
+        #expect(mappedStamped.lastActivityAt == Date(timeIntervalSince1970: 1765000100.25))
+        let mappedOlder = MobileWorkspacePreview(remote: olderMac)
+        #expect(!mappedOlder.hasUnread)
+        #expect(mappedOlder.lastActivityAt == nil)
     }
 
     @Test func attachTicketInputDecodesAttachURL() throws {

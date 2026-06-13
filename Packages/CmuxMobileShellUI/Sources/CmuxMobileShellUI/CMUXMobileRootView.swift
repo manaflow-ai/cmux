@@ -355,15 +355,26 @@ struct CMUXMobileRootView: View {
 
     private func signOut() {
         #if os(iOS)
+        // The hook receives the tokens captured before the local-first clear:
+        // by the time it runs, the live token store is already empty.
         let pushCoordinator = pushCoordinator
-        let onSignedOut: @Sendable () async -> Void = { await pushCoordinator.unregisterFromServer() }
+        let onSignedOut: @Sendable (String?, String?) async -> Void = { accessToken, refreshToken in
+            await pushCoordinator.unregisterFromServer(
+                accessToken: accessToken,
+                refreshToken: refreshToken
+            )
+        }
         #else
-        let onSignedOut: @Sendable () async -> Void = {}
+        let onSignedOut: @Sendable (String?, String?) async -> Void = { _, _ in }
         #endif
         Task {
-            await authManager.signOut(onSignedOut: onSignedOut)
+            // Local shell teardown first so the whole UI lands signed out
+            // immediately; authManager.signOut clears the local session up
+            // front and only then runs its bounded best-effort server teardown
+            // (push-token DELETE, Stack session revocation).
             didAuthenticateWithAttachTicket = false
             store.signOut()
+            await authManager.signOut(onSignedOut: onSignedOut)
         }
     }
 
