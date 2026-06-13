@@ -28821,7 +28821,7 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
         // Workspace/surface resolution: prefer --workspace/--surface flags,
         // then env, then the caller process. Grok strips CMUX_* from hook
         // subprocesses, so PID attribution is the only reliable live binding.
-        let inferredPID = inferredAgentPID()
+        var inferredPID: Int?
         let hookWsFlag = optionValue(hookArgs, name: "--workspace")
         let directWorkspaceArg = hookWsFlag ?? normalizedHookValue(env["CMUX_WORKSPACE_ID"])
         let explicitSurfaceFlag = optionValue(hookArgs, name: "--surface")
@@ -28861,15 +28861,12 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
         func processBinding() -> CallerTerminalBinding? {
             if !didResolveProcessBinding {
                 didResolveProcessBinding = true
-                // Always resolve the agent process's own terminal binding (TTY first, then PID), even
-                // when env supplies both ids. Historically this was suppressed whenever both env ids
-                // were present, which made a leaked/stale CMUX_SURFACE_ID impossible to correct — the
-                // codex jumble class, where a session routes to the wrong surface and the no-pid-gate
-                // resume binding persists it across reload. resolveAgentHookTarget now uses this
-                // binding to OVERRIDE a disagreeing ambient-env surface; the binding stays nil (env
-                // trusted) under remote/SSH where no local TTY maps to a surface.
+                // Resolve only on demand: stale ambient env can point at a closed pane,
+                // while TTY/PID binding is the live local-terminal source.
+                let agentPID = inferredPID ?? inferredAgentPID()
+                inferredPID = agentPID
                 processBindingCache = resolveCallerTerminalBindingByTTY(client: client)
-                    ?? resolveAgentProcessTerminalBinding(pid: inferredPID, client: client, socketPassword: socketPassword)
+                    ?? resolveAgentProcessTerminalBinding(pid: agentPID, client: client, socketPassword: socketPassword)
             }
             return processBindingCache
         }
