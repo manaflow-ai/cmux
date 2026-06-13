@@ -23132,7 +23132,7 @@ struct CMUXCLI {
         }
         if let preferred = nonEmptyClaudeHookIdentifier(preferred),
            let surfaceId = resolveAccessibleClaudeHookSurfaceId(preferred, workspaceId: workspaceId, client: client) {
-            if let boundSurface = terminalBindingSurface(), boundSurface.surfaceId != surfaceId { return boundSurface }
+            if let boundSurface = terminalBindingSurface(), boundSurface.surfaceId != surfaceId { return boundSurface } // Live binding beats stale stored routing.
             return ClaudeHookResolvedSurface(surfaceId: surfaceId, isAuthoritative: true)
         }
         if let fallback = nonEmptyClaudeHookIdentifier(fallback) {
