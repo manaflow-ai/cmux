@@ -173,23 +173,6 @@ struct WorkspaceListView: View {
             #endif
         }
         .accessibilityIdentifier("MobileWorkspaceList")
-        .confirmationDialog(
-            L10n.string("mobile.workspace.delete.confirmTitle", defaultValue: "Delete Workspace?"),
-            isPresented: isConfirmingWorkspaceClose,
-            titleVisibility: .visible
-        ) {
-            if let workspacePendingCloseID, closeWorkspace != nil {
-                Button(L10n.string("mobile.workspace.delete.confirmAction", defaultValue: "Delete"), role: .destructive) {
-                    confirmCloseWorkspace()
-                }
-                .accessibilityIdentifier("MobileWorkspaceDeleteConfirmButton-\(workspacePendingCloseID.rawValue)")
-            }
-            Button(L10n.string("mobile.common.cancel", defaultValue: "Cancel"), role: .cancel) {
-                workspacePendingCloseID = nil
-            }
-        } message: {
-            Text(L10n.string("mobile.workspace.delete.confirmMessage", defaultValue: "This will close the workspace on your Mac."))
-        }
         #if os(iOS)
         .sheet(isPresented: $showingShortcutsSettings) {
             TerminalShortcutsSettingsView()
@@ -272,7 +255,11 @@ struct WorkspaceListView: View {
             renameWorkspace: renameWorkspace,
             setPinned: setPinned,
             setUnread: setUnread,
-            closeWorkspace: requestWorkspaceClose
+            closeWorkspace: requestWorkspaceClose,
+            isConfirmingClose: closeConfirmationBinding(for: workspace.id),
+            confirmCloseWorkspace: closeWorkspace == nil ? nil : { _ in
+                confirmCloseWorkspace()
+            }
         )
         .listRowInsets(EdgeInsets(top: 4, leading: indented ? 32 : 12, bottom: 4, trailing: 12))
         .listRowSeparator(.hidden)
@@ -347,11 +334,13 @@ struct WorkspaceListView: View {
         }
     }
 
-    private var isConfirmingWorkspaceClose: Binding<Bool> {
+    private func closeConfirmationBinding(for workspaceID: MobileWorkspacePreview.ID) -> Binding<Bool> {
         Binding(
-            get: { workspacePendingCloseID != nil },
+            get: { workspacePendingCloseID == workspaceID },
             set: { isPresented in
-                if !isPresented {
+                if isPresented {
+                    workspacePendingCloseID = workspaceID
+                } else if workspacePendingCloseID == workspaceID {
                     workspacePendingCloseID = nil
                 }
             }
