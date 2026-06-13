@@ -9,7 +9,6 @@ import Bonsplit
 import UserNotifications
 import Network
 import CmuxSettings
-
 import CmuxSidebar
 
 #if canImport(cmux_DEV)

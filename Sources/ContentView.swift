@@ -10676,7 +10676,6 @@ struct VerticalTabsSidebar: View {
     // row sitting behind the open menu. See `SidebarShortcutHintFreezePolicy`.
     @State private var frozenShortcutHintsTabId: UUID?
     @State private var frozenShortcutHintsValue: Bool = false
-    @State private var workspaceRowsMeasurement: SidebarWorkspaceRowsMeasurement<UUID>?
     @State private var pendingSelectedWorkspaceScrollId: UUID?
     @State private var collapsedExtensionSidebarSectionIds: Set<String> = []
     @State private var extensionSidebarWorktreeCreationInFlightSectionIds: Set<String> = []
@@ -11200,27 +11199,11 @@ struct VerticalTabsSidebar: View {
                 viewportHeight: geometryProxy.size.height,
                 insets: scrollInsets
             )
-            let measuredWorkspaceRowsHeight = workspaceRowsMeasurement?.rowsHeight(
-                for: renderContext.visibleWorkspaceRowIds
-            )
-            // The empty drop/tap area below the last row is sized to the
-            // remaining viewport so the scroll content fills (but never
-            // exceeds) the visible height when the rows fit. Sizing it to a
-            // finite remainder — instead of the old `maxHeight: .infinity` —
-            // is what keeps the document view from always overflowing, so the
-            // overlay scroller stays hidden when there is nothing to scroll
-            // (https://github.com/manaflow-ai/cmux/issues/3241).
-            let emptyAreaHeight = SidebarWorkspaceScrollLayout.emptyAreaHeight(
-                contentMinHeight: contentMinHeight,
-                rowsHeight: measuredWorkspaceRowsHeight
-            )
-
             ScrollViewReader { scrollProxy in
                 ScrollView(.vertical) {
                     workspaceScrollContent(
                         renderContext: renderContext,
-                        minHeight: contentMinHeight,
-                        emptyAreaHeight: emptyAreaHeight
+                        minHeight: contentMinHeight
                     )
                 }
                 .background(
@@ -11319,12 +11302,6 @@ struct VerticalTabsSidebar: View {
                     }
                     requestSelectedWorkspaceScroll(scrollProxy, renderContext: renderContext)
                 }
-                .onChange(of: renderContext.visibleWorkspaceRowIds) { _, _ in
-                    // Drop the stale rows-height measurement so the empty-area
-                    // sizing recomputes for the new row set. The measurement is
-                    // also keyed by workspace ids, so this is belt-and-suspenders.
-                    workspaceRowsMeasurement = nil
-                }
                 .onReceive(NotificationCenter.default.publisher(for: .workspaceOrderDidChange)) { notification in
                     requestSelectedWorkspaceScrollAfterWorkspaceOrderChange(notification)
                 }
@@ -11373,21 +11350,6 @@ struct VerticalTabsSidebar: View {
                     if let index = tabManager.tabs.firstIndex(where: { $0.id == focusedId }) {
                         lastSidebarSelectionIndex = index
                     }
-                }
-                .onPreferenceChange(SidebarWorkspaceRowsHeightPreferenceKey.self) { measurement in
-                    guard let measurement else {
-                        workspaceRowsMeasurement = nil
-                        return
-                    }
-                    let nextMeasurement = SidebarWorkspaceRowsMeasurement(
-                        workspaceIds: measurement.workspaceIds,
-                        rowsHeight: max(0, measurement.rowsHeight)
-                    )
-                    if let workspaceRowsMeasurement,
-                       workspaceRowsMeasurement.isEquivalent(to: nextMeasurement) {
-                        return
-                    }
-                    workspaceRowsMeasurement = nextMeasurement
                 }
             }
         }
@@ -12498,10 +12460,21 @@ struct VerticalTabsSidebar: View {
 
     private func workspaceScrollContent(
         renderContext: WorkspaceListRenderContext,
-        minHeight: CGFloat,
-        emptyAreaHeight: CGFloat
+        minHeight: CGFloat
     ) -> some View {
-        VStack(spacing: 0) {
+        // Rows take their natural height; the empty drop/tap area stretches to
+        // fill the remaining viewport. SidebarRowsFillLayout sizes that
+        // remainder from the explicit viewport height (`minHeight`, the floored
+        // content height from the scroll geometry) rather than from a layout
+        // proposal, which a vertical ScrollView leaves unspecified in the
+        // scroll axis. So we never measure the LazyVStack's whole-content height
+        // into @State. That measurement (a .background GeometryReader writing a
+        // PreferenceKey) fed a non-converging relayout loop (#2586 / #5764 /
+        // #5845). The empty area fills exactly to the viewport when rows fit and
+        // collapses to 0 when they overflow, so the overlay scroller stays
+        // hidden (#3241) and the blank area below the last row stays a
+        // drop/tap target.
+        SidebarRowsFillLayout(viewportHeight: minHeight) {
             workspaceRows(renderContext: renderContext)
 
             SidebarEmptyArea(
@@ -12513,8 +12486,7 @@ struct VerticalTabsSidebar: View {
                 topDropIndicatorVisible: emptyAreaTopDropIndicatorVisible(),
                 tabDropDelegate: emptyAreaTabDropDelegate(renderContext: renderContext),
                 bonsplitDropIndicator: dropIndicatorBinding,
-                expandsVertically: false,
-                minimumHeight: emptyAreaHeight
+                expandsVertically: false
             )
         }
         .frame(minHeight: minHeight, alignment: .top)
@@ -12552,18 +12524,11 @@ struct VerticalTabsSidebar: View {
         }
         .padding(.vertical, SidebarWorkspaceListMetrics.rowVerticalPadding)
         .frame(maxWidth: .infinity, alignment: .leading)
-        let measuredRows = rows
-            .background {
-                GeometryReader { proxy in
-                    Color.clear.preference(
-                        key: SidebarWorkspaceRowsHeightPreferenceKey.self,
-                        value: SidebarWorkspaceRowsMeasurement(
-                            workspaceIds: renderContext.visibleWorkspaceRowIds,
-                            rowsHeight: proxy.size.height
-                        )
-                    )
-                }
-            }
+        // No whole-content height measurement here. Reading the LazyVStack's
+        // total height via a .background GeometryReader (to size the empty area)
+        // fed a non-converging relayout loop (#2586 / #5764 / #5845). The
+        // empty-area fill is now handled geometrically by SidebarRowsFillLayout
+        // in workspaceScrollContent without measuring these rows.
 
         // Gate ONLY the per-row frame-anchor *reader* (the virtualization-defeating
         // work) behind the drag-active check, and keep the Bonsplit drop-capture
@@ -12573,7 +12538,7 @@ struct VerticalTabsSidebar: View {
         // the drop NSView, orphaning the in-flight drag. Applying it at the stable outer
         // level keeps the NSView identity-stable across gate flips. (#5325 review)
         rowsWithGatedDropTargetReader(
-            rows: measuredRows,
+            rows: rows,
             renderContext: renderContext,
             shouldCollect: shouldCollectWorkspaceDropTargets
         )
@@ -12809,14 +12774,14 @@ struct SidebarWorkspaceFrameAnchorModifier: ViewModifier {
     let id: UUID
     let isEnabled: Bool
 
-    @ViewBuilder
     func body(content: Content) -> some View {
-        if isEnabled {
-            content.anchorPreference(key: SidebarWorkspaceRowFramePreferenceKey.self, value: .bounds) { anchor in
-                [id: anchor]
-            }
-        } else {
-            content
+        // Branchless: always apply anchorPreference, emit [:] when disabled. An
+        // if/else gives `content` distinct identity per state, so flipping
+        // isEnabled at drag start/end recreated every visible row's subtree
+        // (lost @State, fresh snapshot builds + relayout mid-drag). The frame
+        // *reader* stays gated on the drag (#5325), so an empty emit costs nothing.
+        content.anchorPreference(key: SidebarWorkspaceRowFramePreferenceKey.self, value: .bounds) { anchor in
+            isEnabled ? [id: anchor] : [:]
         }
     }
 }
@@ -15328,7 +15293,6 @@ struct TabItemView: View, Equatable {
     @StateObject private var contextMenuState = SidebarTabItemContextMenuState()
     @State private var rowInteractionState = SidebarWorkspaceRowInteractionState()
     @State private var rowHeight: CGFloat = 1
-    @State private var workspaceFinderDirectoryCache = WorkspaceFinderDirectoryCache()
     @State private var workspaceFinderDirectoryOpenRequest: WorkspaceFinderDirectoryOpenRequest?
 
     var isMultiSelected: Bool {
@@ -15657,8 +15621,6 @@ struct TabItemView: View, Equatable {
         let accessibilityHintText = String(localized: "sidebar.workspace.accessibilityHint", defaultValue: "Activate to focus this workspace. Drag to reorder, or use Move Up and Move Down actions.")
         let moveUpActionText = String(localized: "sidebar.workspace.moveUpAction", defaultValue: "Move Up")
         let moveDownActionText = String(localized: "sidebar.workspace.moveDownAction", defaultValue: "Move Down")
-        let finderDirectoryPath = WorkspaceFinderDirectoryResolver.path(for: tab)
-        let finderDirectoryCacheKey = WorkspaceFinderDirectoryCacheKey(path: finderDirectoryPath)
         let latestNotificationSubtitle = latestNotificationText
         let conversationMessageSubtitle = !settings.hidesAllDetails && settings.iMessageModeEnabled
             ? workspaceSnapshot.latestConversationMessage?
@@ -15736,7 +15698,6 @@ struct TabItemView: View, Equatable {
                     activeForegroundColor: activeSecondaryColor(0.84),
                     fontScale: fontScale
                 )
-                .id(description)
             }
 
             if let subtitle = effectiveSubtitle {
@@ -15762,7 +15723,7 @@ struct TabItemView: View, Equatable {
                         fontScale: fontScale,
                         onFocus: { updateSelection() }
                     )
-                    .transition(.opacity.combined(with: .move(edge: .top)))
+                    .transition(.opacity)
                 }
                 if !metadataBlocks.isEmpty {
                     SidebarMetadataMarkdownBlocks(
@@ -15773,7 +15734,7 @@ struct TabItemView: View, Equatable {
                         fontScale: fontScale,
                         onFocus: { updateSelection() }
                     )
-                    .transition(.opacity.combined(with: .move(edge: .top)))
+                    .transition(.opacity)
                 }
             }
 
@@ -15788,7 +15749,7 @@ struct TabItemView: View, Equatable {
                         .lineLimit(1)
                         .truncationMode(.tail)
                 }
-                .transition(.opacity.combined(with: .move(edge: .top)))
+                .transition(.opacity)
             }
 
             if detailVisibility.showsProgress, let progress = workspaceSnapshot.progress {
@@ -15811,7 +15772,7 @@ struct TabItemView: View, Equatable {
                             .lineLimit(1)
                     }
                 }
-                .transition(.opacity.combined(with: .move(edge: .top)))
+                .transition(.opacity)
             }
 
             // Branch + directory row
@@ -15965,9 +15926,12 @@ struct TabItemView: View, Equatable {
                 .lineLimit(1)
             }
         }
-        .animation(.easeInOut(duration: 0.2), value: workspaceSnapshot.latestLog)
-        .animation(.easeInOut(duration: 0.2), value: workspaceSnapshot.progress != nil)
-        .animation(.easeInOut(duration: 0.2), value: workspaceSnapshot.metadataBlocks.count)
+        // No implicit .animation(value:) on agent-mutable fields: animating a
+        // row-height change interpolates the LazyVStack's measured height over
+        // every frame of the 0.2s curve, and with dozens of agent sessions some
+        // row is always animating, so the sidebar-wide layout re-runs at display
+        // refresh rate (#5764 / #5845). Lazy rows must be height-stable after
+        // they appear; content changes now apply in one discrete layout pass.
         .padding(.horizontal, 10)
         .padding(.vertical, 8)
         .background(
@@ -16020,11 +15984,6 @@ struct TabItemView: View, Equatable {
         }
         .onAppear {
             refreshWorkspaceSnapshot(force: true)
-        }
-        .task(id: finderDirectoryCacheKey) {
-            let cache = await WorkspaceFinderDirectoryResolver.cache(for: finderDirectoryCacheKey)
-            guard !Task.isCancelled else { return }
-            workspaceFinderDirectoryCache = cache
         }
         .task(id: workspaceFinderDirectoryOpenRequest) {
             guard let request = workspaceFinderDirectoryOpenRequest else { return }
@@ -16199,10 +16158,13 @@ struct TabItemView: View, Equatable {
         let renameWorkspaceShortcut = KeyboardShortcutSettings.shortcut(for: .renameWorkspace)
         let editWorkspaceDescriptionShortcut = KeyboardShortcutSettings.shortcut(for: .editWorkspaceDescription)
         let closeWorkspaceShortcut = KeyboardShortcutSettings.shortcut(for: .closeWorkspace)
-        let finderDirectoryCacheKey = WorkspaceFinderDirectoryCacheKey(
-            path: isMulti ? nil : WorkspaceFinderDirectoryResolver.path(for: tab)
-        )
-        let finderDirectoryURL = workspaceFinderDirectoryCache.url(for: finderDirectoryCacheKey)
+        // Gate "Show in Finder" on whether a directory is *configured* (IO-free),
+        // not on a disk stat: this menu builder runs as part of the row body, a
+        // hot path. The stat happens once at click time (WorkspaceFinderDirectoryOpener
+        // re-validates and beeps if the directory is gone).
+        let finderDirectoryPath: String? = isMulti
+            ? nil
+            : WorkspaceFinderDirectoryResolver.path(for: tab)
         Button(pinLabel) {
             guard let contextMenuPinState else {
                 NSSound.beep()
@@ -16414,9 +16376,11 @@ struct TabItemView: View, Equatable {
 
         if !isMulti {
             Button(String(localized: "contextMenu.showWorkspaceInFinder", defaultValue: "Show in Finder")) {
-                workspaceFinderDirectoryOpenRequest = WorkspaceFinderDirectoryOpenRequest(directoryURL: finderDirectoryURL)
+                guard let finderDirectoryPath else { return }
+                let url = URL(fileURLWithPath: finderDirectoryPath, isDirectory: true)
+                workspaceFinderDirectoryOpenRequest = WorkspaceFinderDirectoryOpenRequest(directoryURL: url)
             }
-            .disabled(finderDirectoryURL == nil)
+            .disabled(finderDirectoryPath == nil)
         }
     }
 
@@ -17467,9 +17431,12 @@ private struct SidebarMetadataMarkdownBlockRow: View {
     let fontScale: CGFloat
     let onFocus: () -> Void
 
-    @State private var renderedMarkdown: AttributedString?
-
     var body: some View {
+        // Render inline (memoized) so the FIRST render is already attributed.
+        // Parsing in onAppear into @State performed a guaranteed nil ->
+        // attributed swap on every first appearance, changing the row's height
+        // mid-scroll and re-feeding the sidebar-wide layout cycle (#5764).
+        let renderedMarkdown = SidebarMetadataMarkdownRenderer.rendered(block.markdown)
         Group {
             if let renderedMarkdown {
                 Text(renderedMarkdown)
@@ -17484,21 +17451,10 @@ private struct SidebarMetadataMarkdownBlockRow: View {
         .fixedSize(horizontal: false, vertical: true)
         .contentShape(Rectangle())
         .onTapGesture { onFocus() }
-        .onAppear(perform: renderMarkdown)
-        .onChange(of: block.markdown) { _ in
-            renderMarkdown()
-        }
     }
 
     private var foregroundColor: Color {
         isActive ? activeForegroundColor : .secondary
-    }
-
-    private func renderMarkdown() {
-        renderedMarkdown = try? AttributedString(
-            markdown: block.markdown,
-            options: .init(interpretedSyntax: .full)
-        )
     }
 }
 

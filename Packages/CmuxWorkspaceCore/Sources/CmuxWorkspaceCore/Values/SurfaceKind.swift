@@ -4,6 +4,12 @@
 /// `kind` and serialized into session snapshots, so the string values are
 /// frozen. Formerly `Workspace.SurfaceKind` (a case-less namespace enum);
 /// lifted as a value-typed namespace per the refactor conventions.
+///
+/// These are frozen wire/persistence String identifiers (bonsplit tab `kind`,
+/// session snapshots) consumed as plain Strings at ~58 call sites; a rawValue
+/// enum would change comparison/assignment semantics at the persistence
+/// boundary and there is no natural receiver instance.
+/// lint:allow namespace-type — frozen String wire identifiers, no receiver.
 public struct SurfaceKind {
     /// A Ghostty terminal surface.
     public static let terminal = "terminal"
