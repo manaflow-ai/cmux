@@ -9,6 +9,8 @@ public struct MobileSyncWorkspaceListResponse: Decodable, Sendable {
     public struct Workspace: Decodable, Sendable {
         /// Stable workspace identifier.
         public let id: String
+        /// Stable Mac window identifier, when reported.
+        public let windowID: String?
         /// User-facing workspace title.
         public let title: String
         /// The workspace's current working directory, if reported.
@@ -42,6 +44,7 @@ public struct MobileSyncWorkspaceListResponse: Decodable, Sendable {
 
         private enum CodingKeys: String, CodingKey {
             case id
+            case windowID = "window_id"
             case title
             case currentDirectory = "current_directory"
             case isSelected = "is_selected"
