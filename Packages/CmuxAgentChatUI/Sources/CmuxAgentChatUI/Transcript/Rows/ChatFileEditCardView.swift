@@ -159,6 +159,25 @@ public struct ChatFileEditCardView: View {
             .padding(.vertical, 1)
             .frame(maxWidth: .infinity, alignment: .leading)
             .background(backgroundColor(for: line))
+            // VoiceOver can't see the +/- color tint, so name the change
+            // kind. Font stays fixed: diffs render as screens (round 7).
+            .accessibilityLabel(diffLineAccessibilityLabel(line))
+    }
+
+    private func diffLineAccessibilityLabel(_ line: String) -> String {
+        if line.hasPrefix("+") {
+            return String(localized: "chat.diff.added.accessibility",
+                          defaultValue: "Added: \(line.dropFirst())", bundle: .module)
+        }
+        if line.hasPrefix("-") {
+            return String(localized: "chat.diff.removed.accessibility",
+                          defaultValue: "Removed: \(line.dropFirst())", bundle: .module)
+        }
+        if line.hasPrefix("@@") {
+            return String(localized: "chat.diff.hunk.accessibility",
+                          defaultValue: "Section: \(line)", bundle: .module)
+        }
+        return line
     }
 
     private func foregroundColor(for line: String) -> Color {

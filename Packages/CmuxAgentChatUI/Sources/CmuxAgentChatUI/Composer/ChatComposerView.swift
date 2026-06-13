@@ -300,22 +300,30 @@ public struct ChatComposerView: View {
     private var attachmentStrip: some View {
         ScrollView(.horizontal, showsIndicators: false) {
             HStack(spacing: 8) {
-                ForEach(attachments) { attachment in
+                ForEach(Array(attachments.enumerated()), id: \.element.id) { index, attachment in
                     attachment.thumbnail
                         .resizable()
                         .scaledToFill()
                         .frame(width: 60, height: 60)
                         .clipShape(.rect(cornerRadius: 10))
                         .overlay(alignment: .topTrailing) {
-                            removeButton(id: attachment.id)
+                            removeButton(id: attachment.id, index: index)
                         }
+                        .accessibilityElement(children: .combine)
+                        .accessibilityLabel(
+                            String(
+                                localized: "chat.composer.attachment.accessibility",
+                                defaultValue: "Attachment \(index + 1)",
+                                bundle: .module
+                            )
+                        )
                 }
             }
             .padding(.vertical, 2)
         }
     }
 
-    private func removeButton(id: String) -> some View {
+    private func removeButton(id: String, index: Int) -> some View {
         Button {
             removeAttachment(id: id)
         } label: {
@@ -330,7 +338,7 @@ public struct ChatComposerView: View {
         .accessibilityLabel(
             String(
                 localized: "chat.composer.remove_attachment.accessibility",
-                defaultValue: "Remove attachment",
+                defaultValue: "Remove attachment \(index + 1)",
                 bundle: .module
             )
         )
