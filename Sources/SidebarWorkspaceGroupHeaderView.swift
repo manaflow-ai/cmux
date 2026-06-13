@@ -54,7 +54,7 @@ struct SidebarWorkspaceGroupHeaderView: View, Equatable {
     let isBeingDragged: Bool
     let topDropIndicatorVisible: Bool
     let onDragStart: () -> NSItemProvider
-    let tabDropDelegateFactory: (SidebarRowHeightStore) -> SidebarWorkspaceGroupHeaderDropDelegate
+    let tabDropDelegateFactory: (CGFloat) -> SidebarWorkspaceGroupHeaderDropDelegate
     let onToggleCollapsed: () -> Void
     let onFocusAnchor: () -> Void
     let onTapPlus: () -> Void
@@ -67,7 +67,7 @@ struct SidebarWorkspaceGroupHeaderView: View, Equatable {
     let onOpenDocs: () -> Void
 
     @State private var isHovered = false
-    @State private var rowHeightStore = SidebarRowHeightStore()
+    @State private var rowHeight: CGFloat = 1
 
     private var metrics: SidebarWorkspaceGroupHeaderMetrics {
         SidebarWorkspaceGroupHeaderMetrics(fontScale: fontScale)
@@ -95,10 +95,10 @@ struct SidebarWorkspaceGroupHeaderView: View, Equatable {
         GeometryReader { proxy in
             Color.clear
                 .onAppear {
-                    rowHeightStore.height = max(proxy.size.height, 1)
+                    rowHeight = max(proxy.size.height, 1)
                 }
                 .onChange(of: proxy.size.height) { _, newHeight in
-                    rowHeightStore.height = max(newHeight, 1)
+                    rowHeight = max(newHeight, 1)
                 }
         }
     }
@@ -236,7 +236,7 @@ struct SidebarWorkspaceGroupHeaderView: View, Equatable {
         }
         .onDrag(onDragStart)
         .internalOnlyTabDrag()
-        .onDrop(of: SidebarTabDragPayload.dropContentTypes, delegate: tabDropDelegateFactory(rowHeightStore))
+        .onDrop(of: SidebarTabDragPayload.dropContentTypes, delegate: tabDropDelegateFactory(rowHeight))
         .onHover { hovering in
             isHovered = hovering
         }
@@ -386,12 +386,9 @@ struct SidebarWorkspaceGroupHeaderDropDelegate: DropDelegate {
     let targetAnchorWorkspaceId: UUID
     let tabManager: TabManager
     let dragState: SidebarDragState
-    /// Read lazily at drop time so the header's height probe never writes @State.
-    let rowHeightStore: SidebarRowHeightStore?
+    let targetRowHeight: CGFloat?
     let dragAutoScrollController: SidebarDragAutoScrollController
     let reorderDelegate: SidebarTabDropDelegate
-
-    private var targetRowHeight: CGFloat? { rowHeightStore?.height }
 
     func validateDrop(info: DropInfo) -> Bool {
         reorderDelegate.validateDrop(info: info) || groupHeaderCenterDropAction(info) != nil
