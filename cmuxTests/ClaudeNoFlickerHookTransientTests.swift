@@ -6,6 +6,48 @@ struct ClaudeNoFlickerHookTransientTests {
     private let support = ClaudeHookRoutingTestSupport()
 
     @Test
+    func claudePromptSubmitNoOpsWhenPIDOnlyRecoveryMisses() throws {
+        let context = try support.makeHookContext(name: "claude-pid-recovery-miss")
+        defer { context.cleanup() }
+
+        let server = support.startMockServer(listenerFD: context.listenerFD, state: context.state) { line in
+            guard let payload = ClaudeHookRoutingTestSupport.jsonObject(line) else {
+                return "OK"
+            }
+            guard let id = payload["id"] as? String, let method = payload["method"] as? String else {
+                return ClaudeHookRoutingTestSupport.malformedRequestResponse(id: payload["id"] as? String, raw: line)
+            }
+            switch method {
+            case "system.top":
+                return ClaudeHookRoutingTestSupport.v2Response(id: id, ok: true, result: ["windows": []])
+            default:
+                return ClaudeHookRoutingTestSupport.v2Response(id: id, ok: false, error: ["code": "unrecognized_method", "message": "unexpected method: \(method)"])
+            }
+        }
+
+        var environment = support.baseHookEnvironment(context: context)
+        environment["CMUX_WORKSPACE_ID"] = ""
+        environment["CMUX_SURFACE_ID"] = ""
+        environment["CMUX_CLAUDE_PID"] = "6048"
+
+        let result = support.runProcess(
+            executablePath: context.cliPath,
+            arguments: ["hooks", "claude", "prompt-submit"],
+            environment: environment,
+            standardInput: #"{"session_id":"pid-recovery-miss","turn_id":"turn-1","cwd":"\#(context.root.path)","hook_event_name":"UserPromptSubmit","prompt":"run"}"#,
+            timeout: 5
+        )
+
+        #expect(server.wait(timeout: .now() + 5) == .success, "mock server did not finish")
+        #expect(!result.timedOut, Comment(rawValue: result.stderr))
+        #expect(result.status == 0, Comment(rawValue: result.stderr))
+        #expect(result.stdout == "{}\n")
+        let commands = context.state.snapshot()
+        #expect(commands.contains { ClaudeHookRoutingTestSupport.jsonObject($0)?["method"] as? String == "system.top" })
+        #expect(!commands.contains { $0.hasPrefix("set_status claude_code ") || $0.hasPrefix("set_agent_pid claude_code ") || $0.contains("\"method\":\"feed.push\"") }, "PID recovery miss must not fall back to the focused workspace, saw \(commands)")
+    }
+
+    @Test
     func claudePromptSubmitKeepsStoredTargetOnTransientWorkspaceProbeFailure() throws {
         let context = try support.makeHookContext(name: "claude-transient-stored-workspace")
         defer { context.cleanup() }

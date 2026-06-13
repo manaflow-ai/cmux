@@ -407,6 +407,7 @@ struct ClaudeNoFlickerHookRoutingTests {
         #expect(session["pid"] as? Int == livePID, "Expected live hook PID to replace the stale stored PID, saw \(session)")
     }
 
+    @Test
     func claudeForkSessionStartDoesNotRegisterProcessSnapshotOnlyPID() throws {
         let context = try support.makeHookContext(name: "claude-fork-process-only")
         defer { context.cleanup() }

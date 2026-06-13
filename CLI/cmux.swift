@@ -22086,6 +22086,8 @@ struct CMUXCLI {
         let surfaceArg = hookSurfaceFlag ?? (hookWsFlag == nil ? env["CMUX_SURFACE_ID"] : nil)
         let surfaceArgIsAmbient = hookSurfaceFlag == nil && hookWsFlag == nil
         let hookClaudePid = claudeAgentPID(from: env)
+        let needsRecoveredHookTarget = hookWsFlag == nil && hookSurfaceFlag == nil && nonEmptyClaudeHookIdentifier(env["CMUX_WORKSPACE_ID"]) == nil && nonEmptyClaudeHookIdentifier(env["CMUX_SURFACE_ID"]) == nil
+            && (hookClaudePid != nil || ["CMUX_CLI_TTY_NAME", "CMUX_TTY_NAME"].contains { env[$0]?.isEmpty == false })
         let rawInput = String(data: FileHandle.standardInput.readDataToEndOfFile(), encoding: .utf8) ?? ""
         let parsedInput = parseClaudeHookInput(rawInput: rawInput)
         let sessionStore = ClaudeHookSessionStore()
@@ -22116,12 +22118,16 @@ struct CMUXCLI {
                 sendClaudeFeedTelemetry()
             }
         }
+        func missingRecoveredHookTarget(agentPID: Int?, allowProcessSnapshotBinding: Bool = true, terminalBindingCache: inout ClaudeHookTerminalBindingCache) -> Bool {
+            needsRecoveredHookTarget && resolveClaudeHookTerminalBinding(agentPID: agentPID, allowProcessSnapshotBinding: allowProcessSnapshotBinding, terminalBindingCache: &terminalBindingCache, client: client) == nil
+        }
 
         switch subcommand {
         case "session-start", "active":
             telemetry.breadcrumb("claude-hook.session-start")
             let claudePid = hookClaudePid
             var terminalBindingCache: ClaudeHookTerminalBindingCache = (didResolve: false, agentPID: nil, allowProcessSnapshotBinding: true, socketPassword: socketPassword, binding: nil)
+            guard !missingRecoveredHookTarget(agentPID: claudePid, terminalBindingCache: &terminalBindingCache) else { didSendFeedTelemetry = true; print("{}"); return }
             let workspaceId = try resolvePreferredWorkspaceIdForClaudeHook(
                 preferred: nil,
                 fallback: workspaceArg,
@@ -22151,12 +22157,8 @@ struct CMUXCLI {
                 fallbackKind: "claude",
                 cwd: parsedInput.cwd
             )
-            // `claude --resume <parent> --fork-session` fires SessionStart with the
-            // PARENT session id — the forked session id is only minted at the first
-            // UserPromptSubmit. Upserting here would steal the parent record's
-            // surface/pid/launch command from the pane that still owns that
-            // conversation, so fork launches leave the store untouched; the forked
-            // session is recorded once its own id appears on prompt-submit.
+            // Fork SessionStart reports the parent session id; the forked id is
+            // minted on first UserPromptSubmit, so leave the parent record intact.
             // https://github.com/manaflow-ai/cmux/issues/5908
             let isForkSessionLaunch = isClaudeForkSessionLaunch(
                 env: env,
@@ -22202,15 +22204,8 @@ struct CMUXCLI {
                 }
             }
             // Register PID for stale-session detection and OSC suppression.
-            // Startup/resume SessionStart remains non-visible; /clear is a
-            // new active boundary and must keep the sidebar Running before
-            // any late pre-clear Stop can write Idle.
-            // Fork launches register their PID only with an authoritative
-            // surface: the hook reports the PARENT session id (which is often
-            // the workspace-active session), and the pre-prompt fork SessionEnd
-            // cleanup intentionally avoids process snapshots, so fallback or
-            // process-only registration could leave a stale PID on a pane the
-            // fork never owned.
+            // Startup/resume stays non-visible; /clear is a new active boundary.
+            // Forks register only on authoritative non-snapshot surfaces.
             let shouldRegisterPID = isForkSessionLaunch
                 ? resolvedSurface.isAuthoritative && !resolvedSurface.isProcessSnapshotBound
                 : shouldPromoteActiveSession ||
@@ -22256,6 +22251,7 @@ struct CMUXCLI {
                 let mappedSession = parsedInput.sessionId.flatMap { try? sessionStore.lookup(sessionId: $0) }
                 let claudePid = hookClaudePid ?? mappedSession?.pid
                 var terminalBindingCache: ClaudeHookTerminalBindingCache = (didResolve: false, agentPID: nil, allowProcessSnapshotBinding: true, socketPassword: socketPassword, binding: nil)
+                guard !missingRecoveredHookTarget(agentPID: claudePid, terminalBindingCache: &terminalBindingCache) else { didSendFeedTelemetry = true; print("{}"); return }
                 let workspaceId = try resolvePreferredWorkspaceIdForClaudeHook(
                     preferred: mappedSession?.workspaceId,
                     fallback: workspaceArg,
@@ -22367,6 +22363,7 @@ struct CMUXCLI {
             let mappedSession = parsedInput.sessionId.flatMap { try? sessionStore.lookup(sessionId: $0) }
             let claudePid = hookClaudePid ?? mappedSession?.pid
             var terminalBindingCache: ClaudeHookTerminalBindingCache = (didResolve: false, agentPID: nil, allowProcessSnapshotBinding: true, socketPassword: socketPassword, binding: nil)
+            guard !missingRecoveredHookTarget(agentPID: claudePid, terminalBindingCache: &terminalBindingCache) else { didSendFeedTelemetry = true; print("{}"); return }
             let workspaceId = try resolvePreferredWorkspaceIdForClaudeHook(
                 preferred: mappedSession?.workspaceId,
                 fallback: workspaceArg,
@@ -22486,6 +22483,7 @@ struct CMUXCLI {
             let mappedSession = parsedInput.sessionId.flatMap { try? sessionStore.lookup(sessionId: $0) }
             let claudePid = hookClaudePid ?? mappedSession?.pid
             var terminalBindingCache: ClaudeHookTerminalBindingCache = (didResolve: false, agentPID: nil, allowProcessSnapshotBinding: true, socketPassword: socketPassword, binding: nil)
+            guard !missingRecoveredHookTarget(agentPID: claudePid, terminalBindingCache: &terminalBindingCache) else { didSendFeedTelemetry = true; print("{}"); return }
             let workspaceId = try resolvePreferredWorkspaceIdForClaudeHook(
                 preferred: mappedSession?.workspaceId,
                 fallback: workspaceArg,
@@ -22570,12 +22568,9 @@ struct CMUXCLI {
 
         case "session-end":
             telemetry.breadcrumb("claude-hook.session-end")
-            // A fork launch that exits before its first prompt fires SessionEnd
-            // with the PARENT session id (the forked id is only minted at the
-            // first UserPromptSubmit). Consuming it would delete the parent
-            // pane's restore record and clear its resume binding even though
-            // that pane still owns the conversation. Post-prompt fork exits
-            // report the forked id and consume normally.
+            // Pre-prompt fork SessionEnd reports the parent id; consuming it would
+            // delete the parent pane's restore record. Post-prompt exits report
+            // the forked id and consume normally.
             // https://github.com/manaflow-ai/cmux/issues/5908
             if let reportedSessionId = parsedInput.sessionId?.trimmingCharacters(in: .whitespacesAndNewlines),
                !reportedSessionId.isEmpty,
@@ -22596,6 +22591,7 @@ struct CMUXCLI {
                 )
                 if !suppressForkVisibleMutations {
                     var forkTerminalBindingCache: ClaudeHookTerminalBindingCache = (didResolve: false, agentPID: nil, allowProcessSnapshotBinding: true, socketPassword: socketPassword, binding: nil)
+                    guard !missingRecoveredHookTarget(agentPID: forkClaudePid, allowProcessSnapshotBinding: false, terminalBindingCache: &forkTerminalBindingCache) else { didSendFeedTelemetry = true; print("{}"); return }
                     if let forkWorkspaceId = try? resolvePreferredWorkspaceIdForClaudeHook(
                         preferred: nil,
                         fallback: workspaceArg,
@@ -22632,6 +22628,7 @@ struct CMUXCLI {
             let mappedSession = parsedInput.sessionId.flatMap { try? sessionStore.lookup(sessionId: $0) }
             let fallbackClaudePid = hookClaudePid ?? mappedSession?.pid
             var fallbackTerminalBindingCache: ClaudeHookTerminalBindingCache = (didResolve: false, agentPID: nil, allowProcessSnapshotBinding: true, socketPassword: socketPassword, binding: nil)
+            guard !missingRecoveredHookTarget(agentPID: fallbackClaudePid, allowProcessSnapshotBinding: false, terminalBindingCache: &fallbackTerminalBindingCache) else { didSendFeedTelemetry = true; print("{}"); return }
             let fallbackWorkspaceId = try? resolvePreferredWorkspaceIdForClaudeHook(
                 preferred: mappedSession?.workspaceId,
                 fallback: workspaceArg,
@@ -22716,6 +22713,7 @@ struct CMUXCLI {
             let mappedSession = parsedInput.sessionId.flatMap { try? sessionStore.lookup(sessionId: $0) }
             let claudePid = hookClaudePid ?? mappedSession?.pid
             var terminalBindingCache: ClaudeHookTerminalBindingCache = (didResolve: false, agentPID: nil, allowProcessSnapshotBinding: true, socketPassword: socketPassword, binding: nil)
+            guard !missingRecoveredHookTarget(agentPID: claudePid, terminalBindingCache: &terminalBindingCache) else { didSendFeedTelemetry = true; print("{}"); return }
             let workspaceId = try resolvePreferredWorkspaceIdForClaudeHook(
                 preferred: mappedSession?.workspaceId,
                 fallback: workspaceArg,
