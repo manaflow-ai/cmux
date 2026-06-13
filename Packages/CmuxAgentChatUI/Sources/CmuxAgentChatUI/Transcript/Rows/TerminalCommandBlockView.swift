@@ -19,6 +19,7 @@ public struct TerminalCommandBlockView: View {
     private static let collapseThreshold = 12
     private static let collapsedHeadCount = 6
     private static let collapsedTailCount = 3
+    private static let maxLineLength = 4000
 
     /// Creates a terminal command-block row.
     ///
@@ -69,6 +70,26 @@ public struct TerminalCommandBlockView: View {
         }
         .accessibilityElement(children: .combine)
         .accessibilityLabel(accessibilityLabel)
+        // `.combine` absorbs the inline "more lines" button, so expose the
+        // toggle as a VoiceOver custom action when the output is collapsible.
+        .accessibilityActions {
+            if outputLines.count > Self.collapseThreshold {
+                Button(
+                    isExpanded
+                        ? String(
+                            localized: "chat.terminal.collapse.action",
+                            defaultValue: "Show less output",
+                            bundle: .module
+                        )
+                        : String(
+                            localized: "chat.terminal.expand.action",
+                            defaultValue: "Show all output",
+                            bundle: .module
+                        ),
+                    action: onToggleExpanded
+                )
+            }
+        }
     }
 
     private var commandRow: some View {
@@ -153,9 +174,15 @@ public struct TerminalCommandBlockView: View {
     }
 
     /// Output split into display lines (already ANSI/CR-cleaned by the parser).
+    /// Pathologically long single lines are capped so one 50k-column line
+    /// can't force an unbounded-width Text layout on every render.
     private var outputLines: [String] {
         guard !block.output.isEmpty else { return [] }
-        return block.output.split(separator: "\n", omittingEmptySubsequences: false).map(String.init)
+        return block.output.split(separator: "\n", omittingEmptySubsequences: false).map { line in
+            line.count > Self.maxLineLength
+                ? String(line.prefix(Self.maxLineLength)) + "…"
+                : String(line)
+        }
     }
 
     private var accessibilityLabel: String {

@@ -800,6 +800,23 @@
         }
       }
     },
+    "chat.terminal.collapse.action" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Show less output"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "出力を折りたたむ"
+          }
+        }
+      }
+    },
     "chat.terminal.command.accessibility" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -813,6 +830,23 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "コマンド%@"
+          }
+        }
+      }
+    },
+    "chat.terminal.expand.action" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Show all output"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "すべての出力を表示"
           }
         }
       }
