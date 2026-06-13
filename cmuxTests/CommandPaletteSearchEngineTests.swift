@@ -2023,7 +2023,7 @@ final class CommandPaletteSearchEngineTests: XCTestCase {
     }
 
     func testCommandContextFingerprintTracksExactContextValues() {
-        let base = ContentView.commandPaletteContextFingerprint(
+        let base = CommandPaletteContextSnapshot.fingerprint(
             boolValues: [
                 "workspace.hasPullRequests": true,
                 "panel.hasUnread": false,
@@ -2034,7 +2034,7 @@ final class CommandPaletteSearchEngineTests: XCTestCase {
                 "panel.name": "Main",
             ]
         )
-        let unreadChanged = ContentView.commandPaletteContextFingerprint(
+        let unreadChanged = CommandPaletteContextSnapshot.fingerprint(
             boolValues: [
                 "workspace.hasPullRequests": true,
                 "panel.hasUnread": true,
@@ -2045,7 +2045,7 @@ final class CommandPaletteSearchEngineTests: XCTestCase {
                 "panel.name": "Main",
             ]
         )
-        let renamed = ContentView.commandPaletteContextFingerprint(
+        let renamed = CommandPaletteContextSnapshot.fingerprint(
             boolValues: [
                 "workspace.hasPullRequests": true,
                 "panel.hasUnread": false,
@@ -2064,7 +2064,7 @@ final class CommandPaletteSearchEngineTests: XCTestCase {
     func testSwitcherFingerprintTracksMetadataValuesAtSameCardinality() {
         let windowID = UUID()
         let workspaceID = UUID()
-        let base = ContentView.commandPaletteSwitcherFingerprint(
+        let base = CommandPaletteSwitcherFingerprintContext.fingerprint(
             windowContexts: [
                 CommandPaletteSwitcherFingerprintContext(
                     windowId: windowID,
@@ -2085,7 +2085,7 @@ final class CommandPaletteSearchEngineTests: XCTestCase {
                 )
             ]
         )
-        let changedMetadata = ContentView.commandPaletteSwitcherFingerprint(
+        let changedMetadata = CommandPaletteSwitcherFingerprintContext.fingerprint(
             windowContexts: [
                 CommandPaletteSwitcherFingerprintContext(
                     windowId: windowID,
@@ -2106,7 +2106,7 @@ final class CommandPaletteSearchEngineTests: XCTestCase {
                 )
             ]
         )
-        let changedDisplayName = ContentView.commandPaletteSwitcherFingerprint(
+        let changedDisplayName = CommandPaletteSwitcherFingerprintContext.fingerprint(
             windowContexts: [
                 CommandPaletteSwitcherFingerprintContext(
                     windowId: windowID,
@@ -2137,7 +2137,7 @@ final class CommandPaletteSearchEngineTests: XCTestCase {
         let workspaceID = UUID()
         let surfaceID = UUID()
 
-        let base = ContentView.commandPaletteSwitcherFingerprint(
+        let base = CommandPaletteSwitcherFingerprintContext.fingerprint(
             windowContexts: [
                 CommandPaletteSwitcherFingerprintContext(
                     windowId: windowID,
@@ -2165,7 +2165,7 @@ final class CommandPaletteSearchEngineTests: XCTestCase {
                 )
             ]
         )
-        let changedSurfaceMetadata = ContentView.commandPaletteSwitcherFingerprint(
+        let changedSurfaceMetadata = CommandPaletteSwitcherFingerprintContext.fingerprint(
             windowContexts: [
                 CommandPaletteSwitcherFingerprintContext(
                     windowId: windowID,
@@ -2193,7 +2193,7 @@ final class CommandPaletteSearchEngineTests: XCTestCase {
                 )
             ]
         )
-        let changedSurfaceKind = ContentView.commandPaletteSwitcherFingerprint(
+        let changedSurfaceKind = CommandPaletteSwitcherFingerprintContext.fingerprint(
             windowContexts: [
                 CommandPaletteSwitcherFingerprintContext(
                     windowId: windowID,
