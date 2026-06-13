@@ -214,6 +214,14 @@ extension TerminalController {
     /// Workspace/surface params for a chat session's bound terminal, in the
     /// shape the existing mobile terminal handlers expect.
     private func mobileChatTerminalParams(sessionID: String) -> [String: Any]? {
+        // Terminal sessions ARE a surface: their id is the surface UUID, with
+        // no agent record. Resolve the surface's workspace directly so
+        // send/interrupt/answer inject into the right terminal (otherwise the
+        // agent-record lookup below fails with "the agent's terminal moved").
+        if let surfaceID = UUID(uuidString: sessionID),
+           let workspaceID = terminalSurfaceWorkspaceID(surfaceID) {
+            return ["workspace_id": workspaceID, "surface_id": sessionID]
+        }
         guard let record = mobileChatResolvableRecord(sessionID: sessionID),
               let workspaceID = record.workspaceID,
               let surfaceID = record.surfaceID else {
@@ -325,13 +333,19 @@ extension TerminalController {
     }
 
     private func isKnownTerminalSurface(_ surfaceID: UUID) -> Bool {
-        guard let app = AppDelegate.shared else { return false }
+        terminalSurfaceWorkspaceID(surfaceID) != nil
+    }
+
+    /// The workspace UUID string owning a terminal surface, or nil when the
+    /// surface is not an open terminal panel in any main window.
+    private func terminalSurfaceWorkspaceID(_ surfaceID: UUID) -> String? {
+        guard let app = AppDelegate.shared else { return nil }
         for summary in app.listMainWindowSummaries() {
             guard let tabManager = app.tabManagerFor(windowId: summary.windowId) else { continue }
             for workspace in tabManager.tabs where workspace.terminalPanel(for: surfaceID) != nil {
-                return true
+                return workspace.id.uuidString
             }
         }
-        return false
+        return nil
     }
 }

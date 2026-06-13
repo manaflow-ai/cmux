@@ -75,6 +75,15 @@ public struct ChatScreen: View {
                     .transition(.move(edge: .top).combined(with: .opacity))
                     .accessibilityIdentifier("ChatErrorBanner")
                     .onTapGesture { store.dismissError() }
+                    // Swipe the toast up to dismiss (it animates out via the
+                    // move(edge: .top) transition), in addition to tap and the
+                    // bounded auto-dismiss below.
+                    .gesture(
+                        DragGesture(minimumDistance: 8)
+                            .onEnded { value in
+                                if value.translation.height < -8 { store.dismissError() }
+                            }
+                    )
                     // Bounded auto-dismiss: the task is keyed on the error
                     // text, so a new error restarts the window, and SwiftUI
                     // cancels the sleep when the banner leaves.
