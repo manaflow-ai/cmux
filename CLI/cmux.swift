@@ -23050,7 +23050,8 @@ struct CMUXCLI {
                 terminalBindingCache: &terminalBindingCache,
                 client: client
             ),
-               let boundWorkspaceId = resolveClaudeHookWorkspaceId(binding.workspaceId, client: client), claudeHookWorkspaceIsAccessible(boundWorkspaceId, client: client) {
+               let boundWorkspaceId = resolveClaudeHookWorkspaceId(binding.workspaceId, client: client),
+               resolveClaudeHookBindingSurfaceId(binding, workspaceId: boundWorkspaceId, client: client) != nil {
                 return boundWorkspaceId
             }
             if let resolvedFallback,
@@ -23065,7 +23066,8 @@ struct CMUXCLI {
             terminalBindingCache: &terminalBindingCache,
             client: client
         ),
-           let workspaceId = resolveClaudeHookWorkspaceId(binding.workspaceId, client: client), claudeHookWorkspaceIsAccessible(workspaceId, client: client) {
+           let workspaceId = resolveClaudeHookWorkspaceId(binding.workspaceId, client: client),
+           resolveClaudeHookBindingSurfaceId(binding, workspaceId: workspaceId, client: client) != nil {
             return workspaceId
         }
         return try resolveWorkspaceIdForClaudeHook(nil, client: client)
@@ -23216,13 +23218,11 @@ struct CMUXCLI {
         allowProcessSnapshotBinding: Bool = true,
         socketPassword: String?, client: SocketClient
     ) -> CallerTerminalBinding? {
-        if let binding = resolveCallerTerminalBindingByTTY(client: client) {
+        if allowProcessSnapshotBinding,
+           let binding = resolveAgentProcessTerminalBinding(pid: agentPID, client: client, socketPassword: socketPassword) {
             return binding
         }
-        guard allowProcessSnapshotBinding else {
-            return nil
-        }
-        return resolveAgentProcessTerminalBinding(pid: agentPID, client: client, socketPassword: socketPassword)
+        return resolveCallerTerminalBindingByTTY(client: client)
     }
 
     private func resolveClaudeHookBindingSurfaceId(
