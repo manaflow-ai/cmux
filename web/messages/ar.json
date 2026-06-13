@@ -764,7 +764,7 @@
         },
         "app": {
           "confirmQuit": "يتحكم في وقت طلب cmux التأكيد قبل الإنهاء. تنتهي إصدارات DEV فوراً دائماً بغض النظر عن هذا الإعداد. يظل app.warnBeforeQuit القديم مقبولاً كخيار احتياطي منطقي.",
-          "windowTitleTemplate": "قالب اختياري لعنوان NSWindow. اتركه فارغاً للحفاظ على العنوان الافتراضي لمساحة العمل النشطة. العناصر النائبة المدعومة: '{windowId}', '{windowToken}', '{activeWorkspace}', '{activeDirectory}', '{defaultTitle}', '{appName}'.",
+          "windowTitleTemplate": "قالب اختياري لعنوان NSWindow. اتركه فارغاً للحفاظ على سلوك العنوان الافتراضي الحالي في cmux، بما في ذلك الرجوع إلى الدليل الحالي. العناصر النائبة المدعومة: '{windowId}', '{windowToken}', '{activeWorkspace}', '{activeDirectory}', '{defaultTitle}', '{appName}'.",
           "warnBeforeQuit": "خيار منطقي قديم احتياطي لتأكيد الإنهاء. استخدم app.confirmQuit للإعدادات الجديدة.",
           "warnBeforeClosingTabXButton": "اعرض تأكيدًا قبل إغلاق تبويب بزر إغلاق التبويب.",
           "hideTabCloseButton": "أخفِ أزرار إغلاق التبويبات في شريط تبويبات الجزء.",

@@ -764,7 +764,7 @@
         },
         "app": {
           "confirmQuit": "Steuert, wann cmux vor dem Beenden eine Bestätigung anfordert. DEV-Builds beenden sich unabhängig von dieser Einstellung immer sofort. Das ältere app.warnBeforeQuit wird weiterhin als boolescher Fallback akzeptiert.",
-          "windowTitleTemplate": "Optionale Vorlage für den NSWindow-Titel. Leer behält den Standardtitel des aktiven Arbeitsbereichs bei. Unterstützte Platzhalter: '{windowId}', '{windowToken}', '{activeWorkspace}', '{activeDirectory}', '{defaultTitle}', '{appName}'.",
+          "windowTitleTemplate": "Optionale Vorlage für den NSWindow-Titel. Leer behält das bestehende Standardtitelverhalten von cmux bei, einschließlich Fallback auf das aktuelle Verzeichnis. Unterstützte Platzhalter: '{windowId}', '{windowToken}', '{activeWorkspace}', '{activeDirectory}', '{defaultTitle}', '{appName}'.",
           "warnBeforeQuit": "Älterer boolescher Fallback für die Beenden-Bestätigung. Verwenden Sie app.confirmQuit für neue Konfigurationen.",
           "warnBeforeClosingTabXButton": "Vor dem Schließen eines Tabs über die Tab-Schließen-Schaltfläche eine Bestätigung anzeigen.",
           "hideTabCloseButton": "Tab-Schließen-Schaltflächen in der Pane-Tableiste ausblenden.",
