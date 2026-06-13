@@ -8316,15 +8316,15 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         return Self.shouldDeferSurfaceResizeForActiveDrag() ? "tabDrag" : nil
     }
 
-    private func scheduleDeferredSurfaceSizeRetryIfNeeded() {
-        guard window != nil else { return }
-        guard !deferredSurfaceSizeRetryQueued else { return }
+    @discardableResult private func scheduleDeferredSurfaceSizeRetryIfNeeded() -> Bool {
+        guard window != nil, !deferredSurfaceSizeRetryQueued else { return false }
         deferredSurfaceSizeRetryQueued = true
         DispatchQueue.main.async { [weak self] in
             guard let self else { return }
             self.deferredSurfaceSizeRetryQueued = false
             _ = self.updateSurfaceSize()
         }
+        return true
     }
 
     @discardableResult
@@ -8429,9 +8429,9 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
                 }
                 lastDrawableSize = drawablePixelSize
             }
-        } else if deferredSurfaceSizeNonMetalRetryCount < Self.maxDeferredSurfaceSizeNonMetalRetryCount {
+        } else if deferredSurfaceSizeNonMetalRetryCount < Self.maxDeferredSurfaceSizeNonMetalRetryCount,
+                  scheduleDeferredSurfaceSizeRetryIfNeeded() {
             deferredSurfaceSizeNonMetalRetryCount += 1
-            scheduleDeferredSurfaceSizeRetryIfNeeded()
         }
         CATransaction.commit()
 
