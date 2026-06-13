@@ -113,7 +113,21 @@ extension CanvasRootView: CanvasPaneViewDelegate {
     }
 
     func paneView(_ view: CanvasPaneView, requestTearOutTab panelId: UUID, atDocumentPoint point: CGPoint) {
-        guard model.breakOutPanel(panelId) else { return }
+        guard model.breakOutPanel(panelId) else {
+            // Single-tab pane: nothing to tear out — degrade to a normal
+            // pane drag so Option+drag never goes dead.
+            if let frame = model.layout.frame(of: view.paneID)?.cgRect {
+                dragSession = DragSession(
+                    paneID: view.paneID,
+                    region: .titleBar,
+                    originalFrame: frame,
+                    startPoint: point,
+                    lastFrame: frame,
+                    lastPoint: point
+                )
+            }
+            return
+        }
         // Put the torn-out pane's tab bar under the cursor and drag from there.
         guard var frame = model.frame(of: panelId) else { return }
         let canvasPoint = canvasRect(fromDocument: CGRect(origin: point, size: .zero)).origin
