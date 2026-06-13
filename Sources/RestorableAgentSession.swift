@@ -1,5 +1,6 @@
 import Foundation
 import CMUXAgentLaunch
+import os
 
 nonisolated enum TerminalStartupShellQuoting {
     static func singleQuoted(_ value: String) -> String {
@@ -971,17 +972,58 @@ struct RestorableAgentSessionIndex: Sendable {
         homeDirectory: String = NSHomeDirectory(),
         fileManager: FileManager = .default
     ) -> RestorableAgentSessionIndex {
+        // Fast path: if ProcessDetectedResumeIndexes.loadSynchronously() already ran
+        // with the same process snapshot, return its cached restorableAgentIndex
+        // directly, avoiding a redundant CmuxVaultAgentRegistry.load() and
+        // RestorableAgentSessionIndex.load() (expensive hook-store JSON reads).
+        let processSnapshot = CmuxTopProcessSnapshot.captureCached(
+            includeProcessDetails: true,
+            maximumAge: 60
+        )
+        if let cached = cachedProcessDetectedResumeIndexes(
+            for: processSnapshot,
+            homeDirectory: homeDirectory,
+            fileManager: fileManager
+        ) {
+            return cached.restorableAgentIndex
+        }
+
+        let capturedAt = Date().timeIntervalSince1970
         let registry = CmuxVaultAgentRegistry.load(homeDirectory: homeDirectory, fileManager: fileManager)
         let detectedSnapshots = processDetectedSnapshots(
             registry: registry,
-            fileManager: fileManager
+            fileManager: fileManager,
+            processSnapshot: processSnapshot,
+            capturedAt: capturedAt
         )
-        return load(
+        let restorableAgentIndex = load(
             homeDirectory: homeDirectory,
             fileManager: fileManager,
             registry: registry,
             detectedSnapshots: detectedSnapshots
         )
+        // Also compute and cache the full ProcessDetectedResumeIndexes result so that
+        // subsequent ProcessDetectedResumeIndexes.loadSynchronously() calls (e.g. the
+        // session-autosave at t+8 s) can skip their own expensive disk reads.
+        let detectedBindings = SurfaceResumeBindingIndex.processDetectedTmuxBindings(
+            fileManager: fileManager,
+            processSnapshot: processSnapshot,
+            capturedAt: capturedAt
+        )
+        let fullResult = ProcessDetectedResumeIndexes(
+            restorableAgentIndex: restorableAgentIndex,
+            surfaceResumeBindingIndex: SurfaceResumeBindingIndex(
+                bindingsByPanel: detectedBindings.mapValues(\.binding)
+            )
+        )
+        cacheProcessDetectedResumeIndexes(
+            fullResult,
+            for: processSnapshot,
+            homeDirectory: homeDirectory,
+            fileManager: fileManager,
+            registry: registry
+        )
+        return restorableAgentIndex
     }
 
     static func load(
@@ -1689,6 +1731,203 @@ nonisolated struct SurfaceResumeBindingIndex: Sendable {
     }
 }
 
+// Module-level result cache: when the process snapshot and hook/config source files are
+// unchanged, the derived registry, agent-index, and tmux-bindings are unchanged too.
+// This avoids re-reading hook-store JSON on every 8-second autosave tick while the app is idle.
+private nonisolated struct ProcessDetectedResumeIndexesCacheIdentity: Equatable, Sendable {
+    var sampledAt: Date
+    var homeDirectory: String
+    var fileManagerID: ObjectIdentifier
+    var environmentPWD: String?
+    var hookStateDirectoryOverride: String?
+}
+
+private nonisolated struct ProcessDetectedResumeIndexesFileFingerprint: Equatable, Sendable {
+    var path: String
+    var exists: Bool
+    var modifiedAt: TimeInterval
+    var size: UInt64
+}
+
+private nonisolated struct ProcessDetectedResumeIndexesCacheKey: Sendable {
+    var identity: ProcessDetectedResumeIndexesCacheIdentity
+    var sourcePaths: [String]
+    var sourceFingerprint: [ProcessDetectedResumeIndexesFileFingerprint]
+}
+
+private nonisolated struct ProcessDetectedResumeIndexesCache: @unchecked Sendable {
+    var result: ProcessDetectedResumeIndexes?
+    var key: ProcessDetectedResumeIndexesCacheKey?
+}
+private nonisolated let processDetectedResumeIndexesCache = OSAllocatedUnfairLock(
+    initialState: ProcessDetectedResumeIndexesCache()
+)
+
+private nonisolated func cachedProcessDetectedResumeIndexes(
+    for processSnapshot: CmuxTopProcessSnapshot,
+    homeDirectory: String,
+    fileManager: FileManager
+) -> ProcessDetectedResumeIndexes? {
+    let identity = processDetectedResumeIndexesCacheIdentity(
+        processSnapshot: processSnapshot,
+        homeDirectory: homeDirectory,
+        fileManager: fileManager
+    )
+    guard let candidate = processDetectedResumeIndexesCache.withLock({ state -> (ProcessDetectedResumeIndexesCacheKey, ProcessDetectedResumeIndexes)? in
+        guard let key = state.key,
+              key.identity == identity,
+              let result = state.result else {
+            return nil
+        }
+        return (key, result)
+    }) else {
+        return nil
+    }
+
+    let currentFingerprint = processDetectedResumeIndexesFileFingerprint(
+        paths: candidate.0.sourcePaths,
+        fileManager: fileManager
+    )
+    guard currentFingerprint == candidate.0.sourceFingerprint else {
+        return nil
+    }
+    return candidate.1
+}
+
+private nonisolated func cacheProcessDetectedResumeIndexes(
+    _ result: ProcessDetectedResumeIndexes,
+    for processSnapshot: CmuxTopProcessSnapshot,
+    homeDirectory: String,
+    fileManager: FileManager,
+    registry: CmuxVaultAgentRegistry
+) {
+    let sourcePaths = processDetectedResumeIndexesSourcePaths(
+        homeDirectory: homeDirectory,
+        fileManager: fileManager,
+        registry: registry
+    )
+    let key = ProcessDetectedResumeIndexesCacheKey(
+        identity: processDetectedResumeIndexesCacheIdentity(
+            processSnapshot: processSnapshot,
+            homeDirectory: homeDirectory,
+            fileManager: fileManager
+        ),
+        sourcePaths: sourcePaths,
+        sourceFingerprint: processDetectedResumeIndexesFileFingerprint(
+            paths: sourcePaths,
+            fileManager: fileManager
+        )
+    )
+    processDetectedResumeIndexesCache.withLock { state in
+        state.result = result
+        state.key = key
+    }
+}
+
+private nonisolated func processDetectedResumeIndexesCacheIdentity(
+    processSnapshot: CmuxTopProcessSnapshot,
+    homeDirectory: String,
+    fileManager: FileManager
+) -> ProcessDetectedResumeIndexesCacheIdentity {
+    ProcessDetectedResumeIndexesCacheIdentity(
+        sampledAt: processSnapshot.sampledAt,
+        homeDirectory: (homeDirectory as NSString).standardizingPath,
+        fileManagerID: ObjectIdentifier(fileManager),
+        environmentPWD: normalizedProcessDetectedResumeIndexesEnvironmentPath("PWD"),
+        hookStateDirectoryOverride: normalizedProcessDetectedResumeIndexesEnvironmentPath("CMUX_AGENT_HOOK_STATE_DIR")
+    )
+}
+
+private nonisolated func normalizedProcessDetectedResumeIndexesEnvironmentPath(_ key: String) -> String? {
+    guard let rawValue = ProcessInfo.processInfo.environment[key]?.trimmingCharacters(in: .whitespacesAndNewlines),
+          !rawValue.isEmpty else {
+        return nil
+    }
+    return ((rawValue as NSString).expandingTildeInPath as NSString).standardizingPath
+}
+
+private nonisolated func processDetectedResumeIndexesSourcePaths(
+    homeDirectory: String,
+    fileManager: FileManager,
+    registry: CmuxVaultAgentRegistry
+) -> [String] {
+    let home = (homeDirectory as NSString).standardizingPath
+    var paths = [(home as NSString).appendingPathComponent(".config/cmux/cmux.json")]
+    if let pwd = normalizedProcessDetectedResumeIndexesEnvironmentPath("PWD") {
+        paths.append(contentsOf: processDetectedResumeIndexesLocalConfigCandidatePaths(
+            startingAt: pwd,
+            fileManager: fileManager
+        ))
+    }
+
+    let builtInKindIDs = Set(RestorableAgentKind.allCases.map(\.rawValue))
+    let hookKinds = RestorableAgentKind.allCases
+        + registry.registrations.compactMap { registration -> RestorableAgentKind? in
+            builtInKindIDs.contains(registration.id) ? nil : .custom(registration.id)
+        }
+    paths.append(contentsOf: hookKinds.map { kind in
+        kind.hookStoreFileURL(homeDirectory: home).path
+    })
+
+    return processDetectedResumeIndexesUniqueStandardizedPaths(paths)
+}
+
+private nonisolated func processDetectedResumeIndexesLocalConfigCandidatePaths(
+    startingAt path: String,
+    fileManager: FileManager
+) -> [String] {
+    var isDirectory: ObjCBool = false
+    let start = fileManager.fileExists(atPath: path, isDirectory: &isDirectory) && isDirectory.boolValue
+        ? path
+        : (path as NSString).deletingLastPathComponent
+    var current = (start as NSString).standardizingPath
+    var paths: [String] = []
+    while true {
+        paths.append(((current as NSString).appendingPathComponent(".cmux") as NSString).appendingPathComponent("cmux.json"))
+        paths.append((current as NSString).appendingPathComponent("cmux.json"))
+        let parent = (current as NSString).deletingLastPathComponent
+        if parent == current { break }
+        current = parent
+    }
+    return paths
+}
+
+private nonisolated func processDetectedResumeIndexesUniqueStandardizedPaths(_ paths: [String]) -> [String] {
+    var result: [String] = []
+    var seen = Set<String>()
+    for path in paths {
+        let standardized = ((path as NSString).expandingTildeInPath as NSString).standardizingPath
+        if seen.insert(standardized).inserted {
+            result.append(standardized)
+        }
+    }
+    return result
+}
+
+private nonisolated func processDetectedResumeIndexesFileFingerprint(
+    paths: [String],
+    fileManager: FileManager
+) -> [ProcessDetectedResumeIndexesFileFingerprint] {
+    paths.map { path in
+        guard let attrs = try? fileManager.attributesOfItem(atPath: path) else {
+            return ProcessDetectedResumeIndexesFileFingerprint(
+                path: path,
+                exists: false,
+                modifiedAt: 0,
+                size: 0
+            )
+        }
+        let modifiedAt = (attrs[.modificationDate] as? Date)?.timeIntervalSince1970 ?? 0
+        let size = (attrs[.size] as? NSNumber)?.uint64Value ?? 0
+        return ProcessDetectedResumeIndexesFileFingerprint(
+            path: path,
+            exists: true,
+            modifiedAt: modifiedAt,
+            size: size
+        )
+    }
+}
+
 struct ProcessDetectedResumeIndexes: Sendable {
     let restorableAgentIndex: RestorableAgentSessionIndex
     let surfaceResumeBindingIndex: SurfaceResumeBindingIndex
@@ -1706,8 +1945,26 @@ struct ProcessDetectedResumeIndexes: Sendable {
         homeDirectory: String = NSHomeDirectory(),
         fileManager: FileManager = .default
     ) -> ProcessDetectedResumeIndexes {
+        // Re-use a recent snapshot when available: the session-autosave fires every 8 s and
+        // the process list rarely changes that fast.  A 60-second TTL covers the first
+        // hibernation repeat at t+35 s while still bounding process-detection staleness.
+        let processSnapshot = CmuxTopProcessSnapshot.captureCached(
+            includeProcessDetails: true,
+            maximumAge: 60
+        )
+
+        // Fast path: if the process snapshot has not changed since the last call (same
+        // sampledAt means the same proc_pidinfo data), the derived agent/binding indexes
+        // are also identical.  Skip the registry JSON read and hook-store JSON reads.
+        if let cached = cachedProcessDetectedResumeIndexes(
+            for: processSnapshot,
+            homeDirectory: homeDirectory,
+            fileManager: fileManager
+        ) {
+            return cached
+        }
+
         let capturedAt = Date().timeIntervalSince1970
-        let processSnapshot = CmuxTopProcessSnapshot.capture(includeProcessDetails: true)
         let registry = CmuxVaultAgentRegistry.load(homeDirectory: homeDirectory, fileManager: fileManager)
         let detectedSnapshots = RestorableAgentSessionIndex.processDetectedSnapshots(
             registry: registry,
@@ -1726,10 +1983,18 @@ struct ProcessDetectedResumeIndexes: Sendable {
             processSnapshot: processSnapshot,
             capturedAt: capturedAt
         )
-        return ProcessDetectedResumeIndexes(
+        let result = ProcessDetectedResumeIndexes(
             restorableAgentIndex: restorableAgentIndex,
             surfaceResumeBindingIndex: SurfaceResumeBindingIndex(bindingsByPanel: detectedBindings.mapValues(\.binding))
         )
+        cacheProcessDetectedResumeIndexes(
+            result,
+            for: processSnapshot,
+            homeDirectory: homeDirectory,
+            fileManager: fileManager,
+            registry: registry
+        )
+        return result
     }
 }
 

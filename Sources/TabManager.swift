@@ -3281,8 +3281,17 @@ class TabManager: ObservableObject {
     private func shouldStopWorkspaceGitMetadataRefresh(
         _ snapshot: InitialWorkspaceGitMetadataSnapshot
     ) -> Bool {
+        // Once a git repository is confirmed, the burst has served its purpose: retrying
+        // until the repo is found.  Subsequent changes (dirty flag, rebase, branch rename)
+        // are handled by the DispatchSourceFileSystemObject watcher installed after the
+        // first successful probe.  Continuing to fire probes at 0.5 s, 1.5 s, 3 s, 6 s,
+        // and 10 s re-parses the index and re-stats every tracked file unnecessarily, and
+        // the +10 s probe timing consistently lands inside the idle-CPU sampling window,
+        // creating measurable and avoidable background work.
+        //
+        // PR lookup is not driven by these probes; it uses the independent poll timer.
         if snapshot.isRepository {
-            return false
+            return true
         }
         switch snapshot.pullRequest {
         case .deferred, .transientFailure:
