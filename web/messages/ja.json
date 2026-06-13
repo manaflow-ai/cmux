@@ -848,7 +848,8 @@
         "markdown": {
           "fontSize": "新しく開く Markdown ビューアの本文フォントサイズの既定値（ポイント単位）です。Cmd-+ / Cmd-- / Cmd-0 でその場で拡大・縮小できます。",
           "fontFamily": "新しく開く Markdown ビューアの本文フォントファミリーの既定値です。空のままにするとシステムの Markdown フォントスタックを使います。",
-          "maxWidth": "新しく開く Markdown ビューアの読み取りカラム最大幅の既定値（CSS ピクセル単位）です。"
+          "maxWidth": "新しく開く Markdown ビューアの読み取りカラム最大幅の既定値（CSS ピクセル単位）です。",
+          "cmdClickOpenTarget": "Markdown ビューアでファイルパスのリンクを Cmd クリックしたときの開き先です。同じペインの新しいタブ（newTab）か、右側の分割ペイン（splitRight）を選べます。"
         },
         "fileEditor": {
           "wordWrap": "横スクロールする代わりに、エディタの右端で長い行を折り返します。"

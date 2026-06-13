@@ -430,8 +430,9 @@ struct MarkdownWebRenderer: NSViewRepresentable {
                     resolveMarkdownFile(rawPath, requestId: requestId)
                 case "openMarkdownFile":
                     guard let rawPath = body["path"] as? String else { return }
+                    let cmdClick = body["cmdClick"] as? Bool ?? false
                     if let resolved = resolvedMarkdownFilePath(rawPath) {
-                        openMarkdownFile(resolved)
+                        openMarkdownFile(resolved, cmdClick: cmdClick)
                     }
                 default:
                     break
@@ -602,9 +603,9 @@ struct MarkdownWebRenderer: NSViewRepresentable {
             return MarkdownPanelFileLinkResolver.resolve(rawPath: trimmed, relativeToMarkdownFile: filePath)
         }
 
-        private func openMarkdownFile(_ path: String) {
+        private func openMarkdownFile(_ path: String, cmdClick: Bool = false) {
 #if DEBUG
-            NSLog("MarkdownPanel.openMarkdownFile path=\(path)")
+            NSLog("MarkdownPanel.openMarkdownFile path=\(path) cmdClick=\(cmdClick)")
 #endif
             guard let app = AppDelegate.shared,
                   let location = app.workspaceContainingPanel(
@@ -612,6 +613,15 @@ struct MarkdownWebRenderer: NSViewRepresentable {
                       preferredWorkspaceId: workspaceId
                   ),
                   let paneId = location.workspace.paneId(forPanelId: panelId) else { return }
+            // Cmd-click honors markdown.cmdClickOpenTarget. A failed split
+            // falls back to the plain-click new-tab path below.
+            if cmdClick, MarkdownCmdClickOpenSettings.target() == .splitRight,
+               location.workspace.openOrFocusMarkdownSplit(
+                   from: panelId,
+                   filePath: path
+               ) != nil {
+                return
+            }
             _ = location.workspace.newMarkdownSurface(
                 inPane: paneId,
                 filePath: path,
@@ -750,7 +760,7 @@ struct MarkdownWebRenderer: NSViewRepresentable {
                     decisionHandler(.allow)
                     return
                 }
-                handleExternalLink(url)
+                handleExternalLink(url, modifierFlags: navigationAction.modifierFlags)
                 decisionHandler(.cancel)
                 return
             }
@@ -765,7 +775,7 @@ struct MarkdownWebRenderer: NSViewRepresentable {
         ) -> WKWebView? {
             // target=_blank / window.open from inside the rendered markdown.
             if let url = navigationAction.request.url {
-                handleExternalLink(url)
+                handleExternalLink(url, modifierFlags: navigationAction.modifierFlags)
             }
             return nil
         }
@@ -777,7 +787,7 @@ struct MarkdownWebRenderer: NSViewRepresentable {
         /// child links via `openLinkInNewTab`. Falls back to the system
         /// browser only when the in-app browser is disabled or the panel
         /// can't be located in any workspace.
-        private func handleExternalLink(_ url: URL) {
+        private func handleExternalLink(_ url: URL, modifierFlags: NSEvent.ModifierFlags = []) {
 #if DEBUG
             NSLog("MarkdownPanel.handleExternalLink url=\(url.absoluteString)")
 #endif
@@ -785,7 +795,7 @@ struct MarkdownWebRenderer: NSViewRepresentable {
             // open as markdown tabs in cmux, not in the browser.
             let fileCandidate = url.scheme == "file" ? url.path : url.absoluteString
             if let markdownPath = resolvedMarkdownFilePath(fileCandidate) {
-                openMarkdownFile(markdownPath)
+                openMarkdownFile(markdownPath, cmdClick: modifierFlags.contains(.command))
                 return
             }
 

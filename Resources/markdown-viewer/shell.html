@@ -1363,9 +1363,9 @@ html { scroll-behavior: smooth; }
     }
   };
 
-  function openMarkdownCandidate(rawPath) {
+  function openMarkdownCandidate(rawPath, cmdClick) {
     try {
-      window.webkit.messageHandlers.cmuxLib.postMessage({ action: 'openMarkdownFile', path: rawPath });
+      window.webkit.messageHandlers.cmuxLib.postMessage({ action: 'openMarkdownFile', path: rawPath, cmdClick: !!cmdClick });
     } catch (e) { /* no bridge */ }
   }
 
@@ -1413,8 +1413,9 @@ html { scroll-behavior: smooth; }
     ev.stopPropagation();
     // Do not require the hover/resolve cache to be warm. Swift's
     // openMarkdownFile action resolves and no-ops for missing files,
-    // so click can be deterministic and immediate.
-    openMarkdownCandidate(rawPath);
+    // so click can be deterministic and immediate. Cmd-click routes
+    // through the markdown.cmdClickOpenTarget setting on the Swift side.
+    openMarkdownCandidate(rawPath, ev.metaKey);
   }, true);
 
   window.__cmuxRenderMarkdown = function(md) {

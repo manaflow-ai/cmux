@@ -669,6 +669,16 @@ final class CmuxSettingsFileStore {
         } else if section.keys.contains("maxWidth") {
             logInvalid("markdown.maxWidth", sourcePath: sourcePath)
         }
+
+        if let value = jsonString(section["cmdClickOpenTarget"]) {
+            if let target = MarkdownCmdClickOpenSettings.validTarget(rawValue: value) {
+                snapshot.managedUserDefaults[MarkdownCmdClickOpenSettings.key] = .string(target.rawValue)
+            } else {
+                logInvalid("markdown.cmdClickOpenTarget", sourcePath: sourcePath)
+            }
+        } else if section.keys.contains("cmdClickOpenTarget") {
+            logInvalid("markdown.cmdClickOpenTarget", sourcePath: sourcePath)
+        }
     }
 
     private func parseFileEditorSection(

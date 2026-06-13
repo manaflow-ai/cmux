@@ -38,6 +38,14 @@ public struct MarkdownCatalogSection: SettingCatalogSection {
         userDefaultsKey: "markdown.maxWidth"
     )
 
+    /// Where Cmd-clicking a file path link in a markdown viewer opens the
+    /// file: a new tab in the same pane or a split to the right.
+    public let cmdClickOpenTarget = DefaultsKey<MarkdownCmdClickOpenTarget>(
+        id: "markdown.cmdClickOpenTarget",
+        defaultValue: .newTab,
+        userDefaultsKey: "markdown.cmdClickOpenTarget"
+    )
+
     /// Creates the markdown settings section with its default keys.
     public init() {}
 }

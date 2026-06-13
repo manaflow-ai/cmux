@@ -9,7 +9,8 @@ import UniformTypeIdentifiers
 /// Keep Workspace Open When Closing Last Surface, Focus Pane on
 /// First Click, File Drops, Open Files With, Open Supported Files in
 /// cmux, Terminal Config link, Open Markdown in cmux Viewer,
-/// Markdown Viewer typography, iMessage Mode, Reorder on Notification, Dock Badge, Menu Bar
+/// Markdown Viewer typography and Cmd-click link target, iMessage Mode,
+/// Reorder on Notification, Dock Badge, Menu Bar
 /// Only, Show in Menu Bar, Unread Pane Ring, Pane Flash, Desktop
 /// Notifications, Notification Sound, Notification Command, Send
 /// anonymous telemetry, Warn Before Quit, Warn Before Closing Tab /
@@ -38,6 +39,7 @@ public struct AppSection: View {
     @State private var markdownFontSize: DefaultsValueModel<Int>
     @State private var markdownFontFamily: DefaultsValueModel<String>
     @State private var markdownMaxWidth: DefaultsValueModel<Int>
+    @State private var markdownCmdClick: DefaultsValueModel<MarkdownCmdClickOpenTarget>
     @State private var fileEditorWordWrap: DefaultsValueModel<Bool>
     @State private var iMessage: DefaultsValueModel<Bool>
     @State private var reorder: DefaultsValueModel<Bool>
@@ -82,6 +84,7 @@ public struct AppSection: View {
         _markdownFontSize = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.markdown.fontSize))
         _markdownFontFamily = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.markdown.fontFamily))
         _markdownMaxWidth = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.markdown.maxWidth))
+        _markdownCmdClick = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.markdown.cmdClickOpenTarget))
         _fileEditorWordWrap = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.fileEditor.wordWrap))
         _iMessage = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.app.iMessageMode))
         _reorder = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.app.reorderOnNotification))
@@ -379,6 +382,23 @@ public struct AppSection: View {
                 .textFieldStyle(.roundedBorder)
                 .frame(width: 200)
                 .accessibilityIdentifier("SettingsMarkdownFontFamilyTextField")
+            }
+            SettingsCardDivider()
+
+            // Markdown Viewer Cmd-Click Links
+            SettingsCardRow(
+                configurationReview: .json("markdown.cmdClickOpenTarget"),
+                String(localized: "settings.app.markdownCmdClickOpenTarget", defaultValue: "Markdown Viewer Cmd-Click Links"),
+                subtitle: markdownCmdClickSubtitle(markdownCmdClick.current),
+                controlWidth: Self.columnWidth
+            ) {
+                Picker("", selection: Binding(get: { markdownCmdClick.current }, set: { markdownCmdClick.set($0) })) {
+                    Text(String(localized: "settings.app.markdownCmdClickOpenTarget.newTab", defaultValue: "Open a new tab")).tag(MarkdownCmdClickOpenTarget.newTab)
+                    Text(String(localized: "settings.app.markdownCmdClickOpenTarget.splitRight", defaultValue: "Open a split to the right")).tag(MarkdownCmdClickOpenTarget.splitRight)
+                }
+                .labelsHidden()
+                .pickerStyle(.menu)
+                .accessibilityIdentifier("SettingsMarkdownCmdClickOpenTargetPicker")
             }
             SettingsCardDivider()
 
@@ -780,6 +800,21 @@ public struct AppSection: View {
             return String(
                 localized: "workspace.placement.end.description",
                 defaultValue: "Append new workspaces to the bottom of the list."
+            )
+        }
+    }
+
+    private func markdownCmdClickSubtitle(_ target: MarkdownCmdClickOpenTarget) -> String {
+        switch target {
+        case .newTab:
+            return String(
+                localized: "settings.app.markdownCmdClickOpenTarget.newTab.subtitle",
+                defaultValue: "Cmd-clicking a file path link in the markdown viewer opens it in a new tab in the same pane."
+            )
+        case .splitRight:
+            return String(
+                localized: "settings.app.markdownCmdClickOpenTarget.splitRight.subtitle",
+                defaultValue: "Cmd-clicking a file path link in the markdown viewer opens it in a split to the right."
             )
         }
     }

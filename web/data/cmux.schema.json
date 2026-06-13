@@ -1070,6 +1070,13 @@
           "default": 980,
           "description": "Default maximum reading column width, in CSS pixels, for newly opened markdown viewers.",
           "descriptionKey": "schemaDescriptions.markdown.maxWidth"
+        },
+        "cmdClickOpenTarget": {
+          "type": "string",
+          "enum": ["newTab", "splitRight"],
+          "default": "newTab",
+          "description": "Where Cmd-clicking a file path link in the markdown viewer opens the file: a new tab in the same pane (newTab) or a split to the right (splitRight).",
+          "descriptionKey": "schemaDescriptions.markdown.cmdClickOpenTarget"
         }
       }
     },
