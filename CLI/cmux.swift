@@ -22580,6 +22580,7 @@ struct CMUXCLI {
                        preferred: nil,
                        fallback: workspaceArg,
                        agentPID: forkClaudePid,
+                       allowProcessSnapshotBinding: false,
                        client: client
                    ),
                    let forkSurface = try? resolvePreferredSurfaceForClaudeHookDetailed(
@@ -22588,6 +22589,7 @@ struct CMUXCLI {
                        fallbackIsAmbient: surfaceArgIsAmbient,
                        workspaceId: forkWorkspaceId,
                        agentPID: forkClaudePid,
+                       allowProcessSnapshotBinding: false,
                        client: client
                    ),
                    forkSurface.isAuthoritative {
@@ -22609,6 +22611,7 @@ struct CMUXCLI {
                 preferred: mappedSession?.workspaceId,
                 fallback: workspaceArg,
                 agentPID: fallbackClaudePid,
+                allowProcessSnapshotBinding: false,
                 client: client
             )
             let fallbackSurfaceId: String? = {
@@ -22619,6 +22622,7 @@ struct CMUXCLI {
                     fallbackIsAmbient: surfaceArgIsAmbient,
                     workspaceId: fallbackWorkspaceId,
                     agentPID: fallbackClaudePid,
+                    allowProcessSnapshotBinding: false,
                     client: client
                 )
             }()
@@ -22997,6 +23001,7 @@ struct CMUXCLI {
         preferred: String?,
         fallback: String?,
         agentPID: Int? = nil,
+        allowProcessSnapshotBinding: Bool = true,
         client: SocketClient
     ) throws -> String {
         if let preferred = nonEmptyClaudeHookIdentifier(preferred) {
@@ -23007,7 +23012,11 @@ struct CMUXCLI {
                 return workspaceId
             }
         }
-        if let binding = resolveClaudeHookTerminalBinding(agentPID: agentPID, client: client),
+        if let binding = resolveClaudeHookTerminalBinding(
+            agentPID: agentPID,
+            allowProcessSnapshotBinding: allowProcessSnapshotBinding,
+            client: client
+        ),
            let workspaceId = resolveAccessibleClaudeHookWorkspaceId(binding.workspaceId, client: client) {
             return workspaceId
         }
@@ -23023,6 +23032,7 @@ struct CMUXCLI {
         fallbackIsAmbient: Bool = false,
         workspaceId: String,
         agentPID: Int? = nil,
+        allowProcessSnapshotBinding: Bool = true,
         client: SocketClient
     ) throws -> String {
         try resolvePreferredSurfaceForClaudeHookDetailed(
@@ -23031,6 +23041,7 @@ struct CMUXCLI {
             fallbackIsAmbient: fallbackIsAmbient,
             workspaceId: workspaceId,
             agentPID: agentPID,
+            allowProcessSnapshotBinding: allowProcessSnapshotBinding,
             client: client
         ).surfaceId
     }
@@ -23048,15 +23059,20 @@ struct CMUXCLI {
         fallbackIsAmbient: Bool = false,
         workspaceId: String,
         agentPID: Int? = nil,
+        allowProcessSnapshotBinding: Bool = true,
         client: SocketClient
     ) throws -> ClaudeHookResolvedSurface {
         if let preferred = nonEmptyClaudeHookIdentifier(preferred) {
             return try resolveSurfaceAllowingFallbackDetailed(preferred, workspaceId: workspaceId, client: client)
         }
-        let binding = resolveClaudeHookTerminalBinding(agentPID: agentPID, client: client)
         if let fallback = nonEmptyClaudeHookIdentifier(fallback) {
             let resolved = try resolveSurfaceAllowingFallbackDetailed(fallback, workspaceId: workspaceId, client: client)
             if fallbackIsAmbient,
+               let binding = resolveClaudeHookTerminalBinding(
+                   agentPID: agentPID,
+                   allowProcessSnapshotBinding: allowProcessSnapshotBinding && !resolved.isAuthoritative,
+                   client: client
+               ),
                let boundSurface = resolveClaudeHookBindingSurfaceId(
                    binding,
                    workspaceId: workspaceId,
@@ -23067,6 +23083,11 @@ struct CMUXCLI {
             }
             return resolved
         }
+        let binding = resolveClaudeHookTerminalBinding(
+            agentPID: agentPID,
+            allowProcessSnapshotBinding: allowProcessSnapshotBinding,
+            client: client
+        )
         if let boundSurface = resolveClaudeHookBindingSurfaceId(
             binding,
             workspaceId: workspaceId,
@@ -23099,9 +23120,18 @@ struct CMUXCLI {
         return candidate
     }
 
-    private func resolveClaudeHookTerminalBinding(agentPID: Int?, client: SocketClient) -> CallerTerminalBinding? {
-        resolveCallerTerminalBindingByTTY(client: client)
-            ?? resolveAgentProcessTerminalBinding(pid: agentPID, client: client)
+    private func resolveClaudeHookTerminalBinding(
+        agentPID: Int?,
+        allowProcessSnapshotBinding: Bool = true,
+        client: SocketClient
+    ) -> CallerTerminalBinding? {
+        if let binding = resolveCallerTerminalBindingByTTY(client: client) {
+            return binding
+        }
+        guard allowProcessSnapshotBinding else {
+            return nil
+        }
+        return resolveAgentProcessTerminalBinding(pid: agentPID, client: client)
     }
 
     private func resolveClaudeHookBindingSurfaceId(
