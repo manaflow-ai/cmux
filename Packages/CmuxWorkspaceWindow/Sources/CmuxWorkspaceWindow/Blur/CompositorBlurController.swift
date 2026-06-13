@@ -24,19 +24,23 @@ private func cmuxCGSSetWindowBackgroundBlurRadius(
 /// controller only resets the blur (radius 0); applying a non-zero blur stays
 /// with the app's Ghostty engine path.
 ///
-/// Not actor-isolated, matching the legacy `cmuxResetCompositorBackgroundBlur`
-/// free function: callers already hold the `NSWindow` on the main thread, and
-/// `window.windowNumber` is read in their isolation domain just as before.
+/// Not actor-isolated: the CGS shims are thread-agnostic C trampolines and this
+/// controller takes the already-resolved `windowNumber` value rather than an
+/// `NSWindow`, so the main-actor-isolated `NSWindow.windowNumber` read stays in
+/// the caller's isolation domain (the legacy `cmuxResetCompositorBackgroundBlur`
+/// ran in that same domain).
 public struct CompositorBlurController: Sendable {
     /// Creates a compositor-blur controller.
     public init() {}
 
-    /// Resets the compositor background blur on the given window to zero,
-    /// matching the legacy `cmuxResetCompositorBackgroundBlur(on:)`.
-    public func resetBackgroundBlur(on window: NSWindow) {
+    /// Resets the compositor background blur on the window with the given
+    /// `windowNumber` to zero, matching the legacy
+    /// `cmuxResetCompositorBackgroundBlur(on:)`. The caller resolves
+    /// `window.windowNumber` in its own (main-actor) isolation domain.
+    public func resetBackgroundBlur(windowNumber: Int) {
         _ = cmuxCGSSetWindowBackgroundBlurRadius(
             cmuxCGSDefaultConnectionForThread(),
-            UInt(window.windowNumber),
+            UInt(windowNumber),
             0
         )
     }

@@ -67,7 +67,7 @@ enum WindowBackdropController {
             didChangeGlassRoot = WindowGlassEffect.remove(from: window)
             window.backgroundColor = plan.windowBackgroundColor
             window.isOpaque = plan.windowIsOpaque
-            WindowBackgroundComposition.blurController.resetBackgroundBlur(on: window)
+            WindowBackgroundComposition.blurController.resetBackgroundBlur(windowNumber: window.windowNumber)
         case .transparentRootBackdrop:
             didChangeGlassRoot = WindowGlassEffect.remove(from: window)
             window.backgroundColor = plan.windowBackgroundColor
@@ -75,12 +75,12 @@ enum WindowBackdropController {
             if plan.shouldApplyGhosttyCompositorBlur {
                 GhosttyApp.shared.applyWindowBlurIfNeeded(window)
             } else {
-                WindowBackgroundComposition.blurController.resetBackgroundBlur(on: window)
+                WindowBackgroundComposition.blurController.resetBackgroundBlur(windowNumber: window.windowNumber)
             }
         case .windowGlass:
             window.backgroundColor = plan.windowBackgroundColor
             window.isOpaque = false
-            WindowBackgroundComposition.blurController.resetBackgroundBlur(on: window)
+            WindowBackgroundComposition.blurController.resetBackgroundBlur(windowNumber: window.windowNumber)
             if let glass = plan.glass {
                 didChangeGlassRoot = WindowGlassEffect.apply(
                     to: window,
