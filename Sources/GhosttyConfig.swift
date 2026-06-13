@@ -133,7 +133,7 @@ struct GhosttyConfig {
             return []
         }
 
-        return GhosttyApp.cmuxAppSupportConfigURLs(
+        return CmuxGhosttyConfigPathResolver.loadConfigURLs(
             currentBundleIdentifier: currentBundleIdentifier,
             appSupportDirectory: appSupport,
             fileManager: fileManager
@@ -222,7 +222,7 @@ struct GhosttyConfig {
             )
 
             if config.theme == nil,
-               GhosttyApp.shouldApplyManagedDefaultAppearance(configPaths: configPaths) {
+               Self.shouldApplyManagedDefaultAppearance(configPaths: configPaths) {
                 config.applyCmuxDefaultAppearance(
                     environment: ProcessInfo.processInfo.environment,
                     bundleResourceURL: Bundle.main.resourceURL,
@@ -245,7 +245,7 @@ struct GhosttyConfig {
         )
 
         if config.theme == nil,
-           GhosttyApp.shouldApplyManagedDefaultAppearance(configPaths: configPaths) {
+           Self.shouldApplyManagedDefaultAppearance(configPaths: configPaths) {
             config.applyCmuxDefaultAppearance(
                 environment: ProcessInfo.processInfo.environment,
                 bundleResourceURL: Bundle.main.resourceURL,
@@ -662,6 +662,118 @@ struct GhosttyConfig {
             ? expanded
             : (parentDir as NSString).appendingPathComponent(expanded)
         recursiveConfigPaths.append(absolute)
+    }
+
+    /// A scan of the user's resolved Ghostty config for the appearance
+    /// directives that determine whether cmux should apply its managed default
+    /// theme, and the last `theme` value seen.
+    struct UserAppearanceConfigSummary {
+        var hasThemeDirective = false
+        var hasExplicitTerminalColorDirective = false
+        var lastThemeDirective: String?
+
+        var shouldApplyDefaultAppearance: Bool {
+            !hasThemeDirective && !hasExplicitTerminalColorDirective
+        }
+
+        mutating func recordDirective(key: String, value: String?) {
+            switch key {
+            case "theme":
+                hasThemeDirective = true
+                let trimmedValue = value?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+                lastThemeDirective = trimmedValue.isEmpty ? nil : trimmedValue
+            case "background",
+                 "foreground",
+                 "palette",
+                 "cursor-color",
+                 "cursor-text",
+                 "selection-background",
+                 "selection-foreground":
+                hasExplicitTerminalColorDirective = true
+            default:
+                break
+            }
+        }
+    }
+
+    /// Whether cmux should inject its managed default appearance: true only when
+    /// the user has set neither a `theme` nor any explicit terminal color
+    /// directive across the resolved config paths.
+    static func shouldApplyManagedDefaultAppearance(
+        configPaths: [String]
+    ) -> Bool {
+        userAppearanceConfigSummary(configPaths: configPaths).shouldApplyDefaultAppearance
+    }
+
+    /// Scans the given top-level config paths (following `config-file` includes)
+    /// for the appearance directives that drive managed-default-theme decisions.
+    static func userAppearanceConfigSummary(
+        configPaths: [String]
+    ) -> UserAppearanceConfigSummary {
+        var summary = UserAppearanceConfigSummary()
+        var recursiveConfigPaths: [String] = []
+
+        for path in configPaths.map({ NSString(string: $0).expandingTildeInPath }) {
+            scanAppearanceConfigFile(
+                atPath: path,
+                summary: &summary,
+                recursiveConfigPaths: &recursiveConfigPaths
+            )
+        }
+
+        var loadedRecursivePaths = Set<String>()
+        while !recursiveConfigPaths.isEmpty {
+            let path = recursiveConfigPaths.removeFirst()
+            let resolved = (path as NSString).standardizingPath
+            guard !loadedRecursivePaths.contains(resolved) else { continue }
+            loadedRecursivePaths.insert(resolved)
+
+            scanAppearanceConfigFile(
+                atPath: path,
+                summary: &summary,
+                recursiveConfigPaths: &recursiveConfigPaths
+            )
+        }
+
+        return summary
+    }
+
+    private static func scanAppearanceConfigFile(
+        atPath path: String,
+        summary: inout UserAppearanceConfigSummary,
+        recursiveConfigPaths: inout [String]
+    ) {
+        let resolved = (path as NSString).standardizingPath
+        guard let contents = try? String(contentsOfFile: resolved, encoding: .utf8) else {
+            return
+        }
+        let parentDir = (resolved as NSString).deletingLastPathComponent
+
+        for line in contents.components(separatedBy: .newlines) {
+            guard let entry = parsedConfigEntry(from: line) else { continue }
+
+            switch entry.key {
+            case "theme",
+                 "background",
+                 "foreground",
+                 "palette",
+                 "cursor-color",
+                 "cursor-text",
+                 "selection-background",
+                 "selection-foreground":
+                summary.recordDirective(key: entry.key, value: entry.value)
+            case "config-file":
+                guard let value = entry.value else { continue }
+                applyConfigFileDirective(
+                    value,
+                    valueWasQuoted: entry.valueWasQuoted,
+                    parentDir: parentDir,
+                    recursiveConfigPaths: &recursiveConfigPaths
+                )
+            default:
+                continue
+            }
+        }
     }
 
     private static func parseIntegerLiteral(_ value: String) -> Int? {

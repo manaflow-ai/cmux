@@ -1366,35 +1366,6 @@ class GhosttyApp {
         }
     }
 
-    private struct UserAppearanceConfigSummary {
-        var hasThemeDirective = false
-        var hasExplicitTerminalColorDirective = false
-        var lastThemeDirective: String?
-
-        var shouldApplyDefaultAppearance: Bool {
-            !hasThemeDirective && !hasExplicitTerminalColorDirective
-        }
-
-        mutating func recordDirective(key: String, value: String?) {
-            switch key {
-            case "theme":
-                hasThemeDirective = true
-                let trimmedValue = value?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-                lastThemeDirective = trimmedValue.isEmpty ? nil : trimmedValue
-            case "background",
-                 "foreground",
-                 "palette",
-                 "cursor-color",
-                 "cursor-text",
-                 "selection-background",
-                 "selection-foreground":
-                hasExplicitTerminalColorDirective = true
-            default:
-                break
-            }
-        }
-    }
-
     /// Returns (range, font) pairs for CJK font fallback based on the system's
     /// preferred languages, or nil if no CJK language is detected. Each language
     /// only maps its own script ranges to avoid assigning glyphs to a font that
@@ -1498,14 +1469,14 @@ class GhosttyApp {
     static func shouldApplyManagedDefaultAppearance(
         configPaths: [String] = loadedGhosttyConfigScanPaths()
     ) -> Bool {
-        userAppearanceConfigSummary(configPaths: configPaths).shouldApplyDefaultAppearance
+        GhosttyConfig.shouldApplyManagedDefaultAppearance(configPaths: configPaths)
     }
 
     static func conditionalThemeOverrideConfigContents(
         preferredColorScheme: GhosttyConfig.ColorSchemePreference,
         configPaths: [String] = loadedGhosttyConfigScanPaths()
     ) -> String? {
-        let summary = userAppearanceConfigSummary(configPaths: configPaths)
+        let summary = GhosttyConfig.userAppearanceConfigSummary(configPaths: configPaths)
         guard let rawThemeValue = summary.lastThemeDirective else { return nil }
 
         // Inject a resolved plain theme whenever the requested appearance side is
@@ -1678,37 +1649,6 @@ class GhosttyApp {
         return summary
     }
 
-    private static func userAppearanceConfigSummary(
-        configPaths: [String] = loadedCJKScanPaths()
-    ) -> UserAppearanceConfigSummary {
-        var summary = UserAppearanceConfigSummary()
-        var recursiveConfigPaths: [String] = []
-
-        for path in configPaths.map({ NSString(string: $0).expandingTildeInPath }) {
-            scanAppearanceConfigFile(
-                atPath: path,
-                summary: &summary,
-                recursiveConfigPaths: &recursiveConfigPaths
-            )
-        }
-
-        var loadedRecursivePaths = Set<String>()
-        while !recursiveConfigPaths.isEmpty {
-            let path = recursiveConfigPaths.removeFirst()
-            let resolved = (path as NSString).standardizingPath
-            guard !loadedRecursivePaths.contains(resolved) else { continue }
-            loadedRecursivePaths.insert(resolved)
-
-            scanAppearanceConfigFile(
-                atPath: path,
-                summary: &summary,
-                recursiveConfigPaths: &recursiveConfigPaths
-            )
-        }
-
-        return summary
-    }
-
     /// Returns the top-level Ghostty config paths cmux may load before
     /// recursive `config-file` processing.
     static func loadedGhosttyConfigScanPaths(
@@ -1805,44 +1745,6 @@ class GhosttyApp {
             case "font-family":
                 guard let value = entry.value else { continue }
                 summary.recordFontFamily(value)
-            case "config-file":
-                guard let value = entry.value else { continue }
-                applyConfigFileDirective(
-                    value,
-                    valueWasQuoted: entry.valueWasQuoted,
-                    parentDir: parentDir,
-                    recursiveConfigPaths: &recursiveConfigPaths
-                )
-            default:
-                continue
-            }
-        }
-    }
-
-    private static func scanAppearanceConfigFile(
-        atPath path: String,
-        summary: inout UserAppearanceConfigSummary,
-        recursiveConfigPaths: inout [String]
-    ) {
-        let resolved = (path as NSString).standardizingPath
-        guard let contents = try? String(contentsOfFile: resolved, encoding: .utf8) else {
-            return
-        }
-        let parentDir = (resolved as NSString).deletingLastPathComponent
-
-        for line in contents.components(separatedBy: .newlines) {
-            guard let entry = parsedConfigEntry(from: line) else { continue }
-
-            switch entry.key {
-            case "theme",
-                 "background",
-                 "foreground",
-                 "palette",
-                 "cursor-color",
-                 "cursor-text",
-                 "selection-background",
-                 "selection-foreground":
-                summary.recordDirective(key: entry.key, value: entry.value)
             case "config-file":
                 guard let value = entry.value else { continue }
                 applyConfigFileDirective(
