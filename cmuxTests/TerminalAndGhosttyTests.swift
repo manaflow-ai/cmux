@@ -2903,6 +2903,352 @@ final class TerminalDirectoryOpenTargetAvailabilityTests: XCTestCase {
 }
 
 
+#if DEBUG
+@MainActor
+@Suite(.serialized)
+struct GhosttyTextInputCommandForwardingTests {
+    private func makeWindow() -> NSWindow {
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 480, height: 320),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        window.contentView = NSView(frame: window.contentRect(forFrameRect: window.frame))
+        return window
+    }
+
+    private func surfaceView(in hostedView: GhosttySurfaceScrollView) -> NSView? {
+        hostedView.subviews
+            .compactMap { $0 as? NSScrollView }
+            .first?
+            .documentView?
+            .subviews
+            .first
+    }
+
+    @Test
+    func deleteBackwardTextInputCommandForwardsCanonicalBackspaceWithoutStaleReleaseMapping() throws {
+        let window = makeWindow()
+        defer { window.orderOut(nil) }
+
+        let contentView = try #require(window.contentView)
+        let surface = TerminalSurface(
+            tabId: UUID(),
+            context: GHOSTTY_SURFACE_CONTEXT_SPLIT,
+            configTemplate: nil,
+            workingDirectory: nil
+        )
+        let hostedView = surface.hostedView
+        hostedView.frame = contentView.bounds
+        hostedView.autoresizingMask = [.width, .height]
+        contentView.addSubview(hostedView)
+
+        window.makeKeyAndOrderFront(nil)
+        window.displayIfNeeded()
+        contentView.layoutSubtreeIfNeeded()
+        hostedView.layoutSubtreeIfNeeded()
+
+        let surfaceView = try #require(surfaceView(in: hostedView) as? GhosttyNSView)
+        try #require(
+            surface.hasLiveSurface,
+            "Ghostty surface must initialize so key forwarding can be observed."
+        )
+        #expect(window.makeFirstResponder(surfaceView))
+
+        let previousTextInputEventHandler = GhosttyNSView.debugTextInputEventHandler
+        let previousKeyEventObserver = GhosttyNSView.debugGhosttySurfaceKeyEventObserver
+        defer {
+            GhosttyNSView.debugTextInputEventHandler = previousTextInputEventHandler
+            GhosttyNSView.debugGhosttySurfaceKeyEventObserver = previousKeyEventObserver
+            withExtendedLifetime(surface) {}
+        }
+
+        GhosttyNSView.debugTextInputEventHandler = { view, _ in
+            view.doCommand(by: #selector(NSResponder.deleteBackward(_:)))
+            return true
+        }
+
+        var forwardedKeyEvents: [ghostty_input_key_s] = []
+        var forwardedTexts: [String?] = []
+        var forwardedReleaseKeyCodes: [UInt32] = []
+        GhosttyNSView.debugGhosttySurfaceKeyEventObserver = { keyEvent in
+            previousKeyEventObserver?(keyEvent)
+            if keyEvent.action == GHOSTTY_ACTION_PRESS {
+                forwardedKeyEvents.append(keyEvent)
+                forwardedTexts.append(keyEvent.text.map { String(cString: $0) })
+            } else if keyEvent.action == GHOSTTY_ACTION_RELEASE {
+                forwardedReleaseKeyCodes.append(keyEvent.keycode)
+            }
+        }
+
+        let event = try #require(NSEvent.keyEvent(
+            with: .keyDown,
+            location: .zero,
+            modifierFlags: [],
+            timestamp: ProcessInfo.processInfo.systemUptime,
+            windowNumber: window.windowNumber,
+            context: nil,
+            characters: "",
+            charactersIgnoringModifiers: "",
+            isARepeat: false,
+            keyCode: 0
+        ))
+
+        withExtendedLifetime(surface) {
+            surfaceView.keyDown(with: event)
+        }
+
+        let laterPhysicalKeyUp = try #require(NSEvent.keyEvent(
+            with: .keyUp,
+            location: .zero,
+            modifierFlags: [],
+            timestamp: ProcessInfo.processInfo.systemUptime,
+            windowNumber: window.windowNumber,
+            context: nil,
+            characters: "a",
+            charactersIgnoringModifiers: "a",
+            isARepeat: false,
+            keyCode: 0
+        ))
+
+        withExtendedLifetime(surface) {
+            surfaceView.keyUp(with: laterPhysicalKeyUp)
+        }
+
+        let forwarded = try #require(forwardedKeyEvents.first)
+        #expect(forwardedKeyEvents.count == 1)
+        #expect(forwarded.keycode == 51)
+        #expect(forwarded.unshifted_codepoint == 0x7F)
+        #expect(forwardedTexts == ["\u{7F}"])
+        #expect(forwardedReleaseKeyCodes == [0])
+    }
+
+    @Test
+    func emptyKeyCodeZeroEventWithoutCommandForwardsCanonicalBackspace() throws {
+        let window = makeWindow()
+        defer { window.orderOut(nil) }
+
+        let contentView = try #require(window.contentView)
+        let surface = TerminalSurface(
+            tabId: UUID(),
+            context: GHOSTTY_SURFACE_CONTEXT_SPLIT,
+            configTemplate: nil,
+            workingDirectory: nil
+        )
+        let hostedView = surface.hostedView
+        hostedView.frame = contentView.bounds
+        hostedView.autoresizingMask = [.width, .height]
+        contentView.addSubview(hostedView)
+
+        window.makeKeyAndOrderFront(nil)
+        window.displayIfNeeded()
+        contentView.layoutSubtreeIfNeeded()
+        hostedView.layoutSubtreeIfNeeded()
+
+        let surfaceView = try #require(surfaceView(in: hostedView) as? GhosttyNSView)
+        try #require(
+            surface.hasLiveSurface,
+            "Ghostty surface must initialize so key forwarding can be observed."
+        )
+        #expect(window.makeFirstResponder(surfaceView))
+
+        let previousTextInputEventHandler = GhosttyNSView.debugTextInputEventHandler
+        let previousKeyEventObserver = GhosttyNSView.debugGhosttySurfaceKeyEventObserver
+        defer {
+            GhosttyNSView.debugTextInputEventHandler = previousTextInputEventHandler
+            GhosttyNSView.debugGhosttySurfaceKeyEventObserver = previousKeyEventObserver
+            withExtendedLifetime(surface) {}
+        }
+
+        GhosttyNSView.debugTextInputEventHandler = { _, _ in
+            true
+        }
+
+        var forwardedKeyEvents: [ghostty_input_key_s] = []
+        var forwardedTexts: [String?] = []
+        GhosttyNSView.debugGhosttySurfaceKeyEventObserver = { keyEvent in
+            previousKeyEventObserver?(keyEvent)
+            guard keyEvent.action == GHOSTTY_ACTION_PRESS else { return }
+            forwardedKeyEvents.append(keyEvent)
+            forwardedTexts.append(keyEvent.text.map { String(cString: $0) })
+        }
+
+        let event = try #require(NSEvent.keyEvent(
+            with: .keyDown,
+            location: .zero,
+            modifierFlags: [],
+            timestamp: ProcessInfo.processInfo.systemUptime,
+            windowNumber: window.windowNumber,
+            context: nil,
+            characters: "",
+            charactersIgnoringModifiers: "",
+            isARepeat: false,
+            keyCode: 0
+        ))
+
+        withExtendedLifetime(surface) {
+            surfaceView.keyDown(with: event)
+        }
+
+        let forwarded = try #require(forwardedKeyEvents.first)
+        #expect(forwardedKeyEvents.count == 1)
+        #expect(forwarded.keycode == UInt32(kVK_Delete))
+        #expect(forwarded.unshifted_codepoint == 0x7F)
+        #expect(forwardedTexts == ["\u{7F}"])
+    }
+
+    @Test
+    func deleteBackwardTextInputCommandWithAKeyFieldsForwardsCanonicalBackspace() throws {
+        let window = makeWindow()
+        defer { window.orderOut(nil) }
+
+        let contentView = try #require(window.contentView)
+        let surface = TerminalSurface(
+            tabId: UUID(),
+            context: GHOSTTY_SURFACE_CONTEXT_SPLIT,
+            configTemplate: nil,
+            workingDirectory: nil
+        )
+        let hostedView = surface.hostedView
+        hostedView.frame = contentView.bounds
+        hostedView.autoresizingMask = [.width, .height]
+        contentView.addSubview(hostedView)
+
+        window.makeKeyAndOrderFront(nil)
+        window.displayIfNeeded()
+        contentView.layoutSubtreeIfNeeded()
+        hostedView.layoutSubtreeIfNeeded()
+
+        let surfaceView = try #require(surfaceView(in: hostedView) as? GhosttyNSView)
+        try #require(
+            surface.hasLiveSurface,
+            "Ghostty surface must initialize so key forwarding can be observed."
+        )
+        #expect(window.makeFirstResponder(surfaceView))
+
+        let previousTextInputEventHandler = GhosttyNSView.debugTextInputEventHandler
+        let previousKeyEventObserver = GhosttyNSView.debugGhosttySurfaceKeyEventObserver
+        defer {
+            GhosttyNSView.debugTextInputEventHandler = previousTextInputEventHandler
+            GhosttyNSView.debugGhosttySurfaceKeyEventObserver = previousKeyEventObserver
+            withExtendedLifetime(surface) {}
+        }
+
+        GhosttyNSView.debugTextInputEventHandler = { view, _ in
+            view.doCommand(by: #selector(NSResponder.deleteBackward(_:)))
+            return true
+        }
+
+        var forwardedKeyEvents: [ghostty_input_key_s] = []
+        var forwardedTexts: [String?] = []
+        GhosttyNSView.debugGhosttySurfaceKeyEventObserver = { keyEvent in
+            previousKeyEventObserver?(keyEvent)
+            guard keyEvent.action == GHOSTTY_ACTION_PRESS else { return }
+            forwardedKeyEvents.append(keyEvent)
+            forwardedTexts.append(keyEvent.text.map { String(cString: $0) })
+        }
+
+        let event = try #require(NSEvent.keyEvent(
+            with: .keyDown,
+            location: .zero,
+            modifierFlags: [],
+            timestamp: ProcessInfo.processInfo.systemUptime,
+            windowNumber: window.windowNumber,
+            context: nil,
+            characters: "a",
+            charactersIgnoringModifiers: "a",
+            isARepeat: false,
+            keyCode: UInt16(kVK_ANSI_A)
+        ))
+
+        withExtendedLifetime(surface) {
+            surfaceView.keyDown(with: event)
+        }
+
+        let forwarded = try #require(forwardedKeyEvents.first)
+        #expect(forwardedKeyEvents.count == 1)
+        #expect(forwarded.keycode == UInt32(kVK_Delete))
+        #expect(forwarded.unshifted_codepoint == 0x7F)
+        #expect(forwardedTexts == ["\u{7F}"])
+    }
+
+    @Test
+    func modifiedDeleteBackwardCommandStaysOnOriginalKeyPath() throws {
+        let window = makeWindow()
+        defer { window.orderOut(nil) }
+
+        let contentView = try #require(window.contentView)
+        let surface = TerminalSurface(
+            tabId: UUID(),
+            context: GHOSTTY_SURFACE_CONTEXT_SPLIT,
+            configTemplate: nil,
+            workingDirectory: nil
+        )
+        let hostedView = surface.hostedView
+        hostedView.frame = contentView.bounds
+        hostedView.autoresizingMask = [.width, .height]
+        contentView.addSubview(hostedView)
+
+        window.makeKeyAndOrderFront(nil)
+        window.displayIfNeeded()
+        contentView.layoutSubtreeIfNeeded()
+        hostedView.layoutSubtreeIfNeeded()
+
+        let surfaceView = try #require(surfaceView(in: hostedView) as? GhosttyNSView)
+        try #require(
+            surface.hasLiveSurface,
+            "Ghostty surface must initialize so key forwarding can be observed."
+        )
+        #expect(window.makeFirstResponder(surfaceView))
+
+        let previousTextInputEventHandler = GhosttyNSView.debugTextInputEventHandler
+        let previousKeyEventObserver = GhosttyNSView.debugGhosttySurfaceKeyEventObserver
+        defer {
+            GhosttyNSView.debugTextInputEventHandler = previousTextInputEventHandler
+            GhosttyNSView.debugGhosttySurfaceKeyEventObserver = previousKeyEventObserver
+            withExtendedLifetime(surface) {}
+        }
+
+        GhosttyNSView.debugTextInputEventHandler = { view, _ in
+            view.doCommand(by: #selector(NSResponder.deleteBackward(_:)))
+            return true
+        }
+
+        var forwardedPresses: [ghostty_input_key_s] = []
+        GhosttyNSView.debugGhosttySurfaceKeyEventObserver = { keyEvent in
+            previousKeyEventObserver?(keyEvent)
+            guard keyEvent.action == GHOSTTY_ACTION_PRESS else { return }
+            forwardedPresses.append(keyEvent)
+        }
+
+        let event = try #require(NSEvent.keyEvent(
+            with: .keyDown,
+            location: .zero,
+            modifierFlags: [.control, .option],
+            timestamp: ProcessInfo.processInfo.systemUptime,
+            windowNumber: window.windowNumber,
+            context: nil,
+            characters: "\u{8}",
+            charactersIgnoringModifiers: "h",
+            isARepeat: false,
+            keyCode: UInt16(kVK_ANSI_H)
+        ))
+
+        withExtendedLifetime(surface) {
+            surfaceView.keyDown(with: event)
+        }
+
+        let forwarded = try #require(forwardedPresses.first)
+        #expect(forwardedPresses.count == 1)
+        #expect(forwarded.keycode == UInt32(kVK_ANSI_H))
+        #expect(forwarded.keycode != UInt32(kVK_Delete))
+        #expect(forwarded.mods.rawValue & GHOSTTY_MODS_CTRL.rawValue == GHOSTTY_MODS_CTRL.rawValue)
+        #expect(forwarded.mods.rawValue & GHOSTTY_MODS_ALT.rawValue == GHOSTTY_MODS_ALT.rawValue)
+    }
+}
+#endif
+
 @MainActor
 final class TerminalNotificationDirectInteractionTests: XCTestCase {
     private final class FocusProbeView: NSView {
