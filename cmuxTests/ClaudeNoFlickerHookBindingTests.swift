@@ -1,0 +1,218 @@
+import Foundation
+import Testing
+
+@Suite(.serialized)
+struct ClaudeNoFlickerHookBindingTests {
+    private let support = ClaudeHookRoutingTestSupport()
+
+    @Test
+    func claudePromptSubmitIgnoresPIDBindingWhenBoundSurfaceIsGone() throws {
+        let context = try support.makeHookContext(name: "claude-stale-pid-bound-surface")
+        defer { context.cleanup() }
+
+        let staleWorkspaceId = "55555555-5555-5555-5555-555555555555"
+        let staleSurfaceId = "66666666-6666-6666-6666-666666666666"
+        let staleFallbackSurfaceId = "77777777-7777-7777-7777-777777777777"
+        let claudePID = "6048"
+        let server = support.startMockServer(listenerFD: context.listenerFD, state: context.state) { line in
+            guard let payload = ClaudeHookRoutingTestSupport.jsonObject(line) else {
+                return "OK"
+            }
+            guard let id = payload["id"] as? String, let method = payload["method"] as? String else {
+                return ClaudeHookRoutingTestSupport.malformedRequestResponse(id: payload["id"] as? String, raw: line)
+            }
+            switch method {
+            case "surface.list":
+                let params = payload["params"] as? [String: Any] ?? [:]
+                if params["workspace_id"] as? String == staleWorkspaceId {
+                    return ClaudeHookRoutingTestSupport.v2Response(
+                        id: id,
+                        ok: true,
+                        result: ["surfaces": [["id": staleFallbackSurfaceId, "ref": "surface:1", "focused": true]]]
+                    )
+                }
+                return ClaudeHookRoutingTestSupport.surfaceListResponse(id: id, surfaceId: context.surfaceId)
+            case "system.top":
+                return ClaudeHookRoutingTestSupport.v2Response(
+                    id: id,
+                    ok: true,
+                    result: [
+                        "windows": [
+                            [
+                                "workspaces": [
+                                    [
+                                        "id": staleWorkspaceId,
+                                        "panes": [
+                                            [
+                                                "surfaces": [
+                                                    [
+                                                        "id": staleSurfaceId,
+                                                        "top_level_pids": [Int(claudePID)!],
+                                                    ],
+                                                ],
+                                            ],
+                                        ],
+                                    ],
+                                ],
+                            ],
+                        ],
+                    ]
+                )
+            case "feed.push":
+                return ClaudeHookRoutingTestSupport.v2Response(id: id, ok: true, result: [:])
+            case "surface.resume.set":
+                return ClaudeHookRoutingTestSupport.v2Response(id: id, ok: true, result: ["resume_binding": [:]])
+            default:
+                return ClaudeHookRoutingTestSupport.v2Response(id: id, ok: false, error: ["code": "unrecognized_method", "message": "unexpected method: \(method)"])
+            }
+        }
+
+        var environment = support.baseHookEnvironment(context: context)
+        environment["CMUX_CLAUDE_PID"] = claudePID
+
+        let result = support.runProcess(
+            executablePath: context.cliPath,
+            arguments: ["hooks", "claude", "prompt-submit"],
+            environment: environment,
+            standardInput: #"{"session_id":"gone-pid-surface-session","turn_id":"turn-1","cwd":"\#(context.root.path)","hook_event_name":"UserPromptSubmit","prompt":"run"}"#,
+            timeout: 5
+        )
+
+        #expect(server.wait(timeout: .now() + 5) == .success, "mock server did not finish")
+        #expect(!result.timedOut, Comment(rawValue: result.stderr))
+        #expect(result.status == 0, Comment(rawValue: result.stderr))
+        let commands = context.state.snapshot()
+        #expect(
+            commands.contains {
+                $0.hasPrefix("set_status claude_code Running --icon=bolt.fill --color=#4C8DFF --tab=\(context.workspaceId)")
+                    && $0.contains("--panel=\(context.surfaceId)")
+            },
+            "Expected a PID binding with a gone surface to fall back to the ambient workspace, saw \(commands)"
+        )
+        #expect(
+            !commands.contains {
+                ($0.hasPrefix("set_status claude_code Running ") || $0.hasPrefix("set_agent_pid claude_code "))
+                    && $0.contains("--tab=\(staleWorkspaceId)")
+            },
+            "A stale PID-bound surface must not borrow another surface in its workspace, saw \(commands)"
+        )
+        #expect(
+            !commands.contains {
+                ($0.hasPrefix("set_status claude_code Running ") || $0.hasPrefix("set_agent_pid claude_code "))
+                    && $0.contains("--panel=\(staleFallbackSurfaceId)")
+            },
+            "A stale PID-bound surface must not fall back to another panel, saw \(commands)"
+        )
+    }
+
+    @Test
+    func claudePromptSubmitPrefersPIDSnapshotOverInheritedTTY() throws {
+        let context = try support.makeHookContext(name: "claude-stale-inherited-tty")
+        defer { context.cleanup() }
+
+        let staleWorkspaceId = "55555555-5555-5555-5555-555555555555"
+        let staleSurfaceId = "66666666-6666-6666-6666-666666666666"
+        let staleTTY = "ttys6048"
+        let claudePID = "6048"
+        let server = support.startMockServer(listenerFD: context.listenerFD, state: context.state) { line in
+            guard let payload = ClaudeHookRoutingTestSupport.jsonObject(line) else {
+                return "OK"
+            }
+            guard let id = payload["id"] as? String, let method = payload["method"] as? String else {
+                return ClaudeHookRoutingTestSupport.malformedRequestResponse(id: payload["id"] as? String, raw: line)
+            }
+            switch method {
+            case "debug.terminals":
+                return ClaudeHookRoutingTestSupport.v2Response(
+                    id: id,
+                    ok: true,
+                    result: [
+                        "terminals": [
+                            [
+                                "tty": "/dev/\(staleTTY)",
+                                "workspace_id": staleWorkspaceId,
+                                "surface_id": staleSurfaceId,
+                            ],
+                        ],
+                    ]
+                )
+            case "surface.list":
+                let params = payload["params"] as? [String: Any] ?? [:]
+                if params["workspace_id"] as? String == staleWorkspaceId {
+                    return ClaudeHookRoutingTestSupport.surfaceListResponse(id: id, surfaceId: staleSurfaceId)
+                }
+                return ClaudeHookRoutingTestSupport.surfaceListResponse(id: id, surfaceId: context.surfaceId)
+            case "system.top":
+                return ClaudeHookRoutingTestSupport.v2Response(
+                    id: id,
+                    ok: true,
+                    result: [
+                        "windows": [
+                            [
+                                "workspaces": [
+                                    [
+                                        "id": context.workspaceId,
+                                        "panes": [
+                                            [
+                                                "surfaces": [
+                                                    [
+                                                        "id": context.surfaceId,
+                                                        "top_level_pids": [Int(claudePID)!],
+                                                    ],
+                                                ],
+                                            ],
+                                        ],
+                                    ],
+                                ],
+                            ],
+                        ],
+                    ]
+                )
+            case "feed.push":
+                return ClaudeHookRoutingTestSupport.v2Response(id: id, ok: true, result: [:])
+            case "surface.resume.set":
+                return ClaudeHookRoutingTestSupport.v2Response(id: id, ok: true, result: ["resume_binding": [:]])
+            default:
+                return ClaudeHookRoutingTestSupport.v2Response(id: id, ok: false, error: ["code": "unrecognized_method", "message": "unexpected method: \(method)"])
+            }
+        }
+
+        var environment = support.baseHookEnvironment(context: context)
+        environment["CMUX_CLAUDE_PID"] = claudePID
+        environment["CMUX_TTY_NAME"] = staleTTY
+
+        let result = support.runProcess(
+            executablePath: context.cliPath,
+            arguments: ["hooks", "claude", "prompt-submit"],
+            environment: environment,
+            standardInput: #"{"session_id":"stale-inherited-tty-session","turn_id":"turn-1","cwd":"\#(context.root.path)","hook_event_name":"UserPromptSubmit","prompt":"run"}"#,
+            timeout: 5
+        )
+
+        #expect(server.wait(timeout: .now() + 5) == .success, "mock server did not finish")
+        #expect(!result.timedOut, Comment(rawValue: result.stderr))
+        #expect(result.status == 0, Comment(rawValue: result.stderr))
+        let commands = context.state.snapshot()
+        #expect(
+            commands.contains {
+                $0.hasPrefix("set_status claude_code Running --icon=bolt.fill --color=#4C8DFF --tab=\(context.workspaceId)")
+                    && $0.contains("--panel=\(context.surfaceId)")
+            },
+            "Expected the live Claude PID snapshot to override stale inherited TTY metadata, saw \(commands)"
+        )
+        #expect(
+            !commands.contains {
+                ($0.hasPrefix("set_status claude_code Running ") || $0.hasPrefix("set_agent_pid claude_code "))
+                    && $0.contains("--tab=\(staleWorkspaceId)")
+            },
+            "Stale inherited TTY metadata must not receive Claude visible state, saw \(commands)"
+        )
+        #expect(
+            !commands.contains {
+                ($0.hasPrefix("set_status claude_code Running ") || $0.hasPrefix("set_agent_pid claude_code "))
+                    && $0.contains("--panel=\(staleSurfaceId)")
+            },
+            "Stale inherited TTY metadata must not receive Claude visible state, saw \(commands)"
+        )
+    }
+}
