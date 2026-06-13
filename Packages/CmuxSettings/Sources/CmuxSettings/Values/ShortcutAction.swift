@@ -270,7 +270,7 @@ extension ShortcutAction {
         switch self {
         case .openSettings: return "Settings…"
         case .reloadConfiguration: return "Reload Configuration"
-        case .showHideAllWindows: return "Show/Hide All Windows"
+        case .showHideAllWindows: return "Toggle Quick Terminal"
         case .globalSearch: return "Global Search"
         case .newWindow: return "New Window"
         case .closeWindow: return "Close Window"

@@ -867,10 +867,10 @@ enum CommandPaletteSettingsToggleCommands {
                 commandId: commandIdPrefix + "systemWideHotkey",
                 settingsKey: "globalHotkey.enable",
                 title: {
-                    String(localized: "settings.globalHotkey.enable", defaultValue: "Enable System-Wide Hotkey")
+                    String(localized: "settings.globalHotkey.enable", defaultValue: "Enable Quick Terminal Hotkey")
                 },
                 sectionTitle: globalHotkey,
-                keywords: ["globalHotkey.enable", "global", "hotkey", "system", "wide", "show", "hide", "windows"],
+                keywords: ["globalHotkey.enable", "global", "hotkey", "system", "wide", "quick", "terminal"],
                 isOn: { defaults in SystemWideHotkeySettings.isEnabled(defaults: defaults) },
                 setOn: { newValue, defaults, _ in
                     SystemWideHotkeySettings.setEnabled(newValue, defaults: defaults)

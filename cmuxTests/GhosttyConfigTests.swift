@@ -745,6 +745,29 @@ final class GhosttyConfigTests: XCTestCase {
         XCTAssertEqual(config.backgroundBlur, .macosGlassClear)
     }
 
+    func testParseQuickTerminalGlobalKeybind() {
+        var config = GhosttyConfig()
+        config.parse("keybind = global:cmd+grave_accent=toggle_quick_terminal")
+
+        XCTAssertEqual(
+            config.quickTerminalShortcut,
+            StoredShortcut(key: "`", command: true, shift: false, option: false, control: false)
+        )
+    }
+
+    func testParseQuickTerminalLayoutOptions() {
+        var config = GhosttyConfig()
+        config.parse("""
+        quick-terminal-position = bottom
+        quick-terminal-screen-fraction = 0.55
+        quick-terminal-animation-duration = 0.25
+        """)
+
+        XCTAssertEqual(config.quickTerminalPosition, "bottom")
+        XCTAssertEqual(config.quickTerminalScreenFraction ?? -1, 0.55, accuracy: 0.0001)
+        XCTAssertEqual(config.quickTerminalAnimationDuration ?? -1, 0.25, accuracy: 0.0001)
+    }
+
     func testLoadThemeResolvesBuiltinAliasFromGhosttyResourcesDir() throws {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-ghostty-themes-\(UUID().uuidString)")

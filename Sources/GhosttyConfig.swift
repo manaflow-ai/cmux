@@ -31,6 +31,10 @@ struct GhosttyConfig {
     var unfocusedSplitOpacity: Double = 0.7
     var unfocusedSplitFill: NSColor?
     var splitDividerColor: NSColor?
+    var quickTerminalShortcut: StoredShortcut?
+    var quickTerminalPosition: String?
+    var quickTerminalScreenFraction: Double?
+    var quickTerminalAnimationDuration: TimeInterval?
 
     // Colors (from theme or config)
     var backgroundColor: NSColor = NSColor(hex: "#272822")!
@@ -424,6 +428,13 @@ struct GhosttyConfig {
                     }
                 case "working-directory":
                     workingDirectory = value
+                case "keybind":
+                    if let shortcut = StoredShortcut.parseGhosttyGlobalKeybind(
+                        value,
+                        action: "toggle_quick_terminal"
+                    ) {
+                        quickTerminalShortcut = shortcut
+                    }
                 case "scrollback-limit":
                     if let limit = Self.parseIntegerLiteral(value) {
                         scrollbackLimit = limit
@@ -511,6 +522,16 @@ struct GhosttyConfig {
                 case "split-divider-color":
                     if let color = NSColor(hex: value) {
                         splitDividerColor = color
+                    }
+                case "quick-terminal-position":
+                    quickTerminalPosition = value.lowercased()
+                case "quick-terminal-screen-fraction":
+                    if let fraction = Double(value) {
+                        quickTerminalScreenFraction = fraction
+                    }
+                case "quick-terminal-animation-duration":
+                    if let duration = Double(value) {
+                        quickTerminalAnimationDuration = duration
                     }
                 case "sidebar-background":
                     rawSidebarBackground = value

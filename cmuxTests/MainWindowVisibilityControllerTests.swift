@@ -476,6 +476,321 @@ final class MainWindowVisibilityControllerTests: XCTestCase {
         XCTAssertEqual(activationCount, 0)
     }
 
+    func testQuickTerminalPlacementUsesTopScreenBand() {
+        let placement = QuickTerminalPlacement.placement(
+            forVisibleFrame: NSRect(x: 0, y: 0, width: 1000, height: 800)
+        )
+
+        XCTAssertEqual(placement.visibleFrame.origin.x, 60, accuracy: 0.001)
+        XCTAssertEqual(placement.visibleFrame.origin.y, 368, accuracy: 0.001)
+        XCTAssertEqual(placement.visibleFrame.width, 880, accuracy: 0.001)
+        XCTAssertEqual(placement.visibleFrame.height, 420, accuracy: 0.001)
+        XCTAssertEqual(placement.hiddenFrame.origin.x, placement.visibleFrame.origin.x, accuracy: 0.001)
+        XCTAssertEqual(placement.hiddenFrame.origin.y, 812, accuracy: 0.001)
+    }
+
+    func testQuickTerminalPlacementClampsToSmallScreen() {
+        let placement = QuickTerminalPlacement.placement(
+            forVisibleFrame: NSRect(x: 10, y: 20, width: 500, height: 300)
+        )
+
+        XCTAssertEqual(placement.visibleFrame.origin.x, 42, accuracy: 0.001)
+        XCTAssertEqual(placement.visibleFrame.origin.y, 20, accuracy: 0.001)
+        XCTAssertEqual(placement.visibleFrame.width, 436, accuracy: 0.001)
+        XCTAssertEqual(placement.visibleFrame.height, 292, accuracy: 0.001)
+        XCTAssertEqual(placement.hiddenFrame.origin.x, placement.visibleFrame.origin.x, accuracy: 0.001)
+        XCTAssertEqual(placement.hiddenFrame.origin.y, 328, accuracy: 0.001)
+    }
+
+    func testQuickTerminalKeepsPendingSnapshotWhenCreatedWindowCannotBeRetrieved() {
+        let appDelegate = AppDelegate()
+        let placement = QuickTerminalPlacement.placement(
+            forVisibleFrame: NSRect(x: 0, y: 0, width: 1000, height: 800)
+        )
+        let snapshot = makeQuickTerminalWindowSnapshot()
+        var createdSnapshots: [SessionWindowSnapshot?] = []
+        var beepCount = 0
+        let controller = QuickTerminalController(
+            appDelegate: appDelegate,
+            configurationProvider: { .fallback },
+            placementProvider: { _ in placement },
+            dependencies: makeQuickTerminalDependencies(
+                createMainWindow: { _, _, snapshot in
+                    createdSnapshots.append(snapshot)
+                    return UUID()
+                },
+                windowForMainWindowId: { _, _ in nil },
+                beep: {
+                    beepCount += 1
+                }
+            )
+        )
+
+        controller.restoreSession(snapshot)
+        controller.toggle()
+
+        XCTAssertEqual(createdSnapshots.count, 1)
+        XCTAssertEqual(createdSnapshots.first??.isQuickTerminal, true)
+        XCTAssertEqual(controller.pendingSessionSnapshotForPersistence()?.isQuickTerminal, true)
+        XCTAssertEqual(beepCount, 1)
+    }
+
+    func testQuickTerminalUnregisterClearsTrackedWindowIdAndKeepsSnapshotForPersistence() {
+        let appDelegate = AppDelegate()
+        let placement = QuickTerminalPlacement.placement(
+            forVisibleFrame: NSRect(x: 0, y: 0, width: 1000, height: 800)
+        )
+        let firstWindowId = UUID()
+        let secondWindowId = UUID()
+        let firstWindow = makeCmuxWindow(frame: placement.visibleFrame)
+        let secondWindow = makeCmuxWindow(frame: placement.visibleFrame)
+        defer {
+            firstWindow.orderOut(nil)
+            secondWindow.orderOut(nil)
+        }
+        var pendingCreateIds = [firstWindowId, secondWindowId]
+        var liveWindowIds: Set<UUID> = []
+        let windowsById = [
+            firstWindowId: firstWindow,
+            secondWindowId: secondWindow
+        ]
+        var createdSnapshots: [SessionWindowSnapshot?] = []
+        let controller = QuickTerminalController(
+            appDelegate: appDelegate,
+            configurationProvider: { .fallback },
+            placementProvider: { _ in placement },
+            dependencies: makeQuickTerminalDependencies(
+                createMainWindow: { _, _, snapshot in
+                    createdSnapshots.append(snapshot)
+                    let id = pendingCreateIds.removeFirst()
+                    liveWindowIds.insert(id)
+                    return id
+                },
+                windowForMainWindowId: { _, id in
+                    liveWindowIds.contains(id) ? windowsById[id] : nil
+                }
+            )
+        )
+
+        controller.toggle()
+        XCTAssertNil(controller.pendingSessionSnapshotForPersistence())
+
+        liveWindowIds.remove(firstWindowId)
+        controller.handleWindowUnregistered(
+            windowId: firstWindowId,
+            pendingSnapshot: makeQuickTerminalWindowSnapshot()
+        )
+
+        XCTAssertEqual(controller.pendingSessionSnapshotForPersistence()?.isQuickTerminal, true)
+
+        controller.toggle()
+
+        XCTAssertEqual(createdSnapshots.count, 2)
+        XCTAssertEqual(createdSnapshots.last??.isQuickTerminal, true)
+        XCTAssertNil(controller.pendingSessionSnapshotForPersistence())
+    }
+
+    func testQuickTerminalCenteredHideDoesNotRunNoOpFrameAnimation() {
+        let appDelegate = AppDelegate()
+        let configuration = QuickTerminalConfiguration(
+            position: .center,
+            screenFraction: 0.5,
+            animationDuration: 0.18
+        )
+        let placement = QuickTerminalPlacement.placement(
+            forVisibleFrame: NSRect(x: 0, y: 0, width: 1000, height: 800),
+            configuration: configuration
+        )
+        let window = makeCmuxWindow(frame: placement.visibleFrame)
+        defer { window.orderOut(nil) }
+        var animationCount = 0
+        let controller = QuickTerminalController(
+            appDelegate: appDelegate,
+            configurationProvider: { configuration },
+            placementProvider: { _ in placement },
+            dependencies: makeQuickTerminalDependencies(
+                animateFrame: { _, _, _, completion in
+                    animationCount += 1
+                    completion()
+                }
+            )
+        )
+
+        controller.hideFromCloseShortcut(window)
+
+        XCTAssertEqual(animationCount, 0)
+        XCTAssertEqual(window.alphaValue, 0, accuracy: 0.001)
+        XCTAssertTrue(window.ignoresMouseEvents)
+    }
+
+    func testQuickTerminalToggleDuringShowQueuesHideAfterShowAnimation() {
+        let appDelegate = AppDelegate()
+        let configuration = QuickTerminalConfiguration(
+            position: .top,
+            screenFraction: 0.5,
+            animationDuration: 0.18
+        )
+        let placement = QuickTerminalPlacement.placement(
+            forVisibleFrame: NSRect(x: 0, y: 0, width: 1000, height: 800),
+            configuration: configuration
+        )
+        let window = makeCmuxWindow(frame: placement.visibleFrame)
+        defer { window.orderOut(nil) }
+        let windowId = UUID()
+        var animationFrames: [NSRect] = []
+        var animationCompletions: [@MainActor () -> Void] = []
+        let controller = QuickTerminalController(
+            appDelegate: appDelegate,
+            configurationProvider: { configuration },
+            placementProvider: { _ in placement },
+            dependencies: makeQuickTerminalDependencies(
+                createMainWindow: { _, _, _ in windowId },
+                windowForMainWindowId: { _, id in id == windowId ? window : nil },
+                focusQuickTerminalWindow: { _, window in
+                    window.orderFront(nil)
+                    return true
+                },
+                animateFrame: { _, frame, _, completion in
+                    animationFrames.append(frame)
+                    animationCompletions.append(completion)
+                }
+            )
+        )
+
+        controller.toggle()
+        controller.toggle()
+
+        XCTAssertEqual(animationFrames.count, 1)
+        XCTAssertEqual(animationFrames.map { $0.origin.y }, [placement.visibleFrame.origin.y])
+
+        animationCompletions.removeFirst()()
+
+        XCTAssertEqual(animationFrames.count, 2)
+        XCTAssertEqual(animationFrames.map { $0.origin.y }, [
+            placement.visibleFrame.origin.y,
+            placement.hiddenFrame.origin.y
+        ])
+
+        animationCompletions.removeFirst()()
+
+        XCTAssertEqual(window.alphaValue, 0, accuracy: 0.001)
+        XCTAssertTrue(window.ignoresMouseEvents)
+    }
+
+    func testQuickTerminalCloseShortcutDuringShowQueuesHideAfterShowAnimation() {
+        let appDelegate = AppDelegate()
+        let configuration = QuickTerminalConfiguration(
+            position: .top,
+            screenFraction: 0.5,
+            animationDuration: 0.18
+        )
+        let placement = QuickTerminalPlacement.placement(
+            forVisibleFrame: NSRect(x: 0, y: 0, width: 1000, height: 800),
+            configuration: configuration
+        )
+        let window = makeCmuxWindow(frame: placement.visibleFrame)
+        defer { window.orderOut(nil) }
+        let windowId = UUID()
+        var animationFrames: [NSRect] = []
+        var animationCompletions: [@MainActor () -> Void] = []
+        let controller = QuickTerminalController(
+            appDelegate: appDelegate,
+            configurationProvider: { configuration },
+            placementProvider: { _ in placement },
+            dependencies: makeQuickTerminalDependencies(
+                createMainWindow: { _, _, _ in windowId },
+                windowForMainWindowId: { _, id in id == windowId ? window : nil },
+                focusQuickTerminalWindow: { _, window in
+                    window.orderFront(nil)
+                    return true
+                },
+                animateFrame: { _, frame, _, completion in
+                    animationFrames.append(frame)
+                    animationCompletions.append(completion)
+                }
+            )
+        )
+
+        controller.toggle()
+        controller.hideFromCloseShortcut(window)
+
+        XCTAssertEqual(animationFrames.count, 1)
+        XCTAssertEqual(animationFrames.map { $0.origin.y }, [placement.visibleFrame.origin.y])
+
+        animationCompletions.removeFirst()()
+
+        XCTAssertEqual(animationFrames.count, 2)
+        XCTAssertEqual(animationFrames.map { $0.origin.y }, [
+            placement.visibleFrame.origin.y,
+            placement.hiddenFrame.origin.y
+        ])
+
+        animationCompletions.removeFirst()()
+
+        XCTAssertEqual(window.alphaValue, 0, accuracy: 0.001)
+        XCTAssertTrue(window.ignoresMouseEvents)
+    }
+
+    func testQuickTerminalToggleDuringHideQueuesShowAfterHideAnimation() {
+        let appDelegate = AppDelegate()
+        let configuration = QuickTerminalConfiguration(
+            position: .top,
+            screenFraction: 0.5,
+            animationDuration: 0.18
+        )
+        let placement = QuickTerminalPlacement.placement(
+            forVisibleFrame: NSRect(x: 0, y: 0, width: 1000, height: 800),
+            configuration: configuration
+        )
+        let window = makeCmuxWindow(frame: placement.visibleFrame)
+        defer { window.orderOut(nil) }
+        let windowId = UUID()
+        var animationFrames: [NSRect] = []
+        var animationCompletions: [@MainActor () -> Void] = []
+        let controller = QuickTerminalController(
+            appDelegate: appDelegate,
+            configurationProvider: { configuration },
+            placementProvider: { _ in placement },
+            dependencies: makeQuickTerminalDependencies(
+                createMainWindow: { _, _, _ in windowId },
+                windowForMainWindowId: { _, id in id == windowId ? window : nil },
+                focusQuickTerminalWindow: { _, window in
+                    window.orderFront(nil)
+                    return true
+                },
+                animateFrame: { _, frame, _, completion in
+                    animationFrames.append(frame)
+                    animationCompletions.append(completion)
+                }
+            )
+        )
+
+        controller.toggle()
+        animationCompletions.removeFirst()()
+        controller.toggle()
+        controller.toggle()
+
+        XCTAssertEqual(animationFrames.count, 2)
+        XCTAssertEqual(animationFrames.map { $0.origin.y }, [
+            placement.visibleFrame.origin.y,
+            placement.hiddenFrame.origin.y
+        ])
+
+        animationCompletions.removeFirst()()
+
+        XCTAssertEqual(animationFrames.count, 3)
+        XCTAssertEqual(animationFrames.map { $0.origin.y }, [
+            placement.visibleFrame.origin.y,
+            placement.hiddenFrame.origin.y,
+            placement.visibleFrame.origin.y
+        ])
+
+        animationCompletions.removeFirst()()
+
+        XCTAssertEqual(window.alphaValue, 1, accuracy: 0.001)
+        XCTAssertFalse(window.ignoresMouseEvents)
+    }
+
     private func makeWindow() -> NSWindow {
         let window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 120, height: 80),
@@ -485,6 +800,48 @@ final class MainWindowVisibilityControllerTests: XCTestCase {
         )
         window.isReleasedWhenClosed = false
         return window
+    }
+
+    private func makeCmuxWindow(frame: NSRect) -> CmuxMainWindow {
+        let window = CmuxMainWindow(
+            contentRect: frame,
+            styleMask: [.borderless],
+            backing: .buffered,
+            defer: false
+        )
+        window.isReleasedWhenClosed = false
+        return window
+    }
+
+    private func makeQuickTerminalWindowSnapshot() -> SessionWindowSnapshot {
+        SessionWindowSnapshot(
+            frame: SessionRectSnapshot(x: 0, y: 0, width: 800, height: 600),
+            display: nil,
+            tabManager: SessionTabManagerSnapshot(selectedWorkspaceIndex: nil, workspaces: []),
+            sidebar: SessionSidebarSnapshot(isVisible: false, selection: .tabs, width: 220),
+            isQuickTerminal: true
+        )
+    }
+
+    private func makeQuickTerminalDependencies(
+        createMainWindow: @escaping @MainActor (AppDelegate, QuickTerminalPlacement, SessionWindowSnapshot?) -> UUID = { _, _, _ in UUID() },
+        windowForMainWindowId: @escaping @MainActor (AppDelegate, UUID) -> CmuxMainWindow? = { _, _ in nil },
+        focusQuickTerminalWindow: @escaping @MainActor (AppDelegate, CmuxMainWindow) -> Bool = { _, _ in true },
+        beep: @escaping @MainActor () -> Void = {},
+        animateFrame: @escaping @MainActor (
+            NSWindow,
+            NSRect,
+            TimeInterval,
+            @escaping @MainActor () -> Void
+        ) -> Void = { _, _, _, completion in completion() }
+    ) -> QuickTerminalController.Dependencies {
+        QuickTerminalController.Dependencies(
+            createMainWindow: createMainWindow,
+            windowForMainWindowId: windowForMainWindowId,
+            focusQuickTerminalWindow: focusQuickTerminalWindow,
+            beep: beep,
+            animateFrame: animateFrame
+        )
     }
 
     private func makeWindowOperations(

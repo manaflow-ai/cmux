@@ -139,8 +139,8 @@ extension Array where Element == CuratedSettingEntry {
             .init(section: .browserImport, id: "import-hint", title: "Show import hint on blank browser tabs", synonyms: "browser.showImportHintOnBlankTabs blank tab onboarding hint import prompt dismiss"),
 
             // Global hotkey
-            .init(section: .globalHotkey, id: "enable-hotkey", title: "Enable System-Wide Hotkey", synonyms: "app.systemWideHotkeyEnabled global hotkey enable system wide show hide all windows"),
-            .init(section: .globalHotkey, id: "shortcut", title: "Show/Hide All Windows", synonyms: "global hotkey shortcut recorder key command option control"),
+            .init(section: .globalHotkey, id: "enable-hotkey", title: "Enable Quick Terminal Hotkey", synonyms: "app.systemWideHotkeyEnabled global hotkey enable system wide quick terminal quick access"),
+            .init(section: .globalHotkey, id: "shortcut", title: "Toggle Quick Terminal", synonyms: "global hotkey quick terminal shortcut recorder key command option control"),
 
             // Keyboard shortcuts
             .init(section: .keyboardShortcuts, id: "shortcuts", title: "Keyboard Shortcuts", synonyms: "shortcuts.bindings hotkeys keybindings key bindings commands keyboard accelerators chords cmux json open diff viewer changes review git unstaged"),

@@ -672,6 +672,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         var fileExplorerState: FileExplorerState?
         let keyboardFocusCoordinator: MainWindowFocusController
         var cmuxConfigStore: CmuxConfigStore?
+        let isQuickTerminal: Bool
         weak var window: NSWindow?
 
         init(
@@ -681,6 +682,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             sidebarSelectionState: SidebarSelectionState,
             fileExplorerState: FileExplorerState?,
             cmuxConfigStore: CmuxConfigStore?,
+            isQuickTerminal: Bool = false,
             window: NSWindow?
         ) {
             self.windowId = windowId
@@ -689,6 +691,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             self.sidebarSelectionState = sidebarSelectionState
             self.fileExplorerState = fileExplorerState
             self.cmuxConfigStore = cmuxConfigStore
+            self.isQuickTerminal = isQuickTerminal
             self.window = window
             self.keyboardFocusCoordinator = MainWindowFocusController(
                 windowId: windowId,
@@ -865,6 +868,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             }
         )
     )
+    private lazy var quickTerminalController = QuickTerminalController(appDelegate: self)
     private static let serviceErrorNoPath = NSString(string: String(localized: "error.clipboardFolderPath", defaultValue: "Could not load any folder path from the clipboard."))
     private static let didInstallWindowKeyEquivalentSwizzle: Void = {
         let targetClass: AnyClass = NSWindow.self
@@ -1396,6 +1400,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         windowDecorationsController.start()
         installMainWindowKeyObserver()
         refreshGhosttyGotoSplitShortcuts()
+        applyGhosttyQuickTerminalSettings()
         installGhosttyConfigObserver()
         installWindowResponderSwizzles()
         installBrowserAddressBarFocusObservers()
@@ -3137,7 +3142,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         guard let primaryContext = contextForMainTerminalWindow(primaryWindow) else { return false }
 
         let startupSnapshot = startupSessionSnapshot
-        let primaryWindowSnapshot = startupSnapshot?.windows.first
+        let quickTerminalSnapshot = startupSnapshot?.windows.first(where: { $0.isQuickTerminal == true })
+        if let quickTerminalSnapshot {
+            quickTerminalController.restoreSession(quickTerminalSnapshot)
+        }
+        let regularWindowSnapshots = startupSnapshot?.windows.filter { $0.isQuickTerminal != true } ?? []
+        let primaryWindowSnapshot = regularWindowSnapshots.first
         if let primaryWindowSnapshot {
             isApplyingSessionRestore = true
 #if DEBUG
@@ -3166,10 +3176,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             }
         }
 
-        guard let startupSnapshot else { return false }
+        guard startupSnapshot != nil else { return false }
 
-        let additionalWindows = Array(startupSnapshot
-            .windows
+        let additionalWindows = Array(regularWindowSnapshots
             .dropFirst()
             .prefix(max(0, SessionPersistencePolicy.maxWindowsPerSnapshot - 1)))
 #if DEBUG
@@ -3224,10 +3233,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         _ snapshot: AppSessionSnapshot,
         shouldActivate: Bool = true
     ) -> Bool {
-        let snapshotWindows = Array(
+        let allSnapshotWindows = Array(
             snapshot.windows.prefix(SessionPersistencePolicy.maxWindowsPerSnapshot)
         )
-        guard !snapshotWindows.isEmpty else { return false }
+        if let quickTerminalSnapshot = allSnapshotWindows.first(where: { $0.isQuickTerminal == true }) {
+            quickTerminalController.restoreSession(quickTerminalSnapshot)
+        }
+        let snapshotWindows = allSnapshotWindows.filter { $0.isQuickTerminal != true }
+        guard !snapshotWindows.isEmpty else { return !allSnapshotWindows.isEmpty }
 
         isApplyingSessionRestore = true
         startupSessionSnapshot = nil
@@ -4234,8 +4247,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
     }
 
-    private func sortedMainWindowContextsForSessionSnapshot() -> [MainWindowContext] {
-        mainWindowContexts.values.sorted { lhs, rhs in
+    private func sortedMainWindowContextsForSessionSnapshot(includeQuickTerminal: Bool = true) -> [MainWindowContext] {
+        mainWindowContexts.values
+            .filter { includeQuickTerminal || !$0.isQuickTerminal }
+            .sorted { lhs, rhs in
             let lhsWindow = lhs.window ?? windowForMainWindowId(lhs.windowId)
             let rhsWindow = rhs.window ?? windowForMainWindowId(rhs.windowId)
             let lhsIsKey = lhsWindow?.isKeyWindow ?? false
@@ -4253,11 +4268,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         surfaceResumeBindingIndex suppliedSurfaceResumeBindingIndex: SurfaceResumeBindingIndex? = nil
     ) -> AppSessionSnapshot? {
         let contexts = sortedMainWindowContextsForSessionSnapshot()
-
-        guard !contexts.isEmpty else { return nil }
+        let quickTerminalContext = contexts.first(where: { $0.isQuickTerminal })
+        let regularContexts = contexts.filter { !$0.isQuickTerminal }
         let restorableAgentIndex = suppliedRestorableAgentIndex ?? RestorableAgentSessionIndex.load()
 
-        let windows: [SessionWindowSnapshot] = contexts
+        let windows: [SessionWindowSnapshot] = regularContexts
             .prefix(SessionPersistencePolicy.maxWindowsPerSnapshot)
             .map { context in
                 sessionWindowSnapshot(
@@ -4267,12 +4282,26 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                     surfaceResumeBindingIndex: suppliedSurfaceResumeBindingIndex
                 )
             }
+        let liveQuickTerminalSnapshot = quickTerminalContext.map { context in
+            sessionWindowSnapshot(
+                for: context,
+                includeScrollback: includeScrollback,
+                restorableAgentIndex: restorableAgentIndex,
+                surfaceResumeBindingIndex: suppliedSurfaceResumeBindingIndex
+            )
+        }
 
-        guard !windows.isEmpty else { return nil }
+        let windowsWithPendingQuickTerminal = Self.includingPendingQuickTerminalSnapshot(
+            windows,
+            pendingQuickTerminalSnapshot: liveQuickTerminalSnapshot
+                ?? quickTerminalController.pendingSessionSnapshotForPersistence()
+        )
+
+        guard !windowsWithPendingQuickTerminal.isEmpty else { return nil }
         return AppSessionSnapshot(
             version: SessionSnapshotSchema.currentVersion,
             createdAt: Date().timeIntervalSince1970,
-            windows: windows
+            windows: windowsWithPendingQuickTerminal
         )
     }
 
@@ -4298,8 +4327,28 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 isVisible: context.sidebarState.isVisible,
                 selection: SessionSidebarSelection(selection: context.sidebarSelectionState.selection),
                 width: SessionPersistencePolicy.sanitizedSidebarWidth(Double(context.sidebarState.persistedWidth))
-            )
+            ),
+            isQuickTerminal: context.isQuickTerminal ? true : nil
         )
+    }
+
+    nonisolated static func includingPendingQuickTerminalSnapshot(
+        _ windows: [SessionWindowSnapshot],
+        pendingQuickTerminalSnapshot: SessionWindowSnapshot?
+    ) -> [SessionWindowSnapshot] {
+        guard var pendingQuickTerminalSnapshot else { return windows }
+        guard !windows.contains(where: { $0.isQuickTerminal == true }) else { return windows }
+        pendingQuickTerminalSnapshot.isQuickTerminal = true
+
+        var merged = windows
+        if merged.count >= SessionPersistencePolicy.maxWindowsPerSnapshot {
+            // `merged` holds regular windows here. If it is at capacity, evict
+            // the last regular snapshot so the `pendingQuickTerminalSnapshot`
+            // marked `isQuickTerminal` can still be appended and restored.
+            merged.removeLast()
+        }
+        merged.append(pendingQuickTerminalSnapshot)
+        return merged
     }
 
 #if DEBUG
@@ -4377,7 +4426,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         sidebarState: SidebarState,
         sidebarSelectionState: SidebarSelectionState,
         fileExplorerState: FileExplorerState? = nil,
-        cmuxConfigStore: CmuxConfigStore? = nil
+        cmuxConfigStore: CmuxConfigStore? = nil,
+        isQuickTerminal: Bool = false
     ) {
         let key = ObjectIdentifier(window)
         forgetRecoverableMainWindowRoute(windowId: windowId)
@@ -4443,6 +4493,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 sidebarSelectionState: sidebarSelectionState,
                 fileExplorerState: fileExplorerState,
                 cmuxConfigStore: cmuxConfigStore,
+                isQuickTerminal: isQuickTerminal,
                 window: window
             )
             NotificationCenter.default.addObserver(
@@ -4486,16 +4537,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         windowId: UUID = UUID(),
         tabManager: TabManager,
         cmuxConfigStore: CmuxConfigStore? = nil,
-        fileExplorerState: FileExplorerState? = nil
+        fileExplorerState: FileExplorerState? = nil,
+        isQuickTerminal: Bool = false,
+        window: NSWindow? = nil
     ) -> UUID {
-        mainWindowContexts[ObjectIdentifier(tabManager)] = MainWindowContext(
+        let contextKey = window.map { ObjectIdentifier($0) } ?? ObjectIdentifier(tabManager)
+        mainWindowContexts[contextKey] = MainWindowContext(
             windowId: windowId,
             tabManager: tabManager,
             sidebarState: SidebarState(),
             sidebarSelectionState: SidebarSelectionState(),
             fileExplorerState: fileExplorerState,
             cmuxConfigStore: cmuxConfigStore,
-            window: nil
+            isQuickTerminal: isQuickTerminal,
+            window: window
         )
         ensureMobileWorkspaceListObserver(for: tabManager)
         notifyMainWindowContextsDidChange()
@@ -4504,6 +4559,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
     func sessionSnapshotForTesting(includeScrollback: Bool = false) -> AppSessionSnapshot? {
         buildSessionSnapshot(includeScrollback: includeScrollback)
+    }
+
+    func restoreQuickTerminalSessionForTesting(_ snapshot: SessionWindowSnapshot) {
+        quickTerminalController.restoreSession(snapshot)
     }
 
 #endif
@@ -6991,7 +7050,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         shouldActivate: Bool = true,
         suppressWelcome: Bool = false
     ) -> UUID {
-        for context in sortedMainWindowContextsForSessionSnapshot() {
+        for context in sortedMainWindowContextsForSessionSnapshot(includeQuickTerminal: false) {
             guard let window = resolvedWindow(for: context) else { continue }
             if shouldActivate {
                 mainWindowVisibilityController.focus(
@@ -7011,7 +7070,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
     private func hasVisibleMainTerminalWindow() -> Bool {
-        mainWindowContexts.values.contains { context in
+        sortedMainWindowContextsForSessionSnapshot(includeQuickTerminal: false).contains { context in
             guard let window = resolvedWindow(for: context) else { return false }
             return window.isVisible && !window.isMiniaturized && window.alphaValue > 0.001
         }
@@ -8100,6 +8159,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         sessionWindowSnapshot: SessionWindowSnapshot? = nil,
         shouldActivate: Bool = true,
         sourceWindow preferredSourceWindow: NSWindow? = nil,
+        initialFrame: NSRect? = nil,
+        initialSidebarVisible: Bool? = nil,
+        shouldOrderFrontWhenNotActivating: Bool = true,
+        isQuickTerminal: Bool = false,
         remapClosedPanelHistoryFromSessionSnapshot: Bool = true,
         restoredSessionSnapshotHandler: (([[UUID: UUID]], TabManager) -> Void)? = nil
     ) -> UUID {
@@ -8136,7 +8199,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         let sidebarState = SidebarState(
             isVisible: shouldStartWithHiddenSidebarForTerminalViewportUITest
                 ? false
-                : (sessionWindowSnapshot?.sidebar.isVisible ?? true),
+                : (initialSidebarVisible ?? sessionWindowSnapshot?.sidebar.isVisible ?? true),
             persistedWidth: CGFloat(sidebarWidth)
         )
         let sidebarSelectionState = SidebarSelectionState(
@@ -8189,11 +8252,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         // Use the current key window's size for new windows so Cmd+Shift+N
         // creates a window matching the previous one's dimensions.
         let styleMask: NSWindow.StyleMask = [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView]
-        let sourceContext = preferredMainWindowContextForWorkspaceCreation(
-            debugSource: "createMainWindow.initialGeometry"
-        )
-        let sourceWindow = resolvedMainWindowSource(preferredSourceWindow)
-            ?? sourceContext.flatMap { resolvedWindow(for: $0) }
+        let restoredFrame = resolvedWindowFrame(from: sessionWindowSnapshot)
+        let requestedInitialFrame = initialFrame ?? restoredFrame
+        let sourceContext = requestedInitialFrame == nil
+            ? preferredMainWindowContextForWorkspaceCreation(debugSource: "createMainWindow.initialGeometry")
+            : nil
+        let sourceWindow = requestedInitialFrame == nil
+            ? resolvedMainWindowSource(preferredSourceWindow) ?? sourceContext.flatMap { resolvedWindow(for: $0) }
+            : nil
         let existingFrame = sourceWindow?.frame
         let sourceWindowIsNativeFullScreen: Bool = {
 #if DEBUG
@@ -8205,17 +8271,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }()
         let shouldTemporarilyDisallowFullScreenTiling =
             sessionWindowSnapshot == nil && sourceWindowIsNativeFullScreen
-        let restoredFrame = resolvedWindowFrame(from: sessionWindowSnapshot)
-        let persistedGeometryFrame = (restoredFrame == nil && sourceWindow == nil)
+        let persistedGeometryFrame = (requestedInitialFrame == nil && sourceWindow == nil)
             ? resolvedPersistedWindowGeometryFrame()
             : nil
+        let explicitInitialFrame = requestedInitialFrame ?? persistedGeometryFrame
         let initialRect: NSRect
-        if restoredFrame == nil, let existingFrame {
+        if let explicitInitialFrame {
+            initialRect = NSWindow.contentRect(forFrameRect: explicitInitialFrame, styleMask: styleMask)
+        } else if let existingFrame {
             // Convert frame rect to content rect so the new window matches the
             // source window's actual size (frame includes titlebar insets).
             initialRect = NSWindow.contentRect(forFrameRect: existingFrame, styleMask: styleMask)
-        } else if let explicitInitialFrame = restoredFrame ?? persistedGeometryFrame {
-            initialRect = NSWindow.contentRect(forFrameRect: explicitInitialFrame, styleMask: styleMask)
         } else {
             initialRect = CmuxMainWindow.defaultContentRect(styleMask: styleMask)
         }
@@ -8243,7 +8309,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         // restoration so the OS cannot resurrect stale duplicate main windows.
         window.isRestorable = false
         configureCmuxMainWindowDragBehavior(window)
-        let explicitInitialFrame = restoredFrame ?? persistedGeometryFrame
         if let explicitInitialFrame {
             window.setFrame(explicitInitialFrame, display: false)
         } else if let sourceWindow {
@@ -8271,7 +8336,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             guard let self, let controller else { return }
             self.mainWindowControllers.removeAll(where: { $0 === controller })
         }
-        controller.shouldClose = { [weak self] in
+        controller.shouldClose = { [weak self, weak window] in
+            if isQuickTerminal,
+               self?.isTerminatingApp == false,
+               let quickTerminalWindow = window {
+                self?.quickTerminalController.hideFromCloseShortcut(quickTerminalWindow)
+                return false
+            }
             let shouldClose = self?.handleMainTerminalWindowShouldClose() ?? true
             if !shouldClose {
                 self?.closedWindowHistorySuppressedWindowIds.remove(windowId)
@@ -8288,12 +8359,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             sidebarState: sidebarState,
             sidebarSelectionState: sidebarSelectionState,
             fileExplorerState: fileExplorerState,
-            cmuxConfigStore: cmuxConfigStore
+            cmuxConfigStore: cmuxConfigStore,
+            isQuickTerminal: isQuickTerminal
         )
         publishCmuxWindowLifecycle(name: "window.created", windowId: windowId, origin: "create")
         installFileDropOverlay(on: window, tabManager: tabManager)
         if !shouldActivate || TerminalController.shouldSuppressSocketCommandActivation() {
-            window.orderFront(nil)
+            if shouldOrderFrontWhenNotActivating {
+                window.orderFront(nil)
+            }
             if shouldActivate, TerminalController.socketCommandAllowsInAppFocusMutations() {
                 setActiveMainWindow(window)
             }
@@ -8678,6 +8752,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         )
     }
 
+    func toggleQuickTerminalFromGlobalHotkey() {
+        quickTerminalController.toggle()
+    }
+
+    @discardableResult
+    func focusQuickTerminalWindow(_ window: NSWindow) -> Bool {
+        mainWindowVisibilityController.focus(
+            window,
+            reason: .globalHotkey,
+            activation: .runningApplication([.activateAllWindows]),
+            respectActivationSuppression: false
+        )
+    }
+
     @discardableResult
     func activateMainWindowFromSocket() -> Bool {
         let window = preferredMainWindowForVisibilityActivation() ?? {
@@ -8715,13 +8803,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
            isMainTerminalWindow(mainWindow) {
             return mainWindow
         }
-        if let visibleContext = sortedMainWindowContextsForSessionSnapshot().first(where: { context in
+        if let visibleContext = sortedMainWindowContextsForSessionSnapshot(includeQuickTerminal: false).first(where: { context in
             guard let window = resolvedWindow(for: context) else { return false }
             return window.isVisible && !window.isMiniaturized
         }) {
             return resolvedWindow(for: visibleContext)
         }
-        return sortedMainWindowContextsForSessionSnapshot()
+        return sortedMainWindowContextsForSessionSnapshot(includeQuickTerminal: false)
             .compactMap { resolvedWindow(for: $0) }
             .first
     }
@@ -8754,13 +8842,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
     private func mainWindowsForVisibilityController() -> [NSWindow] {
         var windows: [NSWindow] = []
-        for context in sortedMainWindowContextsForSessionSnapshot() {
+        for context in sortedMainWindowContextsForSessionSnapshot(includeQuickTerminal: false) {
             guard let window = resolvedWindow(for: context) else { continue }
             if !windows.contains(where: { $0 === window }) {
                 windows.append(window)
             }
         }
         for window in NSApp.windows where isMainTerminalWindow(window) {
+            if isQuickTerminalWindow(window) { continue }
             if !windows.contains(where: { $0 === window }) {
                 windows.append(window)
             }
@@ -12292,7 +12381,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             object: nil,
             queue: .main
         ) { [weak self] _ in
-            self?.refreshGhosttyGotoSplitShortcuts()
+            Task { @MainActor [weak self] in
+                self?.refreshGhosttyGotoSplitShortcuts()
+                self?.applyGhosttyQuickTerminalSettings()
+            }
         }
     }
 
@@ -12401,6 +12493,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         ghosttyGotoSplitDownShortcut = storedShortcutFromGhosttyTrigger(
             ghostty_config_trigger(config, "goto_split:down", UInt("goto_split:down".utf8.count))
         )
+    }
+
+    private func applyGhosttyQuickTerminalSettings() {
+        let config = GhosttyConfig.load()
+        SystemWideHotkeySettings.applyGhosttyQuickTerminalShortcutIfAvailable(config.quickTerminalShortcut)
     }
 
     private func storedShortcutFromGhosttyTrigger(_ trigger: ghostty_input_trigger_s) -> StoredShortcut? {
@@ -16167,6 +16264,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
 
         guard let removed = unregisterMainWindowContext(for: window) else { return }
+        if removed.isQuickTerminal {
+            quickTerminalController.handleWindowUnregistered(
+                windowId: removed.windowId,
+                pendingSnapshot: isTerminatingApp
+                    ? nil
+                    : sessionWindowSnapshot(
+                        for: removed,
+                        includeScrollback: true,
+                        restorableAgentIndex: RestorableAgentSessionIndex.load()
+                    )
+            )
+        }
         publishCmuxWindowLifecycle(name: "window.closed", windowId: removed.windowId, origin: "appkit_close")
         commandPaletteVisibilityByWindowId.removeValue(forKey: removed.windowId)
         commandPalettePendingOpenByWindowId.removeValue(forKey: removed.windowId)
@@ -16252,6 +16361,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
         guard let raw = window.identifier?.rawValue else { return false }
         return raw == "cmux.main" || raw.hasPrefix("cmux.main.")
+    }
+
+    private func isQuickTerminalWindow(_ window: NSWindow) -> Bool {
+        mainWindowContexts[ObjectIdentifier(window)]?.isQuickTerminal == true
     }
 
     private func workspaceForMainActor(tabId: UUID) -> Workspace? {

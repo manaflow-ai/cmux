@@ -11912,6 +11912,49 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         XCTAssertTrue(harness.panel.isBrowserFocusModeActive)
     }
 
+    func testEnsureInitialMainWindowIgnoresQuickTerminalContext() {
+        let previousAppDelegate = AppDelegate.shared
+        let appDelegate = AppDelegate()
+        AppDelegate.shared = appDelegate
+        defer { AppDelegate.shared = previousAppDelegate }
+
+        let quickTerminalWindowId = UUID()
+        let quickTerminalWindow = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 640, height: 360),
+            styleMask: [.borderless],
+            backing: .buffered,
+            defer: false
+        )
+        quickTerminalWindow.isReleasedWhenClosed = false
+        quickTerminalWindow.identifier = NSUserInterfaceItemIdentifier("cmux.quickTerminal")
+
+        let quickTerminalManager = TabManager(autoWelcomeIfNeeded: false)
+        let registeredQuickTerminalId = appDelegate.registerMainWindowContextForTesting(
+            windowId: quickTerminalWindowId,
+            tabManager: quickTerminalManager,
+            isQuickTerminal: true,
+            window: quickTerminalWindow
+        )
+        defer {
+            appDelegate.unregisterMainWindowContextForTesting(windowId: registeredQuickTerminalId)
+            closeTestWindow(quickTerminalWindow)
+        }
+
+        let createdWindowId = appDelegate.ensureInitialMainWindowIfNeeded(
+            shouldActivate: false,
+            suppressWelcome: true
+        )
+        defer { closeWindow(withId: createdWindowId) }
+
+        guard let createdManager = appDelegate.tabManagerFor(windowId: createdWindowId) else {
+            XCTFail("Expected normal main window manager")
+            return
+        }
+        XCTAssertNotEqual(createdWindowId, registeredQuickTerminalId)
+        XCTAssertNotNil(window(withId: createdWindowId))
+        XCTAssertFalse(createdManager === quickTerminalManager)
+    }
+
     private func makeBrowserFocusModeHarness(
         file: StaticString = #filePath,
         line: UInt = #line

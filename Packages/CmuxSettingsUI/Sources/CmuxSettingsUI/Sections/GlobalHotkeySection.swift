@@ -1,9 +1,9 @@
 import CmuxSettings
 import SwiftUI
 
-/// **Global Hotkey** section — mirrors the legacy in-app section:
+/// **Global Hotkey** section for Quick Terminal:
 /// one card with an Enable toggle and the system-wide chord recorder,
-/// followed by a card note explaining macOS permissions.
+/// followed by a card note explaining the Quick Terminal behavior.
 ///
 /// The recorder reads and writes the same JSON-backed shortcut binding
 /// the legacy app uses — `shortcuts.bindings["showHideAllWindows"]` —
@@ -40,7 +40,7 @@ public struct GlobalHotkeySection: View {
                 .accessibilityIdentifier("SettingsGlobalHotkeySection")
             mainCard
             SettingsCardNote(
-                String(localized: "settings.globalHotkey.note", defaultValue: "Use Command, Option, or Control with another key. No extra macOS permission is required.")
+                String(localized: "settings.globalHotkey.note", defaultValue: "Quick Terminal slides from the active screen edge and keeps its session running while hidden.")
             )
             .accessibilityIdentifier("SettingsGlobalHotkeyNote")
         }
@@ -54,10 +54,10 @@ public struct GlobalHotkeySection: View {
             SettingsCardRow(
                 configurationReview: .settingsOnly,
                 searchAnchorID: "setting:globalHotkey:enable-hotkey",
-                String(localized: "settings.globalHotkey.enable", defaultValue: "Enable System-Wide Hotkey"),
+                String(localized: "settings.globalHotkey.enable", defaultValue: "Enable Quick Terminal Hotkey"),
                 subtitle: enabled.current
-                    ? String(localized: "settings.globalHotkey.enable.subtitleOn", defaultValue: "Press the shortcut from any app to show or hide all cmux windows.")
-                    : String(localized: "settings.globalHotkey.enable.subtitleOff", defaultValue: "Turn this on to show or hide all cmux windows from any app.")
+                    ? String(localized: "settings.globalHotkey.enable.subtitleOn", defaultValue: "Press the shortcut from any app to show or hide Quick Terminal.")
+                    : String(localized: "settings.globalHotkey.enable.subtitleOff", defaultValue: "Turn this on to summon Quick Terminal from any app.")
             ) {
                 Toggle("", isOn: Binding(get: { enabled.current }, set: { enabled.set($0) }))
                     .labelsHidden()
@@ -78,7 +78,7 @@ public struct GlobalHotkeySection: View {
         VStack(alignment: .leading, spacing: 4) {
             HStack(alignment: .center, spacing: 12) {
                 VStack(alignment: .leading, spacing: 2) {
-                    Text(String(localized: "settings.globalHotkey.shortcut", defaultValue: "Show/Hide All Windows"))
+                    Text(String(localized: "settings.globalHotkey.shortcut", defaultValue: "Toggle Quick Terminal"))
                 }
                 Spacer()
                 ShortcutRecorderView(

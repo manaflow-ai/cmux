@@ -28,8 +28,8 @@ export const shortcutCategories: ShortcutCategory[] = [
       { id: "reloadConfiguration", combos: [["⌘", "⇧", ","]], description: { en: "Reload configuration", ja: "構成を再読み込み" } },
       {
         id: "showHideAllWindows",
-        combos: [["⌃", "⌥", "⌘", "."]],
-        description: { en: "Show/hide all cmux windows", ja: "すべてのcmuxウインドウを表示/非表示" },
+        combos: [["⌃", "`"]],
+        description: { en: "Toggle Quick Terminal", ja: "クイックターミナルを切り替え" },
         note: { en: "system-wide hotkey", ja: "システム全体のホットキー" },
       },
       {

@@ -25,6 +25,13 @@ struct SettingsSearchIndexTests {
         #expect(result.contains(where: { $0.title == "Automation" }))
     }
 
+    @Test func quickTerminalQueryFindsGlobalHotkeySettings() {
+        let index = SettingsSearchIndex(catalog: SettingCatalog())
+        let ids = Set(index.match("quick terminal").map(\.id))
+        #expect(ids.contains("setting:globalHotkey:enable-hotkey"))
+        #expect(ids.contains("setting:globalHotkey:shortcut"))
+    }
+
     @Test func diacriticInsensitiveMatch() {
         let index = SettingsSearchIndex(catalog: SettingCatalog())
         let plain = index.match("automation")
