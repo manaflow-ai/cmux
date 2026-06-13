@@ -36,6 +36,10 @@ actor AgentChatTranscriptTailer {
     private var parseState = ChatTranscriptParseState()
     private var byteOffset: UInt64 = 0
     private var lineCount = 0
+    /// Identity (inode) of the file last read, so an atomic replace /
+    /// rotation is detected even when the new file is the same size or
+    /// larger (seeking to the old offset would otherwise skip its head).
+    private var fileInode: UInt64?
     private var pendingFragment = Data()
     private var headTruncated = false
     private var watchTask: Task<Void, Never>?
@@ -161,6 +165,7 @@ actor AgentChatTranscriptTailer {
         }
         byteOffset = UInt64(data.count)
         lineCount = completeLineCount
+        fileInode = Self.inode(ofPath: path)
 
         let parseStartLine = max(0, completeLineCount - maxInitialLines)
         headTruncated = parseStartLine > 0
@@ -180,9 +185,13 @@ actor AgentChatTranscriptTailer {
         guard let handle = FileHandle(forReadingAtPath: path) else { return }
         defer { try? handle.close() }
         let size = (try? handle.seekToEnd()) ?? 0
-        if size < byteOffset {
-            // Truncated/replaced: reset and re-read from scratch, then tell
-            // clients explicitly — the seq space restarted, and id-based
+        let currentInode = Self.inode(ofPath: path)
+        let rotated = fileInode != nil && currentInode != nil && currentInode != fileInode
+        if size < byteOffset || rotated {
+            // Truncated, or atomically replaced/rotated (new inode even at
+            // equal/larger size — seeking to the old offset would skip the
+            // new file's head). Reset, re-read from scratch, and tell
+            // clients explicitly: the seq space restarted, and id-based
             // heuristics can't always detect that (codex line-N ids repeat).
             byteOffset = 0
             lineCount = 0
@@ -247,6 +256,16 @@ actor AgentChatTranscriptTailer {
         case .claude, .other:
             return ClaudeTranscriptParser().parse(lines: lines, startingSeq: startingSeq, state: parseState)
         }
+    }
+
+    /// The inode of a path, or nil when it can't be stat'd. Used to spot
+    /// an atomic file replacement that size alone would miss.
+    private static func inode(ofPath path: String) -> UInt64? {
+        guard let attrs = try? FileManager.default.attributesOfItem(atPath: path),
+              let number = attrs[.systemFileNumber] as? UInt64 else {
+            return nil
+        }
+        return number
     }
 
     private func trimCacheIfNeeded() {

@@ -65,9 +65,13 @@ struct WorkspaceDetailView: View {
     /// The session chat mode opens: the most attention-worthy live one,
     /// or the pinned session while chat mode is on.
     private var chosenChatSession: ChatSessionDescriptor? {
-        if let pinnedChatSessionID,
-           let pinned = chatSessions.first(where: { $0.id == pinnedChatSessionID }) {
-            return pinned
+        // While chat is open it is pinned to one session: return that exact
+        // session or nil if it vanished — never silently switch to another
+        // (the transcript/store can't follow that switch, so the header
+        // would claim B while the conversation stays A). nil makes the body
+        // fall back to the terminal and refreshChatSessions exit chat mode.
+        if let pinnedChatSessionID {
+            return chatSessions.first { $0.id == pinnedChatSessionID }
         }
         return ChatSessionDescriptor.openable(chatSessions).first
     }
@@ -104,6 +108,10 @@ struct WorkspaceDetailView: View {
                 pinnedChatSessionID = nil
             }
         )
+        // Bind the pane's identity to the session so a session change
+        // rebuilds ChatScreen (its store is captured in @State at init and
+        // would otherwise stay on the old session).
+        .id(session.id)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .mobileTerminalNavigationChrome()
         .toolbar {
