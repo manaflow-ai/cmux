@@ -10,3 +10,8 @@ DEVELOPMENT_TEAM = 7WLXT3NR37
 // Distinguish the TestFlight beta on-device from a future App Store "cmux"
 // (overrides PRODUCT_DISPLAY_NAME = cmux from Shared.xcconfig). Debug stays "cmux".
 PRODUCT_DISPLAY_NAME = cmux BETA
+
+// Release (TestFlight beta + App Store) pairing scheme. Dev builds register
+// cmux-ios-dev instead, so the Camera app routes each channel's QR to the
+// matching build. Keep in sync with CmxPairingURLScheme.release.
+CMUX_IOS_URL_SCHEME = cmux-ios
