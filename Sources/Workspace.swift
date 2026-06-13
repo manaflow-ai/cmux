@@ -1,4 +1,5 @@
 import Foundation
+import CmuxFoundation
 import CmuxTerminalEngine
 import SwiftUI
 import AppKit
