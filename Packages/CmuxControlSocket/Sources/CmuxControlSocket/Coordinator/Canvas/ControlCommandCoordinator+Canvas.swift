@@ -220,7 +220,7 @@ extension ControlCommandCoordinator {
         case .ok(let mode):
             return .ok(.object(["mode": .string(mode)]))
         case .tabManagerUnavailable:
-            return .err(code: "unavailable", message: "TabManager not available", data: nil)
+            return .err(code: "unavailable", message: "No active cmux window", data: nil)
         case .workspaceNotFound:
             return .err(code: "not_found", message: "Workspace not found", data: nil)
         case .notCanvasMode:
