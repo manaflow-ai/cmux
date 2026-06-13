@@ -25,6 +25,11 @@ public final class CanvasModel {
     /// narrow seam.
     public weak var viewport: (any CanvasViewportControlling)?
 
+    /// Last on-screen viewport, in canvas coordinates, persisted across view
+    /// remounts so switching workspaces away and back restores exactly where
+    /// the user was (center + zoom) instead of snapping to a default.
+    public var savedViewport: (canvasCenter: CGPoint, magnification: CGFloat)?
+
     /// The default size for a brand-new pane that has no seed frame.
     public static let defaultPaneSize = CanvasSize(width: 640, height: 420)
 

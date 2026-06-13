@@ -35,6 +35,12 @@ public final class CanvasRootView: NSView {
     private var scrollSettleObservers: [any NSObjectProtocol] = []
     private var commandScrollMonitor: Any?
     private var hasPlacedInitialViewport = false
+    /// A saved viewport waiting to be applied once the scroll view is laid
+    /// out (contentSize settled). Cleared when successfully applied.
+    private var pendingViewportRestore: (canvasCenter: CGPoint, magnification: CGFloat)?
+    /// True while programmatically applying a saved viewport, so the scroll
+    /// events that causes don't overwrite the saved value with transients.
+    private var isApplyingSavedViewport = false
 
     /// Extra viewport fraction kept rendering around the visible rect so
     /// panes don't flicker on at the edge mid-flick.
@@ -163,6 +169,9 @@ public final class CanvasRootView: NSView {
     /// Releases mounted content (terminals go back to the portal system) and
     /// observers. Called when the workspace leaves canvas mode.
     public func teardown() {
+        // Capture the final viewport before the view goes away so returning
+        // to this workspace restores the exact spot.
+        saveViewportToModel()
         for (_, mount) in mounts {
             mount.unmount()
         }
@@ -190,6 +199,7 @@ public final class CanvasRootView: NSView {
     /// views per model pane, one mounted content per pane (the selected
     /// tab), chrome from the descriptors.
     public func sync(descriptors: [CanvasPaneDescriptor], focusedPanelId: UUID?, isWorkspaceVisible: Bool) {
+        let becameVisible = isWorkspaceVisible && !self.isWorkspaceVisible
         self.isWorkspaceVisible = isWorkspaceVisible
         let added = model.syncPanes(
             panelIds: descriptors.map(\.id),
@@ -212,7 +222,12 @@ public final class CanvasRootView: NSView {
 
         if !hasPlacedInitialViewport, !model.layout.isEmpty {
             hasPlacedInitialViewport = true
-            if let focusedPanelId, model.frame(of: focusedPanelId) != nil {
+            if let saved = model.savedViewport {
+                // Returning to a workspace: restore the exact spot + zoom once
+                // the viewport is sized (deferred via the pending mechanism).
+                pendingViewportRestore = saved
+                applyPendingViewportRestoreIfPossible()
+            } else if let focusedPanelId, model.frame(of: focusedPanelId) != nil {
                 revealPane(focusedPanelId, animated: false)
             } else if let bounds = model.contentBounds {
                 scrollCanvasPointToTopLeft(
@@ -220,6 +235,12 @@ public final class CanvasRootView: NSView {
                     animated: false
                 )
             }
+        } else if becameVisible, let saved = model.savedViewport {
+            // The host keeps canvas views alive across workspace switches and
+            // AppKit can reset the clip origin while hidden; re-apply the saved
+            // viewport so switching back lands exactly where the user left off.
+            pendingViewportRestore = saved
+            applyPendingViewportRestoreIfPossible()
         } else if let revealTarget = added.last {
             revealPane(revealTarget, animated: true)
         }
@@ -361,13 +382,55 @@ public final class CanvasRootView: NSView {
 
     private func viewportDidScroll() {
         updateLifecycle()
+        saveViewportToModel()
         callbacks.onViewportGeometryChanged(window)
+    }
+
+    /// Persists the current viewport center (canvas coords) + magnification
+    /// into the model so a later remount can restore the user's exact spot.
+    func saveViewportToModel() {
+        guard hasPlacedInitialViewport else { return }
+        // Don't capture transients caused by our own restore, or while a
+        // restore is still pending (the clip is at a stale/default origin).
+        guard !isApplyingSavedViewport, pendingViewportRestore == nil else { return }
+        let visible = scrollView.contentView.documentVisibleRect
+        guard visible.width > 1, visible.height > 1 else { return }
+        let center = CGPoint(
+            x: visible.midX + documentOriginInCanvas.x,
+            y: visible.midY + documentOriginInCanvas.y
+        )
+        model.savedViewport = (canvasCenter: center, magnification: scrollView.magnification)
+    }
+
+    /// Applies a pending saved viewport once the scroll view is laid out.
+    /// Returns false (keeping it pending) while contentSize is degenerate, so
+    /// a later layout pass retries — restoring against a 0-sized or
+    /// mid-layout viewport produces a garbage origin.
+    private func applyPendingViewportRestoreIfPossible() {
+        guard let saved = pendingViewportRestore else { return }
+        let viewportSize = scrollView.contentSize
+        guard viewportSize.width > 1, viewportSize.height > 1 else { return }
+        let mag = min(max(saved.magnification, scrollView.minMagnification), scrollView.maxMagnification)
+        let clipSize = CGSize(width: viewportSize.width / mag, height: viewportSize.height / mag)
+        let origin = CGPoint(
+            x: saved.canvasCenter.x - documentOriginInCanvas.x - clipSize.width / 2,
+            y: saved.canvasCenter.y - documentOriginInCanvas.y - clipSize.height / 2
+        )
+        isApplyingSavedViewport = true
+        scrollView.magnification = mag
+        scrollView.contentView.setBoundsOrigin(origin)
+        scrollView.reflectScrolledClipView(scrollView.contentView)
+        isApplyingSavedViewport = false
+        pendingViewportRestore = nil
     }
 
     public override func layout() {
         super.layout()
         recomputeDocumentGeometry()
         applyAllPaneFrames()
+        // A restore deferred for a not-yet-sized viewport retries here, once
+        // layout has given the scroll view real bounds.
+        applyPendingViewportRestoreIfPossible()
         updateLifecycle()
         callbacks.onViewportGeometryChanged(window)
     }

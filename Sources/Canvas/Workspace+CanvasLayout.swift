@@ -4,6 +4,13 @@ import Bonsplit
 import CmuxCanvas
 import CmuxCanvasUI
 
+extension Notification.Name {
+    /// Posted (object = the `Workspace`) whenever its `layoutMode` changes,
+    /// so window chrome can reflect canvas vs splits without observing the
+    /// workspace directly.
+    static let workspaceLayoutModeDidChange = Notification.Name("cmux.workspaceLayoutModeDidChange")
+}
+
 /// Canvas-layout behavior for `Workspace`. The workspace stays the owner of
 /// panels, focus, and bonsplit bookkeeping; canvas mode only changes how the
 /// same panel set is presented.
@@ -25,6 +32,9 @@ extension Workspace {
         reconcileBrowserPortalVisibilityForCurrentRenderedLayout(
             reason: "workspace.setLayoutMode.\(mode.rawValue)"
         )
+        // Let chrome (the toolbar mode toggle) reflect the change regardless
+        // of which entrypoint drove it (shortcut, palette, menu, toolbar).
+        NotificationCenter.default.post(name: .workspaceLayoutModeDidChange, object: self)
     }
 
     /// Toggles between split and canvas layout.

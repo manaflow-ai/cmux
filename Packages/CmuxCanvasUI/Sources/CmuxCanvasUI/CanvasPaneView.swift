@@ -260,5 +260,32 @@ final class CanvasPaneView: NSView {
             CGRect(x: band, y: height - band, width: width - band * 2, height: band),
             cursor: .resizeUpDown
         )
+
+        // Corner bands resize both axes, so they get the diagonal cursors.
+        // Flipped view: y=0 is the top edge.
+        let corner = Self.cornerBandWidth
+        addCursorRect(CGRect(x: 0, y: 0, width: corner, height: corner), cursor: Self.diagonalCursorNWSE)
+        addCursorRect(CGRect(x: width - corner, y: 0, width: corner, height: corner), cursor: Self.diagonalCursorNESW)
+        addCursorRect(CGRect(x: 0, y: height - corner, width: corner, height: corner), cursor: Self.diagonalCursorNESW)
+        addCursorRect(CGRect(x: width - corner, y: height - corner, width: corner, height: corner), cursor: Self.diagonalCursorNWSE)
+    }
+
+    // MARK: Diagonal resize cursors
+
+    /// AppKit ships no public diagonal resize cursor; the window-resize ones
+    /// are private. Resolve them by selector once, falling back to the
+    /// nearest public cursor so we degrade rather than crash.
+    private static let diagonalCursorNWSE: NSCursor = resolvePrivateCursor(
+        "_windowResizeNorthWestSouthEastCursor", fallback: .resizeLeftRight)
+    private static let diagonalCursorNESW: NSCursor = resolvePrivateCursor(
+        "_windowResizeNorthEastSouthWestCursor", fallback: .resizeUpDown)
+
+    private static func resolvePrivateCursor(_ name: String, fallback: NSCursor) -> NSCursor {
+        let selector = Selector(name)
+        if NSCursor.responds(to: selector),
+           let cursor = NSCursor.perform(selector)?.takeUnretainedValue() as? NSCursor {
+            return cursor
+        }
+        return fallback
     }
 }
