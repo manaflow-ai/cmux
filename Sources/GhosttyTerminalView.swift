@@ -8319,7 +8319,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     @discardableResult private func scheduleDeferredSurfaceSizeRetryIfNeeded() -> Bool {
         guard window != nil, !deferredSurfaceSizeRetryQueued else { return false }
         deferredSurfaceSizeRetryQueued = true
-        DispatchQueue.main.async { [weak self] in guard let self else { return }; self.deferredSurfaceSizeRetryQueued = false; _ = self.updateSurfaceSize() }
+        Task { @MainActor [weak self] in guard let self else { return }; self.deferredSurfaceSizeRetryQueued = false; _ = self.updateSurfaceSize() }
         return true
     }
 
