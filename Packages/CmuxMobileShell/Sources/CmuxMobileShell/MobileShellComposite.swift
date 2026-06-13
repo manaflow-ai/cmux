@@ -196,10 +196,15 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// computed from this set so version-skew checks cannot drift from the raw
     /// host payload.
     public private(set) var supportedHostCapabilities: Set<String> = []
+    /// Whether the Mac supports workspace group sections and collapse/expand RPCs.
     public var supportsWorkspaceGroups: Bool { supportedHostCapabilities.contains(Self.workspaceGroupsCapability) }
+    /// Whether the Mac supports rename/pin workspace actions.
     public var supportsWorkspaceActions: Bool { supportedHostCapabilities.contains(Self.workspaceActionsCapability) }
+    /// Whether the Mac supports mark read/unread workspace actions.
     public var supportsWorkspaceReadStateActions: Bool { supportedHostCapabilities.contains(Self.workspaceReadStateCapability) }
+    /// Whether the Mac supports workspace close requests.
     public var supportsWorkspaceCloseActions: Bool { supportedHostCapabilities.contains(Self.workspaceCloseCapability) }
+    /// Whether the Mac supports dogfood feedback submission.
     public var supportsDogfoodFeedback: Bool { supportedHostCapabilities.contains(Self.dogfoodFeedbackCapability) }
     /// The composer's live draft for the currently selected terminal.
     ///
@@ -3187,25 +3192,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     }
 
     func markMacConnectionUnavailableIfNeeded(after error: any Error) {
-        guard Self.isMacAvailabilityFailure(error) else { return }
+        guard mobileShellIsMacAvailabilityFailure(error) else { return }
         markMacConnectionUnavailable()
-    }
-
-    private static func isMacAvailabilityFailure(_ error: any Error) -> Bool {
-        if error is CmxNetworkByteTransportError {
-            return true
-        }
-        guard let shellError = error as? MobileShellConnectionError else {
-            return false
-        }
-        switch shellError {
-        case .connectionClosed, .requestTimedOut:
-            return true
-        case .invalidResponse, .insecureManualRoute, .attachTicketExpired, .authorizationFailed, .accountMismatch, .rpcError:
-            // .accountMismatch means the Mac is reachable but signed in to a
-            // different account; that is an auth problem, not a Mac-availability one.
-            return false
-        }
     }
 
     private func syncSelectedTerminalForWorkspace() {
@@ -4722,6 +4710,23 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
 private struct MobileTerminalViewportKey: Hashable, Sendable {
     var workspaceID: MobileWorkspacePreview.ID
     var terminalID: MobileTerminalPreview.ID
+}
+
+private func mobileShellIsMacAvailabilityFailure(_ error: any Error) -> Bool {
+    if error is CmxNetworkByteTransportError {
+        return true
+    }
+    guard let shellError = error as? MobileShellConnectionError else {
+        return false
+    }
+    switch shellError {
+    case .connectionClosed, .requestTimedOut:
+        return true
+    case .invalidResponse, .insecureManualRoute, .attachTicketExpired, .authorizationFailed, .accountMismatch, .rpcError:
+        // .accountMismatch means the Mac is reachable but signed in to a
+        // different account; that is an auth problem, not a Mac-availability one.
+        return false
+    }
 }
 
 private struct MobileManualAttachTicketCreateResponse: Decodable, Sendable {
