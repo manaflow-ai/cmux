@@ -1050,7 +1050,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     /// Tracks the cascade point for new windows, matching Ghostty's upstream algorithm.
     /// Reset to `.zero` so the first window seeds the point from its own position.
     private var lastCascadePoint = NSPoint.zero
-    private var startupSessionSnapshot: AppSessionSnapshot?
+    var startupSessionSnapshot: AppSessionSnapshot?
     private var didPrepareStartupSessionSnapshot = false
     var didAttemptStartupSessionRestore = false
     private var isApplyingSessionRestore = false
@@ -4987,10 +4987,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         return moved
     }
 
-    func mainWindow(for windowId: UUID) -> NSWindow? {
-        windowForMainWindowId(windowId)
-    }
-
     @discardableResult
     func focusScriptableMainWindow(windowId: UUID, bringToFront shouldBringToFront: Bool) -> Bool {
         guard let state = scriptableMainWindow(windowId: windowId),
@@ -5754,15 +5750,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.05, execute: reassert)
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.16, execute: reassert)
-    }
-
-    func windowForMainWindowId(_ windowId: UUID) -> NSWindow? {
-        if let ctx = mainWindowContexts.values.first(where: { $0.windowId == windowId }),
-           let window = ctx.window {
-            return window
-        }
-        let expectedIdentifier = "cmux.main.\(windowId.uuidString)"
-        return NSApp.windows.first(where: { $0.identifier?.rawValue == expectedIdentifier })
     }
 
     private func resolvedWindow(for context: MainWindowContext) -> NSWindow? {
@@ -7049,20 +7036,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             preferredWindowId: startupPrimaryWindowIdForInitialMainWindow(),
             shouldActivate: shouldActivate
         )
-    }
-
-    private func startupPrimaryWindowIdForInitialMainWindow() -> UUID? {
-        guard !didAttemptStartupSessionRestore else { return nil }
-        guard !didHandleExplicitOpenIntentAtStartup else { return nil }
-        return startupSessionSnapshot?.windows.first?.windowId
-    }
-
-    private func availableWindowIdForNewMainWindow(preferredWindowId: UUID?) -> UUID? {
-        guard let preferredWindowId else { return nil }
-        guard !mainWindowContexts.values.contains(where: { $0.windowId == preferredWindowId }) else {
-            return nil
-        }
-        return preferredWindowId
     }
 
     private func hasVisibleMainTerminalWindow() -> Bool {
@@ -12440,15 +12413,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 #if DEBUG
         cmuxDebugLog("cmuxConfig.reload source=\(source) stores=\(seenStores.count)")
 #endif
-    }
-
-    private func refreshWindowTitlesAcrossMainWindows() {
-        var seenManagers = Set<ObjectIdentifier>()
-        for context in mainWindowContexts.values {
-            let identifier = ObjectIdentifier(context.tabManager)
-            guard seenManagers.insert(identifier).inserted else { continue }
-            context.tabManager.refreshWindowTitle()
-        }
     }
 
     private func refreshGhosttyGotoSplitShortcuts() {
