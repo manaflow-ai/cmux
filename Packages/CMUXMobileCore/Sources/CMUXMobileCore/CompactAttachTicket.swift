@@ -37,8 +37,8 @@ struct CompactAttachTicket: Codable {
             terminalID: t,
             macDeviceID: d,
             macDisplayName: nil,
-            macUserEmail: legacyCompactEmail(from: u),
-            macUserID: compactOpaqueUserID(from: u),
+            macUserEmail: u?.contains("@") == true ? u : nil,
+            macUserID: u?.contains("@") == false ? u : nil,
             macPairingCompatibilityVersion: pc,
             macAppVersion: av,
             macAppBuild: ab,
@@ -54,16 +54,6 @@ struct CompactAttachTicket: Codable {
         return value
     }
 
-}
-
-private func legacyCompactEmail(from value: String?) -> String? {
-    guard let value, value.contains("@") else { return nil }
-    return value
-}
-
-private func compactOpaqueUserID(from value: String?) -> String? {
-    guard let value, !value.contains("@") else { return nil }
-    return value
 }
 
 private extension CompactAttachTicket {

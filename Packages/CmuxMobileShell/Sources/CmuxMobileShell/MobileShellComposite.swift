@@ -3083,15 +3083,15 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         actualUserID: String?,
         actualEmail: String?
     ) -> MobilePairingFailureCategory? {
-        if let expectedUserID = mobileShellNormalizedNonEmpty(ticket.macUserID) {
-            guard let actualUserID = mobileShellNormalizedNonEmpty(actualUserID) else { return nil }
+        if let expectedUserID = Self.mobileShellNormalizedNonEmpty(ticket.macUserID) {
+            guard let actualUserID = Self.mobileShellNormalizedNonEmpty(actualUserID) else { return nil }
             guard actualUserID == expectedUserID else {
                 return .authFailed
             }
             return nil
         }
-        guard let actual = mobileShellNormalizedEmail(actualEmail) else { return nil }
-        if let expected = mobileShellNormalizedEmail(ticket.macUserEmail) {
+        guard let actual = Self.mobileShellNormalizedEmail(actualEmail) else { return nil }
+        if let expected = Self.mobileShellNormalizedEmail(ticket.macUserEmail) {
             guard actual == expected else {
                 return .emailMismatch(expected: expected, actual: actual)
             }
@@ -3106,20 +3106,20 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             return nil
         }
         let phoneStamp = feedbackStampProvider()
-        let phoneVersion = mobileShellNormalizedNonEmpty(phoneStamp.appVersion)
-        let macVersion = mobileShellNormalizedNonEmpty(ticket.macAppVersion)
+        let phoneVersion = Self.mobileShellNormalizedNonEmpty(phoneStamp.appVersion)
+        let macVersion = Self.mobileShellNormalizedNonEmpty(ticket.macAppVersion)
         let format = L10n.string(
             "mobile.pairing.versionWarningFormat",
             defaultValue: "This iPhone is running cmux %@, but the Mac is running cmux %@. Pairing across different compatibility levels can break terminal input, workspace sync, or notifications. Continue only if you trust this Mac and accept that some features may fail."
         )
         return String(
             format: format,
-            mobileShellVersionDisplay(
+            Self.mobileShellVersionDisplay(
                 version: phoneVersion,
                 build: phoneStamp.appBuild,
                 compatibilityVersion: CmxMobileDefaults.pairingCompatibilityVersion
             ),
-            mobileShellVersionDisplay(
+            Self.mobileShellVersionDisplay(
                 version: macVersion,
                 build: ticket.macAppBuild,
                 compatibilityVersion: macCompatibilityVersion
@@ -4799,39 +4799,41 @@ private struct MobileManualAttachTicketCreateResponse: Decodable, Sendable {
     }
 }
 
-private func mobileShellVersionDisplay(
-    version: String?,
-    build: String?,
-    compatibilityVersion: Int?
-) -> String {
-    let version = version ?? mobileShellCompatibilityDisplay(compatibilityVersion)
-    guard let build = mobileShellNormalizedNonEmpty(build) else { return version }
-    return "\(version) (\(build))"
-}
+private extension MobileShellComposite {
+    static func mobileShellVersionDisplay(
+        version: String?,
+        build: String?,
+        compatibilityVersion: Int?
+    ) -> String {
+        let version = version ?? mobileShellCompatibilityDisplay(compatibilityVersion)
+        guard let build = mobileShellNormalizedNonEmpty(build) else { return version }
+        return "\(version) (\(build))"
+    }
 
-private func mobileShellCompatibilityDisplay(_ compatibilityVersion: Int?) -> String {
-    guard let compatibilityVersion, compatibilityVersion > 0 else {
-        return L10n.string(
-            "mobile.pairing.compatibilityUnknown",
-            defaultValue: "unknown compatibility"
+    static func mobileShellCompatibilityDisplay(_ compatibilityVersion: Int?) -> String {
+        guard let compatibilityVersion, compatibilityVersion > 0 else {
+            return L10n.string(
+                "mobile.pairing.compatibilityUnknown",
+                defaultValue: "unknown compatibility"
+            )
+        }
+        return String(
+            format: L10n.string(
+                "mobile.pairing.compatibilityDisplayFormat",
+                defaultValue: "compatibility %@"
+            ),
+            "\(compatibilityVersion)"
         )
     }
-    return String(
-        format: L10n.string(
-            "mobile.pairing.compatibilityDisplayFormat",
-            defaultValue: "compatibility %@"
-        ),
-        "\(compatibilityVersion)"
-    )
-}
 
-private func mobileShellNormalizedEmail(_ value: String?) -> String? {
-    mobileShellNormalizedNonEmpty(value)?.lowercased()
-}
+    static func mobileShellNormalizedEmail(_ value: String?) -> String? {
+        mobileShellNormalizedNonEmpty(value)?.lowercased()
+    }
 
-private func mobileShellNormalizedNonEmpty(_ value: String?) -> String? {
-    let trimmed = value?.trimmingCharacters(in: .whitespacesAndNewlines)
-    return trimmed?.isEmpty == false ? trimmed : nil
+    static func mobileShellNormalizedNonEmpty(_ value: String?) -> String? {
+        let trimmed = value?.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed?.isEmpty == false ? trimmed : nil
+    }
 }
 
 private extension CmxAttachTicket {
