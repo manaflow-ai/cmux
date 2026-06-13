@@ -22251,7 +22251,7 @@ struct CMUXCLI {
         guard let lines = readRecentTextFileLines(path: transcriptPath, maxBytes: 512 * 1024), !lines.isEmpty else {
             return
         }
-        let lineCount = countTextFileLines(path: transcriptPath) ?? lines.count
+        let lineCount = textFileGrowthMetric(path: transcriptPath, fallbackLineCount: lines.count)
 
         let engine = AutoNamingEngine()
         guard let outcome = try? sessionStore.beginAutoNaming(
@@ -22451,7 +22451,7 @@ struct CMUXCLI {
               !lines.isEmpty else {
             return
         }
-        let lineCount = countTextFileLines(path: transcriptPath) ?? lines.count
+        let lineCount = textFileGrowthMetric(path: transcriptPath, fallbackLineCount: lines.count)
 
         let engine = AutoNamingEngine()
         guard let outcome = try? sessionStore.beginAutoNaming(
@@ -22596,7 +22596,7 @@ struct CMUXCLI {
                       !lines.isEmpty else {
                     return nil
                 }
-                let lineCount = countTextFileLines(path: historyURL.path) ?? lines.count
+                let lineCount = textFileGrowthMetric(path: historyURL.path, fallbackLineCount: lines.count)
                 return (engine.extractGrokMessages(fromChatHistoryLines: lines), lineCount)
             case .hookMessageCache:
                 guard let messages = try? sessionStore.autoNamingRecentMessages(sessionId: sessionId),
@@ -22734,22 +22734,16 @@ struct CMUXCLI {
         )
     }
 
-    /// Streams a text file counting newline bytes, so transcript growth is
-    /// measured against the whole file rather than the tail window used for
-    /// content extraction.
-    private func countTextFileLines(path: String) -> Int? {
+    /// Returns a cheap monotonic progress metric for file-backed transcripts.
+    /// File size preserves growth and compaction/shrink signals without
+    /// streaming the whole transcript on every naming pass.
+    private func textFileGrowthMetric(path: String, fallbackLineCount: Int) -> Int {
         let expandedPath = NSString(string: path).expandingTildeInPath
-        guard let handle = try? FileHandle(forReadingFrom: URL(fileURLWithPath: expandedPath)) else {
-            return nil
+        guard let attributes = try? FileManager.default.attributesOfItem(atPath: expandedPath),
+              let size = attributes[.size] as? NSNumber else {
+            return fallbackLineCount
         }
-        defer { try? handle.close() }
-        var count = 0
-        while let chunk = try? handle.read(upToCount: 1 << 20), !chunk.isEmpty {
-            count += chunk.reduce(into: 0) { partial, byte in
-                if byte == 0x0A { partial += 1 }
-            }
-        }
-        return count
+        return max(fallbackLineCount, size.intValue / 128)
     }
 
     /// Runs the summarizer subprocess with the prompt on stdin and a hard
