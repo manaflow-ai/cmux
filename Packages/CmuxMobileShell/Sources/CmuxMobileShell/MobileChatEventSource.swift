@@ -38,6 +38,67 @@ public actor MobileChatEventSource: ChatEventSource {
         return try coding.decode(MobileChatSessionsResponse.self, from: result).sessions
     }
 
+    /// Opens the live stream of session-list events for every session the
+    /// Mac knows about (not scoped to one conversation).
+    ///
+    /// Yields each `chat.message` frame whole, so a host can fold
+    /// `descriptorChanged`/`stateChanged` into its session list (and keep
+    /// the GUI toggle current) without polling. A newly-started agent emits
+    /// `descriptorChanged`, so the list gains it live. The stream finishes
+    /// when the connection drops; callers re-subscribe after reconnect.
+    ///
+    /// - Returns: Live session frames, in delivery order.
+    public func sessionEvents() async -> AsyncStream<ChatSessionEventFrame> {
+        let envelopes = await client.subscribe(to: ["chat.message"])
+        let client = self.client
+        let coding = self.coding
+        let streamID = UUID().uuidString
+        return AsyncStream { continuation in
+            let pump = Task {
+                // Register after the local listener exists so no frame falls
+                // between subscribe and handshake; a failed handshake must
+                // finish the stream (the server never feeds an unregistered
+                // connection).
+                do {
+                    let subscribe = try MobileCoreRPCClient.requestData(
+                        method: "mobile.events.subscribe",
+                        params: [
+                            "topics": ["chat.message"],
+                            "stream_id": streamID,
+                        ]
+                    )
+                    _ = try await client.sendRequest(subscribe)
+                } catch {
+                    continuation.finish()
+                    return
+                }
+                for await envelope in envelopes {
+                    guard let payload = envelope.payloadJSON else { continue }
+                    guard let frame = try? coding.decode(ChatSessionEventFrame.self, from: payload) else {
+                        continue
+                    }
+                    continuation.yield(frame)
+                }
+                continuation.finish()
+            }
+            continuation.onTermination = { reason in
+                pump.cancel()
+                // Withdraw the registration only on consumer cancellation; a
+                // `.finished` means the connection died and an unsubscribe
+                // would reopen a torn-down transport (see `events`).
+                guard case .cancelled = reason else { return }
+                Task {
+                    if let unsubscribe = try? MobileCoreRPCClient.requestData(
+                        method: "mobile.events.unsubscribe",
+                        params: ["stream_id": streamID]
+                    ) {
+                        _ = try? await client.sendRequest(unsubscribe)
+                    }
+                }
+            }
+        }
+    }
+
     public func history(sessionID: String, beforeSeq: Int?, limit: Int) async throws -> ChatHistoryPage {
         var params: [String: Any] = [
             "session_id": sessionID,

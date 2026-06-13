@@ -176,21 +176,38 @@ struct WorkspaceDetailView: View {
         "\(workspace.id.rawValue)#\(store.connectionState == .connected ? 1 : 0)"
     }
 
-    /// Continuously refreshes the chat-capable session list while this
-    /// workspace is shown, so the toggle appears as soon as a coding agent
-    /// becomes active (not only after leaving and returning to the tab). The
-    /// loop is owned by a `.task(id:)`, so it cancels on workspace/connection
-    /// change and when the view goes away.
+    /// Keeps the chat-capable session list current while this workspace is
+    /// shown, so the GUI toggle appears as soon as a coding agent becomes
+    /// active, without polling. The Mac pushes a `chat.message` frame on
+    /// every descriptor/state change (a brand-new agent emits
+    /// `descriptorChanged`); we register the push stream first, seed the
+    /// list once, then fold each subsequent frame in. Registering before
+    /// seeding plus idempotent folds means a change that races the seed
+    /// converges either way. The stream finishes when the connection drops;
+    /// `.task(id: chatRefreshKey)` re-runs this on reconnect, and cancels it
+    /// on workspace change or when the view goes away.
     private func refreshChatSessions() async {
-        while !Task.isCancelled {
-            chatSessions = await store.chatSessions(workspaceID: workspace.id.rawValue)
-            // If the session backing chat mode disappeared, fall back to the
-            // terminal rather than showing an empty chat.
-            if isChatMode, chosenChatSession == nil {
-                isChatMode = false
-                pinnedChatSessionID = nil
-            }
-            try? await Task.sleep(for: .seconds(2.5))
+        guard let source = store.makeChatEventSource() else {
+            chatSessions = []
+            applyChatModeFallback()
+            return
+        }
+        let reducer = ChatSessionListReducer(workspaceID: workspace.id.rawValue)
+        let stream = await source.sessionEvents()
+        chatSessions = (try? await source.sessions(workspaceID: workspace.id.rawValue)) ?? []
+        applyChatModeFallback()
+        for await frame in stream {
+            chatSessions = reducer.applying(frame, to: chatSessions)
+            applyChatModeFallback()
+        }
+    }
+
+    /// If the session backing chat mode disappeared, fall back to the
+    /// terminal rather than showing an empty chat.
+    private func applyChatModeFallback() {
+        if isChatMode, chosenChatSession == nil {
+            isChatMode = false
+            pinnedChatSessionID = nil
         }
     }
     #endif

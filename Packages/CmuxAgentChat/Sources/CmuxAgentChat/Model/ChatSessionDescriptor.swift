@@ -99,6 +99,26 @@ public struct ChatSessionDescriptor: Identifiable, Sendable, Equatable, Codable 
         self.lastActivityAt = lastActivityAt
     }
 
+    /// A copy with a new live state, leaving identity and bindings intact.
+    /// Used by the session-list reducer to apply a `stateChanged` push
+    /// without a full descriptor round-trip.
+    ///
+    /// - Parameter newState: The state to set.
+    /// - Returns: The updated descriptor.
+    public func withState(_ newState: ChatAgentState) -> ChatSessionDescriptor {
+        ChatSessionDescriptor(
+            id: id,
+            agentKind: agentKind,
+            kind: kind,
+            title: title,
+            workspaceID: workspaceID,
+            terminalID: terminalID,
+            workingDirectory: workingDirectory,
+            state: newState,
+            lastActivityAt: lastActivityAt
+        )
+    }
+
     private enum CodingKeys: String, CodingKey {
         case id = "session_id"
         case agentKind = "agent_kind"
