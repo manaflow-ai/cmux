@@ -758,6 +758,7 @@
 		A500120C /* WindowAccessor.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001222 /* WindowAccessor.swift */; };
 		063BC42CEE257D6213A2E30C /* WindowAndDragTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = BEE83F8394D90ACACD8E19DD /* WindowAndDragTests.swift */; };
 		A5001700A1B2C3D4E5F60718 /* WindowAppearanceSnapshot.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001701A1B2C3D4E5F60718 /* WindowAppearanceSnapshot.swift */; };
+		A59170000000000000000001 /* WindowAppearanceSnapshotPaneBackgroundTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A59170000000000000000002 /* WindowAppearanceSnapshotPaneBackgroundTests.swift */; };
 		F4200000A1B2C3D4E5F60718 /* WindowAppearanceSnapshotTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F4200001A1B2C3D4E5F60718 /* WindowAppearanceSnapshotTests.swift */; };
 		A5001800A1B2C3D4E5F60718 /* WindowBackdropController.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001801A1B2C3D4E5F60718 /* WindowBackdropController.swift */; };
 		B7F9A602B7F9A602B7F9A602 /* WindowChromeMetrics.swift in Sources */ = {isa = PBXBuildFile; fileRef = B7F9A603B7F9A603B7F9A603 /* WindowChromeMetrics.swift */; };
@@ -1579,6 +1580,7 @@
 		A5001222 /* WindowAccessor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WindowAccessor.swift; sourceTree = "<group>"; };
 		BEE83F8394D90ACACD8E19DD /* WindowAndDragTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WindowAndDragTests.swift; sourceTree = "<group>"; };
 		A5001701A1B2C3D4E5F60718 /* WindowAppearanceSnapshot.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Windowing/WindowAppearanceSnapshot.swift; sourceTree = "<group>"; };
+		A59170000000000000000002 /* WindowAppearanceSnapshotPaneBackgroundTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WindowAppearanceSnapshotPaneBackgroundTests.swift; sourceTree = "<group>"; };
 		F4200001A1B2C3D4E5F60718 /* WindowAppearanceSnapshotTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WindowAppearanceSnapshotTests.swift; sourceTree = "<group>"; };
 		A5001801A1B2C3D4E5F60718 /* WindowBackdropController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Windowing/WindowBackdropController.swift; sourceTree = "<group>"; };
 		B7F9A603B7F9A603B7F9A603 /* WindowChromeMetrics.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WindowChromeMetrics.swift; sourceTree = "<group>"; };
@@ -2389,6 +2391,7 @@
 				C135190000000000000000B2 /* SidebarWorkspaceGroupConfigOpenerTests.swift */,
 				A11EAE000000000000000001 /* WorkspaceAppearanceConfigResolutionTests.swift */,
 				A11EAF000000000000000001 /* GhosttyNotificationDispatcherTests.swift */,
+				A59170000000000000000002 /* WindowAppearanceSnapshotPaneBackgroundTests.swift */,
 				F4200001A1B2C3D4E5F60718 /* WindowAppearanceSnapshotTests.swift */,
 				F4100001A1B2C3D4E5F60718 /* PortScannerTests.swift */,
 				F5000001A1B2C3D4E5F60718 /* SessionPersistenceTests.swift */,
@@ -3744,6 +3747,7 @@
 				F2000000A1B2C3D4E5F60718 /* UpdatePillReleaseVisibilityTests.swift in Sources */,
 				C37800000000000000000001 /* VMSSHCommandTests.swift in Sources */,
 				063BC42CEE257D6213A2E30C /* WindowAndDragTests.swift in Sources */,
+				A59170000000000000000001 /* WindowAppearanceSnapshotPaneBackgroundTests.swift in Sources */,
 				F4200000A1B2C3D4E5F60718 /* WindowAppearanceSnapshotTests.swift in Sources */,
 				8770D0F2D2BB45359D6BE5E3 /* WindowKeyDownReplayGuardTests.swift in Sources */,
 				604500100000000000000003 /* WindowTitleTemplateTests.swift in Sources */,
