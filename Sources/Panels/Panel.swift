@@ -360,3 +360,50 @@ extension Panel {
         triggerFlash(reason: .navigation)
     }
 }
+
+
+// MARK: - Find support
+
+/// Capability surfaced by panels that can participate in the global `Cmd+F`
+/// find flow. `TabManager` routes find actions to the focused panel only if it
+/// conforms to this protocol.
+@MainActor
+protocol FindablePanel: AnyObject {
+    /// Whether the panel's find UI is currently visible/active.
+    var isFindVisible: Bool { get }
+
+    /// Whether the panel has a text selection that can be used as the find needle.
+    var hasSelectionForFind: Bool { get }
+
+    /// Opens the find UI. Returns `true` if the panel handled the request.
+    @discardableResult
+    func startFind() -> Bool
+
+    /// Jumps to the next search result in the panel.
+    func findNext()
+
+    /// Jumps to the previous search result in the panel.
+    func findPrevious()
+
+    /// Closes or hides the panel's find UI.
+    func hideFind()
+
+    /// Uses the current selection as the find needle (Cmd+E / "Use Selection for Find").
+    func useSelectionForFind()
+}
+
+extension FindablePanel {
+    /// Most panels do not support selection-based find.
+    var hasSelectionForFind: Bool { false }
+    func useSelectionForFind() {}
+}
+
+extension NSTextFinder.Action {
+    /// Returns an `NSMenuItem` whose tag matches this action, suitable for
+    /// sending to `performTextFinderAction(_:)` or `performFindPanelAction:`.
+    var menuItemSender: NSMenuItem {
+        let item = NSMenuItem()
+        item.tag = rawValue
+        return item
+    }
+}

@@ -11,6 +11,7 @@ import SwiftUI
 struct ProjectBuildSettingsTabView: View {
     @ObservedObject var panel: ProjectPanel
     let model: ProjectModel
+    @FocusState private var focus: ProjectPanelSearchFocus?
 
     var body: some View {
         let computedRows = rows
@@ -21,6 +22,12 @@ struct ProjectBuildSettingsTabView: View {
             Spacer(minLength: 0)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        .onChange(of: panel.searchFocusRequest) { newValue in
+            if newValue == .settings {
+                focus = .settings
+                panel.searchFocusRequest = nil
+            }
+        }
     }
 
     @ViewBuilder
@@ -37,6 +44,7 @@ struct ProjectBuildSettingsTabView: View {
                 TextField("Filter settings", text: $panel.settingsSearchText)
                     .textFieldStyle(.plain)
                     .font(.system(size: 12))
+                    .focused($focus, equals: .settings)
                 Toggle("Customized only", isOn: $panel.settingsCustomizedOnly)
                     .toggleStyle(.checkbox)
                     .font(.system(size: 11))

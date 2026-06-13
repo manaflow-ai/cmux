@@ -803,6 +803,7 @@ class TabManager: ObservableObject {
 
     var canUseSelectionForFind: Bool {
         selectedTerminalPanel?.hasSelection() == true
+            || focusedFindablePanel?.hasSelectionForFind == true
     }
 
     @discardableResult
@@ -832,18 +833,22 @@ class TabManager: ObservableObject {
     }
 
     func searchSelection() {
-        guard let panel = selectedTerminalPanel else { return }
-        if panel.searchState == nil {
-            panel.searchState = TerminalSurface.SearchState()
-        }
+        if let panel = selectedTerminalPanel {
+            if panel.searchState == nil {
+                panel.searchState = TerminalSurface.SearchState()
+            }
 #if DEBUG
-        cmuxDebugLog(
-            "find.searchSelection workspace=\(panel.workspaceId.uuidString.prefix(5)) " +
-            "panel=\(panel.id.uuidString.prefix(5))"
-        )
+            cmuxDebugLog(
+                "find.searchSelection workspace=\(panel.workspaceId.uuidString.prefix(5)) " +
+                "panel=\(panel.id.uuidString.prefix(5))"
+            )
 #endif
-        NotificationCenter.default.post(name: .ghosttySearchFocus, object: panel.surface)
-        _ = panel.performBindingAction("search_selection")
+            NotificationCenter.default.post(name: .ghosttySearchFocus, object: panel.surface)
+            _ = panel.performBindingAction("search_selection")
+            return
+        }
+
+        focusedFindablePanel?.useSelectionForFind()
     }
 
     func findNext() {
@@ -6114,23 +6119,18 @@ enum BrowserFirstResponderNotificationUserInfoKey {
 }
 
 
-// MARK: - Find routing for file preview and markdown panels
+// MARK: - Find routing for non-terminal panels
 
 extension TabManager {
-    var focusedMarkdownPanelForFind: MarkdownPanel? {
+    /// The focused panel if it supports global find commands.
+    var focusedFindablePanel: FindablePanel? {
         guard let tab = selectedWorkspace, let panelId = tab.focusedPanelId else { return nil }
-        return tab.panels[panelId] as? MarkdownPanel
-    }
-
-    var focusedFilePreviewPanel: FilePreviewPanel? {
-        guard let tab = selectedWorkspace, let panelId = tab.focusedPanelId else { return nil }
-        return tab.panels[panelId] as? FilePreviewPanel
+        return tab.panels[panelId] as? FindablePanel
     }
 
     var isNonTerminalFindVisible: Bool {
         focusedBrowserPanel?.searchState != nil
-            || focusedFilePreviewPanel?.isFindVisible == true
-            || focusedMarkdownPanelForFind?.isFindVisible == true
+            || focusedFindablePanel?.isFindVisible == true
     }
 
     func startFindInFocusedNonTerminalPanel() -> Bool {
@@ -6138,26 +6138,21 @@ extension TabManager {
             browserPanel.startFind()
             return browserPanel.searchState != nil
         }
-        return focusedFilePreviewPanel?.startFind()
-            ?? focusedMarkdownPanelForFind?.startFind()
-            ?? false
+        return focusedFindablePanel?.startFind() ?? false
     }
 
     func findNextInFocusedNonTerminalPanel() {
         focusedBrowserPanel?.findNext()
-        focusedFilePreviewPanel?.findNext()
-        focusedMarkdownPanelForFind?.findNext()
+        focusedFindablePanel?.findNext()
     }
 
     func findPreviousInFocusedNonTerminalPanel() {
         focusedBrowserPanel?.findPrevious()
-        focusedFilePreviewPanel?.findPrevious()
-        focusedMarkdownPanelForFind?.findPrevious()
+        focusedFindablePanel?.findPrevious()
     }
 
     func hideFindInFocusedNonTerminalPanel() {
         focusedBrowserPanel?.hideFind()
-        focusedFilePreviewPanel?.hideFind()
-        focusedMarkdownPanelForFind?.hideFind()
+        focusedFindablePanel?.hideFind()
     }
 }

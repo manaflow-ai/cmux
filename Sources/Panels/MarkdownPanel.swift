@@ -454,15 +454,22 @@ final class MarkdownPanel: Panel, ObservableObject, FilePreviewTextEditingPanel 
 
 // MARK: - Find in panel
 
-extension MarkdownPanel {
+extension MarkdownPanel: FindablePanel {
+    /// The AppKit find bar visibility is not publicly exposed on `NSTextView`,
+    /// and `WKWebView` does not report its find panel state, so this is
+    /// conservative and reports `false` until a public signal exists.
     var isFindVisible: Bool { false }
+
+    var hasSelectionForFind: Bool {
+        displayMode == .text && (textView?.selectedRange.length ?? 0) > 0
+    }
 
     @discardableResult
     func startFind() -> Bool {
         switch displayMode {
         case .text:
             guard let textView else { return false }
-            textView.performTextFinderAction(textFinderSender(.showFindInterface))
+            textView.performTextFinderAction(NSTextFinder.Action.showFindInterface.menuItemSender)
             return true
         case .preview:
             return sendFindPanelAction(.showFindInterface)
@@ -472,7 +479,7 @@ extension MarkdownPanel {
     func findNext() {
         switch displayMode {
         case .text:
-            textView?.performTextFinderAction(textFinderSender(.nextMatch))
+            textView?.performTextFinderAction(NSTextFinder.Action.nextMatch.menuItemSender)
         case .preview:
             _ = sendFindPanelAction(.nextMatch)
         }
@@ -481,7 +488,7 @@ extension MarkdownPanel {
     func findPrevious() {
         switch displayMode {
         case .text:
-            textView?.performTextFinderAction(textFinderSender(.previousMatch))
+            textView?.performTextFinderAction(NSTextFinder.Action.previousMatch.menuItemSender)
         case .preview:
             _ = sendFindPanelAction(.previousMatch)
         }
@@ -490,27 +497,27 @@ extension MarkdownPanel {
     func hideFind() {
         switch displayMode {
         case .text:
-            textView?.performTextFinderAction(textFinderSender(.hideFindInterface))
+            textView?.performTextFinderAction(NSTextFinder.Action.hideFindInterface.menuItemSender)
         case .preview:
-            _ = sendFindPanelAction(.hideFindInterface)
+            // WKWebView's `performFindPanelAction:` does not support hiding the
+            // find panel (NSFindPanelAction only defines values 1-10). The user
+            // can still close it with Esc or the UI close button.
+            break
         }
     }
 
-    private func textFinderSender(_ action: NSTextFinder.Action) -> NSMenuItem {
-        let item = NSMenuItem()
-        item.tag = action.rawValue
-        return item
+    func useSelectionForFind() {
+        guard displayMode == .text, let textView else { return }
+        textView.performTextFinderAction(NSTextFinder.Action.setSearchString.menuItemSender)
     }
 
     @discardableResult
     private func sendFindPanelAction(_ action: NSTextFinder.Action) -> Bool {
         guard let webView = rendererSession.webView else { return false }
-        let item = NSMenuItem()
-        item.tag = action.rawValue
         return NSApp.sendAction(
             NSSelectorFromString("performFindPanelAction:"),
             to: webView,
-            from: item
+            from: action.menuItemSender
         )
     }
 }

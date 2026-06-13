@@ -46,4 +46,8 @@ final class AgentSessionWebRendererSession {
     func close() {
         ownedCoordinator.close()
     }
+
+    var webView: AgentSessionWebView? {
+        ownedCoordinator.webView
+    }
 }
