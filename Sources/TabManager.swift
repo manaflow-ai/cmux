@@ -5514,7 +5514,7 @@ class TabManager: ObservableObject {
     }
 
     func canCloseWorkspace(_ workspace: Workspace, allowPinned: Bool = false) -> Bool {
-        allowPinned || !workspace.isPinned
+        tabs.count > 1 && (allowPinned || !workspace.isPinned)
     }
 
     @discardableResult
