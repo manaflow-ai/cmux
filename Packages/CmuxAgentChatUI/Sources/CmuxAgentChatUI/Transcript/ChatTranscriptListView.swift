@@ -88,10 +88,29 @@ public struct ChatTranscriptListView: View {
                 .overlay(alignment: .bottomTrailing) {
                     if !isAtBottom {
                         ChatScrollToBottomButton {
-                            isAtBottom = true
-                            scrollPosition.scrollTo(id: Self.bottomAnchorID, anchor: .bottom)
+                            let lastID = rows.last?.id
+                            if let lastID {
+                                scrollPosition.scrollTo(id: lastID, anchor: .bottom)
+                            }
                             withAnimation(.snappy(duration: 0.25)) {
+                                if let lastID {
+                                    proxy.scrollTo(lastID, anchor: .bottom)
+                                }
                                 proxy.scrollTo(Self.bottomAnchorID, anchor: .bottom)
+                            }
+                            Task { @MainActor in
+                                await Task.yield()
+                                if let lastID {
+                                    scrollPosition.scrollTo(id: lastID, anchor: .bottom)
+                                    withAnimation(.snappy(duration: 0.25)) {
+                                        proxy.scrollTo(lastID, anchor: .bottom)
+                                    }
+                                }
+                                await Task.yield()
+                                scrollPosition.scrollTo(id: Self.bottomAnchorID, anchor: .bottom)
+                                withAnimation(.snappy(duration: 0.25)) {
+                                    proxy.scrollTo(Self.bottomAnchorID, anchor: .bottom)
+                                }
                             }
                         }
                         .padding(.trailing, 12)
