@@ -35,7 +35,6 @@
 3202	Sources/Update/UpdateTitlebarAccessory.swift
 2877	Sources/SessionIndexView.swift
 2871	cmuxTests/CMUXOpenCommandTests.swift
-2623	Sources/TerminalNotificationStore.swift
 2565	Sources/Panels/CmuxWebView.swift
 2545	cmuxTests/WorkspaceManualUnreadTests.swift
 2544	cmuxTests/CommandPaletteSearchEngineTests.swift
