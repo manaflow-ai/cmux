@@ -4648,7 +4648,7 @@ final class GhosttyMetalLayer: CAMetalLayer {
         lock.lock()
         self.surfaceView = surfaceView
         lock.unlock()
-        DispatchQueue.main.async { [weak surfaceView] in _ = surfaceView?.forceRefreshSurface() }
+        Task { @MainActor [weak surfaceView] in _ = surfaceView?.forceRefreshSurface() }
     }
 
     private func currentSurfaceView() -> GhosttyNSView? {
