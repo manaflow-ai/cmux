@@ -40,9 +40,9 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         var eventTopics: [String] {
             switch self {
             case .renderGrid:
-                return ["workspace.updated", "terminal.render_grid"]
+                return ["workspace.updated", "terminal.render_grid", "notification.dismissed", "notification.badge"]
             case .rawBytes:
-                return ["workspace.updated", "terminal.bytes"]
+                return ["workspace.updated", "terminal.bytes", "notification.dismissed", "notification.badge"]
             }
         }
     }
