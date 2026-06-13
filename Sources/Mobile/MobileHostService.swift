@@ -1069,6 +1069,7 @@ final class MobileHostService {
             routes: selectedRoutes,
             ttl: ttl,
             macUserEmail: await currentAuthenticatedLocalUserEmail(),
+            macUserID: await currentAuthenticatedLocalUserID(),
             macAppVersion: MobileHostBuildIdentity.current().appVersion,
             macAppBuild: MobileHostBuildIdentity.current().appBuild
         )

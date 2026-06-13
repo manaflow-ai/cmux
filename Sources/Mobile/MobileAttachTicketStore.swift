@@ -28,6 +28,7 @@ final class MobileAttachTicketStore {
         routes: [CmxAttachRoute],
         ttl: TimeInterval,
         macUserEmail: String? = nil,
+        macUserID: String? = nil,
         macAppVersion: String? = nil,
         macAppBuild: String? = nil,
         now: Date = Date()
@@ -46,6 +47,7 @@ final class MobileAttachTicketStore {
             macDeviceID: MobileHostIdentity.deviceID(),
             macDisplayName: MobileHostIdentity.displayName(),
             macUserEmail: macUserEmail,
+            macUserID: macUserID,
             macAppVersion: macAppVersion,
             macAppBuild: macAppBuild,
             routes: routes,

@@ -1540,9 +1540,8 @@ final class TerminalOutputCollector {
     )
 
     store.signIn()
-    let binding = try #require(CmxPairingQRCode.emailBinding(for: "mac@example.com"))
     let result = await store.connectPairingURLResult(
-        "cmux-ios://attach?v=2&eb=\(binding)&r=100.71.210.41:\(CmxMobileDefaults.defaultHostPort)"
+        "cmux-ios://attach?v=2&ub=mac-user&r=100.71.210.41:\(CmxMobileDefaults.defaultHostPort)"
     )
 
     #expect(result == .failed)
@@ -1572,9 +1571,8 @@ final class TerminalOutputCollector {
     )
 
     store.signIn()
-    let binding = try #require(CmxPairingQRCode.emailBinding(for: "mac@example.com"))
     let result = await store.connectPairingURLResult(
-        "cmux-ios://attach?v=2&eb=\(binding)&r=100.71.210.41:\(CmxMobileDefaults.defaultHostPort)"
+        "cmux-ios://attach?v=2&ub=mac-user&r=100.71.210.41:\(CmxMobileDefaults.defaultHostPort)"
     )
 
     #expect(result == .connected)
@@ -1585,7 +1583,6 @@ final class TerminalOutputCollector {
 
 @MainActor
 @Test func minimalPairingCodeBuildMismatchWarnsAndContinuesAfterAcceptance() async throws {
-    let binding = try #require(CmxPairingQRCode.emailBinding(for: "user@example.com"))
     let responses = ScriptedTransportResponses([
         try rpcWorkspaceListFrame(workspaceID: "qr-workspace", title: "QR Workspace"),
         try rpcHostStatusFrame(
@@ -1622,7 +1619,7 @@ final class TerminalOutputCollector {
 
     store.signIn()
     let result = await store.connectPairingURLResult(
-        "cmux-ios://attach?v=2&eb=\(binding)&av=0.65.0&ab=9&r=100.71.210.41:\(CmxMobileDefaults.defaultHostPort)"
+        "cmux-ios://attach?v=2&ub=phone-user&av=0.65.0&ab=9&r=100.71.210.41:\(CmxMobileDefaults.defaultHostPort)"
     )
 
     #expect(result == .needsUserApproval)

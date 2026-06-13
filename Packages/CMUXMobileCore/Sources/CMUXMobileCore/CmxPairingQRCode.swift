@@ -1,15 +1,14 @@
-import CryptoKit
 import Foundation
 
 /// The minimal pairing-QR grammar: expected Mac account/build metadata plus
 /// plain `host:port` routes in the URL query.
 ///
-/// `cmux-ios://attach?v=2&eb=<email-binding>&av=<version>&ab=<build>&r=<host>:<port>[&r=<host>:<port>...]`
+/// `cmux-ios://attach?v=2&ub=<stack-user-id>&av=<version>&ab=<build>&r=<host>:<port>[&r=<host>:<port>...]`
 ///
 /// A pairing QR needs to tell the phone where to dial and which non-secret
-/// account/build context to check before dialing. The account value is a
-/// one-way binding of the normalized email, never the email itself. Everything
-/// else the earlier grammars carried has a better channel or no reason to exist:
+/// account/build context to check before dialing. The account value is the
+/// opaque Stack user id, never the email itself. Everything else the earlier
+/// grammars carried has a better channel or no reason to exist:
 /// - **No auth token.** The owner's Stack access token is the host's sole
 ///   authorization gate; a token in the QR authorized nothing and made the
 ///   code look like a leaked credential.
@@ -65,8 +64,8 @@ public struct CmxPairingQRCode: Sendable {
             return nil
         }
         var items: [String] = ["v=\(Self.version)"]
-        if let emailBinding = Self.emailBinding(for: ticket.macUserEmail) {
-            items.append("eb=\(percentEncodeQueryValue(emailBinding))")
+        if let userID = normalizedNonEmpty(ticket.macUserID) {
+            items.append("ub=\(percentEncodeQueryValue(userID))")
         }
         if let version = normalizedNonEmpty(ticket.macAppVersion) {
             items.append("av=\(percentEncodeQueryValue(version))")
@@ -89,18 +88,6 @@ public struct CmxPairingQRCode: Sendable {
     /// ``encodableRoutes(of:)`` for the rules.
     public func canEncode(_ ticket: CmxAttachTicket) -> Bool {
         encodableRoutes(of: ticket) != nil
-    }
-
-    /// Returns the public QR-safe binding for `email`, or `nil` when there is
-    /// no non-empty email to bind. The binding is deterministic so a signed-in
-    /// phone can check its own email before dialing, but the QR never exposes
-    /// the Mac account email in plain text.
-    public static func emailBinding(for email: String?) -> String? {
-        guard let normalized = normalizedEmail(email) else { return nil }
-        let input = Data("cmux-ios-pairing-email-v1\0\(normalized)".utf8)
-        return "sha256:" + SHA256.hash(data: input).map { byte in
-            String(format: "%02x", byte)
-        }.joined()
     }
 
     /// The route subsequence a v2 pairing URL would carry for `ticket`, or
@@ -197,7 +184,7 @@ public struct CmxPairingQRCode: Sendable {
             macDeviceID: "",
             macDisplayName: nil,
             macUserEmail: queryValue(named: "e", in: components),
-            macUserEmailBinding: queryValue(named: "eb", in: components),
+            macUserID: queryValue(named: "ub", in: components),
             macAppVersion: queryValue(named: "av", in: components),
             macAppBuild: queryValue(named: "ab", in: components),
             routes: routes,
@@ -279,11 +266,6 @@ private extension CmxPairingQRCode {
 
     func normalizedNonEmpty(_ value: String?) -> String? {
         let trimmed = value?.trimmingCharacters(in: .whitespacesAndNewlines)
-        return trimmed?.isEmpty == false ? trimmed : nil
-    }
-
-    static func normalizedEmail(_ value: String?) -> String? {
-        let trimmed = value?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
         return trimmed?.isEmpty == false ? trimmed : nil
     }
 

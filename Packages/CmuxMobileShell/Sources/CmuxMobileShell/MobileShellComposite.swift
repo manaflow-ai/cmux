@@ -1915,7 +1915,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                macDeviceID: reportedID,
                macDisplayName: ticket.macDisplayName,
                macUserEmail: ticket.macUserEmail,
-               macUserEmailBinding: ticket.macUserEmailBinding,
+               macUserID: ticket.macUserID,
                macAppVersion: ticket.macAppVersion,
                macAppBuild: ticket.macAppBuild,
                routes: ticket.routes,
@@ -2063,7 +2063,11 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             return .failed
         }
 
-        if let emailFailure = Self.emailFailure(for: ticket, actualEmail: identityProvider?.currentUserEmail) {
+        if let emailFailure = Self.emailFailure(
+            for: ticket,
+            actualUserID: identityProvider?.currentUserID,
+            actualEmail: identityProvider?.currentUserEmail
+        ) {
             applyPairingFailure(emailFailure, phase: "validation")
             if connectionState != .connected {
                 connectionState = .disconnected
@@ -3170,20 +3174,22 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
 
     static func emailFailure(
         for ticket: CmxAttachTicket,
+        actualUserID: String?,
         actualEmail: String?
     ) -> MobilePairingFailureCategory? {
+        if let expectedUserID = mobileShellNormalizedNonEmpty(ticket.macUserID) {
+            guard let actualUserID = mobileShellNormalizedNonEmpty(actualUserID) else { return nil }
+            guard actualUserID == expectedUserID else {
+                return .authFailed
+            }
+            return nil
+        }
         guard let actual = mobileShellNormalizedEmail(actualEmail) else { return nil }
         if let expected = mobileShellNormalizedEmail(ticket.macUserEmail) {
             guard actual == expected else {
                 return .emailMismatch(expected: expected, actual: actual)
             }
             return nil
-        }
-        guard let expectedBinding = mobileShellNormalizedNonEmpty(ticket.macUserEmailBinding) else {
-            return nil
-        }
-        guard CmxPairingQRCode.emailBinding(for: actual) == expectedBinding else {
-            return .authFailed
         }
         return nil
     }
@@ -4876,7 +4882,7 @@ private extension CmxAttachTicket {
             macDeviceID: macDeviceID,
             macDisplayName: macDisplayName ?? fallbackDisplayName,
             macUserEmail: macUserEmail,
-            macUserEmailBinding: macUserEmailBinding,
+            macUserID: macUserID,
             macAppVersion: macAppVersion,
             macAppBuild: macAppBuild,
             routes: routes,
