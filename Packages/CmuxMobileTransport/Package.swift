@@ -16,11 +16,19 @@ let package = Package(
     ],
     dependencies: [
         .package(path: "../CMUXMobileCore"),
+        .package(path: "../CmuxIrohFFI"),
     ],
     targets: [
         .target(
             name: "CmuxMobileTransport",
-            dependencies: ["CMUXMobileCore"],
+            // CmuxIrohFFI (Rust staticlib C FFI over iroh, Native/cmux-iroh)
+            // is linked here so every iOS app build proves the xcframework
+            // slice matrix; no code references it until the iroh transport
+            // lands (plans/feat-ios-iroh/DESIGN.md PR 3).
+            dependencies: [
+                "CMUXMobileCore",
+                .product(name: "CmuxIrohFFI", package: "CmuxIrohFFI"),
+            ],
             swiftSettings: [
                 .swiftLanguageMode(.v6),
                 .enableUpcomingFeature("ExistentialAny"),
