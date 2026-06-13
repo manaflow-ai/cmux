@@ -58,10 +58,12 @@ public struct TerminalCommandBlockView: View {
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(.vertical, 5)
-        .padding(.leading, block.failed ? 8 : 0)
+        // Reserve the rail gutter on every row so command text stays aligned
+        // whether or not the command failed (no cross-row horizontal shift).
+        .padding(.leading, 8)
         .overlay(alignment: .leading) {
             // A red left rail makes failed commands scannable while flicking
-            // through history.
+            // through history; it sits in the reserved gutter.
             if block.failed {
                 RoundedRectangle(cornerRadius: 1)
                     .fill(.red)
