@@ -200,6 +200,7 @@
 		C0DE34020000000000000001 /* CmuxHelpCommands.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE34020000000000000003 /* CmuxHelpCommands.swift */; };
 		C0DE34020000000000000002 /* CmuxHelpResource.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE34020000000000000004 /* CmuxHelpResource.swift */; };
 		C0DE46010000000000000001 /* CMUXInstalledExtensionSidebarHostView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE46010000000000000002 /* CMUXInstalledExtensionSidebarHostView.swift */; };
+		C19C5E0300000000000000A3 /* CmuxIPCService in Frameworks */ = {isa = PBXBuildFile; productRef = C19C5E0200000000000000A2 /* CmuxIPCService */; };
 		E7E00000000000000000000B /* CmuxLifecycleEventPublishing.swift in Sources */ = {isa = PBXBuildFile; fileRef = E7E00000000000000000000C /* CmuxLifecycleEventPublishing.swift */; };
 		2F0C07000000000000000002 /* CmuxMainWindow.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2F0C07000000000000000001 /* CmuxMainWindow.swift */; };
 		799F1BEF876006EEB8CD1035 /* CMUXMobileCore in Frameworks */ = {isa = PBXBuildFile; productRef = EFB18E3B3099DFE2ECA3C263 /* CMUXMobileCore */; };
@@ -1620,6 +1621,7 @@
 				C8000313C8000313C8000313 /* CmuxFileWatch in Frameworks */,
 				CF00F00000000000000000A3 /* CmuxFoundation in Frameworks */,
 				C617000000000000000000A3 /* CmuxGit in Frameworks */,
+				C19C5E0300000000000000A3 /* CmuxIPCService in Frameworks */,
 				799F1BEF876006EEB8CD1035 /* CMUXMobileCore in Frameworks */,
 				3069F1D10000000000000005 /* CMUXPasteboardFidelity in Frameworks */,
 				C8000303C8000303C8000303 /* CmuxProcess in Frameworks */,
@@ -2569,6 +2571,7 @@
 				C5A1FED100000000000000D3 /* CmuxSwiftRenderUI */,
 				C5A1FED200000000000000E3 /* CmuxSidebarInterpreterClient */,
 				C5A1FED200000000000000E6 /* CmuxSidebarRemoteRender */,
+				C19C5E0200000000000000A2 /* CmuxIPCService */,
 				C8000302C8000302C8000302 /* CmuxProcess */,
 				C8000312C8000312C8000312 /* CmuxFileWatch */,
 				C617000000000000000000A2 /* CmuxGit */,
@@ -2733,6 +2736,7 @@
 				C5A1FED000000000000000C4 /* XCLocalSwiftPackageReference "CmuxSwiftRender" */,
 				C5A1FED100000000000000D4 /* XCLocalSwiftPackageReference "CmuxSwiftRenderUI" */,
 				C5A1FED200000000000000E4 /* XCLocalSwiftPackageReference "CmuxSidebarInterpreterService" */,
+				C19C5E0100000000000000A1 /* XCLocalSwiftPackageReference "CmuxIPCService" */,
 				C8000301C8000301C8000301 /* XCLocalSwiftPackageReference "CmuxProcess" */,
 				C8000311C8000311C8000311 /* XCLocalSwiftPackageReference "CmuxFileWatch" */,
 				C617000000000000000000A1 /* XCLocalSwiftPackageReference "CmuxGit" */,
@@ -4136,6 +4140,10 @@
 			isa = XCLocalSwiftPackageReference;
 			relativePath = Packages/CmuxSwiftRender;
 		};
+		C19C5E0100000000000000A1 /* XCLocalSwiftPackageReference "CmuxIPCService" */ = {
+			isa = XCLocalSwiftPackageReference;
+			relativePath = Packages/CmuxIPCService;
+		};
 		C8000301C8000301C8000301 /* XCLocalSwiftPackageReference "CmuxProcess" */ = {
 			isa = XCLocalSwiftPackageReference;
 			relativePath = Packages/CmuxProcess;
@@ -4331,6 +4339,11 @@
 			isa = XCSwiftPackageProductDependency;
 			package = C750100000000000000000A1 /* XCLocalSwiftPackageReference "CmuxControlSocket" */;
 			productName = CmuxControlSocket;
+		};
+		C19C5E0200000000000000A2 /* CmuxIPCService */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = C19C5E0100000000000000A1 /* XCLocalSwiftPackageReference "CmuxIPCService" */;
+			productName = CmuxIPCService;
 		};
 		C750200000000000000000A2 /* CmuxTerminalCore */ = {
 			isa = XCSwiftPackageProductDependency;
