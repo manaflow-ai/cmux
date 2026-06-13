@@ -63,6 +63,21 @@ struct TerminalConversationStoreTests {
         })
     }
 
+    @Test("a terminal session never advertises more history (block paging unimplemented)")
+    @MainActor func terminalNeverPagesHistory() async {
+        let source = FixtureChatEventSource(
+            terminalBacklog: [TerminalCommandBlock(id: 0, command: "ls", output: "a\n", exitCode: 0, isRunning: false)],
+            terminalHasMore: true
+        )
+        let store = Self.makeStore(source)
+        let run = Task { await store.run() }
+        defer { run.cancel() }
+        #expect(await Self.waitUntil { store.hasLoadedInitialHistory })
+        // Even though the producer reports hasMore, the store forces it off so
+        // loadOlder never fires / sets a wrong truncated state for terminals.
+        #expect(store.hasMoreHistory == false)
+    }
+
     @Test("terminal history seeds command-block rows in order")
     @MainActor func historySeedsRows() async {
         let source = FixtureChatEventSource(terminalBacklog: [

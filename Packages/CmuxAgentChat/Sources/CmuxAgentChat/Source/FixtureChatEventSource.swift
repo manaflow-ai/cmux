@@ -15,6 +15,9 @@ public actor FixtureChatEventSource: ChatEventSource {
     /// instead of message history, for the terminal-chat demo and tests.
     private let isTerminal: Bool
     private var terminalBacklog: [TerminalCommandBlock]
+    /// What terminal history reports for `hasMore` (to exercise the store's
+    /// force-no-paging rule for terminal sessions).
+    private let terminalHasMore: Bool
 
     /// Creates a fixture source.
     ///
@@ -29,17 +32,21 @@ public actor FixtureChatEventSource: ChatEventSource {
         self.replyToSends = replyToSends
         self.isTerminal = false
         self.terminalBacklog = []
+        self.terminalHasMore = false
     }
 
     /// Creates a terminal-mode fixture serving a command-block backlog.
     ///
-    /// - Parameter terminalBacklog: Scripted command blocks, oldest first.
-    public init(terminalBacklog: [TerminalCommandBlock]) {
+    /// - Parameters:
+    ///   - terminalBacklog: Scripted command blocks, oldest first.
+    ///   - terminalHasMore: What history reports for `hasMore`.
+    public init(terminalBacklog: [TerminalCommandBlock], terminalHasMore: Bool = false) {
         self.backlog = []
         self.nextSeq = 0
         self.replyToSends = false
         self.isTerminal = true
         self.terminalBacklog = terminalBacklog
+        self.terminalHasMore = terminalHasMore
     }
 
     /// Emits terminal command-block deltas to live subscribers (test/demo).
@@ -51,7 +58,7 @@ public actor FixtureChatEventSource: ChatEventSource {
 
     public func history(sessionID: String, beforeSeq: Int?, limit: Int) async throws -> ChatHistoryPage {
         if isTerminal {
-            return ChatHistoryPage(messages: [], hasMore: false, terminalBlocks: terminalBacklog)
+            return ChatHistoryPage(messages: [], hasMore: terminalHasMore, terminalBlocks: terminalBacklog)
         }
         let eligible: [ChatMessage]
         if let beforeSeq {

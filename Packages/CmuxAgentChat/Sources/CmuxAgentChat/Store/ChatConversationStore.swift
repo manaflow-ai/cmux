@@ -310,14 +310,18 @@ public final class ChatConversationStore {
             )
             if descriptor.kind == .terminal {
                 seedTerminalBlocks(page.terminalBlocks ?? [])
+                // Block paging isn't implemented yet, so never advertise more
+                // history for a terminal (loadOlder can't page blocks and
+                // would otherwise flip the UI into a wrong truncated state).
+                hasMoreHistory = false
             } else {
                 messages = page.messages
                 if let lastRead = lastReadSeqAtActivation,
                    let firstUnread = page.messages.first(where: { $0.seq > lastRead }) {
                     firstUnreadSeq = firstUnread.seq
                 }
+                hasMoreHistory = page.hasMore
             }
-            hasMoreHistory = page.hasMore
             hasLoadedInitialHistory = true
             initialLoadFailed = false
             lastErrorDescription = nil
@@ -359,7 +363,7 @@ public final class ChatConversationStore {
                 // Blocks are whole-value and keyed by id, so re-seeding from
                 // the authoritative page is idempotent.
                 seedTerminalBlocks(page.terminalBlocks ?? [])
-                hasMoreHistory = page.hasMore
+                hasMoreHistory = false
                 lastErrorDescription = nil
                 reproject()
                 return
