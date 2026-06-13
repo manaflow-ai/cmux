@@ -125,7 +125,7 @@ extension CanvasRootView {
         addSubview(host, positioned: .above, relativeTo: nil)
         NSLayoutConstraint.activate([
             host.centerXAnchor.constraint(equalTo: centerXAnchor),
-            host.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -24),
+            host.topAnchor.constraint(equalTo: topAnchor, constant: 24),
         ])
         commandScrollHintHost = host
 
