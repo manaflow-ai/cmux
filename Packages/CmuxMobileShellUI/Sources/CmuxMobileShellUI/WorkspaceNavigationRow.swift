@@ -14,16 +14,16 @@ struct WorkspaceNavigationRow: View {
     let selectWorkspace: (MobileWorkspacePreview.ID) -> Void
     /// Rename the workspace on the Mac. When `nil` (e.g. previews) the rename
     /// affordance is hidden.
-    var renameWorkspace: ((MobileWorkspacePreview.ID, String) -> Void)?
+    var renameWorkspace: ((MobileWorkspacePreview.ID, String) -> Void)? = nil
     /// Pin or unpin the workspace on the Mac. When `nil` the pin affordance is
     /// hidden.
-    var setPinned: ((MobileWorkspacePreview.ID, Bool) -> Void)?
+    var setPinned: ((MobileWorkspacePreview.ID, Bool) -> Void)? = nil
     /// Mark the workspace read or unread on the Mac. When `nil` the read-state
     /// affordance is hidden.
-    var setUnread: ((MobileWorkspacePreview.ID, Bool) -> Void)?
+    var setUnread: ((MobileWorkspacePreview.ID, Bool) -> Void)? = nil
     /// Close the workspace on the Mac. When `nil` the delete affordance is
     /// hidden.
-    var closeWorkspace: ((MobileWorkspacePreview.ID) -> Void)?
+    var closeWorkspace: ((MobileWorkspacePreview.ID) -> Void)? = nil
 
     @State private var isRenaming = false
     @State private var isConfirmingClose = false
