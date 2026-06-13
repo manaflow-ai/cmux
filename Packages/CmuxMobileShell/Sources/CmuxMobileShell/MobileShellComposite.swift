@@ -511,6 +511,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     private var createWorkspaceTaskID: UUID?
     private var createTerminalTaskID: UUID?
     private var connectionGeneration: UUID
+    private var connectionAttemptGeneration: UUID
     private var reportedViewportSizesByTerminalKey: [MobileTerminalViewportKey: MobileTerminalViewportSize]
     private var deliveredTerminalByteEndSeqBySurfaceID: [String: UInt64]
     private var pendingTerminalByteEndSeqBySurfaceID: [String: UInt64]
@@ -627,6 +628,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         self.createWorkspaceTaskID = nil
         self.createTerminalTaskID = nil
         self.connectionGeneration = UUID()
+        self.connectionAttemptGeneration = UUID()
         self.reportedViewportSizesByTerminalKey = [:]
         self.deliveredTerminalByteEndSeqBySurfaceID = [:]
         self.pendingTerminalByteEndSeqBySurfaceID = [:]
@@ -685,6 +687,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         suppressNextConnectionOutageEdge = true
         invalidatePairingAttempt()
         connectionGeneration = UUID()
+        connectionAttemptGeneration = UUID()
         isSignedIn = false
         connectionState = .disconnected
         macConnectionStatus = .unavailable
@@ -2016,6 +2019,12 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     ) async -> MobilePairingURLConnectionResult {
         let rawURL = Self.normalizedPairingURL(rawValue ?? pairingCode)
         invalidatePairingAttempt()
+        connectionAttemptGeneration = UUID()
+        if connectionState != .connected {
+            clearActiveConnectionContext()
+            macConnectionStatus = .unavailable
+            replaceRemoteClient(with: nil)
+        }
         clearPairingError()
         clearPairingVersionWarning()
         let ticket: CmxAttachTicket
@@ -2742,6 +2751,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         allowsStackAuthFallback: Bool? = nil
     ) async throws -> MobilePairingFailureCategory? {
         let generation = UUID()
+        connectionAttemptGeneration = generation
         connectionGeneration = generation
         diagnosticLog?.record(DiagnosticEvent(.connect))
         cancelRemoteOperationTasks()
@@ -2768,7 +2778,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         replaceRemoteClient(with: nil)
 
         guard let runtime else {
-            guard generation == connectionGeneration else { return nil }
+            guard isCurrentConnectionAttempt(generation) else { return nil }
             clearPairingError()
             applyPreviewTicket(ticket, route: firstRoute)
             connectionState = .connected
@@ -2800,7 +2810,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                         timeoutNanoseconds: runtime.pairingRequestTimeoutNanoseconds
                     )
                     let response = try MobileSyncWorkspaceListResponse.decode(resultData)
-                    guard generation == connectionGeneration, isSignedIn else { return nil }
+                    guard isCurrentConnectionAttempt(generation) else { return nil }
                     replaceRemoteClient(with: client)
                     startTerminalRefreshPolling()
                     // The connect seam guarantees identity recovery for an
@@ -2832,7 +2842,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                     return nil
                 } catch {
                     lastError = error
-                    guard generation == connectionGeneration, isSignedIn else { return nil }
+                    guard isCurrentConnectionAttempt(generation) else { return nil }
                     mobileShellLog.error(
                         "pairing route failed kind=\(route.kind.rawValue, privacy: .public) endpoint=\(route.endpoint.logDescription, privacy: .private) scoped=\(workspaceListRequest.isScoped ? 1 : 0, privacy: .public): \(String(describing: error), privacy: .private)"
                     )
@@ -2982,6 +2992,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
 
     private func clearRemoteConnectionContext() {
         connectionGeneration = UUID()
+        connectionAttemptGeneration = UUID()
         cancelRemoteOperationTasks()
         clearActiveConnectionContext()
         macConnectionStatus = .unavailable
@@ -3035,6 +3046,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         let attemptID = UUID()
         pairingAttemptID = attemptID
         connectionGeneration = UUID()
+        connectionAttemptGeneration = UUID()
         cancelRemoteOperationTasks()
         rawTerminalInputBuffer.clear()
         clearPairingError()
@@ -3100,6 +3112,10 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
 
     private func isCurrentPairingAttempt(_ attemptID: UUID) -> Bool {
         pairingAttemptID == attemptID && isSignedIn
+    }
+
+    private func isCurrentConnectionAttempt(_ generation: UUID) -> Bool {
+        generation == connectionAttemptGeneration && isSignedIn
     }
 
     /// Invalidate the in-flight attempt outside ``beginPairingAttempt(method:)``

@@ -448,8 +448,9 @@ final class TerminalOutputCollector {
     )
 
     store.signIn()
+    let slowURL = try attachURL(for: slowTicket).absoluteString
     let slowTask = Task { @MainActor in
-        await store.connectPairingURLResult(try attachURL(for: slowTicket).absoluteString)
+        await store.connectPairingURLResult(slowURL)
     }
     await router.waitForFirstWorkspaceListRequest()
 
