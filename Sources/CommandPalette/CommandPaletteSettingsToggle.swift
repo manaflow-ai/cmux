@@ -321,8 +321,8 @@ enum CommandPaletteSettingsToggleCommands {
                 },
                 sectionTitle: app,
                 keywords: ["app.sendAnonymousTelemetry", "telemetry", "analytics", "crash", "reports", "privacy"],
-                defaultValue: TelemetrySettings.defaultSendAnonymousTelemetry,
-                defaultsKey: TelemetrySettings.sendAnonymousTelemetryKey
+                defaultValue: AppCatalogSection().sendAnonymousTelemetry.defaultValue,
+                defaultsKey: AppCatalogSection().sendAnonymousTelemetry.userDefaultsKey
             ),
             CommandPaletteSettingToggleDescriptor(
                 commandId: commandIdPrefix + "warnBeforeQuit",
