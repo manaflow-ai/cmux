@@ -104,14 +104,19 @@ enum AppearanceSettings {
 
     // Ghostty split-theme resolution follows cmux's persisted appearance mode.
     // AppKit view/window appearances can lag during live mode changes.
+    // The resolution itself now lives in CmuxTerminalCore
+    // (TerminalColorSchemePreference.resolve); this forwards the app's
+    // normalized appearance mode into it so both surfaces share one source of
+    // truth.
     static func terminalColorSchemePreference(
         defaults: UserDefaults = .standard,
         systemAppearance: SystemAppearance? = nil
     ) -> GhosttyConfig.ColorSchemePreference {
-        let mode = mode(for: defaults.string(forKey: appearanceModeKey))
-        if mode == .light { return .light }
-        if mode == .dark { return .dark }
-        return (systemAppearance ?? .current(defaults: defaults)).prefersDark ? .dark : .light
+        TerminalColorSchemePreference.resolve(
+            appearanceModeRawValue: mode(for: defaults.string(forKey: appearanceModeKey)).rawValue,
+            systemAppearance: systemAppearance,
+            defaults: defaults
+        )
     }
 
     static func systemNSAppearance(defaults: UserDefaults = .standard) -> NSAppearance? {

@@ -858,7 +858,10 @@ struct GhosttyConfig {
         defaults: UserDefaults = .standard,
         systemAppearance: TerminalSystemAppearance? = nil
     ) -> ColorSchemePreference {
-        return AppearanceSettings.terminalColorSchemePreference(defaults: defaults, systemAppearance: systemAppearance)
+        return TerminalColorSchemePreference.current(
+            defaults: defaults,
+            systemAppearance: systemAppearance
+        )
     }
 
     static func resolveThemeName(

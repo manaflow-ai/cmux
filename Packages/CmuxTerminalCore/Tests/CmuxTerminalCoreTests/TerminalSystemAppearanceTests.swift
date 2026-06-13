@@ -33,3 +33,70 @@ import Testing
         #expect(!snapshot.prefersDark)
     }
 }
+
+@Suite struct TerminalColorSchemePreferenceResolutionTests {
+    private let darkSystem = TerminalSystemAppearance(interfaceStyle: "Dark")
+    private let lightSystem = TerminalSystemAppearance(interfaceStyle: nil)
+
+    @Test func explicitLightModeWins() {
+        #expect(
+            TerminalColorSchemePreference.resolve(
+                appearanceModeRawValue: "light",
+                systemAppearance: darkSystem
+            ) == .light
+        )
+    }
+
+    @Test func explicitDarkModeWins() {
+        #expect(
+            TerminalColorSchemePreference.resolve(
+                appearanceModeRawValue: "dark",
+                systemAppearance: lightSystem
+            ) == .dark
+        )
+    }
+
+    @Test func systemModeFollowsSystemAppearance() {
+        #expect(
+            TerminalColorSchemePreference.resolve(
+                appearanceModeRawValue: "system",
+                systemAppearance: darkSystem
+            ) == .dark
+        )
+        #expect(
+            TerminalColorSchemePreference.resolve(
+                appearanceModeRawValue: "system",
+                systemAppearance: lightSystem
+            ) == .light
+        )
+    }
+
+    @Test func unsetAndUnknownModesFollowSystemAppearance() {
+        #expect(
+            TerminalColorSchemePreference.resolve(
+                appearanceModeRawValue: nil,
+                systemAppearance: darkSystem
+            ) == .dark
+        )
+        #expect(
+            TerminalColorSchemePreference.resolve(
+                appearanceModeRawValue: "totally-unknown",
+                systemAppearance: lightSystem
+            ) == .light
+        )
+    }
+
+    @Test func currentReadsPersistedModeFromDefaults() {
+        let suiteName = "TerminalColorSchemePreference.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        defaults.set("light", forKey: TerminalColorSchemePreference.appearanceModeDefaultsKey)
+        #expect(
+            TerminalColorSchemePreference.current(
+                defaults: defaults,
+                systemAppearance: darkSystem
+            ) == .light
+        )
+    }
+}
