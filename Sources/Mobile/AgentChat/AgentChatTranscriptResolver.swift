@@ -52,25 +52,35 @@ struct AgentChatTranscriptResolver: Sendable {
     /// - Returns: The session id and absolute transcript path, or `nil` when
     ///   the project dir has no transcripts.
     func newestClaudeTranscript(workingDirectory: String) -> (sessionID: String, path: String)? {
-        let projectDir = RestorableAgentSessionIndex.encodeClaudeProjectDir(workingDirectory)
-        let dir = homeDirectory
-            .appendingPathComponent(".claude", isDirectory: true)
-            .appendingPathComponent("projects", isDirectory: true)
-            .appendingPathComponent(projectDir, isDirectory: true)
-        guard let entries = try? fileManager.contentsOfDirectory(
-            at: dir,
-            includingPropertiesForKeys: [.contentModificationDateKey],
-            options: [.skipsHiddenFiles]
-        ) else { return nil }
-        let newest = entries
-            .filter { $0.pathExtension == "jsonl" }
-            .max { lhs, rhs in
-                let lDate = (try? lhs.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate) ?? .distantPast
-                let rDate = (try? rhs.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate) ?? .distantPast
-                return lDate < rDate
+        // claude encodes the project dir from the cwd it sees, which is the
+        // symlink-resolved path (getcwd → /private/tmp), while a panel's cwd
+        // is often the unresolved form (/tmp). Try both so a /tmp-rooted
+        // terminal still finds its /private/tmp transcript dir.
+        let resolved = URL(fileURLWithPath: workingDirectory).resolvingSymlinksInPath().path
+        let candidates = resolved == workingDirectory ? [workingDirectory] : [workingDirectory, resolved]
+        for cwd in candidates {
+            let projectDir = RestorableAgentSessionIndex.encodeClaudeProjectDir(cwd)
+            let dir = homeDirectory
+                .appendingPathComponent(".claude", isDirectory: true)
+                .appendingPathComponent("projects", isDirectory: true)
+                .appendingPathComponent(projectDir, isDirectory: true)
+            guard let entries = try? fileManager.contentsOfDirectory(
+                at: dir,
+                includingPropertiesForKeys: [.contentModificationDateKey],
+                options: [.skipsHiddenFiles]
+            ) else { continue }
+            let newest = entries
+                .filter { $0.pathExtension == "jsonl" }
+                .max { lhs, rhs in
+                    let lDate = (try? lhs.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate) ?? .distantPast
+                    let rDate = (try? rhs.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate) ?? .distantPast
+                    return lDate < rDate
+                }
+            if let newest {
+                return (sessionID: newest.deletingPathExtension().lastPathComponent, path: newest.path)
             }
-        guard let newest else { return nil }
-        return (sessionID: newest.deletingPathExtension().lastPathComponent, path: newest.path)
+        }
+        return nil
     }
 
     private func claudeFallbackPath(record: AgentChatSessionRecord) -> String? {
