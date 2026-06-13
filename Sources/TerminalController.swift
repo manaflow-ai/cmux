@@ -1,6 +1,7 @@
 import AppKit
 import CmuxAuthRuntime
 import CmuxControlSocket
+import CmuxPanes
 import CmuxSettings
 import CmuxSocketControl
 import CmuxSwiftRenderUI
@@ -13385,10 +13386,16 @@ class TerminalController {
             result = v2MobileTerminalMouse(params: request.params)
         case "workspace.action":
             result = v2MobileWorkspaceAction(params: request.params)
+        case "workspace.close":
+            result = v2MobileWorkspaceClose(params: request.params)
         case "workspace.group.collapse":
             result = v2MobileWorkspaceGroupSetCollapsed(params: request.params, isCollapsed: true)
         case "workspace.group.expand":
             result = v2MobileWorkspaceGroupSetCollapsed(params: request.params, isCollapsed: false)
+        case "notification.dismiss":
+            result = v2MobileNotificationDismiss(params: request.params)
+        case "notification.reconcile":
+            result = v2MobileNotificationReconcile(params: request.params)
         case "dogfood.feedback.submit":
             result = await v2MobileDogfoodFeedbackSubmit(params: request.params)
         default:
@@ -13603,25 +13610,7 @@ class TerminalController {
         }
     }
 
-    /// The `workspace.action` sub-actions the mobile data plane may invoke.
-    ///
-    /// Mobile gets pin/unpin/rename only. The other sub-actions of
-    /// ``v2WorkspaceAction(params:)`` (`move_*`, `close_*`, `set_color`,
-    /// `set_description`, `mark_*`, …) reorder the global sidebar or destroy
-    /// sibling workspaces, so they stay on the Mac/automation socket. The action
-    /// is normalized exactly as ``v2ActionKey(_:_:)`` so this gate and the
-    /// handler can never disagree on which action runs.
-    /// - Parameter rawAction: The raw `action` param value.
-    /// - Returns: `true` when the normalized action is mobile-allowed.
-    nonisolated static func mobileAllowsWorkspaceAction(_ rawAction: String?) -> Bool {
-        guard let trimmed = rawAction?.trimmingCharacters(in: .whitespacesAndNewlines),
-              !trimmed.isEmpty else { return false }
-        let normalized = trimmed.lowercased().replacingOccurrences(of: "-", with: "_")
-        return ["pin", "unpin", "rename"].contains(normalized)
-    }
-
-    /// Mobile-gated wrapper over ``v2WorkspaceAction(params:)``: rejects every
-    /// sub-action except pin/unpin/rename before dispatching.
+    /// Mobile-gated wrapper over ``v2WorkspaceAction(params:)``.
     private func v2MobileWorkspaceAction(params: [String: Any]) -> V2CallResult {
         let rawAction = v2RawString(params, "action")
         guard Self.mobileAllowsWorkspaceAction(rawAction) else {
@@ -13992,7 +13981,7 @@ class TerminalController {
                 createParams["workspace_id"] = createdWorkspaceID
             }
             // workspace.updated emit is handled by MobileWorkspaceListObserver
-            // which watches TabManager.$tabs directly. Don't fire here.
+            // which watches TabManager.tabsPublisher directly. Don't fire here.
             return v2MobileWorkspaceList(
                 params: createParams,
                 tabManager: tabManager,

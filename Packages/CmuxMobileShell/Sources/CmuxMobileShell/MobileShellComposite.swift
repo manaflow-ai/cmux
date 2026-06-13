@@ -40,9 +40,9 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         var eventTopics: [String] {
             switch self {
             case .renderGrid:
-                return ["workspace.updated", "terminal.render_grid"]
+                return ["workspace.updated", "terminal.render_grid", "notification.dismissed", "notification.badge"]
             case .rawBytes:
-                return ["workspace.updated", "terminal.bytes"]
+                return ["workspace.updated", "terminal.bytes", "notification.dismissed", "notification.badge"]
             }
         }
     }
@@ -59,6 +59,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
 
     private static let terminalRenderGridCapability = "terminal.render_grid.v1"
     private static let workspaceActionsCapability = "workspace.actions.v1"
+    private static let workspaceReadStateCapability = "workspace.read_state.v1"
+    private static let workspaceCloseCapability = "workspace.close.v1"
     private static let dogfoodFeedbackCapability = "dogfood.v1"
     private static let workspaceGroupsCapability = "workspace.groups.v1"
     private static let terminalOutputCapabilityTimeoutNanoseconds: UInt64 = 750_000_000
@@ -190,23 +192,20 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// groups (or is old enough not to emit them). Drives the collapsible group
     /// sections in the workspace list.
     public var workspaceGroups: [MobileWorkspaceGroupPreview] = []
-    /// Whether the connected Mac advertises the `workspace.groups.v1` capability
-    /// (group sections in the list + `workspace.group.collapse`/`expand` over the
-    /// mobile RPC). `false` until host status is read, and for older Macs that
-    /// lack the handler, so the UI can render a flat list instead of group UI that
-    /// would not round-trip.
-    public private(set) var supportsWorkspaceGroups: Bool = false
-    /// Whether the connected Mac advertises the `workspace.actions.v1` capability
-    /// (rename/pin over the mobile RPC). `false` until host status is read, and
-    /// for older Macs that lack the handler, so the UI can hide rename/pin rather
-    /// than offer actions that would fail with `method_not_found`.
-    public private(set) var supportsWorkspaceActions: Bool = false
-    /// Whether the connected Mac advertises the `dogfood.v1` capability (the
-    /// `dogfood.feedback.submit` agent sink). `false` until host status is read,
-    /// and for older Macs that lack the handler, so the privileged Send Feedback
-    /// route falls back to email rather than failing with `method_not_found`
-    /// under client/server version skew.
-    public private(set) var supportsDogfoodFeedback: Bool = false
+    /// The connected Mac's `mobile.host.status` capabilities. Feature gates are
+    /// computed from this set so version-skew checks cannot drift from the raw
+    /// host payload.
+    public private(set) var supportedHostCapabilities: Set<String> = []
+    /// Whether the Mac supports workspace group sections and collapse/expand RPCs.
+    public var supportsWorkspaceGroups: Bool { supportedHostCapabilities.contains(Self.workspaceGroupsCapability) }
+    /// Whether the Mac supports rename/pin workspace actions.
+    public var supportsWorkspaceActions: Bool { supportedHostCapabilities.contains(Self.workspaceActionsCapability) }
+    /// Whether the Mac supports mark read/unread workspace actions.
+    public var supportsWorkspaceReadStateActions: Bool { supportedHostCapabilities.contains(Self.workspaceReadStateCapability) }
+    /// Whether the Mac supports workspace close requests.
+    public var supportsWorkspaceCloseActions: Bool { supportedHostCapabilities.contains(Self.workspaceCloseCapability) }
+    /// Whether the Mac supports dogfood feedback submission.
+    public var supportsDogfoodFeedback: Bool { supportedHostCapabilities.contains(Self.dogfoodFeedbackCapability) }
     /// The composer's live draft for the currently selected terminal.
     ///
     /// Edits are persisted per-terminal through the FIFO draft pipeline on every
@@ -404,7 +403,16 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     private let deviceRegistry: (any DeviceRegistryRefreshing)?
     private let identityProvider: (any MobileIdentityProviding)?
     private let reachability: any ReachabilityProviding
+    // Internal (not private): used by the dismiss-sync extension file.
+    let deliveredNotificationClearer: any DeliveredNotificationClearing
+    /// Durable outbox for phone→Mac dismissals (see
+    /// ``PendingNotificationDismissQueue``): ids are enqueued before the RPC is
+    /// attempted, removed only on confirmed delivery, and re-flushed on every
+    /// successful (re)subscribe.
+    let pendingDismissQueue: PendingNotificationDismissQueue
     private let pairingHintDefaults: UserDefaults
+    // Internal (not private): used by the dismiss-sync and dogfood-feedback
+    // extension files.
     let clientID: String
     /// Delivers the email path of Send Feedback (`/api/feedback`). `nil` when the
     /// web API base URL is unavailable; the email path then fails closed and the
@@ -446,6 +454,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// `public` so the DEV feedback-submit affordance can ``DiagnosticLog/export()``
     /// it.
     public let diagnosticLog: DiagnosticLog?
+    // Internal (not private): used by the dismiss-sync and dogfood-feedback
+    // extension files.
     var remoteClient: MobileCoreRPCClient? {
         didSet {
             if remoteClient == nil {
@@ -574,6 +584,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         clientIDRepository: MobileClientIDRepository = MobileClientIDRepository(defaults: .standard),
         identityProvider: (any MobileIdentityProviding)? = nil,
         reachability: any ReachabilityProviding = ReachabilityService(),
+        deliveredNotificationClearer: any DeliveredNotificationClearing = SystemDeliveredNotificationClearer(),
+        pendingDismissQueue: PendingNotificationDismissQueue = PendingNotificationDismissQueue(),
         pairingHintDefaults: UserDefaults = .standard,
         analytics: any AnalyticsEmitting = NoopAnalytics(),
         diagnosticLog: DiagnosticLog? = nil,
@@ -587,6 +599,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         self.deviceRegistry = deviceRegistry
         self.identityProvider = identityProvider
         self.reachability = reachability
+        self.deliveredNotificationClearer = deliveredNotificationClearer
+        self.pendingDismissQueue = pendingDismissQueue
         self.pairingHintDefaults = pairingHintDefaults
         self.analytics = analytics
         self.diagnosticLog = diagnosticLog
@@ -659,7 +673,11 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     }
 
     public static func preview(runtime: (any MobileSyncRuntime)? = nil) -> CMUXMobileShellStore {
-        CMUXMobileShellStore(runtime: runtime, workspaces: PreviewMobileHost.workspaces)
+        CMUXMobileShellStore(
+            runtime: runtime,
+            workspaces: PreviewMobileHost.workspaces,
+            deliveredNotificationClearer: NoopDeliveredNotificationClearer()
+        )
     }
 
     public func signIn() {
@@ -786,113 +804,6 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         } catch {
             mobileShellLog.error("click forward failed surface=\(surfaceID, privacy: .public) error=\(String(describing: error), privacy: .public)")
         }
-    }
-
-    /// Privileged direct-to-agent feedback round-trip: export the structured
-    /// diagnostic log, package it with the supplied debug-log text, visible
-    /// terminal text, and an optional freeform note, and submit it to the paired
-    /// Mac's `dogfood.feedback.submit` sink so the existing watcher under
-    /// `~/.cache/cmux-dogfood-feedback/` catches it.
-    ///
-    /// This is the privileged path of the Send Feedback feature: it is offered
-    /// only to `@manaflow.ai` users on an active mobile-host connection (see
-    /// ``MobileFeedbackRoute/resolve(email:hasActiveMacConnection:hostSupportsAgentSink:)``), and is NOT
-    /// `#if DEBUG`-gated, so it works on Release (beta/prod) builds for the team.
-    ///
-    /// The structured log is exported here (the store owns ``diagnosticLog``);
-    /// the string snapshots are gathered by the caller on the UI layer, where the
-    /// `GhosttySurfaceView`/`MobileDebugLog` accessors live. Fire-and-forget; a
-    /// transport failure is logged and surfaced via the returned `Bool`.
-    ///
-    /// - Parameters:
-    ///   - text: An optional freeform note from the user.
-    ///   - debugLogText: The string debug-log snapshot (from `MobileDebugLog`).
-    ///   - terminalText: The visible terminal text (from `GhosttySurfaceView`).
-    ///   - buildStamp: The build-identity stamp (build type + version + OS +
-    ///     device) written into the bundle. Defaults to the diagnostic log's
-    ///     stamp when not supplied.
-    /// - Returns: `true` when the Mac acknowledged the bundle.
-    @discardableResult
-    public func submitPrivilegedAgentFeedback(
-        text: String,
-        debugLogText: String,
-        terminalText: String,
-        buildStamp: String? = nil
-    ) async -> Bool {
-        guard let client = remoteClient else { return false }
-        let diagnosticBlob = await diagnosticLog?.export() ?? Data()
-        let buildStamp = buildStamp ?? diagnosticLog?.buildStamp ?? ""
-        let clientID = clientID
-        // Cap inputs and build the (potentially multi-MiB) combined blob +
-        // base64 + JSON request OFF the main actor: the store is `@MainActor`, so
-        // doing the concat/encode here would block the UI on a large bundle. A
-        // detached task returns the finished request bytes (`Data` is `Sendable`).
-        let request: Data?
-        do {
-            request = try await Task.detached(priority: .utility) { () -> Data in
-                try Self.buildDogfoodFeedbackRequest(
-                    text: text,
-                    debugLogText: debugLogText,
-                    terminalText: terminalText,
-                    buildStamp: buildStamp,
-                    clientID: clientID,
-                    diagnosticBlob: diagnosticBlob
-                )
-            }.value
-        } catch {
-            mobileShellLog.error("dogfood feedback encode failed error=\(String(describing: error), privacy: .public)")
-            return false
-        }
-        guard let request else { return false }
-        do {
-            _ = try await client.sendRequest(request)
-            return true
-        } catch {
-            mobileShellLog.error("dogfood feedback submit failed error=\(String(describing: error), privacy: .public)")
-            return false
-        }
-    }
-
-    /// Client-side caps mirroring the Mac sink, applied before any large
-    /// allocation so a huge debug log or note can't be encoded into a multi-MiB
-    /// request on the phone. `nonisolated` so the off-main request builder can
-    /// read them.
-    nonisolated private static let dogfoodFeedbackMaxTextChars = 16_384
-    nonisolated private static let dogfoodFeedbackMaxTerminalChars = 262_144
-    nonisolated private static let dogfoodFeedbackMaxDebugLogChars = 1_048_576
-
-    /// Combine the structured + string diagnostics into one self-contained blob,
-    /// base64-encode it, and build the RPC request — all off the main actor.
-    ///
-    /// The string debug log rides inside the same diagnostic file as the compact
-    /// structured rows (rows, a divider, then the human-readable log) so the Mac
-    /// bundle is self-contained. Inputs are size-capped first.
-    nonisolated private static func buildDogfoodFeedbackRequest(
-        text: String,
-        debugLogText: String,
-        terminalText: String,
-        buildStamp: String,
-        clientID: String,
-        diagnosticBlob: Data
-    ) throws -> Data {
-        let cappedText = String(text.prefix(dogfoodFeedbackMaxTextChars))
-        let cappedTerminal = String(terminalText.prefix(dogfoodFeedbackMaxTerminalChars))
-        let cappedDebugLog = String(debugLogText.prefix(dogfoodFeedbackMaxDebugLogChars))
-        var combined = diagnosticBlob
-        if !cappedDebugLog.isEmpty {
-            combined.append(Data("\n----- mobile debug log -----\n".utf8))
-            combined.append(Data(cappedDebugLog.utf8))
-        }
-        return try MobileCoreRPCClient.requestData(
-            method: "dogfood.feedback.submit",
-            params: [
-                "text": cappedText,
-                "terminal_text": cappedTerminal,
-                "build_stamp": buildStamp,
-                "diagnostic_blob_base64": combined.base64EncodedString(),
-                "client_id": clientID,
-            ]
-        )
     }
 
     // MARK: - Feedback routing
@@ -2952,9 +2863,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         terminalScrollQueueTokensBySurfaceID = [:]
         terminalScrollQueuesBySurfaceID = [:]
         terminalOutputTransport = .rawBytes
-        supportsWorkspaceActions = false
-        supportsDogfoodFeedback = false
-        supportsWorkspaceGroups = false
+        supportedHostCapabilities = []
         terminalSubscriptionRefreshTask?.cancel()
         terminalSubscriptionRefreshTask = nil
         stopRenderGridLivenessWatchdog(listenerID: nil)
@@ -3178,26 +3087,9 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         connectionRecoveryFailed = true
     }
 
-    private func markMacConnectionUnavailableIfNeeded(after error: Error) {
-        guard Self.isMacAvailabilityFailure(error) else { return }
+    func markMacConnectionUnavailableIfNeeded(after error: any Error) {
+        guard MobileShellMacAvailabilityFailureClassifier().isAvailabilityFailure(error) else { return }
         markMacConnectionUnavailable()
-    }
-
-    private static func isMacAvailabilityFailure(_ error: Error) -> Bool {
-        if error is CmxNetworkByteTransportError {
-            return true
-        }
-        guard let shellError = error as? MobileShellConnectionError else {
-            return false
-        }
-        switch shellError {
-        case .connectionClosed, .requestTimedOut:
-            return true
-        case .invalidResponse, .insecureManualRoute, .attachTicketExpired, .authorizationFailed, .accountMismatch, .rpcError:
-            // .accountMismatch means the Mac is reachable but signed in to a
-            // different account; that is an auth problem, not a Mac-availability one.
-            return false
-        }
     }
 
     private func syncSelectedTerminalForWorkspace() {
@@ -3694,15 +3586,11 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             guard remoteClient === client else { return fallback }
             guard let payload = try? MobileHostStatusResponse.decode(data) else {
                 terminalOutputTransport = fallback
-                supportsWorkspaceActions = false
-                supportsDogfoodFeedback = false
-                supportsWorkspaceGroups = false
+                // Preserve learned capabilities during transient status decode failures.
                 scheduleHostIdentityAdoptionIfNeeded(client: client)
                 return fallback
             }
-            supportsWorkspaceActions = payload.capabilities.contains(Self.workspaceActionsCapability)
-            supportsDogfoodFeedback = payload.capabilities.contains(Self.dogfoodFeedbackCapability)
-            supportsWorkspaceGroups = payload.capabilities.contains(Self.workspaceGroupsCapability)
+            supportedHostCapabilities = Set(payload.capabilities)
             await applyHostReportedIdentity(
                 client: client,
                 deviceID: payload.macDeviceID,
@@ -3722,9 +3610,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         } catch {
             guard remoteClient === client else { return fallback }
             terminalOutputTransport = fallback
-            supportsWorkspaceActions = false
-            supportsDogfoodFeedback = false
-            supportsWorkspaceGroups = false
+            // Preserve learned capabilities during transient reconnect probe failures.
             // The probe is best-effort for the terminal transport, but a
             // freshly QR-paired Mac still needs its identity recovered, with
             // a real timeout instead of the probe's 750ms.
@@ -3813,6 +3699,14 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                     // pty-tee. This is the compatibility fallback when the Mac
                     // host does not advertise `terminal.render_grid.v1`.
                     self.handleTerminalBytesEvent(event)
+                } else if event.topic == "notification.dismissed" {
+                    // The Mac dismissed/cleared notifications; clear the matching
+                    // mirrored banners on this phone.
+                    await self.handleNotificationDismissedEvent(event)
+                } else if event.topic == "notification.badge" {
+                    // The Mac's unread count changed; SET the app-icon badge to
+                    // the authoritative total.
+                    self.handleNotificationBadgeEvent(event)
                 }
             }
             guard let self else { return }
@@ -3854,6 +3748,11 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             }
             self.markMacConnectionHealthy()
             MobileDebugLog.anchormux("sync.subscribe_ok topics=\(topics.count) transport=\(transport)")
+            // Lane 3 of dismiss-sync: every successful (re)subscribe — initial
+            // connect, app foreground, network recovery, liveness restart —
+            // runs one reconcile sweep so banners/badge heal anything missed
+            // while the app was closed or detached.
+            self.scheduleNotificationReconcile(client: client)
         }
     }
 
@@ -4432,6 +4331,32 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         deliverTerminalRenderGrid(renderGrid, surfaceID: renderGrid.surfaceID)
     }
 
+    private func handleNotificationDismissedEvent(_ event: MobileEventEnvelope) async {
+        guard
+            let json = event.payloadJSON,
+            let payload = MobileNotificationDismissedEvent.decode(json)
+        else {
+            return
+        }
+        if !payload.ids.isEmpty {
+            await clearDeliveredNotifications(ids: payload.ids)
+        }
+        if let unreadCount = payload.unreadCount {
+            applyAuthoritativeUnreadBadge(unreadCount)
+        }
+    }
+
+    private func handleNotificationBadgeEvent(_ event: MobileEventEnvelope) {
+        guard
+            let json = event.payloadJSON,
+            let payload = MobileNotificationBadgeEvent.decode(json),
+            let unreadCount = payload.unreadCount
+        else {
+            return
+        }
+        applyAuthoritativeUnreadBadge(unreadCount)
+    }
+
     private func handleTerminalBytesEvent(_ event: MobileEventEnvelope) {
         guard
             let json = event.payloadJSON,
@@ -4639,7 +4564,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         return true
     }
 
-    private func disconnectForAuthorizationFailureIfNeeded(_ error: any Error) -> Bool {
+    func disconnectForAuthorizationFailureIfNeeded(_ error: any Error) -> Bool {
         guard Self.shouldDisconnectForAuthorizationFailure(error) else {
             return false
         }

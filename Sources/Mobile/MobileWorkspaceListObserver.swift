@@ -1,4 +1,5 @@
 import Combine
+import CmuxWorkspaces
 import Foundation
 import OSLog
 
@@ -54,7 +55,7 @@ final class MobileWorkspaceListObserver {
         lastSummaryHash = initial
         emitIfNeeded(force: true)
 
-        tabsCancellable = tabManager.$tabs
+        tabsCancellable = tabManager.tabsPublisher
             .throttle(for: .milliseconds(throttleMilliseconds), scheduler: RunLoop.main, latest: true)
             .sink { [weak self] tabs in
                 guard let self else { return }
@@ -67,7 +68,7 @@ final class MobileWorkspaceListObserver {
         // Selection changes (Mac user clicks a different sidebar tab) need
         // to push to iPhone too. iPhone's selectedWorkspaceID drives which
         // terminal it displays.
-        selectionCancellable = tabManager.$selectedTabId
+        selectionCancellable = tabManager.selectedTabIdPublisher
             .throttle(for: .milliseconds(throttleMilliseconds), scheduler: RunLoop.main, latest: true)
             .sink { [weak self] _ in
                 self?.emitIfNeeded(force: false)
@@ -78,7 +79,7 @@ final class MobileWorkspaceListObserver {
         // observing `$workspaceGroups` the phone would never learn a group was
         // collapsed from the Mac (or from the phone's own collapse RPC, which is
         // authoritative + re-fetch based, not optimistic).
-        groupsCancellable = tabManager.$workspaceGroups
+        groupsCancellable = tabManager.workspaceGroupsPublisher
             .throttle(for: .milliseconds(throttleMilliseconds), scheduler: RunLoop.main, latest: true)
             .sink { [weak self] _ in
                 self?.emitIfNeeded(force: false)
