@@ -62,8 +62,18 @@ struct WorkspaceDetailView: View {
     }
 
     #if os(iOS)
-    /// The session chat mode opens: the most attention-worthy live one,
-    /// or the pinned session while chat mode is on.
+    /// The chat session belonging to the currently visible tab/terminal, if
+    /// any. The toggle and the chat bind to THIS — the tab the user is
+    /// looking at — never a workspace-level pick, so a tab's chat can never
+    /// show another tab's history. A tab with no registered session yields
+    /// nil (its toggle is hidden).
+    private var sessionForSelectedTerminal: ChatSessionDescriptor? {
+        guard let terminalID = selectedTerminal?.id.rawValue else { return nil }
+        return chatSessions.first { $0.terminalID == terminalID }
+    }
+
+    /// The session chat mode opens: the visible tab's session, or the pinned
+    /// session while chat mode is on.
     private var chosenChatSession: ChatSessionDescriptor? {
         // While chat is open it is pinned to one session: return that exact
         // session or nil if it vanished — never silently switch to another
@@ -73,7 +83,12 @@ struct WorkspaceDetailView: View {
         if let pinnedChatSessionID {
             return chatSessions.first { $0.id == pinnedChatSessionID }
         }
-        return ChatSessionDescriptor.openable(chatSessions).first
+        return sessionForSelectedTerminal
+    }
+
+    /// The tab/terminal name for a session, for the chat header subtitle.
+    private func tabName(for session: ChatSessionDescriptor) -> String? {
+        workspace.terminals.first { $0.id.rawValue == session.terminalID }?.name
     }
     #endif
 
@@ -99,6 +114,8 @@ struct WorkspaceDetailView: View {
         WorkspaceChatPane(
             session: session,
             store: store,
+            workspaceName: workspace.name,
+            tabName: tabName(for: session),
             draft: Binding(
                 get: { chatDrafts[session.id] ?? "" },
                 set: { chatDrafts[session.id] = $0 }
@@ -124,11 +141,13 @@ struct WorkspaceDetailView: View {
         .task(id: chatRefreshKey) { await refreshChatSessions() }
     }
 
-    /// Toolbar toggle between terminal and chat. Hidden when the workspace
-    /// has no chat-capable session and not already in chat mode.
+    /// Toolbar toggle between terminal and chat. Shown only when the
+    /// CURRENTLY VISIBLE tab has a chat-capable session (or chat is already
+    /// on). This is the toggle-visibility criterion: it tracks the visible
+    /// tab, so switching tabs shows/hides the toggle with that tab's session.
     @ViewBuilder
     private var chatToggleButton: some View {
-        if isChatMode || !chatSessions.isEmpty {
+        if isChatMode || sessionForSelectedTerminal != nil {
             Button {
                 isChatMode.toggle()
                 pinnedChatSessionID = isChatMode ? chosenChatSession?.id : nil

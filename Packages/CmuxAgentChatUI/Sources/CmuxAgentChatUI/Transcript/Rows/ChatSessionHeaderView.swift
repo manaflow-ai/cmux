@@ -7,6 +7,8 @@ public struct ChatSessionHeaderView: View {
     private let descriptor: ChatSessionDescriptor
     private let agentState: ChatAgentState
     private let isConnected: Bool
+    private let titleOverride: String?
+    private let subtitle: String?
 
     /// Creates a session header.
     ///
@@ -15,15 +17,28 @@ public struct ChatSessionHeaderView: View {
     ///   - agentState: Live agent presence, driving the dot and text.
     ///   - isConnected: Whether the live event stream is up; when `false`
     ///     a reconnecting suffix is appended.
-    public init(descriptor: ChatSessionDescriptor, agentState: ChatAgentState, isConnected: Bool) {
+    ///   - titleOverride: When set, shown as the headline instead of the
+    ///     session's generated title (the host passes the workspace name so
+    ///     the header reads as the workspace, not the first prompt).
+    ///   - subtitle: When set, appended to the status line after the state
+    ///     (the host passes the tab/terminal name).
+    public init(
+        descriptor: ChatSessionDescriptor,
+        agentState: ChatAgentState,
+        isConnected: Bool,
+        titleOverride: String? = nil,
+        subtitle: String? = nil
+    ) {
         self.descriptor = descriptor
         self.agentState = agentState
         self.isConnected = isConnected
+        self.titleOverride = titleOverride
+        self.subtitle = subtitle
     }
 
     public var body: some View {
         VStack(spacing: 1) {
-            Text(descriptor.title ?? descriptor.agentKind.displayName)
+            Text(titleOverride ?? descriptor.title ?? descriptor.agentKind.displayName)
                 .font(.headline)
                 .lineLimit(1)
                 .truncationMode(.tail)
@@ -54,6 +69,10 @@ public struct ChatSessionHeaderView: View {
 
     private var statusLine: String {
         var line = stateLabel
+        if let subtitle, !subtitle.isEmpty {
+            line += " · "
+            line += subtitle
+        }
         if !isConnected {
             line += " · "
             line += String(

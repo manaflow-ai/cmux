@@ -11,6 +11,12 @@ import SwiftUI
 struct WorkspaceChatPane: View {
     let session: ChatSessionDescriptor
     let store: CMUXMobileShellStore
+    /// The owning workspace's name, shown as the header title (so the header
+    /// reads as the workspace, not the session's first prompt).
+    let workspaceName: String
+    /// The name of the tab/terminal this session lives on, shown as the
+    /// header subtitle.
+    let tabName: String?
     /// Composer draft, owned by the parent so it survives toggling back to
     /// the terminal and returning mid-thought.
     @Binding var draft: String
@@ -37,7 +43,9 @@ struct WorkspaceChatPane: View {
                         ChatSessionHeaderView(
                             descriptor: conversation.descriptor,
                             agentState: conversation.agentState,
-                            isConnected: conversation.isConnected
+                            isConnected: conversation.isConnected,
+                            titleOverride: workspaceName,
+                            subtitle: tabName
                         )
                     }
                 }
