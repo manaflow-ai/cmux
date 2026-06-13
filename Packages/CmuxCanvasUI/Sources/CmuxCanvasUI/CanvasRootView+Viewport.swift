@@ -58,6 +58,22 @@ extension CanvasRootView: CanvasViewportControlling {
         setMagnification(1.0)
     }
 
+    /// Zooms by `factor` while keeping the document point under
+    /// `windowLocation` fixed (cursor-anchored), for pointer-driven zoom
+    /// (option+scroll). Unanimated so it tracks the wheel; the caller settles
+    /// portals on a debounce.
+    func zoom(by factor: CGFloat, towardWindowLocation windowLocation: CGPoint) {
+        overviewRestore = nil
+        let target = min(
+            max(scrollView.magnification * factor, scrollView.minMagnification),
+            scrollView.maxMagnification
+        )
+        guard target != scrollView.magnification else { return }
+        let anchor = scrollView.contentView.convert(windowLocation, from: nil)
+        scrollView.setMagnification(target, centeredAt: anchor)
+        scrollView.reflectScrolledClipView(scrollView.contentView)
+    }
+
     /// Animates to `magnification`, keeping the current viewport center
     /// fixed (explicit origin math; `setMagnification(centeredAt:)` drifts
     /// on large deltas).

@@ -37,6 +37,10 @@ public final class CanvasRootView: NSView {
     private var clipBoundsObserver: (any NSObjectProtocol)?
     private var scrollSettleObservers: [any NSObjectProtocol] = []
     var commandScrollMonitor: Any?
+    /// Debounced settle after option+scroll zoom (which, unlike a trackpad
+    /// pinch, never fires `didEndLiveMagnify`), so portals re-anchor once the
+    /// zoom gesture stops.
+    var zoomSettleTask: Task<Void, Never>?
     private var hasPlacedInitialViewport = false
     /// One-per-session throttle for the Command+scroll discovery hint.
     static var didShowCommandScrollHintThisSession = false
@@ -175,6 +179,8 @@ public final class CanvasRootView: NSView {
         scrollSettleObservers = []
         commandScrollHintTask?.cancel()
         commandScrollHintTask = nil
+        zoomSettleTask?.cancel()
+        zoomSettleTask = nil
         commandScrollHintHost?.removeFromSuperview()
         commandScrollHintHost = nil
         removeCommandScrollMonitor()

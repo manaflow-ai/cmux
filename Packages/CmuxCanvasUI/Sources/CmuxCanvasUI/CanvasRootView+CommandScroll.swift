@@ -7,7 +7,9 @@ import CmuxCanvas
 extension CanvasRootView {
     func installCommandScrollMonitor() {
         guard commandScrollMonitor == nil else { return }
-        commandScrollMonitor = NSEvent.addLocalMonitorForEvents(matching: .scrollWheel) { [weak self] event in
+        commandScrollMonitor = NSEvent.addLocalMonitorForEvents(
+            matching: [.scrollWheel, .magnify]
+        ) { [weak self] event in
             guard let self,
                   let window = self.window,
                   event.window === window else {
@@ -16,8 +18,28 @@ extension CanvasRootView {
             let location = self.convert(event.locationInWindow, from: nil)
             guard self.bounds.contains(location) else { return event }
 
+            // Trackpad pinch zooms the canvas no matter what the cursor is
+            // over. Without intercepting, a pane swallows the magnify gesture
+            // (e.g. Ghostty's own font zoom), so pinching on a terminal would
+            // never zoom the canvas. Forward to the scroll view's native
+            // magnifier: it anchors at the gesture point, respects the
+            // magnification range, and fires didEndLiveMagnify so portals
+            // settle through the normal path.
+            if event.type == .magnify {
+                self.scrollView.magnify(with: event)
+                return nil
+            }
+
             if event.modifierFlags.contains(.command) {
                 self.scrollView.scrollWheel(with: event)
+                return nil
+            }
+
+            // Option+scroll is the mouse-wheel equivalent of pinch: a mouse
+            // has no magnify gesture, so this zooms toward the cursor. Cmd
+            // stays pan; plain scroll stays pane content.
+            if event.modifierFlags.contains(.option) {
+                self.zoomByScroll(event)
                 return nil
             }
 
@@ -29,6 +51,34 @@ extension CanvasRootView {
                 self.noteInPaneScrollForHint()
             }
             return event
+        }
+    }
+
+    /// Zooms toward the scroll event's cursor location from an option+scroll.
+    /// Scroll up/away zooms in. Precise (trackpad) deltas are in points;
+    /// line-based (mouse wheel) deltas are coarser, so each is scaled
+    /// separately to a gentle per-event multiplier.
+    private func zoomByScroll(_ event: NSEvent) {
+        let precise = event.hasPreciseScrollingDeltas
+        let delta = precise ? event.scrollingDeltaY : event.deltaY
+        guard delta != 0 else { return }
+        let sensitivity: CGFloat = precise ? 0.005 : 0.10
+        let factor = 1 + delta * sensitivity
+        zoom(by: factor, towardWindowLocation: event.locationInWindow)
+        scheduleZoomSettle()
+    }
+
+    /// Settles portals ~160ms after the last option+scroll zoom event, since
+    /// the synthesized magnification never fires `didEndLiveMagnify`.
+    private func scheduleZoomSettle() {
+        zoomSettleTask?.cancel()
+        zoomSettleTask = Task { [weak self] in
+            try? await Task.sleep(nanoseconds: 160_000_000)
+            guard !Task.isCancelled else { return }
+            await MainActor.run {
+                guard let self else { return }
+                self.callbacks.onViewportSettled(self.window)
+            }
         }
     }
 
