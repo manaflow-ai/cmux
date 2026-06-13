@@ -23005,23 +23005,18 @@ struct CMUXCLI {
         client: SocketClient
     ) throws -> String {
         if let preferred = nonEmptyClaudeHookIdentifier(preferred) {
-            return try resolveWorkspaceIdForClaudeHook(preferred, client: client)
+            return try resolveWorkspaceId(preferred, client: client)
         }
         if let fallback = nonEmptyClaudeHookIdentifier(fallback) {
-            if let workspaceId = resolveAccessibleClaudeHookWorkspaceId(fallback, client: client) {
-                return workspaceId
-            }
+            return try resolveWorkspaceId(fallback, client: client)
         }
         if let binding = resolveClaudeHookTerminalBinding(
             agentPID: agentPID,
             allowProcessSnapshotBinding: allowProcessSnapshotBinding,
             client: client
         ),
-           let workspaceId = resolveAccessibleClaudeHookWorkspaceId(binding.workspaceId, client: client) {
+           let workspaceId = resolveClaudeHookWorkspaceId(binding.workspaceId, client: client) {
             return workspaceId
-        }
-        if let fallback = nonEmptyClaudeHookIdentifier(fallback) {
-            return try resolveWorkspaceIdForClaudeHook(fallback, client: client)
         }
         return try resolveWorkspaceIdForClaudeHook(nil, client: client)
     }
@@ -23098,10 +23093,9 @@ struct CMUXCLI {
         return try resolveSurfaceAllowingFallbackDetailed(nil, workspaceId: workspaceId, client: client)
     }
 
-    private func resolveAccessibleClaudeHookWorkspaceId(_ raw: String?, client: SocketClient) -> String? {
+    private func resolveClaudeHookWorkspaceId(_ raw: String?, client: SocketClient) -> String? {
         guard let raw = nonEmptyClaudeHookIdentifier(raw),
-              let candidate = try? resolveWorkspaceId(raw, client: client),
-              (try? client.sendV2(method: "surface.list", params: ["workspace_id": candidate])) != nil else {
+              let candidate = try? resolveWorkspaceId(raw, client: client) else {
             return nil
         }
         return candidate
@@ -23140,7 +23134,7 @@ struct CMUXCLI {
         client: SocketClient
     ) -> String? {
         guard let binding,
-              resolveAccessibleClaudeHookWorkspaceId(binding.workspaceId, client: client) == workspaceId else {
+              resolveClaudeHookWorkspaceId(binding.workspaceId, client: client) == workspaceId else {
             return nil
         }
         return resolveAccessibleClaudeHookSurfaceId(binding.surfaceId, workspaceId: workspaceId, client: client)
