@@ -75,7 +75,7 @@ enum AutoNamingThrottleDecision: Equatable, Sendable {
 }
 
 /// One user/assistant text message extracted from a transcript.
-struct AutoNamingTranscriptMessage: Equatable, Sendable {
+struct AutoNamingTranscriptMessage: Codable, Equatable, Sendable {
     var role: String
     var text: String
 
@@ -249,6 +249,59 @@ struct AutoNamingEngine: Sendable {
         return messages
     }
 
+    // MARK: - Transcript extraction (Grok chat_history JSONL)
+
+    /// Extracts user/assistant text messages from Grok's native
+    /// `chat_history.jsonl` records. Injected metadata tags are removed from
+    /// user messages, with `<user_query>` preferred when present.
+    func extractGrokMessages(fromChatHistoryLines lines: [String]) -> [AutoNamingTranscriptMessage] {
+        var messages: [AutoNamingTranscriptMessage] = []
+        for line in lines {
+            guard let data = line.data(using: .utf8),
+                  let object = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] else {
+                continue
+            }
+            let role = firstString(in: object, keys: ["role", "type"])?.lowercased()
+            guard role == "user" || role == "assistant" else { continue }
+            let rawText = firstText(in: object, keys: ["content", "text", "message"])
+            let text = role == "user" ? grokUserText(rawText) : rawText
+            guard let trimmed = text?.trimmingCharacters(in: .whitespacesAndNewlines),
+                  !trimmed.isEmpty else {
+                continue
+            }
+            messages.append(AutoNamingTranscriptMessage(role: role, text: trimmed))
+        }
+        return messages
+    }
+
+    // MARK: - Transcript extraction (generic hook payload cache)
+
+    /// Extracts conversation messages from generic hook payloads that carry
+    /// prompt/assistant context. Agents without these fields simply yield no
+    /// messages and are skipped by the caller.
+    func extractHookMessages(fromPayloadObjects objects: [[String: Any]]) -> [AutoNamingTranscriptMessage] {
+        var messages: [AutoNamingTranscriptMessage] = []
+        for object in objects {
+            appendHookMessage(role: "user", text: hookUserText(in: object), to: &messages)
+            appendHookMessage(role: "assistant", text: hookAssistantText(in: object), to: &messages)
+
+            for key in ["context", "notification", "data", "extra"] {
+                guard let nested = object[key] as? [String: Any] else { continue }
+                appendHookMessage(role: "user", text: hookUserText(in: nested), to: &messages)
+                appendHookMessage(role: "assistant", text: hookAssistantText(in: nested), to: &messages)
+            }
+        }
+        return messages
+    }
+
+    /// Converts a bounded hook message cache into the line-growth unit used by
+    /// the shared throttle. One user+assistant turn reaches the default
+    /// short-transcript floor, while each new message advances enough to pass
+    /// the growth floor after the interval gate.
+    func hookMessageLineEquivalentCount(_ messages: [AutoNamingTranscriptMessage]) -> Int {
+        messages.count * config.minLineGrowth
+    }
+
     // MARK: - Prompt and response
 
     func buildPrompt(currentTitle: String?, context: String) -> String {
@@ -305,5 +358,126 @@ struct AutoNamingEngine: Sendable {
         guard !title.isEmpty else { return nil }
         if let currentTitle, title == currentTitle { return nil }
         return title
+    }
+
+    private func appendHookMessage(
+        role: String,
+        text: String?,
+        to messages: inout [AutoNamingTranscriptMessage]
+    ) {
+        guard let text = text?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !text.isEmpty else {
+            return
+        }
+        if messages.last == AutoNamingTranscriptMessage(role: role, text: text) {
+            return
+        }
+        messages.append(AutoNamingTranscriptMessage(role: role, text: text))
+    }
+
+    private func hookUserText(in object: [String: Any]) -> String? {
+        firstText(in: object, keys: [
+            "lastUserMessage",
+            "last_user_message",
+            "userPrompt",
+            "user_prompt",
+            "user_message",
+            "userMessage",
+            "prompt"
+        ])
+    }
+
+    private func hookAssistantText(in object: [String: Any]) -> String? {
+        firstText(in: object, keys: [
+            "assistantPreamble",
+            "assistant_preamble",
+            "last_assistant_message",
+            "lastAssistantMessage",
+            "assistant_response",
+            "assistantResponse"
+        ])
+    }
+
+    private func grokUserText(_ value: String?) -> String? {
+        guard let value else { return nil }
+        if let userQuery = taggedContent(named: "user_query", in: value) {
+            return userQuery
+        }
+        let withoutMetadata = ["user_info", "git_status", "system-reminder"].reduce(value) { partial, tag in
+            removingTaggedContent(named: tag, from: partial)
+        }
+        return withoutMetadata.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private func taggedContent(named tag: String, in text: String) -> String? {
+        let openTag = "<\(tag)>"
+        let closeTag = "</\(tag)>"
+        guard let openRange = text.range(of: openTag) else { return nil }
+        let bodyStart = openRange.upperBound
+        guard let closeRange = text[bodyStart...].range(of: closeTag) else { return nil }
+        let body = String(text[bodyStart..<closeRange.lowerBound])
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        return body.isEmpty ? nil : body
+    }
+
+    private func removingTaggedContent(named tag: String, from text: String) -> String {
+        let openTag = "<\(tag)>"
+        let closeTag = "</\(tag)>"
+        var result = text
+        while let openRange = result.range(of: openTag) {
+            let bodyStart = openRange.upperBound
+            guard let closeRange = result[bodyStart...].range(of: closeTag) else { break }
+            result.removeSubrange(openRange.lowerBound..<closeRange.upperBound)
+        }
+        return result
+    }
+
+    private func firstString(in object: [String: Any], keys: [String]) -> String? {
+        for key in keys {
+            guard let value = object[key] as? String else { continue }
+            let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+            if !trimmed.isEmpty { return trimmed }
+        }
+        return nil
+    }
+
+    private func firstText(in object: [String: Any], keys: [String]) -> String? {
+        for key in keys {
+            guard let text = firstTextValue(object[key]) else { continue }
+            return text
+        }
+        return nil
+    }
+
+    private func firstTextValue(_ value: Any?) -> String? {
+        if let string = value as? String {
+            let trimmed = string.trimmingCharacters(in: .whitespacesAndNewlines)
+            return trimmed.isEmpty ? nil : trimmed
+        }
+        if let values = value as? [Any] {
+            let parts = values.compactMap(firstTextBlock)
+            let joined = parts.joined(separator: "\n")
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            return joined.isEmpty ? nil : joined
+        }
+        if let block = value as? [String: Any] {
+            return firstTextBlock(block)
+        }
+        return nil
+    }
+
+    private func firstTextBlock(_ value: Any) -> String? {
+        if let string = value as? String {
+            let trimmed = string.trimmingCharacters(in: .whitespacesAndNewlines)
+            return trimmed.isEmpty ? nil : trimmed
+        }
+        guard let block = value as? [String: Any] else { return nil }
+        if let type = firstString(in: block, keys: ["type"]),
+           type.caseInsensitiveCompare("text") != .orderedSame,
+           type.caseInsensitiveCompare("input_text") != .orderedSame,
+           type.caseInsensitiveCompare("output_text") != .orderedSame {
+            return nil
+        }
+        return firstString(in: block, keys: ["text", "input_text", "content"])
     }
 }

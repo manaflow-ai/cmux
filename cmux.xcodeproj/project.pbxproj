@@ -70,6 +70,8 @@
 		B9000012A1B2C3D4E5F60719 /* AutomationSocketUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B9000011A1B2C3D4E5F60719 /* AutomationSocketUITests.swift */; };
 		FF068325E8A04E51A30AE9BA /* AutoNamingCodexAdapterTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 70034F4D644C4896B8B925F3 /* AutoNamingCodexAdapterTests.swift */; };
 		7C592156DCB3419BB95383E5 /* AutoNamingEngineTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7752D68A758642EFA282C208 /* AutoNamingEngineTests.swift */; };
+		A4ECF22C62724853A72D6BDE /* AutoNamingGrokAdapterTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 07EC52007B2144C59C047774 /* AutoNamingGrokAdapterTests.swift */; };
+		74AB3F34FE3B4974A3A5D264 /* AutoNamingHookPayloadAdapterTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 46792DAA478444ED87B17B31 /* AutoNamingHookPayloadAdapterTests.swift */; };
 		C0DE35860000000000000001 /* BackgroundWorkspacePrimeCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE35860000000000000002 /* BackgroundWorkspacePrimeCoordinator.swift */; };
 		A50012F1 /* Backport.swift in Sources */ = {isa = PBXBuildFile; fileRef = A50012F0 /* Backport.swift */; };
 		D0B10010A1B2C3D4E5F60001 /* BonsplitTabBarDebug.swift in Sources */ = {isa = PBXBuildFile; fileRef = D0B10011A1B2C3D4E5F60001 /* BonsplitTabBarDebug.swift */; };
@@ -960,6 +962,8 @@
 		B9000011A1B2C3D4E5F60719 /* AutomationSocketUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AutomationSocketUITests.swift; sourceTree = "<group>"; };
 		70034F4D644C4896B8B925F3 /* AutoNamingCodexAdapterTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AutoNamingCodexAdapterTests.swift; sourceTree = "<group>"; };
 		7752D68A758642EFA282C208 /* AutoNamingEngineTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AutoNamingEngineTests.swift; sourceTree = "<group>"; };
+		07EC52007B2144C59C047774 /* AutoNamingGrokAdapterTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AutoNamingGrokAdapterTests.swift; sourceTree = "<group>"; };
+		46792DAA478444ED87B17B31 /* AutoNamingHookPayloadAdapterTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AutoNamingHookPayloadAdapterTests.swift; sourceTree = "<group>"; };
 		C0DE35860000000000000002 /* BackgroundWorkspacePrimeCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BackgroundWorkspacePrimeCoordinator.swift; sourceTree = "<group>"; };
 		A50012F0 /* Backport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Backport.swift; sourceTree = "<group>"; };
 		D0B10011A1B2C3D4E5F60001 /* BonsplitTabBarDebug.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BonsplitTabBarDebug.swift; sourceTree = "<group>"; };
@@ -2481,6 +2485,8 @@
 				F92AB6D1CB714189A8F167E5 /* SetAutoTitleSocketTests.swift */,
 				7752D68A758642EFA282C208 /* AutoNamingEngineTests.swift */,
 				70034F4D644C4896B8B925F3 /* AutoNamingCodexAdapterTests.swift */,
+				07EC52007B2144C59C047774 /* AutoNamingGrokAdapterTests.swift */,
+				46792DAA478444ED87B17B31 /* AutoNamingHookPayloadAdapterTests.swift */,
 				F016B5C09357B3226FA2E014 /* SidebarWorkspaceSnapshotRefreshPolicyTests.swift */,
 				C9A57514C9A57514C9A57514 /* SidebarScrollViewConfiguratorTests.swift */,
 				C9A57506C9A57506C9A57506 /* SidebarWorkspaceScrollLayoutTests.swift */,
@@ -3600,6 +3606,8 @@
 				A47E00010000000000000001 /* AuthEnvironmentTests.swift in Sources */,
 				FF068325E8A04E51A30AE9BA /* AutoNamingCodexAdapterTests.swift in Sources */,
 				7C592156DCB3419BB95383E5 /* AutoNamingEngineTests.swift in Sources */,
+				A4ECF22C62724853A72D6BDE /* AutoNamingGrokAdapterTests.swift in Sources */,
+				74AB3F34FE3B4974A3A5D264 /* AutoNamingHookPayloadAdapterTests.swift in Sources */,
 				D3622000A1B2C3D4E5F60718 /* BrowserArrowKeyForwardingTests.swift in Sources */,
 				BCBC0A0E0000000000000D01 /* BrowserChromeMetricsTests.swift in Sources */,
 				E12E88F82733EC42F32C36A3 /* BrowserConfigTests.swift in Sources */,

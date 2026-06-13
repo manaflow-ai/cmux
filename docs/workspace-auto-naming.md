@@ -8,7 +8,7 @@ Off by default. Enable it in **Settings > Automation > Workspace Auto-Naming** o
 
 - At the end of an agent turn, cmux summarizes the session's recent conversation into a 2-5 word title (in the conversation's language) and applies it to the workspace. When a workspace has multiple tabs, the agent's own tab is named too.
 - Names refresh when the topic shifts, throttled by transcript growth and a minimum interval, so quiet or single-topic sessions converge to a stable name without repeated summarization calls.
-- Summarization runs through your own agent binary: `claude -p` for Claude Code sessions (model from `ANTHROPIC_SMALL_FAST_MODEL` when set, the fast default otherwise; Vertex/Bedrock backend selection is preserved) and `codex exec` for Codex sessions. Each agent names itself, so the calls use the account you already authenticated, and a codex-only machine needs no claude install.
+- Summarization runs through your own agent binary: `claude -p` for Claude Code sessions (model from `ANTHROPIC_SMALL_FAST_MODEL` when set, the fast default otherwise; Vertex/Bedrock backend selection is preserved), `codex exec` for Codex sessions, and each supported hook agent's own non-interactive CLI for its sessions. Each agent names itself, so the calls use the account you already authenticated, and a machine without another agent installed simply skips that adapter.
 
 ## Precedence: manual names always win
 
@@ -24,8 +24,23 @@ Custom titles carry a provenance marker (user vs auto):
 - No summarization call ever runs unless the setting is on; the hooks gate themselves on the live setting, so toggling takes effect on the next turn without restarting agents.
 - Only the workspace's current agent session names it: stale, background, and nested (subagent) sessions are filtered by the same active-session gates the notification hooks use.
 - Failures degrade silently to current behavior - no binary on PATH, a timed-out call, or an unsupported backend just means the name does not change.
-- Naming never blocks the agent: the Claude pass runs as an async hook and the Codex pass runs detached from the hook process.
+- Naming never blocks the agent: the Claude pass runs as an async hook and the generic hook adapters run detached from the hook process.
+
+## Supported adapters
+
+Auto-naming currently has source adapters and summarizer runners for:
+
+- Claude Code: reads the Claude transcript JSONL and summarizes with `claude -p`.
+- Codex: reads the Codex rollout JSONL and summarizes with `codex exec --output-last-message`.
+- Grok: reads Grok's `chat_history.jsonl` for the active session and summarizes with `grok --single`.
+- OpenCode: caches recent prompt/assistant text from the cmux OpenCode session plugin and summarizes with `opencode run --pure`.
+- Gemini, Cursor, Antigravity, Pi, OMP, and Kiro: cache prompt/assistant text from their cmux hooks and summarize with their own non-interactive CLIs (`gemini -p`, `cursor-agent --print --mode ask`, `agy --print`, `pi --print --no-tools`, `omp --print --no-tools`, and `kiro-cli chat --no-interactive`).
+
+The other hook integrations are intentionally skipped for now:
+
+- Amp's current cmux plugin reports lifecycle/status but does not expose a usable prompt or assistant transcript.
+- Rovo Dev, Hermes Agent, Copilot, CodeBuddy, Factory, and Qoder have cmux Stop/notification hooks, but this branch does not yet have a verified transcript source plus cheap non-interactive summarizer invocation for them.
 
 ## Mechanics
 
-The Claude Code wrapper registers an async `Stop` hook (`cmux hooks claude auto-name`); the Codex Stop hook spawns the equivalent detached pass. Each pass reads the session transcript (Claude JSONL or the Codex rollout), evaluates the throttle against per-session state in `~/.cmuxterm/<agent>-hook-sessions.json`, and applies the title through the `workspace.set_auto_title` socket method, which enforces the setting and the user-provenance rule app-side.
+The Claude Code wrapper registers an async `Stop` hook (`cmux hooks claude auto-name`); other supported agents spawn an equivalent detached pass from their turn-end hook. Each pass reads the adapter's transcript source, evaluates the throttle against per-session state in `~/.cmuxterm/<agent>-hook-sessions.json`, and applies the title through the `workspace.set_auto_title` socket method, which enforces the setting and the user-provenance rule app-side.

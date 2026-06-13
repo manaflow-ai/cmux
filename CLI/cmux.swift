@@ -460,6 +460,7 @@ private struct ClaudeHookSessionRecord: Codable {
     var autoNameLastLineCount: Int?
     var autoNameLastNamedAt: TimeInterval?
     var autoNameInFlightAt: TimeInterval?
+    var autoNameRecentMessages: [AutoNamingTranscriptMessage]?
 }
 
 private struct ClaudeHookActiveSessionRecord: Codable {
@@ -528,6 +529,8 @@ private final class ClaudeHookSessionStore {
     private static let defaultStatePath = "~/.cmuxterm/claude-hook-sessions.json"
     private static let maxStateAgeSeconds: TimeInterval = 60 * 60 * 24 * 7
     private static let maxRememberedTerminalPromptTurnIds = 32
+    private static let maxAutoNameRecentMessages = 24
+    private static let maxAutoNameMessageCharacters = 1_000
 
     private let statePath: String
     private let fileManager: FileManager
@@ -558,6 +561,14 @@ private final class ClaudeHookSessionStore {
         guard !normalized.isEmpty else { return nil }
         return try withLockedState { state in
             state.sessions[normalized]
+        }
+    }
+
+    func autoNamingRecentMessages(sessionId: String) throws -> [AutoNamingTranscriptMessage] {
+        let normalized = normalizeSessionId(sessionId)
+        guard !normalized.isEmpty else { return [] }
+        return try withLockedState { state in
+            state.sessions[normalized]?.autoNameRecentMessages ?? []
         }
     }
 
@@ -670,7 +681,8 @@ private final class ClaudeHookSessionStore {
         launchCommand: AgentHookLaunchCommandRecord?,
         agentLifecycle: AgentHibernationLifecycleState? = nil,
         runtimeStatus: AgentHookRuntimeStatus? = nil,
-        updateRuntimeStatus: Bool = false
+        updateRuntimeStatus: Bool = false,
+        autoNameMessages: [AutoNamingTranscriptMessage] = []
     ) throws -> Bool {
         let normalized = normalizeSessionId(sessionId)
         guard !normalized.isEmpty else { return false }
@@ -701,6 +713,7 @@ private final class ClaudeHookSessionStore {
                 updateRuntimeStatus: updateRuntimeStatus,
                 now: now
             )
+            appendAutoNameMessages(autoNameMessages, to: &record)
             let normalizedTurnId = normalizeOptional(turnId)
             if let normalizedTurnId {
                 markPromptTurnActive(normalizedTurnId, on: &record)
@@ -772,7 +785,8 @@ private final class ClaudeHookSessionStore {
         lastNotificationStatus: AgentHookNotificationStatus? = nil,
         updateLastNotificationStatus: Bool = false,
         runtimeStatus: AgentHookRuntimeStatus? = nil,
-        updateRuntimeStatus: Bool = false
+        updateRuntimeStatus: Bool = false,
+        autoNameMessages: [AutoNamingTranscriptMessage] = []
     ) throws -> Bool {
         let normalized = normalizeSessionId(sessionId)
         guard !normalized.isEmpty else { return false }
@@ -805,6 +819,7 @@ private final class ClaudeHookSessionStore {
                 updateRuntimeStatus: updateRuntimeStatus,
                 now: now
             )
+            appendAutoNameMessages(autoNameMessages, to: &record)
             let normalizedTurnId = normalizeOptional(turnId)
             if let normalizedTurnId {
                 var turnStack = activePromptTurnStack(from: record)
@@ -1122,6 +1137,34 @@ private final class ClaudeHookSessionStore {
             terminalTurnIds.removeFirst(terminalTurnIds.count - Self.maxRememberedTerminalPromptTurnIds)
         }
         record.terminalPromptTurnIds = terminalTurnIds.isEmpty ? nil : terminalTurnIds
+    }
+
+    private func appendAutoNameMessages(
+        _ messages: [AutoNamingTranscriptMessage],
+        to record: inout ClaudeHookSessionRecord
+    ) {
+        guard !messages.isEmpty else { return }
+        var recent = record.autoNameRecentMessages ?? []
+        for message in messages {
+            guard let normalized = normalizedAutoNameMessage(message) else { continue }
+            if recent.last == normalized { continue }
+            recent.append(normalized)
+        }
+        if recent.count > Self.maxAutoNameRecentMessages {
+            recent.removeFirst(recent.count - Self.maxAutoNameRecentMessages)
+        }
+        record.autoNameRecentMessages = recent.isEmpty ? nil : recent
+    }
+
+    private func normalizedAutoNameMessage(_ message: AutoNamingTranscriptMessage) -> AutoNamingTranscriptMessage? {
+        let role = message.role.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        guard role == "user" || role == "assistant" else { return nil }
+        let text = normalizedSingleLine(message.text)
+        guard !text.isEmpty else { return nil }
+        return AutoNamingTranscriptMessage(
+            role: role,
+            text: truncate(text, maxLength: Self.maxAutoNameMessageCharacters)
+        )
     }
 
     private func update(
@@ -22299,14 +22342,16 @@ struct CMUXCLI {
         }
     }
 
-    /// Spawns the detached codex auto-name pass via `sh`, backgrounded and
+    /// Spawns a detached generic-agent auto-name pass via `sh`, backgrounded and
     /// fully detached from this hook process's stdio, so the parent can exit
     /// within its sync hook budget while the naming pass runs to completion.
-    private func spawnDetachedCodexAutoName(
+    private func spawnDetachedAgentAutoName(
+        def: AgentHookDef,
         sessionId: String,
         workspaceId: String,
         surfaceId: String,
         transcriptPath: String?,
+        cwd: String?,
         env: [String: String],
         telemetry: CLISocketSentryTelemetry
     ) {
@@ -22326,17 +22371,19 @@ struct CMUXCLI {
         process.executableURL = URL(fileURLWithPath: "/bin/sh")
         process.arguments = [
             "-c",
-            "\"$0\" hooks codex auto-name --session \"$1\" --workspace \"$2\" --surface \"$3\" --transcript \"$4\" </dev/null >/dev/null 2>&1 &",
+            "\"$0\" hooks \"$1\" auto-name --session \"$2\" --workspace \"$3\" --surface \"$4\" --transcript \"$5\" --cwd \"$6\" </dev/null >/dev/null 2>&1 &",
             selfPath,
+            def.name,
             sessionId,
             workspaceId,
             surfaceId,
-            transcriptPath ?? ""
+            transcriptPath ?? "",
+            cwd ?? ""
         ]
         var spawnEnv = env
-        // Point the detached process's session store at the codex file the
-        // generic hook path uses, so throttle state lands in the same store.
-        spawnEnv["CMUX_CLAUDE_HOOK_STATE_PATH"] = agentHookStatePath(sessionStoreSuffix: "codex", env: env)
+        // Point the detached process's session store at the same file the
+        // foreground generic hook path uses, so throttle state lands together.
+        spawnEnv["CMUX_CLAUDE_HOOK_STATE_PATH"] = agentHookStatePath(sessionStoreSuffix: def.sessionStoreSuffix, env: env)
         process.environment = spawnEnv
         process.standardInput = FileHandle.nullDevice
         process.standardOutput = FileHandle.nullDevice
@@ -22344,7 +22391,7 @@ struct CMUXCLI {
         do {
             try process.run()
         } catch {
-            telemetry.breadcrumb("codex-hook.auto-name.spawn-failed")
+            telemetry.breadcrumb("\(def.name)-hook.auto-name.spawn-failed")
             return
         }
         // This waits only for the sh wrapper, which exits immediately after
@@ -22487,6 +22534,197 @@ struct CMUXCLI {
             confirmedTitle = outcome.lastTitle
             telemetry.breadcrumb("codex-hook.auto-name.rejected")
         }
+    }
+
+    /// Detached naming pass for non-Codex generic agents. The foreground hook
+    /// only spawns this after the live setting probe succeeds; this pass probes
+    /// again before doing transcript or LLM work so mid-pass toggles and manual
+    /// renames still win.
+    private func runGenericAgentAutoNameHook(
+        def: AgentHookDef,
+        commandArgs: [String],
+        client: SocketClient,
+        telemetry: CLISocketSentryTelemetry,
+        env: [String: String]
+    ) {
+        guard let source = autoNamingSource(for: def) else { return }
+        if case .codexRollout = source { return }
+        guard let sessionId = optionValue(commandArgs, name: "--session"),
+              let workspaceId = optionValue(commandArgs, name: "--workspace"),
+              let surfaceId = optionValue(commandArgs, name: "--surface") else {
+            return
+        }
+
+        guard let probe = try? client.sendV2(
+            method: "workspace.set_auto_title",
+            params: ["probe": true, "workspace_id": workspaceId]
+        ), probe["enabled"] as? Bool == true else {
+            telemetry.breadcrumb("\(def.name)-hook.auto-name.disabled")
+            return
+        }
+        guard probe["workspace_user_owned"] as? Bool != true else {
+            telemetry.breadcrumb("\(def.name)-hook.auto-name.user-owned")
+            return
+        }
+
+        let sessionStore = ClaudeHookSessionStore(processEnv: env)
+        let mapped = try? sessionStore.lookup(sessionId: sessionId)
+        guard (try? sessionStore.isCurrent(sessionId: sessionId, workspaceId: workspaceId, surfaceId: surfaceId)) ?? false else {
+            telemetry.breadcrumb("\(def.name)-hook.auto-name.stale")
+            return
+        }
+
+        let engine = AutoNamingEngine()
+        let sourceResult: (messages: [AutoNamingTranscriptMessage], lineCount: Int)? = {
+            switch source {
+            case .codexRollout:
+                return nil
+            case .grokHistory:
+                let cwd = normalizedHookValue(optionValue(commandArgs, name: "--cwd")) ?? mapped?.cwd
+                guard let sessionURL = grokSessionDirectory(cwd: cwd, sessionId: sessionId, env: env) else {
+                    return nil
+                }
+                let historyURL = sessionURL.appendingPathComponent("chat_history.jsonl", isDirectory: false)
+                guard let lines = readRecentTextFileLines(path: historyURL.path, maxBytes: 512 * 1024),
+                      !lines.isEmpty else {
+                    return nil
+                }
+                let lineCount = countTextFileLines(path: historyURL.path) ?? lines.count
+                return (engine.extractGrokMessages(fromChatHistoryLines: lines), lineCount)
+            case .hookMessageCache:
+                guard let messages = try? sessionStore.autoNamingRecentMessages(sessionId: sessionId),
+                      !messages.isEmpty else {
+                    return nil
+                }
+                return (messages, engine.hookMessageLineEquivalentCount(messages))
+            }
+        }()
+        guard let sourceResult, !sourceResult.messages.isEmpty else { return }
+
+        guard let outcome = try? sessionStore.beginAutoNaming(
+            sessionId: sessionId,
+            workspaceId: workspaceId,
+            surfaceId: surfaceId,
+            transcriptLineCount: sourceResult.lineCount,
+            now: Date(),
+            engine: engine
+        ) else { return }
+        guard case .proceed(let baseline) = outcome.decision else {
+            telemetry.breadcrumb("\(def.name)-hook.auto-name.throttled")
+            return
+        }
+
+        var confirmedTitle: String?
+        defer {
+            try? sessionStore.finishAutoNaming(
+                sessionId: sessionId,
+                appliedTitle: confirmedTitle,
+                baselineLineCount: confirmedTitle != nil ? baseline : nil,
+                now: Date()
+            )
+        }
+
+        guard let context = engine.buildContext(from: sourceResult.messages) else { return }
+        let prompt = engine.buildPrompt(currentTitle: outcome.lastTitle, context: context)
+
+        guard let rawResponse = runAutoNamingSummarizer(
+            def: def,
+            prompt: prompt,
+            env: env,
+            timeout: engine.config.llmTimeout,
+            telemetry: telemetry
+        ) else {
+            telemetry.breadcrumb("\(def.name)-hook.auto-name.llm-failed")
+            return
+        }
+
+        let sanitized = engine.sanitizeResponse(rawResponse, currentTitle: nil)
+        guard let sanitized else { return }
+        if sanitized == outcome.lastTitle {
+            confirmedTitle = sanitized
+            return
+        }
+
+        guard let payload = try? client.sendV2(method: "workspace.set_auto_title", params: [
+            "workspace_id": workspaceId,
+            "panel_id": surfaceId,
+            "panel_only_if_multiple": true,
+            "title": sanitized
+        ]) else {
+            telemetry.breadcrumb("\(def.name)-hook.auto-name.socket-failed")
+            return
+        }
+        if payload["workspace_applied"] as? Bool == true {
+            confirmedTitle = sanitized
+            telemetry.breadcrumb("\(def.name)-hook.auto-name.applied")
+        } else {
+            confirmedTitle = outcome.lastTitle
+            telemetry.breadcrumb("\(def.name)-hook.auto-name.rejected")
+        }
+    }
+
+    private func runAutoNamingSummarizer(
+        def: AgentHookDef,
+        prompt: String,
+        env: [String: String],
+        timeout: TimeInterval,
+        telemetry: CLISocketSentryTelemetry
+    ) -> String? {
+        let policy = AutoNamingEnvironmentPolicy()
+        var summarizerEnv = policy.summarizerEnvironment(from: env)
+        summarizerEnv[def.disableEnvVar] = "1"
+
+        func executable(_ name: String = def.binaryName) -> String? {
+            resolveExecutableInSearchPath(name, searchPath: env["PATH"])
+        }
+
+        let executablePath: String?
+        let arguments: [String]
+        let stdinPrompt: String
+        switch def.name {
+        case "gemini":
+            executablePath = executable("gemini")
+            arguments = ["-p", prompt]
+            stdinPrompt = ""
+        case "opencode":
+            executablePath = executable("opencode")
+            arguments = ["run", "--pure", "--format", "default", prompt]
+            stdinPrompt = ""
+        case "grok":
+            executablePath = executable("grok")
+            arguments = ["--single", prompt, "--output-format", "plain"]
+            stdinPrompt = ""
+        case "cursor":
+            executablePath = executable("cursor-agent")
+            arguments = ["--print", "--mode", "ask", "--output-format", "text", "--trust", prompt]
+            stdinPrompt = ""
+        case "antigravity":
+            executablePath = executable("agy")
+            arguments = ["--print", prompt]
+            stdinPrompt = ""
+        case "pi", "omp":
+            executablePath = executable()
+            arguments = ["--print", "--no-tools", prompt]
+            stdinPrompt = ""
+        case "kiro":
+            executablePath = executable("kiro-cli")
+            arguments = ["chat", "--no-interactive", prompt]
+            stdinPrompt = ""
+        default:
+            return nil
+        }
+
+        guard let executablePath else {
+            telemetry.breadcrumb("\(def.name)-hook.auto-name.no-binary")
+            return nil
+        }
+        return runAutoNamingSummarizer(
+            executable: executablePath,
+            arguments: arguments,
+            prompt: stdinPrompt,
+            environment: summarizerEnv,
+            timeout: timeout
+        )
     }
 
     /// Streams a text file counting newline bytes, so transcript growth is
@@ -23367,6 +23605,41 @@ struct CMUXCLI {
         } catch {
             fputs("Warning: failed to set agent lifecycle\n", stderr)
         }
+    }
+
+    private enum AgentAutoNamingSource: Equatable {
+        case codexRollout
+        case grokHistory
+        case hookMessageCache
+    }
+
+    private func autoNamingSource(for def: AgentHookDef) -> AgentAutoNamingSource? {
+        switch def.name {
+        case "codex":
+            return .codexRollout
+        case "grok":
+            return .grokHistory
+        case "opencode", "gemini", "cursor", "antigravity", "pi", "omp", "kiro":
+            return .hookMessageCache
+        default:
+            return nil
+        }
+    }
+
+    private func usesHookMessageCacheForAutoNaming(_ def: AgentHookDef) -> Bool {
+        autoNamingSource(for: def) == .hookMessageCache
+    }
+
+    private func autoNamingMessages(
+        for def: AgentHookDef,
+        parsedInput: ClaudeHookParsedInput,
+        engine: AutoNamingEngine = AutoNamingEngine()
+    ) -> [AutoNamingTranscriptMessage] {
+        guard usesHookMessageCacheForAutoNaming(def),
+              let object = parsedInput.rawObject ?? parsedInput.object else {
+            return []
+        }
+        return engine.extractHookMessages(fromPayloadObjects: [object])
     }
 
     private func runAgentHibernation(
@@ -26953,6 +27226,8 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 
 const CMUX_PLUGIN_INSTALLED_KEY = Symbol.for("cmux.session.restore.plugin.installed");
+const messageRoles = new Map();
+const sessions = new Map();
 
 function firstString(...values) {
   for (const value of values) {
@@ -26963,6 +27238,33 @@ function firstString(...values) {
 
 function eventProperties(event) {
   return (event && typeof event === "object" && event.properties) || {};
+}
+
+function normalizeText(value, max = 1000) {
+  if (typeof value !== "string") return null;
+  const normalized = value.replace(/\s+/g, " ").trim();
+  if (!normalized) return null;
+  return normalized.length > max ? `${normalized.slice(0, max - 3)}...` : normalized;
+}
+
+function sessionState(sessionId) {
+  const key = sessionId || "unknown";
+  if (!sessions.has(key)) {
+    sessions.set(key, {
+      lastUserMessage: null,
+      assistantPreamble: null,
+      cwd: null,
+    });
+  }
+  return sessions.get(key);
+}
+
+function contextForSession(sessionId) {
+  const state = sessionState(sessionId);
+  const context = {};
+  if (state.lastUserMessage) context.lastUserMessage = state.lastUserMessage;
+  if (state.assistantPreamble) context.assistantPreamble = state.assistantPreamble;
+  return Object.keys(context).length > 0 ? context : undefined;
 }
 
 function sessionIdFor(event) {
@@ -27069,6 +27371,8 @@ function sendHook(subcommand, ctx, event, extra = {}) {
   if (!sessionId) return;
 
   const cwd = cwdFor(ctx, event);
+  const state = sessionState(sessionId);
+  state.cwd = cwd || state.cwd;
   const payload = {
     session_id: sessionId,
     cwd,
@@ -27076,6 +27380,8 @@ function sendHook(subcommand, ctx, event, extra = {}) {
     hook_event_name: event && event.type,
     ...extra,
   };
+  const context = extra.context || contextForSession(sessionId);
+  if (context) payload.context = context;
   const cmux = process.env.CMUX_OPENCODE_CMUX_BIN || "cmux";
   try {
     spawnSync(cmux, ["hooks", "opencode", subcommand], {
@@ -27088,11 +27394,43 @@ function sendHook(subcommand, ctx, event, extra = {}) {
   } catch (_) {}
 }
 
+function trackMessage(event) {
+  const props = eventProperties(event);
+  if (event && event.type === "message.updated") {
+    const info = props.info || props.message || {};
+    const messageId = info.id || props.messageID;
+    const sessionId = info.sessionID || props.sessionID;
+    const role = info.role || props.role;
+    if (messageId && sessionId && role) {
+      messageRoles.set(messageId, { sessionId, role });
+      if (messageRoles.size > 300) {
+        messageRoles.delete(messageRoles.keys().next().value);
+      }
+    }
+    return;
+  }
+
+  if (!event || event.type !== "message.part.updated") return;
+  const part = props.part || {};
+  if (part.type !== "text" || !part.messageID) return;
+  const meta = messageRoles.get(part.messageID);
+  if (!meta) return;
+  const text = normalizeText(part.text || part.textDelta || part.content);
+  if (!text) return;
+  const state = sessionState(meta.sessionId);
+  if (meta.role === "user") {
+    state.lastUserMessage = text;
+  } else if (meta.role === "assistant") {
+    state.assistantPreamble = text;
+  }
+}
+
 const CMUXSessionRestore = async (ctx) => {
   if (globalThis[CMUX_PLUGIN_INSTALLED_KEY]) return {};
   globalThis[CMUX_PLUGIN_INSTALLED_KEY] = true;
   return {
     event: async ({ event }) => {
+      trackMessage(event);
       const props = eventProperties(event);
       switch (event && event.type) {
         case "session.created":
@@ -29105,16 +29443,26 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
             return
         }
 
-        if def.name == "codex", subcommand == "auto-name" {
+        if subcommand == "auto-name", autoNamingSource(for: def) != nil {
             // Detached re-invocation spawned from the codex Stop hook (see
-            // spawnDetachedCodexAutoName): runs the full naming pass without
+            // spawnDetachedAgentAutoName): runs the full naming pass without
             // blocking the short sync hook budget.
-            runCodexAutoNameHook(
-                commandArgs: hookArgs,
-                client: client,
-                telemetry: telemetry,
-                env: env
-            )
+            if def.name == "codex" {
+                runCodexAutoNameHook(
+                    commandArgs: hookArgs,
+                    client: client,
+                    telemetry: telemetry,
+                    env: env
+                )
+            } else {
+                runGenericAgentAutoNameHook(
+                    def: def,
+                    commandArgs: hookArgs,
+                    client: client,
+                    telemetry: telemetry,
+                    env: env
+                )
+            }
             print("OK")
             return
         }
@@ -29589,7 +29937,8 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                     terminalActivePromptTurnIds: terminalActivePromptTurnIds,
                     pid: pid,
                     launchCommand: launchCommand,
-                    agentLifecycle: .running
+                    agentLifecycle: .running,
+                    autoNameMessages: autoNamingMessages(for: def, parsedInput: input)
                 )) ?? false
             } else {
                 nestedPromptSubmit = false
@@ -29840,7 +30189,8 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                     launchCommand: launchCommand,
                     agentLifecycle: lifecycleAfterStop,
                     lastSubtitle: nil,
-                    lastBody: nil
+                    lastBody: nil,
+                    autoNameMessages: autoNamingMessages(for: def, parsedInput: input)
                 )) ?? false
             } else {
                 nestedPromptStop = false
@@ -29993,22 +30343,24 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                 }
             }
 
-            // Opt-in auto-naming for Codex sessions: a detached pass so the
+            // Opt-in auto-naming for generic-agent sessions: a detached pass so the
             // summarization subprocess never blocks this short sync hook.
             // Gate the fork on the live setting (one cheap socket probe) so a
             // disabled feature spawns nothing extra on turn end; the detached
             // process re-probes to honor a toggle that lands mid-pass.
-            if def.name == "codex", !suppressVisibleMutations, !sessionId.isEmpty,
+            if autoNamingSource(for: def) != nil, !suppressVisibleMutations, !sessionId.isEmpty,
                let autoNameProbe = try? client.sendV2(
                    method: "workspace.set_auto_title",
                    params: ["probe": true]
                ),
                autoNameProbe["enabled"] as? Bool == true {
-                spawnDetachedCodexAutoName(
+                spawnDetachedAgentAutoName(
+                    def: def,
                     sessionId: sessionId,
                     workspaceId: workspaceId,
                     surfaceId: surfaceId,
                     transcriptPath: normalizedHookValue(input.transcriptPath ?? mapped?.transcriptPath),
+                    cwd: cwd,
                     env: env,
                     telemetry: telemetry
                 )
@@ -30211,7 +30563,8 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                         lastNotificationStatus: summary.status,
                         updateLastNotificationStatus: true,
                         runtimeStatus: runtimeStatus(for: summary.status),
-                        updateRuntimeStatus: true
+                        updateRuntimeStatus: true,
+                        autoNameMessages: autoNamingMessages(for: def, parsedInput: input)
                     )
                 } else {
                     try? store.upsert(
@@ -30338,7 +30691,8 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                         pid: mapped.pid,
                         launchCommand: mapped.launchCommand,
                         lastSubtitle: nil,
-                        lastBody: nil
+                        lastBody: nil,
+                        autoNameMessages: autoNamingMessages(for: def, parsedInput: input)
                     )
                 }
 #if DEBUG

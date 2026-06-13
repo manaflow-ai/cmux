@@ -262,9 +262,9 @@ public struct AutomationSection: View {
                     .accessibilityIdentifier("SettingsWorkspaceAutoNamingToggle")
             }
             SettingsCardDivider()
-            SettingsCardNote(String(localized: "settings.automation.workspaceAutoNaming.note", defaultValue: "When enabled, cmux summarizes agent sessions into short workspace and tab names using your own agent binary (claude or codex), refreshed as the topic shifts. Manual renames always win and stop auto-naming for that workspace or tab. Uses your agent account for the short summarization calls."))
+            SettingsCardNote(String(localized: "settings.automation.workspaceAutoNaming.note", defaultValue: "When enabled, cmux summarizes supported agent sessions into short workspace and tab names using each agent's own binary, refreshed as the topic shifts. Manual renames always win and stop auto-naming for that workspace or tab. Uses your agent account for the short summarization calls."))
             if !claudeCodeModel.current {
-                Text(String(localized: "settings.automation.workspaceAutoNaming.hooksOffWarning", defaultValue: "Claude Code Integration is off, so Claude sessions will not be auto-named. Codex sessions still name when Codex hooks are installed (cmux hooks setup codex)."))
+                Text(String(localized: "settings.automation.workspaceAutoNaming.hooksOffWarning", defaultValue: "Claude Code Integration is off, so Claude sessions will not be auto-named. Other supported agents still name when their cmux hooks are installed."))
                     .font(.caption)
                     .foregroundStyle(.secondary)
                     .padding(.horizontal, 14)

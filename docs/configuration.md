@@ -69,7 +69,7 @@ Enable it from the command palette (`⌘⇧P` -> Enable Agent Hibernation), from
 
 ## `automation.workspaceAutoNaming`
 
-Opt-in AI auto-naming of workspaces and tabs from agent conversation content. When enabled, cmux summarizes Claude Code and Codex sessions into short sidebar and tab names using your own agent binary, and refreshes them as the conversation topic shifts. See [workspace-auto-naming.md](workspace-auto-naming.md) for the full behavior.
+Opt-in AI auto-naming of workspaces and tabs from agent conversation content. When enabled, cmux summarizes supported agent sessions into short sidebar and tab names using each agent's own binary, and refreshes them as the conversation topic shifts. See [workspace-auto-naming.md](workspace-auto-naming.md) for the supported adapter list and full behavior.
 
 ```json
 {

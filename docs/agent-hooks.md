@@ -51,7 +51,7 @@ Grok uses its `Notification` hook for user-facing completion messages. cmux reco
 
 ## Workspace auto-naming
 
-When the opt-in `automation.workspaceAutoNaming` setting is enabled, turn-end hooks also drive AI naming of workspaces and tabs: the Claude wrapper registers an async `Stop` entry (`cmux hooks claude auto-name`), and the Codex `Stop` hook spawns a detached equivalent. Both gate on the live setting over the socket, reuse the session store above for throttle state, and never overwrite a name the user set. See [workspace-auto-naming.md](workspace-auto-naming.md).
+When the opt-in `automation.workspaceAutoNaming` setting is enabled, turn-end hooks also drive AI naming of workspaces and tabs. Supported adapters are Claude Code, Codex, Grok, OpenCode, Gemini, Cursor, Antigravity, Pi, OMP, and Kiro; each adapter gates on the live setting over the socket, reuses the session store above for throttle state, summarizes with that agent's own CLI, and never overwrites a name the user set. Amp, Rovo Dev, Hermes Agent, Copilot, CodeBuddy, Factory, and Qoder are skipped until they have both a verified conversation source and a cheap non-interactive summarizer runner. See [workspace-auto-naming.md](workspace-auto-naming.md).
 
 ## Agent Hibernation
 
