@@ -5,6 +5,7 @@ import CmuxTerminalEngine
 import CmuxTerminalServices
 import CmuxTerminalCopyMode
 import CmuxSocketControl
+import CmuxWorkspaceWindow
 import SwiftUI
 import AppKit
 import Metal
@@ -142,58 +143,12 @@ enum GhosttyStartupAppearancePreviewState {
     static var profile: GhosttyStartupAppearancePreviewProfile = .realUserConfig
 }
 
-#if os(macOS)
-func cmuxShouldApplyWindowGlass(
-    sidebarBlendMode: String,
-    bgGlassEnabled: Bool,
-    glassEffectAvailable _: Bool
-) -> Bool {
-    // Native NSGlassEffectView vs NSVisualEffectView fallback is chosen inside
-    // WindowGlassEffect.apply. User settings alone decide whether glass is on.
-    sidebarBlendMode == "behindWindow" && bgGlassEnabled
-}
-
-func cmuxShouldUseTransparentBackgroundWindow() -> Bool {
-    let defaults = UserDefaults.standard
-    let sidebarBlendMode = defaults.string(forKey: "sidebarBlendMode") ?? "withinWindow"
-    let bgGlassEnabled = defaults.object(forKey: "bgGlassEnabled") as? Bool ?? false
-    return cmuxShouldApplyWindowGlass(
-        sidebarBlendMode: sidebarBlendMode,
-        bgGlassEnabled: bgGlassEnabled,
-        glassEffectAvailable: WindowGlassEffect.isAvailable
-    )
-}
-
-func cmuxShouldUseClearWindowBackground(for opacity: Double, usesGhosttyGlassStyle: Bool = false) -> Bool {
-    cmuxShouldUseTransparentBackgroundWindow() || usesGhosttyGlassStyle || opacity < 0.999
-}
-
-@_silgen_name("CGSDefaultConnectionForThread")
-private func cmuxCGSDefaultConnectionForThread() -> UnsafeMutableRawPointer?
-
-@_silgen_name("CGSSetWindowBackgroundBlurRadius")
-@discardableResult
-private func cmuxCGSSetWindowBackgroundBlurRadius(
-    _ connection: UnsafeMutableRawPointer?,
-    _ windowNumber: UInt,
-    _ radius: Int32
-) -> Int32
-
-func cmuxResetCompositorBackgroundBlur(on window: NSWindow) {
-    _ = cmuxCGSSetWindowBackgroundBlurRadius(
-        cmuxCGSDefaultConnectionForThread(),
-        UInt(window.windowNumber),
-        0
-    )
-}
-
-func cmuxTransparentWindowBaseColor() -> NSColor {
-    // A tiny non-zero alpha matches Ghostty's window compositing behavior on macOS and
-    // avoids visual artifacts that can happen with a fully clear window background.
-    NSColor.white.withAlphaComponent(0.001)
-}
-
-#endif
+// Window-background policy (cmuxShouldApplyWindowGlass /
+// cmuxShouldUseTransparentBackgroundWindow / cmuxShouldUseClearWindowBackground
+// / cmuxTransparentWindowBaseColor) and the compositor-blur CGS shims
+// (cmuxResetCompositorBackgroundBlur) moved to CmuxWorkspaceWindow as
+// WindowBackgroundPolicy + CompositorBlurController. The transitional
+// process-wide instances live in WindowBackgroundComposition (app target).
 
 private func cmuxRuntimeReadClipboardCallback(
     _ userdata: UnsafeMutableRawPointer?,

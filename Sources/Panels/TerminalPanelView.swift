@@ -264,7 +264,11 @@ struct PanelAppearance {
     }
 
     static func fromConfig(_ config: GhosttyConfig) -> PanelAppearance {
-        fromConfig(config, usesTransparentWindow: cmuxShouldUseTransparentBackgroundWindow())
+        fromConfig(
+            config,
+            usesTransparentWindow: WindowBackgroundComposition.policy
+                .shouldUseTransparentBackgroundWindow(glassEffectAvailable: WindowGlassEffect.isAvailable)
+        )
     }
 
     static func fromConfig(_ config: GhosttyConfig, usesTransparentWindow: Bool) -> PanelAppearance {

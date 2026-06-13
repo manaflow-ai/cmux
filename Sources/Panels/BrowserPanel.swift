@@ -5385,7 +5385,8 @@ final class BrowserPanel: Panel, ObservableObject {
             usesTransparentBackground: usesTransparentBackground,
             opacity: GhosttyApp.shared.defaultBackgroundOpacity,
             usesGhosttyGlassStyle: GhosttyApp.shared.defaultBackgroundBlur.isMacOSGlassStyle,
-            usesTransparentWindow: cmuxShouldUseTransparentBackgroundWindow()
+            usesTransparentWindow: WindowBackgroundComposition.policy
+                .shouldUseTransparentBackgroundWindow(glassEffectAvailable: WindowGlassEffect.isAvailable)
         )
     }
 

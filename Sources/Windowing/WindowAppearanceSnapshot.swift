@@ -286,7 +286,7 @@ struct WindowGlassSettingsSnapshot {
         if terminalBackgroundBlur.isMacOSGlassStyle {
             return true
         }
-        return cmuxShouldApplyWindowGlass(
+        return WindowBackgroundComposition.policy.shouldApplyWindowGlass(
             sidebarBlendMode: sidebarBlendModeRawValue,
             bgGlassEnabled: isEnabled,
             glassEffectAvailable: glassEffectAvailable
