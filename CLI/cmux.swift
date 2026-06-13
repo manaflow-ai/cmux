@@ -23050,11 +23050,11 @@ struct CMUXCLI {
                 terminalBindingCache: &terminalBindingCache,
                 client: client
             ),
-               let boundWorkspaceId = resolveClaudeHookWorkspaceId(binding.workspaceId, client: client),
-               resolvedFallback.map({ $0 != boundWorkspaceId }) ?? true {
+               let boundWorkspaceId = resolveClaudeHookWorkspaceId(binding.workspaceId, client: client) {
                 return boundWorkspaceId
             }
-            if let resolvedFallback {
+            if let resolvedFallback,
+               claudeHookWorkspaceIsAccessible(resolvedFallback, client: client) {
                 return resolvedFallback
             }
             return try resolveWorkspaceIdForClaudeHook(fallback, client: client)
@@ -23175,6 +23175,10 @@ struct CMUXCLI {
             return nil
         }
         return candidate
+    }
+
+    private func claudeHookWorkspaceIsAccessible(_ workspaceId: String, client: SocketClient) -> Bool {
+        (try? client.sendV2(method: "surface.list", params: ["workspace_id": workspaceId])) != nil
     }
 
     private struct ClaudeHookTerminalBindingCache {

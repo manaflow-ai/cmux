@@ -590,6 +590,77 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         )
     }
 
+    func testClaudePromptSubmitValidatesStaleAmbientWorkspaceWithoutBinding() throws {
+        let context = try makeClaudeHookContext(name: "claude-stale-workspace-no-binding")
+        defer { context.cleanup() }
+
+        let staleWorkspaceId = "44444444-4444-4444-4444-444444444444"
+        let serverHandled = startMockServer(listenerFD: context.listenerFD, state: context.state) { line in
+            guard let payload = self.jsonObject(line) else {
+                return "OK"
+            }
+            guard let id = payload["id"] as? String, let method = payload["method"] as? String else {
+                return self.malformedRequestResponse(id: payload["id"] as? String, raw: line)
+            }
+            switch method {
+            case "surface.list":
+                let params = payload["params"] as? [String: Any] ?? [:]
+                if params["workspace_id"] as? String == staleWorkspaceId {
+                    return self.v2Response(
+                        id: id,
+                        ok: false,
+                        error: ["code": "workspace_not_found", "message": "workspace not found"]
+                    )
+                }
+                return self.surfaceListResponse(id: id, surfaceId: context.surfaceId)
+            case "workspace.current":
+                return self.v2Response(id: id, ok: true, result: ["workspace_id": context.workspaceId])
+            case "feed.push":
+                return self.v2Response(id: id, ok: true, result: [:])
+            case "surface.resume.set":
+                return self.v2Response(id: id, ok: true, result: ["resume_binding": [:]])
+            default:
+                return self.v2Response(id: id, ok: false, error: ["code": "unrecognized_method", "message": "unexpected method: \(method)"])
+            }
+        }
+
+        let environment = [
+            "HOME": context.root.path,
+            "PATH": "/usr/bin:/bin:/usr/sbin:/sbin",
+            "CMUX_SOCKET_PATH": context.socketPath,
+            "CMUX_WORKSPACE_ID": staleWorkspaceId,
+            "CMUX_SURFACE_ID": context.surfaceId,
+            "CMUX_CLAUDE_HOOK_STATE_PATH": context.root.appendingPathComponent("claude-hook-sessions.json").path,
+            "CMUX_CLI_SENTRY_DISABLED": "1",
+            "CMUX_CLAUDE_HOOK_SENTRY_DISABLED": "1",
+        ]
+        let result = runProcess(
+            executablePath: context.cliPath,
+            arguments: ["hooks", "claude", "prompt-submit"],
+            environment: environment,
+            standardInput: #"{"session_id":"stale-workspace-session","turn_id":"turn-1","cwd":"\#(context.root.path)","hook_event_name":"UserPromptSubmit","prompt":"run"}"#,
+            timeout: 5
+        )
+
+        wait(for: [serverHandled], timeout: 5)
+        XCTAssertFalse(result.timedOut, result.stderr)
+        XCTAssertEqual(result.status, 0, result.stderr)
+        XCTAssertTrue(
+            context.state.commands.contains {
+                $0.hasPrefix("set_status claude_code Running --icon=bolt.fill --color=#4C8DFF --tab=\(context.workspaceId)")
+                    && $0.contains("--panel=\(context.surfaceId)")
+            },
+            "Expected stale ambient workspace to fall back to the app-selected workspace, saw \(context.state.commands)"
+        )
+        XCTAssertFalse(
+            context.state.commands.contains {
+                ($0.hasPrefix("set_status claude_code Running ") || $0.hasPrefix("set_agent_pid claude_code "))
+                    && $0.contains("--tab=\(staleWorkspaceId)")
+            },
+            "Stale ambient CMUX_WORKSPACE_ID must not receive Claude visible state without a terminal/PID binding, saw \(context.state.commands)"
+        )
+    }
+
     // MARK: - Forked conversation restore (https://github.com/manaflow-ai/cmux/issues/5908)
     //
     // `claude --resume <parent> --fork-session` fires SessionStart with the PARENT
