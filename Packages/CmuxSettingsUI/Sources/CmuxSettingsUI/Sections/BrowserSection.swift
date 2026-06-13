@@ -31,6 +31,7 @@ public struct BrowserSection: View {
     @State private var httpAllowlist: DefaultsValueModel<String>
     @State private var importHint: DefaultsValueModel<Bool>
     @State private var reactGrab: DefaultsValueModel<String>
+    @State private var autoFocusMode: DefaultsValueModel<Bool>
 
     @State private var confirmClearHistory: Bool = false
     @State private var httpAllowlistDraft: String = ""
@@ -61,6 +62,7 @@ public struct BrowserSection: View {
         _httpAllowlist = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.browser.insecureHttpHostsAllowedInEmbeddedBrowser))
         _importHint = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.browser.showImportHintOnBlankTabs))
         _reactGrab = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.browser.reactGrabVersion))
+        _autoFocusMode = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.browser.autoFocusMode))
     }
 
     private static let columnWidth: CGFloat = 196
@@ -170,6 +172,20 @@ public struct BrowserSection: View {
                 }
                 .labelsHidden()
                 .pickerStyle(.menu)
+            }
+            SettingsCardDivider()
+
+            // Auto Focus Mode
+            SettingsCardRow(
+                configurationReview: .json("browser.autoFocusMode"),
+                searchAnchorID: "setting:browser:auto-focus-mode",
+                String(localized: "settings.browser.autoFocusMode", defaultValue: "Auto Focus Mode"),
+                subtitle: String(localized: "settings.browser.autoFocusMode.subtitle", defaultValue: "When on, entering a browser pane automatically enables Browser Focus Mode so Cmd-shortcuts reach the page instead of cmux.")
+            ) {
+                Toggle("", isOn: Binding(get: { autoFocusMode.current }, set: { autoFocusMode.set($0) }))
+                    .labelsHidden()
+                    .controlSize(.small)
+                    .accessibilityIdentifier("SettingsBrowserAutoFocusModeToggle")
             }
             SettingsCardDivider()
 

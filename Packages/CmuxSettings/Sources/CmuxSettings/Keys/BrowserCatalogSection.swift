@@ -86,6 +86,12 @@ public struct BrowserCatalogSection: SettingCatalogSection {
         userDefaultsKey: "reactGrabVersion"
     )
 
+    public let autoFocusMode = DefaultsKey<Bool>(
+        id: "browser.autoFocusMode",
+        defaultValue: false,
+        userDefaultsKey: "browserAutoFocusModeEnabled"
+    )
+
     /// Stored under `browserDisabledOverride` — the key the runtime
     /// gate `BrowserAvailabilitySettings.isDisabled()` actually reads.
     /// (The intuitive `browserDisabled` is read by nothing, so the

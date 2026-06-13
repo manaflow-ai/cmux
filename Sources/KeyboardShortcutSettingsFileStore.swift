@@ -1041,6 +1041,9 @@ final class CmuxSettingsFileStore {
         if let raw = jsonString(section["reactGrabVersion"]) {
             snapshot.managedUserDefaults[ReactGrabSettings.versionKey] = .string(raw)
         }
+        if let value = jsonBool(section["autoFocusMode"]) {
+            snapshot.managedUserDefaults[BrowserAutoFocusModeSettings.enabledKey] = .bool(value)
+        }
     }
 
     private func parseWorkspaceGroupsSection(
