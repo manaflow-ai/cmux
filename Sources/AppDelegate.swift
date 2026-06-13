@@ -1,6 +1,7 @@
 import AppKit
 import CmuxAuthRuntime
 import CmuxControlSocket
+import CmuxIPCService
 import CmuxSettings
 import CmuxSettingsUI
 import CmuxSocketControl
@@ -17,44 +18,6 @@ import Combine
 import ObjectiveC.runtime
 import Darwin
 import CmuxFoundation
-
-private struct MultiWindowRouteCLIResult {
-    let status: String
-    let stdout: String
-    let stderr: String
-}
-
-private func runMultiWindowRouteCLI(
-    cliURL: URL,
-    socketPath: String,
-    processEnv: [String: String],
-    arguments: [String]
-) -> MultiWindowRouteCLIResult {
-    let process = Process()
-    process.executableURL = cliURL
-    process.arguments = ["--socket", socketPath] + arguments
-    process.environment = processEnv
-
-    let stdoutPipe = Pipe()
-    let stderrPipe = Pipe()
-    process.standardOutput = stdoutPipe
-    process.standardError = stderrPipe
-
-    do {
-        try process.run()
-    } catch {
-        return MultiWindowRouteCLIResult(status: "-1", stdout: "", stderr: String(describing: error))
-    }
-    process.waitUntilExit()
-
-    let stdoutData = ProcessPipeReader.readDataToEndOfFileOrEmpty(from: stdoutPipe.fileHandleForReading)
-    let stderrData = ProcessPipeReader.readDataToEndOfFileOrEmpty(from: stderrPipe.fileHandleForReading)
-    return MultiWindowRouteCLIResult(
-        status: String(process.terminationStatus),
-        stdout: String(data: stdoutData, encoding: .utf8) ?? "",
-        stderr: String(data: stderrData, encoding: .utf8) ?? ""
-    )
-}
 
 /// Caches `AXWindows` responses so repeated AX polls can reuse the same
 /// snapshot while the app window graph is unchanged. Only `.windows` is
@@ -11651,11 +11614,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             return
         }
 
-        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
-            let create = runMultiWindowRouteCLI(
-                cliURL: cliURL,
-                socketPath: socketPath,
-                processEnv: processEnv,
+        let router = MultiWindowRouter(
+            cliURL: cliURL,
+            socketPath: socketPath,
+            environment: processEnv
+        )
+        // Inherits MainActor; each await runs the CLI off-main and the final
+        // write lands back on main, matching the legacy queue hops.
+        Task(priority: .userInitiated) { [weak self] in
+            let create = await router.routeCapturingLaunchFailure(
                 arguments: [
                     "new-workspace",
                     "--window",
@@ -11666,10 +11633,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                     "false",
                 ]
             )
-            let window2List = runMultiWindowRouteCLI(
-                cliURL: cliURL,
-                socketPath: socketPath,
-                processEnv: processEnv,
+            let window2List = await router.routeCapturingLaunchFailure(
                 arguments: [
                     "--json",
                     "--id-format",
@@ -11679,10 +11643,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                     window2Id.uuidString,
                 ]
             )
-            let window1List = runMultiWindowRouteCLI(
-                cliURL: cliURL,
-                socketPath: socketPath,
-                processEnv: processEnv,
+            let window1List = await router.routeCapturingLaunchFailure(
                 arguments: [
                     "--json",
                     "--id-format",
@@ -11693,20 +11654,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 ]
             )
 
-            DispatchQueue.main.async {
-                self?.writeMultiWindowNotificationTestData([
-                    "windowRouteStatus": "1",
-                    "windowRouteCreateStatus": create.status,
-                    "windowRouteCreateStdout": create.stdout,
-                    "windowRouteCreateStderr": create.stderr,
-                    "windowRouteWindow2Status": window2List.status,
-                    "windowRouteWindow2Stdout": window2List.stdout,
-                    "windowRouteWindow2Stderr": window2List.stderr,
-                    "windowRouteWindow1Status": window1List.status,
-                    "windowRouteWindow1Stdout": window1List.stdout,
-                    "windowRouteWindow1Stderr": window1List.stderr,
-                ], at: path)
-            }
+            self?.writeMultiWindowNotificationTestData([
+                "windowRouteStatus": "1",
+                "windowRouteCreateStatus": String(create.terminationStatus),
+                "windowRouteCreateStdout": create.stdout,
+                "windowRouteCreateStderr": create.stderr,
+                "windowRouteWindow2Status": String(window2List.terminationStatus),
+                "windowRouteWindow2Stdout": window2List.stdout,
+                "windowRouteWindow2Stderr": window2List.stderr,
+                "windowRouteWindow1Status": String(window1List.terminationStatus),
+                "windowRouteWindow1Stdout": window1List.stdout,
+                "windowRouteWindow1Stderr": window1List.stderr,
+            ], at: path)
         }
     }
 
