@@ -17802,13 +17802,9 @@ extension AppDelegate: UpdateActionDelegate, UpdateActionsHost {
 extension AppDelegate {
     /// A connected display, surfaced by the `window.displays` control command and
     /// the `cmux window display --list` CLI so callers can discover screen names.
-    struct DisplayInfo {
-        let name: String
-        let index: Int
-        let displayID: UInt32?
-        let isMain: Bool
-        let frame: NSRect
-    }
+    /// Lifted to ``CmuxWindowing/DisplayInfo``; aliased so existing
+    /// `AppDelegate.DisplayInfo` references stay source-identical.
+    typealias DisplayInfo = CmuxWindowing.DisplayInfo
 
     /// All currently-connected displays, in `NSScreen.screens` order.
     func availableDisplays() -> [DisplayInfo] {
