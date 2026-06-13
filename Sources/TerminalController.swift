@@ -14241,9 +14241,15 @@ class TerminalController {
 
     /// Handle `terminal.paste_image`: a paired client (the iOS app) forwards an
     /// image it pasted as base64 bytes. We materialize it to a temp file on the
-    /// Mac and inject the shell-escaped path as terminal input, exactly the way a
-    /// local clipboard-image paste does, so the running TUI (e.g. Claude Code)
-    /// attaches the image from the path.
+    /// Mac and inject the shell-escaped path through Ghostty's paste path, exactly
+    /// the way a local clipboard-image paste or file drop does, so the running TUI
+    /// (e.g. Claude Code) recognizes the pasted image file path and attaches it as
+    /// `[Image #N]`.
+    ///
+    /// The delivery route matters: the path must arrive as a bracketed paste so
+    /// the prompt's paste handler runs its image-path detection. Feeding it as
+    /// typed text (the old `sendInputResult` route) skips bracketed paste, so the
+    /// path lands as a literal string and the image is never attached.
     private func v2MobileTerminalPasteImage(params: [String: Any]) -> V2CallResult {
         guard let base64 = v2RawString(params, "image_base64"),
               let imageData = Data(base64Encoded: base64), !imageData.isEmpty else {
@@ -14268,7 +14274,7 @@ class TerminalController {
             return .err(code: "invalid_params", message: "Image payload was empty or exceeded the size limit", data: nil)
         }
 
-        let sendResult = terminalPanel.surface.sendInputResult(escapedPath)
+        let sendResult = terminalPanel.surface.sendTextResult(escapedPath)
         switch sendResult {
         case .sent:
             terminalPanel.surface.forceRefresh(reason: "mobileHost.terminalPasteImage")
