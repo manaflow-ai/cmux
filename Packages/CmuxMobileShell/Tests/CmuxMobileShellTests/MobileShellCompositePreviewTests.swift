@@ -64,6 +64,242 @@ import Testing
         #expect(store.workspaceGroups.isEmpty)
     }
 
+    @Test func collapsedGroupSelectionMovesHiddenMemberToAnchor() {
+        let store = MobileShellComposite(
+            workspaces: groupSelectionWorkspaces(),
+            draftStore: InMemoryTerminalDraftStore()
+        )
+        store.workspaceGroups = [
+            MobileWorkspaceGroupPreview(
+                id: "group-1",
+                name: "Feature",
+                isCollapsed: true,
+                isPinned: false,
+                anchorWorkspaceID: "workspace-anchor"
+            )
+        ]
+        store.selectedWorkspaceID = "workspace-child"
+        store.selectedTerminalID = "terminal-child"
+
+        store.reconcileSelectedWorkspaceWithVisibleGroupState()
+
+        #expect(store.selectedWorkspaceID == "workspace-anchor")
+        #expect(store.selectedTerminalID == "terminal-anchor")
+    }
+
+    @Test func expandedGroupSelectionKeepsMemberSelected() {
+        let store = MobileShellComposite(
+            workspaces: groupSelectionWorkspaces(),
+            draftStore: InMemoryTerminalDraftStore()
+        )
+        store.workspaceGroups = [
+            MobileWorkspaceGroupPreview(
+                id: "group-1",
+                name: "Feature",
+                isCollapsed: false,
+                isPinned: false,
+                anchorWorkspaceID: "workspace-anchor"
+            )
+        ]
+        store.selectedWorkspaceID = "workspace-child"
+        store.selectedTerminalID = "terminal-child"
+
+        store.reconcileSelectedWorkspaceWithVisibleGroupState()
+
+        #expect(store.selectedWorkspaceID == "workspace-child")
+        #expect(store.selectedTerminalID == "terminal-child")
+    }
+
+    @Test func createWorkspaceInGroupAddsGroupedWorkspaceAndExpandsGroup() {
+        let store = MobileShellComposite(
+            workspaces: groupSelectionWorkspaces(),
+            draftStore: InMemoryTerminalDraftStore()
+        )
+        store.workspaceGroups = [
+            MobileWorkspaceGroupPreview(
+                id: "group-1",
+                name: "Feature",
+                isCollapsed: true,
+                isPinned: false,
+                anchorWorkspaceID: "workspace-anchor"
+            )
+        ]
+
+        store.createWorkspace(inGroup: "group-1")
+
+        let created = store.workspaces.last
+        #expect(created?.groupID == "group-1")
+        #expect(store.workspaceGroups.first?.isCollapsed == false)
+        #expect(store.selectedWorkspaceID == created?.id)
+        #expect(store.selectedTerminalID == created?.terminals.first?.id)
+    }
+
+    @Test func scopedGroupWorkspaceResponsePreservesOtherWindows() throws {
+        let store = MobileShellComposite(
+            workspaces: [
+                testWorkspace("workspace-anchor", windowID: "window-group", name: "Feature", groupID: "group-1", terminal: "terminal-anchor"),
+                testWorkspace("workspace-child", windowID: "window-group", name: "Implementation", groupID: "group-1", terminal: "terminal-child"),
+                testWorkspace("workspace-bottom", windowID: "window-group", name: "Bottom", terminal: "terminal-bottom"),
+                testWorkspace("workspace-stale-anchor", windowID: "window-group", name: "Stale", groupID: "group-stale", terminal: "terminal-stale"),
+                testWorkspace("workspace-other-window", windowID: "window-other", name: "Other window", groupID: "group-other", terminal: "terminal-other"),
+            ],
+            draftStore: InMemoryTerminalDraftStore()
+        )
+        store.workspaceGroups = [
+            MobileWorkspaceGroupPreview(
+                id: "group-1",
+                name: "Feature",
+                isCollapsed: true,
+                isPinned: false,
+                anchorWorkspaceID: "workspace-anchor"
+            ),
+            MobileWorkspaceGroupPreview(
+                id: "group-stale",
+                name: "Stale",
+                isCollapsed: false,
+                isPinned: false,
+                anchorWorkspaceID: "workspace-stale-anchor"
+            ),
+            MobileWorkspaceGroupPreview(
+                id: "group-other",
+                name: "Other window group",
+                isCollapsed: false,
+                isPinned: false,
+                anchorWorkspaceID: "workspace-other-window"
+            ),
+        ]
+
+        let response = try mobileWorkspaceListResponse(
+            """
+            {
+              "created_workspace_id": "workspace-created",
+              "workspaces": [
+                {
+                  "id": "workspace-anchor",
+                  "window_id": "window-group",
+                  "title": "Feature",
+                  "current_directory": null,
+                  "is_selected": false,
+                  "is_pinned": false,
+                  "group_id": "group-1",
+                  "terminals": [
+                    {
+                      "id": "terminal-anchor",
+                      "title": "anchor",
+                      "current_directory": null,
+                      "is_focused": true,
+                      "is_ready": true
+                    }
+                  ]
+                },
+                {
+                  "id": "workspace-created",
+                  "window_id": "window-group",
+                  "title": "New workspace",
+                  "current_directory": null,
+                  "is_selected": true,
+                  "is_pinned": false,
+                  "group_id": "group-1",
+                  "terminals": [
+                    {
+                      "id": "terminal-created",
+                      "title": "terminal",
+                      "current_directory": null,
+                      "is_focused": true,
+                      "is_ready": true
+                    }
+                  ]
+                },
+                {
+                  "id": "workspace-child",
+                  "window_id": "window-group",
+                  "title": "Implementation",
+                  "current_directory": null,
+                  "is_selected": false,
+                  "is_pinned": false,
+                  "group_id": "group-1",
+                  "terminals": [
+                    {
+                      "id": "terminal-child",
+                      "title": "child",
+                      "current_directory": null,
+                      "is_focused": true,
+                      "is_ready": true
+                    }
+                  ]
+                },
+                {
+                  "id": "workspace-bottom",
+                  "window_id": "window-group",
+                  "title": "Bottom",
+                  "current_directory": null,
+                  "is_selected": false,
+                  "is_pinned": false,
+                  "group_id": null,
+                  "terminals": [
+                    {
+                      "id": "terminal-bottom",
+                      "title": "bottom",
+                      "current_directory": null,
+                      "is_focused": true,
+                      "is_ready": true
+                    }
+                  ]
+                }
+              ],
+              "groups": [
+                {
+                  "id": "group-1",
+                  "name": "Feature",
+                  "is_collapsed": false,
+                  "is_pinned": false,
+                  "anchor_workspace_id": "workspace-anchor"
+                }
+              ]
+            }
+            """
+        )
+
+        store.applyRemoteWorkspaceList(
+            response,
+            mergeExistingWorkspaces: true,
+            mergeWorkspaceGroups: true
+        )
+
+        #expect(store.workspaces.map(\.id.rawValue).contains("workspace-other-window"))
+        #expect(store.workspaceGroups.map(\.id.rawValue).contains("group-other"))
+        #expect(!store.workspaceGroups.map(\.id.rawValue).contains("group-stale"))
+        #expect(store.workspaces.map(\.id.rawValue) == [
+            "workspace-anchor",
+            "workspace-created",
+            "workspace-child",
+            "workspace-bottom",
+            "workspace-other-window",
+        ])
+        let updatedGroup = try #require(store.workspaceGroups.first { $0.id == "group-1" })
+        #expect(updatedGroup.isCollapsed == false)
+        let created = try #require(store.workspaces.first { $0.id == "workspace-created" })
+        #expect(created.groupID == "group-1")
+        #expect(created.terminals.first?.id == "terminal-created")
+        let listItemIDs = MobileWorkspaceListItem.items(
+            workspaces: store.workspaces,
+            groups: store.workspaceGroups
+        ).map { item in
+            switch item {
+            case .groupHeader(let group, _):
+                "group.\(group.id.rawValue)"
+            case .workspace(let workspace, _):
+                "workspace.\(workspace.id.rawValue)"
+            }
+        }
+        #expect(listItemIDs.prefix(4) == [
+            "group.group-1",
+            "workspace.workspace-created",
+            "workspace.workspace-child",
+            "workspace.workspace-bottom",
+        ])
+    }
+
     @Test func createWorkspaceSelectsNewWorkspaceAndTerminal() {
         let store = MobileShellComposite.preview()
         store.signIn()
@@ -217,4 +453,47 @@ private func hostPortRoute(
         endpoint: .hostPort(host: host, port: port),
         priority: priority
     )
+}
+
+private func groupSelectionWorkspaces() -> [MobileWorkspacePreview] {
+    [
+        MobileWorkspacePreview(
+            id: "workspace-anchor",
+            name: "Feature",
+            groupID: "group-1",
+            terminals: [
+                MobileTerminalPreview(id: "terminal-anchor", name: "anchor")
+            ]
+        ),
+        MobileWorkspacePreview(
+            id: "workspace-child",
+            name: "Implementation",
+            groupID: "group-1",
+            terminals: [
+                MobileTerminalPreview(id: "terminal-child", name: "child")
+            ]
+        ),
+    ]
+}
+
+private func testWorkspace(
+    _ id: String,
+    windowID: String? = nil,
+    name: String,
+    groupID: String? = nil,
+    terminal: String
+) -> MobileWorkspacePreview {
+    MobileWorkspacePreview(
+        id: MobileWorkspacePreview.ID(rawValue: id),
+        windowID: windowID,
+        name: name,
+        groupID: groupID.map { MobileWorkspaceGroupPreview.ID(rawValue: $0) },
+        terminals: [
+            MobileTerminalPreview(id: MobileTerminalPreview.ID(rawValue: terminal), name: terminal)
+        ]
+    )
+}
+
+private func mobileWorkspaceListResponse(_ json: String) throws -> MobileSyncWorkspaceListResponse {
+    try MobileSyncWorkspaceListResponse.decode(Data(json.utf8))
 }

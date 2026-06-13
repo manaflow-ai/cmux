@@ -5917,6 +5917,23 @@
         }
       }
     },
+    "mobile.workspaceGroup.newWorkspaceInGroup.a11y": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "New workspace in group"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "グループ内に新しいワークスペース"
+          }
+        }
+      }
+    },
     "mobile.settings.previewLines": {
       "extractionState": "manual",
       "localizations": {

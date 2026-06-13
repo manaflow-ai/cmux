@@ -4478,18 +4478,28 @@ class TabManager: ObservableObject {
     func deleteWorkspaceGroup(groupId: UUID, recordHistory: Bool = true) -> Int {
         guard workspaceGroups.contains(where: { $0.id == groupId }) else { return 0 }
         let members = tabs.filter { $0.groupId == groupId }
+        if members.count == tabs.count {
+            // Deleting a group means deleting its members. If the group owns
+            // the whole window, close the window instead of preserving one
+            // member as an ungrouped workspace.
+            let app = AppDelegate.shared
+            let windowId = app?.windowId(for: self)
+            let windowToClose = windowId.flatMap { app?.mainWindow(for: $0) } ?? window
+            if let app, let windowId {
+                app.discardMainWindowWithoutClosedHistory(windowId: windowId)
+            } else if let windowToClose {
+                windowToClose.close()
+            }
+            var closed = 0
+            for tab in members where tabs.contains(where: { $0.id == tab.id }) {
+                closeWorkspaceAllowingLast(tab, recordHistory: recordHistory)
+                if !tabs.contains(where: { $0.id == tab.id }) { closed += 1 }
+            }
+            workspaceGroups.removeAll { $0.id == groupId }
+            return closed
+        }
         var closed = 0
         for tab in members {
-            // closeWorkspace short-circuits when tabs.count <= 1, so the last
-            // remaining workspace would be left alive with a stale groupId.
-            // Convert the holdout into a regular workspace (clear groupId)
-            // instead, and let the caller's surrounding flow decide whether
-            // to close the window. We still report it in the count of items
-            // "removed from the group" so the response is accurate.
-            if tabs.count <= 1 {
-                assignGroup(workspaceId: tab.id, groupId: nil)
-                continue
-            }
             let countBefore = tabs.count
             closeWorkspace(tab, recordHistory: recordHistory)
             if tabs.count < countBefore { closed += 1 }
@@ -5319,6 +5329,10 @@ class TabManager: ObservableObject {
 
     func closeWorkspace(_ workspace: Workspace, recordHistory: Bool = true) {
         guard tabs.count > 1 else { return }
+        closeWorkspaceAllowingLast(workspace, recordHistory: recordHistory)
+    }
+
+    private func closeWorkspaceAllowingLast(_ workspace: Workspace, recordHistory: Bool = true) {
         sentryBreadcrumb("workspace.close", data: ["tabCount": tabs.count - 1])
         if recordHistory,
            workspace.isRestorableInSessionSnapshot,
@@ -5363,6 +5377,11 @@ class TabManager: ObservableObject {
             dissolveGroupsAnchoredBy(closedWorkspaceId: workspace.id)
 
             if selectedTabId == workspace.id {
+                guard !tabs.isEmpty else {
+                    selectedTabId = nil
+                    publishCmuxWorkspaceClosed(workspace)
+                    return
+                }
                 // Keep the "focused index" stable when possible:
                 // - If we closed workspace i and there is still a workspace at index i, focus it (the one that moved up).
                 // - Otherwise (we closed the last workspace), focus the new last workspace (i-1).

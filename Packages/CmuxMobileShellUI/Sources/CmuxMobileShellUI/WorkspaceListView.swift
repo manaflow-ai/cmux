@@ -59,6 +59,10 @@ struct WorkspaceListView: View {
     /// disclosure indicator. Grouped rendering itself is gated on `groups`, not
     /// on this closure.
     var toggleGroupCollapsed: ((MobileWorkspaceGroupPreview.ID, Bool) -> Void)?
+    /// Optional: create a new workspace directly inside the tapped group. Kept
+    /// separate from the global `createWorkspace` so grouped work does not fall
+    /// out into an ungrouped row.
+    var createWorkspaceInGroup: ((MobileWorkspaceGroupPreview.ID) -> Void)? = nil
     @State private var searchText = ""
     @State private var showingShortcutsSettings = false
     @State private var showingSettings = false
@@ -91,17 +95,17 @@ struct WorkspaceListView: View {
             || workspace.terminals.contains { $0.name.localizedCaseInsensitiveContains(query) }
     }
 
-    /// Workspaces after the row filter (Unread) and search filtering, pinned
-    /// ones first (stable within each group so the Mac's order is otherwise
-    /// preserved). Used for the flat (ungrouped, filtering, or searching)
-    /// presentation.
-    private var filteredWorkspaces: [MobileWorkspacePreview] {
+    /// Drawable items after the row filter (Unread) and search filtering. Pinned
+    /// workspaces still float first, but group anchors stay group headers instead
+    /// of degrading into normal rows during search/filter mode.
+    private var filteredListItems: [MobileWorkspaceListItem] {
         let query = trimmedQuery
-        let matches = workspaces.filter { workspace in
-            filter.matches(workspace)
-                && (query.isEmpty || matchesQuery(workspace, query: query))
-        }
-        return matches.enumerated()
+        let matchedGroupIDs = Set(
+            groups
+                .filter { !query.isEmpty && $0.name.localizedCaseInsensitiveContains(query) }
+                .map(\.id)
+        )
+        let sortedWorkspaces = workspaces.enumerated()
             .sorted { lhs, rhs in
                 if lhs.element.isPinned != rhs.element.isPinned {
                     return lhs.element.isPinned
@@ -109,6 +113,21 @@ struct WorkspaceListView: View {
                 return lhs.offset < rhs.offset
             }
             .map(\.element)
+        return MobileWorkspaceListItem.filteredItems(
+            workspaces: sortedWorkspaces,
+            groups: groups,
+            includeWorkspace: { workspace in
+                filter.matches(workspace)
+                    && (
+                        query.isEmpty
+                            || matchesQuery(workspace, query: query)
+                            || workspace.groupID.map { matchedGroupIDs.contains($0) } == true
+                    )
+            },
+            includeGroup: { group in
+                !filter.isActive && !query.isEmpty && group.name.localizedCaseInsensitiveContains(query)
+            }
+        )
     }
 
     /// Ordered drawable items for the grouped presentation. Preserves the Mac's
@@ -130,7 +149,7 @@ struct WorkspaceListView: View {
             Section {
                 if rendersGroupedSections {
                     groupedRows
-                } else if filter.isActive && trimmedQuery.isEmpty && filteredWorkspaces.isEmpty && !workspaces.isEmpty {
+                } else if filter.isActive && trimmedQuery.isEmpty && filteredListItems.isEmpty && !workspaces.isEmpty {
                     // The filter alone (not the Mac, and not a search query)
                     // emptied the list; offer the way back. While searching, the
                     // standard empty search result is shown instead, since "Show
@@ -209,8 +228,25 @@ struct WorkspaceListView: View {
     /// Mac has no groups (or lacks the capability) or while searching.
     @ViewBuilder
     private var flatRows: some View {
-        ForEach(filteredWorkspaces) { workspace in
-            workspaceRow(workspace, indented: false)
+        ForEach(filteredListItems) { item in
+            switch item {
+            case .groupHeader(let group, let hasUnread):
+                WorkspaceGroupHeaderRow(
+                    group: group,
+                    hasUnread: hasUnread,
+                    navigationStyle: navigationStyle,
+                    isAnchorSelected: navigationStyle == .sidebar
+                        && selectedWorkspaceID == group.anchorWorkspaceID,
+                    selectWorkspace: selectWorkspace,
+                    toggleCollapsed: nil,
+                    createWorkspaceInGroup: nil,
+                    showsDisclosure: false
+                )
+                .listRowInsets(EdgeInsets(top: 6, leading: 12, bottom: 6, trailing: 12))
+                .listRowSeparator(.hidden)
+            case .workspace(let workspace, let indented):
+                workspaceRow(workspace, indented: indented)
+            }
         }
     }
 
@@ -228,7 +264,8 @@ struct WorkspaceListView: View {
                     isAnchorSelected: navigationStyle == .sidebar
                         && selectedWorkspaceID == group.anchorWorkspaceID,
                     selectWorkspace: selectWorkspace,
-                    toggleCollapsed: toggleGroupCollapsed
+                    toggleCollapsed: toggleGroupCollapsed,
+                    createWorkspaceInGroup: createWorkspaceInGroup
                 )
                 .listRowInsets(EdgeInsets(top: 6, leading: 12, bottom: 6, trailing: 12))
                 .listRowSeparator(.hidden)

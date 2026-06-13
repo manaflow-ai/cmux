@@ -87,7 +87,8 @@ struct WorkspaceShellView: View {
                 setPinned: setWorkspacePinnedClosure,
                 setUnread: setWorkspaceUnreadClosure,
                 closeWorkspace: closeWorkspaceClosure,
-                toggleGroupCollapsed: toggleGroupCollapsedClosure
+                toggleGroupCollapsed: toggleGroupCollapsedClosure,
+                createWorkspaceInGroup: createWorkspaceInGroupClosure
             )
             .navigationDestination(for: MobileWorkspacePreview.ID.self) { workspaceID in
                 workspaceDestination(for: workspaceID, createWorkspace: createWorkspaceInCompactStack)
@@ -147,7 +148,8 @@ struct WorkspaceShellView: View {
                 setPinned: setWorkspacePinnedClosure,
                 setUnread: setWorkspaceUnreadClosure,
                 closeWorkspace: closeWorkspaceClosure,
-                toggleGroupCollapsed: toggleGroupCollapsedClosure
+                toggleGroupCollapsed: toggleGroupCollapsedClosure,
+                createWorkspaceInGroup: createWorkspaceInGroupClosure
             )
             .navigationSplitViewColumnWidth(min: 320, ideal: 380, max: 440)
         } detail: {
@@ -235,6 +237,11 @@ struct WorkspaceShellView: View {
         return { id, collapsed in Task { await store.setWorkspaceGroupCollapsed(id: id, collapsed) } }
     }
 
+    private var createWorkspaceInGroupClosure: ((MobileWorkspaceGroupPreview.ID) -> Void)? {
+        guard store.supportsWorkspaceGroupNewWorkspace else { return nil }
+        return { id in createWorkspace(inGroup: id) }
+    }
+
     private func createWorkspaceInCompactStack() {
         let existingWorkspaceIDs = Set(store.workspaces.map(\.id))
         pendingCompactCreateNavigationWorkspaceIDs = existingWorkspaceIDs
@@ -246,6 +253,24 @@ struct WorkspaceShellView: View {
         ) {
             pendingCompactCreateNavigationWorkspaceIDs = nil
             compactNavigationPath = createdPath
+        }
+    }
+
+    private func createWorkspace(inGroup groupID: MobileWorkspaceGroupPreview.ID) {
+        if usesCompactStack {
+            let existingWorkspaceIDs = Set(store.workspaces.map(\.id))
+            pendingCompactCreateNavigationWorkspaceIDs = existingWorkspaceIDs
+            store.createWorkspace(inGroup: groupID)
+            if let createdPath = WorkspaceShellCompactNavigationPolicy.pathForCreatedWorkspaceSelection(
+                currentPath: compactNavigationPath,
+                selectedWorkspaceID: store.selectedWorkspaceID,
+                existingWorkspaceIDs: existingWorkspaceIDs
+            ) {
+                pendingCompactCreateNavigationWorkspaceIDs = nil
+                compactNavigationPath = createdPath
+            }
+        } else {
+            store.createWorkspace(inGroup: groupID)
         }
     }
 

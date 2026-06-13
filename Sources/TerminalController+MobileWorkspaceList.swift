@@ -5,14 +5,12 @@ import Foundation
 //
 // The phone's `workspace.list` surface: enumerating workspaces across windows,
 // serializing the workspace and group-section payloads, and the mobile-gated
-// group collapse/expand handler. Lives in its own file so the mobile list
+// group handlers. Lives in its own file so the mobile list
 // payload code stays together without growing TerminalController.swift.
 extension TerminalController {
-    /// Mobile-gated collapse/expand of a workspace group. P1 group support on
-    /// iOS is display-only: the phone renders collapsible group sections and can
-    /// toggle a section open/closed, but cannot create, rename, or restructure
-    /// groups. This requires an explicit, resolvable `group_id` (it must never
-    /// fall back to the Mac's selected group) and mutates through the same
+    /// Mobile-gated collapse/expand of a workspace group. This requires an
+    /// explicit, resolvable `group_id` (it must never fall back to the Mac's
+    /// selected group) and mutates through the same
     /// `TabManager.setWorkspaceGroupCollapsed` the CLI and sidebar use, so the
     /// mutation path stays shared. `v2ResolveTabManager` routes by `group_id` to
     /// the owning window even in the multi-window case.
@@ -31,6 +29,79 @@ extension TerminalController {
         return ok
             ? .ok(["group_id": gid.uuidString, "is_collapsed": isCollapsed])
             : .err(code: "not_found", message: "Group not found", data: ["group_id": gid.uuidString])
+    }
+
+    /// Mobile-gated "new workspace in group". The Mac stays authoritative for
+    /// placement and membership: this routes by explicit `group_id`, resolves
+    /// the same placement settings as the desktop/CLI path, creates the
+    /// workspace without stealing Mac focus, then returns the normal mobile list
+    /// payload with `created_workspace_id` so iOS can select/navigate to it.
+    func v2MobileWorkspaceGroupNewWorkspace(params: [String: Any]) -> V2CallResult {
+        guard v2HasNonNullParam(params, "group_id"), let gid = v2UUID(params, "group_id") else {
+            return .err(code: "invalid_params", message: "Missing or invalid group_id", data: nil)
+        }
+        let explicitPlacement: WorkspaceGroupNewPlacement?
+        if params.keys.contains("placement") {
+            guard let rawPlacement = params["placement"] as? String,
+                  !rawPlacement.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+                  let placement = WorkspaceGroupNewPlacement(rawString: rawPlacement) else {
+                return .err(
+                    code: "invalid_params",
+                    message: "placement must be one of: afterCurrent, top, end",
+                    data: ["placement": params["placement"] ?? NSNull()]
+                )
+            }
+            explicitPlacement = placement
+        } else {
+            explicitPlacement = nil
+        }
+        guard let tabManager = v2ResolveTabManager(params: params) else {
+            return .err(code: "unavailable", message: "TabManager not available", data: nil)
+        }
+
+        var createdWorkspaceID: UUID?
+        var groupFound = false
+        v2MainSync {
+            guard let group = tabManager.workspaceGroups.first(where: { $0.id == gid }) else { return }
+            groupFound = true
+            let anchorCwd = tabManager.tabs.first(where: { $0.id == group.anchorWorkspaceId })?.currentDirectory
+            let configStore = AppDelegate.shared?.mainWindowContexts.values.first {
+                $0.tabManager === tabManager
+            }?.cmuxConfigStore
+            let configuredPlacement = configStore?
+                .resolveWorkspaceGroupConfig(forCwd: anchorCwd)?
+                .newWorkspacePlacement
+            let placement = explicitPlacement
+                ?? configuredPlacement
+                ?? WorkspaceGroupNewWorkspacePlacementSettings.resolved()
+            createdWorkspaceID = tabManager.createWorkspaceInGroup(
+                groupId: gid,
+                placement: placement,
+                select: false
+            )?.id
+            tabManager.setWorkspaceGroupCollapsed(groupId: gid, isCollapsed: false)
+        }
+        guard groupFound else {
+            return .err(code: "not_found", message: "Group not found", data: ["group_id": gid.uuidString])
+        }
+        guard let createdWorkspaceID else {
+            return .err(
+                code: "workspace_create_failed",
+                message: "Workspace could not be created in group",
+                data: ["group_id": gid.uuidString]
+            )
+        }
+
+        var listParams = params
+        listParams["workspace_id"] = nil
+        listParams["terminal_id"] = nil
+        listParams["surface_id"] = nil
+        listParams["tab_id"] = nil
+        return v2MobileWorkspaceList(
+            params: listParams,
+            tabManager: tabManager,
+            createdWorkspaceID: createdWorkspaceID.uuidString
+        )
     }
 
     func v2MobileWorkspaceList(

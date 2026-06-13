@@ -25,6 +25,13 @@ struct WorkspaceGroupHeaderRow: View {
     /// Mac without the groups capability), the chevron renders without a tap
     /// action.
     let toggleCollapsed: ((MobileWorkspaceGroupPreview.ID, Bool) -> Void)?
+    /// Create a new workspace inside this group. Hidden when unavailable and in
+    /// search/filter context headers.
+    let createWorkspaceInGroup: ((MobileWorkspaceGroupPreview.ID) -> Void)?
+    /// Whether to show the collapse disclosure. Filtered/search results can
+    /// include matching members from collapsed groups, so they render headers as
+    /// context labels without a collapse affordance.
+    var showsDisclosure: Bool = true
 
     /// The leading disclosure chevron. Its own hit target, so tapping it only
     /// collapses/expands and never opens the anchor.
@@ -78,9 +85,29 @@ struct WorkspaceGroupHeaderRow: View {
                     .foregroundStyle(.secondary)
                     .accessibilityHidden(true)
             }
-            Spacer(minLength: 0)
         }
         .contentShape(Rectangle())
+    }
+
+    @ViewBuilder
+    private var newWorkspaceButton: some View {
+        if let createWorkspaceInGroup, showsDisclosure {
+            Button {
+                createWorkspaceInGroup(group.id)
+            } label: {
+                Image(systemName: "plus")
+                    .font(.system(size: 13, weight: .semibold))
+                    .frame(width: 28, height: 28)
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel(
+                L10n.string(
+                    "mobile.workspaceGroup.newWorkspaceInGroup.a11y",
+                    defaultValue: "New workspace in group"
+                )
+            )
+            .accessibilityIdentifier("MobileWorkspaceGroupNewWorkspace-\(group.id.rawValue)")
+        }
     }
 
     @ViewBuilder
@@ -108,8 +135,15 @@ struct WorkspaceGroupHeaderRow: View {
             // Same leading unread gutter as workspace rows (dot hidden when
             // read) so headers and top-level rows keep their columns aligned.
             WorkspaceUnreadDot(isUnread: hasUnread)
-            chevron
+            if showsDisclosure {
+                chevron
+            } else {
+                Color.clear
+                    .frame(width: 22, height: 22)
+                    .accessibilityHidden(true)
+            }
             anchorTarget
+                .frame(maxWidth: .infinity, alignment: .leading)
                 // The dot itself is accessibility-hidden; VoiceOver hears the
                 // unread state on the anchor target, like workspace rows.
                 .accessibilityValue(
@@ -117,6 +151,7 @@ struct WorkspaceGroupHeaderRow: View {
                         ? L10n.string("mobile.workspace.unread", defaultValue: "Unread")
                         : ""
                 )
+            newWorkspaceButton
         }
         .padding(.vertical, 2)
         .padding(.horizontal, 4)
