@@ -10575,6 +10575,11 @@ final class Workspace: Identifiable, ObservableObject {
     )
 
     let id: UUID
+    /// When this workspace instance came into existence in this app session
+    /// (creation, or restore at launch). The mobile list's last-activity
+    /// fallback: a workspace that never fired a notification still carries a
+    /// real timestamp instead of nothing.
+    let createdAt = Date()
     @Published var title: String
     @Published var customTitle: String?
     @Published var customDescription: String?

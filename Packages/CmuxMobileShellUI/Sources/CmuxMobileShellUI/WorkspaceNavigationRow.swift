@@ -8,6 +8,9 @@ struct WorkspaceNavigationRow: View {
     let isSelected: Bool
     let navigationStyle: WorkspaceNavigationStyle
     let wrapWorkspaceTitles: Bool
+    /// How many lines the activity preview shows (1 or 2), forwarded to the
+    /// shared ``WorkspaceRow``.
+    var previewLineLimit: Int = MobileDisplaySettings.defaultWorkspacePreviewLineCount
     let selectWorkspace: (MobileWorkspacePreview.ID) -> Void
     /// Rename the workspace on the Mac. When `nil` (e.g. previews) the rename
     /// affordance is hidden.
@@ -27,7 +30,8 @@ struct WorkspaceNavigationRow: View {
                         workspace: workspace,
                         connectionStatus: connectionStatus,
                         isSelected: false,
-                        wrapWorkspaceTitles: wrapWorkspaceTitles
+                        wrapWorkspaceTitles: wrapWorkspaceTitles,
+                        previewLineLimit: previewLineLimit
                     )
                 }
                 .simultaneousGesture(TapGesture().onEnded {
@@ -41,7 +45,8 @@ struct WorkspaceNavigationRow: View {
                         workspace: workspace,
                         connectionStatus: connectionStatus,
                         isSelected: isSelected,
-                        wrapWorkspaceTitles: wrapWorkspaceTitles
+                        wrapWorkspaceTitles: wrapWorkspaceTitles,
+                        previewLineLimit: previewLineLimit
                     )
                 }
                 .buttonStyle(.plain)
