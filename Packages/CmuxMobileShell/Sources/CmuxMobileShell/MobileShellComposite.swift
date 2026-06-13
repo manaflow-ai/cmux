@@ -3162,8 +3162,9 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         actualEmail: String?
     ) -> MobilePairingFailureCategory? {
         guard let expected = normalizedEmail(ticket.macUserEmail) else { return nil }
-        guard normalizedEmail(actualEmail) == expected else {
-            return .emailMismatch(expected: expected, actual: normalizedEmail(actualEmail))
+        guard let actual = normalizedEmail(actualEmail) else { return nil }
+        guard actual == expected else {
+            return .emailMismatch(expected: expected, actual: actual)
         }
         return nil
     }

@@ -1552,6 +1552,35 @@ final class TerminalOutputCollector {
 }
 
 @MainActor
+@Test func minimalPairingCodeWithUnknownPhoneEmailUsesHostAuth() async throws {
+    let responses = ScriptedTransportResponses([
+        try rpcWorkspaceListFrame(workspaceID: "qr-workspace", title: "QR Workspace"),
+    ])
+    let runtime = testRuntime(
+        supportedRouteKinds: [.tailscale],
+        transportFactory: ScriptedTransportFactory(responses: responses)
+    )
+    let store = CMUXMobileShellStore(
+        runtime: runtime,
+        workspaces: PreviewMobileHost.workspaces,
+        identityProvider: TestIdentityProvider(
+            currentUserIDValue: nil,
+            currentUserEmailValue: nil
+        )
+    )
+
+    store.signIn()
+    let result = await store.connectPairingURLResult(
+        "cmux-ios://attach?v=2&e=mac@example.com&r=100.71.210.41:\(CmxMobileDefaults.defaultHostPort)"
+    )
+
+    #expect(result == .connected)
+    #expect(store.connectionState == .connected)
+    #expect(store.connectedHostName == "100.71.210.41")
+    #expect(try await responses.sentRequests().contains { $0.method == "workspace.list" })
+}
+
+@MainActor
 @Test func minimalPairingCodeBuildMismatchWarnsAndContinuesAfterAcceptance() async throws {
     let responses = ScriptedTransportResponses([
         try rpcWorkspaceListFrame(workspaceID: "qr-workspace", title: "QR Workspace"),
