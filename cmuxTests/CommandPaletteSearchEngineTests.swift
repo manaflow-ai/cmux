@@ -2066,12 +2066,12 @@ final class CommandPaletteSearchEngineTests: XCTestCase {
         let workspaceID = UUID()
         let base = ContentView.commandPaletteSwitcherFingerprint(
             windowContexts: [
-                ContentView.CommandPaletteSwitcherFingerprintContext(
+                CommandPaletteSwitcherFingerprintContext(
                     windowId: windowID,
                     windowLabel: "Window 2",
                     selectedWorkspaceId: workspaceID,
                     workspaces: [
-                        ContentView.CommandPaletteSwitcherFingerprintWorkspace(
+                        CommandPaletteSwitcherFingerprintWorkspace(
                             id: workspaceID,
                             displayName: "Workspace Alpha",
                             metadata: CommandPaletteSwitcherSearchMetadata(
@@ -2087,12 +2087,12 @@ final class CommandPaletteSearchEngineTests: XCTestCase {
         )
         let changedMetadata = ContentView.commandPaletteSwitcherFingerprint(
             windowContexts: [
-                ContentView.CommandPaletteSwitcherFingerprintContext(
+                CommandPaletteSwitcherFingerprintContext(
                     windowId: windowID,
                     windowLabel: "Window 2",
                     selectedWorkspaceId: workspaceID,
                     workspaces: [
-                        ContentView.CommandPaletteSwitcherFingerprintWorkspace(
+                        CommandPaletteSwitcherFingerprintWorkspace(
                             id: workspaceID,
                             displayName: "Workspace Alpha",
                             metadata: CommandPaletteSwitcherSearchMetadata(
@@ -2108,12 +2108,12 @@ final class CommandPaletteSearchEngineTests: XCTestCase {
         )
         let changedDisplayName = ContentView.commandPaletteSwitcherFingerprint(
             windowContexts: [
-                ContentView.CommandPaletteSwitcherFingerprintContext(
+                CommandPaletteSwitcherFingerprintContext(
                     windowId: windowID,
                     windowLabel: "Window 2",
                     selectedWorkspaceId: workspaceID,
                     workspaces: [
-                        ContentView.CommandPaletteSwitcherFingerprintWorkspace(
+                        CommandPaletteSwitcherFingerprintWorkspace(
                             id: workspaceID,
                             displayName: "Workspace Beta",
                             metadata: CommandPaletteSwitcherSearchMetadata(
@@ -2139,17 +2139,17 @@ final class CommandPaletteSearchEngineTests: XCTestCase {
 
         let base = ContentView.commandPaletteSwitcherFingerprint(
             windowContexts: [
-                ContentView.CommandPaletteSwitcherFingerprintContext(
+                CommandPaletteSwitcherFingerprintContext(
                     windowId: windowID,
                     windowLabel: nil,
                     selectedWorkspaceId: workspaceID,
                     workspaces: [
-                        ContentView.CommandPaletteSwitcherFingerprintWorkspace(
+                        CommandPaletteSwitcherFingerprintWorkspace(
                             id: workspaceID,
                             displayName: "Workspace Alpha",
                             metadata: CommandPaletteSwitcherSearchMetadata(),
                             surfaces: [
-                                ContentView.CommandPaletteSwitcherFingerprintSurface(
+                                CommandPaletteSwitcherFingerprintSurface(
                                     id: surfaceID,
                                     displayName: "Terminal",
                                     kindLabel: "Terminal",
@@ -2167,17 +2167,17 @@ final class CommandPaletteSearchEngineTests: XCTestCase {
         )
         let changedSurfaceMetadata = ContentView.commandPaletteSwitcherFingerprint(
             windowContexts: [
-                ContentView.CommandPaletteSwitcherFingerprintContext(
+                CommandPaletteSwitcherFingerprintContext(
                     windowId: windowID,
                     windowLabel: nil,
                     selectedWorkspaceId: workspaceID,
                     workspaces: [
-                        ContentView.CommandPaletteSwitcherFingerprintWorkspace(
+                        CommandPaletteSwitcherFingerprintWorkspace(
                             id: workspaceID,
                             displayName: "Workspace Alpha",
                             metadata: CommandPaletteSwitcherSearchMetadata(),
                             surfaces: [
-                                ContentView.CommandPaletteSwitcherFingerprintSurface(
+                                CommandPaletteSwitcherFingerprintSurface(
                                     id: surfaceID,
                                     displayName: "Terminal",
                                     kindLabel: "Terminal",
@@ -2195,17 +2195,17 @@ final class CommandPaletteSearchEngineTests: XCTestCase {
         )
         let changedSurfaceKind = ContentView.commandPaletteSwitcherFingerprint(
             windowContexts: [
-                ContentView.CommandPaletteSwitcherFingerprintContext(
+                CommandPaletteSwitcherFingerprintContext(
                     windowId: windowID,
                     windowLabel: nil,
                     selectedWorkspaceId: workspaceID,
                     workspaces: [
-                        ContentView.CommandPaletteSwitcherFingerprintWorkspace(
+                        CommandPaletteSwitcherFingerprintWorkspace(
                             id: workspaceID,
                             displayName: "Workspace Alpha",
                             metadata: CommandPaletteSwitcherSearchMetadata(),
                             surfaces: [
-                                ContentView.CommandPaletteSwitcherFingerprintSurface(
+                                CommandPaletteSwitcherFingerprintSurface(
                                     id: surfaceID,
                                     displayName: "Terminal",
                                     kindLabel: "Browser",

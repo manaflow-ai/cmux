@@ -1,3 +1,4 @@
+import CmuxCommandPalette
 import XCTest
 import AppKit
 import SwiftUI
@@ -826,9 +827,9 @@ final class CommandPaletteRenameSelectionSettingsTests: XCTestCase {
 
 final class CommandPaletteAuthCommandTests: XCTestCase {
     func testSignedOutContextShowsSignInCommandOnly() {
-        var context = ContentView.CommandPaletteContextSnapshot()
-        context.setBool(ContentView.CommandPaletteContextKeys.authSignedIn, false)
-        context.setBool(ContentView.CommandPaletteContextKeys.authWorking, false)
+        var context = CommandPaletteContextSnapshot()
+        context.setBool(CommandPaletteContextKeys.authSignedIn, false)
+        context.setBool(CommandPaletteContextKeys.authWorking, false)
 
         let visibleCommandIds = visibleAuthCommandIds(context)
 
@@ -836,9 +837,9 @@ final class CommandPaletteAuthCommandTests: XCTestCase {
     }
 
     func testSignedInContextShowsSignOutCommandOnly() {
-        var context = ContentView.CommandPaletteContextSnapshot()
-        context.setBool(ContentView.CommandPaletteContextKeys.authSignedIn, true)
-        context.setBool(ContentView.CommandPaletteContextKeys.authWorking, false)
+        var context = CommandPaletteContextSnapshot()
+        context.setBool(CommandPaletteContextKeys.authSignedIn, true)
+        context.setBool(CommandPaletteContextKeys.authWorking, false)
 
         let visibleCommandIds = visibleAuthCommandIds(context)
 
@@ -847,15 +848,15 @@ final class CommandPaletteAuthCommandTests: XCTestCase {
 
     func testWorkingAuthContextHidesSignInAndSignOutCommands() {
         for signedIn in [false, true] {
-            var context = ContentView.CommandPaletteContextSnapshot()
-            context.setBool(ContentView.CommandPaletteContextKeys.authSignedIn, signedIn)
-            context.setBool(ContentView.CommandPaletteContextKeys.authWorking, true)
+            var context = CommandPaletteContextSnapshot()
+            context.setBool(CommandPaletteContextKeys.authSignedIn, signedIn)
+            context.setBool(CommandPaletteContextKeys.authWorking, true)
 
             XCTAssertTrue(visibleAuthCommandIds(context).isEmpty)
         }
     }
 
-    private func visibleAuthCommandIds(_ context: ContentView.CommandPaletteContextSnapshot) -> [String] {
+    private func visibleAuthCommandIds(_ context: CommandPaletteContextSnapshot) -> [String] {
         ContentView.commandPaletteAuthCommandContributions()
             .filter { $0.when(context) }
             .map(\.commandId)
