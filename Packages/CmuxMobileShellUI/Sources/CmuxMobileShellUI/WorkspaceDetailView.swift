@@ -150,7 +150,6 @@ struct WorkspaceDetailView: View {
             }
         }
         .task(id: chatRefreshKey) { await refreshChatSessions() }
-        .task(id: terminalTitleSignature) { await reseedChatSessions() }
     }
 
     /// Toolbar toggle between terminal and chat. Shown only when the
@@ -218,28 +217,6 @@ struct WorkspaceDetailView: View {
             pinnedChatSessionID = nil
         }
     }
-
-    /// A signature of the workspace's terminal identities and titles. A
-    /// terminal's title becomes the agent's (e.g. "✳ Claude Code") when an
-    /// agent launches mid-session, which is exactly when we must re-check for
-    /// a chat session.
-    private var terminalTitleSignature: String {
-        workspace.terminals.map { "\($0.id.rawValue)=\($0.name)" }.joined(separator: "|")
-    }
-
-    /// Re-fetches the session list when a terminal title changes. The list
-    /// request runs the Mac's detect-and-adopt scan, so an agent launched
-    /// after the workspace opened (the seed already ran) gets a session and
-    /// its toggle now. The push stream keeps it current afterward; this only
-    /// covers the one-shot "agent just appeared" gap that a title change
-    /// signals. A failed fetch leaves the current list untouched.
-    private func reseedChatSessions() async {
-        guard let source = store.makeChatEventSource() else { return }
-        if let fresh = try? await source.sessions(workspaceID: workspace.id.rawValue) {
-            chatSessions = fresh
-            applyChatModeFallback()
-        }
-    }
     #endif
 
     #if os(iOS)
@@ -265,7 +242,6 @@ struct WorkspaceDetailView: View {
             }
         }
         .task(id: chatRefreshKey) { await refreshChatSessions() }
-        .task(id: terminalTitleSignature) { await reseedChatSessions() }
     }
     #endif
 
@@ -365,7 +341,6 @@ struct WorkspaceDetailView: View {
         .mobileTerminalNavigationChrome()
         #if os(iOS)
         .task(id: chatRefreshKey) { await refreshChatSessions() }
-        .task(id: terminalTitleSignature) { await reseedChatSessions() }
         #endif
         .toolbar {
             #if os(iOS)
