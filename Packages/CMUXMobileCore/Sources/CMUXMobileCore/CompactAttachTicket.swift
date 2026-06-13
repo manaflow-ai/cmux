@@ -23,7 +23,7 @@ struct CompactAttachTicket: Codable {
         w = Self.normalizedNonEmpty(ticket.workspaceID)
         t = Self.normalizedNonEmpty(ticket.terminalID)
         d = ticket.macDeviceID
-        u = Self.normalizedNonEmpty(ticket.macUserEmail)
+        u = Self.normalizedNonEmpty(ticket.macUserID)
         pc = ticket.macPairingCompatibilityVersion
         av = Self.normalizedNonEmpty(ticket.macAppVersion)
         ab = Self.normalizedNonEmpty(ticket.macAppBuild)
@@ -37,7 +37,8 @@ struct CompactAttachTicket: Codable {
             terminalID: t,
             macDeviceID: d,
             macDisplayName: nil,
-            macUserEmail: u,
+            macUserEmail: Self.legacyEmail(from: u),
+            macUserID: Self.opaqueUserID(from: u),
             macPairingCompatibilityVersion: pc,
             macAppVersion: av,
             macAppBuild: ab,
@@ -50,6 +51,16 @@ struct CompactAttachTicket: Codable {
         guard let value, !value.isEmpty else {
             return nil
         }
+        return value
+    }
+
+    private static func legacyEmail(from value: String?) -> String? {
+        guard let value, value.contains("@") else { return nil }
+        return value
+    }
+
+    private static func opaqueUserID(from value: String?) -> String? {
+        guard let value, !value.contains("@") else { return nil }
         return value
     }
 }

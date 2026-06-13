@@ -15,6 +15,7 @@ import Testing
             macDeviceID: "mac-1",
             macDisplayName: "Studio",
             macUserEmail: "user@example.com",
+            macUserID: "user_mac_123",
             macPairingCompatibilityVersion: 1,
             macAppVersion: "0.64.15",
             macAppBuild: "42",
@@ -45,7 +46,8 @@ import Testing
 
         let decoded = try CmxAttachTicketInput.decode(url)
         #expect(decoded.macDeviceID == "mac-1")
-        #expect(decoded.macUserEmail == "user@example.com")
+        #expect(decoded.macUserEmail == nil)
+        #expect(decoded.macUserID == "user_mac_123")
         #expect(decoded.macPairingCompatibilityVersion == 1)
         #expect(decoded.macAppVersion == "0.64.15")
         #expect(decoded.macAppBuild == "42")

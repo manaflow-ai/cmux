@@ -42,6 +42,7 @@ private func legacyDecoder() -> JSONDecoder {
         macDeviceID: "mac-1",
         macDisplayName: "Studio",
         macUserEmail: "user@example.com",
+        macUserID: "user_mac_123",
         macPairingCompatibilityVersion: 1,
         macAppVersion: "0.64.15",
         macAppBuild: "42",
@@ -61,7 +62,8 @@ private func legacyDecoder() -> JSONDecoder {
     #expect(json.contains("\"v\":1"))
     #expect(json.contains("\"w\":\"workspace-1\""))
     #expect(json.contains("\"d\":\"mac-1\""))
-    #expect(json.contains("\"u\":\"user@example.com\""))
+    #expect(!json.contains("user@example.com"))
+    #expect(json.contains("\"u\":\"user_mac_123\""))
     #expect(json.contains("\"pc\":1"))
     #expect(json.contains("\"av\":\"0.64.15\""))
     #expect(json.contains("\"ab\":\"42\""))
@@ -103,6 +105,7 @@ private func legacyDecoder() -> JSONDecoder {
         macDeviceID: "mac-1",
         macDisplayName: "Studio",
         macUserEmail: "user@example.com",
+        macUserID: "user_mac_123",
         macPairingCompatibilityVersion: 1,
         macAppVersion: "0.64.15",
         macAppBuild: "42",
@@ -119,7 +122,8 @@ private func legacyDecoder() -> JSONDecoder {
     #expect(decoded.workspaceID == ticket.workspaceID)
     #expect(decoded.terminalID == ticket.terminalID)
     #expect(decoded.macDeviceID == ticket.macDeviceID)
-    #expect(decoded.macUserEmail == ticket.macUserEmail)
+    #expect(decoded.macUserEmail == nil)
+    #expect(decoded.macUserID == ticket.macUserID)
     #expect(decoded.macPairingCompatibilityVersion == ticket.macPairingCompatibilityVersion)
     #expect(decoded.macAppVersion == ticket.macAppVersion)
     #expect(decoded.macAppBuild == ticket.macAppBuild)
@@ -132,6 +136,17 @@ private func legacyDecoder() -> JSONDecoder {
     #expect(decoded.macDisplayName == nil)
     #expect(decoded.expiresAt == nil)
     #expect(!decoded.isExpired(at: .distantFuture))
+}
+
+@Test func compactDecodeKeepsLegacyEmailPayloadsWorking() throws {
+    let legacyEmailPayload = """
+    {"v":1,"d":"mac-1","u":"user@example.com","r":[{"k":"tailscale","e":{"h":"100.64.1.2","p":49831}}]}
+    """
+
+    let decoded = try compactCoder.decode(Data(legacyEmailPayload.utf8))
+
+    #expect(decoded.macUserEmail == "user@example.com")
+    #expect(decoded.macUserID == nil)
 }
 
 @Test func compactRoundTripsMacWidePairingTicketAndDropsEmptyFields() throws {
