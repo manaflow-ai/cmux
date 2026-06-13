@@ -70,6 +70,7 @@ public final class ProjectPanel: NSObject, Panel, ObservableObject {
     @Published public var settingsCustomizedOnly: Bool = false
     @Published public var collapsedNodeIDs: Set<ProjectNodeID> = []
     @Published public var filesSearchText: String = ""
+    @Published public var searchFocusRequest: ProjectPanelSearchFocus?
     @Published public var lastLoadError: String?
     private var reloadTask: Task<Void, Never>?
 
@@ -261,5 +262,39 @@ public final class ProjectPanel: NSObject, Panel, ObservableObject {
         _ = intent
         _ = window
         return false
+    }
+}
+
+
+// MARK: - Find support
+
+/// Identifies which search field in a ``ProjectPanel`` should receive focus.
+public enum ProjectPanelSearchFocus: Hashable {
+    case files
+    case settings
+}
+
+extension ProjectPanel: FindablePanel {
+    public var isFindVisible: Bool { false }
+
+    @discardableResult
+    public func startFind() -> Bool {
+        switch activeTab {
+        case .files:
+            searchFocusRequest = .files
+            return true
+        case .buildSettings:
+            searchFocusRequest = .settings
+            return true
+        case .targets, .schemes:
+            return false
+        }
+    }
+
+    public func findNext() {}
+    public func findPrevious() {}
+
+    public func hideFind() {
+        searchFocusRequest = nil
     }
 }
