@@ -22453,9 +22453,9 @@ struct CMUXCLI {
                     launchCommand: mappedSession?.launchCommand ?? firstSightingLaunchCommand
                 )
             }
-            if let claudePid, resolvedSurface.isAuthoritative {
+            if let hookClaudePid, resolvedSurface.isAuthoritative {
                 _ = try? sendV1Command(
-                    "set_agent_pid \(Self.claudeCodeStatusKey) \(claudePid) --tab=\(workspaceId)\(socketPanelOption(surfaceId))",
+                    "set_agent_pid \(Self.claudeCodeStatusKey) \(hookClaudePid) --tab=\(workspaceId)\(socketPanelOption(surfaceId))",
                     client: client
                 )
             }
@@ -22474,7 +22474,7 @@ struct CMUXCLI {
                 value: "Running",
                 icon: "bolt.fill",
                 color: "#4C8DFF",
-                pid: resolvedSurface.isAuthoritative ? claudePid : nil
+                pid: resolvedSurface.isAuthoritative ? hookClaudePid : nil
             )
             print("OK")
 

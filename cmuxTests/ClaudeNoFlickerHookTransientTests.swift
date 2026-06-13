@@ -298,6 +298,71 @@ struct ClaudeNoFlickerHookTransientTests {
     }
 
     @Test
+    func claudePromptSubmitDoesNotRepublishStoredPIDWithoutLiveHookPID() throws {
+        let context = try support.makeHookContext(name: "claude-stored-pid-no-live-pid")
+        defer { context.cleanup() }
+
+        let sessionId = "stored-pid-no-live-pid"
+        let storedPID = 6048
+        let now = Date().timeIntervalSince1970
+        let store: [String: Any] = [
+            "version": 1,
+            "sessions": [
+                sessionId: [
+                    "sessionId": sessionId,
+                    "workspaceId": context.workspaceId,
+                    "surfaceId": context.surfaceId,
+                    "cwd": context.root.path,
+                    "pid": storedPID,
+                    "agentLifecycle": "idle",
+                    "startedAt": now,
+                    "updatedAt": now,
+                ],
+            ],
+            "activeSessionsByWorkspace": [context.workspaceId: ["sessionId": sessionId, "updatedAt": now]],
+        ]
+        try JSONSerialization.data(withJSONObject: store, options: [.prettyPrinted])
+            .write(to: context.root.appendingPathComponent("claude-hook-sessions.json"), options: .atomic)
+
+        let server = support.startMockServer(listenerFD: context.listenerFD, state: context.state) { line in
+            guard let payload = ClaudeHookRoutingTestSupport.jsonObject(line) else { return "OK" }
+            guard let id = payload["id"] as? String, let method = payload["method"] as? String else {
+                return ClaudeHookRoutingTestSupport.malformedRequestResponse(id: payload["id"] as? String, raw: line)
+            }
+            switch method {
+            case "surface.list":
+                return ClaudeHookRoutingTestSupport.surfaceListResponse(id: id, surfaceId: context.surfaceId)
+            case "feed.push":
+                return ClaudeHookRoutingTestSupport.v2Response(id: id, ok: true, result: [:])
+            case "surface.resume.set":
+                return ClaudeHookRoutingTestSupport.v2Response(id: id, ok: true, result: ["resume_binding": [:]])
+            default:
+                return ClaudeHookRoutingTestSupport.v2Response(id: id, ok: false, error: ["code": "unrecognized_method", "message": "unexpected method: \(method)"])
+            }
+        }
+
+        let environment = support.baseHookEnvironment(context: context)
+        let result = support.runProcess(
+            executablePath: context.cliPath,
+            arguments: ["hooks", "claude", "prompt-submit"],
+            environment: environment,
+            standardInput: #"{"session_id":"\#(sessionId)","turn_id":"turn-1","cwd":"\#(context.root.path)","hook_event_name":"UserPromptSubmit","prompt":"run"}"#,
+            timeout: 5
+        )
+
+        #expect(server.wait(timeout: .now() + 5) == .success, "mock server did not finish")
+        #expect(!result.timedOut && result.status == 0, Comment(rawValue: result.stderr))
+        let commands = context.state.snapshot()
+        let expectedStatusPrefix = "set_status claude_code Running --icon=bolt.fill --color=#4C8DFF --tab=\(context.workspaceId)"
+        let expectedPanel = "--panel=\(context.surfaceId)"
+        let storedPIDWasRepublished = commands.contains {
+            $0.hasPrefix("set_agent_pid claude_code ") || $0.contains("--pid=\(storedPID)")
+        }
+        #expect(commands.contains { $0.hasPrefix(expectedStatusPrefix) && $0.contains(expectedPanel) }, "Expected stored target to receive Running status, saw \(commands)")
+        #expect(!storedPIDWasRepublished, "Stored PID must not be re-published without a live hook PID, saw \(commands)")
+    }
+
+    @Test
     func claudePromptSubmitKeepsStoredTargetOnTransientWorkspaceProbeFailure() throws {
         let context = try support.makeHookContext(name: "claude-transient-stored-workspace")
         defer { context.cleanup() }
