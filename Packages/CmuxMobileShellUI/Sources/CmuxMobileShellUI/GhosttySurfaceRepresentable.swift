@@ -136,9 +136,8 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
                 guard let store else { return }
                 for await chunk in store.terminalOutputStream(surfaceID: surfaceID) {
                     guard !Task.isCancelled else { return }
-                    if let surfaceView {
-                        await surfaceView.processOutputAndWait(chunk.data)
-                    }
+                    guard let surfaceView else { return }
+                    await surfaceView.processOutputAndWait(chunk.data)
                     store.terminalOutputDidProcess(
                         surfaceID: surfaceID,
                         streamToken: chunk.streamToken

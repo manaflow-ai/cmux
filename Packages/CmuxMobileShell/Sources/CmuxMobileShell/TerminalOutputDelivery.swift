@@ -59,6 +59,11 @@ struct TerminalOutputDeliveryQueue: Sendable {
     }
 
     mutating func completeInFlight() -> TerminalOutputDelivery? {
+        guard inFlight else {
+            pending.removeAll(keepingCapacity: false)
+            pendingHeadIndex = 0
+            return nil
+        }
         guard pendingHeadIndex < pending.count else {
             inFlight = false
             pending.removeAll(keepingCapacity: true)

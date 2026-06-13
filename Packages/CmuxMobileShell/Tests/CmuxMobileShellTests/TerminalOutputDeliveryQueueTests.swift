@@ -11,6 +11,13 @@ import Testing
     #expect(queue.pendingCount == 0)
 }
 
+@Test func terminalOutputQueueIgnoresCompletionWhenNothingIsInFlight() {
+    var queue = TerminalOutputDeliveryQueue()
+
+    #expect(queue.completeInFlight() == nil)
+    #expect(queue.isIdle)
+}
+
 @MainActor
 @Test func staleStreamAckDoesNotAdvanceReplacementOutputQueue() async throws {
     let store = MobileShellComposite.preview()

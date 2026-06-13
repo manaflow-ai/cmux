@@ -36,6 +36,10 @@ struct TerminalScrollDeliveryQueue: Sendable {
     }
 
     mutating func completeInFlight() -> TerminalScrollDelivery? {
+        guard inFlight else {
+            pending = nil
+            return nil
+        }
         guard let next = pending else {
             inFlight = false
             return nil

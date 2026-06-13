@@ -10,6 +10,13 @@ import Testing
     #expect(queue.isIdle == false)
 }
 
+@Test func terminalScrollQueueIgnoresCompletionWhenNothingIsInFlight() {
+    var queue = TerminalScrollDeliveryQueue()
+
+    #expect(queue.completeInFlight() == nil)
+    #expect(queue.isIdle)
+}
+
 @Test func terminalScrollQueueCoalescesPendingDeltasBehindInFlightRequest() throws {
     var queue = TerminalScrollDeliveryQueue()
     let inFlight = TerminalScrollDelivery(surfaceID: "surface", lines: 1, col: 1, row: 1)
