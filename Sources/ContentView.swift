@@ -9811,11 +9811,6 @@ struct SidebarTabItemSettingsSnapshot: Equatable {
 
 }
 
-private extension String {
-    var nilIfEmpty: String? {
-        isEmpty ? nil : self
-    }
-}
 
 enum CmuxExtensionSidebarSelection {
     static let defaultsKey = "cmuxExtensionSidebar.providerId"
