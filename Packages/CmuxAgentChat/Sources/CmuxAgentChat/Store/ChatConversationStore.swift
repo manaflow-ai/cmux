@@ -58,12 +58,6 @@ public final class ChatConversationStore {
     /// non-blocking error surface. Cleared on the next success.
     public private(set) var lastErrorDescription: String?
 
-    /// The highest message seq currently in the window, or `nil` when
-    /// empty. The host persists this as a per-session read cursor when the
-    /// chat closes, so the next open shows an unread divider for what
-    /// arrived since.
-    public var newestSeq: Int? { messages.last?.seq }
-
     @ObservationIgnored private var messages: [ChatMessage] = []
     @ObservationIgnored private var pending: [ChatPendingOutbound] = []
     @ObservationIgnored private var firstUnreadSeq: Int?

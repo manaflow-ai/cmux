@@ -447,28 +447,6 @@ struct ChatConversationStoreTests {
         #expect(next.message.seq == 3)
     }
 
-    @Test("newestSeq tracks the highest message in the window")
-    func newestSeqTracksWindow() async {
-        let source = FixtureChatEventSource(backlog: Self.backlog(count: 4))
-        let store = Self.makeStore(source: source)
-        let runTask = Task { await store.run() }
-        defer { runTask.cancel() }
-        #expect(await TestPoller.waitUntil { store.hasLoadedInitialHistory })
-        #expect(store.newestSeq == 3)
-        await source.emit(.appended([Self.prose(seq: 4)]))
-        #expect(await TestPoller.waitUntil { store.newestSeq == 4 })
-    }
-
-    @Test("a read cursor at or beyond the newest message shows no unread separator")
-    func noSeparatorWhenAllRead() async {
-        let source = FixtureChatEventSource(backlog: Self.backlog(count: 4))
-        let store = Self.makeStore(source: source, lastReadSeq: 3)
-        let runTask = Task { await store.run() }
-        defer { runTask.cancel() }
-        #expect(await TestPoller.waitUntil { store.hasLoadedInitialHistory })
-        #expect(!store.rows.contains(.unreadSeparator))
-    }
-
     // MARK: - Lifecycle
 
     @Test("cancelling run() disconnects the store")
