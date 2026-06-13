@@ -63,4 +63,25 @@ struct ChatTextBlockParserTests {
     func blank() {
         #expect(parser.blocks(from: "   \n\n").isEmpty)
     }
+
+    @Test("seven or more hashes is not a heading")
+    func tooManyHashes() {
+        let blocks = parser.blocks(from: "####### not a heading")
+        #expect(blocks.count == 1)
+        #expect(blocks[0].kind == .paragraph)
+    }
+
+    @Test("a decimal like 1.5 is not an ordered list item")
+    func decimalNotOrdered() {
+        let blocks = parser.blocks(from: "1.5 release notes")
+        #expect(blocks.count == 1)
+        #expect(blocks[0].kind == .paragraph)
+    }
+
+    @Test("a hyphen without a trailing space is not a bullet")
+    func hyphenWord() {
+        let blocks = parser.blocks(from: "-rf is a flag, not a bullet")
+        #expect(blocks.count == 1)
+        #expect(blocks[0].kind == .paragraph)
+    }
 }
