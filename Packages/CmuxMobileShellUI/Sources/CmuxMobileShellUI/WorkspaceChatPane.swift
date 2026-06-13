@@ -47,12 +47,25 @@ struct WorkspaceChatPane: View {
         }
         // Rebuild the conversation store when the bound session changes
         // (toggling into a different live session), tearing down the old
-        // event subscription.
+        // event subscription. Seed the unread divider from the persisted
+        // read cursor so messages that arrived since the last open show.
         .task(id: session.id) {
             if conversation?.descriptor.id != session.id {
                 conversation = store.makeChatEventSource().map {
-                    ChatConversationStore(descriptor: session, source: $0)
+                    ChatConversationStore(
+                        descriptor: session,
+                        source: $0,
+                        lastReadSeq: store.chatLastReadSeq(sessionID: session.id)
+                    )
                 }
+            }
+        }
+        // Persist what the user has now seen when the chat leaves the
+        // screen (toggle off / navigate away), so the next open's unread
+        // divider is accurate.
+        .onDisappear {
+            if let newest = conversation?.newestSeq {
+                store.setChatLastReadSeq(newest, sessionID: session.id)
             }
         }
     }
