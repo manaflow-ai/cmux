@@ -130,17 +130,15 @@ struct CMUXMobileRootView: View {
             guard isAuthenticated else {
                 return
             }
-            if let rawURL = pendingAttachURL {
-                pendingAttachURL = nil
-                Task {
-                    await store.connectPairingURL(rawURL)
-                }
+            if consumePendingURLIfReady() {
                 return
             }
             reconnectStoredMacIfNeeded()
         }
         .onChange(of: authManager.isRestoringSession) { _, isRestoringSession in
             syncShellAuthentication(isAuthenticated, isRestoringSession: isRestoringSession)
+            guard !isRestoringSession else { return }
+            _ = consumePendingURLIfReady()
         }
         .onChange(of: store.connectionState) { _, connectionState in
             if connectionState == .connected {
@@ -356,6 +354,10 @@ struct CMUXMobileRootView: View {
     }
 
     private func connectAttachURL(_ rawURL: String) {
+        guard !authManager.isRestoringSession else {
+            pendingAttachURL = rawURL
+            return
+        }
         didAuthenticateWithAttachTicket = true
         syncShellAuthentication(true)
         Task {
@@ -365,6 +367,28 @@ struct CMUXMobileRootView: View {
             }
             clearAttachTicketAuthentication(after: result)
         }
+    }
+
+    @discardableResult
+    private func consumePendingURLIfReady() -> Bool {
+        guard let rawURL = pendingAttachURL else { return false }
+        if isRawAttachURL(rawURL) {
+            guard !authManager.isRestoringSession else { return false }
+            pendingAttachURL = nil
+            connectAttachURL(rawURL)
+            return true
+        }
+        guard isAuthenticated else { return false }
+        pendingAttachURL = nil
+        Task {
+            await store.connectPairingURL(rawURL)
+        }
+        return true
+    }
+
+    private func isRawAttachURL(_ rawURL: String) -> Bool {
+        guard let url = URL(string: rawURL) else { return false }
+        return MobileRootAuthGate.isAttachURL(url)
     }
 
     private func cancelPairing() {
