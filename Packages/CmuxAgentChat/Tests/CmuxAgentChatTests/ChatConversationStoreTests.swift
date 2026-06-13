@@ -572,6 +572,25 @@ struct ChatConversationStoreTests {
         #expect(await TestPoller.waitUntil { Self.pendingItems(store.rows).isEmpty })
     }
 
+    @Test("a successful resync after reset clears a stale error banner")
+    func resyncAfterResetClearsStaleError() async {
+        let source = SilentSendEventSource()
+        let store = Self.makeStore(source: source)
+        let runTask = Task { await store.run() }
+        defer { runTask.cancel() }
+        #expect(await TestPoller.waitUntil { store.isConnected })
+
+        // A failed send leaves an error banner.
+        await source.setSendFailure(true)
+        await store.send(text: "will fail")
+        #expect(await TestPoller.waitUntil { store.lastErrorDescription != nil })
+
+        // Reset empties the window; apply(.reset) kicks resyncTail, which
+        // succeeds via the empty-window branch and must clear the banner.
+        await source.emit(.reset)
+        #expect(await TestPoller.waitUntil { store.lastErrorDescription == nil })
+    }
+
     @Test("a reset event clears the window and re-anchors from history")
     func resetEventReanchors() async {
         let backlog = Self.backlog(count: 5)

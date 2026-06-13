@@ -350,6 +350,10 @@ public final class ChatConversationStore {
                 reconcilePending(against: page.messages)
                 messages = page.messages
                 hasMoreHistory = page.hasMore
+                // A successful resync clears any stale failure banner from a
+                // prior history/send error, including on this empty-window
+                // recovery path (e.g. after a .reset emptied the window).
+                lastErrorDescription = nil
                 reproject()
                 return
             }
