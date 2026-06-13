@@ -33,35 +33,18 @@ struct WorkspaceNavigationRow: View {
     var confirmCloseWorkspace: ((MobileWorkspacePreview.ID) -> Void)? = nil
 
     @State private var isRenaming = false
-    @State private var deleteSwipeOffset: CGFloat = 0
 
     var body: some View {
-        ZStack(alignment: .trailing) {
-            if closeWorkspace != nil {
-                deleteActionTray
-            }
-
-            WorkspaceRow(
-                workspace: workspace,
-                connectionStatus: connectionStatus,
-                isSelected: navigationStyle == .sidebar && isSelected,
-                wrapWorkspaceTitles: wrapWorkspaceTitles,
-                previewLineLimit: previewLineLimit
-            )
-            .background(Color(.systemBackground))
-            .offset(x: rowOffset)
-        }
-        .animation(.snappy(duration: 0.22), value: isConfirmingClose.wrappedValue)
-        .animation(.snappy(duration: 0.22), value: deleteSwipeOffset)
-        .clipShape(Rectangle())
+        WorkspaceRow(
+            workspace: workspace,
+            connectionStatus: connectionStatus,
+            isSelected: navigationStyle == .sidebar && isSelected,
+            wrapWorkspaceTitles: wrapWorkspaceTitles,
+            previewLineLimit: previewLineLimit
+        )
         .onTapGesture {
-            if isConfirmingClose.wrappedValue {
-                isConfirmingClose.wrappedValue = false
-            } else {
-                selectWorkspace(workspace.id)
-            }
+            selectWorkspace(workspace.id)
         }
-        .simultaneousGesture(deleteSwipeGesture)
         .contentShape(Rectangle())
         .contextMenu { contextMenu }
         .swipeActions(edge: .leading, allowsFullSwipe: true) {
@@ -75,6 +58,16 @@ struct WorkspaceNavigationRow: View {
                 .accessibilityIdentifier("MobileWorkspaceReadStateSwipeButton-\(workspace.id.rawValue)")
             }
         }
+        .swipeActions(edge: .trailing, allowsFullSwipe: true) {
+            if let closeWorkspace {
+                Button(role: .destructive) {
+                    closeWorkspace(workspace.id)
+                } label: {
+                    Label(L10n.string("mobile.workspace.delete", defaultValue: "Delete"), systemImage: "trash")
+                }
+                .accessibilityIdentifier("MobileWorkspaceDeleteSwipeButton-\(workspace.id.rawValue)")
+            }
+        }
         .accessibilityElement(children: .combine)
         .accessibilityAddTraits(.isButton)
         .accessibilityIdentifier("MobileWorkspaceRow-\(workspace.id.rawValue)")
@@ -85,10 +78,22 @@ struct WorkspaceNavigationRow: View {
                 renameWorkspace?(workspace.id, newName)
             }
         }
-        .onChange(of: isConfirmingClose.wrappedValue) { _, isPresented in
-            if !isPresented {
-                deleteSwipeOffset = 0
+        .confirmationDialog(
+            L10n.string("mobile.workspace.delete.confirmTitle", defaultValue: "Delete Workspace?"),
+            isPresented: isConfirmingClose,
+            titleVisibility: .visible
+        ) {
+            if let confirmCloseWorkspace {
+                Button(L10n.string("mobile.workspace.delete.confirmAction", defaultValue: "Delete"), role: .destructive) {
+                    confirmCloseWorkspace(workspace.id)
+                }
+                .accessibilityIdentifier("MobileWorkspaceDeleteConfirmButton-\(workspace.id.rawValue)")
             }
+            Button(L10n.string("mobile.common.cancel", defaultValue: "Cancel"), role: .cancel) {
+                isConfirmingClose.wrappedValue = false
+            }
+        } message: {
+            Text(L10n.string("mobile.workspace.delete.confirmMessage", defaultValue: "This will close the workspace on your Mac."))
         }
     }
 
@@ -132,97 +137,6 @@ struct WorkspaceNavigationRow: View {
         }
     }
 
-    private var rowOffset: CGFloat {
-        if isConfirmingClose.wrappedValue {
-            return -Self.deleteConfirmationWidth
-        }
-        return deleteSwipeOffset
-    }
-
-    private var deleteSwipeGesture: some Gesture {
-        DragGesture(minimumDistance: 14)
-            .onChanged { value in
-                guard closeWorkspace != nil else {
-                    return
-                }
-                let horizontal = value.translation.width
-                let vertical = value.translation.height
-                guard abs(horizontal) > abs(vertical), horizontal < 0 else {
-                    return
-                }
-                isConfirmingClose.wrappedValue = false
-                deleteSwipeOffset = max(-Self.deleteConfirmationWidth, horizontal)
-            }
-            .onEnded { value in
-                guard closeWorkspace != nil else {
-                    deleteSwipeOffset = 0
-                    return
-                }
-                let horizontal = value.translation.width
-                let vertical = value.translation.height
-                guard abs(horizontal) > abs(vertical), horizontal < 0 else {
-                    deleteSwipeOffset = 0
-                    return
-                }
-                if horizontal <= -Self.deleteConfirmationThreshold {
-                    closeWorkspace?(workspace.id)
-                    deleteSwipeOffset = -Self.deleteConfirmationWidth
-                } else if horizontal <= -Self.deleteRevealThreshold {
-                    deleteSwipeOffset = -Self.deleteRevealWidth
-                } else {
-                    deleteSwipeOffset = 0
-                }
-            }
-    }
-
-    private var deleteActionTray: some View {
-        HStack(spacing: 0) {
-            if isConfirmingClose.wrappedValue {
-                Button {
-                    isConfirmingClose.wrappedValue = false
-                } label: {
-                    VStack(spacing: 4) {
-                        Image(systemName: "xmark")
-                            .font(.headline)
-                        Text(L10n.string("mobile.common.cancel", defaultValue: "Cancel"))
-                            .font(.caption2)
-                    }
-                    .frame(width: Self.deleteCancelWidth)
-                    .frame(maxHeight: .infinity)
-                }
-                .buttonStyle(.plain)
-                .foregroundStyle(.white)
-                .background(Color.secondary)
-                .accessibilityIdentifier("MobileWorkspaceDeleteCancelButton-\(workspace.id.rawValue)")
-            }
-
-            Button(role: .destructive) {
-                if isConfirmingClose.wrappedValue {
-                    confirmCloseWorkspace?(workspace.id)
-                } else {
-                    closeWorkspace?(workspace.id)
-                    deleteSwipeOffset = -Self.deleteConfirmationWidth
-                }
-            } label: {
-                VStack(spacing: 4) {
-                    Image(systemName: "trash")
-                        .font(.headline)
-                    Text(L10n.string("mobile.workspace.delete", defaultValue: "Delete"))
-                        .font(.caption2)
-                }
-                .frame(width: isConfirmingClose.wrappedValue ? Self.deleteConfirmWidth : Self.deleteRevealWidth)
-                .frame(maxHeight: .infinity)
-            }
-            .buttonStyle(.plain)
-            .foregroundStyle(.white)
-            .background(Color.red)
-            .accessibilityIdentifier("MobileWorkspaceDeleteSwipeButton-\(workspace.id.rawValue)")
-        }
-        .frame(width: isConfirmingClose.wrappedValue ? Self.deleteConfirmationWidth : Self.deleteRevealWidth)
-        .frame(maxHeight: .infinity)
-        .accessibilityElement(children: .contain)
-    }
-
     private var readStateActionTitle: String {
         workspace.hasUnread
             ? L10n.string("mobile.workspace.markRead", defaultValue: "Mark as Read")
@@ -232,11 +146,4 @@ struct WorkspaceNavigationRow: View {
     private var readStateActionSystemImage: String {
         workspace.hasUnread ? "envelope.open" : "envelope.badge"
     }
-
-    private static let deleteRevealWidth: CGFloat = 88
-    private static let deleteCancelWidth: CGFloat = 88
-    private static let deleteConfirmWidth: CGFloat = 88
-    private static let deleteConfirmationWidth = deleteCancelWidth + deleteConfirmWidth
-    private static let deleteRevealThreshold: CGFloat = 44
-    private static let deleteConfirmationThreshold: CGFloat = 132
 }
