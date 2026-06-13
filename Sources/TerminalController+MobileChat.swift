@@ -195,43 +195,51 @@ extension TerminalController {
 
     /// Workspace/surface params for a chat session's bound terminal, in the
     /// shape the existing mobile terminal handlers expect.
+    ///
+    /// Panel ids regenerate on app relaunch / session restore, so the surface
+    /// id recorded with a session goes stale. Resolution is layered, stable
+    /// id last: (1) the exact recorded surface if it still resolves, (2) a
+    /// hook-store re-adopt (a hook event rewrites the binding) retried, then
+    /// (3) a workspace-level fallback — the workspace id is stable across
+    /// relaunch/restore and the session is workspace-scoped, so target the
+    /// workspace's focused (else first) terminal. This mirrors the phone's
+    /// workspace-level toggle binding.
     private func mobileChatTerminalParams(sessionID: String) -> [String: Any]? {
-        guard let record = mobileChatResolvableRecord(sessionID: sessionID),
-              let workspaceID = record.workspaceID,
-              let surfaceID = record.surfaceID else {
+        let service = AgentChatTranscriptService.shared
+        guard let record = service.sessionRecord(sessionID: sessionID),
+              let workspaceID = record.workspaceID else {
             return nil
         }
-        return ["workspace_id": workspaceID, "surface_id": surfaceID]
-    }
-
-    /// The session record, with its terminal binding verified against live
-    /// panels. A stale binding (panel UUIDs regenerate across app
-    /// relaunches) is refreshed once from the hook store, which every hook
-    /// event rewrites with the current panel.
-    private func mobileChatResolvableRecord(sessionID: String) -> AgentChatSessionRecord? {
-        let service = AgentChatTranscriptService.shared
-        guard var record = service.sessionRecord(sessionID: sessionID) else { return nil }
-        if !mobileChatBindingResolves(record) {
-            #if DEBUG
-            cmuxDebugLog("mobile.chat binding stale session=\(sessionID.prefix(8)) surface=\(record.surfaceID?.prefix(8) ?? "nil"); refreshing from hook store")
-            #endif
-            record = service.refreshSessionBindings(sessionID: sessionID) ?? record
-            guard mobileChatBindingResolves(record) else {
-                // Still dead after the refresh (no hook has run since the
-                // panel changed): fail with the actionable binding error
-                // rather than letting the paste path report a generic
-                // surface-not-found.
-                #if DEBUG
-                cmuxDebugLog("mobile.chat binding unresolved after refresh session=\(sessionID.prefix(8))")
-                #endif
-                return nil
-            }
+        if let surfaceID = record.surfaceID,
+           mobileChatBindingResolves(workspaceID: workspaceID, surfaceID: surfaceID) {
+            return ["workspace_id": workspaceID, "surface_id": surfaceID]
         }
-        return record
+        #if DEBUG
+        cmuxDebugLog("mobile.chat binding stale session=\(sessionID.prefix(8)) surface=\(record.surfaceID?.prefix(8) ?? "nil"); refreshing from hook store")
+        #endif
+        if let refreshed = service.refreshSessionBindings(sessionID: sessionID),
+           let surfaceID = refreshed.surfaceID,
+           mobileChatBindingResolves(workspaceID: workspaceID, surfaceID: surfaceID) {
+            return ["workspace_id": workspaceID, "surface_id": surfaceID]
+        }
+        // Workspace-level fallback: the recorded panel id is gone, but the
+        // workspace persists. Resolve to its focused/first terminal.
+        if let resolved = mobileResolveWorkspaceAndSurface(
+               params: ["workspace_id": workspaceID], requireTerminal: true),
+           let surfaceId = resolved.surfaceId {
+            #if DEBUG
+            cmuxDebugLog("mobile.chat workspace-level fallback session=\(sessionID.prefix(8)) surface=\(surfaceId.uuidString.prefix(8))")
+            #endif
+            return ["workspace_id": workspaceID, "surface_id": surfaceId.uuidString]
+        }
+        #if DEBUG
+        cmuxDebugLog("mobile.chat binding unresolved session=\(sessionID.prefix(8))")
+        #endif
+        return nil
     }
 
-    private func mobileChatBindingResolves(_ record: AgentChatSessionRecord) -> Bool {
-        guard let workspaceID = record.workspaceID, let surfaceID = record.surfaceID else { return false }
+    /// Whether a workspace/surface pair resolves to a live terminal panel.
+    private func mobileChatBindingResolves(workspaceID: String, surfaceID: String) -> Bool {
         let params: [String: Any] = ["workspace_id": workspaceID, "surface_id": surfaceID]
         guard let resolved = mobileResolveWorkspaceAndSurface(params: params, requireTerminal: true),
               let surfaceId = resolved.surfaceId,
