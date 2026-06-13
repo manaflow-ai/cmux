@@ -21,18 +21,22 @@ enum SidebarMetadataMarkdownRenderer {
     private static var cache: [String: AttributedString?] = [:]
     private static var insertionOrder: [String] = []
     private static let capacity = 512
-    /// Only small blocks are cached. Metadata markdown is agent/control-socket
-    /// supplied and uncapped at this boundary, so a key churning large unique
-    /// values could otherwise retain hundreds of big payloads after the
-    /// workspace metadata is overwritten or cleared. Skipping the cache above
-    /// this size bounds total retained bytes to `capacity * maxCacheableBytes`
-    /// instead of growing with whatever has ever been rendered; large blocks
-    /// parse inline each eval (rare, and still attributed from the first frame).
+    /// Only small blocks are rendered as markdown. Metadata markdown is
+    /// agent/control-socket supplied and uncapped at this boundary. Caching
+    /// large values would retain hundreds of big payloads after the workspace
+    /// metadata is overwritten or cleared (memory), and parsing them inline on
+    /// every body eval would re-run main-actor Markdown parsing under agent
+    /// churn (CPU). Above this size the block falls back to plain text (the row
+    /// renders `Text(block.markdown)` on the nil return): no parse, no
+    /// retention, and still height-stable because the result never changes for
+    /// a given block. Cached small blocks bound total retained bytes to
+    /// `capacity * maxCacheableBytes`. A >4 KB sidebar metadata block is already
+    /// pathological, so plain text is an acceptable degradation.
     private static let maxCacheableBytes = 4096
 
     static func rendered(_ markdown: String) -> AttributedString? {
         guard markdown.utf8.count <= maxCacheableBytes else {
-            return parse(markdown)
+            return nil
         }
         if let hit = cache[markdown] {
             return hit
