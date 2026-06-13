@@ -60,11 +60,12 @@ struct WorkspaceNavigationRow: View {
         }
         .swipeActions(edge: .trailing, allowsFullSwipe: true) {
             if let closeWorkspace {
-                Button(role: .destructive) {
+                Button {
                     closeWorkspace(workspace.id)
                 } label: {
                     Label(L10n.string("mobile.workspace.delete", defaultValue: "Delete"), systemImage: "trash")
                 }
+                .tint(.red)
                 .accessibilityIdentifier("MobileWorkspaceDeleteSwipeButton-\(workspace.id.rawValue)")
             }
         }
