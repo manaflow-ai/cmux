@@ -467,6 +467,7 @@
 		B9000015A1B2C3D4E5F60719 /* MultiWindowNotificationsUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B9000016A1B2C3D4E5F60719 /* MultiWindowNotificationsUITests.swift */; };
 		8B1B2AB6EC6ACDB2CD39A9BB /* NewBrowserWorkspaceShortcutUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 04698069140539D8495D6B9B /* NewBrowserWorkspaceShortcutUITests.swift */; };
 		734F49D37E543DD01C2F4FEF /* NotificationAndMenuBarTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D2C075029771815DD5DA1332 /* NotificationAndMenuBarTests.swift */; };
+		D7AB00000000000000B021 /* NotificationDismissSyncTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D7AB00000000000000B020 /* NotificationDismissSyncTests.swift */; };
 		B7F00002 /* NotificationSoundSettings.swift in Sources */ = {isa = PBXBuildFile; fileRef = B7F00001 /* NotificationSoundSettings.swift */; };
 		4E5F60720000000000000001 /* NotificationSoundSettingsTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4E5F60720000000000000002 /* NotificationSoundSettingsTests.swift */; };
 		A5001094 /* NotificationsPage.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001091 /* NotificationsPage.swift */; };
@@ -630,6 +631,7 @@
 		F6355600A1B2C3D4E5F60718 /* SSHStartupSignalLifecycleTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F6355601A1B2C3D4E5F60718 /* SSHStartupSignalLifecycleTests.swift */; };
 		F20F85FC5900550685FA33AD /* StackAuth in Frameworks */ = {isa = PBXBuildFile; productRef = A8BD195031FC4B82B4354297 /* StackAuth */; };
 		D35B71010000000000000001 /* StartupBreadcrumbLog.swift in Sources */ = {isa = PBXBuildFile; fileRef = D35B71010000000000000002 /* StartupBreadcrumbLog.swift */; };
+		D7AB00000000000000B041 /* SupersededPhoneDismissBuffer.swift in Sources */ = {isa = PBXBuildFile; fileRef = D7AB00000000000000B040 /* SupersededPhoneDismissBuffer.swift */; };
 		A5001303 /* SurfaceSearchOverlay.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001301 /* SurfaceSearchOverlay.swift */; };
 		C9A5720BC9A5720BC9A5720B /* TabItemView+WorkspaceGroups.swift in Sources */ = {isa = PBXBuildFile; fileRef = C9A5720CC9A5720CC9A5720C /* TabItemView+WorkspaceGroups.swift */; };
 		C3677003000000000000001 /* TabManager+CompatibilityTypes.swift in Sources */ = {isa = PBXBuildFile; fileRef = C3677003000000000000002 /* TabManager+CompatibilityTypes.swift */; };
@@ -666,6 +668,7 @@
 		C0DE00000000000000000C7C /* TerminalController+ControlSystemContext2.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE00000000000000000C7B /* TerminalController+ControlSystemContext2.swift */; };
 		C0DE00000000000000000C62 /* TerminalController+ControlWorkspaceContext.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE00000000000000000C61 /* TerminalController+ControlWorkspaceContext.swift */; };
 		C0DE00000000000000000C54 /* TerminalController+ControlWorkspaceGroupContext.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE00000000000000000C53 /* TerminalController+ControlWorkspaceGroupContext.swift */; };
+		D7AB00000000000000B001 /* TerminalController+MobileNotificationSync.swift in Sources */ = {isa = PBXBuildFile; fileRef = D7AB00000000000000B000 /* TerminalController+MobileNotificationSync.swift */; };
 		C7A50B000000000000000012 /* TerminalController+MobileWorkspaceList.swift in Sources */ = {isa = PBXBuildFile; fileRef = C7A50B000000000000000011 /* TerminalController+MobileWorkspaceList.swift */; };
 		D7AB0000000000000000000B /* TerminalController+MoveTabToNewWorkspace.swift in Sources */ = {isa = PBXBuildFile; fileRef = D7AB0000000000000000000C /* TerminalController+MoveTabToNewWorkspace.swift */; };
 		A5001007 /* TerminalController.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001019 /* TerminalController.swift */; };
@@ -1278,6 +1281,7 @@
 		B9000016A1B2C3D4E5F60719 /* MultiWindowNotificationsUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MultiWindowNotificationsUITests.swift; sourceTree = "<group>"; };
 		04698069140539D8495D6B9B /* NewBrowserWorkspaceShortcutUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NewBrowserWorkspaceShortcutUITests.swift; sourceTree = "<group>"; };
 		D2C075029771815DD5DA1332 /* NotificationAndMenuBarTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotificationAndMenuBarTests.swift; sourceTree = "<group>"; };
+		D7AB00000000000000B020 /* NotificationDismissSyncTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "NotificationDismissSyncTests.swift"; sourceTree = "<group>"; };
 		B7F00001 /* NotificationSoundSettings.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotificationSoundSettings.swift; sourceTree = "<group>"; };
 		4E5F60720000000000000002 /* NotificationSoundSettingsTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotificationSoundSettingsTests.swift; sourceTree = "<group>"; };
 		A5001091 /* NotificationsPage.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotificationsPage.swift; sourceTree = "<group>"; };
@@ -1431,6 +1435,7 @@
 		E3309A0E /* SplitEqualizer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SplitEqualizer.swift; sourceTree = "<group>"; };
 		F6355601A1B2C3D4E5F60718 /* SSHStartupSignalLifecycleTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SSHStartupSignalLifecycleTests.swift; sourceTree = "<group>"; };
 		D35B71010000000000000002 /* StartupBreadcrumbLog.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/StartupBreadcrumbLog.swift; sourceTree = "<group>"; };
+		D7AB00000000000000B040 /* SupersededPhoneDismissBuffer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SupersededPhoneDismissBuffer.swift; sourceTree = "<group>"; };
 		A5001301 /* SurfaceSearchOverlay.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Find/SurfaceSearchOverlay.swift; sourceTree = "<group>"; };
 		C9A5720CC9A5720CC9A5720C /* TabItemView+WorkspaceGroups.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TabItemView+WorkspaceGroups.swift"; sourceTree = "<group>"; };
 		C3677003000000000000002 /* TabManager+CompatibilityTypes.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TabManager+CompatibilityTypes.swift"; sourceTree = "<group>"; };
@@ -1467,6 +1472,7 @@
 		C0DE00000000000000000C7B /* TerminalController+ControlSystemContext2.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TerminalController+ControlSystemContext2.swift"; sourceTree = "<group>"; };
 		C0DE00000000000000000C61 /* TerminalController+ControlWorkspaceContext.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TerminalController+ControlWorkspaceContext.swift"; sourceTree = "<group>"; };
 		C0DE00000000000000000C53 /* TerminalController+ControlWorkspaceGroupContext.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TerminalController+ControlWorkspaceGroupContext.swift"; sourceTree = "<group>"; };
+		D7AB00000000000000B000 /* TerminalController+MobileNotificationSync.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TerminalController+MobileNotificationSync.swift"; sourceTree = "<group>"; };
 		C7A50B000000000000000011 /* TerminalController+MobileWorkspaceList.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TerminalController+MobileWorkspaceList.swift"; sourceTree = "<group>"; };
 		D7AB0000000000000000000C /* TerminalController+MoveTabToNewWorkspace.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TerminalController+MoveTabToNewWorkspace.swift"; sourceTree = "<group>"; };
 		A5001019 /* TerminalController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalController.swift; sourceTree = "<group>"; };
@@ -2009,6 +2015,7 @@
 				C0DE00000000000000000C43 /* TerminalController+ControlFeedContext.swift */,
 				C0DE00000000000000000C45 /* TerminalController+ControlNotificationContext.swift */,
 				C0DE00000000000000000C61 /* TerminalController+ControlWorkspaceContext.swift */,
+				D7AB00000000000000B000 /* TerminalController+MobileNotificationSync.swift */,
 				C0DE00000000000000000C81 /* TerminalController+ControlBrowserPanelContext.swift */,
 				C0DE00000000000000000C6D /* TerminalController+ControlDebugContext.swift */,
 				C0DE00000000000000000C6F /* TerminalController+ControlProjectContext.swift */,
@@ -2069,6 +2076,7 @@
 				D1F0A00600000000000000F2 /* ScreenLockObserver.swift */,
 				B7F00001 /* NotificationSoundSettings.swift */,
 				A5001092 /* TerminalNotificationStore.swift */,
+				D7AB00000000000000B040 /* SupersededPhoneDismissBuffer.swift */,
 				A5001097 /* TerminalNotificationPolicy.swift */,
 				F1A0C0DE0000000000000001 /* FindTextFieldSupport.swift */,
 				A5A5A502A1B2C3D4E5F60718 /* TerminalNotificationQueue.swift */,
@@ -2427,6 +2435,7 @@
 				86544CEFA1CA33CA9225FB6E /* MobileWorkspaceListFidelityTests.swift */,
 				B09C007F42697761B5F1A2AB /* OmnibarAndToolsTests.swift */,
 				D2C075029771815DD5DA1332 /* NotificationAndMenuBarTests.swift */,
+				D7AB00000000000000B020 /* NotificationDismissSyncTests.swift */,
 				4E5F60720000000000000002 /* NotificationSoundSettingsTests.swift */,
 				42092CDB2109E250F7F2A76E /* TabManagerUnitTests.swift */,
 				D7C0DE00000000000000A104 /* CmuxWebViewContextMenuLinkCaptureTests.swift */,
@@ -3235,6 +3244,7 @@
 				A5001226 /* SocketControlMode+Display.swift in Sources */,
 				E3309A0D /* SplitEqualizer.swift in Sources */,
 				D35B71010000000000000001 /* StartupBreadcrumbLog.swift in Sources */,
+				D7AB00000000000000B041 /* SupersededPhoneDismissBuffer.swift in Sources */,
 				A5001303 /* SurfaceSearchOverlay.swift in Sources */,
 				C9A5720BC9A5720BC9A5720B /* TabItemView+WorkspaceGroups.swift in Sources */,
 				C3677003000000000000001 /* TabManager+CompatibilityTypes.swift in Sources */,
@@ -3265,6 +3275,7 @@
 				C0DE00000000000000000C7C /* TerminalController+ControlSystemContext2.swift in Sources */,
 				C0DE00000000000000000C62 /* TerminalController+ControlWorkspaceContext.swift in Sources */,
 				C0DE00000000000000000C54 /* TerminalController+ControlWorkspaceGroupContext.swift in Sources */,
+				D7AB00000000000000B001 /* TerminalController+MobileNotificationSync.swift in Sources */,
 				C7A50B000000000000000012 /* TerminalController+MobileWorkspaceList.swift in Sources */,
 				D7AB0000000000000000000B /* TerminalController+MoveTabToNewWorkspace.swift in Sources */,
 				A5001007 /* TerminalController.swift in Sources */,
@@ -3556,6 +3567,7 @@
 				9B08F916D7FF7626C6820727 /* MobilePairingConnectionTransitionTests.swift in Sources */,
 				F6448F377504F33956E7E03B /* MobileWorkspaceListFidelityTests.swift in Sources */,
 				734F49D37E543DD01C2F4FEF /* NotificationAndMenuBarTests.swift in Sources */,
+				D7AB00000000000000B021 /* NotificationDismissSyncTests.swift in Sources */,
 				4E5F60720000000000000001 /* NotificationSoundSettingsTests.swift in Sources */,
 				4378399A7C0245EF8186F306 /* OmnibarAndToolsTests.swift in Sources */,
 				0A0F00550000000000000001 /* OmpSupportTests.swift in Sources */,

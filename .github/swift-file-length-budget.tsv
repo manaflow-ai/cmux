@@ -6,7 +6,7 @@
 19226	Sources/ContentView.swift
 18119	Sources/AppDelegate.swift
 16678	Sources/GhosttyTerminalView.swift
-14622	Sources/TerminalController.swift
+14610	Sources/TerminalController.swift
 13606	Sources/Panels/BrowserPanel.swift
 12044	cmuxTests/AppDelegateShortcutRoutingTests.swift
 10021	Sources/TabManager.swift
@@ -21,7 +21,7 @@
 6071	Sources/TextBoxInput.swift
 5482	cmuxTests/BrowserConfigTests.swift
 4896	Sources/cmuxApp.swift
-4775	Packages/CmuxMobileShell/Sources/CmuxMobileShell/MobileShellComposite.swift
+4726	Packages/CmuxMobileShell/Sources/CmuxMobileShell/MobileShellComposite.swift
 4460	Sources/Panels/FilePreviewPanel.swift
 4400	cmuxTests/BrowserPanelTests.swift
 4227	Sources/BrowserWindowPortal.swift
@@ -43,12 +43,12 @@
 2322	Sources/Mobile/MobileHostService.swift
 2314	Sources/FileExplorerView.swift
 2260	Sources/TerminalWindowPortal.swift
+2232	Sources/TerminalNotificationStore.swift
 2198	Sources/SessionPersistence.swift
 2118	cmuxTests/ShortcutAndCommandPaletteTests.swift
 2117	cmuxTests/CmuxConfigTests.swift
 2032	Sources/KeyboardShortcutSettingsFileStore.swift
 1949	Sources/Panels/BrowserWebAuthnSupport.swift
-1941	Sources/TerminalNotificationStore.swift
 1860	cmuxTests/NotificationAndMenuBarTests.swift
 1793	Sources/SessionIndexStore.swift
 1752	Sources/WindowDragHandleView.swift
