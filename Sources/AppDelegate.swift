@@ -20,6 +20,7 @@ import Combine
 import ObjectiveC.runtime
 import Darwin
 import CmuxFoundation
+import CmuxTerminal
 
 private struct MultiWindowRouteCLIResult {
     let status: String

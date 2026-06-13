@@ -1,6 +1,7 @@
 import AppKit
 import Bonsplit
 import Foundation
+import CmuxTerminal
 
 func browserOmnibarSelectionDeltaForControlNavigation(
     hasFocusedAddressBar: Bool,
@@ -538,6 +539,10 @@ func shouldRouteTerminalFontZoomShortcutToGhostty(
         literalChars: literalChars
     ) != nil
 }
+// Main-actor isolated: TerminalSurface.searchState carries the legacy
+// main-thread-only contract as compiler-enforced isolation after the
+// CmuxTerminal lift; both callers (TabManager, overlay tests) are @MainActor.
+@MainActor
 @discardableResult
 func startOrFocusTerminalSearch(
     _ terminalSurface: TerminalSurface,

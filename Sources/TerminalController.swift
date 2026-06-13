@@ -12,10 +12,11 @@ import CMUXWorkstream
 import Foundation
 import Bonsplit
 import WebKit
+import CmuxTerminal
 
 extension Notification.Name {
     static let socketListenerDidStart = Notification.Name("cmux.socketListenerDidStart")
-    static let terminalSurfaceDidBecomeReady = Notification.Name("cmux.terminalSurfaceDidBecomeReady")
+    // terminalSurfaceDidBecomeReady moved to CmuxTerminal (posted by TerminalSurface).
     static let terminalSurfaceHostedViewDidMoveToWindow = Notification.Name("cmux.terminalSurfaceHostedViewDidMoveToWindow")
     static let mainWindowContextsDidChange = Notification.Name("cmux.mainWindowContextsDidChange")
     static let browserDownloadEventDidArrive = Notification.Name("cmux.browserDownloadEventDidArrive")

@@ -10,6 +10,7 @@ import Combine
 import CoreServices
 import Darwin
 import OSLog
+import CmuxTerminal
 
 // MARK: - Tab Type Alias for Backwards Compatibility
 // The old Tab class is replaced by Workspace

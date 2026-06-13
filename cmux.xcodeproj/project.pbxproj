@@ -234,6 +234,7 @@
 		C5A1FED000000000000000C2 /* CmuxSwiftRender in Frameworks */ = {isa = PBXBuildFile; productRef = C5A1FED000000000000000C3 /* CmuxSwiftRender */; };
 		C5A1FED100000000000000D1 /* CmuxSwiftRenderUI in Frameworks */ = {isa = PBXBuildFile; productRef = C5A1FED100000000000000D3 /* CmuxSwiftRenderUI */; };
 		C5A1FED100000000000000D2 /* CmuxSwiftRenderUI in Frameworks */ = {isa = PBXBuildFile; productRef = C5A1FED100000000000000D3 /* CmuxSwiftRenderUI */; };
+		C750500000000000000000A3 /* CmuxTerminal in Frameworks */ = {isa = PBXBuildFile; productRef = C750500000000000000000A2 /* CmuxTerminal */; };
 		C52830000000000000000001 /* CmuxTerminalCopyMode in Frameworks */ = {isa = PBXBuildFile; productRef = C52830000000000000000004 /* CmuxTerminalCopyMode */; };
 		C52830000000000000000002 /* CmuxTerminalCopyMode in Frameworks */ = {isa = PBXBuildFile; productRef = C52830000000000000000004 /* CmuxTerminalCopyMode */; };
 		C750200000000000000000A3 /* CmuxTerminalCore in Frameworks */ = {isa = PBXBuildFile; productRef = C750200000000000000000A2 /* CmuxTerminalCore */; };
@@ -692,9 +693,7 @@
 		C0DE53350000000000000001 /* TerminalSearchOverlayHostingView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE53350000000000000002 /* TerminalSearchOverlayHostingView.swift */; };
 		C0DE53360000000000000001 /* TerminalSearchOverlayMouseReleaseTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE53360000000000000002 /* TerminalSearchOverlayMouseReleaseTests.swift */; };
 		A5001543 /* TerminalSSHSessionDetector.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001545 /* TerminalSSHSessionDetector.swift */; };
-		C13519000000000000000001 /* TerminalStartupEnvironment.swift in Sources */ = {isa = PBXBuildFile; fileRef = C13519000000000000000002 /* TerminalStartupEnvironment.swift */; };
-		A9F200000000000000000009 /* TerminalSurfaceClaudeCommandShim.swift in Sources */ = {isa = PBXBuildFile; fileRef = A9F100000000000000000009 /* TerminalSurfaceClaudeCommandShim.swift */; };
-		A9F20000000000000000000A /* TerminalSurfaceCmuxContextEnvironment.swift in Sources */ = {isa = PBXBuildFile; fileRef = A9F10000000000000000000A /* TerminalSurfaceCmuxContextEnvironment.swift */; };
+		C750500000000000000000B1 /* TerminalSurfaceRuntimeWiring.swift in Sources */ = {isa = PBXBuildFile; fileRef = C750500000000000000000B2 /* TerminalSurfaceRuntimeWiring.swift */; };
 		5154BEAB50364B86A9E36E4B /* TerminalViewportUITestRecorder.swift in Sources */ = {isa = PBXBuildFile; fileRef = 31B04B98376C9BA8B9E44DCB /* TerminalViewportUITestRecorder.swift */; };
 		A5001532 /* TerminalWindowPortal.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001531 /* TerminalWindowPortal.swift */; };
 		D0B10006A1B2C3D4E5F60001 /* TerminalWindowPortalDebug.swift in Sources */ = {isa = PBXBuildFile; fileRef = D0B10007A1B2C3D4E5F60001 /* TerminalWindowPortalDebug.swift */; };
@@ -1491,9 +1490,7 @@
 		C0DE53350000000000000002 /* TerminalSearchOverlayHostingView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Find/TerminalSearchOverlayHostingView.swift; sourceTree = "<group>"; };
 		C0DE53360000000000000002 /* TerminalSearchOverlayMouseReleaseTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalSearchOverlayMouseReleaseTests.swift; sourceTree = "<group>"; };
 		A5001545 /* TerminalSSHSessionDetector.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalSSHSessionDetector.swift; sourceTree = "<group>"; };
-		C13519000000000000000002 /* TerminalStartupEnvironment.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalStartupEnvironment.swift; sourceTree = "<group>"; };
-		A9F100000000000000000009 /* TerminalSurfaceClaudeCommandShim.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalSurfaceClaudeCommandShim.swift; sourceTree = "<group>"; };
-		A9F10000000000000000000A /* TerminalSurfaceCmuxContextEnvironment.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalSurfaceCmuxContextEnvironment.swift; sourceTree = "<group>"; };
+		C750500000000000000000B2 /* TerminalSurfaceRuntimeWiring.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalSurfaceRuntimeWiring.swift; sourceTree = "<group>"; };
 		31B04B98376C9BA8B9E44DCB /* TerminalViewportUITestRecorder.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = TerminalViewportUITestRecorder.swift; sourceTree = "<group>"; };
 		A5001531 /* TerminalWindowPortal.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalWindowPortal.swift; sourceTree = "<group>"; };
 		D0B10007A1B2C3D4E5F60001 /* TerminalWindowPortalDebug.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalWindowPortalDebug.swift; sourceTree = "<group>"; };
@@ -1617,6 +1614,7 @@
 				A5354303A5354303A5354303 /* CmuxSocketControl in Frameworks */,
 				C5A1FED000000000000000C1 /* CmuxSwiftRender in Frameworks */,
 				C5A1FED100000000000000D1 /* CmuxSwiftRenderUI in Frameworks */,
+				C750500000000000000000A3 /* CmuxTerminal in Frameworks */,
 				C52830000000000000000001 /* CmuxTerminalCopyMode in Frameworks */,
 				C750200000000000000000A3 /* CmuxTerminalCore in Frameworks */,
 				C750300000000000000000A3 /* CmuxTerminalEngine in Frameworks */,
@@ -1972,7 +1970,6 @@
 				A5001014 /* GhosttyConfig.swift */,
 				C4041001000000000000001A /* CommandClickFileOpenRouter.swift */,
 				A5001015 /* GhosttyTerminalView.swift */,
-				C13519000000000000000002 /* TerminalStartupEnvironment.swift */,
 				C13519000000000000000006 /* RestorableAgentTypes.swift */,
 				D36A00030000000000000002 /* AgentHibernationLifecycleState.swift */,
 				B3575000000000000000000B /* SessionIndexModels.swift */,
@@ -1985,6 +1982,7 @@
 				D0B10001A1B2C3D4E5F60001 /* TerminalPaneDropTargetView.swift */,
 				D0B1001DA1B2C3D4E5F60001 /* PaneDropRoutingSupport.swift */,
 				A5001531 /* TerminalWindowPortal.swift */,
+				C750500000000000000000B2 /* TerminalSurfaceRuntimeWiring.swift */,
 				D0B10007A1B2C3D4E5F60001 /* TerminalWindowPortalDebug.swift */,
 				D0B1001FA1B2C3D4E5F60001 /* BrowserPaneDropTargetView.swift */,
 				A5001533 /* BrowserWindowPortal.swift */,
@@ -2110,8 +2108,6 @@
 				A9F10000000000000000001A /* CmuxRuntimeDebugCaptureSender.swift */,
 				A9F100000000000000000007 /* CmuxRuntimeDebugCaptureSequence.swift */,
 				A9F100000000000000000008 /* SessionAgentSessionPanelSnapshot.swift */,
-				A9F100000000000000000009 /* TerminalSurfaceClaudeCommandShim.swift */,
-				A9F10000000000000000000A /* TerminalSurfaceCmuxContextEnvironment.swift */,
 				A9F10000000000000000000B /* AgentSessionBridgeError.swift */,
 				A9F10000000000000000000C /* AgentSessionBridgeRequest.swift */,
 				A9F10000000000000000000E /* AgentSessionOutputLineBuffer.swift */,
@@ -2717,6 +2713,7 @@
 				C750200000000000000000A1 /* XCLocalSwiftPackageReference "CmuxTerminalCore" */,
 				C750300000000000000000A1 /* XCLocalSwiftPackageReference "CmuxTerminalEngine" */,
 				C750400000000000000000A1 /* XCLocalSwiftPackageReference "CmuxTerminalServices" */,
+				C750500000000000000000A1 /* XCLocalSwiftPackageReference "CmuxTerminal" */,
 				CD0CFE5100000000CD0CFE51 /* XCLocalSwiftPackageReference "CmuxSettings" */,
 				CD0CFE5400000000CD0CFE54 /* XCLocalSwiftPackageReference "CmuxSettingsUI" */,
 				CDFEED0100000000CDFEED01 /* XCLocalSwiftPackageReference "CmuxUpdater" */,
@@ -3276,9 +3273,7 @@
 				A5001403 /* TerminalPanelView.swift in Sources */,
 				C0DE53350000000000000001 /* TerminalSearchOverlayHostingView.swift in Sources */,
 				A5001543 /* TerminalSSHSessionDetector.swift in Sources */,
-				C13519000000000000000001 /* TerminalStartupEnvironment.swift in Sources */,
-				A9F200000000000000000009 /* TerminalSurfaceClaudeCommandShim.swift in Sources */,
-				A9F20000000000000000000A /* TerminalSurfaceCmuxContextEnvironment.swift in Sources */,
+				C750500000000000000000B1 /* TerminalSurfaceRuntimeWiring.swift in Sources */,
 				5154BEAB50364B86A9E36E4B /* TerminalViewportUITestRecorder.swift in Sources */,
 				A5001532 /* TerminalWindowPortal.swift in Sources */,
 				D0B10006A1B2C3D4E5F60001 /* TerminalWindowPortalDebug.swift in Sources */,
@@ -4134,6 +4129,10 @@
 			isa = XCLocalSwiftPackageReference;
 			relativePath = Packages/CmuxTerminalServices;
 		};
+		C750500000000000000000A1 /* XCLocalSwiftPackageReference "CmuxTerminal" */ = {
+			isa = XCLocalSwiftPackageReference;
+			relativePath = Packages/CmuxTerminal;
+		};
 		CD0CFE5100000000CD0CFE51 /* XCLocalSwiftPackageReference "CmuxSettings" */ = {
 			isa = XCLocalSwiftPackageReference;
 			relativePath = Packages/CmuxSettings;
@@ -4315,6 +4314,11 @@
 			isa = XCSwiftPackageProductDependency;
 			package = C750400000000000000000A1 /* XCLocalSwiftPackageReference "CmuxTerminalServices" */;
 			productName = CmuxTerminalServices;
+		};
+		C750500000000000000000A2 /* CmuxTerminal */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = C750500000000000000000A1 /* XCLocalSwiftPackageReference "CmuxTerminal" */;
+			productName = CmuxTerminal;
 		};
 		C8000302C8000302C8000302 /* CmuxProcess */ = {
 			isa = XCSwiftPackageProductDependency;

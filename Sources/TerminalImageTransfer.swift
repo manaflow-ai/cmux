@@ -2,6 +2,7 @@ import Foundation
 import CmuxTerminalServices
 import AppKit
 import UniformTypeIdentifiers
+import CmuxTerminal
 
 enum TerminalImageTransferMode {
     case paste

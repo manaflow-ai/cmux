@@ -3,6 +3,7 @@ import CmuxSocketControl
 import Bonsplit
 import Combine
 import CmuxSidebarInterpreterClient
+import CmuxTerminal
 @_spi(CmuxHostTransport) import CmuxExtensionKit
 import CmuxSidebarProviderKit
 import CmuxExtensionSidebarExamples

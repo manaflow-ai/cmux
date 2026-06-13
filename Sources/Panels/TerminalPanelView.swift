@@ -2,6 +2,7 @@ import SwiftUI
 import Foundation
 import AppKit
 import Bonsplit
+import CmuxTerminal
 
 /// View for rendering a terminal panel
 struct TerminalPanelView: View {
