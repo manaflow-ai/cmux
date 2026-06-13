@@ -4,6 +4,7 @@ import PackageDescription
 
 let package = Package(
     name: "CmuxFeedbackUI",
+    defaultLocalization: "en",
     platforms: [
         .macOS(.v14),
     ],
@@ -13,9 +14,18 @@ let package = Package(
             targets: ["CmuxFeedbackUI"]
         ),
     ],
+    dependencies: [
+        .package(path: "../CmuxFeedback"),
+    ],
     targets: [
         .target(
             name: "CmuxFeedbackUI",
+            dependencies: [
+                .product(name: "CmuxFeedback", package: "CmuxFeedback"),
+            ],
+            resources: [
+                .process("Resources"),
+            ],
             swiftSettings: [
                 .swiftLanguageMode(.v6),
                 .enableUpcomingFeature("ExistentialAny"),

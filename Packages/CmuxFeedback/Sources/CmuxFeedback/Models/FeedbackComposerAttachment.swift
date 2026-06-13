@@ -2,7 +2,7 @@ public import Foundation
 
 /// A user-selected file to attach to a feedback submission, carrying the
 /// resolved name, size, and MIME type read from the URL's resource values.
-public struct FeedbackComposerAttachment: Identifiable {
+public struct FeedbackComposerAttachment: Identifiable, Sendable {
     public let id = UUID()
     public let url: URL
     public let fileName: String
