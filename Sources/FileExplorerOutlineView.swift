@@ -15,7 +15,17 @@ enum FileExplorerKeyboardActivation {
         _ event: NSEvent,
         shortcutForAction: (KeyboardShortcutSettings.Action) -> StoredShortcut = KeyboardShortcutSettings.shortcut(for:)
     ) -> Bool {
-        isDefaultOpenEvent(event) || shortcutForAction(.openFileExplorerSelection).matches(event: event)
+        isDefaultOpenEvent(event) || matchesConfiguredOpenSelectionShortcut(
+            event,
+            shortcutForAction: shortcutForAction
+        )
+    }
+
+    static func matchesConfiguredOpenSelectionShortcut(
+        _ event: NSEvent,
+        shortcutForAction: (KeyboardShortcutSettings.Action) -> StoredShortcut = KeyboardShortcutSettings.shortcut(for:)
+    ) -> Bool {
+        shortcutForAction(.openFileExplorerSelection).matches(event: event)
     }
 }
 
@@ -146,11 +156,17 @@ final class FileExplorerNSOutlineView: NSOutlineView {
     }
 
     private func handleOpenSelectionShortcut(_ event: NSEvent) -> Bool {
-        guard FileExplorerKeyboardActivation.matchesOpenSelectionShortcut(event) else {
+        let isDefaultOpenEvent = FileExplorerKeyboardActivation.isDefaultOpenEvent(event)
+        guard isDefaultOpenEvent || FileExplorerKeyboardActivation.matchesConfiguredOpenSelectionShortcut(event) else {
+            return false
+        }
+        guard isDefaultOpenEvent ||
+            (AppDelegate.shared?.shortcutWhenClauseAllows(action: .openFileExplorerSelection, event: event) ?? true) else {
             return false
         }
         endQuickSearch()
-        return fileExplorerCoordinator?.openSelectedItem(in: self) ?? false
+        _ = fileExplorerCoordinator?.openSelectedItem(in: self)
+        return true
     }
 
     private func beginQuickSearch() {

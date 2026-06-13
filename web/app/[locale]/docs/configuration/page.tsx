@@ -5,7 +5,7 @@ import { Link } from "../../../../i18n/navigation";
 import { CodeBlock } from "../../components/code-block";
 import { Callout } from "../../components/callout";
 import settingsSchema from "../../../../data/cmux.schema.json";
-import { shortcutCategories, type LocalizedText } from "../../../../data/cmux-shortcuts";
+import { localizedText, shortcutCategories } from "../../../../data/cmux-shortcuts";
 import { DocsHeading } from "../../components/docs-heading";
 
 type SchemaProperty = {
@@ -144,10 +144,6 @@ export async function generateMetadata({ params }: { params: Promise<{ locale: s
     description: t("metaDescription"),
     alternates: buildAlternates(locale, "/docs/configuration"),
   };
-}
-
-function localizedText(text: LocalizedText, locale: string) {
-  return locale.startsWith("ja") ? text.ja : text.en;
 }
 
 function shortcutToConfig(shortcut: { combos: string[][]; configValue?: string }) {
