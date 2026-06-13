@@ -1,4 +1,5 @@
 import CmuxControlSocket
+import CmuxCore
 import CmuxPanes
 import CmuxWorkspaces
 import Foundation
@@ -749,3 +750,4 @@ extension TerminalController: ControlWorkspaceContext {
         return .string(uuid.uuidString)
     }
 }
+

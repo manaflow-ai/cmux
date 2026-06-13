@@ -1,4 +1,5 @@
 import AppKit
+import CmuxCore
 import CmuxPanes
 import CmuxSocketControl
 import CmuxWorkspaces
@@ -14551,18 +14552,9 @@ private struct SidebarHelpMenuButton: View {
             isPopoverPresented.toggle()
         } label: {
             Image(systemName: "questionmark.circle")
-                .resizable()
-                .scaledToFit()
-                .fontWeight(.medium)
                 .symbolRenderingMode(.monochrome)
+                .cmuxSymbolRasterSize(iconSize, weight: .medium)
                 .foregroundStyle(Color(nsColor: .secondaryLabelColor))
-                // Drive the symbol's raster size from an explicit frame rather
-                // than font metrics. During the window's pre-visible layout pass
-                // the font metrics aren't resolved yet, so a `.font`-sized symbol
-                // rasterizes at 0×0 — which macOS 26+ rejects with an uncaught
-                // `NSInvalidArgumentException` (targetSizeInPoints.width/height>0),
-                // crashing on launch. A fixed frame keeps the raster size positive.
-                .frame(width: iconSize, height: iconSize, alignment: .center)
                 .frame(width: buttonSize, height: buttonSize, alignment: .center)
         }
         .buttonStyle(SidebarFooterIconButtonStyle())
@@ -17352,7 +17344,7 @@ private struct SidebarMetadataEntryRow: View {
             symbolName = iconRaw
         }
         guard !symbolName.isEmpty else { return nil }
-        return AnyView(Image(systemName: symbolName).font(.system(size: 8 * fontScale, weight: .medium)))
+        return AnyView(Image(systemName: symbolName).cmuxSymbolRasterSize(8 * fontScale, weight: .medium))
     }
 
     @ViewBuilder
