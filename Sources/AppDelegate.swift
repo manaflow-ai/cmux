@@ -1,5 +1,6 @@
 import AppKit
 import CmuxAuthRuntime
+import CmuxCommandPaletteUI
 import CmuxControlSocket
 import CmuxIPCService
 import CmuxSettings
@@ -146,36 +147,6 @@ final class ConfiguredGroupActionAsyncWorkspaceObserver {
         // for the rest of the app session.
         Self.pending.removeValue(forKey: storedKey)
     }
-}
-
-func isCommandPaletteFocusStealingTerminalOrBrowserResponder(_ responder: NSResponder) -> Bool {
-    if responder is GhosttyNSView || responder is WKWebView {
-        return true
-    }
-
-    if let textView = responder as? NSTextView, !textView.isFieldEditor {
-        return isCommandPaletteFocusStealingTerminalOrBrowserView(textView)
-    }
-
-    if let view = responder as? NSView {
-        return isCommandPaletteFocusStealingTerminalOrBrowserView(view)
-    }
-
-    return false
-}
-
-func isCommandPaletteFocusStealingTerminalOrBrowserView(_ view: NSView) -> Bool {
-    if view is GhosttyNSView || view is GhosttySurfaceScrollView || view is WKWebView {
-        return true
-    }
-    var current: NSView? = view.superview
-    while let candidate = current {
-        if candidate is GhosttyNSView || candidate is GhosttySurfaceScrollView || candidate is WKWebView {
-            return true
-        }
-        current = candidate.superview
-    }
-    return false
 }
 
 #if DEBUG
@@ -5162,7 +5133,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
     private func isFocusStealingResponderWhileCommandPaletteVisible(_ responder: NSResponder) -> Bool {
-        isCommandPaletteFocusStealingTerminalOrBrowserResponder(responder)
+        responder.isCommandPaletteFocusStealingTerminalOrBrowser
     }
 
     private func isInsideCommandPaletteOverlay(_ view: NSView) -> Bool {
