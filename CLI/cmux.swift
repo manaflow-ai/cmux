@@ -23036,7 +23036,7 @@ struct CMUXCLI {
         terminalBindingCache: inout ClaudeHookTerminalBindingCache,
         client: SocketClient
     ) throws -> String {
-        if let preferred = nonEmptyClaudeHookIdentifier(preferred), let resolvedPreferred = try? resolveWorkspaceId(preferred, client: client), claudeHookWorkspaceIsAccessible(resolvedPreferred, client: client) {
+        if let preferred = nonEmptyClaudeHookIdentifier(preferred), let resolvedPreferred = try? resolveWorkspaceId(preferred, client: client), claudeHookWorkspaceIsAccessible(resolvedPreferred, client: client, allowUnknown: true) {
             return resolvedPreferred
         }
         if let fallback = nonEmptyClaudeHookIdentifier(fallback) {
@@ -23162,14 +23162,20 @@ struct CMUXCLI {
     ) -> String? {
         guard let raw = nonEmptyClaudeHookIdentifier(raw),
               let candidate = try? resolveSurfaceId(raw, workspaceId: workspaceId, client: client),
-              claudeHookSurfaceIsListed(candidate, workspaceId: workspaceId, client: client) else {
+              claudeHookSurfaceIsListed(candidate, workspaceId: workspaceId, client: client, allowUnknown: true) else {
             return nil
         }
         return candidate
     }
 
-    private func claudeHookWorkspaceIsAccessible(_ workspaceId: String, client: SocketClient) -> Bool {
-        (try? client.sendV2(method: "surface.list", params: ["workspace_id": workspaceId])) != nil
+    private func claudeHookWorkspaceIsAccessible(_ workspaceId: String, client: SocketClient, allowUnknown: Bool = false) -> Bool {
+        do {
+            _ = try client.sendV2(method: "surface.list", params: ["workspace_id": workspaceId])
+            return true
+        } catch {
+            let message = String(describing: error).lowercased()
+            return allowUnknown && !message.contains("workspace_not_found") && !message.contains("workspace not found")
+        }
     }
 
     private typealias CallerTerminalBinding = (
@@ -23419,15 +23425,19 @@ struct CMUXCLI {
     private func claudeHookSurfaceIsListed(
         _ candidate: String,
         workspaceId: String,
-        client: SocketClient
+        client: SocketClient,
+        allowUnknown: Bool = false
     ) -> Bool {
-        guard let listed = try? client.sendV2(method: "surface.list", params: ["workspace_id": workspaceId]) else {
-            return false
+        do {
+            let listed = try client.sendV2(method: "surface.list", params: ["workspace_id": workspaceId])
+            let items = listed["surfaces"] as? [[String: Any]] ?? []
+            return items.contains(where: {
+                ($0["id"] as? String) == candidate || ($0["ref"] as? String) == candidate
+            })
+        } catch {
+            let message = String(describing: error).lowercased()
+            return allowUnknown && !message.contains("workspace_not_found") && !message.contains("workspace not found") && !message.contains("surface_not_found") && !message.contains("surface not found")
         }
-        let items = listed["surfaces"] as? [[String: Any]] ?? []
-        return items.contains(where: {
-            ($0["id"] as? String) == candidate || ($0["ref"] as? String) == candidate
-        })
     }
 
     private func resolveCallerWorkspaceIdByTTY(client: SocketClient) -> String? {
