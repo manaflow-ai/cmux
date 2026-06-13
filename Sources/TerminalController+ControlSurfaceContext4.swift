@@ -1,4 +1,5 @@
 import AppKit
+import CmuxRemoteSession
 import Bonsplit
 import CmuxControlSocket
 import Foundation
@@ -368,7 +369,7 @@ extension TerminalController {
         requestedSurfaceID: UUID?,
         reasonRawValue: String
     ) -> ControlSurfacePortsKickResolution {
-        guard let reason = WorkspaceRemoteSessionController.PortScanKickReason(rawValue: reasonRawValue) else {
+        guard let reason = PortScanKickReason(rawValue: reasonRawValue) else {
             // Unreachable: the coordinator only forwards a value the app produced.
             return .workspaceNotFound
         }

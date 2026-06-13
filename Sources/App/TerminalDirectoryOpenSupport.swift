@@ -1,3 +1,5 @@
+import CmuxFoundation
+import CmuxCore
 import AppKit
 import Darwin
 import Foundation
@@ -705,7 +707,7 @@ final class VSCodeServeWebController {
 
         let collector = ServeWebOutputCollector()
         let outputReader: (FileHandle) -> Void = { fileHandle in
-            switch ProcessPipeReader.readAvailableDataOrEndOfFile(from: fileHandle) {
+            switch fileHandle.readAvailableDataOrEndOfFile() {
             case .data(let data):
                 collector.append(data)
             case .wouldBlock:
@@ -799,7 +801,7 @@ final class VSCodeServeWebController {
 
     private static func drainAvailableOutput(from fileHandle: FileHandle, collector: ServeWebOutputCollector) {
         while true {
-            switch ProcessPipeReader.readAvailableDataOrEndOfFile(from: fileHandle) {
+            switch fileHandle.readAvailableDataOrEndOfFile() {
             case .data(let data):
                 collector.append(data)
             case .wouldBlock, .endOfFile:
