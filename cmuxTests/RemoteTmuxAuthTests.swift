@@ -129,6 +129,12 @@ import Testing
         #expect(RemoteTmuxControlConnection.hexByteArguments(Data()) == "")
     }
 
+    @Test @MainActor func pastePaneRejectsDisconnectedControlStream() {
+        let connection = RemoteTmuxControlConnection(host: RemoteTmuxHost(destination: "user@host"), sessionName: "work")
+        #expect(connection.pastePane(paneId: 1, text: "/tmp/image.png") == false)
+        #expect(connection.pastePane(paneId: 1, text: "") == false)
+    }
+
     // MARK: - Interactive auth invocation (what `cmux ssh-tmux` runs in the tty)
 
     @Test func interactiveAuthInvocationShape() {

@@ -434,8 +434,7 @@ final class RemoteTmuxController {
     func pasteIntoMirror(surfaceId: UUID, text: String) -> Bool {
         guard !text.isEmpty, !text.contains(where: { $0 == "\n" || $0 == "\r" }) else { return false }
         guard let target = pasteTarget(forSurfaceId: surfaceId) else { return false }
-        target.connection.pastePane(paneId: target.paneId, text: text)
-        return true
+        return target.connection.pastePane(paneId: target.paneId, text: text)
     }
 
     /// The live control connection + tmux pane id behind a remote-tmux
@@ -443,7 +442,7 @@ final class RemoteTmuxController {
     private func pasteTarget(forSurfaceId surfaceId: UUID)
         -> (connection: RemoteTmuxControlConnection, paneId: Int)?
     {
-        for sessionMirror in sessionMirrors.values where !sessionMirror.connection.exited {
+        for sessionMirror in sessionMirrors.values where sessionMirror.connection.connectionState == .connected {
             if let paneId = sessionMirror.paneId(forSurfaceId: surfaceId) {
                 return (sessionMirror.connection, paneId)
             }

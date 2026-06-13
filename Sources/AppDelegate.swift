@@ -1782,6 +1782,33 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
     }
 
+    private func deferTerminateForMarkedRemoteTmuxKills(reason: String) -> Bool {
+        let markedForKill = remoteTmuxController.windowsMarkedForKillOnClose()
+        guard !markedForKill.isEmpty else { return false }
+        if !isAwaitingTerminateKills {
+            isAwaitingTerminateKills = true
+            StartupBreadcrumbLog.append("appDelegate.shouldTerminate.killLater", fields: ["windows": String(markedForKill.count), "reason": reason])
+            Task { @MainActor in
+                await self.remoteTmuxController.killMarkedSessionsBeforeTerminate()
+                self.replyToTerminateOnce(true)
+            }
+            // Watchdog: guarantee the quit is released even if the deferred Task
+            // is starved (it can return .terminateLater from inside the modal's
+            // nested run loop). 3.5s > the 3s kill budget so it never preempts a
+            // completing kill; replyToTerminateOnce makes it a no-op if already replied.
+            DispatchQueue.main.asyncAfter(deadline: .now() + 3.5) { [weak self] in
+                self?.replyToTerminateOnce(true)
+            }
+        }
+        return true
+    }
+
+    private func clearMarkedRemoteTmuxKills() {
+        for windowId in remoteTmuxController.windowsMarkedForKillOnClose() {
+            remoteTmuxController.consumeKillSessionsOnWindowClose(windowId: windowId)
+        }
+    }
+
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
         // A deferred kill-then-quit is already in flight (a prior terminate returned
         // .terminateLater; its Task + watchdog own the single reply). A re-entrant
@@ -1830,23 +1857,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             // ⌘Q or a window close) takes the synchronous .terminateNow path below and
             // only detaches. Gated on the marker (not `reason`) so it fires on dev
             // builds too — otherwise dogfooding (always dev) never exercises the kill.
-            let markedForKill = remoteTmuxController.windowsMarkedForKillOnClose()
-            if !markedForKill.isEmpty {
-                if !isAwaitingTerminateKills {
-                    isAwaitingTerminateKills = true
-                    StartupBreadcrumbLog.append("appDelegate.shouldTerminate.killLater", fields: ["windows": String(markedForKill.count), "reason": reason])
-                    Task { @MainActor in
-                        await self.remoteTmuxController.killMarkedSessionsBeforeTerminate()
-                        self.replyToTerminateOnce(true)
-                    }
-                    // Watchdog: guarantee the quit is released even if the deferred Task
-                    // is starved (it can return .terminateLater from inside the modal's
-                    // nested run loop). 3.5s > the 3s kill budget so it never preempts a
-                    // completing kill; replyToTerminateOnce makes it a no-op if already replied.
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 3.5) { [weak self] in
-                        self?.replyToTerminateOnce(true)
-                    }
-                }
+            if deferTerminateForMarkedRemoteTmuxKills(reason: reason) {
                 return .terminateLater
             }
             StartupBreadcrumbLog.append("appDelegate.shouldTerminate.terminateNow", fields: ["reason": reason])
@@ -1875,9 +1886,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 self.isQuitWarningConfirmed = true
                 self.closeAllWebInspectorsBeforeAppTeardown()
                 StartupBreadcrumbLog.append("appDelegate.shouldTerminate.reply", fields: ["shouldQuit": "1"])
+                if self.deferTerminateForMarkedRemoteTmuxKills(reason: "confirmedDialog") {
+                    return
+                }
             } else {
                 // Reset so that the next quit attempt can show the dialog again.
                 self.isTerminatingApp = false
+                self.clearMarkedRemoteTmuxKills()
                 StartupBreadcrumbLog.append("appDelegate.shouldTerminate.reply", fields: ["shouldQuit": "0"])
             }
             self.replyToTerminateOnce(shouldQuit)
