@@ -125,7 +125,7 @@ struct ChatStateIndicatorView: View {
     let state: ChatAgentState
     let isConnected: Bool
 
-    @State private var animating = false
+    @State private var pulseDimmed = false
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
@@ -150,14 +150,18 @@ struct ChatStateIndicatorView: View {
                 pulses
                     ? .easeInOut(duration: isConnected ? 0.9 : 1.4).repeatForever(autoreverses: true)
                     : .default,
-                value: animating
+                value: pulseDimmed
             )
-            .onAppear { animating = true }
+            // Drive the pulse from `pulses` itself (not a one-shot onAppear),
+            // so it starts on idle->working and STOPS on working->idle even
+            // though this header view is reused across state changes.
+            .onAppear { pulseDimmed = pulses }
+            .onChange(of: pulses) { _, on in pulseDimmed = on }
             .accessibilityHidden(true)
     }
 
     private var opacity: Double {
-        if pulses, animating { return 0.4 }
+        if pulses { return pulseDimmed ? 0.4 : 1.0 }
         return isConnected ? 1 : 0.6
     }
 
