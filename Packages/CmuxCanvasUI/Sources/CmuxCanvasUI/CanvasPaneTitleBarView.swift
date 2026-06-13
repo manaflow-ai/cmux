@@ -18,19 +18,37 @@ private struct CanvasTabFramesKey: PreferenceKey {
     }
 }
 
+private struct CanvasTabContentWidthKey: PreferenceKey {
+    static let defaultValue: CGFloat = 0
+    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
+        value = max(value, nextValue())
+    }
+}
+
 /// The tab bar at the top of a canvas pane, mirroring the workspace split
 /// pane tab bar's anatomy (30pt bar, full-height square tabs, right-edge
 /// separators, selected/hover fills, icon slot that becomes a close glyph on
 /// hover, 11pt centered titles). Render-only: all clicks and drags are
-/// handled by `CanvasPaneView` via the reported hit regions.
+/// handled by `CanvasPaneView` via the reported hit regions, and horizontal
+/// overflow scrolling is driven by `CanvasPaneView` feeding `scrollOffset`
+/// (a SwiftUI ScrollView can't be used because the pane view claims the
+/// title-bar region's mouse events for drag/click routing).
 struct CanvasPaneTitleBarView: View {
     let chrome: CanvasPaneChrome
+    /// Horizontal scroll offset in points (>= 0 scrolls tabs left), clamped
+    /// by the pane view against the reported content width.
+    let scrollOffset: CGFloat
     let onHitRegionsChanged: (CanvasTabHitRegions) -> Void
+    let onContentWidthChanged: (CGFloat) -> Void
 
     /// Matches the split pane tab bar height.
     static let height: CGFloat = 30
 
     var body: some View {
+        // Tabs are laid out left-aligned and shifted by -scrollOffset; the
+        // named coordinate space is anchored to the (non-scrolling) bar, so
+        // reported hit frames are already in post-scroll viewport coords and
+        // a scrolled-out tab reports a frame outside the bar (no false hit).
         HStack(spacing: 0) {
             ForEach(chrome.tabs) { tab in
                 CanvasPaneTabItem(
@@ -39,12 +57,23 @@ struct CanvasPaneTitleBarView: View {
                     paneIsFocused: chrome.isFocused
                 )
             }
-            Spacer(minLength: 0)
         }
+        .background(
+            GeometryReader { proxy in
+                Color.clear.preference(key: CanvasTabContentWidthKey.self, value: proxy.size.width)
+            }
+        )
+        .fixedSize(horizontal: true, vertical: false)
+        .offset(x: -scrollOffset)
+        .frame(maxWidth: .infinity, alignment: .leading)
         .frame(height: Self.height)
+        .clipped()
         .coordinateSpace(name: "canvasTabBar")
         .onPreferenceChange(CanvasTabFramesKey.self) { regions in
             onHitRegionsChanged(regions)
+        }
+        .onPreferenceChange(CanvasTabContentWidthKey.self) { width in
+            onContentWidthChanged(width)
         }
     }
 }

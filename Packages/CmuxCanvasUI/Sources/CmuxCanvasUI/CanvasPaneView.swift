@@ -42,6 +42,11 @@ final class CanvasPaneView: NSView {
     /// Pending click target resolved at mouse-down, fired at mouse-up when
     /// no drag started.
     private var pendingTabClick: (panelId: UUID, isClose: Bool)?
+    /// Horizontal tab-strip scroll offset and the measured content width,
+    /// used to scroll overflowing tabs (the pane view owns the title-bar's
+    /// scroll events, so a SwiftUI ScrollView can't be used).
+    private var tabScrollOffset: CGFloat = 0
+    private var tabContentWidth: CGFloat = 0
 
     /// Pane fill behind the content, resolved by the host through
     /// ``CanvasTheme``.
@@ -61,7 +66,9 @@ final class CanvasPaneView: NSView {
         self.paneID = paneID
         self.titleBarHost = NSHostingView(rootView: CanvasPaneTitleBarView(
             chrome: CanvasPaneChrome(tabs: [], selectedTabId: nil, isFocused: false, closeActionLabel: ""),
-            onHitRegionsChanged: { _ in }
+            scrollOffset: 0,
+            onHitRegionsChanged: { _ in },
+            onContentWidthChanged: { _ in }
         ))
         super.init(frame: .zero)
 
@@ -99,13 +106,58 @@ final class CanvasPaneView: NSView {
     func updateChrome(_ chrome: CanvasPaneChrome) {
         guard chrome != self.chrome else { return }
         self.chrome = chrome
+        // Fewer tabs may make the current offset invalid; clamp on next render.
+        clampTabScrollOffset()
+        rebuildTitleBar()
+    }
+
+    private func rebuildTitleBar() {
         titleBarHost.rootView = CanvasPaneTitleBarView(
             chrome: chrome,
+            scrollOffset: tabScrollOffset,
             onHitRegionsChanged: { [weak self] regions in
                 self?.tabHitRegions = regions
+            },
+            onContentWidthChanged: { [weak self] width in
+                guard let self, self.tabContentWidth != width else { return }
+                self.tabContentWidth = width
+                self.clampTabScrollOffset()
             }
         )
         applyChromeColors()
+    }
+
+    /// Maximum horizontal scroll so the last tab can't be pulled past the bar.
+    private var maxTabScrollOffset: CGFloat {
+        max(0, tabContentWidth - bounds.width)
+    }
+
+    private func clampTabScrollOffset() {
+        let clamped = min(max(0, tabScrollOffset), maxTabScrollOffset)
+        if clamped != tabScrollOffset {
+            tabScrollOffset = clamped
+            rebuildTitleBar()
+        }
+    }
+
+    override func scrollWheel(with event: NSEvent) {
+        // Only handle scrolls over the title bar with overflowing tabs;
+        // everything else (content scroll, no overflow) passes through.
+        let local = convert(event.locationInWindow, from: nil)
+        guard local.y <= CanvasPaneTitleBarView.height, maxTabScrollOffset > 0 else {
+            super.scrollWheel(with: event)
+            return
+        }
+        // Use the dominant axis so a mostly-vertical trackpad swipe still
+        // scrolls the horizontal tab strip.
+        let delta = abs(event.scrollingDeltaX) >= abs(event.scrollingDeltaY)
+            ? event.scrollingDeltaX
+            : event.scrollingDeltaY
+        guard delta != 0 else { return }
+        let next = min(max(0, tabScrollOffset - delta), maxTabScrollOffset)
+        guard next != tabScrollOffset else { return }
+        tabScrollOffset = next
+        rebuildTitleBar()
     }
 
     private func applyChromeColors() {
