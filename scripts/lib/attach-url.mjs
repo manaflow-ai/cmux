@@ -3,12 +3,26 @@
 // Takes the raw payload returned by the `mobile.attach_ticket.create` RPC
 // (`{ ticket: { routes, version, ... }, ... }`), optionally filters the ticket
 // routes by id/kind, base64url-encodes the (filtered) ticket, and builds the
-// `cmux-ios://attach?v=<n>&payload=<b64>` URL the phone consumes.
+// `<scheme>://attach?v=<n>&payload=<b64>` URL the phone consumes.
+//
+// The scheme is channel-specific, mirroring `CmxPairingURLScheme` in
+// `Packages/CMUXMobileCore`: development builds register and emit
+// `cmux-ios-dev`, Release (TestFlight beta + App Store) emit `cmux-ios`. Both
+// callers here are dev-only (the debug-CLI QR renderer and the headless
+// dev-setup auto-pair mint), so the default is the dev scheme: a QR rendered by
+// `mobile-attach-qr.sh` must route to the dev iOS build when scanned with the
+// system Camera, not to an installed TestFlight/App Store build.
 //
 // This is the single source of truth for the encode recipe, shared by
 // `scripts/mobile-attach-qr.sh` (QR/HTML rendering) and `scripts/dev-setup.sh`
 // (headless auto-pair mint). Keep it pure (no I/O) so it is unit-testable with
 // `node --test scripts/lib/attach-url.test.mjs`.
+
+/** The pairing/attach URL scheme development (DEBUG/tagged) builds emit. */
+export const DEV_URL_SCHEME = "cmux-ios-dev";
+
+/** The pairing/attach URL scheme Release (beta + prod) builds emit. */
+export const RELEASE_URL_SCHEME = "cmux-ios";
 
 /**
  * Filter a ticket's routes by id and/or kind. Returns the matching subset.
@@ -37,13 +51,15 @@ export function filterRoutes(routes, { routeID = "", routeKind = "" } = {}) {
 }
 
 /**
- * Build the `cmux-ios://attach` deep link from a raw attach-ticket payload.
+ * Build the `<scheme>://attach` deep link from a raw attach-ticket payload.
  *
  * The returned `attachURL` is a bearer credential: it grants the holder the
  * paired Mac's terminals for the ticket's TTL. Never log it.
  *
  * @param {object} payload The raw `mobile.attach_ticket.create` result.
- * @param {{routeID?: string, routeKind?: string}} [filter]
+ * @param {{routeID?: string, routeKind?: string, scheme?: string}} [filter]
+ *   `scheme` is the channel-specific URL scheme (default ``DEV_URL_SCHEME`` so a
+ *   dev-rendered QR routes to the dev iOS build via the system Camera).
  * @returns {{attachURL: string, routes: Array<object>, payload: object}}
  *   `payload` is a shallow clone with `ticket.routes`/`routes` narrowed to the
  *   filtered set, so callers (e.g. the QR HTML renderer) can show the addresses.
@@ -56,7 +72,8 @@ export function buildAttachURL(payload, filter = {}) {
     );
   }
 
-  const routes = filterRoutes(payload.ticket.routes, filter);
+  const { routeID, routeKind, scheme = DEV_URL_SCHEME } = filter;
+  const routes = filterRoutes(payload.ticket.routes, { routeID, routeKind });
 
   const ticket = { ...payload.ticket, routes };
   const result = { ...payload, ticket, routes };
@@ -65,7 +82,7 @@ export function buildAttachURL(payload, filter = {}) {
     "base64url",
   );
   const version = ticket.version || 1;
-  result.attach_url = `cmux-ios://attach?v=${version}&payload=${encodedPayload}`;
+  result.attach_url = `${scheme}://attach?v=${version}&payload=${encodedPayload}`;
 
   return { attachURL: result.attach_url, routes, payload: result };
 }

@@ -24,7 +24,9 @@ import Foundation
 /// The iOS app's registered scheme comes from `CMUX_IOS_URL_SCHEME` in
 /// `ios/Config/Shared.xcconfig` (dev) and `ios/Config/Release.xcconfig`
 /// (release); keep those values in sync with these constants.
-public enum CmxPairingURLScheme {
+public struct CmxPairingURLScheme {
+    private init() {}
+
     /// The scheme Release (TestFlight beta + App Store) builds register and emit.
     public static let release = "cmux-ios"
 

@@ -4,7 +4,12 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { buildAttachURL, filterRoutes } from "./attach-url.mjs";
+import {
+  DEV_URL_SCHEME,
+  RELEASE_URL_SCHEME,
+  buildAttachURL,
+  filterRoutes,
+} from "./attach-url.mjs";
 
 function samplePayload() {
   return {
@@ -27,13 +32,24 @@ function decodePayload(url) {
   return JSON.parse(Buffer.from(b64, "base64url").toString("utf8"));
 }
 
-test("builds a cmux-ios://attach URL with the version and base64url ticket", () => {
+test("builds a dev-scheme attach URL with the version and base64url ticket", () => {
+  // Default scheme is the dev channel's so a QR rendered by the debug-CLI
+  // routes to the dev iOS build via the system Camera, not an installed
+  // TestFlight/App Store build.
   const { attachURL } = buildAttachURL(samplePayload());
-  assert.match(attachURL, /^cmux-ios:\/\/attach\?v=1&payload=/);
+  assert.match(attachURL, /^cmux-ios-dev:\/\/attach\?v=1&payload=/);
   const decoded = decodePayload(attachURL);
   assert.equal(decoded.version, 1);
   assert.equal(decoded.authToken, "secret-token");
   assert.equal(decoded.routes.length, 2);
+});
+
+test("emits the release scheme when explicitly requested", () => {
+  const { attachURL } = buildAttachURL(samplePayload(), { scheme: RELEASE_URL_SCHEME });
+  assert.match(attachURL, /^cmux-ios:\/\/attach\?v=1&payload=/);
+  // The dev default and the release override are the two channel schemes.
+  assert.equal(DEV_URL_SCHEME, "cmux-ios-dev");
+  assert.equal(RELEASE_URL_SCHEME, "cmux-ios");
 });
 
 test("round-trips the encoded ticket back to the original object", () => {
