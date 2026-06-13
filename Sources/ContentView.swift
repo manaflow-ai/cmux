@@ -12418,125 +12418,6 @@ struct SidebarWorkspaceRowFramePreferenceKey: PreferenceKey {
     }
 }
 
-enum ShortcutHintModifierPolicy {
-    static let intentionalHoldDelay: TimeInterval = 0.30
-
-    static func shouldShowHints(
-        for modifierFlags: NSEvent.ModifierFlags,
-        defaults: UserDefaults = .standard
-    ) -> Bool {
-        let normalized = modifierFlags.intersection(.deviceIndependentFlagsMask)
-            .subtracting([.numericPad, .function, .capsLock])
-        switch normalized {
-        case [.command]:
-            return ShortcutHintDebugSettings.showHintsOnCommandHoldEnabled(defaults: defaults)
-        case [.control]:
-            return ShortcutHintDebugSettings.showHintsOnControlHoldEnabled(defaults: defaults)
-        default:
-            return false
-        }
-    }
-
-    static func shouldShowControlHints(
-        for modifierFlags: NSEvent.ModifierFlags,
-        defaults: UserDefaults = .standard
-    ) -> Bool {
-        let normalized = modifierFlags.intersection(.deviceIndependentFlagsMask)
-            .subtracting([.numericPad, .function, .capsLock])
-        guard normalized == [.control] else { return false }
-        return ShortcutHintDebugSettings.showHintsOnControlHoldEnabled(defaults: defaults)
-    }
-
-    static func shouldShowCommandHints(
-        for modifierFlags: NSEvent.ModifierFlags,
-        defaults: UserDefaults = .standard
-    ) -> Bool {
-        let normalized = modifierFlags.intersection(.deviceIndependentFlagsMask)
-            .subtracting([.numericPad, .function, .capsLock])
-        guard normalized == [.command] else { return false }
-        return ShortcutHintDebugSettings.showHintsOnCommandHoldEnabled(defaults: defaults)
-    }
-
-    static func isCurrentWindow(
-        hostWindowNumber: Int?,
-        hostWindowIsKey: Bool,
-        eventWindowNumber: Int?,
-        keyWindowNumber: Int?
-    ) -> Bool {
-        guard let hostWindowNumber, hostWindowIsKey else { return false }
-        if let eventWindowNumber {
-            return eventWindowNumber == hostWindowNumber
-        }
-        return keyWindowNumber == hostWindowNumber
-    }
-
-    static func shouldShowHints(
-        for modifierFlags: NSEvent.ModifierFlags,
-        hostWindowNumber: Int?,
-        hostWindowIsKey: Bool,
-        eventWindowNumber: Int?,
-        keyWindowNumber: Int?,
-        defaults: UserDefaults = .standard
-    ) -> Bool {
-        shouldShowHints(for: modifierFlags, defaults: defaults) &&
-            isCurrentWindow(
-                hostWindowNumber: hostWindowNumber,
-                hostWindowIsKey: hostWindowIsKey,
-                eventWindowNumber: eventWindowNumber,
-                keyWindowNumber: keyWindowNumber
-            )
-    }
-}
-
-enum ShortcutHintDebugSettings {
-    static let defaultSidebarHintX = 0.0
-    static let defaultSidebarHintY = 0.0
-    static let defaultTitlebarHintX = 0.0
-    static let defaultTitlebarHintY = -5.0
-    static let defaultPaneHintX = 0.0
-    static let defaultPaneHintY = 0.0
-    static let defaultRightSidebarCloseHintX = -10.0
-    static let defaultRightSidebarCloseHintY = 3.3
-    static let defaultRightSidebarFocusHintX = -1.6
-    static let defaultRightSidebarFocusHintY = 1.7
-    static let defaultAlwaysShowHints = false
-    static let defaultShowHintsOnCommandHold = true
-    static let defaultShowHintsOnControlHold = true
-
-    static let offsetRange: ClosedRange<Double> = -20...20
-
-    static func clamped(_ value: Double) -> Double {
-        min(max(value, offsetRange.lowerBound), offsetRange.upperBound)
-    }
-
-    static func alwaysShowHints(
-        environment: [String: String] = ProcessInfo.processInfo.environment
-    ) -> Bool {
-        defaultAlwaysShowHints || environment["CMUX_UI_TEST_SHORTCUT_HINTS_ALWAYS_SHOW"] == "1"
-    }
-
-    static func showHintsOnCommandHoldEnabled(defaults: UserDefaults = .standard) -> Bool {
-        defaultShowHintsOnCommandHold
-    }
-
-    static func showHintsOnControlHoldEnabled(defaults: UserDefaults = .standard) -> Bool {
-        defaultShowHintsOnControlHold
-    }
-
-}
-
-enum DevBuildBannerDebugSettings {
-    static let sidebarBannerVisibleKey = "showSidebarDevBuildBanner"
-    static let defaultShowSidebarBanner = true
-
-    static func showSidebarBanner(defaults: UserDefaults = .standard) -> Bool {
-        guard defaults.object(forKey: sidebarBannerVisibleKey) != nil else {
-            return defaultShowSidebarBanner
-        }
-        return defaults.bool(forKey: sidebarBannerVisibleKey)
-    }
-}
-
 enum SidebarDragLifecycleNotification {
     static let stateDidChange = Notification.Name("cmux.sidebarDragStateDidChange")
     static let requestClear = Notification.Name("cmux.sidebarDragRequestClear")
@@ -12746,26 +12627,6 @@ private struct SidebarExternalDropDelegate: DropDelegate {
     private func debugShortSidebarTabId(_ id: UUID?) -> String {
         guard let id else { return "nil" }
         return String(id.uuidString.prefix(5))
-    }
-}
-
-enum ShortcutHintModifierActivation {
-    case commandOrControl
-    case commandOnly
-    case controlOnly
-
-    func shouldShowHints(
-        for modifierFlags: NSEvent.ModifierFlags,
-        defaults: UserDefaults = .standard
-    ) -> Bool {
-        switch self {
-        case .commandOrControl:
-            return ShortcutHintModifierPolicy.shouldShowHints(for: modifierFlags, defaults: defaults)
-        case .commandOnly:
-            return ShortcutHintModifierPolicy.shouldShowCommandHints(for: modifierFlags, defaults: defaults)
-        case .controlOnly:
-            return ShortcutHintModifierPolicy.shouldShowControlHints(for: modifierFlags, defaults: defaults)
-        }
     }
 }
 
@@ -13402,63 +13263,6 @@ private struct ExtensionSidebarBrowserStackEmptyArea: View {
         guard indicator.edge == .bottom, let lastWorkspaceId = orderedRows.last?.workspaceId else { return false }
         return indicator.tabId == lastWorkspaceId
     }
-}
-
-enum SidebarWorkspaceShortcutHintMetrics {
-    private static let measurementFont = NSFont.systemFont(ofSize: 10, weight: .semibold)
-    private static let minimumSlotWidth: CGFloat = 28
-    private static let horizontalPadding: CGFloat = 12
-    private static let lock = NSLock()
-    private static var cachedHintWidths: [String: CGFloat] = [:]
-    #if DEBUG
-    private static var measurementCount = 0
-    #endif
-
-    static func slotWidth(label: String?, debugXOffset: Double) -> CGFloat {
-        guard let label else { return minimumSlotWidth }
-        let positiveDebugInset = max(0, CGFloat(ShortcutHintDebugSettings.clamped(debugXOffset))) + 2
-        return max(minimumSlotWidth, hintWidth(for: label) + positiveDebugInset)
-    }
-
-    static func hintWidth(for label: String) -> CGFloat {
-        lock.lock()
-        if let cached = cachedHintWidths[label] {
-            lock.unlock()
-            return cached
-        }
-        lock.unlock()
-
-        let textWidth = (label as NSString).size(withAttributes: [.font: measurementFont]).width
-        let measuredWidth = ceil(textWidth) + horizontalPadding
-
-        lock.lock()
-        cachedHintWidths[label] = measuredWidth
-        #if DEBUG
-        measurementCount += 1
-        #endif
-        lock.unlock()
-        return measuredWidth
-    }
-
-    #if DEBUG
-    static func resetCacheForTesting() {
-        lock.lock()
-        cachedHintWidths.removeAll()
-        measurementCount = 0
-        lock.unlock()
-    }
-
-    static func measurementCountForTesting() -> Int {
-        lock.lock()
-        let count = measurementCount
-        lock.unlock()
-        return count
-    }
-    #endif
-}
-
-enum SidebarTrailingAccessoryWidthPolicy {
-    static let closeButtonWidth: CGFloat = 16
 }
 
 // PERF: TabItemView is Equatable so SwiftUI skips body re-evaluation when
@@ -15529,15 +15333,6 @@ private struct SidebarWorkspaceDescriptionText: View {
             return String(renderedMarkdown.characters)
         }
         return markdown
-    }
-}
-
-enum SidebarMarkdownRenderer {
-    static func renderWorkspaceDescription(_ markdown: String) -> AttributedString? {
-        try? AttributedString(
-            markdown: markdown,
-            options: .init(interpretedSyntax: .inlineOnlyPreservingWhitespace)
-        )
     }
 }
 

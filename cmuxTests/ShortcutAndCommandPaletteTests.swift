@@ -1,4 +1,5 @@
 import CmuxCommandPalette
+import CmuxFoundation
 import XCTest
 import AppKit
 import SwiftUI
