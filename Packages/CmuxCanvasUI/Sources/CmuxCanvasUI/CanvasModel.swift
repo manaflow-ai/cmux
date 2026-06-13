@@ -149,9 +149,14 @@ public final class CanvasModel {
             near: sourceFrame,
             avoiding: layout.panes.map(\.frame)
         )
+        // Mint a fresh pane identity rather than reusing the panel UUID. A
+        // single-tab pane's id equals its founding panel's UUID, so reusing
+        // `panelId` would collide with the source pane when the torn-out tab
+        // is that founding panel — `layout.breakOutPanel`'s `!contains` guard
+        // would reject it, and the first/founding tab could never tear out.
         let didBreak = layout.breakOutPanel(
             panel,
-            intoPane: CanvasPaneID(rawValue: panelId),
+            intoPane: CanvasPaneID(rawValue: UUID()),
             frame: frame
         )
         if didBreak { revision &+= 1 }

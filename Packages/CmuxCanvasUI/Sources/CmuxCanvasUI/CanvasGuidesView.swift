@@ -7,6 +7,9 @@ import CmuxCanvas
 @MainActor
 final class CanvasGuidesView: NSView {
     private var guides: [CanvasGuide] = []
+    /// The tab-bar rect of a join target during a drag, in this view's
+    /// document coordinates. `nil` clears the highlight.
+    private var joinHighlight: CGRect?
     /// Converts canvas coordinates into this view's document coordinates.
     var canvasToDocumentOffset: CGPoint = .zero
 
@@ -33,7 +36,31 @@ final class CanvasGuidesView: NSView {
         needsDisplay = true
     }
 
+    /// Highlights a pane's tab-bar rect as the drop/join target during a drag.
+    /// Pass `nil` to clear. The rect is in this view's document coordinates
+    /// (same space as pane view frames).
+    func setJoinHighlight(_ rect: CGRect?) {
+        guard rect != joinHighlight else { return }
+        joinHighlight = rect
+        needsDisplay = true
+    }
+
     override func draw(_ dirtyRect: NSRect) {
+        drawJoinHighlight()
+        drawGuides()
+    }
+
+    private func drawJoinHighlight() {
+        guard let rect = joinHighlight else { return }
+        let path = NSBezierPath(roundedRect: rect, xRadius: 6, yRadius: 6)
+        NSColor.controlAccentColor.withAlphaComponent(0.18).setFill()
+        path.fill()
+        NSColor.controlAccentColor.withAlphaComponent(0.9).setStroke()
+        path.lineWidth = 2
+        path.stroke()
+    }
+
+    private func drawGuides() {
         guard !guides.isEmpty else { return }
         let color = NSColor.controlAccentColor.withAlphaComponent(0.8)
         color.setStroke()

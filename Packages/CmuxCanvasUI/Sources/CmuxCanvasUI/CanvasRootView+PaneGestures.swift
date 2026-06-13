@@ -64,10 +64,29 @@ extension CanvasRootView: CanvasPaneViewDelegate {
         dragSession = session
         paneViews[session.paneID]?.frame = documentRect(fromCanvas: session.lastFrame)
         guidesView.setGuides(result.guides)
+        updateJoinHighlight(for: session, at: documentPoint)
         callbacks.onViewportGeometryChanged(window)
     }
 
+    /// Live drop indicator: when this drag would join the dragged single-tab
+    /// pane into another pane's tab bar (the same condition that commits a
+    /// join in `paneViewDidEndDrag`), highlight that target's tab-bar rect.
+    /// Anything else (over empty canvas, multi-tab source) clears it.
+    private func updateJoinHighlight(for session: DragSession, at documentPoint: CGPoint) {
+        guard case .titleBar = session.region,
+              model.layout.panelIds(in: session.paneID)?.count == 1,
+              let target = joinTarget(at: documentPoint, excluding: session.paneID),
+              let targetView = paneViews[target] else {
+            guidesView.setJoinHighlight(nil)
+            return
+        }
+        var barRect = targetView.frame
+        barRect.size.height = CanvasPaneTitleBarView.height
+        guidesView.setJoinHighlight(barRect)
+    }
+
     func paneViewDidEndDrag(_ view: CanvasPaneView) {
+        guidesView.setJoinHighlight(nil)
         guard let session = dragSession,
               let panelId = model.layout.selectedPanelId(in: session.paneID)?.rawValue else { return }
         dragSession = nil

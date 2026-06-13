@@ -93,6 +93,33 @@ struct CanvasLayoutTabTests {
         #expect(!didBreakLone)
     }
 
+    @Test func breakOutFoundingPanelOfMultiTabPane() {
+        // A pane's id equals its founding panel's UUID. Tearing that founding
+        // panel out into a *fresh* pane id must succeed and must not collide
+        // with the source pane id.
+        var layout = CanvasLayout(panes: [singleTabPane()])
+        let destination = layout.paneIDs[0]
+        let founding = CanvasPanelID(rawValue: destination.rawValue)
+        let joined = panelID()
+        layout.add(CanvasPane(id: CanvasPaneID(rawValue: joined.rawValue), frame: CanvasRect(x: 400, y: 0, width: 300, height: 200)))
+        layout.addPanel(joined, toPane: destination, select: false)
+        #expect(layout.panelIds(in: destination) == [founding, joined])
+
+        let newPaneID = CanvasPaneID(rawValue: UUID())
+        let frame = CanvasRect(x: 1200, y: 0, width: 300, height: 200)
+        let didBreak = layout.breakOutPanel(founding, intoPane: newPaneID, frame: frame)
+        #expect(didBreak)
+
+        // The founding panel now lives alone in the new pane; the source pane
+        // keeps the remaining tab and is no longer hosting the founding panel.
+        #expect(layout.pane(containing: founding) == newPaneID)
+        #expect(layout.panelIds(in: newPaneID) == [founding])
+        #expect(layout.pane(containing: joined) == destination)
+        #expect(layout.panelIds(in: destination) == [joined])
+        #expect(layout.paneIDs.last == newPaneID)
+        #expect(layout.frame(of: newPaneID) == frame)
+    }
+
     @Test func selectPanelOnlyAffectsHostingPane() {
         var layout = CanvasLayout(panes: [singleTabPane()])
         let destination = layout.paneIDs[0]

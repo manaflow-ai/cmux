@@ -263,9 +263,16 @@ final class CanvasPaneView: NSView {
             // joins it there (handled in paneViewDidEndDrag). Single-tab panes
             // (the tab *is* the pane) and drags on the empty title-bar area
             // move the whole pane.
+            //
+            // Holding Command targets the pane instead of the tab (mirrors
+            // Command+scroll, which pans the canvas instead of the pane's
+            // content): Cmd+drag a tab moves the whole pane. This guarantees a
+            // move handle even when the tab bar is full and there is no empty
+            // title-bar region to grab.
             if case .titleBar = region,
                let click = pendingTabClick, !click.isClose,
-               chrome.tabs.count > 1 {
+               chrome.tabs.count > 1,
+               !event.modifierFlags.contains(.command) {
                 pendingTabClick = nil
                 delegate?.paneView(self, requestTearOutTab: click.panelId, atDocumentPoint: documentPoint)
                 return
