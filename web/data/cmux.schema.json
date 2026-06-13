@@ -319,6 +319,16 @@
           "default": true,
           "description": "When enabled, Cmd-clicking .md/.markdown/.mkd/.mdx files opens the rendered cmux markdown viewer panel (with live reload) instead of the generic file preview."
         },
+        "terminalEditorCommand": {
+          "type": "string",
+          "default": "nvim",
+          "description": "Command used to open files whose extension is listed in terminalEditorExtensions. The command runs in a new terminal split using your login shell, so TUI editors like nvim, vim, or helix get a real TTY and your PATH. Leave empty to disable terminal-editor routing."
+        },
+        "terminalEditorExtensions": {
+          "type": "string",
+          "default": "",
+          "description": "Comma- or space-separated file extensions (without the leading dot, e.g. \"rs, ts, py\") that Cmd-click opens in the terminal editor from terminalEditorCommand instead of the built-in file preview. Use \"*\" to open every file in the terminal editor except cmux's native preview types (Markdown, PDF, images, audio, video), which keep their cmux viewers. Empty (the default) disables the feature."
+        },
         "reorderOnNotification": {
           "type": "boolean",
           "default": true,

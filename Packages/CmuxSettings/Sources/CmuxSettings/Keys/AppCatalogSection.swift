@@ -67,6 +67,18 @@ public struct AppCatalogSection: SettingCatalogSection {
         userDefaultsKey: "preferredEditorCommand"
     )
 
+    public let terminalEditorCommand = DefaultsKey<String>(
+        id: "app.terminalEditorCommand",
+        defaultValue: "nvim",
+        userDefaultsKey: "terminalEditorCommand"
+    )
+
+    public let terminalEditorExtensions = DefaultsKey<String>(
+        id: "app.terminalEditorExtensions",
+        defaultValue: "",
+        userDefaultsKey: "terminalEditorExtensions"
+    )
+
     public let openSupportedFilesInCmux = DefaultsKey<Bool>(
         id: "app.openSupportedFilesInCmux",
         defaultValue: true,

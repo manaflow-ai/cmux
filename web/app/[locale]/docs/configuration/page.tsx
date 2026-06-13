@@ -66,6 +66,8 @@ function buildSettingsFileExample(t: ConfigurationTranslation) {
   //   "newWorkspacePlacement": "afterCurrent",
   //   "confirmQuit": "always",
   //   "openSupportedFilesInCmux": true,
+  //   "terminalEditorCommand": "nvim",
+  //   "terminalEditorExtensions": "rs, ts, py",
   //   "workspaceInheritWorkingDirectory": true,
   //   "iMessageMode": true
   // },

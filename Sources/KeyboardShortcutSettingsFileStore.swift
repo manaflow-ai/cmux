@@ -462,6 +462,12 @@ final class CmuxSettingsFileStore {
         if let value = jsonBool(section["openMarkdownInCmuxViewer"]) {
             snapshot.managedUserDefaults[CmdClickMarkdownRouteSettings.key] = .bool(value)
         }
+        if let value = jsonString(section["terminalEditorCommand"]) {
+            snapshot.managedUserDefaults[CmdClickTerminalEditorRouteSettings.commandKey] = .string(value)
+        }
+        if let value = jsonString(section["terminalEditorExtensions"]) {
+            snapshot.managedUserDefaults[CmdClickTerminalEditorRouteSettings.extensionsKey] = .string(value)
+        }
         if let value = jsonBool(section["reorderOnNotification"]) {
             snapshot.managedUserDefaults[WorkspaceAutoReorderSettings.key] = .bool(value)
         }

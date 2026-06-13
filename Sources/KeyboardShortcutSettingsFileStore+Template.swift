@@ -70,6 +70,8 @@ extension CmuxSettingsFileStore {
                     "preferredEditor": "",
                     "openSupportedFilesInCmux": CmdClickSupportedFileRouteSettings.defaultValue,
                     "openMarkdownInCmuxViewer": CmdClickMarkdownRouteSettings.defaultValue,
+                    "terminalEditorCommand": CmdClickTerminalEditorRouteSettings.defaultCommand,
+                    "terminalEditorExtensions": "",
                     "reorderOnNotification": WorkspaceAutoReorderSettings.defaultValue,
                     "iMessageMode": IMessageModeSettings.defaultValue,
                     "sendAnonymousTelemetry": TelemetrySettings.defaultSendAnonymousTelemetry,
