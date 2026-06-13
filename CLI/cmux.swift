@@ -23142,7 +23142,8 @@ struct CMUXCLI {
             terminalBindingCache: &terminalBindingCache,
             client: client
         )
-        if let boundSurface = resolveClaudeHookBindingSurfaceId(
+        if let binding,
+           let boundSurface = resolveClaudeHookBindingSurfaceId(
             binding,
             workspaceId: workspaceId,
             client: client
