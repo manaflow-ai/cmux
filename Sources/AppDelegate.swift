@@ -639,11 +639,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         let window: NSWindow?
     }
 
-    struct SessionDisplayGeometry {
-        let displayID: UInt32?
-        let frame: CGRect
-        let visibleFrame: CGRect
-    }
+    /// Lifted to ``CmuxWindowing/SessionDisplayGeometry``; aliased so existing
+    /// `AppDelegate.SessionDisplayGeometry` references stay source-identical.
+    typealias SessionDisplayGeometry = CmuxWindowing.SessionDisplayGeometry
 
     struct PersistedWindowGeometry: Codable, Sendable {
         let version: Int
