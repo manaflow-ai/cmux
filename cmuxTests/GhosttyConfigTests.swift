@@ -1,5 +1,6 @@
 @preconcurrency import XCTest
 import CmuxSettings
+import CmuxBrowser
 import CmuxSocketControl
 import AppKit
 import Combine
@@ -11,8 +12,13 @@ import Testing
 
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
+// The app target still declares legacy duplicates of these CmuxSettings
+// value types; with CmuxSettings imported unconditionally the names are
+// ambiguous. These tests exercise the app-side paths, so pin the app types.
+private typealias BrowserThemeMode = cmux_DEV.BrowserThemeMode
 #elseif canImport(cmux)
 @testable import cmux
+private typealias BrowserThemeMode = cmux.BrowserThemeMode
 #endif
 
 final class SidebarPathFormatterTests: XCTestCase {
@@ -3129,7 +3135,7 @@ final class NotificationBurstCoalescerTests: XCTestCase {
 
 final class RecentlyClosedBrowserStackTests: XCTestCase {
     func testPopReturnsEntriesInLIFOOrder() {
-        var stack = RecentlyClosedBrowserStack(capacity: 20)
+        var stack = RecentlyClosedBrowserStack<ClosedBrowserPanelRestoreSnapshot>(capacity: 20)
         stack.push(makeSnapshot(index: 1))
         stack.push(makeSnapshot(index: 2))
         stack.push(makeSnapshot(index: 3))
@@ -3141,7 +3147,7 @@ final class RecentlyClosedBrowserStackTests: XCTestCase {
     }
 
     func testPushDropsOldestEntriesWhenCapacityExceeded() {
-        var stack = RecentlyClosedBrowserStack(capacity: 3)
+        var stack = RecentlyClosedBrowserStack<ClosedBrowserPanelRestoreSnapshot>(capacity: 3)
         for index in 1...5 {
             stack.push(makeSnapshot(index: index))
         }
@@ -3155,7 +3161,7 @@ final class RecentlyClosedBrowserStackTests: XCTestCase {
     func testRemoveSnapshotsDropsOnlyEntriesForGivenWorkspaceId() {
         let workspaceA = UUID()
         let workspaceB = UUID()
-        var stack = RecentlyClosedBrowserStack(capacity: 20)
+        var stack = RecentlyClosedBrowserStack<ClosedBrowserPanelRestoreSnapshot>(capacity: 20)
         stack.push(makeSnapshot(index: 1, workspaceId: workspaceA))
         stack.push(makeSnapshot(index: 2, workspaceId: workspaceB))
         stack.push(makeSnapshot(index: 3, workspaceId: workspaceA))
