@@ -37,6 +37,25 @@ private actor GateClock: FileWatchClock {
 }
 
 @Suite struct RecursivePathWatcherTests {
+    private func nextPathEvent(
+        _ watcher: RecursivePathWatcher,
+        within seconds: Double
+    ) async -> RecursivePathChange? {
+        await withTaskGroup(of: RecursivePathChange?.self) { group in
+            group.addTask {
+                var iterator = watcher.pathEvents.makeAsyncIterator()
+                return await iterator.next()
+            }
+            group.addTask {
+                try? await Task.sleep(nanoseconds: UInt64(seconds * 1_000_000_000))
+                return nil
+            }
+            let result = await group.next() ?? nil
+            group.cancelAll()
+            return result
+        }
+    }
+
     @Test func emptyPathsFailsInitialization() {
         let watcher = RecursivePathWatcher(paths: [])
         #expect(watcher == nil)
@@ -52,6 +71,27 @@ private actor GateClock: FileWatchClock {
         #expect(watcher != nil)
         #expect(watcher?.watchedPaths == [directory.path])
         await watcher?.stop()
+    }
+
+    @Test func realDirectoryPathEventReportsWatchedDirectoryPath() async throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-file-watch-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+
+        let watcher = try #require(RecursivePathWatcher(paths: [directory.path]))
+        defer { Task { await watcher.stop() } }
+
+        let file = directory.appendingPathComponent("changed.txt")
+        try "updated".write(to: file, atomically: false, encoding: .utf8)
+
+        let change = await nextPathEvent(watcher, within: 5)
+        let directoryPath = directory.standardizedFileURL.path
+        #expect(change?.paths.isEmpty == false)
+        #expect(change?.paths.allSatisfy { path in
+            let normalizedPath = URL(fileURLWithPath: path).standardizedFileURL.path
+            return normalizedPath == directoryPath || normalizedPath.hasPrefix(directoryPath + "/")
+        } == true)
     }
 
     /// A burst of events inside one throttle window coalesces into a single
@@ -89,6 +129,23 @@ private actor GateClock: FileWatchClock {
         await watcher.stop()
         let afterStop: Void? = await iterator.next()
         #expect(afterStop == nil)
+    }
+
+    @Test func pathEventsAggregatePathsInsideThrottleWindow() async {
+        let clock = GateClock()
+        let watcher = RecursivePathWatcher(testThrottleClock: clock)
+        var iterator = watcher.pathEvents.makeAsyncIterator()
+
+        await watcher.simulateFileSystemEventForTesting(paths: ["/repo/untracked.log"])
+        await watcher.simulateFileSystemEventForTesting(paths: ["/repo/src/file.swift"])
+        await watcher.simulateFileSystemEventForTesting(paths: ["/repo/src/file.swift"])
+        await clock.waitForSleeper()
+
+        await clock.releaseOne()
+        let change = await iterator.next()
+        #expect(change?.paths == ["/repo/src/file.swift", "/repo/untracked.log"])
+
+        await watcher.stop()
     }
 
     /// Events delivered after `stop()` produce no further yields.

@@ -1224,6 +1224,7 @@ class TabManager: ObservableObject {
     private var workspaceGitCleanIndexContentSignatureByKey: [WorkspaceGitProbeKey: String] = [:]
     private var workspaceGitHeadSignatureByKey: [WorkspaceGitProbeKey: String] = [:]
     private var workspaceGitMetadataWatchersByKey: [WorkspaceGitProbeKey: RecursivePathWatcher] = [:]
+    private var workspaceGitMetadataWatcherDescriptorsByKey: [WorkspaceGitProbeKey: GitWorkspaceMetadataWatchDescriptor] = [:]
     private var workspaceGitMetadataWatcherRefreshTasksByKey: [WorkspaceGitProbeKey: Task<Void, Never>] = [:]
     private var workspaceGitMetadataWatcherSourceDirectoryByKey: [WorkspaceGitProbeKey: String] = [:]
     private var workspaceGitMetadataWatcherDescriptorRequestsByKey: [WorkspaceGitProbeKey: WorkspaceGitMetadataWatcherDescriptorRequest] = [:]
@@ -1627,10 +1628,10 @@ class TabManager: ObservableObject {
 
         Task { [weak self] in
             guard let gitMetadataService = self?.gitMetadataService else { return }
-            let watchedPaths = await gitMetadataService.watchedPaths(for: directory)
+            let descriptor = await gitMetadataService.watchDescriptor(for: directory)
             await MainActor.run { [weak self] in
                 self?.applyWorkspaceGitMetadataWatcherDescriptor(
-                    watchedPaths,
+                    descriptor,
                     for: key,
                     request: request
                 )
@@ -1639,7 +1640,7 @@ class TabManager: ObservableObject {
     }
 
     private func applyWorkspaceGitMetadataWatcherDescriptor(
-        _ watchedPaths: [String]?,
+        _ descriptor: GitWorkspaceMetadataWatchDescriptor?,
         for key: WorkspaceGitProbeKey,
         request: WorkspaceGitMetadataWatcherDescriptorRequest
     ) {
@@ -1650,23 +1651,36 @@ class TabManager: ObservableObject {
 
         guard sidebarGitMetadataWatchEnabled,
               workspaceGitTrackedDirectoryByKey[key] == request.directory,
-              let watchedPaths else {
+              let descriptor else {
             stopWorkspaceGitMetadataWatcher(for: key)
             return
         }
 
-        if workspaceGitMetadataWatchersByKey[key]?.watchedPaths == watchedPaths {
+        if workspaceGitMetadataWatchersByKey[key]?.watchedPaths == descriptor.watchedPaths {
             workspaceGitMetadataWatcherSourceDirectoryByKey[key] = request.directory
+            workspaceGitMetadataWatcherDescriptorsByKey[key] = descriptor
             return
         }
 
         stopWorkspaceGitMetadataWatcher(for: key)
-        if let watcher = RecursivePathWatcher(paths: watchedPaths) {
+        if let watcher = RecursivePathWatcher(paths: descriptor.watchedPaths) {
             workspaceGitMetadataWatchersByKey[key] = watcher
-            let events = watcher.events
+            workspaceGitMetadataWatcherDescriptorsByKey[key] = descriptor
+            let events = watcher.pathEvents
             workspaceGitMetadataWatcherRefreshTasksByKey[key] = Task { @MainActor [weak self] in
-                for await _ in events {
+                for await change in events {
                     guard let self else { break }
+                    guard self.workspaceGitMetadataWatcherDescriptorsByKey[key]?.containsRelevantChange(
+                        paths: change.paths
+                    ) != false else {
+#if DEBUG
+                        cmuxDebugLog(
+                            "workspace.gitProbe.skipEvent workspace=\(key.workspaceId.uuidString.prefix(5)) " +
+                            "panel=\(key.panelId.uuidString.prefix(5)) paths=\(change.paths.count)"
+                        )
+#endif
+                        continue
+                    }
                     self.scheduleWorkspaceGitMetadataRefreshIfPossible(
                         workspaceId: key.workspaceId,
                         panelId: key.panelId,
@@ -1681,6 +1695,7 @@ class TabManager: ObservableObject {
     private func stopWorkspaceGitMetadataWatcher(for key: WorkspaceGitProbeKey) {
         workspaceGitMetadataWatcherDescriptorRequestsByKey.removeValue(forKey: key)
         workspaceGitMetadataWatcherSourceDirectoryByKey.removeValue(forKey: key)
+        workspaceGitMetadataWatcherDescriptorsByKey.removeValue(forKey: key)
         workspaceGitMetadataWatcherRefreshTasksByKey.removeValue(forKey: key)?.cancel()
         // Dropping the last reference runs the watcher's deinit synchronously,
         // which invalidates the FSEventStream on its shared queue before this
@@ -1705,6 +1720,7 @@ class TabManager: ObservableObject {
         // invalidating its FSEventStream.
         workspaceGitMetadataWatchersByKey.removeAll()
         workspaceGitMetadataWatcherSourceDirectoryByKey.removeAll()
+        workspaceGitMetadataWatcherDescriptorsByKey.removeAll()
         workspaceGitMetadataWatcherDescriptorRequestsByKey.removeAll()
     }
 

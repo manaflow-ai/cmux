@@ -1,7 +1,7 @@
 import Foundation
 
-/// Watches a set of filesystem paths recursively and reports changes as a
-/// coalesced `AsyncStream<Void>`.
+/// Watches a set of filesystem paths recursively and reports changes as
+/// coalesced streams.
 ///
 /// Construct one with the paths to watch (the caller resolves which paths matter
 /// for its domain) and consume ``events`` to react to changes:
@@ -9,7 +9,7 @@ import Foundation
 /// ```swift
 /// guard let watcher = RecursivePathWatcher(paths: paths) else { return }
 /// let task = Task { @MainActor in
-///     for await _ in watcher.events { reload() }
+///     for await change in watcher.pathEvents { reload(ifRelevant: change.paths) }
 /// }
 /// // later: task.cancel(); await watcher.stop()
 /// ```
@@ -31,6 +31,14 @@ import Foundation
 /// creation happen in-`init`; a single actor-isolated pump drains that raw stream
 /// and applies the throttle. The pump's lifetime is the raw stream's: ``stop()``
 /// and `deinit` finish it.
+public struct RecursivePathChange: Equatable, Sendable {
+    /// Absolute paths reported by FSEvents during one coalesced throttle window.
+    ///
+    /// Empty only for synthetic test events or if the OS reports no path detail;
+    /// callers should treat an empty list conservatively.
+    public let paths: [String]
+}
+
 public actor RecursivePathWatcher {
     /// The paths this watcher observes, as passed to ``init(paths:clock:)``.
     ///
@@ -42,14 +50,17 @@ public actor RecursivePathWatcher {
     /// in which at least one filesystem event affected a watched path. Finishes
     /// when ``stop()`` is called or the watcher is deallocated.
     public nonisolated let events: AsyncStream<Void>
+    public nonisolated let pathEvents: AsyncStream<RecursivePathChange>
 
     private let continuation: AsyncStream<Void>.Continuation
+    private let pathContinuation: AsyncStream<RecursivePathChange>.Continuation
     private let clock: any FileWatchClock
     // nil only for the test-throttle initializer, which drives the throttle
     // directly without a real FSEventStream.
     private let eventStream: FileSystemEventStream?
     // Finishing this ends the pump task (see init); raw FS events flow through it.
-    private let rawContinuation: AsyncStream<Void>.Continuation
+    private let rawContinuation: AsyncStream<[String]>.Continuation
+    private var pendingPaths: Set<String> = []
     private var throttleTask: Task<Void, Never>?
     private var isStopped = false
 
@@ -78,7 +89,10 @@ public actor RecursivePathWatcher {
         let (events, eventsContinuation) = AsyncStream<Void>.makeStream()
         self.events = events
         self.continuation = eventsContinuation
-        let (rawEvents, rawContinuation) = AsyncStream<Void>.makeStream()
+        let (pathEvents, pathEventsContinuation) = AsyncStream<RecursivePathChange>.makeStream()
+        self.pathEvents = pathEvents
+        self.pathContinuation = pathEventsContinuation
+        let (rawEvents, rawContinuation) = AsyncStream<[String]>.makeStream()
         self.rawContinuation = rawContinuation
 
         // The sink captures `rawContinuation` (a Sendable value), not `self`, so
@@ -87,9 +101,10 @@ public actor RecursivePathWatcher {
         guard let eventStream = FileSystemEventStream(
             paths: paths,
             latency: Self.streamLatency,
-            onEvent: { rawContinuation.yield(()) }
+            onEvent: { rawContinuation.yield($0) }
         ) else {
             eventsContinuation.finish()
+            pathEventsContinuation.finish()
             rawContinuation.finish()
             return nil
         }
@@ -99,8 +114,8 @@ public actor RecursivePathWatcher {
         // init touches no isolated state after `self` escapes into the task; it
         // holds `self` weakly and ends when `rawEvents` finishes (stop/deinit).
         Task { [weak self] in
-            for await _ in rawEvents {
-                await self?.handleRawEvent()
+            for await paths in rawEvents {
+                await self?.handleRawEvent(paths: paths)
             }
         }
     }
@@ -116,7 +131,10 @@ public actor RecursivePathWatcher {
         let (events, eventsContinuation) = AsyncStream<Void>.makeStream()
         self.events = events
         self.continuation = eventsContinuation
-        let (_, rawContinuation) = AsyncStream<Void>.makeStream()
+        let (pathEvents, pathEventsContinuation) = AsyncStream<RecursivePathChange>.makeStream()
+        self.pathEvents = pathEvents
+        self.pathContinuation = pathEventsContinuation
+        let (_, rawContinuation) = AsyncStream<[String]>.makeStream()
         self.rawContinuation = rawContinuation
         self.eventStream = nil
     }
@@ -130,6 +148,7 @@ public actor RecursivePathWatcher {
         eventStream?.stop()
         rawContinuation.finish()
         continuation.finish()
+        pathContinuation.finish()
     }
 
     deinit {
@@ -139,13 +158,16 @@ public actor RecursivePathWatcher {
         throttleTask?.cancel()
         rawContinuation.finish()
         continuation.finish()
+        pathContinuation.finish()
     }
 
     /// Leading-edge throttle entry point. The first event of a window arms one
     /// delay; events arriving while it is pending are no-ops (the `throttleTask
     /// == nil` guard), so a burst yields a single ``events`` element.
-    private func handleRawEvent() {
-        guard !isStopped, throttleTask == nil else { return }
+    private func handleRawEvent(paths: [String]) {
+        guard !isStopped else { return }
+        pendingPaths.formUnion(paths)
+        guard throttleTask == nil else { return }
         let clock = self.clock
         let interval = Self.throttleInterval
         throttleTask = Task { [weak self] in
@@ -157,12 +179,15 @@ public actor RecursivePathWatcher {
     private func flushThrottle() {
         throttleTask = nil
         guard !isStopped else { return }
+        let paths = pendingPaths.sorted()
+        pendingPaths.removeAll(keepingCapacity: true)
+        pathContinuation.yield(RecursivePathChange(paths: paths))
         continuation.yield(())
     }
 
     /// Feeds a synthetic filesystem event into the throttle. Test-only seam used
     /// by ``init(testThrottleClock:)``-constructed watchers.
-    func simulateFileSystemEventForTesting() {
-        handleRawEvent()
+    func simulateFileSystemEventForTesting(paths: [String] = []) {
+        handleRawEvent(paths: paths)
     }
 }

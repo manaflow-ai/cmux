@@ -73,7 +73,14 @@ public struct GitMetadataService: Sendable {
     /// - Returns: Sorted existing paths to watch, or `nil` when `directory` is
     ///   not inside a git repository.
     public nonisolated func watchedPaths(for directory: String) async -> [String]? {
-        Self.workspaceGitMetadataWatchedPaths(for: directory)
+        Self.workspaceGitMetadataWatchDescriptor(for: directory)?.watchedPaths
+    }
+
+    /// A richer watch descriptor for `directory`, including both the paths to
+    /// observe and the path-level filter for deciding whether a filesystem event
+    /// can change the metadata returned by ``workspaceMetadata(for:)``.
+    public nonisolated func watchDescriptor(for directory: String) async -> GitWorkspaceMetadataWatchDescriptor? {
+        Self.workspaceGitMetadataWatchDescriptor(for: directory)
     }
 
     /// The GitHub repository slugs (`owner/name`) configured as remotes for the

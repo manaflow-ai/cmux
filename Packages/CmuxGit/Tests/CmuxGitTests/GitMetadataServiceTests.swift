@@ -247,6 +247,39 @@ import Testing
         #expect(paths.contains(fixture.root.standardizedFileURL.path))
     }
 
+    @Test func watchDescriptorIgnoresUntrackedWorkingTreeEvents() async throws {
+        let fixture = try GitRepositoryFixture()
+        try fixture.writeBranch("main")
+        try fixture.writeConfig("[core]\n\trepositoryformatversion = 0\n")
+        let entry = try fixture.writeWorkingTreeFile("src/tracked.swift", contents: "let value = 1\n")
+        try fixture.writeIndex(GitIndexFixture(version: 2, entries: [entry]))
+
+        let service = GitMetadataService()
+        let descriptor = try #require(await service.watchDescriptor(for: fixture.root.path))
+        let trackedFile = fixture.root.appendingPathComponent("src/tracked.swift").path
+        let trackedDirectory = fixture.root.appendingPathComponent("src").path
+        let untrackedFile = fixture.root.appendingPathComponent("build/output.log").path
+        let index = fixture.gitDirectory.appendingPathComponent("index").path
+
+        #expect(descriptor.containsRelevantChange(path: trackedFile))
+        #expect(descriptor.containsRelevantChange(path: trackedDirectory))
+        #expect(descriptor.containsRelevantChange(path: index))
+        #expect(descriptor.containsRelevantChange(paths: []))
+        #expect(!descriptor.containsRelevantChange(path: untrackedFile))
+    }
+
+    @Test func watchDescriptorNormalizesVarFSEventPaths() {
+        let descriptor = GitWorkspaceMetadataWatchDescriptor(
+            watchedPaths: [],
+            gitMetadataPaths: [],
+            trackedEntryPaths: ["/private/var/tmp/repo/src/tracked.swift"]
+        )
+
+        #expect(descriptor.containsRelevantChange(path: "/var/tmp/repo/src/tracked.swift"))
+        #expect(descriptor.containsRelevantChange(path: "/var/tmp/repo/src"))
+        #expect(!descriptor.containsRelevantChange(path: "/var/tmp/repo/build/output.log"))
+    }
+
     @Test func watchedPathsNilOutsideRepository() async {
         let service = GitMetadataService()
         let paths = await service.watchedPaths(for: "/nope/\(UUID().uuidString)")
