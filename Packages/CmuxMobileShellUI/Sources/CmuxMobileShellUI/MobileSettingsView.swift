@@ -32,6 +32,7 @@ struct MobileSettingsView: View {
     @State private var showingSetupHelp = false
     #if DEBUG
     @State private var showingChatDemo = false
+    @State private var showingTerminalDemo = false
     #endif
 
     var body: some View {
@@ -144,6 +145,12 @@ struct MobileSettingsView: View {
                         Label("Agent Chat Demo", systemImage: "bubble.left.and.bubble.right")
                     }
                     .accessibilityIdentifier("MobileSettingsAgentChatDemo")
+                    Button {
+                        showingTerminalDemo = true
+                    } label: {
+                        Label("Terminal Log Demo", systemImage: "terminal")
+                    }
+                    .accessibilityIdentifier("MobileSettingsTerminalLogDemo")
                 }
                 #endif
 
@@ -206,6 +213,9 @@ struct MobileSettingsView: View {
             #if DEBUG
             .fullScreenCover(isPresented: $showingChatDemo) {
                 AgentChatDemoScreen()
+            }
+            .fullScreenCover(isPresented: $showingTerminalDemo) {
+                TerminalLogDemoScreen()
             }
             #endif
             .sheet(isPresented: $showingHostPicker) {
