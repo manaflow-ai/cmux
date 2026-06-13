@@ -1050,7 +1050,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     /// Tracks the cascade point for new windows, matching Ghostty's upstream algorithm.
     /// Reset to `.zero` so the first window seeds the point from its own position.
     private var lastCascadePoint = NSPoint.zero
-    var startupSessionSnapshot: AppSessionSnapshot?
+    private(set) var startupSessionSnapshot: AppSessionSnapshot?
     private var didPrepareStartupSessionSnapshot = false
     var didAttemptStartupSessionRestore = false
     private var isApplyingSessionRestore = false
