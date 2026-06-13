@@ -3,14 +3,16 @@ import CmuxAgentChat
 import CmuxAgentChatUI
 import SwiftUI
 
-/// Debug-only host for the plain-terminal chat log (#5), fed by sample
-/// command blocks so the single-column monospace log is verifiable on a
-/// simulator before a Mac host parses real PTY streams.
+/// Debug-only host for the plain-terminal chat log (#5). Feeds sample command
+/// blocks as `.terminalCommand` rows through the real
+/// ``CmuxAgentChatUI/ChatTranscriptListView`` so the single-column monospace
+/// log is verified inside the actual transcript machinery (row dispatch,
+/// scroll, expansion) before a Mac host parses real PTY streams.
 struct TerminalLogDemoScreen: View {
     @Environment(\.dismiss) private var dismiss
-    @State private var expandedIDs: Set<Int> = []
+    @State private var expandedIDs: Set<String> = []
 
-    private let blocks: [TerminalCommandBlock] = [
+    private static let blocks: [TerminalCommandBlock] = [
         TerminalCommandBlock(
             id: 0,
             command: "ls -la",
@@ -56,22 +58,20 @@ struct TerminalLogDemoScreen: View {
         ),
     ]
 
+    private var rows: [ChatTranscriptRow] {
+        Self.blocks.map { ChatTranscriptRow.terminalCommand($0) }
+    }
+
     var body: some View {
         NavigationStack {
-            ScrollView {
-                LazyVStack(alignment: .leading, spacing: 4) {
-                    ForEach(blocks) { block in
-                        TerminalCommandBlockView(
-                            block: block,
-                            isExpanded: expandedIDs.contains(block.id),
-                            onToggleExpanded: { toggle(block.id) },
-                            onOpenTerminal: {}
-                        )
-                    }
-                }
-                .padding(.horizontal, 12)
-                .padding(.vertical, 8)
-            }
+            ChatTranscriptListView(
+                rows: rows,
+                expandedIDs: expandedIDs,
+                agentState: .idle,
+                hasMoreHistory: false,
+                actions: actions,
+                onReachTop: {}
+            )
             .navigationTitle("Terminal Log Demo")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
@@ -83,12 +83,20 @@ struct TerminalLogDemoScreen: View {
         }
     }
 
-    private func toggle(_ id: Int) {
-        if expandedIDs.contains(id) {
-            expandedIDs.remove(id)
-        } else {
-            expandedIDs.insert(id)
-        }
+    private var actions: ChatRowActions {
+        ChatRowActions(
+            toggleExpanded: { id in
+                if expandedIDs.contains(id) {
+                    expandedIDs.remove(id)
+                } else {
+                    expandedIDs.insert(id)
+                }
+            },
+            answerOption: { _ in },
+            retryPending: { _ in },
+            discardPending: { _ in },
+            openTerminal: {}
+        )
     }
 }
 #endif

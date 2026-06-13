@@ -14,6 +14,9 @@ public enum ChatTranscriptRow: Identifiable, Sendable, Equatable {
     case message(ChatMessageRowSnapshot)
     /// An optimistic outgoing prompt not yet echoed by the transcript.
     case pendingOutbound(ChatPendingOutbound)
+    /// A plain-terminal command/output block (terminal sessions render as a
+    /// single-column monospace log instead of agent bubbles).
+    case terminalCommand(TerminalCommandBlock)
 
     /// Stable identity for list diffing.
     public var id: String {
@@ -26,6 +29,8 @@ public enum ChatTranscriptRow: Identifiable, Sendable, Equatable {
             return "msg-\(snapshot.message.id)"
         case .pendingOutbound(let pending):
             return "pending-\(pending.id)"
+        case .terminalCommand(let block):
+            return "term-\(block.id)"
         }
     }
 }

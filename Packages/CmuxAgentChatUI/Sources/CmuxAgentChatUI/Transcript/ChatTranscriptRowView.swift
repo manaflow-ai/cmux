@@ -39,6 +39,13 @@ public struct ChatTranscriptRowView: View, Equatable {
             ChatMessageRowView(snapshot: snapshot, isExpanded: isExpanded, actions: actions)
         case .pendingOutbound(let pending):
             ChatPendingBubbleView(pending: pending, actions: actions)
+        case .terminalCommand(let block):
+            TerminalCommandBlockView(
+                block: block,
+                isExpanded: isExpanded,
+                onToggleExpanded: { actions.toggleExpanded(row.id) },
+                onOpenTerminal: actions.openTerminal
+            )
         }
     }
 }
