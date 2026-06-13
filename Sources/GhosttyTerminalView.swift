@@ -8323,7 +8323,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         return true
     }
 
-    @MainActor fileprivate func reconcileSurfaceSizeAfterMetalLayerAttachIfNeeded() { guard needsSurfaceSizeRetryAfterMetalLayerRealizes else { return }; _ = updateSurfaceSize() }
+    @MainActor fileprivate func reconcileSurfaceSizeAfterMetalLayerAttachIfNeeded() { guard needsSurfaceSizeRetryAfterMetalLayerRealizes else { return }; deferredSurfaceSizeNonMetalRetryCount = 0; _ = updateSurfaceSize() }
 
     @discardableResult
     private func updateSurfaceSize(size: CGSize? = nil) -> Bool {
