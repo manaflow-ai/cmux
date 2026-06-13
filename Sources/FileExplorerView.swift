@@ -3,6 +3,25 @@ import Bonsplit
 import Combine
 import SwiftUI
 
+enum FileExplorerKeyboardActivation {
+    static func isDefaultOpenEvent(_ event: NSEvent) -> Bool {
+        guard event.type == .keyDown else { return false }
+        let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
+            .subtracting([.numericPad, .function, .capsLock])
+        guard flags.intersection([.command, .control, .option, .shift]).isEmpty else {
+            return false
+        }
+        return event.keyCode == 36 || event.keyCode == 76
+    }
+
+    static func matchesOpenSelectionShortcut(
+        _ event: NSEvent,
+        shortcutForAction: (KeyboardShortcutSettings.Action) -> StoredShortcut = KeyboardShortcutSettings.shortcut(for:)
+    ) -> Bool {
+        isDefaultOpenEvent(event) || shortcutForAction(.openFileExplorerSelection).matches(event: event)
+    }
+}
+
 #if DEBUG
 private func fileExplorerDebugResponder(_ responder: NSResponder?) -> String {
     guard let responder else { return "nil" }
@@ -604,20 +623,34 @@ struct FileExplorerPanelView: NSViewRepresentable {
 
         @objc func handleDoubleClick(_ sender: NSOutlineView) {
             let row = sender.clickedRow >= 0 ? sender.clickedRow : sender.selectedRow
+            _ = activateNode(at: row, in: sender)
+        }
+
+        @discardableResult
+        func openSelectedItem(in outlineView: NSOutlineView) -> Bool {
+            guard let row = resolvedSelectionRow(in: outlineView) else { return false }
+            return activateNode(at: row, in: outlineView)
+        }
+
+        @discardableResult
+        private func activateNode(at row: Int, in outlineView: NSOutlineView) -> Bool {
             guard row >= 0,
-                  let node = sender.item(atRow: row) as? FileExplorerNode else { return }
+                  let node = outlineView.item(atRow: row) as? FileExplorerNode else { return false }
+
+            selectRow(row, in: outlineView, scroll: false)
 
             if node.isDirectory {
-                if sender.isItemExpanded(node) {
-                    sender.collapseItem(node)
-                } else if sender.isExpandable(node) {
-                    sender.expandItem(node)
+                if outlineView.isItemExpanded(node) {
+                    outlineView.collapseItem(node)
+                } else if outlineView.isExpandable(node) {
+                    outlineView.expandItem(node)
                 }
-                return
+                return true
             }
 
-            guard store.provider is LocalFileExplorerProvider else { return }
+            guard store.provider is LocalFileExplorerProvider else { return true }
             onOpenFilePreview(node.path)
+            return true
         }
 
         // MARK: - Context Menu (NSMenuDelegate)
@@ -2119,6 +2152,10 @@ final class FileExplorerNSOutlineView: NSOutlineView {
             }
         }
 
+        if handleOpenSelectionShortcut(event) {
+            return
+        }
+
         if quickSearchActive, handleQuickSearchKey(event) {
             return
         }
@@ -2147,6 +2184,9 @@ final class FileExplorerNSOutlineView: NSOutlineView {
     }
 
     override func performKeyEquivalent(with event: NSEvent) -> Bool {
+        if handleOpenSelectionShortcut(event) {
+            return true
+        }
         if quickSearchActive, handleQuickSearchKey(event) {
             return true
         }
@@ -2221,6 +2261,14 @@ final class FileExplorerNSOutlineView: NSOutlineView {
 
     private var fileExplorerCoordinator: FileExplorerPanelView.Coordinator? {
         dataSource as? FileExplorerPanelView.Coordinator
+    }
+
+    private func handleOpenSelectionShortcut(_ event: NSEvent) -> Bool {
+        guard FileExplorerKeyboardActivation.matchesOpenSelectionShortcut(event) else {
+            return false
+        }
+        endQuickSearch()
+        return fileExplorerCoordinator?.openSelectedItem(in: self) ?? false
     }
 
     private func beginQuickSearch() {

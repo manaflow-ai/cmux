@@ -86,6 +86,7 @@ extension ShortcutAction {
         case .attachTextBoxFile: return ShortcutStroke(key: "a", command: true, shift: true, option: true)
         case .sendCtrlFToTerminal: return nil
         case .toggleRightSidebar: return ShortcutStroke(key: "b", command: true, option: true)
+        case .openFileExplorerSelection: return ShortcutStroke(key: "↓", command: true)
         case .openDiffViewer: return ShortcutStroke(key: "d", command: true, shift: true, control: true)
         case .saveFilePreview: return ShortcutStroke(key: "s", command: true)
         case .openBrowser: return ShortcutStroke(key: "l", command: true, shift: true)

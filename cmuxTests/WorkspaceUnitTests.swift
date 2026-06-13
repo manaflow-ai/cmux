@@ -425,6 +425,10 @@ final class WorkspaceRenameShortcutDefaultsTests: XCTestCase {
             KeyboardShortcutSettings.Action.toggleRightSidebar.label,
             String(localized: "shortcut.toggleRightSidebar.label", defaultValue: "Toggle Right Sidebar")
         )
+        XCTAssertEqual(
+            KeyboardShortcutSettings.Action.openFileExplorerSelection.label,
+            String(localized: "shortcut.openFileExplorerSelection.label", defaultValue: "File Explorer: Open Selection")
+        )
 
         let toggleRightSidebar = KeyboardShortcutSettings.Action.toggleRightSidebar.defaultShortcut
         XCTAssertEqual(toggleRightSidebar.key, "b")
@@ -432,6 +436,13 @@ final class WorkspaceRenameShortcutDefaultsTests: XCTestCase {
         XCTAssertFalse(toggleRightSidebar.shift)
         XCTAssertTrue(toggleRightSidebar.option)
         XCTAssertFalse(toggleRightSidebar.control)
+
+        let openSelection = KeyboardShortcutSettings.Action.openFileExplorerSelection.defaultShortcut
+        XCTAssertEqual(openSelection.key, "↓")
+        XCTAssertTrue(openSelection.command)
+        XCTAssertFalse(openSelection.shift)
+        XCTAssertFalse(openSelection.option)
+        XCTAssertFalse(openSelection.control)
 
         let focusRightSidebar = KeyboardShortcutSettings.Action.focusRightSidebar.defaultShortcut
         XCTAssertEqual(focusRightSidebar.key, "e")
@@ -509,6 +520,7 @@ final class WorkspaceRenameShortcutDefaultsTests: XCTestCase {
         let expectedActions: [KeyboardShortcutSettings.Action] = [
             .focusRightSidebar,
             .toggleRightSidebar,
+            .openFileExplorerSelection,
             .findInDirectory,
         ]
 
