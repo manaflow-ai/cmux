@@ -29,13 +29,7 @@ struct WorkspaceNavigationRow: View {
     @State private var isConfirmingClose = false
 
     var body: some View {
-        WorkspaceRow(
-            workspace: workspace,
-            connectionStatus: connectionStatus,
-            isSelected: navigationStyle == .sidebar && isSelected,
-            wrapWorkspaceTitles: wrapWorkspaceTitles,
-            previewLineLimit: previewLineLimit
-        )
+        rowContent
         .onTapGesture {
             selectWorkspace(workspace.id)
         }
@@ -86,6 +80,30 @@ struct WorkspaceNavigationRow: View {
             Button(L10n.string("mobile.common.cancel", defaultValue: "Cancel"), role: .cancel) {}
         } message: {
             Text(L10n.string("mobile.workspace.delete.confirmMessage", defaultValue: "This will close the workspace on your Mac."))
+        }
+    }
+
+    private var rowContent: some View {
+        HStack(alignment: .center, spacing: 8) {
+            WorkspaceRow(
+                workspace: workspace,
+                connectionStatus: connectionStatus,
+                isSelected: navigationStyle == .sidebar && isSelected,
+                wrapWorkspaceTitles: wrapWorkspaceTitles,
+                previewLineLimit: previewLineLimit
+            )
+            .layoutPriority(1)
+
+            // NavigationLink(value:) restores the system disclosure row, but in
+            // this List it prevents swipe/context delete confirmation from
+            // presenting reliably. Keep the manual tap path and draw the
+            // compact-stack affordance explicitly.
+            if navigationStyle == .push {
+                Image(systemName: "chevron.forward")
+                    .font(.footnote.weight(.semibold))
+                    .foregroundStyle(.tertiary)
+                    .accessibilityHidden(true)
+            }
         }
     }
 
