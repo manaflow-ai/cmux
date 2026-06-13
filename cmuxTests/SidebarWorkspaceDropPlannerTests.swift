@@ -2,6 +2,7 @@ import CoreGraphics
 import XCTest
 
 import CmuxFoundation
+import CmuxSidebarProviderKit
 
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
