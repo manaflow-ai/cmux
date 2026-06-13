@@ -36,7 +36,6 @@
 2901	Sources/SessionIndexView.swift
 2871	cmuxTests/CMUXOpenCommandTests.swift
 2725	cmuxTests/CmuxConfigTests.swift
-2623	Sources/TerminalNotificationStore.swift
 2565	Sources/Panels/CmuxWebView.swift
 2545	cmuxTests/WorkspaceManualUnreadTests.swift
 2544	cmuxTests/CommandPaletteSearchEngineTests.swift
@@ -49,6 +48,7 @@
 2123	cmuxTests/ShortcutAndCommandPaletteTests.swift
 2030	Sources/KeyboardShortcutSettingsFileStore.swift
 1949	Sources/Panels/BrowserWebAuthnSupport.swift
+1941	Sources/TerminalNotificationStore.swift
 1860	cmuxTests/NotificationAndMenuBarTests.swift
 1811	Sources/SessionIndexStore.swift
 1753	Sources/RestorableAgentSession.swift
@@ -132,6 +132,7 @@
 696	cmuxTests/UpdatePillReleaseVisibilityTests.swift
 693	Sources/Panels/BrowserPopupWindowController.swift
 691	cmuxTests/TaskManagerResourcesTests.swift
+690	Sources/NotificationSoundSettings.swift
 684	Sources/CmuxNoteStore.swift
 683	Packages/CmuxSwiftRender/Sources/CmuxSwiftRender/SwiftViewInterpreter.swift
 683	Sources/Panels/CodexAppServerSession.swift

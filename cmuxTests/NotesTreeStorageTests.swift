@@ -585,8 +585,8 @@ import Testing
         let terminalRows = store.rootNodes.compactMap { node in
             node.kind.terminalMarker.map { (node: node, marker: $0) }
         }
-        #expect(terminalRows.map(\.marker.title) == ["build shell", "scratch"])
-        #expect(terminalRows.allSatisfy(\.node.isVirtual))
+        #expect(terminalRows.map { $0.marker.title } == ["build shell", "scratch"])
+        #expect(terminalRows.allSatisfy { $0.node.isVirtual })
 
         // The anchored terminal owns the pane note and the session row …
         let anchored = try #require(terminalRows.first { $0.marker.anchorId == "anchor-pane-1" })
