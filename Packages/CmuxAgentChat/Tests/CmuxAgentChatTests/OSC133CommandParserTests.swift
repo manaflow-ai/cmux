@@ -147,6 +147,29 @@ struct OSC133CommandParserTests {
         #expect(parser.blocks[0].exitCode == 0)
     }
 
+    @Test("a CRLF split across consume chunks is not blanked")
+    func crlfSplitAcrossChunks() {
+        let parser = OSC133CommandParser()
+        parser.consume(mark("A") + mark("B") + "x" + mark("C") + "ab\r")
+        // mid-stream the open line looks cleared, but the bytes are retained
+        parser.consume("\ncd\r\n" + mark("D;0"))
+        #expect(parser.blocks[0].output == "ab\ncd\n")
+    }
+
+    @Test("output fed one character at a time parses identically (incremental fold)")
+    func byteAtATimeStreaming() {
+        let parser = OSC133CommandParser()
+        let full = mark("A") + mark("B") + "run" + mark("C")
+            + "start\r\n10%\r99%\r100%\r\ndone\r\n" + mark("D;0")
+        for char in full {
+            parser.consume(String(char))
+        }
+        #expect(parser.blocks.count == 1)
+        #expect(parser.blocks[0].command == "run")
+        #expect(parser.blocks[0].output == "start\n100%\ndone\n")
+        #expect(parser.blocks[0].exitCode == 0)
+    }
+
     @Test("a bare prompt with no command yields an empty command string")
     func bareCommand() {
         let parser = OSC133CommandParser()

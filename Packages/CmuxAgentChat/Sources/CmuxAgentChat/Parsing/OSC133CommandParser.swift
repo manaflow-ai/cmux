@@ -22,7 +22,15 @@ public final class OSC133CommandParser {
     private enum Phase { case idle, prompt, command, output }
     private var phase: Phase = .idle
     private var commandBuffer = ""
-    private var outputBuffer = ""
+    /// Completed output lines, already carriage-return folded, with their
+    /// trailing newlines. Only the still-open line can change when more bytes
+    /// arrive, so committed lines are never re-folded — this keeps `consume`
+    /// O(chunk) instead of re-folding the whole growing buffer each chunk
+    /// (which was O(total) per chunk = quadratic over a long command).
+    private var foldedOutput = ""
+    /// The current, not-yet-terminated output line (unfolded, may contain
+    /// standalone `\r` progress redraws).
+    private var openLine = ""
     private var pending = ""
     private var nextID = 0
     private var openIndex: Int?
@@ -64,16 +72,15 @@ public final class OSC133CommandParser {
                 return
             }
         }
-        // Fold + publish the open block's output once per chunk (not per
-        // character — that was O(n^2) on large output).
+        // Publish the open block's output once per chunk.
         flushOpenOutput()
     }
 
-    /// Publishes the running block's accumulated output, carriage-return
-    /// folded. Called once per chunk rather than per character.
+    /// Publishes the running block's output: the already-folded completed
+    /// lines plus the open line folded on its own (O(open line), not O(total)).
     private func flushOpenOutput() {
         guard phase == .output, let openIndex else { return }
-        blocks[openIndex].output = Self.foldCarriageReturns(outputBuffer)
+        blocks[openIndex].output = foldedOutput + Self.foldLine(openLine)
     }
 
     // MARK: - Escape parsing
@@ -209,7 +216,8 @@ public final class OSC133CommandParser {
             phase = .command
         case .outputStart:
             openBlock()
-            outputBuffer = ""
+            foldedOutput = ""
+            openLine = ""
             phase = .output
         case .commandEnd(let exitCode):
             closeBlock(exitCode: exitCode)
@@ -228,7 +236,16 @@ public final class OSC133CommandParser {
         case .command:
             commandBuffer.append(char)
         case .output:
-            outputBuffer.append(char)
+            // A line terminator commits the open line (folded) to the folded
+            // accumulator; everything else extends the open line. "\r\n" is a
+            // single Swift grapheme, so it is also a terminator here.
+            if char == "\n" || char == "\r\n" {
+                foldedOutput += Self.foldLine(openLine)
+                foldedOutput += "\n"
+                openLine = ""
+            } else {
+                openLine.append(char)
+            }
         case .idle, .prompt:
             break
         }
@@ -249,11 +266,12 @@ public final class OSC133CommandParser {
 
     private func closeBlock(exitCode: Int?) {
         guard let openIndex else { return }
-        blocks[openIndex].output = Self.foldCarriageReturns(outputBuffer)
+        blocks[openIndex].output = foldedOutput + Self.foldLine(openLine)
         blocks[openIndex].exitCode = exitCode
         blocks[openIndex].isRunning = false
         self.openIndex = nil
-        outputBuffer = ""
+        foldedOutput = ""
+        openLine = ""
     }
 
     private func finalizeOpenOutput() {
@@ -262,22 +280,19 @@ public final class OSC133CommandParser {
         if openIndex != nil { closeBlock(exitCode: nil) }
     }
 
-    /// Folds carriage-return redraws: within a line, text after a `\r`
-    /// overwrites from the line start, so a progress bar's repeated redraws
-    /// collapse to the final state. A single trailing `\r` per line is the
-    /// CR of a CRLF line ending and is dropped first, so normal `\r\n` text
-    /// is preserved instead of being blanked.
-    static func foldCarriageReturns(_ text: String) -> String {
-        // In Swift, "\r\n" is a single grapheme Character, so splitting on a
-        // "\n" Character never sees a CRLF. Normalize CRLF (a real newline) to
-        // LF first; the per-line fold below then only deals with standalone
-        // "\r" progress redraws.
-        let normalized = text.replacingOccurrences(of: "\r\n", with: "\n")
-        return normalized.split(separator: "\n", omittingEmptySubsequences: false)
-            .map { line -> Substring in
-                guard let lastCR = line.lastIndex(of: "\r") else { return line }
-                return line[line.index(after: lastCR)...]
-            }
-            .joined(separator: "\n")
+    /// Folds carriage-return redraws within ONE line: text after the last
+    /// `\r` overwrites from the line start, so a progress bar's repeated
+    /// `\r`-redraws collapse to their final state.
+    ///
+    /// A single trailing `\r` is dropped first: it's the CR of a CRLF whose
+    /// `\n` arrived (or will arrive) as the line terminator, including the
+    /// case where the CRLF is split across `consume` chunks ("ab\r" then
+    /// "\ncd") so the `\r` lands at the end of the open line rather than as a
+    /// single "\r\n" grapheme.
+    static func foldLine(_ line: String) -> String {
+        var line = Substring(line)
+        if line.last == "\r" { line = line.dropLast() }
+        guard let lastCR = line.lastIndex(of: "\r") else { return String(line) }
+        return String(line[line.index(after: lastCR)...])
     }
 }
