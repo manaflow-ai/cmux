@@ -196,14 +196,12 @@ extension TerminalController {
     /// Workspace/surface params for a chat session's bound terminal, in the
     /// shape the existing mobile terminal handlers expect.
     ///
-    /// Panel ids regenerate on app relaunch / session restore, so the surface
-    /// id recorded with a session goes stale. Resolution is layered, stable
-    /// id last: (1) the exact recorded surface if it still resolves, (2) a
-    /// hook-store re-adopt (a hook event rewrites the binding) retried, then
-    /// (3) a workspace-level fallback — the workspace id is stable across
-    /// relaunch/restore and the session is workspace-scoped, so target the
-    /// workspace's focused (else first) terminal. This mirrors the phone's
-    /// workspace-level toggle binding.
+    /// The session is bound to a specific terminal (its surface id). Surface
+    /// ids are stable across relaunch/restore now, so the recorded surface
+    /// keeps resolving; a still-stale binding is re-adopted once from the
+    /// hook store (every hook event rewrites it with the current panel) and
+    /// retried. If it still doesn't resolve we fail with an actionable error
+    /// rather than redirect the prompt to some other terminal.
     private func mobileChatTerminalParams(sessionID: String) -> [String: Any]? {
         let service = AgentChatTranscriptService.shared
         guard let record = service.sessionRecord(sessionID: sessionID),
@@ -221,16 +219,6 @@ extension TerminalController {
            let surfaceID = refreshed.surfaceID,
            mobileChatBindingResolves(workspaceID: workspaceID, surfaceID: surfaceID) {
             return ["workspace_id": workspaceID, "surface_id": surfaceID]
-        }
-        // Workspace-level fallback: the recorded panel id is gone, but the
-        // workspace persists. Resolve to its focused/first terminal.
-        if let resolved = mobileResolveWorkspaceAndSurface(
-               params: ["workspace_id": workspaceID], requireTerminal: true),
-           let surfaceId = resolved.surfaceId {
-            #if DEBUG
-            cmuxDebugLog("mobile.chat workspace-level fallback session=\(sessionID.prefix(8)) surface=\(surfaceId.uuidString.prefix(8))")
-            #endif
-            return ["workspace_id": workspaceID, "surface_id": surfaceId.uuidString]
         }
         #if DEBUG
         cmuxDebugLog("mobile.chat binding unresolved session=\(sessionID.prefix(8))")

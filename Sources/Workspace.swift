@@ -1782,6 +1782,15 @@ extension Workspace {
             let shouldReplayLocalScrollback = restoredRemotePTYAttachCommand == nil && shouldReplayScrollback
             let restoredScrollback = shouldReplayLocalScrollback ? snapshot.terminal?.scrollback : nil
             let replayEnvironment = SessionScrollbackReplayStore.replayEnvironment(for: restoredScrollback)
+            // Reuse the persisted surface id so the restored terminal keeps
+            // the same identity (the panel/surface id IS the ghostty surface
+            // id), which keeps agent-session terminal bindings valid across
+            // relaunch/restore. Only reuse when no live surface already holds
+            // that id (duplicate-workspace / restore-into-live can collide);
+            // otherwise fall back to a fresh id and let the old->new remap
+            // handle it, exactly as before.
+            let reusableSurfaceId: UUID? =
+                TerminalSurfaceRegistry.shared.surface(id: snapshot.id) == nil ? snapshot.id : nil
             guard let terminalPanel = newTerminalSurface(
                 inPane: paneId,
                 focus: false,
@@ -1791,7 +1800,8 @@ extension Workspace {
                 initialInput: restoredStartupInput,
                 startupEnvironment: replayEnvironment,
                 remotePTYSessionID: restoredRemotePTYSessionID,
-                suppressWorkspaceRemoteStartupCommand: suppressWorkspaceRemoteStartupCommand
+                suppressWorkspaceRemoteStartupCommand: suppressWorkspaceRemoteStartupCommand,
+                restoredSurfaceId: reusableSurfaceId
             ) else {
                 return nil
             }
@@ -14871,7 +14881,8 @@ final class Workspace: Identifiable, ObservableObject {
         autoRefreshMetadata: Bool = true,
         preserveFocusWhenUnfocused: Bool = true,
         remotePTYSessionID: String? = nil,
-        suppressWorkspaceRemoteStartupCommand: Bool = false
+        suppressWorkspaceRemoteStartupCommand: Bool = false,
+        restoredSurfaceId: UUID? = nil
     ) -> TerminalPanel? {
         let shouldFocusNewTab = focus ?? (bonsplitController.focusedPaneId == paneId)
         let previousFocusedPanelId = focusedPanelId
@@ -14896,8 +14907,12 @@ final class Workspace: Identifiable, ObservableObject {
             inheritedConfig = template
         }
 
-        // Create new terminal panel
+        // Create new terminal panel. A restored panel reuses its persisted
+        // surface id (the panel/surface id IS the ghostty surface id, a
+        // Swift-side UUID), so a session's terminal binding survives relaunch
+        // and restore. The caller only passes an id it has verified is free.
         let newPanel = TerminalPanel(
+            id: restoredSurfaceId ?? UUID(),
             workspaceId: id,
             context: GHOSTTY_SURFACE_CONTEXT_SPLIT,
             configTemplate: inheritedConfig,

@@ -62,22 +62,24 @@ struct WorkspaceDetailView: View {
     }
 
     #if os(iOS)
-    /// The agent session for the visible workspace, if any.
+    /// The chat session belonging to the currently visible tab/terminal, if
+    /// any. The toggle and the chat bind to THIS — the tab the user is
+    /// looking at — so a tab's chat never shows another tab's history, and a
+    /// tab with no agent session yields nil (its toggle is hidden). A past
+    /// agent that has since ended still matches here (its record keeps the
+    /// terminal binding), so the tab keeps showing the conversation read-only.
     ///
-    /// Bound at the WORKSPACE level, not the terminal/surface level. The
-    /// workspace id is stable across app relaunch and session restore; a
-    /// terminal/panel id is regenerated on restore (cmux mints fresh panel
-    /// ids and remaps internally), so matching the toggle to a surface id
-    /// silently dropped the toggle whenever that id drifted. `chatSessions`
-    /// is already scoped to this workspace (the list is seeded and folded
-    /// with this workspace id), and `openable` puts the session most worth
-    /// opening first (an alive session over an ended one).
-    private var visibleWorkspaceSession: ChatSessionDescriptor? {
-        ChatSessionDescriptor.openable(chatSessions).first
+    /// This per-tab match relies on surface ids being stable across app
+    /// relaunch / session restore (cmux reuses a panel's persisted id when it
+    /// is still unique), so the session's recorded terminal id keeps matching
+    /// the live terminal.
+    private var sessionForSelectedTerminal: ChatSessionDescriptor? {
+        guard let terminalID = selectedTerminal?.id.rawValue else { return nil }
+        return chatSessions.first { $0.terminalID == terminalID }
     }
 
-    /// The session chat mode opens: the visible workspace's session, or the
-    /// pinned session while chat mode is on.
+    /// The session chat mode opens: the visible tab's session, or the pinned
+    /// session while chat mode is on.
     private var chosenChatSession: ChatSessionDescriptor? {
         // While chat is open it is pinned to one session: return that exact
         // session or nil if it vanished — never silently switch to another
@@ -87,7 +89,7 @@ struct WorkspaceDetailView: View {
         if let pinnedChatSessionID {
             return chatSessions.first { $0.id == pinnedChatSessionID }
         }
-        return visibleWorkspaceSession
+        return sessionForSelectedTerminal
     }
 
     /// The tab/terminal name for a session, for the chat header subtitle.
@@ -150,14 +152,14 @@ struct WorkspaceDetailView: View {
         .task(id: chatRefreshKey) { await refreshChatSessions() }
     }
 
-    /// Toolbar toggle between terminal and chat. Shown when the visible
-    /// workspace has an agent session (or chat is already on). Scoping the
-    /// criterion to the workspace, not a specific terminal/surface id, keeps
-    /// the toggle present across app relaunch and session restore, when panel
-    /// ids are regenerated but the workspace id is stable.
+    /// Toolbar toggle between terminal and chat. Shown only when the
+    /// currently visible tab has an agent session (or chat is already on), so
+    /// the toggle tracks the tab the user is looking at. Surface ids are
+    /// stable across relaunch/restore, so this per-tab match survives a
+    /// restart.
     @ViewBuilder
     private var chatToggleButton: some View {
-        if isChatMode || visibleWorkspaceSession != nil {
+        if isChatMode || sessionForSelectedTerminal != nil {
             Button {
                 withAnimation(.snappy(duration: 0.28)) {
                     isChatMode.toggle()
