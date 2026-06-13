@@ -1,5 +1,6 @@
 import AppKit
 import SwiftUI
+import CmuxTerminalCore
 
 enum AppearanceMode: String, CaseIterable, Identifiable {
     case system
@@ -63,25 +64,15 @@ enum AppearanceSettings {
         )
     }
 
-    struct SystemAppearance {
-        let interfaceStyle: String?
-
-        var prefersDark: Bool {
-            interfaceStyle?.caseInsensitiveCompare(darkInterfaceStyleValue) == .orderedSame
-        }
-
-        static func current(defaults: UserDefaults = .standard) -> SystemAppearance {
-            let directValue = defaults.string(forKey: appleInterfaceStyleKey)
-            let globalValue = defaults
-                .persistentDomain(forName: UserDefaults.globalDomain)?[appleInterfaceStyleKey] as? String
-            return SystemAppearance(interfaceStyle: directValue ?? globalValue)
-        }
-    }
+    /// The system interface-style snapshot used by terminal color-scheme
+    /// resolution. Lifted to ``TerminalSystemAppearance`` in CmuxTerminalCore so
+    /// the terminal config type no longer reaches up into the app's appearance
+    /// settings; this alias keeps the `AppearanceSettings.SystemAppearance`
+    /// call-site name byte-identical.
+    typealias SystemAppearance = TerminalSystemAppearance
 
     static let appearanceModeKey = "appearanceMode"
     static let defaultMode: AppearanceMode = .system
-    private static let appleInterfaceStyleKey = "AppleInterfaceStyle"
-    private static let darkInterfaceStyleValue = "Dark"
 
     static func mode(for rawValue: String?) -> AppearanceMode {
         guard let rawValue, let mode = AppearanceMode(rawValue: rawValue) else {

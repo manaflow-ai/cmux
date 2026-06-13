@@ -1,6 +1,7 @@
 import Foundation
 import AppKit
 import CmuxFoundation
+import CmuxTerminalCore
 
 struct GhosttyConfig {
     enum ColorSchemePreference: Hashable {
@@ -854,7 +855,7 @@ struct GhosttyConfig {
     static func currentColorSchemePreference(
         appAppearance _: NSAppearance? = nil,
         defaults: UserDefaults = .standard,
-        systemAppearance: AppearanceSettings.SystemAppearance? = nil
+        systemAppearance: TerminalSystemAppearance? = nil
     ) -> ColorSchemePreference {
         return AppearanceSettings.terminalColorSchemePreference(defaults: defaults, systemAppearance: systemAppearance)
     }

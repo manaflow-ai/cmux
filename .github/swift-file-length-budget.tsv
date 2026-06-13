@@ -14,7 +14,7 @@
 7737	Sources/Panels/BrowserPanelView.swift
 7294	cmuxTests/WorkspaceUnitTests.swift
 6949	cmuxTests/WorkspaceRemoteConnectionTests.swift
-6544	cmuxTests/GhosttyConfigTests.swift
+6464	cmuxTests/GhosttyConfigTests.swift
 6330	cmuxTests/SessionPersistenceTests.swift
 6153	CLI/cmux_open.swift
 6074	Sources/TextBoxInput.swift
@@ -73,7 +73,7 @@
 1239	Sources/Feed/FeedCoordinator.swift
 1205	Packages/CmuxMobileTerminal/Sources/CmuxMobileTerminal/TerminalInputTextView.swift
 1197	cmuxTests/CodexAppServerSessionTests.swift
-1158	Sources/GhosttyConfig.swift
+1159	Sources/GhosttyConfig.swift
 1156	cmuxTests/SidebarOrderingTests.swift
 1144	Sources/VaultAgentProcessScanner.swift
 1139	cmuxTests/PiVaultAgentPersistenceTests.swift
