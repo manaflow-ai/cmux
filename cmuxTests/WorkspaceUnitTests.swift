@@ -7244,6 +7244,16 @@ final class SidebarWorkspaceShortcutHintMetricsTests: XCTestCase {
         let widened = SidebarWorkspaceShortcutHintMetrics.slotWidth(label: "⌘1", debugXOffset: 10)
         XCTAssertGreaterThan(widened, base)
     }
+
+    func testTrailingAccessorySlotDoesNotWidenForCommandTwoHint() {
+        let closeButtonWidth: CGFloat = 16
+        let slotWidth = SidebarTrailingAccessoryWidthPolicy.slotWidth(
+            closeButtonWidth: closeButtonWidth,
+            shortcutHintLabel: "⌘2"
+        )
+
+        XCTAssertEqual(slotWidth, closeButtonWidth)
+    }
 }
 
 final class ExtensionWorktreePrototypeTests: XCTestCase {

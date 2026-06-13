@@ -15133,6 +15133,10 @@ enum SidebarWorkspaceShortcutHintMetrics {
 
 enum SidebarTrailingAccessoryWidthPolicy {
     static let closeButtonWidth: CGFloat = 16
+
+    static func slotWidth(closeButtonWidth: CGFloat, shortcutHintLabel _: String?) -> CGFloat {
+        closeButtonWidth
+    }
 }
 
 // PERF: TabItemView is Equatable so SwiftUI skips body re-evaluation when
@@ -15626,6 +15630,10 @@ struct TabItemView: View, Equatable {
             SidebarTrailingAccessoryWidthPolicy.closeButtonWidth,
             scaledCloseButtonHitSize
         )
+        let trailingAccessorySlotWidth = SidebarTrailingAccessoryWidthPolicy.slotWidth(
+            closeButtonWidth: scaledCloseButtonWidth,
+            shortcutHintLabel: showsWorkspaceShortcutHint ? workspaceShortcutLabel : nil
+        )
 
         VStack(alignment: .leading, spacing: 4) {
             HStack(alignment: .top, spacing: 8) {
@@ -15671,7 +15679,7 @@ struct TabItemView: View, Equatable {
                         Image(systemName: "xmark")
                             .font(.system(size: scaledFontSize(9), weight: .medium))
                             .foregroundColor(activeSecondaryColor(0.7))
-                            .frame(width: scaledCloseButtonWidth, height: scaledCloseButtonHitSize, alignment: .center)
+                            .frame(width: trailingAccessorySlotWidth, height: scaledCloseButtonHitSize, alignment: .center)
                             .contentShape(Rectangle())
                     }
                     .buttonStyle(.plain)
@@ -15943,13 +15951,23 @@ struct TabItemView: View, Equatable {
                     }
                 }
         )
-        .sidebarShortcutHintOverlay(
-            text: showsWorkspaceShortcutHint ? workspaceShortcutLabel : nil,
-            emphasis: shortcutHintEmphasis,
-            offsetX: sidebarShortcutHintXOffset,
-            offsetY: sidebarShortcutHintYOffset,
-            fontSize: scaledFontSize(10)
-        )
+        .overlay(alignment: .topTrailing) {
+            if showsWorkspaceShortcutHint, let workspaceShortcutLabel {
+                ShortcutHintPill(
+                    text: workspaceShortcutLabel,
+                    fontSize: scaledFontSize(10),
+                    emphasis: shortcutHintEmphasis
+                )
+                .offset(
+                    x: ShortcutHintDebugSettings.clamped(sidebarShortcutHintXOffset),
+                    y: ShortcutHintDebugSettings.clamped(sidebarShortcutHintYOffset)
+                )
+                .padding(.top, 6)
+                .padding(.trailing, 10)
+                .allowsHitTesting(false)
+                .shortcutHintTransition()
+            }
+        }
         .shortcutHintVisibilityAnimation(value: showsWorkspaceShortcutHint)
         .padding(.horizontal, 6)
         .background { rowHeightProbe }
