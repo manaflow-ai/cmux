@@ -826,9 +826,17 @@ class TabManager: ObservableObject {
 #endif
             return handled
         }
-        guard let browserPanel = focusedBrowserPanel else { return false }
-        browserPanel.startFind()
-        return browserPanel.searchState != nil
+        if let browserPanel = focusedBrowserPanel {
+            browserPanel.startFind()
+            return browserPanel.searchState != nil
+        }
+        if let filePreviewPanel = focusedFilePreviewPanel {
+            return filePreviewPanel.startFind()
+        }
+        if let markdownPanel = focusedMarkdownPanelForFind {
+            return markdownPanel.startFind()
+        }
+        return false
     }
 
     func searchSelection() {
@@ -853,6 +861,8 @@ class TabManager: ObservableObject {
         }
 
         focusedBrowserPanel?.findNext()
+        focusedFilePreviewPanel?.findNext()
+        focusedMarkdownPanelForFind?.findNext()
     }
 
     func findPrevious() {
@@ -862,6 +872,8 @@ class TabManager: ObservableObject {
         }
 
         focusedBrowserPanel?.findPrevious()
+        focusedFilePreviewPanel?.findPrevious()
+        focusedMarkdownPanelForFind?.findPrevious()
     }
 
     @discardableResult
@@ -961,6 +973,8 @@ class TabManager: ObservableObject {
         }
 
         focusedBrowserPanel?.hideFind()
+        focusedFilePreviewPanel?.hideFind()
+        focusedMarkdownPanelForFind?.hideFind()
     }
 
     func makeWorkspaceForCreation(
@@ -2928,6 +2942,22 @@ class TabManager: ObservableObject {
               let panel = tab.panels[panelId] as? MarkdownPanel,
               panel.displayMode == .preview else { return nil }
         return panel
+    }
+
+    /// Returns the focused panel if it's a MarkdownPanel in any display mode,
+    /// nil otherwise. Used for find routing, which supports both preview and
+    /// text-edit modes.
+    var focusedMarkdownPanelForFind: MarkdownPanel? {
+        guard let tab = selectedWorkspace,
+              let panelId = tab.focusedPanelId else { return nil }
+        return tab.panels[panelId] as? MarkdownPanel
+    }
+
+    /// Returns the focused panel if it's a FilePreviewPanel, nil otherwise.
+    var focusedFilePreviewPanel: FilePreviewPanel? {
+        guard let tab = selectedWorkspace,
+              let panelId = tab.focusedPanelId else { return nil }
+        return tab.panels[panelId] as? FilePreviewPanel
     }
 
     @discardableResult
