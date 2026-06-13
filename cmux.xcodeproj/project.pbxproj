@@ -237,6 +237,7 @@
 		C5A1FED100000000000000D2 /* CmuxSwiftRenderUI in Frameworks */ = {isa = PBXBuildFile; productRef = C5A1FED100000000000000D3 /* CmuxSwiftRenderUI */; };
 		C52830000000000000000001 /* CmuxTerminalCopyMode in Frameworks */ = {isa = PBXBuildFile; productRef = C52830000000000000000004 /* CmuxTerminalCopyMode */; };
 		C52830000000000000000002 /* CmuxTerminalCopyMode in Frameworks */ = {isa = PBXBuildFile; productRef = C52830000000000000000004 /* CmuxTerminalCopyMode */; };
+		C750200000000000000000A3 /* CmuxTerminalCore in Frameworks */ = {isa = PBXBuildFile; productRef = C750200000000000000000A2 /* CmuxTerminalCore */; };
 		C7A510000000000000000002 /* CmuxTopMemoryDiagnostics.swift in Sources */ = {isa = PBXBuildFile; fileRef = C7A510000000000000000001 /* CmuxTopMemoryDiagnostics.swift */; };
 		B35750000000000000000004 /* CmuxTopProcessArguments.swift in Sources */ = {isa = PBXBuildFile; fileRef = B35750000000000000000003 /* CmuxTopProcessArguments.swift */; };
 		C7A50C000000000000000002 /* CmuxTopProcessCPUTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C7A50C000000000000000001 /* CmuxTopProcessCPUTests.swift */; };
@@ -1635,6 +1636,7 @@
 				C5A1FED000000000000000C1 /* CmuxSwiftRender in Frameworks */,
 				C5A1FED100000000000000D1 /* CmuxSwiftRenderUI in Frameworks */,
 				C52830000000000000000001 /* CmuxTerminalCopyMode in Frameworks */,
+				C750200000000000000000A3 /* CmuxTerminalCore in Frameworks */,
 				CDFEED0300000000CDFEED03 /* CmuxUpdater in Frameworks */,
 				CDFEED0600000000CDFEED06 /* CmuxUpdaterUI in Frameworks */,
 				AA11BB22CC33DD44EE550001 /* CMUXWorkstream in Frameworks */,
@@ -2738,6 +2740,7 @@
 				C8000311C8000311C8000311 /* XCLocalSwiftPackageReference "CmuxFileWatch" */,
 				C617000000000000000000A1 /* XCLocalSwiftPackageReference "CmuxGit" */,
 				C750100000000000000000A1 /* XCLocalSwiftPackageReference "CmuxControlSocket" */,
+				C750200000000000000000A1 /* XCLocalSwiftPackageReference "CmuxTerminalCore" */,
 				CD0CFE5100000000CD0CFE51 /* XCLocalSwiftPackageReference "CmuxSettings" */,
 				CD0CFE5400000000CD0CFE54 /* XCLocalSwiftPackageReference "CmuxSettingsUI" */,
 				CDFEED0100000000CDFEED01 /* XCLocalSwiftPackageReference "CmuxUpdater" */,
@@ -4153,6 +4156,10 @@
 			isa = XCLocalSwiftPackageReference;
 			relativePath = Packages/CmuxControlSocket;
 		};
+		C750200000000000000000A1 /* XCLocalSwiftPackageReference "CmuxTerminalCore" */ = {
+			isa = XCLocalSwiftPackageReference;
+			relativePath = Packages/CmuxTerminalCore;
+		};
 		CD0CFE5100000000CD0CFE51 /* XCLocalSwiftPackageReference "CmuxSettings" */ = {
 			isa = XCLocalSwiftPackageReference;
 			relativePath = Packages/CmuxSettings;
@@ -4319,6 +4326,11 @@
 			isa = XCSwiftPackageProductDependency;
 			package = C750100000000000000000A1 /* XCLocalSwiftPackageReference "CmuxControlSocket" */;
 			productName = CmuxControlSocket;
+		};
+		C750200000000000000000A2 /* CmuxTerminalCore */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = C750200000000000000000A1 /* XCLocalSwiftPackageReference "CmuxTerminalCore" */;
+			productName = CmuxTerminalCore;
 		};
 		C8000302C8000302C8000302 /* CmuxProcess */ = {
 			isa = XCSwiftPackageProductDependency;
