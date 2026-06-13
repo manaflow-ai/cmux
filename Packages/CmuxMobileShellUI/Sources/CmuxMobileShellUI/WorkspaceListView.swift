@@ -66,6 +66,10 @@ struct WorkspaceListView: View {
     /// The active row filter (All / Unread), shared-model state behind the
     /// toolbar ``WorkspaceListFilterMenu``. Session-transient like a search.
     @State private var filter: MobileWorkspaceListFilter = .all
+    /// The workspace whose destructive close action is awaiting confirmation.
+    /// Stored at list scope so reusable rows do not own transient presentation
+    /// state while `List` is recycling swipe-action rows.
+    @State private var workspacePendingCloseID: MobileWorkspacePreview.ID?
 
     private var trimmedQuery: String {
         searchText.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -169,6 +173,23 @@ struct WorkspaceListView: View {
             #endif
         }
         .accessibilityIdentifier("MobileWorkspaceList")
+        .confirmationDialog(
+            L10n.string("mobile.workspace.delete.confirmTitle", defaultValue: "Delete Workspace?"),
+            isPresented: isConfirmingWorkspaceClose,
+            titleVisibility: .visible
+        ) {
+            if let workspacePendingCloseID, closeWorkspace != nil {
+                Button(L10n.string("mobile.workspace.delete.confirmAction", defaultValue: "Delete"), role: .destructive) {
+                    confirmCloseWorkspace()
+                }
+                .accessibilityIdentifier("MobileWorkspaceDeleteConfirmButton-\(workspacePendingCloseID.rawValue)")
+            }
+            Button(L10n.string("mobile.common.cancel", defaultValue: "Cancel"), role: .cancel) {
+                workspacePendingCloseID = nil
+            }
+        } message: {
+            Text(L10n.string("mobile.workspace.delete.confirmMessage", defaultValue: "This will close the workspace on your Mac."))
+        }
         #if os(iOS)
         .sheet(isPresented: $showingShortcutsSettings) {
             TerminalShortcutsSettingsView()
@@ -251,7 +272,7 @@ struct WorkspaceListView: View {
             renameWorkspace: renameWorkspace,
             setPinned: setPinned,
             setUnread: setUnread,
-            closeWorkspace: closeWorkspace
+            closeWorkspace: requestWorkspaceClose
         )
         .listRowInsets(EdgeInsets(top: 4, leading: indented ? 32 : 12, bottom: 4, trailing: 12))
         .listRowSeparator(.hidden)
@@ -315,5 +336,33 @@ struct WorkspaceListView: View {
         .accessibilityLabel(L10n.string("mobile.workspaces.settings", defaultValue: "Settings"))
         .accessibilityIdentifier("MobileWorkspaceSettingsMenu")
         #endif
+    }
+
+    private var requestWorkspaceClose: ((MobileWorkspacePreview.ID) -> Void)? {
+        guard closeWorkspace != nil else {
+            return nil
+        }
+        return { workspaceID in
+            workspacePendingCloseID = workspaceID
+        }
+    }
+
+    private var isConfirmingWorkspaceClose: Binding<Bool> {
+        Binding(
+            get: { workspacePendingCloseID != nil },
+            set: { isPresented in
+                if !isPresented {
+                    workspacePendingCloseID = nil
+                }
+            }
+        )
+    }
+
+    private func confirmCloseWorkspace() {
+        guard let workspaceID = workspacePendingCloseID else {
+            return
+        }
+        workspacePendingCloseID = nil
+        closeWorkspace?(workspaceID)
     }
 }
