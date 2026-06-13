@@ -337,6 +337,39 @@ final class CommandPaletteSearchEngineTests: XCTestCase {
         )
     }
 
+    func testMobileConnectCommandIsFoundByMobileDeviceQueries() {
+        // Mirror the real command pipeline: a command's searchable corpus is
+        // [title, subtitle] + keywords (see CommandPaletteCommand.searchableTexts).
+        // Pull the keywords from the production source of truth so this test fails
+        // if any of the expected aliases are ever dropped from the contribution.
+        let mobileConnect = FixtureEntry(
+            id: "palette.mobileConnect",
+            rank: 0,
+            title: "Connect iPhone/iPad",
+            searchableTexts: ["Connect iPhone/iPad", "Mobile"]
+                + ContentView.commandPaletteMobileConnectKeywords
+        )
+        // Dense, realistic decoy corpus so the assertion exercises ranking, not a
+        // single-item list.
+        let decoys = makeCommandEntries(count: 64).enumerated().map { offset, entry in
+            FixtureEntry(
+                id: entry.id,
+                rank: offset + 1,
+                title: entry.title,
+                searchableTexts: entry.searchableTexts
+            )
+        }
+        let corpus = [mobileConnect] + decoys
+
+        for query in ["ios", "ipados", "iphone", "ipad", "pair", "mobile", "phone", "connect"] {
+            XCTAssertEqual(
+                optimizedResults(entries: corpus, query: query).first?.id,
+                "palette.mobileConnect",
+                "Expected Connect iPhone/iPad to be the top command palette result for query \"\(query)\""
+            )
+        }
+    }
+
     func testLimitedSearchReturnsSameTopResultsAsFullSearch() {
         let entries = makeLargeWorkspaceSwitcherEntries(count: 800)
         let queries = [
@@ -1674,6 +1707,37 @@ final class CommandPaletteSearchEngineTests: XCTestCase {
         XCTAssertEqual(
             optimizedResults(entries: entries, query: "open folder").prefix(2).map(\.id),
             ["palette.openFolder", "palette.openFolderInVSCodeInline"]
+        )
+    }
+
+    // The browser-workspace palette command must not displace the exact-title
+    // match for "New Workspace"; UI flows (and
+    // BrowserPaneNavigationKeybindUITests) rely on it staying the top result.
+    func testCommandSearchKeepsNewWorkspaceAboveNewBrowserWorkspace() {
+        let entries = [
+            FixtureEntry(
+                id: "palette.newWorkspace",
+                rank: 0,
+                title: "New Workspace",
+                searchableTexts: ["New Workspace", "Workspace", "create", "new", "workspace"]
+            ),
+            FixtureEntry(
+                id: "palette.newBrowserWorkspace",
+                rank: 1,
+                title: "New Browser Workspace",
+                searchableTexts: ["New Browser Workspace", "Workspace", "create", "new", "browser", "workspace", "web"]
+            ),
+        ]
+
+        XCTAssertEqual(
+            optimizedResults(entries: entries, query: "New Workspace").first?.id,
+            "palette.newWorkspace",
+            "Exact title match must outrank the browser variant"
+        )
+        XCTAssertEqual(
+            optimizedResults(entries: entries, query: "new browser").first?.id,
+            "palette.newBrowserWorkspace",
+            "Browser-specific query should surface the browser workspace command"
         )
     }
 

@@ -1,5 +1,10 @@
 @preconcurrency import XCTest
 import CmuxSettings
+import CmuxBrowser
+import CmuxCore
+import CmuxRemoteDaemon
+import CmuxRemoteSession
+import CmuxRemoteWorkspace
 import CmuxSocketControl
 import AppKit
 import Combine
@@ -11,8 +16,13 @@ import Testing
 
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
+// The app target still declares legacy duplicates of these CmuxSettings
+// value types; with CmuxSettings imported unconditionally the names are
+// ambiguous. These tests exercise the app-side paths, so pin the app types.
+private typealias BrowserThemeMode = cmux_DEV.BrowserThemeMode
 #elseif canImport(cmux)
 @testable import cmux
+private typealias BrowserThemeMode = cmux.BrowserThemeMode
 #endif
 
 final class SidebarPathFormatterTests: XCTestCase {
@@ -1329,27 +1339,7 @@ final class GhosttyConfigTests: XCTestCase {
     }
 
     private func bundledCLIPath() throws -> String {
-        let fileManager = FileManager.default
-        let appBundleURL = Bundle(for: Self.self)
-            .bundleURL
-            .deletingLastPathComponent()
-            .deletingLastPathComponent()
-            .deletingLastPathComponent()
-        let enumerator = fileManager.enumerator(
-            at: appBundleURL,
-            includingPropertiesForKeys: nil,
-            options: [.skipsHiddenFiles]
-        )
-
-        while let item = enumerator?.nextObject() as? URL {
-            guard item.lastPathComponent == "cmux",
-                  item.path.contains(".app/Contents/Resources/bin/cmux") else {
-                continue
-            }
-            return item.path
-        }
-
-        throw XCTSkip("Bundled cmux CLI not found in \(appBundleURL.path)")
+        try BundledCLITestSupport.bundledCLIPath(for: Self.self)
     }
 
     private func runCLI(
@@ -1700,8 +1690,8 @@ final class WorkspaceRemoteDaemonManifestTests: XCTestCase {
         }
         """
 
-        let manifest = Workspace.remoteDaemonManifest(from: [
-            Workspace.remoteDaemonManifestInfoKey: manifestJSON,
+        let manifest = WorkspaceRemoteDaemonManifest(infoDictionary: [
+            WorkspaceRemoteDaemonManifest.infoDictionaryKey: manifestJSON,
         ])
 
         XCTAssertEqual(manifest?.releaseTag, "v0.62.0")
@@ -1709,7 +1699,10 @@ final class WorkspaceRemoteDaemonManifestTests: XCTestCase {
     }
 
     func testRemoteDaemonCachePathIsVersionedByPlatform() throws {
-        let url = try Workspace.remoteDaemonCachedBinaryURL(
+        let repository = RemoteDaemonManifestRepository(
+            homeDirectory: FileManager.default.homeDirectoryForCurrentUser
+        )
+        let url = try repository.cachedBinaryURL(
             version: "0.62.0",
             goOS: "linux",
             goArch: "arm64"
@@ -2802,7 +2795,7 @@ final class WorkspaceRemoteSSHCleanupTests: XCTestCase {
         """
 
         XCTAssertEqual(
-            WorkspaceRemoteSessionController.orphanedCMUXRemoteSSHPIDs(
+            RemoteSessionCoordinator.orphanedCMUXRemoteSSHPIDs(
                 psOutput: psOutput,
                 destination: "cmux-macmini"
             ),
@@ -2820,7 +2813,7 @@ final class WorkspaceRemoteSSHCleanupTests: XCTestCase {
         """
 
         XCTAssertEqual(
-            WorkspaceRemoteSessionController.orphanedCMUXRemoteSSHPIDs(
+            RemoteSessionCoordinator.orphanedCMUXRemoteSSHPIDs(
                 psOutput: psOutput,
                 destination: "cmux-macmini",
                 relayPort: 56081,
@@ -2830,7 +2823,7 @@ final class WorkspaceRemoteSSHCleanupTests: XCTestCase {
         )
 
         XCTAssertEqual(
-            WorkspaceRemoteSessionController.orphanedCMUXRemoteSSHPIDs(
+            RemoteSessionCoordinator.orphanedCMUXRemoteSSHPIDs(
                 psOutput: psOutput,
                 destination: "cmux-macmini",
                 relayPort: 56081
@@ -2846,7 +2839,7 @@ final class WorkspaceRemoteSSHCleanupTests: XCTestCase {
         """
 
         XCTAssertEqual(
-            WorkspaceRemoteSessionController.orphanedCMUXRemoteSSHPIDs(
+            RemoteSessionCoordinator.orphanedCMUXRemoteSSHPIDs(
                 psOutput: psOutput,
                 destination: "cmux-macmini",
                 relayPort: 56081,
@@ -2863,7 +2856,7 @@ final class WorkspaceRemoteSSHCleanupTests: XCTestCase {
         """
 
         XCTAssertEqual(
-            WorkspaceRemoteSessionController.orphanedCMUXRemoteSSHPIDs(
+            RemoteSessionCoordinator.orphanedCMUXRemoteSSHPIDs(
                 psOutput: psOutput,
                 destination: "cmux-macmini",
                 relayPort: 56081,
@@ -2883,7 +2876,7 @@ final class WorkspaceRemoteSSHCleanupTests: XCTestCase {
         """
 
         XCTAssertEqual(
-            WorkspaceRemoteSessionController.orphanedCMUXRemoteSSHPIDs(
+            RemoteSessionCoordinator.orphanedCMUXRemoteSSHPIDs(
                 psOutput: psOutput,
                 destination: "cmux-macmini",
                 persistentDaemonSlot: "ssh-test"
@@ -2940,7 +2933,7 @@ final class TitlebarDoubleClickPreferenceTests: XCTestCase {
 
 final class WorkspaceRemoteDaemonPendingCallRegistryTests: XCTestCase {
     func testSupportsMultiplePendingCallsResolvedOutOfOrder() {
-        let registry = WorkspaceRemoteDaemonPendingCallRegistry()
+        let registry = RemoteDaemonPendingCallRegistry()
         let first = registry.register()
         let second = registry.register()
 
@@ -2972,7 +2965,7 @@ final class WorkspaceRemoteDaemonPendingCallRegistryTests: XCTestCase {
     }
 
     func testFailAllSignalsEveryPendingCall() {
-        let registry = WorkspaceRemoteDaemonPendingCallRegistry()
+        let registry = RemoteDaemonPendingCallRegistry()
         let first = registry.register()
         let second = registry.register()
 
@@ -3149,7 +3142,7 @@ final class NotificationBurstCoalescerTests: XCTestCase {
 
 final class RecentlyClosedBrowserStackTests: XCTestCase {
     func testPopReturnsEntriesInLIFOOrder() {
-        var stack = RecentlyClosedBrowserStack(capacity: 20)
+        var stack = RecentlyClosedBrowserStack<ClosedBrowserPanelRestoreSnapshot>(capacity: 20)
         stack.push(makeSnapshot(index: 1))
         stack.push(makeSnapshot(index: 2))
         stack.push(makeSnapshot(index: 3))
@@ -3161,7 +3154,7 @@ final class RecentlyClosedBrowserStackTests: XCTestCase {
     }
 
     func testPushDropsOldestEntriesWhenCapacityExceeded() {
-        var stack = RecentlyClosedBrowserStack(capacity: 3)
+        var stack = RecentlyClosedBrowserStack<ClosedBrowserPanelRestoreSnapshot>(capacity: 3)
         for index in 1...5 {
             stack.push(makeSnapshot(index: index))
         }
@@ -3175,7 +3168,7 @@ final class RecentlyClosedBrowserStackTests: XCTestCase {
     func testRemoveSnapshotsDropsOnlyEntriesForGivenWorkspaceId() {
         let workspaceA = UUID()
         let workspaceB = UUID()
-        var stack = RecentlyClosedBrowserStack(capacity: 20)
+        var stack = RecentlyClosedBrowserStack<ClosedBrowserPanelRestoreSnapshot>(capacity: 20)
         stack.push(makeSnapshot(index: 1, workspaceId: workspaceA))
         stack.push(makeSnapshot(index: 2, workspaceId: workspaceB))
         stack.push(makeSnapshot(index: 3, workspaceId: workspaceA))
@@ -4521,11 +4514,84 @@ final class GhosttyMouseFocusTests: XCTestCase {
         }
     }
 
-    func testConditionalThemeOverrideSkipsSameThemePair() throws {
+    // Regression: https://github.com/manaflow-ai/cmux/issues/3459
+    // `cmux themes set` always encodes the selection with conditional
+    // `light:...,dark:...` syntax, even when both sides are identical. Ghostty
+    // mis-applies that conditional syntax (background lands but foreground/palette
+    // stay at the white defaults), so cmux must inject the resolved plain theme
+    // even when the light and dark sides resolve to the same theme.
+    func testConditionalThemeOverrideResolvesSameThemePair() throws {
         try withTempConfig("theme = light:Catppuccin Mocha,dark:Catppuccin Mocha\n") { path in
+            XCTAssertEqual(
+                GhosttyApp.conditionalThemeOverrideConfigContents(
+                    preferredColorScheme: .dark,
+                    configPaths: [path]
+                ),
+                "theme = Catppuccin Mocha"
+            )
+        }
+    }
+
+    // Regression: https://github.com/manaflow-ai/cmux/issues/3459
+    // Exact repro from the issue body: selecting a single light theme for both
+    // sides must force ghostty to apply the light theme's dark-on-light
+    // foreground instead of leaving the default white foreground.
+    func testConditionalThemeOverrideResolvesIdenticalLightThemePairFromCLIEncoding() throws {
+        try withTempConfig("theme = light:GitHub Light Default,dark:GitHub Light Default\n") { path in
+            XCTAssertEqual(
+                GhosttyApp.conditionalThemeOverrideConfigContents(
+                    preferredColorScheme: .light,
+                    configPaths: [path]
+                ),
+                "theme = GitHub Light Default"
+            )
+            XCTAssertEqual(
+                GhosttyApp.conditionalThemeOverrideConfigContents(
+                    preferredColorScheme: .dark,
+                    configPaths: [path]
+                ),
+                "theme = GitHub Light Default"
+            )
+        }
+    }
+
+    // Regression: https://github.com/manaflow-ai/cmux/issues/3459
+    // `cmux themes set --light X` encodes `theme = light:X`, which ghostty treats
+    // as conditional config. cmux injects the resolved plain theme for the
+    // explicitly named light side, but must NOT force it onto dark appearances
+    // (the dark side is unset and should keep the inherited/default dark theme).
+    func testConditionalThemeOverrideResolvesExplicitSideOnlyForOneSidedTheme() throws {
+        try withTempConfig("theme = light:Catppuccin Latte\n") { path in
+            XCTAssertEqual(
+                GhosttyApp.conditionalThemeOverrideConfigContents(
+                    preferredColorScheme: .light,
+                    configPaths: [path]
+                ),
+                "theme = Catppuccin Latte"
+            )
             XCTAssertNil(
                 GhosttyApp.conditionalThemeOverrideConfigContents(
                     preferredColorScheme: .dark,
+                    configPaths: [path]
+                )
+            )
+        }
+    }
+
+    // Regression: https://github.com/manaflow-ai/cmux/issues/3459
+    // Mirror of the one-sided case for `theme = dark:Y` (only the dark side set).
+    func testConditionalThemeOverrideResolvesExplicitSideOnlyForDarkOnlyTheme() throws {
+        try withTempConfig("theme = dark:Catppuccin Mocha\n") { path in
+            XCTAssertEqual(
+                GhosttyApp.conditionalThemeOverrideConfigContents(
+                    preferredColorScheme: .dark,
+                    configPaths: [path]
+                ),
+                "theme = Catppuccin Mocha"
+            )
+            XCTAssertNil(
+                GhosttyApp.conditionalThemeOverrideConfigContents(
+                    preferredColorScheme: .light,
                     configPaths: [path]
                 )
             )

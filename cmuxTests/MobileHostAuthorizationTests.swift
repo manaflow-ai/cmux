@@ -1109,6 +1109,39 @@ final class MobileHostAuthorizationTests: XCTestCase {
         XCTAssertEqual(recordedMethods, ["workspace.list"])
     }
 
+    // MARK: - Advertised mobile host capabilities
+
+    func testMobileHostAdvertisesWorkspaceActionCapabilities() {
+        let capabilities = MobileHostService.mobileHostCapabilities
+        XCTAssertTrue(capabilities.contains("workspace.actions.v1"))
+        XCTAssertTrue(capabilities.contains("workspace.read_state.v1"))
+        XCTAssertTrue(capabilities.contains("workspace.close.v1"))
+        XCTAssertTrue(capabilities.contains("terminal.render_grid.v1"))
+    }
+
+    // MARK: - Mobile workspace.action sub-action gate
+
+    func testMobileWorkspaceActionGateAllowsOnlyPinNameAndReadStateActions() {
+        for action in ["pin", "unpin", "rename", "mark_read", "mark_unread", "PIN", "UnPin", "RENAME", "MARK_READ", "Mark_Unread"] {
+            XCTAssertTrue(
+                TerminalController.mobileAllowsWorkspaceAction(action),
+                "mobile workspace.action '\(action)' should be allowed"
+            )
+        }
+        for action in [
+            "move_up", "move-down", "move_top",
+            "close_others", "close_above", "close_below",
+            "set_color", "clear_color", "set_description", "clear_description",
+            "clear_name", "close", "self_destruct", "",
+        ] {
+            XCTAssertFalse(
+                TerminalController.mobileAllowsWorkspaceAction(action),
+                "mobile workspace.action '\(action)' must be rejected"
+            )
+        }
+        XCTAssertFalse(TerminalController.mobileAllowsWorkspaceAction(nil))
+    }
+
     private func scopedAttachTicket(workspaceID: String, terminalID: String?) throws -> CmxAttachTicket {
         let route = try CmxAttachRoute(
             id: "debug",

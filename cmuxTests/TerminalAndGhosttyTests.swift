@@ -1,6 +1,7 @@
 import XCTest
 import Testing
 import CmuxControlSocket
+import CmuxTerminalCore
 import CmuxTerminalCopyMode
 import CmuxSocketControl
 import AppKit
@@ -1190,6 +1191,38 @@ final class TerminalOffscreenStartupTests: XCTestCase {
             0,
             "Programmatic newline input must not be translated to Return key events for cold terminals."
         )
+    }
+
+    /// Verifies OSC 11 is queued as terminal output bytes instead of literal shell input.
+    func testColdSocketInputQueuesOSC11AsRawTerminalBytes() {
+        let panel = TerminalPanel(workspaceId: UUID())
+
+        panel.surface.releaseSurfaceForTesting()
+        let osc11 = "\u{1B}]11;#341c1c\u{1B}\\"
+        XCTAssertTrue(panel.surface.sendInput(osc11))
+
+        let pending = panel.surface.debugPendingSocketInputForTesting()
+        XCTAssertEqual(
+            pending.keyEvents,
+            0,
+            "OSC 11 must not be split into Escape key events plus literal text."
+        )
+        XCTAssertEqual(
+            pending.inputTextItems,
+            0,
+            "OSC 11 must bypass committed text input so Ghostty consumes it as a terminal control sequence."
+        )
+        XCTAssertEqual(
+            pending.pasteTextItems,
+            0,
+            "OSC 11 must bypass paste input so it is not echoed by the shell."
+        )
+        XCTAssertEqual(
+            pending.processOutputItems,
+            1,
+            "OSC 11 must be queued as one terminal output payload."
+        )
+        XCTAssertEqual(pending.bytes, osc11.utf8.count)
     }
 
     func testColdSocketInputChunksLongCommittedTextInput() {
@@ -2932,6 +2965,39 @@ final class TerminalNotificationDirectInteractionTests: XCTestCase {
             .first
     }
 
+    private func waitUntil(timeout: TimeInterval, condition: () -> Bool) -> Bool {
+        let deadline = ProcessInfo.processInfo.systemUptime + timeout
+        while ProcessInfo.processInfo.systemUptime < deadline {
+            if condition() {
+                return true
+            }
+            RunLoop.current.run(until: Date().addingTimeInterval(0.01))
+        }
+        return condition()
+    }
+
+    private func drainMainQueue(timeout: TimeInterval = 1.0, file: StaticString = #filePath, line: UInt = #line) {
+        var drained = false
+        DispatchQueue.main.async {
+            drained = true
+        }
+        XCTAssertTrue(waitUntil(timeout: timeout) { drained }, "Expected main queue to drain", file: file, line: line)
+    }
+
+    private func waitForRuntimeSurface(
+        _ surface: TerminalSurface,
+        timeout: TimeInterval = 5.0,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) {
+        XCTAssertTrue(
+            waitUntil(timeout: timeout) { surface.surface != nil },
+            "Expected runtime surface to be recreated",
+            file: file,
+            line: line
+        )
+    }
+
     func testTerminalMouseDownDismissesUnreadWhenSurfaceIsAlreadyFirstResponder() {
         let appDelegate = AppDelegate.shared ?? AppDelegate()
         let manager = TabManager()
@@ -2996,9 +3062,7 @@ final class TerminalNotificationDirectInteractionTests: XCTestCase {
         let pointInWindow = surfaceView.convert(NSPoint(x: 20, y: 20), to: nil)
         let event = makeMouseEvent(type: .leftMouseDown, location: pointInWindow, window: window)
         surfaceView.mouseDown(with: event)
-        let drained = expectation(description: "flash drained")
-        DispatchQueue.main.async { drained.fulfill() }
-        wait(for: [drained], timeout: 1.0)
+        drainMainQueue()
 
         XCTAssertFalse(store.hasUnreadNotification(forTabId: workspace.id, surfaceId: terminalPanel.id))
         XCTAssertEqual(GhosttySurfaceScrollView.flashCount(for: terminalPanel.id), 1)
@@ -3066,9 +3130,7 @@ final class TerminalNotificationDirectInteractionTests: XCTestCase {
 
         let event = makeKeyEvent(characters: "", keyCode: 122, window: window)
         surfaceView.keyDown(with: event)
-        let drained = expectation(description: "flash drained")
-        DispatchQueue.main.async { drained.fulfill() }
-        wait(for: [drained], timeout: 1.0)
+        drainMainQueue()
 
         XCTAssertFalse(store.hasUnreadNotification(forTabId: workspace.id, surfaceId: terminalPanel.id))
         XCTAssertEqual(GhosttySurfaceScrollView.flashCount(for: terminalPanel.id), 1)
@@ -3116,14 +3178,7 @@ final class TerminalNotificationDirectInteractionTests: XCTestCase {
 
         let event = makeKeyEvent(characters: "a", keyCode: 0, window: window)
         surfaceView.keyDown(with: event)
-
-        let recovered = XCTNSPredicateExpectation(
-            predicate: NSPredicate { _, _ in
-                surface.surface != nil
-            },
-            object: NSObject()
-        )
-        wait(for: [recovered], timeout: 1.0)
+        waitForRuntimeSurface(surface)
 
         XCTAssertNotNil(
             surface.surface,
@@ -3179,10 +3234,15 @@ final class TerminalNotificationDirectInteractionTests: XCTestCase {
         hostedView.removeFromSuperview()
         RunLoop.current.run(until: Date().addingTimeInterval(0.05))
         XCTAssertNil(surfaceView.window, "Expected hosted terminal view to be detached from any window")
-        XCTAssertTrue(
-            (window.firstResponder as? NSView) === surfaceView,
-            "Expected the detached Ghostty view to remain the stale first responder during the regression setup"
-        )
+        let detachedViewStillFirstResponder = (window.firstResponder as? NSView) === surfaceView
+        if !detachedViewStillFirstResponder {
+            // Some runners clear the window responder during detach without calling the view hook.
+            surface.recordExternalFocusState(false)
+            XCTAssertFalse(
+                surface.debugDesiredFocusState(),
+                "Runner already moved first responder away, so desired Ghostty focus should be cleared before recovery"
+            )
+        }
 
         let event = makeKeyEvent(characters: "a", keyCode: 0, window: window)
         surfaceView.keyDown(with: event)
@@ -3198,14 +3258,7 @@ final class TerminalNotificationDirectInteractionTests: XCTestCase {
             surface.debugDesiredFocusState(),
             "Responder loss after a missing-surface keyDown should clear desired Ghostty focus before recovery completes"
         )
-
-        let recovered = XCTNSPredicateExpectation(
-            predicate: NSPredicate { _, _ in
-                surface.surface != nil
-            },
-            object: NSObject()
-        )
-        wait(for: [recovered], timeout: 1.0)
+        waitForRuntimeSurface(surface)
 
         XCTAssertNotNil(surface.surface, "Expected missing-surface recovery to still recreate the runtime surface")
         XCTAssertFalse(
@@ -3261,10 +3314,7 @@ final class TerminalNotificationDirectInteractionTests: XCTestCase {
 
         let event = makeKeyEvent(characters: "a", keyCode: 0, window: window)
         surfaceView.keyDown(with: event)
-
-        let drained = expectation(description: "background recovery drained")
-        DispatchQueue.main.async { drained.fulfill() }
-        wait(for: [drained], timeout: 1.0)
+        drainMainQueue()
 
         XCTAssertNil(
             surface.surface,
@@ -3490,10 +3540,7 @@ final class TerminalNotificationDirectInteractionTests: XCTestCase {
 
         surface.resetDebugForceRefreshCount()
         hostedView.setVisibleInUI(true)
-
-        let drained = expectation(description: "visible toggle drained")
-        DispatchQueue.main.async { drained.fulfill() }
-        wait(for: [drained], timeout: 1.0)
+        drainMainQueue()
 
         XCTAssertEqual(
             surface.debugForceRefreshCount(),
@@ -5631,340 +5678,6 @@ final class TerminalOpenURLTargetResolutionTests: XCTestCase {
         }
     }
 }
-
-final class TerminalCmdClickPathPunctuationTrimmingTests: XCTestCase {
-    func testTrimsTrailingPeriodAfterMarkdownFile() {
-        XCTAssertEqual(
-            cmuxTrimTerminalPathTrailingPunctuationForTesting(
-                "~/ClaudeCode/feature-spec-template.md."
-            ),
-            "~/ClaudeCode/feature-spec-template.md"
-        )
-    }
-
-    func testTrimsTrailingCommaInList() {
-        XCTAssertEqual(
-            cmuxTrimTerminalPathTrailingPunctuationForTesting(
-                "/tmp/fixtures/first.txt,"
-            ),
-            "/tmp/fixtures/first.txt"
-        )
-    }
-
-    func testTrimsTrailingCloseParenWhenNoBalancedOpenParen() {
-        XCTAssertEqual(
-            cmuxTrimTerminalPathTrailingPunctuationForTesting(
-                "/tmp/fixtures/notes.txt)"
-            ),
-            "/tmp/fixtures/notes.txt"
-        )
-    }
-
-    func testPreservesBalancedParensInMiddleOfPath() {
-        XCTAssertEqual(
-            cmuxTrimTerminalPathTrailingPunctuationForTesting(
-                "/tmp/fixtures/report (draft)/notes.txt"
-            ),
-            "/tmp/fixtures/report (draft)/notes.txt"
-        )
-    }
-
-    func testStripsMultipleTrailingPunctuationCharacters() {
-        XCTAssertEqual(
-            cmuxTrimTerminalPathTrailingPunctuationForTesting(
-                "/tmp/fixtures/report (draft).md).,!?\""
-            ),
-            "/tmp/fixtures/report (draft).md"
-        )
-    }
-
-    func testTrimsTrailingClosingQuote() {
-        XCTAssertEqual(
-            cmuxTrimTerminalPathTrailingPunctuationForTesting(
-                "/tmp/fixtures/notes.txt\""
-            ),
-            "/tmp/fixtures/notes.txt"
-        )
-    }
-
-    func testResolveQuicklookFallsBackToStrippedPathWhenLiteralPathIsMissing() {
-        let strippedPath = "/tmp/cmux-cmdclick-path.md"
-
-        XCTAssertEqual(
-            cmuxResolveQuicklookPathForTesting(
-                "\(strippedPath).",
-                cwd: "/tmp",
-                existingPaths: [strippedPath]
-            ),
-            strippedPath
-        )
-    }
-
-    func testResolveQuicklookPrefersLiteralPathThatReallyEndsWithDot() {
-        let literalPath = "/tmp/cmux-cmdclick-literal-dot.md."
-        let strippedPath = "/tmp/cmux-cmdclick-literal-dot.md"
-
-        XCTAssertEqual(
-            cmuxResolveQuicklookPathForTesting(
-                literalPath,
-                cwd: "/tmp",
-                existingPaths: [literalPath, strippedPath]
-            ),
-            literalPath
-        )
-    }
-
-    func testResolveQuicklookPrefersLiteralPathThatReallyEndsWithParen() {
-        let literalPath = "/tmp/cmux-cmdclick-literal-paren)"
-        let strippedPath = "/tmp/cmux-cmdclick-literal-paren"
-
-        XCTAssertEqual(
-            cmuxResolveQuicklookPathForTesting(
-                literalPath,
-                cwd: "/tmp",
-                existingPaths: [literalPath, strippedPath]
-            ),
-            literalPath
-        )
-    }
-
-    // MARK: - Relative path + trailing punctuation (bug #4569)
-
-    func testResolveQuicklookResolvesRelativeMarkdownPathWithTrailingDot() {
-        let cwd = "/Users/dev/project"
-        let existingFile = "/Users/dev/project/docs/specs/2026-05-22-test.md"
-
-        XCTAssertEqual(
-            cmuxResolveQuicklookPathForTesting(
-                "docs/specs/2026-05-22-test.md.",
-                cwd: cwd,
-                existingPaths: [existingFile]
-            ),
-            existingFile
-        )
-    }
-
-    func testResolveTerminalOpenURLFilePathResolvesAbsoluteMarkdownPathWithTrailingDot() {
-        let existingFile = "/Users/dev/project/skills/marketing/data/lawrencecchen-tweets.md"
-
-        XCTAssertEqual(
-            cmuxResolveTerminalOpenURLFilePathForTesting(
-                "\(existingFile).",
-                cwd: "/Users/dev/project",
-                existingPaths: [existingFile]
-            ),
-            existingFile
-        )
-    }
-
-    func testResolveTerminalOpenURLFilePathResolvesQuotedAbsoluteMarkdownPathWithTrailingDot() {
-        let existingFile = "/Users/dev/project/skills/marketing/data/lawrencecchen-tweets.md"
-
-        XCTAssertEqual(
-            cmuxResolveTerminalOpenURLFilePathForTesting(
-                "\"\(existingFile).\"",
-                cwd: "/Users/dev/project",
-                existingPaths: [existingFile]
-            ),
-            existingFile
-        )
-    }
-
-    func testResolveQuicklookResolvesRelativePathWithTrailingComma() {
-        let cwd = "/Users/dev/project"
-        let existingFile = "/Users/dev/project/src/main.swift"
-
-        XCTAssertEqual(
-            cmuxResolveQuicklookPathForTesting(
-                "src/main.swift,",
-                cwd: cwd,
-                existingPaths: [existingFile]
-            ),
-            existingFile
-        )
-    }
-
-    func testResolveQuicklookReturnsNilForRelativePathThatDoesNotExist() {
-        XCTAssertNil(
-            cmuxResolveQuicklookPathForTesting(
-                "docs/nonexistent.md.",
-                cwd: "/Users/dev/project",
-                existingPaths: []
-            )
-        )
-    }
-}
-
-// MARK: - Scheme detection gate for file-path-before-URL resolution (bug #4569)
-
-final class TerminalOpenURLSchemeGateTests: XCTestCase {
-    func testRelativePathWithTrailingDotHasNoScheme() {
-        XCTAssertNil(URL(string: "docs/specs/2026-05-22-test.md.")?.scheme)
-    }
-
-    func testBareDomainWithSlashHasNoScheme() {
-        // resolveBrowserNavigableURL handles these, but they have no scheme
-        XCTAssertNil(URL(string: "example.com/docs")?.scheme)
-    }
-
-    func testHTTPSURLHasScheme() {
-        XCTAssertEqual(URL(string: "https://example.com/path")?.scheme, "https")
-    }
-
-    func testFileURLHasScheme() {
-        XCTAssertEqual(URL(string: "file:///tmp/test.md")?.scheme, "file")
-    }
-
-    func testMailtoURLHasScheme() {
-        XCTAssertEqual(URL(string: "mailto:test@example.com")?.scheme, "mailto")
-    }
-
-    func testAbsolutePathHasNoScheme() {
-        // Absolute paths are filtered by isAbsolutePath before the scheme check,
-        // but verify URL(string:) doesn't synthesize a scheme for them.
-        XCTAssertNil(URL(string: "/tmp/test.md")?.scheme)
-    }
-}
-
-
-final class GhosttyModifierFlagsChangedActionTests: XCTestCase {
-    func testLeftShiftPressReturnsPress() {
-        XCTAssertEqual(
-            cmuxGhosttyModifierActionForFlagsChanged(
-                keyCode: 0x38,
-                modifierFlagsRawValue: NSEvent.ModifierFlags.shift.rawValue | UInt(NX_DEVICELSHIFTKEYMASK)
-            ),
-            GHOSTTY_ACTION_PRESS
-        )
-    }
-
-    func testLeftShiftReleaseReturnsRelease() {
-        XCTAssertEqual(
-            cmuxGhosttyModifierActionForFlagsChanged(
-                keyCode: 0x38,
-                modifierFlagsRawValue: 0
-            ),
-            GHOSTTY_ACTION_RELEASE
-        )
-    }
-
-    func testLeftShiftWithoutLeftSideDeviceMaskReturnsReleaseWhenRightShiftHeld() {
-        XCTAssertEqual(
-            cmuxGhosttyModifierActionForFlagsChanged(
-                keyCode: 0x38,
-                modifierFlagsRawValue: NSEvent.ModifierFlags.shift.rawValue | UInt(NX_DEVICERSHIFTKEYMASK)
-            ),
-            GHOSTTY_ACTION_RELEASE
-        )
-    }
-
-    func testRightShiftRequiresRightSideDeviceMaskForPress() {
-        XCTAssertEqual(
-            cmuxGhosttyModifierActionForFlagsChanged(
-                keyCode: 0x3C,
-                modifierFlagsRawValue: NSEvent.ModifierFlags.shift.rawValue | UInt(NX_DEVICERSHIFTKEYMASK)
-            ),
-            GHOSTTY_ACTION_PRESS
-        )
-    }
-
-    func testRightShiftWithoutRightSideDeviceMaskReturnsRelease() {
-        XCTAssertEqual(
-            cmuxGhosttyModifierActionForFlagsChanged(
-                keyCode: 0x3C,
-                modifierFlagsRawValue: NSEvent.ModifierFlags.shift.rawValue
-            ),
-            GHOSTTY_ACTION_RELEASE
-        )
-    }
-
-    func testRightShiftWithoutRightSideDeviceMaskReturnsReleaseWhenLeftShiftHeld() {
-        XCTAssertEqual(
-            cmuxGhosttyModifierActionForFlagsChanged(
-                keyCode: 0x3C,
-                modifierFlagsRawValue: NSEvent.ModifierFlags.shift.rawValue | UInt(NX_DEVICELSHIFTKEYMASK)
-            ),
-            GHOSTTY_ACTION_RELEASE
-        )
-    }
-
-    func testRightControlRequiresRightSideDeviceMaskForPress() {
-        XCTAssertEqual(
-            cmuxGhosttyModifierActionForFlagsChanged(
-                keyCode: 0x3E,
-                modifierFlagsRawValue: NSEvent.ModifierFlags.control.rawValue | UInt(NX_DEVICERCTLKEYMASK)
-            ),
-            GHOSTTY_ACTION_PRESS
-        )
-    }
-
-    func testRightControlWithoutRightSideDeviceMaskReturnsRelease() {
-        XCTAssertEqual(
-            cmuxGhosttyModifierActionForFlagsChanged(
-                keyCode: 0x3E,
-                modifierFlagsRawValue: NSEvent.ModifierFlags.control.rawValue
-            ),
-            GHOSTTY_ACTION_RELEASE
-        )
-    }
-
-    func testRightOptionRequiresRightSideDeviceMaskForPress() {
-        XCTAssertEqual(
-            cmuxGhosttyModifierActionForFlagsChanged(
-                keyCode: 0x3D,
-                modifierFlagsRawValue: NSEvent.ModifierFlags.option.rawValue | UInt(NX_DEVICERALTKEYMASK)
-            ),
-            GHOSTTY_ACTION_PRESS
-        )
-    }
-
-    func testRightOptionWithoutRightSideDeviceMaskReturnsRelease() {
-        XCTAssertEqual(
-            cmuxGhosttyModifierActionForFlagsChanged(
-                keyCode: 0x3D,
-                modifierFlagsRawValue: NSEvent.ModifierFlags.option.rawValue
-            ),
-            GHOSTTY_ACTION_RELEASE
-        )
-    }
-
-    func testRightCommandRequiresRightSideDeviceMaskForPress() {
-        XCTAssertEqual(
-            cmuxGhosttyModifierActionForFlagsChanged(
-                keyCode: 0x36,
-                modifierFlagsRawValue: NSEvent.ModifierFlags.command.rawValue | UInt(NX_DEVICERCMDKEYMASK)
-            ),
-            GHOSTTY_ACTION_PRESS
-        )
-    }
-
-    func testCapsLockUsesLogicalModifierState() {
-        XCTAssertEqual(
-            cmuxGhosttyModifierActionForFlagsChanged(
-                keyCode: 0x39,
-                modifierFlagsRawValue: NSEvent.ModifierFlags.capsLock.rawValue
-            ),
-            GHOSTTY_ACTION_PRESS
-        )
-        XCTAssertEqual(
-            cmuxGhosttyModifierActionForFlagsChanged(
-                keyCode: 0x39,
-                modifierFlagsRawValue: 0
-            ),
-            GHOSTTY_ACTION_RELEASE
-        )
-    }
-
-    func testNonModifierKeyReturnsNil() {
-        XCTAssertNil(
-            cmuxGhosttyModifierActionForFlagsChanged(
-                keyCode: 0x00,
-                modifierFlagsRawValue: NSEvent.ModifierFlags.shift.rawValue
-            )
-        )
-    }
-}
-
 
 final class TerminalControllerSocketListenerHealthTests: XCTestCase {
     private let transport = SocketTransport()

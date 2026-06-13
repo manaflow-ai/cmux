@@ -20,6 +20,7 @@ public final class ASWebBrowserAuthSessionFactory: HostBrowserAuthSessionFactory
         callbackScheme: String,
         completion: @escaping @MainActor (URL?) -> Void
     ) -> any HostBrowserAuthSession {
+        log.log("auth.webauth.makeSession signInURL=\(signInURL.absoluteString) callbackScheme=\(callbackScheme)")
         let session = ASWebAuthenticationSession(
             url: signInURL,
             callbackURLScheme: callbackScheme,
@@ -46,7 +47,11 @@ public final class ASWebBrowserAuthSessionFactory: HostBrowserAuthSessionFactory
         return { callbackURL, error in
             Task { @MainActor in
                 if let error {
+                    let nsError = error as NSError
+                    log.log("auth.webauth.completion errorDomain=\(nsError.domain) errorCode=\(nsError.code) callback=\(callbackURL == nil ? "nil" : "present")")
                     log.log("auth.webauth failed: \(error)")
+                } else {
+                    log.log("auth.webauth.completion error=nil callback=\(callbackURL == nil ? "nil" : "present")")
                 }
                 completion(callbackURL)
             }

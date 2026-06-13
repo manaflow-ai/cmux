@@ -28,6 +28,8 @@ public struct SettingCatalog: SettingCatalogSection {
     public let sidebar = SidebarCatalogSection()
     public let sidebarAppearance = SidebarAppearanceCatalogSection()
     public let workspaceColors = WorkspaceColorsCatalogSection()
+    /// Settings for sidebar workspace groups (the `workspaceGroups.*` keys).
+    public let workspaceGroups = WorkspaceGroupsCatalogSection()
     public let automation = AutomationCatalogSection()
     public let browser = BrowserCatalogSection()
     /// Settings for the built-in markdown viewer (the `markdown.*` keys).
@@ -37,6 +39,8 @@ public struct SettingCatalog: SettingCatalogSection {
     /// Settings for Mobile pairing and sync.
     public let mobile = MobileCatalogSection()
     public let betaFeatures = BetaFeaturesCatalogSection()
+    /// Settings for custom (user/agent-authored) sidebars (the `customSidebars.*` keys).
+    public let customSidebars = CustomSidebarsCatalogSection()
     public let shortcuts = KeyboardShortcutsCatalogSection()
     public let integrations = IntegrationsCatalogSection()
     public let account = AccountCatalogSection()

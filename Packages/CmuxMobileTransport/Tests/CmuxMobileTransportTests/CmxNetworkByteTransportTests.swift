@@ -76,6 +76,41 @@ import Testing
     #expect(try await transport.receive() == nil)
 }
 
+@Test func networkTransportFailsConnectFastWhenNothingListens() async throws {
+    // Find a loopback port with no listener by briefly binding one and
+    // releasing it. Dialing it gets an immediate TCP RST, which
+    // Network.framework surfaces as `.waiting(ECONNREFUSED)` (it retries by
+    // design, `.failed` is reserved for unrecoverable errors). The transport
+    // must treat that definitive answer as a connect failure NOW: parking in
+    // `.waiting` until the connect timeout is what added a whole request
+    // timeout to scan-to-pair latency whenever a dead route sorted first.
+    let server = try NetworkEchoServer(response: Data())
+    let port = try await server.start()
+    server.stop()
+    // Yield until the port is actually released by the cancelled listener.
+    try await Task.sleep(nanoseconds: 100_000_000)
+
+    let transport = try CmxNetworkByteTransport(
+        host: "127.0.0.1",
+        port: Int(port),
+        connectTimeoutNanoseconds: 5_000_000_000
+    )
+    do {
+        try await transport.connect()
+        Issue.record("connect() to a closed port should fail")
+    } catch let error as CmxNetworkByteTransportError {
+        // The definitive refusal must surface as the classified connect
+        // failure, not as `.connectionTimedOut` after the full deadline.
+        guard case let .connectionFailed(_, kind) = error else {
+            Issue.record("expected connectionFailed, got \(error)")
+            await transport.close()
+            return
+        }
+        #expect(kind == .connectionRefused)
+    }
+    await transport.close()
+}
+
 private final class NetworkEchoServer: @unchecked Sendable {
     // Wraps NWListener; every mutation happens on `queue`.
     private let listener: NWListener
