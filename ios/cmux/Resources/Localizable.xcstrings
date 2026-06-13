@@ -4421,6 +4421,23 @@
         }
       }
     },
+    "mobile.pairing.compatibilityUnknown": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "unknown compatibility"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "不明な互換性"
+          }
+        }
+      }
+    },
     "mobile.pairing.dnsFailedFormat": {
       "extractionState": "manual",
       "localizations": {

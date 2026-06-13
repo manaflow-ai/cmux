@@ -188,7 +188,7 @@ public struct CmxPairingQRCode: Sendable {
             macDisplayName: nil,
             macUserEmail: queryValue(named: "e", in: components),
             macUserID: queryValue(named: "ub", in: components),
-            macPairingCompatibilityVersion: queryInt(named: "pc", in: components),
+            macPairingCompatibilityVersion: queryInt(named: "pc", in: components) ?? 0,
             macAppVersion: queryValue(named: "av", in: components),
             macAppBuild: queryValue(named: "ab", in: components),
             routes: routes,

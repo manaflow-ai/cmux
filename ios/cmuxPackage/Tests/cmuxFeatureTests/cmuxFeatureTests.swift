@@ -1491,7 +1491,7 @@ final class TerminalOutputCollector {
     )
 
     store.signIn()
-    await store.connectPairingURL("cmux-ios://attach?v=2&r=100.71.210.41:\(CmxMobileDefaults.defaultHostPort)")
+    await store.connectPairingURL("cmux-ios://attach?v=2&pc=1&r=100.71.210.41:\(CmxMobileDefaults.defaultHostPort)")
 
     #expect(store.connectionState == .connected)
     // Until the status reply lands, the dialed Tailscale host stands in for
@@ -1541,7 +1541,7 @@ final class TerminalOutputCollector {
 
     store.signIn()
     let result = await store.connectPairingURLResult(
-        "cmux-ios://attach?v=2&ub=mac-user&r=100.71.210.41:\(CmxMobileDefaults.defaultHostPort)"
+        "cmux-ios://attach?v=2&ub=mac-user&pc=1&r=100.71.210.41:\(CmxMobileDefaults.defaultHostPort)"
     )
 
     #expect(result == .failed)
@@ -1572,7 +1572,7 @@ final class TerminalOutputCollector {
 
     store.signIn()
     let result = await store.connectPairingURLResult(
-        "cmux-ios://attach?v=2&ub=mac-user&r=100.71.210.41:\(CmxMobileDefaults.defaultHostPort)"
+        "cmux-ios://attach?v=2&ub=mac-user&pc=1&r=100.71.210.41:\(CmxMobileDefaults.defaultHostPort)"
     )
 
     #expect(result == .connected)
@@ -1637,6 +1637,46 @@ final class TerminalOutputCollector {
     #expect(analytics.eventCount(named: "ios_pairing_started") == 1)
     #expect(analytics.eventCount(named: "ios_pairing_succeeded") == 1)
     #expect(try await responses.sentRequests().contains { $0.method == "workspace.list" })
+}
+
+@MainActor
+@Test func minimalPairingCodeMissingCompatibilityWarnsBeforeDialing() async throws {
+    let responses = ScriptedTransportResponses([
+        try rpcWorkspaceListFrame(workspaceID: "qr-workspace", title: "QR Workspace"),
+    ])
+    let runtime = testRuntime(
+        supportedRouteKinds: [.tailscale],
+        transportFactory: ScriptedTransportFactory(responses: responses),
+        supportsServerPushEvents: false
+    )
+    let store = CMUXMobileShellStore(
+        runtime: runtime,
+        workspaces: PreviewMobileHost.workspaces,
+        identityProvider: TestIdentityProvider(
+            currentUserIDValue: "phone-user",
+            currentUserEmailValue: "user@example.com"
+        ),
+        feedbackStampProvider: {
+            MobileFeedbackStamp(
+                buildType: .dev,
+                appVersion: "1.0.0",
+                appBuild: "10",
+                bundleIdentifier: "dev.cmux.ios.test",
+                osVersion: "iOS test",
+                deviceModel: "test"
+            )
+        }
+    )
+
+    store.signIn()
+    let result = await store.connectPairingURLResult(
+        "cmux-ios://attach?v=2&ub=phone-user&r=100.71.210.41:\(CmxMobileDefaults.defaultHostPort)"
+    )
+
+    #expect(result == .needsUserApproval)
+    #expect(store.connectionState == .disconnected)
+    #expect(store.pairingVersionWarning?.contains("unknown compatibility") == true)
+    #expect(try await responses.sentRequests().isEmpty)
 }
 
 @MainActor
@@ -1716,7 +1756,7 @@ final class TerminalOutputCollector {
     )
 
     store.signIn()
-    await store.connectPairingURL("cmux-ios://attach?v=2&r=100.71.210.41:\(CmxMobileDefaults.defaultHostPort)")
+    await store.connectPairingURL("cmux-ios://attach?v=2&pc=1&r=100.71.210.41:\(CmxMobileDefaults.defaultHostPort)")
 
     #expect(store.connectionState == .connected)
     // The recovery request runs on its own task; poll briefly instead of
