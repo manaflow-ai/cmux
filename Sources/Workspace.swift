@@ -8237,8 +8237,8 @@ final class WorkspaceRemoteSessionController {
         return trimmed
     }
 
-    private func probeRemoteBootstrapStateLocked(version: String) throws -> RemoteBootstrapState {
-        let script = """
+    static func remotePlatformProbeScript(version: String) -> String {
+        """
         cmux_uname_os="$(uname -s)"
         cmux_uname_arch="$(uname -m)"
         printf '%s%s\\n' '\(Self.remotePlatformProbeHomeMarker)' "$HOME"
@@ -8261,6 +8261,10 @@ final class WorkspaceRemoteSessionController {
           printf '%sno\\n' '\(Self.remotePlatformProbeExistsMarker)'
         fi
         """
+    }
+
+    private func probeRemoteBootstrapStateLocked(version: String) throws -> RemoteBootstrapState {
+        let script = Self.remotePlatformProbeScript(version: version)
         let command = "sh -c \(Self.shellSingleQuoted(script))"
         let result = try sshExec(arguments: sshCommonArguments(batchMode: true) + [configuration.destination, command], timeout: 20)
 
