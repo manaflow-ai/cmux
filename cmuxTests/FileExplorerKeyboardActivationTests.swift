@@ -60,18 +60,19 @@ struct FileExplorerKeyboardActivationTests {
             keyCode: 125
         )
         let plainDownEvent = makeKeyEvent(characters: downArrow, keyCode: 125)
+        var requestedShortcutAction: KeyboardShortcutSettings.Action?
+        let configuredShortcutMatches = FileExplorerKeyboardActivation.matchesOpenSelectionShortcut(
+            commandDownEvent,
+            shortcutForAction: { action in
+                requestedShortcutAction = action
+                return action.defaultShortcut
+            }
+        )
 
         #expect(FileExplorerKeyboardActivation.isDefaultOpenEvent(returnEvent))
         #expect(FileExplorerKeyboardActivation.isDefaultOpenEvent(keypadEnterEvent))
-        #expect(
-            FileExplorerKeyboardActivation.matchesOpenSelectionShortcut(
-                commandDownEvent,
-                shortcutForAction: { action in
-                    #expect(action == .openFileExplorerSelection)
-                    return action.defaultShortcut
-                }
-            )
-        )
+        #expect(configuredShortcutMatches)
+        #expect(requestedShortcutAction == .openFileExplorerSelection)
         #expect(!FileExplorerKeyboardActivation.matchesOpenSelectionShortcut(plainDownEvent))
     }
 
