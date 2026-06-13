@@ -18,6 +18,8 @@ private struct FlattenedRow: Identifiable {
 struct ProjectFilesTabView: View {
     @ObservedObject var panel: ProjectPanel
     let model: ProjectModel
+
+    /// Drives focus into the files filter text field when requested.
     @FocusState private var focus: ProjectPanelSearchFocus?
 
     var body: some View {
@@ -37,10 +39,10 @@ struct ProjectFilesTabView: View {
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
         }
-        .onChange(of: panel.searchFocusRequest) { newValue in
+        .onChange(of: panel.focusState.request) { _, newValue in
             if newValue == .files {
                 focus = .files
-                panel.searchFocusRequest = nil
+                panel.focusState.request = nil
             }
         }
     }

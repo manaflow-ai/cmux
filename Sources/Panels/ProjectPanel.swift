@@ -2,6 +2,7 @@ import AppKit
 import CMUXProjectModel
 import Combine
 import Foundation
+import Observation
 import SwiftUI
 
 /// Which tab is active inside a ``ProjectPanel``.
@@ -47,6 +48,18 @@ public enum ProjectPanelLoadState: Sendable, Equatable {
     }
 }
 
+/// Lightweight focus-request state for ``ProjectPanel``.
+///
+/// Uses the modern `@Observable` shape so the view layer can react to focus
+/// requests without adding another `@Published` property to the legacy
+/// ``ObservableObject`` panel.
+@MainActor
+@Observable
+public final class ProjectPanelFocusState {
+    /// Which search field should receive focus, or `nil` if none.
+    public var request: ProjectPanelSearchFocus?
+}
+
 /// Runtime backing for one `project` surface.
 ///
 /// Holds the user's project URL, the parsed ``ProjectModel`` snapshot (loaded
@@ -70,8 +83,15 @@ public final class ProjectPanel: NSObject, Panel, ObservableObject {
     @Published public var settingsCustomizedOnly: Bool = false
     @Published public var collapsedNodeIDs: Set<ProjectNodeID> = []
     @Published public var filesSearchText: String = ""
-    @Published public var searchFocusRequest: ProjectPanelSearchFocus?
     @Published public var lastLoadError: String?
+
+    /// Tracks which search field, if any, should receive focus.
+    ///
+    /// Lives outside the ``ObservableObject`` state so the modern `@Observable`
+    /// pattern owns the focus request rather than adding another `@Published`
+    /// property to the legacy panel object.
+    public let focusState = ProjectPanelFocusState()
+
     private var reloadTask: Task<Void, Never>?
 
     public var displayTitle: String {
@@ -275,26 +295,27 @@ public enum ProjectPanelSearchFocus: Hashable {
 }
 
 extension ProjectPanel: FindablePanel {
-    public var isFindVisible: Bool { false }
-
+    /// Focuses the search field for tabs that have one.
     @discardableResult
     public func startFind() -> Bool {
         switch activeTab {
         case .files:
-            searchFocusRequest = .files
+            focusState.request = .files
             return true
         case .buildSettings:
-            searchFocusRequest = .settings
+            focusState.request = .settings
             return true
         case .targets, .schemes:
             return false
         }
     }
 
+    /// Project search fields do not support find-next/find-previous navigation.
     public func findNext() {}
     public func findPrevious() {}
 
+    /// Clears the focus request so the search field can resign focus normally.
     public func hideFind() {
-        searchFocusRequest = nil
+        focusState.request = nil
     }
 }

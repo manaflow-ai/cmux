@@ -369,9 +369,6 @@ extension Panel {
 /// conforms to this protocol.
 @MainActor
 protocol FindablePanel: AnyObject {
-    /// Whether the panel's find UI is currently visible/active.
-    var isFindVisible: Bool { get }
-
     /// Whether the panel has a text selection that can be used as the find needle.
     var hasSelectionForFind: Bool { get }
 
@@ -395,6 +392,8 @@ protocol FindablePanel: AnyObject {
 extension FindablePanel {
     /// Most panels do not support selection-based find.
     var hasSelectionForFind: Bool { false }
+
+    /// Most panels do not support seeding the find query from the current selection.
     func useSelectionForFind() {}
 }
 

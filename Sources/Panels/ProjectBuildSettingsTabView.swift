@@ -11,6 +11,8 @@ import SwiftUI
 struct ProjectBuildSettingsTabView: View {
     @ObservedObject var panel: ProjectPanel
     let model: ProjectModel
+
+    /// Drives focus into the settings filter text field when requested.
     @FocusState private var focus: ProjectPanelSearchFocus?
 
     var body: some View {
@@ -22,10 +24,10 @@ struct ProjectBuildSettingsTabView: View {
             Spacer(minLength: 0)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-        .onChange(of: panel.searchFocusRequest) { newValue in
+        .onChange(of: panel.focusState.request) { _, newValue in
             if newValue == .settings {
                 focus = .settings
-                panel.searchFocusRequest = nil
+                panel.focusState.request = nil
             }
         }
     }

@@ -97,6 +97,7 @@ final class MarkdownRendererSession {
         await ownedCoordinator.renderedText()
     }
 
+    /// The underlying web view, exposed so find actions can be dispatched to it.
     var webView: MarkdownWebView? {
         ownedCoordinator.webView
     }
