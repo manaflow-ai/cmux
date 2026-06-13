@@ -798,7 +798,7 @@ class TabManager: ObservableObject {
     }
 
     var isFindVisible: Bool {
-        selectedTerminalPanel?.searchState != nil || focusedBrowserPanel?.searchState != nil
+        selectedTerminalPanel?.searchState != nil || isNonTerminalFindVisible
     }
 
     var canUseSelectionForFind: Bool {
@@ -828,17 +828,7 @@ class TabManager: ObservableObject {
 #endif
             return handled
         }
-        if let browserPanel = focusedBrowserPanel {
-            browserPanel.startFind()
-            return browserPanel.searchState != nil
-        }
-        if let filePreviewPanel = focusedFilePreviewPanel {
-            return filePreviewPanel.startFind()
-        }
-        if let markdownPanel = focusedMarkdownPanelForFind {
-            return markdownPanel.startFind()
-        }
-        return false
+        return startFindInFocusedNonTerminalPanel()
     }
 
     func searchSelection() {
@@ -862,9 +852,7 @@ class TabManager: ObservableObject {
             return
         }
 
-        focusedBrowserPanel?.findNext()
-        focusedFilePreviewPanel?.findNext()
-        focusedMarkdownPanelForFind?.findNext()
+        findNextInFocusedNonTerminalPanel()
     }
 
     func findPrevious() {
@@ -873,9 +861,7 @@ class TabManager: ObservableObject {
             return
         }
 
-        focusedBrowserPanel?.findPrevious()
-        focusedFilePreviewPanel?.findPrevious()
-        focusedMarkdownPanelForFind?.findPrevious()
+        findPreviousInFocusedNonTerminalPanel()
     }
 
     @discardableResult
@@ -956,9 +942,7 @@ class TabManager: ObservableObject {
             return
         }
 
-        focusedBrowserPanel?.hideFind()
-        focusedFilePreviewPanel?.hideFind()
-        focusedMarkdownPanelForFind?.hideFind()
+        hideFindInFocusedNonTerminalPanel()
     }
 
     func makeWorkspaceForCreation(
@@ -2886,22 +2870,6 @@ class TabManager: ObservableObject {
               let panel = tab.panels[panelId] as? MarkdownPanel,
               panel.displayMode == .preview else { return nil }
         return panel
-    }
-
-    /// Returns the focused panel if it's a MarkdownPanel in any display mode,
-    /// nil otherwise. Used for find routing, which supports both preview and
-    /// text-edit modes.
-    var focusedMarkdownPanelForFind: MarkdownPanel? {
-        guard let tab = selectedWorkspace,
-              let panelId = tab.focusedPanelId else { return nil }
-        return tab.panels[panelId] as? MarkdownPanel
-    }
-
-    /// Returns the focused panel if it's a FilePreviewPanel, nil otherwise.
-    var focusedFilePreviewPanel: FilePreviewPanel? {
-        guard let tab = selectedWorkspace,
-              let panelId = tab.focusedPanelId else { return nil }
-        return tab.panels[panelId] as? FilePreviewPanel
     }
 
     @discardableResult
@@ -6143,4 +6111,53 @@ extension Notification.Name {
 
 enum BrowserFirstResponderNotificationUserInfoKey {
     static let pointerInitiated = "pointerInitiated"
+}
+
+
+// MARK: - Find routing for file preview and markdown panels
+
+extension TabManager {
+    var focusedMarkdownPanelForFind: MarkdownPanel? {
+        guard let tab = selectedWorkspace, let panelId = tab.focusedPanelId else { return nil }
+        return tab.panels[panelId] as? MarkdownPanel
+    }
+
+    var focusedFilePreviewPanel: FilePreviewPanel? {
+        guard let tab = selectedWorkspace, let panelId = tab.focusedPanelId else { return nil }
+        return tab.panels[panelId] as? FilePreviewPanel
+    }
+
+    var isNonTerminalFindVisible: Bool {
+        focusedBrowserPanel?.searchState != nil
+            || focusedFilePreviewPanel?.isFindVisible == true
+            || focusedMarkdownPanelForFind?.isFindVisible == true
+    }
+
+    func startFindInFocusedNonTerminalPanel() -> Bool {
+        if let browserPanel = focusedBrowserPanel {
+            browserPanel.startFind()
+            return browserPanel.searchState != nil
+        }
+        return focusedFilePreviewPanel?.startFind()
+            ?? focusedMarkdownPanelForFind?.startFind()
+            ?? false
+    }
+
+    func findNextInFocusedNonTerminalPanel() {
+        focusedBrowserPanel?.findNext()
+        focusedFilePreviewPanel?.findNext()
+        focusedMarkdownPanelForFind?.findNext()
+    }
+
+    func findPreviousInFocusedNonTerminalPanel() {
+        focusedBrowserPanel?.findPrevious()
+        focusedFilePreviewPanel?.findPrevious()
+        focusedMarkdownPanelForFind?.findPrevious()
+    }
+
+    func hideFindInFocusedNonTerminalPanel() {
+        focusedBrowserPanel?.hideFind()
+        focusedFilePreviewPanel?.hideFind()
+        focusedMarkdownPanelForFind?.hideFind()
+    }
 }

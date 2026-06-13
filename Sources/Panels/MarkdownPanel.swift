@@ -271,65 +271,6 @@ final class MarkdownPanel: Panel, ObservableObject, FilePreviewTextEditingPanel 
         self.textView = textView
     }
 
-    // MARK: - Find in panel
-
-    @discardableResult
-    func startFind() -> Bool {
-        switch displayMode {
-        case .text:
-            guard let textView else { return false }
-            textView.performTextFinderAction(textFinderSender(.showFindInterface))
-            return true
-        case .preview:
-            return sendFindPanelAction(.showFindInterface)
-        }
-    }
-
-    func findNext() {
-        switch displayMode {
-        case .text:
-            textView?.performTextFinderAction(textFinderSender(.nextMatch))
-        case .preview:
-            _ = sendFindPanelAction(.nextMatch)
-        }
-    }
-
-    func findPrevious() {
-        switch displayMode {
-        case .text:
-            textView?.performTextFinderAction(textFinderSender(.previousMatch))
-        case .preview:
-            _ = sendFindPanelAction(.previousMatch)
-        }
-    }
-
-    func hideFind() {
-        switch displayMode {
-        case .text:
-            textView?.performTextFinderAction(textFinderSender(.hideFindInterface))
-        case .preview:
-            _ = sendFindPanelAction(.hideFindInterface)
-        }
-    }
-
-    private func textFinderSender(_ action: NSTextFinder.Action) -> NSMenuItem {
-        let item = NSMenuItem()
-        item.tag = action.rawValue
-        return item
-    }
-
-    @discardableResult
-    private func sendFindPanelAction(_ action: NSTextFinder.Action) -> Bool {
-        guard let webView = rendererSession.webView else { return false }
-        let item = NSMenuItem()
-        item.tag = action.rawValue
-        return NSApp.sendAction(
-            NSSelectorFromString("performFindPanelAction:"),
-            to: webView,
-            from: item
-        )
-    }
-
     func retryPendingFocus() {
         focus()
     }
@@ -507,5 +448,69 @@ final class MarkdownPanel: Panel, ObservableObject, FilePreviewTextEditingPanel 
         if let typographyDefaultsObserver {
             NotificationCenter.default.removeObserver(typographyDefaultsObserver)
         }
+    }
+}
+
+
+// MARK: - Find in panel
+
+extension MarkdownPanel {
+    var isFindVisible: Bool { false }
+
+    @discardableResult
+    func startFind() -> Bool {
+        switch displayMode {
+        case .text:
+            guard let textView else { return false }
+            textView.performTextFinderAction(textFinderSender(.showFindInterface))
+            return true
+        case .preview:
+            return sendFindPanelAction(.showFindInterface)
+        }
+    }
+
+    func findNext() {
+        switch displayMode {
+        case .text:
+            textView?.performTextFinderAction(textFinderSender(.nextMatch))
+        case .preview:
+            _ = sendFindPanelAction(.nextMatch)
+        }
+    }
+
+    func findPrevious() {
+        switch displayMode {
+        case .text:
+            textView?.performTextFinderAction(textFinderSender(.previousMatch))
+        case .preview:
+            _ = sendFindPanelAction(.previousMatch)
+        }
+    }
+
+    func hideFind() {
+        switch displayMode {
+        case .text:
+            textView?.performTextFinderAction(textFinderSender(.hideFindInterface))
+        case .preview:
+            _ = sendFindPanelAction(.hideFindInterface)
+        }
+    }
+
+    private func textFinderSender(_ action: NSTextFinder.Action) -> NSMenuItem {
+        let item = NSMenuItem()
+        item.tag = action.rawValue
+        return item
+    }
+
+    @discardableResult
+    private func sendFindPanelAction(_ action: NSTextFinder.Action) -> Bool {
+        guard let webView = rendererSession.webView else { return false }
+        let item = NSMenuItem()
+        item.tag = action.rawValue
+        return NSApp.sendAction(
+            NSSelectorFromString("performFindPanelAction:"),
+            to: webView,
+            from: item
+        )
     }
 }
