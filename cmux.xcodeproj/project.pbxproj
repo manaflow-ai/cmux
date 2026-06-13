@@ -2635,6 +2635,8 @@
 				CC0DE10000000000000000A2 /* CmuxRemoteDaemon */,
 				CC0DE20000000000000000A2 /* CmuxRemoteWorkspace */,
 				CC0DE30000000000000000A2 /* CmuxRemoteSession */,
+				C750300000000000000000A2 /* CmuxTerminalEngine */,
+				C750400000000000000000A2 /* CmuxTerminalServices */,
 				A8BD195031FC4B82B4354297 /* StackAuth */,
 				EFB18E3B3099DFE2ECA3C263 /* CMUXMobileCore */,
 			);
