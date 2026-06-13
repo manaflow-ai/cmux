@@ -918,6 +918,7 @@
         },
         "app": {
           "confirmQuit": "Control when cmux asks for confirmation before quitting. DEV builds always quit immediately regardless of this setting. Legacy app.warnBeforeQuit is still accepted as a boolean fallback.",
+          "windowTitleTemplate": "Optional NSWindow title template. Blank preserves cmux's existing default title behavior, including the current-directory fallback. Supported placeholders: '{windowId}', '{windowToken}', '{activeWorkspace}', '{activeDirectory}', '{defaultTitle}', '{appName}'.",
           "warnBeforeQuit": "Legacy boolean fallback for quit confirmation. Use app.confirmQuit for new configs.",
           "warnBeforeClosingTabXButton": "Show a confirmation before closing a tab with the tab close button.",
           "hideTabCloseButton": "Hide tab close buttons in the pane tab bar.",
