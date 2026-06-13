@@ -61,9 +61,13 @@ struct MobileHostPickerView: View {
                 MobilePairingScannerSheet { code in
                     showingScanner = false
                     Task {
-                        _ = await store.connectPairingURL(code)
-                        await store.loadPairedMacs()
-                        dismiss()
+                        // Pair without dropping the current session on a bad scan:
+                        // dismiss only when the new Mac actually connected.
+                        if await store.pairAdditionalMac(code) {
+                            dismiss()
+                        } else {
+                            await store.loadPairedMacs()
+                        }
                     }
                 }
             }
