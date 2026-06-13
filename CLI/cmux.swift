@@ -23112,49 +23112,37 @@ struct CMUXCLI {
         terminalBindingCache: inout ClaudeHookTerminalBindingCache,
         client: SocketClient
     ) throws -> ClaudeHookResolvedSurface {
-        if let preferred = nonEmptyClaudeHookIdentifier(preferred) {
-            return try resolveSurfaceAllowingFallbackDetailed(preferred, workspaceId: workspaceId, client: client)
-        }
-        if let fallback = nonEmptyClaudeHookIdentifier(fallback) {
-            let resolved = try resolveSurfaceAllowingFallbackDetailed(fallback, workspaceId: workspaceId, client: client)
-            if fallbackIsAmbient,
-               let binding = resolveClaudeHookTerminalBinding(
-                   agentPID: agentPID,
-                   allowProcessSnapshotBinding: allowProcessSnapshotBinding,
-                   terminalBindingCache: &terminalBindingCache,
-                   client: client
-               ),
-               let boundSurface = resolveClaudeHookBindingSurfaceId(
-                   binding,
-                   workspaceId: workspaceId,
-                   client: client
-               ),
-               !resolved.isAuthoritative || boundSurface != resolved.surfaceId {
-                return ClaudeHookResolvedSurface(
-                    surfaceId: boundSurface,
-                    isAuthoritative: true,
-                    isProcessSnapshotBound: binding.isProcessSnapshotBound
-                )
+        func terminalBindingSurface() -> ClaudeHookResolvedSurface? {
+            guard let binding = resolveClaudeHookTerminalBinding(
+                agentPID: agentPID,
+                allowProcessSnapshotBinding: allowProcessSnapshotBinding,
+                terminalBindingCache: &terminalBindingCache,
+                client: client
+            ),
+                  let boundSurface = resolveClaudeHookBindingSurfaceId(binding, workspaceId: workspaceId, client: client) else {
+                return nil
             }
-            return resolved
-        }
-        let binding = resolveClaudeHookTerminalBinding(
-            agentPID: agentPID,
-            allowProcessSnapshotBinding: allowProcessSnapshotBinding,
-            terminalBindingCache: &terminalBindingCache,
-            client: client
-        )
-        if let binding,
-           let boundSurface = resolveClaudeHookBindingSurfaceId(
-            binding,
-            workspaceId: workspaceId,
-            client: client
-        ) {
             return ClaudeHookResolvedSurface(
                 surfaceId: boundSurface,
                 isAuthoritative: true,
                 isProcessSnapshotBound: binding.isProcessSnapshotBound
             )
+        }
+        if let preferred = nonEmptyClaudeHookIdentifier(preferred),
+           let surfaceId = resolveAccessibleClaudeHookSurfaceId(preferred, workspaceId: workspaceId, client: client) {
+            return ClaudeHookResolvedSurface(surfaceId: surfaceId, isAuthoritative: true)
+        }
+        if let fallback = nonEmptyClaudeHookIdentifier(fallback) {
+            let resolved = try resolveSurfaceAllowingFallbackDetailed(fallback, workspaceId: workspaceId, client: client)
+            if fallbackIsAmbient,
+               let boundSurface = terminalBindingSurface(),
+               !resolved.isAuthoritative || boundSurface.surfaceId != resolved.surfaceId {
+                return boundSurface
+            }
+            return resolved
+        }
+        if let boundSurface = terminalBindingSurface() {
+            return boundSurface
         }
         return try resolveSurfaceAllowingFallbackDetailed(nil, workspaceId: workspaceId, client: client)
     }
