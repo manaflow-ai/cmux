@@ -188,7 +188,9 @@ final class RemoteTmuxSessionMirror {
                 ) else { continue }
                 panelIdByWindow[windowId] = panel.id
                 panelIdByPane[firstPaneId] = panel.id
-                connection.seedPane(paneId: firstPaneId)
+                if Self.shouldSeedSinglePaneDisplay(for: window) {
+                    connection.seedPane(paneId: firstPaneId)
+                }
                 panelId = panel.id
                 createdNewPanel = true
             }
@@ -223,6 +225,10 @@ final class RemoteTmuxSessionMirror {
         if desiredPanelOrder.count > 1 {
             workspace.reorderRemoteTmuxMirrorTabs(toPanelOrder: desiredPanelOrder)
         }
+    }
+
+    nonisolated static func shouldSeedSinglePaneDisplay(for window: RemoteTmuxWindow) -> Bool {
+        window.paneIDsInOrder.count == 1
     }
 
     /// Brief retry that sizes the remote tmux client to a single-pane tab's

@@ -4299,11 +4299,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
     private func sortedMainWindowContextsForSessionSnapshot() -> [MainWindowContext] {
         mainWindowContexts.values
-            // Exclude dedicated remote-tmux mirror windows: a mirror needs a live
-            // SSH connection, so snapshotting one yields an empty window that would
-            // restore as a useless leftover. Remote mirrors are not auto-restored on
-            // launch; the user re-attaches with `cmux ssh-tmux`.
-            .filter { !remoteTmuxController.isDedicatedRemoteWindow($0.windowId) }
             .sorted { lhs, rhs in
             let lhsWindow = lhs.window ?? windowForMainWindowId(lhs.windowId)
             let rhsWindow = rhs.window ?? windowForMainWindowId(rhs.windowId)
@@ -4326,16 +4321,27 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         guard !contexts.isEmpty else { return nil }
         let restorableAgentIndex = suppliedRestorableAgentIndex ?? RestorableAgentSessionIndex.load()
 
-        let windows: [SessionWindowSnapshot] = contexts
-            .prefix(SessionPersistencePolicy.maxWindowsPerSnapshot)
-            .map { context in
-                sessionWindowSnapshot(
+        let windows = Array(
+            contexts.lazy.compactMap { context -> SessionWindowSnapshot? in
+                let snapshot = self.sessionWindowSnapshot(
                     for: context,
                     includeScrollback: includeScrollback,
                     restorableAgentIndex: restorableAgentIndex,
                     surfaceResumeBindingIndex: suppliedSurfaceResumeBindingIndex
                 )
+                // A dedicated remote-tmux mirror window needs a live SSH control
+                // connection and should not restore as an empty shell. If the user
+                // dragged local workspaces into that window, keep those local
+                // workspaces: TabManager already prunes remote mirror workspaces
+                // from its snapshot.
+                if self.remoteTmuxController.isDedicatedRemoteWindow(context.windowId),
+                   snapshot.tabManager.workspaces.isEmpty {
+                    return nil
+                }
+                return snapshot
             }
+            .prefix(SessionPersistencePolicy.maxWindowsPerSnapshot)
+        )
 
         guard !windows.isEmpty else { return nil }
         return AppSessionSnapshot(

@@ -100,6 +100,16 @@ final class RemoteTmuxController {
         windowRegistry.isDedicatedWindow(windowId)
     }
 
+#if DEBUG
+    func bindDedicatedWindowForTesting(host: RemoteTmuxHost, windowId: UUID) {
+        windowRegistry.bind(host: host, windowId: windowId)
+    }
+
+    func unbindDedicatedWindowForTesting(windowId: UUID) {
+        windowRegistry.unbind(windowId: windowId)
+    }
+#endif
+
     /// Opens a NEW cmux window dedicated to `host` and mirrors every tmux session
     /// on it 1:1 (each session a workspace, each window a tab). This keeps remote
     /// work in its own window so the user's local windows are untouched.
