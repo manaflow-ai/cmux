@@ -458,6 +458,15 @@ struct BrowserPanelView: View {
     @State private var focusFlashAnimationGeneration: Int = 0
     @State private var omnibarPillFrame: CGRect = .zero
     @State private var addressBarHeight: CGFloat = 0
+    @State private var addressBarWidth: CGFloat = 0
+
+    /// Below this chrome width the full accessory row would crowd out the
+    /// omnibar, so the plain-action buttons collapse into an overflow menu.
+    private static let compactChromeWidthThreshold: CGFloat = 420
+
+    private var isChromeCompact: Bool {
+        addressBarWidth > 0 && addressBarWidth < Self.compactChromeWidthThreshold
+    }
     @State private var isBrowserImportHintPopoverPresented = false
     @State private var focusModeShortcutHintMonitor = WindowScopedShortcutHintModifierMonitor(activation: .commandOnly)
     @State private var lastHandledAddressBarFocusRequestId: UUID?
@@ -1146,6 +1155,9 @@ struct BrowserPanelView: View {
         .onPreferenceChange(BrowserAddressBarHeightPreferenceKey.self) { height in
             addressBarHeight = height
         }
+        .onPreferenceChange(BrowserAddressBarWidthPreferenceKey.self) { width in
+            addressBarWidth = width
+        }
         .onReceive(NotificationCenter.default.publisher(for: .webViewDidReceiveClick)) { notification in
             handleBrowserWebViewClickIntent(notification)
         }
@@ -1227,17 +1239,35 @@ struct BrowserPanelView: View {
                 if shouldShowToolbarImportHintChip {
                     browserImportHintToolbarChip
                 }
-                browserFocusModeButtonWithShortcutHint
-                screenshotPageButton
-                reactGrabButton
-                browserProfileButton
-                browserThemeModeButton
-                developerToolsButton
+                if isChromeCompact {
+                    // Narrow panes can't fit the full accessory row without
+                    // clipping the omnibar; collapse the plain-action buttons
+                    // into an overflow menu and keep the popover-anchored
+                    // profile/theme controls present.
+                    browserOverflowMenu
+                    browserProfileButton
+                    browserThemeModeButton
+                } else {
+                    browserFocusModeButtonWithShortcutHint
+                    screenshotPageButton
+                    reactGrabButton
+                    browserProfileButton
+                    browserThemeModeButton
+                    developerToolsButton
+                }
             }
         }
         .padding(.horizontal, 8)
         .padding(.vertical, addressBarVerticalPadding)
         .background(browserChromeBackground)
+        .background {
+            GeometryReader { geo in
+                Color.clear.preference(
+                    key: BrowserAddressBarWidthPreferenceKey.self,
+                    value: geo.size.width
+                )
+            }
+        }
         .background(
             WindowAccessor { window in
                 focusModeShortcutHintMonitor.setHostWindow(window)
@@ -1474,6 +1504,57 @@ struct BrowserPanelView: View {
             )
         )
         .accessibilityIdentifier("BrowserProfileButton")
+    }
+
+    /// Overflow menu shown in compact chrome: the plain-action accessory
+    /// buttons (focus mode, screenshot, React Grab, dev tools) as menu items.
+    /// Profile and theme stay as visible buttons since they anchor popovers.
+    private var browserOverflowMenu: some View {
+        Menu {
+            Button(action: handleBrowserFocusModeButtonAction) {
+                Label(
+                    panel.isBrowserFocusModeActive
+                        ? String(localized: "browser.focusMode.active", defaultValue: "Focus Mode")
+                        : String(localized: "browser.focusMode.enter", defaultValue: "Enter Focus Mode"),
+                    systemImage: "keyboard"
+                )
+            }
+            .disabled(!panel.canToggleBrowserFocusMode)
+
+            Button(action: handleScreenshotPageButtonAction) {
+                Label(
+                    String(localized: "browser.screenshotPage.copy.help", defaultValue: "Screenshot Page to Clipboard"),
+                    systemImage: "camera"
+                )
+            }
+            .disabled(!panel.shouldRenderWebView)
+
+            Button {
+                panel.clearReactGrabRoundTrip(reason: "overflowMenu.manualStart")
+                Task { await panel.toggleOrInjectReactGrab() }
+            } label: {
+                Label(
+                    String(localized: "browser.reactGrab", defaultValue: "Inject React Grab"),
+                    systemImage: "cursorarrow.click.2"
+                )
+            }
+
+            Button(action: { openDevTools() }) {
+                Label(developerToolsButtonHelp, systemImage: devToolsIconOption.rawValue)
+            }
+        } label: {
+            Image(systemName: "ellipsis")
+                .symbolRenderingMode(.monochrome)
+                .cmuxFlatSymbolColorRendering()
+                .font(.system(size: devToolsButtonIconSize, weight: .medium))
+                .foregroundStyle(devToolsColorOption.color)
+                .frame(width: addressBarButtonSize, height: addressBarButtonSize, alignment: .center)
+        }
+        .menuStyle(.borderlessButton)
+        .menuIndicator(.hidden)
+        .frame(width: addressBarButtonSize, height: addressBarButtonSize, alignment: .center)
+        .safeHelp(String(localized: "browser.moreActions", defaultValue: "More Actions"))
+        .accessibilityIdentifier("BrowserOverflowMenu")
     }
 
     private var browserThemeModeButton: some View {
@@ -3580,6 +3661,14 @@ private struct OmnibarPillFramePreferenceKey: PreferenceKey {
 }
 
 private struct BrowserAddressBarHeightPreferenceKey: PreferenceKey {
+    static var defaultValue: CGFloat = 0
+
+    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
+        value = max(value, nextValue())
+    }
+}
+
+private struct BrowserAddressBarWidthPreferenceKey: PreferenceKey {
     static var defaultValue: CGFloat = 0
 
     static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
