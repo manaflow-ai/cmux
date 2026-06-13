@@ -1,5 +1,6 @@
 import Foundation
 import AppKit
+import CmuxFoundation
 import CmuxTerminalCore
 
 struct GhosttyConfig {

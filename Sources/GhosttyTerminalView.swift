@@ -1,5 +1,6 @@
 import Foundation
 import CmuxTerminal
+import CmuxFoundation
 import CmuxTerminalCore
 import CmuxTerminalEngine
 import CmuxTerminalServices

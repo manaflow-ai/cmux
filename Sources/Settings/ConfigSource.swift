@@ -1,4 +1,5 @@
 import Foundation
+import CmuxFoundation
 import CmuxTerminalCore
 
 struct ConfigSourceEnvironment {
