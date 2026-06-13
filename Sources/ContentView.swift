@@ -3497,7 +3497,7 @@ struct ContentView: View {
 
         // Bind/unbind the Notes store when the beta toggle flips so enabling
         // it populates the tree immediately and disabling stops its watchers.
-        view = AnyView(view.onChange(of: notesBetaEnabled) { _ in
+        view = AnyView(view.onChange(of: notesBetaEnabled) { _, _ in
             syncFileExplorerDirectory()
         })
 
