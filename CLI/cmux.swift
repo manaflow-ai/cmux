@@ -30353,9 +30353,10 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
             if autoNamingSource(for: def) != nil, !suppressVisibleMutations, !sessionId.isEmpty,
                let autoNameProbe = try? client.sendV2(
                    method: "workspace.set_auto_title",
-                   params: ["probe": true]
+                   params: ["probe": true, "workspace_id": workspaceId]
                ),
-               autoNameProbe["enabled"] as? Bool == true {
+               autoNameProbe["enabled"] as? Bool == true,
+               autoNameProbe["workspace_user_owned"] as? Bool != true {
                 spawnDetachedAgentAutoName(
                     def: def,
                     sessionId: sessionId,
