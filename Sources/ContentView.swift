@@ -39,12 +39,6 @@ private func windowContentOverlayInstallationTarget(for window: NSWindow) -> (co
     return (themeFrame, contentView)
 }
 
-enum CommandPaletteOverlayPromotionPolicy {
-    static func shouldPromote(previouslyVisible: Bool, isVisible: Bool) -> Bool {
-        isVisible && !previouslyVisible
-    }
-}
-
 @MainActor
 private final class CommandPaletteOverlayContainerView: NSView {
     var capturesMouseEvents = false
