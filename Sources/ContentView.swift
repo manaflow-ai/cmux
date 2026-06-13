@@ -1,5 +1,6 @@
 import AppKit
 import CmuxSocketControl
+import CmuxCommandPalette
 import Bonsplit
 import Combine
 import CmuxSidebarInterpreterClient
@@ -1170,124 +1171,10 @@ struct ContentView: View {
     @FocusState private var isCommandPaletteSearchFocused: Bool
     @FocusState private var isCommandPaletteRenameFocused: Bool
 
-    private enum CommandPaletteMode {
-        case commands
-        case renameInput(CommandPaletteRenameTarget)
-        case renameConfirm(CommandPaletteRenameTarget, proposedName: String)
-        case workspaceDescriptionInput(CommandPaletteWorkspaceDescriptionTarget)
-    }
-
-    enum CommandPalettePendingActivation: Equatable {
-        case selected(requestID: UInt64, fallbackSelectedIndex: Int, preferredCommandID: String?)
-        case command(requestID: UInt64, commandID: String)
-    }
-
-    enum CommandPaletteResolvedActivation: Equatable {
-        case selected(index: Int)
-        case command(commandID: String)
-    }
-
-    struct CommandPalettePendingActivationResolutionResult: Equatable {
-        let resolvedActivation: CommandPaletteResolvedActivation?
-        let shouldClearPendingActivation: Bool
-    }
-
-    private struct CommandPaletteRenameTarget: Equatable {
-        enum Kind: Equatable {
-            case workspace(workspaceId: UUID)
-            case tab(workspaceId: UUID, panelId: UUID)
-        }
-
-        let kind: Kind
-        let currentName: String
-
-        var title: String {
-            switch kind {
-            case .workspace:
-                return String(localized: "commandPalette.rename.workspaceTitle", defaultValue: "Rename Workspace")
-            case .tab:
-                return String(localized: "commandPalette.rename.tabTitle", defaultValue: "Rename Tab")
-            }
-        }
-
-        var description: String {
-            switch kind {
-            case .workspace:
-                return String(localized: "commandPalette.rename.workspaceDescription", defaultValue: "Choose a custom workspace name.")
-            case .tab:
-                return String(localized: "commandPalette.rename.tabDescription", defaultValue: "Choose a custom tab name.")
-            }
-        }
-
-        var placeholder: String {
-            switch kind {
-            case .workspace:
-                return String(localized: "commandPalette.rename.workspacePlaceholder", defaultValue: "Workspace name")
-            case .tab:
-                return String(localized: "commandPalette.rename.tabPlaceholder", defaultValue: "Tab name")
-            }
-        }
-    }
-
-    private struct CommandPaletteWorkspaceDescriptionTarget: Equatable {
-        let workspaceId: UUID
-        let currentDescription: String
-
-        var placeholder: String {
-            String(
-                localized: "commandPalette.description.workspacePlaceholder",
-                defaultValue: "Workspace description"
-            )
-        }
-
-        var inputHint: String {
-            String(
-                localized: "commandPalette.description.workspaceInputHint",
-                defaultValue: "Press Enter to save. Press Shift-Enter for a new line, or Escape to cancel."
-            )
-        }
-    }
-
     private struct CommandPaletteRestoreFocusTarget {
         let workspaceId: UUID
         let panelId: UUID
         let intent: PanelFocusIntent
-    }
-
-    private enum CommandPaletteInputFocusTarget {
-        case search
-        case rename
-    }
-
-    private enum CommandPaletteTextSelectionBehavior {
-        case caretAtEnd
-        case selectAll
-    }
-
-    private struct CommandPaletteInputFocusPolicy {
-        let focusTarget: CommandPaletteInputFocusTarget
-        let selectionBehavior: CommandPaletteTextSelectionBehavior
-
-        static let search = CommandPaletteInputFocusPolicy(
-            focusTarget: .search,
-            selectionBehavior: .caretAtEnd
-        )
-    }
-
-    private struct CommandPaletteCommand: Identifiable {
-        let id: String
-        let rank: Int
-        let title: String
-        let subtitle: String
-        let shortcutHint: String?
-        let kindLabel: String?
-        let keywords: [String]
-        let dismissOnRun: Bool
-        let action: () -> Void
-
-        var searchableTexts: [String] {
-            [title, subtitle] + keywords
-        }
     }
 
     static func tmuxWorkspacePaneExactRect(
@@ -1434,160 +1321,11 @@ struct ContentView: View {
         )
     }
 
-    struct CommandPaletteContextSnapshot {
-        private var boolValues: [String: Bool] = [:]
-        private var stringValues: [String: String] = [:]
-
-        init() {}
-
-        mutating func setBool(_ key: String, _ value: Bool) {
-            boolValues[key] = value
-        }
-
-        mutating func setString(_ key: String, _ value: String?) {
-            guard let value, !value.isEmpty else {
-                stringValues.removeValue(forKey: key)
-                return
-            }
-            stringValues[key] = value
-        }
-
-        func bool(_ key: String) -> Bool {
-            boolValues[key] ?? false
-        }
-
-        func string(_ key: String) -> String? {
-            stringValues[key]
-        }
-
-        func fingerprint() -> Int {
-            ContentView.commandPaletteContextFingerprint(
-                boolValues: boolValues,
-                stringValues: stringValues
-            )
-        }
-    }
-
-    private struct CommandPaletteCommandsContext {
-        let snapshot: CommandPaletteContextSnapshot
-    }
-
-    enum CommandPaletteContextKeys {
-        static let hasWorkspace = "workspace.hasSelection"
-        static let workspaceName = "workspace.name"
-        static let workspaceHasCustomName = "workspace.hasCustomName"
-        static let workspaceHasCustomDescription = "workspace.hasCustomDescription"
-        static let workspaceMinimalModeEnabled = "workspace.minimalModeEnabled"
-        static let workspaceShouldPin = "workspace.shouldPin"
-        static let workspaceHasPullRequests = "workspace.hasPullRequests"
-        static let workspaceHasSplits = "workspace.hasSplits"
-        static let workspaceHasPeers = "workspace.hasPeers"
-        static let workspaceHasAbove = "workspace.hasAbove"
-        static let workspaceHasBelow = "workspace.hasBelow"
-        static let workspaceCanMarkRead = "workspace.canMarkRead"
-        static let workspaceCanMarkUnread = "workspace.canMarkUnread"
-        static let sidebarMatchTerminalBackground = "sidebar.matchTerminalBackground"
-        static let hasFocusedPanel = "panel.hasFocus"
-        static let panelName = "panel.name"
-        static let panelIsBrowser = "panel.isBrowser"
-        static let panelBrowserFocusModeActive = "panel.browserFocusModeActive"
-        static let panelBrowserOmnibarVisible = "panel.browser.omnibarVisible"
-        static let panelIsMarkdown = "panel.isMarkdown"
-        static let panelIsTerminal = "panel.isTerminal"
-        static let panelHasPane = "panel.hasPane"
-        static let panelHasForkableAgent = "panel.hasForkableAgent"
-        static let panelHasCustomName = "panel.hasCustomName"
-        static let panelShouldPin = "panel.shouldPin"
-        static let panelHasUnread = "panel.hasUnread"
-        static let panelCanMoveToNewWorkspace = "panel.canMoveToNewWorkspace"
-        static let updateHasAvailable = "update.hasAvailable"
-        static let cliInstalledInPATH = "cli.installedInPATH"
-        static let defaultTerminalIsDefault = "defaultTerminal.isDefault"
-        static let browserDisabled = "browser.disabled"
-        static let authSignedIn = "auth.signedIn"
-        static let authWorking = "auth.working"
-        static func terminalOpenTargetAvailable(_ target: TerminalDirectoryOpenTarget) -> String {
-            "terminal.openTarget.\(target.rawValue).available"
-        }
-    }
-
-    struct CommandPaletteCommandContribution {
-        let commandId: String
-        let title: (CommandPaletteContextSnapshot) -> String
-        let subtitle: (CommandPaletteContextSnapshot) -> String
-        let shortcutHint: String?
-        let keywords: [String]
-        let dismissOnRun: Bool
-        let when: (CommandPaletteContextSnapshot) -> Bool
-        let enablement: (CommandPaletteContextSnapshot) -> Bool
-
-        init(
-            commandId: String,
-            title: @escaping (CommandPaletteContextSnapshot) -> String,
-            subtitle: @escaping (CommandPaletteContextSnapshot) -> String,
-            shortcutHint: String? = nil,
-            keywords: [String] = [],
-            dismissOnRun: Bool = true,
-            when: @escaping (CommandPaletteContextSnapshot) -> Bool = { _ in true },
-            enablement: @escaping (CommandPaletteContextSnapshot) -> Bool = { _ in true }
-        ) {
-            self.commandId = commandId
-            self.title = title
-            self.subtitle = subtitle
-            self.shortcutHint = shortcutHint
-            self.keywords = keywords
-            self.dismissOnRun = dismissOnRun
-            self.when = when
-            self.enablement = enablement
-        }
-    }
-
-    struct CommandPaletteHandlerRegistry {
-        private var handlers: [String: () -> Void] = [:]
-
-        mutating func register(commandId: String, handler: @escaping () -> Void) {
-            handlers[commandId] = handler
-        }
-
-        func handler(for commandId: String) -> (() -> Void)? {
-            handlers[commandId]
-        }
-    }
-
-    private struct CommandPaletteSearchResult: Identifiable {
-        let command: CommandPaletteCommand
-        let score: Int
-        let titleMatchIndices: Set<Int>
-
-        var id: String { command.id }
-    }
-
     private struct CommandPaletteSwitcherWindowContext {
         let windowId: UUID
         let tabManager: TabManager
         let selectedWorkspaceId: UUID?
         let windowLabel: String?
-    }
-
-    struct CommandPaletteSwitcherFingerprintWorkspace: Sendable {
-        let id: UUID
-        let displayName: String
-        let metadata: CommandPaletteSwitcherSearchMetadata
-        let surfaces: [CommandPaletteSwitcherFingerprintSurface]
-    }
-
-    struct CommandPaletteSwitcherFingerprintSurface: Sendable {
-        let id: UUID
-        let displayName: String
-        let kindLabel: String
-        let metadata: CommandPaletteSwitcherSearchMetadata
-    }
-
-    struct CommandPaletteSwitcherFingerprintContext: Sendable {
-        let windowId: UUID
-        let windowLabel: String?
-        let selectedWorkspaceId: UUID?
-        let workspaces: [CommandPaletteSwitcherFingerprintWorkspace]
     }
 
     private static let fixedSidebarResizeCursor = NSCursor(
@@ -5661,7 +5399,7 @@ struct ContentView: View {
                 }
             )
         }
-        return Self.commandPaletteSwitcherFingerprint(windowContexts: fingerprintContexts)
+        return CommandPaletteSwitcherFingerprintContext.fingerprint(windowContexts: fingerprintContexts)
     }
 
     private static func commandPaletteHighlightedTitleText(_ title: String, matchedIndices: Set<Int>) -> Text {
@@ -8732,67 +8470,6 @@ struct ContentView: View {
             ),
             shouldClearPendingActivation: commandPalettePendingActivationRequestID(pendingActivation) == requestID
         )
-    }
-
-    static func commandPaletteContextFingerprint(
-        boolValues: [String: Bool],
-        stringValues: [String: String]
-    ) -> Int {
-        var hasher = Hasher()
-        for key in boolValues.keys.sorted() {
-            hasher.combine(key)
-            hasher.combine(boolValues[key] ?? false)
-        }
-        for key in stringValues.keys.sorted() {
-            hasher.combine(key)
-            hasher.combine(stringValues[key] ?? "")
-        }
-        return hasher.finalize()
-    }
-
-    static func commandPaletteSwitcherFingerprint(
-        windowContexts: [CommandPaletteSwitcherFingerprintContext]
-    ) -> Int {
-        var hasher = Hasher()
-        hasher.combine(windowContexts.count)
-        for context in windowContexts {
-            hasher.combine(context.windowId)
-            hasher.combine(context.windowLabel)
-            hasher.combine(context.selectedWorkspaceId)
-            hasher.combine(context.workspaces.count)
-            for workspace in context.workspaces {
-                hasher.combine(workspace.id)
-                hasher.combine(workspace.displayName)
-                combineCommandPaletteSwitcherSearchMetadata(workspace.metadata, into: &hasher)
-                hasher.combine(workspace.surfaces.count)
-                for surface in workspace.surfaces {
-                    hasher.combine(surface.id)
-                    hasher.combine(surface.displayName)
-                    hasher.combine(surface.kindLabel)
-                    combineCommandPaletteSwitcherSearchMetadata(surface.metadata, into: &hasher)
-                }
-            }
-        }
-        return hasher.finalize()
-    }
-
-    static func combineCommandPaletteSwitcherSearchMetadata(
-        _ metadata: CommandPaletteSwitcherSearchMetadata,
-        into hasher: inout Hasher
-    ) {
-        hasher.combine(metadata.directories.count)
-        for directory in metadata.directories {
-            hasher.combine(directory)
-        }
-        hasher.combine(metadata.branches.count)
-        for branch in metadata.branches {
-            hasher.combine(branch)
-        }
-        hasher.combine(metadata.ports.count)
-        for port in metadata.ports {
-            hasher.combine(port)
-        }
-        hasher.combine(metadata.description ?? "")
     }
 
     static func commandPaletteScrollPositionAnchor(

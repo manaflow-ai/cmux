@@ -1,3 +1,4 @@
+import CmuxCommandPalette
 import Foundation
 
 struct CommandPaletteSettingToggleDescriptor: Sendable {
