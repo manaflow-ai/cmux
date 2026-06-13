@@ -13387,6 +13387,8 @@ class TerminalController {
             result = v2MobileTerminalMouse(params: request.params)
         case "workspace.action":
             result = v2MobileWorkspaceAction(params: request.params)
+        case "workspace.close":
+            result = v2MobileWorkspaceClose(params: request.params)
         case "workspace.group.collapse":
             result = v2MobileWorkspaceGroupSetCollapsed(params: request.params, isCollapsed: true)
         case "workspace.group.expand":
@@ -13607,9 +13609,8 @@ class TerminalController {
 
     /// The `workspace.action` sub-actions the mobile data plane may invoke.
     ///
-    /// Mobile gets pin/unpin/rename only. The other sub-actions of
-    /// ``v2WorkspaceAction(params:)`` (`move_*`, `close_*`, `set_color`,
-    /// `set_description`, `mark_*`, …) reorder the global sidebar or destroy
+    /// Mobile gets pin/unpin/rename/read-state only. The other sub-actions of
+    /// ``v2WorkspaceAction(params:)`` reorder the global sidebar or destroy
     /// sibling workspaces, so they stay on the Mac/automation socket. The action
     /// is normalized exactly as ``v2ActionKey(_:_:)`` so this gate and the
     /// handler can never disagree on which action runs.
@@ -13619,11 +13620,10 @@ class TerminalController {
         guard let trimmed = rawAction?.trimmingCharacters(in: .whitespacesAndNewlines),
               !trimmed.isEmpty else { return false }
         let normalized = trimmed.lowercased().replacingOccurrences(of: "-", with: "_")
-        return ["pin", "unpin", "rename"].contains(normalized)
+        return ["pin", "unpin", "rename", "mark_read", "mark_unread"].contains(normalized)
     }
 
-    /// Mobile-gated wrapper over ``v2WorkspaceAction(params:)``: rejects every
-    /// sub-action except pin/unpin/rename before dispatching.
+    /// Mobile-gated wrapper over ``v2WorkspaceAction(params:)``.
     private func v2MobileWorkspaceAction(params: [String: Any]) -> V2CallResult {
         let rawAction = v2RawString(params, "action")
         guard Self.mobileAllowsWorkspaceAction(rawAction) else {

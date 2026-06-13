@@ -59,6 +59,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
 
     private static let terminalRenderGridCapability = "terminal.render_grid.v1"
     private static let workspaceActionsCapability = "workspace.actions.v1"
+    private static let workspaceReadStateCapability = "workspace.read_state.v1"
+    private static let workspaceCloseCapability = "workspace.close.v1"
     private static let dogfoodFeedbackCapability = "dogfood.v1"
     private static let workspaceGroupsCapability = "workspace.groups.v1"
     private static let terminalOutputCapabilityTimeoutNanoseconds: UInt64 = 750_000_000
@@ -190,23 +192,20 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// groups (or is old enough not to emit them). Drives the collapsible group
     /// sections in the workspace list.
     public var workspaceGroups: [MobileWorkspaceGroupPreview] = []
-    /// Whether the connected Mac advertises the `workspace.groups.v1` capability
-    /// (group sections in the list + `workspace.group.collapse`/`expand` over the
-    /// mobile RPC). `false` until host status is read, and for older Macs that
-    /// lack the handler, so the UI can render a flat list instead of group UI that
-    /// would not round-trip.
-    public private(set) var supportsWorkspaceGroups: Bool = false
-    /// Whether the connected Mac advertises the `workspace.actions.v1` capability
-    /// (rename/pin over the mobile RPC). `false` until host status is read, and
-    /// for older Macs that lack the handler, so the UI can hide rename/pin rather
-    /// than offer actions that would fail with `method_not_found`.
-    public private(set) var supportsWorkspaceActions: Bool = false
-    /// Whether the connected Mac advertises the `dogfood.v1` capability (the
-    /// `dogfood.feedback.submit` agent sink). `false` until host status is read,
-    /// and for older Macs that lack the handler, so the privileged Send Feedback
-    /// route falls back to email rather than failing with `method_not_found`
-    /// under client/server version skew.
-    public private(set) var supportsDogfoodFeedback: Bool = false
+    /// The connected Mac's `mobile.host.status` capabilities. Feature gates are
+    /// computed from this set so version-skew checks cannot drift from the raw
+    /// host payload.
+    public private(set) var supportedHostCapabilities: Set<String> = []
+    /// Whether the Mac supports workspace group sections and collapse/expand RPCs.
+    public var supportsWorkspaceGroups: Bool { supportedHostCapabilities.contains(Self.workspaceGroupsCapability) }
+    /// Whether the Mac supports rename/pin workspace actions.
+    public var supportsWorkspaceActions: Bool { supportedHostCapabilities.contains(Self.workspaceActionsCapability) }
+    /// Whether the Mac supports mark read/unread workspace actions.
+    public var supportsWorkspaceReadStateActions: Bool { supportedHostCapabilities.contains(Self.workspaceReadStateCapability) }
+    /// Whether the Mac supports workspace close requests.
+    public var supportsWorkspaceCloseActions: Bool { supportedHostCapabilities.contains(Self.workspaceCloseCapability) }
+    /// Whether the Mac supports dogfood feedback submission.
+    public var supportsDogfoodFeedback: Bool { supportedHostCapabilities.contains(Self.dogfoodFeedbackCapability) }
     /// The composer's live draft for the currently selected terminal.
     ///
     /// Edits are persisted per-terminal through the FIFO draft pipeline on every
@@ -2968,9 +2967,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         pendingTerminalByteEndSeqBySurfaceID = [:]
         terminalReplaySurfaceIDsInFlight = []
         terminalOutputTransport = .rawBytes
-        supportsWorkspaceActions = false
-        supportsDogfoodFeedback = false
-        supportsWorkspaceGroups = false
+        supportedHostCapabilities = []
         terminalSubscriptionRefreshTask?.cancel()
         terminalSubscriptionRefreshTask = nil
         stopRenderGridLivenessWatchdog(listenerID: nil)
@@ -3194,26 +3191,9 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         connectionRecoveryFailed = true
     }
 
-    private func markMacConnectionUnavailableIfNeeded(after error: Error) {
-        guard Self.isMacAvailabilityFailure(error) else { return }
+    func markMacConnectionUnavailableIfNeeded(after error: any Error) {
+        guard MobileShellMacAvailabilityFailureClassifier().isAvailabilityFailure(error) else { return }
         markMacConnectionUnavailable()
-    }
-
-    private static func isMacAvailabilityFailure(_ error: Error) -> Bool {
-        if error is CmxNetworkByteTransportError {
-            return true
-        }
-        guard let shellError = error as? MobileShellConnectionError else {
-            return false
-        }
-        switch shellError {
-        case .connectionClosed, .requestTimedOut:
-            return true
-        case .invalidResponse, .insecureManualRoute, .attachTicketExpired, .authorizationFailed, .accountMismatch, .rpcError:
-            // .accountMismatch means the Mac is reachable but signed in to a
-            // different account; that is an auth problem, not a Mac-availability one.
-            return false
-        }
     }
 
     private func syncSelectedTerminalForWorkspace() {
@@ -3710,15 +3690,11 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             guard remoteClient === client else { return fallback }
             guard let payload = try? MobileHostStatusResponse.decode(data) else {
                 terminalOutputTransport = fallback
-                supportsWorkspaceActions = false
-                supportsDogfoodFeedback = false
-                supportsWorkspaceGroups = false
+                // Preserve learned capabilities during transient status decode failures.
                 scheduleHostIdentityAdoptionIfNeeded(client: client)
                 return fallback
             }
-            supportsWorkspaceActions = payload.capabilities.contains(Self.workspaceActionsCapability)
-            supportsDogfoodFeedback = payload.capabilities.contains(Self.dogfoodFeedbackCapability)
-            supportsWorkspaceGroups = payload.capabilities.contains(Self.workspaceGroupsCapability)
+            supportedHostCapabilities = Set(payload.capabilities)
             await applyHostReportedIdentity(
                 client: client,
                 deviceID: payload.macDeviceID,
@@ -3738,9 +3714,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         } catch {
             guard remoteClient === client else { return fallback }
             terminalOutputTransport = fallback
-            supportsWorkspaceActions = false
-            supportsDogfoodFeedback = false
-            supportsWorkspaceGroups = false
+            // Preserve learned capabilities during transient reconnect probe failures.
             // The probe is best-effort for the terminal transport, but a
             // freshly QR-paired Mac still needs its identity recovered, with
             // a real timeout instead of the probe's 750ms.
@@ -4659,7 +4633,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         return true
     }
 
-    private func disconnectForAuthorizationFailureIfNeeded(_ error: any Error) -> Bool {
+    func disconnectForAuthorizationFailureIfNeeded(_ error: any Error) -> Bool {
         guard Self.shouldDisconnectForAuthorizationFailure(error) else {
             return false
         }
