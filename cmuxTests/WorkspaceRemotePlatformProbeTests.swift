@@ -53,6 +53,8 @@ struct WorkspaceRemotePlatformProbeTests {
             at: bin.appendingPathComponent("tr"),
             body: """
             #!/bin/sh
+            # OpenWrt BusyBox without FEATURE_TR_CLASSES maps these literal
+            # argument bytes positionally, so Linux becomes Linlx.
             if [ "$#" -eq 2 ] && [ "$1" = '[:upper:]' ] && [ "$2" = '[:lower:]' ]; then
               awk -v from="$1" -v to="$2" '
                 BEGIN {
@@ -100,6 +102,64 @@ struct WorkspaceRemotePlatformProbeTests {
             result.stdout.contains("\(WorkspaceRemoteSessionController.remotePlatformProbeArchMarker)x86_64"),
             stdoutComment
         )
+        #expect(
+            result.stdout.contains("\(WorkspaceRemoteSessionController.remotePlatformProbeExistsMarker)yes"),
+            stdoutComment
+        )
+    }
+
+    @Test
+    func probeScriptSanitizesVersionBeforeShellInterpolation() throws {
+        let fileManager = FileManager.default
+        let root = fileManager.temporaryDirectory.appendingPathComponent(
+            "cmux-remote-platform-probe-\(UUID().uuidString)",
+            isDirectory: true
+        )
+        let home = root.appendingPathComponent("home", isDirectory: true)
+        let bin = root.appendingPathComponent("bin", isDirectory: true)
+        let daemonURL = home
+            .appendingPathComponent(".cmux/bin/cmuxd-remote/dev/linux-amd64", isDirectory: true)
+            .appendingPathComponent("cmuxd-remote", isDirectory: false)
+        try fileManager.createDirectory(at: daemonURL.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try fileManager.createDirectory(at: bin, withIntermediateDirectories: true)
+        defer { try? fileManager.removeItem(at: root) }
+
+        try Self.writeExecutableShellFile(
+            at: daemonURL,
+            body: """
+            #!/bin/sh
+            exit 0
+            """
+        )
+        try Self.writeExecutableShellFile(
+            at: bin.appendingPathComponent("uname"),
+            body: """
+            #!/bin/sh
+            case "${1:-}" in
+              -s) printf '%s\\n' Linux ;;
+              -m) printf '%s\\n' x86_64 ;;
+              *) exit 1 ;;
+            esac
+            """
+        )
+
+        let result = try Self.runProcess(
+            executablePath: "/usr/bin/env",
+            arguments: [
+                "HOME=\(home.path)",
+                "PATH=\(bin.path):/usr/bin:/bin",
+                "/bin/sh",
+                "-c",
+                WorkspaceRemoteSessionController.remotePlatformProbeScript(
+                    version: #""; printf "__CMUX_INJECTED__\n"; #"#
+                ),
+            ]
+        )
+
+        let outputComment = Comment(rawValue: result.stdout + result.stderr)
+        let stdoutComment = Comment(rawValue: result.stdout)
+        #expect(result.status == 0, outputComment)
+        #expect(!result.stdout.contains("__CMUX_INJECTED__"), stdoutComment)
         #expect(
             result.stdout.contains("\(WorkspaceRemoteSessionController.remotePlatformProbeExistsMarker)yes"),
             stdoutComment
