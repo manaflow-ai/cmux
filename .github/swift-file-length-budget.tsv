@@ -4,7 +4,7 @@
 33285	CLI/cmux.swift
 19991	Sources/Workspace.swift
 18118	Sources/AppDelegate.swift
-17932	Sources/ContentView.swift
+17761	Sources/ContentView.swift
 16675	Sources/GhosttyTerminalView.swift
 14623	Sources/TerminalController.swift
 13606	Sources/Panels/BrowserPanel.swift
@@ -73,7 +73,7 @@
 1216	Packages/CmuxCommandPalette/Tests/CmuxCommandPaletteTests/CommandPaletteSearchEngineTests.swift
 1205	Packages/CmuxMobileTerminal/Sources/CmuxMobileTerminal/TerminalInputTextView.swift
 1197	cmuxTests/CodexAppServerSessionTests.swift
-1156	cmuxTests/SidebarOrderingTests.swift
+1157	cmuxTests/SidebarOrderingTests.swift
 1144	Sources/VaultAgentProcessScanner.swift
 1139	cmuxTests/PiVaultAgentPersistenceTests.swift
 1126	cmuxTests/FileExplorerStoreTests.swift
