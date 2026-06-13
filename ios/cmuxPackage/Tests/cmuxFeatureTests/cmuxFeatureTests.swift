@@ -3626,6 +3626,7 @@ private struct InertPushRegistration: PushRegistering {
     func register(deviceToken: Data) async {}
     func syncTokenIfPossible() async {}
     func unregisterFromServer() async {}
+    func unregisterFromServer(accessToken: String?, refreshToken: String?) async {}
 }
 
 @MainActor private func deeplinkTestStore() -> CMUXMobileShellStore {

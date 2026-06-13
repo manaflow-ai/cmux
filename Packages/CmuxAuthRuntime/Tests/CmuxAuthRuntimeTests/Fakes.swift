@@ -32,7 +32,15 @@ actor FakeAuthClient: AuthClient {
     private(set) var signedInWithMagicLink = false
     private(set) var signedInWithCredential: (email: String, password: String)?
     private(set) var oauthProviders: [String] = []
-    private(set) var signOutCount = 0
+    private(set) var clearLocalSessionCount = 0
+    private(set) var revokeCount = 0
+    private(set) var lastRevokedAccessToken: String?
+    private(set) var lastRevokedRefreshToken: String?
+    /// Scripted mint result of ``freshAccessToken(accessToken:refreshToken:)``
+    /// (default `nil`: the fake passes the captured access token through, like
+    /// a still-fresh token or a mint that failed offline).
+    var mintedAccessToken: String?
+    private(set) var lastMintedRefreshToken: String?
 
     init(access: String? = nil, refresh: String? = nil, user: CMUXAuthUser? = nil) {
         self.access = access
@@ -46,6 +54,7 @@ actor FakeAuthClient: AuthClient {
         self.refresh = refresh
     }
     func setForceRefreshResult(_ result: String?) { forceRefreshResult = .some(result) }
+    func setMintedAccessToken(_ token: String?) { mintedAccessToken = token }
     func setThrowOnCurrentUser(_ error: (any Error)?) { throwOnCurrentUser = error }
     func setTeams(_ teams: [CMUXAuthTeam]) { self.teams = teams }
     func setThrowOnListTeams(_ error: (any Error)?) { throwOnListTeams = error }
@@ -86,10 +95,30 @@ actor FakeAuthClient: AuthClient {
         access = "access"
     }
 
-    func signOut() async throws {
-        signOutCount += 1
+    func storedAccessToken() async -> String? { access }
+
+    func clearLocalSession() async {
+        clearLocalSessionCount += 1
         access = nil
         refresh = nil
+    }
+
+    func clearLocalSession(ifRefreshTokenMatches refreshToken: String) async {
+        guard refresh == refreshToken else { return }
+        clearLocalSessionCount += 1
+        access = nil
+        refresh = nil
+    }
+
+    func revokeSession(accessToken: String?, refreshToken: String?) async throws {
+        revokeCount += 1
+        lastRevokedAccessToken = accessToken
+        lastRevokedRefreshToken = refreshToken
+    }
+
+    func freshAccessToken(accessToken: String?, refreshToken: String) async -> String? {
+        lastMintedRefreshToken = refreshToken
+        return mintedAccessToken ?? accessToken
     }
 }
 

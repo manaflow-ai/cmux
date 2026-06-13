@@ -132,6 +132,7 @@ import Testing
           "workspaces": [
             {
               "id": "ws-1",
+              "window_id": "window-1",
               "title": "cmux",
               "current_directory": "/Users/test/project",
               "is_selected": true,
@@ -156,9 +157,12 @@ import Testing
         #expect(response.createdWorkspaceID == "ws-1")
         #expect(response.createdTerminalID == "t-1")
         let workspace = try #require(response.workspaces.first)
+        #expect(workspace.windowID == "window-1")
         #expect(workspace.isSelected)
         #expect(workspace.terminals.first?.isFocused == true)
         #expect(workspace.terminals.first?.isReady == true)
+        let mapped = MobileWorkspacePreview(remote: workspace)
+        #expect(mapped.windowID == "window-1")
     }
 
     /// The Mac emits an optional per-workspace `preview` + `preview_at` (latest
@@ -337,5 +341,47 @@ import Testing
         let route = try hostPortRoute(kind: .tailscale, host: "192.168.1.20", port: 58465)
         let probe = try await sentHostStatusProbe(route: route, stackAccessToken: "test-stack-token")
         #expect(probe?.hasAuth == false)
+    }
+
+    @Test func workspaceActionsCarryMacWideAttachTicketContext() async throws {
+        let route = try hostPortRoute(kind: .tailscale, host: "100.64.0.5", port: 58465)
+        let transport = QueuedCancellationProbeTransport()
+        let runtime = TestMobileSyncRuntime(
+            transportFactory: QueuedCancellationProbeTransportFactory(transport: transport),
+            stackAccessToken: "test-stack-token"
+        )
+        let ticket = try CmxAttachTicket(
+            workspaceID: "",
+            terminalID: nil,
+            macDeviceID: "test-mac",
+            macDisplayName: "Test Mac",
+            routes: [route],
+            expiresAt: Date().addingTimeInterval(60),
+            authToken: "ticket-secret"
+        )
+        let client = MobileCoreRPCClient(
+            runtime: runtime,
+            route: route,
+            ticket: ticket,
+            allowsStackAuthFallback: true
+        )
+        let request = try MobileCoreRPCClient.requestData(
+            method: "workspace.action",
+            params: [
+                "workspace_id": "workspace-main",
+                "action": "mark_read",
+            ]
+        )
+        let task = Task { try await client.sendRequest(request) }
+        let sent = try await transport.waitForSentRequestCount(1)
+        task.cancel()
+        _ = try? await task.value
+
+        let frame = try #require(sent.first)
+        #expect(frame.method == "workspace.action")
+        #expect(frame.workspaceID == "workspace-main")
+        #expect(frame.attachToken == "ticket-secret")
+        #expect(frame.stackAccessToken == "test-stack-token")
+        #expect(frame.hasAuth)
     }
 }
