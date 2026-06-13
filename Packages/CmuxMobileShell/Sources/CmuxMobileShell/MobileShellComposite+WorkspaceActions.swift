@@ -101,6 +101,8 @@ extension MobileShellComposite {
             )
             _ = try await client.sendRequest(request)
         } catch {
+            guard !disconnectForAuthorizationFailureIfNeeded(error) else { return }
+            markMacConnectionUnavailableIfNeeded(after: error)
             mobileShellLog.error("workspace mutation failed action=\(actionName, privacy: .public) id=\(id.rawValue, privacy: .public) error=\(String(describing: error), privacy: .public)")
         }
         await refreshWorkspaces()

@@ -267,8 +267,8 @@ extension TerminalController {
                 result = .err(
                     code: "protected",
                     message: String(
-                        localized: "workspace.closeProtected.message",
-                        defaultValue: "Pinned workspaces can't be closed while pinned. Unpin the workspace first."
+                        localized: "workspace.closeBlocked.message",
+                        defaultValue: "This workspace can't be closed right now."
                     ),
                     data: [
                         "workspace_id": workspaceID.uuidString,

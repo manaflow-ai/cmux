@@ -3194,12 +3194,12 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         connectionRecoveryFailed = true
     }
 
-    private func markMacConnectionUnavailableIfNeeded(after error: Error) {
+    func markMacConnectionUnavailableIfNeeded(after error: any Error) {
         guard Self.isMacAvailabilityFailure(error) else { return }
         markMacConnectionUnavailable()
     }
 
-    private static func isMacAvailabilityFailure(_ error: Error) -> Bool {
+    private static func isMacAvailabilityFailure(_ error: any Error) -> Bool {
         if error is CmxNetworkByteTransportError {
             return true
         }
@@ -4655,7 +4655,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         return true
     }
 
-    private func disconnectForAuthorizationFailureIfNeeded(_ error: any Error) -> Bool {
+    func disconnectForAuthorizationFailureIfNeeded(_ error: any Error) -> Bool {
         guard Self.shouldDisconnectForAuthorizationFailure(error) else {
             return false
         }
