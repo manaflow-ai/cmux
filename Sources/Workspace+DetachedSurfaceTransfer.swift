@@ -1,4 +1,5 @@
 import Foundation
+import CmuxCore
 import Darwin
 
 extension Workspace {
