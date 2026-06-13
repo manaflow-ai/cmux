@@ -83,6 +83,26 @@ final class PhonePushClient {
         }
     }
 
+    /// Whether a banner forward for this delivery would currently pass the
+    /// enable + presence gate, ignoring the per-tab/surface burst throttle.
+    ///
+    /// The superseded-banner buffering decision in
+    /// ``TerminalNotificationStore`` keys on this so it matches the real send
+    /// decision in ``forward(_:badgeCount:)``: only the throttle is a
+    /// legitimate "defer and flush on the next successful forward" case. When
+    /// forwarding is off or the `.onlyWhenAway` presence gate suppresses the
+    /// replacement (Mac active), no replacement push is coming, so the store
+    /// must emit the superseded dismiss immediately rather than stash it for a
+    /// forward that will never happen. Returns `false` when forwarding is off
+    /// or the presence gate currently suppresses delivery; `true` otherwise.
+    func willForwardReplacement(defaults: UserDefaults = .standard) -> Bool {
+        guard defaults.bool(forKey: PhonePushSettings.forwardEnabledKey) else { return false }
+        let mode = PhoneForwardingMode.fromDefaults(defaults)
+        if mode == .always { return true }
+        let presence = presenceCache.decision(from: presenceMonitor)
+        return Self.shouldForward(mode: mode, presence: presence)
+    }
+
     /// Forward a notification if the user opted in. Captures the fields up front
     /// and performs the network call off the caller's critical path.
     /// - Parameter badgeCount: The authoritative unread-notification total at

@@ -6,7 +6,7 @@
 19225	Sources/ContentView.swift
 18118	Sources/AppDelegate.swift
 16674	Sources/GhosttyTerminalView.swift
-14710	Sources/TerminalController.swift
+14610	Sources/TerminalController.swift
 13606	Sources/Panels/BrowserPanel.swift
 12044	cmuxTests/AppDelegateShortcutRoutingTests.swift
 10020	Sources/TabManager.swift
@@ -42,7 +42,7 @@
 2327	cmuxTests/CJKIMEInputTests.swift
 2322	Sources/Mobile/MobileHostService.swift
 2314	Sources/FileExplorerView.swift
-2287	Sources/TerminalNotificationStore.swift
+2291	Sources/TerminalNotificationStore.swift
 2260	Sources/TerminalWindowPortal.swift
 2198	Sources/SessionPersistence.swift
 2123	cmuxTests/ShortcutAndCommandPaletteTests.swift

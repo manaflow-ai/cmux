@@ -1242,13 +1242,17 @@ final class TerminalNotificationStore: ObservableObject {
             // is actually queued (see ``deliverNotificationSideEffects``): the
             // phone must never lose its only banner to a dismissal whose
             // replacement was throttled. When no replacement will be forwarded
-            // (suppressed/focused, non-desktop effects, forwarding off), emit
-            // the dismiss immediately — nothing is coming to replace the
-            // banner, and the Mac is not showing one either, so deferring
-            // would just leave the stale banner stuck until a later forward.
+            // (suppressed/focused, non-desktop effects, forwarding off, or the
+            // `.onlyWhenAway` presence gate suppressing it while the Mac is
+            // active), emit the dismiss immediately — nothing is coming to
+            // replace the banner, and the Mac is not showing one either, so
+            // deferring would just leave the stale banner stuck until a later
+            // forward. Only the burst throttle is a legitimate defer-and-flush
+            // case, which is why ``PhonePushClient/willForwardReplacement()``
+            // mirrors the real send gate but ignores that throttle.
             let replacementWillForward = !shouldSuppressExternalDelivery
                 && effects.desktop
-                && PhonePushClient.isForwardingEnabled
+                && PhonePushClient.shared.willForwardReplacement()
             if replacementWillForward {
                 // The superseded entries already left the store; tombstone them
                 // now so the reconcile sweep stays correct while the dismiss is
