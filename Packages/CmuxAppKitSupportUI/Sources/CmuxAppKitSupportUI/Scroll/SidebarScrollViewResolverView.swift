@@ -1,14 +1,22 @@
-import AppKit
+public import AppKit
 
 /// Resolves the sidebar list's enclosing `NSScrollView` for the SwiftUI layer
-/// (`SidebarScrollViewResolver` in `ContentView.swift`), which applies
-/// `SidebarScrollViewConfigurator`'s overlay configuration through
+/// (``SidebarScrollViewResolver``), which applies
+/// ``SidebarScrollViewConfigurator``'s overlay configuration through
 /// `onResolve`.
-final class SidebarScrollViewResolverView: NSView {
-    var onResolve: ((NSScrollView?) -> Void)?
-    private var scrollerStyleObserver: NSObjectProtocol?
+public final class SidebarScrollViewResolverView: NSView {
+    /// Invoked with the resolved enclosing scroll view (or `nil`) after each
+    /// deferred resolution hop.
+    public var onResolve: ((NSScrollView?) -> Void)?
+    // The observer token is only ever assigned/read on the main thread (this is
+    // a main-thread-only NSView); the lone exception is its removal in the
+    // nonisolated deinit, which is safe because deinit runs after all main-thread
+    // access has ceased. `nonisolated(unsafe)` keeps that one cross-isolation
+    // read legal under Swift 6 without weakening the type.
+    private nonisolated(unsafe) var scrollerStyleObserver: NSObjectProtocol?
 
-    override init(frame frameRect: NSRect) {
+    /// Creates the resolver view and begins observing scroller-style changes.
+    public override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
         // AppKit resets every NSScrollView's scrollerStyle to the new system
         // preference when the preferred scroller style changes (mouse
@@ -29,7 +37,7 @@ final class SidebarScrollViewResolverView: NSView {
         }
     }
 
-    required init?(coder: NSCoder) {
+    public required init?(coder: NSCoder) {
         fatalError("init(coder:) not implemented")
     }
 
@@ -39,17 +47,20 @@ final class SidebarScrollViewResolverView: NSView {
         }
     }
 
-    override func viewDidMoveToSuperview() {
+    public override func viewDidMoveToSuperview() {
         super.viewDidMoveToSuperview()
         resolveScrollView()
     }
 
-    override func viewDidMoveToWindow() {
+    public override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
         resolveScrollView()
     }
 
-    func resolveScrollView() {
+    /// Resolves the enclosing scroll view after one deferred main-actor hop so
+    /// the view hierarchy settles and any AppKit scroller-style reset lands
+    /// before the configuration is re-applied.
+    public func resolveScrollView() {
         // Deferred one main-actor hop so the view hierarchy settles before
         // enclosingScrollView is resolved and, on scroller-style changes,
         // AppKit's own synchronous per-scroll-view reset lands before the
