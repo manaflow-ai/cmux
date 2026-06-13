@@ -1,4 +1,6 @@
+import CmuxWorkspaceNavigation
 import Darwin
+import CmuxCore
 import XCTest
 
 #if canImport(cmux_DEV)
@@ -474,11 +476,10 @@ final class TabManagerSessionSnapshotTests: XCTestCase {
             isNavigable: true
         )
 
-        let snapshot = FocusHistoryMenuSnapshotBuilder.recentlyFocused(
+        let snapshot = FocusHistoryMenuSnapshot.recentlyFocused(
             back: FocusHistoryMenuSnapshot(items: [older], totalItemCount: 1, isLimited: false),
             forward: FocusHistoryMenuSnapshot(items: [newer], totalItemCount: 1, isLimited: false),
-            maxItemCount: 1
-        )
+            maxItemCount: 1)
 
         XCTAssertTrue(snapshot.isLimited)
         XCTAssertEqual(snapshot.totalItemCount, 2)

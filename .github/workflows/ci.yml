@@ -350,6 +350,25 @@ jobs:
             -only-testing:cmuxTests/BrowserSystemProxyMirrorTests \
             test
 
+      - name: Run Option/Alt sided-modifier regression
+        run: |
+          # Focused gate for https://github.com/manaflow-ai/cmux/issues/5993.
+          # The full "Run unit tests" step tolerates app-host crashes by
+          # parsing only the last test summary, so suites that run late can
+          # be silently skipped when an earlier crash aborts the run. This
+          # step makes the Option/Alt sided-modifier and Option-composition
+          # regression an unconditional gate.
+          set -euo pipefail
+          SOURCE_PACKAGES_DIR="$PWD/.ci-source-packages"
+          xcodebuild -project cmux.xcodeproj -scheme cmux-unit -configuration Debug \
+            -derivedDataPath "$CMUX_DERIVED_DATA_PATH" \
+            -clonedSourcePackagesDirPath "$SOURCE_PACKAGES_DIR" \
+            -disableAutomaticPackageResolution \
+            -destination "platform=macOS" \
+            CMUX_SKIP_ZIG_BUILD=1 \
+            -only-testing:cmuxTests/GhosttyOptionAsAltModsTests \
+            test
+
       - name: Run unit tests
         run: |
           set -euo pipefail
@@ -435,9 +454,17 @@ jobs:
           # convergence, etc.) are a real CI gate, not just compiled.
           # Scoped to packages that build headlessly via SwiftPM (no GhosttyKit /
           # app-target dependency). Add a package here once its `swift test`
-          # is confirmed to resolve standalone.
+          # is confirmed to resolve standalone. CmuxTerminalCore is the one
+          # GhosttyKit-referencing exception: its binaryTarget only needs the
+          # xcframework present at the repo root (downloaded earlier in this
+          # job), and its test runner links a C stub for the @_silgen_name
+          # symbol instead of the GhosttyKit archive.
           PACKAGES=(
             CMUXAuthCore
+            CmuxCore
+            CmuxRemoteDaemon
+            CmuxRemoteWorkspace
+            CmuxRemoteSession
             CmuxAuthRuntime
             CmuxControlSocket
             CmuxFileWatch
@@ -447,12 +474,38 @@ jobs:
             CmuxSettings
             CmuxSettingsUI
             CmuxSocketControl
+            CmuxTerminalCore
             CmuxUpdater
             CMUXAgentLaunch
           )
+          # SwiftPM emits an error-severity diagnostic while planning the
+          # GhosttyKit binaryTarget (the xcframework's static archive is not
+          # lib-prefixed: "unexpected binary name"/"unexpected binary
+          # framework"). The build and every test still succeed, but the
+          # diagnostic poisons the process exit code on a fresh .build. For
+          # CmuxTerminalCore only, tolerate exactly that case: a nonzero exit
+          # passes only when the all-tests-passed summary is present, no test
+          # failures are reported, and the only error lines are that known
+          # diagnostic. Everything else (compile errors, test failures,
+          # crashes) still fails the job.
           for pkg in "${PACKAGES[@]}"; do
             echo "::group::swift test Packages/$pkg"
-            swift test --package-path "Packages/$pkg"
+            if [ "$pkg" = "CmuxTerminalCore" ]; then
+              status=0
+              output="$(swift test --package-path "Packages/$pkg" 2>&1)" || status=$?
+              printf '%s\n' "$output"
+              if [ "$status" -ne 0 ]; then
+                if printf '%s\n' "$output" | grep -Eq 'Test run with [0-9]+ tests( in [0-9]+ suites)? passed' \
+                  && ! printf '%s\n' "$output" | grep -Eq 'with [1-9][0-9]* failures?' \
+                  && ! printf '%s\n' "$output" | grep -v 'unexpected binary' | grep -Eq '(^|[^a-zA-Z])error:'; then
+                  echo "Tolerated cosmetic GhosttyKit binaryTarget diagnostic; all tests passed."
+                else
+                  exit "$status"
+                fi
+              fi
+            else
+              swift test --package-path "Packages/$pkg"
+            fi
             echo "::endgroup::"
           done
 
