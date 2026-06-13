@@ -2,9 +2,9 @@
 # Format: max_lines<TAB>relative path
 # Reduce counts as files shrink. CI fails if tracked files exceed this budget.
 33285	CLI/cmux.swift
-19221	Sources/ContentView.swift
-18081	Sources/AppDelegate.swift
-16076	Sources/GhosttyTerminalView.swift
+19212	Sources/ContentView.swift
+18078	Sources/AppDelegate.swift
+16036	Sources/GhosttyTerminalView.swift
 14626	Sources/TerminalController.swift
 13568	Sources/Panels/BrowserPanel.swift
 12044	cmuxTests/AppDelegateShortcutRoutingTests.swift
@@ -14,9 +14,9 @@
 7308	cmuxTests/WorkspaceUnitTests.swift
 6943	cmuxTests/WorkspaceRemoteConnectionTests.swift
 6555	cmuxTests/GhosttyConfigTests.swift
-6330	cmuxTests/SessionPersistenceTests.swift
+6332	cmuxTests/SessionPersistenceTests.swift
 6153	CLI/cmux_open.swift
-6092	Sources/TabManager.swift
+6071	Sources/TabManager.swift
 6071	Sources/TextBoxInput.swift
 5966	cmuxTests/TerminalAndGhosttyTests.swift
 5494	cmuxTests/BrowserConfigTests.swift
@@ -51,8 +51,8 @@
 1949	Sources/Panels/BrowserWebAuthnSupport.swift
 1860	cmuxTests/NotificationAndMenuBarTests.swift
 1794	Sources/SessionIndexStore.swift
+1777	Sources/RestorableAgentSession.swift
 1751	Sources/WindowDragHandleView.swift
-1744	Sources/RestorableAgentSession.swift
 1722	cmuxTests/TerminalControllerSocketSecurityTests.swift
 1695	cmuxTests/WorkspacePullRequestSidebarTests.swift
 1677	cmuxUITests/BrowserPaneNavigationKeybindUITests.swift
@@ -70,18 +70,18 @@
 1362	Sources/CMUXInstalledExtensionSidebarHostView.swift
 1312	cmuxTests/MobileHostAuthorizationTests.swift
 1285	cmuxUITests/SidebarHelpMenuUITests.swift
+1270	cmuxTests/RestorableAgentSessionIndexTests.swift
 1257	Sources/Feed/FeedCoordinator.swift
 1205	Packages/CmuxMobileTerminal/Sources/CmuxMobileTerminal/TerminalInputTextView.swift
 1197	cmuxTests/CodexAppServerSessionTests.swift
+1166	Sources/VaultAgentProcessScanner.swift
 1159	cmuxTests/SidebarOrderingTests.swift
-1144	Sources/VaultAgentProcessScanner.swift
 1139	cmuxTests/PiVaultAgentPersistenceTests.swift
 1126	cmuxTests/FileExplorerStoreTests.swift
+1119	cmuxTests/AgentHibernationTests.swift
 1107	Sources/AppDelegate+CmuxSSHURL.swift
 1096	Sources/GhosttyConfig.swift
 1093	cmuxUITests/BonsplitTabDragUITests.swift
-1084	cmuxTests/AgentHibernationTests.swift
-1084	cmuxTests/RestorableAgentSessionIndexTests.swift
 1021	cmuxUITests/TerminalCmdClickUITests.swift
 1006	cmuxTests/CmuxSSHURLRequestTests.swift
 1000	cmuxTests/CmuxTopSnapshotScopeTests.swift
@@ -133,7 +133,7 @@
 683	Sources/Panels/CodexAppServerSession.swift
 681	Sources/Panels/AgentSessionProcessStore.swift
 680	Sources/FileExplorerSearchController.swift
-671	Packages/CmuxRemoteSession/Sources/CmuxRemoteSession/Session/RemoteSessionCoordinator+Bootstrap.swift
+677	Packages/CmuxRemoteSession/Sources/CmuxRemoteSession/Session/RemoteSessionCoordinator+Bootstrap.swift
 668	cmuxTests/FeedCoordinatorTests.swift
 654	Packages/CmuxSettingsUI/Sources/CmuxSettingsUI/Sections/KeyboardShortcutsSection.swift
 650	Sources/Panels/MarkdownRemoteImageLoader.swift

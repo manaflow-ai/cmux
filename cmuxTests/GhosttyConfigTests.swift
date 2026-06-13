@@ -3,8 +3,8 @@ import CmuxSettings
 import CmuxBrowser
 import CmuxCore
 import CmuxRemoteDaemon
-import CmuxRemoteWorkspace
 import CmuxRemoteSession
+import CmuxRemoteWorkspace
 import CmuxSocketControl
 import AppKit
 import Combine

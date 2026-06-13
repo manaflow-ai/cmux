@@ -2,21 +2,25 @@ import Foundation
 import Testing
 @testable import CmuxRemoteSession
 
-// Remote platform probe coverage, retargeted from the app's
-// WorkspaceRemotePlatformProbeTests onto the lifted package type
-// (`WorkspaceRemoteSessionController` -> `RemoteSessionCoordinator`);
-// assertions unchanged. Pins the OpenWrt BusyBox `tr`-without-classes fix
-// (https://github.com/manaflow-ai/cmux/pull/6056), the version
-// sanitization, and the marker-stripped user-facing stdout.
-@Suite(.serialized)
-struct RemotePlatformProbeTests {
+// Ported from the app-target WorkspaceRemotePlatformProbeTests (#6056) when
+// the remote bootstrap probe was lifted into CmuxRemoteSession. The probe must
+// stay BusyBox-portable (OpenWrt builds without FEATURE_TR_CLASSES corrupt
+// `tr '[:upper:]' '[:lower:]'`), must sanitize the version segment before it is
+// interpolated into remote shell, and must strip internal markers from the
+// stdout used in user-facing error detail.
+//
+// `.serialized`: each script case spawns a real `Process` with `Pipe`s; the
+// suite shares the process-global fd table and is not parallel-safe, matching
+// RemoteSessionProcessRunnerTests.
+@Suite("RemotePlatformProbeScript", .serialized)
+struct RemotePlatformProbeScriptTests {
     private struct ProcessResult {
         let status: Int32
         let stdout: String
         let stderr: String
     }
 
-    @Test
+    @Test("Probe works when tr lacks character classes (OpenWrt BusyBox)")
     func probeScriptWorksWhenTrLacksCharacterClasses() throws {
         let fileManager = FileManager.default
         let root = fileManager.temporaryDirectory.appendingPathComponent(
@@ -109,7 +113,7 @@ struct RemotePlatformProbeTests {
         )
     }
 
-    @Test
+    @Test("Probe sanitizes the version before shell interpolation")
     func probeScriptSanitizesVersionBeforeShellInterpolation() throws {
         let fileManager = FileManager.default
         let root = fileManager.temporaryDirectory.appendingPathComponent(
@@ -167,7 +171,7 @@ struct RemotePlatformProbeTests {
         )
     }
 
-    @Test
+    @Test("User-facing stdout omits internal probe markers")
     func userFacingStdoutOmitsInternalProbeMarkers() {
         let stdout = """
         \(RemoteSessionCoordinator.remotePlatformProbeHomeMarker)/root
@@ -177,6 +181,12 @@ struct RemotePlatformProbeTests {
         """
 
         #expect(RemoteSessionCoordinator.remotePlatformProbeUserFacingStdout(stdout) == "actual failure detail")
+    }
+
+    @Test("armv7 maps to arm")
+    func armv7MapsToArm() {
+        #expect(RemoteSessionCoordinator.mapUnameArch("armv7") == "arm")
+        #expect(RemoteSessionCoordinator.mapUnameArch("armv7l") == "arm")
     }
 
     private static func writeExecutableShellFile(at url: URL, body: String) throws {

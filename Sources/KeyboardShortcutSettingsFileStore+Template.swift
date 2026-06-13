@@ -61,6 +61,7 @@ extension CmuxSettingsFileStore {
                     "language": LanguageSettings.defaultLanguage.rawValue,
                     "appearance": AppearanceSettings.defaultMode.rawValue,
                     "appIcon": AppIconSettings.defaultMode.rawValue,
+                    "windowTitleTemplate": WindowTitleTemplate.defaultRawValue,
                     "menuBarOnly": MenuBarOnlySettings.defaultMenuBarOnly,
                     "newWorkspacePlacement": SettingCatalog().app.newWorkspacePlacement.defaultValue.rawValue,
                     "forkConversationDefaultDestination": AgentConversationForkDefaultSettings.defaultDestination.rawValue,
