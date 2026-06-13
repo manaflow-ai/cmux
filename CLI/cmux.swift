@@ -23036,8 +23036,8 @@ struct CMUXCLI {
         terminalBindingCache: inout ClaudeHookTerminalBindingCache,
         client: SocketClient
     ) throws -> String {
-        if let preferred = nonEmptyClaudeHookIdentifier(preferred) {
-            return try resolveWorkspaceId(preferred, client: client)
+        if let preferred = nonEmptyClaudeHookIdentifier(preferred), let resolvedPreferred = try? resolveWorkspaceId(preferred, client: client), claudeHookWorkspaceIsAccessible(resolvedPreferred, client: client) {
+            return resolvedPreferred
         }
         if let fallback = nonEmptyClaudeHookIdentifier(fallback) {
             guard fallbackIsAmbient else {
