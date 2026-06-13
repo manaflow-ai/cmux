@@ -395,13 +395,11 @@ struct ClaudeNoFlickerHookBindingTests {
     func claudePromptSubmitIgnoresRawShellTTYWithoutCmuxTarget() throws {
         let context = try support.makeHookContext(name: "claude-raw-tty-no-target")
         defer { context.cleanup() }
-
         var environment = support.baseHookEnvironment(context: context)
         environment["CMUX_WORKSPACE_ID"] = ""
         environment["CMUX_SURFACE_ID"] = ""
         environment["TTY"] = "/dev/ttys6048"
         environment["SSH_TTY"] = "/dev/ttys6049"
-
         let result = support.runProcess(
             executablePath: context.cliPath,
             arguments: ["hooks", "claude", "prompt-submit"],
@@ -409,7 +407,6 @@ struct ClaudeNoFlickerHookBindingTests {
             standardInput: #"{"session_id":"raw-tty-session","turn_id":"turn-1","cwd":"\#(context.root.path)","hook_event_name":"UserPromptSubmit","prompt":"run"}"#,
             timeout: 5
         )
-
         #expect(!result.timedOut, Comment(rawValue: result.stderr))
         #expect(result.status == 0, Comment(rawValue: result.stderr))
         #expect(result.stdout == "{}\n")
@@ -420,7 +417,9 @@ struct ClaudeNoFlickerHookBindingTests {
     func claudePromptSubmitKeepsValidAmbientTargetOverRawShellTTY() throws {
         let context = try support.makeHookContext(name: "claude-raw-tty-valid-env")
         defer { context.cleanup() }
-        let staleWorkspaceId = "55555555-5555-5555-5555-555555555555", staleSurfaceId = "66666666-6666-6666-6666-666666666666", staleTTY = "ttys6048"
+        let staleWorkspaceId = "55555555-5555-5555-5555-555555555555"
+        let staleSurfaceId = "66666666-6666-6666-6666-666666666666"
+        let staleTTY = "ttys6048"
         let server = support.startMockServer(listenerFD: context.listenerFD, state: context.state) { line in
             guard let payload = ClaudeHookRoutingTestSupport.jsonObject(line) else { return "OK" }
             guard let id = payload["id"] as? String, let method = payload["method"] as? String else {
@@ -443,7 +442,8 @@ struct ClaudeNoFlickerHookBindingTests {
                 return ClaudeHookRoutingTestSupport.v2Response(id: id, ok: false, error: ["code": "unrecognized_method", "message": "unexpected method: \(method)"])
             }
         }
-        var environment = support.baseHookEnvironment(context: context); environment["TTY"] = "/dev/\(staleTTY)"
+        var environment = support.baseHookEnvironment(context: context)
+        environment["TTY"] = "/dev/\(staleTTY)"
         let result = support.runProcess(
             executablePath: context.cliPath,
             arguments: ["hooks", "claude", "prompt-submit"],
