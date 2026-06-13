@@ -12773,14 +12773,14 @@ struct SidebarWorkspaceFrameAnchorModifier: ViewModifier {
     let id: UUID
     let isEnabled: Bool
 
-    @ViewBuilder
     func body(content: Content) -> some View {
-        if isEnabled {
-            content.anchorPreference(key: SidebarWorkspaceRowFramePreferenceKey.self, value: .bounds) { anchor in
-                [id: anchor]
-            }
-        } else {
-            content
+        // Branchless: always apply anchorPreference, emit [:] when disabled. An
+        // if/else gives `content` distinct identity per state, so flipping
+        // isEnabled at drag start/end recreated every visible row's subtree
+        // (lost @State, fresh snapshot builds + relayout mid-drag). The frame
+        // *reader* stays gated on the drag (#5325), so an empty emit costs nothing.
+        content.anchorPreference(key: SidebarWorkspaceRowFramePreferenceKey.self, value: .bounds) { anchor in
+            isEnabled ? [id: anchor] : [:]
         }
     }
 }
@@ -15292,7 +15292,6 @@ struct TabItemView: View, Equatable {
     @StateObject private var contextMenuState = SidebarTabItemContextMenuState()
     @State private var rowInteractionState = SidebarWorkspaceRowInteractionState()
     @State private var rowHeight: CGFloat = 1
-    @State private var workspaceFinderDirectoryCache = WorkspaceFinderDirectoryCache()
     @State private var workspaceFinderDirectoryOpenRequest: WorkspaceFinderDirectoryOpenRequest?
 
     var isMultiSelected: Bool {
@@ -15621,8 +15620,6 @@ struct TabItemView: View, Equatable {
         let accessibilityHintText = String(localized: "sidebar.workspace.accessibilityHint", defaultValue: "Activate to focus this workspace. Drag to reorder, or use Move Up and Move Down actions.")
         let moveUpActionText = String(localized: "sidebar.workspace.moveUpAction", defaultValue: "Move Up")
         let moveDownActionText = String(localized: "sidebar.workspace.moveDownAction", defaultValue: "Move Down")
-        let finderDirectoryPath = WorkspaceFinderDirectoryResolver.path(for: tab)
-        let finderDirectoryCacheKey = WorkspaceFinderDirectoryCacheKey(path: finderDirectoryPath)
         let latestNotificationSubtitle = latestNotificationText
         let conversationMessageSubtitle = !settings.hidesAllDetails && settings.iMessageModeEnabled
             ? workspaceSnapshot.latestConversationMessage?
@@ -15700,7 +15697,6 @@ struct TabItemView: View, Equatable {
                     activeForegroundColor: activeSecondaryColor(0.84),
                     fontScale: fontScale
                 )
-                .id(description)
             }
 
             if let subtitle = effectiveSubtitle {
@@ -15988,11 +15984,6 @@ struct TabItemView: View, Equatable {
         .onAppear {
             refreshWorkspaceSnapshot(force: true)
         }
-        .task(id: finderDirectoryCacheKey) {
-            let cache = await WorkspaceFinderDirectoryResolver.cache(for: finderDirectoryCacheKey)
-            guard !Task.isCancelled else { return }
-            workspaceFinderDirectoryCache = cache
-        }
         .task(id: workspaceFinderDirectoryOpenRequest) {
             guard let request = workspaceFinderDirectoryOpenRequest else { return }
             await WorkspaceFinderDirectoryOpener.openInFinder(request.directoryURL)
@@ -16166,10 +16157,13 @@ struct TabItemView: View, Equatable {
         let renameWorkspaceShortcut = KeyboardShortcutSettings.shortcut(for: .renameWorkspace)
         let editWorkspaceDescriptionShortcut = KeyboardShortcutSettings.shortcut(for: .editWorkspaceDescription)
         let closeWorkspaceShortcut = KeyboardShortcutSettings.shortcut(for: .closeWorkspace)
-        let finderDirectoryCacheKey = WorkspaceFinderDirectoryCacheKey(
-            path: isMulti ? nil : WorkspaceFinderDirectoryResolver.path(for: tab)
-        )
-        let finderDirectoryURL = workspaceFinderDirectoryCache.url(for: finderDirectoryCacheKey)
+        // Gate "Show in Finder" on whether a directory is *configured* (IO-free),
+        // not on a disk stat: this menu builder runs as part of the row body, a
+        // hot path. The stat happens once at click time (WorkspaceFinderDirectoryOpener
+        // re-validates and beeps if the directory is gone).
+        let finderDirectoryPath: String? = isMulti
+            ? nil
+            : WorkspaceFinderDirectoryResolver.path(for: tab)
         Button(pinLabel) {
             guard let contextMenuPinState else {
                 NSSound.beep()
@@ -16381,9 +16375,11 @@ struct TabItemView: View, Equatable {
 
         if !isMulti {
             Button(String(localized: "contextMenu.showWorkspaceInFinder", defaultValue: "Show in Finder")) {
-                workspaceFinderDirectoryOpenRequest = WorkspaceFinderDirectoryOpenRequest(directoryURL: finderDirectoryURL)
+                guard let finderDirectoryPath else { return }
+                let url = URL(fileURLWithPath: finderDirectoryPath, isDirectory: true)
+                workspaceFinderDirectoryOpenRequest = WorkspaceFinderDirectoryOpenRequest(directoryURL: url)
             }
-            .disabled(finderDirectoryURL == nil)
+            .disabled(finderDirectoryPath == nil)
         }
     }
 
