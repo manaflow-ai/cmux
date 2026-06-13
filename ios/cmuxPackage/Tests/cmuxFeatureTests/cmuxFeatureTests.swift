@@ -413,6 +413,60 @@ final class TerminalOutputCollector {
 }
 
 @MainActor
+@Test func versionWarningSupersedesOlderPairingAttemptWithoutConnectingIt() async throws {
+    let route = try CmxAttachRoute(
+        id: "debug_loopback",
+        kind: .debugLoopback,
+        endpoint: .hostPort(host: "127.0.0.1", port: 56577)
+    )
+    let slowTicket = try CmxAttachTicket(
+        workspaceID: "first-workspace",
+        terminalID: "first-terminal",
+        macDeviceID: "first-mac",
+        macDisplayName: "First Mac",
+        routes: [route],
+        expiresAt: Date().addingTimeInterval(60)
+    )
+    let router = SupersededAttachURLRouter()
+    let runtime = testRuntime(
+        supportedRouteKinds: [.debugLoopback, .tailscale],
+        transportFactory: RequestAwareTransportFactory(router: router)
+    )
+    let store = CMUXMobileShellStore(
+        runtime: runtime,
+        workspaces: PreviewMobileHost.workspaces,
+        feedbackStampProvider: {
+            MobileFeedbackStamp(
+                buildType: .dev,
+                appVersion: "0.65.0",
+                appBuild: "10",
+                bundleIdentifier: "dev.cmux.ios.test",
+                osVersion: "iOS test",
+                deviceModel: "test"
+            )
+        }
+    )
+
+    store.signIn()
+    let slowTask = Task { @MainActor in
+        await store.connectPairingURLResult(try attachURL(for: slowTicket).absoluteString)
+    }
+    await router.waitForFirstWorkspaceListRequest()
+
+    let warningResult = await store.connectPairingURLResult(
+        "cmux-ios://attach?v=2&av=0.65.0&ab=9&r=100.71.210.41:\(CmxMobileDefaults.defaultHostPort)"
+    )
+    await router.releaseFirstWorkspaceListResponse()
+    let slowResult = await slowTask.value
+
+    #expect(warningResult == .needsUserApproval)
+    #expect(slowResult == .superseded)
+    #expect(store.connectionState == .disconnected)
+    #expect(store.activeTicket == nil)
+    #expect(store.pairingVersionWarning != nil)
+}
+
+@MainActor
 @Test func attachURLWithoutPathStillConnects() async throws {
     let route = try CmxAttachRoute(
         id: "tailscale",

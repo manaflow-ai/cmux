@@ -30,7 +30,7 @@ struct CMUXMobileRootView: View {
     @State private var pendingAttachURL: String?
     @State private var didConsumeUITestAttachURL = false
     @State private var didAuthenticateWithAttachTicket = false
-    @State private var isShowingAddDeviceSheet = true
+    @State private var isShowingAddDeviceSheet = false
     #if os(iOS)
     @State private var addDeviceSheetDetent: PresentationDetent = .large
     #endif

@@ -2015,6 +2015,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         acceptedVersionWarning: Bool
     ) async -> MobilePairingURLConnectionResult {
         let rawURL = Self.normalizedPairingURL(rawValue ?? pairingCode)
+        invalidatePairingAttempt()
         clearPairingError()
         clearPairingVersionWarning()
         let ticket: CmxAttachTicket
