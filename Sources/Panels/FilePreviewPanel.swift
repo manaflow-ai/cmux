@@ -1055,36 +1055,6 @@ final class FilePreviewPanel: Panel, ObservableObject, FilePreviewTextEditingPan
         focusCoordinator.register(root: textView, primaryResponder: textView, intent: .textEditor)
     }
 
-    // MARK: - Find in text mode
-
-    @discardableResult
-    func startFind() -> Bool {
-        guard previewMode == .text, let textView else { return false }
-        textView.performTextFinderAction(textFinderSender(.showFindInterface))
-        return true
-    }
-
-    func findNext() {
-        guard previewMode == .text, let textView else { return }
-        textView.performTextFinderAction(textFinderSender(.nextMatch))
-    }
-
-    func findPrevious() {
-        guard previewMode == .text, let textView else { return }
-        textView.performTextFinderAction(textFinderSender(.previousMatch))
-    }
-
-    func hideFind() {
-        guard previewMode == .text, let textView else { return }
-        textView.performTextFinderAction(textFinderSender(.hideFindInterface))
-    }
-
-    private func textFinderSender(_ action: NSTextFinder.Action) -> NSMenuItem {
-        let item = NSMenuItem()
-        item.tag = action.rawValue
-        return item
-    }
-
     func handleDroppedFileURLsAsText(_ urls: [URL]) -> Bool {
         guard previewMode == .text, let textView else { return false }
         let text = TerminalImageTransferPlanner.insertedText(forFileURLs: urls)
@@ -4493,5 +4463,40 @@ private final class FilePreviewPointerObserverView: NSView {
 
     override func hitTest(_ point: NSPoint) -> NSView? {
         nil
+    }
+}
+
+
+// MARK: - Find in text mode
+
+extension FilePreviewPanel {
+    var isFindVisible: Bool { false }
+
+    @discardableResult
+    func startFind() -> Bool {
+        guard previewMode == .text, let textView else { return false }
+        textView.performTextFinderAction(textFinderSender(.showFindInterface))
+        return true
+    }
+
+    func findNext() {
+        guard previewMode == .text, let textView else { return }
+        textView.performTextFinderAction(textFinderSender(.nextMatch))
+    }
+
+    func findPrevious() {
+        guard previewMode == .text, let textView else { return }
+        textView.performTextFinderAction(textFinderSender(.previousMatch))
+    }
+
+    func hideFind() {
+        guard previewMode == .text, let textView else { return }
+        textView.performTextFinderAction(textFinderSender(.hideFindInterface))
+    }
+
+    private func textFinderSender(_ action: NSTextFinder.Action) -> NSMenuItem {
+        let item = NSMenuItem()
+        item.tag = action.rawValue
+        return item
     }
 }
