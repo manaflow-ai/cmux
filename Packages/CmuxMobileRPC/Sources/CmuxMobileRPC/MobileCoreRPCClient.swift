@@ -247,9 +247,10 @@ public final class MobileCoreRPCClient: MobileSyncing, Sendable {
         let params = request["params"] as? [String: Any] ?? [:]
         let workspaceSelection = stringParamSelection(params, keys: ["workspace_id"])
         let terminalSelection = stringParamSelection(params, keys: ["surface_id", "terminal_id", "tab_id"])
+        let ticketCoverage = MobileCoreRPCAttachTicketCoverage()
         if workspaceSelection.hasConflict ||
             terminalSelection.hasConflict ||
-            containsIgnoredAliasParameters(params) {
+            ticketCoverage.containsIgnoredAliasParameters(params) {
             return true
         }
 
@@ -259,7 +260,7 @@ public final class MobileCoreRPCClient: MobileSyncing, Sendable {
         case "workspace.create":
             return false
         case "workspace.action", "workspace.close":
-            return !ticketCoversWorkspaceRequest(
+            return !ticketCoverage.ticketCoversWorkspaceRequest(
                 ticket: ticket,
                 workspaceSelection: workspaceSelection.value
             )
@@ -270,7 +271,7 @@ public final class MobileCoreRPCClient: MobileSyncing, Sendable {
              "mobile.terminal.paste_image", "terminal.paste_image",
              "mobile.terminal.replay", "terminal.replay",
              "mobile.terminal.viewport", "terminal.viewport":
-            return !ticketCoversTerminalRequest(
+            return !ticketCoverage.ticketCoversTerminalRequest(
                 ticket: ticket,
                 workspaceSelection: workspaceSelection.value,
                 terminalSelection: terminalSelection.value
@@ -356,43 +357,45 @@ extension MobileCoreRPCClient {
 }
 #endif
 
-private func ticketCoversTerminalRequest(
-    ticket: CmxAttachTicket,
-    workspaceSelection: String?,
-    terminalSelection: String?
-) -> Bool {
-    let ticketWorkspaceID = ticket.workspaceID.trimmingCharacters(in: .whitespacesAndNewlines)
-    // Empty workspaceID means the ticket is Mac-wide (general pairing).
-    // It covers any workspace/terminal on the paired Mac.
-    if ticketWorkspaceID.isEmpty {
-        return true
-    }
-    if let workspaceSelection, workspaceSelection != ticketWorkspaceID {
-        return false
+private struct MobileCoreRPCAttachTicketCoverage {
+    func ticketCoversTerminalRequest(
+        ticket: CmxAttachTicket,
+        workspaceSelection: String?,
+        terminalSelection: String?
+    ) -> Bool {
+        let ticketWorkspaceID = ticket.workspaceID.trimmingCharacters(in: .whitespacesAndNewlines)
+        // Empty workspaceID means the ticket is Mac-wide (general pairing).
+        // It covers any workspace/terminal on the paired Mac.
+        if ticketWorkspaceID.isEmpty {
+            return true
+        }
+        if let workspaceSelection, workspaceSelection != ticketWorkspaceID {
+            return false
+        }
+
+        if let ticketTerminalID = ticket.terminalID?.trimmingCharacters(in: .whitespacesAndNewlines),
+           !ticketTerminalID.isEmpty {
+            return terminalSelection == ticketTerminalID
+        }
+
+        return workspaceSelection == ticketWorkspaceID
     }
 
-    if let ticketTerminalID = ticket.terminalID?.trimmingCharacters(in: .whitespacesAndNewlines),
-       !ticketTerminalID.isEmpty {
-        return terminalSelection == ticketTerminalID
+    func ticketCoversWorkspaceRequest(
+        ticket: CmxAttachTicket,
+        workspaceSelection: String?
+    ) -> Bool {
+        let ticketWorkspaceID = ticket.workspaceID.trimmingCharacters(in: .whitespacesAndNewlines)
+        // Empty workspaceID means the ticket is Mac-wide (general pairing).
+        if ticketWorkspaceID.isEmpty {
+            return true
+        }
+        return workspaceSelection == ticketWorkspaceID
     }
 
-    return workspaceSelection == ticketWorkspaceID
-}
-
-private func ticketCoversWorkspaceRequest(
-    ticket: CmxAttachTicket,
-    workspaceSelection: String?
-) -> Bool {
-    let ticketWorkspaceID = ticket.workspaceID.trimmingCharacters(in: .whitespacesAndNewlines)
-    // Empty workspaceID means the ticket is Mac-wide (general pairing).
-    if ticketWorkspaceID.isEmpty {
-        return true
+    func containsIgnoredAliasParameters(_ params: [String: Any]) -> Bool {
+        params["workspaceID"] != nil || params["terminalID"] != nil
     }
-    return workspaceSelection == ticketWorkspaceID
-}
-
-private func containsIgnoredAliasParameters(_ params: [String: Any]) -> Bool {
-    params["workspaceID"] != nil || params["terminalID"] != nil
 }
 
 private extension MobileCoreRPCClient {
