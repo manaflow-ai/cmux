@@ -3,6 +3,7 @@ import Combine
 import WebKit
 import AppKit
 import Bonsplit
+import CmuxTerminalCore
 import Network
 import CFNetwork
 import SQLite3

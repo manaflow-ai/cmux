@@ -1,4 +1,5 @@
 import AppKit
+import CmuxTerminalCore
 import SwiftUI
 
 enum WindowBackdropHostingPhase: String, Equatable {
