@@ -216,6 +216,9 @@ class TabManager: ObservableObject {
     /// The window that owns this TabManager. Set by AppDelegate.registerMainWindow().
     /// Used to apply title updates to the correct window instead of NSApp.keyWindow.
     weak var window: NSWindow?
+    /// Stable identifier of the owning macOS window. Used only for opt-in title
+    /// templates that expose a WM-matchable per-window token.
+    var windowId: UUID?
 
     // Wave-4 sub-model (TabManager decomposition): the workspace list, the
     // sidebar group sections, and the selected-workspace id storage live in
@@ -585,6 +588,19 @@ class TabManager: ObservableObject {
                 focusedSurfaceTitleDidChange(tabId: tabId)
             }
         })
+        observers.append(NotificationCenter.default.addObserver(
+            forName: .workspaceCurrentDirectoryDidChange,
+            object: nil,
+            queue: .main
+        ) { [weak self] notification in
+            MainActor.assumeIsolated { [weak self] in
+                guard let self else { return }
+                let workspaceId = notification.userInfo?["workspaceId"] as? UUID
+                    ?? (notification.object as? Workspace)?.id
+                guard let workspaceId else { return }
+                workspaceCurrentDirectoryDidChange(workspaceId: workspaceId)
+            }
+        })
 
         startAgentPIDSweepTimer()
         observers.append(NotificationCenter.default.addObserver(
@@ -595,6 +611,7 @@ class TabManager: ObservableObject {
             MainActor.assumeIsolated { [weak self] in
                 self?.sidebarMetadataSettingsDidChange()
                 self?.refreshTabCloseButtonVisibility()
+                self?.refreshWindowTitle()
             }
         })
 #if DEBUG
@@ -606,6 +623,10 @@ class TabManager: ObservableObject {
     }
 
     deinit {
+        for observer in observers {
+            NotificationCenter.default.removeObserver(observer)
+        }
+        observers.removeAll()
         workspaceCycleCooldownTask?.cancel()
         agentPIDSweepTimer?.cancel()
         // The sidebar git/PR services cancel their own poll, probe, snapshot,
@@ -3219,48 +3240,6 @@ class TabManager: ObservableObject {
         if selectedTabId == tabId {
             updateWindowTitle(for: tab)
         }
-    }
-
-    private func updateWindowTitleForSelectedTab() {
-        guard let selectedTabId,
-              let tab = tabs.first(where: { $0.id == selectedTabId }) else {
-            updateWindowTitle(for: nil)
-            return
-        }
-        updateWindowTitle(for: tab)
-    }
-
-    private func updateWindowTitle(for tab: Workspace?) {
-        let title = windowTitle(for: tab)
-        guard let targetWindow = window else { return }
-        targetWindow.title = title
-    }
-
-    /// The name to display for `tab` across window chrome — the custom title
-    /// bar, `NSWindow.title`, and the toolbar command label.
-    ///
-    /// A workspace group's anchor is represented everywhere by the group itself
-    /// (the sidebar draws only the group header, never a separate anchor row,
-    /// per `SidebarWorkspaceRenderItem`), so for an anchor the single source of
-    /// truth for the displayed name is the group's `name`. The anchor's own
-    /// `title` is merely seeded equal to the group name at creation and would
-    /// otherwise drift when the group is renamed.
-    func resolvedWorkspaceDisplayTitle(for tab: Workspace) -> String {
-        if let group = workspaceGroups.first(where: { $0.anchorWorkspaceId == tab.id }) {
-            return group.name
-        }
-        return tab.title
-    }
-
-    private func windowTitle(for tab: Workspace?) -> String {
-        guard let tab else { return "cmux" }
-        let trimmedTitle = resolvedWorkspaceDisplayTitle(for: tab)
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-        if !trimmedTitle.isEmpty {
-            return trimmedTitle
-        }
-        let trimmedDirectory = tab.currentDirectory.trimmingCharacters(in: .whitespacesAndNewlines)
-        return trimmedDirectory.isEmpty ? "cmux" : trimmedDirectory
     }
 
     func focusTab(

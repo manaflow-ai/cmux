@@ -1018,7 +1018,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     /// Tracks the cascade point for new windows, matching Ghostty's upstream algorithm.
     /// Reset to `.zero` so the first window seeds the point from its own position.
     private var lastCascadePoint = NSPoint.zero
-    private var startupSessionSnapshot: AppSessionSnapshot?
+    private(set) var startupSessionSnapshot: AppSessionSnapshot?
     private var didPrepareStartupSessionSnapshot = false
     var didAttemptStartupSessionRestore = false
     private var isApplyingSessionRestore = false
@@ -4393,6 +4393,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         #endif
         if let existing = mainWindowContexts[key] {
             tabManager.window = window
+            tabManager.windowId = existing.windowId
             existing.window = window
             let resolvedFileExplorerState = fileExplorerState ?? existing.fileExplorerState
             if let fileExplorerState {
@@ -4417,6 +4418,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 )
 #endif
                 existing.tabManager.window = existingWindow
+                existing.tabManager.windowId = existing.windowId
                 existing.keyboardFocusCoordinator.update(
                     window: existingWindow,
                     tabManager: existing.tabManager,
@@ -4427,6 +4429,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 return
             }
             tabManager.window = window
+            tabManager.windowId = windowId
             existing.window = window
             let resolvedFileExplorerState = fileExplorerState ?? existing.fileExplorerState
             if let fileExplorerState {
@@ -4443,6 +4446,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             reindexMainWindowContextIfNeeded(existing, for: window)
         } else {
             tabManager.window = window
+            tabManager.windowId = windowId
             mainWindowContexts[key] = MainWindowContext(
                 windowId: windowId,
                 tabManager: tabManager,
@@ -4495,6 +4499,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         cmuxConfigStore: CmuxConfigStore? = nil,
         fileExplorerState: FileExplorerState? = nil
     ) -> UUID {
+        tabManager.windowId = windowId
         mainWindowContexts[ObjectIdentifier(tabManager)] = MainWindowContext(
             windowId: windowId,
             tabManager: tabManager,
@@ -4952,10 +4957,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         )
 #endif
         return moved
-    }
-
-    func mainWindow(for windowId: UUID) -> NSWindow? {
-        windowForMainWindowId(windowId)
     }
 
     @discardableResult
@@ -5721,15 +5722,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.05, execute: reassert)
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.16, execute: reassert)
-    }
-
-    func windowForMainWindowId(_ windowId: UUID) -> NSWindow? {
-        if let ctx = mainWindowContexts.values.first(where: { $0.windowId == windowId }),
-           let window = ctx.window {
-            return window
-        }
-        let expectedIdentifier = "cmux.main.\(windowId.uuidString)"
-        return NSApp.windows.first(where: { $0.identifier?.rawValue == expectedIdentifier })
     }
 
     private func resolvedWindow(for context: MainWindowContext) -> NSWindow? {
@@ -7013,6 +7005,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
         return createMainWindow(
             initialTerminalInput: suppressWelcome ? "" : nil,
+            preferredWindowId: startupPrimaryWindowIdForInitialMainWindow(),
             shouldActivate: shouldActivate
         )
     }
@@ -8105,19 +8098,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         initialWorkingDirectory: String? = nil,
         initialTerminalInput: String? = nil,
         sessionWindowSnapshot: SessionWindowSnapshot? = nil,
+        preferredWindowId: UUID? = nil,
         shouldActivate: Bool = true,
         sourceWindow preferredSourceWindow: NSWindow? = nil,
         remapClosedPanelHistoryFromSessionSnapshot: Bool = true,
         restoredSessionSnapshotHandler: (([[UUID: UUID]], TabManager) -> Void)? = nil
     ) -> UUID {
         reserveInitialSocketPathIfNeeded()
-        let windowId = UUID()
+        let requestedWindowId = preferredWindowId ?? sessionWindowSnapshot?.windowId
+        let windowId = availableWindowIdForNewMainWindow(preferredWindowId: requestedWindowId) ?? UUID()
         let tabManager = TabManager(
             initialWorkspaceTitle: initialWorkspaceTitle,
             initialWorkingDirectory: initialWorkingDirectory,
             initialTerminalInput: initialTerminalInput,
             autoWelcomeIfNeeded: initialTerminalInput == nil
         )
+        tabManager.windowId = windowId
         if let sessionWindowSnapshot {
             let restoredPanelIdsByWorkspaceIndex = tabManager.restoreSessionSnapshot(
                 sessionWindowSnapshot.tabManager,
@@ -12382,6 +12378,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             guard seenStores.insert(identifier).inserted else { continue }
             store.loadAll()
         }
+        refreshWindowTitlesAcrossMainWindows()
 #if DEBUG
         cmuxDebugLog("cmuxConfig.reload source=\(source) stores=\(seenStores.count)")
 #endif
