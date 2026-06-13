@@ -1039,7 +1039,7 @@ extension Workspace {
     ) -> String {
         let bootstrapCommand = bootstrap.joined(separator: " && ") + " && "
         let words = surfaceResumeShellWords(in: command)
-        let commandStart = hermesAgentCommandStartIndexAfterCwdGuard(words)
+        let commandStart = surfaceResumeCommandStartIndexAfterCwdGuard(words)
         guard commandStart < words.endIndex else {
             return bootstrapCommand + command
         }
@@ -1075,7 +1075,7 @@ extension Workspace {
 
     nonisolated private static func hermesAgentCommandByRemovingBootstrapPrefix(_ command: String) -> String {
         let words = surfaceResumeShellWords(in: command)
-        var scanIndex = hermesAgentCommandStartIndexAfterCwdGuard(words)
+        var scanIndex = surfaceResumeCommandStartIndexAfterCwdGuard(words)
         guard scanIndex < words.endIndex else { return command }
         let removeStartIndex = scanIndex
         var removedBootstrap = false
@@ -1173,12 +1173,12 @@ extension Workspace {
     nonisolated private static func hermesAgentWordsAfterCwdGuard(
         _ words: [SurfaceResumeShellWord]
     ) -> [SurfaceResumeShellWord] {
-        let commandStart = hermesAgentCommandStartIndexAfterCwdGuard(words)
+        let commandStart = surfaceResumeCommandStartIndexAfterCwdGuard(words)
         guard commandStart < words.endIndex else { return [] }
         return Array(words[commandStart...])
     }
 
-    nonisolated private static func hermesAgentCommandStartIndexAfterCwdGuard(
+    nonisolated private static func surfaceResumeCommandStartIndexAfterCwdGuard(
         _ words: [SurfaceResumeShellWord]
     ) -> Int {
         guard let first = words.first,
@@ -1575,7 +1575,7 @@ extension Workspace {
     ) -> UUID? {
         switch snapshot.type {
         case .terminal:
-            let resumeBinding = snapshot.terminal?.resumeBinding
+            let resumeBinding = snapshot.terminal?.resumeBinding?.trustedForSessionRestore
             let restorableAgent = snapshot.terminal?.agent
             let restoredHibernation = snapshot.terminal?.hibernation
             let autoResumeAgentSessions = AgentSessionAutoResumeSettings.isEnabled()
