@@ -41,12 +41,21 @@ extension TerminalController {
     }
 
     /// `mobile.chat.sessions`: list chat-capable sessions, optionally
-    /// scoped to one workspace.
+    /// scoped to one workspace. Merges agent (hook) sessions with EVERY open
+    /// terminal surface so a plain terminal tab is chat-capable too (the
+    /// phone's per-tab toggle shows iff its surface appears here). A surface
+    /// already represented by an agent session is not listed twice.
     func v2MobileChatSessions(params: [String: Any]) -> V2CallResult {
         let workspaceID = v2String(params, "workspace_id")
         let service = AgentChatTranscriptService.shared
-        let descriptors = service.sessionDescriptors(workspaceID: workspaceID)
-        let encoded = descriptors.compactMap { service.wirePayload($0) }
+        let agentDescriptors = service.sessionDescriptors(workspaceID: workspaceID)
+        let agentSurfaceIDs = Set(agentDescriptors.compactMap { $0.terminalID })
+        let terminalDescriptors = terminalChatDescriptors(workspaceID: workspaceID)
+            .filter { descriptor in
+                guard let surfaceID = descriptor.terminalID else { return true }
+                return !agentSurfaceIDs.contains(surfaceID)
+            }
+        let encoded = (agentDescriptors + terminalDescriptors).compactMap { service.wirePayload($0) }
         return .ok(["sessions": encoded])
     }
 
@@ -58,6 +67,15 @@ extension TerminalController {
         let limit = min(max(v2Int(params, "limit") ?? 100, 1), 200)
         let beforeSeq = v2Int(params, "before_seq")
         let service = AgentChatTranscriptService.shared
+        // A terminal session's id is its surface UUID (unambiguous: agent
+        // session ids are hook session_ids). Serve its command-block log from
+        // the byte tee before the agent path.
+        if let terminalPage = terminalChatHistoryPage(sessionID: sessionID) {
+            guard let payload = service.wirePayload(terminalPage) else {
+                return .err(code: "internal_error", message: "History encoding failed", data: nil)
+            }
+            return .ok(payload)
+        }
         var page = await service.history(sessionID: sessionID, beforeSeq: beforeSeq, limit: limit)
         if page == nil, let staleRecord = service.sessionRecord(sessionID: sessionID) {
             // The record exists but its transcript didn't resolve — the
@@ -251,5 +269,69 @@ extension TerminalController {
             return nil
         }
         return resolved.workspace.terminalPanel(for: surfaceId)
+    }
+}
+
+// MARK: - Terminal sessions as chat (Slice D)
+
+extension TerminalController {
+    /// Every open terminal surface, across all main windows, as a
+    /// chat-capable descriptor (`kind: .terminal`). The session id is the
+    /// surface UUID. The title is a placeholder — the phone overrides the
+    /// header with the workspace + tab name — so any open terminal tab gets
+    /// the chat toggle, not just hook-registered agent sessions.
+    func terminalChatDescriptors(workspaceID: String?) -> [ChatSessionDescriptor] {
+        guard let app = AppDelegate.shared else { return [] }
+        var descriptors: [ChatSessionDescriptor] = []
+        var seenWorkspaces: Set<UUID> = []
+        for summary in app.listMainWindowSummaries() {
+            guard let tabManager = app.tabManagerFor(windowId: summary.windowId) else { continue }
+            for workspace in tabManager.tabs where seenWorkspaces.insert(workspace.id).inserted {
+                if let workspaceID, workspace.id.uuidString != workspaceID { continue }
+                for panel in workspace.panels.values {
+                    guard let terminal = panel as? TerminalPanel else { continue }
+                    let surfaceID = terminal.id.uuidString
+                    descriptors.append(
+                        ChatSessionDescriptor(
+                            id: surfaceID,
+                            agentKind: .other("terminal"),
+                            kind: .terminal,
+                            title: terminal.displayTitle,
+                            workspaceID: workspace.id.uuidString,
+                            terminalID: surfaceID,
+                            state: .idle
+                        )
+                    )
+                }
+            }
+        }
+        return descriptors
+    }
+
+    /// The command-block log for a terminal surface, parsed on demand from
+    /// the byte tee's replay ring. Returns `nil` when `sessionID` is not a
+    /// known terminal surface, so the agent history path runs instead.
+    func terminalChatHistoryPage(sessionID: String) -> ChatHistoryPage? {
+        guard let surfaceID = UUID(uuidString: sessionID),
+              isKnownTerminalSurface(surfaceID) else { return nil }
+        var blocks: [TerminalCommandBlock] = []
+        if let replay = MobileTerminalByteTee.shared.replayState(surfaceID: surfaceID),
+           !replay.data.isEmpty {
+            let parser = OSC133CommandParser()
+            parser.consume(String(decoding: replay.data, as: UTF8.self))
+            blocks = parser.blocks
+        }
+        return ChatHistoryPage(messages: [], hasMore: false, terminalBlocks: blocks)
+    }
+
+    private func isKnownTerminalSurface(_ surfaceID: UUID) -> Bool {
+        guard let app = AppDelegate.shared else { return false }
+        for summary in app.listMainWindowSummaries() {
+            guard let tabManager = app.tabManagerFor(windowId: summary.windowId) else { continue }
+            for workspace in tabManager.tabs where workspace.terminalPanel(for: surfaceID) != nil {
+                return true
+            }
+        }
+        return false
     }
 }

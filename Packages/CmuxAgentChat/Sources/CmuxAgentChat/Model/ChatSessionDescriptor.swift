@@ -102,11 +102,41 @@ public struct ChatSessionDescriptor: Identifiable, Sendable, Equatable, Codable 
     private enum CodingKeys: String, CodingKey {
         case id = "session_id"
         case agentKind = "agent_kind"
+        case kind
         case title
         case workspaceID = "workspace_id"
         case terminalID = "terminal_id"
         case workingDirectory = "cwd"
         case state
         case lastActivityAt = "last_activity_at"
+    }
+
+    // Custom Codable so `kind` decodes with a `.agent` default when absent
+    // (older payloads predate it), while still travelling on the wire for
+    // terminal sessions.
+    public init(from decoder: any Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        id = try container.decode(String.self, forKey: .id)
+        agentKind = try container.decode(ChatAgentKind.self, forKey: .agentKind)
+        kind = try container.decodeIfPresent(ChatSessionKind.self, forKey: .kind) ?? .agent
+        title = try container.decodeIfPresent(String.self, forKey: .title)
+        workspaceID = try container.decodeIfPresent(String.self, forKey: .workspaceID)
+        terminalID = try container.decodeIfPresent(String.self, forKey: .terminalID)
+        workingDirectory = try container.decodeIfPresent(String.self, forKey: .workingDirectory)
+        state = try container.decode(ChatAgentState.self, forKey: .state)
+        lastActivityAt = try container.decodeIfPresent(Date.self, forKey: .lastActivityAt)
+    }
+
+    public func encode(to encoder: any Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(id, forKey: .id)
+        try container.encode(agentKind, forKey: .agentKind)
+        try container.encode(kind, forKey: .kind)
+        try container.encodeIfPresent(title, forKey: .title)
+        try container.encodeIfPresent(workspaceID, forKey: .workspaceID)
+        try container.encodeIfPresent(terminalID, forKey: .terminalID)
+        try container.encodeIfPresent(workingDirectory, forKey: .workingDirectory)
+        try container.encode(state, forKey: .state)
+        try container.encodeIfPresent(lastActivityAt, forKey: .lastActivityAt)
     }
 }

@@ -54,4 +54,22 @@ struct TerminalWireCodableTests {
         #expect(decoded.terminalBlocks == nil)
         #expect(decoded.hasMore == true)
     }
+
+    @Test("ChatSessionDescriptor.kind travels on the wire and defaults to agent when absent")
+    func descriptorKindRoundTrip() throws {
+        let terminal = ChatSessionDescriptor(
+            id: "surface-1", agentKind: .other("terminal"), kind: .terminal,
+            workspaceID: "ws-1", terminalID: "surface-1"
+        )
+        let data = try encoder.encode(terminal)
+        #expect(String(decoding: data, as: UTF8.self).contains("\"kind\""))
+        #expect(try decoder.decode(ChatSessionDescriptor.self, from: data).kind == .terminal)
+        // A payload missing "kind" (older producer) decodes as .agent. Derive
+        // it by stripping the key from a real encoding (avoids hardcoding the
+        // nested state shape).
+        var object = try JSONSerialization.jsonObject(with: data) as! [String: Any]
+        object.removeValue(forKey: "kind")
+        let legacy = try JSONSerialization.data(withJSONObject: object)
+        #expect(try decoder.decode(ChatSessionDescriptor.self, from: legacy).kind == .agent)
+    }
 }
