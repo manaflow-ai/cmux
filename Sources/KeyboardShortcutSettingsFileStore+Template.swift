@@ -58,7 +58,7 @@ extension CmuxSettingsFileStore {
         return [
             [
                 "app": [
-                    "language": LanguageSettings.defaultLanguage.rawValue,
+                    "language": AppCatalogSection().language.defaultValue.rawValue,
                     "appearance": AppearanceSettings.defaultMode.rawValue,
                     "appIcon": AppIconSettings.defaultMode.rawValue,
                     "menuBarOnly": MenuBarOnlySettings.defaultMenuBarOnly,
