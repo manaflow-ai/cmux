@@ -4649,6 +4649,7 @@ final class GhosttyMetalLayer: CAMetalLayer {
         lock.lock()
         self.surfaceView = surfaceView
         lock.unlock()
+        Task { @MainActor [weak surfaceView] in surfaceView?.reconcileSurfaceSizeAfterMetalLayerAttachIfNeeded() }
     }
 
     private func currentSurfaceView() -> GhosttyNSView? {
@@ -7921,7 +7922,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     private var lastScrollEventTime: CFTimeInterval = 0
     private var visibleInUI: Bool = true
     private var pendingSurfaceSize: CGSize?
-    private var deferredSurfaceSizeRetryQueued = false
+    private var deferredSurfaceSizeRetryQueued = false, needsSurfaceSizeRetryAfterMetalLayerRealizes = false
     private var deferredSurfaceSizeNonMetalRetryCount = 0
     private var lastDrawableSize: CGSize = .zero
     private var isFindEscapeSuppressionArmed = false
@@ -8318,13 +8319,11 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     @discardableResult private func scheduleDeferredSurfaceSizeRetryIfNeeded() -> Bool {
         guard window != nil, !deferredSurfaceSizeRetryQueued else { return false }
         deferredSurfaceSizeRetryQueued = true
-        DispatchQueue.main.async { [weak self] in
-            guard let self else { return }
-            self.deferredSurfaceSizeRetryQueued = false
-            _ = self.updateSurfaceSize()
-        }
+        DispatchQueue.main.async { [weak self] in guard let self else { return }; self.deferredSurfaceSizeRetryQueued = false; _ = self.updateSurfaceSize() }
         return true
     }
+
+    @MainActor fileprivate func reconcileSurfaceSizeAfterMetalLayerAttachIfNeeded() { guard needsSurfaceSizeRetryAfterMetalLayerRealizes else { return }; _ = updateSurfaceSize() }
 
     @discardableResult
     private func updateSurfaceSize(size: CGSize? = nil) -> Bool {
@@ -8421,6 +8420,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         layer?.masksToBounds = true
         if let metalLayer = layer as? CAMetalLayer {
             deferredSurfaceSizeNonMetalRetryCount = 0
+            needsSurfaceSizeRetryAfterMetalLayerRealizes = false
             if drawablePixelSize != lastDrawableSize || metalLayer.drawableSize != drawablePixelSize {
                 if metalLayer.drawableSize != drawablePixelSize {
                     didChange = true
@@ -8430,6 +8430,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             }
         } else if deferredSurfaceSizeNonMetalRetryCount < Self.maxDeferredSurfaceSizeNonMetalRetryCount,
                   scheduleDeferredSurfaceSizeRetryIfNeeded() {
+            needsSurfaceSizeRetryAfterMetalLayerRealizes = true
             deferredSurfaceSizeNonMetalRetryCount += 1
         }
         CATransaction.commit()
