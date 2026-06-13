@@ -28,6 +28,7 @@ final class TerminalOutputCollector {
         task = Task { @MainActor [weak self] in
             for await data in store.terminalOutputStream(surfaceID: surfaceID) {
                 self?.lines.append(String(data: data, encoding: .utf8) ?? "")
+                store.terminalOutputDidProcess(surfaceID: surfaceID)
             }
         }
     }

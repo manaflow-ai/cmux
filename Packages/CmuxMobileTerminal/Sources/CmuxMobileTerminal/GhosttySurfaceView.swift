@@ -1818,9 +1818,6 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     private var pinchAccumulatedScale: CGFloat = 1.0
 
     @objc private func handleScrollPan(_ gesture: UIPanGestureRecognizer) {
-        if gesture.state == .began || gesture.state == .changed || gesture.state == .ended {
-            MobileDebugLog.anchormux("scroll.pan state=\(gesture.state.rawValue) ty=\(Int(gesture.translation(in: self).y))")
-        }
         // Forward scroll to the MAC's real surface instead of scrolling this
         // display-only mirror. The Mac owns scrollback (normal screen) and the
         // program owns alt-screen scroll (mouse-wheel to the PTY); a single
@@ -1868,7 +1865,6 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         let lines = pendingScrollLines
         let cell = pendingScrollCell
         pendingScrollLines = 0
-        MobileDebugLog.anchormux("scroll.forward lines=\(String(format: "%.2f", lines)) cell=\(cell.col)x\(cell.row)")
         delegate?.ghosttySurfaceView(self, didScrollLines: lines, atCol: cell.col, row: cell.row)
     }
 
@@ -2163,7 +2159,32 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     private var lastProcessOutputLogTime: CFTimeInterval = 0
 
     public func processOutput(_ data: Data) {
-        guard let surface, !isDismantled else { return }
+        processOutput(data, completion: nil)
+    }
+
+    /// Process terminal output and return after the output has been applied.
+    ///
+    /// The call still performs libghostty output processing on the serial
+    /// background output queue. The returned async boundary lets callers apply
+    /// per-surface backpressure without blocking the main actor while Ghostty
+    /// consumes the chunk.
+    /// - Parameter data: VT or PTY bytes to feed into the surface.
+    public func processOutputAndWait(_ data: Data) async {
+        await withCheckedContinuation { continuation in
+            processOutput(data) {
+                continuation.resume()
+            }
+        }
+    }
+
+    private func processOutput(
+        _ data: Data,
+        completion: (@MainActor @Sendable () -> Void)?
+    ) {
+        guard let surface, !isDismantled else {
+            completion?()
+            return
+        }
         #if DEBUG
         if lastInputTimestamp > 0 {
             let elapsed = (CACurrentMediaTime() - lastInputTimestamp) * 1000.0
@@ -2215,7 +2236,10 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
             }
             #endif
             DispatchQueue.main.async {
-                guard let self, !self.isDismantled else { return }
+                guard let self, !self.isDismantled else {
+                    completion?()
+                    return
+                }
                 self.needsDraw = true
                 if let cursorVisibilityDelta, cursorVisibilityDelta != self.hostCursorVisible {
                     self.hostCursorVisible = cursorVisibilityDelta
@@ -2242,6 +2266,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
                 }
                 self.onOutputProcessedForTesting?()
                 #endif
+                completion?()
             }
         }
     }
