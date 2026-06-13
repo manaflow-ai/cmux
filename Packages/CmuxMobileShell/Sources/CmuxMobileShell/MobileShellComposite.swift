@@ -2018,7 +2018,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         acceptedVersionWarning: Bool
     ) async -> MobilePairingURLConnectionResult {
         let rawURL = Self.normalizedPairingURL(rawValue ?? pairingCode)
-        invalidatePairingAttempt()
+        _ = beginPairingValidationAttempt(method: "qr")
         connectionAttemptGeneration = UUID()
         if connectionState != .connected {
             clearActiveConnectionContext()
@@ -3043,14 +3043,19 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// single `ios_pairing_started` fire-site. `method` is `qr`/`manual`/
     /// `attach_url`; pass `nil` for non-instrumented internal flows (preview).
     private func beginPairingAttempt(method: String? = nil) -> UUID {
-        let attemptID = UUID()
-        pairingAttemptID = attemptID
+        let attemptID = beginPairingValidationAttempt(method: method)
         connectionGeneration = UUID()
         connectionAttemptGeneration = UUID()
         cancelRemoteOperationTasks()
         rawTerminalInputBuffer.clear()
         clearPairingError()
         clearPairingVersionWarning()
+        return attemptID
+    }
+
+    private func beginPairingValidationAttempt(method: String? = nil) -> UUID {
+        let attemptID = UUID()
+        pairingAttemptID = attemptID
         if let method {
             pairingAttemptStartedAt = runtime?.now() ?? Date()
             pairingAttemptMethod = method
