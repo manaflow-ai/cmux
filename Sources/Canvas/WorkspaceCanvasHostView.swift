@@ -121,6 +121,10 @@ private struct CanvasRootRepresentable: NSViewRepresentable {
         let workspace = workspace
         return CanvasRootView(
             model: workspace.canvasModel,
+            commandScrollHintText: String(
+                localized: "canvas.commandScrollHint",
+                defaultValue: "Command+scroll pans the canvas from anywhere"
+            ),
             callbacks: CanvasHostCallbacks(
                 onFocusPanel: { [weak workspace] panelId in
                     guard let workspace else { return }

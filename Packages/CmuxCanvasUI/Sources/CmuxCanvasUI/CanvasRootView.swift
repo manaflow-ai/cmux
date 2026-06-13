@@ -1,4 +1,5 @@
 public import AppKit
+import SwiftUI
 import CmuxCanvas
 
 /// The AppKit root of the canvas layout: owns the scroll view, document,
@@ -14,8 +15,10 @@ public final class CanvasRootView: NSView {
     let model: CanvasModel
     let callbacks: CanvasHostCallbacks
     private let themeProvider: () -> CanvasTheme
+    /// Pre-localized text for the Command+scroll discovery hint.
+    let commandScrollHintText: String
     let scrollView: CanvasScrollView
-    private let documentView = CanvasDocumentView()
+    let documentView = CanvasDocumentView()
     let guidesView = CanvasGuidesView()
 
     var paneViews: [CanvasPaneID: CanvasPaneView] = [:]
@@ -33,8 +36,12 @@ public final class CanvasRootView: NSView {
     var overviewRestore: (magnification: CGFloat, origin: CGPoint)?
     private var clipBoundsObserver: (any NSObjectProtocol)?
     private var scrollSettleObservers: [any NSObjectProtocol] = []
-    private var commandScrollMonitor: Any?
+    var commandScrollMonitor: Any?
     private var hasPlacedInitialViewport = false
+    /// One-per-session throttle for the Command+scroll discovery hint.
+    static var didShowCommandScrollHintThisSession = false
+    var commandScrollHintTask: Task<Void, Never>?
+    var commandScrollHintHost: NSHostingView<CanvasCommandScrollHint>?
     /// A saved viewport waiting to be applied once the scroll view is laid
     /// out (contentSize settled). Cleared when successfully applied.
     private var pendingViewportRestore: (canvasCenter: CGPoint, magnification: CGFloat)?
@@ -59,11 +66,13 @@ public final class CanvasRootView: NSView {
 
     public init(
         model: CanvasModel,
+        commandScrollHintText: String,
         callbacks: CanvasHostCallbacks,
         themeProvider: @escaping () -> CanvasTheme
     ) {
         self.model = model
         self.callbacks = callbacks
+        self.commandScrollHintText = commandScrollHintText
         self.themeProvider = themeProvider
         self.scrollView = CanvasScrollView(documentView: documentView)
         super.init(frame: .zero)
@@ -143,29 +152,6 @@ public final class CanvasRootView: NSView {
         }
     }
 
-    private func installCommandScrollMonitor() {
-        guard commandScrollMonitor == nil else { return }
-        commandScrollMonitor = NSEvent.addLocalMonitorForEvents(matching: .scrollWheel) { [weak self] event in
-            guard let self,
-                  let window = self.window,
-                  event.window === window,
-                  event.modifierFlags.contains(.command) else {
-                return event
-            }
-            let location = self.convert(event.locationInWindow, from: nil)
-            guard self.bounds.contains(location) else { return event }
-            self.scrollView.scrollWheel(with: event)
-            return nil
-        }
-    }
-
-    private func removeCommandScrollMonitor() {
-        if let commandScrollMonitor {
-            NSEvent.removeMonitor(commandScrollMonitor)
-        }
-        commandScrollMonitor = nil
-    }
-
     /// Releases mounted content (terminals go back to the portal system) and
     /// observers. Called when the workspace leaves canvas mode.
     public func teardown() {
@@ -187,6 +173,10 @@ public final class CanvasRootView: NSView {
         clipBoundsObserver = nil
         scrollSettleObservers.forEach { NotificationCenter.default.removeObserver($0) }
         scrollSettleObservers = []
+        commandScrollHintTask?.cancel()
+        commandScrollHintTask = nil
+        commandScrollHintHost?.removeFromSuperview()
+        commandScrollHintHost = nil
         removeCommandScrollMonitor()
         if model.viewport === self {
             model.viewport = nil
