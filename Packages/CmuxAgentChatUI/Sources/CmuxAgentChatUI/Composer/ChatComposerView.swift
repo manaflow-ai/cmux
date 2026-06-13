@@ -87,7 +87,15 @@ public struct ChatComposerView: View {
         }
         .padding(.horizontal, theme.horizontalMargin)
         .padding(.vertical, 8)
-        .background(.thinMaterial)
+        // Extend the material below the bar's own bounds so it sits behind
+        // the keyboard's rounded top corners (filling the small triangular
+        // gaps the curve leaves) and bleeds to the screen edge when the
+        // keyboard is down. WhatsApp-style continuity.
+        .background {
+            Rectangle()
+                .fill(.thinMaterial)
+                .padding(.bottom, -28)
+        }
         .overlay(alignment: .top) {
             Rectangle()
                 .fill(theme.hairline)

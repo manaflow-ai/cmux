@@ -106,6 +106,9 @@ public struct ChatScreen: View {
             providesOwnChrome: providesOwnChrome,
             onOpenTerminal: onOpenTerminal
         ))
+        #if os(iOS)
+        .dismissesKeyboardOnTap()
+        #endif
         .task { await store.run() }
         #if canImport(UIKit)
         .onChange(of: store.rows.last?.id) { announceLatestAgentProse() }

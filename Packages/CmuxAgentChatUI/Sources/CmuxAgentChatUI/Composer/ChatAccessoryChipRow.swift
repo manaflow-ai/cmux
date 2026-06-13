@@ -57,8 +57,25 @@ public struct ChatAccessoryChipRow: View {
                     action: onOpenTerminal
                 )
             }
+            // Inset the row content slightly so the fade reveals/clips chips
+            // rather than cropping the very first/last chip flush at the edge.
+            .padding(.horizontal, 2)
         }
         .frame(height: 32)
+        // Soft horizontal scroll-edge fade so chips dissolve at the margins
+        // instead of being hard-clipped by the scroll view's straight edge.
+        .mask {
+            LinearGradient(
+                stops: [
+                    .init(color: .clear, location: 0),
+                    .init(color: .black, location: 0.035),
+                    .init(color: .black, location: 0.965),
+                    .init(color: .clear, location: 1),
+                ],
+                startPoint: .leading,
+                endPoint: .trailing
+            )
+        }
     }
 
     private var isWorking: Bool {
