@@ -11,6 +11,10 @@ public actor FixtureChatEventSource: ChatEventSource {
     private var continuations: [Int: AsyncStream<ChatSessionEvent>.Continuation] = [:]
     private var continuationCounter = 0
     private let replyToSends: Bool
+    /// When true the source serves a terminal command-block backlog/history
+    /// instead of message history, for the terminal-chat demo and tests.
+    private let isTerminal: Bool
+    private var terminalBacklog: [TerminalCommandBlock]
 
     /// Creates a fixture source.
     ///
@@ -23,9 +27,32 @@ public actor FixtureChatEventSource: ChatEventSource {
         self.backlog = backlog
         self.nextSeq = (backlog.last?.seq ?? -1) + 1
         self.replyToSends = replyToSends
+        self.isTerminal = false
+        self.terminalBacklog = []
+    }
+
+    /// Creates a terminal-mode fixture serving a command-block backlog.
+    ///
+    /// - Parameter terminalBacklog: Scripted command blocks, oldest first.
+    public init(terminalBacklog: [TerminalCommandBlock]) {
+        self.backlog = []
+        self.nextSeq = 0
+        self.replyToSends = false
+        self.isTerminal = true
+        self.terminalBacklog = terminalBacklog
+    }
+
+    /// Emits terminal command-block deltas to live subscribers (test/demo).
+    ///
+    /// - Parameter blocks: Whole-value blocks; receivers upsert by id.
+    public func emitTerminalBlocks(_ blocks: [TerminalCommandBlock]) {
+        emit(.terminalBlocks(blocks))
     }
 
     public func history(sessionID: String, beforeSeq: Int?, limit: Int) async throws -> ChatHistoryPage {
+        if isTerminal {
+            return ChatHistoryPage(messages: [], hasMore: false, terminalBlocks: terminalBacklog)
+        }
         let eligible: [ChatMessage]
         if let beforeSeq {
             eligible = backlog.filter { $0.seq < beforeSeq }
@@ -98,8 +125,17 @@ public actor FixtureChatEventSource: ChatEventSource {
                     backlog[index] = message
                 }
             }
+        case .terminalBlocks(let blocks):
+            for block in blocks {
+                if let index = terminalBacklog.firstIndex(where: { $0.id == block.id }) {
+                    terminalBacklog[index] = block
+                } else {
+                    terminalBacklog.append(block)
+                }
+            }
         case .reset:
             backlog = []
+            terminalBacklog = []
         case .unknown:
             break
         case .stateChanged, .descriptorChanged:

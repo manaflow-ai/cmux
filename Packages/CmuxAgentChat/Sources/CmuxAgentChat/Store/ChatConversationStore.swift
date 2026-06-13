@@ -61,6 +61,11 @@ public final class ChatConversationStore {
     @ObservationIgnored private var messages: [ChatMessage] = []
     @ObservationIgnored private var pending: [ChatPendingOutbound] = []
     @ObservationIgnored private var firstUnreadSeq: Int?
+    /// Terminal command-blocks for a `.terminal`-kind session, upserted by
+    /// id; `terminalBlockOrder` preserves arrival order. Unused (and the
+    /// reproject below ignores them) for agent sessions.
+    @ObservationIgnored private var terminalBlocks: [Int: TerminalCommandBlock] = [:]
+    @ObservationIgnored private var terminalBlockOrder: [Int] = []
     @ObservationIgnored private let source: any ChatEventSource
     @ObservationIgnored private let projector: ChatTranscriptProjector
     @ObservationIgnored private let pageSize: Int
@@ -303,14 +308,18 @@ public final class ChatConversationStore {
                 beforeSeq: nil,
                 limit: pageSize
             )
-            messages = page.messages
+            if descriptor.kind == .terminal {
+                seedTerminalBlocks(page.terminalBlocks ?? [])
+            } else {
+                messages = page.messages
+                if let lastRead = lastReadSeqAtActivation,
+                   let firstUnread = page.messages.first(where: { $0.seq > lastRead }) {
+                    firstUnreadSeq = firstUnread.seq
+                }
+            }
             hasMoreHistory = page.hasMore
             hasLoadedInitialHistory = true
             initialLoadFailed = false
-            if let lastRead = lastReadSeqAtActivation,
-               let firstUnread = page.messages.first(where: { $0.seq > lastRead }) {
-                firstUnreadSeq = firstUnread.seq
-            }
             lastErrorDescription = nil
             reproject()
         } catch {
@@ -346,6 +355,15 @@ public final class ChatConversationStore {
                 beforeSeq: nil,
                 limit: pageSize
             )
+            if descriptor.kind == .terminal {
+                // Blocks are whole-value and keyed by id, so re-seeding from
+                // the authoritative page is idempotent.
+                seedTerminalBlocks(page.terminalBlocks ?? [])
+                hasMoreHistory = page.hasMore
+                lastErrorDescription = nil
+                reproject()
+                return
+            }
             guard let newestKnown = messages.last?.seq else {
                 reconcilePending(against: page.messages)
                 messages = page.messages
@@ -436,6 +454,15 @@ public final class ChatConversationStore {
             self.descriptor = descriptor
             agentState = descriptor.state
             if case .idle = descriptor.state {} else { didFlushThisIdleWindow = false }
+        case .terminalBlocks(let blocks):
+            // Upsert by id: a new id appends to the order; an existing id
+            // replaces in place (output grew / command finished). Whole-block
+            // values make replayed blocks on reconnect idempotent.
+            for block in blocks {
+                if terminalBlocks[block.id] == nil { terminalBlockOrder.append(block.id) }
+                terminalBlocks[block.id] = block
+            }
+            reproject()
         case .reset:
             // The transcript was truncated/replaced on the Mac (tailer
             // re-read from scratch). The window's seq space is void; clear
@@ -545,7 +572,25 @@ public final class ChatConversationStore {
         reproject()
     }
 
+    /// Replaces the terminal block window from a history page (oldest first).
+    private func seedTerminalBlocks(_ blocks: [TerminalCommandBlock]) {
+        terminalBlocks = [:]
+        terminalBlockOrder = []
+        for block in blocks {
+            if terminalBlocks[block.id] == nil { terminalBlockOrder.append(block.id) }
+            terminalBlocks[block.id] = block
+        }
+    }
+
     private func reproject() {
+        // A terminal session is a flat ordered command log, not a grouped
+        // conversation, so it bypasses the bubble-grouping projector. The
+        // agent branch is unchanged.
+        if descriptor.kind == .terminal {
+            rows = terminalBlockOrder.compactMap { terminalBlocks[$0] }
+                .map(ChatTranscriptRow.terminalCommand)
+            return
+        }
         rows = projector.rows(
             messages: messages,
             pending: pending,

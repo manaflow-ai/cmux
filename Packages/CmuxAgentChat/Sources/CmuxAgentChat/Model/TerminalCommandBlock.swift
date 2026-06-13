@@ -9,7 +9,7 @@ import Foundation
 /// shell that emits OSC 133 semantic-prompt marks; when marks are absent the
 /// session degrades to a raw rolling log instead (handled by the producer,
 /// not here).
-public struct TerminalCommandBlock: Sendable, Equatable, Identifiable {
+public struct TerminalCommandBlock: Sendable, Equatable, Identifiable, Codable {
     /// Stable identity within a session (the command's ordinal).
     public let id: Int
 
@@ -54,5 +54,14 @@ public struct TerminalCommandBlock: Sendable, Equatable, Identifiable {
     public var failed: Bool {
         guard let exitCode else { return false }
         return exitCode != 0
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case id
+        case command
+        case output
+        case exitCode = "exit_code"
+        case isRunning = "is_running"
+        case isInteractive = "is_interactive"
     }
 }

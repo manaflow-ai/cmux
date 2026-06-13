@@ -11,6 +11,12 @@ public enum ChatSessionEvent: Sendable, Equatable {
     /// The session's descriptor changed (title, terminal binding, ...).
     case descriptorChanged(ChatSessionDescriptor)
 
+    /// Terminal command-blocks were appended or updated (terminal-kind
+    /// sessions). Receivers upsert by ``TerminalCommandBlock/id``; the
+    /// producer sends the whole current block value, so a replayed block on
+    /// reconnect is idempotent.
+    case terminalBlocks([TerminalCommandBlock])
+
     /// The producing transcript was truncated or replaced; the session's
     /// seq space restarted and clients must re-anchor from history.
     case reset
@@ -26,6 +32,7 @@ extension ChatSessionEvent: Codable {
         case messages
         case state
         case descriptor
+        case blocks
     }
 
     private enum EventName: String {
@@ -33,6 +40,7 @@ extension ChatSessionEvent: Codable {
         case updated
         case stateChanged = "state_changed"
         case descriptorChanged = "descriptor_changed"
+        case terminalBlocks = "terminal_blocks"
         case reset
     }
 
@@ -48,6 +56,8 @@ extension ChatSessionEvent: Codable {
             self = .stateChanged(try container.decode(ChatAgentState.self, forKey: .state))
         case .descriptorChanged:
             self = .descriptorChanged(try container.decode(ChatSessionDescriptor.self, forKey: .descriptor))
+        case .terminalBlocks:
+            self = .terminalBlocks(try container.decode([TerminalCommandBlock].self, forKey: .blocks))
         case .reset:
             self = .reset
         case .none:
@@ -73,6 +83,9 @@ extension ChatSessionEvent: Codable {
         case .descriptorChanged(let descriptor):
             try container.encode(EventName.descriptorChanged.rawValue, forKey: .event)
             try container.encode(descriptor, forKey: .descriptor)
+        case .terminalBlocks(let blocks):
+            try container.encode(EventName.terminalBlocks.rawValue, forKey: .event)
+            try container.encode(blocks, forKey: .blocks)
         case .reset:
             try container.encode(EventName.reset.rawValue, forKey: .event)
         case .unknown(let raw):
