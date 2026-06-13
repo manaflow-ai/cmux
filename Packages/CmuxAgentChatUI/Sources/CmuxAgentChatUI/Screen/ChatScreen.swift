@@ -17,6 +17,27 @@ public struct ChatScreen: View {
     @State private var expandedIDs: Set<String> = []
     @State private var renderer = ChatMarkdownRenderer()
     @State private var contentCache = ChatContentCache()
+    #if os(iOS)
+    /// Transcript and composer frames in window coordinates, measured via
+    /// preferences. The dismiss region is the transcript clipped to end at
+    /// the composer's top edge (the transcript view extends under the
+    /// composer's safe-area inset), so only taps over the conversation
+    /// dismiss the keyboard.
+    @State private var transcriptFrame: CGRect = .zero
+    @State private var composerFrame: CGRect = .zero
+
+    private var transcriptDismissRegion: CGRect {
+        guard transcriptFrame != .zero else { return .zero }
+        let bottom = composerFrame == .zero ? transcriptFrame.maxY : composerFrame.minY
+        let height = max(0, bottom - transcriptFrame.minY)
+        return CGRect(
+            x: transcriptFrame.minX,
+            y: transcriptFrame.minY,
+            width: transcriptFrame.width,
+            height: height
+        )
+    }
+    #endif
     @Binding private var draft: String
     private let onOpenTerminal: () -> Void
     private let providesOwnChrome: Bool
@@ -62,6 +83,11 @@ public struct ChatScreen: View {
         )
         .environment(\.chatMarkdownRenderer, renderer)
         .environment(\.chatContentCache, contentCache)
+        #if os(iOS)
+        // Measure the transcript so the keyboard-dismiss tap fires only over
+        // the conversation, never the composer/accessory bar or header.
+        .chatTranscriptDismissRegion()
+        #endif
         .overlay(alignment: .top) {
             if let error = store.lastErrorDescription {
                 Text(error)
@@ -115,6 +141,9 @@ public struct ChatScreen: View {
                     },
                     onOpenTerminal: onOpenTerminal
                 )
+                #if os(iOS)
+                .reportsChatComposerFrame()
+                #endif
                 .transition(.move(edge: .bottom).combined(with: .opacity))
             }
         }
@@ -125,7 +154,13 @@ public struct ChatScreen: View {
             onOpenTerminal: onOpenTerminal
         ))
         #if os(iOS)
-        .dismissesKeyboardOnTap()
+        .onPreferenceChange(ChatTranscriptFramePreferenceKey.self) { frame in
+            transcriptFrame = frame
+        }
+        .onPreferenceChange(ChatComposerFramePreferenceKey.self) { frame in
+            composerFrame = frame
+        }
+        .dismissesKeyboardOnTap(in: transcriptDismissRegion)
         #endif
         .task { await store.run() }
         #if canImport(UIKit)

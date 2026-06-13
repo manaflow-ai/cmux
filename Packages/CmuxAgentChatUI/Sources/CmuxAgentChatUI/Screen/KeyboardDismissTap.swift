@@ -3,22 +3,37 @@ import SwiftUI
 import UIKit
 
 /// Installs a window-level tap recognizer that dismisses the keyboard when
-/// the user taps anywhere outside the focused field (Telegram / WhatsApp
-/// behavior).
+/// the user taps inside a specific region (the chat transcript), matching
+/// Telegram / WhatsApp: tapping the conversation dismisses the keyboard, but
+/// tapping the composer, the accessory bar, or the header does not.
 ///
-/// The recognizer sets `cancelsTouchesInView = false` and
-/// `delaysTouchesEnded = false`, so taps still reach buttons and rows below
-/// it; it only resigns the first responder as a side effect. Use via
-/// ``SwiftUI/View/dismissesKeyboardOnTap()``.
+/// The recognizer must live on the window so it can see taps that land on the
+/// scrolling transcript content in front of this background view; a delegate
+/// then restricts it to the `dismissRegion` (the transcript's frame in window
+/// coordinates) so taps outside that region are ignored. It sets
+/// `cancelsTouchesInView = false`, so taps still reach rows and buttons; it
+/// only resigns the first responder as a side effect. Use via
+/// ``SwiftUI/View/dismissesKeyboardOnTap(in:)``.
 struct KeyboardDismissTap: UIViewRepresentable {
+    /// The only region whose taps dismiss the keyboard, in global/window
+    /// coordinates. Taps above it (header) or below it (composer, accessory
+    /// bar, keyboard) are ignored. `.zero` dismisses nowhere.
+    var dismissRegion: CGRect
+
     func makeUIView(context: Context) -> TapInstallerView { TapInstallerView() }
-    func updateUIView(_ uiView: TapInstallerView, context: Context) {}
+
+    func updateUIView(_ uiView: TapInstallerView, context: Context) {
+        uiView.dismissRegion = dismissRegion
+    }
 
     /// A non-interactive marker view that adds the recognizer to its window
     /// in `didMoveToWindow` — the only reliable "I'm in a window now" hook
     /// (relying on `updateUIView` timing missed the attach when no input
     /// changed after mount, so the first version never fired).
     final class TapInstallerView: UIView {
+        /// Region (window coords) whose taps dismiss the keyboard.
+        var dismissRegion: CGRect = .zero
+
         private weak var installedWindow: UIWindow?
 
         private lazy var recognizer: UITapGestureRecognizer = {
@@ -67,6 +82,16 @@ struct KeyboardDismissTap: UIViewRepresentable {
 }
 
 extension KeyboardDismissTap.TapInstallerView: UIGestureRecognizerDelegate {
+    // Only recognize taps that land inside the transcript region, so tapping
+    // the composer / accessory bar / header never dismisses the keyboard.
+    func gestureRecognizer(
+        _ gestureRecognizer: UIGestureRecognizer,
+        shouldReceive touch: UITouch
+    ) -> Bool {
+        guard !dismissRegion.isEmpty, let window else { return false }
+        return dismissRegion.contains(touch.location(in: window))
+    }
+
     // Never block other recognizers (scrolling, buttons, row taps).
     func gestureRecognizer(
         _ gestureRecognizer: UIGestureRecognizer,
@@ -76,11 +101,58 @@ extension KeyboardDismissTap.TapInstallerView: UIGestureRecognizerDelegate {
     }
 }
 
+/// Reports the chat transcript's frame (window coordinates) up to the screen
+/// so the keyboard-dismiss recognizer can restrict itself to that region.
+struct ChatTranscriptFramePreferenceKey: PreferenceKey {
+    static let defaultValue: CGRect = .zero
+    static func reduce(value: inout CGRect, nextValue: () -> CGRect) {
+        let next = nextValue()
+        if next != .zero { value = next }
+    }
+}
+
+/// Reports the composer's frame (window coordinates), so the transcript
+/// dismiss region can be clipped to end at the composer's top edge — the
+/// transcript view itself extends under the composer's safe-area inset.
+struct ChatComposerFramePreferenceKey: PreferenceKey {
+    static let defaultValue: CGRect = .zero
+    static func reduce(value: inout CGRect, nextValue: () -> CGRect) {
+        let next = nextValue()
+        if next != .zero { value = next }
+    }
+}
+
 extension View {
-    /// Dismisses the keyboard when the user taps outside the focused field,
-    /// without blocking taps on buttons or rows.
-    func dismissesKeyboardOnTap() -> some View {
-        background(KeyboardDismissTap())
+    /// Marks this view as the chat-history region: publishes its frame so the
+    /// dismiss recognizer fires only here.
+    func chatTranscriptDismissRegion() -> some View {
+        background(
+            GeometryReader { proxy in
+                Color.clear.preference(
+                    key: ChatTranscriptFramePreferenceKey.self,
+                    value: proxy.frame(in: .global)
+                )
+            }
+        )
+    }
+
+    /// Publishes the composer's frame so the dismiss region can exclude it.
+    func reportsChatComposerFrame() -> some View {
+        background(
+            GeometryReader { proxy in
+                Color.clear.preference(
+                    key: ChatComposerFramePreferenceKey.self,
+                    value: proxy.frame(in: .global)
+                )
+            }
+        )
+    }
+
+    /// Dismisses the keyboard when the user taps inside `region` (the chat
+    /// transcript), without blocking taps on buttons or rows, and without
+    /// dismissing on taps in the composer, accessory bar, or header.
+    func dismissesKeyboardOnTap(in region: CGRect) -> some View {
+        background(KeyboardDismissTap(dismissRegion: region))
     }
 }
 #endif
