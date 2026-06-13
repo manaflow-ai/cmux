@@ -9,12 +9,14 @@ import Testing
 #endif
 
 @MainActor
+@Suite
 struct GhosttyDrawableSizeRetryTests {
-    @Test func reconcilesDrawableAfterLayerRealizesFollowingNonMetalResize() throws {
+    @Test func reconcilesDrawableAfterFullSizeUpdateRunsBeforeMetalLayerRealizes() throws {
         _ = NSApplication.shared
 
+        let initialSize = CGSize(width: 800, height: 600)
         let targetSize = CGSize(width: 1296, height: 893)
-        let targetFrame = NSRect(origin: .zero, size: targetSize)
+        let initialFrame = NSRect(origin: .zero, size: initialSize)
         let terminalSurface = TerminalSurface(
             tabId: UUID(),
             context: GHOSTTY_SURFACE_CONTEXT_SPLIT,
@@ -23,7 +25,7 @@ struct GhosttyDrawableSizeRetryTests {
         )
         let hostedView = terminalSurface.hostedView
         let window = NSWindow(
-            contentRect: targetFrame,
+            contentRect: initialFrame,
             styleMask: [.titled, .closable],
             backing: .buffered,
             defer: false
@@ -35,7 +37,7 @@ struct GhosttyDrawableSizeRetryTests {
         }
 
         let contentView = try #require(window.contentView)
-        hostedView.frame = targetFrame
+        hostedView.frame = initialFrame
         hostedView.autoresizingMask = [.width, .height]
         contentView.addSubview(hostedView)
 
@@ -46,29 +48,40 @@ struct GhosttyDrawableSizeRetryTests {
         _ = hostedView.reconcileGeometryNow()
 
         let surfaceView = try #require(findGhosttyNSView(in: hostedView))
-        let expectedDrawableSize = surfaceView.convertToBacking(targetFrame).size
-        #expect(expectedDrawableSize.width > 0)
-        #expect(expectedDrawableSize.height > 0)
-
-        let staleDrawableSize = CGSize(
-            width: max(1, floor(expectedDrawableSize.width / 2)),
-            height: max(1, floor(expectedDrawableSize.height / 2))
-        )
-        #expect(staleDrawableSize != expectedDrawableSize)
+        let initialDrawableSize = surfaceView.convertToBacking(initialFrame).size
+        _ = surfaceView.forceRefreshSurface()
+        #expect(surfaceView.layer is CAMetalLayer)
+        #expect(surfaceView.debugLastDrawableSizeForTesting() == initialDrawableSize)
+        drainDeferredSurfaceSizeRetry(on: surfaceView)
+        #expect(!surfaceView.debugDeferredSurfaceSizeRetryQueuedForTesting())
 
         let nonMetalLayer = CALayer()
         nonMetalLayer.contentsScale = window.backingScaleFactor
         surfaceView.layer = nonMetalLayer
+        #expect(!surfaceView.debugDeferredSurfaceSizeRetryQueuedForTesting())
 
-        _ = surfaceView.forceRefreshSurface()
+        let targetFrame = NSRect(origin: .zero, size: targetSize)
+        window.setFrame(targetFrame, display: false)
+        hostedView.frame = targetFrame
+        surfaceView.frame = targetFrame
+        #expect(surfaceView.bounds.size == targetSize)
+
+        let expectedDrawableSize = surfaceView.convertToBacking(targetFrame).size
+        #expect(expectedDrawableSize.width > 0)
+        #expect(expectedDrawableSize.height > 0)
+        #expect(expectedDrawableSize != initialDrawableSize)
+
+        _ = surfaceView.debugUpdateSurfaceSizeForTesting(targetSize)
+
+        #expect(surfaceView.debugLastDrawableSizeForTesting() == initialDrawableSize)
+        #expect(surfaceView.debugDeferredSurfaceSizeRetryQueuedForTesting())
 
         let realizedLayer = GhosttyMetalLayer()
         realizedLayer.setSurfaceView(surfaceView)
         realizedLayer.contentsScale = window.backingScaleFactor
         realizedLayer.masksToBounds = true
-        realizedLayer.drawableSize = staleDrawableSize
+        realizedLayer.drawableSize = initialDrawableSize
         surfaceView.layer = realizedLayer
-        #expect(realizedLayer.drawableSize == staleDrawableSize)
 
         let deadline = Date().addingTimeInterval(0.5)
         while realizedLayer.drawableSize != expectedDrawableSize && Date() < deadline {
@@ -90,5 +103,12 @@ struct GhosttyDrawableSizeRetryTests {
         }
 
         return nil
+    }
+
+    private func drainDeferredSurfaceSizeRetry(on surfaceView: GhosttyNSView) {
+        let deadline = Date().addingTimeInterval(0.5)
+        while surfaceView.debugDeferredSurfaceSizeRetryQueuedForTesting() && Date() < deadline {
+            RunLoop.current.run(until: Date().addingTimeInterval(0.01))
+        }
     }
 }

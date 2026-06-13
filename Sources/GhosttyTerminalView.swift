@@ -8454,6 +8454,19 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     fileprivate func debugPendingSurfaceSize() -> CGSize? {
         pendingSurfaceSize
     }
+
+    func debugLastDrawableSizeForTesting() -> CGSize {
+        lastDrawableSize
+    }
+
+    func debugDeferredSurfaceSizeRetryQueuedForTesting() -> Bool {
+        deferredSurfaceSizeRetryQueued
+    }
+
+    @discardableResult
+    func debugUpdateSurfaceSizeForTesting(_ size: CGSize) -> Bool {
+        updateSurfaceSize(size: size)
+    }
 #endif
 
     /// Force a full size reconciliation for the current bounds.
