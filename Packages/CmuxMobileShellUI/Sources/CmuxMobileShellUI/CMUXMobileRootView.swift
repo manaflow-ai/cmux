@@ -72,6 +72,9 @@ struct CMUXMobileRootView: View {
 
     var body: some View {
         rootContent
+        .sheet(isPresented: addDeviceSheetBinding) {
+            pairingSheet
+        }
         .animation(.snappy(duration: 0.18), value: isAuthenticated)
         .animation(.snappy(duration: 0.18), value: store.phase)
         .onAppear {
@@ -186,36 +189,54 @@ struct CMUXMobileRootView: View {
                 setupHelpHighlight: disconnectedSetupHelpHighlight,
                 store: store
             )
-            .sheet(isPresented: $isShowingAddDeviceSheet) {
-                PairingView(
-                    pairingCode: $store.pairingCode,
-                    connectionError: store.connectionError,
-                    connectionErrorGuidance: store.connectionErrorGuidance,
-                    versionWarning: store.pairingVersionWarning,
-                    connectPairingCode: {
-                        await store.connectPairingInput()
-                    },
-                    acceptVersionWarning: {
-                        let result = await store.acceptPairingVersionWarning()
-                        clearAttachTicketAuthentication(after: result)
-                    },
-                    connectManualHost: { name, host, port in
-                        await store.connectManualHost(name: name, host: host, port: port)
-                    },
-                    cancelPairing: cancelPairing,
-                    cancel: { isShowingAddDeviceSheet = false }
-                )
-                #if os(iOS)
-                .presentationDetents([.medium, .large], selection: $addDeviceSheetDetent)
-                .presentationDragIndicator(.visible)
-                #endif
-            }
             .onAppear {
                 showAddDevice()
             }
         } else {
             WorkspaceShellView(store: store, signOut: signOut)
         }
+    }
+
+    private var addDeviceSheetBinding: Binding<Bool> {
+        Binding(
+            get: { isShowingAddDeviceSheet },
+            set: { isPresented in
+                if isPresented {
+                    showAddDevice()
+                } else {
+                    dismissAddDeviceSheet()
+                }
+            }
+        )
+    }
+
+    @ViewBuilder
+    private var pairingSheet: some View {
+        PairingView(
+            pairingCode: $store.pairingCode,
+            connectionError: store.connectionError,
+            connectionErrorGuidance: store.connectionErrorGuidance,
+            versionWarning: store.pairingVersionWarning,
+            connectPairingCode: {
+                await store.connectPairingInput()
+            },
+            acceptVersionWarning: {
+                let result = await store.acceptPairingVersionWarning()
+                clearAttachTicketAuthentication(after: result)
+                if result == .connected {
+                    dismissAddDeviceSheet()
+                }
+            },
+            connectManualHost: { name, host, port in
+                await store.connectManualHost(name: name, host: host, port: port)
+            },
+            cancelPairing: cancelPairing,
+            cancel: dismissAddDeviceSheet
+        )
+        #if os(iOS)
+        .presentationDetents([.medium, .large], selection: $addDeviceSheetDetent)
+        .presentationDragIndicator(.visible)
+        #endif
     }
 
     /// Which setup gate the disconnected screen's "Trouble connecting?" help marks
@@ -349,6 +370,15 @@ struct CMUXMobileRootView: View {
     private func cancelPairing() {
         store.cancelPairing()
         clearAttachTicketAuthenticationIfNeeded()
+    }
+
+    private func dismissAddDeviceSheet() {
+        isShowingAddDeviceSheet = false
+        if store.pairingVersionWarning != nil {
+            cancelPairing()
+        } else {
+            clearAttachTicketAuthenticationIfNeeded()
+        }
     }
 
     private func clearAttachTicketAuthentication(after result: MobilePairingURLConnectionResult) {
