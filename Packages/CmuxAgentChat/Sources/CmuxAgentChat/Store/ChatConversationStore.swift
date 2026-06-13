@@ -68,6 +68,12 @@ public final class ChatConversationStore {
     @ObservationIgnored private let now: @Sendable () -> Date
     @ObservationIgnored private var pendingCounter = 0
     @ObservationIgnored private var isFlushingQueue = false
+    /// True once a queued send has been flushed in the current idle
+    /// window; cleared when the agent next leaves idle. Ensures queued
+    /// prompts are delivered ONE per turn (the agent only flips back to
+    /// .working a round-trip after the first inject, so an ungated loop
+    /// would dump them all into a still-idle terminal at once).
+    @ObservationIgnored private var didFlushThisIdleWindow = false
 
     /// Creates a conversation store.
     ///
@@ -233,14 +239,16 @@ public final class ChatConversationStore {
     /// Re-entrancy is guarded so overlapping idle transitions don't
     /// double-send.
     private func flushQueuedSends() async {
-        guard !isFlushingQueue else { return }
+        guard !isFlushingQueue, !didFlushThisIdleWindow else { return }
         guard case .idle = agentState else { return }
+        guard let next = pending.first(where: { $0.delivery == .queued }) else { return }
         isFlushingQueue = true
+        didFlushThisIdleWindow = true
         defer { isFlushingQueue = false }
-        while case .idle = agentState,
-              let next = pending.first(where: { $0.delivery == .queued }) {
-            await deliver(next)
-        }
+        // Exactly one per idle window: delivering it makes the agent work,
+        // and the next working->idle transition re-arms the flush for the
+        // following queued prompt, preserving turn order.
+        await deliver(next)
     }
 
     /// Retries a failed pending send.
@@ -419,9 +427,11 @@ public final class ChatConversationStore {
             if didChange { reproject() }
         case .stateChanged(let state):
             agentState = state
+            if case .idle = state {} else { didFlushThisIdleWindow = false }
         case .descriptorChanged(let descriptor):
             self.descriptor = descriptor
             agentState = descriptor.state
+            if case .idle = descriptor.state {} else { didFlushThisIdleWindow = false }
         case .reset:
             // The transcript was truncated/replaced on the Mac (tailer
             // re-read from scratch). The window's seq space is void; clear

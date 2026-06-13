@@ -668,6 +668,34 @@ struct ChatConversationStoreTests {
         #expect(Self.pendingItems(store.rows).allSatisfy { $0.delivery != .queued })
     }
 
+    @Test("multiple sends queued while working flush ONE per idle turn, in order")
+    func queuedSendsFlushOnePerIdleTurn() async {
+        // FixtureChatEventSource echoes each delivered send as a user
+        // message, so the count of user prose = number actually flushed.
+        let source = FixtureChatEventSource()
+        let store = Self.makeStore(source: source)
+        let runTask = Task { await store.run() }
+        defer { runTask.cancel() }
+        #expect(await TestPoller.waitUntil { store.isConnected })
+
+        await source.emit(.stateChanged(.working(since: Self.baseTime)))
+        #expect(await TestPoller.waitUntil { store.agentState == .working(since: Self.baseTime) })
+        await store.send(text: "first")
+        await store.send(text: "second")
+        #expect(await TestPoller.waitUntil { Self.pendingItems(store.rows).filter { $0.delivery == .queued }.count == 2 })
+
+        // First idle window flushes exactly ONE (the older), not both.
+        await source.emit(.stateChanged(.idle))
+        #expect(await TestPoller.waitUntil { Self.userProseTexts(store.rows) == ["first"] })
+        #expect(Self.pendingItems(store.rows).filter { $0.delivery == .queued }.count == 1)
+
+        // A working->idle turn re-arms the flush for the second.
+        await source.emit(.stateChanged(.working(since: Self.baseTime)))
+        await source.emit(.stateChanged(.idle))
+        #expect(await TestPoller.waitUntil { Self.userProseTexts(store.rows) == ["first", "second"] })
+        #expect(Self.pendingItems(store.rows).allSatisfy { $0.delivery != .queued })
+    }
+
     @Test("a send while the agent is idle delivers immediately")
     func sendWhileIdleDeliversNow() async {
         let source = FixtureChatEventSource()
