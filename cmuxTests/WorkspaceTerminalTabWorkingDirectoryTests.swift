@@ -190,8 +190,7 @@ struct WorkspaceTerminalTabWorkingDirectoryTests {
     @MainActor
     @Test("surface.create inherits workspace cwd from focused agent pane")
     func surfaceCreateInheritsWorkspaceCurrentDirectoryForAgentPane() throws {
-        defer { TerminalController.shared.setActiveTabManager(nil) }
-
+        let previousManager = TerminalController.shared.activeTabManagerForCallerNotification()
         let workspaceDirectory = "/tmp/cmux-surface-create-\(UUID().uuidString)"
         let manager = TabManager()
         let workspace = try #require(manager.selectedWorkspace)
@@ -206,6 +205,9 @@ struct WorkspaceTerminalTabWorkingDirectoryTests {
         workspace.panelDirectories.removeValue(forKey: agentPanel.id)
         #expect(workspace.focusedPanelId == agentPanel.id)
         TerminalController.shared.setActiveTabManager(manager)
+        defer {
+            TerminalController.shared.setActiveTabManager(previousManager)
+        }
 
         let response = try v2SocketResponse(
             method: "surface.create",
