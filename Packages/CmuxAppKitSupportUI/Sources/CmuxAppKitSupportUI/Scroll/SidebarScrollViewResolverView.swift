@@ -60,7 +60,12 @@ public final class SidebarScrollViewResolverView: NSView {
     /// Resolves the enclosing scroll view after one deferred main-actor hop so
     /// the view hierarchy settles and any AppKit scroller-style reset lands
     /// before the configuration is re-applied.
-    public func resolveScrollView() {
+    ///
+    /// `nonisolated` so it can be invoked from the `NotificationCenter` observer
+    /// closure (a `@Sendable` context) without a synchronous main-actor call;
+    /// the body only schedules a `@MainActor` `Task`, so it performs no isolated
+    /// work itself and the actual resolution still runs on the main actor.
+    public nonisolated func resolveScrollView() {
         // Deferred one main-actor hop so the view hierarchy settles before
         // enclosingScrollView is resolved and, on scroller-style changes,
         // AppKit's own synchronous per-scroll-view reset lands before the
