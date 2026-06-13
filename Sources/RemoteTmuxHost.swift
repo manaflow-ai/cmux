@@ -174,6 +174,25 @@ struct RemoteTmuxHost: Sendable, Equatable, Identifiable {
         "'" + value.replacingOccurrences(of: "'", with: "'\\''") + "'"
     }
 
+    /// Returns a non-empty tmux control-mode command argument, or `nil` when the
+    /// value could break the line-oriented control stream. Shell quoting is not
+    /// enough here: CR/LF/control bytes can terminate a `rename-*` command line
+    /// before tmux parses the quoted argument.
+    static func controlModeCommandName(_ value: String?) -> String? {
+        let trimmed = (value ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        return controlModeLineSafeName(trimmed)
+    }
+
+    /// Validates a name already received from tmux. Unlike
+    /// ``controlModeCommandName(_:)``, this preserves surrounding spaces because
+    /// tmux is the source of truth for confirmed session/window names.
+    static func controlModeLineSafeName(_ value: String) -> String? {
+        guard !value.isEmpty else { return nil }
+        let forbidden = CharacterSet.controlCharacters.union(.newlines)
+        guard value.unicodeScalars.allSatisfy({ !forbidden.contains($0) }) else { return nil }
+        return value
+    }
+
     /// Builds the `ssh` argv (for direct `Process` execution, no shell) that
     /// runs `tmux -CC` control mode for `sessionName` on this host.
     ///

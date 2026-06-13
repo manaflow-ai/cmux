@@ -94,7 +94,7 @@ extension TerminalController {
                 if workspace.panels.count <= 1 {
                     break
                 }
-                if workspace.requestCloseTabRecordingHistory(tabId, force: true) {
+                if workspace.requestNonInteractiveCloseTabRecordingHistory(tabId) {
                     closed += 1
                 }
             }

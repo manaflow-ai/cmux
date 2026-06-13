@@ -301,28 +301,56 @@ final class RemoteTmuxController {
     /// A mirrored workspace was renamed → `rename-session` on the remote so the
     /// tmux session name tracks the cmux workspace title.
     func handleMirrorWorkspaceRenamed(workspaceId: UUID, title: String?) {
-        let name = (title ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !name.isEmpty,
+        guard let name = RemoteTmuxHost.controlModeCommandName(title),
               let entry = sessionMirrors.first(where: { $0.value.mirroredWorkspaceId == workspaceId })
         else { return }
         let mirror = entry.value
         let oldName = mirror.sessionName
         guard name != oldName, !mirror.connection.exited else { return }
-        let host = mirror.host
         // Target by the stable session id when known, so the rename can't race a
         // prior rename's name.
-        let target = mirror.connection.sessionId.map { "$\($0)" }
-            ?? RemoteTmuxHost.shellSingleQuoted(oldName)
+        guard let target = mirror.connection.sessionId.map({ "$\($0)" })
+            ?? RemoteTmuxHost.controlModeLineSafeName(oldName).map(RemoteTmuxHost.shellSingleQuoted)
+        else { return }
         mirror.connection.send("rename-session -t \(target) \(RemoteTmuxHost.shellSingleQuoted(name))")
-        // Re-key all per-session state from the old name to the new one so
-        // detach / kill / attach-reuse keep working after the rename.
+        // Do not re-key local state here. tmux can reject a rename (for example
+        // duplicate session name); `%session-changed` is the confirmation point.
+    }
+
+    /// Tmux confirmed that a mirrored session's name changed. This is the single
+    /// place that re-keys controller dictionaries keyed by host+session name.
+    func handleMirrorSessionNameChanged(
+        mirror: RemoteTmuxSessionMirror,
+        oldName: String,
+        newName: String
+    ) {
+        guard let safeName = RemoteTmuxHost.controlModeLineSafeName(newName),
+              oldName != safeName else {
+            return
+        }
+        let host = mirror.host
         let oldKey = Self.connectionKey(host: host, sessionName: oldName)
-        let newKey = Self.connectionKey(host: host, sessionName: name)
-        mirror.setSessionName(name)
-        mirror.connection.setSessionName(name)
+        let newKey = Self.connectionKey(host: host, sessionName: safeName)
+        if let existing = sessionMirrors[newKey], existing !== mirror { return }
+        if let existing = connectionsByHostSession[newKey], existing !== mirror.connection { return }
+
+        mirror.setSessionName(safeName)
+        mirror.connection.setSessionName(safeName)
+
         if oldKey != newKey {
-            if let m = sessionMirrors.removeValue(forKey: oldKey) { sessionMirrors[newKey] = m }
-            if let c = connectionsByHostSession.removeValue(forKey: oldKey) { connectionsByHostSession[newKey] = c }
+            if let entry = sessionMirrors.removeValue(forKey: oldKey) {
+                sessionMirrors[newKey] = entry
+            } else if let currentKey = sessionMirrors.first(where: { $0.value === mirror })?.key {
+                sessionMirrors.removeValue(forKey: currentKey)
+                sessionMirrors[newKey] = mirror
+            }
+
+            if let connection = connectionsByHostSession.removeValue(forKey: oldKey) {
+                connectionsByHostSession[newKey] = connection
+            } else if let currentKey = connectionsByHostSession.first(where: { $0.value === mirror.connection })?.key {
+                connectionsByHostSession.removeValue(forKey: currentKey)
+                connectionsByHostSession[newKey] = mirror.connection
+            }
         }
     }
 
@@ -435,8 +463,7 @@ final class RemoteTmuxController {
 
     /// A mirrored window's tab was renamed → `rename-window` on the remote.
     func handleMirrorWindowRenamed(workspaceId: UUID, panelId: UUID, title: String?) {
-        let name = (title ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !name.isEmpty,
+        guard let name = RemoteTmuxHost.controlModeCommandName(title),
               let mirror = sessionMirrors.values.first(where: { $0.mirroredWorkspaceId == workspaceId }),
               !mirror.connection.exited,
               let windowId = mirror.windowId(forPanel: panelId) else { return }
@@ -454,6 +481,13 @@ final class RemoteTmuxController {
               !mirror.connection.exited,
               let windowId = mirror.windowId(forPanel: panelId) else { return nil }
         return (mirror, windowId)
+    }
+
+    /// Whether the panel is currently a tmux window tab in a mirrored workspace.
+    /// This lets non-interactive socket close paths route or reject before they
+    /// mark the tab as a forced local close.
+    func isMirrorWindowTab(workspaceId: UUID, panelId: UUID) -> Bool {
+        mirrorWindowTarget(workspaceId: workspaceId, panelId: panelId) != nil
     }
 
     /// A tab close was requested in a mirrored workspace → kill that tmux window

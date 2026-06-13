@@ -18,6 +18,7 @@ final class RemoteTmuxConnectionObservers {
     private var paneCwdObservers: [Token: (_ paneId: Int, _ path: String) -> Void] = [:]
     private var paneReflowObservers: [Token: (_ paneId: Int, _ noReflow: Bool) -> Void] = [:]
     private var activePaneObservers: [Token: (_ windowId: Int, _ paneId: Int) -> Void] = [:]
+    private var sessionChangedObservers: [Token: (_ oldName: String, _ newName: String) -> Void] = [:]
     private var topologyObservers: [Token: () -> Void] = [:]
     private var exitObservers: [Token: () -> Void] = [:]
     private var stateObservers: [Token: (RemoteTmuxControlConnection.ConnectionState) -> Void] = [:]
@@ -40,6 +41,9 @@ final class RemoteTmuxConnectionObservers {
     ///   - onActivePaneChanged: fires when a window's active pane changes
     ///     (`%window-pane-changed`), so consumers can re-project per-pane state
     ///     (e.g. the active pane's directory) onto the window's tab.
+    ///   - onSessionChanged: fires when tmux confirms a session rename via
+    ///     `%session-changed`; consumers must treat this as the authoritative
+    ///     point for re-keying session-owned state.
     ///   - onTopologyChanged: fires when the window/pane topology changes.
     ///   - onExit: fires once when the connection PERMANENTLY ends (a genuine tmux
     ///     `%exit`, or a session found gone on reconnect). A transient transport loss
@@ -53,6 +57,7 @@ final class RemoteTmuxConnectionObservers {
         onPaneCwd: ((_ paneId: Int, _ path: String) -> Void)?,
         onPaneReflow: ((_ paneId: Int, _ noReflow: Bool) -> Void)?,
         onActivePaneChanged: ((_ windowId: Int, _ paneId: Int) -> Void)?,
+        onSessionChanged: ((_ oldName: String, _ newName: String) -> Void)?,
         onTopologyChanged: (() -> Void)?,
         onExit: (() -> Void)?,
         onConnectionStateChanged: ((RemoteTmuxControlConnection.ConnectionState) -> Void)?
@@ -62,6 +67,7 @@ final class RemoteTmuxConnectionObservers {
         if let onPaneCwd { paneCwdObservers[token] = onPaneCwd }
         if let onPaneReflow { paneReflowObservers[token] = onPaneReflow }
         if let onActivePaneChanged { activePaneObservers[token] = onActivePaneChanged }
+        if let onSessionChanged { sessionChangedObservers[token] = onSessionChanged }
         if let onTopologyChanged { topologyObservers[token] = onTopologyChanged }
         if let onExit { exitObservers[token] = onExit }
         if let onConnectionStateChanged { stateObservers[token] = onConnectionStateChanged }
@@ -74,6 +80,7 @@ final class RemoteTmuxConnectionObservers {
         paneCwdObservers[token] = nil
         paneReflowObservers[token] = nil
         activePaneObservers[token] = nil
+        sessionChangedObservers[token] = nil
         topologyObservers[token] = nil
         exitObservers[token] = nil
         stateObservers[token] = nil
@@ -99,6 +106,11 @@ final class RemoteTmuxConnectionObservers {
     /// Fans a window's new active pane out to every active-pane observer.
     func emitActivePaneChanged(_ windowId: Int, _ paneId: Int) {
         for callback in Array(activePaneObservers.values) { callback(windowId, paneId) }
+    }
+
+    /// Notifies every observer that the remote session name changed.
+    func emitSessionChanged(oldName: String, newName: String) {
+        for callback in Array(sessionChangedObservers.values) { callback(oldName, newName) }
     }
 
     /// Notifies every topology observer that the window/pane layout changed.

@@ -4118,6 +4118,29 @@ final class Workspace: Identifiable, ObservableObject {
         return closed
     }
 
+    /// Non-interactive socket/API close path. Remote-tmux mirror tabs must be
+    /// routed to tmux before a local forced close is attempted; otherwise
+    /// `forceCloseTabIds` bypasses `shouldCloseTab` and removes the cmux tab
+    /// while leaving the remote tmux window alive.
+    @discardableResult
+    func requestNonInteractiveCloseTabRecordingHistory(_ tabId: TabID) -> Bool {
+        if routeRemoteTmuxNonInteractiveTabCloseIfNeeded(tabId) {
+            return true
+        }
+        return requestCloseTabRecordingHistory(tabId, force: true)
+    }
+
+    private func routeRemoteTmuxNonInteractiveTabCloseIfNeeded(_ tabId: TabID) -> Bool {
+        guard isRemoteTmuxMirror,
+              let panelId = panelIdFromSurfaceId(tabId),
+              let remoteTmuxController = AppDelegate.shared?.remoteTmuxController,
+              remoteTmuxController.isMirrorWindowTab(workspaceId: id, panelId: panelId)
+        else {
+            return false
+        }
+        return remoteTmuxController.handleMirrorTabCloseRequested(workspaceId: id, panelId: panelId)
+    }
+
     func withClosedPanelHistorySuppressed(_ body: () -> Void) {
         let previous = suppressClosedPanelHistory
         suppressClosedPanelHistory = true

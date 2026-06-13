@@ -65,6 +65,9 @@ final class RemoteTmuxSessionMirror {
             onActivePaneChanged: { [weak self] windowId, paneId in
                 self?.handleActivePaneChanged(windowId: windowId, paneId: paneId)
             },
+            onSessionChanged: { [weak self] oldName, newName in
+                self?.handleSessionNameChanged(oldName: oldName, newName: newName)
+            },
             onTopologyChanged: { [weak self] in
                 self?.rebuild()
             },
@@ -105,6 +108,16 @@ final class RemoteTmuxSessionMirror {
         guard let workspaceId = mirroredWorkspaceId else { return }
         AppDelegate.shared?.remoteTmuxController.handleSessionEndedRemotely(
             host: host, sessionName: sessionName, workspaceId: workspaceId
+        )
+    }
+
+    /// Tmux confirmed a session rename. The controller owns the session-keyed
+    /// dictionaries, so it performs the re-key and then updates this mirror.
+    private func handleSessionNameChanged(oldName: String, newName: String) {
+        AppDelegate.shared?.remoteTmuxController.handleMirrorSessionNameChanged(
+            mirror: self,
+            oldName: oldName,
+            newName: newName
         )
     }
 

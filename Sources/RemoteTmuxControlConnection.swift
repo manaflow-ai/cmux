@@ -291,6 +291,8 @@ final class RemoteTmuxControlConnection {
     ///   - onActivePaneChanged: fires when a window's active pane changes
     ///     (`%window-pane-changed`), so consumers can re-project per-pane state
     ///     (e.g. the active pane's directory) onto the window's tab.
+    ///   - onSessionChanged: fires when tmux confirms a session rename via
+    ///     `%session-changed`.
     ///   - onTopologyChanged: fires when the window/pane topology changes.
     ///   - onExit: fires once when the connection PERMANENTLY ends (a genuine tmux
     ///     `%exit`, or a session found gone on reconnect). A transient transport loss
@@ -304,6 +306,7 @@ final class RemoteTmuxControlConnection {
         onPaneCwd: ((_ paneId: Int, _ path: String) -> Void)? = nil,
         onPaneReflow: ((_ paneId: Int, _ noReflow: Bool) -> Void)? = nil,
         onActivePaneChanged: ((_ windowId: Int, _ paneId: Int) -> Void)? = nil,
+        onSessionChanged: ((_ oldName: String, _ newName: String) -> Void)? = nil,
         onTopologyChanged: (() -> Void)? = nil,
         onExit: (() -> Void)? = nil,
         onConnectionStateChanged: ((ConnectionState) -> Void)? = nil
@@ -313,6 +316,7 @@ final class RemoteTmuxControlConnection {
             onPaneCwd: onPaneCwd,
             onPaneReflow: onPaneReflow,
             onActivePaneChanged: onActivePaneChanged,
+            onSessionChanged: onSessionChanged,
             onTopologyChanged: onTopologyChanged,
             onExit: onExit,
             onConnectionStateChanged: onConnectionStateChanged
@@ -1107,12 +1111,19 @@ final class RemoteTmuxControlConnection {
             totalOutputBytes += data.count
             observers.emitPaneOutput(paneId, data)
         case let .sessionChanged(id, name):
+            guard let safeName = RemoteTmuxHost.controlModeLineSafeName(name) else {
+                record("session-changed-invalid $\(id)")
+                requestWindows()
+                return
+            }
+            let oldName = sessionName
             sessionId = id
             // Track the new name too: `sessionName` is the value reused for
             // attach/reconnect, so a remote rename must update it or the next
             // reconnect targets a stale session and is wrongly declared gone.
-            sessionName = name
+            sessionName = safeName
             record("session-changed $\(id)")
+            observers.emitSessionChanged(oldName: oldName, newName: safeName)
             requestWindows()
         case .sessionsChanged:
             record("sessions-changed")
