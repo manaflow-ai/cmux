@@ -294,6 +294,92 @@ struct ClaudeNoFlickerHookRoutingTests {
     }
 
     @Test
+    func claudePromptSubmitPrefersLiveHookPIDOverStoredPID() throws {
+        let context = try support.makeHookContext(name: "claude-live-pid-over-stored")
+        defer { context.cleanup() }
+
+        let sessionId = "stored-stale-pid-session"
+        let staleSurfaceId = "66666666-6666-6666-6666-666666666666"
+        let stalePID = 1111
+        let livePID = 6048
+        let now = Date().timeIntervalSince1970
+        let store: [String: Any] = [
+            "version": 1,
+            "sessions": [
+                sessionId: [
+                    "sessionId": sessionId,
+                    "workspaceId": context.workspaceId,
+                    "surfaceId": staleSurfaceId,
+                    "cwd": context.root.path,
+                    "pid": stalePID,
+                    "agentLifecycle": "idle",
+                    "startedAt": now,
+                    "updatedAt": now,
+                ],
+            ],
+            "activeSessionsByWorkspace": [context.workspaceId: ["sessionId": sessionId, "updatedAt": now]],
+        ]
+        try JSONSerialization.data(withJSONObject: store, options: [.prettyPrinted])
+            .write(to: context.root.appendingPathComponent("claude-hook-sessions.json"), options: .atomic)
+
+        let server = support.startMockServer(listenerFD: context.listenerFD, state: context.state) { line in
+            guard let payload = ClaudeHookRoutingTestSupport.jsonObject(line) else {
+                return "OK"
+            }
+            guard let id = payload["id"] as? String, let method = payload["method"] as? String else {
+                return ClaudeHookRoutingTestSupport.malformedRequestResponse(id: payload["id"] as? String, raw: line)
+            }
+            switch method {
+            case "surface.list":
+                return ClaudeHookRoutingTestSupport.v2Response(
+                    id: id,
+                    ok: true,
+                    result: ["surfaces": [["id": staleSurfaceId, "ref": "surface:1"], ["id": context.surfaceId, "ref": "surface:2"]]]
+                )
+            case "system.top":
+                return ClaudeHookRoutingTestSupport.v2Response(
+                    id: id,
+                    ok: true,
+                    result: [
+                        "windows": [[
+                            "workspaces": [[
+                                "id": context.workspaceId,
+                                "panes": [["surfaces": [
+                                    ["id": staleSurfaceId, "top_level_pids": [stalePID]],
+                                    ["id": context.surfaceId, "top_level_pids": [livePID]],
+                                ]]],
+                            ]],
+                        ]],
+                    ]
+                )
+            case "feed.push":
+                return ClaudeHookRoutingTestSupport.v2Response(id: id, ok: true, result: [:])
+            case "surface.resume.set":
+                return ClaudeHookRoutingTestSupport.v2Response(id: id, ok: true, result: ["resume_binding": [:]])
+            default:
+                return ClaudeHookRoutingTestSupport.v2Response(id: id, ok: false, error: ["code": "unrecognized_method", "message": "unexpected method: \(method)"])
+            }
+        }
+
+        var environment = support.baseHookEnvironment(context: context)
+        environment["CMUX_CLAUDE_PID"] = "\(livePID)"
+        let result = support.runProcess(
+            executablePath: context.cliPath,
+            arguments: ["hooks", "claude", "prompt-submit"],
+            environment: environment,
+            standardInput: #"{"session_id":"\#(sessionId)","turn_id":"turn-1","cwd":"\#(context.root.path)","hook_event_name":"UserPromptSubmit","prompt":"run"}"#,
+            timeout: 5
+        )
+
+        #expect(server.wait(timeout: .now() + 5) == .success, "mock server did not finish")
+        #expect(!result.timedOut, Comment(rawValue: result.stderr))
+        #expect(result.status == 0, Comment(rawValue: result.stderr))
+        let commands = context.state.snapshot()
+        #expect(commands.contains { $0.hasPrefix("set_status claude_code Running ") && $0.contains("--panel=\(context.surfaceId)") }, "Expected live hook PID surface, saw \(commands)")
+        #expect(!commands.contains { $0.hasPrefix("set_status claude_code Running ") && $0.contains("--panel=\(staleSurfaceId)") }, "Stored stale PID must not route status, saw \(commands)")
+    }
+
+    @Test
     func claudeForkSessionStartDoesNotRegisterProcessSnapshotOnlyPID() throws {
         let context = try support.makeHookContext(name: "claude-fork-process-only")
         defer { context.cleanup() }
