@@ -194,6 +194,7 @@
 		C0DE45000000000000000001 /* CmuxExtensionKit in Frameworks */ = {isa = PBXBuildFile; productRef = C0DE45000000000000000002 /* CmuxExtensionKit */; };
 		C0DE49000000000000000001 /* CmuxExtensionSidebarExamples in Frameworks */ = {isa = PBXBuildFile; productRef = C0DE49000000000000000002 /* CmuxExtensionSidebarExamples */; };
 		C9A2C00000000000000000C3 /* CmuxFeedback in Frameworks */ = {isa = PBXBuildFile; productRef = C9A2C00000000000000000C2 /* CmuxFeedback */; };
+		C9A2D00000000000000000D3 /* CmuxFeedbackUI in Frameworks */ = {isa = PBXBuildFile; productRef = C9A2D00000000000000000D2 /* CmuxFeedbackUI */; };
 		C8000313C8000313C8000313 /* CmuxFileWatch in Frameworks */ = {isa = PBXBuildFile; productRef = C8000312C8000312C8000312 /* CmuxFileWatch */; };
 		C8000314C8000314C8000314 /* CmuxFileWatch in Frameworks */ = {isa = PBXBuildFile; productRef = C8000312C8000312C8000312 /* CmuxFileWatch */; };
 		5E2701040000000000000004 /* CmuxFoundation in Frameworks */ = {isa = PBXBuildFile; productRef = 5E2701040000000000000002 /* CmuxFoundation */; };
@@ -1601,6 +1602,7 @@
 				C0DE45000000000000000001 /* CmuxExtensionKit in Frameworks */,
 				C0DE49000000000000000001 /* CmuxExtensionSidebarExamples in Frameworks */,
 				C9A2C00000000000000000C3 /* CmuxFeedback in Frameworks */,
+				C9A2D00000000000000000D3 /* CmuxFeedbackUI in Frameworks */,
 				C8000313C8000313C8000313 /* CmuxFileWatch in Frameworks */,
 				CF00F00000000000000000A3 /* CmuxFoundation in Frameworks */,
 				C617000000000000000000A3 /* CmuxGit in Frameworks */,
@@ -2711,6 +2713,7 @@
 				C9A1C00000000000000000A1 /* XCLocalSwiftPackageReference "CmuxCommandPalette" */,
 				C9A2B00000000000000000B1 /* XCLocalSwiftPackageReference "CmuxAppKitSupportUI" */,
 				C9A2C00000000000000000C1 /* XCLocalSwiftPackageReference "CmuxFeedback" */,
+				C9A2D00000000000000000D1 /* XCLocalSwiftPackageReference "CmuxFeedbackUI" */,
 				CD0CFE5100000000CD0CFE51 /* XCLocalSwiftPackageReference "CmuxSettings" */,
 				CD0CFE5400000000CD0CFE54 /* XCLocalSwiftPackageReference "CmuxSettingsUI" */,
 				CDFEED0100000000CDFEED01 /* XCLocalSwiftPackageReference "CmuxUpdater" */,
@@ -4126,6 +4129,10 @@
 			isa = XCLocalSwiftPackageReference;
 			relativePath = Packages/CmuxFeedback;
 		};
+		C9A2D00000000000000000D1 /* XCLocalSwiftPackageReference "CmuxFeedbackUI" */ = {
+			isa = XCLocalSwiftPackageReference;
+			relativePath = Packages/CmuxFeedbackUI;
+		};
 		CD0CFE5100000000CD0CFE51 /* XCLocalSwiftPackageReference "CmuxSettings" */ = {
 			isa = XCLocalSwiftPackageReference;
 			relativePath = Packages/CmuxSettings;
@@ -4307,6 +4314,11 @@
 			isa = XCSwiftPackageProductDependency;
 			package = C9A2C00000000000000000C1 /* XCLocalSwiftPackageReference "CmuxFeedback" */;
 			productName = CmuxFeedback;
+		};
+		C9A2D00000000000000000D2 /* CmuxFeedbackUI */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = C9A2D00000000000000000D1 /* XCLocalSwiftPackageReference "CmuxFeedbackUI" */;
+			productName = CmuxFeedbackUI;
 		};
 		C8000302C8000302C8000302 /* CmuxProcess */ = {
 			isa = XCSwiftPackageProductDependency;
