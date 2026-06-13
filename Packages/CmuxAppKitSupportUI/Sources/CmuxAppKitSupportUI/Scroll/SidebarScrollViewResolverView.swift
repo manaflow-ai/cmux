@@ -13,7 +13,7 @@ public final class SidebarScrollViewResolverView: NSView {
     // nonisolated deinit, which is safe because deinit runs after all main-thread
     // access has ceased. `nonisolated(unsafe)` keeps that one cross-isolation
     // read legal under Swift 6 without weakening the type.
-    private nonisolated(unsafe) var scrollerStyleObserver: NSObjectProtocol?
+    private nonisolated(unsafe) var scrollerStyleObserver: (any NSObjectProtocol)?
 
     /// Creates the resolver view and begins observing scroller-style changes.
     public override init(frame frameRect: NSRect) {

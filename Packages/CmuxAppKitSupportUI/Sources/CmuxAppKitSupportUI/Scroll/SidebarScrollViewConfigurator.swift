@@ -12,6 +12,12 @@ public enum SidebarScrollViewConfigurator {
     /// Forces the scroll view into the stable overlay-scroller configuration,
     /// writing each property only when it differs to avoid cancelling an
     /// in-flight scroller fade.
+    ///
+    /// `@MainActor` because it reads and mutates `NSScrollView`'s
+    /// main-actor-isolated scroller properties; every caller (the resolver's
+    /// `onResolve` callback, driven from the main thread) is already on the main
+    /// actor.
+    @MainActor
     public static func apply(to scrollView: NSScrollView) {
         if scrollView.hasHorizontalScroller {
             scrollView.hasHorizontalScroller = false
