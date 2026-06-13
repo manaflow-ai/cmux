@@ -1,6 +1,7 @@
 import CoreGraphics
 import Foundation
 import Bonsplit
+import CmuxSession
 #if canImport(CryptoKit)
 import CryptoKit
 #endif
@@ -1867,175 +1868,12 @@ struct AppSessionSnapshot: Codable, Sendable {
     var windows: [SessionWindowSnapshot]
 }
 
-enum SessionPersistenceStore {
-    enum SnapshotLoadOutcome {
-        case loaded(AppSessionSnapshot)
-        /// No snapshot file on disk: a genuinely clean state.
-        case missing
-        /// A snapshot file exists but cannot be restored (unreadable data,
-        /// decode failure, schema version drift, or an anomalous empty
-        /// window list; empty states remove the file instead of writing it).
-        case unusable
-    }
-
-    static func loadOutcome(fileURL: URL) -> SnapshotLoadOutcome {
-        guard FileManager.default.fileExists(atPath: fileURL.path) else { return .missing }
-        guard let data = try? Data(contentsOf: fileURL) else { return .unusable }
-        let decoder = JSONDecoder()
-        guard let snapshot = try? decoder.decode(AppSessionSnapshot.self, from: data) else { return .unusable }
-        guard snapshot.version == SessionSnapshotSchema.currentVersion else { return .unusable }
-        guard !snapshot.windows.isEmpty else { return .unusable }
-        return .loaded(snapshot)
-    }
-
-    static func load(fileURL: URL? = nil) -> AppSessionSnapshot? {
-        guard let fileURL = fileURL ?? defaultSnapshotFileURL() else { return nil }
-        guard case .loaded(let snapshot) = loadOutcome(fileURL: fileURL) else { return nil }
-        return snapshot
-    }
-
-    @discardableResult
-    static func save(_ snapshot: AppSessionSnapshot, fileURL: URL? = nil) -> Bool {
-        guard let fileURL = fileURL ?? defaultSnapshotFileURL() else { return false }
-        let directory = fileURL.deletingLastPathComponent()
-        do {
-            try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true, attributes: nil)
-            let data = try encodedSnapshotData(snapshot)
-            if let existingData = try? Data(contentsOf: fileURL), existingData == data {
-                return true
-            }
-            try data.write(to: fileURL, options: .atomic)
-            return true
-        } catch {
-            return false
-        }
-    }
-
-    private static func encodedSnapshotData(_ snapshot: AppSessionSnapshot) throws -> Data {
-        let encoder = JSONEncoder()
-        encoder.outputFormatting = [.sortedKeys]
-        return try encoder.encode(snapshot)
-    }
-
-    static func removeSnapshot(fileURL: URL? = nil) {
-        guard let fileURL = fileURL ?? defaultSnapshotFileURL() else { return }
-        try? FileManager.default.removeItem(at: fileURL)
-    }
-
-    static func loadReopenSessionSnapshot(
-        fileURL: URL? = nil,
-        bundleIdentifier: String? = Bundle.main.bundleIdentifier,
-        appSupportDirectory: URL? = nil
-    ) -> AppSessionSnapshot? {
-        guard let fileURL = fileURL ?? manualRestoreSnapshotFileURL(
-            bundleIdentifier: bundleIdentifier,
-            appSupportDirectory: appSupportDirectory
-        ) else {
-            return nil
-        }
-        return load(fileURL: fileURL)
-    }
-
-    static func syncManualRestoreSnapshotCache(
-        bundleIdentifier: String? = Bundle.main.bundleIdentifier,
-        appSupportDirectory: URL? = nil
-    ) {
-        guard let backupURL = manualRestoreSnapshotFileURL(
-            bundleIdentifier: bundleIdentifier,
-            appSupportDirectory: appSupportDirectory
-        ) else { return }
-        guard let primaryURL = defaultSnapshotFileURL(
-            bundleIdentifier: bundleIdentifier,
-            appSupportDirectory: appSupportDirectory
-        ) else { return }
-        switch loadOutcome(fileURL: primaryURL) {
-        case .loaded(let snapshot):
-            _ = save(snapshot, fileURL: backupURL)
-        case .missing:
-            removeSnapshot(fileURL: backupURL)
-        case .unusable:
-            // The primary snapshot exists but cannot be restored. Keep the
-            // backup: it is the only remaining recovery path for the user's
-            // sessions (startup fallback and `cmux restore-session`).
-            break
-        }
-    }
-
-    static func loadStartupSnapshot(
-        bundleIdentifier: String? = Bundle.main.bundleIdentifier,
-        appSupportDirectory: URL? = nil
-    ) -> AppSessionSnapshot? {
-        guard let primaryURL = defaultSnapshotFileURL(
-            bundleIdentifier: bundleIdentifier,
-            appSupportDirectory: appSupportDirectory
-        ) else { return nil }
-        switch loadOutcome(fileURL: primaryURL) {
-        case .loaded(let snapshot):
-            return snapshot
-        case .missing:
-            return nil
-        case .unusable:
-            let backup = loadReopenSessionSnapshot(
-                bundleIdentifier: bundleIdentifier,
-                appSupportDirectory: appSupportDirectory
-            )
-#if DEBUG
-            cmuxDebugLog(
-                "session.restore.primaryUnusable path=\(primaryURL.path) " +
-                    "backupRecovered=\(backup != nil ? 1 : 0)"
-            )
-#endif
-            return backup
-        }
-    }
-
-    static func defaultSnapshotFileURL(
-        bundleIdentifier: String? = Bundle.main.bundleIdentifier,
-        appSupportDirectory: URL? = nil
-    ) -> URL? {
-        snapshotFileURL(
-            suffix: "",
-            bundleIdentifier: bundleIdentifier,
-            appSupportDirectory: appSupportDirectory
-        )
-    }
-
-    static func manualRestoreSnapshotFileURL(
-        bundleIdentifier: String? = Bundle.main.bundleIdentifier,
-        appSupportDirectory: URL? = nil
-    ) -> URL? {
-        snapshotFileURL(
-            suffix: "-previous",
-            bundleIdentifier: bundleIdentifier,
-            appSupportDirectory: appSupportDirectory
-        )
-    }
-
-    private static func snapshotFileURL(
-        suffix: String,
-        bundleIdentifier: String?,
-        appSupportDirectory: URL?
-    ) -> URL? {
-        let resolvedAppSupport: URL
-        if let appSupportDirectory {
-            resolvedAppSupport = appSupportDirectory
-        } else if let discovered = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first {
-            resolvedAppSupport = discovered
-        } else {
-            return nil
-        }
-        let bundleId = (bundleIdentifier?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false)
-            ? bundleIdentifier!
-            : "com.cmuxterm.app"
-        let safeBundleId = bundleId.replacingOccurrences(
-            of: "[^A-Za-z0-9._-]",
-            with: "_",
-            options: .regularExpression
-        )
-        return resolvedAppSupport
-            .appendingPathComponent("cmux", isDirectory: true)
-            .appendingPathComponent("session-\(safeBundleId)\(suffix).json", isDirectory: false)
-    }
+extension AppSessionSnapshot: SessionSnapshotRepresenting {
+    /// Whether the snapshot carries at least one window. The `CmuxSession`
+    /// repository treats an empty-window snapshot as unusable (empty states
+    /// remove the file instead of writing it), matching the legacy
+    /// `!snapshot.windows.isEmpty` usability check.
+    var hasWindows: Bool { !windows.isEmpty }
 }
 
 enum SessionScrollbackReplayStore {

@@ -4,7 +4,7 @@
 33285	CLI/cmux.swift
 19985	Sources/Workspace.swift
 19265	Sources/ContentView.swift
-18077	Sources/AppDelegate.swift
+18084	Sources/AppDelegate.swift
 16674	Sources/GhosttyTerminalView.swift
 14774	Sources/TerminalController.swift
 13606	Sources/Panels/BrowserPanel.swift
@@ -15,7 +15,7 @@
 7291	cmuxTests/WorkspaceUnitTests.swift
 6948	cmuxTests/WorkspaceRemoteConnectionTests.swift
 6542	cmuxTests/GhosttyConfigTests.swift
-6329	cmuxTests/SessionPersistenceTests.swift
+6312	cmuxTests/SessionPersistenceTests.swift
 6299	cmuxTests/TerminalAndGhosttyTests.swift
 6153	CLI/cmux_open.swift
 6071	Sources/TextBoxInput.swift
@@ -31,7 +31,7 @@
 3699	cmuxTests/CLIGenericHookPersistenceTests.swift
 3665	Packages/CmuxMobileTerminal/Sources/CmuxMobileTerminal/GhosttySurfaceView.swift
 3396	Sources/CmuxConfig.swift
-3316	cmuxTests/TabManagerSessionSnapshotTests.swift
+3329	cmuxTests/TabManagerSessionSnapshotTests.swift
 3202	Sources/Update/UpdateTitlebarAccessory.swift
 2877	Sources/SessionIndexView.swift
 2871	cmuxTests/CMUXOpenCommandTests.swift
@@ -44,9 +44,9 @@
 2327	cmuxTests/CJKIMEInputTests.swift
 2314	Sources/FileExplorerView.swift
 2260	Sources/TerminalWindowPortal.swift
-2198	Sources/SessionPersistence.swift
 2123	cmuxTests/ShortcutAndCommandPaletteTests.swift
 2117	cmuxTests/CmuxConfigTests.swift
+2036	Sources/SessionPersistence.swift
 2030	Sources/KeyboardShortcutSettingsFileStore.swift
 1949	Sources/Panels/BrowserWebAuthnSupport.swift
 1860	cmuxTests/NotificationAndMenuBarTests.swift
@@ -75,7 +75,7 @@
 1197	cmuxTests/CodexAppServerSessionTests.swift
 1156	cmuxTests/SidebarOrderingTests.swift
 1144	Sources/VaultAgentProcessScanner.swift
-1139	cmuxTests/PiVaultAgentPersistenceTests.swift
+1144	cmuxTests/PiVaultAgentPersistenceTests.swift
 1126	cmuxTests/FileExplorerStoreTests.swift
 1107	Sources/AppDelegate+CmuxSSHURL.swift
 1096	Sources/GhosttyConfig.swift
