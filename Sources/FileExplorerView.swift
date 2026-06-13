@@ -516,17 +516,28 @@ struct FileExplorerPanelView: NSViewRepresentable {
         }
 
         private func resolvedSelectionRow(in outlineView: NSOutlineView) -> Int? {
+            if let selected = selectedOutlineRow(in: outlineView) {
+                if store.selectedPath != selected.node.path {
+                    store.select(node: selected.node)
+                }
+                return selected.row
+            }
+
             if let selectedPath = store.selectedPath,
                let resolution = selectionResolution(for: selectedPath, in: outlineView) {
                 return resolution.row
             }
+
+            return nil
+        }
+
+        private func selectedOutlineRow(in outlineView: NSOutlineView) -> (row: Int, node: FileExplorerNode)? {
             guard outlineView.selectedRow >= 0,
                   outlineView.selectedRow < outlineView.numberOfRows,
                   let node = outlineView.item(atRow: outlineView.selectedRow) as? FileExplorerNode else {
                 return nil
             }
-            store.select(node: node)
-            return outlineView.selectedRow
+            return (outlineView.selectedRow, node)
         }
 
         private struct SelectionResolution {
