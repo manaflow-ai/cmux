@@ -3,7 +3,10 @@ import SwiftUI
 import AppKit
 import Bonsplit
 import CMUXAgentLaunch
+import CmuxBrowser
 import CmuxCanvasUI
+import CmuxPanes
+import CmuxWorkspaces
 import CmuxSocketControl
 import Combine
 import CryptoKit
@@ -10339,7 +10342,11 @@ enum SidebarBranchOrdering {
     }
 }
 
-struct ClosedBrowserPanelRestoreSnapshot {
+// BrowserPanelRestoreSnapshot (CmuxBrowser): the recently-closed browser
+// stack only reads workspaceId + closedAt; the full payload stays
+// Workspace-owned until the Workspace decomposition lands it in its own
+// browser-panel package.
+struct ClosedBrowserPanelRestoreSnapshot: BrowserPanelRestoreSnapshot {
     let workspaceId: UUID
     let url: URL?
     let profileID: UUID?

@@ -1,4 +1,5 @@
 import Foundation
+import CmuxPanes
 import CmuxTerminalCore
 import CmuxTerminalCopyMode
 import CmuxSocketControl

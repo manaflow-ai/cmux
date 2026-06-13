@@ -28,6 +28,8 @@ public struct SettingCatalog: SettingCatalogSection {
     public let sidebar = SidebarCatalogSection()
     public let sidebarAppearance = SidebarAppearanceCatalogSection()
     public let workspaceColors = WorkspaceColorsCatalogSection()
+    /// Settings for sidebar workspace groups (the `workspaceGroups.*` keys).
+    public let workspaceGroups = WorkspaceGroupsCatalogSection()
     public let automation = AutomationCatalogSection()
     public let browser = BrowserCatalogSection()
     /// Settings for the built-in markdown viewer (the `markdown.*` keys).
