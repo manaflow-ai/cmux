@@ -17,10 +17,6 @@ public struct TerminalCommandBlock: Sendable, Equatable, Identifiable, Codable {
     /// `C` marks), trimmed. Empty for a bare prompt with no command.
     public let command: String
 
-    /// Accumulated command output (between `C` and `D`), with carriage-return
-    /// progress redraws already folded to their final per-line state.
-    public var output: String
-
     /// The command's exit code once it finished (`D;<exit>`), or `nil` while
     /// it is still running.
     public var exitCode: Int?
@@ -32,6 +28,14 @@ public struct TerminalCommandBlock: Sendable, Equatable, Identifiable, Codable {
     /// htop, less). The chat shows an interactive-program card for these
     /// rather than trying to render the screen as output.
     public var isInteractive: Bool
+
+    /// Accumulated command output (between `C` and `D`), with carriage-return
+    /// progress redraws already folded to their final per-line state.
+    ///
+    /// Declared LAST so the synthesized `Equatable` compares the cheap scalar
+    /// fields first and only does the full string comparison when they match —
+    /// a streaming block diffs against its prior self every output tick.
+    public var output: String
 
     /// Creates a command block.
     public init(

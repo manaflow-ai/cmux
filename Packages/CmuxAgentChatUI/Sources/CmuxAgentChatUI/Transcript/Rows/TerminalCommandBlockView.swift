@@ -49,10 +49,13 @@ public struct TerminalCommandBlockView: View {
     }
 
     private var commandBlock: some View {
-        VStack(alignment: .leading, spacing: 3) {
+        // Split the output once per render; outputLines was a computed property
+        // read 5+ times per body pass (each a full re-split of growing output).
+        let lines = outputLines
+        return VStack(alignment: .leading, spacing: 3) {
             commandRow
-            if !outputLines.isEmpty {
-                outputBlock
+            if !lines.isEmpty {
+                outputBlock(lines)
             }
             footer
         }
@@ -75,7 +78,7 @@ public struct TerminalCommandBlockView: View {
         // `.combine` absorbs the inline "more lines" button, so expose the
         // toggle as a VoiceOver custom action when the output is collapsible.
         .accessibilityActions {
-            if outputLines.count > Self.collapseThreshold {
+            if lines.count > Self.collapseThreshold {
                 Button(
                     isExpanded
                         ? String(
@@ -107,22 +110,22 @@ public struct TerminalCommandBlockView: View {
         }
     }
 
-    private var outputBlock: some View {
+    private func outputBlock(_ lines: [String]) -> some View {
         ScrollView(.horizontal, showsIndicators: false) {
             VStack(alignment: .leading, spacing: 0) {
-                if !isExpanded, outputLines.count > Self.collapseThreshold {
-                    collapsedOutput
+                if !isExpanded, lines.count > Self.collapseThreshold {
+                    collapsedOutput(lines)
                 } else {
-                    outputText(outputLines)
+                    outputText(lines)
                 }
             }
         }
     }
 
     @ViewBuilder
-    private var collapsedOutput: some View {
-        let hidden = outputLines.count - Self.collapsedHeadCount - Self.collapsedTailCount
-        outputText(Array(outputLines.prefix(Self.collapsedHeadCount)))
+    private func collapsedOutput(_ lines: [String]) -> some View {
+        let hidden = lines.count - Self.collapsedHeadCount - Self.collapsedTailCount
+        outputText(Array(lines.prefix(Self.collapsedHeadCount)))
         Button(action: onToggleExpanded) {
             Text(
                 String(
@@ -136,7 +139,7 @@ public struct TerminalCommandBlockView: View {
             .padding(.vertical, 1)
         }
         .buttonStyle(.plain)
-        outputText(Array(outputLines.suffix(Self.collapsedTailCount)))
+        outputText(Array(lines.suffix(Self.collapsedTailCount)))
             .opacity(0.55)
     }
 
