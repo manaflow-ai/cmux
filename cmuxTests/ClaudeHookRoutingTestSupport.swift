@@ -101,8 +101,19 @@ struct ClaudeHookRoutingTestSupport {
                     guard let line = String(data: lineData, encoding: .utf8) else { continue }
                     state.append(line)
                     let response = handler(line) + "\n"
-                    _ = response.withCString { ptr in
-                        Darwin.write(clientFD, ptr, strlen(ptr))
+                    let responseData = Data(response.utf8)
+                    responseData.withUnsafeBytes { rawBuffer in
+                        guard let base = rawBuffer.baseAddress else { return }
+                        var sent = 0
+                        while sent < rawBuffer.count {
+                            let wrote = Darwin.write(clientFD, base.advanced(by: sent), rawBuffer.count - sent)
+                            if wrote < 0 {
+                                if errno == EINTR { continue }
+                                return
+                            }
+                            if wrote == 0 { return }
+                            sent += wrote
+                        }
                     }
                 }
             }
@@ -145,6 +156,10 @@ struct ClaudeHookRoutingTestSupport {
         if timedOut {
             process.terminate()
             _ = exitSignal.wait(timeout: .now() + 1)
+            if process.isRunning {
+                Darwin.kill(process.processIdentifier, SIGKILL)
+                _ = exitSignal.wait(timeout: .now() + 1)
+            }
         }
         return ProcessRunResult(
             status: process.terminationStatus,

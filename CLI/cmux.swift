@@ -22119,7 +22119,7 @@ struct CMUXCLI {
         case "session-start", "active":
             telemetry.breadcrumb("claude-hook.session-start")
             let claudePid = hookClaudePid
-            var terminalBindingCache: ClaudeHookTerminalBindingCache = (didResolve: false, binding: nil)
+            var terminalBindingCache: ClaudeHookTerminalBindingCache = (didResolve: false, agentPID: nil, allowProcessSnapshotBinding: true, binding: nil)
             let workspaceId = try resolvePreferredWorkspaceIdForClaudeHook(
                 preferred: nil,
                 fallback: workspaceArg,
@@ -22253,7 +22253,7 @@ struct CMUXCLI {
                 // Notification hook handles user-facing notifications; SessionEnd handles cleanup.
                 let mappedSession = parsedInput.sessionId.flatMap { try? sessionStore.lookup(sessionId: $0) }
                 let claudePid = mappedSession?.pid ?? hookClaudePid
-                var terminalBindingCache: ClaudeHookTerminalBindingCache = (didResolve: false, binding: nil)
+                var terminalBindingCache: ClaudeHookTerminalBindingCache = (didResolve: false, agentPID: nil, allowProcessSnapshotBinding: true, binding: nil)
                 let workspaceId = try resolvePreferredWorkspaceIdForClaudeHook(
                     preferred: mappedSession?.workspaceId,
                     fallback: workspaceArg,
@@ -22364,7 +22364,7 @@ struct CMUXCLI {
             telemetry.breadcrumb("claude-hook.prompt-submit")
             let mappedSession = parsedInput.sessionId.flatMap { try? sessionStore.lookup(sessionId: $0) }
             let claudePid = mappedSession?.pid ?? hookClaudePid
-            var terminalBindingCache: ClaudeHookTerminalBindingCache = (didResolve: false, binding: nil)
+            var terminalBindingCache: ClaudeHookTerminalBindingCache = (didResolve: false, agentPID: nil, allowProcessSnapshotBinding: true, binding: nil)
             let workspaceId = try resolvePreferredWorkspaceIdForClaudeHook(
                 preferred: mappedSession?.workspaceId,
                 fallback: workspaceArg,
@@ -22483,7 +22483,7 @@ struct CMUXCLI {
 
             let mappedSession = parsedInput.sessionId.flatMap { try? sessionStore.lookup(sessionId: $0) }
             let claudePid = mappedSession?.pid ?? hookClaudePid
-            var terminalBindingCache: ClaudeHookTerminalBindingCache = (didResolve: false, binding: nil)
+            var terminalBindingCache: ClaudeHookTerminalBindingCache = (didResolve: false, agentPID: nil, allowProcessSnapshotBinding: true, binding: nil)
             let workspaceId = try resolvePreferredWorkspaceIdForClaudeHook(
                 preferred: mappedSession?.workspaceId,
                 fallback: workspaceArg,
@@ -22593,7 +22593,7 @@ struct CMUXCLI {
                     env: env
                 )
                 if !suppressForkVisibleMutations {
-                    var forkTerminalBindingCache: ClaudeHookTerminalBindingCache = (didResolve: false, binding: nil)
+                    var forkTerminalBindingCache: ClaudeHookTerminalBindingCache = (didResolve: false, agentPID: nil, allowProcessSnapshotBinding: true, binding: nil)
                     if let forkWorkspaceId = try? resolvePreferredWorkspaceIdForClaudeHook(
                         preferred: nil,
                         fallback: workspaceArg,
@@ -22629,7 +22629,7 @@ struct CMUXCLI {
             // to avoid wiping the completion notification that Stop just delivered.
             let mappedSession = parsedInput.sessionId.flatMap { try? sessionStore.lookup(sessionId: $0) }
             let fallbackClaudePid = mappedSession?.pid ?? hookClaudePid
-            var fallbackTerminalBindingCache: ClaudeHookTerminalBindingCache = (didResolve: false, binding: nil)
+            var fallbackTerminalBindingCache: ClaudeHookTerminalBindingCache = (didResolve: false, agentPID: nil, allowProcessSnapshotBinding: true, binding: nil)
             let fallbackWorkspaceId = try? resolvePreferredWorkspaceIdForClaudeHook(
                 preferred: mappedSession?.workspaceId,
                 fallback: workspaceArg,
@@ -22713,7 +22713,7 @@ struct CMUXCLI {
             // (e.g. after permission grant). Runs async so it doesn't block tool execution.
             let mappedSession = parsedInput.sessionId.flatMap { try? sessionStore.lookup(sessionId: $0) }
             let claudePid = mappedSession?.pid ?? hookClaudePid
-            var terminalBindingCache: ClaudeHookTerminalBindingCache = (didResolve: false, binding: nil)
+            var terminalBindingCache: ClaudeHookTerminalBindingCache = (didResolve: false, agentPID: nil, allowProcessSnapshotBinding: true, binding: nil)
             let workspaceId = try resolvePreferredWorkspaceIdForClaudeHook(
                 preferred: mappedSession?.workspaceId,
                 fallback: workspaceArg,
@@ -23187,10 +23187,7 @@ struct CMUXCLI {
         surfaceId: String,
         isProcessSnapshotBound: Bool
     )
-    private typealias ClaudeHookTerminalBindingCache = (
-        didResolve: Bool,
-        binding: CallerTerminalBinding?
-    )
+    private typealias ClaudeHookTerminalBindingCache = (didResolve: Bool, agentPID: Int?, allowProcessSnapshotBinding: Bool, binding: CallerTerminalBinding?)
 
     private func resolveClaudeHookTerminalBinding(
         agentPID: Int?,
@@ -23198,10 +23195,13 @@ struct CMUXCLI {
         terminalBindingCache: inout ClaudeHookTerminalBindingCache,
         client: SocketClient
     ) -> CallerTerminalBinding? {
-        if terminalBindingCache.didResolve {
+        if terminalBindingCache.didResolve, terminalBindingCache.agentPID == agentPID,
+           terminalBindingCache.allowProcessSnapshotBinding == allowProcessSnapshotBinding {
             return terminalBindingCache.binding
         }
         terminalBindingCache.didResolve = true
+        terminalBindingCache.agentPID = agentPID
+        terminalBindingCache.allowProcessSnapshotBinding = allowProcessSnapshotBinding
         terminalBindingCache.binding = resolveClaudeHookTerminalBinding(
             agentPID: agentPID,
             allowProcessSnapshotBinding: allowProcessSnapshotBinding,
