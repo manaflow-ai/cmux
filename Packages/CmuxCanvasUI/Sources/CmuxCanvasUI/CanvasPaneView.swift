@@ -8,8 +8,9 @@ protocol CanvasPaneViewDelegate: AnyObject {
     func paneView(_ view: CanvasPaneView, mouseDownAt documentPoint: CGPoint, region: CanvasPaneHitRegion)
     func paneView(_ view: CanvasPaneView, draggedTo documentPoint: CGPoint, modifiers: NSEvent.ModifierFlags)
     func paneViewDidEndDrag(_ view: CanvasPaneView)
-    /// Option+drag on a tab of a multi-tab pane: tear the tab out into its
-    /// own pane and continue the drag with that new pane.
+    /// Dragging a tab of a multi-tab pane: tear the tab out into its own pane
+    /// and continue the drag with that new pane (the canvas twin of split tab
+    /// drag). Dropping on another pane's tab bar joins it there.
     func paneView(_ view: CanvasPaneView, requestTearOutTab panelId: UUID, atDocumentPoint point: CGPoint)
     func paneView(_ view: CanvasPaneView, didSelectTab panelId: UUID)
     func paneView(_ view: CanvasPaneView, didCloseTab panelId: UUID)
@@ -235,19 +236,9 @@ final class CanvasPaneView: NSView {
         }
         guard let documentView = superview else { return }
         let documentPoint = documentView.convert(event.locationInWindow, from: nil)
-        // Option+drag on a tab tears it out into its own pane; the root
-        // starts a drag session for the new pane and our tracking loop keeps
-        // feeding it.
-        if case .titleBar = region,
-           event.modifierFlags.contains(.option),
-           let click = pendingTabClick, !click.isClose {
-            pendingTabClick = nil
-            activeDragRegion = region
-            dragStartedMoving = true
-            dragStartDocumentPoint = documentPoint
-            delegate?.paneView(self, requestTearOutTab: click.panelId, atDocumentPoint: documentPoint)
-            return
-        }
+        // Whether a drag should manipulate the tab (tear it out) versus move
+        // the whole pane is decided once the drag actually starts moving (in
+        // mouseDragged), so a plain click still selects the tab. See there.
         activeDragRegion = region
         dragStartedMoving = false
         dragStartDocumentPoint = documentPoint
@@ -265,6 +256,20 @@ final class CanvasPaneView: NSView {
             let dy = abs(documentPoint.y - dragStartDocumentPoint.y)
             guard dx >= Self.dragActivationDistance || dy >= Self.dragActivationDistance else { return }
             dragStartedMoving = true
+            // A drag that began on a tab (not its close glyph) of a multi-tab
+            // pane tears that tab out into its own pane and keeps dragging it,
+            // matching split-layout tab drag: dragging a tab manipulates the
+            // tab, not the whole pane. Dropping it on another pane's tab bar
+            // joins it there (handled in paneViewDidEndDrag). Single-tab panes
+            // (the tab *is* the pane) and drags on the empty title-bar area
+            // move the whole pane.
+            if case .titleBar = region,
+               let click = pendingTabClick, !click.isClose,
+               chrome.tabs.count > 1 {
+                pendingTabClick = nil
+                delegate?.paneView(self, requestTearOutTab: click.panelId, atDocumentPoint: documentPoint)
+                return
+            }
             delegate?.paneView(self, mouseDownAt: dragStartDocumentPoint, region: region)
         }
         autoscroll(with: event)
