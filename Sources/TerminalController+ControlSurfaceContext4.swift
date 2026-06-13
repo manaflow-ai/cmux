@@ -313,6 +313,35 @@ extension TerminalController {
         return .recorded(surfaceID: surfaceId)
     }
 
+    // MARK: - report_pwd
+
+    func controlSurfaceReportPWD(
+        workspaceID: UUID,
+        requestedSurfaceID: UUID?,
+        path: String
+    ) -> ControlSurfaceReportPWDResolution {
+        guard let tab = controlTabForSidebarMutation(id: workspaceID) else {
+            return .workspaceNotFound
+        }
+        let validSurfaceIds = Set(tab.panels.keys)
+        tab.pruneSurfaceMetadata(validSurfaceIds: validSurfaceIds)
+
+        let surfaceId = controlResolveReportedSurfaceId(
+            in: tab,
+            requestedSurfaceId: requestedSurfaceID,
+            validSurfaceIds: validSurfaceIds
+        )
+        guard let surfaceId, validSurfaceIds.contains(surfaceId) else {
+            return .surfaceNotFound
+        }
+
+        guard let tabManager = AppDelegate.shared?.tabManagerFor(tabId: workspaceID) else {
+            return .workspaceNotFound
+        }
+        tabManager.updateSurfaceDirectory(tabId: workspaceID, surfaceId: surfaceId, directory: path)
+        return .recorded(surfaceID: surfaceId)
+    }
+
     // MARK: - report_shell_state
 
     func controlSurfaceReportShellState(

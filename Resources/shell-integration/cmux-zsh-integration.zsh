@@ -151,6 +151,23 @@ _cmux_report_tty_via_relay() {
     _cmux_relay_rpc "surface.report_tty" "$params"
 }
 
+_cmux_report_pwd_via_relay() {
+    _cmux_socket_uses_remote_relay || return 1
+    local workspace_id=""
+    workspace_id="$(_cmux_relay_workspace_id)" || return 1
+    local pwd_value="$1"
+    [[ -n "$pwd_value" ]] || return 1
+
+    local pwd_json params
+    pwd_json="$(_cmux_json_escape "$pwd_value")"
+    params="{\"workspace_id\":\"$workspace_id\",\"path\":\"$pwd_json\""
+    if [[ -n "$CMUX_PANEL_ID" ]]; then
+        params+=",\"surface_id\":\"$CMUX_PANEL_ID\""
+    fi
+    params+="}"
+    _cmux_relay_rpc_bg "surface.report_pwd" "$params"
+}
+
 _cmux_ports_kick_via_relay() {
     local reason="${1:-command}"
     _cmux_socket_uses_remote_relay || return 1
@@ -1675,8 +1692,12 @@ _cmux_precmd() {
     # This is also the simplest way to test sidebar directory behavior end-to-end.
     if [[ "$pwd" != "$_CMUX_PWD_LAST_PWD" ]]; then
         _CMUX_PWD_LAST_PWD="$pwd"
-        local qpwd="${pwd//\"/\\\"}"
-        _cmux_send_bg "report_pwd \"${qpwd}\" --tab=$CMUX_TAB_ID --panel=$CMUX_PANEL_ID"
+        if _cmux_socket_uses_remote_relay; then
+            _cmux_report_pwd_via_relay "$pwd" || true
+        else
+            local qpwd="${pwd//\"/\\\"}"
+            _cmux_send_bg "report_pwd \"${qpwd}\" --tab=$CMUX_TAB_ID --panel=$CMUX_PANEL_ID"
+        fi
     fi
 
     # Git branch/dirty: update immediately on directory change, otherwise every ~3s.
