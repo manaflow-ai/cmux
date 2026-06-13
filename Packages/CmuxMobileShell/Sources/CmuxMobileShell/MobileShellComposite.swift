@@ -2015,7 +2015,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         acceptedVersionWarning: Bool
     ) async -> MobilePairingURLConnectionResult {
         let rawURL = Self.normalizedPairingURL(rawValue ?? pairingCode)
-        let attemptID = beginPairingAttempt(method: "qr")
+        clearPairingError()
+        clearPairingVersionWarning()
         let ticket: CmxAttachTicket
         do {
             ticket = try CmxAttachTicketInput.decode(rawURL)
@@ -2034,7 +2035,6 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                 throw MobileSyncPairingPayloadError.loopbackRouteRejected
             }
         } catch {
-            guard isCurrentPairingAttempt(attemptID) else { return .superseded }
             if case MobileSyncPairingPayloadError.loopbackRouteRejected = error {
                 // A scanned/pasted code that only points back at the Mac
                 // itself (127.0.0.1) would make the phone dial itself. Name
@@ -2044,29 +2044,32 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             } else {
                 applyPairingFailure(.invalidCode, phase: "validation")
             }
-            connectionState = .disconnected
-            macConnectionStatus = .unavailable
-            clearRemoteConnectionContext()
+            if connectionState != .connected {
+                connectionState = .disconnected
+                macConnectionStatus = .unavailable
+                clearRemoteConnectionContext()
+            }
             return .failed
         }
 
         if let emailFailure = Self.emailFailure(for: ticket, actualEmail: identityProvider?.currentUserEmail) {
-            guard isCurrentPairingAttempt(attemptID) else { return .superseded }
             applyPairingFailure(emailFailure, phase: "validation")
-            connectionState = .disconnected
-            macConnectionStatus = .unavailable
-            clearRemoteConnectionContext()
+            if connectionState != .connected {
+                connectionState = .disconnected
+                macConnectionStatus = .unavailable
+                clearRemoteConnectionContext()
+            }
             return .failed
         }
 
         if !acceptedVersionWarning,
            let warning = versionWarning(for: ticket) {
-            guard isCurrentPairingAttempt(attemptID) else { return .superseded }
             pendingPairingVersionWarningURL = rawURL
             pairingVersionWarning = warning
             return .needsUserApproval
         }
-        clearPairingVersionWarning()
+
+        let attemptID = beginPairingAttempt(method: "qr")
 
         // Offline preflight: fail fast instead of stacking per-route connect
         // timeouts into the opaque ~60s wait. Skipped only when no route is
