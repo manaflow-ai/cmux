@@ -1,5 +1,6 @@
 import CmuxWorkspaceNavigation
 import Darwin
+import CmuxCore
 import XCTest
 
 #if canImport(cmux_DEV)
