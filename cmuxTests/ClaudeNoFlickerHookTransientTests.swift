@@ -6,7 +6,7 @@ struct ClaudeNoFlickerHookTransientTests {
     private let support = ClaudeHookRoutingTestSupport()
 
     @Test
-    func claudePromptSubmitNoOpsWhenPIDOnlyRecoveryMisses() throws {
+    func claudePromptSubmitNoOpsWhenPIDOnlyRecoverySurfaceIsGone() throws {
         let context = try support.makeHookContext(name: "claude-pid-recovery-miss")
         defer { context.cleanup() }
 
@@ -19,7 +19,20 @@ struct ClaudeNoFlickerHookTransientTests {
             }
             switch method {
             case "system.top":
-                return ClaudeHookRoutingTestSupport.v2Response(id: id, ok: true, result: ["windows": []])
+                return ClaudeHookRoutingTestSupport.v2Response(
+                    id: id,
+                    ok: true,
+                    result: [
+                        "windows": [[
+                            "workspaces": [[
+                                "id": context.workspaceId,
+                                "panes": [["surfaces": [["id": context.surfaceId, "top_level_pids": [6048]]]]],
+                            ]],
+                        ]],
+                    ]
+                )
+            case "surface.list":
+                return ClaudeHookRoutingTestSupport.v2Response(id: id, ok: true, result: ["surfaces": []])
             default:
                 return ClaudeHookRoutingTestSupport.v2Response(id: id, ok: false, error: ["code": "unrecognized_method", "message": "unexpected method: \(method)"])
             }
@@ -45,6 +58,57 @@ struct ClaudeNoFlickerHookTransientTests {
         let commands = context.state.snapshot()
         #expect(commands.contains { ClaudeHookRoutingTestSupport.jsonObject($0)?["method"] as? String == "system.top" })
         #expect(!commands.contains { $0.hasPrefix("set_status claude_code ") || $0.hasPrefix("set_agent_pid claude_code ") || $0.contains("\"method\":\"feed.push\"") }, "PID recovery miss must not fall back to the focused workspace, saw \(commands)")
+    }
+
+    @Test
+    func claudeSessionEndUsesStoredTargetWhenPIDRecoveryMisses() throws {
+        let context = try support.makeHookContext(name: "claude-session-end-stored-target")
+        defer { context.cleanup() }
+
+        let sessionId = "stored-session-end-target"
+        try support.seedClaudeForkHookStore(
+            context: context,
+            parentSessionId: sessionId,
+            parentSurfaceId: context.surfaceId,
+            activeSessionId: sessionId
+        )
+
+        let server = support.startMockServer(listenerFD: context.listenerFD, state: context.state) { line in
+            guard let payload = ClaudeHookRoutingTestSupport.jsonObject(line) else {
+                return "OK"
+            }
+            guard let id = payload["id"] as? String, let method = payload["method"] as? String else {
+                return ClaudeHookRoutingTestSupport.malformedRequestResponse(id: payload["id"] as? String, raw: line)
+            }
+            switch method {
+            case "surface.list":
+                return ClaudeHookRoutingTestSupport.surfaceListResponse(id: id, surfaceId: context.surfaceId)
+            case "surface.resume.clear":
+                return ClaudeHookRoutingTestSupport.v2Response(id: id, ok: true, result: [:])
+            default:
+                return ClaudeHookRoutingTestSupport.v2Response(id: id, ok: false, error: ["code": "unrecognized_method", "message": "unexpected method: \(method)"])
+            }
+        }
+
+        var environment = support.baseHookEnvironment(context: context)
+        environment["CMUX_WORKSPACE_ID"] = ""
+        environment["CMUX_SURFACE_ID"] = ""
+        environment["CMUX_CLAUDE_PID"] = "6048"
+
+        let result = support.runProcess(
+            executablePath: context.cliPath,
+            arguments: ["hooks", "claude", "session-end"],
+            environment: environment,
+            standardInput: #"{"session_id":"\#(sessionId)","cwd":"\#(context.root.path)","hook_event_name":"SessionEnd"}"#,
+            timeout: 5
+        )
+
+        #expect(server.wait(timeout: .now() + 5) == .success, "mock server did not finish")
+        #expect(!result.timedOut, Comment(rawValue: result.stderr))
+        #expect(result.status == 0, Comment(rawValue: result.stderr))
+        #expect(result.stdout == "OK\n")
+        let commands = context.state.snapshot()
+        #expect(commands.contains { $0.hasPrefix("clear_agent_pid claude_code --tab=\(context.workspaceId)") && $0.contains("--panel=\(context.surfaceId)") }, "SessionEnd must clean the stored target, saw \(commands)")
     }
 
     @Test

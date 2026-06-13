@@ -22119,7 +22119,11 @@ struct CMUXCLI {
             }
         }
         func missingRecoveredHookTarget(agentPID: Int?, allowProcessSnapshotBinding: Bool = true, terminalBindingCache: inout ClaudeHookTerminalBindingCache) -> Bool {
-            needsRecoveredHookTarget && resolveClaudeHookTerminalBinding(agentPID: agentPID, allowProcessSnapshotBinding: allowProcessSnapshotBinding, terminalBindingCache: &terminalBindingCache, client: client) == nil
+            guard needsRecoveredHookTarget else { return false }
+            guard let binding = resolveClaudeHookTerminalBinding(agentPID: agentPID, allowProcessSnapshotBinding: allowProcessSnapshotBinding, terminalBindingCache: &terminalBindingCache, client: client),
+                  let workspaceId = resolveClaudeHookWorkspaceId(binding.workspaceId, client: client),
+                  resolveClaudeHookBindingSurfaceId(binding, workspaceId: workspaceId, client: client) != nil else { return true }
+            return false
         }
 
         switch subcommand {
@@ -22203,9 +22207,7 @@ struct CMUXCLI {
                     )
                 }
             }
-            // Register PID for stale-session detection and OSC suppression.
-            // Startup/resume stays non-visible; /clear is a new active boundary.
-            // Forks register only on authoritative non-snapshot surfaces.
+            // Register PID for stale detection; forks require authoritative non-snapshot surfaces.
             let shouldRegisterPID = isForkSessionLaunch
                 ? resolvedSurface.isAuthoritative && !resolvedSurface.isProcessSnapshotBound
                 : shouldPromoteActiveSession ||
@@ -22628,7 +22630,7 @@ struct CMUXCLI {
             let mappedSession = parsedInput.sessionId.flatMap { try? sessionStore.lookup(sessionId: $0) }
             let fallbackClaudePid = hookClaudePid ?? mappedSession?.pid
             var fallbackTerminalBindingCache: ClaudeHookTerminalBindingCache = (didResolve: false, agentPID: nil, allowProcessSnapshotBinding: true, socketPassword: socketPassword, binding: nil)
-            guard !missingRecoveredHookTarget(agentPID: fallbackClaudePid, allowProcessSnapshotBinding: false, terminalBindingCache: &fallbackTerminalBindingCache) else { didSendFeedTelemetry = true; print("{}"); return }
+            guard mappedSession != nil || !missingRecoveredHookTarget(agentPID: fallbackClaudePid, allowProcessSnapshotBinding: false, terminalBindingCache: &fallbackTerminalBindingCache) else { didSendFeedTelemetry = true; print("{}"); return }
             let fallbackWorkspaceId = try? resolvePreferredWorkspaceIdForClaudeHook(
                 preferred: mappedSession?.workspaceId,
                 fallback: workspaceArg,
