@@ -458,6 +458,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         defer { context.cleanup() }
 
         let staleSurfaceId = "33333333-3333-3333-3333-333333333333"
+        let staleWorkspaceId = "44444444-4444-4444-4444-444444444444"
         let claudePID = "6048"
         let serverHandled = startMockServer(listenerFD: context.listenerFD, state: context.state) { line in
             guard let payload = self.jsonObject(line) else {
@@ -529,7 +530,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
             "HOME": context.root.path,
             "PATH": "/usr/bin:/bin:/usr/sbin:/sbin",
             "CMUX_SOCKET_PATH": context.socketPath,
-            "CMUX_WORKSPACE_ID": context.workspaceId,
+            "CMUX_WORKSPACE_ID": staleWorkspaceId,
             "CMUX_SURFACE_ID": staleSurfaceId,
             "CMUX_CLAUDE_PID": claudePID,
             "CMUX_CLAUDE_HOOK_STATE_PATH": context.root.appendingPathComponent("claude-hook-sessions.json").path,
@@ -571,6 +572,21 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
                     && $0.contains("--panel=\(staleSurfaceId)")
             },
             "Stale ambient CMUX_SURFACE_ID must not receive Claude's visible status or PID gate, saw \(context.state.commands)"
+        )
+        XCTAssertFalse(
+            context.state.commands.contains {
+                ($0.hasPrefix("set_status claude_code Running ") || $0.hasPrefix("set_agent_pid claude_code "))
+                    && $0.contains("--tab=\(staleWorkspaceId)")
+            },
+            "Stale ambient CMUX_WORKSPACE_ID must not receive Claude's visible status or PID gate, saw \(context.state.commands)"
+        )
+        let systemTopCalls = context.state.commands.filter {
+            self.jsonObject($0)?["method"] as? String == "system.top"
+        }
+        XCTAssertEqual(
+            systemTopCalls.count,
+            1,
+            "Expected one cached process snapshot for workspace and surface resolution, saw \(context.state.commands)"
         )
     }
 
@@ -883,6 +899,106 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         XCTAssertFalse(
             context.state.commands.contains { $0.hasPrefix("set_agent_pid claude_code ") },
             "A fork SessionStart without an authoritative surface must not register its PID on a borrowed fallback pane, saw \(context.state.commands)"
+        )
+    }
+
+    func testClaudeForkSessionStartDoesNotRegisterProcessSnapshotOnlyPID() throws {
+        let context = try makeClaudeHookContext(name: "claude-fork-process-only")
+        defer { context.cleanup() }
+
+        let parentSessionId = "parent-session"
+        let parentSurfaceId = "99999999-9999-9999-9999-999999999999"
+        let claudePID = "6048"
+        try seedClaudeForkHookStore(
+            context: context,
+            parentSessionId: parentSessionId,
+            parentSurfaceId: parentSurfaceId,
+            activeSessionId: parentSessionId,
+            activeTurnId: nil
+        )
+
+        let serverHandled = startMockServer(listenerFD: context.listenerFD, state: context.state) { line in
+            guard let payload = self.jsonObject(line) else {
+                return "OK"
+            }
+            guard let id = payload["id"] as? String, let method = payload["method"] as? String else {
+                return self.malformedRequestResponse(id: payload["id"] as? String, raw: line)
+            }
+            switch method {
+            case "surface.list":
+                return self.v2Response(
+                    id: id,
+                    ok: true,
+                    result: [
+                        "surfaces": [
+                            [
+                                "id": context.surfaceId,
+                                "ref": "surface:1",
+                                "focused": true,
+                            ],
+                        ],
+                    ]
+                )
+            case "system.top":
+                return self.v2Response(
+                    id: id,
+                    ok: true,
+                    result: [
+                        "windows": [
+                            [
+                                "workspaces": [
+                                    [
+                                        "id": context.workspaceId,
+                                        "panes": [
+                                            [
+                                                "surfaces": [
+                                                    [
+                                                        "id": context.surfaceId,
+                                                        "top_level_pids": [Int(claudePID)!],
+                                                    ],
+                                                ],
+                                            ],
+                                        ],
+                                    ],
+                                ],
+                            ],
+                        ],
+                    ]
+                )
+            case "feed.push":
+                return self.v2Response(id: id, ok: true, result: [:])
+            default:
+                return self.v2Response(id: id, ok: false, error: ["code": "unrecognized_method", "message": "unexpected method: \(method)"])
+            }
+        }
+
+        var environment = [
+            "HOME": context.root.path,
+            "PATH": "/usr/bin:/bin:/usr/sbin:/sbin",
+            "CMUX_SOCKET_PATH": context.socketPath,
+            "CMUX_WORKSPACE_ID": "",
+            "CMUX_SURFACE_ID": "",
+            "CMUX_CLAUDE_PID": claudePID,
+            "CMUX_CLAUDE_HOOK_STATE_PATH": context.root.appendingPathComponent("claude-hook-sessions.json").path,
+            "CMUX_CLI_SENTRY_DISABLED": "1",
+            "CMUX_CLAUDE_HOOK_SENTRY_DISABLED": "1",
+        ]
+        environment.merge(claudeForkLaunchEnvironment(context: context, parentSessionId: parentSessionId)) { _, new in new }
+
+        let result = runProcess(
+            executablePath: context.cliPath,
+            arguments: ["hooks", "claude", "session-start"],
+            environment: environment,
+            standardInput: #"{"session_id":"\#(parentSessionId)","source":"resume","cwd":"\#(context.root.path)","hook_event_name":"SessionStart"}"#,
+            timeout: 5
+        )
+
+        wait(for: [serverHandled], timeout: 5)
+        XCTAssertFalse(result.timedOut, result.stderr)
+        XCTAssertEqual(result.status, 0, result.stderr)
+        XCTAssertFalse(
+            context.state.commands.contains { $0.hasPrefix("set_agent_pid claude_code ") },
+            "A pre-prompt fork SessionStart must not register a PID found only through process snapshot binding, saw \(context.state.commands)"
         )
     }
 
