@@ -48,8 +48,8 @@ final class FileExplorerHeaderView: NSView {
         applyHeaderState()
     }
 
-    func updateColorScheme(_ nextColorScheme: ColorScheme) {
-        guard colorScheme != nextColorScheme else { return }
+    func updateColorScheme(_ nextColorScheme: ColorScheme, force: Bool = false) {
+        guard force || colorScheme != nextColorScheme else { return }
         let colors = FileExplorerColors(colorScheme: nextColorScheme)
         colorScheme = nextColorScheme
         iconView.contentTintColor = colors.secondaryIconTint

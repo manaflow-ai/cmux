@@ -792,6 +792,7 @@ final class FileExplorerContainerView: NSView {
         searchField.setAccessibilityIdentifier("FileExplorerSearchField")
         searchField.placeholderString = String(localized: "fileExplorer.search.placeholder", defaultValue: "Search files")
         searchField.font = .systemFont(ofSize: 12, weight: .regular)
+        searchField.textColor = .labelColor
         searchField.focusRingType = .none
         searchField.cell?.usesSingleLineMode = true
         searchField.cell?.isScrollable = true
@@ -1022,7 +1023,8 @@ final class FileExplorerContainerView: NSView {
         if appearanceChanged {
             appearance = nextAppearance
         }
-        headerView.updateColorScheme(nextColorScheme)
+        headerView.updateColorScheme(nextColorScheme, force: appearanceChanged)
+        searchField.textColor = .labelColor
         searchStatusLabel.textColor = colors.secondaryTextColor
         emptyLabel.textColor = colors.secondaryTextColor
         if colorSchemeChanged || appearanceChanged {

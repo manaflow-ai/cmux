@@ -243,6 +243,7 @@ struct RightSidebarToolPanelView: View {
 
     var body: some View {
         content
+            .environment(\.colorScheme, appearance.contentColorScheme)
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .background(Color(nsColor: appearance.backgroundColor))
             .overlay {
