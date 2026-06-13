@@ -2144,6 +2144,11 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         clearRemoteConnectionContext()
     }
 
+    /// Accepts the pending version mismatch warning and retries the stored pairing URL.
+    ///
+    /// Returns the retry result so the UI can clear temporary attach-ticket
+    /// authentication only after the accepted pairing flow reaches a terminal
+    /// state.
     @discardableResult
     public func acceptPairingVersionWarning() async -> MobilePairingURLConnectionResult {
         guard let rawURL = pendingPairingVersionWarningURL else {
@@ -3166,8 +3171,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         for ticket: CmxAttachTicket,
         actualEmail: String?
     ) -> MobilePairingFailureCategory? {
-        guard let expected = normalizedEmail(ticket.macUserEmail) else { return nil }
-        guard let actual = normalizedEmail(actualEmail) else { return nil }
+        guard let expected = mobileShellNormalizedEmail(ticket.macUserEmail) else { return nil }
+        guard let actual = mobileShellNormalizedEmail(actualEmail) else { return nil }
         guard actual == expected else {
             return .emailMismatch(expected: expected, actual: actual)
         }
@@ -3175,13 +3180,13 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     }
 
     private func versionWarning(for ticket: CmxAttachTicket) -> String? {
-        guard let macVersion = Self.normalizedNonEmpty(ticket.macAppVersion) else { return nil }
+        guard let macVersion = mobileShellNormalizedNonEmpty(ticket.macAppVersion) else { return nil }
         let phoneStamp = feedbackStampProvider()
-        guard let phoneVersion = Self.normalizedNonEmpty(phoneStamp.appVersion) else {
+        guard let phoneVersion = mobileShellNormalizedNonEmpty(phoneStamp.appVersion) else {
             return nil
         }
-        let phoneBuild = Self.normalizedNonEmpty(phoneStamp.appBuild)
-        let macBuild = Self.normalizedNonEmpty(ticket.macAppBuild)
+        let phoneBuild = mobileShellNormalizedNonEmpty(phoneStamp.appBuild)
+        let macBuild = mobileShellNormalizedNonEmpty(ticket.macAppBuild)
         let versionDiffers = phoneVersion != macVersion
         let buildDiffers = phoneBuild != nil && macBuild != nil && phoneBuild != macBuild
         guard versionDiffers || buildDiffers else { return nil }
@@ -3191,23 +3196,9 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         )
         return String(
             format: format,
-            Self.versionDisplay(version: phoneVersion, build: phoneStamp.appBuild),
-            Self.versionDisplay(version: macVersion, build: ticket.macAppBuild)
+            mobileShellVersionDisplay(version: phoneVersion, build: phoneStamp.appBuild),
+            mobileShellVersionDisplay(version: macVersion, build: ticket.macAppBuild)
         )
-    }
-
-    private static func versionDisplay(version: String, build: String?) -> String {
-        guard let build = normalizedNonEmpty(build) else { return version }
-        return "\(version) (\(build))"
-    }
-
-    private static func normalizedEmail(_ value: String?) -> String? {
-        normalizedNonEmpty(value)?.lowercased()
-    }
-
-    private static func normalizedNonEmpty(_ value: String?) -> String? {
-        let trimmed = value?.trimmingCharacters(in: .whitespacesAndNewlines)
-        return trimmed?.isEmpty == false ? trimmed : nil
     }
 
     /// Record an `ios_pairing_failed` for a `connect()` that returned without
@@ -4849,6 +4840,20 @@ private struct MobileManualAttachTicketCreateResponse: Decodable, Sendable {
         decoder.dateDecodingStrategy = .iso8601
         return try decoder.decode(MobileManualAttachTicketCreateResponse.self, from: data)
     }
+}
+
+private func mobileShellVersionDisplay(version: String, build: String?) -> String {
+    guard let build = mobileShellNormalizedNonEmpty(build) else { return version }
+    return "\(version) (\(build))"
+}
+
+private func mobileShellNormalizedEmail(_ value: String?) -> String? {
+    mobileShellNormalizedNonEmpty(value)?.lowercased()
+}
+
+private func mobileShellNormalizedNonEmpty(_ value: String?) -> String? {
+    let trimmed = value?.trimmingCharacters(in: .whitespacesAndNewlines)
+    return trimmed?.isEmpty == false ? trimmed : nil
 }
 
 private extension CmxAttachTicket {
