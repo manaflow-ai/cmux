@@ -117,6 +117,15 @@ export const shortcutCategories: ShortcutCategory[] = [
       { id: "editWorkspaceDescription", combos: [["⌥", "⌘", "E"]], description: { en: "Edit workspace description", ja: "ワークスペースの説明を編集" } },
       { id: "focusRightSidebar", combos: [["⌘", "⇧", "E"]], description: { en: "Toggle right-sidebar focus", ja: "右サイドバーのフォーカスを切り替え" } },
       {
+        id: "openFileExplorerSelection",
+        combos: [["⌘", "↓"]],
+        description: { en: "Open selected file explorer item", ja: "ファイルエクスプローラの選択項目を開く" },
+        note: {
+          en: "Return and keypad Enter also open the selected file while the file explorer is focused.",
+          ja: "ファイルエクスプローラにフォーカスがある間は、Return とテンキー Enter でも選択中のファイルを開けます。",
+        },
+      },
+      {
         id: "navigateRightSidebarRows",
         combos: [["J / K"], ["⌃", "N / P"], ["H / L"]],
         description: { en: "Navigate focused sidebar rows", ja: "フォーカス中のサイドバー行を移動" },
