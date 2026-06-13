@@ -286,6 +286,111 @@ struct ClaudeNoFlickerHookBindingTests {
         )
     }
 
+    @Test
+    func claudePromptSubmitUsesPIDWhenStoredSurfaceIsGone() throws {
+        let context = try support.makeHookContext(name: "claude-gone-stored-surface")
+        defer { context.cleanup() }
+
+        let sessionId = "stored-stale-surface-session"
+        let staleSurfaceId = "66666666-6666-6666-6666-666666666666"
+        let borrowedSurfaceId = "77777777-7777-7777-7777-777777777777"
+        let claudePID = "6048"
+        try seedStoredClaudeSession(
+            context: context,
+            sessionId: sessionId,
+            workspaceId: context.workspaceId,
+            surfaceId: staleSurfaceId
+        )
+
+        let server = support.startMockServer(listenerFD: context.listenerFD, state: context.state) { line in
+            guard let payload = ClaudeHookRoutingTestSupport.jsonObject(line) else {
+                return "OK"
+            }
+            guard let id = payload["id"] as? String, let method = payload["method"] as? String else {
+                return ClaudeHookRoutingTestSupport.malformedRequestResponse(id: payload["id"] as? String, raw: line)
+            }
+            switch method {
+            case "surface.list":
+                return ClaudeHookRoutingTestSupport.v2Response(
+                    id: id,
+                    ok: true,
+                    result: [
+                        "surfaces": [
+                            ["id": borrowedSurfaceId, "ref": "surface:1", "focused": true],
+                            ["id": context.surfaceId, "ref": "surface:2", "focused": false],
+                        ],
+                    ]
+                )
+            case "system.top":
+                return ClaudeHookRoutingTestSupport.v2Response(
+                    id: id,
+                    ok: true,
+                    result: [
+                        "windows": [
+                            [
+                                "workspaces": [
+                                    [
+                                        "id": context.workspaceId,
+                                        "panes": [
+                                            [
+                                                "surfaces": [
+                                                    [
+                                                        "id": context.surfaceId,
+                                                        "top_level_pids": [Int(claudePID)!],
+                                                    ],
+                                                    [
+                                                        "id": borrowedSurfaceId,
+                                                        "top_level_pids": [],
+                                                    ],
+                                                ],
+                                            ],
+                                        ],
+                                    ],
+                                ],
+                            ],
+                        ],
+                    ]
+                )
+            case "feed.push":
+                return ClaudeHookRoutingTestSupport.v2Response(id: id, ok: true, result: [:])
+            case "surface.resume.set":
+                return ClaudeHookRoutingTestSupport.v2Response(id: id, ok: true, result: ["resume_binding": [:]])
+            default:
+                return ClaudeHookRoutingTestSupport.v2Response(id: id, ok: false, error: ["code": "unrecognized_method", "message": "unexpected method: \(method)"])
+            }
+        }
+
+        var environment = support.baseHookEnvironment(context: context)
+        environment["CMUX_CLAUDE_PID"] = claudePID
+
+        let result = support.runProcess(
+            executablePath: context.cliPath,
+            arguments: ["hooks", "claude", "prompt-submit"],
+            environment: environment,
+            standardInput: #"{"session_id":"\#(sessionId)","turn_id":"turn-1","cwd":"\#(context.root.path)","hook_event_name":"UserPromptSubmit","prompt":"run"}"#,
+            timeout: 5
+        )
+
+        #expect(server.wait(timeout: .now() + 5) == .success, "mock server did not finish")
+        #expect(!result.timedOut, Comment(rawValue: result.stderr))
+        #expect(result.status == 0, Comment(rawValue: result.stderr))
+        let commands = context.state.snapshot()
+        #expect(
+            commands.contains {
+                $0.hasPrefix("set_status claude_code Running --icon=bolt.fill --color=#4C8DFF --tab=\(context.workspaceId)")
+                    && $0.contains("--panel=\(context.surfaceId)")
+            },
+            "Expected stale stored surface to route to the live Claude PID surface, saw \(commands)"
+        )
+        #expect(
+            !commands.contains {
+                ($0.hasPrefix("set_status claude_code Running ") || $0.hasPrefix("set_agent_pid claude_code "))
+                    && $0.contains("--panel=\(borrowedSurfaceId)")
+            },
+            "Stale stored surface must not borrow the focused/default surface, saw \(commands)"
+        )
+    }
+
     private func seedStoredClaudeSession(
         context: ClaudeHookRoutingTestSupport.HookContext,
         sessionId: String,
