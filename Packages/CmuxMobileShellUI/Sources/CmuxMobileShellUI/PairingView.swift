@@ -148,7 +148,7 @@ struct PairingView: View {
                     Section {
                         VStack(alignment: .leading, spacing: 10) {
                             Label {
-                                Text(L10n.string("mobile.pairing.versionWarningTitle", defaultValue: "Version mismatch"))
+                                Text(L10n.string("mobile.pairing.versionWarningTitle", defaultValue: "Compatibility mismatch"))
                             } icon: {
                                 Image(systemName: "exclamationmark.triangle.fill")
                             }
