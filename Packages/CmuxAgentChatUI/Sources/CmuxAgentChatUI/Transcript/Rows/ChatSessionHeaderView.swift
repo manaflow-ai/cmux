@@ -1,8 +1,13 @@
 import CmuxAgentChat
 import SwiftUI
 
-/// The compact toolbar-principal header: session title over a one-line
-/// status (colored state dot, state text, reconnect suffix).
+/// The compact toolbar-principal header: a leading state indicator beside a
+/// two-line title (workspace name over tab name).
+///
+/// State is carried entirely by the indicator (color + motion + a symbol for
+/// the two "attention" states), not words, so the narrow nav-bar center can
+/// spend its width on the names rather than on "needs input ·". VoiceOver
+/// still hears the full state via the accessibility value.
 public struct ChatSessionHeaderView: View {
     private let descriptor: ChatSessionDescriptor
     private let agentState: ChatAgentState
@@ -14,14 +19,14 @@ public struct ChatSessionHeaderView: View {
     ///
     /// - Parameters:
     ///   - descriptor: The session identity (title, agent kind).
-    ///   - agentState: Live agent presence, driving the dot and text.
+    ///   - agentState: Live agent presence, driving the indicator.
     ///   - isConnected: Whether the live event stream is up; when `false`
-    ///     a reconnecting suffix is appended.
+    ///     the indicator desaturates and breathes (reconnecting).
     ///   - titleOverride: When set, shown as the headline instead of the
     ///     session's generated title (the host passes the workspace name so
     ///     the header reads as the workspace, not the first prompt).
-    ///   - subtitle: When set, appended to the status line after the state
-    ///     (the host passes the tab/terminal name).
+    ///   - subtitle: When set, shown as line two (the host passes the
+    ///     tab/terminal name).
     public init(
         descriptor: ChatSessionDescriptor,
         agentState: ChatAgentState,
@@ -37,51 +42,53 @@ public struct ChatSessionHeaderView: View {
     }
 
     public var body: some View {
-        VStack(spacing: 1) {
-            Text(titleOverride ?? descriptor.title ?? descriptor.agentKind.displayName)
-                .font(.headline)
-                .lineLimit(1)
-                .truncationMode(.tail)
-            HStack(spacing: 4) {
-                ChatStateDotView(color: dotColor, pulses: isWorking)
-                Text(statusLine)
-                    .font(.caption2)
-                    .foregroundStyle(.secondary)
+        HStack(spacing: 6) {
+            ChatStateIndicatorView(state: agentState, isConnected: isConnected)
+            VStack(alignment: .leading, spacing: 1) {
+                Text(title)
+                    .font(.headline)
                     .lineLimit(1)
+                    .truncationMode(.tail)
+                if let subtitleLine {
+                    Text(subtitleLine)
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                        .truncationMode(.tail)
+                }
             }
         }
-        .accessibilityElement(children: .combine)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(accessibilityLabel)
+        .accessibilityValue(accessibilityValue)
     }
 
-    private var isWorking: Bool {
-        if case .working = agentState { return true }
-        return false
+    private var title: String {
+        titleOverride ?? descriptor.title ?? descriptor.agentKind.displayName
     }
 
-    private var dotColor: Color {
-        switch agentState {
-        case .working: return .green
-        case .needsInput: return .orange
-        case .idle: return .gray
-        case .ended: return .red
-        }
+    private var subtitleLine: String? {
+        guard let subtitle, !subtitle.isEmpty else { return nil }
+        return subtitle
     }
 
-    private var statusLine: String {
-        var line = stateLabel
-        if let subtitle, !subtitle.isEmpty {
-            line += " · "
-            line += subtitle
-        }
+    /// VoiceOver reads the names; the live state is the accessibility value.
+    private var accessibilityLabel: String {
+        guard let subtitleLine else { return title }
+        return "\(title), \(subtitleLine)"
+    }
+
+    private var accessibilityValue: String {
+        var value = stateLabel
         if !isConnected {
-            line += " · "
-            line += String(
+            value += ", "
+            value += String(
                 localized: "chat.header.reconnecting",
                 defaultValue: "reconnecting…",
                 bundle: .module
             )
         }
-        return line
+        return value
     }
 
     private var stateLabel: String {
@@ -108,27 +115,65 @@ public struct ChatSessionHeaderView: View {
     }
 }
 
-/// The header's small status dot, with a subtle pulse while working.
-struct ChatStateDotView: View {
-    let color: Color
-    let pulses: Bool
+/// The header's state glyph: color + motion for the two ambient states
+/// (working pulses green, idle is a filled gray dot), and a distinct SF
+/// Symbol shape for the two meaningful ones (needs-input is an orange
+/// question mark, ended is a hollow ring) so the four states are
+/// distinguishable by shape and motion, not color alone. While
+/// reconnecting it desaturates and breathes regardless of state.
+struct ChatStateIndicatorView: View {
+    let state: ChatAgentState
+    let isConnected: Bool
 
-    @State private var pulsing = false
+    @State private var animating = false
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
+    private static let size: CGFloat = 11
+
+    private var isWorking: Bool {
+        if case .working = state { return true }
+        return false
+    }
+
+    /// Pulses while working; breathes (slower) while reconnecting.
+    private var pulses: Bool {
+        (isWorking || !isConnected) && !reduceMotion
+    }
+
     var body: some View {
-        Circle()
-            .fill(color)
-            .frame(width: 7, height: 7)
-            .opacity(!reduceMotion && pulses && pulsing ? 0.45 : 1)
+        glyph
+            .frame(width: Self.size, height: Self.size)
+            .saturation(isConnected ? 1 : 0)
+            .opacity(opacity)
             .animation(
-                pulses && !reduceMotion
-                    ? .easeInOut(duration: 0.9).repeatForever(autoreverses: true)
+                pulses
+                    ? .easeInOut(duration: isConnected ? 0.9 : 1.4).repeatForever(autoreverses: true)
                     : .default,
-                value: pulsing
+                value: animating
             )
-            .onAppear { pulsing = true }
+            .onAppear { animating = true }
             .accessibilityHidden(true)
+    }
+
+    private var opacity: Double {
+        if pulses, animating { return 0.4 }
+        return isConnected ? 1 : 0.6
+    }
+
+    @ViewBuilder
+    private var glyph: some View {
+        switch state {
+        case .working:
+            Circle().fill(Color.green)
+        case .idle:
+            Circle().fill(Color.secondary)
+        case .needsInput:
+            Image(systemName: "questionmark.circle.fill")
+                .font(.system(size: Self.size, weight: .bold))
+                .foregroundStyle(.white, .orange)
+        case .ended:
+            Circle().stroke(Color.secondary, lineWidth: 1.3)
+        }
     }
 }
