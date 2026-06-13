@@ -82,7 +82,7 @@ struct WorkspaceAvatar: View {
     var body: some View {
         ZStack {
             Circle()
-                .fill(workspace.avatarGradient)
+                .fill(workspace.avatarColor)
                 .frame(width: 48, height: 48)
 
             Image(systemName: workspace.avatarSymbolName)
