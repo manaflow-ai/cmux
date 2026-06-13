@@ -1,4 +1,5 @@
 import AppKit
+import os
 
 @MainActor
 struct SettingsWindowPresenter {
@@ -7,6 +8,14 @@ struct SettingsWindowPresenter {
     static let minimumSize = NSSize(width: 820, height: 540)
     private static let visibleAreaInset: CGFloat = 18
     private static let sharedPresenter = SettingsWindowPresenter()
+    /// Release-safe diagnostics so intermittent "Settings won't open" reports
+    /// (https://github.com/manaflow-ai/cmux/issues/5770) become attributable
+    /// from `log show --predicate 'subsystem == "com.cmuxterm.app" && category == "Settings"'`.
+    private static let log = Logger(subsystem: "com.cmuxterm.app", category: "Settings")
+    /// Number of times to re-request the SwiftUI window when an open request
+    /// produces no window. The single `Window` scene's `openWindow(id:)` can
+    /// silently no-op mid-teardown, which is the "nothing happens" symptom.
+    static let maxOpenAttempts = 2
 
     private final class State {
         var openWindow: (@MainActor () -> Void)?
@@ -15,6 +24,7 @@ struct SettingsWindowPresenter {
         var pendingNavigationTarget: SettingsNavigationTarget?
         var pendingContentNavigationTarget: SettingsNavigationTarget?
         var shouldOpenWhenConfigured = false
+        var openVerificationTask: Task<Void, Never>?
     }
 
     private let state: State
@@ -42,6 +52,7 @@ struct SettingsWindowPresenter {
         if state.shouldOpenWhenConfigured {
             state.shouldOpenWhenConfigured = false
             openWindow()
+            scheduleOpenVerification(attempt: 1, opener: openWindow)
         }
     }
 
@@ -50,6 +61,12 @@ struct SettingsWindowPresenter {
     }
 
     func configure(window: NSWindow) {
+        // The scene materialized a window, so a pending "did the open request
+        // get silently dropped?" check is moot. Cancelling here makes window
+        // materialization — not a timer — the success signal, so a slow launch
+        // can never be misread as a lost request.
+        state.openVerificationTask?.cancel()
+        state.openVerificationTask = nil
         let shouldFocusAfterConfiguration = state.settingsWindow !== window
         state.settingsWindow = window
         window.identifier = NSUserInterfaceItemIdentifier(Self.windowIdentifier)
@@ -95,6 +112,7 @@ struct SettingsWindowPresenter {
         state.pendingContentNavigationTarget = navigationTarget
 
         if let window = existingWindow() {
+            Self.logExistingWindowState(window)
             let shouldDeferNavigation = window.isMiniaturized
             if !shouldDeferNavigation {
                 state.pendingNavigationTarget = nil
@@ -108,7 +126,12 @@ struct SettingsWindowPresenter {
         }
 
         if let openWindowOverride {
+            // The override still funnels into SwiftUI's `openWindow(id:)`, which
+            // can hit the same mid-teardown no-op, so it gets the same retry/
+            // logging recovery as the configured opener (issue #5770).
+            Self.log.notice("settings.window.show no existing window; requesting via override")
             openWindowOverride()
+            scheduleOpenVerification(attempt: 1, opener: openWindowOverride)
             return
         }
 
@@ -116,7 +139,9 @@ struct SettingsWindowPresenter {
             state.shouldOpenWhenConfigured = true
             return
         }
+        Self.log.notice("settings.window.show no existing window; requesting new settings window")
         openWindow()
+        scheduleOpenVerification(attempt: 1, opener: openWindow)
     }
 
     static func consumePendingNavigationTarget() -> SettingsNavigationTarget? {
@@ -165,6 +190,67 @@ struct SettingsWindowPresenter {
         }
     }
 
+    /// Re-request the window when the previous request silently produced no
+    /// window. `openWindow(id:)` on a single `Window` scene can no-op while the
+    /// scene is mid-teardown, and there is no failure callback, so a deferred
+    /// check is the only way to notice the lost request (issue #5770 / #4053).
+    /// Success is event-driven: `configure(window:)` cancels the pending check
+    /// as soon as the scene materializes a window, so the timer below only ever
+    /// decides the failure case.
+    private func scheduleOpenVerification(
+        attempt: Int,
+        opener: @escaping @MainActor () -> Void
+    ) {
+        guard state.openVerificationTask == nil else { return }
+        state.openVerificationTask = Task { @MainActor in
+            try? await Task.sleep(nanoseconds: 500_000_000)
+            guard !Task.isCancelled else { return }
+            state.openVerificationTask = nil
+            switch Self.openOutcome(windowExists: existingWindow() != nil, attempt: attempt) {
+            case .materialized:
+                return
+            case .retry:
+                Self.log.error(
+                    "settings.window.open no window after attempt \(attempt, privacy: .public); retrying"
+                )
+                opener()
+                scheduleOpenVerification(attempt: attempt + 1, opener: opener)
+            case .giveUp:
+                Self.log.error(
+                    "settings.window.open gave up after \(attempt, privacy: .public) attempts; no window materialized"
+                )
+            }
+        }
+    }
+
+    /// Pure recovery policy for a settings-window open request, factored out so
+    /// the retry behavior is unit-testable without driving SwiftUI scenes.
+    enum OpenOutcome: Equatable {
+        case materialized
+        case retry
+        case giveUp
+    }
+
+    static func openOutcome(windowExists: Bool, attempt: Int) -> OpenOutcome {
+        if windowExists {
+            return .materialized
+        }
+        return attempt < maxOpenAttempts ? .retry : .giveUp
+    }
+
+    private static func logExistingWindowState(_ window: NSWindow) {
+        log.notice(
+            """
+            settings.window.show found existing window \
+            visible=\(window.isVisible, privacy: .public) \
+            miniaturized=\(window.isMiniaturized, privacy: .public) \
+            onActiveSpace=\(window.isOnActiveSpace, privacy: .public) \
+            offAllScreens=\(window.screen == nil, privacy: .public) \
+            frame=\(NSStringFromRect(window.frame), privacy: .public)
+            """
+        )
+    }
+
     private func focus(_ window: NSWindow) {
         performFocus(window)
     }
@@ -196,30 +282,107 @@ struct SettingsWindowPresenter {
     }
 
     private func clampToVisibleAreaIfNeeded(_ window: NSWindow) {
-        guard let screen = window.screen ?? NSScreen.main else { return }
-        var frame = window.frame
-        let originalFrame = frame
-        let visibleFrame = screen.visibleFrame
+        let screens = NSScreen.screens.map { (frame: $0.frame, visibleFrame: $0.visibleFrame) }
+        let fallbackVisibleFrame = (NSScreen.main ?? NSScreen.screens.first)?.visibleFrame
+        guard let visibleFrame = Self.targetVisibleFrame(
+            windowFrame: window.frame,
+            screens: screens,
+            mouseLocation: NSEvent.mouseLocation,
+            fallbackVisibleFrame: fallbackVisibleFrame
+        ) else { return }
+
         let minimumFrameSize = NSSize(
             width: max(window.minSize.width, window.contentMinSize.width),
             height: max(window.minSize.height, window.contentMinSize.height)
         )
-        let maxVisibleSize = NSSize(
-            width: max(minimumFrameSize.width, visibleFrame.width - 2 * Self.visibleAreaInset),
-            height: max(minimumFrameSize.height, visibleFrame.height - 2 * Self.visibleAreaInset)
+        let originalFrame = window.frame
+        let clamped = Self.clampedFrame(
+            originalFrame,
+            minimumSize: minimumFrameSize,
+            into: visibleFrame,
+            inset: Self.visibleAreaInset
         )
-        frame.size.width = min(frame.size.width, maxVisibleSize.width)
-        frame.size.height = min(frame.size.height, maxVisibleSize.height)
-        let minX = visibleFrame.minX + Self.visibleAreaInset
-        let minY = visibleFrame.minY + Self.visibleAreaInset
-        let maxX = max(minX, visibleFrame.maxX - Self.visibleAreaInset - frame.width)
-        let maxY = max(minY, visibleFrame.maxY - Self.visibleAreaInset - frame.height)
-        frame.origin = NSPoint(
-            x: min(max(frame.origin.x, minX), maxX),
-            y: min(max(frame.origin.y, minY), maxY)
-        )
+        guard clamped != originalFrame else { return }
 
-        guard frame != originalFrame else { return }
-        window.setFrame(frame, display: true)
+        let wasOffAllScreens = window.screen == nil
+        window.setFrame(clamped, display: true)
+        if wasOffAllScreens {
+            Self.log.notice(
+                """
+                settings.window.clamp recovered an offscreen frame onto a visible screen \
+                from=\(NSStringFromRect(originalFrame), privacy: .public) \
+                to=\(NSStringFromRect(clamped), privacy: .public)
+                """
+            )
+        }
+    }
+
+    /// Pure selection of the visible-screen frame the settings window should be
+    /// clamped into. When the window's saved frame is off every active screen
+    /// (e.g. restored onto a now-disconnected display in a multi-monitor setup)
+    /// it recovers onto the screen under the cursor, then the main/first screen.
+    /// Cursor hit-testing uses each screen's *full* frame: `visibleFrame`
+    /// excludes the menu bar and Dock strips, and the cursor sits exactly there
+    /// when Settings is opened from the menu bar, which would misroute the
+    /// recovery to the main screen. The returned rect is always a visible
+    /// frame. Factored out so multi-monitor recovery is unit-testable.
+    static func targetVisibleFrame(
+        windowFrame: NSRect,
+        screens: [(frame: NSRect, visibleFrame: NSRect)],
+        mouseLocation: NSPoint?,
+        fallbackVisibleFrame: NSRect?
+    ) -> NSRect? {
+        guard !screens.isEmpty else { return fallbackVisibleFrame }
+
+        // Prefer the screen the window already overlaps the most so a window
+        // that is mostly visible stays where the user put it.
+        var bestFrame: NSRect?
+        var bestArea: CGFloat = 0
+        for screen in screens {
+            let intersection = screen.visibleFrame.intersection(windowFrame)
+            let area = intersection.isNull ? 0 : intersection.width * intersection.height
+            if area > bestArea {
+                bestArea = area
+                bestFrame = screen.visibleFrame
+            }
+        }
+        if let bestFrame, bestArea > 0 {
+            return bestFrame
+        }
+
+        // The window is off every active screen. Recover onto the screen under
+        // the cursor when possible so Settings appears where the user is looking.
+        if let mouseLocation,
+           let mouseScreen = screens.first(where: { $0.frame.contains(mouseLocation) }) {
+            return mouseScreen.visibleFrame
+        }
+        return fallbackVisibleFrame ?? screens.first?.visibleFrame
+    }
+
+    /// Pure clamp geometry: fit `frame` within `visibleFrame` (honoring `inset`
+    /// and a minimum size). Factored out of `clampToVisibleAreaIfNeeded` so the
+    /// geometry is unit-testable independent of `NSWindow`/`NSScreen`.
+    static func clampedFrame(
+        _ frame: NSRect,
+        minimumSize: NSSize,
+        into visibleFrame: NSRect,
+        inset: CGFloat
+    ) -> NSRect {
+        var result = frame
+        let maxVisibleSize = NSSize(
+            width: max(minimumSize.width, visibleFrame.width - 2 * inset),
+            height: max(minimumSize.height, visibleFrame.height - 2 * inset)
+        )
+        result.size.width = min(result.size.width, maxVisibleSize.width)
+        result.size.height = min(result.size.height, maxVisibleSize.height)
+        let minX = visibleFrame.minX + inset
+        let minY = visibleFrame.minY + inset
+        let maxX = max(minX, visibleFrame.maxX - inset - result.width)
+        let maxY = max(minY, visibleFrame.maxY - inset - result.height)
+        result.origin = NSPoint(
+            x: min(max(result.origin.x, minX), maxX),
+            y: min(max(result.origin.y, minY), maxY)
+        )
+        return result
     }
 }
