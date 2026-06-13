@@ -1,6 +1,7 @@
 import Foundation
 import SwiftUI
 import AppKit
+import CmuxFoundation
 import Bonsplit
 import CMUXAgentLaunch
 import CmuxSocketControl

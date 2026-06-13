@@ -3,6 +3,7 @@ import CmuxTerminalCopyMode
 import CmuxSocketControl
 import SwiftUI
 import AppKit
+import CmuxFoundation
 import Metal
 import QuartzCore
 import Combine

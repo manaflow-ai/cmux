@@ -1,6 +1,7 @@
 import SwiftUI
 import Foundation
 import AppKit
+import CmuxFoundation
 import Bonsplit
 
 enum TmuxOverlayExperimentTarget: String, CaseIterable, Codable, Sendable {

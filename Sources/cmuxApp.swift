@@ -1,4 +1,5 @@
 import AppKit
+import CmuxFoundation
 import CmuxSidebarInterpreterClient
 import CmuxSidebarRemoteRender
 import CmuxSocketControl

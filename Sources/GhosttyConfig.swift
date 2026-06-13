@@ -1,5 +1,6 @@
 import Foundation
 import AppKit
+import CmuxFoundation
 
 struct GhosttyConfig {
     enum ColorSchemePreference: Hashable {
