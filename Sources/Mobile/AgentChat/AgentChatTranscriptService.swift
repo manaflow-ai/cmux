@@ -79,6 +79,42 @@ final class AgentChatTranscriptService {
         registry.sessions(workspaceID: workspaceID).map(\.descriptor)
     }
 
+    /// Adopts a Claude session cmux detected by terminal title but that
+    /// never registered via a hook (e.g. launched through a shell wrapper
+    /// that bypasses cmux's hook injection), so it gains a chat session and
+    /// toggle like a hooked agent. Resolves the transcript by working
+    /// directory; no-op when none exists or the surface already has a live
+    /// session.
+    ///
+    /// - Parameters:
+    ///   - workspaceID: The agent's workspace UUID string.
+    ///   - surfaceID: The hosting terminal surface UUID string.
+    ///   - workingDirectory: The agent's working directory.
+    /// - Returns: `true` when a session is present for the surface afterward.
+    @discardableResult
+    func adoptDetectedClaudeSession(
+        workspaceID: String,
+        surfaceID: String,
+        workingDirectory: String
+    ) -> Bool {
+        let alreadyBound = registry.sessions(workspaceID: workspaceID)
+            .contains { $0.surfaceID == surfaceID && $0.state != .ended }
+        if alreadyBound { return true }
+        guard let resolved = resolver.newestClaudeTranscript(workingDirectory: workingDirectory) else {
+            return false
+        }
+        registry.adoptDetectedSession(
+            sessionID: resolved.sessionID,
+            agentKind: .claude,
+            workspaceID: workspaceID,
+            surfaceID: surfaceID,
+            workingDirectory: workingDirectory,
+            transcriptPath: resolved.path,
+            at: Date()
+        )
+        return true
+    }
+
     /// The registry record for a session (send path needs the terminal
     /// binding).
     ///

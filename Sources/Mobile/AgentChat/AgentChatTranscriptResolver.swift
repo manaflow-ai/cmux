@@ -40,6 +40,39 @@ struct AgentChatTranscriptResolver: Sendable {
         }
     }
 
+    /// The newest Claude transcript in a working directory's project dir,
+    /// with its session id (the filename stem).
+    ///
+    /// Used to adopt a Claude session cmux detected by terminal title but
+    /// that never ran a hook (e.g. launched through a shell wrapper that
+    /// bypasses cmux's hook injection), so we never learned its session id.
+    /// The newest `.jsonl` in the cwd's project dir is the live conversation.
+    ///
+    /// - Parameter workingDirectory: The agent's working directory.
+    /// - Returns: The session id and absolute transcript path, or `nil` when
+    ///   the project dir has no transcripts.
+    func newestClaudeTranscript(workingDirectory: String) -> (sessionID: String, path: String)? {
+        let projectDir = RestorableAgentSessionIndex.encodeClaudeProjectDir(workingDirectory)
+        let dir = homeDirectory
+            .appendingPathComponent(".claude", isDirectory: true)
+            .appendingPathComponent("projects", isDirectory: true)
+            .appendingPathComponent(projectDir, isDirectory: true)
+        guard let entries = try? fileManager.contentsOfDirectory(
+            at: dir,
+            includingPropertiesForKeys: [.contentModificationDateKey],
+            options: [.skipsHiddenFiles]
+        ) else { return nil }
+        let newest = entries
+            .filter { $0.pathExtension == "jsonl" }
+            .max { lhs, rhs in
+                let lDate = (try? lhs.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate) ?? .distantPast
+                let rDate = (try? rhs.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate) ?? .distantPast
+                return lDate < rDate
+            }
+        guard let newest else { return nil }
+        return (sessionID: newest.deletingPathExtension().lastPathComponent, path: newest.path)
+    }
+
     private func claudeFallbackPath(record: AgentChatSessionRecord) -> String? {
         guard let cwd = record.workingDirectory else { return nil }
         let projectDir = RestorableAgentSessionIndex.encodeClaudeProjectDir(cwd)

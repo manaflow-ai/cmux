@@ -45,9 +45,48 @@ extension TerminalController {
     func v2MobileChatSessions(params: [String: Any]) -> V2CallResult {
         let workspaceID = v2String(params, "workspace_id")
         let service = AgentChatTranscriptService.shared
+        // Register coding agents cmux detects by terminal title but that never
+        // ran a hook (e.g. launched through a shell wrapper that bypasses
+        // cmux's hook injection), so they get a chat session and toggle like
+        // hook-registered agents.
+        if let workspaceID {
+            adoptDetectedAgentSessions(workspaceID: workspaceID)
+        }
         let descriptors = service.sessionDescriptors(workspaceID: workspaceID)
         let encoded = descriptors.compactMap { service.wirePayload($0) }
         return .ok(["sessions": encoded])
+    }
+
+    /// Scans a workspace's terminals for a running coding agent that has no
+    /// chat session yet (title- or launch-metadata-detected, no hook) and
+    /// adopts it. Adoption is a no-op once the surface has a session, so this
+    /// only touches the filesystem the first time an agent is seen.
+    private func adoptDetectedAgentSessions(workspaceID: String) {
+        guard let resolved = mobileResolveWorkspaceAndSurface(
+            params: ["workspace_id": workspaceID],
+            requireTerminal: false
+        ) else { return }
+        let workspace = resolved.workspace
+        let service = AgentChatTranscriptService.shared
+        for panel in workspace.panels.values.compactMap({ $0 as? TerminalPanel }) {
+            let context = WorkspaceContentView.terminalAgentContext(panel: panel, workspace: workspace)
+            let title = (workspace.panelTitle(panelId: panel.id) ?? panel.displayTitle).lowercased()
+            // Claude is the case the wrapper-launched workflow hits; detect by
+            // launch metadata (hook PID key / initial command) or the live
+            // terminal title claude sets ("✳ Claude Code").
+            let isClaude = TextBoxAgentDetection.isClaudeCode(context: context)
+                || title.contains("claude")
+            guard isClaude else { continue }
+            let cwd = workspace.panelDirectories[panel.id]
+                ?? (panel.directory.isEmpty ? nil : panel.directory)
+                ?? (workspace.currentDirectory.isEmpty ? nil : workspace.currentDirectory)
+            guard let cwd, !cwd.isEmpty else { continue }
+            service.adoptDetectedClaudeSession(
+                workspaceID: workspaceID,
+                surfaceID: panel.id.uuidString,
+                workingDirectory: cwd
+            )
+        }
     }
 
     /// `mobile.chat.history`: one transcript page for a session.

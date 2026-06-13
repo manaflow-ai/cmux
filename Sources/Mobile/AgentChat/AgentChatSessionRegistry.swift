@@ -135,6 +135,51 @@ final class AgentChatSessionRegistry {
         }
     }
 
+    /// Registers a coding-agent session cmux detected by terminal title or
+    /// launch metadata rather than by an agent hook (e.g. an agent launched
+    /// through a shell wrapper that bypasses cmux's hook injection). Without
+    /// a hook we never learned the agent's session id, so the caller resolves
+    /// the transcript by working directory and passes its filename stem as
+    /// the id.
+    ///
+    /// No-op (returns the existing record) when a session with that id is
+    /// already known, or when any live session is already bound to the same
+    /// surface — a hook-registered record is authoritative and must not be
+    /// shadowed. A brand-new record fires `onRecordChanged` with `nil`, so it
+    /// pushes to listening clients exactly like a hook-created session.
+    ///
+    /// - Returns: The adopted or pre-existing record.
+    @discardableResult
+    func adoptDetectedSession(
+        sessionID: String,
+        agentKind: ChatAgentKind,
+        workspaceID: String,
+        surfaceID: String,
+        workingDirectory: String?,
+        transcriptPath: String?,
+        at timestamp: Date
+    ) -> AgentChatSessionRecord {
+        if let existing = records[sessionID] { return existing }
+        if let bound = records.values.first(where: { $0.surfaceID == surfaceID && $0.state != .ended }) {
+            return bound
+        }
+        let record = AgentChatSessionRecord(
+            sessionID: sessionID,
+            agentKind: agentKind,
+            workspaceID: workspaceID,
+            surfaceID: surfaceID,
+            workingDirectory: workingDirectory,
+            transcriptPath: transcriptPath,
+            state: .idle,
+            lastActivityAt: timestamp,
+            title: nil,
+            pid: nil
+        )
+        records[sessionID] = record
+        onRecordChanged?(record, nil)
+        return record
+    }
+
     /// Ingests one hook event: creates or refreshes the session record and
     /// derives the live state transition.
     ///
