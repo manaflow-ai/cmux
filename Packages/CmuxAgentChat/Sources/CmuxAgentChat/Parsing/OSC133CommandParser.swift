@@ -27,6 +27,13 @@ public final class OSC133CommandParser {
     private var nextID = 0
     private var openIndex: Int?
 
+    /// Bounds the bytes a single (possibly unterminated or hostile) escape
+    /// sequence may buffer; past this the sequence is abandoned and scanning
+    /// resyncs, so a malformed `ESC]…` with no terminator can't grow
+    /// `pending` without bound or wedge the parser. 133 marks are tiny; this
+    /// only ever trips on junk or huge ignored sequences (e.g. OSC 52).
+    private static let maxEscapeLength = 8192
+
     /// Creates an empty parser.
     public init() {}
 
@@ -49,11 +56,24 @@ public final class OSC133CommandParser {
                 apply(action)
                 index = next
             case .incomplete:
-                // Hold the partial escape until the next chunk completes it.
+                // Hold the partial escape until the next chunk completes it,
+                // but flush any output collected before it so a split escape
+                // mid-stream doesn't stall the live view.
+                flushOpenOutput()
                 pending = String(stream[index...])
                 return
             }
         }
+        // Fold + publish the open block's output once per chunk (not per
+        // character — that was O(n^2) on large output).
+        flushOpenOutput()
+    }
+
+    /// Publishes the running block's accumulated output, carriage-return
+    /// folded. Called once per chunk rather than per character.
+    private func flushOpenOutput() {
+        guard phase == .output, let openIndex else { return }
+        blocks[openIndex].output = Self.foldCarriageReturns(outputBuffer)
     }
 
     // MARK: - Escape parsing
@@ -95,6 +115,11 @@ public final class OSC133CommandParser {
         var index = bodyStart
         var body = ""
         while index < s.endIndex {
+            // Abandon a runaway/unterminated OSC so it can't grow `pending`
+            // without bound; resync as text from here.
+            if body.count >= Self.maxEscapeLength {
+                return .parsed(index, .ignore)
+            }
             let char = s[index]
             if char == "\u{07}" { // BEL terminator
                 return .parsed(s.index(after: index), oscAction(body))
@@ -140,12 +165,18 @@ public final class OSC133CommandParser {
         var index = paramsStart
         var params = ""
         while index < s.endIndex {
+            if params.count >= Self.maxEscapeLength {
+                return .parsed(index, .ignore)
+            }
             let char = s[index]
             if let scalar = char.unicodeScalars.first, (0x40...0x7E).contains(scalar.value) {
                 let action: EscapeAction
-                switch params {
-                case "?1049": action = char == "h" ? .enterAltScreen : (char == "l" ? .leaveAltScreen : .ignore)
-                default: action = .ignore
+                if Self.csiEntersAltScreen(params), char == "h" {
+                    action = .enterAltScreen
+                } else if Self.csiEntersAltScreen(params), char == "l" {
+                    action = .leaveAltScreen
+                } else {
+                    action = .ignore
                 }
                 return .parsed(s.index(after: index), action)
             }
@@ -153,6 +184,17 @@ public final class OSC133CommandParser {
             index = s.index(after: index)
         }
         return .incomplete
+    }
+
+    /// Whether a CSI private-mode parameter list includes the alt-screen
+    /// mode (1049 or legacy 1047). Real terminals batch private modes, e.g.
+    /// `ESC[?1049;2004h` (alt screen + bracketed paste), so an exact
+    /// `?1049` match would miss them.
+    private static func csiEntersAltScreen(_ params: String) -> Bool {
+        guard params.hasPrefix("?") else { return false }
+        return params.dropFirst()
+            .split(separator: ";")
+            .contains { $0 == "1049" || $0 == "1047" }
     }
 
     // MARK: - State transitions
@@ -187,7 +229,6 @@ public final class OSC133CommandParser {
             commandBuffer.append(char)
         case .output:
             outputBuffer.append(char)
-            blocks[openIndex!].output = Self.foldCarriageReturns(outputBuffer)
         case .idle, .prompt:
             break
         }
@@ -221,11 +262,18 @@ public final class OSC133CommandParser {
         if openIndex != nil { closeBlock(exitCode: nil) }
     }
 
-    /// Folds carriage-return redraws: within a line, text after a `\r` (not
-    /// followed by `\n`) overwrites from the line start, so a progress bar's
-    /// repeated redraws collapse to the final state.
+    /// Folds carriage-return redraws: within a line, text after a `\r`
+    /// overwrites from the line start, so a progress bar's repeated redraws
+    /// collapse to the final state. A single trailing `\r` per line is the
+    /// CR of a CRLF line ending and is dropped first, so normal `\r\n` text
+    /// is preserved instead of being blanked.
     static func foldCarriageReturns(_ text: String) -> String {
-        text.split(separator: "\n", omittingEmptySubsequences: false)
+        // In Swift, "\r\n" is a single grapheme Character, so splitting on a
+        // "\n" Character never sees a CRLF. Normalize CRLF (a real newline) to
+        // LF first; the per-line fold below then only deals with standalone
+        // "\r" progress redraws.
+        let normalized = text.replacingOccurrences(of: "\r\n", with: "\n")
+        return normalized.split(separator: "\n", omittingEmptySubsequences: false)
             .map { line -> Substring in
                 guard let lastCR = line.lastIndex(of: "\r") else { return line }
                 return line[line.index(after: lastCR)...]

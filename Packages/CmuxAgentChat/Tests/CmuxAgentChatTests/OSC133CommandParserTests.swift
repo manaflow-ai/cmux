@@ -104,6 +104,49 @@ struct OSC133CommandParserTests {
         #expect(parser.blocks[0].output == "red\n")
     }
 
+    @Test("CRLF line endings are preserved, not blanked")
+    func crlfPreserved() {
+        let parser = OSC133CommandParser()
+        parser.consume(mark("A") + mark("B") + "x" + mark("C") + "line1\r\nline2\r\n" + mark("D;0"))
+        #expect(parser.blocks[0].output == "line1\nline2\n")
+    }
+
+    @Test("a CR progress redraw still folds even with surrounding CRLF lines")
+    func crlfAndProgressMix() {
+        let parser = OSC133CommandParser()
+        parser.consume(mark("A") + mark("B") + "x" + mark("C") + "start\r\n10%\r99%\r100%\r\ndone\r\n" + mark("D;0"))
+        #expect(parser.blocks[0].output == "start\n100%\ndone\n")
+    }
+
+    @Test("alt screen batched with other private modes is still detected")
+    func batchedAltScreen() {
+        let parser = OSC133CommandParser()
+        parser.consume(mark("A") + mark("B") + "tmux" + mark("C") + "\u{1b}[?1049;2004h")
+        #expect(parser.blocks[0].isInteractive)
+    }
+
+    @Test("an unterminated OSC does not hang and the parser resyncs after it")
+    func unterminatedOSCResyncs() {
+        let parser = OSC133CommandParser()
+        // A title OSC with no terminator, far longer than the escape cap.
+        let junk = "\u{1b}]0;" + String(repeating: "x", count: 9000)
+        parser.consume(mark("A") + mark("B") + "echo" + mark("C") + junk)
+        // It must not crash/hang; then a real D still closes the block.
+        parser.consume(mark("D;0"))
+        #expect(parser.blocks.count == 1)
+        #expect(parser.blocks[0].exitCode == 0)
+        #expect(parser.blocks[0].isRunning == false)
+    }
+
+    @Test("large output is folded once and parses correctly")
+    func largeOutput() {
+        let parser = OSC133CommandParser()
+        let big = (1...2000).map { "line \($0)" }.joined(separator: "\n")
+        parser.consume(mark("A") + mark("B") + "seq" + mark("C") + big + "\n" + mark("D;0"))
+        #expect(parser.blocks[0].output == big + "\n")
+        #expect(parser.blocks[0].exitCode == 0)
+    }
+
     @Test("a bare prompt with no command yields an empty command string")
     func bareCommand() {
         let parser = OSC133CommandParser()
