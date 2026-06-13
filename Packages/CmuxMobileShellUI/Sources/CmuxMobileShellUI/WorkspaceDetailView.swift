@@ -235,9 +235,21 @@ struct WorkspaceDetailView: View {
     /// signals. A failed fetch leaves the current list untouched.
     private func reseedChatSessions() async {
         guard let source = store.makeChatEventSource() else { return }
-        if let fresh = try? await source.sessions(workspaceID: workspace.id.rawValue) {
-            chatSessions = fresh
-            applyChatModeFallback()
+        // An agent's terminal title can appear a beat before its transcript
+        // file is on disk (the Mac needs the transcript to adopt a non-hook
+        // session). Retry a few times until the visible tab has a session.
+        // Bounded and cancellable: this runs inside `.task(id:)`, which
+        // cancels the sleep on a title change or when the view goes away, so
+        // it is not a free-running poll.
+        for attempt in 0..<3 {
+            if let fresh = try? await source.sessions(workspaceID: workspace.id.rawValue) {
+                chatSessions = fresh
+                applyChatModeFallback()
+                if sessionForSelectedTerminal != nil { return }
+            }
+            if attempt < 2 {
+                try? await Task.sleep(for: .seconds(1.5))
+            }
         }
     }
     #endif
