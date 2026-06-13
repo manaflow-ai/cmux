@@ -86,8 +86,18 @@ public struct ChatTranscriptListView: View {
                     proxy.scrollTo(Self.bottomAnchorID, anchor: .bottom)
                 }
                 .overlay(alignment: .bottomTrailing) {
-                    if !isAtBottom {
-                        ChatScrollToBottomButton {
+                    // The pill's fade/scale is animated HERE, scoped by
+                    // `value: isAtBottom`, so only this overlay animates. The
+                    // visibility callback must NOT wrap the `isAtBottom` write
+                    // in `withAnimation`: that animated the enclosing body
+                    // (which rebuilds the LazyVStack) every frame, and while
+                    // scrolling the bottom anchor's visibility oscillates
+                    // across the 0.5 threshold, so the animated re-layout
+                    // re-fired the callback and never converged -> 100% CPU
+                    // hang on scroll-up (user-reported freeze).
+                    Group {
+                        if !isAtBottom {
+                            ChatScrollToBottomButton {
                             let lastID = rows.last?.id
                             if let lastID {
                                 scrollPosition.scrollTo(id: lastID, anchor: .bottom)
@@ -113,10 +123,12 @@ public struct ChatTranscriptListView: View {
                                 }
                             }
                         }
-                        .padding(.trailing, 12)
-                        .padding(.bottom, 8)
-                        .transition(.opacity.combined(with: .scale(scale: 0.8)))
+                            .padding(.trailing, 12)
+                            .padding(.bottom, 8)
+                            .transition(.opacity.combined(with: .scale(scale: 0.8)))
+                        }
                     }
+                    .animation(.snappy(duration: 0.2), value: isAtBottom)
                 }
         }
         #else
@@ -198,14 +210,16 @@ public struct ChatTranscriptListView: View {
                     // viewport beyond the screen), which would hide the
                     // pill and steal scroll while the user reads.
                     .onScrollVisibilityChange(threshold: 0.5) { visible in
-                        // Animate HERE, scoped to what depends on isAtBottom (the
-                        // pill transition). A container-level .animation(value:)
-                        // modifier animated every animatable attribute of the
-                        // whole lazy subtree on each mid-scroll flip and wedged
-                        // the update graph (user-reported freeze).
-                        withAnimation(.snappy(duration: 0.2)) {
-                            isAtBottom = visible
-                        }
+                        // Set state WITHOUT animation. The pill's appearance is
+                        // animated by `.animation(value: isAtBottom)` scoped to
+                        // the overlay above, so the list layout is untouched.
+                        // Wrapping this write in `withAnimation` animated the
+                        // enclosing body (which rebuilds the LazyVStack) on every
+                        // frame; mid-scroll the anchor's visibility oscillates
+                        // across the 0.5 threshold, so the animated re-layout
+                        // re-fired this callback and never converged -> a 100%
+                        // CPU hang on scroll-up (user-reported freeze).
+                        isAtBottom = visible
                     }
                     #endif
             }
