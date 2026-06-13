@@ -320,6 +320,13 @@ struct PreferredEditorSettingsStoreTests {
         let store = PreferredEditorSettingsStore(defaults: defaults)
         #expect(store.resolvedCommand == "code -w")
     }
+
+    @Test func returnsConfiguredCommandWhenSet() {
+        let defaults = makeScratchDefaults()
+        defaults.set("code", forKey: "preferredEditorCommand")
+        let store = PreferredEditorSettingsStore(defaults: defaults)
+        #expect(store.resolvedCommand == "code")
+    }
 }
 
 @Suite("AppIconSettingsStore")

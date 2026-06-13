@@ -6,6 +6,7 @@ import CmuxSidebarInterpreterClient
 @_spi(CmuxHostTransport) import CmuxExtensionKit
 import CmuxSidebarProviderKit
 import CmuxExtensionSidebarExamples
+import CmuxFileOpen
 import CmuxSettings
 import CmuxSettingsUI
 import CmuxSidebarRemoteRender
@@ -8579,7 +8580,7 @@ struct ContentView: View {
             NSSound.beep()
             return
         }
-        PreferredEditorSettings.open(URL(fileURLWithPath: sourcePath))
+        PreferredEditorService(defaults: .standard).open(URL(fileURLWithPath: sourcePath))
     }
 
     @discardableResult

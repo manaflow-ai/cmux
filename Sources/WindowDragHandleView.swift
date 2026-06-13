@@ -1,5 +1,6 @@
 import AppKit
 import Bonsplit
+import CmuxTestSupport
 import SwiftUI
 
 enum WindowMouseMovedEventsCoordinator {
@@ -1046,7 +1047,7 @@ func recordMinimalModeSidebarChromeHoverForUITest(
             locationInWindow,
             in: window
         )
-    _ = CmuxUITestCapture.mutateJSONObjectIfConfigured(envKey: "CMUX_UI_TEST_BONSPLIT_TAB_DRAG_PATH") { payload in
+    _ = UITestCaptureSink().mutateJSONObjectIfConfigured(envKey: "CMUX_UI_TEST_BONSPLIT_TAB_DRAG_PATH") { payload in
         let count = (payload["minimalSidebarHoverEventCount"] as? String).flatMap(Int.init) ?? 0
         payload["minimalSidebarHoverEventCount"] = String(count + 1)
         payload["minimalSidebarHoverEventType"] = String(describing: eventType)
@@ -1693,7 +1694,7 @@ struct MinimalModeTitlebarEventSurfaceView: NSViewRepresentable {
 
             #if DEBUG
             if ProcessInfo.processInfo.environment["CMUX_UI_TEST_BONSPLIT_TAB_DRAG_SETUP"] == "1" {
-                _ = CmuxUITestCapture.mutateJSONObjectIfConfigured(envKey: "CMUX_UI_TEST_BONSPLIT_TAB_DRAG_PATH") { payload in
+                _ = UITestCaptureSink().mutateJSONObjectIfConfigured(envKey: "CMUX_UI_TEST_BONSPLIT_TAB_DRAG_PATH") { payload in
                     let count = (payload["minimalTitlebarEventSurfaceMouseDownCount"] as? String).flatMap(Int.init) ?? 0
                     payload["minimalTitlebarEventSurfaceMouseDownCount"] = String(count + 1)
                     payload["minimalTitlebarEventSurfaceLastPoint"] = windowDragHandleFormatPoint(locationInWindow)

@@ -1,6 +1,8 @@
 import Foundation
 import CmuxTerminalCopyMode
 import CmuxSocketControl
+import CmuxFileOpen
+import CmuxTestSupport
 import SwiftUI
 import AppKit
 import Metal
@@ -4891,7 +4893,7 @@ class GhosttyApp {
                 return false
             }
             #if DEBUG
-            if CmuxUITestCapture.appendLineIfConfigured(
+            if UITestCaptureSink().appendLineIfConfigured(
                 envKey: "CMUX_UI_TEST_CAPTURE_OPEN_URL_PATH",
                 line: target.url.absoluteString
             ) {
@@ -10734,7 +10736,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         let effectiveFlags = suppressCommandPathHover ? flags.subtracting(.command) : flags
 #if DEBUG
         if suppressCommandPathHover, flags.contains(.command) {
-            _ = CmuxUITestCapture.mutateJSONObjectIfConfigured(
+            _ = UITestCaptureSink().mutateJSONObjectIfConfigured(
                 envKey: "CMUX_UI_TEST_CMD_HOVER_DIAGNOSTICS_PATH"
             ) { payload in
                 payload["suppressed_command_hover_count"] = (payload["suppressed_command_hover_count"] as? Int ?? 0) + 1
@@ -11051,7 +11053,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         cmuxDebugLog("link.wordFallback resolved=\(resolution.path) source=\(resolution.source.rawValue)")
         #endif
 
-        PreferredEditorSettings.open(URL(fileURLWithPath: resolution.path))
+        PreferredEditorService(defaults: .standard).open(URL(fileURLWithPath: resolution.path))
     }
 
     /// Check if the word under the mouse cursor resolves to an existing file/directory
@@ -11483,7 +11485,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             return resolution
         }
 
-        PreferredEditorSettings.open(URL(fileURLWithPath: resolution.path))
+        PreferredEditorService(defaults: .standard).open(URL(fileURLWithPath: resolution.path))
         return resolution
     }
 
