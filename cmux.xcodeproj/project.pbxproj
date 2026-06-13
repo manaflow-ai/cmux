@@ -229,6 +229,7 @@
 		C5A1FED200000000000000E1 /* CmuxSidebarInterpreterClient in Frameworks */ = {isa = PBXBuildFile; productRef = C5A1FED200000000000000E3 /* CmuxSidebarInterpreterClient */; };
 		C5A1FED200000000000000E2 /* CmuxSidebarInterpreterClient in Frameworks */ = {isa = PBXBuildFile; productRef = C5A1FED200000000000000E3 /* CmuxSidebarInterpreterClient */; };
 		C0DE4A000000000000000001 /* CmuxSidebarProviderKit in Frameworks */ = {isa = PBXBuildFile; productRef = C0DE4A000000000000000002 /* CmuxSidebarProviderKit */; };
+		C0DE4A000000000000000005 /* CmuxSidebarProviderKit in Frameworks */ = {isa = PBXBuildFile; productRef = C0DE4A000000000000000004 /* CmuxSidebarProviderKit */; };
 		C5A1FED200000000000000E5 /* CmuxSidebarRemoteRender in Frameworks */ = {isa = PBXBuildFile; productRef = C5A1FED200000000000000E6 /* CmuxSidebarRemoteRender */; };
 		A5354303A5354303A5354303 /* CmuxSocketControl in Frameworks */ = {isa = PBXBuildFile; productRef = A5354305A5354305A5354305 /* CmuxSocketControl */; };
 		B900004CA1B2C3D4E5F60719 /* CmuxSocketControl in Frameworks */ = {isa = PBXBuildFile; productRef = A5354305A5354305A5354305 /* CmuxSocketControl */; };
@@ -1671,6 +1672,7 @@
 				C9A1C00000000000000000A4 /* CmuxCommandPalette in Frameworks */,
 				5E2701040000000000000004 /* CmuxFoundation in Frameworks */,
 				EFB18E3C0000000000000001 /* CMUXMobileCore in Frameworks */,
+				C0DE4A000000000000000005 /* CmuxSidebarProviderKit in Frameworks */,
 				C52830000000000000000002 /* CmuxTerminalCopyMode in Frameworks */,
 				5E2701040000000000000003 /* Sentry in Frameworks */,
 			);
@@ -2645,6 +2647,7 @@
 				5E2701040000000000000002 /* CmuxFoundation */,
 				C9A2B00000000000000000C2 /* CmuxAppKitSupportUI */,
 				C9A1C00000000000000000A5 /* CmuxCommandPalette */,
+				C0DE4A000000000000000004 /* CmuxSidebarProviderKit */,
 			);
 			productName = cmuxTests;
 			productReference = F1000002A1B2C3D4E5F60718 /* cmuxTests.xctest */;
@@ -4228,6 +4231,11 @@
 			productName = CmuxExtensionSidebarExamples;
 		};
 		C0DE4A000000000000000002 /* CmuxSidebarProviderKit */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = C0DE4A000000000000000003 /* XCLocalSwiftPackageReference "CmuxSidebarProviderKit" */;
+			productName = CmuxSidebarProviderKit;
+		};
+		C0DE4A000000000000000004 /* CmuxSidebarProviderKit */ = {
 			isa = XCSwiftPackageProductDependency;
 			package = C0DE4A000000000000000003 /* XCLocalSwiftPackageReference "CmuxSidebarProviderKit" */;
 			productName = CmuxSidebarProviderKit;
