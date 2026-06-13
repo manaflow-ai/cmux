@@ -3392,7 +3392,6 @@ private final class RightSidebarToggleAccessoryViewController: NSTitlebarAccesso
     /// move into the sidebar the way the left sidebar toggle reads as part of
     /// the open left sidebar.
     private func bindSidebarVisibilityIfNeeded() {
-        guard observedFileExplorerState == nil else { return }
         // The window context can register after the accessory attaches
         // (notably during session restore with the sidebar already open), so
         // unresolved lookups retry briefly instead of waiting for an
@@ -3403,7 +3402,10 @@ private final class RightSidebarToggleAccessoryViewController: NSTitlebarAccesso
             scheduleBindRetryIfNeeded()
             return
         }
-        bindRetriesRemaining = 0
+        // Compare instances rather than binding once: session restore can
+        // replace the context's FileExplorerState after an early bind, which
+        // would leave the subscription watching a dead object.
+        guard state !== observedFileExplorerState else { return }
         observedFileExplorerState = state
         sidebarVisibilityCancellable = state.$isVisible
             .removeDuplicates()
