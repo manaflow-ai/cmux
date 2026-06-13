@@ -68,8 +68,12 @@ struct GhosttyDrawableSizeRetryTests {
         realizedLayer.masksToBounds = true
         realizedLayer.drawableSize = staleDrawableSize
         surfaceView.layer = realizedLayer
+        #expect(realizedLayer.drawableSize == staleDrawableSize)
 
-        RunLoop.current.run(until: Date().addingTimeInterval(0.05))
+        let deadline = Date().addingTimeInterval(0.5)
+        while realizedLayer.drawableSize != expectedDrawableSize && Date() < deadline {
+            RunLoop.current.run(until: Date().addingTimeInterval(0.01))
+        }
 
         #expect(realizedLayer.drawableSize == expectedDrawableSize)
     }

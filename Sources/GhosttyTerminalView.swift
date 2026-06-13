@@ -8508,12 +8508,15 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     private var visibleInUI: Bool = true
     private var pendingSurfaceSize: CGSize?
     private var deferredSurfaceSizeRetryQueued = false
+    private var deferredSurfaceSizeNonMetalRetryCount = 0
+    private var deferredSurfaceSizeNonMetalRetryPixelSize: CGSize = .zero
     private var lastDrawableSize: CGSize = .zero
     private var isFindEscapeSuppressionArmed = false
     private var hasPendingLeftMouseRelease = false
 #if DEBUG
     private var lastSizeSkipSignature: String?
 #endif
+    private static let maxDeferredSurfaceSizeNonMetalRetryCount = 8
 
     private var hasUsableFocusGeometry: Bool {
         bounds.width > 1 && bounds.height > 1
@@ -8917,6 +8920,21 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         }
     }
 
+    private func scheduleDeferredSurfaceSizeRetryForNonMetalLayerIfNeeded(
+        drawablePixelSize: CGSize
+    ) {
+        guard window != nil else { return }
+        if deferredSurfaceSizeNonMetalRetryPixelSize != drawablePixelSize {
+            deferredSurfaceSizeNonMetalRetryPixelSize = drawablePixelSize
+            deferredSurfaceSizeNonMetalRetryCount = 0
+        }
+        guard deferredSurfaceSizeNonMetalRetryCount < Self.maxDeferredSurfaceSizeNonMetalRetryCount else {
+            return
+        }
+        deferredSurfaceSizeNonMetalRetryCount += 1
+        scheduleDeferredSurfaceSizeRetryIfNeeded()
+    }
+
     @discardableResult
     private func updateSurfaceSize(size: CGSize? = nil) -> Bool {
         guard let terminalSurface = terminalSurface else { return false }
@@ -9010,6 +9028,8 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         layer?.contentsScale = layerScale
         layer?.masksToBounds = true
         if let metalLayer = layer as? CAMetalLayer {
+            deferredSurfaceSizeNonMetalRetryCount = 0
+            deferredSurfaceSizeNonMetalRetryPixelSize = drawablePixelSize
             if drawablePixelSize != lastDrawableSize || metalLayer.drawableSize != drawablePixelSize {
                 if metalLayer.drawableSize != drawablePixelSize {
                     didChange = true
@@ -9019,6 +9039,10 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
                 }
                 lastDrawableSize = drawablePixelSize
             }
+        } else {
+            scheduleDeferredSurfaceSizeRetryForNonMetalLayerIfNeeded(
+                drawablePixelSize: drawablePixelSize
+            )
         }
         CATransaction.commit()
 
