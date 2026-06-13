@@ -266,6 +266,12 @@
           "default": "automatic",
           "description": "Dock and app switcher icon style."
         },
+        "windowTitleTemplate": {
+          "type": "string",
+          "default": "",
+          "descriptionKey": "schemaDescriptions.app.windowTitleTemplate",
+          "description": "Optional NSWindow title template. Blank keeps the default active-workspace title. Supported placeholders: {windowId}, {windowToken}, {activeWorkspace}, {activeDirectory}, {defaultTitle}, {appName}."
+        },
         "menuBarOnly": {
           "type": "boolean",
           "default": false,

@@ -1074,6 +1074,9 @@ class TabManager: ObservableObject {
     /// The window that owns this TabManager. Set by AppDelegate.registerMainWindow().
     /// Used to apply title updates to the correct window instead of NSApp.keyWindow.
     weak var window: NSWindow?
+    /// Stable identifier of the owning macOS window. Used only for opt-in title
+    /// templates that expose a WM-matchable per-window token.
+    var windowId: UUID?
 
     @Published var tabs: [Workspace] = []
     /// Named groupings of workspaces shown as collapsible sections in the sidebar.
@@ -1378,6 +1381,7 @@ class TabManager: ObservableObject {
             MainActor.assumeIsolated { [weak self] in
                 self?.sidebarMetadataSettingsDidChange()
                 self?.refreshTabCloseButtonVisibility()
+                self?.refreshWindowTitle()
             }
         })
 #if DEBUG
@@ -6749,6 +6753,10 @@ class TabManager: ObservableObject {
         }
     }
 
+    func refreshWindowTitle() {
+        updateWindowTitleForSelectedTab()
+    }
+
     private func updateWindowTitleForSelectedTab() {
         guard let selectedTabId,
               let tab = tabs.first(where: { $0.id == selectedTabId }) else {
@@ -6781,6 +6789,30 @@ class TabManager: ObservableObject {
     }
 
     private func windowTitle(for tab: Workspace?) -> String {
+        let defaultTitle = defaultWindowTitle(for: tab)
+        guard let windowId,
+              let template = WindowTitleTemplate.configured() else {
+            return defaultTitle
+        }
+
+        let workspaceTitle = tab.map {
+            resolvedWorkspaceDisplayTitle(for: $0)
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+        } ?? ""
+        let activeDirectory = tab?.currentDirectory
+            .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        let resolvedTitle = template.resolved(context: WindowTitleTemplate.Context(
+            defaultTitle: defaultTitle,
+            activeWorkspace: workspaceTitle.isEmpty ? defaultTitle : workspaceTitle,
+            activeDirectory: activeDirectory,
+            windowId: windowId,
+            appName: "cmux"
+        ))
+        let trimmedResolvedTitle = resolvedTitle.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmedResolvedTitle.isEmpty ? defaultTitle : resolvedTitle
+    }
+
+    private func defaultWindowTitle(for tab: Workspace?) -> String {
         guard let tab else { return "cmux" }
         let trimmedTitle = resolvedWorkspaceDisplayTitle(for: tab)
             .trimmingCharacters(in: .whitespacesAndNewlines)

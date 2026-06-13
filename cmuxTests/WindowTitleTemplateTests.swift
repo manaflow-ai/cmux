@@ -1,0 +1,108 @@
+import Foundation
+import Testing
+
+#if canImport(cmux_DEV)
+@testable import cmux_DEV
+#elseif canImport(cmux)
+@testable import cmux
+#endif
+
+@Suite(.serialized)
+struct WindowTitleTemplateTests {
+    private let backupsDefaultsKey = "cmux.settingsFile.backups.v1"
+    private let importedManagedDefaultsKey = "cmux.settingsFile.importedManagedDefaults.v1"
+
+    @Test func resolvesWindowPlaceholdersAndPreservesUnknownPlaceholders() throws {
+        let windowId = try #require(UUID(uuidString: "01234567-89AB-CDEF-0123-456789ABCDEF"))
+        let template = WindowTitleTemplate(
+            rawValue: "[cmux:{windowToken}] {activeWorkspace} {activeDirectory} {windowId} {defaultTitle} {appName} {unknown}"
+        )
+
+        let resolved = template.resolved(context: WindowTitleTemplate.Context(
+            defaultTitle: "Fallback",
+            activeWorkspace: "Build",
+            activeDirectory: "/tmp/project",
+            windowId: windowId,
+            appName: "cmux"
+        ))
+
+        #expect(resolved == "[cmux:01234567] Build /tmp/project 01234567-89ab-cdef-0123-456789abcdef Fallback cmux {unknown}")
+    }
+
+    @Test func configuredTemplateTreatsBlankDefaultsValueAsDisabled() throws {
+        let defaults = try isolatedDefaults()
+        defaults.set("   \n", forKey: WindowTitleTemplate.userDefaultsKey)
+
+        #expect(WindowTitleTemplate.configured(defaults: defaults) == nil)
+    }
+
+    @Test func resolverDoesNotExpandPlaceholdersInsideReplacementValues() throws {
+        let windowId = try #require(UUID(uuidString: "01234567-89AB-CDEF-0123-456789ABCDEF"))
+        let template = WindowTitleTemplate(rawValue: "{activeWorkspace} {appName}")
+
+        let resolved = template.resolved(context: WindowTitleTemplate.Context(
+            defaultTitle: "Fallback",
+            activeWorkspace: "{windowId}",
+            activeDirectory: "{windowToken}",
+            windowId: windowId,
+            appName: "cmux"
+        ))
+
+        #expect(resolved == "{windowId} cmux")
+    }
+
+    @Test func settingsFileStoreAppliesAppWindowTitleTemplate() throws {
+        let defaults = UserDefaults.standard
+        let keys = [
+            WindowTitleTemplate.userDefaultsKey,
+            backupsDefaultsKey,
+            importedManagedDefaultsKey,
+        ]
+        let previousValues: [String: Any?] = Dictionary(
+            uniqueKeysWithValues: keys.map { ($0, defaults.object(forKey: $0)) }
+        )
+        defer {
+            restore(previousValues, defaults: defaults)
+        }
+        keys.forEach { defaults.removeObject(forKey: $0) }
+
+        let directoryURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-window-title-template-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: directoryURL, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directoryURL) }
+
+        let settingsFileURL = directoryURL.appendingPathComponent("cmux.json", isDirectory: false)
+        try """
+        {
+          "app": {
+            "windowTitleTemplate": "[cmux:{windowToken}] {activeWorkspace}"
+          }
+        }
+        """.write(to: settingsFileURL, atomically: true, encoding: .utf8)
+
+        _ = KeyboardShortcutSettingsFileStore(
+            primaryPath: settingsFileURL.path,
+            fallbackPath: nil,
+            startWatching: false
+        )
+
+        #expect(defaults.string(forKey: WindowTitleTemplate.userDefaultsKey) == "[cmux:{windowToken}] {activeWorkspace}")
+    }
+
+    private func isolatedDefaults() throws -> UserDefaults {
+        let suiteName = "cmux.WindowTitleTemplateTests.\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suiteName))
+        defaults.removePersistentDomain(forName: suiteName)
+        return defaults
+    }
+
+    private func restore(_ values: [String: Any?], defaults: UserDefaults) {
+        for (key, value) in values {
+            if let value {
+                defaults.set(value, forKey: key)
+            } else {
+                defaults.removeObject(forKey: key)
+            }
+        }
+    }
+}
