@@ -23219,7 +23219,7 @@ struct CMUXCLI {
            let binding = resolveAgentProcessTerminalBinding(pid: agentPID, client: client, socketPassword: socketPassword) {
             return binding
         }
-        return resolveCallerTerminalBindingByTTY(client: client)
+        return resolveCallerTerminalBindingByTTY(client: client, cmuxOnly: true)
     }
 
     private func resolveClaudeHookBindingSurfaceId(
@@ -23454,10 +23454,8 @@ struct CMUXCLI {
         return binding.surfaceId
     }
 
-    private func resolveCallerTerminalBindingByTTY(client: SocketClient) -> CallerTerminalBinding? {
-        guard let ttyName = resolveCallerTTYName() else {
-            return nil
-        }
+    private func resolveCallerTerminalBindingByTTY(client: SocketClient, cmuxOnly: Bool = false) -> CallerTerminalBinding? {
+        guard let ttyName = resolveCallerTTYName(cmuxOnly: cmuxOnly) else { return nil }
         return resolveTerminalBinding(ttyName: ttyName, client: client)
     }
 
@@ -23542,13 +23540,15 @@ struct CMUXCLI {
         return nil
     }
 
-    private func resolveCallerTTYName() -> String? {
+    private func resolveCallerTTYName(cmuxOnly: Bool = false) -> String? {
         let env = ProcessInfo.processInfo.environment
-        for key in ["CMUX_CLI_TTY_NAME", "CMUX_TTY_NAME", "TTY", "SSH_TTY"] {
+        let keys = cmuxOnly ? ["CMUX_CLI_TTY_NAME", "CMUX_TTY_NAME"] : ["CMUX_CLI_TTY_NAME", "CMUX_TTY_NAME", "TTY", "SSH_TTY"]
+        for key in keys {
             if let ttyName = normalizedTTYName(env[key]) {
                 return ttyName
             }
         }
+        if cmuxOnly { return nil }
         for fileDescriptor in [STDIN_FILENO, STDOUT_FILENO, STDERR_FILENO] {
             if let rawTTYName = ttyname(fileDescriptor),
                let ttyName = normalizedTTYName(String(cString: rawTTYName)) {
