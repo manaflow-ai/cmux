@@ -80,6 +80,7 @@ import Testing
             macDisplayName: "Lawrence's Mac",
             macUserEmail: "Lawrence@Example.com",
             macUserID: "user_mac_123",
+            macPairingCompatibilityVersion: 1,
             macAppVersion: "0.64.15",
             macAppBuild: "42",
             routes: [
@@ -93,12 +94,14 @@ import Testing
         #expect(url.contains("ub=user_mac_123"))
         #expect(!url.contains("Lawrence@Example.com"))
         #expect(!url.lowercased().contains("lawrence@example.com"))
+        #expect(url.contains("pc=1"))
         #expect(url.contains("av=0.64.15"))
         #expect(url.contains("ab=42"))
 
         let decoded = try CmxPairingQRCode().decode(try components(url))
         #expect(decoded.macUserEmail == nil)
         #expect(decoded.macUserID == "user_mac_123")
+        #expect(decoded.macPairingCompatibilityVersion == 1)
         #expect(decoded.macAppVersion == "0.64.15")
         #expect(decoded.macAppBuild == "42")
         #expect(decoded.routes == ticket.routes)

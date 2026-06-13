@@ -396,7 +396,7 @@ final class TerminalOutputCollector {
     #expect(store.activeTicket?.macDeviceID == "active-mac")
 
     let warningResult = await store.connectPairingURLResult(
-        "cmux-ios://attach?v=2&av=0.65.0&ab=9&r=100.71.210.41:\(CmxMobileDefaults.defaultHostPort)"
+        "cmux-ios://attach?v=2&pc=2&av=0.65.0&ab=9&r=100.71.210.41:\(CmxMobileDefaults.defaultHostPort)"
     )
 
     #expect(warningResult == .needsUserApproval)
@@ -455,7 +455,7 @@ final class TerminalOutputCollector {
     await router.waitForFirstWorkspaceListRequest()
 
     let warningResult = await store.connectPairingURLResult(
-        "cmux-ios://attach?v=2&av=0.65.0&ab=9&r=100.71.210.41:\(CmxMobileDefaults.defaultHostPort)"
+        "cmux-ios://attach?v=2&pc=2&av=0.65.0&ab=9&r=100.71.210.41:\(CmxMobileDefaults.defaultHostPort)"
     )
     await router.releaseFirstWorkspaceListResponse()
     let slowResult = await slowTask.value
@@ -1582,7 +1582,7 @@ final class TerminalOutputCollector {
 }
 
 @MainActor
-@Test func minimalPairingCodeBuildMismatchWarnsAndContinuesAfterAcceptance() async throws {
+@Test func minimalPairingCodeCompatibilityMismatchWarnsAndContinuesAfterAcceptance() async throws {
     let responses = ScriptedTransportResponses([
         try rpcWorkspaceListFrame(workspaceID: "qr-workspace", title: "QR Workspace"),
         try rpcHostStatusFrame(
@@ -1619,7 +1619,7 @@ final class TerminalOutputCollector {
 
     store.signIn()
     let result = await store.connectPairingURLResult(
-        "cmux-ios://attach?v=2&ub=phone-user&av=0.65.0&ab=9&r=100.71.210.41:\(CmxMobileDefaults.defaultHostPort)"
+        "cmux-ios://attach?v=2&ub=phone-user&pc=2&av=0.65.0&ab=9&r=100.71.210.41:\(CmxMobileDefaults.defaultHostPort)"
     )
 
     #expect(result == .needsUserApproval)
@@ -1637,6 +1637,51 @@ final class TerminalOutputCollector {
     #expect(analytics.eventCount(named: "ios_pairing_started") == 1)
     #expect(analytics.eventCount(named: "ios_pairing_succeeded") == 1)
     #expect(try await responses.sentRequests().contains { $0.method == "workspace.list" })
+}
+
+@MainActor
+@Test func minimalPairingCodeAppVersionMismatchDoesNotWarnWhenCompatibilityMatches() async throws {
+    let responses = ScriptedTransportResponses([
+        try rpcWorkspaceListFrame(workspaceID: "qr-workspace", title: "QR Workspace"),
+        try rpcHostStatusFrame(
+            renderGrid: false,
+            macDeviceID: "status-reported-mac",
+            macDisplayName: "Status Mac"
+        ),
+    ])
+    let runtime = testRuntime(
+        supportedRouteKinds: [.tailscale],
+        transportFactory: ScriptedTransportFactory(responses: responses),
+        supportsServerPushEvents: false
+    )
+    let store = CMUXMobileShellStore(
+        runtime: runtime,
+        workspaces: PreviewMobileHost.workspaces,
+        identityProvider: TestIdentityProvider(
+            currentUserIDValue: "phone-user",
+            currentUserEmailValue: "user@example.com"
+        ),
+        feedbackStampProvider: {
+            MobileFeedbackStamp(
+                buildType: .dev,
+                appVersion: "1.0.0",
+                appBuild: "10",
+                bundleIdentifier: "dev.cmux.ios.test",
+                osVersion: "iOS test",
+                deviceModel: "test"
+            )
+        }
+    )
+
+    store.signIn()
+    let result = await store.connectPairingURLResult(
+        "cmux-ios://attach?v=2&ub=phone-user&pc=1&av=0.65.0&ab=95&r=100.71.210.41:\(CmxMobileDefaults.defaultHostPort)"
+    )
+
+    #expect(result == .connected)
+    #expect(store.pairingVersionWarning == nil)
+    #expect(store.connectionState == .connected)
+    #expect(store.selectedWorkspace?.id.rawValue == "qr-workspace")
 }
 
 @MainActor

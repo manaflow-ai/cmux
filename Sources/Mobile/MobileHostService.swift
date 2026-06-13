@@ -1070,6 +1070,7 @@ final class MobileHostService {
             ttl: ttl,
             macUserEmail: await currentAuthenticatedLocalUserEmail(),
             macUserID: await currentAuthenticatedLocalUserID(),
+            macPairingCompatibilityVersion: CmxMobileDefaults.pairingCompatibilityVersion,
             macAppVersion: MobileHostBuildIdentity.current().appVersion,
             macAppBuild: MobileHostBuildIdentity.current().appBuild
         )

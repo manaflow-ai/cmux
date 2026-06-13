@@ -42,6 +42,7 @@ private func legacyDecoder() -> JSONDecoder {
         macDeviceID: "mac-1",
         macDisplayName: "Studio",
         macUserEmail: "user@example.com",
+        macPairingCompatibilityVersion: 1,
         macAppVersion: "0.64.15",
         macAppBuild: "42",
         routes: [try hostPortRoute(priority: 1)],
@@ -61,6 +62,7 @@ private func legacyDecoder() -> JSONDecoder {
     #expect(json.contains("\"w\":\"workspace-1\""))
     #expect(json.contains("\"d\":\"mac-1\""))
     #expect(json.contains("\"u\":\"user@example.com\""))
+    #expect(json.contains("\"pc\":1"))
     #expect(json.contains("\"av\":\"0.64.15\""))
     #expect(json.contains("\"ab\":\"42\""))
     // The grammar no longer carries the display name or an expiry: the name
@@ -101,6 +103,7 @@ private func legacyDecoder() -> JSONDecoder {
         macDeviceID: "mac-1",
         macDisplayName: "Studio",
         macUserEmail: "user@example.com",
+        macPairingCompatibilityVersion: 1,
         macAppVersion: "0.64.15",
         macAppBuild: "42",
         routes: routes,
@@ -117,6 +120,7 @@ private func legacyDecoder() -> JSONDecoder {
     #expect(decoded.terminalID == ticket.terminalID)
     #expect(decoded.macDeviceID == ticket.macDeviceID)
     #expect(decoded.macUserEmail == ticket.macUserEmail)
+    #expect(decoded.macPairingCompatibilityVersion == ticket.macPairingCompatibilityVersion)
     #expect(decoded.macAppVersion == ticket.macAppVersion)
     #expect(decoded.macAppBuild == ticket.macAppBuild)
     // Routes round-trip losslessly even with custom ids ("ws" differs from

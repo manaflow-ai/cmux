@@ -1916,6 +1916,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                macDisplayName: ticket.macDisplayName,
                macUserEmail: ticket.macUserEmail,
                macUserID: ticket.macUserID,
+               macPairingCompatibilityVersion: ticket.macPairingCompatibilityVersion,
                macAppVersion: ticket.macAppVersion,
                macAppBuild: ticket.macAppBuild,
                routes: ticket.routes,
@@ -3195,24 +3196,29 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     }
 
     private func versionWarning(for ticket: CmxAttachTicket) -> String? {
-        guard let macVersion = mobileShellNormalizedNonEmpty(ticket.macAppVersion) else { return nil }
-        let phoneStamp = feedbackStampProvider()
-        guard let phoneVersion = mobileShellNormalizedNonEmpty(phoneStamp.appVersion) else {
+        guard let macCompatibilityVersion = ticket.macPairingCompatibilityVersion,
+              macCompatibilityVersion != CmxMobileDefaults.pairingCompatibilityVersion else {
             return nil
         }
-        let phoneBuild = mobileShellNormalizedNonEmpty(phoneStamp.appBuild)
-        let macBuild = mobileShellNormalizedNonEmpty(ticket.macAppBuild)
-        let versionDiffers = phoneVersion != macVersion
-        let buildDiffers = phoneBuild != nil && macBuild != nil && phoneBuild != macBuild
-        guard versionDiffers || buildDiffers else { return nil }
+        let phoneStamp = feedbackStampProvider()
+        let phoneVersion = mobileShellNormalizedNonEmpty(phoneStamp.appVersion)
+        let macVersion = mobileShellNormalizedNonEmpty(ticket.macAppVersion)
         let format = L10n.string(
             "mobile.pairing.versionWarningFormat",
-            defaultValue: "This iPhone is running cmux %@, but the Mac is running cmux %@. Pairing across different versions can break terminal input, workspace sync, or notifications. Continue only if you trust this Mac and accept that some features may fail."
+            defaultValue: "This iPhone is running cmux %@, but the Mac is running cmux %@. Pairing across different compatibility levels can break terminal input, workspace sync, or notifications. Continue only if you trust this Mac and accept that some features may fail."
         )
         return String(
             format: format,
-            mobileShellVersionDisplay(version: phoneVersion, build: phoneStamp.appBuild),
-            mobileShellVersionDisplay(version: macVersion, build: ticket.macAppBuild)
+            mobileShellVersionDisplay(
+                version: phoneVersion,
+                build: phoneStamp.appBuild,
+                compatibilityVersion: CmxMobileDefaults.pairingCompatibilityVersion
+            ),
+            mobileShellVersionDisplay(
+                version: macVersion,
+                build: ticket.macAppBuild,
+                compatibilityVersion: macCompatibilityVersion
+            )
         )
     }
 
@@ -4857,7 +4863,18 @@ private struct MobileManualAttachTicketCreateResponse: Decodable, Sendable {
     }
 }
 
-private func mobileShellVersionDisplay(version: String, build: String?) -> String {
+private func mobileShellVersionDisplay(
+    version: String?,
+    build: String?,
+    compatibilityVersion: Int
+) -> String {
+    let version = version ?? String(
+        format: L10n.string(
+            "mobile.pairing.compatibilityDisplayFormat",
+            defaultValue: "compatibility %@"
+        ),
+        "\(compatibilityVersion)"
+    )
     guard let build = mobileShellNormalizedNonEmpty(build) else { return version }
     return "\(version) (\(build))"
 }
@@ -4883,6 +4900,7 @@ private extension CmxAttachTicket {
             macDisplayName: macDisplayName ?? fallbackDisplayName,
             macUserEmail: macUserEmail,
             macUserID: macUserID,
+            macPairingCompatibilityVersion: macPairingCompatibilityVersion,
             macAppVersion: macAppVersion,
             macAppBuild: macAppBuild,
             routes: routes,

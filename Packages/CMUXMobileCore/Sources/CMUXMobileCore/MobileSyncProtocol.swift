@@ -6,6 +6,9 @@ public struct CmxMobileDefaults {
 
     /// The default daemon host port mobile clients dial when none is supplied.
     public static let defaultHostPort = 58_465
+    /// Shared Mac/iOS pairing compatibility level. Bump this only when current
+    /// clients can pair but may behave incorrectly without explicit user approval.
+    public static let pairingCompatibilityVersion = 1
 }
 
 public enum CmxAttachTransportKind: String, Codable, Sendable {

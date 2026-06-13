@@ -15,6 +15,7 @@ import Testing
             macDeviceID: "mac-1",
             macDisplayName: "Studio",
             macUserEmail: "user@example.com",
+            macPairingCompatibilityVersion: 1,
             macAppVersion: "0.64.15",
             macAppBuild: "42",
             routes: [
@@ -45,6 +46,7 @@ import Testing
         let decoded = try CmxAttachTicketInput.decode(url)
         #expect(decoded.macDeviceID == "mac-1")
         #expect(decoded.macUserEmail == "user@example.com")
+        #expect(decoded.macPairingCompatibilityVersion == 1)
         #expect(decoded.macAppVersion == "0.64.15")
         #expect(decoded.macAppBuild == "42")
         #expect(decoded.workspaceID == "")
@@ -128,7 +130,7 @@ import Testing
         // payload blob) routes through the same input decoder as everything
         // else the scanner or a deep link can hand us.
         let decoded = try CmxAttachTicketInput.decode(
-            "cmux-ios://attach?v=2&ub=user_mac_123&av=0.64.15&ab=42&r=lawrences-mac.tail1234.ts.net:58465&r=100.64.0.5:58465"
+            "cmux-ios://attach?v=2&ub=user_mac_123&pc=1&av=0.64.15&ab=42&r=lawrences-mac.tail1234.ts.net:58465&r=100.64.0.5:58465"
         )
         #expect(decoded.workspaceID == "")
         #expect(decoded.macDeviceID == "")
@@ -137,6 +139,7 @@ import Testing
         #expect(decoded.authToken == nil)
         #expect(decoded.macUserEmail == nil)
         #expect(decoded.macUserID == "user_mac_123")
+        #expect(decoded.macPairingCompatibilityVersion == 1)
         #expect(decoded.macAppVersion == "0.64.15")
         #expect(decoded.macAppBuild == "42")
         #expect(decoded.routes.count == 2)

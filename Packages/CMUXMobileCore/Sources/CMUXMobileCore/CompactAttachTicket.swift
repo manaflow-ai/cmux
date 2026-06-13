@@ -13,6 +13,7 @@ struct CompactAttachTicket: Codable {
     let t: String?
     let d: String
     let u: String?
+    let pc: Int?
     let av: String?
     let ab: String?
     let r: [CompactAttachRoute]
@@ -23,6 +24,7 @@ struct CompactAttachTicket: Codable {
         t = Self.normalizedNonEmpty(ticket.terminalID)
         d = ticket.macDeviceID
         u = Self.normalizedNonEmpty(ticket.macUserEmail)
+        pc = ticket.macPairingCompatibilityVersion
         av = Self.normalizedNonEmpty(ticket.macAppVersion)
         ab = Self.normalizedNonEmpty(ticket.macAppBuild)
         r = Self.compactedRoutes(ticket.routes)
@@ -36,6 +38,7 @@ struct CompactAttachTicket: Codable {
             macDeviceID: d,
             macDisplayName: nil,
             macUserEmail: u,
+            macPairingCompatibilityVersion: pc,
             macAppVersion: av,
             macAppBuild: ab,
             routes: Self.expandedRoutes(r),

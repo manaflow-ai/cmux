@@ -3,7 +3,7 @@ import Foundation
 /// The minimal pairing-QR grammar: expected Mac account/build metadata plus
 /// plain `host:port` routes in the URL query.
 ///
-/// `cmux-ios://attach?v=2&ub=<stack-user-id>&av=<version>&ab=<build>&r=<host>:<port>[&r=<host>:<port>...]`
+/// `cmux-ios://attach?v=2&ub=<stack-user-id>&pc=<compat>&av=<version>&ab=<build>&r=<host>:<port>[&r=<host>:<port>...]`
 ///
 /// A pairing QR needs to tell the phone where to dial and which non-secret
 /// account/build context to check before dialing. The account value is the
@@ -66,6 +66,9 @@ public struct CmxPairingQRCode: Sendable {
         var items: [String] = ["v=\(Self.version)"]
         if let userID = normalizedNonEmpty(ticket.macUserID) {
             items.append("ub=\(percentEncodeQueryValue(userID))")
+        }
+        if let compatibilityVersion = ticket.macPairingCompatibilityVersion {
+            items.append("pc=\(compatibilityVersion)")
         }
         if let version = normalizedNonEmpty(ticket.macAppVersion) {
             items.append("av=\(percentEncodeQueryValue(version))")
@@ -185,6 +188,7 @@ public struct CmxPairingQRCode: Sendable {
             macDisplayName: nil,
             macUserEmail: queryValue(named: "e", in: components),
             macUserID: queryValue(named: "ub", in: components),
+            macPairingCompatibilityVersion: queryInt(named: "pc", in: components),
             macAppVersion: queryValue(named: "av", in: components),
             macAppBuild: queryValue(named: "ab", in: components),
             routes: routes,
@@ -262,6 +266,11 @@ private extension CmxPairingQRCode {
 
     func queryValue(named name: String, in components: URLComponents) -> String? {
         normalizedNonEmpty(components.queryItems?.first(where: { $0.name == name })?.value)
+    }
+
+    func queryInt(named name: String, in components: URLComponents) -> Int? {
+        guard let value = queryValue(named: name, in: components) else { return nil }
+        return Int(value)
     }
 
     func normalizedNonEmpty(_ value: String?) -> String? {

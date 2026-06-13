@@ -311,7 +311,7 @@ struct MobileHostAuthorizationTests {
                 ]
             }
         )
-        await started.wait()
+        try await started.wait()
 
         resolver.refreshTailscaleRoutes(
             resolveHosts: {
@@ -324,7 +324,7 @@ struct MobileHostAuthorizationTests {
         )
 
         gate.signal()
-        await callback.wait()
+        try await callback.wait()
         #expect(observedHosts.value() == [
             "work-mac.tailnet.ts.net",
             "100.71.210.41",
@@ -1205,32 +1205,35 @@ private actor MobileHostConnectionBox {
     }
 }
 
+private enum AsyncTestSignalError: Error {
+    case timedOut
+}
+
 private final class AsyncTestSignal: @unchecked Sendable {
-    private let lock = NSLock()
+    private let condition = NSCondition()
     private var fulfilled = false
-    private var continuations: [CheckedContinuation<Void, Never>] = []
 
     func fulfill() {
-        lock.lock()
+        condition.lock()
         fulfilled = true
-        let continuations = continuations
-        self.continuations = []
-        lock.unlock()
-        for continuation in continuations {
-            continuation.resume()
-        }
+        condition.broadcast()
+        condition.unlock()
     }
 
-    func wait() async {
-        await withCheckedContinuation { continuation in
-            lock.lock()
-            if fulfilled {
-                lock.unlock()
-                continuation.resume()
-                return
+    func wait(timeout: TimeInterval = 1) async throws {
+        try await Task.detached { [self] in
+            try blockingWait(timeout: timeout)
+        }.value
+    }
+
+    private func blockingWait(timeout: TimeInterval) throws {
+        let deadline = Date().addingTimeInterval(timeout)
+        condition.lock()
+        defer { condition.unlock() }
+        while !fulfilled {
+            if !condition.wait(until: deadline) {
+                throw AsyncTestSignalError.timedOut
             }
-            continuations.append(continuation)
-            lock.unlock()
         }
     }
 }

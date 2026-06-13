@@ -4342,13 +4342,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "This iPhone is running cmux %@, but the Mac is running cmux %@. Pairing across different versions can break terminal input, workspace sync, or notifications. Continue only if you trust this Mac and accept that some features may fail."
+            "value": "This iPhone is running cmux %@, but the Mac is running cmux %@. Pairing across different compatibility levels can break terminal input, workspace sync, or notifications. Continue only if you trust this Mac and accept that some features may fail."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "この iPhone は cmux %@ を実行していますが、Mac は cmux %@ を実行しています。異なるバージョン間でペアリングすると、ターミナル入力、ワークスペース同期、通知が壊れる可能性があります。この Mac を信頼し、一部の機能が失敗する可能性を受け入れる場合のみ続行してください。"
+            "value": "この iPhone は cmux %@ を実行していますが、Mac は cmux %@ を実行しています。異なる互換性レベル間でペアリングすると、ターミナル入力、ワークスペース同期、通知が壊れる可能性があります。この Mac を信頼し、一部の機能が失敗する可能性を受け入れる場合のみ続行してください。"
           }
         }
       }
@@ -4359,13 +4359,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Version mismatch"
+            "value": "Compatibility mismatch"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "バージョンが一致していません"
+            "value": "互換性が一致していません"
           }
         }
       }
@@ -4400,6 +4400,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "%@:%d から応答がありません。Macがスリープしているか、Tailscaleに接続されていない可能性があります。Macがスリープしておらず、同じTailscaleネットワーク上にあることを確認してください。"
+          }
+        }
+      }
+    },
+    "mobile.pairing.compatibilityDisplayFormat": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "compatibility %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "互換性 %@"
           }
         }
       }

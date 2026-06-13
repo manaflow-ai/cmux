@@ -177,6 +177,7 @@ public struct CmxAttachTicket: Codable, Equatable, Sendable {
         case macDisplayName
         case macUserEmail
         case macUserID
+        case macPairingCompatibilityVersion
         case macAppVersion
         case macAppBuild
         case routes
@@ -205,7 +206,9 @@ public struct CmxAttachTicket: Codable, Equatable, Sendable {
     /// carry this instead of an email so the phone can reject the wrong
     /// signed-in account without exposing an enumerable email address.
     public let macUserID: String?
-    /// The Mac app's marketing version, used for warning-only compatibility checks.
+    /// Shared mobile pairing compatibility level reported by the Mac.
+    public let macPairingCompatibilityVersion: Int?
+    /// The Mac app's marketing version, displayed with compatibility warnings.
     public let macAppVersion: String?
     /// The Mac app's build number, displayed with version mismatch warnings when present.
     public let macAppBuild: String?
@@ -228,6 +231,10 @@ public struct CmxAttachTicket: Codable, Equatable, Sendable {
             macDisplayName: container.decodeIfPresent(String.self, forKey: .macDisplayName),
             macUserEmail: container.decodeIfPresent(String.self, forKey: .macUserEmail),
             macUserID: container.decodeIfPresent(String.self, forKey: .macUserID),
+            macPairingCompatibilityVersion: container.decodeIfPresent(
+                Int.self,
+                forKey: .macPairingCompatibilityVersion
+            ),
             macAppVersion: container.decodeIfPresent(String.self, forKey: .macAppVersion),
             macAppBuild: container.decodeIfPresent(String.self, forKey: .macAppBuild),
             routes: container.decode([CmxAttachRoute].self, forKey: .routes),
@@ -259,6 +266,7 @@ public struct CmxAttachTicket: Codable, Equatable, Sendable {
         macDisplayName: String?,
         macUserEmail: String? = nil,
         macUserID: String? = nil,
+        macPairingCompatibilityVersion: Int? = nil,
         macAppVersion: String? = nil,
         macAppBuild: String? = nil,
         routes: [CmxAttachRoute],
@@ -272,6 +280,7 @@ public struct CmxAttachTicket: Codable, Equatable, Sendable {
         self.macDisplayName = macDisplayName
         self.macUserEmail = macUserEmail
         self.macUserID = macUserID
+        self.macPairingCompatibilityVersion = macPairingCompatibilityVersion
         self.macAppVersion = macAppVersion
         self.macAppBuild = macAppBuild
         self.routes = routes
