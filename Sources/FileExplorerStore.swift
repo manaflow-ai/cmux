@@ -173,7 +173,7 @@ enum FileExplorerStyle: Int, CaseIterable {
             case .added: return NSColor(red: 0.5, green: 0.8, blue: 0.5, alpha: 1.0)
             case .deleted: return NSColor(red: 0.8, green: 0.4, blue: 0.4, alpha: 1.0)
             case .renamed: return NSColor(red: 0.5, green: 0.7, blue: 0.9, alpha: 1.0)
-            case .untracked: return NSColor(white: 0.5, alpha: 1.0)
+            case .untracked: return colors.gitUntrackedTextColor(lightFallback: NSColor(white: 0.5, alpha: 1.0))
             }
         case .proStudio:
             switch status {
@@ -181,7 +181,7 @@ enum FileExplorerStyle: Int, CaseIterable {
             case .added: return .systemGreen
             case .deleted: return .systemPink
             case .renamed: return .systemCyan
-            case .untracked: return .systemGray
+            case .untracked: return colors.gitUntrackedTextColor(lightFallback: .systemGray)
             }
         case .finder:
             switch status {

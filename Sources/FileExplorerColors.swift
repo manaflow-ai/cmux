@@ -15,4 +15,24 @@ struct FileExplorerColors {
     func gitUntrackedTextColor(lightFallback: NSColor) -> NSColor {
         colorScheme == .dark ? .labelColor.withAlphaComponent(0.84) : lightFallback
     }
+
+    static func appearance(for colorScheme: ColorScheme, preservingVariantsOf baseAppearance: NSAppearance?) -> NSAppearance? {
+        NSAppearance(named: appearanceName(for: colorScheme, preservingVariantsOf: baseAppearance))
+    }
+
+    static func appearanceName(for colorScheme: ColorScheme, preservingVariantsOf baseAppearance: NSAppearance?) -> NSAppearance.Name {
+        let match = baseAppearance?.bestMatch(from: [
+            .accessibilityHighContrastDarkAqua,
+            .darkAqua,
+            .accessibilityHighContrastAqua,
+            .aqua
+        ])
+        let preservesHighContrast = match == .accessibilityHighContrastDarkAqua || match == .accessibilityHighContrastAqua
+        switch (colorScheme, preservesHighContrast) {
+        case (.dark, true): return .accessibilityHighContrastDarkAqua
+        case (.dark, false): return .darkAqua
+        case (_, true): return .accessibilityHighContrastAqua
+        case (_, false): return .aqua
+        }
+    }
 }

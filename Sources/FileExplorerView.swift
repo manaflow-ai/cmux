@@ -1013,12 +1013,19 @@ final class FileExplorerContainerView: NSView {
     func updateColorScheme(_ nextColorScheme: ColorScheme) {
         let colorSchemeChanged = colorScheme != nextColorScheme
         let colors = FileExplorerColors(colorScheme: nextColorScheme)
+        let nextAppearance = FileExplorerColors.appearance(
+            for: nextColorScheme,
+            preservingVariantsOf: window?.effectiveAppearance ?? NSApp.effectiveAppearance
+        )
+        let appearanceChanged = appearance?.name != nextAppearance?.name
         colorScheme = nextColorScheme
-        appearance = NSAppearance(named: nextColorScheme == .dark ? .darkAqua : .aqua)
+        if appearanceChanged {
+            appearance = nextAppearance
+        }
         headerView.updateColorScheme(nextColorScheme)
         searchStatusLabel.textColor = colors.secondaryTextColor
         emptyLabel.textColor = colors.secondaryTextColor
-        if colorSchemeChanged {
+        if colorSchemeChanged || appearanceChanged {
             outlineView.reloadData(
                 forRowIndexes: IndexSet(integersIn: 0..<outlineView.numberOfRows),
                 columnIndexes: IndexSet(integer: 0)
@@ -1028,6 +1035,11 @@ final class FileExplorerContainerView: NSView {
                 columnIndexes: IndexSet(integer: 0)
             )
         }
+    }
+
+    override func viewDidChangeEffectiveAppearance() {
+        super.viewDidChangeEffectiveAppearance()
+        updateColorScheme(colorScheme)
     }
 
     override func layout() {
