@@ -1372,41 +1372,6 @@ final class TerminalControllerSocketSecurityTests: XCTestCase {
         )
     }
 
-    func testV2SurfaceCreateInheritsWorkspaceDirectoryFromFocusedAgentPane() throws {
-        defer { TerminalController.shared.setActiveTabManager(nil) }
-
-        let workspaceDirectory = "/tmp/cmux-surface-create-\(UUID().uuidString)"
-        let manager = TabManager()
-        let workspace = try XCTUnwrap(manager.selectedWorkspace)
-        workspace.currentDirectory = workspaceDirectory
-        let pane = try XCTUnwrap(workspace.bonsplitController.focusedPaneId)
-        let agentPanel = try XCTUnwrap(workspace.newAgentSessionSurface(
-            inPane: pane,
-            rendererKind: .react,
-            workingDirectory: nil,
-            focus: true
-        ))
-        workspace.panelDirectories.removeValue(forKey: agentPanel.id)
-        XCTAssertEqual(workspace.focusedPanelId, agentPanel.id)
-        TerminalController.shared.setActiveTabManager(manager)
-
-        let response = try handleV2Request(
-            method: "surface.create",
-            params: [
-                "workspace_id": workspace.id.uuidString,
-                "type": "terminal",
-                "focus": false
-            ]
-        )
-
-        XCTAssertEqual(response["ok"] as? Bool, true, "Unexpected JSON-RPC response: \(response)")
-        let result = try XCTUnwrap(response["result"] as? [String: Any], "Unexpected JSON-RPC response: \(response)")
-        let createdSurfaceIdString = try XCTUnwrap(result["surface_id"] as? String)
-        let createdPanelId = try XCTUnwrap(UUID(uuidString: createdSurfaceIdString))
-        let createdPanel = try XCTUnwrap(workspace.terminalPanel(for: createdPanelId))
-        XCTAssertEqual(createdPanel.requestedWorkingDirectory, workspaceDirectory)
-    }
-
     func testBrowserOpenSplitDoesNotExternallyOpenDiffViewerWhenBrowserDisabled() throws {
         let defaults = UserDefaults.standard
         let previousBrowserDisabled = defaults.object(forKey: BrowserAvailabilitySettings.disabledKey)

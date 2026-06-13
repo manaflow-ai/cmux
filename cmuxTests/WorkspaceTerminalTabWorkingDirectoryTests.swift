@@ -185,4 +185,60 @@ struct WorkspaceTerminalTabWorkingDirectoryTests {
 
         #expect(createdPanel.requestedWorkingDirectory == anchorDirectory)
     }
+
+    @MainActor
+    @Test("surface.create inherits workspace cwd from focused agent pane")
+    func surfaceCreateInheritsWorkspaceCurrentDirectoryForAgentPane() throws {
+        defer { TerminalController.shared.setActiveTabManager(nil) }
+
+        let workspaceDirectory = "/tmp/cmux-surface-create-\(UUID().uuidString)"
+        let manager = TabManager()
+        let workspace = try #require(manager.selectedWorkspace)
+        workspace.currentDirectory = workspaceDirectory
+        let pane = try #require(workspace.bonsplitController.focusedPaneId)
+        let agentPanel = try #require(workspace.newAgentSessionSurface(
+            inPane: pane,
+            rendererKind: .react,
+            workingDirectory: nil,
+            focus: true
+        ))
+        workspace.panelDirectories.removeValue(forKey: agentPanel.id)
+        #expect(workspace.focusedPanelId == agentPanel.id)
+        TerminalController.shared.setActiveTabManager(manager)
+
+        let response = try v2SocketResponse(
+            method: "surface.create",
+            params: [
+                "workspace_id": workspace.id.uuidString,
+                "type": "terminal",
+                "focus": false,
+            ]
+        )
+
+        #expect(response["ok"] as? Bool == true)
+        let result = try #require(response["result"] as? [String: Any])
+        let createdSurfaceIdString = try #require(result["surface_id"] as? String)
+        let createdPanelId = try #require(UUID(uuidString: createdSurfaceIdString))
+        let createdPanel = try #require(workspace.terminalPanel(for: createdPanelId))
+        #expect(createdPanel.requestedWorkingDirectory == workspaceDirectory)
+    }
+
+    @MainActor
+    private func v2SocketResponse(
+        method: String,
+        params: [String: Any],
+        id: Int = 1
+    ) throws -> [String: Any] {
+        let payload: [String: Any] = [
+            "jsonrpc": "2.0",
+            "id": id,
+            "method": method,
+            "params": params,
+        ]
+        let data = try JSONSerialization.data(withJSONObject: payload)
+        let line = try #require(String(data: data, encoding: .utf8))
+        let responseText = TerminalController.shared.handleSocketLine(line)
+        let responseData = try #require(responseText.data(using: .utf8))
+        return try #require(JSONSerialization.jsonObject(with: responseData) as? [String: Any])
+    }
 }
