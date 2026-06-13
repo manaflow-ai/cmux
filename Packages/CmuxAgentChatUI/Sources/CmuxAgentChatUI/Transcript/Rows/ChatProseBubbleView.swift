@@ -118,13 +118,29 @@ public struct ChatProseBubbleView: View {
                     blockView(block, segmentIndex: segment.index)
                 }
             }
-        case .code:
-            ScrollView(.horizontal, showsIndicators: false) {
-                Text(segment.content)
-                    .font(.system(.caption, design: .monospaced))
-                    .foregroundStyle(theme.terminalCardText)
-                    .textSelection(.enabled)
-                    .padding(8)
+        case .code(let language):
+            VStack(alignment: .leading, spacing: 0) {
+                if let language, !language.isEmpty {
+                    Text(language.uppercased())
+                        .font(.system(size: 10, weight: .semibold, design: .monospaced))
+                        .foregroundStyle(theme.terminalCardText.opacity(0.6))
+                        .padding(.horizontal, 8)
+                        .padding(.top, 6)
+                        .accessibilityLabel(
+                            String(
+                                localized: "chat.code.language.accessibility",
+                                defaultValue: "\(language) code",
+                                bundle: .module
+                            )
+                        )
+                }
+                ScrollView(.horizontal, showsIndicators: false) {
+                    Text(segment.content)
+                        .font(.system(.caption, design: .monospaced))
+                        .foregroundStyle(theme.terminalCardText)
+                        .textSelection(.enabled)
+                        .padding(8)
+                }
             }
             .background(theme.terminalCardFill, in: .rect(cornerRadius: 8))
         }

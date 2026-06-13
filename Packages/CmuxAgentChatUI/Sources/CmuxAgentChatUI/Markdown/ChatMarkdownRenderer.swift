@@ -54,10 +54,14 @@ public final class ChatMarkdownRenderer {
     /// Adds tap targets to bare URLs that markdown's inline parser leaves
     /// as plain text (it only links `[text](url)` and autolinks `<url>`).
     /// Runs that already carry a link (markdown links) are skipped.
+    /// Shared link detector; constructing one per render is measurable.
+    private static let linkDetector = try? NSDataDetector(
+        types: NSTextCheckingResult.CheckingType.link.rawValue
+    )
+
     private static func linkifyBareURLs(in text: inout AttributedString) {
         let plain = String(text.characters)
-        guard let detector = try? NSDataDetector(types: NSTextCheckingResult.CheckingType.link.rawValue),
-              !plain.isEmpty else { return }
+        guard let detector = linkDetector, !plain.isEmpty else { return }
         let nsRange = NSRange(plain.startIndex..<plain.endIndex, in: plain)
         for match in detector.matches(in: plain, range: nsRange) {
             guard let url = match.url,

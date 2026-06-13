@@ -103,6 +103,23 @@
         }
       }
     },
+    "chat.code.language.accessibility" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@ code"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@ コード"
+          }
+        }
+      }
+    },
     "chat.composer.attach.accessibility" : {
       "extractionState" : "manual",
       "localizations" : {

@@ -47,12 +47,6 @@ public final class ChatContentCache {
         return result
     }
 
-    /// Prose text split into text/code segments, cached.
-    ///
-    /// - Parameters:
-    ///   - messageID: Stable identity of the owning message.
-    ///   - text: The prose source.
-    /// - Returns: Render segments.
     /// Block-level elements of a text segment, cached.
     ///
     /// - Parameters:
@@ -72,6 +66,12 @@ public final class ChatContentCache {
         return result
     }
 
+    /// Prose text split into text/code segments, cached.
+    ///
+    /// - Parameters:
+    ///   - messageID: Stable identity of the owning message.
+    ///   - text: The prose source.
+    /// - Returns: Render segments.
     public func proseSegments(messageID: String, text: String) -> [ChatProseSegment] {
         let key = "\(messageID)-\(text.hashValue)"
         if let cached = segments[key] { return cached }
