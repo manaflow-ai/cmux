@@ -1,5 +1,6 @@
 import AppKit
 import CmuxAuthRuntime
+import CmuxFeedback
 import CmuxControlSocket
 import CmuxSettings
 import CmuxSocketControl
