@@ -4648,6 +4648,7 @@ final class GhosttyMetalLayer: CAMetalLayer {
         lock.lock()
         self.surfaceView = surfaceView
         lock.unlock()
+        DispatchQueue.main.async { [weak surfaceView] in _ = surfaceView?.forceRefreshSurface() }
     }
 
     private func currentSurfaceView() -> GhosttyNSView? {
@@ -8423,8 +8424,6 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             if drawablePixelSize != lastDrawableSize || metalLayer.drawableSize != drawablePixelSize {
                 if metalLayer.drawableSize != drawablePixelSize {
                     didChange = true
-                }
-                if metalLayer.drawableSize != drawablePixelSize {
                     metalLayer.drawableSize = drawablePixelSize
                 }
                 lastDrawableSize = drawablePixelSize
