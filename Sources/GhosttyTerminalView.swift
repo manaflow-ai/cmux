@@ -7922,7 +7922,6 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     private var pendingSurfaceSize: CGSize?
     private var deferredSurfaceSizeRetryQueued = false
     private var deferredSurfaceSizeNonMetalRetryCount = 0
-    private var deferredSurfaceSizeNonMetalRetryPixelSize: CGSize = .zero
     private var lastDrawableSize: CGSize = .zero
     private var isFindEscapeSuppressionArmed = false
     private var hasPendingLeftMouseRelease = false
@@ -7931,9 +7930,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
 #endif
     private static let maxDeferredSurfaceSizeNonMetalRetryCount = 8
 
-    private var hasUsableFocusGeometry: Bool {
-        bounds.width > 1 && bounds.height > 1
-    }
+    private var hasUsableFocusGeometry: Bool { bounds.width > 1 && bounds.height > 1 }
 
     static func shouldRequestFirstResponderForMouseFocus(
         focusFollowsMouseEnabled: Bool,
@@ -8273,18 +8270,15 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
            size.height > 0 {
             return size
         }
-
         let currentBounds = bounds.size
         if currentBounds.width > 0, currentBounds.height > 0 {
             return currentBounds
         }
-
         if let pending = pendingSurfaceSize,
            pending.width > 0,
            pending.height > 0 {
             return pending
         }
-
         return currentBounds
     }
 
@@ -8316,9 +8310,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     }
 
     private func activeSurfaceResizeDeferralReason() -> String? {
-        if inLiveResize || window?.inLiveResize == true {
-            return nil
-        }
+        if inLiveResize || window?.inLiveResize == true { return nil }
         return Self.shouldDeferSurfaceResizeForActiveDrag() ? "tabDrag" : nil
     }
 
@@ -8331,21 +8323,6 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             self.deferredSurfaceSizeRetryQueued = false
             _ = self.updateSurfaceSize()
         }
-    }
-
-    private func scheduleDeferredSurfaceSizeRetryForNonMetalLayerIfNeeded(
-        drawablePixelSize: CGSize
-    ) {
-        guard window != nil else { return }
-        if deferredSurfaceSizeNonMetalRetryPixelSize != drawablePixelSize {
-            deferredSurfaceSizeNonMetalRetryPixelSize = drawablePixelSize
-            deferredSurfaceSizeNonMetalRetryCount = 0
-        }
-        guard deferredSurfaceSizeNonMetalRetryCount < Self.maxDeferredSurfaceSizeNonMetalRetryCount else {
-            return
-        }
-        deferredSurfaceSizeNonMetalRetryCount += 1
-        scheduleDeferredSurfaceSizeRetryIfNeeded()
     }
 
     @discardableResult
@@ -8366,6 +8343,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
 #endif
             return false
         }
+        if pendingSurfaceSize != size { deferredSurfaceSizeNonMetalRetryCount = 0 }
         pendingSurfaceSize = size
         if let deferralReason = activeSurfaceResizeDeferralReason() {
             scheduleDeferredSurfaceSizeRetryIfNeeded()
@@ -8442,7 +8420,6 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         layer?.masksToBounds = true
         if let metalLayer = layer as? CAMetalLayer {
             deferredSurfaceSizeNonMetalRetryCount = 0
-            deferredSurfaceSizeNonMetalRetryPixelSize = drawablePixelSize
             if drawablePixelSize != lastDrawableSize || metalLayer.drawableSize != drawablePixelSize {
                 if metalLayer.drawableSize != drawablePixelSize {
                     didChange = true
@@ -8452,10 +8429,9 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
                 }
                 lastDrawableSize = drawablePixelSize
             }
-        } else {
-            scheduleDeferredSurfaceSizeRetryForNonMetalLayerIfNeeded(
-                drawablePixelSize: drawablePixelSize
-            )
+        } else if deferredSurfaceSizeNonMetalRetryCount < Self.maxDeferredSurfaceSizeNonMetalRetryCount {
+            deferredSurfaceSizeNonMetalRetryCount += 1
+            scheduleDeferredSurfaceSizeRetryIfNeeded()
         }
         CATransaction.commit()
 
