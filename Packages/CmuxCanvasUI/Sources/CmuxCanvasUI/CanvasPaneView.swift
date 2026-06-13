@@ -54,6 +54,7 @@ final class CanvasPaneView: NSView {
         didSet {
             guard paneBackground != oldValue else { return }
             applyChromeColors()
+            rebuildTitleBar()
         }
     }
 
@@ -66,6 +67,7 @@ final class CanvasPaneView: NSView {
         self.paneID = paneID
         self.titleBarHost = NSHostingView(rootView: CanvasPaneTitleBarView(
             chrome: CanvasPaneChrome(tabs: [], selectedTabId: nil, isFocused: false, closeActionLabel: ""),
+            barBackground: .windowBackgroundColor,
             scrollOffset: 0,
             onHitRegionsChanged: { _ in },
             onContentWidthChanged: { _ in }
@@ -114,6 +116,7 @@ final class CanvasPaneView: NSView {
     private func rebuildTitleBar() {
         titleBarHost.rootView = CanvasPaneTitleBarView(
             chrome: chrome,
+            barBackground: paneBackground,
             scrollOffset: tabScrollOffset,
             onHitRegionsChanged: { [weak self] regions in
                 self?.tabHitRegions = regions

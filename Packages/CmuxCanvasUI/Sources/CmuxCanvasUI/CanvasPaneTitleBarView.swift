@@ -35,6 +35,8 @@ private struct CanvasTabContentWidthKey: PreferenceKey {
 /// title-bar region's mouse events for drag/click routing).
 struct CanvasPaneTitleBarView: View {
     let chrome: CanvasPaneChrome
+    /// Tab bar background, for deriving bonsplit-style active/hover fills.
+    let barBackground: NSColor
     /// Horizontal scroll offset in points (>= 0 scrolls tabs left), clamped
     /// by the pane view against the reported content width.
     let scrollOffset: CGFloat
@@ -54,7 +56,8 @@ struct CanvasPaneTitleBarView: View {
                 CanvasPaneTabItem(
                     tab: tab,
                     isSelected: chrome.tabs.count == 1 || tab.id == chrome.selectedTabId,
-                    paneIsFocused: chrome.isFocused
+                    paneIsFocused: chrome.isFocused,
+                    barBackground: barBackground
                 )
             }
         }
@@ -85,11 +88,14 @@ private struct CanvasPaneTabItem: View {
     let tab: CanvasTabChrome
     let isSelected: Bool
     let paneIsFocused: Bool
+    /// The tab bar background, used to derive bonsplit-style active/hover
+    /// fills (lighten on dark themes, darken on light).
+    let barBackground: NSColor
 
     @State private var isHovered = false
 
-    private var textOpacity: Double {
-        isSelected && paneIsFocused ? 0.82 : 0.62
+    private var textColor: Color {
+        Color(nsColor: isSelected && paneIsFocused ? .labelColor : .secondaryLabelColor)
     }
 
     var body: some View {
@@ -97,7 +103,7 @@ private struct CanvasPaneTabItem: View {
             iconOrClose
             Text(tab.title)
                 .font(.system(size: 11))
-                .foregroundStyle(.primary.opacity(textOpacity))
+                .foregroundStyle(textColor)
                 .lineLimit(1)
                 .truncationMode(.middle)
         }
@@ -126,7 +132,7 @@ private struct CanvasPaneTabItem: View {
             if isHovered {
                 Image(systemName: "xmark")
                     .font(.system(size: 9, weight: .bold))
-                    .foregroundStyle(.primary.opacity(0.82))
+                    .foregroundStyle(Color(nsColor: .labelColor))
                     .frame(width: 16, height: 16)
                     .background(
                         GeometryReader { proxy in
@@ -141,7 +147,7 @@ private struct CanvasPaneTabItem: View {
             } else if let iconSystemName = tab.iconSystemName {
                 Image(systemName: iconSystemName)
                     .font(.system(size: 11, weight: .medium))
-                    .foregroundStyle(.primary.opacity(textOpacity))
+                    .foregroundStyle(textColor)
             }
         }
         .frame(width: 14, height: 14)
@@ -150,9 +156,9 @@ private struct CanvasPaneTabItem: View {
     private var tabBackground: some View {
         ZStack {
             if isSelected {
-                Rectangle().fill(Color.primary.opacity(0.10))
+                Rectangle().fill(Color(nsColor: barBackground.cmuxCanvasActiveTabFill))
             } else if isHovered {
-                Rectangle().fill(Color.primary.opacity(0.05))
+                Rectangle().fill(Color(nsColor: barBackground.cmuxCanvasHoverTabFill))
             } else {
                 Color.clear
             }
