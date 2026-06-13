@@ -90,6 +90,7 @@ public struct ChatScreen: View {
             ChatComposerView(
                 agentState: store.agentState,
                 agentKind: store.descriptor.agentKind,
+                isTerminal: store.descriptor.kind == .terminal,
                 isConnected: store.isConnected,
                 draft: $draft,
                 onSend: { text, attachments in

@@ -12,6 +12,12 @@ public struct ChatSessionDescriptor: Identifiable, Sendable, Equatable, Codable 
     /// Which agent runtime owns the session.
     public let agentKind: ChatAgentKind
 
+    /// Whether this is an agent conversation or a plain-terminal command
+    /// log. Defaults to `.agent`; a declaration default (not a CodingKey)
+    /// keeps existing wire payloads decoding while Slice D adds the wire
+    /// field for real terminal sessions.
+    public var kind: ChatSessionKind = .agent
+
     /// Human-readable conversation title (typically the first user prompt,
     /// truncated by the producer).
     public let title: String?
@@ -74,6 +80,7 @@ public struct ChatSessionDescriptor: Identifiable, Sendable, Equatable, Codable 
     public init(
         id: String,
         agentKind: ChatAgentKind,
+        kind: ChatSessionKind = .agent,
         title: String? = nil,
         workspaceID: String? = nil,
         terminalID: String? = nil,
@@ -83,6 +90,7 @@ public struct ChatSessionDescriptor: Identifiable, Sendable, Equatable, Codable 
     ) {
         self.id = id
         self.agentKind = agentKind
+        self.kind = kind
         self.title = title
         self.workspaceID = workspaceID
         self.terminalID = terminalID

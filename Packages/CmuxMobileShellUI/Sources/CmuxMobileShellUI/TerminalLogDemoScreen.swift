@@ -11,6 +11,7 @@ import SwiftUI
 struct TerminalLogDemoScreen: View {
     @Environment(\.dismiss) private var dismiss
     @State private var expandedIDs: Set<String> = []
+    @State private var draft = ""
 
     private static let blocks: [TerminalCommandBlock] = [
         TerminalCommandBlock(
@@ -72,6 +73,18 @@ struct TerminalLogDemoScreen: View {
                 actions: actions,
                 onReachTop: {}
             )
+            .safeAreaInset(edge: .bottom, spacing: 0) {
+                ChatComposerView(
+                    agentState: .idle,
+                    agentKind: .other("shell"),
+                    isTerminal: true,
+                    isConnected: true,
+                    draft: $draft,
+                    onSend: { _, _ in },
+                    onInterrupt: { _ in },
+                    onOpenTerminal: {}
+                )
+            }
             .navigationTitle("Terminal Log Demo")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {

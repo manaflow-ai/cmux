@@ -12,6 +12,7 @@ import UIKit
 public struct ChatComposerView: View {
     private let agentState: ChatAgentState
     private let agentKind: ChatAgentKind
+    private let isTerminal: Bool
     private let isConnected: Bool
     private let onSend: (String, [ChatOutboundAttachment]) -> Void
     private let onInterrupt: (Bool) -> Void
@@ -52,6 +53,7 @@ public struct ChatComposerView: View {
     public init(
         agentState: ChatAgentState,
         agentKind: ChatAgentKind,
+        isTerminal: Bool = false,
         isConnected: Bool,
         draft: Binding<String>,
         onSend: @escaping (String, [ChatOutboundAttachment]) -> Void,
@@ -60,6 +62,7 @@ public struct ChatComposerView: View {
     ) {
         self.agentState = agentState
         self.agentKind = agentKind
+        self.isTerminal = isTerminal
         self.isConnected = isConnected
         _draft = draft
         self.onSend = onSend
@@ -114,7 +117,7 @@ public struct ChatComposerView: View {
             #endif
             TextField(placeholder, text: $draft, axis: .vertical)
                 .lineLimit(1...6)
-                .font(.body)
+                .font(isTerminal ? .system(.body, design: .monospaced) : .body)
                 .textFieldStyle(.plain)
                 .accessibilityIdentifier("ChatComposerField")
                 .padding(.horizontal, 12)
@@ -128,7 +131,14 @@ public struct ChatComposerView: View {
     }
 
     private var placeholder: String {
-        String(
+        if isTerminal {
+            return String(
+                localized: "chat.composer.placeholder.terminal",
+                defaultValue: "❯ command",
+                bundle: .module
+            )
+        }
+        return String(
             localized: "chat.composer.placeholder",
             defaultValue: "Message \(agentKind.displayName)",
             bundle: .module

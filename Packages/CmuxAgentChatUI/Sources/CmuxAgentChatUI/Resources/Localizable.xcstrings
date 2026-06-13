@@ -188,6 +188,23 @@
         }
       }
     },
+    "chat.composer.placeholder.terminal" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "❯ command"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "❯ コマンド"
+          }
+        }
+      }
+    },
     "chat.composer.remove_attachment.accessibility" : {
       "extractionState" : "manual",
       "localizations" : {
