@@ -8244,14 +8244,16 @@ final class WorkspaceRemoteSessionController {
         printf '%s%s\\n' '\(Self.remotePlatformProbeHomeMarker)' "$HOME"
         printf '%s%s\\n' '\(Self.remotePlatformProbeOSMarker)' "$cmux_uname_os"
         printf '%s%s\\n' '\(Self.remotePlatformProbeArchMarker)' "$cmux_uname_arch"
-        case "$(printf '%s' "$cmux_uname_os" | tr '[:upper:]' '[:lower:]')" in
-          linux|darwin|freebsd) cmux_go_os="$(printf '%s' "$cmux_uname_os" | tr '[:upper:]' '[:lower:]')" ;;
+        case "$cmux_uname_os" in
+          Linux|linux|LINUX) cmux_go_os=linux ;;
+          Darwin|darwin|DARWIN) cmux_go_os=darwin ;;
+          FreeBSD|freebsd|FREEBSD) cmux_go_os=freebsd ;;
           *) exit 70 ;;
         esac
-        case "$(printf '%s' "$cmux_uname_arch" | tr '[:upper:]' '[:lower:]')" in
-          x86_64|amd64) cmux_go_arch=amd64 ;;
-          aarch64|arm64) cmux_go_arch=arm64 ;;
-          armv7l) cmux_go_arch=arm ;;
+        case "$cmux_uname_arch" in
+          x86_64|X86_64|amd64|AMD64) cmux_go_arch=amd64 ;;
+          aarch64|AARCH64|arm64|ARM64) cmux_go_arch=arm64 ;;
+          armv7l|ARMV7L|armv7|ARMV7) cmux_go_arch=arm ;;
           *) exit 71 ;;
         esac
         cmux_remote_path="$HOME/.cmux/bin/cmuxd-remote/\(version)/${cmux_go_os}-${cmux_go_arch}/cmuxd-remote"
@@ -8864,7 +8866,7 @@ final class WorkspaceRemoteSessionController {
             return "amd64"
         case "aarch64", "arm64":
             return "arm64"
-        case "armv7l":
+        case "armv7l", "armv7":
             return "arm"
         default:
             return nil
