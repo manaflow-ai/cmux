@@ -26,6 +26,7 @@ struct WorkspaceNavigationRow: View {
     var closeWorkspace: ((MobileWorkspacePreview.ID) -> Void)?
 
     @State private var isRenaming = false
+    @State private var isConfirmingClose = false
 
     var body: some View {
         WorkspaceRow(
@@ -54,7 +55,7 @@ struct WorkspaceNavigationRow: View {
         .swipeActions(edge: .trailing, allowsFullSwipe: true) {
             if let closeWorkspace {
                 Button(role: .destructive) {
-                    closeWorkspace(workspace.id)
+                    requestCloseWorkspace()
                 } label: {
                     Label(L10n.string("mobile.workspace.delete", defaultValue: "Delete"), systemImage: "trash")
                 }
@@ -70,6 +71,21 @@ struct WorkspaceNavigationRow: View {
             WorkspaceRenameSheet(currentName: workspace.name) { newName in
                 renameWorkspace?(workspace.id, newName)
             }
+        }
+        .confirmationDialog(
+            L10n.string("mobile.workspace.delete.confirmTitle", defaultValue: "Delete Workspace?"),
+            isPresented: $isConfirmingClose,
+            titleVisibility: .visible
+        ) {
+            if let closeWorkspace {
+                Button(L10n.string("mobile.workspace.delete.confirmAction", defaultValue: "Delete"), role: .destructive) {
+                    closeWorkspace(workspace.id)
+                }
+                .accessibilityIdentifier("MobileWorkspaceDeleteConfirmButton-\(workspace.id.rawValue)")
+            }
+            Button(L10n.string("mobile.common.cancel", defaultValue: "Cancel"), role: .cancel) {}
+        } message: {
+            Text(L10n.string("mobile.workspace.delete.confirmMessage", defaultValue: "This will close the workspace on your Mac."))
         }
     }
 
@@ -105,7 +121,7 @@ struct WorkspaceNavigationRow: View {
         }
         if let closeWorkspace {
             Button(role: .destructive) {
-                closeWorkspace(workspace.id)
+                requestCloseWorkspace()
             } label: {
                 Label(L10n.string("mobile.workspace.delete", defaultValue: "Delete"), systemImage: "trash")
             }
@@ -121,5 +137,9 @@ struct WorkspaceNavigationRow: View {
 
     private var readStateActionSystemImage: String {
         workspace.hasUnread ? "envelope.open" : "envelope.badge"
+    }
+
+    private func requestCloseWorkspace() {
+        isConfirmingClose = true
     }
 }

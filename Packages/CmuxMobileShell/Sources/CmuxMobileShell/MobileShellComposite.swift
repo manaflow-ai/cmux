@@ -59,6 +59,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
 
     private static let terminalRenderGridCapability = "terminal.render_grid.v1"
     private static let workspaceActionsCapability = "workspace.actions.v1"
+    private static let workspaceReadStateCapability = "workspace.read_state.v1"
+    private static let workspaceCloseCapability = "workspace.close.v1"
     private static let dogfoodFeedbackCapability = "dogfood.v1"
     private static let workspaceGroupsCapability = "workspace.groups.v1"
     private static let terminalOutputCapabilityTimeoutNanoseconds: UInt64 = 750_000_000
@@ -190,23 +192,15 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// groups (or is old enough not to emit them). Drives the collapsible group
     /// sections in the workspace list.
     public var workspaceGroups: [MobileWorkspaceGroupPreview] = []
-    /// Whether the connected Mac advertises the `workspace.groups.v1` capability
-    /// (group sections in the list + `workspace.group.collapse`/`expand` over the
-    /// mobile RPC). `false` until host status is read, and for older Macs that
-    /// lack the handler, so the UI can render a flat list instead of group UI that
-    /// would not round-trip.
-    public private(set) var supportsWorkspaceGroups: Bool = false
-    /// Whether the connected Mac advertises the `workspace.actions.v1` capability
-    /// (rename/pin over the mobile RPC). `false` until host status is read, and
-    /// for older Macs that lack the handler, so the UI can hide rename/pin rather
-    /// than offer actions that would fail with `method_not_found`.
-    public private(set) var supportsWorkspaceActions: Bool = false
-    /// Whether the connected Mac advertises the `dogfood.v1` capability (the
-    /// `dogfood.feedback.submit` agent sink). `false` until host status is read,
-    /// and for older Macs that lack the handler, so the privileged Send Feedback
-    /// route falls back to email rather than failing with `method_not_found`
-    /// under client/server version skew.
-    public private(set) var supportsDogfoodFeedback: Bool = false
+    /// The connected Mac's `mobile.host.status` capabilities. Feature gates are
+    /// computed from this set so version-skew checks cannot drift from the raw
+    /// host payload.
+    public private(set) var supportedHostCapabilities: Set<String> = []
+    public var supportsWorkspaceGroups: Bool { supportedHostCapabilities.contains(Self.workspaceGroupsCapability) }
+    public var supportsWorkspaceActions: Bool { supportedHostCapabilities.contains(Self.workspaceActionsCapability) }
+    public var supportsWorkspaceReadStateActions: Bool { supportedHostCapabilities.contains(Self.workspaceReadStateCapability) }
+    public var supportsWorkspaceCloseActions: Bool { supportedHostCapabilities.contains(Self.workspaceCloseCapability) }
+    public var supportsDogfoodFeedback: Bool { supportedHostCapabilities.contains(Self.dogfoodFeedbackCapability) }
     /// The composer's live draft for the currently selected terminal.
     ///
     /// Edits are persisted per-terminal through the FIFO draft pipeline on every
@@ -2968,9 +2962,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         pendingTerminalByteEndSeqBySurfaceID = [:]
         terminalReplaySurfaceIDsInFlight = []
         terminalOutputTransport = .rawBytes
-        supportsWorkspaceActions = false
-        supportsDogfoodFeedback = false
-        supportsWorkspaceGroups = false
+        supportedHostCapabilities = []
         terminalSubscriptionRefreshTask?.cancel()
         terminalSubscriptionRefreshTask = nil
         stopRenderGridLivenessWatchdog(listenerID: nil)
@@ -3714,9 +3706,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                 scheduleHostIdentityAdoptionIfNeeded(client: client)
                 return fallback
             }
-            supportsWorkspaceActions = payload.capabilities.contains(Self.workspaceActionsCapability)
-            supportsDogfoodFeedback = payload.capabilities.contains(Self.dogfoodFeedbackCapability)
-            supportsWorkspaceGroups = payload.capabilities.contains(Self.workspaceGroupsCapability)
+            supportedHostCapabilities = Set(payload.capabilities)
             await applyHostReportedIdentity(
                 client: client,
                 deviceID: payload.macDeviceID,

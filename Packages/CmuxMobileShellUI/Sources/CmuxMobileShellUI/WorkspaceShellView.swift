@@ -202,13 +202,13 @@ struct WorkspaceShellView: View {
     }
 
     private var setWorkspaceUnreadClosure: ((MobileWorkspacePreview.ID, Bool) -> Void)? {
-        guard store.supportsWorkspaceActions else { return nil }
+        guard store.supportsWorkspaceReadStateActions else { return nil }
         let store = store
         return { id, unread in Task { await store.setWorkspaceUnread(id: id, unread) } }
     }
 
     private var closeWorkspaceClosure: ((MobileWorkspacePreview.ID) -> Void)? {
-        guard store.supportsWorkspaceActions else { return nil }
+        guard store.supportsWorkspaceCloseActions else { return nil }
         let store = store
         return { id in Task { await store.closeWorkspace(id: id) } }
     }
