@@ -22119,7 +22119,7 @@ struct CMUXCLI {
         case "session-start", "active":
             telemetry.breadcrumb("claude-hook.session-start")
             let claudePid = hookClaudePid
-            var terminalBindingCache: ClaudeHookTerminalBindingCache = (didResolve: false, agentPID: nil, allowProcessSnapshotBinding: true, binding: nil)
+            var terminalBindingCache: ClaudeHookTerminalBindingCache = (didResolve: false, agentPID: nil, allowProcessSnapshotBinding: true, socketPassword: socketPassword, binding: nil)
             let workspaceId = try resolvePreferredWorkspaceIdForClaudeHook(
                 preferred: nil,
                 fallback: workspaceArg,
@@ -22253,7 +22253,7 @@ struct CMUXCLI {
                 // Notification hook handles user-facing notifications; SessionEnd handles cleanup.
                 let mappedSession = parsedInput.sessionId.flatMap { try? sessionStore.lookup(sessionId: $0) }
                 let claudePid = mappedSession?.pid ?? hookClaudePid
-                var terminalBindingCache: ClaudeHookTerminalBindingCache = (didResolve: false, agentPID: nil, allowProcessSnapshotBinding: true, binding: nil)
+                var terminalBindingCache: ClaudeHookTerminalBindingCache = (didResolve: false, agentPID: nil, allowProcessSnapshotBinding: true, socketPassword: socketPassword, binding: nil)
                 let workspaceId = try resolvePreferredWorkspaceIdForClaudeHook(
                     preferred: mappedSession?.workspaceId,
                     fallback: workspaceArg,
@@ -22364,7 +22364,7 @@ struct CMUXCLI {
             telemetry.breadcrumb("claude-hook.prompt-submit")
             let mappedSession = parsedInput.sessionId.flatMap { try? sessionStore.lookup(sessionId: $0) }
             let claudePid = mappedSession?.pid ?? hookClaudePid
-            var terminalBindingCache: ClaudeHookTerminalBindingCache = (didResolve: false, agentPID: nil, allowProcessSnapshotBinding: true, binding: nil)
+            var terminalBindingCache: ClaudeHookTerminalBindingCache = (didResolve: false, agentPID: nil, allowProcessSnapshotBinding: true, socketPassword: socketPassword, binding: nil)
             let workspaceId = try resolvePreferredWorkspaceIdForClaudeHook(
                 preferred: mappedSession?.workspaceId,
                 fallback: workspaceArg,
@@ -22483,7 +22483,7 @@ struct CMUXCLI {
 
             let mappedSession = parsedInput.sessionId.flatMap { try? sessionStore.lookup(sessionId: $0) }
             let claudePid = mappedSession?.pid ?? hookClaudePid
-            var terminalBindingCache: ClaudeHookTerminalBindingCache = (didResolve: false, agentPID: nil, allowProcessSnapshotBinding: true, binding: nil)
+            var terminalBindingCache: ClaudeHookTerminalBindingCache = (didResolve: false, agentPID: nil, allowProcessSnapshotBinding: true, socketPassword: socketPassword, binding: nil)
             let workspaceId = try resolvePreferredWorkspaceIdForClaudeHook(
                 preferred: mappedSession?.workspaceId,
                 fallback: workspaceArg,
@@ -22593,7 +22593,7 @@ struct CMUXCLI {
                     env: env
                 )
                 if !suppressForkVisibleMutations {
-                    var forkTerminalBindingCache: ClaudeHookTerminalBindingCache = (didResolve: false, agentPID: nil, allowProcessSnapshotBinding: true, binding: nil)
+                    var forkTerminalBindingCache: ClaudeHookTerminalBindingCache = (didResolve: false, agentPID: nil, allowProcessSnapshotBinding: true, socketPassword: socketPassword, binding: nil)
                     if let forkWorkspaceId = try? resolvePreferredWorkspaceIdForClaudeHook(
                         preferred: nil,
                         fallback: workspaceArg,
@@ -22629,7 +22629,7 @@ struct CMUXCLI {
             // to avoid wiping the completion notification that Stop just delivered.
             let mappedSession = parsedInput.sessionId.flatMap { try? sessionStore.lookup(sessionId: $0) }
             let fallbackClaudePid = mappedSession?.pid ?? hookClaudePid
-            var fallbackTerminalBindingCache: ClaudeHookTerminalBindingCache = (didResolve: false, agentPID: nil, allowProcessSnapshotBinding: true, binding: nil)
+            var fallbackTerminalBindingCache: ClaudeHookTerminalBindingCache = (didResolve: false, agentPID: nil, allowProcessSnapshotBinding: true, socketPassword: socketPassword, binding: nil)
             let fallbackWorkspaceId = try? resolvePreferredWorkspaceIdForClaudeHook(
                 preferred: mappedSession?.workspaceId,
                 fallback: workspaceArg,
@@ -22713,7 +22713,7 @@ struct CMUXCLI {
             // (e.g. after permission grant). Runs async so it doesn't block tool execution.
             let mappedSession = parsedInput.sessionId.flatMap { try? sessionStore.lookup(sessionId: $0) }
             let claudePid = mappedSession?.pid ?? hookClaudePid
-            var terminalBindingCache: ClaudeHookTerminalBindingCache = (didResolve: false, agentPID: nil, allowProcessSnapshotBinding: true, binding: nil)
+            var terminalBindingCache: ClaudeHookTerminalBindingCache = (didResolve: false, agentPID: nil, allowProcessSnapshotBinding: true, socketPassword: socketPassword, binding: nil)
             let workspaceId = try resolvePreferredWorkspaceIdForClaudeHook(
                 preferred: mappedSession?.workspaceId,
                 fallback: workspaceArg,
@@ -23187,7 +23187,7 @@ struct CMUXCLI {
         surfaceId: String,
         isProcessSnapshotBound: Bool
     )
-    private typealias ClaudeHookTerminalBindingCache = (didResolve: Bool, agentPID: Int?, allowProcessSnapshotBinding: Bool, binding: CallerTerminalBinding?)
+    private typealias ClaudeHookTerminalBindingCache = (didResolve: Bool, agentPID: Int?, allowProcessSnapshotBinding: Bool, socketPassword: String?, binding: CallerTerminalBinding?)
 
     private func resolveClaudeHookTerminalBinding(
         agentPID: Int?,
@@ -23205,6 +23205,7 @@ struct CMUXCLI {
         terminalBindingCache.binding = resolveClaudeHookTerminalBinding(
             agentPID: agentPID,
             allowProcessSnapshotBinding: allowProcessSnapshotBinding,
+            socketPassword: terminalBindingCache.socketPassword,
             client: client
         )
         return terminalBindingCache.binding
@@ -23213,7 +23214,7 @@ struct CMUXCLI {
     private func resolveClaudeHookTerminalBinding(
         agentPID: Int?,
         allowProcessSnapshotBinding: Bool = true,
-        client: SocketClient
+        socketPassword: String?, client: SocketClient
     ) -> CallerTerminalBinding? {
         if let binding = resolveCallerTerminalBindingByTTY(client: client) {
             return binding
@@ -23221,7 +23222,7 @@ struct CMUXCLI {
         guard allowProcessSnapshotBinding else {
             return nil
         }
-        return resolveAgentProcessTerminalBinding(pid: agentPID, client: client)
+        return resolveAgentProcessTerminalBinding(pid: agentPID, client: client, socketPassword: socketPassword)
     }
 
     private func resolveClaudeHookBindingSurfaceId(
@@ -23460,10 +23461,11 @@ struct CMUXCLI {
         return resolveTerminalBinding(ttyName: ttyName, client: client)
     }
 
-    private func resolveAgentProcessTerminalBinding(pid: Int?, client: SocketClient) -> CallerTerminalBinding? {
+    private func resolveAgentProcessTerminalBinding(pid: Int?, client: SocketClient, socketPassword: String? = nil) -> CallerTerminalBinding? {
         guard let pid else { return nil }
         let snapshotClient = SocketClient(path: client.socketPath); defer { snapshotClient.close() }
         guard (try? snapshotClient.connectWithoutRetry(responseTimeout: 2.0)) != nil,
+              (try? Self.authenticateSocketClientIfNeeded(snapshotClient, explicitPassword: socketPassword, socketPath: client.socketPath, responseTimeout: 2.0)) != nil,
               let payload = try? snapshotClient.sendV2(method: "system.top", params: ["all_windows": true, "include_processes": true], responseTimeout: 2.0) else {
             return nil
         }
@@ -28867,7 +28869,7 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                 // binding to OVERRIDE a disagreeing ambient-env surface; the binding stays nil (env
                 // trusted) under remote/SSH where no local TTY maps to a surface.
                 processBindingCache = resolveCallerTerminalBindingByTTY(client: client)
-                    ?? resolveAgentProcessTerminalBinding(pid: inferredPID, client: client)
+                    ?? resolveAgentProcessTerminalBinding(pid: inferredPID, client: client, socketPassword: socketPassword)
             }
             return processBindingCache
         }

@@ -68,51 +68,56 @@ struct ClaudeHookRoutingTestSupport {
     ) -> DispatchSemaphore {
         let finished = DispatchSemaphore(value: 0)
         DispatchQueue.global(qos: .userInitiated).async {
-            var clientAddr = sockaddr_un()
-            var clientAddrLen = socklen_t(MemoryLayout<sockaddr_un>.size)
-            let clientFD = withUnsafeMutablePointer(to: &clientAddr) { ptr in
-                ptr.withMemoryRebound(to: sockaddr.self, capacity: 1) { sockaddrPtr in
-                    Darwin.accept(listenerFD, sockaddrPtr, &clientAddrLen)
-                }
-            }
-            guard clientFD >= 0 else {
-                finished.signal()
-                return
-            }
-            defer {
-                Darwin.close(clientFD)
-                finished.signal()
-            }
-
-            var pending = Data()
-            var buffer = [UInt8](repeating: 0, count: 4096)
             while true {
-                let count = Darwin.read(clientFD, &buffer, buffer.count)
-                if count < 0 {
+                var clientAddr = sockaddr_un()
+                var clientAddrLen = socklen_t(MemoryLayout<sockaddr_un>.size)
+                let clientFD = withUnsafeMutablePointer(to: &clientAddr) { ptr in
+                    ptr.withMemoryRebound(to: sockaddr.self, capacity: 1) { sockaddrPtr in
+                        Darwin.accept(listenerFD, sockaddrPtr, &clientAddrLen)
+                    }
+                }
+                guard clientFD >= 0 else {
                     if errno == EINTR { continue }
+                    finished.signal()
                     return
                 }
-                if count == 0 { return }
-                pending.append(buffer, count: count)
+                DispatchQueue.global(qos: .userInitiated).async {
+                    defer {
+                        Darwin.close(clientFD)
+                        finished.signal()
+                    }
 
-                while let newlineRange = pending.firstRange(of: Data([0x0A])) {
-                    let lineData = pending.subdata(in: 0..<newlineRange.lowerBound)
-                    pending.removeSubrange(0...newlineRange.lowerBound)
-                    guard let line = String(data: lineData, encoding: .utf8) else { continue }
-                    state.append(line)
-                    let response = handler(line) + "\n"
-                    let responseData = Data(response.utf8)
-                    responseData.withUnsafeBytes { rawBuffer in
-                        guard let base = rawBuffer.baseAddress else { return }
-                        var sent = 0
-                        while sent < rawBuffer.count {
-                            let wrote = Darwin.write(clientFD, base.advanced(by: sent), rawBuffer.count - sent)
-                            if wrote < 0 {
-                                if errno == EINTR { continue }
-                                return
+                    var pending = Data()
+                    var buffer = [UInt8](repeating: 0, count: 4096)
+                    while true {
+                        let count = Darwin.read(clientFD, &buffer, buffer.count)
+                        if count < 0 {
+                            if errno == EINTR { continue }
+                            return
+                        }
+                        if count == 0 { return }
+                        pending.append(buffer, count: count)
+
+                        while let newlineRange = pending.firstRange(of: Data([0x0A])) {
+                            let lineData = pending.subdata(in: 0..<newlineRange.lowerBound)
+                            pending.removeSubrange(0...newlineRange.lowerBound)
+                            guard let line = String(data: lineData, encoding: .utf8) else { continue }
+                            state.append(line)
+                            let response = handler(line) + "\n"
+                            let responseData = Data(response.utf8)
+                            responseData.withUnsafeBytes { rawBuffer in
+                                guard let base = rawBuffer.baseAddress else { return }
+                                var sent = 0
+                                while sent < rawBuffer.count {
+                                    let wrote = Darwin.write(clientFD, base.advanced(by: sent), rawBuffer.count - sent)
+                                    if wrote < 0 {
+                                        if errno == EINTR { continue }
+                                        return
+                                    }
+                                    if wrote == 0 { return }
+                                    sent += wrote
+                                }
                             }
-                            if wrote == 0 { return }
-                            sent += wrote
                         }
                     }
                 }
