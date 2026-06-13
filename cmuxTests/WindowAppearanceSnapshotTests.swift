@@ -1,5 +1,6 @@
 import XCTest
 import AppKit
+import CmuxTerminalCore
 import SwiftUI
 
 #if canImport(cmux_DEV)

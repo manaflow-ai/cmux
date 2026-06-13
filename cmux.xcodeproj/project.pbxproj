@@ -236,6 +236,7 @@
 		C52830000000000000000001 /* CmuxTerminalCopyMode in Frameworks */ = {isa = PBXBuildFile; productRef = C52830000000000000000004 /* CmuxTerminalCopyMode */; };
 		C52830000000000000000002 /* CmuxTerminalCopyMode in Frameworks */ = {isa = PBXBuildFile; productRef = C52830000000000000000004 /* CmuxTerminalCopyMode */; };
 		C750200000000000000000A3 /* CmuxTerminalCore in Frameworks */ = {isa = PBXBuildFile; productRef = C750200000000000000000A2 /* CmuxTerminalCore */; };
+		C750200000000000000000B3 /* CmuxTerminalCore in Frameworks */ = {isa = PBXBuildFile; productRef = C750200000000000000000B2 /* CmuxTerminalCore */; };
 		C750300000000000000000A3 /* CmuxTerminalEngine in Frameworks */ = {isa = PBXBuildFile; productRef = C750300000000000000000A2 /* CmuxTerminalEngine */; };
 		C750400000000000000000A3 /* CmuxTerminalServices in Frameworks */ = {isa = PBXBuildFile; productRef = C750400000000000000000A2 /* CmuxTerminalServices */; };
 		C7A510000000000000000002 /* CmuxTopMemoryDiagnostics.swift in Sources */ = {isa = PBXBuildFile; fileRef = C7A510000000000000000001 /* CmuxTopMemoryDiagnostics.swift */; };
@@ -1671,6 +1672,7 @@
 				5E2701040000000000000004 /* CmuxFoundation in Frameworks */,
 				EFB18E3C0000000000000001 /* CMUXMobileCore in Frameworks */,
 				C52830000000000000000002 /* CmuxTerminalCopyMode in Frameworks */,
+				C750200000000000000000B3 /* CmuxTerminalCore in Frameworks */,
 				5E2701040000000000000003 /* Sentry in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
@@ -2643,6 +2645,7 @@
 				C52830000000000000000004 /* CmuxTerminalCopyMode */,
 				5E2701040000000000000001 /* Sentry */,
 				5E2701040000000000000002 /* CmuxFoundation */,
+				C750200000000000000000B2 /* CmuxTerminalCore */,
 			);
 			productName = cmuxTests;
 			productReference = F1000002A1B2C3D4E5F60718 /* cmuxTests.xctest */;
@@ -4306,6 +4309,11 @@
 			productName = CmuxControlSocket;
 		};
 		C750200000000000000000A2 /* CmuxTerminalCore */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = C750200000000000000000A1 /* XCLocalSwiftPackageReference "CmuxTerminalCore" */;
+			productName = CmuxTerminalCore;
+		};
+		C750200000000000000000B2 /* CmuxTerminalCore */ = {
 			isa = XCSwiftPackageProductDependency;
 			package = C750200000000000000000A1 /* XCLocalSwiftPackageReference "CmuxTerminalCore" */;
 			productName = CmuxTerminalCore;

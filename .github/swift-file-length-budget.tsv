@@ -12,7 +12,7 @@
 10022	Sources/TabManager.swift
 9345	cmuxTests/CLINotifyProcessIntegrationRegressionTests.swift
 7737	Sources/Panels/BrowserPanelView.swift
-7292	cmuxTests/WorkspaceUnitTests.swift
+7293	cmuxTests/WorkspaceUnitTests.swift
 6949	cmuxTests/WorkspaceRemoteConnectionTests.swift
 6545	cmuxTests/GhosttyConfigTests.swift
 6330	cmuxTests/SessionPersistenceTests.swift
@@ -163,7 +163,7 @@
 568	Packages/CMUXMobileCore/Sources/CMUXMobileCore/MobileTerminalRenderGrid.swift
 566	Packages/CMUXAgentLaunch/Sources/CMUXAgentLaunch/AgentLaunchSanitizer.swift
 562	cmuxTests/AgentExecutableResolverTests.swift
-562	cmuxTests/GhosttyConfigPathResolverTests.swift
+561	cmuxTests/GhosttyConfigPathResolverTests.swift
 558	Packages/CmuxGit/Sources/CmuxGit/Parsing/GitMetadataService+Config.swift
 554	Sources/Panels/BrowserAutomation.swift
 551	Packages/CmuxSettingsUI/Sources/CmuxSettingsUI/Sections/BrowserSection.swift
