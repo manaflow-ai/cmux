@@ -26,9 +26,24 @@ extension Workspace {
             canvasModel.seedFromSplitFrames(splitPaneFramesByPanelId())
         }
         layoutMode = mode
-        // The rendered-panel set changes shape with the mode (canvas renders
-        // every panel; splits render selected tabs), so re-derive portal
+        // The rendered-panel set changes shape with the mode (canvas hosts each
+        // pane's selected terminal directly in the pane hierarchy; splits host
+        // every selected tab through the window portal), so re-derive portal
         // visibility immediately instead of waiting for the next layout event.
+        //
+        // Entering canvas: clear the terminal portal layer now. Otherwise the
+        // split-mode terminal surfaces keep floating at their old split frames
+        // (over the canvas) during the async SwiftUI mount, and stay there
+        // until some later layout event happens to reconcile them — the ghost
+        // terminal artifacts Aziz reported on toggle. The canvas mount re-shows
+        // each visible pane's selected terminal via its portal-detach path.
+        // Leaving canvas: reconcile to the split-mode rendered set so the
+        // re-attached terminals show at the correct split frames.
+        if mode == .canvas {
+            hideAllTerminalPortalViews()
+        } else {
+            reconcileTerminalPortalVisibilityForCurrentRenderedLayout()
+        }
         reconcileBrowserPortalVisibilityForCurrentRenderedLayout(
             reason: "workspace.setLayoutMode.\(mode.rawValue)"
         )
