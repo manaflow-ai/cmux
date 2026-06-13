@@ -7,7 +7,7 @@
 18126	Sources/AppDelegate.swift
 14777	Sources/TerminalController.swift
 13609	Sources/Panels/BrowserPanel.swift
-12084	Sources/GhosttyTerminalView.swift
+12105	Sources/GhosttyTerminalView.swift
 12046	cmuxTests/AppDelegateShortcutRoutingTests.swift
 10023	Sources/TabManager.swift
 9345	cmuxTests/CLINotifyProcessIntegrationRegressionTests.swift

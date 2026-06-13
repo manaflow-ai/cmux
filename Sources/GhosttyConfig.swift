@@ -215,8 +215,8 @@ struct GhosttyConfig {
         configPaths.append(contentsOf: cmuxConfigPaths())
 
         #if DEBUG
-        let startupPreviewProfile = GhosttyStartupAppearancePreviewState.profile
-        if startupPreviewProfile.loadsRealUserConfig {
+        let startupPreviewOverride = TerminalStartupAppearancePreviewOverride.installed
+        if startupPreviewOverride?.loadsRealUserConfig ?? true {
             loadConfigFiles(
                 configPaths,
                 into: &config,
@@ -231,8 +231,8 @@ struct GhosttyConfig {
                     preferredColorScheme: preferredColorScheme
                 )
             }
-        } else if let contents = startupPreviewProfile.previewConfigContents(
-            preferredColorScheme: preferredColorScheme
+        } else if let contents = startupPreviewOverride?.previewConfigContents(
+            preferredColorScheme
         ) {
             config.parse(
                 contents,
