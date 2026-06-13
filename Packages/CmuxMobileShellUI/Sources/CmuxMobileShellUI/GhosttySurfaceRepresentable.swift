@@ -134,12 +134,15 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
             // clears its viewport pin on the Mac (see `terminalOutputStream`).
             outputTask = Task { @MainActor [weak surfaceView, weak store] in
                 guard let store else { return }
-                for await data in store.terminalOutputStream(surfaceID: surfaceID) {
+                for await chunk in store.terminalOutputStream(surfaceID: surfaceID) {
                     guard !Task.isCancelled else { return }
                     if let surfaceView {
-                        await surfaceView.processOutputAndWait(data)
+                        await surfaceView.processOutputAndWait(chunk.data)
                     }
-                    store.terminalOutputDidProcess(surfaceID: surfaceID)
+                    store.terminalOutputDidProcess(
+                        surfaceID: surfaceID,
+                        streamToken: chunk.streamToken
+                    )
                 }
             }
         }

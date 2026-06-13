@@ -26,9 +26,13 @@ final class TerminalOutputCollector {
     /// Begin consuming the surface's output stream into ``lines``.
     func mount(store: CMUXMobileShellStore, surfaceID: String) {
         task = Task { @MainActor [weak self] in
-            for await data in store.terminalOutputStream(surfaceID: surfaceID) {
-                self?.lines.append(String(data: data, encoding: .utf8) ?? "")
-                store.terminalOutputDidProcess(surfaceID: surfaceID)
+            for await chunk in store.terminalOutputStream(surfaceID: surfaceID) {
+                guard let self else { break }
+                self.lines.append(String(data: chunk.data, encoding: .utf8) ?? "")
+                store.terminalOutputDidProcess(
+                    surfaceID: surfaceID,
+                    streamToken: chunk.streamToken
+                )
             }
         }
     }

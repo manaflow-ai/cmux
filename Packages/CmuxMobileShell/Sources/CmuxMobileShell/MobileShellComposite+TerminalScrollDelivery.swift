@@ -24,28 +24,31 @@ extension MobileShellComposite {
 
     private func enqueueTerminalScroll(_ delivery: TerminalScrollDelivery) {
         guard delivery.lines != 0 else { return }
+        let queueToken = terminalScrollQueueTokensBySurfaceID[delivery.surfaceID] ?? UUID()
+        terminalScrollQueueTokensBySurfaceID[delivery.surfaceID] = queueToken
         var queue = terminalScrollQueuesBySurfaceID[delivery.surfaceID] ?? TerminalScrollDeliveryQueue()
         let immediate = queue.enqueue(delivery)
         terminalScrollQueuesBySurfaceID[delivery.surfaceID] = queue
         if let immediate {
-            sendTerminalScroll(immediate)
+            sendTerminalScroll(immediate, queueToken: queueToken)
         }
     }
 
-    private func sendTerminalScroll(_ delivery: TerminalScrollDelivery) {
+    private func sendTerminalScroll(_ delivery: TerminalScrollDelivery, queueToken: UUID) {
         Task { @MainActor [weak self] in
             guard let self else { return }
             await self.performTerminalScroll(delivery)
-            self.terminalScrollDidComplete(surfaceID: delivery.surfaceID)
+            self.terminalScrollDidComplete(surfaceID: delivery.surfaceID, queueToken: queueToken)
         }
     }
 
-    private func terminalScrollDidComplete(surfaceID: String) {
-        guard var queue = terminalScrollQueuesBySurfaceID[surfaceID] else { return }
+    func terminalScrollDidComplete(surfaceID: String, queueToken: UUID) {
+        guard terminalScrollQueueTokensBySurfaceID[surfaceID] == queueToken,
+              var queue = terminalScrollQueuesBySurfaceID[surfaceID] else { return }
         let next = queue.completeInFlight()
         terminalScrollQueuesBySurfaceID[surfaceID] = queue
         if let next {
-            sendTerminalScroll(next)
+            sendTerminalScroll(next, queueToken: queueToken)
         }
     }
 

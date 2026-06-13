@@ -513,8 +513,10 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     private var pendingTerminalByteEndSeqBySurfaceID: [String: UInt64]
     private var terminalReplaySurfaceIDsInFlight: Set<String>
     private var terminalOutputTransport: TerminalOutputTransport
-    var terminalByteContinuationsBySurfaceID: [String: AsyncStream<Data>.Continuation]
+    var terminalByteContinuationsBySurfaceID: [String: AsyncStream<MobileTerminalOutputChunk>.Continuation]
+    var terminalOutputStreamTokensBySurfaceID: [String: UUID]
     var terminalOutputQueuesBySurfaceID: [String: TerminalOutputDeliveryQueue]
+    var terminalScrollQueueTokensBySurfaceID: [String: UUID]
     var terminalScrollQueuesBySurfaceID: [String: TerminalScrollDeliveryQueue]
     private var rawTerminalInputBuffer: MobileTerminalInputSendBuffer
     private var pairingAttemptID: UUID
@@ -632,7 +634,9 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         self.terminalReplaySurfaceIDsInFlight = []
         self.terminalOutputTransport = .rawBytes
         self.terminalByteContinuationsBySurfaceID = [:]
+        self.terminalOutputStreamTokensBySurfaceID = [:]
         self.terminalOutputQueuesBySurfaceID = [:]
+        self.terminalScrollQueueTokensBySurfaceID = [:]
         self.terminalScrollQueuesBySurfaceID = [:]
         self.rawTerminalInputBuffer = MobileTerminalInputSendBuffer()
         self.pairingAttemptID = UUID()
@@ -2944,6 +2948,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         pendingTerminalByteEndSeqBySurfaceID = [:]
         terminalReplaySurfaceIDsInFlight = []
         terminalOutputQueuesBySurfaceID = [:]
+        terminalOutputStreamTokensBySurfaceID = terminalOutputStreamTokensBySurfaceID.mapValues { _ in UUID() }
+        terminalScrollQueueTokensBySurfaceID = [:]
         terminalScrollQueuesBySurfaceID = [:]
         terminalOutputTransport = .rawBytes
         supportsWorkspaceActions = false
@@ -4205,9 +4211,10 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
 
     private func registerTerminalOutput(
         surfaceID: String,
-        continuation: AsyncStream<Data>.Continuation
+        continuation: AsyncStream<MobileTerminalOutputChunk>.Continuation
     ) {
         terminalByteContinuationsBySurfaceID[surfaceID] = continuation
+        terminalOutputStreamTokensBySurfaceID[surfaceID] = UUID()
         terminalOutputQueuesBySurfaceID[surfaceID] = TerminalOutputDeliveryQueue()
         deliveredTerminalByteEndSeqBySurfaceID.removeValue(forKey: surfaceID)
         pendingTerminalByteEndSeqBySurfaceID.removeValue(forKey: surfaceID)
@@ -4219,7 +4226,9 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
 
     private func unregisterTerminalOutput(surfaceID: String) {
         terminalByteContinuationsBySurfaceID.removeValue(forKey: surfaceID)
+        terminalOutputStreamTokensBySurfaceID.removeValue(forKey: surfaceID)
         terminalOutputQueuesBySurfaceID.removeValue(forKey: surfaceID)
+        terminalScrollQueueTokensBySurfaceID.removeValue(forKey: surfaceID)
         terminalScrollQueuesBySurfaceID.removeValue(forKey: surfaceID)
         deliveredTerminalByteEndSeqBySurfaceID.removeValue(forKey: surfaceID)
         pendingTerminalByteEndSeqBySurfaceID.removeValue(forKey: surfaceID)
@@ -4235,7 +4244,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// unregisters the surface and clears its viewport pin on the Mac.
     /// - Parameter surfaceID: The terminal surface identifier.
     /// - Returns: An `AsyncStream` of output byte chunks.
-    public func terminalOutputStream(surfaceID: String) -> AsyncStream<Data> {
+    public func terminalOutputStream(surfaceID: String) -> AsyncStream<MobileTerminalOutputChunk> {
         AsyncStream { continuation in
             registerTerminalOutput(surfaceID: surfaceID, continuation: continuation)
             continuation.onTermination = { [weak self] _ in

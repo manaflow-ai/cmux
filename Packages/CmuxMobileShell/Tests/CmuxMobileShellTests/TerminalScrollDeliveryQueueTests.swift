@@ -1,3 +1,4 @@
+import Foundation
 import Testing
 @testable import CmuxMobileShell
 
@@ -40,4 +41,25 @@ import Testing
 
     #expect(queue.isIdle)
     #expect(queue.completeInFlight() == nil)
+}
+
+@MainActor
+@Test func staleScrollCompletionDoesNotAdvanceReplacementQueue() throws {
+    let store = MobileShellComposite.preview()
+    let surfaceID = "surface"
+    let staleToken = UUID()
+    let currentToken = UUID()
+    let inFlight = TerminalScrollDelivery(surfaceID: surfaceID, lines: 1, col: 1, row: 1)
+    let pending = TerminalScrollDelivery(surfaceID: surfaceID, lines: 2, col: 2, row: 2)
+
+    var replacementQueue = TerminalScrollDeliveryQueue()
+    #expect(replacementQueue.enqueue(inFlight) == inFlight)
+    #expect(replacementQueue.enqueue(pending) == nil)
+    store.terminalScrollQueuesBySurfaceID[surfaceID] = replacementQueue
+    store.terminalScrollQueueTokensBySurfaceID[surfaceID] = currentToken
+
+    store.terminalScrollDidComplete(surfaceID: surfaceID, queueToken: staleToken)
+
+    var queueAfterStaleCompletion = try #require(store.terminalScrollQueuesBySurfaceID[surfaceID])
+    #expect(queueAfterStaleCompletion.completeInFlight() == pending)
 }

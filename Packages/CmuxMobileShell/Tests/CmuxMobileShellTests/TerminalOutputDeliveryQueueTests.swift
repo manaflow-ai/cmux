@@ -11,6 +11,29 @@ import Testing
     #expect(queue.pendingCount == 0)
 }
 
+@MainActor
+@Test func staleStreamAckDoesNotAdvanceReplacementOutputQueue() async throws {
+    let store = MobileShellComposite.preview()
+    let surfaceID = "terminal"
+
+    var oldIterator = store.terminalOutputStream(surfaceID: surfaceID).makeAsyncIterator()
+    store.deliverTerminalBytes(Data("old-first".utf8), surfaceID: surfaceID)
+    let oldChunk = try #require(await oldIterator.next())
+
+    var currentIterator = store.terminalOutputStream(surfaceID: surfaceID).makeAsyncIterator()
+    store.deliverTerminalBytes(Data("new-first".utf8), surfaceID: surfaceID)
+    let currentChunk = try #require(await currentIterator.next())
+    store.deliverTerminalBytes(Data("new-second".utf8), surfaceID: surfaceID)
+
+    store.terminalOutputDidProcess(surfaceID: surfaceID, streamToken: oldChunk.streamToken)
+
+    #expect(store.terminalOutputQueuesBySurfaceID[surfaceID]?.pendingCount == 1)
+
+    store.terminalOutputDidProcess(surfaceID: surfaceID, streamToken: currentChunk.streamToken)
+    let secondChunk = try #require(await currentIterator.next())
+    #expect(String(decoding: secondChunk.data, as: UTF8.self) == "new-second")
+}
+
 @Test func terminalOutputQueueCoalescesReplaceableViewportFramesBehindBackpressure() {
     var queue = TerminalOutputDeliveryQueue()
     let inFlight = TerminalOutputDelivery(bytes: Data("in-flight".utf8), replaceable: false)
