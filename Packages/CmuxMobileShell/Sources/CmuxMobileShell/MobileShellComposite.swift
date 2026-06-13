@@ -515,6 +515,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     private var terminalOutputTransport: TerminalOutputTransport
     var terminalByteContinuationsBySurfaceID: [String: AsyncStream<Data>.Continuation]
     var terminalOutputQueuesBySurfaceID: [String: TerminalOutputDeliveryQueue]
+    var terminalScrollQueuesBySurfaceID: [String: TerminalScrollDeliveryQueue]
     private var rawTerminalInputBuffer: MobileTerminalInputSendBuffer
     private var pairingAttemptID: UUID
 
@@ -632,6 +633,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         self.terminalOutputTransport = .rawBytes
         self.terminalByteContinuationsBySurfaceID = [:]
         self.terminalOutputQueuesBySurfaceID = [:]
+        self.terminalScrollQueuesBySurfaceID = [:]
         self.rawTerminalInputBuffer = MobileTerminalInputSendBuffer()
         self.pairingAttemptID = UUID()
     }
@@ -754,36 +756,6 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     public func resumeForegroundRefresh() {
         startObservingNetworkPathChanges()
         resyncTerminalOutput(reason: "foreground", restartEventStream: true)
-    }
-
-    /// Forward a scroll gesture to the Mac's real surface. libghostty does the
-    /// mode-correct thing: normal screen moves the viewport into scrollback;
-    /// alt screen + mouse reporting encodes mouse-wheel to the PTY for the
-    /// program. The render-grid mirrors the result (it exports the live
-    /// `vp_top`), so no local-mirror scroll or scrollback cache is needed.
-    /// Fire-and-forget (called per display-link frame during a drag).
-    public func scrollTerminal(surfaceID: String, lines: Double, col: Int, row: Int) async {
-        guard lines != 0,
-              let client = remoteClient,
-              let workspaceID = workspaceID(forTerminalID: surfaceID) else {
-            return
-        }
-        do {
-            let request = try MobileCoreRPCClient.requestData(
-                method: "mobile.terminal.scroll",
-                params: [
-                    "workspace_id": workspaceID.rawValue,
-                    "surface_id": surfaceID,
-                    "client_id": clientID,
-                    "delta_lines": lines,
-                    "col": col,
-                    "row": row,
-                ]
-            )
-            _ = try await client.sendRequest(request)
-        } catch {
-            mobileShellLog.error("scroll forward failed surface=\(surfaceID, privacy: .public) error=\(String(describing: error), privacy: .public)")
-        }
     }
 
     /// Forward a tap to the Mac's real surface as a left click at the given grid
@@ -2972,6 +2944,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         pendingTerminalByteEndSeqBySurfaceID = [:]
         terminalReplaySurfaceIDsInFlight = []
         terminalOutputQueuesBySurfaceID = [:]
+        terminalScrollQueuesBySurfaceID = [:]
         terminalOutputTransport = .rawBytes
         supportsWorkspaceActions = false
         supportsDogfoodFeedback = false
@@ -4247,6 +4220,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     private func unregisterTerminalOutput(surfaceID: String) {
         terminalByteContinuationsBySurfaceID.removeValue(forKey: surfaceID)
         terminalOutputQueuesBySurfaceID.removeValue(forKey: surfaceID)
+        terminalScrollQueuesBySurfaceID.removeValue(forKey: surfaceID)
         deliveredTerminalByteEndSeqBySurfaceID.removeValue(forKey: surfaceID)
         pendingTerminalByteEndSeqBySurfaceID.removeValue(forKey: surfaceID)
         // Tell the Mac this device is no longer viewing the surface so it stops

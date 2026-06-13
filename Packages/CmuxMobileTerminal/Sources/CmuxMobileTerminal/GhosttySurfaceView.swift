@@ -632,6 +632,28 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         label: "dev.cmux.GhosttySurfaceView.output",
         qos: .userInitiated
     )
+    private static let scrollMechanicsContentHeight: CGFloat = 1_000_000
+    private var scrollMechanicsIsRecentering = false
+    private var lastScrollMechanicsOffsetY: CGFloat?
+    private var lastScrollMechanicsTouchPoint: CGPoint = .zero
+    private lazy var scrollMechanicsView: UIScrollView = {
+        let view = UIScrollView()
+        view.backgroundColor = .clear
+        view.isOpaque = false
+        view.showsVerticalScrollIndicator = false
+        view.showsHorizontalScrollIndicator = false
+        view.alwaysBounceVertical = true
+        view.alwaysBounceHorizontal = false
+        view.bounces = true
+        view.decelerationRate = .normal
+        view.delaysContentTouches = false
+        view.canCancelContentTouches = true
+        view.scrollsToTop = false
+        view.contentInsetAdjustmentBehavior = .never
+        view.panGestureRecognizer.cancelsTouchesInView = false
+        view.delegate = self
+        return view
+    }()
     #if DEBUG
     private var lastInputTimestamp: CFTimeInterval = 0
     private var latencySamples: [Double] = []
@@ -954,6 +976,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         isAccessibilityElement = false
         #endif
         addSubview(snapshotFallbackView)
+        addSubview(scrollMechanicsView)
         addSubview(inputProxy)
         #if DEBUG
         addSubview(debugAccessibilityProxy)
@@ -969,11 +992,6 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
 
         let pinch = UIPinchGestureRecognizer(target: self, action: #selector(handlePinch(_:)))
         addGestureRecognizer(pinch)
-
-        let pan = UIPanGestureRecognizer(target: self, action: #selector(handleScrollPan(_:)))
-        pan.minimumNumberOfTouches = 1
-        pan.maximumNumberOfTouches = 1
-        addGestureRecognizer(pan)
 
         // Suspend rendering on `willResignActive` (fires before
         // `didEnterBackground`, while the GPU is still usable) so an in-flight
@@ -1736,35 +1754,43 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
 
     private var pinchAccumulatedScale: CGFloat = 1.0
 
-    @objc private func handleScrollPan(_ gesture: UIPanGestureRecognizer) {
-        // Forward scroll to the MAC's real surface instead of scrolling this
-        // display-only mirror. The Mac owns scrollback (normal screen) and the
-        // program owns alt-screen scroll (mouse-wheel to the PTY); a single
-        // `ghostty_surface_mouse_scroll` on the real surface does the
-        // mode-correct thing, and the render-grid (which exports the live
-        // viewport, `vp_top`) mirrors the result back. Scrolling the local
-        // mirror could never do either: it has no scrollback and no program.
-        switch gesture.state {
-        case .changed:
-            let translation = gesture.translation(in: self)
-            // Aim for ~1:1 natural scrolling. Measured: the Mac applies a ~3x
-            // line multiplier to the wheel delta, so dividing the finger travel
-            // by (cell height in points × 3) makes a swipe move the content
-            // roughly its own distance. Falls back to a fixed divisor before the
-            // first geometry pass measures the cell.
-            let cellHeightPt = cellPixelSize.height / max(preferredScreenScale, 1)
-            let divisor = cellHeightPt > 1 ? Double(cellHeightPt) * 3 : 42
-            pendingScrollLines += Double(translation.y) / divisor
-            pendingScrollCell = scrollCell(at: gesture.location(in: self))
-            gesture.setTranslation(.zero, in: self)
-        case .ended, .cancelled:
-            flushPendingScrollIfNeeded()
-        default:
-            break
-        }
+    private func layoutScrollMechanicsView() {
+        scrollMechanicsView.frame = bounds
+        scrollMechanicsView.contentSize = CGSize(
+            width: max(bounds.width, 1),
+            height: max(Self.scrollMechanicsContentHeight, bounds.height * 8)
+        )
+        recenterScrollMechanicsViewIfNeeded(force: lastScrollMechanicsOffsetY == nil)
     }
 
-    /// Coalesced scroll forwarded to the Mac once per display-link frame.
+    private func recenterScrollMechanicsViewIfNeeded(force: Bool = false) {
+        let contentHeight = scrollMechanicsView.contentSize.height
+        let visibleHeight = max(scrollMechanicsView.bounds.height, 1)
+        let currentY = scrollMechanicsView.contentOffset.y
+        let edgeMargin = visibleHeight * 2
+        guard force || currentY < edgeMargin || currentY > contentHeight - visibleHeight - edgeMargin else {
+            return
+        }
+
+        let centeredY = max(0, (contentHeight - visibleHeight) / 2)
+        scrollMechanicsIsRecentering = true
+        scrollMechanicsView.setContentOffset(CGPoint(x: 0, y: centeredY), animated: false)
+        lastScrollMechanicsOffsetY = centeredY
+        scrollMechanicsIsRecentering = false
+    }
+
+    private func enqueueScrollMechanicsDelta(_ deltaY: CGFloat, touchPoint: CGPoint) {
+        // The transparent UIScrollView supplies native iOS tracking,
+        // deceleration, and momentum. The Mac still owns terminal semantics:
+        // normal-screen scrollback and alt-screen mouse-wheel delivery.
+        guard deltaY != 0 else { return }
+        let cellHeightPt = cellPixelSize.height / max(preferredScreenScale, 1)
+        let divisor = cellHeightPt > 1 ? Double(cellHeightPt) * 3 : 42
+        pendingScrollLines += -Double(deltaY) / divisor
+        pendingScrollCell = scrollCell(at: touchPoint)
+    }
+
+    /// Coalesced native scroll forwarded to the Mac once per display-link frame.
     private var pendingScrollLines: Double = 0
     private var pendingScrollCell: (col: Int, row: Int) = (0, 0)
 
@@ -2025,6 +2051,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     public override func layoutSubviews() {
         super.layoutSubviews()
         snapshotFallbackView.frame = bounds
+        layoutScrollMechanicsView()
         #if DEBUG
         debugAccessibilityProxy.frame = bounds
         // The dock probe stays a 1×1 off-screen carrier; its accessibility value is
@@ -3436,6 +3463,33 @@ extension GhosttySurfaceView: UIGestureRecognizerDelegate {
             return false
         }
         return true
+    }
+}
+
+extension GhosttySurfaceView: UIScrollViewDelegate {
+    public func scrollViewDidScroll(_ scrollView: UIScrollView) {
+        guard scrollView === scrollMechanicsView,
+              !scrollMechanicsIsRecentering else {
+            return
+        }
+
+        let offsetY = scrollView.contentOffset.y
+        guard let previousOffsetY = lastScrollMechanicsOffsetY else {
+            lastScrollMechanicsOffsetY = offsetY
+            return
+        }
+
+        let deltaY = offsetY - previousOffsetY
+        lastScrollMechanicsOffsetY = offsetY
+        if scrollView.isTracking || scrollView.isDragging {
+            lastScrollMechanicsTouchPoint = scrollView.panGestureRecognizer.location(in: self)
+        }
+        let fallbackPoint = CGPoint(x: bounds.midX, y: bounds.midY)
+        let touchPoint = bounds.contains(lastScrollMechanicsTouchPoint)
+            ? lastScrollMechanicsTouchPoint
+            : fallbackPoint
+        enqueueScrollMechanicsDelta(deltaY, touchPoint: touchPoint)
+        recenterScrollMechanicsViewIfNeeded()
     }
 }
 
