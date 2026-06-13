@@ -178,16 +178,25 @@ enum MobileHostRequestActivity {
     private nonisolated(unsafe) static var activeRequestCount = 0
     private nonisolated(unsafe) static var activeConnectionCount = 0
     private nonisolated(unsafe) static var lastActivityUptime: TimeInterval = 0
+    #if DEBUG
+    private nonisolated(unsafe) static var ignoresActivityForTesting = false
+    #endif
 
     static var hasActiveRequest: Bool {
         lock.lock()
         defer { lock.unlock() }
+        #if DEBUG
+        guard !ignoresActivityForTesting else { return false }
+        #endif
         return activeRequestCount > 0
     }
 
     static func hasRecentActivity(within interval: TimeInterval) -> Bool {
         lock.lock()
         defer { lock.unlock() }
+        #if DEBUG
+        guard !ignoresActivityForTesting else { return false }
+        #endif
         guard activeRequestCount == 0 else { return true }
         guard lastActivityUptime > 0 else { return false }
         return ProcessInfo.processInfo.systemUptime - lastActivityUptime < interval
@@ -196,6 +205,9 @@ enum MobileHostRequestActivity {
     static func quietDelay(for interval: TimeInterval) -> TimeInterval {
         lock.lock()
         defer { lock.unlock() }
+        #if DEBUG
+        guard !ignoresActivityForTesting else { return 0 }
+        #endif
         guard activeRequestCount == 0 else { return interval }
         guard lastActivityUptime > 0 else { return 0 }
         let elapsed = ProcessInfo.processInfo.systemUptime - lastActivityUptime
@@ -234,6 +246,13 @@ enum MobileHostRequestActivity {
         activeRequestCount = 0
         activeConnectionCount = 0
         lastActivityUptime = 0
+        ignoresActivityForTesting = false
+        lock.unlock()
+    }
+
+    static func setIgnoresActivityForTesting(_ ignoresActivity: Bool) {
+        lock.lock()
+        ignoresActivityForTesting = ignoresActivity
         lock.unlock()
     }
     #endif

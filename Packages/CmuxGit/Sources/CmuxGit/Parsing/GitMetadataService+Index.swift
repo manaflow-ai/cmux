@@ -76,10 +76,9 @@ extension GitMetadataService {
         let contentEnd = bytes.count - 20
         var offset = 12
         var entries: [GitIndexEntryStat] = []
-        var contentEntries: [GitIndexEntryStat] = []
         entries.reserveCapacity(min(entryCount, 1024))
-        contentEntries.reserveCapacity(min(entryCount, 1024))
         var previousPathBytes: [UInt8] = []
+        var contentSignatureHasher = GitIndexContentSignatureHasher(entryCount: entryCount)
 
         for _ in 0..<entryCount {
             guard offset + 62 <= contentEnd else { return nil }
@@ -88,7 +87,7 @@ extension GitMetadataService {
             let mtimeNanoseconds = readBigEndianUInt32(bytes, at: offset + 12)
             let mode = readBigEndianUInt32(bytes, at: offset + 24)
             let size = readBigEndianUInt32(bytes, at: offset + 36)
-            let objectID = gitIndexHexString(bytes[(offset + 40)..<(offset + 60)])
+            let objectIDBytes = bytes[(offset + 40)..<(offset + 60)]
             let flags = readBigEndianUInt16(bytes, at: offset + 60)
             let pathLength = Int(flags & 0x0fff)
             let hasExtendedFlags = version >= 3 && (flags & 0x4000) != 0
@@ -100,7 +99,7 @@ extension GitMetadataService {
                 offset += 2
             }
 
-            let pathBytes: [UInt8]
+            let pathBytes: ArraySlice<UInt8>
             if version == 4 {
                 guard let stripLength = readGitIndexV4PathStripLength(bytes, offset: &offset),
                       stripLength <= previousPathBytes.count else {
@@ -111,7 +110,10 @@ extension GitMetadataService {
                     offset += 1
                 }
                 guard offset < contentEnd else { return nil }
-                pathBytes = Array(previousPathBytes.dropLast(stripLength)) + Array(bytes[suffixStart..<offset])
+                var reconstructedPathBytes = Array(previousPathBytes.dropLast(stripLength))
+                reconstructedPathBytes.append(contentsOf: bytes[suffixStart..<offset])
+                pathBytes = reconstructedPathBytes[...]
+                previousPathBytes = reconstructedPathBytes
             } else {
                 let pathStart = offset
                 if pathLength < 0x0fff {
@@ -123,30 +125,31 @@ extension GitMetadataService {
                     }
                     guard offset < contentEnd else { return nil }
                 }
-                pathBytes = Array(bytes[pathStart..<offset])
+                pathBytes = bytes[pathStart..<offset]
             }
 
-            let pathData = Data(pathBytes)
-            guard let path = String(data: pathData, encoding: .utf8), !path.isEmpty,
-                  isValidIndexEntryPath(path) else {
+            guard isValidIndexEntryPathBytes(pathBytes),
+                  let path = String(bytes: pathBytes, encoding: .utf8) else {
                 return nil
             }
-            previousPathBytes = pathBytes
-            let entryStat = GitIndexEntryStat(
-                path: path,
+            contentSignatureHasher.appendEntry(
+                pathBytes: pathBytes,
                 mode: mode,
-                objectID: objectID,
-                mtimeSeconds: mtimeSeconds,
-                mtimeNanoseconds: mtimeNanoseconds,
-                size: size
+                rawObjectIDBytes: objectIDBytes
             )
-            contentEntries.append(entryStat)
 
             let assumeUnchangedFlag: UInt16 = 0x8000
             let skipWorktreeExtendedFlag: UInt16 = 0x4000
             if (flags & assumeUnchangedFlag) == 0,
                (extendedFlags & skipWorktreeExtendedFlag) == 0 {
-                entries.append(entryStat)
+                entries.append(GitIndexEntryStat(
+                    path: path,
+                    mode: mode,
+                    objectID: gitIndexHexString(objectIDBytes),
+                    mtimeSeconds: mtimeSeconds,
+                    mtimeNanoseconds: mtimeNanoseconds,
+                    size: size
+                ))
             }
 
             offset += 1
@@ -161,7 +164,7 @@ extension GitMetadataService {
         return GitIndexSnapshot(
             entries: entries,
             signature: checksum,
-            contentSignature: gitIndexContentSignature(entries: contentEntries)
+            contentSignature: gitIndexFixedWidthHexString(contentSignatureHasher.hash)
         )
     }
 
@@ -169,36 +172,74 @@ extension GitMetadataService {
     /// (stat-independent), used to detect tracked-content changes across index
     /// rewrites.
     nonisolated static func gitIndexContentSignature(entries: [GitIndexEntryStat]) -> String {
-        var hash: UInt64 = 14_695_981_039_346_656_037
+        var hasher = GitIndexContentSignatureHasher(entryCount: entries.count)
+        for entry in entries {
+            hasher.appendEntry(
+                pathBytes: entry.path.utf8,
+                mode: entry.mode,
+                objectIDHexBytes: entry.objectID.utf8
+            )
+        }
+        return gitIndexFixedWidthHexString(hasher.hash)
+    }
 
-        func appendByte(_ byte: UInt8) {
+    private struct GitIndexContentSignatureHasher {
+        private(set) var hash: UInt64 = 14_695_981_039_346_656_037
+
+        init(entryCount: Int) {
+            appendUInt32(UInt32(truncatingIfNeeded: entryCount))
+        }
+
+        mutating func appendEntry<PathBytes: Sequence, ObjectIDHexBytes: Sequence>(
+            pathBytes: PathBytes,
+            mode: UInt32,
+            objectIDHexBytes: ObjectIDHexBytes
+        ) where PathBytes.Element == UInt8, ObjectIDHexBytes.Element == UInt8 {
+            appendBytes(pathBytes)
+            appendByte(0)
+            appendUInt32(mode)
+            appendByte(0)
+            appendBytes(objectIDHexBytes)
+            appendByte(0)
+        }
+
+        mutating func appendEntry<PathBytes: Sequence, RawObjectIDBytes: Sequence>(
+            pathBytes: PathBytes,
+            mode: UInt32,
+            rawObjectIDBytes: RawObjectIDBytes
+        ) where PathBytes.Element == UInt8, RawObjectIDBytes.Element == UInt8 {
+            appendBytes(pathBytes)
+            appendByte(0)
+            appendUInt32(mode)
+            appendByte(0)
+            appendHexBytes(rawObjectIDBytes)
+            appendByte(0)
+        }
+
+        private mutating func appendBytes<Bytes: Sequence>(_ bytes: Bytes) where Bytes.Element == UInt8 {
+            for byte in bytes {
+                appendByte(byte)
+            }
+        }
+
+        private mutating func appendHexBytes<Bytes: Sequence>(_ bytes: Bytes) where Bytes.Element == UInt8 {
+            for byte in bytes {
+                appendByte(gitIndexHexAlphabet[Int(byte >> 4)])
+                appendByte(gitIndexHexAlphabet[Int(byte & 0x0f)])
+            }
+        }
+
+        private mutating func appendByte(_ byte: UInt8) {
             hash ^= UInt64(byte)
             hash = hash &* 1_099_511_628_211
         }
 
-        func appendUInt32(_ value: UInt32) {
+        private mutating func appendUInt32(_ value: UInt32) {
             appendByte(UInt8((value >> 24) & 0xff))
             appendByte(UInt8((value >> 16) & 0xff))
             appendByte(UInt8((value >> 8) & 0xff))
             appendByte(UInt8(value & 0xff))
         }
-
-        func appendString(_ value: String) {
-            for byte in value.utf8 {
-                appendByte(byte)
-            }
-        }
-
-        appendUInt32(UInt32(truncatingIfNeeded: entries.count))
-        for entry in entries {
-            appendString(entry.path)
-            appendByte(0)
-            appendUInt32(entry.mode)
-            appendByte(0)
-            appendString(entry.objectID)
-            appendByte(0)
-        }
-        return gitIndexFixedWidthHexString(hash)
     }
 
     private nonisolated static func gitIndexHexString<S: Sequence>(_ bytes: S) -> String where S.Element == UInt8 {
@@ -260,8 +301,39 @@ extension GitMetadataService {
     /// (not absolute) and free of `..` traversal components. An index containing
     /// anything else is treated as malformed.
     nonisolated static func isValidIndexEntryPath(_ path: String) -> Bool {
-        guard !path.hasPrefix("/") else { return false }
-        return !path.split(separator: "/").contains("..")
+        isValidIndexEntryPathBytes(path.utf8)
+    }
+
+    private nonisolated static func isValidIndexEntryPathBytes<Bytes: Sequence>(
+        _ bytes: Bytes
+    ) -> Bool where Bytes.Element == UInt8 {
+        var sawAnyByte = false
+        var componentLength = 0
+        var componentContainsOnlyDots = true
+
+        for byte in bytes {
+            if !sawAnyByte {
+                guard byte != UInt8(ascii: "/") else { return false }
+                sawAnyByte = true
+            }
+
+            if byte == UInt8(ascii: "/") {
+                if componentLength == 2, componentContainsOnlyDots {
+                    return false
+                }
+                componentLength = 0
+                componentContainsOnlyDots = true
+                continue
+            }
+
+            componentLength += 1
+            if byte != UInt8(ascii: ".") {
+                componentContainsOnlyDots = false
+            }
+        }
+
+        guard sawAnyByte else { return false }
+        return !(componentLength == 2 && componentContainsOnlyDots)
     }
 
     /// The raw index trailing-20-byte checksum as hex, or `nil` when the index

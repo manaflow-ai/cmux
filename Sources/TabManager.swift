@@ -3110,11 +3110,8 @@ class TabManager: ObservableObject {
         defer {
             if wasInFlight, !didClearProbe {
                 let rerunPending = workspaceGitProbeRerunPending(for: probeKey)
-                if rerunPending {
+                if rerunPending, !shouldFinishProbe {
                     workspaceGitProbeStateByKey[probeKey] = .idle
-                    if shouldFinishProbe {
-                        cancelWorkspaceGitProbeTask(for: probeKey)
-                    }
                     scheduleWorkspaceGitMetadataRefreshIfPossible(
                         workspaceId: probeKey.workspaceId,
                         panelId: probeKey.panelId,
@@ -3282,7 +3279,7 @@ class TabManager: ObservableObject {
         _ snapshot: InitialWorkspaceGitMetadataSnapshot
     ) -> Bool {
         if snapshot.isRepository {
-            return false
+            return true
         }
         switch snapshot.pullRequest {
         case .deferred, .transientFailure:

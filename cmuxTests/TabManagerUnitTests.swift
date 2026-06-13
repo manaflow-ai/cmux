@@ -62,6 +62,29 @@ private func waitForCondition(
     return true
 }
 
+@discardableResult
+private func waitForConditionAsync(
+    timeout: TimeInterval = 3.0,
+    pollInterval: TimeInterval = 0.05,
+    file: StaticString = #filePath,
+    line: UInt = #line,
+    _ condition: @escaping () -> Bool
+) async -> Bool {
+    let deadline = Date().addingTimeInterval(timeout)
+    while Date() < deadline {
+        if condition() {
+            return true
+        }
+        let nanoseconds = UInt64(pollInterval * 1_000_000_000)
+        try? await Task.sleep(nanoseconds: nanoseconds)
+    }
+    if condition() {
+        return true
+    }
+    XCTFail("Timed out waiting for condition", file: file, line: line)
+    return false
+}
+
 private func restoreUserDefaultForTabManagerTests(_ value: Any?, key: String) {
     let defaults = UserDefaults.standard
     if let value {
@@ -87,9 +110,9 @@ private actor BlockingWorkspaceGitMetadataReader: WorkspaceGitMetadataReading {
         callCount += 1
         activeCallCount += 1
         maxActiveCallCount = max(maxActiveCallCount, activeCallCount)
-        resumeSatisfiedCallCountWaiters()
         await withCheckedContinuation { continuation in
             releaseContinuations.append(continuation)
+            resumeSatisfiedCallCountWaiters()
         }
         activeCallCount -= 1
         return metadata
@@ -116,45 +139,6 @@ private actor BlockingWorkspaceGitMetadataReader: WorkspaceGitMetadataReading {
 
     var observedMaxActiveCallCount: Int {
         maxActiveCallCount
-    }
-
-    private func resumeSatisfiedCallCountWaiters() {
-        var remaining: [(Int, CheckedContinuation<Void, Never>)] = []
-        for waiter in callCountWaiters {
-            if callCount >= waiter.0 {
-                waiter.1.resume()
-            } else {
-                remaining.append(waiter)
-            }
-        }
-        callCountWaiters = remaining
-    }
-}
-
-private actor CountingWorkspaceGitMetadataReader: WorkspaceGitMetadataReading {
-    private let metadata: GitWorkspaceMetadata
-    private var callCount = 0
-    private var callCountWaiters: [(Int, CheckedContinuation<Void, Never>)] = []
-
-    init(metadata: GitWorkspaceMetadata) {
-        self.metadata = metadata
-    }
-
-    func workspaceMetadata(for directory: String) async -> GitWorkspaceMetadata {
-        callCount += 1
-        resumeSatisfiedCallCountWaiters()
-        return metadata
-    }
-
-    func waitForCallCount(_ expected: Int) async {
-        guard callCount < expected else { return }
-        await withCheckedContinuation { continuation in
-            callCountWaiters.append((expected, continuation))
-        }
-    }
-
-    var observedCallCount: Int {
-        callCount
     }
 
     private func resumeSatisfiedCallCountWaiters() {
@@ -786,7 +770,10 @@ final class TabManagerPullRequestProbeTests: XCTestCase {
         let defaults = UserDefaults.standard
         let previousWatchGitStatus = defaults.object(forKey: SidebarWorkspaceDetailDefaults.watchGitStatusKey)
         defaults.set(false, forKey: SidebarWorkspaceDetailDefaults.watchGitStatusKey)
+        MobileHostRequestActivity.resetForTesting()
+        MobileHostRequestActivity.setIgnoresActivityForTesting(true)
         defer {
+            MobileHostRequestActivity.resetForTesting()
             restoreUserDefaultForTabManagerTests(
                 previousWatchGitStatus,
                 key: SidebarWorkspaceDetailDefaults.watchGitStatusKey
@@ -861,11 +848,15 @@ final class TabManagerPullRequestProbeTests: XCTestCase {
         XCTAssertEqual(observedMaxActiveCallCount, 1)
 
         await reader.releaseAll()
+        let didUpdateQueuedPanels = await waitForConditionAsync {
+            panelIds.allSatisfy { workspace.panelGitBranches[$0]?.branch == "main" }
+        }
         XCTAssertTrue(
-            waitForCondition {
-                panelIds.allSatisfy { workspace.panelGitBranches[$0]?.branch == "main" }
-            },
-            "One same-directory snapshot should update every queued panel."
+            didUpdateQueuedPanels,
+            "One same-directory snapshot should update every queued panel. " +
+            "branches=\(workspace.panelGitBranches), " +
+            "directories=\(workspace.panelDirectories), " +
+            "activeProbes=\(manager.activeWorkspaceGitProbePanelIdsForTesting(workspaceId: workspace.id))"
         )
         let finalObservedCallCount = await reader.observedCallCount
         XCTAssertEqual(finalObservedCallCount, 1)
@@ -875,7 +866,10 @@ final class TabManagerPullRequestProbeTests: XCTestCase {
         let defaults = UserDefaults.standard
         let previousWatchGitStatus = defaults.object(forKey: SidebarWorkspaceDetailDefaults.watchGitStatusKey)
         defaults.set(false, forKey: SidebarWorkspaceDetailDefaults.watchGitStatusKey)
+        MobileHostRequestActivity.resetForTesting()
+        MobileHostRequestActivity.setIgnoresActivityForTesting(true)
         defer {
+            MobileHostRequestActivity.resetForTesting()
             restoreUserDefaultForTabManagerTests(
                 previousWatchGitStatus,
                 key: SidebarWorkspaceDetailDefaults.watchGitStatusKey
@@ -891,7 +885,7 @@ final class TabManagerPullRequestProbeTests: XCTestCase {
             try? FileManager.default.removeItem(at: directoryURL)
         }
 
-        let reader = CountingWorkspaceGitMetadataReader(
+        let reader = BlockingWorkspaceGitMetadataReader(
             metadata: GitWorkspaceMetadata(
                 isRepository: true,
                 branch: "main",
@@ -901,6 +895,11 @@ final class TabManagerPullRequestProbeTests: XCTestCase {
                 headSignature: "head"
             )
         )
+        defer {
+            Task {
+                await reader.releaseAll()
+            }
+        }
         let manager = TabManager(
             autoWelcomeIfNeeded: false,
             workspaceGitMetadataReader: reader
@@ -924,12 +923,18 @@ final class TabManagerPullRequestProbeTests: XCTestCase {
         )
 
         await reader.waitForCallCount(1)
+        await reader.releaseAll()
 
+        let didUpdateGitMetadata = await waitForConditionAsync {
+            workspace.panelGitBranches[panelId]?.branch == "main"
+        }
         XCTAssertTrue(
-            waitForCondition {
-                workspace.panelGitBranches[panelId]?.branch == "main"
-            },
-            "The first successful repository snapshot should update sidebar git metadata."
+            didUpdateGitMetadata,
+            "The first successful repository snapshot should update sidebar git metadata. " +
+            "branch=\(String(describing: workspace.panelGitBranches[panelId])), " +
+            "directory=\(String(describing: workspace.panelDirectories[panelId])), " +
+            "panelExists=\(workspace.panels[panelId] != nil), " +
+            "activeProbes=\(manager.activeWorkspaceGitProbePanelIdsForTesting(workspaceId: workspace.id))"
         )
 
         let secondRead = expectation(description: "retry read after repository snapshot")
@@ -939,6 +944,7 @@ final class TabManagerPullRequestProbeTests: XCTestCase {
             secondRead.fulfill()
         }
         await fulfillment(of: [secondRead], timeout: 0.8)
+        await reader.releaseAll()
         let observedCallCount = await reader.observedCallCount
         XCTAssertEqual(observedCallCount, 1)
     }
