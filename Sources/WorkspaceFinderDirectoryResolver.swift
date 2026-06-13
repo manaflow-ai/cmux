@@ -1,20 +1,6 @@
 import AppKit
 import Foundation
 
-struct WorkspaceFinderDirectoryCacheKey: Equatable, Sendable {
-    var path: String?
-}
-
-struct WorkspaceFinderDirectoryCache: Equatable, Sendable {
-    var key: WorkspaceFinderDirectoryCacheKey? = nil
-    var directoryURL: URL? = nil
-
-    func url(for currentKey: WorkspaceFinderDirectoryCacheKey) -> URL? {
-        guard key == currentKey else { return nil }
-        return directoryURL
-    }
-}
-
 struct WorkspaceFinderDirectoryOpenRequest: Equatable, Sendable {
     var id = UUID()
     var directoryURL: URL?
@@ -28,12 +14,6 @@ enum WorkspaceFinderDirectoryResolver {
         return path.isEmpty ? nil : path
     }
 
-    static func cache(for key: WorkspaceFinderDirectoryCacheKey) async -> WorkspaceFinderDirectoryCache {
-        guard let path = key.path else { return WorkspaceFinderDirectoryCache(key: key) }
-        let directoryURL = await existingDirectoryURL(for: path)
-        return WorkspaceFinderDirectoryCache(key: key, directoryURL: directoryURL)
-    }
-
     static func existingDirectoryURL(for path: String) async -> URL? {
         guard !Task.isCancelled else { return nil }
         let directoryURL = await Task.detached(priority: .utility) {
@@ -41,6 +21,14 @@ enum WorkspaceFinderDirectoryResolver {
         }.value
         guard !Task.isCancelled else { return nil }
         return directoryURL
+    }
+
+    /// Synchronous existence check for user-interaction moments (building the
+    /// row's context menu on right-click), where a single stat on the calling
+    /// thread is fine. The `async` variant above stays for scroll/hot paths; this
+    /// replaces a per-row pre-warm `.task` that stat'd every row on appearance.
+    nonisolated static func existingDirectoryURLNow(for path: String) -> URL? {
+        existingDirectoryURLUnchecked(for: path)
     }
 
     private nonisolated static func existingDirectoryURLUnchecked(for path: String) -> URL? {
