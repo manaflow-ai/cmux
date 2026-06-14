@@ -155,6 +155,29 @@ import Testing
         #expect(connection.pastePane(paneId: 1, text: "") == false)
     }
 
+    @Test @MainActor func attachBlockDrainQueuesInitialWindowRequest() {
+        let connection = RemoteTmuxControlConnection(host: RemoteTmuxHost(destination: "user@host"), sessionName: "work")
+        let pipe = Pipe()
+        let writer = RemoteTmuxControlPipeWriter(
+            handle: pipe.fileHandleForWriting,
+            label: "remote-tmux-initial-window-request-test",
+            maxPendingBytes: 4096,
+            onFailure: {}
+        )
+        connection.installStdinWriterForTesting(writer)
+        defer {
+            writer.close()
+            try? pipe.fileHandleForReading.close()
+        }
+
+        connection.handleMessageForTesting(.enter)
+        #expect(connection.pendingCommandKindsForTesting.isEmpty)
+
+        connection.handleMessageForTesting(.commandResult(commandNumber: 1, lines: [], isError: false))
+
+        #expect(connection.pendingCommandKindsForTesting == [.listWindows])
+    }
+
     @Test func pastePaneCommandsProtectOptionLookingText() throws {
         let commands = try #require(RemoteTmuxControlConnection.pastePaneCommands(paneId: 7, text: "-n not-an-option"))
         #expect(commands.setBuffer == "set-buffer -b cmux-paste-7 -- '-n not-an-option'")

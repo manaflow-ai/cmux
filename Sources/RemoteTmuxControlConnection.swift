@@ -1409,4 +1409,18 @@ final class RemoteTmuxControlConnection {
         )
     }
 
+    #if DEBUG
+    func installStdinWriterForTesting(_ writer: RemoteTmuxControlPipeWriter) {
+        stdinWriter = writer
+    }
+
+    func handleMessageForTesting(_ message: RemoteTmuxControlMessage) {
+        handle(message)
+    }
+
+    var pendingCommandKindsForTesting: [RemoteTmuxControlCommandKind] {
+        pendingCommands
+    }
+    #endif
+
 }
