@@ -133,7 +133,8 @@ extension CMUXCLI {
         if remoteHostIsLoopback(host) {
             throw CLIError(message: """
                 Refusing to add a loopback remote (\(host)). A phone that dials localhost / 127.0.0.1 / ::1 dials \
-                itself, so the remote would never be reachable. Use the Mac's Tailscale name, LAN IP, or hostname instead.
+                itself, so the remote would never be reachable. Use the Mac's Tailscale address instead \
+                (a 100.64.x.x-100.127.x.x IP or a *.ts.net name).
                 """)
         }
     }
