@@ -12,7 +12,19 @@ When we change the fork, update this document and the parent submodule SHA.
 
 ## Current fork changes
 
-Current cmux pinned fork head: `5697db81`, which adds the Darwin-only
+Current cmux pinned fork head: `5c89072b`, which adds precision pixel-scroll
+rendering for primary-screen scrollback on top of `5697db81`. Precision scroll
+input now accumulates a fractional pixel offset, advances the terminal viewport
+only when a full row boundary is crossed, and passes the remainder through the
+renderer state to Metal/OpenGL shaders so backgrounds, text, and images translate
+between rows. cmux iOS uses this for local scrollback on non-alt terminal content
+without waiting for a host round trip. The patch intentionally avoids the
+unrelated Neovim GUI, cursor animation, and visual-effect changes in
+parkers0405/ghostty-pixel-scroll. It also does not port Parker's larger hidden
+extra-row renderer changes, so edge fill during sub-row movement is the main
+conflict/risk area if upstream renderer row-buffer logic changes.
+
+The previous head was `5697db81`, which adds the Darwin-only
 `ghostty_surface_set_renderer_realized` C API (a `display_realized` renderer-thread
 mailbox message that drives `displayUnrealized()`/`displayRealized()`) on top of
 `34cbf180d`. cmux uses it to release an occluded terminal's GPU renderer
@@ -26,7 +38,7 @@ published at
 https://github.com/manaflow-ai/ghostty/releases/tag/xcframework-5697db813b1b0fe14873093e9028f36513ddc187-crashsubdir-cmux-crash-v1
 and pinned in `scripts/ghosttykit-checksums.txt`.
 
-The prior head was refreshed from upstream `main` on May 1, 2026.
+The `5697db81` head was refreshed from upstream `main` on May 1, 2026.
 Earlier cmux pinned fork head: `34cbf180d`, merging the surface registry
 serialization for https://github.com/manaflow-ai/cmux/issues/5458 (`e5c962a72`,
 landed on cmux `main`) into the iOS render bounded-acquire line (`f78189ac1`)
@@ -46,6 +58,38 @@ It also supports Ctrl-N and Ctrl-P in the cmux theme picker.
 The corresponding prebuilt archive is published at
 https://github.com/manaflow-ai/ghostty/releases/tag/xcframework-34cbf180d8917b802d61d9929cfb493594f2ab52-crashsubdir-cmux-crash-v1
 and pinned in `scripts/ghosttykit-checksums.txt`.
+
+### 0) Precision pixel-scroll rendering
+
+- Commit: `5c89072b` (Add precision pixel scroll rendering)
+- Files:
+  - `src/Surface.zig`
+  - `src/renderer/State.zig`
+  - `src/renderer/generic.zig`
+  - `src/renderer/metal/shaders.zig`
+  - `src/renderer/opengl/shaders.zig`
+  - `src/renderer/shaders/shaders.metal`
+  - `src/renderer/shaders/glsl/common.glsl`
+  - `src/renderer/shaders/glsl/cell_bg.f.glsl`
+  - `src/renderer/shaders/glsl/cell_text.v.glsl`
+  - `src/renderer/shaders/glsl/image.v.glsl`
+- Summary:
+  - Adds a primary-screen precision scroll accumulator that stores sub-row
+    scrollback movement in pixels and advances the terminal viewport only after
+    crossing whole cell boundaries.
+  - Mirrors the fractional remainder into renderer state and a shader uniform.
+  - Moves cell text and images by the fractional offset while sampling
+    backgrounds from the shifted position, giving iOS-local scrollback continuous
+    movement instead of row-stepped movement.
+  - Keeps normal line scroll behavior as the fallback and resets the pixel
+    offset when falling back to line-based viewport scroll.
+- Conflict notes:
+  - Inspired by `parkers0405/ghostty-pixel-scroll`, but limited to terminal
+    precision scrollback. Do not wholesale merge Parker's fork without separating
+    unrelated Neovim GUI, animation, cursor, and visual-effect changes.
+  - Parker's fork also renders hidden extra rows to avoid edge gaps during
+    fractional movement. This cmux patch does not port that larger row-buffer
+    change.
 
 ### 1) macOS display link restart on display changes
 
