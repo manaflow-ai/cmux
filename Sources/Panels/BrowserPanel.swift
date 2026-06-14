@@ -1639,7 +1639,7 @@ func browserIsTemporaryHistoryURL(_ url: URL?) -> Bool {
     if url.scheme?.lowercased() == CmuxDiffViewerURLSchemeHandler.scheme {
         return true
     }
-    guard url.fragment == "cmux-diff-viewer",
+    guard CmuxDiffViewerURLSchemeHandler.isDiffViewerFragment(url.fragment),
           url.scheme?.lowercased() == "http",
           let host = url.host else {
         return false
@@ -2716,7 +2716,7 @@ final class CmuxDiffViewerURLSchemeHandler: NSObject, WKURLSchemeHandler {
 
     /// Extracts the diff viewer `(token, requestPath)` from a live diff viewer
     /// URL, accepting both the custom scheme (`cmux-diff-viewer://<token>/<path>`)
-    /// and the local HTTP server form (`http://127.0.0.1:<port>/<token>/<path>#cmux-diff-viewer`).
+    /// and the local HTTP server form (`http://127.0.0.1:<port>/<token>/<path>#/cmux-diff-viewer`).
     static func diffViewerComponents(from url: URL?) -> (token: String, requestPath: String)? {
         guard let url else { return nil }
         if url.scheme == scheme, let token = url.host, isValidToken(token) {
@@ -2725,7 +2725,7 @@ final class CmuxDiffViewerURLSchemeHandler: NSObject, WKURLSchemeHandler {
         }
         if (url.scheme == "http" || url.scheme == "https"),
            url.host == "127.0.0.1",
-           url.fragment == Self.scheme {
+           isDiffViewerFragment(url.fragment) {
             let rawPath = URLComponents(url: url, resolvingAgainstBaseURL: false)?.percentEncodedPath ?? url.path
             let parts = rawPath.split(separator: "/", omittingEmptySubsequences: true).map(String.init)
             guard parts.count >= 2, isValidToken(parts[0]) else { return nil }
@@ -2734,6 +2734,10 @@ final class CmuxDiffViewerURLSchemeHandler: NSObject, WKURLSchemeHandler {
             return (parts[0], requestPath)
         }
         return nil
+    }
+
+    static func isDiffViewerFragment(_ fragment: String?) -> Bool {
+        fragment == scheme || fragment == "/\(scheme)"
     }
 
     /// Builds the app-owned custom-scheme URL used to restore a diff viewer

@@ -5939,6 +5939,7 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         )
         let diffViewerURL = try XCTUnwrap(URL(string: "cmux-diff-viewer://0123456789abcdef/diff.html"))
         let loopbackDiffViewerURL = try XCTUnwrap(URL(string: "http://127.0.0.1:49152/0123456789abcdef/diff.html#cmux-diff-viewer"))
+        let slashFragmentLoopbackDiffViewerURL = try XCTUnwrap(URL(string: "http://127.0.0.1:49152/0123456789abcdef/diff.html#/cmux-diff-viewer"))
         let ordinaryBrowserURL = try XCTUnwrap(URL(string: "https://example.com/diff.html"))
 
         XCTAssertTrue(
@@ -5948,6 +5949,10 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         XCTAssertTrue(
             shouldRouteBrowserFindCommandEquivalentThroughWebContentFirst(event, pageURL: loopbackDiffViewerURL),
             "HTTP-served diff viewer Cmd+F should also reach the page first"
+        )
+        XCTAssertTrue(
+            shouldRouteBrowserFindCommandEquivalentThroughWebContentFirst(event, pageURL: slashFragmentLoopbackDiffViewerURL),
+            "HTTP-served diff viewer Cmd+F should recognize the live slash-prefixed fragment"
         )
         XCTAssertFalse(
             shouldRouteBrowserFindCommandEquivalentThroughWebContentFirst(event, pageURL: ordinaryBrowserURL),
