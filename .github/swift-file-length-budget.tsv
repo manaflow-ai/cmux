@@ -4,7 +4,7 @@
 33285	CLI/cmux.swift
 19197	Sources/ContentView.swift
 17901	Sources/AppDelegate.swift
-14629	Sources/TerminalController.swift
+14610	Sources/TerminalController.swift
 13572	Sources/Panels/BrowserPanel.swift
 12078	Sources/GhosttyTerminalView.swift
 12046	cmuxTests/AppDelegateShortcutRoutingTests.swift
@@ -21,7 +21,7 @@
 5969	cmuxTests/TerminalAndGhosttyTests.swift
 5500	cmuxTests/BrowserConfigTests.swift
 5470	Sources/cmuxApp.swift
-4922	Packages/CmuxMobileShell/Sources/CmuxMobileShell/MobileShellComposite.swift
+4938	Packages/CmuxMobileShell/Sources/CmuxMobileShell/MobileShellComposite.swift
 4460	Sources/Panels/FilePreviewPanel.swift
 4400	cmuxTests/BrowserPanelTests.swift
 4227	Sources/BrowserWindowPortal.swift
@@ -29,7 +29,7 @@
 3895	cmuxTests/WindowAndDragTests.swift
 3764	cmuxTests/TabManagerUnitTests.swift
 3699	cmuxTests/CLIGenericHookPersistenceTests.swift
-3663	Packages/CmuxMobileTerminal/Sources/CmuxMobileTerminal/GhosttySurfaceView.swift
+3664	Packages/CmuxMobileTerminal/Sources/CmuxMobileTerminal/GhosttySurfaceView.swift
 3397	Sources/CmuxConfig.swift
 3331	cmuxTests/TabManagerSessionSnapshotTests.swift
 3202	Sources/Update/UpdateTitlebarAccessory.swift
