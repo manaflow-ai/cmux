@@ -68,7 +68,7 @@ jobs:
       - name: Install web dependencies
         if: env.SNYK_TOKEN_PRESENT == 'true'
         working-directory: web
-        run: bun install --frozen-lockfile
+        run: bun install --frozen-lockfile --ignore-scripts
 
       - name: Snyk Open Source scan
         if: env.SNYK_TOKEN_PRESENT == 'true'

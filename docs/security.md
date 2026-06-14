@@ -7,7 +7,7 @@ cmux uses the `Snyk security` GitHub Actions workflow for rollout-safe security 
 - Snyk Code runs SAST against cmux Swift sources at `high` severity and above.
 - Snyk Open Source runs SCA against the docs site manifest at `web/package.json` at `high` severity and above.
 
-The v1 SCA scope is npm only. The workflow runs `bun install --frozen-lockfile` first, then tells Snyk to treat `web/package.json` as an npm project. Until Snyk supports `bun.lock` directly, Snyk resolves dependencies from the installed `web/node_modules` snapshot rather than parsing the Bun lockfile itself.
+The v1 SCA scope is npm only. The workflow runs `bun install --frozen-lockfile --ignore-scripts` first, then tells Snyk to treat `web/package.json` as an npm project. Lifecycle scripts stay disabled during install because the later SCA step receives `SNYK_TOKEN`. Until Snyk supports `bun.lock` directly, Snyk resolves dependencies from the installed `web/node_modules` snapshot rather than parsing the Bun lockfile itself.
 
 Swift Package Manager dependencies are resolved through `GhosttyTabs.xcodeproj/project.pbxproj` instead of a top-level `Package.swift` or `Package.resolved`, so SPM SCA needs a follow-up design before enabling.
 
