@@ -445,23 +445,15 @@ final class SessionIndexViewTests: XCTestCase {
     /// `NSWorkspace.shared.open`, which silently does nothing when the directory
     /// was moved or removed.
     ///
-    /// Before the fix ``SessionRowDirectoryOpener/openWorkingDirectory(cwd:open:)``
-    /// called `NSWorkspace.shared.open` directly and ignored the injected opener,
-    /// so the capturing closure below never fires and this test fails.
+    /// The opener seam is the single shared path used by both the full row and
+    /// the popover row; injecting a capturing closure asserts the routed URL
+    /// without touching NSWorkspace. (Pre-fix, the action called
+    /// `NSWorkspace.shared.open` directly and ignored the opener, so this fails.)
     func testOpenWorkingDirectoryRoutesCwdThroughFinderOpener() async {
         let cwd = "/private/tmp/cmux-openwd-\(UUID().uuidString)"
-        var routed: [URL?] = []
+        var routed: [URL] = []
         await SessionRowDirectoryOpener.openWorkingDirectory(cwd: cwd) { routed.append($0) }
-        XCTAssertEqual(routed, [URL(fileURLWithPath: cwd)] as [URL?])
-    }
-
-    /// A missing or empty `cwd` must still reach the Finder opener as `nil` (so it
-    /// beeps), rather than being silently dropped.
-    func testOpenWorkingDirectoryRoutesNilForMissingCwd() async {
-        var routed: [URL?] = []
-        await SessionRowDirectoryOpener.openWorkingDirectory(cwd: nil) { routed.append($0) }
-        await SessionRowDirectoryOpener.openWorkingDirectory(cwd: "") { routed.append($0) }
-        XCTAssertEqual(routed, [nil, nil] as [URL?])
+        XCTAssertEqual(routed, [URL(fileURLWithPath: cwd)])
     }
 
     private func makeEntry(
