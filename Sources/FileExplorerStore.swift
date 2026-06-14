@@ -1319,7 +1319,7 @@ enum GitStatusProvider {
     static func fetchStatus(directory: String) -> [String: GitFileStatus] {
         guard let repoRoot = gitRepoRoot(for: directory) else { return [:] }
         return parseGitStatus(
-            output: runGit(in: repoRoot, arguments: ["status", "--porcelain"]),
+            output: runGit(in: repoRoot, arguments: ["status", "--no-optional-locks", "--porcelain"]),
             repoRoot: repoRoot,
             explorerRoot: directory
         )
