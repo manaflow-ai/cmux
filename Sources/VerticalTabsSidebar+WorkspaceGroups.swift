@@ -37,7 +37,13 @@ extension VerticalTabsSidebar {
             workspaceCount: renderContext.workspaceCount
         )
         let modifierSymbol = renderContext.workspaceNumberShortcut.numberedDigitHintPrefix
+        // Match the regular workspace row's hint gating: show on modifier-hold OR
+        // when always-show is enabled. Reading only `isModifierPressed` here made
+        // the group header skip its ⌘N badge whenever rows showed theirs via the
+        // always-show path (e.g. CMUX_UI_TEST_SHORTCUT_HINTS_ALWAYS_SHOW), leaving
+        // a gap at the anchor's slot. See TabItemView.showsWorkspaceShortcutHint.
         let showsHintForAnchor = modifierKeyMonitor.isModifierPressed
+            || settings.alwaysShowShortcutHints
         let topDropIndicatorVisible = SidebarTabDropIndicatorPredicate.topVisible(
             forTabId: group.anchorWorkspaceId,
             draggedTabId: dragState.draggedTabId,
