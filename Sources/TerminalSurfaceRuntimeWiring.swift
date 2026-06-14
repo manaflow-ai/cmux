@@ -147,7 +147,9 @@ extension TerminalSurface {
         initialInput: String? = nil,
         initialEnvironmentOverrides: [String: String] = [:],
         additionalEnvironment: [String: String] = [:],
-        focusPlacement: TerminalSurfaceFocusPlacement = .workspace
+        focusPlacement: TerminalSurfaceFocusPlacement = .workspace,
+        manualIO: Bool = false,
+        manualInputHandler: (@Sendable (Data) -> Void)? = nil
     ) {
         self.init(
             id: id,
@@ -162,6 +164,8 @@ extension TerminalSurface {
             initialEnvironmentOverrides: initialEnvironmentOverrides,
             additionalEnvironment: additionalEnvironment,
             focusPlacement: focusPlacement,
+            manualIO: manualIO,
+            manualInputHandler: manualInputHandler,
             dependencies: GhosttyApp.terminalSurfaceRuntimeDependencies
         )
     }

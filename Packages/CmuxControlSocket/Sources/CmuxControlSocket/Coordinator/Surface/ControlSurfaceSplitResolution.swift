@@ -29,6 +29,14 @@ public enum ControlSurfaceSplitResolution: Sendable, Equatable {
     /// The split creation failed (legacy `internal_error` / "Failed to create
     /// split").
     case createFailed
+    /// The request carried options the routed remote tmux `split-window`
+    /// cannot honor; rejected BEFORE the remote session was mutated (an error
+    /// after the mutation invites retries that duplicate remote panes).
+    case mirrorUnsupportedOptions([String])
+    /// The split was routed to the remote tmux mirror backing the workspace.
+    /// No local surface exists yet — it arrives asynchronously via the
+    /// mirror's `%layout-change` handling, so there is no surface id to echo.
+    case routedToRemote(windowID: UUID?, workspaceID: UUID, typeRawValue: String)
     /// The split was created. Carries the echoed identity and the resulting panel
     /// type (which may be `nil` if the new panel could not be re-read).
     case created(

@@ -3971,6 +3971,12 @@ struct CMUXCLI {
                 idFormat: idFormat,
                 windowOverride: windowId
             )
+        case "ssh-tmux":
+            try runRemoteTmux(
+                commandArgs: commandArgs,
+                client: client,
+                jsonOutput: jsonOutput
+            )
         case "ssh-pty-attach":
             try runSSHPTYAttach(commandArgs: commandArgs, client: client)
         case "ssh-session-list":
@@ -4022,7 +4028,7 @@ struct CMUXCLI {
             if let sfId { params["surface_id"] = sfId }
             try applyFocusOption(focusOpt, defaultValue: false, to: &params)
             let payload = try client.sendV2(method: "surface.split", params: params)
-            printV2Payload(payload, jsonOutput: jsonOutput, idFormat: idFormat, fallbackText: v2OKSummary(payload, idFormat: idFormat))
+            printV2Payload(payload, jsonOutput: jsonOutput, idFormat: idFormat, fallbackText: v2CreationSummary(payload, idFormat: idFormat))
 
         case "list-panes":
             let workspaceArg = workspaceFromArgsOrEnv(commandArgs, windowOverride: windowId)
@@ -4118,7 +4124,7 @@ struct CMUXCLI {
             if let url { params["url"] = url }
             try applyFocusOption(focusOpt, defaultValue: false, to: &params)
             let payload = try client.sendV2(method: "pane.create", params: params)
-            printV2Payload(payload, jsonOutput: jsonOutput, idFormat: idFormat, fallbackText: v2OKSummary(payload, idFormat: idFormat, kinds: ["surface", "pane", "workspace"]))
+            printV2Payload(payload, jsonOutput: jsonOutput, idFormat: idFormat, fallbackText: v2CreationSummary(payload, idFormat: idFormat, kinds: ["surface", "pane", "workspace"]))
 
         case "new-surface":
             let workspaceArg = workspaceFromArgsOrEnv(commandArgs, windowOverride: windowId)
@@ -4146,7 +4152,7 @@ struct CMUXCLI {
             }
             try applyFocusOption(focusOpt, defaultValue: false, to: &params)
             let payload = try client.sendV2(method: "surface.create", params: params)
-            printV2Payload(payload, jsonOutput: jsonOutput, idFormat: idFormat, fallbackText: v2OKSummary(payload, idFormat: idFormat, kinds: ["surface", "pane", "workspace"]))
+            printV2Payload(payload, jsonOutput: jsonOutput, idFormat: idFormat, fallbackText: v2CreationSummary(payload, idFormat: idFormat, kinds: ["surface", "pane", "workspace"]))
 
         case "surface":
             try runSurfaceCommand(
@@ -5267,6 +5273,7 @@ struct CMUXCLI {
         "ssh-session-cleanup",
         "ssh-session-end",
         "ssh-session-list",
+        "ssh-tmux",
         "surface",
         "surface-health",
         "surface-resume",
@@ -8085,6 +8092,205 @@ struct CMUXCLI {
         )
     }
 
+    /// `cmux ssh-tmux <destination>` — open a dedicated cmux window mirroring a remote
+    /// host's tmux sessions over `tmux -CC` (the remote-tmux beta).
+    ///
+    /// Unlike `cmux ssh`, this carries no cmuxd-remote/relay bootstrap: it only
+    /// drives the SSH ControlMaster the mirror multiplexes over. The app's mirror
+    /// control client uses plain pipes and cannot service interactive auth, so if
+    /// the host needs a password / host-key confirmation / MFA / FIDO touch, the
+    /// app returns the `ssh` argv and this CLI runs it **inline in the user's
+    /// terminal** (which supplies the tty), then retries the mirror over the
+    /// now-authenticated master.
+    private func runRemoteTmux(
+        commandArgs: [String],
+        client: SocketClient,
+        jsonOutput: Bool
+    ) throws {
+        var destination: String?
+        var port: Int?
+        var identityFile: String?
+        var noFocus = false
+
+        // Intentional subset of parseSSHCommandOptions: the mirror verb has a
+        // different pipeline (no relay/cmuxd bootstrap, no `--` passthrough, no
+        // --ssh-option/--name/--window), so it parses only the flags it supports
+        // rather than reusing the heavier SSH-workspace parser.
+        var index = 0
+        while index < commandArgs.count {
+            let arg = commandArgs[index]
+            switch arg {
+            case "--port":
+                guard index + 1 < commandArgs.count else {
+                    throw CLIError(message: "ssh-tmux: --port requires a value")
+                }
+                guard let parsed = Int(commandArgs[index + 1]), parsed > 0, parsed <= 65535 else {
+                    throw CLIError(message: "ssh-tmux: --port must be 1-65535")
+                }
+                port = parsed
+                index += 2
+            case "--identity":
+                guard index + 1 < commandArgs.count else {
+                    throw CLIError(message: "ssh-tmux: --identity requires a path")
+                }
+                identityFile = commandArgs[index + 1]
+                index += 2
+            case "--no-focus":
+                noFocus = true
+                index += 1
+            default:
+                if arg.hasPrefix("-") {
+                    throw CLIError(
+                        message: "ssh-tmux: destination must be <user@host> or an ssh alias. Use --port/--identity for SSH flags."
+                    )
+                }
+                if destination == nil {
+                    destination = arg
+                } else {
+                    throw CLIError(message: "ssh-tmux: unexpected extra argument '\(arg)'")
+                }
+                index += 1
+            }
+        }
+
+        guard let destination else {
+            throw CLIError(message: "ssh-tmux requires a destination (example: cmux ssh-tmux user@host)")
+        }
+
+        var params: [String: Any] = ["host": destination]
+        if let port { params["port"] = port }
+        if let identityFile, !identityFile.isEmpty { params["identity_file"] = identityFile }
+        if noFocus { params["activate"] = false }
+
+        // The first call runs a non-interactive (BatchMode) discovery in the app,
+        // which can take a couple of seconds; show progress so it doesn't look idle.
+        if !jsonOutput {
+            print("Connecting to \(destination)…")
+        }
+
+        // The app reports `auth_required` at most once per attempt; run the
+        // returned interactive ssh, then retry exactly once. `didAuthenticate`
+        // bounds the loop so a host that keeps reporting auth-required can't spin.
+        var didAuthenticate = false
+        while true {
+            let result = try client.sendV2(
+                method: "remote.tmux.window",
+                params: params,
+                responseTimeout: 75  // > the app-side 60s timeout, so the app's result/error always arrives first
+            )
+            if (result["mirrored"] as? Bool) == true {
+                if jsonOutput {
+                    print(jsonString(result))
+                } else {
+                    let windowId = (result["window_id"] as? String) ?? ""
+                    print("OK host=\(destination) window=\(windowId)")
+                }
+                return
+            }
+            if (result["auth_required"] as? Bool) == true {
+                guard !didAuthenticate else {
+                    throw CLIError(
+                        message: "ssh-tmux: authentication did not open the connection to \(destination)"
+                    )
+                }
+                guard let sshArgv = result["ssh_argv"] as? [String], !sshArgv.isEmpty else {
+                    throw CLIError(
+                        message: "ssh-tmux: cmux did not return an ssh command for authentication"
+                    )
+                }
+                try runInteractiveAuthSSH(sshArgv: sshArgv, destination: destination)
+                didAuthenticate = true
+                // Retry immediately so the just-opened ControlMaster (ControlPersist)
+                // is still warm; tell the user we're proceeding.
+                if !jsonOutput {
+                    print("Authenticated; opening remote tmux mirror for \(destination)…")
+                }
+                continue
+            }
+            throw CLIError(message: "ssh-tmux: unexpected response from cmux")
+        }
+    }
+
+    /// Runs an `ssh` argv interactively in the user's terminal so password /
+    /// host-key / MFA / FIDO prompts work as in a normal SSH. The spawned ssh is
+    /// made the terminal's foreground process group (Foundation otherwise spawns it
+    /// backgrounded, where its tty read would be SIGTTIN-stopped and hang with no
+    /// prompt).
+    ///
+    /// The argv is supplied by the app over the authenticated control socket, but
+    /// as defense in depth the executable is required to be an `ssh` binary — the
+    /// CLI never execs an arbitrary command handed back from a socket response.
+    private func runInteractiveAuthSSH(sshArgv: [String], destination: String) throws {
+        // Interactive auth needs a controlling tty to prompt on. In a non-tty
+        // context (script, pipe, URL handler) ssh can't prompt and would hang or
+        // fail opaquely, so refuse early with an actionable message.
+        guard isatty(STDIN_FILENO) == 1 else {
+            throw CLIError(
+                message: "ssh-tmux: \(destination) needs interactive authentication, which requires a terminal. Run `cmux ssh-tmux \(destination)` directly from an interactive shell."
+            )
+        }
+        // The app builds this argv with a hardcoded /usr/bin/ssh; require exactly
+        // that. A basename check would accept a planted /tmp/ssh — pin the full
+        // path so the CLI never execs an arbitrary command returned over the socket.
+        let allowedSSHPaths: Set<String> = ["/usr/bin/ssh"]
+        guard let executable = sshArgv.first, allowedSSHPaths.contains(executable) else {
+            throw CLIError(message: "ssh-tmux: refusing to run a non-standard ssh path for authentication")
+        }
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: executable)
+        process.arguments = Array(sshArgv.dropFirst())
+        process.standardInput = FileHandle.standardInput
+        process.standardOutput = FileHandle.standardOutput
+        process.standardError = FileHandle.standardError
+
+        // Foundation spawns the child in its OWN process group, so ssh starts as a
+        // BACKGROUND job of the terminal. ssh's password / host-key / MFA prompt
+        // reads from the controlling tty, and a background tty read raises SIGTTIN,
+        // which STOPS ssh — it hangs forever with no prompt (cert/agent hosts never
+        // read the tty, so they were unaffected). Hand the terminal's foreground
+        // process group to the child (and SIGCONT it in case it already stopped) so
+        // it can prompt, exactly as the other interactive-child CLI paths do; the
+        // `defer` reclaims the foreground for this CLI when ssh exits.
+        let originalForegroundProcessGroup = tcgetpgrp(STDIN_FILENO)
+        var didForegroundChild = false
+        do {
+            try process.run()
+        } catch {
+            throw CLIError(message: "ssh-tmux: failed to launch ssh: \(String(describing: error))")
+        }
+        if originalForegroundProcessGroup > 0 {
+            let childProcessGroup = getpgid(process.processIdentifier)
+            if childProcessGroup > 0 && childProcessGroup != originalForegroundProcessGroup {
+                do {
+                    try setTerminalForegroundProcessGroup(childProcessGroup)
+                } catch {
+                    // The handoff is required: without the terminal foreground, ssh's
+                    // prompt SIGTTIN-stops and waitUntilExit() below hangs forever (the
+                    // exact bug this dance prevents). Continue the child in case it
+                    // already stopped, kill it, and fail loudly instead of hanging.
+                    _ = Darwin.kill(-childProcessGroup, SIGCONT)
+                    process.terminate()
+                    throw CLIError(
+                        message: "ssh-tmux: couldn't hand the terminal to ssh for \(destination); aborting to avoid a hang (\(String(describing: error)))"
+                    )
+                }
+                _ = Darwin.kill(-childProcessGroup, SIGCONT)
+                didForegroundChild = true
+            }
+        }
+        defer {
+            if didForegroundChild {
+                try? setTerminalForegroundProcessGroup(originalForegroundProcessGroup)
+            }
+        }
+        process.waitUntilExit()
+        guard process.terminationStatus == 0 else {
+            throw CLIError(
+                message: "ssh-tmux: ssh authentication to \(destination) failed (exit \(process.terminationStatus))"
+            )
+        }
+    }
+
     /// Generic "open a workspace, SSH into the remote, bootstrap cmuxd-remote, forward socket,
     /// drop the user in a shell" pipeline. The inner loop of `cmux ssh`; also called from
     /// `cmux vm new`/`shell`/`attach` so cloud VMs reuse the exact same bootstrap.
@@ -10543,7 +10749,7 @@ struct CMUXCLI {
             output,
             jsonOutput: jsonOutput,
             idFormat: idFormat,
-            fallbackText: v2OKSummary(output, idFormat: idFormat, kinds: ["surface", "pane", "workspace"])
+            fallbackText: v2CreationSummary(output, idFormat: idFormat, kinds: ["surface", "pane", "workspace"])
         )
     }
 
@@ -14261,6 +14467,32 @@ struct CMUXCLI {
               cmux ssh dev@my-host --forward-agent
               cmux ssh dev@my-host --ssh-option UserKnownHostsFile=/dev/null --ssh-option StrictHostKeyChecking=no
             """)
+        case "ssh-tmux":
+            return String(localized: "cli.help.ssh-tmux", defaultValue: """
+            Usage: cmux ssh-tmux <destination> [--port <n>] [--identity <path>] [--no-focus]
+
+            Open a dedicated cmux window that mirrors a remote host's tmux sessions over
+            tmux control mode (tmux -CC) via SSH: each tmux session becomes a workspace,
+            each window a tab, and a multi-pane window a native split. Requires the
+            "Remote tmux" beta to be enabled in Settings.
+
+            If the host needs interactive authentication (password, host-key confirmation,
+            MFA, or a security-key touch), cmux runs ssh inline in this terminal so you can
+            authenticate, then mirrors the sessions over the shared SSH connection. Hosts
+            that authenticate non-interactively (ssh-agent / key in ~/.ssh/config) mirror
+            with no prompt. ~/.ssh/config aliases and their IdentityFile/ProxyJump/Port
+            settings are honored.
+
+            Flags:
+              --port <n>          SSH port
+              --identity <path>   SSH identity file path
+              --no-focus          Open the mirror window without activating it
+
+            Example:
+              cmux ssh-tmux dev@my-host
+              cmux ssh-tmux my-ssh-alias
+              cmux ssh-tmux dev@my-host --port 2222 --identity ~/.ssh/id_ed25519
+            """)
         case "ssh-session-list":
             return """
             Usage: cmux ssh-session-list [--workspace <id|ref|index> | --all-workspaces]
@@ -16036,6 +16268,21 @@ struct CMUXCLI {
                 parts.append(handle)
             }
         }
+        return parts.joined(separator: " ")
+    }
+
+    /// Summary for surface.split / surface.create responses, which report
+    /// `accepted: true` (and no surface id) when the request was routed to a
+    /// remote tmux mirror — the new pane arrives asynchronously.
+    func v2CreationSummary(_ payload: [String: Any], idFormat: CLIIDFormat, kinds: [String] = ["surface", "workspace"]) -> String {
+        guard (payload["accepted"] as? Bool) == true else {
+            return v2OKSummary(payload, idFormat: idFormat, kinds: kinds)
+        }
+        var parts = ["OK", "accepted"]
+        if let handle = formatHandle(payload, kind: "workspace", idFormat: idFormat) {
+            parts.append(handle)
+        }
+        parts.append("(routed to remote tmux; the new pane arrives asynchronously)")
         return parts.joined(separator: " ")
     }
 
@@ -19406,6 +19653,12 @@ struct CMUXCLI {
             }
 
             let created = try socketClient.sendV2(method: "surface.split", params: splitParams)
+            if (created["accepted"] as? Bool) == true {
+                // Routed to a remote tmux mirror: the pane was created on the
+                // remote session and there is no local surface id to attach the
+                // subagent to. Retrying would duplicate the remote pane.
+                throw CLIError(message: "Codex subagent panes are not supported in remote tmux mirror workspaces (surface.split was routed to the remote tmux session)")
+            }
             guard let surfaceId = created["surface_id"] as? String else {
                 throw CLIError(message: "surface.split did not return surface_id")
             }
@@ -21116,6 +21369,7 @@ struct CMUXCLI {
             if let startCommand = tmuxStartCommand(commandTokens: parsed.positional) {
                 splitParams["tmux_start_command"] = startCommand
             }
+            if parsed.hasFlag("-P") { splitParams["remote_tmux_unsupported_options"] = ["-P"] }
             let sizeTargetPaneId = target.paneId
                 ?? (try? tmuxResolvePaneTarget(parsed.value("-t"), client: client).paneId)
                 ?? (try? tmuxPaneIdForSurface(
@@ -21135,6 +21389,18 @@ struct CMUXCLI {
                 splitParams["initial_divider_position"] = dividerPosition
             }
             let created = try client.sendV2(method: "surface.split", params: splitParams)
+            if (created["accepted"] as? Bool) == true {
+                // Routed to a remote tmux mirror: the split was applied to the
+                // remote tmux session and the pane arrives asynchronously.
+                // Option-carrying requests (command, cwd, sizing) are rejected
+                // server-side BEFORE the remote mutation, so reaching here
+                // means a plain split: succeed quietly (tmux split-window
+                // prints nothing without -P) and skip local layout tracking.
+                // Erroring here would invite retries that duplicate the
+                // already-created remote pane. Current apps reject -P before
+                // routing; if an older app still accepts it, the split already happened.
+                break
+            }
             guard let surfaceId = created["surface_id"] as? String else {
                 throw CLIError(message: "surface.split did not return surface_id")
             }
@@ -33259,6 +33525,7 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
           list-workspaces [--window <id|ref|index>]
           new-workspace [--name <title>] [--description <text>] [--cwd <path>] [--command <text>] [--layout <json>] [--window <id|ref|index>] [--focus <true|false>]
           ssh <destination> [--name <title>] [--port <n>] [--identity <path>] [-A|--forward-agent] [-a|--no-forward-agent] [--ssh-option <opt>] [--window <id|ref|index>] [--no-focus] [-- <remote-command-args>]
+          ssh-tmux <destination> [--port <n>] [--identity <path>] [--no-focus]
           ssh-session-list [--workspace <id|ref|index> | --all-workspaces]
           ssh-session-attach --session-id <id> [--workspace <id|ref|index>] [--pane <id|ref|index> | --split <left|right|up|down>]
           ssh-session-cleanup [--workspace <id|ref|index> | --all-workspaces] (--session-id <id> | --all)
