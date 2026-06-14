@@ -6,6 +6,9 @@ public struct CmxMobileDefaults {
 
     /// The default daemon host port mobile clients dial when none is supplied.
     public static let defaultHostPort = 58_465
+    /// Shared Mac/iOS pairing compatibility level. Bump this only when current
+    /// clients can pair but may behave incorrectly without explicit user approval.
+    public static let pairingCompatibilityVersion = 1
 }
 
 public enum CmxAttachTransportKind: String, Codable, Sendable {
@@ -25,6 +28,11 @@ public enum MobileSyncPairingPayloadError: Error, Equatable, Sendable {
     case forbiddenSecretField(String)
     case invalidURL
     case invalidPayloadEncoding
+    /// A scanned/pasted pairing code only offered loopback routes. A QR or
+    /// deep link pointing at `127.0.0.1` would make the phone dial itself,
+    /// so it is rejected with a clear error instead of a doomed connect;
+    /// loopback pairing is reserved for the dev-injected attach URL path.
+    case loopbackRouteRejected
 }
 
 public struct MobileSyncPairingPayload: Equatable, Sendable, Codable {

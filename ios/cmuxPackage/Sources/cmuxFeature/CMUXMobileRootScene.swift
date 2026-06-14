@@ -46,6 +46,12 @@ public struct CMUXMobileRootScene: View {
     /// non-iOS roots, which simply shows no Tailscale guidance.
     private let tailscaleStatusMonitor: (any TailscaleStatusObserving)?
     private let pairedMacStore: (any MobilePairedMacStoring)?
+    /// Per-terminal composer drafts for the app session, so an unsent message
+    /// survives keyboard dismiss and terminal switches. In-memory only for now;
+    /// a disk-backed ``TerminalDraftStoring`` (drafts surviving relaunch) lands
+    /// separately and replaces this at the composition root without touching the
+    /// shell.
+    private let draftStore: any TerminalDraftStoring
     #if DEBUG
     /// The structured diagnostic log injected into the shell store so the DEV
     /// dogfood feedback round-trip can export it. DEBUG-only; `nil` when the app
@@ -91,6 +97,7 @@ public struct CMUXMobileRootScene: View {
         self.onboardingStore = onboardingStore
         self.tailscaleStatusMonitor = tailscaleStatusMonitor
         self.pairedMacStore = Self.openPairedMacStore()
+        self.draftStore = InMemoryTerminalDraftStore()
         #if DEBUG
         self.diagnosticLog = diagnosticLog
         #endif
@@ -109,6 +116,7 @@ public struct CMUXMobileRootScene: View {
         self.analytics = analytics
         self.tailscaleStatusMonitor = nil
         self.pairedMacStore = Self.openPairedMacStore()
+        self.draftStore = InMemoryTerminalDraftStore()
         #if DEBUG
         self.diagnosticLog = nil
         #endif
@@ -148,6 +156,24 @@ public struct CMUXMobileRootScene: View {
         )
     }
 
+    /// Build the live presence subscription client (the `workers/presence`
+    /// Durable Object edge). `nil` when no service URL resolves for this build
+    /// (Release without an explicit override), which keeps presence entirely
+    /// off; auth mirrors `makeDeviceRegistry()` so the stream always carries
+    /// the current session and selected team.
+    @MainActor
+    private func makePresenceClient() -> PresenceClient? {
+        guard let baseURL = PresenceClient.resolvedServiceBaseURL() else { return nil }
+        let coordinator = auth.coordinator
+        return PresenceClient(
+            serviceBaseURL: baseURL,
+            tokenSource: PresenceTokenSource(
+                accessToken: { try? await coordinator.accessToken() }
+            ),
+            teamIDProvider: { await coordinator.resolvedTeamID }
+        )
+    }
+
     public var body: some View {
         content
             .environment(auth.coordinator)
@@ -180,24 +206,36 @@ public struct CMUXMobileRootScene: View {
     private func makeStore() -> CMUXMobileShellStore {
         let identityProvider = AuthCoordinatorIdentityProvider(coordinator: auth.coordinator)
         let deviceRegistry = makeDeviceRegistry()
+        let feedbackEmailSubmitter = MobileFeedbackEmailClient(apiBaseURL: auth.config.apiBaseURL)
+        let feedbackStampProvider: @MainActor () -> MobileFeedbackStamp = {
+            MobileFeedbackStamp.current()
+        }
         #if DEBUG
         return CMUXMobileShellStore(
             runtime: runtime,
             pairedMacStore: pairedMacStore,
             deviceRegistry: deviceRegistry,
+            presence: makePresenceClient(),
             identityProvider: identityProvider,
             reachability: reachability,
             analytics: analytics,
-            diagnosticLog: diagnosticLog
+            diagnosticLog: diagnosticLog,
+            feedbackEmailSubmitter: feedbackEmailSubmitter,
+            feedbackStampProvider: feedbackStampProvider,
+            draftStore: draftStore
         )
         #else
         return CMUXMobileShellStore(
             runtime: runtime,
             pairedMacStore: pairedMacStore,
             deviceRegistry: deviceRegistry,
+            presence: makePresenceClient(),
             identityProvider: identityProvider,
             reachability: reachability,
-            analytics: analytics
+            analytics: analytics,
+            feedbackEmailSubmitter: feedbackEmailSubmitter,
+            feedbackStampProvider: feedbackStampProvider,
+            draftStore: draftStore
         )
         #endif
     }

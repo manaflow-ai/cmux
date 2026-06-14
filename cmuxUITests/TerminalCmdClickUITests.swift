@@ -11,6 +11,7 @@ final class TerminalCmdClickUITests: XCTestCase {
         case grid
         case log
         case altScreenLog = "alt_screen_log"
+        case osc8
     }
 
     private struct SetupData {
@@ -20,6 +21,7 @@ final class TerminalCmdClickUITests: XCTestCase {
 
     private var hoverDiagnosticsPath = ""
     private var openCapturePath = ""
+    private var openURLCapturePath = ""
     private var setupDataPath = ""
     private var commandPath = ""
     private var fixtureDirectoryURL: URL!
@@ -32,11 +34,13 @@ final class TerminalCmdClickUITests: XCTestCase {
             .appendingPathComponent("cmux-ui-test-terminal-cmd-click-\(UUID().uuidString)", isDirectory: true)
         hoverDiagnosticsPath = fixtureDirectoryURL.appendingPathComponent("hover.json").path
         openCapturePath = fixtureDirectoryURL.appendingPathComponent("open.log").path
+        openURLCapturePath = fixtureDirectoryURL.appendingPathComponent("open-url.log").path
         setupDataPath = fixtureDirectoryURL.appendingPathComponent("setup.json").path
         commandPath = fixtureDirectoryURL.appendingPathComponent("command.json").path
 
         try? FileManager.default.removeItem(atPath: hoverDiagnosticsPath)
         try? FileManager.default.removeItem(atPath: openCapturePath)
+        try? FileManager.default.removeItem(atPath: openURLCapturePath)
         try? FileManager.default.removeItem(atPath: setupDataPath)
         try? FileManager.default.removeItem(atPath: commandPath)
         try? FileManager.default.createDirectory(at: fixtureDirectoryURL, withIntermediateDirectories: true)
@@ -52,6 +56,7 @@ final class TerminalCmdClickUITests: XCTestCase {
     override func tearDown() {
         try? FileManager.default.removeItem(atPath: hoverDiagnosticsPath)
         try? FileManager.default.removeItem(atPath: openCapturePath)
+        try? FileManager.default.removeItem(atPath: openURLCapturePath)
         try? FileManager.default.removeItem(atPath: setupDataPath)
         try? FileManager.default.removeItem(atPath: commandPath)
         try? FileManager.default.removeItem(at: fixtureDirectoryURL)
@@ -126,7 +131,8 @@ final class TerminalCmdClickUITests: XCTestCase {
             "Expected cmd-click to resolve the escaped-space path to the real file. result=\(result)"
         )
 
-        guard let openedPaths = waitForCapturedOpenPaths(timeout: 5.0) else {
+        let openedPaths = waitForCapturedOpenPaths(timeout: 5.0)
+        guard !openedPaths.isEmpty else {
             XCTFail("Expected cmd-click capture log after running the command harness. result=\(result)")
             return
         }
@@ -163,7 +169,8 @@ final class TerminalCmdClickUITests: XCTestCase {
             "Expected cmd-click to resolve the raw-space path to the real file. result=\(result)"
         )
 
-        guard let openedPaths = waitForCapturedOpenPaths(timeout: 5.0) else {
+        let openedPaths = waitForCapturedOpenPaths(timeout: 5.0)
+        guard !openedPaths.isEmpty else {
             XCTFail("Expected cmd-click capture log after running the raw-space command harness. result=\(result)")
             return
         }
@@ -171,6 +178,44 @@ final class TerminalCmdClickUITests: XCTestCase {
         XCTAssertTrue(
             openedPaths.contains(expectedPath),
             "Expected cmd-click to resolve the raw-space path to the real file. opened=\(openedPaths) expected=\(expectedPath)"
+        )
+    }
+
+    func testStationaryCmdClickOsc8FileHyperlinkOpensURL() throws {
+        let fileName = "Issue 3557 Link.md"
+        let app = launchApp(
+            displayMode: .raw,
+            lineFormat: .osc8,
+            fileName: fileName,
+            captureOpenPaths: false,
+            captureHoverDiagnostics: false
+        )
+        defer { app.terminate() }
+
+        let setup = try waitForReadySetup()
+        let expectedURL = URL(fileURLWithPath: expectedPath(for: fileName)).absoluteString
+        XCTAssertEqual(URL(fileURLWithPath: setup.expectedPath).absoluteString, expectedURL)
+
+        let result = try runCommand(action: "stationary_cmd_click_token")
+        XCTAssertEqual(
+            result["lastCommandSucceeded"] as? String,
+            "1",
+            "Expected stationary cmd-click on an OSC 8 file hyperlink to open the URL. result=\(result)"
+        )
+        XCTAssertEqual(
+            result["lastCommandOpenedURL"] as? String,
+            expectedURL,
+            "Expected OSC 8 cmd-click to route through Ghostty's open-url action. result=\(result)"
+        )
+
+        let openedURLs = waitForCapturedOpenPaths(timeout: 5.0, path: openURLCapturePath)
+        guard !openedURLs.isEmpty else {
+            XCTFail("Expected open capture after stationary OSC 8 cmd-click. result=\(result)")
+            return
+        }
+        XCTAssertTrue(
+            openedURLs.contains(expectedURL),
+            "Expected stationary OSC 8 cmd-click to open \(expectedURL). opened=\(openedURLs)"
         )
     }
 
@@ -209,7 +254,8 @@ final class TerminalCmdClickUITests: XCTestCase {
             )
         }
 
-        guard let openedPaths = waitForCapturedOpenPaths(timeout: 5.0) else {
+        let openedPaths = waitForCapturedOpenPaths(timeout: 5.0)
+        guard !openedPaths.isEmpty else {
             XCTFail("Expected cmd-click capture log after forcing a quicklook mismatch. result=\(result)")
             return
         }
@@ -264,7 +310,8 @@ final class TerminalCmdClickUITests: XCTestCase {
             )
         }
 
-        guard let openedPaths = waitForCapturedOpenPaths(timeout: 5.0) else {
+        let openedPaths = waitForCapturedOpenPaths(timeout: 5.0)
+        guard !openedPaths.isEmpty else {
             XCTFail("Expected cmd-click capture log after forcing a viewport mismatch. result=\(result)")
             return
         }
@@ -612,7 +659,8 @@ final class TerminalCmdClickUITests: XCTestCase {
             "Expected cmd-click to open the full spaced path, not a suffix token. result=\(result)"
         )
 
-        guard let openedPaths = waitForCapturedOpenPaths(timeout: 5.0) else {
+        let openedPaths = waitForCapturedOpenPaths(timeout: 5.0)
+        guard !openedPaths.isEmpty else {
             XCTFail("Expected open capture after cmd-clicking the spaced path. result=\(result)")
             return
         }
@@ -790,6 +838,9 @@ final class TerminalCmdClickUITests: XCTestCase {
         if captureOpenPaths {
             app.launchEnvironment["CMUX_UI_TEST_CAPTURE_OPEN_PATH"] = openCapturePath
         }
+        if lineFormat == .osc8 {
+            app.launchEnvironment["CMUX_UI_TEST_CAPTURE_OPEN_URL_PATH"] = openURLCapturePath
+        }
         if captureHoverDiagnostics {
             app.launchEnvironment["CMUX_UI_TEST_CMD_HOVER_DIAGNOSTICS_PATH"] = hoverDiagnosticsPath
         }
@@ -803,19 +854,20 @@ final class TerminalCmdClickUITests: XCTestCase {
         return app
     }
 
-    private func waitForCapturedOpenPaths(timeout: TimeInterval) -> [String]? {
-        var openedPaths: [String]?
+    private func waitForCapturedOpenPaths(timeout: TimeInterval, path: String? = nil) -> [String] {
+        var openedPaths: [String] = []
         let matched = waitForCondition(timeout: timeout) {
-            let lines = self.loadCapturedOpenPaths()
+            let lines = self.loadCapturedOpenPaths(path: path)
             guard !lines.isEmpty else { return false }
             openedPaths = lines
             return true
         }
-        return matched ? openedPaths : nil
+        return matched ? openedPaths : []
     }
 
-    private func loadCapturedOpenPaths() -> [String] {
-        guard let contents = try? String(contentsOfFile: openCapturePath, encoding: .utf8) else {
+    private func loadCapturedOpenPaths(path: String? = nil) -> [String] {
+        let capturePath = path ?? openCapturePath
+        guard let contents = try? String(contentsOfFile: capturePath, encoding: .utf8) else {
             return []
         }
 
