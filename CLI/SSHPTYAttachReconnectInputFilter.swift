@@ -99,7 +99,6 @@ final class SSHPTYAttachReconnectInputFilter {
             }
         }
 
-        isFiltering = false
         return output
     }
 
@@ -147,7 +146,7 @@ final class SSHPTYAttachReconnectInputFilter {
         }
 
         guard cursor < bytes.count else {
-            return .passThrough
+            return isOSCColorReplyCommandPrefix(command) ? .incomplete : .passThrough
         }
         guard bytes[cursor] == semicolon else {
             return .passThrough
@@ -190,6 +189,13 @@ final class SSHPTYAttachReconnectInputFilter {
             cursor += 1
         }
         return .incomplete
+    }
+
+    private static func isOSCColorReplyCommandPrefix(_ command: [UInt8]) -> Bool {
+        command.isEmpty ||
+            command == [0x31] ||
+            command == [0x31, 0x30] ||
+            command == [0x31, 0x31]
     }
 
     private static func shouldStripCSIReply(bytes: [UInt8], bodyStart: Int, finalIndex: Int) -> Bool {
