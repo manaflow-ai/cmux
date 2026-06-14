@@ -1,3 +1,4 @@
+internal import CMUXMobileCore
 public import CmuxMobileShellModel
 public import Foundation
 
@@ -39,11 +40,12 @@ public struct MobileRootAuthGate {
         )
     }
 
-    /// Whether a URL is a cmux attach deep link (`cmux-ios://attach`).
+    /// Whether a URL is a cmux attach deep link (a `<scheme>://attach` URL in
+    /// any channel's pairing scheme; see ``CmxPairingURLScheme``).
     /// - Parameter url: The URL to classify.
     /// - Returns: `true` when the URL is an attach deep link.
     public static func isAttachURL(_ url: URL) -> Bool {
-        guard url.scheme?.caseInsensitiveCompare("cmux-ios") == .orderedSame else {
+        guard CmxPairingURLScheme.isPairingScheme(url.scheme) else {
             return false
         }
         return url.host?.caseInsensitiveCompare("attach") == .orderedSame
