@@ -72,6 +72,8 @@ extension KeyboardShortcutSettings.Action {
             switch self {
             case .application:
                 return .always
+            case .mainWorkspace:
+                return .not(.atom(.sidebarFocus))
             case .nonBrowserPanel:
                 return .and(.not(.atom(.browserFocus)), .not(.atom(.sidebarFocus)))
             case .browserPanel:
