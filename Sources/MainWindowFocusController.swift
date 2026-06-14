@@ -85,6 +85,7 @@ final class MainWindowFocusController {
         self.tabManager = tabManager
         self.fileExplorerState = fileExplorerState
         self.rememberedRightSidebarMode = fileExplorerState?.mode
+        syncBonsplitTabShortcutHintEligibility()
     }
 
     func update(
