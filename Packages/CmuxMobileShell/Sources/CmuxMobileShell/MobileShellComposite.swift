@@ -2440,16 +2440,30 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             ticket: probeTicket,
             allowsStackAuthFallback: true
         )
-        let resultData = try await client.sendRequest(
-            MobileCoreRPCClient.requestData(
-                method: "mobile.attach_ticket.create",
-                params: [
-                    "ttl_seconds": 3600,
-                    "scope": "mac",
-                ]
-            ),
-            timeoutNanoseconds: runtime.pairingRequestTimeoutNanoseconds
-        )
+        let generation = connectionAttemptGeneration
+        let resultData: Data
+        do {
+            resultData = try await client.sendRequest(
+                MobileCoreRPCClient.requestData(
+                    method: "mobile.attach_ticket.create",
+                    params: [
+                        "ttl_seconds": 3600,
+                        "scope": "mac",
+                    ]
+                ),
+                timeoutNanoseconds: runtime.pairingRequestTimeoutNanoseconds
+            )
+        } catch {
+            // This pre-connect probe reaches the Mac too. If it connected before
+            // being rejected, record that the Mac was reached so an auth/trust
+            // rejection here resolves the checklist with the network gate cleared
+            // (issue #6084). Re-check the generation after the await so a superseded
+            // attempt can't write the flag back.
+            if await client.didAttemptHostSend(), isCurrentConnectionAttempt(generation) {
+                pairingAttemptReachedMac = true
+            }
+            throw error
+        }
         let response = try MobileManualAttachTicketCreateResponse.decode(resultData)
         return try response.ticket.constrainingRoutes(to: [route], fallbackDisplayName: displayName)
     }

@@ -61,6 +61,26 @@ import Testing
         #expect(checklist.trust.isFailed)
     }
 
+    @Test func manualAttachTicketAuthRejectionClearsNetworkAndAuthThenFailsTrust() async throws {
+        // The manual flow's pre-connect `mobile.attach_ticket.create` probe reaches
+        // the Mac. A host rejection there (account mismatch) must clear the network
+        // and authentication gates, not show them untested (issue #6084 follow-up).
+        // A loopback host skips the offline preflight and takes the stack-auth
+        // attach-ticket path.
+        let runtime = LivenessTestRuntime(
+            transportFactory: ChecklistErrorTransportFactory(code: "account_mismatch", message: "different account"),
+            now: { TestClock().now },
+            pairingRequestTimeoutNanoseconds: 5_000_000_000
+        )
+        let store = MobileShellComposite.preview(runtime: runtime)
+        store.signIn()
+        await store.connectManualHost(name: "Work Mac", host: "127.0.0.1", port: 58_465)
+        let checklist = try #require(store.pairingChecklist)
+        #expect(checklist.network == .succeeded)
+        #expect(checklist.authentication == .succeeded)
+        #expect(checklist.trust.isFailed)
+    }
+
     @Test func preSendTokenFailureLeavesNetworkGateUntested() async throws {
         // The Stack token provider fails, so the request never reaches the
         // transport. The auth gate fails, but the network gate must stay untested
