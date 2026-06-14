@@ -5963,6 +5963,36 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
             .accepted(cmdF),
             "Default Diff Viewer file search shortcut must be accepted as a browser-content shortcut"
         )
+
+        let defaults = UserDefaults.standard
+        let migrationKey = KeyboardShortcutSettings.diffViewerOpenFileSearchSlashDefaultMigrationKey
+        let savedMigrationFlag = defaults.object(forKey: migrationKey)
+        defer {
+            if let savedMigrationFlag {
+                defaults.set(savedMigrationFlag, forKey: migrationKey)
+            } else {
+                defaults.removeObject(forKey: migrationKey)
+            }
+        }
+
+        let legacySlash = StoredShortcut(key: "/", command: false, shift: false, option: false, control: false)
+        let legacySlashData = try! JSONEncoder().encode(legacySlash)
+        defaults.removeObject(forKey: migrationKey)
+        defaults.set(legacySlashData, forKey: KeyboardShortcutSettings.Action.diffViewerOpenFileSearch.defaultsKey)
+        XCTAssertEqual(
+            KeyboardShortcutSettings.shortcut(for: .diffViewerOpenFileSearch),
+            cmdF,
+            "Stored records matching the old built-in slash default should migrate to Cmd+F"
+        )
+        XCTAssertNil(defaults.object(forKey: KeyboardShortcutSettings.Action.diffViewerOpenFileSearch.defaultsKey))
+        XCTAssertTrue(defaults.bool(forKey: migrationKey))
+
+        KeyboardShortcutSettings.setShortcut(legacySlash, for: .diffViewerOpenFileSearch)
+        XCTAssertEqual(
+            KeyboardShortcutSettings.shortcut(for: .diffViewerOpenFileSearch),
+            legacySlash,
+            "After migration has run, slash should remain available as an intentional custom binding"
+        )
     }
 
     func testBrowserFirstFindShortcutRoutingFallsBackToKeyCodeForNonLatinInput() {
