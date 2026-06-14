@@ -52,7 +52,7 @@ import Testing
         #expect(buffer.enqueue("c", workspaceID: workspaceID, terminalID: terminalID) == .startDraining)
     }
 
-    @Test func acceptsSingleOversizedInputWhenNoBacklog() {
+    @Test func acceptsSingleOversizedInputWhenNoBacklogAndDrainsInBoundedBatches() {
         var buffer = MobileTerminalInputSendBuffer()
         let workspaceID = MobileWorkspacePreview.ID(rawValue: "workspace-a")
         let terminalID = MobileTerminalPreview.ID(rawValue: "terminal-a")
@@ -60,10 +60,26 @@ import Testing
 
         #expect(buffer.enqueue(oversizedText, workspaceID: workspaceID, terminalID: terminalID) == .startDraining)
         #expect(buffer.pendingByteCount == oversizedText.utf8.count)
-        #expect(buffer.enqueue("x", workspaceID: workspaceID, terminalID: terminalID) == .rejected)
 
-        let batch = buffer.nextBatch()
-        #expect(batch?.text == oversizedText)
+        let firstBatch = buffer.nextBatch()
+        #expect(firstBatch?.text.utf8.count == MobileTerminalInputSendBuffer.maximumPendingByteCount)
+        #expect(buffer.pendingByteCount == 1)
+        #expect(buffer.enqueue("x", workspaceID: workspaceID, terminalID: terminalID) == .queued)
+
+        let secondBatch = buffer.nextBatch()
+        #expect(secondBatch?.text == "px")
+        #expect(buffer.pendingByteCount == 0)
+        #expect(buffer.nextBatch() == nil)
+    }
+
+    @Test func rejectsSingleInputAboveAbsoluteLimit() {
+        var buffer = MobileTerminalInputSendBuffer()
+        let workspaceID = MobileWorkspacePreview.ID(rawValue: "workspace-a")
+        let terminalID = MobileTerminalPreview.ID(rawValue: "terminal-a")
+        let tooLargeText = String(repeating: "p", count: MobileTerminalInputSendBuffer.maximumSingleInputByteCount + 1)
+
+        #expect(buffer.enqueue(tooLargeText, workspaceID: workspaceID, terminalID: terminalID) == .rejected)
+        #expect(buffer.pendingChunks.isEmpty)
         #expect(buffer.pendingByteCount == 0)
         #expect(buffer.nextBatch() == nil)
     }

@@ -2436,6 +2436,7 @@ final class TerminalOutputCollector {
             terminalID: "live-terminal"
         ),
         try rpcResultFrame(result: ["accepted": true]),
+        try rpcResultFrame(result: ["accepted": true]),
     ])
     let runtime = testRuntime(
         supportedRouteKinds: [.debugLoopback],
@@ -2451,11 +2452,12 @@ final class TerminalOutputCollector {
     var texts: [String] = []
     for _ in 0..<300 {
         texts = try await responses.sentRequests().filter { $0.method == "terminal.input" }.compactMap(\.text)
-        if !texts.isEmpty { break }
+        if texts.joined() == largePaste { break }
         try await Task.sleep(nanoseconds: 10_000_000)
     }
-    let inputText = try #require(texts.first)
-    #expect(inputText == largePaste)
+    #expect(texts.count == 2)
+    #expect(texts.allSatisfy { $0.utf8.count <= MobileTerminalInputSendBuffer.maximumPendingByteCount })
+    #expect(texts.joined() == largePaste)
     #expect(store.connectionState == .connected)
     #expect(store.connectionError == nil)
 }

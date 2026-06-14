@@ -5,14 +5,19 @@ import Foundation
 /// The buffer batches consecutive text destined for the same workspace/terminal
 /// into one chunk, bounds total pending backlog to ``maximumPendingByteCount``,
 /// and reports via ``MobileTerminalInputEnqueueResult`` whether the caller
-/// should start a drain loop. One oversized input event may enter an empty queue
-/// so large pastes are not mistaken for backlog pressure.
+/// should start a drain loop. One oversized input event may enter an empty
+/// queue up to ``maximumSingleInputByteCount`` so large pastes are not mistaken
+/// for backlog pressure.
 public struct MobileTerminalInputSendBuffer: Equatable, Sendable {
     /// The maximum number of UTF-8 bytes that may sit pending before new input is rejected.
     ///
-    /// A single input event larger than this cap is accepted only when there is
-    /// no pending backlog, then rejected as normal until it drains.
+    /// A single input event larger than this cap, but no larger than
+    /// ``maximumSingleInputByteCount``, is accepted only when there is no
+    /// pending backlog and drains in batches bounded by this value.
     public static let maximumPendingByteCount = 64 * 1024
+
+    /// The absolute UTF-8 byte limit for one input event accepted into an empty queue.
+    public static let maximumSingleInputByteCount = maximumPendingByteCount * 16
 
     /// One coalesced run of pending input bound to a single terminal.
     public struct Chunk: Equatable, Sendable {
@@ -63,7 +68,9 @@ public struct MobileTerminalInputSendBuffer: Equatable, Sendable {
     ) -> MobileTerminalInputEnqueueResult {
         guard !text.isEmpty else { return .queued }
         let byteCount = text.utf8.count
-        let acceptsSingleOversizedInput = pendingChunks.isEmpty && pendingByteCount == 0
+        let acceptsSingleOversizedInput = pendingChunks.isEmpty
+            && pendingByteCount == 0
+            && byteCount <= Self.maximumSingleInputByteCount
         guard pendingByteCount + byteCount <= Self.maximumPendingByteCount || acceptsSingleOversizedInput else {
             return .rejected
         }
@@ -87,8 +94,8 @@ public struct MobileTerminalInputSendBuffer: Equatable, Sendable {
         return .startDraining
     }
 
-    /// Removes and returns the next pending chunk, or clears the draining flag
-    /// and returns `nil` when the buffer is empty.
+    /// Removes and returns the next bounded pending chunk, or clears the
+    /// draining flag and returns `nil` when the buffer is empty.
     /// - Returns: The next chunk to deliver, or `nil` when nothing is pending.
     public mutating func nextBatch() -> Chunk? {
         guard !pendingChunks.isEmpty else {
@@ -96,7 +103,29 @@ public struct MobileTerminalInputSendBuffer: Equatable, Sendable {
             return nil
         }
         let chunk = pendingChunks.removeFirst()
-        pendingByteCount = max(0, pendingByteCount - chunk.text.utf8.count)
+        let chunkByteCount = chunk.text.utf8.count
+        if chunkByteCount > Self.maximumPendingByteCount {
+            let splitIndex = Self.boundedSplitIndex(in: chunk.text)
+            let prefix = String(chunk.text[..<splitIndex])
+            let remainder = String(chunk.text[splitIndex...])
+            if !remainder.isEmpty {
+                pendingChunks.insert(
+                    Chunk(
+                        workspaceID: chunk.workspaceID,
+                        terminalID: chunk.terminalID,
+                        text: remainder
+                    ),
+                    at: 0
+                )
+            }
+            pendingByteCount = max(0, pendingByteCount - prefix.utf8.count)
+            return Chunk(
+                workspaceID: chunk.workspaceID,
+                terminalID: chunk.terminalID,
+                text: prefix
+            )
+        }
+        pendingByteCount = max(0, pendingByteCount - chunkByteCount)
         return chunk
     }
 
@@ -105,5 +134,20 @@ public struct MobileTerminalInputSendBuffer: Equatable, Sendable {
         pendingChunks.removeAll()
         pendingByteCount = 0
         isDraining = false
+    }
+
+    private static func boundedSplitIndex(in text: String) -> String.Index {
+        var index = text.startIndex
+        var byteCount = 0
+        while index < text.endIndex {
+            let nextIndex = text.index(after: index)
+            let nextByteCount = text[index..<nextIndex].utf8.count
+            guard byteCount + nextByteCount <= maximumPendingByteCount else {
+                break
+            }
+            byteCount += nextByteCount
+            index = nextIndex
+        }
+        return index == text.startIndex ? text.index(after: text.startIndex) : index
     }
 }
