@@ -208,6 +208,7 @@ extension Workspace {
         restoreUnplacedSessionPanels(
             snapshot.panels,
             leafEntries: leafEntries,
+            snapshotWorkspaceId: snapshot.workspaceId,
             oldToNewPanelIds: &oldToNewPanelIds
         )
 
@@ -1490,6 +1491,7 @@ extension Workspace {
     private func restoreUnplacedSessionPanels(
         _ panelSnapshots: [SessionPanelSnapshot],
         leafEntries: [SessionPaneRestoreEntry],
+        snapshotWorkspaceId: UUID?,
         oldToNewPanelIds: inout [UUID: UUID]
     ) {
         // The layout is placement metadata; the panel list is the durable set of
@@ -1512,7 +1514,11 @@ extension Workspace {
         )
         var createdPanelIds: [UUID] = []
         for panelSnapshot in unplacedSnapshots {
-            guard let createdPanelId = createPanel(from: panelSnapshot, inPane: fallbackPaneId) else { continue }
+            guard let createdPanelId = createPanel(
+                from: panelSnapshot,
+                inPane: fallbackPaneId,
+                snapshotWorkspaceId: snapshotWorkspaceId
+            ) else { continue }
             oldToNewPanelIds[panelSnapshot.id] = createdPanelId
             createdPanelIds.append(createdPanelId)
         }
