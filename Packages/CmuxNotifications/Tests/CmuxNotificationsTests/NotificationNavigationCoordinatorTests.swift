@@ -104,14 +104,16 @@ private func makeCoordinator(
     windows: FakeWindows = FakeWindows(),
     unreadTargeting: FakeUnreadTargeting = FakeUnreadTargeting(),
     openRouting: FakeOpenRouting = FakeOpenRouting(),
-    clickRouting: FakeClickRouting = FakeClickRouting()
+    clickRouting: FakeClickRouting = FakeClickRouting(),
+    focusedResolving: FakeFocusedResolving = FakeFocusedResolving()
 ) -> NotificationNavigationCoordinator {
     NotificationNavigationCoordinator(
         store: store,
         windows: windows,
         unreadTargeting: unreadTargeting,
         openRouting: openRouting,
-        clickRouting: clickRouting
+        clickRouting: clickRouting,
+        focusedResolving: focusedResolving
     )
 }
 

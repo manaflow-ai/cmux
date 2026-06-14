@@ -16,11 +16,11 @@ import Observation
 /// navigation state, though this wave exposes none.
 ///
 /// The focused-mark cluster (`toggleFocusedNotificationUnread`,
-/// `markFocusedNotificationAsOldestUnread*`) is intentionally NOT lifted in this
-/// wave: it reaches into ~12 `Workspace` unread predicates and the
-/// first-responder `focusedTerminalShortcutContext`, which do not seam cleanly
-/// without a wider workspace-unread protocol. It stays in `AppDelegate` (see the
-/// wave-2 note on the PR).
+/// `markFocusedNotificationAsOldestUnread*`) now lives in
+/// ``FocusedNotificationMarker``, owned by this coordinator and driven through
+/// the ``FocusedNotificationResolving`` seam; the coordinator exposes the two
+/// public focused-mark entry points and forwards to the marker, which delegates
+/// its jump step back to ``jumpToLatestUnread(excludingNotificationId:excludingWorkspaceId:)``.
 @MainActor
 @Observable
 public final class NotificationNavigationCoordinator {
@@ -29,6 +29,10 @@ public final class NotificationNavigationCoordinator {
     private let unreadTargeting: any UnreadWorkspaceTargeting
     private let openRouting: any NotificationOpenRouting
     private let clickRouting: any NotificationClickRouting
+    /// The focused-mark state machine. Implicitly-unwrapped so `init` can build
+    /// it with a default jump closure that captures `self` (the closure is only
+    /// invoked later, on the main actor). Set exactly once in `init`.
+    private var focusedMarker: FocusedNotificationMarker!
 
     /// Signalled after a jump/open focuses a workspace/surface, so the app-target
     /// `#if DEBUG` jump-unread UI-test recorders (which observe Combine and
@@ -36,18 +40,60 @@ public final class NotificationNavigationCoordinator {
     /// the focused `(tabId, surfaceId?)`. No-op in production builds.
     public var onDidFocusForJumpUnread: ((UUID, UUID?) -> Void)?
 
+    /// - Parameter focusedJump: the jump the focused-mark flow performs after
+    ///   marking oldest-unread, returning the opened notification id. Injected so
+    ///   the app target can route it through its own recorder-wrapped
+    ///   `jumpToLatestUnread` (which fires the `#if DEBUG` `jumpUnreadInvoked`
+    ///   UI-test recorder and applies the nil-store guard), preserving byte-identical
+    ///   recorder behavior. Defaults to this coordinator's plain
+    ///   ``jumpToLatestUnread(excludingNotificationId:excludingWorkspaceId:)``.
     public init(
         store: any NotificationNavigationStoreReading,
         windows: any MainWindowContextResolving,
         unreadTargeting: any UnreadWorkspaceTargeting,
         openRouting: any NotificationOpenRouting,
-        clickRouting: any NotificationClickRouting
+        clickRouting: any NotificationClickRouting,
+        focusedResolving: any FocusedNotificationResolving,
+        focusedJump: ((_ excludingNotificationId: UUID?, _ excludingWorkspaceId: UUID?) -> UUID?)? = nil
     ) {
         self.store = store
         self.windows = windows
         self.unreadTargeting = unreadTargeting
         self.openRouting = openRouting
         self.clickRouting = clickRouting
+        self.focusedMarker = nil
+        self.focusedMarker = FocusedNotificationMarker(
+            resolver: focusedResolving,
+            jumpToLatestUnread: focusedJump ?? { [unowned self] excludedNotificationId, excludedWorkspaceId in
+                self.jumpToLatestUnread(
+                    excludingNotificationId: excludedNotificationId,
+                    excludingWorkspaceId: excludedWorkspaceId
+                )
+            }
+        )
+    }
+
+    // MARK: Focused-mark
+
+    /// Toggles the focused notification's unread state, returning whether
+    /// anything was toggled. Forwards to ``FocusedNotificationMarker``. Mirrors
+    /// `AppDelegate.toggleFocusedNotificationUnread`.
+    @discardableResult
+    public func toggleFocusedNotificationUnread(preferredWindowToken: AnyObject? = nil) -> Bool {
+        focusedMarker.toggleFocusedNotificationUnread(preferredWindowToken: preferredWindowToken)
+    }
+
+    /// Marks the focused notification oldest-unread, then jumps to the next
+    /// latest unread, returning the opened notification id. Forwards to
+    /// ``FocusedNotificationMarker``. Mirrors
+    /// `AppDelegate.markFocusedNotificationAsOldestUnreadAndJumpToNextLatestUnread`.
+    @discardableResult
+    public func markFocusedNotificationAsOldestUnreadAndJumpToNextLatestUnread(
+        preferredWindowToken: AnyObject? = nil
+    ) -> UUID? {
+        focusedMarker.markFocusedNotificationAsOldestUnreadAndJumpToNextLatestUnread(
+            preferredWindowToken: preferredWindowToken
+        )
     }
 
     // MARK: Jump
