@@ -61,6 +61,10 @@ const OWNER_PREFIX = "owner:";
 const TEAM_ID_KEY = "meta:teamId";
 /** Combined WebSocket + SSE subscriber cap per team. */
 const MAX_SUBSCRIBERS_PER_TEAM = 64;
+/** Max bytes of an inbound WS message the DO will parse (the `sync.hello`).
+ * Client-controlled input on a live DO, so it is bounded before JSON.parse to
+ * avoid a resource-exhaustion vector. A real hello is well under 4 KiB. */
+const MAX_SYNC_HELLO_BYTES = 4096;
 /** Drop an SSE subscriber once this many frames sit unread in its stream
  * buffer (the client stopped consuming); prevents a stalled reader from
  * pinning unbounded memory on every 15s heartbeat tick. */
@@ -354,6 +358,16 @@ export class TeamPresence extends DurableObject {
   // backward-compatible with the one-way presence transport.
   override async webSocketMessage(ws: WebSocket, message: string | ArrayBuffer): Promise<void> {
     if (wsExpiresAt(ws) <= Date.now()) return;
+    // Bound the inbound message BEFORE parsing: this is client-controlled input
+    // on the live presence DO, so an unbounded JSON.parse would be a
+    // resource-exhaustion vector. A well-formed `sync.hello` is tiny (a handful
+    // of short collection names + integer cursors), so a small cap is ample;
+    // `parseHello` also bounds the collection list count defensively. A
+    // too-large frame is dropped silently like any other non-hello message.
+    const byteLength = typeof message === "string"
+      ? message.length // chars; ASCII JSON, so ~bytes, and an over-count only tightens the cap
+      : message.byteLength;
+    if (byteLength > MAX_SYNC_HELLO_BYTES) return;
     let body: unknown;
     try {
       body = JSON.parse(typeof message === "string" ? message : new TextDecoder().decode(message));
