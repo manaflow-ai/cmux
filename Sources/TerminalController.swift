@@ -6,6 +6,8 @@ import CmuxControlSocket
 import CmuxPanes
 import CmuxRemoteDaemon
 import CmuxRemoteWorkspace
+import CmuxTerminalEngine
+import CmuxTerminalServices
 import CmuxSettings
 import CmuxSocketControl
 import CmuxSwiftRenderUI
@@ -4622,7 +4624,7 @@ class TerminalController {
                 }
             }
 
-            let surfaces = TerminalSurfaceRegistry.shared.allSurfaces()
+            let surfaces = GhosttyApp.terminalSurfaceRegistry.allTerminalSurfaces()
             let terminals: [[String: Any]] = surfaces.enumerated().map { index, terminalSurface in
                 let mapped = mappedLocations[ObjectIdentifier(terminalSurface)]
                 let hostedView = terminalSurface.hostedView
@@ -4909,7 +4911,7 @@ class TerminalController {
         normalizeLineEndings: Bool = true
     ) -> String? {
         var actionSucceeded = false
-        let exportedPath = GhosttyPasteboardHelper.captureNextStandardClipboardWrite {
+        let exportedPath = GhosttyApp.terminalPasteboard.captureNextStandardClipboardWrite {
             let ok = terminalPanel.performBindingAction(bindingAction)
             actionSucceeded = ok
             return ok
@@ -14266,7 +14268,7 @@ class TerminalController {
 
         applyMobileViewportReport(params: params, terminalPanel: terminalPanel)
 
-        guard let escapedPath = GhosttyPasteboardHelper.saveImageData(imageData, fileExtension: format) else {
+        guard let escapedPath = GhosttyApp.terminalPasteboard.saveImageData(imageData, fileExtension: format) else {
             return .err(code: "invalid_params", message: "Image payload was empty or exceeded the size limit", data: nil)
         }
 
