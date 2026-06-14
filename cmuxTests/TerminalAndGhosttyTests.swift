@@ -1859,7 +1859,7 @@ final class TerminalKeyboardCopyModeActionTests: XCTestCase {
         }
     }
 
-    func testVimKeysUseASCIICapableMappingBeforeActiveLayoutMapping() {
+    func testVimKeysUseASCIICapableMappingBeforeActiveLayoutMapping() throws {
 #if DEBUG
         var requestedSourceKinds: [KeyboardLayout.InputSourceKind] = []
         var observedModes: [KeyboardLayout.TranslationMode] = []
@@ -1889,7 +1889,7 @@ final class TerminalKeyboardCopyModeActionTests: XCTestCase {
         XCTAssertEqual(requestedSourceKinds, [.currentASCIICapableKeyboardInputSource])
         XCTAssertEqual(observedModes, [.shortcut])
 #else
-        XCTFail("debugCharacterForInputSourceKind is only available in DEBUG")
+        throw XCTSkip("Debug-only regression test")
 #endif
     }
 
