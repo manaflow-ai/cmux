@@ -1,5 +1,6 @@
 import CMUXAuthCore
 import CmuxAuthRuntime
+import AppKit
 import Foundation
 import StackAuth
 
@@ -76,10 +77,27 @@ struct MacAuthComposition {
                 .absoluteString,
             apiBaseURL: AuthEnvironment.apiBaseURL.absoluteString
         )
+        // DEBUG-only: make a tagged `cmux DEV` build come up already signed in
+        // as the dogfood account, mirroring iOS. A tagged build is a separate
+        // bundle (separate keychain), so it starts signed out. iOS injects
+        // `CMUX_UITEST_STACK_*` into the launch environment; the Mac app needs
+        // the same, but a `cmux DEV` opened from Finder / the CMUX Tag Opener
+        // does not inherit a shell's environment, so the resolver also reads
+        // `~/.secrets/cmuxterm-dev.env` / `~/.secrets/cmux.env` directly. The
+        // resolver runs unconditionally and applies dogfood-account-first
+        // precedence, so on the dog Mac the human dogfood file wins even when an
+        // agent's `CMUX_UITEST_STACK_*` are already in the environment; only the
+        // two resolved cred keys are filled in (never the whole file). When the
+        // only creds are `CMUX_UITEST_STACK_*` env (a CI UI test with no
+        // `~/.secrets` files), the resolver returns that same pair, so the merge
+        // is a no-op. The existing `CMUXAuthAutoLoginCredentials` +
+        // `shouldStartAutoLogin` gate then fires unchanged. Compiled out of
+        // release builds.
+        let resolvedEnvironment = Self.environmentWithDogfoodAutoSignIn(environment)
         let launch = AuthLaunchOptions(
-            clearAuthRequested: environment["CMUX_UITEST_CLEAR_AUTH"] == "1",
+            clearAuthRequested: resolvedEnvironment["CMUX_UITEST_CLEAR_AUTH"] == "1",
             mockDataEnabled: false,
-            environment: environment,
+            environment: resolvedEnvironment,
             includesDevAuth: Self.includesDevAuth
         )
 
@@ -106,7 +124,7 @@ struct MacAuthComposition {
             tokenStore: tokenStore,
             sessionFactory: ASWebBrowserAuthSessionFactory(anchor: anchor),
             callbackRouter: callbackRouter,
-            makeSignInURL: { AuthEnvironment.signInURL() },
+            makeSignInURL: { AuthEnvironment.signInURL(callbackState: $0) },
             callbackScheme: { AuthEnvironment.callbackScheme }
         )
     }
@@ -136,4 +154,66 @@ struct MacAuthComposition {
         false
         #endif
     }
+
+    #if DEBUG
+    /// Returns `environment` with the dogfood auto-sign-in credentials filled in
+    /// under the `CMUX_UITEST_STACK_*` keys (DEBUG only; the whole method is
+    /// compiled out of release, so the auto-sign-in path can never run in
+    /// production).
+    ///
+    /// Always consults ``DebugDogfoodCredentialResolver`` so the resolver's
+    /// dogfood-over-agent precedence is honored even when `CMUX_UITEST_STACK_*`
+    /// are already present in the environment: on the dog Mac an iOS dogfood
+    /// flow can leave the agent's `CMUX_UITEST_STACK_*` in the environment while
+    /// the human dogfood creds live only in `~/.secrets/cmuxterm-dev.env`, and
+    /// the build must come up as the human account. When only `CMUX_UITEST_STACK_*`
+    /// env creds exist (e.g. a CI UI test with no `~/.secrets` files), the
+    /// resolver returns that same pair, so the merge is a no-op.
+    ///
+    /// - Parameters:
+    ///   - environment: The launch environment.
+    ///   - secretFilePaths: Ordered secret-file candidates for the resolver.
+    ///     Defaults to `nil` so the resolver uses `~/.secrets/cmuxterm-dev.env`
+    ///     then `~/.secrets/cmux.env`. Injected by tests to exercise the
+    ///     dog-Mac precedence without touching real files.
+    ///   - readFile: File reader seam for the resolver. Defaults to a real read;
+    ///     injected by tests.
+    ///
+    /// `nonisolated`: a pure transformation over its arguments that touches no
+    /// main-actor state, so tests can call it from a nonisolated context.
+    nonisolated static func environmentWithDogfoodAutoSignIn(
+        _ environment: [String: String],
+        secretFilePaths: [String]? = nil,
+        readFile: ((String) -> String?)? = nil
+    ) -> [String: String] {
+        let resolver: DebugDogfoodCredentialResolver
+        if let readFile {
+            resolver = DebugDogfoodCredentialResolver(
+                environment: environment,
+                secretFilePaths: secretFilePaths,
+                readFile: readFile
+            )
+        } else {
+            resolver = DebugDogfoodCredentialResolver(
+                environment: environment,
+                secretFilePaths: secretFilePaths
+            )
+        }
+        guard let resolved = resolver.resolve() else {
+            return environment
+        }
+        var merged = environment
+        merged["CMUX_UITEST_STACK_EMAIL"] = resolved.email
+        merged["CMUX_UITEST_STACK_PASSWORD"] = resolved.password
+        return merged
+    }
+    #else
+    /// In release builds the dogfood auto-sign-in path does not exist; this is
+    /// the identity function so production never auto-signs-in.
+    nonisolated static func environmentWithDogfoodAutoSignIn(
+        _ environment: [String: String]
+    ) -> [String: String] {
+        environment
+    }
+    #endif
 }

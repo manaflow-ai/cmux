@@ -136,50 +136,9 @@ public struct GlobalHotkeySection: View {
             // Matches the legacy recorder's unbound resting label.
             return String(localized: "shortcut.unbound.displayValue", defaultValue: "None")
         }
-        return format(shortcut)
-    }
-
-    private func format(_ shortcut: StoredShortcut) -> String {
-        var parts: [String] = []
-        if shortcut.first.control { parts.append("⌃") }
-        if shortcut.first.option { parts.append("⌥") }
-        if shortcut.first.shift { parts.append("⇧") }
-        if shortcut.first.command { parts.append("⌘") }
-        parts.append(Self.keyDisplayString(shortcut.first.key))
-        return parts.joined()
-    }
-
-    /// Mirrors legacy `ShortcutStroke.keyDisplayString` so named keys
-    /// (Tab, Space, return, media/brightness/volume) render as the
-    /// friendly label rather than an uppercased token. Plain letters
-    /// and digits fall back to `.uppercased()`.
-    private static func keyDisplayString(_ key: String) -> String {
-        switch key {
-        case "\t":
-            return String(localized: "shortcut.key.tab", defaultValue: "Tab")
-        case "space":
-            return String(localized: "shortcut.key.space", defaultValue: "Space")
-        case "\r":
-            return "↩"
-        case "media.brightnessDown":
-            return String(localized: "shortcut.key.mediaBrightnessDown", defaultValue: "Brightness Down")
-        case "media.brightnessUp":
-            return String(localized: "shortcut.key.mediaBrightnessUp", defaultValue: "Brightness Up")
-        case "media.mute":
-            return String(localized: "shortcut.key.mediaMute", defaultValue: "Mute")
-        case "media.next":
-            return String(localized: "shortcut.key.mediaNext", defaultValue: "Next Track")
-        case "media.playPause":
-            return String(localized: "shortcut.key.mediaPlayPause", defaultValue: "Play/Pause")
-        case "media.previous":
-            return String(localized: "shortcut.key.mediaPrevious", defaultValue: "Previous Track")
-        case "media.volumeDown":
-            return String(localized: "shortcut.key.mediaVolumeDown", defaultValue: "Volume Down")
-        case "media.volumeUp":
-            return String(localized: "shortcut.key.mediaVolumeUp", defaultValue: "Volume Up")
-        default:
-            return key.uppercased()
-        }
+        // The global hotkey is always a single, non-numbered stroke, so the
+        // shared formatter renders it directly. See ``shortcutDisplayString(_:numbered:)``.
+        return shortcutStrokeDisplayString(shortcut.first)
     }
 
     private func streamBindings() async {
