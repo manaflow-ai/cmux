@@ -422,6 +422,46 @@ struct ChatConversationStoreTests {
         })
     }
 
+    @Test("a newer send's echo evicts an older delivered pending that never reconciled")
+    func staleDeliveredPendingEvictedByLaterEcho() async {
+        let source = SilentSendEventSource()
+        let store = Self.makeStore(source: source)
+        let runTask = Task { await store.run() }
+        defer { runTask.cancel() }
+        #expect(await TestPoller.waitUntil { store.isConnected })
+
+        // Two sends, both delivered (SilentSend never echoes on its own).
+        await store.send(text: "alpha")
+        await store.send(text: "beta")
+        #expect(await TestPoller.waitUntil { Self.pendingItems(store.rows).count == 2 })
+
+        // Only beta's echo arrives. It reconciles beta; alpha — an OLDER
+        // delivered row whose echo never matched — is swept as stale rather
+        // than lingering as a permanent duplicate.
+        await source.emit(.appended([Self.prose(seq: 0, role: .user, text: "beta")]))
+        #expect(await TestPoller.waitUntil { Self.pendingItems(store.rows).isEmpty })
+    }
+
+    @Test("a delivered pending survives when no newer send has reconciled")
+    func deliveredPendingSurvivesWithoutLaterEcho() async {
+        let source = SilentSendEventSource()
+        let store = Self.makeStore(source: source)
+        let runTask = Task { await store.run() }
+        defer { runTask.cancel() }
+        #expect(await TestPoller.waitUntil { store.isConnected })
+
+        await store.send(text: "alpha")
+        #expect(await TestPoller.waitUntil { Self.pendingItems(store.rows).count == 1 })
+
+        // An unrelated user message that matches nothing must NOT evict the
+        // lone delivered pending (no later send reconciled, so it is not stale).
+        await source.emit(.appended([Self.prose(seq: 0, role: .user, text: "unrelated")]))
+        #expect(await TestPoller.waitUntil {
+            Self.userProseTexts(store.rows).contains("unrelated")
+        })
+        #expect(Self.pendingItems(store.rows).map(\.text) == ["alpha"])
+    }
+
     @Test("discard removes a failed pending row")
     func discardRemovesFailedPending() async {
         let source = FailingChatEventSource(failuresRemaining: .max)
