@@ -15,18 +15,10 @@ struct CustomToolbarActionDraft: Equatable {
     /// bounded instead of scanning an arbitrary number of steps on every update.
     static let maximumKeySequenceStepCount = 50
 
-    /// Which kind of action the editor is composing.
-    enum Mode: Hashable, CaseIterable {
-        /// A literal command/snippet, optionally Return-terminated.
-        case text
-        /// An ordered sequence of key combos and/or text snippets — a macro.
-        case keySequence
-    }
-
     /// The button label.
     var title: String
     /// The kind of action being composed.
-    var mode: Mode
+    var mode: CustomToolbarActionDraftMode
     /// Text-mode command body.
     var commandText: String
     /// Text-mode: append a Return so the command submits rather than only typing.
@@ -38,7 +30,7 @@ struct CustomToolbarActionDraft: Equatable {
     /// projection and by tests).
     init(
         title: String = "",
-        mode: Mode = .text,
+        mode: CustomToolbarActionDraftMode = .text,
         commandText: String = "",
         runAfterTyping: Bool = true,
         steps: [ToolbarMacroStep] = []

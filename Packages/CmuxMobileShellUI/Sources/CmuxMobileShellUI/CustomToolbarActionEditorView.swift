@@ -24,7 +24,7 @@ struct CustomToolbarActionEditorView: View {
     private let onSave: (CustomToolbarAction) -> Void
 
     @State private var title: String
-    @State private var mode: CustomToolbarActionDraft.Mode
+    @State private var mode: CustomToolbarActionDraftMode
     @State private var commandText: String
     @State private var runAfterTyping: Bool
     @State private var steps: [EditableMacroStep]
@@ -115,9 +115,9 @@ struct CustomToolbarActionEditorView: View {
                 selection: $mode
             ) {
                 Text(L10n.string("mobile.toolbar.editor.type.text", defaultValue: "Text"))
-                    .tag(CustomToolbarActionDraft.Mode.text)
+                    .tag(CustomToolbarActionDraftMode.text)
                 Text(L10n.string("mobile.toolbar.editor.type.keySequence", defaultValue: "Key Sequence"))
-                    .tag(CustomToolbarActionDraft.Mode.keySequence)
+                    .tag(CustomToolbarActionDraftMode.keySequence)
             }
             .pickerStyle(.segmented)
             .accessibilityIdentifier("CustomActionModePicker")

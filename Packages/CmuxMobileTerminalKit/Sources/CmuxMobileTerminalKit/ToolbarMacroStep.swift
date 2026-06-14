@@ -13,13 +13,19 @@ public import Foundation
 /// The two cases mirror the standalone ``ToolbarActionPayload`` kinds so a step
 /// is either a literal ``text(_:)`` snippet or a single ``keyCombo(modifiers:key:)``.
 public enum ToolbarMacroStep: Codable, Equatable, Sendable {
-    /// Insert literal text. Newlines are normalized to carriage returns at send
-    /// time (terminals expect `\r` for Return), matching ``ToolbarActionPayload/text(_:)``.
+    /// Insert literal text.
+    ///
+    /// Newlines are normalized to carriage returns at send time (terminals
+    /// expect `\r` for Return), matching ``ToolbarActionPayload/text(_:)``.
+    /// - Parameter value: The literal text this step contributes to the macro.
     case text(String)
 
     /// Send a special key with the given modifiers, encoded by
     /// ``TerminalKeyEncoder``. Only combinations the encoder defines produce
     /// output; others resolve to `nil` and contribute nothing to the macro.
+    /// - Parameters:
+    ///   - modifiers: The modifier keys to apply when encoding `key`.
+    ///   - key: The terminal special key to encode.
     case keyCombo(modifiers: TerminalKeyModifier, key: TerminalSpecialKey)
 
     /// The bytes this step contributes to its macro, or `nil` when it resolves to
