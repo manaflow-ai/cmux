@@ -99,18 +99,28 @@ final class SSHPTYAttachReconnectInputFilter {
             }
         }
 
+        func stopReconnectFilteringIfRequested() -> Bool {
+            guard let filter = reconnectInputFilter,
+                  filterControl?.shouldFilterReconnectInput == false else {
+                return true
+            }
+            guard writeOrShutdown(filter.stopFiltering()) else {
+                return false
+            }
+            reconnectInputFilter = nil
+            return true
+        }
+
         while true {
+            guard stopReconnectFilteringIfRequested() else {
+                return
+            }
             if let filter = reconnectInputFilter {
-                if filterControl?.shouldFilterReconnectInput == false {
-                    guard writeOrShutdown(filter.stopFiltering()) else {
-                        return
-                    }
-                    reconnectInputFilter = nil
-                } else if filter.hasPendingInput,
-                          !stdinHasReadyInput(
-                              inputFD: inputFD,
-                              timeoutMilliseconds: pendingProbeContinuationTimeoutMilliseconds
-                          ) {
+                if filter.hasPendingInput,
+                   !stdinHasReadyInput(
+                       inputFD: inputFD,
+                       timeoutMilliseconds: pendingProbeContinuationTimeoutMilliseconds
+                   ) {
                     guard writeOrShutdown(filter.flushPendingInput()) else {
                         return
                     }
@@ -120,6 +130,10 @@ final class SSHPTYAttachReconnectInputFilter {
             let count = Darwin.read(inputFD, &buffer, buffer.count)
             if count > 0 {
                 let rawInput = Data(buffer.prefix(count))
+                // Bridge output can stop filtering while read() is blocked.
+                guard stopReconnectFilteringIfRequested() else {
+                    return
+                }
                 let input = reconnectInputFilter?.filter(rawInput) ?? rawInput
                 guard writeOrShutdown(input) else {
                     return
