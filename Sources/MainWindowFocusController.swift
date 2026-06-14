@@ -1,4 +1,6 @@
 import AppKit
+import CmuxTerminalEngine
+import CmuxTerminal
 
 @MainActor
 final class MainWindowFocusController {
@@ -160,7 +162,7 @@ final class MainWindowFocusController {
     }
 
     func allowsTerminalFocus(workspaceId: UUID, panelId: UUID) -> Bool {
-        if TerminalSurfaceRegistry.shared.isRightSidebarDockSurface(id: panelId) {
+        if GhosttyApp.terminalSurfaceRegistry.isRightSidebarDockSurface(id: panelId) {
             return true
         }
         switch intent {
@@ -760,7 +762,7 @@ final class MainWindowFocusController {
               let panelId = ghosttyView.terminalSurface?.id else {
             return nil
         }
-        if TerminalSurfaceRegistry.shared.isRightSidebarDockSurface(id: panelId) {
+        if GhosttyApp.terminalSurfaceRegistry.isRightSidebarDockSurface(id: panelId) {
             return nil
         }
         return TerminalFocusRequest(workspaceId: workspaceId, panelId: panelId)

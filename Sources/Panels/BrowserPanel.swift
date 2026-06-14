@@ -1,13 +1,17 @@
 import Foundation
+import CmuxCore
 import Combine
 import WebKit
 import AppKit
 import Bonsplit
+import CmuxBrowserPanel
+import CmuxTerminalCore
 import Network
 import CFNetwork
 import SQLite3
 import CryptoKit
 import Darwin
+import CmuxTerminal
 #if canImport(CommonCrypto)
 import CommonCrypto
 #endif
@@ -1012,37 +1016,10 @@ enum BrowserInsecureHTTPSettings {
         defaults.set(patterns.joined(separator: "\n"), forKey: allowlistKey)
     }
 
+    // Single source of truth: the host normalizer moved to CmuxCore with the
+    // loopback alias lift; this forwards so allowlist semantics stay identical.
     static func normalizeHost(_ rawHost: String) -> String? {
-        var value = rawHost
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-            .lowercased()
-        guard !value.isEmpty else { return nil }
-
-        if let parsed = URL(string: value)?.host {
-            return trimHost(parsed)
-        }
-
-        if let schemeRange = value.range(of: "://") {
-            value = String(value[schemeRange.upperBound...])
-        }
-
-        if let slash = value.firstIndex(where: { $0 == "/" || $0 == "?" || $0 == "#" }) {
-            value = String(value[..<slash])
-        }
-
-        if value.hasPrefix("[") {
-            if let closing = value.firstIndex(of: "]") {
-                value = String(value[value.index(after: value.startIndex)..<closing])
-            } else {
-                value.removeFirst()
-            }
-        } else if let colon = value.lastIndex(of: ":"),
-                  value[value.index(after: colon)...].allSatisfy(\.isNumber),
-                  value.filter({ $0 == ":" }).count == 1 {
-            value = String(value[..<colon])
-        }
-
-        return trimHost(value)
+        RemoteLoopbackProxyAlias.normalizeHost(rawHost)
     }
 
     private static func parsePatterns(from rawValue: String) -> [String] {
@@ -1080,18 +1057,6 @@ enum BrowserInsecureHTTPSettings {
         return host == pattern
     }
 
-    private static func trimHost(_ raw: String) -> String? {
-        let trimmed = raw.trimmingCharacters(in: CharacterSet(charactersIn: "."))
-        guard !trimmed.isEmpty else { return nil }
-
-        // Canonicalize IDN entries (e.g. bücher.example -> xn--bcher-kva.example)
-        // so user-entered allowlist patterns compare against URL.host consistently.
-        if let canonicalized = URL(string: "https://\(trimmed)")?.host {
-            return canonicalized
-        }
-
-        return trimmed
-    }
 }
 
 func browserShouldBlockInsecureHTTPURL(
@@ -5384,7 +5349,8 @@ final class BrowserPanel: Panel, ObservableObject {
             usesTransparentBackground: usesTransparentBackground,
             opacity: GhosttyApp.shared.defaultBackgroundOpacity,
             usesGhosttyGlassStyle: GhosttyApp.shared.defaultBackgroundBlur.isMacOSGlassStyle,
-            usesTransparentWindow: cmuxShouldUseTransparentBackgroundWindow()
+            usesTransparentWindow: WindowBackgroundComposition.policy
+                .shouldUseTransparentBackgroundWindow(glassEffectAvailable: WindowGlassEffect.isAvailable)
         )
     }
 
@@ -7364,7 +7330,7 @@ extension BrowserPanel {
         // WebKit inspector show can trigger transient first-responder churn while
         // panel attachment is still stabilizing. Keep this auto-restore path from
         // mutating first responder so AppKit doesn't walk tearing-down responder chains.
-        cmuxWithWindowFirstResponderBypass {
+        AppDelegate.shared?.browserFirstResponderBypass.withBypass {
             _ = revealDeveloperTools(inspector)
         }
         setPreferredDeveloperToolsVisible(true)

@@ -323,7 +323,7 @@ struct RightSidebarPanelView: View {
         Button {
             onOpenAsPane(mode)
         } label: {
-            Image(systemName: "rectangle.split.2x1")
+            HeaderChromeIconStyle.symbol("rectangle.split.2x1")
         }
         .buttonStyle(RightSidebarHeaderIconButtonStyle(iconGeometryKeyPrefix: "rightSidebarHeaderOpenAsPaneIcon"))
         .frame(
@@ -356,7 +356,7 @@ struct RightSidebarPanelView: View {
         )
         return ZStack {
             Button(action: onClose) {
-                Image(systemName: "xmark")
+                HeaderChromeIconStyle.symbol("xmark")
             }
             .buttonStyle(RightSidebarHeaderIconButtonStyle(iconGeometryKeyPrefix: "rightSidebarHeaderCloseIcon"))
             .frame(
