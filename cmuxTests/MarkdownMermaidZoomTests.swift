@@ -89,6 +89,7 @@ final class MarkdownMermaidZoomTests {
         let fittedZoomed = try await waitForMermaidSnapshot(in: webView, expectedZoom: 2)
         let fittedZoomedWidth = try #require(fittedZoomed["width"])
         #expect(fittedZoomedWidth > fittedWidth * 1.8)
+        #expect((try #require(fittedZoomed["leftOffset"])) >= -1)
 
         let widerFrame = NSRect(x: 0, y: 0, width: 960, height: 480)
         window.setFrame(widerFrame, display: true)
@@ -145,6 +146,7 @@ final class MarkdownMermaidZoomTests {
               return {
                 width: rect.width || 0,
                 containerWidth: containerRect ? (containerRect.width || 0) : 0,
+                leftOffset: containerRect ? ((rect.left || 0) - (containerRect.left || 0)) : 0,
                 proseHeight: proseRect ? (proseRect.height || 0) : 0,
                 zoom: Number.isFinite(zoom) ? zoom : 1
               };
