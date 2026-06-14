@@ -12,8 +12,7 @@ struct MarkdownWebRenderer: NSViewRepresentable {
     let panelId: UUID
     let workspaceId: UUID
     let filePath: String
-    /// Body font size in points. Applied as WKWebView `pageZoom` so the whole
-    /// rendered document scales like browser zoom.
+    /// Body font size in points, applied as `pageZoom` and to shell-managed SVG zoom.
     let fontSize: Double
     /// Body prose font-family name (empty = System). Applied as an inline
     /// `font-family` on the content.
@@ -181,12 +180,12 @@ struct MarkdownWebRenderer: NSViewRepresentable {
             applyFontSize()
         }
 
-        private func applyFontSize() {
+        private func applyFontSize(forceShellSync: Bool = false) {
             guard let webView else { return }
             let zoom = MarkdownFontSizeSettings.pageZoom(forPointSize: lastFontSize)
-            if abs(webView.pageZoom - zoom) > 0.0001 {
-                webView.pageZoom = zoom
-            }
+            let shouldSyncShell = forceShellSync || abs(webView.pageZoom - zoom) > 0.0001
+            if abs(webView.pageZoom - zoom) > 0.0001 { webView.pageZoom = zoom }
+            if shouldSyncShell { webView.evaluateJavaScript("window.__cmuxSetMarkdownZoom && window.__cmuxSetMarkdownZoom(\(Double(zoom)));", completionHandler: nil) }
         }
 
         /// Records the desired body prose font and applies it as an inline
@@ -677,7 +676,7 @@ struct MarkdownWebRenderer: NSViewRepresentable {
             // pageZoom is a WKWebView-level property that survives loadHTMLString,
             // but re-apply defensively after a shell reload so a crash-recovery
             // path can never drop the configured zoom.
-            applyFontSize()
+            applyFontSize(forceShellSync: true)
             // font-family is a DOM inline style on a freshly-created #content,
             // so it MUST be re-applied after every shell (re)load.
             applyFontFamily()
