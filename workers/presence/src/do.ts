@@ -33,6 +33,15 @@ import {
   type PresenceEvent,
   type PresenceInstance,
 } from "./core";
+import { parseHello, type SyncServerFrame } from "./sync";
+import { gcTombstones, resolveHelloFrames, type SyncStorage } from "./syncStorage";
+import {
+  DEVICES_COLLECTION,
+  groupInstancesByDevice,
+  ownersFromList,
+  reconcileDeviceRecords,
+  type DeviceRecord,
+} from "./syncDevices";
 
 const INSTANCE_PREFIX = "inst:";
 /** `owner:<deviceId>` -> Stack user id pinned on first heartbeat. Durable:
@@ -160,8 +169,37 @@ export class TeamPresence extends DurableObject {
     const { instance, events } = applyHeartbeat(existing, beat, now);
     await this.ctx.storage.put(key, instance);
     this.broadcast(events);
+    // Project the presence change onto the synced device-list collection. This
+    // is additive: it never touches presence keys, and mints a sync rev only on
+    // a list-shape change, so a steady-state `seen` tick stays quiet
+    // (DESIGN.md §5.2). Old DO instances without this code simply skip it.
+    await this.syncDeviceRecords(now);
     await this.ensureAlarmFor(instance);
     return this.heartbeatOk(teamId, instance);
+  }
+
+  /** Reconcile the synced `devices` collection against the full presence state
+   * and broadcast any resulting sync deltas. Called from both write paths
+   * (heartbeat and alarm). Reads the live instances + owner pins the DO already
+   * holds and folds them into device records (DESIGN.md §5.2). */
+  private async syncDeviceRecords(nowMs: number): Promise<void> {
+    const instances = await this.allInstances();
+    const owners = await this.ctx.storage.list<string>({ prefix: OWNER_PREFIX });
+    const deltas = await reconcileDeviceRecords(
+      this.syncStorage(),
+      groupInstancesByDevice(instances),
+      ownersFromList(owners),
+      nowMs,
+    );
+    for (const delta of deltas) this.broadcastSync(delta);
+  }
+
+  /** The DO's storage narrowed to the `SyncStorage` subset the sync layer uses.
+   * `DurableObjectStorage` is a structural superset (its get/put/delete/list
+   * cover the four methods `SyncStorage` declares), so this is a safe widening
+   * to the narrower interface; the single cast is here, not scattered. */
+  private syncStorage(): SyncStorage {
+    return this.ctx.storage as unknown as SyncStorage;
   }
 
   async snapshot(teamId: string): Promise<string> {
@@ -239,8 +277,73 @@ export class TeamPresence extends DurableObject {
     });
   }
 
-  // The subscribe stream is one-way; inbound WS messages are ignored.
-  override async webSocketMessage(): Promise<void> {}
+  // The presence subscribe stream is push-only, but sync rides the same socket:
+  // a client sends `sync.hello` after connect to subscribe to collections with
+  // the cursors it already holds, and the DO replies with a snapshot or catch-up
+  // delta per collection (DESIGN.md §3.2). Any other inbound message (including
+  // from an old client that never sends sync) is ignored, so this stays
+  // backward-compatible with the one-way presence transport.
+  override async webSocketMessage(ws: WebSocket, message: string | ArrayBuffer): Promise<void> {
+    if (wsExpiresAt(ws) <= Date.now()) return;
+    let body: unknown;
+    try {
+      body = JSON.parse(typeof message === "string" ? message : new TextDecoder().decode(message));
+    } catch {
+      return; // not JSON; ignore
+    }
+    const hello = parseHello(body);
+    if (hello === null) return; // not a sync.hello; ignore
+    await this.handleSyncHello(ws, hello.collections);
+  }
+
+  /** Answer a `sync.hello`: for each subscribed collection decide snapshot vs
+   * delta from the GC floor and send the frames over this socket. Phase 1 only
+   * serves the `devices` collection; an unknown collection name yields an empty
+   * delta (the client simply gets nothing for it). */
+  private async handleSyncHello(
+    ws: WebSocket,
+    collections: { name: string; cursor: number }[],
+  ): Promise<void> {
+    for (const { name, cursor } of collections) {
+      if (name !== DEVICES_COLLECTION) continue;
+      const resolved = await resolveHelloFrames<DeviceRecord>(
+        this.syncStorage(),
+        name,
+        cursor,
+      );
+      if (resolved.mode === "snapshot") {
+        for (const page of resolved.pages) this.sendSync(ws, page);
+      } else if (resolved.delta !== null) {
+        this.sendSync(ws, resolved.delta);
+      }
+    }
+  }
+
+  /** Send one sync frame to one socket, deadline-checked like presence. */
+  private sendSync(ws: WebSocket, frame: SyncServerFrame): void {
+    if (wsExpiresAt(ws) <= Date.now()) return;
+    try {
+      ws.send(JSON.stringify(frame));
+    } catch {
+      // Socket already gone; hibernation cleans it up.
+    }
+  }
+
+  /** Broadcast a sync frame to all live subscribers (WS only; SSE is
+   * presence-only for now). Mirrors `broadcast` but for sync frames, which ride
+   * the same authenticated, team-scoped socket. */
+  private broadcastSync(frame: SyncServerFrame): void {
+    const now = Date.now();
+    const json = JSON.stringify(frame);
+    for (const ws of this.ctx.getWebSockets()) {
+      if (wsExpiresAt(ws) <= now) continue;
+      try {
+        ws.send(json);
+      } catch {
+        // Socket already gone; hibernation cleans it up.
+      }
+    }
+  }
 
   override async webSocketClose(ws: WebSocket): Promise<void> {
     try {
@@ -267,6 +370,12 @@ export class TeamPresence extends DurableObject {
       }
     }
     this.broadcast(events);
+    // Project the (possibly mutated) presence state onto the synced device-list
+    // collection: a prune that removed a device's last instance tombstones it
+    // here, leaving the list (DESIGN.md §5.2). Then GC expired tombstones and
+    // raise the resync floor (DESIGN.md §3.5).
+    await this.syncDeviceRecords(now);
+    await gcTombstones(this.syncStorage(), DEVICES_COLLECTION, now);
     this.closeExpiredSubscribers(now);
     const candidates = [nextAlarmTime([...all.values()]), this.nextSubscriberDeadline()]
       .filter((value): value is number => value !== null);

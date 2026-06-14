@@ -1,0 +1,312 @@
+// Storage-bound sync orchestration for the TeamPresence DO.
+//
+// This is the half of the sync layer that touches Durable Object storage. It is
+// written against a minimal `SyncStorage` interface (the subset of
+// `DurableObjectStorage` it needs) so it unit-tests against a Map-backed fake
+// without the Workers runtime — the same testability posture as core.ts/sync.ts.
+//
+// Responsibilities (DESIGN.md §5):
+//   - Own the per-collection key space inside the DO's storage, additive to the
+//     existing presence keys (`inst:`/`owner:`/`meta:`), never touching them:
+//       synced:<collection>:<id>   -> StoredSyncRecord (the authoritative record)
+//       synchead:<collection>      -> number (the per-collection rev clock)
+//       synctomb:<collection>:<rev>-> id (rev-ordered tombstone index for GC)
+//       syncgcfloor:<collection>   -> number (highest GC'd tombstone rev)
+//   - Mint a new rev ONLY when a record's list-shape actually changes, so a
+//     steady-state heartbeat (`seen` tick / online↔offline flip) does not churn
+//     the cursor (DESIGN.md §5.2). The caller passes already-derived records;
+//     this layer decides write-or-skip by comparing the stored payload.
+//   - Build rev-filtered snapshots (records with rev <= snapshotRev) and deltas
+//     (records with rev > cursor) and decide snapshot-vs-delta from the GC floor.
+//   - GC tombstones past the retention window and raise the GC floor.
+//   - Lazily upgrade stored records whose schemaVersion is below current.
+//
+// Every key read uses `?? default` so this code runs correctly against an old
+// DO instance that has never written a sync key (the additive-rollout property
+// in DESIGN.md §5.4). It never assumes a sync key exists.
+
+import {
+  buildDelta,
+  makeRecord,
+  makeTombstone,
+  pageSnapshot,
+  resolveHello,
+  shouldGcTombstone,
+  SYNC_SCHEMA_VERSION,
+  TOMBSTONE_RETENTION_MS,
+  type SyncDeltaFrame,
+  type SyncRecord,
+  type SyncSnapshotFrame,
+} from "./sync";
+
+/** The subset of `DurableObjectStorage` the sync layer uses. A Map-backed fake
+ * implements this for unit tests; the real DO passes `ctx.storage`. */
+export interface SyncStorage {
+  get<T>(key: string): Promise<T | undefined>;
+  put<T>(key: string, value: T): Promise<void>;
+  delete(key: string): Promise<boolean>;
+  list<T>(options: { prefix: string; limit?: number }): Promise<Map<string, T>>;
+}
+
+/** A record as stored durably. Identical to the wire `SyncRecord` — the stored
+ * shape and the wire shape are the same object, which keeps the snapshot/delta
+ * build a straight pass-through and makes schemaVersion the only thing the
+ * lazy-upgrade pass touches. */
+export type StoredSyncRecord<P = unknown> = SyncRecord<P>;
+
+const RECORD_PREFIX = "synced:";
+const HEAD_PREFIX = "synchead:";
+const TOMB_PREFIX = "synctomb:";
+const GC_FLOOR_PREFIX = "syncgcfloor:";
+
+function recordKey(collection: string, id: string): string {
+  return `${RECORD_PREFIX}${collection}:${id}`;
+}
+function recordPrefix(collection: string): string {
+  return `${RECORD_PREFIX}${collection}:`;
+}
+function headKey(collection: string): string {
+  return `${HEAD_PREFIX}${collection}`;
+}
+/** Tombstone index key. The rev is zero-padded so a lexical `list` over the
+ * prefix returns tombstones in rev order, which is what the GC walk relies on
+ * to find the oldest tombstones first without sorting. 16 digits covers any
+ * rev a single team will ever mint. */
+function tombKey(collection: string, rev: number): string {
+  return `${TOMB_PREFIX}${collection}:${String(rev).padStart(16, "0")}`;
+}
+function tombPrefix(collection: string): string {
+  return `${TOMB_PREFIX}${collection}:`;
+}
+function gcFloorKey(collection: string): string {
+  return `${GC_FLOOR_PREFIX}${collection}`;
+}
+
+/** Read the per-collection rev clock, defaulting to 0 for a collection (or an
+ * old DO instance) that has never been written. */
+export async function readHead(storage: SyncStorage, collection: string): Promise<number> {
+  return (await storage.get<number>(headKey(collection))) ?? 0;
+}
+
+/** Read the GC floor (highest GC'd tombstone rev), defaulting to 0. */
+export async function readGcFloor(storage: SyncStorage, collection: string): Promise<number> {
+  return (await storage.get<number>(gcFloorKey(collection))) ?? 0;
+}
+
+/** Read all stored records for a collection (live + tombstones). */
+export async function listRecords<P>(
+  storage: SyncStorage,
+  collection: string,
+): Promise<StoredSyncRecord<P>[]> {
+  const map = await storage.list<StoredSyncRecord<P>>({ prefix: recordPrefix(collection) });
+  return [...map.values()];
+}
+
+/** Read one stored record, or undefined. */
+export async function readRecord<P>(
+  storage: SyncStorage,
+  collection: string,
+  id: string,
+): Promise<StoredSyncRecord<P> | undefined> {
+  return await storage.get<StoredSyncRecord<P>>(recordKey(collection, id));
+}
+
+/** Result of a write attempt: the frame to broadcast, or null when nothing
+ * changed (so the caller broadcasts nothing and the cursor stays put). */
+export interface SyncWriteResult<P> {
+  /** The delta frame to broadcast, or null if the write was a no-op. */
+  delta: SyncDeltaFrame<P> | null;
+  /** The new collection head after this write (unchanged if no-op). */
+  head: number;
+}
+
+/** Upsert a derived record if its payload differs from what is stored. Mints a
+ * new rev and writes a delta only on a real change; an identical payload is a
+ * no-op that does not touch the head or the cursor (DESIGN.md §5.2).
+ *
+ * `shapeEqual(a, b)` decides "same list-shape" for the collection (device-list
+ * passes `deviceShapeChanged`-derived equality); when omitted, a structural
+ * JSON compare is used. The caller has already derived `payload`. */
+export async function upsertRecord<P>(
+  storage: SyncStorage,
+  collection: string,
+  id: string,
+  payload: P,
+  nowMs: number,
+  shapeEqual: (stored: P, next: P) => boolean = defaultPayloadEqual,
+): Promise<SyncWriteResult<P>> {
+  const head = await readHead(storage, collection);
+  const stored = await readRecord<P>(storage, collection, id);
+  if (stored !== undefined && !stored.deleted && shapeEqual(stored.payload, payload)) {
+    // No list-shape change: keep the rev, do not broadcast. This is what keeps
+    // the cursor quiet through steady-state heartbeats.
+    return { delta: null, head };
+  }
+  const rev = head + 1;
+  const record = makeRecord(id, rev, nowMs, payload);
+  await storage.put(recordKey(collection, id), record);
+  await storage.put(headKey(collection), rev);
+  return { delta: buildDelta(collection, rev, [record]), head: rev };
+}
+
+/** Tombstone a record (the device left the list). Mints a new rev, writes the
+ * tombstone record, adds the rev-ordered `synctomb:` index entry for GC, and
+ * returns the delta. A no-op if the record is already a tombstone (idempotent on
+ * a double prune). */
+export async function tombstoneRecord(
+  storage: SyncStorage,
+  collection: string,
+  id: string,
+  nowMs: number,
+): Promise<SyncWriteResult<Record<string, never>>> {
+  const head = await readHead(storage, collection);
+  const stored = await readRecord(storage, collection, id);
+  if (stored === undefined || stored.deleted) {
+    // Nothing to delete, or already a tombstone: idempotent no-op.
+    return { delta: null, head };
+  }
+  const rev = head + 1;
+  const tomb = makeTombstone(id, rev, nowMs);
+  await storage.put(recordKey(collection, id), tomb);
+  await storage.put(headKey(collection), rev);
+  await storage.put(tombKey(collection, rev), id);
+  return { delta: buildDelta(collection, rev, [tomb]), head: rev };
+}
+
+/** Lazily upgrade a stored record whose schemaVersion is below current. The
+ * `upgrade` callback rewrites the payload into the new shape; the record is
+ * re-stamped at a NEW rev so clients re-pull it (DESIGN.md §5.3). Returns the
+ * delta to broadcast, or null when the record is already current. Tombstones are
+ * never upgraded (their payload is `{}`). */
+export async function lazyUpgradeRecord<P>(
+  storage: SyncStorage,
+  collection: string,
+  id: string,
+  nowMs: number,
+  upgrade: (payload: P, fromVersion: number) => P,
+): Promise<SyncWriteResult<P>> {
+  const head = await readHead(storage, collection);
+  const stored = await readRecord<P>(storage, collection, id);
+  if (stored === undefined || stored.deleted || stored.schemaVersion >= SYNC_SCHEMA_VERSION) {
+    return { delta: null, head };
+  }
+  const upgraded = upgrade(stored.payload, stored.schemaVersion);
+  const rev = head + 1;
+  const record = makeRecord(id, rev, nowMs, upgraded);
+  await storage.put(recordKey(collection, id), record);
+  await storage.put(headKey(collection), rev);
+  return { delta: buildDelta(collection, rev, [record]), head: rev };
+}
+
+/** Build the snapshot pages for a hello whose cursor forces a full snapshot.
+ * Rev-filtered to `rev <= snapshotRev` so the snapshot is a consistent
+ * point-in-time view even though `list` is not transactional (DESIGN.md §3.4).
+ * Tombstones inside the window are included so a client reconciliation can drop
+ * a record it has but the live set does not — but already-current live records
+ * dominate; the client's `local.rev >= r.rev` guard ignores stale ones. */
+export async function buildSnapshotPages<P>(
+  storage: SyncStorage,
+  collection: string,
+  pageSize?: number,
+): Promise<{ snapshotRev: number; pages: SyncSnapshotFrame<P>[] }> {
+  const snapshotRev = await readHead(storage, collection);
+  const all = await listRecords<P>(storage, collection);
+  const filtered = all
+    .filter((r) => r.rev <= snapshotRev)
+    .sort((a, b) => a.rev - b.rev);
+  return { snapshotRev, pages: pageSnapshot(collection, snapshotRev, filtered, pageSize) };
+}
+
+/** Build the delta records to catch a client up from `sinceRev` to head: every
+ * stored record (live or tombstone) with `rev > sinceRev`, in rev order, and the
+ * head they advance the cursor to. Returns null records when already current. */
+export async function buildCatchupDelta<P>(
+  storage: SyncStorage,
+  collection: string,
+  sinceRev: number,
+): Promise<SyncDeltaFrame<P> | null> {
+  const head = await readHead(storage, collection);
+  if (head <= sinceRev) return null;
+  const all = await listRecords<P>(storage, collection);
+  const records = all
+    .filter((r) => r.rev > sinceRev)
+    .sort((a, b) => a.rev - b.rev);
+  return buildDelta(collection, head, records);
+}
+
+/** Answer one collection in a `sync.hello`: decide snapshot vs delta from the GC
+ * floor (DESIGN.md §3.5), then build the frames. A cursor below the floor (or 0
+ * with any GC having happened) forces a full snapshot + client reconciliation. */
+export async function resolveHelloFrames<P>(
+  storage: SyncStorage,
+  collection: string,
+  cursor: number,
+  pageSize?: number,
+): Promise<
+  | { mode: "snapshot"; snapshotRev: number; pages: SyncSnapshotFrame<P>[] }
+  | { mode: "delta"; delta: SyncDeltaFrame<P> | null }
+> {
+  const gcFloor = await readGcFloor(storage, collection);
+  const head = await readHead(storage, collection);
+  const resolution = resolveHello({ cursor, gcFloor, head });
+  if (resolution.mode === "snapshot") {
+    const { snapshotRev, pages } = await buildSnapshotPages<P>(storage, collection, pageSize);
+    return { mode: "snapshot", snapshotRev, pages };
+  }
+  const delta = await buildCatchupDelta<P>(storage, collection, resolution.sinceRev);
+  return { mode: "delta", delta };
+}
+
+/** GC tombstones past the retention window. Walks the rev-ordered `synctomb:`
+ * index oldest-first, deletes each expired tombstone record and its index
+ * entry, and raises the GC floor to the highest GC'd rev. O(expired), not a full
+ * scan. Returns the number GC'd and the new floor. */
+export async function gcTombstones(
+  storage: SyncStorage,
+  collection: string,
+  nowMs: number,
+  retentionMs: number = TOMBSTONE_RETENTION_MS,
+): Promise<{ collected: number; floor: number }> {
+  const index = await storage.list<string>({ prefix: tombPrefix(collection) });
+  // `list` returns keys in lexical order; the padded rev makes that rev order.
+  let floor = await readGcFloor(storage, collection);
+  let collected = 0;
+  for (const [indexKey, id] of index) {
+    const record = await readRecord(storage, collection, id);
+    // A tombstone may have been replaced by a live record (device came back);
+    // the index entry is then stale and is dropped without touching the record.
+    const isLiveTombstone = record !== undefined && record.deleted;
+    if (record !== undefined && !record.deleted) {
+      await storage.delete(indexKey);
+      continue;
+    }
+    if (isLiveTombstone && !shouldGcTombstone(record, nowMs, retentionMs)) {
+      // Index is rev-ordered, but retention is time-ordered; a newer tombstone
+      // can be older in wall-clock if clocks jump. Keep scanning rather than
+      // breaking so we never strand an expired entry behind a fresh one.
+      continue;
+    }
+    const rev = revFromTombKey(indexKey, collection);
+    await storage.delete(recordKey(collection, id));
+    await storage.delete(indexKey);
+    if (rev > floor) floor = rev;
+    collected += 1;
+  }
+  if (collected > 0) {
+    await storage.put(gcFloorKey(collection), floor);
+  }
+  return { collected, floor };
+}
+
+function revFromTombKey(key: string, collection: string): number {
+  const padded = key.slice(tombPrefix(collection).length);
+  const rev = Number(padded);
+  return Number.isFinite(rev) ? rev : 0;
+}
+
+/** Default payload equality: a structural JSON compare. Collections that need a
+ * shape-aware compare (e.g. device-list, which ignores per-tick timestamps)
+ * pass their own to `upsertRecord`. */
+function defaultPayloadEqual<P>(a: P, b: P): boolean {
+  return JSON.stringify(a) === JSON.stringify(b);
+}
