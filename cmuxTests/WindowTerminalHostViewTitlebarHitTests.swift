@@ -32,11 +32,10 @@ final class WindowTerminalHostViewTitlebarHitTests: XCTestCase {
         let pointInHost = host.convert(pointInWindow, from: nil)
         let event = makeMouseDownEvent(at: pointInWindow, window: window)
 
-        XCTAssertGreaterThanOrEqual(
-            pointInWindow.y,
-            BonsplitTabBarPassThrough.titlebarInteractionBandMinY(in: window),
-            "The regression point must exercise the fixed-height titlebar pass-through band"
-        )
+        guard pointInWindow.y >= BonsplitTabBarPassThrough.titlebarInteractionBandMinY(in: window) else {
+            XCTFail("The regression point must exercise the fixed-height titlebar pass-through band")
+            return
+        }
         assertHitFallsInsideHostedTerminal(
             host.performHitTest(at: pointInHost, currentEvent: event),
             hostedView: hostedView,
@@ -70,11 +69,10 @@ final class WindowTerminalHostViewTitlebarHitTests: XCTestCase {
         let pointInHost = host.convert(pointInWindow, from: nil)
         let event = makeMouseDownEvent(at: pointInWindow, window: window)
 
-        XCTAssertGreaterThanOrEqual(
-            pointInWindow.y,
-            BonsplitTabBarPassThrough.titlebarInteractionBandMinY(in: window),
-            "The control point must sit inside the fixed titlebar interaction band"
-        )
+        guard pointInWindow.y >= BonsplitTabBarPassThrough.titlebarInteractionBandMinY(in: window) else {
+            XCTFail("The control point must sit inside the fixed titlebar interaction band")
+            return
+        }
         XCTAssertNil(
             host.performHitTest(at: pointInHost, currentEvent: event),
             "Registered titlebar controls must keep receiving clicks even when terminal content underlaps them"
