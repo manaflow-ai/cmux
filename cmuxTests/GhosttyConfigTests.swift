@@ -721,6 +721,70 @@ final class GhosttyConfigTests: XCTestCase {
         XCTAssertEqual(rgb255(darkConfig.backgroundColor), RGB(red: 0, green: 43, blue: 54))
     }
 
+    func testLoadHonorsPairedThemeAndTopLevelForegroundOverrideByColorScheme() throws {
+        let fileManager = FileManager.default
+        let root = fileManager.temporaryDirectory
+            .appendingPathComponent("cmux-ghostty-theme-pair-foreground-\(UUID().uuidString)")
+        let themesDir = root.appendingPathComponent("themes", isDirectory: true)
+        try fileManager.createDirectory(at: themesDir, withIntermediateDirectories: true)
+        defer { try? fileManager.removeItem(at: root) }
+
+        let originalFixedHome = getenv("CFFIXED_USER_HOME").map { String(cString: $0) }
+        let originalResourcesDir = getenv("GHOSTTY_RESOURCES_DIR").map { String(cString: $0) }
+        setenv("CFFIXED_USER_HOME", root.path, 1)
+        setenv("GHOSTTY_RESOURCES_DIR", root.path, 1)
+        defer {
+            if let originalFixedHome {
+                setenv("CFFIXED_USER_HOME", originalFixedHome, 1)
+            } else {
+                unsetenv("CFFIXED_USER_HOME")
+            }
+            if let originalResourcesDir {
+                setenv("GHOSTTY_RESOURCES_DIR", originalResourcesDir, 1)
+            } else {
+                unsetenv("GHOSTTY_RESOURCES_DIR")
+            }
+            GhosttyConfig.invalidateLoadCache()
+        }
+
+        try """
+        background = #fffcf0
+        foreground = #100f0f
+        """.write(
+            to: themesDir.appendingPathComponent("Flexoki Light", isDirectory: false),
+            atomically: true,
+            encoding: .utf8
+        )
+        try """
+        background = #100f0f
+        foreground = #cecdc3
+        """.write(
+            to: themesDir.appendingPathComponent("Flexoki Dark", isDirectory: false),
+            atomically: true,
+            encoding: .utf8
+        )
+
+        let ghosttyConfigDir = root.appendingPathComponent(".config/ghostty", isDirectory: true)
+        try fileManager.createDirectory(at: ghosttyConfigDir, withIntermediateDirectories: true)
+        try """
+        window-theme = auto
+        theme = light:Flexoki Light,dark:Flexoki Dark
+        foreground = #ff0000
+        """.write(
+            to: ghosttyConfigDir.appendingPathComponent("config", isDirectory: false),
+            atomically: true,
+            encoding: .utf8
+        )
+
+        let lightConfig = GhosttyConfig.load(preferredColorScheme: .light, useCache: false)
+        let darkConfig = GhosttyConfig.load(preferredColorScheme: .dark, useCache: false)
+
+        XCTAssertEqual(lightConfig.backgroundColor.hexString(), "#FFFCF0")
+        XCTAssertEqual(lightConfig.foregroundColor.hexString(), "#FF0000")
+        XCTAssertEqual(darkConfig.backgroundColor.hexString(), "#100F0F")
+        XCTAssertEqual(darkConfig.foregroundColor.hexString(), "#FF0000")
+    }
+
     func testParseBackgroundOpacityReadsConfigValue() {
         var config = GhosttyConfig()
         config.parse("background-opacity = 0.42")
