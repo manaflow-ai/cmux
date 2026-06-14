@@ -1615,6 +1615,90 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         )
     }
 
+    func testNewWorkspaceActionWithoutResolvableMainWindowDoesNotCreateMainWindow() {
+#if DEBUG
+        withIsolatedAppDelegate { appDelegate, existingWindowIds in
+            let staleWindowId = appDelegate.registerMainWindowContextForTesting(tabManager: TabManager())
+            defer { appDelegate.unregisterMainWindowContextForTesting(windowId: staleWindowId) }
+
+            XCTAssertFalse(
+                appDelegate.performNewWorkspaceAction(debugSource: "test.newWorkspace.noResolvableWindow"),
+                "New Workspace should fail without a resolvable main window instead of creating one"
+            )
+            RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
+
+            XCTAssertEqual(
+                mainWindowIds().subtracting(existingWindowIds),
+                Set<UUID>(),
+                "New Workspace must not create a main window as a fallback"
+            )
+        }
+#else
+        XCTFail("registerMainWindowContextForTesting is only available in DEBUG")
+#endif
+    }
+
+    func testSocketActivationWithoutResolvableMainWindowDoesNotCreateMainWindow() {
+#if DEBUG
+        withIsolatedAppDelegate { appDelegate, existingWindowIds in
+            let staleWindowId = appDelegate.registerMainWindowContextForTesting(tabManager: TabManager())
+            defer { appDelegate.unregisterMainWindowContextForTesting(windowId: staleWindowId) }
+
+            XCTAssertFalse(appDelegate.activateMainWindowFromSocket())
+            XCTAssertTrue(TerminalController.shared.activateApp().hasPrefix("ERROR:"))
+            RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
+
+            XCTAssertEqual(
+                mainWindowIds().subtracting(existingWindowIds),
+                Set<UUID>(),
+                "Socket activation should only reveal existing windows"
+            )
+        }
+#else
+        XCTFail("registerMainWindowContextForTesting is only available in DEBUG")
+#endif
+    }
+
+    func testApplicationReopenWithoutResolvableMainWindowDoesNotCreateMainWindow() {
+#if DEBUG
+        withIsolatedAppDelegate { appDelegate, existingWindowIds in
+            let staleWindowId = appDelegate.registerMainWindowContextForTesting(tabManager: TabManager())
+            defer { appDelegate.unregisterMainWindowContextForTesting(windowId: staleWindowId) }
+
+            XCTAssertTrue(appDelegate.applicationShouldHandleReopen(NSApp, hasVisibleWindows: false))
+            RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
+
+            XCTAssertEqual(
+                mainWindowIds().subtracting(existingWindowIds),
+                Set<UUID>(),
+                "Application reopen should only reveal existing windows"
+            )
+        }
+#else
+        XCTFail("registerMainWindowContextForTesting is only available in DEBUG")
+#endif
+    }
+
+    func testMenuBarShowWithoutResolvableMainWindowDoesNotCreateMainWindow() {
+#if DEBUG
+        withIsolatedAppDelegate { appDelegate, existingWindowIds in
+            let staleWindowId = appDelegate.registerMainWindowContextForTesting(tabManager: TabManager())
+            defer { appDelegate.unregisterMainWindowContextForTesting(windowId: staleWindowId) }
+
+            XCTAssertNil(appDelegate.showMainWindowFromMenuBar())
+            RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
+
+            XCTAssertEqual(
+                mainWindowIds().subtracting(existingWindowIds),
+                Set<UUID>(),
+                "Menu bar Show should only reveal existing windows"
+            )
+        }
+#else
+        XCTFail("registerMainWindowContextForTesting is only available in DEBUG")
+#endif
+    }
+
     func testAddWorkspaceInPreferredMainWindowUsesKeyWindowWhenObjectKeyLookupIsMismatched() {
         guard let appDelegate = AppDelegate.shared else {
             XCTFail("Expected AppDelegate.shared")
@@ -11994,6 +12078,22 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
             }
             return UUID(uuidString: String(raw.dropFirst("cmux.main.".count)))
         })
+    }
+
+    private func withIsolatedAppDelegate(_ body: (AppDelegate, Set<UUID>) -> Void) {
+        let previousAppDelegate = AppDelegate.shared
+        let existingWindowIds = mainWindowIds()
+        let appDelegate = AppDelegate()
+        AppDelegate.shared = appDelegate
+
+        defer {
+            for windowId in mainWindowIds().subtracting(existingWindowIds) {
+                closeWindow(withId: windowId)
+            }
+            AppDelegate.shared = previousAppDelegate
+        }
+
+        body(appDelegate, existingWindowIds)
     }
 
     private func closeWindow(withId windowId: UUID) {

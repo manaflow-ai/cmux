@@ -1088,7 +1088,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             reason: .applicationReopen,
             activation: .none
         ) == nil {
-            _ = ensureInitialMainWindowIfNeeded()
+            NSSound.beep()
         }
         return true
     }
@@ -6911,36 +6911,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         if mainWindowContexts.isEmpty && livePreferredContext == nil {
 #if DEBUG
             logWorkspaceCreationRouting(
-                phase: "fallback_new_window",
+                phase: "no_context",
                 source: debugSource,
                 reason: "no_main_windows",
                 event: event,
                 chosenContext: nil
             )
 #endif
-            let windowId = createMainWindow()
-            if let context = mainWindowContexts.values.first(where: { $0.windowId == windowId }) {
-                let initialWorkspace = context.tabManager.selectedWorkspace
-                switch initialSurface {
-                case .terminal:
-                    _ = executeConfiguredNewWorkspaceActionIfAvailable(
-                        in: context,
-                        debugSource: debugSource,
-                        replacingInitialWorkspace: initialWorkspace
-                    )
-                case .browser:
-                    // The fresh window boots with a terminal workspace; add the
-                    // browser workspace and close that initial one so the
-                    // action's result matches the no-window case for terminals.
-                    let workspace = context.tabManager.addWorkspace(initialSurface: .browser)
-                    closeInitialWorkspaceIfNeeded(
-                        initialWorkspaceId: initialWorkspace?.id,
-                        in: context
-                    )
-                    focusInitialBrowserAddressBar(in: workspace)
-                }
-            }
-            return true
+            NSSound.beep()
+            return false
         }
 
         let context = livePreferredContext
@@ -6995,14 +6974,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         } else {
 #if DEBUG
             logWorkspaceCreationRouting(
-                phase: "fallback_new_window",
+                phase: "no_context",
                 source: debugSource,
                 reason: "workspace_creation_returned_nil",
                 event: event,
                 chosenContext: nil
             )
 #endif
-            openNewMainWindow(nil)
+            NSSound.beep()
+            return false
         }
         return true
     }
@@ -8521,10 +8501,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
     @discardableResult
     func activateMainWindowFromSocket() -> Bool {
-        let window = preferredMainWindowForVisibilityActivation() ?? {
-            let windowId = ensureInitialMainWindowIfNeeded(shouldActivate: false)
-            return windowForMainWindowId(windowId)
-        }()
+        let window = preferredMainWindowForVisibilityActivation()
         guard let window else { return false }
         return mainWindowVisibilityController.focus(
             window,
@@ -8579,18 +8556,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         ) {
             return window
         }
-
-        let windowId = ensureInitialMainWindowIfNeeded(shouldActivate: false)
-        guard let window = windowForMainWindowId(windowId) else {
-            NSSound.beep()
-            return nil
-        }
-        _ = mainWindowVisibilityController.focus(
-            window,
-            reason: .menuBar,
-            respectActivationSuppression: false
-        )
-        return window
+        NSSound.beep()
+        return nil
     }
 
     private func mainWindowsForVisibilityController() -> [NSWindow] {
