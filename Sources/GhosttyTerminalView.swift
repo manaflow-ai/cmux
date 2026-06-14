@@ -3910,6 +3910,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     private var wordPathHoverActive = false
     private var keyboardCopyModeConsumedKeyUps: Set<UInt16> = []
     private var imeConsumedKeyUps: Set<UInt16> = []
+    private var nonInlineIMECompositionState: NonInlineIMECompositionState = .inactive
     private var keyboardCopyModeInputState = TerminalKeyboardCopyModeInputState()
     private var keyboardCopyModeCursor: TerminalKeyboardCopyModeCursor?
     private var keyboardCopyModePendingViewportJumpSync = false
@@ -3935,6 +3936,17 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         }
 
         return nil
+    }
+    private enum NonInlineIMECompositionClearReason {
+        case focusRejected
+        case focusEntered
+        case focusExited
+        case inputSourceChanged
+        case textInputUnmarked
+    }
+
+    private func clearNonInlineIMEComposition(reason _: NonInlineIMECompositionClearReason) {
+        nonInlineIMECompositionState = .inactive
     }
 #if DEBUG
     private static let keyLatencyProbeEnabled: Bool = {
@@ -5270,13 +5282,14 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         let result = super.becomeFirstResponder()
         var shouldApplySurfaceFocus = false
         if result {
-            imeConsumedKeyUps.removeAll()
             if let terminalSurface,
                AppDelegate.shared?.allowsTerminalKeyboardFocus(
                    workspaceId: terminalSurface.tabId,
                    panelId: terminalSurface.id,
                    in: window
                ) == false {
+                imeConsumedKeyUps.removeAll()
+                clearNonInlineIMEComposition(reason: .focusRejected)
                 desiredFocus = false
                 terminalSurface.recordExternalFocusState(false)
 #if DEBUG
@@ -5298,6 +5311,9 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
 #endif
                 return result
             }
+
+            imeConsumedKeyUps.removeAll()
+            clearNonInlineIMEComposition(reason: .focusEntered)
 
             // Always notify the host app that this pane became the first responder so bonsplit
             // focus/selection can converge. Previously this was gated on `surface != nil`, which
@@ -5359,6 +5375,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         let result = super.resignFirstResponder()
         if result {
             imeConsumedKeyUps.removeAll()
+            clearNonInlineIMEComposition(reason: .focusExited)
             desiredFocus = false
             terminalSurface?.recordExternalFocusState(false)
         }
@@ -5430,6 +5447,13 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         performKeyEquivalent(with: event, shouldRetryMainMenu: false)
     }
 
+    func shouldBypassKeyEquivalentForActiveIMEComposition(_ event: NSEvent) -> Bool {
+        guard !event.modifierFlags.intersection(.deviceIndependentFlagsMask).contains(.command) else {
+            return false
+        }
+        return hasMarkedText() || nonInlineIMECompositionState.isActive(for: KeyboardLayout.id)
+    }
+
     private func performKeyEquivalent(with event: NSEvent, shouldRetryMainMenu: Bool) -> Bool {
 #if DEBUG
         let typingTimingStart = CmuxTypingTiming.start()
@@ -5447,7 +5471,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         guard let surface = ensureSurfaceReadyForInput() else { return false }
 
         // Let non-Cmd keys flow to keyDown while IME is composing; Cmd shortcuts still work.
-        if hasMarkedText(), !event.modifierFlags.intersection(.deviceIndependentFlagsMask).contains(.command) {
+        if shouldBypassKeyEquivalentForActiveIMEComposition(event) {
             return false
         }
 
@@ -5814,6 +5838,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         // If the keyboard layout changed, an input method grabbed the event.
         // Sync preedit and return without sending the key to Ghostty.
         if !markedTextBefore, let kbBefore = keyboardIdBefore, kbBefore != KeyboardLayout.id {
+            clearNonInlineIMEComposition(reason: .inputSourceChanged)
             imeConsumedKeyUps.insert(event.keyCode)
 #if DEBUG
             let syncPreeditStart = ProcessInfo.processInfo.systemUptime
@@ -5835,6 +5860,20 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
 #endif
 
         let accumulatedText = keyTextAccumulator ?? []
+        let nonInlineIMEDecision = shouldSuppressGhosttyKeyForwardingForNonInlineIMEHandling(
+            before: markedStateBefore,
+            after: (markedText.string, markedSelectedRange),
+            accumulatedText: accumulatedText,
+            event: textInputEvent,
+            inputSourceId: keyboardIdBefore,
+            compositionState: nonInlineIMECompositionState
+        )
+        nonInlineIMECompositionState = nonInlineIMEDecision.compositionState
+        if nonInlineIMEDecision.suppress {
+            imeConsumedKeyUps.insert(event.keyCode)
+            return
+        }
+
         if shouldSuppressGhosttyKeyForwardingAfterIMEHandling(
             before: markedStateBefore,
             after: (markedText.string, markedSelectedRange),
@@ -11362,6 +11401,7 @@ extension GhosttyNSView: NSTextInputClient {
             )
         }
 #endif
+        clearNonInlineIMEComposition(reason: .textInputUnmarked)
         if markedText.length > 0 {
             markedText.mutableString.setString("")
             markedSelectedRange = NSRange(location: NSNotFound, length: 0)
