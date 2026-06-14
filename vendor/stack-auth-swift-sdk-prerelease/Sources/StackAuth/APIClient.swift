@@ -135,21 +135,31 @@ actor APIClient {
     let publishableClientKey: String
     let secretServerKey: String?
     private let tokenStore: any TokenStoreProtocol
-    
+    /// The URL transport every request runs through. Defaults to
+    /// `URLSession.shared` in production; tests inject a session whose
+    /// configuration carries a stub `URLProtocol` so the token-refresh
+    /// classification (`refresh(refreshToken:)` → ``RefreshOutcome``) can be
+    /// exercised against synthetic HTTP statuses and transport errors without a
+    /// live server. This is the only seam the transient-vs-definitive signout
+    /// regression test needs; it does not widen any public API.
+    private let session: URLSession
+
     private static let sdkVersion = "1.0.0"
-    
+
     init(
         baseUrl: String,
         projectId: String,
         publishableClientKey: String,
         secretServerKey: String? = nil,
-        tokenStore: any TokenStoreProtocol
+        tokenStore: any TokenStoreProtocol,
+        session: URLSession = .shared
     ) {
         self.baseUrl = baseUrl.hasSuffix("/") ? String(baseUrl.dropLast()) : baseUrl
         self.projectId = projectId
         self.publishableClientKey = publishableClientKey
         self.secretServerKey = secretServerKey
         self.tokenStore = tokenStore
+        self.session = session
     }
     
     // MARK: - Request Methods
@@ -218,8 +228,8 @@ actor APIClient {
         attempt: Int = 0
     ) async throws -> (Data, HTTPURLResponse) {
         do {
-            let (data, response) = try await URLSession.shared.data(for: request)
-            
+            let (data, response) = try await session.data(for: request)
+
             guard let httpResponse = response as? HTTPURLResponse else {
                 throw StackAuthError(code: "invalid_response", message: "Invalid HTTP response")
             }
@@ -340,7 +350,7 @@ actor APIClient {
         request.httpBody = body.data(using: .utf8)
 
         do {
-            let (data, response) = try await URLSession.shared.data(for: request)
+            let (data, response) = try await session.data(for: request)
 
             guard let httpResponse = response as? HTTPURLResponse else {
                 return .transientFailure
