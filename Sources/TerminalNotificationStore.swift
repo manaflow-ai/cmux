@@ -173,7 +173,7 @@ enum TerminalNotificationClickAction: Codable, Hashable, Sendable {
     }
 }
 
-struct TerminalNotification: Identifiable, Hashable {
+struct TerminalNotification: Identifiable, Hashable, Sendable {
     let id: UUID
     let tabId: UUID
     let surfaceId: UUID?
@@ -1749,7 +1749,7 @@ final class TerminalNotificationStore: ObservableObject {
             return
         }
 
-        let handleAuthorization: (Bool, NotificationAuthorizationState) -> Void = { [weak self] authorized, effectiveAuthorizationState in
+        let handleAuthorization: NativeNotificationDeliveryHooks.AuthorizationCompletion = { [weak self] authorized, effectiveAuthorizationState in
             guard let self else { return }
             let content = UNMutableNotificationContent()
             content.title = self.resolvedNotificationTitle(for: notification)
