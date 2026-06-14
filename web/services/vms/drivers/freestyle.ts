@@ -503,7 +503,7 @@ function shouldFallbackAttachToSSH(err: unknown): boolean {
   return messages.some((message) =>
     message.includes("requires a cmuxd RPC endpoint")
     || message.includes("Freestyle cmuxd websocket health check returned")
-    || message.includes("fetch failed")
+    || message.includes("Freestyle cmuxd websocket health check failed")
   );
 }
 
@@ -514,6 +514,8 @@ function errorMessage(err: unknown): string {
 async function ensureFreestyleWebSocketHealthy(domain: string): Promise<void> {
   const response = await fetch(`https://${domain}/healthz`, {
     signal: AbortSignal.timeout(10_000),
+  }).catch((err: unknown) => {
+    throw new Error(`Freestyle cmuxd websocket health check failed: ${errorMessage(err)}`);
   });
   if (response.status !== 200) {
     throw new Error(`Freestyle cmuxd websocket health check returned ${response.status}`);

@@ -52,6 +52,18 @@ describe("FreestyleProvider attach fallback", () => {
     expect(provider.sshCalls).toBe(1);
   });
 
+  test("falls back to SSH when the WebSocket health check times out", async () => {
+    const provider = new TestFreestyleProvider();
+    provider.websocketResult = new Error(
+      "Freestyle cmuxd websocket health check failed: The operation was aborted",
+    );
+
+    const endpoint = await provider.openAttach("vm-1", { requireDaemon: true });
+
+    expect(endpoint).toEqual(sshEndpoint);
+    expect(provider.sshCalls).toBe(1);
+  });
+
   test("does not mint SSH credentials for unexpected attach errors", async () => {
     const provider = new TestFreestyleProvider();
     provider.websocketResult = new Error("Freestyle API returned 401");
