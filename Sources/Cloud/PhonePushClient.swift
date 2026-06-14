@@ -20,6 +20,11 @@ enum PhonePushSettings {
 /// by ``PhonePushSettings/forwardEnabledKey`` (off by default) and only invoked
 /// from the not-suppressed desktop-delivery path, so it mirrors what the Mac
 /// itself shows. Best-effort and non-blocking.
+///
+/// Two push kinds share the transport: the visible banner mirror
+/// (``forward(_:badgeCount:)``) and the silent dismiss/badge push
+/// (``forwardDismissed(ids:badgeCount:)``), the cold lane of Mac→iOS
+/// dismiss-sync that reaches every registered device, attached or not.
 @MainActor
 final class PhonePushClient {
     static let shared = PhonePushClient()
@@ -36,6 +41,19 @@ final class PhonePushClient {
     /// Bounds live presence sampling under suppressed (active-Mac) bursts;
     /// see `MacPresenceDecisionCache` for the staleness invariant.
     private var presenceCache = MacPresenceDecisionCache()
+
+    /// Dismissed ids waiting for the drain task, deduped at send time. Bursts
+    /// coalesce structurally: ids accumulate while one send is in flight and the
+    /// drain loop ships whatever piled up next, chunked to the server's cap, so
+    /// "Clear All" (one emit) is one push and N rapid swipes are at most a
+    /// couple — no timers involved.
+    private var pendingDismissedIDs: [String] = []
+    /// The freshest authoritative unread count; later dismisses overwrite it so
+    /// the badge that ships is always the latest total.
+    private var pendingDismissBadgeCount = 0
+    private var dismissDrainTask: Task<Void, Never>?
+    /// Keep each dismiss push within the server's `MAX_PUSH_DISMISS_IDS`.
+    private static let maxDismissIDsPerPush = 64
 
     private init() {}
 
@@ -65,17 +83,46 @@ final class PhonePushClient {
         }
     }
 
+    /// Whether a banner forward for this delivery would currently pass the
+    /// enable + presence gate, ignoring the per-tab/surface burst throttle.
+    ///
+    /// The superseded-banner buffering decision in
+    /// ``TerminalNotificationStore`` keys on this so it matches the real send
+    /// decision in ``forward(_:badgeCount:)``: only the throttle is a
+    /// legitimate "defer and flush on the next successful forward" case. When
+    /// forwarding is off or the `.onlyWhenAway` presence gate suppresses the
+    /// replacement (Mac active), no replacement push is coming, so the store
+    /// must emit the superseded dismiss immediately rather than stash it for a
+    /// forward that will never happen. Returns `false` when forwarding is off
+    /// or the presence gate currently suppresses delivery; `true` otherwise.
+    func willForwardReplacement(defaults: UserDefaults = .standard) -> Bool {
+        guard defaults.bool(forKey: PhonePushSettings.forwardEnabledKey) else { return false }
+        let mode = PhoneForwardingMode.fromDefaults(defaults)
+        if mode == .always { return true }
+        let presence = presenceCache.decision(from: presenceMonitor)
+        return Self.shouldForward(mode: mode, presence: presence)
+    }
+
     /// Forward a notification if the user opted in. Captures the fields up front
     /// and performs the network call off the caller's critical path.
-    func forward(_ notification: TerminalNotification) {
-        guard Self.isForwardingEnabled else { return }
+    /// - Parameter badgeCount: The authoritative unread-notification total at
+    ///   send time; the server emits it as `aps.badge` so the phone's icon badge
+    ///   is always SET to the computed total (never incremented locally).
+    /// - Returns: Whether the banner push was actually queued for sending —
+    ///   `false` when forwarding is off or the per-tab/surface throttle dropped
+    ///   it. The store keys the superseded-banner dismiss on this, so a
+    ///   throttled replacement can never strand the phone with no banner for a
+    ///   still-unread notification.
+    @discardableResult
+    func forward(_ notification: TerminalNotification, badgeCount: Int) -> Bool {
+        guard Self.isForwardingEnabled else { return false }
 
         // Read-only burst-throttle check FIRST: a dictionary lookup that
         // bounds everything downstream (presence sampling and sends) to one
         // per key per second under notification storms.
         let key = "\(notification.tabId.uuidString):\(notification.surfaceId?.uuidString ?? "")"
         let now = Date()
-        if let last = lastSentAt[key], now.timeIntervalSince(last) < Self.minInterval { return }
+        if let last = lastSentAt[key], now.timeIntervalSince(last) < Self.minInterval { return false }
 
         // Presence gate, decided per notification at delivery time so the
         // phone never receives a suppressed push. `.always` skips sampling
@@ -85,6 +132,9 @@ final class PhonePushClient {
         // by the active-decision cache instead of the send throttle, because
         // suppression must not consume a send slot. See
         // `MacPresenceDecisionCache` for the explicit staleness invariant.
+        // A suppressed forward queues no banner push, so it reports `false`
+        // like a throttled one: the store must not dismiss the superseded
+        // banner when no replacement is coming.
         let mode = PhoneForwardingMode.fromDefaults()
         if mode != .always {
             let presence = presenceCache.decision(from: presenceMonitor)
@@ -92,7 +142,7 @@ final class PhonePushClient {
 #if DEBUG
                 cmuxDebugLog("phonepush.suppressed reason=macActive verdict=\(presence.verdict)")
 #endif
-                return
+                return false
             }
         }
 
@@ -102,27 +152,64 @@ final class PhonePushClient {
         lastSentAt[key] = now
 
         let hideContent = UserDefaults.standard.bool(forKey: PhonePushSettings.hideContentKey)
-        let payload = Payload(
+        let payload = PhonePushPayload(
+            kind: .notify,
             title: notification.title,
             subtitle: notification.subtitle,
             body: notification.body,
             workspaceId: notification.tabId.uuidString,
             surfaceId: notification.surfaceId?.uuidString,
+            notificationId: notification.id.uuidString,
+            notificationIds: [],
+            badgeCount: badgeCount,
             hideContent: hideContent
         )
         Task { await send(payload) }
+        return true
     }
 
-    private struct Payload: Sendable {
-        let title: String
-        let subtitle: String
-        let body: String
-        let workspaceId: String
-        let surfaceId: String?
-        let hideContent: Bool
+    /// The cold lane of Mac→iOS dismiss-sync: mirror a Mac-side dismiss through
+    /// a silent APNs push (`content-available` + `aps.badge` + the dismissed
+    /// ids). Sent unconditionally — the push route fans out to every registered
+    /// device token, so a live-attached phone (which already handled the peer
+    /// event; the push is an idempotent no-op there) must not starve an offline
+    /// second device.
+    /// The system applies the badge immediately; banner removal happens when iOS
+    /// grants the (strictly budgeted) background wake, and the app-foreground
+    /// reconcile sweep heals anything iOS deferred. Carries only opaque UUIDs.
+    func forwardDismissed(ids: [String], badgeCount: Int) {
+        guard Self.isForwardingEnabled, !ids.isEmpty else { return }
+        pendingDismissedIDs.append(contentsOf: ids)
+        pendingDismissBadgeCount = badgeCount
+        guard dismissDrainTask == nil else { return }
+        dismissDrainTask = Task { [weak self] in
+            await self?.drainPendingDismisses()
+        }
     }
 
-    private func send(_ payload: Payload) async {
+    private func drainPendingDismisses() async {
+        defer { dismissDrainTask = nil }
+        while !pendingDismissedIDs.isEmpty {
+            var seen = Set<String>()
+            let deduped = pendingDismissedIDs.filter { seen.insert($0).inserted }
+            let chunk = Array(deduped.prefix(Self.maxDismissIDsPerPush))
+            pendingDismissedIDs = Array(deduped.dropFirst(Self.maxDismissIDsPerPush))
+            await send(PhonePushPayload(
+                kind: .dismiss,
+                title: "",
+                subtitle: "",
+                body: "",
+                workspaceId: nil,
+                surfaceId: nil,
+                notificationId: nil,
+                notificationIds: chunk,
+                badgeCount: pendingDismissBadgeCount,
+                hideContent: false
+            ))
+        }
+    }
+
+    private func send(_ payload: PhonePushPayload) async {
         guard let auth else { return }
         let tokens: (accessToken: String, refreshToken: String)
         do {
@@ -141,15 +228,24 @@ final class PhonePushClient {
         // When hideContent is on, the real terminal title/subtitle/body must
         // never leave the Mac. Send generic placeholders so the request still
         // carries valid, parseable fields while the actual content stays local.
-        // workspaceId/surfaceId/hideContent are opaque IDs/flags, not content.
+        // Ids, the badge count, and hideContent are opaque values, not content.
         var bodyDict: [String: Any] = [
-            "title": payload.hideContent ? "cmux" : payload.title,
-            "subtitle": payload.hideContent ? "" : payload.subtitle,
-            "body": payload.hideContent ? "New terminal activity" : payload.body,
-            "workspaceId": payload.workspaceId,
+            "kind": payload.kind.rawValue,
+            "badgeCount": payload.badgeCount,
             "hideContent": payload.hideContent,
         ]
-        if let surfaceId = payload.surfaceId { bodyDict["surfaceId"] = surfaceId }
+        switch payload.kind {
+        case .notify:
+            bodyDict["title"] = payload.hideContent ? "cmux" : payload.title
+            bodyDict["subtitle"] = payload.hideContent ? "" : payload.subtitle
+            bodyDict["body"] = payload.hideContent ? "New terminal activity" : payload.body
+            if let workspaceId = payload.workspaceId { bodyDict["workspaceId"] = workspaceId }
+            if let surfaceId = payload.surfaceId { bodyDict["surfaceId"] = surfaceId }
+            // Opaque UUID, not content: safe to send even when hideContent is on.
+            if let notificationId = payload.notificationId { bodyDict["notificationId"] = notificationId }
+        case .dismiss:
+            bodyDict["notificationIds"] = payload.notificationIds
+        }
 
         var req = URLRequest(url: url)
         req.httpMethod = "POST"
@@ -165,7 +261,7 @@ final class PhonePushClient {
         do {
             let (_, response) = try await session.data(for: req)
             if let http = response as? HTTPURLResponse, !(200...299).contains(http.statusCode) {
-                NSLog("cmux.phonepush failed status=%d", http.statusCode)
+                NSLog("cmux.phonepush failed kind=%@ status=%d", payload.kind.rawValue, http.statusCode)
             }
         } catch {
             // best-effort; phone forwarding must never disrupt the Mac.

@@ -8,7 +8,7 @@ import UserNotifications
 
 extension TerminalNotificationStore {
     func configureNotificationAuthorizationHandlerForTesting(
-        _ handler: @escaping (@escaping (Bool) -> Void) -> Void
+        _ handler: @escaping (@escaping (Bool, NotificationAuthorizationState) -> Void) -> Void
     ) {
         nativeNotificationDeliveryHooks.authorizationHandlerForTesting = handler
     }

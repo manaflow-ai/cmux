@@ -1,16 +1,17 @@
 import CMUXMobileCore
 import Foundation
 @preconcurrency import Network
-import XCTest
+import Testing
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
 #elseif canImport(cmux)
 @testable import cmux
 #endif
 
+@Suite(.serialized)
 @MainActor
-final class MobileHostAuthorizationTests: XCTestCase {
-    func testAttachTicketStoreKeepsMultipleTicketsForSameTerminal() throws {
+struct MobileHostAuthorizationTests {
+    @Test func testAttachTicketStoreKeepsMultipleTicketsForSameTerminal() throws {
         let store = MobileAttachTicketStore()
         let route = try CmxAttachRoute(
             id: "debug",
@@ -34,18 +35,11 @@ final class MobileHostAuthorizationTests: XCTestCase {
             now: now.addingTimeInterval(1)
         )
 
-        XCTAssertNotEqual(first.authToken, second.authToken)
-        XCTAssertEqual(
-            store.validTicket(authToken: first.authToken, now: now.addingTimeInterval(2))?.authToken,
-            first.authToken
-        )
-        XCTAssertEqual(
-            store.validTicket(authToken: second.authToken, now: now.addingTimeInterval(2))?.authToken,
-            second.authToken
-        )
+        #expect(first.authToken != second.authToken)
+        #expect(store.validTicket(authToken: first.authToken, now: now.addingTimeInterval(2))?.authToken == first.authToken)
+        #expect(store.validTicket(authToken: second.authToken, now: now.addingTimeInterval(2))?.authToken == second.authToken)
     }
-
-    func testAttachTicketStoreRecordsCreatedResourceScopes() throws {
+    @Test func testAttachTicketStoreRecordsCreatedResourceScopes() throws {
         let store = MobileAttachTicketStore()
         let route = try CmxAttachRoute(
             id: "debug",
@@ -65,12 +59,11 @@ final class MobileHostAuthorizationTests: XCTestCase {
             terminalID: "created-terminal"
         )
 
-        let authorization = try XCTUnwrap(store.validAuthorization(authToken: ticket.authToken))
-        XCTAssertEqual(authorization.createdWorkspaceIDs, Set(["created-workspace"]))
-        XCTAssertEqual(authorization.createdTerminalIDs, Set(["created-terminal"]))
+        let authorization = try #require(store.validAuthorization(authToken: ticket.authToken))
+        #expect(authorization.createdWorkspaceIDs == Set(["created-workspace"]))
+        #expect(authorization.createdTerminalIDs == Set(["created-terminal"]))
     }
-
-    func testMobileWorkspaceRPCRequiresAuthorization() async {
+    @Test func testMobileWorkspaceRPCRequiresAuthorization() async {
         let request = MobileHostRPCRequest(
             id: "workspace-list",
             method: "workspace.list",
@@ -81,12 +74,11 @@ final class MobileHostAuthorizationTests: XCTestCase {
         let result = await MobileHostService.shared.debugAuthorizationError(for: request)
 
         guard case let .failure(error) = result else {
-            return XCTFail("workspace.list should require mobile authorization")
+            return #expect(Bool(false), "workspace.list should require mobile authorization")
         }
-        XCTAssertEqual(error.code, "unauthorized")
+        #expect(error.code == "unauthorized")
     }
-
-    func testMobileHostStatusDoesNotRequireAuthorization() async {
+    @Test func testMobileHostStatusDoesNotRequireAuthorization() async {
         let request = MobileHostRPCRequest(
             id: "host-status",
             method: "mobile.host.status",
@@ -96,27 +88,26 @@ final class MobileHostAuthorizationTests: XCTestCase {
 
         let result = await MobileHostService.shared.debugAuthorizationError(for: request)
 
-        XCTAssertNil(result)
+        #expect(result == nil)
     }
 
     #if DEBUG
-    func testDebugStackAuthTokenPolicyRequiresConfiguredToken() {
-        XCTAssertNil(MobileHostDevStackAuthPolicy.normalizedToken("   "))
-        XCTAssertFalse(MobileHostDevStackAuthPolicy.authorize(
+    @Test func testDebugStackAuthTokenPolicyRequiresConfiguredToken() {
+        #expect(MobileHostDevStackAuthPolicy.normalizedToken("   ") == nil)
+        #expect(!MobileHostDevStackAuthPolicy.authorize(
             providedToken: "cmux-dev-token",
             acceptedToken: nil
         ))
-        XCTAssertFalse(MobileHostDevStackAuthPolicy.authorize(
+        #expect(!MobileHostDevStackAuthPolicy.authorize(
             providedToken: "cmux-dev-token",
             acceptedToken: "other-token"
         ))
-        XCTAssertTrue(MobileHostDevStackAuthPolicy.authorize(
+        #expect(MobileHostDevStackAuthPolicy.authorize(
             providedToken: " cmux-dev-token ",
             acceptedToken: "cmux-dev-token"
         ))
     }
-
-    func testDebugConfiguredStackAuthTokenAuthorizesBroadWorkspaceList() async {
+    @Test func testDebugConfiguredStackAuthTokenAuthorizesBroadWorkspaceList() async {
         let service = MobileHostService.shared
         service.debugConfigureAcceptedStackAuthTokenForTesting("cmux-dev-token")
         defer {
@@ -135,46 +126,42 @@ final class MobileHostAuthorizationTests: XCTestCase {
 
         let result = await service.debugAuthorizationError(for: request)
 
-        XCTAssertNil(result)
+        #expect(result == nil)
     }
     #endif
-
-    func testMobileHostRPCRejectsInvalidParamsShape() {
+    @Test func testMobileHostRPCRejectsInvalidParamsShape() {
         let data = Data(#"{"id":"bad-params","method":"workspace.list","params":[]}"#.utf8)
 
         let result = MobileHostRPCEnvelope.decodeRequest(data)
 
         guard case let .failure(error) = result else {
-            return XCTFail("Invalid params shape should be rejected")
+            return #expect(Bool(false), "Invalid params shape should be rejected")
         }
-        XCTAssertEqual(error.code, "invalid_request")
-        XCTAssertEqual(error.message, "params must be an object")
+        #expect(error.code == "invalid_request")
+        #expect(error.message == "params must be an object")
     }
-
-    func testMobileHostRPCRejectsInvalidAuthShape() {
+    @Test func testMobileHostRPCRejectsInvalidAuthShape() {
         let data = Data(#"{"id":"bad-auth","method":"workspace.list","auth":"token"}"#.utf8)
 
         let result = MobileHostRPCEnvelope.decodeRequest(data)
 
         guard case let .failure(error) = result else {
-            return XCTFail("Invalid auth shape should be rejected")
+            return #expect(Bool(false), "Invalid auth shape should be rejected")
         }
-        XCTAssertEqual(error.code, "invalid_request")
-        XCTAssertEqual(error.message, "auth must be an object")
+        #expect(error.code == "invalid_request")
+        #expect(error.message == "auth must be an object")
     }
-
-    func testMobileHostRPCIgnoresRefreshTokenOnlyAuth() {
+    @Test func testMobileHostRPCIgnoresRefreshTokenOnlyAuth() {
         let data = Data(#"{"id":"refresh-only","method":"workspace.list","auth":{"stack_refresh_token":"secret"}}"#.utf8)
 
         let result = MobileHostRPCEnvelope.decodeRequest(data)
 
         guard case let .success(request) = result else {
-            return XCTFail("Refresh-token-only auth should decode as an unauthenticated request")
+            return #expect(Bool(false), "Refresh-token-only auth should decode as an unauthenticated request")
         }
-        XCTAssertNil(request.auth)
+        #expect(request.auth == nil)
     }
-
-    func testMobileRouteResolverPrefersTailscaleMagicDNSBeforeIPv4Fallback() throws {
+    @Test func testMobileRouteResolverPrefersTailscaleMagicDNSBeforeIPv4Fallback() throws {
         let resolver = MobileRouteResolver()
 
         let snapshot = resolver.routes(
@@ -186,24 +173,23 @@ final class MobileHostAuthorizationTests: XCTestCase {
         )
 
         let tailscaleRoutes = snapshot.routes.filter { $0.kind == .tailscale }
-        XCTAssertEqual(tailscaleRoutes.count, 2)
-        XCTAssertEqual(tailscaleRoutes.first?.priority, 10)
-        XCTAssertEqual(tailscaleRoutes.last?.priority, 20)
+        #expect(tailscaleRoutes.count == 2)
+        #expect(tailscaleRoutes.first?.priority == 10)
+        #expect(tailscaleRoutes.last?.priority == 20)
         if case let .hostPort(host, port) = tailscaleRoutes.first?.endpoint {
-            XCTAssertEqual(host, "work-mac.tailnet.ts.net")
-            XCTAssertEqual(port, 61234)
+            #expect(host == "work-mac.tailnet.ts.net")
+            #expect(port == 61234)
         } else {
-            XCTFail("Expected first Tailscale route to use a host/port endpoint")
+            #expect(Bool(false), "Expected first Tailscale route to use a host/port endpoint")
         }
         if case let .hostPort(host, port) = tailscaleRoutes.last?.endpoint {
-            XCTAssertEqual(host, "100.71.210.41")
-            XCTAssertEqual(port, 61234)
+            #expect(host == "100.71.210.41")
+            #expect(port == 61234)
         } else {
-            XCTFail("Expected fallback Tailscale route to use a host/port endpoint")
+            #expect(Bool(false), "Expected fallback Tailscale route to use a host/port endpoint")
         }
     }
-
-    func testMobileRouteResolverImmediateSnapshotUsesNumericTailscaleFallbackWithoutDNS() throws {
+    @Test func testMobileRouteResolverImmediateSnapshotUsesNumericTailscaleFallbackWithoutDNS() throws {
         let resolver = MobileRouteResolver()
 
         let snapshot = resolver.routes(
@@ -214,17 +200,16 @@ final class MobileHostAuthorizationTests: XCTestCase {
         )
 
         let tailscaleRoutes = snapshot.routes.filter { $0.kind == .tailscale }
-        XCTAssertEqual(tailscaleRoutes.count, 1)
+        #expect(tailscaleRoutes.count == 1)
         if case let .hostPort(host, port) = tailscaleRoutes.first?.endpoint {
-            XCTAssertEqual(host, "100.71.210.41")
-            XCTAssertEqual(port, 61234)
+            #expect(host == "100.71.210.41")
+            #expect(port == 61234)
         } else {
-            XCTFail("Expected immediate snapshot to include a numeric Tailscale route")
+            #expect(Bool(false), "Expected immediate snapshot to include a numeric Tailscale route")
         }
-        XCTAssertEqual(snapshot.routes.filter { $0.kind == .debugLoopback }.count, 1)
+        #expect(snapshot.routes.filter { $0.kind == .debugLoopback }.count == 1)
     }
-
-    func testMobileRouteResolverAwaitsMagicDNSForPublicStatusRoutes() async throws {
+    @Test func testMobileRouteResolverAwaitsMagicDNSForPublicStatusRoutes() async throws {
         let resolver = MobileRouteResolver()
 
         let snapshot = await resolver.routesResolvingTailscaleDNS(
@@ -238,16 +223,15 @@ final class MobileHostAuthorizationTests: XCTestCase {
         )
 
         let tailscaleRoutes = snapshot.routes.filter { $0.kind == .tailscale }
-        XCTAssertEqual(tailscaleRoutes.count, 2)
+        #expect(tailscaleRoutes.count == 2)
         if case let .hostPort(host, port) = tailscaleRoutes.first?.endpoint {
-            XCTAssertEqual(host, "work-mac.tailnet.ts.net")
-            XCTAssertEqual(port, 61234)
+            #expect(host == "work-mac.tailnet.ts.net")
+            #expect(port == 61234)
         } else {
-            XCTFail("Expected public status route to wait for MagicDNS")
+            #expect(Bool(false), "Expected public status route to wait for MagicDNS")
         }
     }
-
-    func testMobileRouteResolverRefreshesStalePublicStatusRoutes() async throws {
+    @Test func testMobileRouteResolverRefreshesStalePublicStatusRoutes() async throws {
         let resolver = MobileRouteResolver()
         let now = Date()
 
@@ -274,14 +258,13 @@ final class MobileHostAuthorizationTests: XCTestCase {
 
         let tailscaleRoutes = refreshed.routes.filter { $0.kind == .tailscale }
         if case let .hostPort(host, port) = tailscaleRoutes.first?.endpoint {
-            XCTAssertEqual(host, "new-mac.tailnet.ts.net")
-            XCTAssertEqual(port, 61234)
+            #expect(host == "new-mac.tailnet.ts.net")
+            #expect(port == 61234)
         } else {
-            XCTFail("Expected stale public status routes to refresh")
+            #expect(Bool(false), "Expected stale public status routes to refresh")
         }
     }
-
-    func testMobileRouteResolverRetriesAfterIPOnlyPublicStatusRoutes() async throws {
+    @Test func testMobileRouteResolverRetriesAfterIPOnlyPublicStatusRoutes() async throws {
         let resolver = MobileRouteResolver()
         let now = Date()
 
@@ -305,25 +288,22 @@ final class MobileHostAuthorizationTests: XCTestCase {
 
         let tailscaleRoutes = refreshed.routes.filter { $0.kind == .tailscale }
         if case let .hostPort(host, port) = tailscaleRoutes.first?.endpoint {
-            XCTAssertEqual(host, "work-mac.tailnet.ts.net")
-            XCTAssertEqual(port, 61234)
+            #expect(host == "work-mac.tailnet.ts.net")
+            #expect(port == 61234)
         } else {
-            XCTFail("Expected IP-only public status routes to retry MagicDNS resolution")
+            #expect(Bool(false), "Expected IP-only public status routes to retry MagicDNS resolution")
         }
     }
-
-    func testMobileRouteResolverNotifiesCallbackForInFlightMagicDNSRefresh() async throws {
+    @Test func testMobileRouteResolverNotifiesCallbackForInFlightMagicDNSRefresh() async throws {
         let resolver = MobileRouteResolver()
-        let started = expectation(description: "refresh started")
-        let callback = expectation(description: "refresh callback")
-        let startedBox = SendableExpectation(started)
-        let callbackBox = SendableExpectation(callback)
+        let started = AsyncTestSignal()
+        let callback = AsyncTestSignal()
         let gate = SendableSemaphore(value: 0)
         let observedHosts = LockedHosts()
 
         resolver.refreshTailscaleRoutes(
             resolveHosts: {
-                startedBox.fulfill()
+                started.fulfill()
                 gate.wait()
                 return [
                     "work-mac.tailnet.ts.net",
@@ -331,7 +311,7 @@ final class MobileHostAuthorizationTests: XCTestCase {
                 ]
             }
         )
-        await fulfillment(of: [started], timeout: 1)
+        try await started.wait()
 
         resolver.refreshTailscaleRoutes(
             resolveHosts: {
@@ -339,13 +319,13 @@ final class MobileHostAuthorizationTests: XCTestCase {
             },
             onResolvedHosts: { hosts in
                 observedHosts.set(hosts)
-                callbackBox.fulfill()
+                callback.fulfill()
             }
         )
 
         gate.signal()
-        await fulfillment(of: [callback], timeout: 1)
-        XCTAssertEqual(observedHosts.value(), [
+        try await callback.wait()
+        #expect(observedHosts.value() == [
             "work-mac.tailnet.ts.net",
             "100.71.210.41",
         ])
@@ -353,13 +333,12 @@ final class MobileHostAuthorizationTests: XCTestCase {
         let snapshot = resolver.routes(port: 61234, immediateHosts: { [] })
         let tailscaleRoutes = snapshot.routes.filter { $0.kind == .tailscale }
         if case let .hostPort(host, _) = tailscaleRoutes.first?.endpoint {
-            XCTAssertEqual(host, "work-mac.tailnet.ts.net")
+            #expect(host == "work-mac.tailnet.ts.net")
         } else {
-            XCTFail("Expected callback refresh to populate the MagicDNS route")
+            #expect(Bool(false), "Expected callback refresh to populate the MagicDNS route")
         }
     }
-
-    func testMobileAttachTicketCreateRequiresAuthorization() async {
+    @Test func testMobileAttachTicketCreateRequiresAuthorization() async {
         let request = MobileHostRPCRequest(
             id: "attach-ticket-create",
             method: "mobile.attach_ticket.create",
@@ -370,12 +349,11 @@ final class MobileHostAuthorizationTests: XCTestCase {
         let result = await MobileHostService.shared.debugAuthorizationError(for: request)
 
         guard case let .failure(error) = result else {
-            return XCTFail("mobile.attach_ticket.create should require mobile authorization")
+            return #expect(Bool(false), "mobile.attach_ticket.create should require mobile authorization")
         }
-        XCTAssertEqual(error.code, "unauthorized")
+        #expect(error.code == "unauthorized")
     }
-
-    func testScopedAttachTicketRejectsWorkspaceAliasIgnoredByHandlers() throws {
+    @Test func testScopedAttachTicketRejectsWorkspaceAliasIgnoredByHandlers() throws {
         let ticket = try scopedAttachTicket(workspaceID: "workspace", terminalID: nil)
         let request = MobileHostRPCRequest(
             id: "workspace-list",
@@ -389,10 +367,9 @@ final class MobileHostAuthorizationTests: XCTestCase {
 
         let error = MobileHostService.debugTicketAuthorizationError(ticket: ticket, request: request)
 
-        XCTAssertEqual(error?.code, "forbidden")
+        #expect(error?.code == "forbidden")
     }
-
-    func testScopedAttachTicketRejectsTerminalAliasIgnoredByHandlers() throws {
+    @Test func testScopedAttachTicketRejectsTerminalAliasIgnoredByHandlers() throws {
         let ticket = try scopedAttachTicket(workspaceID: "workspace", terminalID: "terminal")
         let request = MobileHostRPCRequest(
             id: "terminal-input",
@@ -409,10 +386,9 @@ final class MobileHostAuthorizationTests: XCTestCase {
 
         let error = MobileHostService.debugTicketAuthorizationError(ticket: ticket, request: request)
 
-        XCTAssertEqual(error?.code, "forbidden")
+        #expect(error?.code == "forbidden")
     }
-
-    func testAttachTicketAcceptsUnscopedWorkspaceListForPairedDevice() throws {
+    @Test func testAttachTicketAcceptsUnscopedWorkspaceListForPairedDevice() throws {
         let ticket = try scopedAttachTicket(workspaceID: "workspace", terminalID: "terminal")
         let request = MobileHostRPCRequest(
             id: "workspace-list",
@@ -426,10 +402,9 @@ final class MobileHostAuthorizationTests: XCTestCase {
 
         let error = MobileHostService.debugTicketAuthorizationError(ticket: ticket, request: request)
 
-        XCTAssertNil(error)
+        #expect(error == nil)
     }
-
-    func testTerminalScopedAttachTicketAcceptsScopedWorkspaceList() throws {
+    @Test func testTerminalScopedAttachTicketAcceptsScopedWorkspaceList() throws {
         let ticket = try scopedAttachTicket(workspaceID: "workspace", terminalID: "terminal")
         let request = MobileHostRPCRequest(
             id: "workspace-list",
@@ -446,10 +421,9 @@ final class MobileHostAuthorizationTests: XCTestCase {
 
         let error = MobileHostService.debugTicketAuthorizationError(ticket: ticket, request: request)
 
-        XCTAssertNil(error)
+        #expect(error == nil)
     }
-
-    func testAttachTicketAcceptsTerminalCreateForPairedDevice() throws {
+    @Test func testAttachTicketAcceptsTerminalCreateForPairedDevice() throws {
         let ticket = try scopedAttachTicket(workspaceID: "workspace", terminalID: "terminal")
         let request = MobileHostRPCRequest(
             id: "terminal-create",
@@ -465,10 +439,9 @@ final class MobileHostAuthorizationTests: XCTestCase {
 
         let error = MobileHostService.debugTicketAuthorizationError(ticket: ticket, request: request)
 
-        XCTAssertNil(error)
+        #expect(error == nil)
     }
-
-    func testAttachTicketAcceptsWorkspaceCreateForPairedDevice() throws {
+    @Test func testAttachTicketAcceptsWorkspaceCreateForPairedDevice() throws {
         let ticket = try scopedAttachTicket(workspaceID: "workspace", terminalID: "terminal")
         let request = MobileHostRPCRequest(
             id: "workspace-create",
@@ -482,10 +455,9 @@ final class MobileHostAuthorizationTests: XCTestCase {
 
         let error = MobileHostService.debugTicketAuthorizationError(ticket: ticket, request: request)
 
-        XCTAssertNil(error)
+        #expect(error == nil)
     }
-
-    func testAttachTicketAcceptsReplayForCreatedWorkspace() throws {
+    @Test func testAttachTicketAcceptsReplayForCreatedWorkspace() throws {
         let ticket = try scopedAttachTicket(workspaceID: "workspace", terminalID: "terminal")
         let request = MobileHostRPCRequest(
             id: "terminal-replay",
@@ -506,10 +478,9 @@ final class MobileHostAuthorizationTests: XCTestCase {
             createdWorkspaceIDs: ["created-workspace"]
         )
 
-        XCTAssertNil(error)
+        #expect(error == nil)
     }
-
-    func testAttachTicketAcceptsReplayForCreatedTerminal() throws {
+    @Test func testAttachTicketAcceptsReplayForCreatedTerminal() throws {
         let ticket = try scopedAttachTicket(workspaceID: "workspace", terminalID: "terminal")
         let request = MobileHostRPCRequest(
             id: "terminal-replay",
@@ -530,10 +501,9 @@ final class MobileHostAuthorizationTests: XCTestCase {
             createdTerminalIDs: ["created-terminal"]
         )
 
-        XCTAssertNil(error)
+        #expect(error == nil)
     }
-
-    func testWorkspaceScopedAttachTicketAcceptsTerminalCreate() throws {
+    @Test func testWorkspaceScopedAttachTicketAcceptsTerminalCreate() throws {
         let ticket = try scopedAttachTicket(workspaceID: "workspace", terminalID: nil)
         let request = MobileHostRPCRequest(
             id: "terminal-create",
@@ -547,10 +517,9 @@ final class MobileHostAuthorizationTests: XCTestCase {
 
         let error = MobileHostService.debugTicketAuthorizationError(ticket: ticket, request: request)
 
-        XCTAssertNil(error)
+        #expect(error == nil)
     }
-
-    func testTerminalScopedAttachTicketRejectsConflictingTerminalAliases() throws {
+    @Test func testTerminalScopedAttachTicketRejectsConflictingTerminalAliases() throws {
         let ticket = try scopedAttachTicket(workspaceID: "workspace", terminalID: "terminal-a")
         let request = MobileHostRPCRequest(
             id: "workspace-list",
@@ -568,10 +537,9 @@ final class MobileHostAuthorizationTests: XCTestCase {
 
         let error = MobileHostService.debugTicketAuthorizationError(ticket: ticket, request: request)
 
-        XCTAssertEqual(error?.code, "forbidden")
+        #expect(error?.code == "forbidden")
     }
-
-    func testScopedAttachTicketAcceptsHandlerParameterNames() throws {
+    @Test func testScopedAttachTicketAcceptsHandlerParameterNames() throws {
         let ticket = try scopedAttachTicket(workspaceID: "workspace", terminalID: "terminal")
         let request = MobileHostRPCRequest(
             id: "terminal-input",
@@ -588,10 +556,9 @@ final class MobileHostAuthorizationTests: XCTestCase {
 
         let error = MobileHostService.debugTicketAuthorizationError(ticket: ticket, request: request)
 
-        XCTAssertNil(error)
+        #expect(error == nil)
     }
-
-    func testScopedAttachTicketAcceptsNamedTerminalReplay() throws {
+    @Test func testScopedAttachTicketAcceptsNamedTerminalReplay() throws {
         let ticket = try scopedAttachTicket(workspaceID: "workspace", terminalID: "terminal")
         let request = MobileHostRPCRequest(
             id: "terminal-replay",
@@ -608,10 +575,9 @@ final class MobileHostAuthorizationTests: XCTestCase {
 
         let error = MobileHostService.debugTicketAuthorizationError(ticket: ticket, request: request)
 
-        XCTAssertNil(error)
+        #expect(error == nil)
     }
-
-    func testTerminalScopedAttachTicketRejectsDifferentTerminalInput() throws {
+    @Test func testTerminalScopedAttachTicketRejectsDifferentTerminalInput() throws {
         let ticket = try scopedAttachTicket(workspaceID: "workspace", terminalID: "terminal")
         let request = MobileHostRPCRequest(
             id: "terminal-input",
@@ -629,10 +595,9 @@ final class MobileHostAuthorizationTests: XCTestCase {
 
         let error = MobileHostService.debugTicketAuthorizationError(ticket: ticket, request: request)
 
-        XCTAssertEqual(error?.code, "forbidden")
+        #expect(error?.code == "forbidden")
     }
-
-    func testTerminalScopedAttachTicketRejectsUnscopedTerminalReplay() throws {
+    @Test func testTerminalScopedAttachTicketRejectsUnscopedTerminalReplay() throws {
         let ticket = try scopedAttachTicket(workspaceID: "workspace", terminalID: "terminal")
         let request = MobileHostRPCRequest(
             id: "terminal-replay",
@@ -646,10 +611,9 @@ final class MobileHostAuthorizationTests: XCTestCase {
 
         let error = MobileHostService.debugTicketAuthorizationError(ticket: ticket, request: request)
 
-        XCTAssertEqual(error?.code, "forbidden")
+        #expect(error?.code == "forbidden")
     }
-
-    func testWorkspaceScopedAttachTicketRejectsTerminalReplayOutsideWorkspace() throws {
+    @Test func testWorkspaceScopedAttachTicketRejectsTerminalReplayOutsideWorkspace() throws {
         let ticket = try scopedAttachTicket(workspaceID: "workspace", terminalID: nil)
         let request = MobileHostRPCRequest(
             id: "terminal-replay",
@@ -666,10 +630,9 @@ final class MobileHostAuthorizationTests: XCTestCase {
 
         let error = MobileHostService.debugTicketAuthorizationError(ticket: ticket, request: request)
 
-        XCTAssertEqual(error?.code, "forbidden")
+        #expect(error?.code == "forbidden")
     }
-
-    func testWorkspaceScopedAttachTicketAcceptsTerminalReplayInWorkspace() throws {
+    @Test func testWorkspaceScopedAttachTicketAcceptsTerminalReplayInWorkspace() throws {
         let ticket = try scopedAttachTicket(workspaceID: "workspace", terminalID: nil)
         let request = MobileHostRPCRequest(
             id: "terminal-replay",
@@ -686,10 +649,9 @@ final class MobileHostAuthorizationTests: XCTestCase {
 
         let error = MobileHostService.debugTicketAuthorizationError(ticket: ticket, request: request)
 
-        XCTAssertNil(error)
+        #expect(error == nil)
     }
-
-    func testMacScopedAttachTicketAcceptsTerminalReplayInAnyWorkspace() throws {
+    @Test func testMacScopedAttachTicketAcceptsTerminalReplayInAnyWorkspace() throws {
         let ticket = try scopedAttachTicket(workspaceID: "", terminalID: nil)
         let request = MobileHostRPCRequest(
             id: "terminal-replay",
@@ -706,49 +668,43 @@ final class MobileHostAuthorizationTests: XCTestCase {
 
         let error = MobileHostService.debugTicketAuthorizationError(ticket: ticket, request: request)
 
-        XCTAssertNil(error)
+        #expect(error == nil)
     }
-
-    func testStackUserAuthorizationRequiresSignedInMacUser() throws {
-        XCTAssertThrowsError(
-            try MobileHostAuthorizationPolicy.authorizeStackUser(
+    @Test func testStackUserIDAuthorizationRequiresSignedInMacUser() throws {
+        #expect(throws: (any Error).self) {
+            try MobileHostAuthorizationPolicy.authorizeStackUserID(
                 localUserID: nil,
-                remoteUserID: "user_remote"
+                remoteUserID: "user_123"
             )
-        )
+        }
     }
-
-    func testStackUserAuthorizationRequiresMatchingUser() throws {
-        XCTAssertThrowsError(
-            try MobileHostAuthorizationPolicy.authorizeStackUser(
+    @Test func testStackUserIDAuthorizationRequiresMatchingUserID() throws {
+        #expect(throws: (any Error).self) {
+            try MobileHostAuthorizationPolicy.authorizeStackUserID(
                 localUserID: "user_local",
                 remoteUserID: "user_remote"
             )
-        )
+        }
 
-        XCTAssertNoThrow(
-            try MobileHostAuthorizationPolicy.authorizeStackUser(
-                localUserID: "user_local",
-                remoteUserID: "user_local"
-            )
+        try MobileHostAuthorizationPolicy.authorizeStackUserID(
+            localUserID: " user_123 ",
+            remoteUserID: "user_123"
         )
     }
-
-    func testMobileHostConnectionCloseOnlyClearsConnectionTracking() {
+    @Test func testMobileHostConnectionCloseOnlyClearsConnectionTracking() {
         let service = MobileHostService.shared
         let connectionID = UUID()
 
         service.debugResetMobileLifecycleStateForTesting()
         service.debugRecordClientIDForTesting("ios-client", connectionID: connectionID)
 
-        XCTAssertEqual(service.debugTrackedClientIDsForTesting(connectionID: connectionID), Set(["ios-client"]))
+        #expect(service.debugTrackedClientIDsForTesting(connectionID: connectionID) == Set(["ios-client"]))
 
         service.debugRemoveConnectionForTesting(id: connectionID)
 
-        XCTAssertNil(service.debugTrackedClientIDsForTesting(connectionID: connectionID))
+        #expect(service.debugTrackedClientIDsForTesting(connectionID: connectionID) == nil)
     }
-
-    func testIdleMobileConnectionDoesNotKeepRequestActivityBusy() {
+    @Test func testIdleMobileConnectionDoesNotKeepRequestActivityBusy() {
         MobileHostRequestActivity.resetForTesting()
         MobileHostRequestActivity.beginConnection()
         defer {
@@ -756,12 +712,11 @@ final class MobileHostAuthorizationTests: XCTestCase {
             MobileHostRequestActivity.resetForTesting()
         }
 
-        XCTAssertFalse(MobileHostRequestActivity.hasActiveRequest)
-        XCTAssertFalse(MobileHostRequestActivity.hasRecentActivity(within: 60))
-        XCTAssertEqual(MobileHostRequestActivity.quietDelay(for: 60), 0)
+        #expect(!MobileHostRequestActivity.hasActiveRequest)
+        #expect(!MobileHostRequestActivity.hasRecentActivity(within: 60))
+        #expect(MobileHostRequestActivity.quietDelay(for: 60) == 0)
     }
-
-    func testMobileHostConnectionCloseLeavesViewportReportsForPollingClient() {
+    @Test func testMobileHostConnectionCloseClearsOnlyClosedClientViewportReports() {
         let service = MobileHostService.shared
         let terminalController = TerminalController.shared
         let connectionID = UUID()
@@ -785,16 +740,14 @@ final class MobileHostAuthorizationTests: XCTestCase {
 
         service.debugRemoveConnectionForTesting(id: connectionID)
 
-        XCTAssertEqual(
-            terminalController.debugMobileViewportReportClientIDsForTesting(surfaceID: surfaceID),
-            Set(["ios-client", "ipad-client"]),
-            "Mobile RPC connections are short lived, so socket close must not clear viewport reports before their TTL expires."
+        #expect(
+            terminalController.debugMobileViewportReportClientIDsForTesting(surfaceID: surfaceID) == Set(["ipad-client"]),
+            "Closing one mobile RPC connection should clear only that connection's viewport reports."
         )
 
         terminalController.debugResetMobileViewportReportsForTesting()
     }
-
-    func testMobileHostIgnoresStaleListenerStateCallbacks() {
+    @Test func testMobileHostIgnoresStaleListenerStateCallbacks() {
         let service = MobileHostService.shared
         let currentGeneration = UUID()
         let staleGeneration = UUID()
@@ -811,18 +764,17 @@ final class MobileHostAuthorizationTests: XCTestCase {
             generation: staleGeneration
         )
 
-        XCTAssertEqual(service.debugListenerGenerationForTesting(), currentGeneration)
-        XCTAssertTrue(service.debugListenerUsesEphemeralFallbackForTesting())
-        XCTAssertEqual(service.debugListenerPortForTesting(), 61234)
+        #expect(service.debugListenerGenerationForTesting() == currentGeneration)
+        #expect(service.debugListenerUsesEphemeralFallbackForTesting())
+        #expect(service.debugListenerPortForTesting() == 61234)
 
         service.debugHandleListenerStateForTesting(.cancelled, generation: staleGeneration)
 
-        XCTAssertEqual(service.debugListenerGenerationForTesting(), currentGeneration)
-        XCTAssertTrue(service.debugListenerUsesEphemeralFallbackForTesting())
-        XCTAssertEqual(service.debugListenerPortForTesting(), 61234)
+        #expect(service.debugListenerGenerationForTesting() == currentGeneration)
+        #expect(service.debugListenerUsesEphemeralFallbackForTesting())
+        #expect(service.debugListenerPortForTesting() == 61234)
     }
-
-    func testMobileHostWaitingListenerDoesNotPublishRoutes() {
+    @Test func testMobileHostWaitingListenerDoesNotPublishRoutes() {
         let service = MobileHostService.shared
         let generation = UUID()
 
@@ -837,13 +789,12 @@ final class MobileHostAuthorizationTests: XCTestCase {
         service.debugHandleListenerStateForTesting(.waiting(.posix(.EADDRINUSE)), generation: generation)
 
         let status = service.statusSnapshot()
-        XCTAssertFalse(status.isRunning)
-        XCTAssertNil(status.port)
-        XCTAssertTrue(status.routes.isEmpty)
-        XCTAssertNil(service.debugListenerPortForTesting())
+        #expect(!status.isRunning)
+        #expect(status.port == nil)
+        #expect(status.routes.isEmpty)
+        #expect(service.debugListenerPortForTesting() == nil)
     }
-
-    func testMobileHostConnectionClosesWhenFirstFrameTimesOut() async throws {
+    @Test func testMobileHostConnectionClosesWhenFirstFrameTimesOut() async throws {
         let connectionID = UUID()
         let recorder = MobileHostConnectionCloseRecorder()
         let connection = NWConnection(
@@ -874,10 +825,9 @@ final class MobileHostAuthorizationTests: XCTestCase {
         }
 
         let finalRecordedIDs = await recorder.recordedIDs()
-        XCTAssertEqual(finalRecordedIDs, [connectionID])
+        #expect(finalRecordedIDs == [connectionID])
     }
-
-    func testMobileHostConnectionClosesWhenIdleAfterFirstFrame() async throws {
+    @Test func testMobileHostConnectionClosesWhenIdleAfterFirstFrame() async throws {
         let connectionID = UUID()
         let recorder = MobileHostConnectionCloseRecorder()
         let connection = NWConnection(
@@ -908,10 +858,9 @@ final class MobileHostAuthorizationTests: XCTestCase {
         }
 
         let finalRecordedIDs = await recorder.recordedIDs()
-        XCTAssertEqual(finalRecordedIDs, [connectionID])
+        #expect(finalRecordedIDs == [connectionID])
     }
-
-    func testMobileHostConnectionKeepsSubscribedEventStreamPastIdleTimeout() async throws {
+    @Test func testMobileHostConnectionKeepsSubscribedEventStreamPastIdleTimeout() async throws {
         let connectionID = UUID()
         let recorder = MobileHostConnectionCloseRecorder()
         let connection = NWConnection(
@@ -935,7 +884,7 @@ final class MobileHostAuthorizationTests: XCTestCase {
         await session.debugStartIdleTimeoutAfterFrameForTesting()
         try await Task.sleep(nanoseconds: 25_000_000)
         let subscribedCloseIDs = await recorder.recordedIDs()
-        XCTAssertTrue(subscribedCloseIDs.isEmpty)
+        #expect(subscribedCloseIDs.isEmpty)
 
         _ = await session.unsubscribe(streamID: "events")
         for _ in 0..<100 {
@@ -947,10 +896,9 @@ final class MobileHostAuthorizationTests: XCTestCase {
         }
 
         let finalRecordedIDs = await recorder.recordedIDs()
-        XCTAssertEqual(finalRecordedIDs, [connectionID])
+        #expect(finalRecordedIDs == [connectionID])
     }
-
-    func testTerminalRenderObserverRetainsGhosttyDemandOnlyWithTerminalSubscriber() async throws {
+    @Test func testTerminalRenderObserverRetainsGhosttyDemandOnlyWithTerminalSubscriber() async throws {
         let service = MobileHostService.shared
         service.debugResetMobileLifecycleStateForTesting()
         let observer = MobileTerminalRenderObserver.shared
@@ -961,9 +909,9 @@ final class MobileHostAuthorizationTests: XCTestCase {
             service.debugResetMobileLifecycleStateForTesting()
         }
 
-        drainMobileHostMainQueue()
-        XCTAssertFalse(MobileHostService.debugHasEventSubscribersForTesting(topic: "terminal.updated"))
-        XCTAssertFalse(observer.debugIsRetainingNotificationDemandForTesting)
+        await drainMobileHostMainQueue()
+        #expect(!MobileHostService.debugHasEventSubscribersForTesting(topic: "terminal.updated"))
+        #expect(!observer.debugIsRetainingNotificationDemandForTesting)
 
         let session = MobileHostConnection(
             id: UUID(),
@@ -979,19 +927,18 @@ final class MobileHostAuthorizationTests: XCTestCase {
         )
 
         await session.subscribe(streamID: "events", topics: ["terminal.updated"])
-        drainMobileHostMainQueue()
+        await drainMobileHostMainQueue()
 
-        XCTAssertTrue(MobileHostService.debugHasEventSubscribersForTesting(topic: "terminal.updated"))
-        XCTAssertTrue(observer.debugIsRetainingNotificationDemandForTesting)
+        #expect(MobileHostService.debugHasEventSubscribersForTesting(topic: "terminal.updated"))
+        #expect(observer.debugIsRetainingNotificationDemandForTesting)
 
         _ = await session.unsubscribe(streamID: "events")
-        drainMobileHostMainQueue()
+        await drainMobileHostMainQueue()
 
-        XCTAssertFalse(MobileHostService.debugHasEventSubscribersForTesting(topic: "terminal.updated"))
-        XCTAssertFalse(observer.debugIsRetainingNotificationDemandForTesting)
+        #expect(!MobileHostService.debugHasEventSubscribersForTesting(topic: "terminal.updated"))
+        #expect(!observer.debugIsRetainingNotificationDemandForTesting)
     }
-
-    func testMobileWorkspaceListHashIncludesDisplayedDirectories() {
+    @Test func testMobileWorkspaceListHashIncludesDisplayedDirectories() {
         let workspace = Workspace(
             title: "Mobile",
             workingDirectory: "/tmp/mobile-a",
@@ -1008,7 +955,7 @@ final class MobileHostAuthorizationTests: XCTestCase {
             selectedTabID: workspace.id
         )
 
-        XCTAssertNotEqual(initial, afterWorkspaceDirectory)
+        #expect(initial != afterWorkspaceDirectory)
 
         workspace.panelDirectories[UUID()] = "/tmp/mobile-terminal"
         let afterTerminalDirectory = MobileWorkspaceListObserver.summaryHashForTesting(
@@ -1016,10 +963,9 @@ final class MobileHostAuthorizationTests: XCTestCase {
             selectedTabID: workspace.id
         )
 
-        XCTAssertNotEqual(afterWorkspaceDirectory, afterTerminalDirectory)
+        #expect(afterWorkspaceDirectory != afterTerminalDirectory)
     }
-
-    func testMobileHostConnectionDoesNotPersistUnauthorizedEventSubscription() async throws {
+    @Test func testMobileHostConnectionDoesNotPersistUnauthorizedEventSubscription() async throws {
         let connectionID = UUID()
         let recorder = MobileHostConnectionCloseRecorder()
         let socket = try MobileHostStartedTestSocket()
@@ -1053,10 +999,9 @@ final class MobileHostAuthorizationTests: XCTestCase {
         }
 
         let finalRecordedIDs = await recorder.recordedIDs()
-        XCTAssertEqual(finalRecordedIDs, [connectionID])
+        #expect(finalRecordedIDs == [connectionID])
     }
-
-    func testMobileHostConnectionStopsBatchedFrameProcessingAfterClose() async throws {
+    @Test func testMobileHostConnectionStopsBatchedFrameProcessingAfterClose() async throws {
         let connectionID = UUID()
         let requestRecorder = MobileHostConnectionRequestRecorder()
         let sessionBox = MobileHostConnectionBox()
@@ -1106,25 +1051,22 @@ final class MobileHostAuthorizationTests: XCTestCase {
         }
         try await Task.sleep(nanoseconds: 150_000_000)
         let recordedMethods = await requestRecorder.recordedMethods()
-        XCTAssertEqual(recordedMethods, ["workspace.list"])
+        #expect(recordedMethods == ["workspace.list"])
     }
 
     // MARK: - Advertised mobile host capabilities
-
-    func testMobileHostAdvertisesWorkspaceActionsCapability() {
-        // The iOS client gates rename/pin on `workspace.actions.v1`; every
-        // mobile.host.status path reads this single list, so advertising it here
-        // is what makes the feature visible to a supporting Mac.
+    @Test func testMobileHostAdvertisesWorkspaceActionCapabilities() {
         let capabilities = MobileHostService.mobileHostCapabilities
-        XCTAssertTrue(capabilities.contains("workspace.actions.v1"))
-        XCTAssertTrue(capabilities.contains("terminal.render_grid.v1"))
+        #expect(capabilities.contains("workspace.actions.v1"))
+        #expect(capabilities.contains("workspace.read_state.v1"))
+        #expect(capabilities.contains("workspace.close.v1"))
+        #expect(capabilities.contains("terminal.render_grid.v1"))
     }
 
     // MARK: - Mobile workspace.action sub-action gate
-
-    func testMobileWorkspaceActionGateAllowsOnlyPinUnpinRename() {
-        for action in ["pin", "unpin", "rename", "PIN", "UnPin", "RENAME"] {
-            XCTAssertTrue(
+    @Test func testMobileWorkspaceActionGateAllowsOnlyPinNameAndReadStateActions() {
+        for action in ["pin", "unpin", "rename", "mark_read", "mark_unread", "PIN", "UnPin", "RENAME", "MARK_READ", "Mark_Unread"] {
+            #expect(
                 TerminalController.mobileAllowsWorkspaceAction(action),
                 "mobile workspace.action '\(action)' should be allowed"
             )
@@ -1133,14 +1075,14 @@ final class MobileHostAuthorizationTests: XCTestCase {
             "move_up", "move-down", "move_top",
             "close_others", "close_above", "close_below",
             "set_color", "clear_color", "set_description", "clear_description",
-            "clear_name", "mark_read", "mark_unread", "self_destruct", "",
+            "clear_name", "close", "self_destruct", "",
         ] {
-            XCTAssertFalse(
-                TerminalController.mobileAllowsWorkspaceAction(action),
+            #expect(
+                !TerminalController.mobileAllowsWorkspaceAction(action),
                 "mobile workspace.action '\(action)' must be rejected"
             )
         }
-        XCTAssertFalse(TerminalController.mobileAllowsWorkspaceAction(nil))
+        #expect(!TerminalController.mobileAllowsWorkspaceAction(nil))
     }
 
     private func scopedAttachTicket(workspaceID: String, terminalID: String?) throws -> CmxAttachTicket {
@@ -1160,12 +1102,12 @@ final class MobileHostAuthorizationTests: XCTestCase {
         )
     }
 
-    private func drainMobileHostMainQueue() {
-        let expectation = XCTestExpectation(description: "drain mobile host main queue")
-        DispatchQueue.main.async {
-            expectation.fulfill()
+    private func drainMobileHostMainQueue() async {
+        await withCheckedContinuation { continuation in
+            DispatchQueue.main.async {
+                continuation.resume()
+            }
         }
-        XCTWaiter().wait(for: [expectation], timeout: 1)
     }
 }
 
@@ -1267,15 +1209,36 @@ private actor MobileHostConnectionBox {
     }
 }
 
-private final class SendableExpectation: @unchecked Sendable {
-    private let expectation: XCTestExpectation
+private enum AsyncTestSignalError: Error {
+    case timedOut
+}
 
-    init(_ expectation: XCTestExpectation) {
-        self.expectation = expectation
-    }
+private final class AsyncTestSignal: @unchecked Sendable {
+    private let condition = NSCondition()
+    private var fulfilled = false
 
     func fulfill() {
-        expectation.fulfill()
+        condition.lock()
+        fulfilled = true
+        condition.broadcast()
+        condition.unlock()
+    }
+
+    func wait(timeout: TimeInterval = 1) async throws {
+        try await Task.detached { [self] in
+            try blockingWait(timeout: timeout)
+        }.value
+    }
+
+    private func blockingWait(timeout: TimeInterval) throws {
+        let deadline = Date().addingTimeInterval(timeout)
+        condition.lock()
+        defer { condition.unlock() }
+        while !fulfilled {
+            if !condition.wait(until: deadline) {
+                throw AsyncTestSignalError.timedOut
+            }
+        }
     }
 }
 

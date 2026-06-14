@@ -824,6 +824,7 @@
         },
         "app": {
           "confirmQuit": "cmux の終了前に確認を求めるタイミングを制御します。DEV ビルドではこの設定に関係なく常にすぐ終了します。従来の app.warnBeforeQuit も boolean フォールバックとして引き続き受け付けます。",
+          "windowTitleTemplate": "任意の NSWindow タイトルテンプレートです。空欄のままなら、現在のディレクトリへのフォールバックを含む cmux 既存の既定タイトル動作を保ちます。対応するプレースホルダー: '{windowId}', '{windowToken}', '{activeWorkspace}', '{activeDirectory}', '{defaultTitle}', '{appName}'。",
           "warnBeforeQuit": "終了確認用の従来の boolean フォールバックです。新しい設定では app.confirmQuit を使ってください。",
           "warnBeforeClosingTabXButton": "タブの閉じるボタンでタブを閉じる前に確認を表示します。",
           "hideTabCloseButton": "ペインのタブバーでタブの閉じるボタンを非表示にします。",
@@ -849,6 +850,10 @@
           "fontSize": "新しく開く Markdown ビューアの本文フォントサイズの既定値（ポイント単位）です。Cmd-+ / Cmd-- / Cmd-0 でその場で拡大・縮小できます。",
           "fontFamily": "新しく開く Markdown ビューアの本文フォントファミリーの既定値です。空のままにするとシステムの Markdown フォントスタックを使います。",
           "maxWidth": "新しく開く Markdown ビューアの読み取りカラム最大幅の既定値（CSS ピクセル単位）です。"
+        },
+        "canvas": {
+          "paneGap": "キャンバスレイアウトのペイン間の間隔（ポイント単位）。スナップ、整列、新規ペインの配置はすべてこの間隔を使用します。",
+          "snappingEnabled": "ペインのドラッグやリサイズを隣のペインの端や間隔にスナップします。Commandキーを押している間はスナップを一時停止します。"
         },
         "fileEditor": {
           "wordWrap": "横スクロールする代わりに、エディタの右端で長い行を折り返します。"
@@ -994,6 +999,8 @@
         "surfaces": "サーフェス",
         "surfacesBlurb": "サーフェスはペイン内のタブです。",
         "splitPanes": "分割ペイン",
+        "canvas": "キャンバス",
+        "canvasBlurb": "ペインが無限にパンできるキャンバス上に自由に配置できる2Dレイアウトモードです。整列・分布コマンドはコマンドパレットから利用できます。",
         "browser": "ブラウザ",
         "notifications": "通知",
         "find": "検索",

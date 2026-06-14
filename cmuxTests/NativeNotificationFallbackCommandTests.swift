@@ -27,7 +27,7 @@ struct NativeNotificationFallbackCommandTests {
         var didAttemptSchedule = false
         var commands: [CommandInvocation] = []
         store.configureNotificationAuthorizationHandlerForTesting { completion in
-            completion(false)
+            completion(false, .denied)
         }
         store.configureUserNotificationSchedulerForTesting { _, completion in
             didAttemptSchedule = true
@@ -58,7 +58,7 @@ struct NativeNotificationFallbackCommandTests {
 
         var commands: [CommandInvocation] = []
         store.configureNotificationAuthorizationHandlerForTesting { completion in
-            completion(true)
+            completion(true, .authorized)
         }
         store.configureUserNotificationSchedulerForTesting { _, completion in
             completion(NSError(domain: "cmuxTests.NotificationScheduling", code: 1))

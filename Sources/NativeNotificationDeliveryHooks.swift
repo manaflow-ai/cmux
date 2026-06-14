@@ -2,7 +2,7 @@ import Foundation
 import UserNotifications
 
 struct NativeNotificationDeliveryHooks {
-    var authorizationHandlerForTesting: ((@escaping (Bool) -> Void) -> Void)?
+    var authorizationHandlerForTesting: ((@escaping (Bool, NotificationAuthorizationState) -> Void) -> Void)?
     var scheduler: (UNNotificationRequest, @escaping (Error?) -> Void) -> Void = {
         request,
         completion in
@@ -15,7 +15,7 @@ struct NativeNotificationDeliveryHooks {
         NotificationSoundSettings.runCustomCommand(title: title, subtitle: subtitle, body: body)
     }
 
-    func authorizeForTesting(_ completion: @escaping (Bool) -> Void) -> Bool {
+    func authorizeForTesting(_ completion: @escaping (Bool, NotificationAuthorizationState) -> Void) -> Bool {
         guard let authorizationHandlerForTesting else {
             return false
         }
