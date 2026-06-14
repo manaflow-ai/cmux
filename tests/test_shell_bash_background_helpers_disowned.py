@@ -257,13 +257,14 @@ def main() -> int:
         print(output)
         return 1
 
+    cleaned_lines = [_clean_line(raw) for raw in output.splitlines()]
     user_bg_matches = re.findall(r"CMUX_TEST_USER_BG_PID=([0-9]+)", output)
     current_bang_matches = re.findall(r"CMUX_TEST_CURRENT_BANG=([0-9]+)", output)
     if not user_bg_matches or not current_bang_matches:
         print("FAIL: interactive bash did not report $! preservation markers")
         print(output)
         return 1
-    if user_bg_matches[-1] != current_bang_matches[-1] or "CMUX_TEST_BANG_CHANGED" in output:
+    if user_bg_matches[-1] != current_bang_matches[-1] or "CMUX_TEST_BANG_CHANGED" in cleaned_lines:
         print("FAIL: cmux bash prompt helpers changed the user's last background PID")
         print(output)
         return 1
@@ -279,7 +280,7 @@ def main() -> int:
 
     done_lines = [
         line
-        for line in (_clean_line(raw) for raw in output.splitlines())
+        for line in cleaned_lines
         if DONE_LINE_RE.match(line)
     ]
     if done_lines:
