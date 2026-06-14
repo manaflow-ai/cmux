@@ -32,6 +32,20 @@ XCODEBUILD_STARTED=0
 XCODEBUILD_OUTPUT_VALID=0
 XCODEBUILD_CLEANED_OUTPUTS=0
 
+is_apple_silicon_host() {
+  [[ "$(sysctl -n hw.optional.arm64 2>/dev/null || echo 0)" == "1" ]]
+}
+
+is_translated_process() {
+  [[ "$(sysctl -n sysctl.proc_translated 2>/dev/null || echo 0)" == "1" ]]
+}
+
+prefer_native_apple_silicon_tools() {
+  if is_apple_silicon_host && [[ -d /opt/homebrew/bin ]]; then
+    export PATH="/opt/homebrew/bin:${PATH:-}"
+  fi
+}
+
 should_skip_ghostty_cli_helper_zig_build() {
   if [[ "${CMUX_SKIP_ZIG_BUILD:-}" == "1" ]]; then
     AUTO_SKIP_ZIG_BUILD_REASON="CMUX_SKIP_ZIG_BUILD=1"
@@ -45,8 +59,28 @@ should_skip_ghostty_cli_helper_zig_build() {
 write_dev_cli_shim() {
   local target="$1"
   local fallback_bin="$2"
-  mkdir -p "$(dirname "$target")"
-  cat > "$target" <<EOF
+  local target_dir
+  local tmp_target
+  target_dir="$(dirname "$target")"
+
+  if ! mkdir -p "$target_dir" 2>/dev/null; then
+    echo "warning: skipping dev CLI shim; cannot create $target_dir" >&2
+    return 0
+  fi
+  if [[ ! -w "$target_dir" ]]; then
+    echo "warning: skipping dev CLI shim; directory is not writable: $target_dir" >&2
+    return 0
+  fi
+  if [[ -e "$target" && ! -w "$target" ]]; then
+    echo "warning: skipping dev CLI shim; target is not writable: $target" >&2
+    return 0
+  fi
+  if ! tmp_target="$(mktemp "${target_dir}/.cmux-dev-shim.XXXXXX" 2>/dev/null)"; then
+    echo "warning: skipping dev CLI shim; cannot allocate temp file in $target_dir" >&2
+    return 0
+  fi
+
+  if ! cat > "$tmp_target" <<EOF
 #!/usr/bin/env bash
 # cmux dev shim (managed by scripts/reload.sh)
 set -euo pipefail
@@ -101,7 +135,21 @@ fi
 echo "error: no reload-selected dev cmux CLI found. Run ./scripts/reload.sh --tag <name> first." >&2
 exit 1
 EOF
-  chmod +x "$target"
+  then
+    echo "warning: skipping dev CLI shim; cannot write $target" >&2
+    rm -f "$tmp_target"
+    return 0
+  fi
+  if ! chmod +x "$tmp_target" 2>/dev/null; then
+    echo "warning: skipping dev CLI shim; cannot mark executable: $target" >&2
+    rm -f "$tmp_target"
+    return 0
+  fi
+  if ! mv "$tmp_target" "$target" 2>/dev/null; then
+    echo "warning: skipping dev CLI shim; cannot replace $target" >&2
+    rm -f "$tmp_target"
+    return 0
+  fi
 }
 
 select_cmux_shim_target() {
@@ -126,7 +174,7 @@ select_cmux_shim_target() {
       target="$candidate"
       break
     fi
-    if [[ -f "$candidate" ]] && grep -q "$marker" "$candidate" 2>/dev/null; then
+    if [[ -f "$candidate" && -w "$candidate" ]] && grep -q "$marker" "$candidate" 2>/dev/null; then
       target="$candidate"
       break
     fi
@@ -145,7 +193,7 @@ select_cmux_shim_target() {
       echo "$candidate"
       return 0
     fi
-    if [[ -f "$candidate" ]] && grep -q "$marker" "$candidate" 2>/dev/null; then
+    if [[ -f "$candidate" && -w "$candidate" ]] && grep -q "$marker" "$candidate" 2>/dev/null; then
       echo "$candidate"
       return 0
     fi
@@ -533,6 +581,7 @@ CMUX_DEV_ORIGIN="http://localhost:${CMUX_DEV_PORT}"
 # summary plus the App/CLI paths. On failure we dump the log.
 RELOAD_LOG="/tmp/cmux-reload-${TAG_SLUG}.log"
 RELOAD_START_TIME="$(date +%s)"
+RELOAD_BODY_COMPLETE=0
 : > "$RELOAD_LOG"
 
 BUILD_PRODUCTS_DEBUG_DIR=""
@@ -562,6 +611,10 @@ reload_finalize() {
   trap - EXIT
   exec 1>&3 2>&4
   local elapsed=$(( $(date +%s) - RELOAD_START_TIME ))
+  if [[ "$rc" -eq 0 && "${RELOAD_BODY_COMPLETE:-0}" -ne 1 ]]; then
+    rc=1
+    echo "error: reload terminated before completion" >>"$RELOAD_LOG"
+  fi
   if [[ "$rc" -ne 0 ]]; then
     if [[ "$XCODEBUILD_STARTED" -eq 1 && "$XCODEBUILD_OUTPUT_VALID" -ne 1 ]]; then
       cleanup_incomplete_xcodebuild_outputs
@@ -615,11 +668,20 @@ reload_finalize() {
     echo
     echo "Build complete. Pass --launch to open the app, or cmd-click the path above."
   fi
+  return 0
 }
 trap reload_finalize EXIT
 
 # Tell the user we're starting (visible even though body output is redirected).
 echo "==> reload starting (tag: ${TAG}, log: ${RELOAD_LOG})" >&3
+if is_apple_silicon_host; then
+  prefer_native_apple_silicon_tools
+  if is_translated_process; then
+    echo "==> Apple Silicon detected; forcing native arm64 build from translated shell" >&3
+  else
+    echo "==> Apple Silicon detected; using native arm64 dev build" >&3
+  fi
+fi
 
 "$PWD/scripts/ensure-ghosttykit.sh"
 
@@ -635,6 +697,22 @@ XCODEBUILD_ARGS=(
 )
 if [[ -n "$DERIVED_DATA" ]]; then
   XCODEBUILD_ARGS+=(-derivedDataPath "$DERIVED_DATA")
+fi
+XCODEBUILD_COMMAND=(xcodebuild)
+if is_apple_silicon_host; then
+  XCODEBUILD_BIN="$(xcrun --find xcodebuild 2>/dev/null || true)"
+  if [[ -z "$XCODEBUILD_BIN" ]]; then
+    XCODEBUILD_BIN="$(command -v xcodebuild 2>/dev/null || true)"
+  fi
+  if [[ -z "$XCODEBUILD_BIN" ]]; then
+    echo "error: xcodebuild not found" >&2
+    exit 1
+  fi
+  XCODEBUILD_COMMAND=(/usr/bin/arch -arm64 "$XCODEBUILD_BIN")
+  XCODEBUILD_ARGS+=(
+    ARCHS=arm64
+    ONLY_ACTIVE_ARCH=YES
+  )
 fi
 if [[ -n "${CMUX_SOURCE_PACKAGES_DIR:-}" ]]; then
   mkdir -p "$CMUX_SOURCE_PACKAGES_DIR"
@@ -671,6 +749,10 @@ else
   SWIFT_FRONTEND_WORKAROUND_EFFECTIVE=0
 fi
 XCODEBUILD_ARGS+=(build)
+printf '==> xcodebuild command:' 
+printf ' %q' "${XCODEBUILD_COMMAND[@]}" "${XCODEBUILD_ARGS[@]}"
+printf '\n'
+XCODEBUILD_QUEUE_BUILD_START_TIME="$(date +%s)"
 
 if [[ -n "$BUILD_PRODUCTS_DEBUG_DIR" ]]; then
   mkdir -p "$BUILD_PRODUCTS_DEBUG_DIR"
@@ -700,12 +782,35 @@ import os
 import select
 import signal
 import socket
+import subprocess
 import sys
+import time
 
 lock_dir = sys.argv[1]
 concurrency = int(sys.argv[2])
 wait_seconds = int(sys.argv[3])
 command = sys.argv[4:]
+wait_start = None
+child = None
+child_launching = False
+terminating_signal = None
+
+def forward_signal(signum, _frame):
+    global terminating_signal
+    terminating_signal = signum
+    proc = child
+    if proc is None:
+        if child_launching:
+            return
+        raise SystemExit(128 + signum)
+    if proc.poll() is None:
+        try:
+            proc.send_signal(signum)
+        except OSError:
+            pass
+
+for signum in (signal.SIGINT, signal.SIGHUP, signal.SIGQUIT, signal.SIGTERM):
+    signal.signal(signum, forward_signal)
 
 try:
     os.makedirs(lock_dir, mode=0o700, exist_ok=True)
@@ -825,14 +930,62 @@ if fd is None:
     except OSError:
         sys.stderr.write(msg)
         sys.stderr.flush()
+    wait_start = time.monotonic()
     fd, slot, lock_path = wait_for_any_slot()
 
+if wait_start is not None:
+    waited = int(time.monotonic() - wait_start)
+    msg = f"==> xcodebuild lock acquired after {waited}s\n"
+    try:
+        os.write(4, msg.encode())
+    except OSError:
+        pass
+    try:
+        os.write(1, msg.encode())
+    except OSError:
+        pass
+
+build_start = time.monotonic()
 try:
-    os.execvp(command[0], command)
+    child_launching = True
+    child = subprocess.Popen(command, pass_fds=(fd,))
+    child_launching = False
+    if terminating_signal is not None and child.poll() is None:
+        try:
+            child.send_signal(terminating_signal)
+        except OSError:
+            pass
+    returncode = child.wait()
+except KeyboardInterrupt:
+    raise SystemExit(130)
 except OSError as exc:
-    raise SystemExit(f"error: exec: {exc}")
-' "$XCODEBUILD_LOCK_DIR" "$XCODEBUILD_LOCK_CONCURRENCY" "$XCODEBUILD_LOCK_WAIT_SECONDS" xcodebuild "${XCODEBUILD_ARGS[@]}"
-sleep 0.2
+    raise SystemExit(f"error: run xcodebuild: {exc}")
+finally:
+    child_launching = False
+
+elapsed = int(time.monotonic() - build_start)
+if returncode == 0 and terminating_signal is not None:
+    msg = f"==> xcodebuild build interrupted by signal {terminating_signal} after {elapsed}s\n"
+elif returncode == 0:
+    msg = f"==> xcodebuild build completed in {elapsed}s\n"
+elif returncode < 0:
+    signal_number = abs(returncode)
+    msg = f"==> xcodebuild build terminated by signal {signal_number} after {elapsed}s\n"
+else:
+    msg = f"==> xcodebuild build failed with exit code {returncode} after {elapsed}s\n"
+try:
+    os.write(1, msg.encode())
+except OSError:
+    pass
+
+if terminating_signal is not None and returncode == 0:
+    raise SystemExit(128 + terminating_signal)
+if returncode < 0:
+    raise SystemExit(128 + abs(returncode))
+raise SystemExit(returncode)
+' "$XCODEBUILD_LOCK_DIR" "$XCODEBUILD_LOCK_CONCURRENCY" "$XCODEBUILD_LOCK_WAIT_SECONDS" "${XCODEBUILD_COMMAND[@]}" "${XCODEBUILD_ARGS[@]}"
+XCODEBUILD_QUEUE_BUILD_ELAPSED=$(( $(date +%s) - XCODEBUILD_QUEUE_BUILD_START_TIME ))
+echo "==> xcodebuild queue+build phase completed in ${XCODEBUILD_QUEUE_BUILD_ELAPSED}s"
 if LC_ALL=C grep -q 'BUILD INTERRUPTED' "$RELOAD_LOG"; then
   echo "error: xcodebuild reported ** BUILD INTERRUPTED **; refusing to reuse DerivedData app artifacts" >&2
   exit 65
@@ -1182,3 +1335,4 @@ fi
 if [[ -n "${TAG_SLUG:-}" ]]; then
   print_tag_cleanup_reminder "$TAG_SLUG"
 fi
+RELOAD_BODY_COMPLETE=1
