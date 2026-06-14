@@ -60,6 +60,71 @@ final class RightSidebarCommandPaletteTests: XCTestCase {
         }
     }
 
+    @MainActor
+    func testShowRightSidebarModeUsesGlobalStateWhenNoMainWindowContextExists() {
+        withSavedRightSidebarDefaults {
+            let previousAppDelegate = AppDelegate.shared
+            let appDelegate = AppDelegate()
+            let fileExplorerState = FileExplorerState()
+            defer { AppDelegate.shared = previousAppDelegate }
+
+            fileExplorerState.mode = .find
+            fileExplorerState.setVisible(false)
+            appDelegate.fileExplorerState = fileExplorerState
+
+            XCTAssertTrue(
+                appDelegate.showRightSidebarModeInActiveMainWindow(
+                    mode: .files,
+                    focusFirstItem: true,
+                    preferredWindow: nil
+                )
+            )
+            XCTAssertTrue(fileExplorerState.isVisible)
+            XCTAssertEqual(fileExplorerState.mode, .files)
+        }
+    }
+
+    @MainActor
+    func testShowRightSidebarModeDoesNotMutateGlobalStateWhenRegisteredFocusFails() {
+        withSavedRightSidebarDefaults {
+            let previousAppDelegate = AppDelegate.shared
+            let appDelegate = AppDelegate()
+            let fileExplorerState = FileExplorerState()
+            defer { AppDelegate.shared = previousAppDelegate }
+
+            fileExplorerState.mode = .find
+            fileExplorerState.setVisible(false)
+            appDelegate.fileExplorerState = fileExplorerState
+            appDelegate.registerMainWindowContextForTesting(
+                tabManager: TabManager(),
+                fileExplorerState: nil
+            )
+            guard let context = appDelegate.mainWindowContexts.values.first else {
+                XCTFail("Expected a registered main-window context")
+                return
+            }
+
+            XCTAssertTrue(appDelegate.fileExplorerState === fileExplorerState)
+            XCTAssertNil(context.fileExplorerState)
+            XCTAssertFalse(
+                context.keyboardFocusCoordinator.focusRightSidebar(
+                    mode: .files,
+                    focusFirstItem: true
+                )
+            )
+
+            XCTAssertFalse(
+                appDelegate.showRightSidebarModeInActiveMainWindow(
+                    mode: .files,
+                    focusFirstItem: true,
+                    preferredWindow: nil
+                )
+            )
+            XCTAssertFalse(fileExplorerState.isVisible)
+            XCTAssertEqual(fileExplorerState.mode, .find)
+        }
+    }
+
     func testCommandPaletteUnreadActionsUseConfigurableShortcutActions() {
         XCTAssertEqual(
             ContentView.commandPaletteShortcutAction(forCommandID: "palette.toggleUnread"),
@@ -78,6 +143,17 @@ final class RightSidebarCommandPaletteTests: XCTestCase {
         defer {
             restore(previousFeed, forKey: RightSidebarBetaFeatureSettings.feedEnabledKey)
             restore(previousDock, forKey: RightSidebarBetaFeatureSettings.dockEnabledKey)
+        }
+        try body()
+    }
+
+    private func withSavedRightSidebarDefaults(_ body: () throws -> Void) rethrows {
+        let defaults = UserDefaults.standard
+        let previousVisibility = defaults.object(forKey: "fileExplorer.isVisible")
+        let previousMode = defaults.object(forKey: "rightSidebar.mode")
+        defer {
+            restore(previousVisibility, forKey: "fileExplorer.isVisible")
+            restore(previousMode, forKey: "rightSidebar.mode")
         }
         try body()
     }
