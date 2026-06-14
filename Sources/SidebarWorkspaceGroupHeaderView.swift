@@ -247,13 +247,9 @@ struct SidebarWorkspaceGroupHeaderView: View, Equatable {
         .padding(.horizontal, 6)
         .background { rowHeightProbe }
         .shortcutHintVisibilityAnimation(value: showsShortcutHint)
-        .background {
-            if isGroupHighlighted {
-                Color.accentColor.opacity(0.10)
-                    .padding(.horizontal, 6)
-                    .padding(.bottom, -rowSpacing / 2)
-            }
-        }
+        // Emit the header bounds for the whole-group backdrop (drawn behind the
+        // rows by the sidebar), instead of tinting the header itself.
+        .sidebarGroupHighlightBounds(groupId: groupId, isHighlighted: isGroupHighlighted)
         .modifier(SidebarReorderRowModifier(
             enabled: isReorderEnabled,
             workspaceId: anchorWorkspaceId,

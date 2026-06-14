@@ -12976,6 +12976,26 @@ struct VerticalTabsSidebar: View {
         dragState.draggedTabId != nil ? dragState.previewMembershipGroupId : hoveredGroupId
     }
 
+    /// The single rounded backdrop behind the highlighted group, unioned from
+    /// the bounds its rows emitted.
+    @ViewBuilder
+    private func groupHighlightBackdrop(prefs: [UUID: [Anchor<CGRect>]]) -> some View {
+        GeometryReader { proxy in
+            if let groupId = highlightedGroupId,
+               let anchors = prefs[groupId], !anchors.isEmpty {
+                let rects = anchors.map { proxy[$0] }
+                let minX = rects.map(\.minX).min() ?? 0
+                let maxX = rects.map(\.maxX).max() ?? 0
+                let minY = rects.map(\.minY).min() ?? 0
+                let maxY = rects.map(\.maxY).max() ?? 0
+                RoundedRectangle(cornerRadius: 6, style: .continuous)
+                    .fill(Color.accentColor.opacity(0.10))
+                    .frame(width: max(0, (maxX - minX) - 12), height: max(0, maxY - minY))
+                    .position(x: (minX + maxX) / 2, y: (minY + maxY) / 2)
+            }
+        }
+    }
+
     @ViewBuilder
     private func workspaceRows(renderContext: WorkspaceListRenderContext) -> some View {
         let baseRenderItems = SidebarWorkspaceRenderItem.renderItems(
@@ -13051,6 +13071,13 @@ struct VerticalTabsSidebar: View {
         .animation(Self.sidebarReorderAnimation, value: previewItems.map(\.id))
         .padding(.vertical, SidebarWorkspaceListMetrics.rowVerticalPadding)
         .frame(maxWidth: .infinity, alignment: .leading)
+        // ONE backdrop behind the highlighted group's rows, unioned from the
+        // member/header bounds the rows emit. Drawn as a background so rows
+        // (and the dragged-row follower) sit on top of a fixed region instead
+        // of each carrying its own tint.
+        .backgroundPreferenceValue(SidebarGroupHighlightBoundsKey.self) { prefs in
+            groupHighlightBackdrop(prefs: prefs)
+        }
 
         // Gate ONLY the per-row frame-anchor *reader* (the virtualization-defeating
         // work) behind the drag-active check, and keep the Bonsplit drop-capture
@@ -13336,17 +13363,10 @@ struct VerticalTabsSidebar: View {
                 .preference(key: SidebarWorkspaceRowIdsPreferenceKey.self, value: Set([tab.id]))
                 .sidebarWorkspaceFrameAnchor(id: tab.id, isEnabled: shouldCollectWorkspaceDropTargets)
                 .padding(.leading, indent)
-                // Whole-group highlight: a full-width tint behind every member
-                // of the highlighted group (applied AFTER the indent so it
-                // spans the full row width, and bled 1pt past each edge to
-                // close the 2pt inter-row gap so the group reads as one block).
-                .background {
-                    if isInHighlightedGroup {
-                        Color.accentColor.opacity(0.10)
-                            .padding(.horizontal, 6)
-                            .padding(.vertical, -tabRowSpacing / 2)
-                    }
-                }
+                // Emit this member's bounds for the whole-group backdrop drawn
+                // behind the rows (not a per-row tint, so it does not travel
+                // with the row during a reorder).
+                .sidebarGroupHighlightBounds(groupId: tab.groupId, isHighlighted: isInHighlightedGroup)
                 // Hovering a nested member highlights its whole group too (not
                 // just the header). Guarded so passing ungrouped rows writes
                 // nothing. Drag takes precedence over hover in highlightedGroupId.
@@ -13402,6 +13422,29 @@ struct SidebarWorkspaceRowFramePreferenceKey: PreferenceKey {
 
     static func reduce(value: inout [UUID: Anchor<CGRect>], nextValue: () -> [UUID: Anchor<CGRect>]) {
         value.merge(nextValue()) { _, next in next }
+    }
+}
+
+/// Bounds of the rows (header + members) that belong to the currently
+/// highlighted group, keyed by group id. The sidebar unions them into ONE
+/// backdrop rectangle drawn BEHIND the rows, so the highlight is a fixed
+/// region the rows sit on top of rather than a per-row tint that travels with
+/// each workspace during a reorder.
+struct SidebarGroupHighlightBoundsKey: PreferenceKey {
+    static let defaultValue: [UUID: [Anchor<CGRect>]] = [:]
+
+    static func reduce(value: inout [UUID: [Anchor<CGRect>]], nextValue: () -> [UUID: [Anchor<CGRect>]]) {
+        value.merge(nextValue()) { $0 + $1 }
+    }
+}
+
+extension View {
+    /// Emits this row's bounds under `groupId` for the whole-group backdrop,
+    /// only when the row is part of the highlighted group.
+    func sidebarGroupHighlightBounds(groupId: UUID?, isHighlighted: Bool) -> some View {
+        anchorPreference(key: SidebarGroupHighlightBoundsKey.self, value: .bounds) { anchor in
+            (isHighlighted && groupId != nil) ? [groupId!: [anchor]] : [:]
+        }
     }
 }
 
