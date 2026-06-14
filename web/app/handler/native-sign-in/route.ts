@@ -11,10 +11,36 @@ function canSetAutoHandoff(request: NextRequest): boolean {
   return fetchSite === null || fetchSite === "none" || fetchSite === "same-origin" || fetchSite === "same-site";
 }
 
+function firstHeaderValue(value: string | null): string | null {
+  return value?.split(",")[0]?.trim() || null;
+}
+
+function requestProtocol(request: NextRequest): string {
+  return firstHeaderValue(request.headers.get("x-forwarded-proto"))
+    ?? request.nextUrl.protocol.replace(/:$/, "")
+    ?? "http";
+}
+
+function requestOriginCandidates(request: NextRequest): Set<string> {
+  const origins = new Set<string>([request.nextUrl.origin]);
+  const protocol = requestProtocol(request);
+  const hostValues = [
+    firstHeaderValue(request.headers.get("host")),
+    firstHeaderValue(request.headers.get("x-forwarded-host")),
+  ];
+  for (const host of hostValues) {
+    if (!host) continue;
+    try {
+      origins.add(new URL(`${protocol}://${host}`).origin);
+    } catch {}
+  }
+  return origins;
+}
+
 function sameOriginURL(value: string, request: NextRequest): URL | null {
   try {
     const url = new URL(value, request.nextUrl.origin);
-    return url.origin === request.nextUrl.origin ? url : null;
+    return requestOriginCandidates(request).has(url.origin) ? url : null;
   } catch {
     return null;
   }
@@ -37,7 +63,7 @@ export function GET(request: NextRequest) {
     afterSignInURL.searchParams.set(NATIVE_HANDOFF_PARAM, nonce);
   }
 
-  const stackSignInURL = new URL("/handler/sign-in", request.nextUrl.origin);
+  const stackSignInURL = new URL("/handler/sign-in", afterSignInURL.origin);
   stackSignInURL.searchParams.set("after_auth_return_to", afterSignInURL.toString());
   const response = NextResponse.redirect(stackSignInURL);
   if (nonce) {

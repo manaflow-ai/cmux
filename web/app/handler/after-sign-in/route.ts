@@ -23,10 +23,55 @@ type LocalizedAfterSignInMessages = {
   messages: AfterSignInMessages;
 };
 
+function firstHeaderValue(value: string | null): string | null {
+  return value?.split(",")[0]?.trim() || null;
+}
+
+function requestHostCandidates(request: NextRequest): Set<string> {
+  const hosts = new Set<string>();
+  for (const value of [
+    request.headers.get("host"),
+    request.headers.get("x-forwarded-host"),
+    request.nextUrl.host,
+  ]) {
+    const host = firstHeaderValue(value)?.split(":")[0]?.toLowerCase();
+    if (host) hosts.add(host);
+  }
+  return hosts;
+}
+
+function isLoopbackHost(host: string): boolean {
+  return host === "localhost" || host === "127.0.0.1" || host === "::1" || host === "[::1]";
+}
+
+function isPrivateIPv4Host(host: string): boolean {
+  const parts = host.split(".").map((part) => Number(part));
+  if (parts.length !== 4 || parts.some((part) => !Number.isInteger(part) || part < 0 || part > 255)) {
+    return false;
+  }
+  const [first, second] = parts;
+  return first === 10
+    || (first === 172 && second >= 16 && second <= 31)
+    || (first === 192 && second === 168)
+    || (first === 169 && second === 254);
+}
+
+function isTrustedDevRequest(request: NextRequest): boolean {
+  const hosts = requestHostCandidates(request);
+  for (const host of hosts) {
+    if (isLoopbackHost(host)) return true;
+  }
+  if (process.env.NODE_ENV === "production") return false;
+  for (const host of hosts) {
+    if (isPrivateIPv4Host(host) || host.endsWith(".local")) return true;
+  }
+  return false;
+}
+
 function isLocalRequest(request: NextRequest): boolean {
   const hostHeader = request.headers.get("host");
   const host = (hostHeader?.split(":")[0] ?? request.nextUrl.hostname).toLowerCase();
-  return host === "localhost" || host === "127.0.0.1" || host === "::1";
+  return isLoopbackHost(host);
 }
 
 function localAllowedNativeSchemes(): Set<string> {
@@ -45,7 +90,7 @@ function localAllowedNativeSchemes(): Set<string> {
   return schemes;
 }
 
-function isAllowedNativeReturnTo(href: string, request: NextRequest): boolean {
+export function isAllowedNativeReturnTo(href: string, request: NextRequest): boolean {
   try {
     const url = new URL(href);
     if (url.hostname !== "auth-callback") return false;
@@ -53,7 +98,7 @@ function isAllowedNativeReturnTo(href: string, request: NextRequest): boolean {
     const scheme = url.protocol.replace(":", "");
     if (NATIVE_SCHEMES.has(scheme)) return true;
     if (scheme === "cmux-dev") return isLocalRequest(request);
-    return isLocalRequest(request) && localAllowedNativeSchemes().has(scheme);
+    return isTrustedDevRequest(request) && localAllowedNativeSchemes().has(scheme);
   } catch {
     return false;
   }
