@@ -5,6 +5,7 @@ import Foundation
 protocol BrowserHiddenWebViewDiscardManagerDelegate: AnyObject {
     var hiddenWebViewDiscardSnapshot: BrowserHiddenWebViewDiscardManager.BlockerSnapshot { get }
     var hiddenWebViewDiscardHiddenAt: Date? { get }
+    var hiddenWebViewDiscardLastAutomationActivityAt: Date? { get }
     var hiddenWebViewDiscardWebViewInstanceID: UUID { get }
 
     func hiddenWebViewDiscardManagerDidRequestDiscard(
@@ -101,11 +102,14 @@ final class BrowserHiddenWebViewDiscardManager {
         let observedWebViewInstanceID = delegate.hiddenWebViewDiscardWebViewInstanceID
         let generation = scheduleGeneration
         let hiddenAt = delegate.hiddenWebViewDiscardHiddenAt ?? Date()
+        let lastAutomationActivityAt = delegate.hiddenWebViewDiscardLastAutomationActivityAt
         // Restart the countdown from the latest wake: WebKit pages reconnect and
         // re-navigate right after wake, and replacing/releasing a WKWebView in
         // that window crashed in WebPageProxy::updateActivityState
         // (https://github.com/manaflow-ai/cmux/issues/5261).
-        let effectiveHiddenAt = lastSystemWakeAt.map { max(hiddenAt, $0) } ?? hiddenAt
+        let effectiveHiddenAt = [hiddenAt, lastSystemWakeAt, lastAutomationActivityAt]
+            .compactMap { $0 }
+            .max() ?? hiddenAt
         let elapsed = Date().timeIntervalSince(effectiveHiddenAt)
         let remaining = max(0, BrowserHiddenWebViewDiscardPolicy.hiddenDelay - elapsed)
         if remaining <= 0 {

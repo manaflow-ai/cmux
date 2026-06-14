@@ -64,6 +64,7 @@ private final class BrowserPanelTestScriptMessageHandler: NSObject, WKScriptMess
 private final class BrowserHiddenWebViewDiscardTestDelegate: BrowserHiddenWebViewDiscardManagerDelegate {
     var snapshot: BrowserHiddenWebViewDiscardManager.BlockerSnapshot
     var hiddenAt: Date?
+    var lastAutomationActivityAt: Date?
     var webViewInstanceID = UUID()
     var discardRequestCount = 0
 
@@ -78,6 +79,10 @@ private final class BrowserHiddenWebViewDiscardTestDelegate: BrowserHiddenWebVie
 
     var hiddenWebViewDiscardHiddenAt: Date? {
         hiddenAt
+    }
+
+    var hiddenWebViewDiscardLastAutomationActivityAt: Date? {
+        lastAutomationActivityAt
     }
 
     var hiddenWebViewDiscardWebViewInstanceID: UUID {
@@ -274,6 +279,23 @@ final class BrowserHiddenWebViewDiscardManagerTests: XCTestCase {
         XCTAssertTrue(manager.hasScheduledDiscard)
     }
 
+    func testAutomationActivityRestartsHiddenWebViewDiscardCountdown() {
+        let snapshot = makeHiddenWebViewDiscardBlockerSnapshot()
+        let manager = BrowserHiddenWebViewDiscardManager()
+        let now = Date()
+        let delegate = BrowserHiddenWebViewDiscardTestDelegate(
+            snapshot: snapshot,
+            hiddenAt: now.addingTimeInterval(-BrowserHiddenWebViewDiscardPolicy.hiddenDelay - 1)
+        )
+        delegate.lastAutomationActivityAt = now
+        manager.delegate = delegate
+
+        manager.scheduleIfNeeded(reason: "test.automationActivity")
+
+        XCTAssertEqual(delegate.discardRequestCount, 0)
+        XCTAssertTrue(manager.hasScheduledDiscard)
+    }
+
     // Regression coverage for https://github.com/manaflow-ai/cmux/issues/5261:
     // sleep cancels an armed discard countdown and blocks re-arming until wake,
     // and wake re-arms a fresh countdown without discarding.
@@ -303,25 +325,37 @@ final class BrowserHiddenWebViewDiscardManagerTests: XCTestCase {
 
 @MainActor
 final class BrowserPanelVisualAutomationRestoreHostTests: XCTestCase {
+    private func realizeWindowLayout(_ window: NSWindow) {
+        window.makeKeyAndOrderFront(nil)
+        window.displayIfNeeded()
+        window.contentView?.layoutSubtreeIfNeeded()
+        RunLoop.current.run(until: Date().addingTimeInterval(0.05))
+        window.contentView?.layoutSubtreeIfNeeded()
+    }
+
     func testRestoredDiscardedHiddenWebViewGetsRestoreHostBeforeOffscreenCapture() {
-        let discardedAt = Date(timeIntervalSince1970: 400)
+        let hiddenAt = Date()
         let panel = BrowserPanel(
             workspaceId: UUID(),
-            initialURL: URL(string: "about:blank")!,
+            initialURL: URL(string: "data:text/html,<html><body>restore-host</body></html>")!,
             isRemoteWorkspace: false
         )
         defer { panel.close() }
 
-        let deadline = Date().addingTimeInterval(1.0)
-        while panel.webView.isLoading,
+        let deadline = Date().addingTimeInterval(2.0)
+        while (panel.webView.isLoading || panel.isLoading),
               RunLoop.main.run(mode: .default, before: deadline),
               Date() < deadline {}
-        XCTAssertFalse(panel.webView.isLoading, "Timed out waiting for about:blank to finish loading")
+        XCTAssertFalse(panel.webView.isLoading, "Timed out waiting for data URL to finish loading")
+        XCTAssertFalse(panel.isLoading, "Timed out waiting for panel loading state to finish")
 
-        panel.noteWebViewVisibility(false, reason: "test.hidden", now: discardedAt)
+        panel.noteWebViewVisibility(false, reason: "test.hidden", now: hiddenAt)
         let originalWebView = panel.webView
 
-        XCTAssertTrue(panel.discardHiddenWebViewForMemory(reason: "test.discard", now: discardedAt))
+        XCTAssertTrue(
+            panel.discardHiddenWebViewForMemory(reason: "test.discard", now: hiddenAt),
+            "blockers: \(panel.hiddenWebViewDiscardSnapshot)"
+        )
         XCTAssertFalse(panel.webView === originalWebView)
         XCTAssertNil(panel.webView.superview)
         XCTAssertFalse(panel.hasBackgroundPreloadHost)
@@ -335,6 +369,108 @@ final class BrowserPanelVisualAutomationRestoreHostTests: XCTestCase {
         XCTAssertNotNil(panel.webView.superview)
         XCTAssertNotNil(panel.webView.window)
         XCTAssertFalse(panel.ensureVisualAutomationRestoreHostIfNeeded(reason: "test.visualAutomation.alreadyAttached"))
+    }
+
+    func testAutomationCommandLeaseTemporarilyHostsHiddenPortalWebViewOffscreen() {
+        let panel = BrowserPanel(
+            workspaceId: UUID(),
+            initialURL: URL(string: "about:blank")!,
+            isRemoteWorkspace: false
+        )
+        defer { panel.close() }
+
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 500, height: 320),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        defer { window.orderOut(nil) }
+        realizeWindowLayout(window)
+
+        guard let contentView = window.contentView else {
+            XCTFail("Expected content view")
+            return
+        }
+
+        let anchor = NSView(frame: NSRect(x: 40, y: 24, width: 220, height: 160))
+        contentView.addSubview(anchor)
+        BrowserWindowPortalRegistry.bind(webView: panel.webView, to: anchor, visibleInUI: true)
+        BrowserWindowPortalRegistry.synchronizeForAnchor(anchor)
+        drainBrowserPanelMainQueue()
+
+        guard let originalSuperview = panel.webView.superview else {
+            XCTFail("Expected portal-hosted webview")
+            return
+        }
+
+        panel.noteWebViewVisibility(false, reason: "test.hidden", now: Date())
+        BrowserWindowPortalRegistry.updateEntryVisibility(for: panel.webView, visibleInUI: false, zPriority: 0)
+        BrowserWindowPortalRegistry.synchronizeForAnchor(anchor)
+        drainBrowserPanelMainQueue()
+
+        XCTAssertTrue(panel.webView.superview === originalSuperview)
+        XCTAssertTrue(panel.webView.isHiddenOrHasHiddenAncestor)
+
+        let lease = panel.beginAutomationCommandLease(reason: "test.automation")
+        XCTAssertNotNil(lease)
+        XCTAssertFalse(panel.webView.superview === originalSuperview)
+        XCTAssertNotNil(panel.webView.window)
+        XCTAssertFalse(panel.webView.isHiddenOrHasHiddenAncestor)
+        XCTAssertFalse(
+            panel.discardHiddenWebViewForMemory(reason: "test.discardWhileAutomating"),
+            "Socket automation must block hidden-webview discard while it owns the temporary host"
+        )
+
+        panel.endAutomationCommandLease(lease, reason: "test.automation")
+
+        XCTAssertTrue(panel.webView.superview === originalSuperview)
+        XCTAssertTrue(panel.webView.isHiddenOrHasHiddenAncestor)
+    }
+
+    func testAutomationCommandLeaseRestoresDiscardedHiddenWebViewBeforeHosting() {
+        let hiddenAt = Date()
+        let panel = BrowserPanel(
+            workspaceId: UUID(),
+            initialURL: URL(string: "data:text/html,<html><body>socket-restore</body></html>")!,
+            isRemoteWorkspace: false
+        )
+        defer { panel.close() }
+
+        let deadline = Date().addingTimeInterval(2.0)
+        while (panel.webView.isLoading || panel.isLoading),
+              RunLoop.main.run(mode: .default, before: deadline),
+              Date() < deadline {}
+        XCTAssertFalse(panel.webView.isLoading, "Timed out waiting for data URL to finish loading")
+        XCTAssertFalse(panel.isLoading, "Timed out waiting for panel loading state to finish")
+
+        panel.noteWebViewVisibility(false, reason: "test.hidden", now: hiddenAt)
+        let originalWebView = panel.webView
+
+        XCTAssertTrue(
+            panel.discardHiddenWebViewForMemory(reason: "test.discard", now: hiddenAt),
+            "blockers: \(panel.hiddenWebViewDiscardSnapshot)"
+        )
+        XCTAssertFalse(panel.webView === originalWebView)
+        XCTAssertNil(panel.webView.superview)
+        XCTAssertEqual(panel.webViewLifecycleState, .discarded)
+
+        let restoredWebView = panel.webView
+        let lease = panel.beginAutomationCommandLease(reason: "test.automation")
+        XCTAssertNotNil(lease)
+        XCTAssertTrue(panel.webView === restoredWebView)
+        XCTAssertEqual(panel.webViewLifecycleState, .liveHidden)
+        XCTAssertNotNil(panel.webView.window)
+        XCTAssertFalse(panel.webView.isHiddenOrHasHiddenAncestor)
+        XCTAssertFalse(
+            panel.discardHiddenWebViewForMemory(reason: "test.discardWhileAutomating"),
+            "Socket automation must block hidden-webview discard after restoring the replacement webview"
+        )
+
+        panel.endAutomationCommandLease(lease, reason: "test.automation")
+
+        XCTAssertNil(panel.webView.superview)
+        XCTAssertEqual(panel.webViewLifecycleState, .liveHidden)
     }
 }
 

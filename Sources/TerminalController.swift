@@ -5318,6 +5318,7 @@ class TerminalController {
         _ body: (_ ctx: V2BrowserPanelContext) -> V2CallResult
     ) -> V2CallResult {
         var resolved: V2BrowserPanelContext?
+        var automationLease: BrowserScreenshotWebViewSnapshotter.OffscreenRenderHostLease?
         var failure: V2CallResult = .err(code: "internal_error", message: "Browser operation failed", data: nil)
         v2MainSync {
             guard let tabManager = v2ResolveTabManager(params: params) else {
@@ -5341,6 +5342,7 @@ class TerminalController {
                 failure = .err(code: "invalid_params", message: "Surface is not a browser", data: ["surface_id": surfaceId.uuidString])
                 return
             }
+            automationLease = browserPanel.beginAutomationCommandLease(reason: "browser.socketCommand")
             resolved = V2BrowserPanelContext(
                 workspaceId: ws.id,
                 surfaceId: surfaceId,
@@ -5349,6 +5351,11 @@ class TerminalController {
             )
         }
         guard let resolved else { return failure }
+        defer {
+            v2MainSync {
+                resolved.browserPanel.endAutomationCommandLease(automationLease, reason: "browser.socketCommand")
+            }
+        }
         return body(resolved)
     }
 

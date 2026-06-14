@@ -60,6 +60,129 @@ enum BrowserScreenshotCaptureBounds {
 
 @MainActor
 enum BrowserScreenshotWebViewSnapshotter {
+    @MainActor
+    final class OffscreenRenderHostLease {
+        private weak var webView: WKWebView?
+        private let previousSuperview: NSView?
+        private let previousFrame: NSRect
+        private let previousBounds: NSRect
+        private let previousAutoresizingMask: NSView.AutoresizingMask
+        private let previousTranslatesAutoresizingMaskIntoConstraints: Bool
+        private let restoreAnchor: NSView?
+        private let restorePosition: NSWindow.OrderingMode
+        private let window: BrowserScreenshotOffscreenRenderPanel
+        private var isActive = true
+
+        init(webView: WKWebView, viewportSize: NSSize) {
+            self.webView = webView
+            previousSuperview = webView.superview
+            let previousSubviews = previousSuperview?.subviews ?? []
+            let previousIndex = previousSubviews.firstIndex(of: webView)
+            previousFrame = webView.frame
+            previousBounds = webView.bounds
+            previousAutoresizingMask = webView.autoresizingMask
+            previousTranslatesAutoresizingMaskIntoConstraints = webView.translatesAutoresizingMaskIntoConstraints
+
+            if let previousIndex, previousIndex > 0 {
+                restoreAnchor = previousSubviews[previousIndex - 1]
+                restorePosition = .above
+            } else if let previousIndex, previousIndex == 0, previousSubviews.count > 1 {
+                restoreAnchor = previousSubviews[1]
+                restorePosition = .below
+            } else {
+                restoreAnchor = nil
+                restorePosition = .above
+            }
+
+            let normalizedSize = Self.normalizedViewportSize(viewportSize)
+            let frame = NSRect(
+                x: -100_000 - normalizedSize.width,
+                y: -100_000 - normalizedSize.height,
+                width: normalizedSize.width,
+                height: normalizedSize.height
+            )
+            let window = BrowserScreenshotOffscreenRenderPanel(
+                contentRect: frame,
+                styleMask: [.borderless, .nonactivatingPanel],
+                backing: .buffered,
+                defer: false
+            )
+            window.isReleasedWhenClosed = false
+            window.identifier = NSUserInterfaceItemIdentifier("cmux.browserVisualAutomationRender")
+            window.hasShadow = false
+            window.isOpaque = false
+            window.backgroundColor = .clear
+            window.alphaValue = 0.01
+            window.ignoresMouseEvents = true
+            window.hidesOnDeactivate = false
+            window.collectionBehavior = [.transient, .ignoresCycle, .stationary, .canJoinAllSpaces]
+            window.isExcludedFromWindowsMenu = true
+            self.window = window
+
+            let contentView = NSView(frame: NSRect(origin: .zero, size: normalizedSize))
+            contentView.wantsLayer = true
+            webView.removeFromSuperview()
+            webView.frame = contentView.bounds
+            webView.autoresizingMask = [.width, .height]
+            contentView.addSubview(webView)
+            window.contentView = contentView
+            window.orderFrontRegardless()
+        }
+
+        func end() {
+            guard isActive else { return }
+            isActive = false
+            if let webView {
+                Self.restoreWebView(
+                    webView,
+                    to: previousSuperview,
+                    frame: previousFrame,
+                    bounds: previousBounds,
+                    autoresizingMask: previousAutoresizingMask,
+                    translatesAutoresizingMaskIntoConstraints: previousTranslatesAutoresizingMaskIntoConstraints,
+                    anchor: restoreAnchor,
+                    position: restorePosition
+                )
+            }
+            window.orderOut(nil)
+            window.contentView = nil
+            window.close()
+        }
+
+        deinit {
+            guard isActive else { return }
+            MainActor.assumeIsolated {
+                end()
+            }
+        }
+
+        private static func normalizedViewportSize(_ viewportSize: NSSize) -> NSSize {
+            BrowserScreenshotWebViewSnapshotter.normalizedViewportSize(viewportSize)
+        }
+
+        private static func restoreWebView(
+            _ webView: WKWebView,
+            to superview: NSView?,
+            frame: NSRect,
+            bounds: NSRect,
+            autoresizingMask: NSView.AutoresizingMask,
+            translatesAutoresizingMaskIntoConstraints: Bool,
+            anchor: NSView?,
+            position: NSWindow.OrderingMode
+        ) {
+            BrowserScreenshotWebViewSnapshotter.restoreWebView(
+                webView,
+                to: superview,
+                frame: frame,
+                bounds: bounds,
+                autoresizingMask: autoresizingMask,
+                translatesAutoresizingMaskIntoConstraints: translatesAutoresizingMaskIntoConstraints,
+                anchor: anchor,
+                position: position
+            )
+        }
+    }
+
     static func captureFullPage(
         from webView: WKWebView,
         afterScreenUpdates: Bool = true
@@ -180,73 +303,9 @@ enum BrowserScreenshotWebViewSnapshotter {
         expectedURL: URL?,
         operation: () async throws -> T
     ) async throws -> T {
-        let previousSuperview = webView.superview
-        let previousSubviews = previousSuperview?.subviews ?? []
-        let previousIndex = previousSubviews.firstIndex(of: webView)
-        let previousFrame = webView.frame
-        let previousBounds = webView.bounds
-        let previousAutoresizingMask = webView.autoresizingMask
-        let previousTranslatesAutoresizingMaskIntoConstraints = webView.translatesAutoresizingMaskIntoConstraints
-        let restoreAnchor: NSView?
-        let restorePosition: NSWindow.OrderingMode
-        if let previousIndex, previousIndex > 0 {
-            restoreAnchor = previousSubviews[previousIndex - 1]
-            restorePosition = .above
-        } else if let previousIndex, previousIndex == 0, previousSubviews.count > 1 {
-            restoreAnchor = previousSubviews[1]
-            restorePosition = .below
-        } else {
-            restoreAnchor = nil
-            restorePosition = .above
-        }
-
-        let normalizedSize = normalizedViewportSize(viewportSize)
-        let frame = NSRect(
-            x: -100_000 - normalizedSize.width,
-            y: -100_000 - normalizedSize.height,
-            width: normalizedSize.width,
-            height: normalizedSize.height
-        )
-        let window = BrowserScreenshotOffscreenRenderPanel(
-            contentRect: frame,
-            styleMask: [.borderless, .nonactivatingPanel],
-            backing: .buffered,
-            defer: false
-        )
-        window.isReleasedWhenClosed = false
-        window.identifier = NSUserInterfaceItemIdentifier("cmux.browserVisualAutomationRender")
-        window.hasShadow = false
-        window.isOpaque = false
-        window.backgroundColor = .clear
-        window.alphaValue = 0.01
-        window.ignoresMouseEvents = true
-        window.hidesOnDeactivate = false
-        window.collectionBehavior = [.transient, .ignoresCycle, .stationary, .canJoinAllSpaces]
-        window.isExcludedFromWindowsMenu = true
-
-        let contentView = NSView(frame: NSRect(origin: .zero, size: normalizedSize))
-        contentView.wantsLayer = true
-        webView.removeFromSuperview()
-        webView.frame = contentView.bounds
-        webView.autoresizingMask = [.width, .height]
-        contentView.addSubview(webView)
-        window.contentView = contentView
-        window.orderFrontRegardless()
-
+        let lease = OffscreenRenderHostLease(webView: webView, viewportSize: viewportSize)
         defer {
-            restoreWebView(
-                webView,
-                to: previousSuperview,
-                frame: previousFrame,
-                bounds: previousBounds,
-                autoresizingMask: previousAutoresizingMask,
-                translatesAutoresizingMaskIntoConstraints: previousTranslatesAutoresizingMaskIntoConstraints,
-                anchor: restoreAnchor,
-                position: restorePosition
-            )
-            window.orderOut(nil)
-            window.contentView = nil
-            window.close()
+            lease.end()
         }
 
         try await prepareForVisualCapture(webView, expectedURL: expectedURL)
@@ -261,59 +320,7 @@ enum BrowserScreenshotWebViewSnapshotter {
         operation: @escaping (@escaping (Result<T, Error>) -> Void) -> Void,
         completion: @escaping (Result<T, Error>) -> Void
     ) {
-        let previousSuperview = webView.superview
-        let previousSubviews = previousSuperview?.subviews ?? []
-        let previousIndex = previousSubviews.firstIndex(of: webView)
-        let previousFrame = webView.frame
-        let previousBounds = webView.bounds
-        let previousAutoresizingMask = webView.autoresizingMask
-        let previousTranslatesAutoresizingMaskIntoConstraints = webView.translatesAutoresizingMaskIntoConstraints
-        let restoreAnchor: NSView?
-        let restorePosition: NSWindow.OrderingMode
-        if let previousIndex, previousIndex > 0 {
-            restoreAnchor = previousSubviews[previousIndex - 1]
-            restorePosition = .above
-        } else if let previousIndex, previousIndex == 0, previousSubviews.count > 1 {
-            restoreAnchor = previousSubviews[1]
-            restorePosition = .below
-        } else {
-            restoreAnchor = nil
-            restorePosition = .above
-        }
-
-        let normalizedSize = normalizedViewportSize(viewportSize)
-        let frame = NSRect(
-            x: -100_000 - normalizedSize.width,
-            y: -100_000 - normalizedSize.height,
-            width: normalizedSize.width,
-            height: normalizedSize.height
-        )
-        let window = BrowserScreenshotOffscreenRenderPanel(
-            contentRect: frame,
-            styleMask: [.borderless, .nonactivatingPanel],
-            backing: .buffered,
-            defer: false
-        )
-        window.isReleasedWhenClosed = false
-        window.identifier = NSUserInterfaceItemIdentifier("cmux.browserVisualAutomationRender")
-        window.hasShadow = false
-        window.isOpaque = false
-        window.backgroundColor = .clear
-        window.alphaValue = 0.01
-        window.ignoresMouseEvents = true
-        window.hidesOnDeactivate = false
-        window.collectionBehavior = [.transient, .ignoresCycle, .stationary, .canJoinAllSpaces]
-        window.isExcludedFromWindowsMenu = true
-
-        let contentView = NSView(frame: NSRect(origin: .zero, size: normalizedSize))
-        contentView.wantsLayer = true
-        webView.removeFromSuperview()
-        webView.frame = contentView.bounds
-        webView.autoresizingMask = [.width, .height]
-        contentView.addSubview(webView)
-        window.contentView = contentView
-        window.orderFrontRegardless()
-
+        let lease = OffscreenRenderHostLease(webView: webView, viewportSize: viewportSize)
         var didFinish = false
         var timeoutTimer: Timer?
         let finish: (Result<T, Error>) -> Void = { result in
@@ -321,19 +328,7 @@ enum BrowserScreenshotWebViewSnapshotter {
             didFinish = true
             timeoutTimer?.invalidate()
             timeoutTimer = nil
-            restoreWebView(
-                webView,
-                to: previousSuperview,
-                frame: previousFrame,
-                bounds: previousBounds,
-                autoresizingMask: previousAutoresizingMask,
-                translatesAutoresizingMaskIntoConstraints: previousTranslatesAutoresizingMaskIntoConstraints,
-                anchor: restoreAnchor,
-                position: restorePosition
-            )
-            window.orderOut(nil)
-            window.contentView = nil
-            window.close()
+            lease.end()
             completion(result)
         }
 

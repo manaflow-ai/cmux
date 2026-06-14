@@ -3360,6 +3360,7 @@ final class BrowserPanel: Panel, ObservableObject {
     private var backgroundPreloadWindow: NSWindow?
     private let visualAutomationCaptureGate = BrowserScreenshotCaptureGate()
     private var activeVisualAutomationCaptureCount: Int = 0
+    private var webViewLastAutomationActivityAt: Date?
     private struct PendingInteractiveBrowserPrompt {
         let present: (NSWindow, @escaping () -> Void) -> Void
         let cancel: () -> Void
@@ -3751,6 +3752,7 @@ final class BrowserPanel: Panel, ObservableObject {
             webViewLastHiddenAt = nil
             webViewLastVisibilityChangeAt = nil
             webViewLastVisibilityChangeReason = nil
+            webViewLastAutomationActivityAt = nil
             isWebViewVisibleInUI = false
         }
         hiddenWebViewDiscardManager.resetMetadata()
@@ -6358,6 +6360,10 @@ extension BrowserPanel: BrowserHiddenWebViewDiscardManagerDelegate {
         webViewLastHiddenAt
     }
 
+    var hiddenWebViewDiscardLastAutomationActivityAt: Date? {
+        webViewLastAutomationActivityAt
+    }
+
     var hiddenWebViewDiscardWebViewInstanceID: UUID {
         webViewInstanceID
     }
@@ -7540,6 +7546,34 @@ extension BrowserPanel {
             case .failure(let error):
                 finish(.failure(error))
             }
+        }
+    }
+
+    @discardableResult
+    func beginAutomationCommandLease(reason: String) -> BrowserScreenshotWebViewSnapshotter.OffscreenRenderHostLease? {
+        webViewLastAutomationActivityAt = Date()
+        activeVisualAutomationCaptureCount += 1
+        cancelHiddenWebViewDiscard()
+        restoreDiscardedWebViewIfNeeded(reason: "\(reason).restore")
+        refreshWebViewLifecycleState()
+
+        guard shouldUseOffscreenRenderHostForVisualAutomation else { return nil }
+        return BrowserScreenshotWebViewSnapshotter.OffscreenRenderHostLease(
+            webView: webView,
+            viewportSize: visualAutomationViewportSize()
+        )
+    }
+
+    func endAutomationCommandLease(
+        _ lease: BrowserScreenshotWebViewSnapshotter.OffscreenRenderHostLease?,
+        reason: String
+    ) {
+        lease?.end()
+        webViewLastAutomationActivityAt = Date()
+        activeVisualAutomationCaptureCount = max(0, activeVisualAutomationCaptureCount - 1)
+        refreshWebViewLifecycleState()
+        if activeVisualAutomationCaptureCount == 0, !isWebViewVisibleInUI {
+            scheduleHiddenWebViewDiscardIfNeeded(reason: "\(reason).finished")
         }
     }
 
