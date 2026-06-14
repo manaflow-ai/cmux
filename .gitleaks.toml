@@ -86,6 +86,10 @@ paths = [
 # hardcoded secrets. Each is scoped to the exact file AND value, so a real
 # secret added to the same file is still caught.
 # ---------------------------------------------------------------------------
+# Both the dev and prod publishable keys appear in BOTH files (AuthConfig.swift
+# and AuthEnvironment.swift each define dev + prod), so this AND block covers all
+# four (file x key) occurrences by design. A real, *non-publishable* secret added
+# to either file still fails, because it won't match these exact public values.
 [[allowlists]]
 description = "Stack Auth publishable client keys (public by design)"
 condition = "AND"

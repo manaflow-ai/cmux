@@ -39,6 +39,7 @@ fi
 cd "$PROJECT_DIR"
 
 gitleaks_version="$("$GITLEAKS_BIN" version 2>/dev/null | tr -d '[:space:]')"
+gitleaks_version="${gitleaks_version#v}"  # normalize a possible "v8.30.1" prefix
 echo "==> Scanning working tree with gitleaks ${gitleaks_version:-(unknown version)} ..."
 if [ -n "$gitleaks_version" ] && [ "$gitleaks_version" != "$EXPECTED_GITLEAKS_VERSION" ]; then
   echo "warning: local gitleaks $gitleaks_version differs from the version CI pins" \
