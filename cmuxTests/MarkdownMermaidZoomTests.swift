@@ -1,6 +1,6 @@
 import AppKit
+import Testing
 import WebKit
-import XCTest
 
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
@@ -9,8 +9,10 @@ import XCTest
 #endif
 
 @MainActor
-final class MarkdownMermaidZoomTests: XCTestCase {
-    func testRenderedMermaidDiagramScalesWithViewerZoom() async throws {
+@Suite
+final class MarkdownMermaidZoomTests {
+    @Test
+    func renderedMermaidDiagramScalesWithViewerZoom() async throws {
         let markdownURL = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-markdown-mermaid-zoom-\(UUID().uuidString).md")
         let frame = NSRect(x: 0, y: 0, width: 720, height: 480)
@@ -31,12 +33,9 @@ final class MarkdownMermaidZoomTests: XCTestCase {
             window.close()
         }
 
-        let loaded = expectation(description: "markdown shell loaded")
-        let loadDelegate = MermaidZoomShellLoadDelegate(expectation: loaded)
+        let loadDelegate = MermaidZoomShellLoadDelegate()
         webView.navigationDelegate = loadDelegate
-        webView.loadHTMLString(MarkdownViewerAssets.shared.shellHTML(isDark: true), baseURL: markdownURL)
-        await fulfillment(of: [loaded], timeout: 5)
-        if let error = loadDelegate.error { throw error }
+        try await loadDelegate.load(MarkdownViewerAssets.shared.shellHTML(isDark: true), in: webView, baseURL: markdownURL)
 
         coordinator.setFontSize(MarkdownFontSizeSettings.defaultPointSize)
         try await renderMarkdown(
@@ -53,22 +52,22 @@ final class MarkdownMermaidZoomTests: XCTestCase {
         )
 
         let baseline = try await waitForMermaidSnapshot(in: webView)
-        let baselineWidth = try XCTUnwrap(baseline["width"])
-        let baselineProseHeight = try XCTUnwrap(baseline["proseHeight"])
-        XCTAssertEqual(baseline["zoom"] ?? -1, 1, accuracy: 0.001)
-        XCTAssertEqual(baselineWidth, 240, accuracy: 2)
+        let baselineWidth = try #require(baseline["width"])
+        let baselineProseHeight = try #require(baseline["proseHeight"])
+        #expect(abs((baseline["zoom"] ?? -1) - 1) <= 0.001)
+        #expect(abs(baselineWidth - 240) <= 2)
 
         coordinator.setFontSize(MarkdownFontSizeSettings.defaultPointSize * 2)
         let zoomed = try await waitForMermaidSnapshot(in: webView, expectedZoom: 2)
-        let zoomedWidth = try XCTUnwrap(zoomed["width"])
-        let zoomedProseHeight = try XCTUnwrap(zoomed["proseHeight"])
-        XCTAssertGreaterThan(zoomedWidth, baselineWidth * 1.8)
-        XCTAssertEqual(zoomedWidth / baselineWidth, zoomedProseHeight / baselineProseHeight, accuracy: 0.25)
+        let zoomedWidth = try #require(zoomed["width"])
+        let zoomedProseHeight = try #require(zoomed["proseHeight"])
+        #expect(zoomedWidth > baselineWidth * 1.8)
+        #expect(abs((zoomedWidth / baselineWidth) - (zoomedProseHeight / baselineProseHeight)) <= 0.25)
         let exported = try await exportedMermaidSnapshot(in: webView)
-        XCTAssertEqual(exported["width"], "")
-        XCTAssertEqual(exported["height"], "")
-        XCTAssertEqual(exported["maxWidth"], "240px")
-        XCTAssertEqual(exported["hasCmuxData"], "0")
+        #expect((exported["width"] ?? "missing") == "")
+        #expect((exported["height"] ?? "missing") == "")
+        #expect(exported["maxWidth"] == "240px")
+        #expect(exported["hasCmuxData"] == "0")
 
         coordinator.setFontSize(MarkdownFontSizeSettings.defaultPointSize)
         try await renderMarkdown(
@@ -81,14 +80,15 @@ final class MarkdownMermaidZoomTests: XCTestCase {
             in: webView
         )
         let fitted = try await waitForMermaidSnapshot(in: webView)
-        let fittedWidth = try XCTUnwrap(fitted["width"])
-        XCTAssertGreaterThan(fittedWidth, baselineWidth * 1.8)
-        XCTAssertLessThanOrEqual(fittedWidth, (try XCTUnwrap(fitted["containerWidth"])) + 2)
+        let fittedWidth = try #require(fitted["width"])
+        let fittedContainerWidth = try #require(fitted["containerWidth"])
+        #expect(fittedWidth > baselineWidth * 1.8)
+        #expect(fittedWidth <= fittedContainerWidth + 2)
 
         coordinator.setFontSize(MarkdownFontSizeSettings.defaultPointSize * 2)
         let fittedZoomed = try await waitForMermaidSnapshot(in: webView, expectedZoom: 2)
-        let fittedZoomedWidth = try XCTUnwrap(fittedZoomed["width"])
-        XCTAssertGreaterThan(fittedZoomedWidth, fittedWidth * 1.8)
+        let fittedZoomedWidth = try #require(fittedZoomed["width"])
+        #expect(fittedZoomedWidth > fittedWidth * 1.8)
 
         let widerFrame = NSRect(x: 0, y: 0, width: 960, height: 480)
         window.setFrame(widerFrame, display: true)
@@ -99,12 +99,13 @@ final class MarkdownMermaidZoomTests: XCTestCase {
             expectedZoom: 2,
             minimumWidth: fittedZoomedWidth * 1.1
         )
-        XCTAssertGreaterThan(try XCTUnwrap(widened["width"]), fittedZoomedWidth * 1.1)
+        let widenedWidth = try #require(widened["width"])
+        #expect(widenedWidth > fittedZoomedWidth * 1.1)
     }
 
     private func renderMarkdown(_ markdown: String, in webView: WKWebView) async throws {
         let data = try JSONSerialization.data(withJSONObject: [markdown])
-        let literal = try XCTUnwrap(String(data: data, encoding: .utf8))
+        let literal = try #require(String(data: data, encoding: .utf8))
         _ = try await webView.evaluateJavaScript("window.__cmuxRenderMarkdown(\(literal)[0]);")
     }
 
@@ -126,11 +127,7 @@ final class MarkdownMermaidZoomTests: XCTestCase {
             }
             try await Task.sleep(nanoseconds: 100_000_000)
         }
-        throw NSError(
-            domain: "MarkdownMermaidZoomTests",
-            code: 1,
-            userInfo: [NSLocalizedDescriptionKey: "Timed out waiting for Mermaid snapshot: \(String(describing: lastSnapshot))"]
-        )
+        throw MermaidSnapshotTimeout(lastSnapshot: lastSnapshot)
     }
 
     private func mermaidSnapshot(in webView: WKWebView) async throws -> [String: Double]? {
@@ -189,25 +186,44 @@ final class MarkdownMermaidZoomTests: XCTestCase {
 }
 
 private final class MermaidZoomShellLoadDelegate: NSObject, WKNavigationDelegate {
-    let expectation: XCTestExpectation
-    var error: Error?
+    private var continuation: CheckedContinuation<Void, Error>?
 
-    init(expectation: XCTestExpectation) {
-        self.expectation = expectation
+    func load(_ html: String, in webView: WKWebView, baseURL: URL) async throws {
+        try await withCheckedThrowingContinuation { continuation in
+            self.continuation = continuation
+            webView.loadHTMLString(html, baseURL: baseURL)
+        }
+    }
+
+    private func finish(_ result: Result<Void, Error>) {
+        guard let continuation else { return }
+        self.continuation = nil
+        switch result {
+        case .success:
+            continuation.resume()
+        case .failure(let error):
+            continuation.resume(throwing: error)
+        }
     }
 
     func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
-        expectation.fulfill()
+        finish(.success(()))
     }
 
     func webView(_ webView: WKWebView, didFail navigation: WKNavigation!, withError error: Error) {
-        self.error = error
-        expectation.fulfill()
+        finish(.failure(error))
     }
 
     func webView(_ webView: WKWebView, didFailProvisionalNavigation navigation: WKNavigation!, withError error: Error) {
-        self.error = error
-        expectation.fulfill()
+        finish(.failure(error))
+    }
+}
+
+private struct MermaidSnapshotTimeout: Error, CustomStringConvertible {
+    let lastSnapshot: [String: Double]?
+
+    var description: String {
+        "Timed out waiting for Mermaid snapshot: \(String(describing: lastSnapshot))"
     }
 }
 
