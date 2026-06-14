@@ -7,15 +7,14 @@ import Observation
 /// holder on every `UserDefaults` write), which re-ran the entire
 /// `VerticalTabsSidebar` body — O(N) workspace-row render context — on any
 /// defaults change, including the minimal-mode toggle
-/// (https://github.com/manaflow-ai/cmux/issues/5732). This model re-checks the
-/// stored value on `UserDefaults.didChangeNotification` and mutates
-/// `providerId` only when it actually changed, so Observation-tracked readers
-/// re-render only on real provider changes.
+/// (https://github.com/manaflow-ai/cmux/issues/5732). The sidebar owns this
+/// model as view state; the model re-checks the stored value on
+/// `UserDefaults.didChangeNotification` and mutates `providerId` only when it
+/// actually changed, so Observation-tracked readers re-render only on real
+/// provider changes.
 @MainActor
 @Observable
 final class ExtensionSidebarProviderSelectionModel {
-    static let shared = ExtensionSidebarProviderSelectionModel()
-
     private(set) var providerId: String
 
     @ObservationIgnored private let defaults: UserDefaults

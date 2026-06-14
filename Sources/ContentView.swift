@@ -10246,7 +10246,7 @@ struct VerticalTabsSidebar: View {
     // Not @AppStorage: the dotted key would coarse-invalidate this whole
     // sidebar body on every UserDefaults write (#5732). The @Observable model
     // mutates only on real provider changes, so body reads re-render precisely.
-    private let extensionProviderSelection = ExtensionSidebarProviderSelectionModel.shared
+    @State private var extensionProviderSelection = ExtensionSidebarProviderSelectionModel()
     @LiveSetting(\.betaFeatures.extensions) private var extensionsExperimentalEnabled
     @LiveSetting(\.betaFeatures.customSidebars) private var customSidebarsExperimentalEnabled
     @LiveSetting(\.customSidebars.renderer) private var customSidebarRenderer
