@@ -174,14 +174,8 @@ struct WorkspaceContentView: View {
     @State private var config = WorkspaceContentView.resolveGhosttyAppearanceConfig(reason: "stateInit")
     @State private var lastAppliedUsesHostLayerBackground = GhosttyApp.shared.usesHostLayerBackground
     @State private var deferredThemeRefresh: DeferredThemeRefresh?
-    @AppStorage(WorkspacePresentationModeSettings.modeKey)
-    private var workspacePresentationMode = WorkspacePresentationModeSettings.defaultMode.rawValue
     @Environment(\.colorScheme) private var colorScheme
     @EnvironmentObject var notificationStore: TerminalNotificationStore
-
-    private var isMinimalMode: Bool {
-        WorkspacePresentationModeSettings.mode(for: workspacePresentationMode) == .minimal
-    }
 
     static func panelVisibleInUI(
         isWorkspaceVisible: Bool,
@@ -359,7 +353,9 @@ struct WorkspaceContentView: View {
             )
         }
 
-        Group {
+        // The bridge owns the presentation-mode subscription so a minimal-mode
+        // toggle re-layouts this stored content subtree instead of re-building it.
+        MinimalModeSafeAreaBridge(isFullScreen: isFullScreen) {
             if workspace.layoutMode == .canvas {
                 WorkspaceCanvasHostView(
                     workspace: workspace,
@@ -372,7 +368,6 @@ struct WorkspaceContentView: View {
                 bonsplitView
             }
         }
-        .ignoresSafeArea(.container, edges: (isMinimalMode && !isFullScreen) ? .top : [])
     }
 
     private func syncBonsplitNotificationBadges() {

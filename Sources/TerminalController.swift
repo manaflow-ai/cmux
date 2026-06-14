@@ -1642,6 +1642,9 @@ class TerminalController {
         case "send_workspace":
             return sendInputToWorkspace(args)
 
+        case "set_presentation_mode":
+            return setPresentationModeForTesting(args)
+
         case "set_shortcut":
             return setShortcut(args)
 
@@ -10462,6 +10465,7 @@ class TerminalController {
           flash_count <id|idx>            - Read flash count for a panel
           reset_flash_counts              - Reset flash counters
           screenshot [label]              - Capture window screenshot
+          set_presentation_mode <minimal|standard|toggle> - Set workspace presentation mode and log main-thread relayout cost (test-only)
           set_shortcut <name> <combo|clear> - Set a keyboard shortcut (test-only)
           simulate_shortcut <combo>       - Simulate a keyDown shortcut (test-only)
           simulate_type <text>            - Insert text into the current first responder (test-only)
