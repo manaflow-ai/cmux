@@ -6541,6 +6541,12 @@ func resolveBrowserNavigableURL(_ input: String) -> URL? {
         if scheme == "file", url.isFileURL, url.path.hasPrefix("/") {
             return url
         }
+        // URL(string: "example.com:8443") parses "example.com" as the scheme.
+        // No real scheme contains a dot, so a dotted "scheme" followed by a
+        // numeric port is a bare host:port that must navigate, not search.
+        if browserDottedHostWithPortCandidate(trimmed, schemeCandidate: scheme) {
+            return URL(string: "https://\(trimmed)")
+        }
         return nil
     }
 
@@ -6553,6 +6559,18 @@ func resolveBrowserNavigableURL(_ input: String) -> URL? {
     }
 
     return nil
+}
+
+private func browserDottedHostWithPortCandidate(_ input: String, schemeCandidate: String) -> Bool {
+    guard schemeCandidate.contains(".") else { return false }
+    guard input.count > schemeCandidate.count else { return false }
+    let afterScheme = input.dropFirst(schemeCandidate.count)
+    guard afterScheme.first == ":" else { return false }
+    let portAndRest = afterScheme.dropFirst()
+    let port = portAndRest.prefix(while: { $0.isNumber })
+    guard !port.isEmpty, UInt16(port) != nil else { return false }
+    let rest = portAndRest.dropFirst(port.count)
+    return rest.isEmpty || rest.first == "/" || rest.first == "?" || rest.first == "#"
 }
 
 extension BrowserPanel {
