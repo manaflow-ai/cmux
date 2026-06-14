@@ -468,11 +468,17 @@ final class WindowBrowserHostView: NSView {
     }
 
     override func hitTest(_ point: NSPoint) -> NSView? {
+        let routingContext = WindowInputRoutingContext(event: NSApp.currentEvent)
+        guard routingContext.allowsPortalPointerHitTesting else {
+            let hitView = super.hitTest(point)
+            return hitView === self ? nil : hitView
+        }
+
         let dividerHit = splitDividerHit(at: point)
         let hostedInspectorHit = dividerHit == nil ? hostedInspectorDividerHit(at: point) : nil
         updateDividerCursor(at: point, dividerHit: dividerHit, hostedInspectorHit: hostedInspectorHit)
 
-        let eventType = NSApp.currentEvent?.type
+        let eventType = routingContext.eventType
         let titlebarPassThrough = shouldPassThroughToTitlebar(at: point)
         let tabStripPassThrough = shouldPassThroughToPaneTabBar(at: point, eventType: eventType)
         let sidebarPassThrough = shouldPassThroughToSidebarResizer(
@@ -538,10 +544,11 @@ final class WindowBrowserHostView: NSView {
         // pass through to SwiftUI drop targets behind the portal host.
         // Browser hover routing also arrives as cursor/enter events and may not
         // report a pressed-button state, so include that path here.
-        if Self.shouldPassThroughToDragTargets(
+        if routingContext.allowsBrowserPortalDragRouting,
+           Self.shouldPassThroughToDragTargets(
             pasteboardTypes: NSPasteboard(name: .drag).types,
-            eventType: NSApp.currentEvent?.type
-        ) {
+            eventType: eventType
+           ) {
             return nil
         }
 
@@ -886,25 +893,10 @@ final class WindowBrowserHostView: NSView {
         pasteboardTypes: [NSPasteboard.PasteboardType]?,
         eventType: NSEvent.EventType?
     ) -> Bool {
-        if DragOverlayRoutingPolicy.shouldPassThroughPortalHitTesting(
+        DragOverlayRoutingPolicy.shouldPassThroughPortalHitTesting(
             pasteboardTypes: pasteboardTypes,
             eventType: eventType
-        ) {
-            return true
-        }
-
-        guard let eventType else { return false }
-        switch eventType {
-        case .cursorUpdate, .mouseEntered, .mouseExited, .mouseMoved:
-            // Browser-side tab drags can surface as hover events with a mixed
-            // pasteboard payload (tabtransfer plus promised-file UTIs). Prefer
-            // the explicit Bonsplit drag types so WKWebView cannot steal the
-            // session as a file upload.
-            return DragOverlayRoutingPolicy.hasBonsplitTabTransfer(pasteboardTypes)
-                || DragOverlayRoutingPolicy.hasSidebarTabReorder(pasteboardTypes)
-        default:
-            return false
-        }
+        )
     }
 
     private func hostedInspectorDividerHit(at point: NSPoint) -> HostedInspectorDividerHit? {
@@ -1791,6 +1783,12 @@ final class WindowBrowserSlotView: NSView {
         return false
     }
 
+#if DEBUG
+    // Test seam for #5733: exposes the slot's search-overlay view so tests can
+    // route a responder that this slot owns.
+    var browserPortalTestSearchOverlayView: NSView? { searchOverlayHostingView }
+#endif
+
     func searchOverlayPanelId(for responder: NSResponder) -> UUID? {
         guard let overlay = searchOverlayHostingView else { return nil }
 
@@ -2081,6 +2079,19 @@ final class WindowBrowserPortal: NSObject {
 
     private var entriesByWebViewId: [ObjectIdentifier: Entry] = [:]
     private var webViewByAnchorId: [ObjectIdentifier: ObjectIdentifier] = [:]
+
+#if DEBUG
+    // Test seam for https://github.com/manaflow-ai/cmux/issues/5733. Installs a
+    // slot container into the portal host without registering an Entry, so tests
+    // can prove the find-overlay lookup resolves off the live slot view hierarchy
+    // rather than by enumerating/copying Entry values out of entriesByWebViewId
+    // (each Entry copy = 3 objc_copyWeak ops under the global weak-table lock;
+    // O(panes) per keystroke — the stack-exhaustion fault site and a
+    // typing-latency contributor, #4405).
+    func browserPortalTestInstallSlotWithoutEntry(_ slot: WindowBrowserSlotView) {
+        hostView.addSubview(slot)
+    }
+#endif
 
     init(window: NSWindow) {
         self.window = window
@@ -3043,8 +3054,18 @@ final class WindowBrowserPortal: NSObject {
     }
 
     func searchOverlayPanelId(for responder: NSResponder) -> UUID? {
-        for entry in entriesByWebViewId.values {
-            if let panelId = entry.containerView?.searchOverlayPanelId(for: responder) {
+        // Drive the lookup off the live slot view hierarchy rather than copying
+        // Entry structs out of entriesByWebViewId. Each Entry copy performs 3
+        // objc_copyWeak ops under the global weak-table lock, so the old
+        // `.values` scan did O(panes) weak-table churn on every keystroke — the
+        // stack-exhaustion fault site in #5733 and a typing-latency contributor
+        // (#4405). Slot containers are the portal host's subviews, and only a
+        // container in the view hierarchy can own the window's first responder,
+        // so iterating subviews covers every slot that could match. The slot's
+        // own searchOverlayPanelId(for:) early-returns when it has no open find
+        // overlay, keeping the common (no-find) case cheap.
+        for case let container as WindowBrowserSlotView in hostView.subviews {
+            if let panelId = container.searchOverlayPanelId(for: responder) {
                 return panelId
             }
         }
@@ -3054,8 +3075,10 @@ final class WindowBrowserPortal: NSObject {
     @discardableResult
     func yieldSearchOverlayFocusIfOwned(by panelId: UUID) -> Bool {
         guard let window else { return false }
-        for entry in entriesByWebViewId.values {
-            if entry.containerView?.yieldSearchOverlayFocusIfOwned(by: panelId, in: window) == true {
+        // See searchOverlayPanelId(for:) — iterate the live slot hierarchy to
+        // avoid per-call Entry weak-copy churn (#5733).
+        for case let container as WindowBrowserSlotView in hostView.subviews {
+            if container.yieldSearchOverlayFocusIfOwned(by: panelId, in: window) == true {
                 return true
             }
         }

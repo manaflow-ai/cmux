@@ -6,7 +6,8 @@ export default function sitemap(): MetadataRoute.Sitemap {
 
   const paths = [
     { path: "", lastModified: "2026-03-18", changeFrequency: "weekly" as const, priority: 1 },
-    { path: "/blog", lastModified: "2026-05-22", changeFrequency: "weekly" as const, priority: 0.8 },
+    { path: "/blog", lastModified: "2026-06-02", changeFrequency: "weekly" as const, priority: 0.8 },
+    { path: "/blog/cmux-history", lastModified: "2026-06-02", changeFrequency: "monthly" as const, priority: 0.7 },
     { path: "/blog/cmux-finder", lastModified: "2026-05-22", changeFrequency: "monthly" as const, priority: 0.7 },
     { path: "/blog/cmux-vault", lastModified: "2026-05-22", changeFrequency: "monthly" as const, priority: 0.7 },
     { path: "/blog/passkey-auth", lastModified: "2026-05-22", changeFrequency: "monthly" as const, priority: 0.7 },
@@ -24,7 +25,9 @@ export default function sitemap(): MetadataRoute.Sitemap {
     { path: "/blog/cmd-shift-u", lastModified: "2026-03-04", changeFrequency: "monthly" as const, priority: 0.7 },
     { path: "/docs/getting-started", lastModified: "2026-03-18", changeFrequency: "monthly" as const, priority: 0.9 },
     { path: "/docs/concepts", lastModified: "2026-03-18", changeFrequency: "monthly" as const, priority: 0.8 },
+    { path: "/docs/workspace-groups", lastModified: "2026-06-09", changeFrequency: "monthly" as const, priority: 0.8 },
     { path: "/docs/configuration", lastModified: "2026-03-18", changeFrequency: "monthly" as const, priority: 0.8 },
+    { path: "/docs/textbox", lastModified: "2026-05-26", changeFrequency: "monthly" as const, priority: 0.7 },
     { path: "/docs/custom-commands", lastModified: "2026-03-18", changeFrequency: "monthly" as const, priority: 0.7 },
     { path: "/docs/dock", lastModified: "2026-05-01", changeFrequency: "monthly" as const, priority: 0.7 },
     { path: "/docs/keyboard-shortcuts", lastModified: "2026-04-03", changeFrequency: "monthly" as const, priority: 0.7 },
@@ -41,6 +44,7 @@ export default function sitemap(): MetadataRoute.Sitemap {
     { path: "/community", lastModified: "2026-03-18", changeFrequency: "monthly" as const, priority: 0.5 },
     { path: "/wall-of-love", lastModified: "2026-03-18", changeFrequency: "monthly" as const, priority: 0.5 },
     { path: "/nightly", lastModified: "2026-03-18", changeFrequency: "weekly" as const, priority: 0.6 },
+    { path: "/assets", lastModified: "2026-06-03", changeFrequency: "monthly" as const, priority: 0.5 },
     { path: "/privacy-policy", lastModified: "2026-03-18", changeFrequency: "yearly" as const, priority: 0.3 },
     { path: "/terms-of-service", lastModified: "2026-03-18", changeFrequency: "yearly" as const, priority: 0.3 },
     { path: "/eula", lastModified: "2026-03-18", changeFrequency: "yearly" as const, priority: 0.3 },

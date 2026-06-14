@@ -1,4 +1,5 @@
 import AppKit
+import CmuxWorkspaceNavigation
 import SwiftUI
 
 extension cmuxApp {
@@ -39,8 +40,6 @@ extension cmuxApp {
                 snapshot: recentlyClosedSnapshot
             )
 
-            openFullHistoryButton(manager: historyTabManager)
-
             Divider()
 
             splitCommandButton(title: String(localized: "menu.file.restorePreviousAppLaunch", defaultValue: "Restore Previous Launch"), shortcut: menuShortcut(for: .reopenPreviousSession)) {
@@ -74,13 +73,6 @@ extension cmuxApp {
                 }
                 .disabled(!item.isNavigable)
             }
-
-            if snapshot.isLimited {
-                openFullHistoryButton(
-                    title: String(localized: "menu.history.showFullFocusHistory", defaultValue: "Show Full History"),
-                    manager: manager
-                )
-            }
         }
     }
 
@@ -108,13 +100,6 @@ extension cmuxApp {
                         NSSound.beep()
                     }
                 }
-            }
-
-            if snapshot.isLimited {
-                openFullHistoryButton(
-                    title: String(localized: "menu.history.recentlyClosed.showFull", defaultValue: "Show Full Recently Closed"),
-                    manager: manager
-                )
             }
         }
     }
@@ -144,21 +129,11 @@ extension cmuxApp {
         let _ = focusHistoryMenuInvalidator.revision
         let back = manager.focusHistoryMenuSnapshot(direction: .back)
         let forward = manager.focusHistoryMenuSnapshot(direction: .forward)
-        return FocusHistoryMenuSnapshotBuilder.recentlyFocused(
+        return FocusHistoryMenuSnapshot.recentlyFocused(
             back: back,
             forward: forward,
             maxItemCount: 10
         )
     }
 
-    private func openFullHistoryButton(
-        title: String = String(localized: "menu.history.openFullHistory", defaultValue: "Open Full History…"),
-        manager: TabManager
-    ) -> some View {
-        Button(title) {
-            if AppDelegate.shared?.openHistoryPane(preferredTabManager: manager) != true {
-                NSSound.beep()
-            }
-        }
-    }
 }

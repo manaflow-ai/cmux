@@ -2,6 +2,7 @@
 
 import { useTheme } from "next-themes";
 import { flushSync } from "react-dom";
+import { darkThemeColor, lightThemeColor } from "./theme-colors";
 
 export function ThemeToggle() {
   const { resolvedTheme, setTheme } = useTheme();
@@ -11,8 +12,14 @@ export function ThemeToggle() {
 
     const apply = () => {
       setTheme(next);
-      const meta = document.querySelector('meta[name="theme-color"]');
-      if (meta) meta.setAttribute("content", next === "dark" ? "#0a0a0a" : "#fafafa");
+      document
+        .querySelectorAll('meta[name="theme-color"]')
+        .forEach((meta) =>
+          meta.setAttribute(
+            "content",
+            next === "dark" ? darkThemeColor : lightThemeColor
+          )
+        );
     };
 
     if (
