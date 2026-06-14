@@ -18113,13 +18113,79 @@ struct CMUXCLI {
         return nil
     }
 
+    /// Maps tmux's documented single-character short-form format tokens (e.g.
+    /// `#S`, `#I`, `#D`) to the long-form context keys the renderer already
+    /// understands. See tmux(1) FORMATS.
+    ///
+    /// Without this mapping, callers that issue mixed format strings such as
+    /// `#S:#I #{pane_id}` (used by oh-my-claudecode's team mode) only get the
+    /// long-form token substituted, leaving the literal `#S:#I` prefix in the
+    /// output and breaking downstream parsers.
+    private static let tmuxShortFormVars: [Character: String] = [
+        "D": "pane_id",
+        "F": "window_flags",
+        "H": "host",
+        "I": "window_index",
+        "P": "pane_index",
+        "S": "session_name",
+        "T": "pane_title",
+        "W": "window_name",
+        "h": "host_short",
+    ]
+
+    /// Walks `format` and substitutes single-character short-form variables
+    /// (`#S`, `#I`, `#D`, ...) using `context`.
+    ///
+    /// `##` is a literal `#`. `#{...}` long-form tokens are left untouched
+    /// here (the caller substitutes them separately). Unknown short-forms pass
+    /// through unchanged, matching tmux's documented behavior.
+    private func tmuxExpandShortFormVars(
+        _ format: String,
+        context: [String: String]
+    ) -> String {
+        var result = ""
+        result.reserveCapacity(format.count)
+        var iter = format.makeIterator()
+        while let ch = iter.next() {
+            guard ch == "#" else {
+                result.append(ch)
+                continue
+            }
+            guard let next = iter.next() else {
+                result.append("#")
+                break
+            }
+            if next == "#" {
+                // `##` is a literal `#`.
+                result.append("#")
+                continue
+            }
+            if next == "{" {
+                // Long-form `#{...}` — leave the `#{` for the caller's pass.
+                result.append("#")
+                result.append("{")
+                continue
+            }
+            if let key = Self.tmuxShortFormVars[next], let value = context[key] {
+                result.append(value)
+                continue
+            }
+            // Unknown / unresolved short-form: pass through literally.
+            result.append("#")
+            result.append(next)
+        }
+        return result
+    }
+
     private func tmuxRenderFormat(
         _ format: String?,
         context: [String: String],
         fallback: String
     ) -> String {
         guard let format, !format.isEmpty else { return fallback }
-        var rendered = format
+        // Substitute short-form tokens first so the long-form pass and the
+        // `#{...}`-strip step below don't see them.
+        var rendered = tmuxExpandShortFormVars(format, context: context)
         for (key, value) in context {
             rendered = rendered.replacingOccurrences(of: "#{\(key)}", with: value)
         }
