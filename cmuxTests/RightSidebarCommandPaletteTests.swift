@@ -61,7 +61,7 @@ final class RightSidebarCommandPaletteTests: XCTestCase {
                     prompt: "build Lawrence's thing",
                     providerID: provider
                 ),
-                "/task-worktree-pr --provider \(provider.rawValue) 'build Lawrence'\\''s thing'\n"
+                "/task-worktree-pr --provider \(provider.rawValue) 'build Lawrence'\\''s thing'"
             )
         }
     }

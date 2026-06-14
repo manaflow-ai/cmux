@@ -103,7 +103,7 @@ enum GuiModeWorkspaceCoordinator {
     }
 
     static func taskWorktreePRCommand(prompt: String, providerID: GuiModeProviderID) -> String {
-        "/task-worktree-pr --provider \(providerID.rawValue) \(shellQuoted(prompt))\n"
+        "/task-worktree-pr --provider \(providerID.rawValue) \(shellQuoted(prompt))"
     }
 
     static func taskWorkspaceTitle(prompt: String) -> String {
