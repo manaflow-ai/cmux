@@ -88,51 +88,53 @@ struct SettingsFileStringArrayMapping {
 }
 
 enum AppSettingsFileMapping {
+    private static let app = AppCatalogSection()
+
     static let booleanSettings: [SettingsFileBooleanMapping] = [
         .init(
             jsonKey: "workspaceInheritWorkingDirectory",
-            defaultsKey: WorkspaceWorkingDirectoryInheritanceSettings.key,
+            defaultsKey: app.workspaceInheritWorkingDirectory.userDefaultsKey,
             invalidPath: "app.workspaceInheritWorkingDirectory"
         ),
         .init(jsonKey: "focusPaneOnFirstClick", defaultsKey: PaneFirstClickFocusSettings.enabledKey),
         .init(
             jsonKey: "openSupportedFilesInCmux",
-            defaultsKey: CmdClickSupportedFileRouteSettings.key
+            defaultsKey: app.openSupportedFilesInCmux.userDefaultsKey
         ),
         .init(
             jsonKey: "openMarkdownInCmuxViewer",
-            defaultsKey: CmdClickMarkdownRouteSettings.key
+            defaultsKey: app.openMarkdownInCmuxViewer.userDefaultsKey
         ),
-        .init(jsonKey: "reorderOnNotification", defaultsKey: WorkspaceAutoReorderSettings.key),
+        .init(jsonKey: "reorderOnNotification", defaultsKey: app.reorderOnNotification.userDefaultsKey),
         .init(jsonKey: "iMessageMode", defaultsKey: IMessageModeSettings.key),
         .init(
             jsonKey: "sendAnonymousTelemetry",
-            defaultsKey: TelemetrySettings.sendAnonymousTelemetryKey
+            defaultsKey: app.sendAnonymousTelemetry.userDefaultsKey
         ),
         .init(
             jsonKey: "warnBeforeClosingTab",
-            defaultsKey: CloseTabWarningSettings.warnBeforeClosingTabKey
+            defaultsKey: app.warnBeforeClosingTab.userDefaultsKey
         ),
         .init(
             jsonKey: "warnBeforeClosingTabXButton",
-            defaultsKey: CloseTabWarningSettings.warnBeforeClosingTabXButtonKey
+            defaultsKey: app.warnBeforeClosingTabXButton.userDefaultsKey
         ),
         .init(
             jsonKey: "hideTabCloseButton",
-            defaultsKey: CloseTabWarningSettings.hideTabCloseButtonKey
+            defaultsKey: app.hideTabCloseButton.userDefaultsKey
         ),
         .init(
             jsonKey: "renameSelectsExistingName",
-            defaultsKey: CommandPaletteRenameSelectionSettings.selectAllOnFocusKey
+            defaultsKey: app.renameSelectsExistingName.userDefaultsKey
         ),
         .init(
             jsonKey: "commandPaletteSearchesAllSurfaces",
-            defaultsKey: CommandPaletteSwitcherSearchSettings.searchAllSurfacesKey
+            defaultsKey: app.commandPaletteSearchesAllSurfaces.userDefaultsKey
         ),
     ]
 
     static let stringSettings: [SettingsFileStringMapping] = [
-        .init(jsonKey: "preferredEditor", defaultsKey: PreferredEditorSettings.key),
+        .init(jsonKey: "preferredEditor", defaultsKey: app.preferredEditor.userDefaultsKey),
     ]
 }
 
@@ -171,6 +173,8 @@ enum TerminalSettingsFileMapping {
 }
 
 enum SidebarSettingsFileMapping {
+    private static let sidebar = SidebarCatalogSection()
+
     struct BooleanSetting {
         let jsonKey: String
         let defaultsKey: String
@@ -179,7 +183,7 @@ enum SidebarSettingsFileMapping {
     static let booleanSettings: [BooleanSetting] = [
         .init(
             jsonKey: "hideAllDetails",
-            defaultsKey: SidebarWorkspaceDetailSettings.hideAllDetailsKey
+            defaultsKey: sidebar.hideAllDetails.userDefaultsKey
         ),
         .init(
             jsonKey: "wrapWorkspaceTitles",
@@ -187,19 +191,19 @@ enum SidebarSettingsFileMapping {
         ),
         .init(
             jsonKey: "showWorkspaceDescription",
-            defaultsKey: SidebarWorkspaceDetailSettings.showWorkspaceDescriptionKey
+            defaultsKey: sidebar.showWorkspaceDescription.userDefaultsKey
         ),
         .init(
             jsonKey: "stackBranchDirectory",
-            defaultsKey: SidebarBranchDirectoryStackedSettings.key
+            defaultsKey: sidebar.stackBranchDirectory.userDefaultsKey
         ),
         .init(
             jsonKey: "pathLastSegmentOnly",
-            defaultsKey: SidebarPathLastSegmentSettings.key
+            defaultsKey: sidebar.pathLastSegmentOnly.userDefaultsKey
         ),
         .init(
             jsonKey: "showNotificationMessage",
-            defaultsKey: SidebarWorkspaceDetailSettings.showNotificationMessageKey
+            defaultsKey: sidebar.showNotificationMessage.userDefaultsKey
         ),
         .init(
             jsonKey: "showBranchDirectory",
@@ -215,7 +219,7 @@ enum SidebarSettingsFileMapping {
         ),
         .init(
             jsonKey: "makePullRequestsClickable",
-            defaultsKey: SidebarPullRequestClickabilitySettings.key
+            defaultsKey: sidebar.makePullRequestsClickable.userDefaultsKey
         ),
         .init(
             jsonKey: "openPullRequestLinksInCmuxBrowser",
@@ -251,21 +255,23 @@ enum SidebarSettingsFileMapping {
 }
 
 enum AutomationSettingsFileMapping {
+    private static let automation = AutomationCatalogSection()
+
     static let booleanSettings: [SettingsFileBooleanMapping] = [
-        .init(jsonKey: "claudeCodeIntegration", defaultsKey: ClaudeCodeIntegrationSettings.hooksEnabledKey),
+        .init(jsonKey: "claudeCodeIntegration", defaultsKey: automation.claudeCodeIntegration.userDefaultsKey),
         .init(
             jsonKey: "suppressSubagentNotifications",
-            defaultsKey: AgentSubagentNotificationSettings.suppressNotificationsKey
+            defaultsKey: automation.suppressSubagentNotifications.userDefaultsKey
         ),
-        .init(jsonKey: "ampIntegration", defaultsKey: AmpIntegrationSettings.hooksEnabledKey),
-        .init(jsonKey: "cursorIntegration", defaultsKey: CursorIntegrationSettings.hooksEnabledKey),
-        .init(jsonKey: "geminiIntegration", defaultsKey: GeminiIntegrationSettings.hooksEnabledKey),
-        .init(jsonKey: "kiroIntegration", defaultsKey: KiroIntegrationSettings.hooksEnabledKey),
+        .init(jsonKey: "ampIntegration", defaultsKey: automation.ampIntegration.userDefaultsKey),
+        .init(jsonKey: "cursorIntegration", defaultsKey: automation.cursorIntegration.userDefaultsKey),
+        .init(jsonKey: "geminiIntegration", defaultsKey: automation.geminiIntegration.userDefaultsKey),
+        .init(jsonKey: "kiroIntegration", defaultsKey: automation.kiroIntegration.userDefaultsKey),
     ]
 
     static let stringSettings: [SettingsFileStringMapping] = [
-        .init(jsonKey: "claudeBinaryPath", defaultsKey: ClaudeCodeIntegrationSettings.customClaudePathKey),
-        .init(jsonKey: "ripgrepBinaryPath", defaultsKey: RipgrepIntegrationSettings.customRipgrepPathKey),
+        .init(jsonKey: "claudeBinaryPath", defaultsKey: automation.claudeBinaryPath.userDefaultsKey),
+        .init(jsonKey: "ripgrepBinaryPath", defaultsKey: automation.ripgrepBinaryPath.userDefaultsKey),
     ]
 }
 
