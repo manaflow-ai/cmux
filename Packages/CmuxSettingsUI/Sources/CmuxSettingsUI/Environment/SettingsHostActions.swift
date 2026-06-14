@@ -151,6 +151,7 @@ public protocol SettingsHostActions: AnyObject {
 public extension SettingsHostActions {
     func openMobilePairingWindow() {}
 
+    /// Default no-op for package previews and tests that have no activation-policy host.
     func setMenuBarOnly(_ enabled: Bool) -> Bool { false }
 
     func browserHistoryEntryCount() -> Int? { nil }

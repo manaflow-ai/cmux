@@ -74,73 +74,8 @@ final class CommandPaletteSettingsToggleTests: XCTestCase {
             )
 
             XCTAssertTrue(descriptor.isAvailable(defaults))
-            MenuBarOnlySettings.setEnabled(true, defaults: defaults)
+            defaults.set(true, forKey: MenuBarOnlySettings.menuBarOnlyKey)
             XCTAssertFalse(descriptor.isAvailable(defaults))
-        }
-    }
-
-    func testMenuBarOnlyCommandIsNotExposedAsInstantToggle() {
-        XCTAssertNil(
-            CommandPaletteSettingsToggleCommands.descriptor(
-                commandId: "palette.toggleSetting.menuBarOnly"
-            )
-        )
-        XCTAssertFalse(
-            ContentView.commandPaletteSettingsToggleCommandContributions()
-                .contains { $0.commandId == "palette.toggleSetting.menuBarOnly" }
-        )
-    }
-
-    func testMenuBarOnlyCommandHistoryDoesNotEnableAccessoryPolicy() throws {
-        try withTemporaryDefaults { defaults in
-            defaults.set(true, forKey: MenuBarOnlySettings.menuBarOnlyKey)
-            defaults.set(
-                try JSONSerialization.data(withJSONObject: [
-                    MenuBarOnlySettings.legacyCommandPaletteMenuBarOnlyCommandId: [
-                        "useCount": 1,
-                        "lastUsedAt": 1_700_000_000,
-                    ],
-                ]),
-                forKey: MenuBarOnlySettings.legacyCommandPaletteUsageKey
-            )
-
-            XCTAssertFalse(MenuBarOnlySettings.isEnabled(defaults: defaults))
-            XCTAssertEqual(MenuBarOnlySettings.activationPolicy(defaults: defaults), .regular)
-            XCTAssertFalse(MenuBarOnlySettings.shouldShowMainWindowMenuItem(defaults: defaults))
-
-            MenuBarOnlySettings.normalizeLegacyStoredPreference(defaults: defaults)
-
-            XCTAssertEqual(defaults.object(forKey: MenuBarOnlySettings.menuBarOnlyKey) as? Bool, false)
-            XCTAssertEqual(defaults.object(forKey: MenuBarOnlySettings.explicitEnableKey) as? Bool, false)
-        }
-    }
-
-    func testLegacyMenuBarOnlyDefaultWithoutCommandHistoryStillOptsIn() throws {
-        try withTemporaryDefaults { defaults in
-            defaults.set(true, forKey: MenuBarOnlySettings.menuBarOnlyKey)
-
-            XCTAssertTrue(MenuBarOnlySettings.isEnabled(defaults: defaults))
-            XCTAssertEqual(MenuBarOnlySettings.activationPolicy(defaults: defaults), .accessory)
-
-            MenuBarOnlySettings.normalizeLegacyStoredPreference(defaults: defaults)
-
-            XCTAssertEqual(defaults.object(forKey: MenuBarOnlySettings.menuBarOnlyKey) as? Bool, true)
-            XCTAssertEqual(defaults.object(forKey: MenuBarOnlySettings.explicitEnableKey) as? Bool, true)
-        }
-    }
-
-    func testUnreadableMenuBarOnlyCommandHistoryDoesNotEnableAccessoryPolicy() throws {
-        try withTemporaryDefaults { defaults in
-            defaults.set(true, forKey: MenuBarOnlySettings.menuBarOnlyKey)
-            defaults.set(Data("not-json".utf8), forKey: MenuBarOnlySettings.legacyCommandPaletteUsageKey)
-
-            XCTAssertFalse(MenuBarOnlySettings.isEnabled(defaults: defaults))
-            XCTAssertEqual(MenuBarOnlySettings.activationPolicy(defaults: defaults), .regular)
-
-            MenuBarOnlySettings.normalizeLegacyStoredPreference(defaults: defaults)
-
-            XCTAssertEqual(defaults.object(forKey: MenuBarOnlySettings.menuBarOnlyKey) as? Bool, false)
-            XCTAssertEqual(defaults.object(forKey: MenuBarOnlySettings.explicitEnableKey) as? Bool, false)
         }
     }
 

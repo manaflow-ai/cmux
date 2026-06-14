@@ -805,12 +805,12 @@ final class NotificationDockBadgeTests: XCTestCase {
         XCTAssertEqual(MenuBarOnlySettings.activationPolicy(defaults: defaults), .regular)
         XCTAssertFalse(MenuBarOnlySettings.shouldShowMainWindowMenuItem(defaults: defaults))
 
-        MenuBarOnlySettings.setEnabled(true, defaults: defaults)
+        defaults.set(true, forKey: MenuBarOnlySettings.menuBarOnlyKey)
         XCTAssertTrue(MenuBarOnlySettings.isEnabled(defaults: defaults))
         XCTAssertEqual(MenuBarOnlySettings.activationPolicy(defaults: defaults), .accessory)
         XCTAssertTrue(MenuBarOnlySettings.shouldShowMainWindowMenuItem(defaults: defaults))
 
-        MenuBarOnlySettings.setEnabled(false, defaults: defaults)
+        defaults.set(false, forKey: MenuBarOnlySettings.menuBarOnlyKey)
         XCTAssertFalse(MenuBarOnlySettings.isEnabled(defaults: defaults))
         XCTAssertEqual(MenuBarOnlySettings.activationPolicy(defaults: defaults), .regular)
         XCTAssertFalse(MenuBarOnlySettings.shouldShowMainWindowMenuItem(defaults: defaults))
@@ -829,10 +829,10 @@ final class NotificationDockBadgeTests: XCTestCase {
         defaults.set(false, forKey: MenuBarExtraSettings.showInMenuBarKey)
         XCTAssertFalse(MenuBarExtraSettings.shouldInstallMenuBarExtra(defaults: defaults))
 
-        MenuBarOnlySettings.setEnabled(true, defaults: defaults)
+        defaults.set(true, forKey: MenuBarOnlySettings.menuBarOnlyKey)
         XCTAssertTrue(MenuBarExtraSettings.shouldInstallMenuBarExtra(defaults: defaults))
 
-        MenuBarOnlySettings.setEnabled(false, defaults: defaults)
+        defaults.set(false, forKey: MenuBarOnlySettings.menuBarOnlyKey)
         defaults.set(true, forKey: MenuBarExtraSettings.showInMenuBarKey)
         XCTAssertTrue(MenuBarExtraSettings.shouldInstallMenuBarExtra(defaults: defaults))
     }
