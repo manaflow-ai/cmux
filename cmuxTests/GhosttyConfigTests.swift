@@ -8,6 +8,7 @@ import CmuxRemoteWorkspace
 import CmuxSocketControl
 import CmuxFoundation
 import AppKit
+import CmuxFoundation
 import Combine
 import CoreText
 import WebKit

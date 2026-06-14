@@ -220,7 +220,7 @@ final class WindowDecorationsController {
             lastMinimalModeTitlebarClick = nil
             return false
         }
-        guard !isMinimalModeTitlebarControlHit(window: window, locationInWindow: locationInWindow) else {
+        guard !minimalModeTitlebarDoubleClickShouldDefer(window: window, locationInWindow: locationInWindow) else {
             lastMinimalModeTitlebarClick = nil
             return false
         }

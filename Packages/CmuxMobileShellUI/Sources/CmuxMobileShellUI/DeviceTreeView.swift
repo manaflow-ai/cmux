@@ -137,7 +137,11 @@ struct DeviceTreeView: View {
 
             if expansion.isExpanded(deviceExpansionID(device)) {
                 ForEach(device.instances) { instance in
-                    instanceRows(device: device, instance: instance, isConnectedDevice: isConnectedDevice)
+                    instanceRows(
+                        device: device,
+                        instance: instance,
+                        isConnectedDevice: isConnectedDevice
+                    )
                 }
             }
         }
@@ -205,7 +209,7 @@ struct DeviceTreeView: View {
                         workspace: workspace,
                         connectionStatus: store.macConnectionStatus,
                         isSelected: false,
-                        navigationStyle: .push,
+                        navigationStyle: .sidebar,
                         wrapWorkspaceTitles: displaySettings.wrapWorkspaceTitles,
                         previewLineLimit: displaySettings.workspacePreviewLineCount,
                         selectWorkspace: { id in

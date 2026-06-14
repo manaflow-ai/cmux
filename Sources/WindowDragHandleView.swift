@@ -1350,13 +1350,6 @@ struct WindowDragHandleView: NSViewRepresentable {
     }
 }
 
-private func titlebarDoubleClickMonitorShouldDeferToRegisteredControl(
-    window: NSWindow,
-    locationInWindow: NSPoint
-) -> Bool {
-    isMinimalModeTitlebarControlHit(window: window, locationInWindow: locationInWindow)
-}
-
 /// Local monitor that guarantees double-clicks in custom titlebar surfaces trigger
 /// the standard macOS titlebar action even when the visible strip is hosted by
 /// higher-level SwiftUI/AppKit container views.
@@ -1396,7 +1389,7 @@ struct TitlebarDoubleClickMonitorView: NSViewRepresentable {
                 coordinator.lastClick = nil
                 return event
             }
-            guard !titlebarDoubleClickMonitorShouldDeferToRegisteredControl(
+            guard !minimalModeTitlebarDoubleClickShouldDefer(
                 window: window,
                 locationInWindow: event.locationInWindow
             ) else {
@@ -1687,7 +1680,10 @@ struct MinimalModeTitlebarEventSurfaceView: NSViewRepresentable {
                 lastTitlebarClick = nil
                 return event
             }
-            guard !isMinimalModeTitlebarControlHit(window: window, locationInWindow: locationInWindow) else {
+            guard !minimalModeTitlebarDoubleClickShouldDefer(
+                window: window,
+                locationInWindow: locationInWindow
+            ) else {
                 lastTitlebarClick = nil
                 return event
             }
