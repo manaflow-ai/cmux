@@ -924,6 +924,8 @@
         "surfaces": "Oberflächen",
         "surfacesBlurb": "Oberflächen sind Tabs innerhalb eines Bereichs.",
         "splitPanes": "Geteilte Bereiche",
+        "canvas": "Canvas",
+        "canvasBlurb": "Ein freier 2D-Layoutmodus, in dem Panels auf einem unendlichen, verschiebbaren Canvas schweben. Ausrichtungs- und Verteilungsbefehle sind über die Befehlspalette verfügbar.",
         "browser": "Browser",
         "notifications": "Benachrichtigungen",
         "find": "Suche",

@@ -1085,6 +1085,28 @@
         }
       }
     },
+    "canvas": {
+      "title": "canvas",
+      "description": "Freeform canvas workspace layout settings.",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "paneGap": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 64,
+          "default": 16,
+          "description": "Spacing between panes in the canvas layout, in points. Snapping, tidy, and new-pane placement all use this one gap.",
+          "descriptionKey": "schemaDescriptions.canvas.paneGap"
+        },
+        "snappingEnabled": {
+          "type": "boolean",
+          "default": true,
+          "description": "Snap pane drags and resizes to neighbor edges and the pane gap. Hold Command to suspend snapping for one gesture.",
+          "descriptionKey": "schemaDescriptions.canvas.snappingEnabled"
+        }
+      }
+    },
     "fileEditor": {
       "title": "fileEditor",
       "description": "Built-in plain-text file editor settings.",

@@ -924,6 +924,8 @@
         "surfaces": "Surface",
         "surfacesBlurb": "Surface 是面板内的标签页。",
         "splitPanes": "分屏面板",
+        "canvas": "画布",
+        "canvasBlurb": "一种自由的二维布局模式，窗格漂浮在可任意平移的无限画布上。对齐和分布命令可在命令面板中使用。",
         "browser": "浏览器",
         "notifications": "通知",
         "find": "查找",
