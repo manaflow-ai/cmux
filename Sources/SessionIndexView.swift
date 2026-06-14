@@ -2266,7 +2266,7 @@ private struct SectionPopoverView: View {
                             .frame(maxWidth: .infinity, alignment: .leading)
                     } else {
                         ForEach(loaded) { entry in
-                            PopoverRow(entry: entry) {
+                            PopoverRow(entry: entry, colorScheme: colorScheme) {
                                 onResume?(entry)
                                 onDismiss()
                             }
@@ -2495,13 +2495,13 @@ private struct SectionPopoverView: View {
 
 private struct PopoverRow: View, Equatable {
     let entry: SessionEntry
+    let colorScheme: ColorScheme
     let onActivate: () -> Void
 
     @State private var isHovered: Bool = false
-    @Environment(\.colorScheme) private var colorScheme
 
     static func == (lhs: PopoverRow, rhs: PopoverRow) -> Bool {
-        lhs.entry == rhs.entry
+        lhs.entry == rhs.entry && lhs.colorScheme == rhs.colorScheme
     }
 
     fileprivate static func flatten(_ s: String) -> String {
@@ -2533,10 +2533,8 @@ private struct PopoverRow: View, Equatable {
     var body: some View {
         HStack(spacing: 6) {
             AgentIconImage(agent: entry.agent, size: 12, colorScheme: colorScheme)
-            // Flatten newlines so titles containing `<command-message>…\n…`
-            // envelopes stay single-line; SwiftUI's `lineLimit(1)` doesn't
-            // always constrain a Text that has hard line breaks in the
-            // source string.
+            // Flatten hard breaks; lineLimit(1) does not always constrain
+            // Text backed by strings that contain explicit newlines.
             Text(Self.flatten(entry.displayTitle))
                 .font(.system(size: 12))
                 .foregroundColor(RightSidebarContentTextStyle.prominent(colorScheme: colorScheme))
