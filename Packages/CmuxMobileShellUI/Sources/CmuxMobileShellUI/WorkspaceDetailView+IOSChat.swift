@@ -168,7 +168,25 @@ extension WorkspaceDetailView {
         for session in fallback where seen.insert(session.id).inserted {
             merged.append(session)
         }
-        return ChatSessionDescriptor.openable(merged)
+        return openableByTerminal(merged)
+    }
+
+    static func openableByTerminal(_ sessions: [ChatSessionDescriptor]) -> [ChatSessionDescriptor] {
+        var sessionsByTerminalID: [String: [ChatSessionDescriptor]] = [:]
+        var unboundSessions: [ChatSessionDescriptor] = []
+        for session in sessions {
+            guard let terminalID = session.terminalID else {
+                unboundSessions.append(session)
+                continue
+            }
+            sessionsByTerminalID[terminalID, default: []].append(session)
+        }
+        let boundSessions = sessionsByTerminalID.values
+            .compactMap { ChatSessionDescriptor.openable($0).first }
+            .sorted {
+                ($0.lastActivityAt ?? .distantPast) > ($1.lastActivityAt ?? .distantPast)
+            }
+        return boundSessions + ChatSessionDescriptor.openable(unboundSessions)
     }
 
     static func streamReducerBaseline(

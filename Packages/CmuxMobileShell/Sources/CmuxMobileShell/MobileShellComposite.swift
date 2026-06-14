@@ -4664,9 +4664,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         var next = mergeExistingWorkspaces ? seededChatSessionsByWorkspaceID : [:]
         for remoteWorkspace in response.workspaces {
             let workspaceID = MobileWorkspacePreview.ID(rawValue: remoteWorkspace.id)
-            let sessions = ChatSessionDescriptor.openable(
-                remoteWorkspace.terminals.compactMap(\.chatSession)
-            )
+            let sessions = remoteWorkspace.terminals.compactMap(\.chatSession)
             if sessions.isEmpty {
                 next.removeValue(forKey: workspaceID)
             } else {

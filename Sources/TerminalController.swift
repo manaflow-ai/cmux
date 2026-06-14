@@ -13845,11 +13845,15 @@ class TerminalController {
             for workspace in visibleWorkspaces {
                 adoptDetectedAgentSessions(workspace: workspace)
             }
+            let chatSessionsByWorkspaceID = mobileChatSessionsByWorkspaceAndTerminalID(
+                workspaceIDs: Set(visibleWorkspaces.map { $0.id.uuidString })
+            )
             let scopedWorkspaces = visibleWorkspaces.map { workspace in
                 mobileWorkspacePayload(
                     workspace: workspace,
                     isSelected: workspace.id == tabManager.selectedTabId,
-                    requestedTerminalID: requestedTerminalID
+                    requestedTerminalID: requestedTerminalID,
+                    chatSessionsByTerminalID: chatSessionsByWorkspaceID[workspace.id.uuidString] ?? [:]
                 )
             }
             if let requestedTerminalID,
@@ -13868,7 +13872,7 @@ class TerminalController {
             guard let app = AppDelegate.shared else {
                 return .err(code: "unavailable", message: "Workspace context is unavailable", data: nil)
             }
-            var flattened: [[String: Any]] = []
+            var listedWorkspaces: [(workspace: Workspace, isSelected: Bool)] = []
             // `listMainWindowSummaries()` already dedupes window ids, but guard
             // against the same window or workspace appearing twice anyway: a
             // workspace lives in exactly one window, and ids are globally unique.
@@ -13881,16 +13885,20 @@ class TerminalController {
                     // See the scoped branch: adopt title-detected agents so the
                     // chat toggle is known as the rows load, across every window.
                     adoptDetectedAgentSessions(workspace: workspace)
-                    flattened.append(
-                        mobileWorkspacePayload(
-                            workspace: workspace,
-                            isSelected: workspace.id == selectedWorkspaceID,
-                            requestedTerminalID: requestedTerminalID
-                        )
-                    )
+                    listedWorkspaces.append((workspace, workspace.id == selectedWorkspaceID))
                 }
             }
-            workspaces = flattened
+            let chatSessionsByWorkspaceID = mobileChatSessionsByWorkspaceAndTerminalID(
+                workspaceIDs: Set(listedWorkspaces.map { $0.workspace.id.uuidString })
+            )
+            workspaces = listedWorkspaces.map { item in
+                mobileWorkspacePayload(
+                    workspace: item.workspace,
+                    isSelected: item.isSelected,
+                    requestedTerminalID: requestedTerminalID,
+                    chatSessionsByTerminalID: chatSessionsByWorkspaceID[item.workspace.id.uuidString] ?? [:]
+                )
+            }
         }
 
         var payload: [String: Any] = [
@@ -13916,14 +13924,10 @@ class TerminalController {
     private func mobileWorkspacePayload(
         workspace: Workspace,
         isSelected: Bool,
-        requestedTerminalID: UUID?
+        requestedTerminalID: UUID?,
+        chatSessionsByTerminalID: [String: [ChatSessionDescriptor]]
     ) -> [String: Any] {
         let chatService = AgentChatTranscriptService.shared
-        var chatSessionsByTerminalID: [String: [ChatSessionDescriptor]] = [:]
-        for descriptor in chatService.sessionDescriptors(workspaceID: workspace.id.uuidString) {
-            guard let terminalID = descriptor.terminalID else { continue }
-            chatSessionsByTerminalID[terminalID, default: []].append(descriptor)
-        }
         let terminals = mobileTerminalPanels(in: workspace).compactMap { terminal -> [String: Any]? in
             if let requestedTerminalID, terminal.id != requestedTerminalID {
                 return nil

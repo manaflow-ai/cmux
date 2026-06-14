@@ -65,6 +65,7 @@ actor LivenessHostRouter {
     private var holdSubscribe = false
     private var hasActiveSubscription = false
     private var includesWorkspaceListChatSession = false
+    private var includesEndedWorkspaceListChatSession = false
     private var heldContinuations: [CheckedContinuation<Void, Never>] = []
 
     func record(method: String?, topics: [String]?) {
@@ -105,6 +106,12 @@ actor LivenessHostRouter {
         includesWorkspaceListChatSession = include
     }
 
+    /// Add or remove an ended chat-session descriptor bound to another
+    /// terminal in the same workspace-list response.
+    func setIncludesEndedWorkspaceListChatSession(_ include: Bool) {
+        includesEndedWorkspaceListChatSession = include
+    }
+
     /// Resume every held request so parked continuations do not leak past the
     /// end of the test.
     func releaseAllHeld() {
@@ -123,7 +130,10 @@ actor LivenessHostRouter {
         case "workspace.list", "mobile.workspace.list":
             return try? Self.resultFrame(
                 id: id,
-                result: Self.workspaceListResult(includeChatSession: includesWorkspaceListChatSession)
+                result: Self.workspaceListResult(
+                    includeChatSession: includesWorkspaceListChatSession,
+                    includeEndedChatSession: includesEndedWorkspaceListChatSession
+                )
             )
         case "mobile.host.status":
             hostStatusRequestCount += 1
@@ -170,7 +180,10 @@ actor LivenessHostRouter {
         return try MobileSyncFrameCodec.encodeFrame(JSONSerialization.data(withJSONObject: envelope))
     }
 
-    private static func workspaceListResult(includeChatSession: Bool) -> [String: Any] {
+    private static func workspaceListResult(
+        includeChatSession: Bool,
+        includeEndedChatSession: Bool
+    ) -> [String: Any] {
         var terminal: [String: Any] = [
             "id": "live-terminal",
             "title": "Terminal",
@@ -194,6 +207,27 @@ actor LivenessHostRouter {
                 "last_activity_at": "2026-06-14T05:01:00Z",
             ]
         }
+        var terminals = [terminal]
+        if includeEndedChatSession {
+            terminals.append([
+                "id": "ended-terminal",
+                "title": "Ended Terminal",
+                "current_directory": "/Users/test/project",
+                "is_ready": true,
+                "is_focused": false,
+                "chat_session": [
+                    "session_id": "ended-session",
+                    "agent_kind": "claude",
+                    "kind": "agent",
+                    "title": "Ended chat session",
+                    "workspace_id": "live-workspace",
+                    "terminal_id": "ended-terminal",
+                    "cwd": "/Users/test/project",
+                    "state": ["state": "ended"],
+                    "last_activity_at": "2026-06-14T04:00:00Z",
+                ],
+            ])
+        }
         return [
             "workspaces": [
                 [
@@ -201,7 +235,7 @@ actor LivenessHostRouter {
                     "title": "Live Workspace",
                     "current_directory": "/Users/test/project",
                     "is_selected": true,
-                    "terminals": [terminal],
+                    "terminals": terminals,
                 ],
             ],
         ]
