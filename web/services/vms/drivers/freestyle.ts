@@ -21,6 +21,7 @@ import {
   isReusableRpcLease,
   ensurePrivateDirectoryCommand,
   leaseClientMetadata,
+  makeSignedWebSocketAuthToken,
   makeWebSocketLease,
   shellArgValue,
   shellQuote,
@@ -40,6 +41,7 @@ const CMUXD_WS_PTY_LEASE_TTL_SECONDS = 5 * 60;
 const CMUXD_WS_RPC_LEASE_TTL_SECONDS = 12 * 60 * 60;
 const CMUXD_WS_RPC_RENEW_BEFORE_SECONDS = 60;
 const FREESTYLE_WS_PORTS = [{ port: 443, targetPort: 7777 }];
+const SIGNING_PRIVATE_KEY_ENV = "CMUX_VM_ATTACH_SIGNING_PRIVATE_KEY";
 
 const DEFAULT_TIMEOUT_MS = 60_000;
 const CREATE_TIMEOUT_MS = 15 * 60 * 1000;
@@ -352,11 +354,37 @@ export class FreestyleProvider implements VMProvider {
       },
       async (span) => {
         try {
+          const domain = `${vmId}.vm.freestyle.sh`;
+          const signingPrivateKey = signedAttachPrivateKey();
+          if (signingPrivateKey) {
+            const pty = makeSignedWebSocketAuthToken("pty", vmId, true, CMUXD_WS_PTY_LEASE_TTL_SECONDS, signingPrivateKey);
+            const daemon = makeSignedWebSocketAuthToken("rpc", vmId, false, CMUXD_WS_RPC_LEASE_TTL_SECONDS, signingPrivateKey);
+            span.setAttribute("cmux.vm.attach.transport", "websocket");
+            span.setAttribute("cmux.vm.attach.signed_auth", true);
+            span.setAttribute("cmux.vm.attach.expires_at_unix", pty.expiresAtUnix);
+            span.setAttribute("cmux.vm.attach.daemon_available", true);
+            span.setAttribute("cmux.vm.attach.daemon_expires_at_unix", daemon.expiresAtUnix);
+            span.setAttribute("cmux.vm.attach.daemon_reused", false);
+            return {
+              transport: "websocket",
+              url: `wss://${domain}/terminal`,
+              headers: {},
+              token: pty.token,
+              sessionId: pty.sessionId,
+              expiresAtUnix: pty.expiresAtUnix,
+              daemon: {
+                url: `wss://${domain}/rpc`,
+                headers: {},
+                token: daemon.token,
+                sessionId: daemon.sessionId,
+                expiresAtUnix: daemon.expiresAtUnix,
+              },
+            };
+          }
           const fs = client();
           const vm = fs.vms.ref({ vmId });
-          const domain = `${vmId}.vm.freestyle.sh`;
-          const service = await readFreestyleWebSocketService(vm);
           await ensureFreestyleWebSocketHealthy(domain);
+          const service = await readFreestyleWebSocketService(vm);
 
           const pty = makeWebSocketLease("freestyle", "pty", true, CMUXD_WS_PTY_LEASE_TTL_SECONDS);
           const encodedPTY = Buffer.from(JSON.stringify(pty.lease)).toString("base64");
@@ -509,6 +537,11 @@ function shouldFallbackAttachToSSH(err: unknown): boolean {
 
 function errorMessage(err: unknown): string {
   return err instanceof Error ? err.message : String(err);
+}
+
+function signedAttachPrivateKey(): string | null {
+  const value = process.env[SIGNING_PRIVATE_KEY_ENV]?.trim();
+  return value ? value : null;
 }
 
 async function ensureFreestyleWebSocketHealthy(domain: string): Promise<void> {

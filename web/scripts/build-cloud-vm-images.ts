@@ -172,6 +172,7 @@ async function buildE2BTemplate(
     throw new Error("E2B_API_KEY is required to build the E2B template");
   }
   const fileContextPath = path.dirname(daemonPath);
+  const signedAuthFlag = cloudVmAttachSignedAuthFlag();
   const template = Template({ fileContextPath })
     .fromUbuntuImage("24.04")
     .aptInstall(CLOUD_SHELL_PACKAGES, { noInstallRecommends: true })
@@ -184,7 +185,7 @@ async function buildE2BTemplate(
     .runCmd(cloudRootSetupCommands(), { user: "root" })
     .runCmd(cloudImageSmokeTestCommands(), { user: "root" })
     .setStartCmd(
-      "/usr/local/bin/cmuxd-remote serve --ws --listen 0.0.0.0:7777 --auth-lease-file /tmp/cmux/attach-pty-lease.json --rpc-auth-lease-file /tmp/cmux/attach-rpc-lease.json --shell /bin/bash",
+      `/usr/local/bin/cmuxd-remote serve --ws --listen 0.0.0.0:7777 --auth-lease-file /tmp/cmux/attach-pty-lease.json --rpc-auth-lease-file /tmp/cmux/attach-rpc-lease.json${signedAuthFlag} --shell /bin/bash`,
       waitForURL("http://127.0.0.1:7777/healthz", 200),
     );
 
@@ -479,6 +480,7 @@ function freestylePythonOpenSSLCommands(): string[] {
 }
 
 function freestyleBaseDockerfileContent(daemonURL: string): string {
+  const signedAuthFlag = cloudVmAttachSignedAuthFlag();
   return [
     "FROM ubuntu:24.04",
     `ENV LANG=${UTF8_LOCALE} LC_ALL=${UTF8_LOCALE} LANGUAGE=${UTF8_LOCALE}`,
@@ -489,9 +491,18 @@ function freestyleBaseDockerfileContent(daemonURL: string): string {
     ...cloudRootSetupCommands().map((command) => `RUN ${command}`),
     ...cloudImageSmokeTestCommands().map((command) => `RUN ${command}`),
     "RUN mkdir -p /etc/systemd/system/multi-user.target.wants",
-    "RUN cat <<'EOF' >/etc/systemd/system/cmuxd-ws.service\n[Unit]\nDescription=cmuxd websocket daemon\nAfter=network.target\n\n[Service]\nType=simple\nUser=root\nExecStart=/usr/local/bin/cmuxd-remote serve --ws --listen 0.0.0.0:7777 --auth-lease-file /tmp/cmux/attach-pty-lease.json --rpc-auth-lease-file /tmp/cmux/attach-rpc-lease.json --shell /bin/bash\nRestart=always\nRestartSec=1\n\n[Install]\nWantedBy=multi-user.target\nEOF",
+    `RUN cat <<'EOF' >/etc/systemd/system/cmuxd-ws.service\n[Unit]\nDescription=cmuxd websocket daemon\nAfter=network.target\n\n[Service]\nType=simple\nUser=root\nExecStart=/usr/local/bin/cmuxd-remote serve --ws --listen 0.0.0.0:7777 --auth-lease-file /tmp/cmux/attach-pty-lease.json --rpc-auth-lease-file /tmp/cmux/attach-rpc-lease.json${signedAuthFlag} --shell /bin/bash\nRestart=always\nRestartSec=1\n\n[Install]\nWantedBy=multi-user.target\nEOF`,
     "RUN ln -sf /etc/systemd/system/cmuxd-ws.service /etc/systemd/system/multi-user.target.wants/cmuxd-ws.service",
   ].join("\n");
+}
+
+function cloudVmAttachSignedAuthFlag(): string {
+  const publicKey = process.env.CMUX_VM_ATTACH_VERIFY_PUBLIC_KEY?.trim();
+  if (!publicKey) return "";
+  if (!/^[A-Za-z0-9+/=_-]+$/.test(publicKey)) {
+    throw new Error("CMUX_VM_ATTACH_VERIFY_PUBLIC_KEY must be a base64/base64url Ed25519 public key");
+  }
+  return ` --auth-public-key ${publicKey}`;
 }
 
 async function remoteDaemonBuildURL(tag: string, daemonPath: string): Promise<string> {

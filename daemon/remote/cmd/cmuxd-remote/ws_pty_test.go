@@ -3,7 +3,10 @@ package main
 import (
 	"bytes"
 	"context"
+	"crypto/ed25519"
+	"crypto/rand"
 	"crypto/sha256"
+	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -198,6 +201,111 @@ func TestWebSocketPTYRequiresSessionMatchAndConsumesLeaseOnce(t *testing.T) {
 	_, _, err = conn.Read(ctx)
 	if websocket.CloseStatus(err) != websocket.StatusPolicyViolation {
 		t.Fatalf("replay should close with policy violation, got err=%v status=%v", err, websocket.CloseStatus(err))
+	}
+}
+
+func TestWebSocketPTYAcceptsSignedTokenAndRejectsReplay(t *testing.T) {
+	publicKey, privateKey, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatalf("generate key: %v", err)
+	}
+	stderr := &bytes.Buffer{}
+	hub := newWebSocketPTYHub(wsPTYServerConfig{
+		Shell:           "/bin/sh",
+		ScrollbackLimit: 64 * 1024,
+	}, stderr)
+	server := httptest.NewServer(newWebSocketPTYHandler(wsPTYServerConfig{
+		PTYAuthLeaseFile:    filepath.Join(t.TempDir(), "missing-pty-lease.json"),
+		SignedAuthPublicKey: base64.StdEncoding.EncodeToString(publicKey),
+		Shell:               "/bin/sh",
+		PTYHub:              hub,
+		ScrollbackLimit:     64 * 1024,
+	}, stderr))
+	t.Cleanup(func() {
+		server.Close()
+		hub.closeAll()
+	})
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	token := signedTestToken(t, privateKey, "pty", signedTestAudience(server.URL), "sess-signed", true, time.Now().Add(time.Minute), "jti-pty-1")
+	conn := dialPTY(t, ctx, server.URL)
+	sendAuth(t, ctx, conn, token, "sess-signed", 100, 30)
+	msgType, payload, err := conn.Read(ctx)
+	if err != nil {
+		t.Fatalf("read ready: %v", err)
+	}
+	if msgType != websocket.MessageText || !strings.Contains(string(payload), `"ready"`) {
+		t.Fatalf("first frame should be ready text, type=%v payload=%q", msgType, string(payload))
+	}
+	_ = conn.Close(websocket.StatusNormalClosure, "done")
+
+	conn = dialPTY(t, ctx, server.URL)
+	sendAuth(t, ctx, conn, token, "sess-signed", 100, 30)
+	_, _, err = conn.Read(ctx)
+	if websocket.CloseStatus(err) != websocket.StatusPolicyViolation {
+		t.Fatalf("signed token replay should close with policy violation, got err=%v status=%v", err, websocket.CloseStatus(err))
+	}
+}
+
+func TestWebSocketPTYRejectsSignedTokenForWrongKind(t *testing.T) {
+	publicKey, privateKey, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatalf("generate key: %v", err)
+	}
+	stderr := &bytes.Buffer{}
+	hub := newWebSocketPTYHub(wsPTYServerConfig{Shell: "/bin/sh"}, stderr)
+	server := httptest.NewServer(newWebSocketPTYHandler(wsPTYServerConfig{
+		PTYAuthLeaseFile:    filepath.Join(t.TempDir(), "missing-pty-lease.json"),
+		SignedAuthPublicKey: base64.StdEncoding.EncodeToString(publicKey),
+		Shell:               "/bin/sh",
+		PTYHub:              hub,
+	}, stderr))
+	t.Cleanup(func() {
+		server.Close()
+		hub.closeAll()
+	})
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	token := signedTestToken(t, privateKey, "rpc", signedTestAudience(server.URL), "sess-wrong-kind", false, time.Now().Add(time.Minute), "jti-rpc-1")
+	conn := dialPTY(t, ctx, server.URL)
+	sendAuth(t, ctx, conn, token, "sess-wrong-kind", 100, 30)
+	_, _, err = conn.Read(ctx)
+	if websocket.CloseStatus(err) != websocket.StatusPolicyViolation {
+		t.Fatalf("wrong signed token kind should close with policy violation, got err=%v status=%v", err, websocket.CloseStatus(err))
+	}
+}
+
+func TestWebSocketPTYRejectsSignedTokenForWrongAudience(t *testing.T) {
+	publicKey, privateKey, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatalf("generate key: %v", err)
+	}
+	stderr := &bytes.Buffer{}
+	hub := newWebSocketPTYHub(wsPTYServerConfig{Shell: "/bin/sh"}, stderr)
+	server := httptest.NewServer(newWebSocketPTYHandler(wsPTYServerConfig{
+		PTYAuthLeaseFile:    filepath.Join(t.TempDir(), "missing-pty-lease.json"),
+		SignedAuthPublicKey: base64.StdEncoding.EncodeToString(publicKey),
+		Shell:               "/bin/sh",
+		PTYHub:              hub,
+	}, stderr))
+	t.Cleanup(func() {
+		server.Close()
+		hub.closeAll()
+	})
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	token := signedTestToken(t, privateKey, "pty", "other-vm", "sess-wrong-audience", true, time.Now().Add(time.Minute), "jti-wrong-audience")
+	conn := dialPTY(t, ctx, server.URL)
+	sendAuth(t, ctx, conn, token, "sess-wrong-audience", 100, 30)
+	_, _, err = conn.Read(ctx)
+	if websocket.CloseStatus(err) != websocket.StatusPolicyViolation {
+		t.Fatalf("wrong signed token audience should close with policy violation, got err=%v status=%v", err, websocket.CloseStatus(err))
 	}
 }
 
@@ -932,6 +1040,35 @@ func writeTestLease(t *testing.T, path, token, sessionID string, singleUse bool,
 	if err := os.WriteFile(path, data, 0o600); err != nil {
 		t.Fatalf("write lease: %v", err)
 	}
+}
+
+func signedTestToken(t *testing.T, privateKey ed25519.PrivateKey, kind, audience, sessionID string, singleUse bool, expiresAt time.Time, jti string) string {
+	t.Helper()
+	claims := wsSignedLeaseClaims{
+		Version:       1,
+		Kind:          kind,
+		Audience:      audience,
+		SessionID:     sessionID,
+		ExpiresAtUnix: expiresAt.Unix(),
+		SingleUse:     singleUse,
+		JTI:           jti,
+	}
+	payload, err := json.Marshal(claims)
+	if err != nil {
+		t.Fatalf("marshal signed token claims: %v", err)
+	}
+	payloadPart := base64.RawURLEncoding.EncodeToString(payload)
+	signature := ed25519.Sign(privateKey, []byte(payloadPart))
+	return payloadPart + "." + base64.RawURLEncoding.EncodeToString(signature)
+}
+
+func signedTestAudience(serverURL string) string {
+	host := strings.TrimPrefix(serverURL, "http://")
+	host = strings.TrimPrefix(host, "https://")
+	if hostOnly, _, ok := strings.Cut(host, ":"); ok {
+		return hostOnly
+	}
+	return host
 }
 
 func readReady(t *testing.T, ctx context.Context, conn *websocket.Conn) {
