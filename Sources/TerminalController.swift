@@ -14038,7 +14038,7 @@ class TerminalController {
         case .conflict:
             return .err(code: "invalid_params", message: "Conflicting terminal identifiers", data: nil)
         }
-        guard let resolved = mobileResolveWorkspaceAndSurface(params: params, requireTerminal: true),
+        guard let resolved = mobileResolveWorkspaceAndSurface(params: params, requireTerminal: false),
               let surfaceId = resolved.surfaceId,
               resolved.workspace.terminalPanel(for: surfaceId) != nil else {
             return .err(code: "not_found", message: "Terminal surface not found", data: nil)

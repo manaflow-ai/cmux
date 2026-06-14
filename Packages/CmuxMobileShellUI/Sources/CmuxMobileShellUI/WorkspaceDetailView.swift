@@ -24,6 +24,7 @@ struct WorkspaceDetailView: View {
     let sendTerminalInput: (String) -> Void
     let safeAreaContext: MobileTerminalSafeAreaContext
     @State private var isTerminalPickerPresented = false
+    @State private var terminalPendingDeleteID: MobileTerminalPreview.ID?
     /// Phone-local browser surfaces, injected from the app root. When this
     /// workspace has an active browser surface the detail view presents a
     /// browser pane in place of the terminal; otherwise it shows the terminal.
@@ -355,10 +356,10 @@ struct WorkspaceDetailView: View {
                 .buttonStyle(.plain)
                 .listRowInsets(EdgeInsets(top: 0, leading: 16, bottom: 0, trailing: 16))
                 .listRowSeparator(.hidden)
-                .swipeActions(edge: .trailing, allowsFullSwipe: true) {
+                .swipeActions(edge: .trailing, allowsFullSwipe: false) {
                     if canDeleteTerminals {
                         Button(role: .destructive) {
-                            deleteTerminal(workspace.id, terminal.id)
+                            terminalPendingDeleteID = terminal.id
                         } label: {
                             Label(L10n.string("mobile.common.delete", defaultValue: "Delete"), systemImage: "trash")
                         }
@@ -372,6 +373,31 @@ struct WorkspaceDetailView: View {
         .listStyle(.plain)
         .scrollContentBackground(.hidden)
         .frame(height: terminalPickerListHeight)
+        .confirmationDialog(
+            L10n.string("mobile.terminal.delete.confirmTitle", defaultValue: "Delete Terminal?"),
+            isPresented: terminalDeleteConfirmationPresented,
+            titleVisibility: .visible
+        ) {
+            if let terminalPendingDeleteID {
+                Button(
+                    L10n.string("mobile.terminal.delete.confirmAction", defaultValue: "Delete"),
+                    role: .destructive
+                ) {
+                    confirmTerminalDelete()
+                }
+                .accessibilityIdentifier("MobileTerminalDeleteConfirmButton-\(terminalPendingDeleteID.rawValue)")
+            }
+            Button(L10n.string("mobile.common.cancel", defaultValue: "Cancel"), role: .cancel) {
+                terminalPendingDeleteID = nil
+            }
+        } message: {
+            Text(
+                L10n.string(
+                    "mobile.terminal.delete.confirmMessage",
+                    defaultValue: "This will close the terminal on your Mac."
+                )
+            )
+        }
     }
 
     private var terminalPickerPlainRows: some View {
@@ -403,6 +429,26 @@ struct WorkspaceDetailView: View {
         let rowHeight: CGFloat = 44
         #endif
         return min(max(CGFloat(workspace.terminals.count) * rowHeight, rowHeight), 480)
+    }
+
+    private var terminalDeleteConfirmationPresented: Binding<Bool> {
+        Binding(
+            get: { terminalPendingDeleteID != nil },
+            set: { isPresented in
+                if !isPresented {
+                    terminalPendingDeleteID = nil
+                }
+            }
+        )
+    }
+
+    private func confirmTerminalDelete() {
+        guard let terminalID = terminalPendingDeleteID else {
+            return
+        }
+        terminalPendingDeleteID = nil
+        isTerminalPickerPresented = false
+        deleteTerminal(workspace.id, terminalID)
     }
 
     #if canImport(UIKit)
