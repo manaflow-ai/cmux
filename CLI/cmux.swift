@@ -7255,7 +7255,15 @@ struct CMUXCLI {
         let (focusOpt, rem6) = parseOption(rem5, name: "--focus")
         let (envFiles, envPairs, remaining) = parseWorkspaceEnvOptions(rem6)
         if let unknown = remaining.first(where: { $0.hasPrefix("--") }) {
-            throw CLIError(message: "\(commandName): unknown flag '\(unknown)'. Known flags: --name <title>, --description <text>, --command <text>, --cwd <path>, --env KEY=VALUE, --env-file <path>, --layout <json>, --window <id|ref|index>, --focus <true|false>")
+            throw CLIError(message: String(
+                format: String(
+                    localized: "cli.workspace.create.error.unknownFlag",
+                    defaultValue: "%@: unknown flag '%@'. Known flags: --name <title>, --description <text>, --command <text>, --cwd <path>, --env KEY=VALUE, --env-file <path>, --layout <json>, --window <id|ref|index>, --focus <true|false>"
+                ),
+                locale: .current,
+                commandName,
+                unknown
+            ))
         }
         var params: [String: Any] = [:]
         try applyWindowOrCallerContext(to: &params, client: client, windowRaw: windowOpt ?? windowOverride)
@@ -7356,7 +7364,16 @@ struct CMUXCLI {
             do {
                 contents = try String(contentsOfFile: resolved, encoding: .utf8)
             } catch {
-                throw CLIError(message: "\(commandName): could not read --env-file '\(path)': \(String(describing: error))")
+                throw CLIError(message: String(
+                    format: String(
+                        localized: "cli.workspace.envFile.error.readFailed",
+                        defaultValue: "%@: could not read --env-file '%@': %@"
+                    ),
+                    locale: .current,
+                    commandName,
+                    path,
+                    String(describing: error)
+                ))
             }
             for rawLine in contents.split(omittingEmptySubsequences: false, whereSeparator: { $0.isNewline }) {
                 var line = String(rawLine).trimmingCharacters(in: .whitespaces)
@@ -7384,12 +7401,30 @@ struct CMUXCLI {
         commandName: String
     ) throws -> (String, String) {
         guard let eq = raw.firstIndex(of: "=") else {
-            throw CLIError(message: "\(commandName): \(source) entry '\(raw)' must be in KEY=VALUE form")
+            throw CLIError(message: String(
+                format: String(
+                    localized: "cli.workspace.env.error.invalidAssignment",
+                    defaultValue: "%@: %@ entry '%@' must be in KEY=VALUE form"
+                ),
+                locale: .current,
+                commandName,
+                source,
+                raw
+            ))
         }
         let key = String(raw[..<eq]).trimmingCharacters(in: .whitespaces)
         let value = String(raw[raw.index(after: eq)...])
         guard !key.isEmpty else {
-            throw CLIError(message: "\(commandName): \(source) entry '\(raw)' has an empty key")
+            throw CLIError(message: String(
+                format: String(
+                    localized: "cli.workspace.env.error.emptyKey",
+                    defaultValue: "%@: %@ entry '%@' has an empty key"
+                ),
+                locale: .current,
+                commandName,
+                source,
+                raw
+            ))
         }
         return (key, value)
     }
@@ -7403,7 +7438,7 @@ struct CMUXCLI {
            (trimmed.hasPrefix("'") && trimmed.hasSuffix("'")) {
             return String(trimmed.dropFirst().dropLast())
         }
-        return value
+        return trimmed
     }
 
     /// Masks a secret env value for display. Short values are fully masked so a
@@ -7433,7 +7468,14 @@ struct CMUXCLI {
         let (workspaceArg, rem0) = parseOption(rest, name: "--workspace")
         let (_, rem1) = parseOption(rem0, name: "--window")
         if let unknown = rem1.first(where: { $0.hasPrefix("--") }) {
-            throw CLIError(message: "workspace env: unknown flag '\(unknown)'. Known flags: --workspace <id|ref|index>, --window <id|ref|index>, --mask")
+            throw CLIError(message: String(
+                format: String(
+                    localized: "cli.workspace.env.error.unknownFlag",
+                    defaultValue: "workspace env: unknown flag '%@'. Known flags: --workspace <id|ref|index>, --window <id|ref|index>, --mask"
+                ),
+                locale: .current,
+                unknown
+            ))
         }
         let positional = rem1.first(where: { !$0.hasPrefix("--") })
         let windowRaw = windowFromArgsOrOverride(commandArgs, windowOverride: windowOverride)
