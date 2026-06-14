@@ -15,6 +15,8 @@ public struct SurfaceKind {
     public static let terminal = "terminal"
     /// A browser pane.
     public static let browser = "browser"
+    /// A code editor pane.
+    public static let codeEditor = "editor"
     /// A markdown preview pane.
     public static let markdown = "markdown"
     /// A file (Quick Look style) preview pane.

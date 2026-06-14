@@ -703,6 +703,8 @@ final class ClosedItemHistoryStore: ObservableObject {
             return String(localized: "menu.history.recentlyClosed.panel.terminal", defaultValue: "Terminal")
         case .browser:
             return String(localized: "menu.history.recentlyClosed.panel.browser", defaultValue: "Browser")
+        case .codeEditor:
+            return String(localized: "menu.history.recentlyClosed.panel.codeEditor", defaultValue: "Code Editor")
         case .markdown:
             return String(localized: "menu.history.recentlyClosed.panel.markdown", defaultValue: "Markdown")
         case .filePreview:

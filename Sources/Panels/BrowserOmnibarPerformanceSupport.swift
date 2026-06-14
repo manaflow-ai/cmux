@@ -257,7 +257,8 @@ extension TabManager {
     private func browserOpenTabSuggestionSeedSnapshots() -> [BrowserOpenTabSuggestionSnapshot] {
         tabs.flatMap { workspace in
             workspace.panels.compactMap { _, panel in
-                guard let browserPanel = panel as? BrowserPanel else { return nil }
+                guard let browserPanel = panel as? BrowserPanel,
+                      browserPanel.surfaceRole.contributesToBrowserOpenTabSuggestions else { return nil }
                 return BrowserOpenTabSuggestionSnapshot(
                     workspaceId: workspace.id,
                     panelId: browserPanel.id,
@@ -271,6 +272,10 @@ extension TabManager {
 
 extension Workspace {
     func publishBrowserOpenTabSuggestion(for browserPanel: BrowserPanel) {
+        guard browserPanel.surfaceRole.contributesToBrowserOpenTabSuggestions else {
+            owningTabManager?.removeBrowserOpenTabSuggestion(panelId: browserPanel.id)
+            return
+        }
         guard let snapshot = BrowserOpenTabSuggestionSnapshot(
             workspaceId: id,
             panelId: browserPanel.id,

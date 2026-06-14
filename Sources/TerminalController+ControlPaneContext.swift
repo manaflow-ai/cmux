@@ -188,7 +188,7 @@ extension TerminalController: ControlPaneContext {
             return .agentSessionRejected(typeRawValue: panelType.rawValue)
         }
         let url = inputs.urlRaw.flatMap { URL(string: $0) }
-        if panelType == .browser, BrowserAvailabilitySettings.isDisabled() {
+        if (panelType == .browser || panelType == .codeEditor), BrowserAvailabilitySettings.isDisabled() {
             return browserDisabledCreateResolution(rawURL: inputs.urlRaw, url: url, tabManager: tabManager)
         }
 
@@ -217,6 +217,16 @@ extension TerminalController: ControlPaneContext {
         let focus = v2FocusAllowed(requested: inputs.requestedFocus)
         if panelType == .browser {
             newPanelId = ws.newBrowserSplit(
+                from: sourcePanelId,
+                orientation: orientation,
+                insertFirst: insertFirst,
+                url: url,
+                focus: focus,
+                creationPolicy: .automationPreload,
+                initialDividerPosition: initialDividerPosition.map { CGFloat($0) }
+            )?.id
+        } else if panelType == .codeEditor {
+            newPanelId = ws.newCodeEditorSplit(
                 from: sourcePanelId,
                 orientation: orientation,
                 insertFirst: insertFirst,
@@ -262,6 +272,8 @@ extension TerminalController: ControlPaneContext {
             return .terminal
         case "browser":
             return .browser
+        case "editor", "code", "codeeditor", "vscode", "vscodeinline":
+            return .codeEditor
         case "markdown":
             return .markdown
         case "filepreview":

@@ -80,7 +80,7 @@ extension TerminalController {
             return .agentSessionRejected(typeRawValue: panelType.rawValue)
         }
         let url = inputs.urlRaw.flatMap { URL(string: $0) }
-        if panelType == .browser, BrowserAvailabilitySettings.isDisabled() {
+        if (panelType == .browser || panelType == .codeEditor), BrowserAvailabilitySettings.isDisabled() {
             return .browserDisabled(surfaceBrowserDisabledOutcome(
                 rawURL: inputs.urlRaw,
                 url: url,
@@ -114,6 +114,16 @@ extension TerminalController {
         let newId: UUID?
         if panelType == .browser {
             newId = ws.newBrowserSplit(
+                from: targetSurfaceId,
+                orientation: orientation,
+                insertFirst: insertFirst,
+                url: url,
+                focus: focus,
+                creationPolicy: .automationPreload,
+                initialDividerPosition: dividerPosition
+            )?.id
+        } else if panelType == .codeEditor {
+            newId = ws.newCodeEditorSplit(
                 from: targetSurfaceId,
                 orientation: orientation,
                 insertFirst: insertFirst,
@@ -247,7 +257,7 @@ extension TerminalController {
         }
 
         let url = inputs.urlRaw.flatMap { URL(string: $0) }
-        if panelType == .browser, BrowserAvailabilitySettings.isDisabled() {
+        if (panelType == .browser || panelType == .codeEditor), BrowserAvailabilitySettings.isDisabled() {
             return .browserDisabled(surfaceBrowserDisabledOutcome(
                 rawURL: inputs.urlRaw,
                 url: url,
@@ -275,6 +285,13 @@ extension TerminalController {
         let newPanelId: UUID?
         if panelType == .browser {
             newPanelId = ws.newBrowserSurface(
+                inPane: paneId,
+                url: url,
+                focus: focus,
+                creationPolicy: .automationPreload
+            )?.id
+        } else if panelType == .codeEditor {
+            newPanelId = ws.newCodeEditorSurface(
                 inPane: paneId,
                 url: url,
                 focus: focus,
@@ -368,6 +385,7 @@ extension TerminalController {
         switch v2NormalizedToken(raw) {
         case "terminal": return .terminal
         case "browser": return .browser
+        case "editor", "code", "codeeditor", "vscode", "vscodeinline": return .codeEditor
         case "markdown": return .markdown
         case "filepreview": return .filePreview
         case "rightsidebartool": return .rightSidebarTool

@@ -7,6 +7,7 @@ import Testing
     @Test func kindStringsAreFrozenWireValues() {
         #expect(SurfaceKind.terminal == "terminal")
         #expect(SurfaceKind.browser == "browser")
+        #expect(SurfaceKind.codeEditor == "editor")
         #expect(SurfaceKind.markdown == "markdown")
         #expect(SurfaceKind.filePreview == "filePreview")
         #expect(SurfaceKind.rightSidebarTool == "rightSidebarTool")

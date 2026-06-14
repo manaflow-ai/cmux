@@ -253,6 +253,7 @@ public protocol ControlSidebarContext: AnyObject {
     /// the active socket-command policy, as the original did).
     func controlSidebarCreatePaneSplit(
         isBrowser: Bool,
+        isCodeEditor: Bool,
         orientationIsHorizontal: Bool,
         insertFirst: Bool,
         url: URL?
@@ -260,7 +261,12 @@ public protocol ControlSidebarContext: AnyObject {
 
     /// Creates a `new_surface` in a pane (UUID-or-index argument, focused
     /// pane otherwise).
-    func controlSidebarNewSurface(isBrowser: Bool, paneArg: String?, url: URL?) -> ControlSidebarNewSurfaceResolution
+    func controlSidebarNewSurface(
+        isBrowser: Bool,
+        isCodeEditor: Bool,
+        paneArg: String?,
+        url: URL?
+    ) -> ControlSidebarNewSurfaceResolution
 
     /// Closes a surface (`close_surface`; empty argument = focused surface).
     func controlSidebarCloseSurface(surfaceArg: String?) -> ControlSidebarCloseSurfaceResolution

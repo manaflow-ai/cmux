@@ -10382,8 +10382,8 @@ class TerminalController {
         Split & surface commands:
           new_split <direction> [panel]   - Split panel (left/right/up/down)
           drag_surface_to_split <id|idx> <direction> - Move surface into a new split (drag-to-edge)
-          new_pane [--type=terminal|browser] [--direction=left|right|up|down] [--url=...]
-          new_surface [--type=terminal|browser] [--pane=<pane-id|index>] [--url=...]
+          new_pane [--type=terminal|browser|editor] [--direction=left|right|up|down] [--url=...]
+          new_surface [--type=terminal|browser|editor] [--pane=<pane-id|index>] [--url=...]
           list_surfaces [workspace]       - List surfaces for workspace (current if omitted)
           list_panes                      - List all panes with IDs
           list_pane_surfaces [--pane=<pane-id|index>] - List surfaces in pane

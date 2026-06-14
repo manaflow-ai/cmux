@@ -609,7 +609,7 @@ struct BrowserPanelView: View {
     }
 
     private var hasVisibleOmnibarSuggestions: Bool {
-        panel.isOmnibarVisible && addressBarFocused && hasActionableOmnibarSuggestions && omnibarPillFrame.width > 0
+        shouldShowBrowserChrome && addressBarFocused && hasActionableOmnibarSuggestions && omnibarPillFrame.width > 0
     }
 
     private var shouldRenderOmnibarSuggestionsInPortal: Bool {
@@ -1128,10 +1128,14 @@ struct BrowserPanelView: View {
 
     @ViewBuilder
     private var omnibarHeaderView: some View {
-        if panel.isOmnibarVisible {
+        if shouldShowBrowserChrome {
             addressBar
                 .fixedSize(horizontal: false, vertical: true)
         }
+    }
+
+    private var shouldShowBrowserChrome: Bool {
+        panel.surfaceRole.showsBrowserChrome && panel.isOmnibarVisible
     }
 
     private var browserPanelBaseView: some View {
@@ -1842,7 +1846,7 @@ struct BrowserPanelView: View {
                         )
                     },
                     omnibarSuggestions: portalOmnibarSuggestions,
-                    paneTopChromeHeight: panel.isOmnibarVisible ? addressBarHeight : 0
+                    paneTopChromeHeight: shouldShowBrowserChrome ? addressBarHeight : 0
                 )
                 .accessibilityIdentifier("BrowserWebViewSurface")
                 // Keep the host stable for normal pane churn, but force a remount when
@@ -2380,7 +2384,7 @@ struct BrowserPanelView: View {
     }
 
     private func autoFocusOmnibarIfBlank() {
-        guard panel.isOmnibarVisible else {
+        guard shouldShowBrowserChrome else {
 #if DEBUG
             logBrowserFocusState(event: "addressBarFocus.autoFocus.skip", detail: "reason=omnibar_hidden")
 #endif

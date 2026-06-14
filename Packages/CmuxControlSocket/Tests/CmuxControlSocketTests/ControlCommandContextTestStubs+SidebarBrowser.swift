@@ -191,12 +191,18 @@ extension ControlSidebarContext {
 
     func controlSidebarCreatePaneSplit(
         isBrowser: Bool,
+        isCodeEditor: Bool,
         orientationIsHorizontal: Bool,
         insertFirst: Bool,
         url: URL?
     ) -> UUID? { nil }
 
-    func controlSidebarNewSurface(isBrowser: Bool, paneArg: String?, url: URL?) -> ControlSidebarNewSurfaceResolution {
+    func controlSidebarNewSurface(
+        isBrowser: Bool,
+        isCodeEditor: Bool,
+        paneArg: String?,
+        url: URL?
+    ) -> ControlSidebarNewSurfaceResolution {
         .noTabSelected
     }
 

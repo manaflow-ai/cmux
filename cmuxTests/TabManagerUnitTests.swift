@@ -12,6 +12,7 @@ import CmuxSidebarGit
 import CmuxSidebar
 import CmuxTerminal
 import CmuxSettings
+import CmuxWorkspaceCore
 
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
@@ -2379,6 +2380,80 @@ final class TabManagerSurfaceCreationTests: XCTestCase {
             "Expected Cmd+Shift+B/Cmd+L open path to append browser surface at end"
         )
         XCTAssertEqual(workspace.focusedPanelId, browserPanelId, "Expected opened browser surface to be focused")
+    }
+
+    func testOpenCodeEditorCreatesFirstClassEditorSurface() {
+        let manager = TabManager()
+        guard let workspace = manager.selectedWorkspace,
+              let paneId = workspace.bonsplitController.focusedPaneId else {
+            XCTFail("Expected focused workspace and pane")
+            return
+        }
+
+        _ = workspace.newTerminalSurface(inPane: paneId, focus: false)
+
+        guard let editorPanelId = manager.openCodeEditor(insertAtEnd: true),
+              let editorPanel = workspace.browserPanel(for: editorPanelId) else {
+            XCTFail("Expected code editor panel to be created")
+            return
+        }
+
+        XCTAssertEqual(editorPanel.panelType, .codeEditor)
+        XCTAssertEqual(editorPanel.surfaceRole, .codeEditor)
+        XCTAssertFalse(editorPanel.isOmnibarVisible)
+        XCTAssertEqual(editorPanel.currentURL?.absoluteString, "https://vscode.dev/")
+        XCTAssertNil(manager.focusedBrowserPanel, "Code editor surfaces should not be treated as browser shortcut targets")
+
+        let tabs = workspace.bonsplitController.tabs(inPane: paneId)
+        guard let lastSurface = tabs.last else {
+            XCTFail("Expected at least one surface in pane")
+            return
+        }
+        XCTAssertEqual(workspace.panelIdFromSurfaceId(lastSurface.id), editorPanelId)
+        XCTAssertEqual(lastSurface.kind, SurfaceKind.codeEditor)
+    }
+
+    func testOpenCodeEditorWithSplitDirectionCreatesDirectedEditorSplit() throws {
+        let appDelegate = AppDelegate()
+        let manager = TabManager()
+        let workspace = try XCTUnwrap(manager.selectedWorkspace)
+        let sourcePaneId = try XCTUnwrap(workspace.bonsplitController.focusedPaneId)
+        let sourcePanel = try XCTUnwrap(
+            workspace.newBrowserSurface(inPane: sourcePaneId, focus: true)
+        )
+        workspace.currentDirectory = ""
+        workspace.panelDirectories.removeAll()
+        let initialPaneCount = workspace.bonsplitController.allPaneIds.count
+
+        let editorPanelId = try XCTUnwrap(
+            appDelegate.openCodeEditor(tabManager: manager, splitDirection: .down)
+        )
+        let editorPanel = try XCTUnwrap(workspace.browserPanel(for: editorPanelId))
+
+        XCTAssertEqual(editorPanel.panelType, .codeEditor)
+        XCTAssertEqual(editorPanel.surfaceRole, .codeEditor)
+        XCTAssertEqual(
+            editorPanel.currentURL?.absoluteString,
+            BrowserPanel.SurfaceRole.codeEditor.defaultInitialURL?.absoluteString
+        )
+        XCTAssertEqual(workspace.bonsplitController.allPaneIds.count, initialPaneCount + 1)
+        XCTAssertEqual(workspace.focusedPanelId, editorPanelId)
+
+        guard case .split(let root) = workspace.bonsplitController.treeSnapshot() else {
+            XCTFail("Expected code editor open with split direction to split the workspace root")
+            return
+        }
+        XCTAssertEqual(root.orientation, "vertical")
+
+        let expectedSourcePaneId = try XCTUnwrap(workspace.paneId(forPanelId: sourcePanel.id)).id.uuidString
+        let expectedEditorPaneId = try XCTUnwrap(workspace.paneId(forPanelId: editorPanelId)).id.uuidString
+        guard case .pane(let firstPane) = root.first,
+              case .pane(let secondPane) = root.second else {
+            XCTFail("Expected split children to be panes")
+            return
+        }
+        XCTAssertEqual(firstPane.id, expectedSourcePaneId)
+        XCTAssertEqual(secondPane.id, expectedEditorPaneId)
     }
 
     func testToggleOmnibarFocusedBrowserIsSurfaceSpecific() {

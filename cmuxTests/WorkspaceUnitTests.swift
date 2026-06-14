@@ -4581,6 +4581,84 @@ final class WorkspaceSplitWorkingDirectoryTests: XCTestCase {
         )
     }
 
+    func testInitialCodeEditorDirectoryUsesFocusedPanelDirectoryWhenWorkspaceDirectoryIsEmpty() {
+        let workspace = Workspace()
+        guard let focusedPanelId = workspace.focusedPanelId else {
+            XCTFail("Expected focused panel in new workspace")
+            return
+        }
+
+        let focusedDirectory = "/tmp/cmux-focused-editor-cwd"
+        workspace.currentDirectory = ""
+        workspace.panelDirectories[focusedPanelId] = focusedDirectory
+
+        XCTAssertEqual(workspace.resolvedWorkingDirectory(), focusedDirectory)
+        XCTAssertEqual(AppDelegate.initialCodeEditorDirectoryPath(for: workspace), focusedDirectory)
+    }
+
+    func testInitialCodeEditorDirectoryUsesRequestedTerminalDirectoryBeforeLiveReport() {
+        let workspace = Workspace()
+        guard let paneId = workspace.bonsplitController.focusedPaneId else {
+            XCTFail("Expected focused pane in new workspace")
+            return
+        }
+
+        let requestedDirectory = "/tmp/cmux-requested-editor-cwd"
+        guard let requestedPanel = workspace.newTerminalSurface(
+            inPane: paneId,
+            focus: true,
+            workingDirectory: requestedDirectory
+        ) else {
+            XCTFail("Expected terminal panel with requested cwd")
+            return
+        }
+
+        workspace.currentDirectory = ""
+        workspace.panelDirectories.removeValue(forKey: requestedPanel.id)
+
+        XCTAssertEqual(workspace.resolvedWorkingDirectory(), requestedDirectory)
+        XCTAssertEqual(AppDelegate.initialCodeEditorDirectoryPath(for: workspace), requestedDirectory)
+    }
+
+    func testDiscardProvisionalDefaultCodeEditorClosesUntouchedFallbackPanel() throws {
+        let workspace = Workspace()
+        let paneId = try XCTUnwrap(workspace.bonsplitController.focusedPaneId)
+        let panel = try XCTUnwrap(
+            workspace.newCodeEditorSurface(
+                inPane: paneId,
+                url: BrowserPanel.SurfaceRole.codeEditor.defaultInitialURL,
+                focus: true,
+                creationPolicy: .restoration
+            )
+        )
+        let panelId = panel.id
+
+        XCTAssertTrue(AppDelegate.shouldDiscardProvisionalDefaultCodeEditor(panel))
+        XCTAssertEqual(AppDelegate.provisionalDefaultCodeEditor(in: workspace, panelId: panelId)?.id, panelId)
+        XCTAssertTrue(AppDelegate.discardProvisionalDefaultCodeEditor(in: workspace, panelId: panelId))
+        XCTAssertNil(workspace.panels[panelId])
+    }
+
+    func testDiscardProvisionalDefaultCodeEditorPreservesNavigatedPanel() throws {
+        let workspace = Workspace()
+        let paneId = try XCTUnwrap(workspace.bonsplitController.focusedPaneId)
+        let folderURL = try XCTUnwrap(URL(string: "http://127.0.0.1:5555/?tkn=test&folder=/tmp/cmux"))
+        let panel = try XCTUnwrap(
+            workspace.newCodeEditorSurface(
+                inPane: paneId,
+                url: folderURL,
+                focus: true,
+                creationPolicy: .restoration
+            )
+        )
+        let panelId = panel.id
+
+        XCTAssertFalse(AppDelegate.shouldDiscardProvisionalDefaultCodeEditor(panel))
+        XCTAssertNil(AppDelegate.provisionalDefaultCodeEditor(in: workspace, panelId: panelId))
+        XCTAssertFalse(AppDelegate.discardProvisionalDefaultCodeEditor(in: workspace, panelId: panelId))
+        XCTAssertNotNil(workspace.panels[panelId])
+    }
+
     func testNewTerminalSplitSkipsFreedInheritedSurfacePointer() throws {
 #if DEBUG
         let workspace = Workspace()

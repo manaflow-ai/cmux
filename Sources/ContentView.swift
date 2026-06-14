@@ -5654,6 +5654,8 @@ struct ContentView: View {
             return String(localized: "commandPalette.kind.terminal", defaultValue: "Terminal")
         case .browser:
             return String(localized: "commandPalette.kind.browser", defaultValue: "Browser")
+        case .codeEditor:
+            return String(localized: "commandPalette.kind.codeEditor", defaultValue: "Code Editor")
         case .markdown:
             return String(localized: "commandPalette.kind.markdown", defaultValue: "Markdown")
         case .filePreview:
@@ -5675,6 +5677,8 @@ struct ContentView: View {
             return ["terminal", "shell", "console"]
         case .browser:
             return ["browser", "web", "page"]
+        case .codeEditor:
+            return ["code", "editor", "vscode", "vs", "cursor"]
         case .markdown:
             return ["markdown", "note", "preview"]
         case .filePreview:
@@ -6197,6 +6201,8 @@ struct ContentView: View {
             return CmuxSurfaceTabBarBuiltInAction.newTerminal.configID
         case "palette.newBrowserTab":
             return CmuxSurfaceTabBarBuiltInAction.newBrowser.configID
+        case "palette.newCodeEditorTab":
+            return CmuxSurfaceTabBarBuiltInAction.newCodeEditor.configID
         case "palette.terminalSplitRight":
             return CmuxSurfaceTabBarBuiltInAction.splitRight.configID
         case "palette.terminalSplitDown":
@@ -6558,6 +6564,15 @@ struct ContentView: View {
                 subtitle: constant(String(localized: "command.newBrowserTab.subtitle", defaultValue: "Tab")),
                 shortcutHint: "⌘⇧L",
                 keywords: ["new", "browser", "tab", "web"],
+                when: { !$0.bool(CommandPaletteContextKeys.browserDisabled) }
+            )
+        )
+        contributions.append(
+            CommandPaletteCommandContribution(
+                commandId: "palette.newCodeEditorTab",
+                title: constant(String(localized: "command.newCodeEditorTab.title", defaultValue: "New Tab (Code Editor)")),
+                subtitle: constant(String(localized: "command.newCodeEditorTab.subtitle", defaultValue: "Tab")),
+                keywords: ["new", "code", "editor", "tab", "vscode", "vs", "cursor"],
                 when: { !$0.bool(CommandPaletteContextKeys.browserDisabled) }
             )
         )
@@ -7274,6 +7289,24 @@ struct ContentView: View {
         )
         contributions.append(
             CommandPaletteCommandContribution(
+                commandId: "palette.codeEditorSplitRight",
+                title: constant(String(localized: "command.codeEditorSplitRight.title", defaultValue: "Split Code Editor Right")),
+                subtitle: constant(String(localized: "command.codeEditorSplitRight.subtitle", defaultValue: "Code Editor Layout")),
+                keywords: ["code", "editor", "split", "right", "vscode", "cursor"],
+                when: { !$0.bool(CommandPaletteContextKeys.browserDisabled) }
+            )
+        )
+        contributions.append(
+            CommandPaletteCommandContribution(
+                commandId: "palette.codeEditorSplitDown",
+                title: constant(String(localized: "command.codeEditorSplitDown.title", defaultValue: "Split Code Editor Down")),
+                subtitle: constant(String(localized: "command.codeEditorSplitDown.subtitle", defaultValue: "Code Editor Layout")),
+                keywords: ["code", "editor", "split", "down", "vscode", "cursor"],
+                when: { !$0.bool(CommandPaletteContextKeys.browserDisabled) }
+            )
+        )
+        contributions.append(
+            CommandPaletteCommandContribution(
                 commandId: "palette.browserDuplicateRight",
                 title: constant(String(localized: "command.browserDuplicateRight.title", defaultValue: "Duplicate Browser to the Right")),
                 subtitle: constant(String(localized: "command.browserDuplicateRight.subtitle", defaultValue: "Browser Layout")),
@@ -7747,6 +7780,12 @@ struct ContentView: View {
                 _ = AppDelegate.shared?.openBrowserAndFocusAddressBar()
             }
         }
+        registry.register(commandId: "palette.newCodeEditorTab") {
+            if executeConfiguredAction(id: CmuxSurfaceTabBarBuiltInAction.newCodeEditor.configID) {
+                return
+            }
+            _ = AppDelegate.shared?.openCodeEditor(tabManager: tabManager)
+        }
         registry.register(commandId: "palette.closeTab") {
             tabManager.closeCurrentPanelWithConfirmation()
         }
@@ -8117,6 +8156,18 @@ struct ContentView: View {
         }
         registry.register(commandId: "palette.browserSplitDown") {
             _ = tabManager.createBrowserSplit(direction: .down)
+        }
+        registry.register(commandId: "palette.codeEditorSplitRight") {
+            guard AppDelegate.shared?.openCodeEditor(tabManager: tabManager, splitDirection: .right) != nil else {
+                NSSound.beep()
+                return
+            }
+        }
+        registry.register(commandId: "palette.codeEditorSplitDown") {
+            guard AppDelegate.shared?.openCodeEditor(tabManager: tabManager, splitDirection: .down) != nil else {
+                NSSound.beep()
+                return
+            }
         }
         registry.register(commandId: "palette.browserDuplicateRight") {
             let url = tabManager.focusedBrowserPanel?.preferredURLStringForOmnibar().flatMap(URL.init(string:))
@@ -11218,6 +11269,8 @@ struct VerticalTabsSidebar: View {
             return .terminal
         case .browser:
             return .browser
+        case .codeEditor:
+            return .codeEditor
         case .markdown:
             return .markdown
         case .filePreview:

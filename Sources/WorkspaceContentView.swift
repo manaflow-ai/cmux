@@ -808,6 +808,13 @@ struct EmptyPanelView: View {
         _ = workspace.newBrowserSurface(inPane: paneId)
     }
 
+    private func createCodeEditor() {
+        #if DEBUG
+        cmuxDebugLog("emptyPane.newCodeEditor pane=\(paneId.id.uuidString.prefix(5))")
+        #endif
+        _ = workspace.openCodeEditorFromPane(paneId)
+    }
+
     private var newSurfaceShortcut: StoredShortcut {
         let _ = keyboardShortcutSettingsObserver.revision
         return KeyboardShortcutSettings.shortcut(for: .newSurface)
@@ -822,10 +829,10 @@ struct EmptyPanelView: View {
     private func emptyPaneActionButton(
         title: String,
         systemImage: String,
-        shortcut: StoredShortcut,
+        shortcut: StoredShortcut?,
         action: @escaping () -> Void
     ) -> some View {
-        if let key = shortcut.keyEquivalent {
+        if let shortcut, let key = shortcut.keyEquivalent {
             Button(action: action) {
                 HStack(spacing: 10) {
                     Label(title, systemImage: systemImage)
@@ -838,7 +845,9 @@ struct EmptyPanelView: View {
             Button(action: action) {
                 HStack(spacing: 10) {
                     Label(title, systemImage: systemImage)
-                    ShortcutHint(text: shortcut.displayString)
+                    if let shortcut {
+                        ShortcutHint(text: shortcut.displayString)
+                    }
                 }
             }
             .buttonStyle(.borderedProminent)
@@ -851,23 +860,30 @@ struct EmptyPanelView: View {
                 .font(.system(size: 48))
                 .foregroundStyle(.tertiary)
 
-            Text("Empty Panel")
+            Text(String(localized: "emptyPane.title", defaultValue: "Empty Panel"))
                 .font(.headline)
                 .foregroundStyle(.secondary)
 
             HStack(spacing: 12) {
                 emptyPaneActionButton(
-                    title: "Terminal",
+                    title: String(localized: "emptyPane.terminal", defaultValue: "Terminal"),
                     systemImage: "terminal.fill",
                     shortcut: newSurfaceShortcut,
                     action: createTerminal
                 )
 
                 emptyPaneActionButton(
-                    title: "Browser",
+                    title: String(localized: "emptyPane.browser", defaultValue: "Browser"),
                     systemImage: "globe",
                     shortcut: openBrowserShortcut,
                     action: createBrowser
+                )
+
+                emptyPaneActionButton(
+                    title: String(localized: "emptyPane.codeEditor", defaultValue: "Code Editor"),
+                    systemImage: "curlybraces.square",
+                    shortcut: nil,
+                    action: createCodeEditor
                 )
             }
         }

@@ -145,8 +145,9 @@ extension ControlCommandCoordinator {
             return "ERROR: TabManager not available"
         }
 
-        // Parse arguments: --type=terminal|browser --direction=left|right|up|down --url=...
+        // Parse arguments: --type=terminal|browser|editor --direction=left|right|up|down --url=...
         var isBrowser = false
+        var isCodeEditor = false
         var direction: ControlSidebarSplitDirectionV1 = .right
         var urlRaw: String? = nil
         var url: URL? = nil
@@ -157,7 +158,9 @@ extension ControlCommandCoordinator {
             let partStr = String(part)
             if partStr.hasPrefix("--type=") {
                 let typeStr = String(partStr.dropFirst(7))
-                isBrowser = typeStr == "browser"
+                let normalizedType = normalizedToken(typeStr)
+                isBrowser = normalizedType == "browser"
+                isCodeEditor = ["editor", "code", "codeeditor", "vscode", "vscodeinline"].contains(normalizedType)
             } else if partStr.hasPrefix("--direction=") {
                 let dirStr = String(partStr.dropFirst(12))
                 if let parsed = ControlSidebarSplitDirectionV1.parse(dirStr) {
@@ -175,12 +178,13 @@ extension ControlCommandCoordinator {
         if invalidDirection {
             return "ERROR: Invalid direction. Use left, right, up, or down."
         }
-        if isBrowser, !(browserPanelContext?.controlBrowserPanelAvailabilityEnabled() ?? true) {
+        if (isBrowser || isCodeEditor), !(browserPanelContext?.controlBrowserPanelAvailabilityEnabled() ?? true) {
             return browserPanelOpenExternallyWhenDisabled(rawURL: urlRaw, url: url)
         }
 
         guard let newPanelID = sidebarContext?.controlSidebarCreatePaneSplit(
             isBrowser: isBrowser,
+            isCodeEditor: isCodeEditor,
             orientationIsHorizontal: direction.isHorizontal,
             insertFirst: direction.insertFirst,
             url: url
@@ -198,8 +202,9 @@ extension ControlCommandCoordinator {
             return "ERROR: TabManager not available"
         }
 
-        // Parse arguments: --type=terminal|browser --pane=<pane_id> --url=...
+        // Parse arguments: --type=terminal|browser|editor --pane=<pane_id> --url=...
         var isBrowser = false
+        var isCodeEditor = false
         var paneArg: String? = nil
         var urlRaw: String? = nil
         var url: URL? = nil
@@ -209,7 +214,9 @@ extension ControlCommandCoordinator {
             let partStr = String(part)
             if partStr.hasPrefix("--type=") {
                 let typeStr = String(partStr.dropFirst(7))
-                isBrowser = typeStr == "browser"
+                let normalizedType = normalizedToken(typeStr)
+                isBrowser = normalizedType == "browser"
+                isCodeEditor = ["editor", "code", "codeeditor", "vscode", "vscodeinline"].contains(normalizedType)
             } else if partStr.hasPrefix("--pane=") {
                 paneArg = String(partStr.dropFirst(7))
             } else if partStr.hasPrefix("--url=") {
@@ -218,11 +225,16 @@ extension ControlCommandCoordinator {
                 url = urlRaw.flatMap { URL(string: $0) }
             }
         }
-        if isBrowser, !(browserPanelContext?.controlBrowserPanelAvailabilityEnabled() ?? true) {
+        if (isBrowser || isCodeEditor), !(browserPanelContext?.controlBrowserPanelAvailabilityEnabled() ?? true) {
             return browserPanelOpenExternallyWhenDisabled(rawURL: urlRaw, url: url)
         }
 
-        switch sidebarContext?.controlSidebarNewSurface(isBrowser: isBrowser, paneArg: paneArg, url: url) ?? .noTabSelected {
+        switch sidebarContext?.controlSidebarNewSurface(
+            isBrowser: isBrowser,
+            isCodeEditor: isCodeEditor,
+            paneArg: paneArg,
+            url: url
+        ) ?? .noTabSelected {
         case .noTabSelected, .failed:
             return "ERROR: Failed to create tab"
         case .paneNotFound:

@@ -6,6 +6,7 @@ enum CmuxSurfaceTabBarBuiltInAction: String, Codable, Sendable, CaseIterable, Ha
     case cloudVM = "cmux.cloudvm"
     case newTerminal = "cmux.newTerminal"
     case newBrowser = "cmux.newBrowser"
+    case newCodeEditor = "cmux.newCodeEditor"
     case splitRight = "cmux.splitRight"
     case splitDown = "cmux.splitDown"
 
@@ -21,6 +22,8 @@ enum CmuxSurfaceTabBarBuiltInAction: String, Codable, Sendable, CaseIterable, Ha
             self = .newTerminal
         case "cmux.newBrowser", "newBrowser":
             self = .newBrowser
+        case "cmux.newCodeEditor", "cmux.newEditor", "newCodeEditor", "newEditor", "codeEditor", "editor":
+            self = .newCodeEditor
         case "cmux.splitRight", "splitRight":
             self = .splitRight
         case "cmux.splitDown", "splitDown":
@@ -44,6 +47,8 @@ enum CmuxSurfaceTabBarBuiltInAction: String, Codable, Sendable, CaseIterable, Ha
             return "terminal"
         case .newBrowser:
             return "globe"
+        case .newCodeEditor:
+            return "curlybraces.square"
         case .splitRight:
             return "square.split.2x1"
         case .splitDown:
@@ -53,7 +58,7 @@ enum CmuxSurfaceTabBarBuiltInAction: String, Codable, Sendable, CaseIterable, Ha
 
     var bonsplitAction: BonsplitConfiguration.SplitActionButton.Action? {
         switch self {
-        case .newWorkspace, .cloudVM:
+        case .newWorkspace, .cloudVM, .newCodeEditor:
             return nil
         case .newTerminal:
             return .newTerminal

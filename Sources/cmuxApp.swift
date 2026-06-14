@@ -735,6 +735,11 @@ struct cmuxApp: App {
                     }
                 }
 
+                Button(String(localized: "menu.file.newCodeEditorTab", defaultValue: "New Code Editor Tab")) {
+                    _ = AppDelegate.shared?.openCodeEditor(tabManager: activeTabManager)
+                }
+                .disabled(BrowserAvailabilitySettings.isDisabled())
+
                 splitCommandButton(title: String(localized: "menu.file.openFolder", defaultValue: "Open Folder…"), shortcut: menuShortcut(for: .openFolder)) {
                     AppDelegate.shared?.showOpenFolderPanel()
                 }

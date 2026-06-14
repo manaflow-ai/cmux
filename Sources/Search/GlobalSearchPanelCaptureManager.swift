@@ -36,12 +36,18 @@ final class GlobalSearchPanelCaptureManager {
 #endif
                 }
             }
-        } else if let browserPanel = context.panel as? BrowserPanel {
+        } else if let browserPanel = context.panel as? BrowserPanel,
+                  browserPanel.surfaceRole.contributesToGlobalBrowserSearch {
             captureBrowserPanel(browserPanel)
         }
     }
 
     func captureBrowserPanel(_ panel: BrowserPanel) {
+        guard panel.surfaceRole.contributesToGlobalBrowserSearch else {
+            cancelBrowserCapture(forPanelID: panel.id)
+            return
+        }
+
         let panelID = panel.id
         let taskID = UUID()
         cancelPanelPurge(panelID)
@@ -202,6 +208,7 @@ final class GlobalSearchPanelCaptureManager {
     }
 
     private func indexBrowserPanel(_ panel: BrowserPanel) async {
+        guard panel.surfaceRole.contributesToGlobalBrowserSearch else { return }
         guard let context = AppDelegate.shared?.globalSearchContext(
             forPanelID: panel.id,
             preferredWorkspaceID: panel.workspaceId

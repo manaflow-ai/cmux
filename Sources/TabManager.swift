@@ -2817,8 +2817,10 @@ class TabManager: ObservableObject {
     /// Returns the focused panel if it's a BrowserPanel, nil otherwise
     var focusedBrowserPanel: BrowserPanel? {
         guard let tab = selectedWorkspace,
-              let panelId = tab.focusedPanelId else { return nil }
-        return tab.panels[panelId] as? BrowserPanel
+              let panelId = tab.focusedPanelId,
+              let panel = tab.panels[panelId] as? BrowserPanel,
+              panel.panelType == .browser else { return nil }
+        return panel
     }
 
     /// Returns the focused panel if it's a MarkdownPanel showing the rendered
@@ -3598,6 +3600,23 @@ class TabManager: ObservableObject {
         )
     }
 
+    /// Create a new code editor split from the currently focused panel.
+    @discardableResult
+    func createCodeEditorSplit(direction: SplitDirection, url: URL? = nil) -> UUID? {
+        guard let selectedTabId,
+              let tab = tabs.first(where: { $0.id == selectedTabId }),
+              let focusedPanelId = tab.focusedPanelId else { return nil }
+        tab.clearSplitZoom()
+        return newBrowserSplit(
+            tabId: selectedTabId,
+            fromPanelId: focusedPanelId,
+            orientation: direction.orientation,
+            insertFirst: direction.insertFirst,
+            url: url,
+            surfaceRole: .codeEditor
+        )
+    }
+
     /// Refresh Bonsplit right-side action button tooltips for all workspaces.
     func refreshSplitButtonTooltips() {
         for workspace in tabs {
@@ -3796,6 +3815,7 @@ class TabManager: ObservableObject {
         url: URL? = nil,
         preferredProfileID: UUID? = nil,
         focus: Bool = true,
+        surfaceRole: BrowserPanel.SurfaceRole = .browser,
         initialDividerPosition: CGFloat? = nil
     ) -> UUID? {
         guard BrowserAvailabilitySettings.isEnabled() else { return nil }
@@ -3807,8 +3827,32 @@ class TabManager: ObservableObject {
             url: url,
             preferredProfileID: preferredProfileID,
             focus: focus,
+            surfaceRole: surfaceRole,
             initialDividerPosition: initialDividerPosition
         )?.id
+    }
+
+    func newCodeEditorSplit(
+        tabId: UUID,
+        fromPanelId: UUID,
+        orientation: SplitOrientation,
+        insertFirst: Bool = false,
+        url: URL? = nil,
+        preferredProfileID: UUID? = nil,
+        focus: Bool = true,
+        initialDividerPosition: CGFloat? = nil
+    ) -> UUID? {
+        newBrowserSplit(
+            tabId: tabId,
+            fromPanelId: fromPanelId,
+            orientation: orientation,
+            insertFirst: insertFirst,
+            url: url,
+            preferredProfileID: preferredProfileID,
+            focus: focus,
+            surfaceRole: .codeEditor,
+            initialDividerPosition: initialDividerPosition
+        )
     }
 
     /// Create a new browser surface in a pane
@@ -3816,15 +3860,32 @@ class TabManager: ObservableObject {
         tabId: UUID,
         inPane paneId: PaneID,
         url: URL? = nil,
-        preferredProfileID: UUID? = nil
+        preferredProfileID: UUID? = nil,
+        surfaceRole: BrowserPanel.SurfaceRole = .browser
     ) -> UUID? {
         guard BrowserAvailabilitySettings.isEnabled() else { return nil }
         guard let tab = tabs.first(where: { $0.id == tabId }) else { return nil }
         return tab.newBrowserSurface(
             inPane: paneId,
             url: url,
-            preferredProfileID: preferredProfileID
+            preferredProfileID: preferredProfileID,
+            surfaceRole: surfaceRole
         )?.id
+    }
+
+    func newCodeEditorSurface(
+        tabId: UUID,
+        inPane paneId: PaneID,
+        url: URL? = nil,
+        preferredProfileID: UUID? = nil
+    ) -> UUID? {
+        newBrowserSurface(
+            tabId: tabId,
+            inPane: paneId,
+            url: url,
+            preferredProfileID: preferredProfileID,
+            surfaceRole: .codeEditor
+        )
     }
 
     /// Get a browser panel by ID
@@ -3833,14 +3894,13 @@ class TabManager: ObservableObject {
         return tab.browserPanel(for: panelId)
     }
 
-    /// Open a browser in a specific workspace, optionally preferring a split-right layout.
-    @discardableResult
-    func openBrowser(
+    private func openBrowserSurfaceRole(
+        _ surfaceRole: BrowserPanel.SurfaceRole,
         inWorkspace tabId: UUID,
-        url: URL? = nil,
-        preferSplitRight: Bool = false,
-        preferredProfileID: UUID? = nil,
-        insertAtEnd: Bool = false
+        url: URL?,
+        preferSplitRight: Bool,
+        preferredProfileID: UUID?,
+        insertAtEnd: Bool
     ) -> UUID? {
         guard BrowserAvailabilitySettings.isEnabled() else { return nil }
         guard let workspace = tabs.first(where: { $0.id == tabId }) else { return nil }
@@ -3850,15 +3910,16 @@ class TabManager: ObservableObject {
 
         if preferSplitRight {
             if let targetPaneId = workspace.topRightBrowserReusePane(),
-               let browserPanel = workspace.newBrowserSurface(
+               let panel = workspace.newBrowserSurface(
                    inPane: targetPaneId,
                    url: url,
                    focus: true,
                    insertAtEnd: insertAtEnd,
-                   preferredProfileID: preferredProfileID
+                   preferredProfileID: preferredProfileID,
+                   surfaceRole: surfaceRole
                ) {
-                rememberFocusedSurface(tabId: tabId, surfaceId: browserPanel.id)
-                return browserPanel.id
+                rememberFocusedSurface(tabId: tabId, surfaceId: panel.id)
+                return panel.id
             }
 
             let splitSourcePanelId: UUID? = {
@@ -3877,30 +3938,70 @@ class TabManager: ObservableObject {
             }()
 
             if let splitSourcePanelId,
-               let browserPanel = workspace.newBrowserSplit(
+               let panel = workspace.newBrowserSplit(
                    from: splitSourcePanelId,
                    orientation: .horizontal,
                    url: url,
                    preferredProfileID: preferredProfileID,
-                   focus: true
+                   focus: true,
+                   surfaceRole: surfaceRole
                ) {
-                rememberFocusedSurface(tabId: tabId, surfaceId: browserPanel.id)
-                return browserPanel.id
+                rememberFocusedSurface(tabId: tabId, surfaceId: panel.id)
+                return panel.id
             }
         }
 
         guard let paneId = workspace.bonsplitController.focusedPaneId ?? workspace.bonsplitController.allPaneIds.first,
-              let browserPanel = workspace.newBrowserSurface(
+              let panel = workspace.newBrowserSurface(
                   inPane: paneId,
                   url: url,
                   focus: true,
                   insertAtEnd: insertAtEnd,
-                  preferredProfileID: preferredProfileID
+                  preferredProfileID: preferredProfileID,
+                  surfaceRole: surfaceRole
               ) else {
             return nil
         }
-        rememberFocusedSurface(tabId: tabId, surfaceId: browserPanel.id)
-        return browserPanel.id
+        rememberFocusedSurface(tabId: tabId, surfaceId: panel.id)
+        return panel.id
+    }
+
+    /// Open a browser in a specific workspace, optionally preferring a split-right layout.
+    @discardableResult
+    func openBrowser(
+        inWorkspace tabId: UUID,
+        url: URL? = nil,
+        preferSplitRight: Bool = false,
+        preferredProfileID: UUID? = nil,
+        insertAtEnd: Bool = false
+    ) -> UUID? {
+        openBrowserSurfaceRole(
+            .browser,
+            inWorkspace: tabId,
+            url: url,
+            preferSplitRight: preferSplitRight,
+            preferredProfileID: preferredProfileID,
+            insertAtEnd: insertAtEnd
+        )
+    }
+
+    /// Open a code editor in a specific workspace, optionally preferring a split-right layout.
+    @discardableResult
+    func openCodeEditor(
+        inWorkspace tabId: UUID,
+        url: URL? = nil,
+        preferSplitRight: Bool = false,
+        preferredProfileID: UUID? = nil,
+        insertAtEnd: Bool = false
+    ) -> UUID? {
+        openBrowserSurfaceRole(
+            .codeEditor,
+            inWorkspace: tabId,
+            url: url,
+            preferSplitRight: preferSplitRight,
+            preferredProfileID: preferredProfileID,
+            insertAtEnd: insertAtEnd
+        )
     }
 
     /// Open a browser in the currently focused pane (as a new surface)
@@ -3912,6 +4013,23 @@ class TabManager: ObservableObject {
     ) -> UUID? {
         guard let tabId = selectedTabId else { return nil }
         return openBrowser(
+            inWorkspace: tabId,
+            url: url,
+            preferSplitRight: false,
+            preferredProfileID: preferredProfileID,
+            insertAtEnd: insertAtEnd
+        )
+    }
+
+    /// Open a code editor in the currently focused pane (as a new surface).
+    @discardableResult
+    func openCodeEditor(
+        url: URL? = nil,
+        preferredProfileID: UUID? = nil,
+        insertAtEnd: Bool = false
+    ) -> UUID? {
+        guard let tabId = selectedTabId else { return nil }
+        return openCodeEditor(
             inWorkspace: tabId,
             url: url,
             preferSplitRight: false,

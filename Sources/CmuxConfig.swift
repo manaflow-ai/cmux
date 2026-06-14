@@ -1173,12 +1173,14 @@ struct CmuxSurfaceTabBarButton: Codable, Sendable, Hashable, Identifiable {
 
     static let newTerminal = actionReference(CmuxSurfaceTabBarBuiltInAction.newTerminal.configID)
     static let newBrowser = actionReference(CmuxSurfaceTabBarBuiltInAction.newBrowser.configID)
+    static let newCodeEditor = actionReference(CmuxSurfaceTabBarBuiltInAction.newCodeEditor.configID)
     static let splitRight = actionReference(CmuxSurfaceTabBarBuiltInAction.splitRight.configID)
     static let splitDown = actionReference(CmuxSurfaceTabBarBuiltInAction.splitDown.configID)
 
     static let defaults: [CmuxSurfaceTabBarButton] = [
         .newTerminal,
         .newBrowser,
+        .newCodeEditor,
         .splitRight,
         .splitDown
     ]
@@ -1563,6 +1565,9 @@ struct CmuxResolvedConfigAction: Identifiable, Sendable, Hashable {
         case .newBrowser:
             title = String(localized: "command.newBrowserTab.title", defaultValue: "New Browser Tab")
             keywords = ["new", "browser", "tab", "surface"]
+        case .newCodeEditor:
+            title = String(localized: "command.newCodeEditorTab.title", defaultValue: "New Tab (Code Editor)")
+            keywords = ["new", "code", "editor", "tab", "surface", "vscode"]
         case .splitRight:
             title = String(localized: "command.terminalSplitRight.title", defaultValue: "Split Right")
             keywords = ["terminal", "split", "right"]
@@ -1817,7 +1822,38 @@ struct CmuxSurfaceDefinition: Codable, Sendable {
 enum CmuxSurfaceType: String, Codable, Sendable {
     case terminal
     case browser
+    case codeEditor = "editor"
     case project
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.singleValueContainer()
+        let rawValue = try container.decode(String.self)
+        let normalized = rawValue
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .replacingOccurrences(of: "-", with: "")
+            .replacingOccurrences(of: "_", with: "")
+            .lowercased()
+        switch normalized {
+        case Self.terminal.rawValue:
+            self = .terminal
+        case Self.browser.rawValue:
+            self = .browser
+        case "editor", "code", "codeeditor", "vscode", "vscodeinline":
+            self = .codeEditor
+        case Self.project.rawValue:
+            self = .project
+        default:
+            throw DecodingError.dataCorruptedError(
+                in: container,
+                debugDescription: "Unknown surface type: \(rawValue)"
+            )
+        }
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.singleValueContainer()
+        try container.encode(rawValue)
+    }
 }
 
 struct CmuxResolvedCommand: Sendable {
@@ -2254,6 +2290,7 @@ final class CmuxConfigStore: ObservableObject {
         }) ?? [
             .builtIn(.newTerminal),
             .builtIn(.newBrowser),
+            .builtIn(.newCodeEditor),
             .builtIn(.splitRight),
             .builtIn(.splitDown)
         ]

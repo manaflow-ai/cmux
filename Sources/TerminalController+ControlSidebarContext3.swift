@@ -174,6 +174,7 @@ extension TerminalController {
 
     func controlSidebarCreatePaneSplit(
         isBrowser: Bool,
+        isCodeEditor: Bool,
         orientationIsHorizontal: Bool,
         insertFirst: Bool,
         url: URL?
@@ -196,6 +197,15 @@ extension TerminalController {
                 focus: focus,
                 creationPolicy: .automationPreload
             )?.id
+        } else if isCodeEditor {
+            return tab.newCodeEditorSplit(
+                from: focusedPanelId,
+                orientation: orientation,
+                insertFirst: insertFirst,
+                url: url,
+                focus: focus,
+                creationPolicy: .automationPreload
+            )?.id
         }
         return tab.newTerminalSplit(
             from: focusedPanelId,
@@ -207,7 +217,12 @@ extension TerminalController {
 
     // MARK: - New / close surface
 
-    func controlSidebarNewSurface(isBrowser: Bool, paneArg: String?, url: URL?) -> ControlSidebarNewSurfaceResolution {
+    func controlSidebarNewSurface(
+        isBrowser: Bool,
+        isCodeEditor: Bool,
+        paneArg: String?,
+        url: URL?
+    ) -> ControlSidebarNewSurfaceResolution {
         let focus = Self.socketCommandAllowsInAppFocusMutations()
         guard let tabManager,
               let tabId = tabManager.selectedTabId,
@@ -237,6 +252,13 @@ extension TerminalController {
         let newPanelId: UUID?
         if isBrowser {
             newPanelId = tab.newBrowserSurface(
+                inPane: targetPaneId,
+                url: url,
+                focus: focus,
+                creationPolicy: .automationPreload
+            )?.id
+        } else if isCodeEditor {
+            newPanelId = tab.newCodeEditorSurface(
                 inPane: targetPaneId,
                 url: url,
                 focus: focus,
