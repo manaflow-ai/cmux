@@ -39,6 +39,10 @@ fi
 
 cd "$PROJECT_DIR"
 
+empty_ignore_path="$(mktemp "${TMPDIR:-/tmp}/cmux-gitleaks-ignore.XXXXXX")"
+trap 'rm -f "$empty_ignore_path"' EXIT
+: > "$empty_ignore_path"
+
 gitleaks_version="$("$GITLEAKS_BIN" version 2>/dev/null | tr -d '[:space:]')"
 gitleaks_version="${gitleaks_version#v}"  # normalize a possible "v8.30.1" prefix
 if [ -n "$gitleaks_version" ] && [ "$gitleaks_version" != "$EXPECTED_GITLEAKS_VERSION" ]; then
@@ -57,6 +61,8 @@ if [ -n "${CMUX_GITLEAKS_LOG_OPTS:-}" ]; then
     --redact \
     --verbose \
     --no-banner \
+    --ignore-gitleaks-allow \
+    --gitleaks-ignore-path "$empty_ignore_path" \
     --log-opts "$CMUX_GITLEAKS_LOG_OPTS" \
     "$PROJECT_DIR" || status=$?
 else
@@ -66,6 +72,8 @@ else
     --redact \
     --verbose \
     --no-banner \
+    --ignore-gitleaks-allow \
+    --gitleaks-ignore-path "$empty_ignore_path" \
     "$PROJECT_DIR" || status=$?
 fi
 

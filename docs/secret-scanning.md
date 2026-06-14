@@ -28,7 +28,11 @@ local result disagrees with CI.
 To run gitleaks directly (the script is a thin wrapper around this):
 
 ```bash
-gitleaks dir . --config .gitleaks.toml --redact --verbose
+empty_ignore_path="$(mktemp)"
+trap 'rm -f "$empty_ignore_path"' EXIT
+gitleaks dir . --config .gitleaks.toml --redact --verbose \
+  --ignore-gitleaks-allow \
+  --gitleaks-ignore-path "$empty_ignore_path"
 ```
 
 To scan a commit range, set `CMUX_GITLEAKS_LOG_OPTS` to the git-log range:
@@ -88,4 +92,6 @@ submodules). Pull requests scan the git range from the PR base to `HEAD`, so a
 secret added in one PR commit and removed before merge is still caught. After the
 initial bootstrap PR, pull requests enforce with the base branch's
 `.gitleaks.toml` so a PR cannot hide a committed secret by relaxing its own
-allowlist. Pushes to `main` scan the pushed commit range.
+allowlist. CI also ignores inline `gitleaks:allow` comments and points
+`.gitleaksignore` at an empty file, so suppressions must live in the reviewed
+config. Pushes to `main` scan the pushed commit range.
