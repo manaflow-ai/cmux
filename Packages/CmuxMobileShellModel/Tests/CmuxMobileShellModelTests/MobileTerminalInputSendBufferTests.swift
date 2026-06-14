@@ -51,4 +51,20 @@ import Testing
         #expect(buffer.nextBatch() == nil)
         #expect(buffer.enqueue("c", workspaceID: workspaceID, terminalID: terminalID) == .startDraining)
     }
+
+    @Test func acceptsSingleOversizedInputWhenNoBacklog() {
+        var buffer = MobileTerminalInputSendBuffer()
+        let workspaceID = MobileWorkspacePreview.ID(rawValue: "workspace-a")
+        let terminalID = MobileTerminalPreview.ID(rawValue: "terminal-a")
+        let oversizedText = String(repeating: "p", count: MobileTerminalInputSendBuffer.maximumPendingByteCount + 1)
+
+        #expect(buffer.enqueue(oversizedText, workspaceID: workspaceID, terminalID: terminalID) == .startDraining)
+        #expect(buffer.pendingByteCount == oversizedText.utf8.count)
+        #expect(buffer.enqueue("x", workspaceID: workspaceID, terminalID: terminalID) == .rejected)
+
+        let batch = buffer.nextBatch()
+        #expect(batch?.text == oversizedText)
+        #expect(buffer.pendingByteCount == 0)
+        #expect(buffer.nextBatch() == nil)
+    }
 }

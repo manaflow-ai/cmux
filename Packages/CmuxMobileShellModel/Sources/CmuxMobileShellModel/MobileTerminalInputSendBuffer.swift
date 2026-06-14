@@ -3,12 +3,15 @@ import Foundation
 /// A coalescing, back-pressured queue of pending terminal input.
 ///
 /// The buffer batches consecutive text destined for the same workspace/terminal
-/// into one chunk, bounds total pending bytes to ``maximumPendingByteCount``, and
-/// reports via ``MobileTerminalInputEnqueueResult`` whether the caller should
-/// start a drain loop. It is a pure value type so the send loop's ordering and
-/// overflow behavior can be tested deterministically.
+/// into one chunk, bounds total pending backlog to ``maximumPendingByteCount``,
+/// and reports via ``MobileTerminalInputEnqueueResult`` whether the caller
+/// should start a drain loop. One oversized input event may enter an empty queue
+/// so large pastes are not mistaken for backlog pressure.
 public struct MobileTerminalInputSendBuffer: Equatable, Sendable {
     /// The maximum number of UTF-8 bytes that may sit pending before new input is rejected.
+    ///
+    /// A single input event larger than this cap is accepted only when there is
+    /// no pending backlog, then rejected as normal until it drains.
     public static let maximumPendingByteCount = 64 * 1024
 
     /// One coalesced run of pending input bound to a single terminal.
@@ -60,7 +63,8 @@ public struct MobileTerminalInputSendBuffer: Equatable, Sendable {
     ) -> MobileTerminalInputEnqueueResult {
         guard !text.isEmpty else { return .queued }
         let byteCount = text.utf8.count
-        guard pendingByteCount + byteCount <= Self.maximumPendingByteCount else {
+        let acceptsSingleOversizedInput = pendingChunks.isEmpty && pendingByteCount == 0
+        guard pendingByteCount + byteCount <= Self.maximumPendingByteCount || acceptsSingleOversizedInput else {
             return .rejected
         }
         if var last = pendingChunks.last,

@@ -2415,6 +2415,52 @@ final class TerminalOutputCollector {
 }
 
 @MainActor
+@Test func largeRawSurfacePasteDoesNotDisconnectAsQueueOverflow() async throws {
+    let route = try CmxAttachRoute(
+        id: "debug_loopback",
+        kind: .debugLoopback,
+        endpoint: .hostPort(host: "127.0.0.1", port: 56584)
+    )
+    let ticket = try CmxAttachTicket(
+        workspaceID: "live-workspace",
+        terminalID: "live-terminal",
+        macDeviceID: "test-mac",
+        macDisplayName: "Test Mac",
+        routes: [route],
+        expiresAt: Date().addingTimeInterval(60)
+    )
+    let responses = ScriptedTransportResponses([
+        try rpcWorkspaceListFrame(
+            workspaceID: "live-workspace",
+            title: "Live Workspace",
+            terminalID: "live-terminal"
+        ),
+        try rpcResultFrame(result: ["accepted": true]),
+    ])
+    let runtime = testRuntime(
+        supportedRouteKinds: [.debugLoopback],
+        transportFactory: ScriptedTransportFactory(responses: responses)
+    )
+    let store = CMUXMobileShellStore.preview(runtime: runtime)
+    let largePaste = String(repeating: "p", count: MobileTerminalInputSendBuffer.maximumPendingByteCount + 1)
+
+    store.signIn()
+    await store.connectPairingURL(try attachURL(for: ticket).absoluteString)
+    store.sendTerminalRawInput(Data(largePaste.utf8), surfaceID: "live-terminal")
+
+    var texts: [String] = []
+    for _ in 0..<300 {
+        texts = try await responses.sentRequests().filter { $0.method == "terminal.input" }.compactMap(\.text)
+        if !texts.isEmpty { break }
+        try await Task.sleep(nanoseconds: 10_000_000)
+    }
+    let inputText = try #require(texts.first)
+    #expect(inputText == largePaste)
+    #expect(store.connectionState == .connected)
+    #expect(store.connectionError == nil)
+}
+
+@MainActor
 @Test func terminalInputResyncsOutputWhenMacSequenceIsAhead() async throws {
     let route = try CmxAttachRoute(
         id: "debug_loopback",
