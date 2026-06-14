@@ -45,6 +45,7 @@ func TestWebSocketRPCRejectsMissingAndWrongLease(t *testing.T) {
 }
 
 func TestWebSocketRPCAcceptsSignedToken(t *testing.T) {
+	useTempSignedLeaseUsedDir(t)
 	publicKey, privateKey, err := ed25519.GenerateKey(rand.Reader)
 	if err != nil {
 		t.Fatalf("generate key: %v", err)

@@ -205,6 +205,7 @@ func TestWebSocketPTYRequiresSessionMatchAndConsumesLeaseOnce(t *testing.T) {
 }
 
 func TestWebSocketPTYAcceptsSignedTokenAndRejectsReplay(t *testing.T) {
+	useTempSignedLeaseUsedDir(t)
 	publicKey, privateKey, err := ed25519.GenerateKey(rand.Reader)
 	if err != nil {
 		t.Fatalf("generate key: %v", err)
@@ -284,6 +285,7 @@ func TestWebSocketPTYRejectsSignedTokenForWrongKind(t *testing.T) {
 }
 
 func TestWebSocketPTYRejectsSignedTokenForWrongAudience(t *testing.T) {
+	useTempSignedLeaseUsedDir(t)
 	publicKey, privateKey, err := ed25519.GenerateKey(rand.Reader)
 	if err != nil {
 		t.Fatalf("generate key: %v", err)
@@ -329,6 +331,17 @@ func TestParseSignedAuthPublicKeyAcceptsPaddedBase64URL(t *testing.T) {
 		if !bytes.Equal(parsed, raw) {
 			t.Fatalf("%s parsed public key = %x, want %x", name, []byte(parsed), raw)
 		}
+	}
+}
+
+func TestConsumeSignedLeaseJTIDurableReplay(t *testing.T) {
+	useTempSignedLeaseUsedDir(t)
+	expiry := time.Now().Add(time.Minute).Unix()
+	if err := consumeSignedLeaseJTI("durable-jti", expiry); err != nil {
+		t.Fatalf("first consume signed JTI: %v", err)
+	}
+	if err := consumeSignedLeaseJTI("durable-jti", expiry); !errors.Is(err, errWSSignedLeaseInvalid) {
+		t.Fatalf("second consume signed JTI error = %v, want %v", err, errWSSignedLeaseInvalid)
 	}
 }
 
@@ -1092,6 +1105,15 @@ func writeSignedAudienceFile(t *testing.T, audience string) string {
 		t.Fatalf("write signed audience: %v", err)
 	}
 	return path
+}
+
+func useTempSignedLeaseUsedDir(t *testing.T) {
+	t.Helper()
+	old := wsSignedLeaseUsedDir
+	wsSignedLeaseUsedDir = t.TempDir()
+	t.Cleanup(func() {
+		wsSignedLeaseUsedDir = old
+	})
 }
 
 func readReady(t *testing.T, ctx context.Context, conn *websocket.Conn) {

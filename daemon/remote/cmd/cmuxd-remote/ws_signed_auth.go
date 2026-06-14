@@ -2,10 +2,14 @@ package main
 
 import (
 	"crypto/ed25519"
+	"crypto/sha256"
 	"encoding/base64"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"os"
+	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -25,7 +29,7 @@ var (
 	errWSSignedLeaseUnavailable = errors.New("signed attach auth unavailable")
 	errWSSignedLeaseInvalid     = errors.New("signed attach auth rejected")
 	wsSignedLeaseMu             sync.Mutex
-	wsSignedLeaseUsed           = map[string]int64{}
+	wsSignedLeaseUsedDir        = "/tmp/cmux/signed-attach-jti"
 )
 
 func authorizeWebSocketAuth(cfg wsPTYServerConfig, kind string, auth wsAuthFrame) error {
@@ -127,14 +131,61 @@ func consumeSignedLeaseJTI(jti string, expiresAtUnix int64) error {
 	now := time.Now().Unix()
 	wsSignedLeaseMu.Lock()
 	defer wsSignedLeaseMu.Unlock()
-	for used, expiry := range wsSignedLeaseUsed {
-		if expiry <= now {
-			delete(wsSignedLeaseUsed, used)
-		}
-	}
-	if _, exists := wsSignedLeaseUsed[jti]; exists {
+	if err := cleanupSignedLeaseJTIFiles(now); err != nil {
 		return errWSSignedLeaseInvalid
 	}
-	wsSignedLeaseUsed[jti] = expiresAtUnix
+	path := signedLeaseJTIPath(jti)
+	if existing, err := os.ReadFile(path); err == nil {
+		expiry, parseErr := strconv.ParseInt(strings.TrimSpace(string(existing)), 10, 64)
+		if parseErr == nil && expiry > now {
+			return errWSSignedLeaseInvalid
+		}
+		_ = os.Remove(path)
+	} else if !errors.Is(err, os.ErrNotExist) {
+		return errWSSignedLeaseInvalid
+	}
+	if err := os.MkdirAll(wsSignedLeaseUsedDir, 0o700); err != nil {
+		return errWSSignedLeaseInvalid
+	}
+	file, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
+	if err != nil {
+		return errWSSignedLeaseInvalid
+	}
+	_, writeErr := file.WriteString(strconv.FormatInt(expiresAtUnix, 10) + "\n")
+	closeErr := file.Close()
+	if writeErr != nil || closeErr != nil {
+		_ = os.Remove(path)
+		return errWSSignedLeaseInvalid
+	}
 	return nil
+}
+
+func cleanupSignedLeaseJTIFiles(now int64) error {
+	entries, err := os.ReadDir(wsSignedLeaseUsedDir)
+	if errors.Is(err, os.ErrNotExist) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	for _, entry := range entries {
+		if entry.IsDir() {
+			continue
+		}
+		path := filepath.Join(wsSignedLeaseUsedDir, entry.Name())
+		data, err := os.ReadFile(path)
+		if err != nil {
+			continue
+		}
+		expiry, err := strconv.ParseInt(strings.TrimSpace(string(data)), 10, 64)
+		if err == nil && expiry <= now {
+			_ = os.Remove(path)
+		}
+	}
+	return nil
+}
+
+func signedLeaseJTIPath(jti string) string {
+	sum := sha256.Sum256([]byte(jti))
+	return filepath.Join(wsSignedLeaseUsedDir, hex.EncodeToString(sum[:]))
 }

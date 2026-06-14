@@ -43,6 +43,7 @@ const CMUXD_WS_SIGNED_AUTH_AUDIENCE_PATH = "/etc/cmux/attach-audience";
 const CMUXD_WS_PTY_LEASE_TTL_SECONDS = 5 * 60;
 const CMUXD_WS_RPC_LEASE_TTL_SECONDS = 12 * 60 * 60;
 const CMUXD_WS_RPC_RENEW_BEFORE_SECONDS = 60;
+const CMUXD_WS_CREATE_HEALTH_RETRY_MS = 15_000;
 const FREESTYLE_WS_PORTS = [{ port: 443, targetPort: 7777 }];
 const SIGNING_PRIVATE_KEY_ENV = "CMUX_VM_ATTACH_SIGNING_PRIVATE_KEY";
 
@@ -109,7 +110,10 @@ export class FreestyleProvider implements VMProvider {
           if (imageSupportsSignedWebSocketAuth("freestyle", image)) {
             try {
               await writeFreestyleSignedAttachAudience(fs.vms.ref({ vmId: created.vmId }), created.vmId);
-              await ensureFreestyleWebSocketHealthy(`${created.vmId}.vm.freestyle.sh`);
+              await ensureFreestyleWebSocketHealthyWithRetry(
+                `${created.vmId}.vm.freestyle.sh`,
+                CMUXD_WS_CREATE_HEALTH_RETRY_MS,
+              );
             } catch (err) {
               await fs.vms.ref({ vmId: created.vmId }).delete().catch(() => undefined);
               throw err;
@@ -568,6 +572,25 @@ async function ensureFreestyleWebSocketHealthy(domain: string): Promise<void> {
   if (response.status !== 200) {
     throw new Error(`Freestyle cmuxd websocket health check returned ${response.status}`);
   }
+}
+
+async function ensureFreestyleWebSocketHealthyWithRetry(domain: string, timeoutMs: number): Promise<void> {
+  const deadline = Date.now() + timeoutMs;
+  let attempt = 0;
+  let lastError: unknown = null;
+  while (Date.now() < deadline) {
+    try {
+      await ensureFreestyleWebSocketHealthy(domain);
+      return;
+    } catch (err) {
+      lastError = err;
+      attempt += 1;
+      const remainingMs = deadline - Date.now();
+      if (remainingMs <= 0) break;
+      await new Promise((resolve) => setTimeout(resolve, Math.min(250 * attempt, 1_000, remainingMs)));
+    }
+  }
+  throw lastError ?? new Error(`Freestyle cmuxd websocket health check timed out for ${domain}`);
 }
 
 async function readFreestyleWebSocketService(vm: FreestyleVmRef): Promise<{
