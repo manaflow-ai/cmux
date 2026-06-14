@@ -5555,7 +5555,6 @@ final class Workspace: Identifiable, ObservableObject {
         remoteSessionController = nil
         previousController?.stop()
         applyRemoteProxyEndpointUpdate(nil)
-        applyRemoteConnectionStateFromTransport(reason: "remote.configure.reset")
 
         let foregroundAuthToken = Self.normalizedForegroundAuthToken(configuration.foregroundAuthToken)
         let shouldAutoConnect =

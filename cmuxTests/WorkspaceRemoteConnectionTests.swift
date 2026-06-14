@@ -1,4 +1,5 @@
 import XCTest
+import Combine
 import CmuxCore
 import CmuxRemoteDaemon
 import CmuxRemoteSession
@@ -981,6 +982,42 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
         XCTAssertEqual(workspace.remoteConnectionState, .connected)
         XCTAssertEqual(workspace.remoteStatusPayload()["connected"] as? Bool, true)
         XCTAssertEqual(workspace.remoteStatusPayload()["ready_terminal_sessions"] as? Int, 1)
+    }
+
+    @MainActor
+    func testRemoteWorkspaceReconfigureDoesNotPublishTransientDisconnected() throws {
+        let workspace = Workspace()
+        let config = WorkspaceRemoteConfiguration(
+            transport: .websocket,
+            destination: "vm:test-pty-readiness-no-disconnect",
+            port: nil,
+            identityFile: nil,
+            sshOptions: [],
+            localProxyPort: nil,
+            relayPort: nil,
+            relayID: nil,
+            relayToken: nil,
+            localSocketPath: nil,
+            terminalStartupCommand: "cmux vm-pty-attach --id test-pty-readiness-no-disconnect",
+            skipDaemonBootstrap: true
+        )
+
+        workspace.configureRemoteConnection(config, autoConnect: true)
+        let terminalPanel = try XCTUnwrap(workspace.focusedTerminalPanel)
+        workspace.markRemoteTerminalSurfaceReady(terminalPanel.id, reason: "test")
+        XCTAssertEqual(workspace.remoteConnectionState, .connected)
+
+        var observedStates: [WorkspaceRemoteConnectionState] = []
+        let cancellable = workspace.$remoteConnectionState.sink { state in
+            observedStates.append(state)
+        }
+        observedStates.removeAll()
+
+        workspace.configureRemoteConnection(config, autoConnect: true)
+        cancellable.cancel()
+
+        XCTAssertFalse(observedStates.contains(.disconnected))
+        XCTAssertEqual(workspace.remoteConnectionState, .connected)
     }
 
     @MainActor
