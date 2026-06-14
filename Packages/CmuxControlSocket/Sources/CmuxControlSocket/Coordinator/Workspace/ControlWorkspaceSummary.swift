@@ -13,6 +13,8 @@ public struct ControlWorkspaceSummary: Sendable, Equatable {
     public let id: UUID
     /// The workspace's display title.
     public let title: String
+    /// The user-set title, if any.
+    public let customTitle: String?
     /// The user-set description, if any (the legacy `v2OrNull` field).
     public let customDescription: String?
     /// Whether the workspace is pinned.
@@ -37,6 +39,7 @@ public struct ControlWorkspaceSummary: Sendable, Equatable {
     /// - Parameters:
     ///   - id: The workspace's stable identifier.
     ///   - title: The display title.
+    ///   - customTitle: The user-set title, if any.
     ///   - customDescription: The user-set description, if any.
     ///   - isPinned: Whether the workspace is pinned.
     ///   - listeningPorts: The listening ports.
@@ -49,6 +52,7 @@ public struct ControlWorkspaceSummary: Sendable, Equatable {
     public init(
         id: UUID,
         title: String,
+        customTitle: String?,
         customDescription: String?,
         isPinned: Bool,
         listeningPorts: [Int],
@@ -61,6 +65,7 @@ public struct ControlWorkspaceSummary: Sendable, Equatable {
     ) {
         self.id = id
         self.title = title
+        self.customTitle = customTitle
         self.customDescription = customDescription
         self.isPinned = isPinned
         self.listeningPorts = listeningPorts
