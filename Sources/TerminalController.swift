@@ -1832,6 +1832,11 @@ class TerminalController {
         // foreground_auth_ready/reconnect/disconnect/status/pty_attach_end/
         // terminal_session_end) handled by ControlCommandCoordinator. The worker-lane
         // workspace.remote.pty_* methods stay on the app-side worker path.
+        //
+        // terminal_ready is the readiness-specific command added after that
+        // lift, so it falls through to the app-side readiness helper here.
+        case "workspace.remote.terminal_ready":
+            return v2Result(id: id, self.v2WorkspaceRemoteTerminalReady(params: params))
 
         // Settings/session/feedback: session.restore_previous, settings.open, and
         // feedback.open handled by ControlCommandCoordinator.
@@ -2059,6 +2064,7 @@ class TerminalController {
             "workspace.remote.reconnect",
             "workspace.remote.disconnect",
             "workspace.remote.status",
+            "workspace.remote.terminal_ready",
             "workspace.remote.pty_sessions",
             "workspace.remote.pty_close",
             "workspace.remote.pty_detach",
@@ -3432,25 +3438,84 @@ class TerminalController {
         return trimmed.isEmpty ? nil : trimmed
     }
 
+    // Main-actor command: this mutates Workspace readiness state owned by the UI model.
+    private func v2WorkspaceRemoteTerminalReady(params: [String: Any]) -> V2CallResult {
+        guard let workspaceId = v2UUID(params, "workspace_id") else {
+            return .err(
+                code: "invalid_params",
+                message: String(
+                    localized: "socket.workspaceRemoteTerminalReady.error.invalidWorkspaceId",
+                    defaultValue: "Missing or invalid workspace_id"
+                ),
+                data: nil
+            )
+        }
+        guard let surfaceId = v2UUID(params, "surface_id") else {
+            return .err(
+                code: "invalid_params",
+                message: String(
+                    localized: "socket.workspaceRemoteTerminalReady.error.invalidSurfaceId",
+                    defaultValue: "Missing or invalid surface_id"
+                ),
+                data: nil
+            )
+        }
 
+        var result: V2CallResult = .err(code: "not_found", message: String(
+            localized: "socket.workspaceRemoteTerminalReady.error.workspaceNotFound",
+            defaultValue: "Workspace not found"
+        ), data: [
+            "workspace_id": workspaceId.uuidString,
+            "workspace_ref": v2Ref(kind: .workspace, uuid: workspaceId),
+            "surface_id": surfaceId.uuidString,
+            "surface_ref": v2Ref(kind: .surface, uuid: surfaceId),
+        ])
 
+        v2MainSync {
+            guard let owner = AppDelegate.shared?.tabManagerFor(tabId: workspaceId),
+                  let workspace = owner.tabs.first(where: { $0.id == workspaceId }) else {
+                return
+            }
+            guard workspace.panels[surfaceId] != nil else {
+                result = .err(code: "not_found", message: String(
+                    localized: "socket.workspaceRemoteTerminalReady.error.surfaceNotFound",
+                    defaultValue: "Surface not found"
+                ), data: [
+                    "workspace_id": workspaceId.uuidString,
+                    "workspace_ref": v2Ref(kind: .workspace, uuid: workspaceId),
+                    "surface_id": surfaceId.uuidString,
+                    "surface_ref": v2Ref(kind: .surface, uuid: surfaceId),
+                ])
+                return
+            }
+            guard workspace.isRemoteWorkspace, workspace.panels[surfaceId] is TerminalPanel else {
+                result = .err(code: "invalid_state", message: String(
+                    localized: "socket.workspaceRemoteTerminalReady.error.notActiveRemoteTerminal",
+                    defaultValue: "Surface is not a remote terminal"
+                ), data: [
+                    "workspace_id": workspaceId.uuidString,
+                    "workspace_ref": v2Ref(kind: .workspace, uuid: workspaceId),
+                    "surface_id": surfaceId.uuidString,
+                    "surface_ref": v2Ref(kind: .surface, uuid: surfaceId),
+                ])
+                return
+            }
 
+            workspace.markRemoteTerminalSurfaceReady(surfaceId, reason: "rpc")
+            let windowId = v2ResolveWindowId(tabManager: owner)
+            result = .ok([
+                "window_id": v2OrNull(windowId?.uuidString),
+                "window_ref": v2Ref(kind: .window, uuid: windowId),
+                "workspace_id": workspace.id.uuidString,
+                "workspace_ref": v2Ref(kind: .workspace, uuid: workspace.id),
+                "surface_id": surfaceId.uuidString,
+                "surface_ref": v2Ref(kind: .surface, uuid: surfaceId),
+                "remote": workspace.remoteStatusPayload(),
+            ])
+        }
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
+        return result
+    }
 
     private nonisolated func v2RequestedRemotePTYWorkspaceID(params: [String: Any]) -> (
         workspaceId: UUID?,
@@ -4024,12 +4089,6 @@ class TerminalController {
             ])
         }
     }
-
-
-
-
-
-
     @MainActor
 
     func v2WorkspaceAction(params: [String: Any]) -> V2CallResult {

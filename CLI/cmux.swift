@@ -10069,7 +10069,13 @@ struct CMUXCLI {
                 logVMTiming(stage, vmID: vmID, transport: "websocket", startedAt: startedAt)
             }
         }()
-        try VMPtyWebSocketBridge(config: config, debugEvent: debugEvent).run()
+        try VMPtyWebSocketBridge(
+            config: config,
+            debugEvent: debugEvent,
+            readyEvent: { [self] in
+                notifyVMPtyReadyIfPossible()
+            }
+        ).run()
     }
 
     private func runVMPtyAttach(commandArgs: [String], client: SocketClient) throws {
@@ -10100,9 +10106,130 @@ struct CMUXCLI {
             token: endpoint.token,
             sessionId: endpoint.sessionId
         )
-        try VMPtyWebSocketBridge(config: config, debugEvent: { stage in
-            log(stage)
-        }).run()
+        try VMPtyWebSocketBridge(
+            config: config,
+            debugEvent: { stage in
+                log(stage)
+            },
+            readyEvent: { [self] in
+                notifyVMPtyReadyIfPossible(client: client)
+            }
+        ).run()
+    }
+
+    private func notifyVMPtyReadyIfPossible(client existingClient: SocketClient? = nil) {
+        let env = ProcessInfo.processInfo.environment
+        guard let workspaceId = env["CMUX_WORKSPACE_ID"]?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !workspaceId.isEmpty,
+              let surfaceId = env["CMUX_SURFACE_ID"]?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !surfaceId.isEmpty else {
+            cliDebugLog("cli.vm.pty.ready.skip reason=missing_context")
+            return
+        }
+
+        let client: SocketClient
+        let ownsClientConnection: Bool
+        if let existingClient {
+            client = existingClient
+            ownsClientConnection = false
+        } else {
+            guard let socketPath = env["CMUX_SOCKET_PATH"]?.trimmingCharacters(in: .whitespacesAndNewlines),
+                  !socketPath.isEmpty else {
+                cliDebugLog("cli.vm.pty.ready.skip reason=missing_socket workspace=\(String(workspaceId.prefix(8))) surface=\(String(surfaceId.prefix(8)))")
+                return
+            }
+            client = SocketClient(path: socketPath)
+            ownsClientConnection = true
+        }
+
+        VMPtyReadyReporter(
+            client: client,
+            ownsClientConnection: ownsClientConnection,
+            workspaceId: workspaceId,
+            surfaceId: surfaceId,
+            log: { [self] message in
+                cliDebugLog(message)
+            }
+        ).start()
+    }
+
+    private final class VMPtyReadyReporter {
+        private let client: SocketClient
+        private let ownsClientConnection: Bool
+        private let workspaceId: String
+        private let surfaceId: String
+        private let log: (String) -> Void
+        // SocketClient is synchronous; isolate the readiness bridge on a private queue so
+        // the PTY output loop is never held by daemon delivery retries.
+        private let queue = DispatchQueue(label: "com.cmux.vm-pty.ready-report")
+        private let maxAttempts = 3
+        private let retryDelays: [TimeInterval] = [0.15, 0.35]
+        private var attempt = 0
+        private var retryTimer: DispatchSourceTimer?
+
+        init(
+            client: SocketClient,
+            ownsClientConnection: Bool,
+            workspaceId: String,
+            surfaceId: String,
+            log: @escaping (String) -> Void
+        ) {
+            self.client = client
+            self.ownsClientConnection = ownsClientConnection
+            self.workspaceId = workspaceId
+            self.surfaceId = surfaceId
+            self.log = log
+        }
+
+        func start() {
+            queue.async { [self] in
+                reportOnce()
+            }
+        }
+
+        private func reportOnce() {
+            attempt += 1
+            do {
+                if ownsClientConnection {
+                    try client.connectWithoutRetry(responseTimeout: 2)
+                }
+                _ = try client.sendV2(
+                    method: "workspace.remote.terminal_ready",
+                    params: [
+                        "workspace_id": workspaceId,
+                        "surface_id": surfaceId,
+                    ],
+                    responseTimeout: 2
+                )
+                if ownsClientConnection {
+                    client.close()
+                }
+                log("cli.vm.pty.ready.reported workspace=\(String(workspaceId.prefix(8))) surface=\(String(surfaceId.prefix(8))) attempt=\(attempt)")
+                return
+            } catch {
+                if ownsClientConnection {
+                    client.close()
+                }
+                guard attempt < maxAttempts else {
+                    log("cli.vm.pty.ready.report_failed workspace=\(String(workspaceId.prefix(8))) surface=\(String(surfaceId.prefix(8))) attempts=\(attempt) error=\(String(describing: error))")
+                    return
+                }
+                log("cli.vm.pty.ready.retry workspace=\(String(workspaceId.prefix(8))) surface=\(String(surfaceId.prefix(8))) next_attempt=\(attempt + 1) error=\(String(describing: error))")
+                scheduleRetry(after: retryDelays[min(attempt - 1, retryDelays.count - 1)])
+            }
+        }
+
+        private func scheduleRetry(after delay: TimeInterval) {
+            let timer = DispatchSource.makeTimerSource(queue: queue)
+            retryTimer = timer
+            timer.schedule(deadline: .now() + delay)
+            timer.setEventHandler { [self] in
+                retryTimer?.cancel()
+                retryTimer = nil
+                reportOnce()
+            }
+            timer.resume()
+        }
     }
 
     private final class VMPtyWebSocketBridgeDelegate: NSObject, URLSessionWebSocketDelegate {
@@ -10153,14 +10280,20 @@ struct CMUXCLI {
     private final class VMPtyWebSocketBridge {
         private let config: VMPtyWebSocketConfig
         private let debugEvent: ((String) -> Void)?
+        private let readyEvent: (() -> Void)?
         private let sendQueue = DispatchQueue(label: "com.cmux.vm-pty.websocket.send")
         private let stopLock = NSLock()
         private var stopped = false
         private var task: URLSessionWebSocketTask?
 
-        init(config: VMPtyWebSocketConfig, debugEvent: ((String) -> Void)? = nil) {
+        init(
+            config: VMPtyWebSocketConfig,
+            debugEvent: ((String) -> Void)? = nil,
+            readyEvent: (() -> Void)? = nil
+        ) {
             self.config = config
             self.debugEvent = debugEvent
+            self.readyEvent = readyEvent
         }
 
         func run() throws {
@@ -10191,13 +10324,14 @@ struct CMUXCLI {
             try sendAuthFrame()
             debugEvent?("websocket.auth")
             try waitForReady(delegate: delegate)
-            debugEvent?("websocket.ready")
 
             let rawMode = TerminalRawMode()
             defer { rawMode?.restore() }
             let resizeSource = startResizeSource()
             defer { resizeSource.cancel() }
             startInputPump()
+            debugEvent?("websocket.ready")
+            readyEvent?()
             try receiveOutputLoop(delegate: delegate)
         }
 
