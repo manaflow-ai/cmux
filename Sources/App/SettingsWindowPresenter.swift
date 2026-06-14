@@ -1,4 +1,5 @@
 import AppKit
+import CmuxTestSupport
 
 @MainActor
 struct SettingsWindowPresenter {
@@ -83,7 +84,7 @@ struct SettingsWindowPresenter {
     ) {
 #if DEBUG
         cmuxDebugLog("settings.window.show path=swiftuiWindow")
-        _ = CmuxUITestCapture.mutateJSONObjectIfConfigured(
+        _ = UITestCaptureSink().mutateJSONObjectIfConfigured(
             envKey: "CMUX_UI_TEST_SETTINGS_OPEN_CAPTURE_PATH"
         ) { payload in
             payload["opened"] = true
