@@ -2046,6 +2046,7 @@ private struct SessionTranscriptPopoverHost: NSViewRepresentable {
         private func refreshContent() {
             guard let entry = currentEntry else { return }
             let colorScheme = currentColorScheme
+            hostingController.applyRightSidebarPopoverAppearance(colorScheme, popover: popover)
             hostingController.rootView = AnyView(
                 SessionTranscriptPreviewView(
                     entry: entry,
@@ -2056,6 +2057,7 @@ private struct SessionTranscriptPopoverHost: NSViewRepresentable {
                 ) { [weak self] in
                     self?.closeFromContent()
                 }
+                .background(Color(nsColor: .windowBackgroundColor))
                 .environment(\.colorScheme, colorScheme)
                 .id(entry.id)
             )
@@ -2097,6 +2099,15 @@ private final class PopoverAnchorView: NSView {
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
         onDidMoveToWindow?()
+    }
+}
+
+private extension NSHostingController where Content == AnyView {
+    func applyRightSidebarPopoverAppearance(_ colorScheme: ColorScheme, popover: NSPopover?) {
+        let baseAppearance = view.window?.effectiveAppearance ?? NSApp.effectiveAppearance
+        let appearance = FileExplorerColors.appearance(for: colorScheme, preservingVariantsOf: baseAppearance)
+        popover?.appearance = appearance
+        view.appearance = appearance
     }
 }
 
@@ -2767,6 +2778,7 @@ struct SectionPopoverHost: NSViewRepresentable {
             let onResume = currentOnResume
             let identity = presentationCount
             let colorScheme = currentColorScheme
+            hostingController.applyRightSidebarPopoverAppearance(colorScheme, popover: popover)
             hostingController.rootView = AnyView(
                 SectionPopoverView(
                     section: section,
@@ -2776,6 +2788,7 @@ struct SectionPopoverHost: NSViewRepresentable {
                 ) { [weak self] in
                     self?.closeFromContent()
                 }
+                .background(Color(nsColor: .windowBackgroundColor))
                 .environment(\.colorScheme, colorScheme)
                 .id(identity)
             )
