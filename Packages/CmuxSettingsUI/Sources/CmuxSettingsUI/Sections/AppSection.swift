@@ -49,6 +49,7 @@ public struct AppSection: View {
     @State private var paneRing: DefaultsValueModel<Bool>
     @State private var paneFlash: DefaultsValueModel<Bool>
     @State private var desktopNotificationAuthorization: DesktopNotificationAuthorizationState
+    @State private var desktopNotificationPrimaryActionID: UUID?
     @State private var desktopNotificationPrimaryActionTask: Task<Void, Never>?
     @State private var soundName: DefaultsValueModel<String>
     @State private var soundCommand: DefaultsValueModel<String>
@@ -139,6 +140,7 @@ public struct AppSection: View {
             }
         }
         .onDisappear {
+            desktopNotificationPrimaryActionID = nil
             desktopNotificationPrimaryActionTask?.cancel()
             desktopNotificationPrimaryActionTask = nil
         }
@@ -696,8 +698,15 @@ public struct AppSection: View {
 
     private func performDesktopNotificationPrimaryAction() {
         guard desktopNotificationPrimaryActionTask == nil else { return }
+        let actionID = UUID()
+        desktopNotificationPrimaryActionID = actionID
         desktopNotificationPrimaryActionTask = Task { @MainActor in
-            defer { desktopNotificationPrimaryActionTask = nil }
+            defer {
+                if desktopNotificationPrimaryActionID == actionID {
+                    desktopNotificationPrimaryActionID = nil
+                    desktopNotificationPrimaryActionTask = nil
+                }
+            }
             let nextState = await DesktopNotificationSettingsRowActions(hostActions: hostActions)
                 .performPrimaryAction(for: desktopNotificationAuthorization)
             guard !Task.isCancelled else { return }
