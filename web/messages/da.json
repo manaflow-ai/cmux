@@ -924,6 +924,8 @@
         "surfaces": "Surfaces",
         "surfacesBlurb": "Surfaces er faner inde i et panel.",
         "splitPanes": "Opdelte paneler",
+        "canvas": "Lærred",
+        "canvasBlurb": "En fri 2D-layouttilstand, hvor ruder flyder på et uendeligt lærred, der kan panoreres. Justerings- og fordelingskommandoer findes i kommandopaletten.",
         "browser": "Browser",
         "notifications": "Notifikationer",
         "find": "Find",
