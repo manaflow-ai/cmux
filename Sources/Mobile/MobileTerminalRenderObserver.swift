@@ -40,32 +40,6 @@ final class MobileTerminalRenderObserver {
     /// "not yet resolved"; recomputed lazily and invalidated whenever the parsed
     /// Ghostty config it derives from is invalidated.
     private var cachedInheritedTheme: MobileInheritedTerminalTheme?
-    /// Set from any thread when the parsed Ghostty config is invalidated (app or
-    /// surface-only reload). The main-actor ``inheritedTheme()`` consumes it and
-    /// re-resolves. A `nonisolated` thread-safe flag (rather than the main-actor
-    /// cache) so the surface-reload path can invalidate without touching the
-    /// main-actor `shared` instance, which would be an actor-isolation violation
-    /// from its nonisolated callers.
-    nonisolated private static let themeCacheInvalidated = ThemeCacheInvalidationFlag()
-
-    /// A tiny lock-guarded boolean so config invalidation (which can originate off
-    /// the main actor) can signal the main-actor theme cache without an actor hop.
-    private final class ThemeCacheInvalidationFlag: @unchecked Sendable {
-        private let lock = NSLock()
-        private var value = false
-
-        func set() {
-            lock.lock(); defer { lock.unlock() }
-            value = true
-        }
-
-        /// Returns whether the flag was set and clears it, atomically.
-        func consume() -> Bool {
-            lock.lock(); defer { lock.unlock() }
-            defer { value = false }
-            return value
-        }
-    }
 
     private init() {}
 
@@ -115,33 +89,29 @@ final class MobileTerminalRenderObserver {
             forName: .ghosttyConfigDidReload,
             object: nil,
             queue: .main
-        ) { _ in
-            Self.invalidateInheritedThemeCache()
+        ) { [weak self] _ in
+            MainActor.assumeIsolated {
+                self?.invalidateInheritedThemeCache()
+            }
         })
         refreshNotificationDemand()
     }
 
-    /// Drop the cached inherited theme so the next full frame re-resolves it.
-    /// Called whenever the parsed Ghostty config that the theme derives from is
-    /// invalidated — both the app-scoped `.ghosttyConfigDidReload` and the
-    /// surface-only reload path (`GhosttyApp.reloadSurfaceConfiguration`), which
-    /// invalidates `GhosttyConfig`'s load cache without posting that
-    /// notification. `nonisolated` + thread-safe so either caller (some of which
-    /// run off the main actor) can signal it; the next ``inheritedTheme()`` on
-    /// the main actor re-resolves. Safe to call even when no phone is attached.
-    nonisolated static func invalidateInheritedThemeCache() {
-        themeCacheInvalidated.set()
-        // Marking the cache dirty alone is not enough: an idle/background
-        // terminal produces no render frames, so a theme/config change with no
-        // content change would not push any new event and the attached phone
-        // would keep the old palette/chrome until unrelated activity. Schedule a
-        // global render-grid update so the forced full snapshot (the
-        // `themeChanged` branch in `emitRenderGrid`) is actually emitted. Hops to
-        // the main actor (where `shared` is isolated); no-op when no phone is
-        // subscribed.
-        Task { @MainActor in
-            shared.scheduleThemeRefreshEmit()
-        }
+    /// Drop the cached inherited theme so the next full frame re-resolves it, and
+    /// push a fresh themed snapshot. Called on `.ghosttyConfigDidReload`, the
+    /// app-wide signal that the parsed Ghostty config the theme derives from
+    /// changed (settings edit, light↔dark switch). The mobile theme is global
+    /// (from app-wide `GhosttyConfig.load()`), so a single invalidation covers
+    /// every surface. Safe to call even when no phone is attached.
+    private func invalidateInheritedThemeCache() {
+        cachedInheritedTheme = nil
+        // Clearing the cache alone is not enough: an idle/background terminal
+        // produces no render frames, so a theme change with no content change
+        // would push no new event and the attached phone would keep the old
+        // palette/chrome until unrelated activity. Force a global render-grid
+        // refresh so the `themeChanged` full snapshot in `emitRenderGrid` is
+        // emitted; no-op when no phone is subscribed.
+        scheduleThemeRefreshEmit()
     }
 
     /// Force a global render-grid emit so a theme change with no content change
@@ -355,10 +325,6 @@ final class MobileTerminalRenderObserver {
     /// phone inherits it on its very first snapshot rather than waiting for a
     /// later live full event.
     func inheritedTheme() -> MobileInheritedTerminalTheme {
-        // A pending invalidation (from any thread) forces a re-resolve.
-        if Self.themeCacheInvalidated.consume() {
-            cachedInheritedTheme = nil
-        }
         if let cachedInheritedTheme {
             return cachedInheritedTheme
         }
