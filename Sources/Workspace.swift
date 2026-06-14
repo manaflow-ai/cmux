@@ -7,6 +7,7 @@ import CmuxRemoteWorkspace
 import CmuxTerminalEngine
 import SwiftUI
 import AppKit
+import CmuxFoundation
 import Bonsplit
 import CMUXAgentLaunch
 import CmuxBrowser
@@ -2262,39 +2263,9 @@ extension Workspace {
 }
 
 
-struct ClosedBrowserPanelRestoreSnapshot: BrowserPanelRestoreSnapshot {
-    let workspaceId: UUID
-    let url: URL?
-    let profileID: UUID?
-    let originalPaneId: UUID
-    let originalTabIndex: Int
-    let fallbackSplitOrientation: SplitOrientation?
-    let fallbackSplitInsertFirst: Bool
-    let fallbackAnchorPaneId: UUID?
-    let closedAt: Date
-
-    init(
-        workspaceId: UUID,
-        url: URL?,
-        profileID: UUID?,
-        originalPaneId: UUID,
-        originalTabIndex: Int,
-        fallbackSplitOrientation: SplitOrientation?,
-        fallbackSplitInsertFirst: Bool,
-        fallbackAnchorPaneId: UUID?,
-        closedAt: Date = Date()
-    ) {
-        self.workspaceId = workspaceId
-        self.url = url
-        self.profileID = profileID
-        self.originalPaneId = originalPaneId
-        self.originalTabIndex = originalTabIndex
-        self.fallbackSplitOrientation = fallbackSplitOrientation
-        self.fallbackSplitInsertFirst = fallbackSplitInsertFirst
-        self.fallbackAnchorPaneId = fallbackAnchorPaneId
-        self.closedAt = closedAt
-    }
-}
+/// Lifted to `CmuxBrowser.ClosedBrowserPanelRestoreSnapshot` (Workspace
+/// decomposition, Wave 3). This typealias keeps call sites byte-identical.
+typealias ClosedBrowserPanelRestoreSnapshot = CmuxBrowser.ClosedBrowserPanelRestoreSnapshot
 
 /// Process-wide, event-driven cache of `RestorableAgentSessionIndex.load()` results, used
 /// by the right-click "Fork Conversation" availability check and the close-history undo

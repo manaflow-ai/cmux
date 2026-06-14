@@ -10,6 +10,7 @@ import CmuxSocketControl
 import CmuxWorkspaceWindow
 import SwiftUI
 import AppKit
+import CmuxFoundation
 import Metal
 import QuartzCore
 import Combine
