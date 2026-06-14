@@ -1,4 +1,5 @@
 import Foundation
+import CmuxTerminalServices
 import AppKit
 import CmuxRemoteSession
 import UniformTypeIdentifiers
@@ -320,7 +321,7 @@ enum TerminalImageTransferPlanner {
     }
 
     static func escapeForShell(_ value: String) -> String {
-        GhosttyPasteboardHelper.escapeForShell(value)
+        value.terminalShellEscaped
     }
 
     static func insertedText(forPathStrings paths: [String]) -> String {
@@ -378,11 +379,11 @@ enum TerminalImageTransferPlanner {
             return .fileURLs(fileURLs)
         }
 
-        if let string = GhosttyPasteboardHelper.stringContents(from: pasteboard), !string.isEmpty {
+        if let string = GhosttyApp.terminalPasteboard.stringContents(from: pasteboard), !string.isEmpty {
             return .insertText(string)
         }
 
-        switch GhosttyPasteboardHelper.materializeImageFileURLIfNeeded(from: pasteboard) {
+        switch GhosttyApp.terminalPasteboard.materializeImageFileURLIfNeeded(from: pasteboard) {
         case .saved(let imageURL):
             return .fileURLs([imageURL])
         case .rejectedImagePayload:
@@ -392,7 +393,7 @@ enum TerminalImageTransferPlanner {
         }
 
         // Clipboard managers can advertise unusable image types alongside valid text.
-        if let string = GhosttyPasteboardHelper.fallbackPlainTextContents(from: pasteboard), !string.isEmpty {
+        if let string = GhosttyApp.terminalPasteboard.fallbackPlainTextContents(from: pasteboard), !string.isEmpty {
             return .insertText(string)
         }
 
@@ -427,7 +428,7 @@ enum TerminalImageTransferPlanner {
         if !urls.isEmpty {
             return urls
         }
-        return GhosttyPasteboardHelper.saveImageFileURLsIfNeeded(from: pasteboard, assumeNoText: true)
+        return GhosttyApp.terminalPasteboard.saveImageFileURLsIfNeeded(from: pasteboard, assumeNoText: true)
     }
 
     private static func fileURLs(from pasteboard: NSPasteboard) -> [URL] {
