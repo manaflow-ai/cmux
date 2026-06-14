@@ -9,8 +9,20 @@ import AppKit
 /// layout and coordinate spaces; forwarded input is hit-tested geometrically,
 /// not routed through the window.
 final class RemoteWorkerWindow: NSWindow {
+    /// Fired whenever a descendant view marks itself as needing display
+    /// (AppKit aggregates `setNeedsDisplay` from any view in the window
+    /// here). With no display cycle to consume the flag, this signal is how
+    /// between-message invalidations reach the coordinator's display pump.
+    var onViewsNeedDisplay: (@MainActor () -> Void)?
+
     /// Allow future focus forwarding; nothing orders this window in, so key
     /// status never affects the user's real windows.
     override var canBecomeKey: Bool { true }
     override var canBecomeMain: Bool { true }
+
+    override var viewsNeedDisplay: Bool {
+        didSet {
+            if viewsNeedDisplay { onViewsNeedDisplay?() }
+        }
+    }
 }
