@@ -8,15 +8,10 @@ import Testing
 // unchanged); the launch-failure and timeout cases pin the legacy
 // `cmux.remote.process` error codes 1 and 2.
 //
-// `.serialized`: every test here spawns a real `Process` with `Pipe`s and
-// raw-reads the pipe file descriptors. Under Swift Testing's default parallel
-// execution, a sibling test closing a `FileHandle` lets the OS recycle that fd
-// number, so a background reader in another test can read a foreign stream
-// (cross-wired stdout/stderr/stdin). These tests share the process-global fd
-// table and are inherently not parallel-safe against each other. Serializing
-// also matches production, where the runner executes strictly serially per
-// coordinator, so this race window does not exist in the real app.
-@Suite("RemoteSessionProcessRunner", .serialized)
+// Nested under `RemoteSessionProcessTestIsolation` so this fd-closing
+// regression suite cannot overlap with other process/pipe suites.
+extension RemoteSessionProcessTestIsolation {
+@Suite("RemoteSessionProcessRunner")
 struct RemoteSessionProcessRunnerTests {
     @Test("Capture survives the pipe read handles being torn down mid-run")
     func captureSurvivesPipeReadHandleTeardown() throws {
@@ -109,4 +104,5 @@ struct RemoteSessionProcessRunnerTests {
                 && nsError.localizedDescription == "sh timed out after 1s"
         }
     }
+}
 }
