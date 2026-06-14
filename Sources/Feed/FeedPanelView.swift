@@ -206,6 +206,7 @@ private struct FeedListView: View {
     @State private var scrollRequestSequence = 0
     @State private var stopDrafts: [UUID: FeedStopDraft] = [:]
     @State private var focusHostBox = FeedFocusHostBox()
+    @State private var focusOwnershipId = UUID()
 
     var body: some View {
         let snapshots = visibleSnapshots(items)
@@ -231,6 +232,7 @@ private struct FeedListView: View {
             .background(
                 FeedKeyboardFocusBridge(
                     registersWithKeyboardFocusCoordinator: placement.registersWithKeyboardFocusCoordinator,
+                    focusOwnershipId: focusOwnershipId,
                     onViewChange: { host in
                         focusHostBox.view = host
                         onFocusHostChange(host)
@@ -404,6 +406,7 @@ private struct FeedListView: View {
                 syncFeedFocusSnapshot()
             },
             onFocusFeedHost: focusFeedHost,
+            focusOwnershipId: focusOwnershipId,
             onActivate: {
                 selectRow(snapshot.id, focusFeed: true)
                 actions.jump(snapshot.workstreamId)
@@ -716,6 +719,7 @@ private struct FeedRowSurface: View {
     let onControlAction: () -> Void
     let onControlBlur: () -> Void
     let onFocusFeedHost: () -> Void
+    let focusOwnershipId: UUID
     let onActivate: () -> Void
 
     @State private var isHovered = false
@@ -732,6 +736,7 @@ private struct FeedRowSurface: View {
                 onControlAction: onControlAction,
                 onControlBlur: onControlBlur,
                 onFocusFeedHost: onFocusFeedHost,
+                focusOwnershipId: focusOwnershipId,
                 onActivate: onActivate,
                 stopDraft: $stopDraft,
                 stopDraftValue: stopDraft,
@@ -799,6 +804,7 @@ private extension View {
 
 private struct FeedKeyboardFocusBridge: NSViewRepresentable {
     let registersWithKeyboardFocusCoordinator: Bool
+    let focusOwnershipId: UUID
     let onViewChange: (FeedKeyboardFocusView?) -> Void
     let onEscape: () -> Void
     let onMoveSelection: (Int) -> Void
@@ -810,6 +816,7 @@ private struct FeedKeyboardFocusBridge: NSViewRepresentable {
     func makeNSView(context: Context) -> FeedKeyboardFocusView {
         let view = FeedKeyboardFocusView(frame: NSRect(x: 0, y: 0, width: 1, height: 1))
         view.registersWithKeyboardFocusCoordinator = registersWithKeyboardFocusCoordinator
+        view.focusOwnershipId = focusOwnershipId
         view.onEscape = onEscape
         view.onMoveSelection = onMoveSelection
         view.onActivateSelection = onActivateSelection
@@ -823,6 +830,7 @@ private struct FeedKeyboardFocusBridge: NSViewRepresentable {
     func updateNSView(_ nsView: FeedKeyboardFocusView, context: Context) {
         context.coordinator.onViewChange = onViewChange
         nsView.registersWithKeyboardFocusCoordinator = registersWithKeyboardFocusCoordinator
+        nsView.focusOwnershipId = focusOwnershipId
         nsView.onEscape = onEscape
         nsView.onMoveSelection = onMoveSelection
         nsView.onActivateSelection = onActivateSelection
@@ -865,6 +873,7 @@ private struct FeedKeyboardFocusBridge: NSViewRepresentable {
 
 final class FeedKeyboardFocusView: NSView {
     var registersWithKeyboardFocusCoordinator = true
+    var focusOwnershipId: UUID?
     var onEscape: (() -> Void)?
     var onMoveSelection: ((Int) -> Void)?
     var onActivateSelection: (() -> Void)?
@@ -1015,7 +1024,12 @@ final class FeedKeyboardFocusView: NSView {
     }
 
     func ownsKeyboardFocus(_ responder: NSResponder) -> Bool {
-        responder === self || responder is FeedKeyboardFocusResponder
+        if responder === self { return true }
+        guard let focusOwnershipId,
+              let feedResponder = responder as? FeedKeyboardFocusResponder else {
+            return false
+        }
+        return feedResponder.feedKeyboardFocusOwnerId == focusOwnershipId
     }
 }
 
@@ -1132,6 +1146,7 @@ struct FeedItemRow: View, Equatable {
     let onControlAction: () -> Void
     let onControlBlur: () -> Void
     let onFocusFeedHost: () -> Void
+    let focusOwnershipId: UUID
     let onActivate: () -> Void
     @Binding var stopDraft: FeedStopDraft
     let stopDraftValue: FeedStopDraft
@@ -1395,6 +1410,7 @@ struct FeedItemRow: View, Equatable {
                 onActionRow: onControlAction,
                 onBlurRow: onControlBlur,
                 onFocusFeedHost: onFocusFeedHost,
+                focusOwnershipId: focusOwnershipId,
                 context: displayContext,
                 onReply: { selections in
                     actions.replyQuestion(snapshot.id, selections)
@@ -1408,6 +1424,7 @@ struct FeedItemRow: View, Equatable {
                 onActionRow: onControlAction,
                 onBlurRow: onControlBlur,
                 onFocusFeedHost: onFocusFeedHost,
+                focusOwnershipId: focusOwnershipId,
                 onSend: { text in actions.sendText(snapshot.workstreamId, text) }
             )
         default:
@@ -2774,6 +2791,7 @@ private struct QuestionActionArea: View {
     let onActionRow: () -> Void
     let onBlurRow: () -> Void
     let onFocusFeedHost: () -> Void
+    let focusOwnershipId: UUID
     let context: WorkstreamContext?
     let onReply: ([String]) -> Void
 
@@ -2951,7 +2969,8 @@ private struct QuestionActionArea: View {
                     selectCustomAnswer(questionId: questionId, multi: multi)
                 },
                 onBlur: onBlurRow,
-                onFocusFeedHost: onFocusFeedHost
+                onFocusFeedHost: onFocusFeedHost,
+                focusOwnershipId: focusOwnershipId
             )
             Image(systemName: selected ? "checkmark.circle.fill" : "circle")
                 .font(.system(size: 12, weight: .medium))
@@ -3045,7 +3064,8 @@ private struct QuestionActionArea: View {
                 selectCustomAnswer(questionId: questionId, multi: multi)
             },
             onBlur: onBlurRow,
-            onFocusFeedHost: onFocusFeedHost
+            onFocusFeedHost: onFocusFeedHost,
+            focusOwnershipId: focusOwnershipId
         )
         .padding(.horizontal, 8)
         .padding(.vertical, 6)
@@ -3073,7 +3093,8 @@ private struct QuestionActionArea: View {
         font: NSFont,
         onFocus: @escaping () -> Void,
         onBlur: @escaping () -> Void,
-        onFocusFeedHost: @escaping () -> Void
+        onFocusFeedHost: @escaping () -> Void,
+        focusOwnershipId: UUID
     ) -> some View {
         FeedInlineTextField(
             text: text,
@@ -3085,6 +3106,7 @@ private struct QuestionActionArea: View {
             onFocus: onFocus,
             onBlur: onBlur,
             onFocusFeedHost: onFocusFeedHost,
+            focusOwnershipId: focusOwnershipId,
             onSubmit: nil
         )
         .frame(
@@ -3277,6 +3299,7 @@ private final class FeedInlinePassthroughLabel: NSTextField {
 private final class FeedInlineNativeTextView: NSTextView, FeedKeyboardFocusResponder {
     private static weak var activeEditor: FeedInlineNativeTextView?
 
+    var feedKeyboardFocusOwnerId: UUID?
     var onActivate: (() -> Void)?
     var onEscape: (() -> Void)?
     var onSubmit: (() -> Void)?
@@ -3535,6 +3558,7 @@ private struct FeedInlineTextField: NSViewRepresentable {
     let onFocus: () -> Void
     let onBlur: () -> Void
     let onFocusFeedHost: () -> Void
+    let focusOwnershipId: UUID
     let onSubmit: (() -> Void)?
 
     final class Coordinator: NSObject, NSTextViewDelegate {
@@ -3658,6 +3682,7 @@ private struct FeedInlineTextField: NSViewRepresentable {
     }
 
     private func configure(_ view: FeedInlineTextEditorView) {
+        view.textView.feedKeyboardFocusOwnerId = focusOwnershipId
         view.placeholder = placeholder
         view.apply(font: font, isEnabled: isEnabled)
     }
@@ -3789,6 +3814,7 @@ private struct StopActionArea: View {
     let onActionRow: () -> Void
     let onBlurRow: () -> Void
     let onFocusFeedHost: () -> Void
+    let focusOwnershipId: UUID
     let onSend: (String) -> Void
 
     private var trimmed: String {
@@ -3822,6 +3848,7 @@ private struct StopActionArea: View {
                 onFocus: onFocusRow,
                 onBlur: onBlurRow,
                 onFocusFeedHost: onFocusFeedHost,
+                focusOwnershipId: focusOwnershipId,
                 onSubmit: sendReply
             )
             .frame(

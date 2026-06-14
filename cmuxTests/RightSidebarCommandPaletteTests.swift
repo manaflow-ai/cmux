@@ -1,3 +1,4 @@
+import AppKit
 import CmuxCommandPalette
 import Foundation
 import Testing
@@ -103,6 +104,25 @@ struct RightSidebarCommandPaletteTests {
 
     @MainActor
     @Test
+    func feedKeyboardFocusHostOwnsOnlyMatchingFeedResponders() {
+        let ownerId = UUID()
+        let otherOwnerId = UUID()
+        let host = FeedKeyboardFocusView(frame: .zero)
+        host.focusOwnershipId = ownerId
+
+        let matchingResponder = StubFeedKeyboardFocusResponder(ownerId: ownerId)
+        let otherResponder = StubFeedKeyboardFocusResponder(ownerId: otherOwnerId)
+        let unownedResponder = StubFeedKeyboardFocusResponder(ownerId: nil)
+
+        #expect(host.ownsKeyboardFocus(host))
+        #expect(host.ownsKeyboardFocus(matchingResponder))
+        #expect(!host.ownsKeyboardFocus(otherResponder))
+        #expect(!host.ownsKeyboardFocus(unownedResponder))
+        #expect(!host.ownsKeyboardFocus(NSResponder()))
+    }
+
+    @MainActor
+    @Test
     func workspaceRightSidebarToolCreationHonorsFeedAvailability() throws {
         try withSavedBetaFeatureDefaults {
             let defaults = UserDefaults.standard
@@ -190,5 +210,14 @@ struct RightSidebarCommandPaletteTests {
         } else {
             defaults.removeObject(forKey: key)
         }
+    }
+}
+
+private final class StubFeedKeyboardFocusResponder: NSResponder, FeedKeyboardFocusResponder {
+    var feedKeyboardFocusOwnerId: UUID?
+
+    init(ownerId: UUID?) {
+        self.feedKeyboardFocusOwnerId = ownerId
+        super.init()
     }
 }

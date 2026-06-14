@@ -10,7 +10,9 @@ struct FeedFocusSnapshot: Equatable {
     }
 }
 
-protocol FeedKeyboardFocusResponder: AnyObject {}
+protocol FeedKeyboardFocusResponder: AnyObject {
+    var feedKeyboardFocusOwnerId: UUID? { get set }
+}
 
 enum MainWindowKeyboardFocusIntent: Equatable {
     case mainPanel(workspaceId: UUID, panelId: UUID)
