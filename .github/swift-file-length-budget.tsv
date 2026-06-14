@@ -1,10 +1,10 @@
 # cmux-owned Swift file length budget.
 # Format: max_lines<TAB>relative path
 # Reduce counts as files shrink. CI fails if tracked files exceed this budget.
-33500	CLI/cmux.swift
+33501	CLI/cmux.swift
 17922	Sources/AppDelegate.swift
 16827	Sources/ContentView.swift
-14612	Sources/TerminalController.swift
+14628	Sources/TerminalController.swift
 13595	Sources/Panels/BrowserPanel.swift
 12088	Sources/GhosttyTerminalView.swift
 12046	cmuxTests/AppDelegateShortcutRoutingTests.swift
@@ -12,7 +12,7 @@
 9345	cmuxTests/CLINotifyProcessIntegrationRegressionTests.swift
 7911	Sources/Panels/BrowserPanelView.swift
 7350	cmuxTests/WorkspaceUnitTests.swift
-7162	cmuxTests/WorkspaceRemoteConnectionTests.swift
+7183	cmuxTests/WorkspaceRemoteConnectionTests.swift
 6317	cmuxTests/SessionPersistenceTests.swift
 6299	cmuxTests/GhosttyConfigTests.swift
 6153	CLI/cmux_open.swift
@@ -53,7 +53,7 @@
 1794	Sources/SessionIndexStore.swift
 1777	Sources/RestorableAgentSession.swift
 1748	Sources/WindowDragHandleView.swift
-1724	cmuxTests/TerminalControllerSocketSecurityTests.swift
+1725	cmuxTests/TerminalControllerSocketSecurityTests.swift
 1695	cmuxTests/WorkspacePullRequestSidebarTests.swift
 1677	cmuxUITests/BrowserPaneNavigationKeybindUITests.swift
 1652	cmuxTests/CMUXCLIErrorOutputRegressionTests.swift
@@ -201,6 +201,7 @@
 509	Packages/CMUXAgentLaunch/Sources/CMUXAgentLaunch/AgentLaunchSanitizerAdditionalPolicies.swift
 507	Sources/TerminalControllerTopSupport.swift
 506	Sources/App/MainWindowVisibilityController.swift
+505	CLI/CMUXCLI+RemoteMac.swift
 505	cmuxUITests/DisplayResolutionRegressionUITests.swift
 504	cmuxTests/TerminalNotificationSocketActionTests.swift
 503	Sources/Settings/ConfigSource.swift

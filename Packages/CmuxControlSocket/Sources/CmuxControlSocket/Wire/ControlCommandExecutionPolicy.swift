@@ -56,6 +56,7 @@ public enum ControlCommandExecutionPolicy: Sendable, Equatable {
         "browser.profiles.clear",
         "browser.profiles.delete",
         "browser.import.cookies",
+        "mobile.host.ensure",
         "mobile.attach_ticket.create",
         "system.top",
         "system.memory",

@@ -6470,8 +6470,15 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
         XCTAssertEqual(selectParams["window_id"] as? String, windowID)
     }
 
-    @MainActor
-    func testRemoteMacOpenCanCreateDedicatedWindowForDevice() throws {
+    func testRemoteMacOpenCanCreateDedicatedWindowForDevice() {
+        do {
+            try runRemoteMacOpenCanCreateDedicatedWindowForDevice()
+        } catch {
+            XCTFail("remote mac open failed: \(error)")
+        }
+    }
+
+    private func runRemoteMacOpenCanCreateDedicatedWindowForDevice() throws {
         let cliPath = try bundledCLIPath()
         let socketPath = makeSocketPath("rmacwin")
         let listenerFD = try bindUnixSocket(at: socketPath)
@@ -6488,6 +6495,19 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
         try """
         #!/bin/sh
         case "$*" in
+        *CMUX_SOCKET=/tmp/cmux-debug-remote.sock*CMUX_SOCKET_PATH=/tmp/cmux-debug-remote.sock*) ;;
+        *)
+        echo missing remote socket >&2
+        exit 42
+        ;;
+        esac
+        case "$*" in
+        *mobile.host.ensure*)
+        cat <<'JSON'
+        {"host_service":{"is_running":true,"port":58465,"configured_port":58465,"routes":[{"id":"tailscale","kind":"tailscale","endpoint":{"type":"host_port","host":"100.64.1.2","port":58465},"priority":0}],"uses_ephemeral_fallback":false,"active_connection_count":0,"last_error":null},"capabilities":["terminal.viewport.v1"]}
+        JSON
+        exit 0
+        ;;
         *window.current*)
         cat <<'JSON'
         {"window_id":"\(remoteWindowID)","window_ref":"window:2"}
@@ -6570,6 +6590,7 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
                 "--new-window",
                 "--no-focus",
                 "--local-port", "49321",
+                "--remote-socket", "/tmp/cmux-debug-remote.sock",
             ],
             environment: environment,
             timeout: 5

@@ -1072,6 +1072,10 @@ class TerminalController {
                 let outcome = try await BrowserImportAutomation.importCookies(params: request.params)
                 return outcome.socketPayload
             }
+        case "mobile.host.ensure":
+            return v2AsyncResultCall(id: request.id, timeoutSeconds: 10) {
+                await self.v2MobileHostEnsure(params: request.params)
+            }
         case "mobile.attach_ticket.create":
             return v2AsyncResultCall(id: request.id, timeoutSeconds: 30) {
                 await self.v2MobileAttachTicketCreate(params: request.params)
@@ -1991,6 +1995,7 @@ class TerminalController {
             "system.top",
             "system.memory",
             "mobile.host.status",
+            "mobile.host.ensure",
             "mobile.attach_ticket.create",
             "mobile.workspace.list",
             "mobile.terminal.create",
@@ -13361,6 +13366,8 @@ class TerminalController {
         switch request.method {
         case "mobile.host.status":
             result = v2MobileHostStatus(params: request.params, includePrivateMetadata: false)
+        case "mobile.host.ensure":
+            result = await v2MobileHostEnsure(params: request.params)
         case "mobile.attach_ticket.create":
             result = await v2MobileAttachTicketCreate(params: request.params)
         case "mobile.workspace.list", "workspace.list":
@@ -13642,6 +13649,15 @@ class TerminalController {
             let safeData = code == "internal_error" ? nil : data
             return .failure(MobileHostRPCError(code: code, message: safeMessage, data: safeData))
         }
+    }
+
+    @MainActor
+    func v2MobileHostEnsure(params _: [String: Any]) async -> V2CallResult {
+        let status = await MobileHostService.shared.ensureListeningAndReady()
+        return .ok([
+            "host_service": status.payload,
+            "capabilities": MobileHostService.mobileHostCapabilities,
+        ])
     }
 
     func v2MobileHostStatus(

@@ -15,6 +15,7 @@ extension CMUXCLI {
         let localPort: Int
         let ttlSeconds: Int
         let remoteCMUXPath: String
+        let remoteSocketPath: String?
         let routeKind: CmxAttachTransportKind
     }
 
@@ -140,6 +141,7 @@ extension CMUXCLI {
         var localPort: Int?
         var ttlSeconds = 600
         var remoteCMUXPath = "cmux"
+        var remoteSocketPath: String?
         var routeKind = CmxAttachTransportKind.tailscale
 
         var index = 0
@@ -216,6 +218,16 @@ extension CMUXCLI {
                 }
                 remoteCMUXPath = value
                 index += 2
+            case "--remote-socket":
+                guard index + 1 < commandArgs.count else {
+                    throw CLIError(message: "remote mac open: --remote-socket requires a path")
+                }
+                let value = commandArgs[index + 1].trimmingCharacters(in: .whitespacesAndNewlines)
+                guard !value.isEmpty else {
+                    throw CLIError(message: "remote mac open: --remote-socket cannot be empty")
+                }
+                remoteSocketPath = value
+                index += 2
             case "--route-kind":
                 guard index + 1 < commandArgs.count else {
                     throw CLIError(message: "remote mac open: --route-kind requires a value")
@@ -263,6 +275,7 @@ extension CMUXCLI {
             localPort: localPort ?? generateRemoteRelayPort(),
             ttlSeconds: ttlSeconds,
             remoteCMUXPath: remoteCMUXPath,
+            remoteSocketPath: remoteSocketPath,
             routeKind: routeKind
         )
     }
@@ -350,6 +363,11 @@ extension CMUXCLI {
     }
 
     private func mintRemoteMacAttachTicket(_ options: RemoteMacOpenOptions) throws -> RemoteMacTicketMint {
+        _ = try? runRemoteMacCMUXRPC(
+            options: options,
+            method: "mobile.host.ensure",
+            params: [:]
+        )
         let params: [String: Any] = [
             "scope": "mac",
             "route_kind": options.routeKind.rawValue,
@@ -379,13 +397,19 @@ extension CMUXCLI {
         guard let paramsJSON = String(data: paramsData, encoding: .utf8) else {
             throw CLIError(message: "remote mac open: failed to encode \(method) params")
         }
-        let remoteScript = [
+        var remoteScriptParts: [String] = []
+        if let remoteSocketPath = options.remoteSocketPath {
+            remoteScriptParts.append("CMUX_SOCKET=\(shellQuote(remoteSocketPath))")
+            remoteScriptParts.append("CMUX_SOCKET_PATH=\(shellQuote(remoteSocketPath))")
+        }
+        remoteScriptParts += [
             shellQuote(options.remoteCMUXPath),
             "--json",
             "rpc",
             shellQuote(method),
             shellQuote(paramsJSON),
-        ].joined(separator: " ")
+        ]
+        let remoteScript = remoteScriptParts.joined(separator: " ")
         let rpcSSHOptions = SSHCommandOptions(
             destination: options.destination,
             port: options.sshPort,

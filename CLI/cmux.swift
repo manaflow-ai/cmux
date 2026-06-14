@@ -14295,6 +14295,7 @@ struct CMUXCLI {
               --local-port <n>        Local forwarded port (default: generated)
               --ttl <seconds>         Attach ticket TTL, 30-3600 (default: 600)
               --remote-cmux <path>    Remote cmux CLI path/name (default: cmux)
+              --remote-socket <path>  Remote cmux debug socket path
               --remote-window <id>    Remote cmux window id/ref/index/current (default: current)
               --window <id|ref|index> Target window for the managed workspace
               --new-window            Create a dedicated local window for this remote Mac
@@ -33304,7 +33305,7 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
           list-workspaces [--window <id|ref|index>]
           new-workspace [--name <title>] [--description <text>] [--cwd <path>] [--command <text>] [--layout <json>] [--window <id|ref|index>] [--focus <true|false>]
           ssh <destination> [--name <title>] [--port <n>] [--identity <path>] [-A|--forward-agent] [-a|--no-forward-agent] [--ssh-option <opt>] [--window <id|ref|index>] [--no-focus] [-- <remote-command-args>]
-          remote mac open <destination> [--name <title>] [--port <n>] [--identity <path>] [--local-port <n>] [--ttl <seconds>] [--remote-cmux <path>] [--remote-window <id|ref|index|current>] [--ssh-option <opt>] [--window <id|ref|index> | --new-window] [--no-focus]
+          remote mac open <destination> [--name <title>] [--port <n>] [--identity <path>] [--local-port <n>] [--ttl <seconds>] [--remote-cmux <path>] [--remote-socket <path>] [--remote-window <id|ref|index|current>] [--ssh-option <opt>] [--window <id|ref|index> | --new-window] [--no-focus]
           ssh-session-list [--workspace <id|ref|index> | --all-workspaces]
           ssh-session-attach --session-id <id> [--workspace <id|ref|index>] [--pane <id|ref|index> | --split <left|right|up|down>]
           ssh-session-cleanup [--workspace <id|ref|index> | --all-workspaces] (--session-id <id> | --all)
