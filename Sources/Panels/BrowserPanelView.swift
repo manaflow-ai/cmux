@@ -657,7 +657,7 @@ struct BrowserPanelView: View {
     }
 
     private var developerToolsButtonHelp: String {
-        let base = String(localized: "browser.toggleDevTools", defaultValue: "Toggle Developer Tools")
+        let base = String(localized: "browser.toggleDevTools", defaultValue: "Open or close Browser Developer Tools for this page")
         let _ = keyboardShortcutSettingsObserver.revision
         return "\(base) (\(KeyboardShortcutSettings.shortcut(for: .toggleBrowserDeveloperTools).displayString))"
     }
