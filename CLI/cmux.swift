@@ -143,6 +143,11 @@ private final class CLISocketSentryTelemetry {
 
     func captureError(stage: String, error: Error, data: [String: Any] = [:]) {
         guard shouldEmit else { return }
+        // Writes to a peer that has gone away (broken pipe / reset / closed fd)
+        // are expected disconnects, not bugs. Drop them before capture so they
+        // do not flood Sentry (this signature was the large majority of all
+        // error events) and so we skip the 2s flush below on the hot path.
+        if SentryNoiseFilter.isExpectedPeerDisconnect(String(describing: error)) { return }
 #if canImport(Sentry)
         Self.ensureStarted()
         flushPendingBreadcrumbs()
@@ -284,6 +289,23 @@ private final class CLISocketSentryTelemetry {
     }
 
 #if canImport(Sentry)
+    /// True when an outgoing event is an expected broken-pipe / peer-disconnect
+    /// write failure, so `beforeSend` can drop it. Inspects the human-readable
+    /// message and exception values (grouping fields are left untouched).
+    private static func isExpectedPeerDisconnectEvent(_ event: Event) -> Bool {
+        if let message = event.message?.formatted,
+           SentryNoiseFilter.isExpectedPeerDisconnect(message) {
+            return true
+        }
+        for exception in event.exceptions ?? [] {
+            if let value = exception.value,
+               SentryNoiseFilter.isExpectedPeerDisconnect(value) {
+                return true
+            }
+        }
+        return false
+    }
+
     private static func ensureStarted() {
         startupLock.lock()
         defer { startupLock.unlock() }
@@ -310,7 +332,12 @@ private final class CLISocketSentryTelemetry {
             // Redact file paths, emails, and secrets from every outgoing event
             // and breadcrumb before it leaves the device.
             let scrubber = SentryEventScrubber()
-            options.beforeSend = { event in scrubber.scrub(event) }
+            options.beforeSend = { event in
+                // Net for any capture path that bypasses captureError: drop
+                // expected broken-pipe/peer-disconnect write failures entirely.
+                if Self.isExpectedPeerDisconnectEvent(event) { return nil }
+                return scrubber.scrub(event)
+            }
             options.beforeBreadcrumb = { breadcrumb in scrubber.scrub(breadcrumb) }
         }
         started = true
