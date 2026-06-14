@@ -219,6 +219,53 @@ extension CLINotifyProcessIntegrationRegressionTests {
         )
     }
 
+    func testSSHViaTshRejectsIdentityOption() throws {
+        let cliPath = try bundledCLIPath()
+        let socketPath = makeSocketPath("ssh-via-tsh-identity")
+        let listenerFD = try bindUnixSocket(at: socketPath)
+        let state = MockSocketServerState()
+
+        defer {
+            Darwin.close(listenerFD)
+            unlink(socketPath)
+        }
+
+        // The server must never be asked to create a workspace: the CLI should
+        // fail fast before any RPC because tsh cannot honor an identity file. Use a
+        // detached server (no XCTestExpectation to wait on) since no response is sent.
+        startDetachedMockServer(listenerFD: listenerFD, state: state) { line in
+            self.v2Response(
+                id: (self.jsonObject(line)?["id"] as? String) ?? "unknown",
+                ok: false,
+                error: ["code": "unexpected", "message": "no RPC expected"]
+            )
+        }
+
+        var environment = ProcessInfo.processInfo.environment
+        environment["CMUX_SOCKET_PATH"] = socketPath
+        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+        environment["CMUX_CLAUDE_HOOK_SENTRY_DISABLED"] = "1"
+        environment.removeValue(forKey: "CMUX_WORKSPACE_ID")
+        environment.removeValue(forKey: "CMUX_SURFACE_ID")
+
+        let result = runProcess(
+            executablePath: cliPath,
+            arguments: ["ssh", "--via", "tsh", "--identity", "/tmp/id_ed25519", "tester@example.com"],
+            environment: environment,
+            timeout: 5
+        )
+
+        XCTAssertFalse(result.timedOut, result.stderr)
+        XCTAssertNotEqual(result.status, 0, "tsh transport must reject --identity instead of silently dropping it")
+        XCTAssertTrue(result.stdout.isEmpty, result.stdout)
+        XCTAssertTrue(result.stderr.lowercased().contains("identity"), result.stderr)
+        // Fail-fast: no workspace should be created when the request is rejected.
+        XCTAssertFalse(
+            state.commands.contains { (self.jsonObject($0)?["method"] as? String) == "workspace.create" },
+            "Expected no workspace.create RPC for a rejected tsh request"
+        )
+    }
+
     func testSSHViaTshOpensInteractiveWorkspaceWithoutRelay() throws {
         let cliPath = try bundledCLIPath()
         let socketPath = makeSocketPath("ssh-via-tsh")

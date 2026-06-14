@@ -8021,6 +8021,16 @@ struct CMUXCLI {
         jsonOutput: Bool,
         idFormat: CLIIDFormat
     ) throws {
+        // Fail fast on first-class OpenSSH options tsh cannot honor, rather than
+        // silently dropping them and opening a session with a different auth path
+        // than the caller requested. tsh authenticates via `tsh login` certificates,
+        // so an identity file is meaningless and must not be quietly ignored.
+        if normalizedSSHIdentityPath(options.identityFile) != nil {
+            throw CLIError(
+                message: "ssh: --via tsh does not support --identity (Teleport authenticates via 'tsh login'). Remove --identity or use --via ssh."
+            )
+        }
+
         let teleportCommand = teleportSSHCommandText(options)
         // No relay wrapper: the terminal simply execs `tsh ssh`, so the workspace is a
         // plain interactive session. `exec` replaces the shell so closing the remote
