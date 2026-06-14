@@ -773,7 +773,11 @@
         "terminal": {
           "copyOnSelect": "Kopiuje zaznaczony tekst terminala do schowka systemowego po zatwierdzeniu zaznaczenia, w tym zaznaczenia słów i wierszy wykonane dwuklikiem lub potrójnym kliknięciem.",
           "showTextBoxOnNewTerminals": "Domyślnie pokazuje wejście TextBox beta dla nowo utworzonych obszarów roboczych, kart terminala i podziałów.",
-          "focusTextBoxOnNewTerminals": "Domyślnie ustawia fokus na wejściu TextBox beta dla nowo utworzonych obszarów roboczych, kart terminala i podziałów. Fokus pokazuje też TextBox."
+          "focusTextBoxOnNewTerminals": "Domyślnie ustawia fokus na wejściu TextBox beta dla nowo utworzonych obszarów roboczych, kart terminala i podziałów. Fokus pokazuje też TextBox.",
+          "quickTerminalPosition": "Pozycja przy krawędzi ekranu lub na środku dla pływającego Quick Terminal.",
+          "quickTerminalPrimarySizeRatio": "Rozmiar Quick Terminal wzdłuż osi wysuwania jako ułamek widocznego ekranu.",
+          "quickTerminalSecondarySizeRatio": "Rozmiar Quick Terminal na przeciwnej osi jako ułamek widocznego ekranu.",
+          "quickTerminalAutoHide": "Automatycznie ukrywaj Quick Terminal po utracie fokusu klawiatury."
         },
         "browser": {
           "defaultSearchEngine": "Domyślna wyszukiwarka dla wpisów w pasku adresu przeglądarki, które nie są URL-ami. Użyj custom z customSearchEngineURLTemplate dla innych dostawców.",
@@ -1204,7 +1208,10 @@
     "changelog": {
       "title": "Dziennik zmian",
       "metaDescription": "Notatki wydań i historia wersji cmux. Nowe funkcje, poprawki błędów i zmiany dla natywnego terminala macOS.",
-      "metaTitle": "Historia zmian"
+      "metaTitle": "Historia zmian",
+      "entries": {
+        "quickTerminal": "Panel Quick Terminal z konfigurowalną pozycją/rozmiarem, skrótem Option-Command-backtick, akcją w palecie poleceń i sterowaniem CLI `cmux quick-terminal`."
+      }
     },
     "navItems": {
       "gettingStarted": "Szybki start",

@@ -773,7 +773,11 @@
         "terminal": {
           "copyOnSelect": "Kopira odabrani tekst iz terminala u sistemski međuspremnik kada se odabir potvrdi, uključujući riječi i redove odabrane dvoklikom ili troklikom.",
           "showTextBoxOnNewTerminals": "Podrazumijevano prikazuje beta TextBox unos za novokreirane radne prostore, terminalske tabove i podjele.",
-          "focusTextBoxOnNewTerminals": "Podrazumijevano fokusira beta TextBox unos za novokreirane radne prostore, terminalske tabove i podjele. Fokusiranje također prikazuje TextBox."
+          "focusTextBoxOnNewTerminals": "Podrazumijevano fokusira beta TextBox unos za novokreirane radne prostore, terminalske tabove i podjele. Fokusiranje također prikazuje TextBox.",
+          "quickTerminalPosition": "Položaj na ivici ekrana ili u sredini za plutajući Quick Terminal.",
+          "quickTerminalPrimarySizeRatio": "Veličina Quick Terminala duž ose uvlačenja, kao udio vidljivog ekrana.",
+          "quickTerminalSecondarySizeRatio": "Veličina Quick Terminala na suprotnoj osi, kao udio vidljivog ekrana.",
+          "quickTerminalAutoHide": "Automatski sakrij Quick Terminal kada izgubi fokus tastature."
         },
         "browser": {
           "defaultSearchEngine": "Zadani pretraživač za upite u adresnoj traci preglednika koji nisu URL-ovi. Koristite custom uz customSearchEngineURLTemplate za druge pružatelje.",
@@ -1204,7 +1208,10 @@
     "changelog": {
       "title": "Zapisnik promjena",
       "metaDescription": "cmux bilješke o izdanjima i historija verzija. Nove funkcionalnosti, ispravke grešaka i promjene za nativni macOS terminal.",
-      "metaTitle": "Dnevnik promjena"
+      "metaTitle": "Dnevnik promjena",
+      "entries": {
+        "quickTerminal": "Quick Terminal panel s podesivom pozicijom/veličinom, Option-Command-backtick prečicom, akcijom u paleti komandi i `cmux quick-terminal` CLI kontrolama."
+      }
     },
     "navItems": {
       "gettingStarted": "Početak rada",

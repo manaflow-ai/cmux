@@ -1,7 +1,15 @@
+import type { Locale } from "../i18n/routing";
+
 export type LocalizedText = {
   en: string;
   ja: string;
-};
+} & Partial<Record<Exclude<Locale, "en" | "ja">, string>>;
+
+export function localizedShortcutText(text: LocalizedText, locale: string) {
+  const exact = (text as Partial<Record<string, string>>)[locale];
+  if (exact) return exact;
+  return locale.startsWith("ja") ? text.ja : text.en;
+}
 
 export type Shortcut = {
   id: string;
@@ -37,6 +45,54 @@ export const shortcutCategories: ShortcutCategory[] = [
         combos: [["⌥", "⌘", "F"]],
         description: { en: "Global search", ja: "グローバル検索" },
         note: { en: "system-wide hotkey", ja: "システム全体のホットキー" },
+      },
+      {
+        id: "toggleQuickTerminal",
+        combos: [["⌥", "⌘", "`"]],
+        description: {
+          en: "Toggle quick terminal",
+          ja: "クイックターミナルを切り替え",
+          "zh-CN": "切换快速终端",
+          "zh-TW": "切換快速終端",
+          ko: "빠른 터미널 전환",
+          de: "Schnellterminal ein-/ausblenden",
+          es: "Alternar terminal rápido",
+          fr: "Afficher/masquer le terminal rapide",
+          it: "Attiva/disattiva terminale rapido",
+          da: "Slå hurtig terminal til/fra",
+          pl: "Przełącz szybki terminal",
+          ru: "Переключить быстрый терминал",
+          bs: "Uključi/isključi brzi terminal",
+          ar: "تبديل الطرفية السريعة",
+          no: "Slå hurtigterminal av/på",
+          "pt-BR": "Alternar terminal rápido",
+          th: "สลับเทอร์มินัลด่วน",
+          tr: "Hızlı terminali aç/kapat",
+          km: "បិទ/បើក terminal រហ័ស",
+          uk: "Перемкнути швидкий термінал",
+        },
+        note: {
+          en: "system-wide hotkey",
+          ja: "システム全体のホットキー",
+          "zh-CN": "系统级热键",
+          "zh-TW": "系統層級快速鍵",
+          ko: "시스템 전체 단축키",
+          de: "systemweiter Kurzbefehl",
+          es: "atajo global del sistema",
+          fr: "raccourci système global",
+          it: "scorciatoia a livello di sistema",
+          da: "systemgenvej",
+          pl: "globalny skrót systemowy",
+          ru: "общесистемная горячая клавиша",
+          bs: "sistemska prečica",
+          ar: "اختصار على مستوى النظام",
+          no: "systemomfattende hurtigtast",
+          "pt-BR": "atalho global do sistema",
+          th: "ปุ่มลัดทั้งระบบ",
+          tr: "sistem genelinde kısayol",
+          km: "គ្រាប់ចុចកាត់ប្រព័ន្ធទាំងមូល",
+          uk: "загальносистемна гаряча клавіша",
+        },
       },
       { id: "commandPalette", combos: [["⌘", "⇧", "P"]], description: { en: "Command palette", ja: "コマンドパレット" } },
       {

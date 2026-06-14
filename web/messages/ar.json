@@ -773,7 +773,11 @@
         "terminal": {
           "copyOnSelect": "ينسخ نص الطرفية المحدد إلى حافظة النظام عند تثبيت التحديد، بما في ذلك تحديد الكلمات والأسطر بالنقر المزدوج والثلاثي.",
           "showTextBoxOnNewTerminals": "يعرض إدخال TextBox التجريبي افتراضيًا لمساحات العمل وتبويبات الطرفية وتقسيماتها المنشأة حديثًا.",
-          "focusTextBoxOnNewTerminals": "يركز إدخال TextBox التجريبي افتراضيًا لمساحات العمل وتبويبات الطرفية وتقسيماتها المنشأة حديثًا. التركيز يعرض TextBox أيضًا."
+          "focusTextBoxOnNewTerminals": "يركز إدخال TextBox التجريبي افتراضيًا لمساحات العمل وتبويبات الطرفية وتقسيماتها المنشأة حديثًا. التركيز يعرض TextBox أيضًا.",
+          "quickTerminalPosition": "موضع حافة الشاشة أو الوسط للـ Quick Terminal العائم.",
+          "quickTerminalPrimarySizeRatio": "حجم Quick Terminal على محور الانزلاق، كنسبة من الشاشة المرئية.",
+          "quickTerminalSecondarySizeRatio": "حجم Quick Terminal على المحور المقابل، كنسبة من الشاشة المرئية.",
+          "quickTerminalAutoHide": "إخفاء Quick Terminal تلقائيًا عندما يفقد تركيز لوحة المفاتيح."
         },
         "browser": {
           "defaultSearchEngine": "محرك البحث الافتراضي لاستعلامات شريط عنوان المتصفح التي ليست عناوين URL. استخدم custom مع customSearchEngineURLTemplate لموفري بحث آخرين.",
@@ -1204,7 +1208,10 @@
     "changelog": {
       "title": "سجل التغييرات",
       "metaDescription": "ملاحظات إصدار cmux وسجل الإصدارات. الميزات الجديدة وإصلاحات الأخطاء والتغييرات لطرفية macOS الأصلية.",
-      "metaTitle": "سجل التغييرات"
+      "metaTitle": "سجل التغييرات",
+      "entries": {
+        "quickTerminal": "لوحة Quick Terminal مع موضع/حجم قابلين للضبط، واختصار Option-Command-backtick، وإجراء في لوحة الأوامر، وعناصر تحكم CLI عبر `cmux quick-terminal`."
+      }
     },
     "navItems": {
       "gettingStarted": "البدء",

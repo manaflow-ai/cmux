@@ -773,7 +773,11 @@
         "terminal": {
           "copyOnSelect": "Kopierer markeret terminaltekst til systemets udklipsholder, når markeringen bekræftes, inklusive ord- og linjemarkeringer fra dobbelt- og tredobbeltklik.",
           "showTextBoxOnNewTerminals": "Viser beta-TextBox-input som standard for nyoprettede arbejdsområder, terminalfaner og terminalsplits.",
-          "focusTextBoxOnNewTerminals": "Fokuserer beta-TextBox-input som standard for nyoprettede arbejdsområder, terminalfaner og terminalsplits. Fokus viser også TextBox."
+          "focusTextBoxOnNewTerminals": "Fokuserer beta-TextBox-input som standard for nyoprettede arbejdsområder, terminalfaner og terminalsplits. Fokus viser også TextBox.",
+          "quickTerminalPosition": "Skærmkant- eller centerplacering for den flydende Quick Terminal.",
+          "quickTerminalPrimarySizeRatio": "Quick Terminal-størrelse langs indskydningsaksen som en andel af den synlige skærm.",
+          "quickTerminalSecondarySizeRatio": "Quick Terminal-størrelse på den modsatte akse som en andel af den synlige skærm.",
+          "quickTerminalAutoHide": "Skjul automatisk Quick Terminal, når den mister tastaturfokus."
         },
         "browser": {
           "defaultSearchEngine": "Standardsøgemaskine for forespørgsler i browserens adresselinje, der ikke er URLer. Brug custom med customSearchEngineURLTemplate til andre udbydere.",
@@ -1204,7 +1208,10 @@
     "changelog": {
       "title": "Ændringslog",
       "metaDescription": "cmux udgivelsesnoter og versionshistorik. Nye funktioner, fejlrettelser og ændringer for den native macOS-terminal.",
-      "metaTitle": "Ændringslog"
+      "metaTitle": "Ændringslog",
+      "entries": {
+        "quickTerminal": "Quick Terminal-panel med konfigurerbar placering/størrelse, Option-Kommando-backtick-genvej, kommandopalet-handling og `cmux quick-terminal` CLI-styring."
+      }
     },
     "navItems": {
       "gettingStarted": "Kom i gang",

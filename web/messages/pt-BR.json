@@ -773,7 +773,11 @@
         "terminal": {
           "copyOnSelect": "Copia o texto selecionado no terminal para a área de transferência do sistema quando a seleção é confirmada, incluindo seleções de palavras e linhas por clique duplo e triplo.",
           "showTextBoxOnNewTerminals": "Mostra a entrada TextBox beta por padrão em áreas de trabalho, abas e divisões de terminal recém-criadas.",
-          "focusTextBoxOnNewTerminals": "Foca a entrada TextBox beta por padrão em áreas de trabalho, abas e divisões de terminal recém-criadas. Focar também mostra o TextBox."
+          "focusTextBoxOnNewTerminals": "Foca a entrada TextBox beta por padrão em áreas de trabalho, abas e divisões de terminal recém-criadas. Focar também mostra o TextBox.",
+          "quickTerminalPosition": "Posição na borda da tela ou no centro para o Quick Terminal flutuante.",
+          "quickTerminalPrimarySizeRatio": "Tamanho do Quick Terminal ao longo do eixo de entrada, como fração da tela visível.",
+          "quickTerminalSecondarySizeRatio": "Tamanho do Quick Terminal no eixo oposto, como fração da tela visível.",
+          "quickTerminalAutoHide": "Oculta automaticamente o Quick Terminal quando ele perde o foco do teclado."
         },
         "browser": {
           "defaultSearchEngine": "Mecanismo de busca padrão para consultas na barra de endereço do navegador que não são URLs. Use custom com customSearchEngineURLTemplate para outros provedores.",
@@ -1204,7 +1208,10 @@
     "changelog": {
       "title": "Changelog",
       "metaDescription": "Notas de lançamento e histórico de versões do cmux. Novos recursos, correções de bugs e mudanças para o terminal macOS nativo.",
-      "metaTitle": "Registro de alterações"
+      "metaTitle": "Registro de alterações",
+      "entries": {
+        "quickTerminal": "Painel Quick Terminal com posição/tamanho configuráveis, atalho Option-Command-acento grave, ação na paleta de comandos e controles CLI `cmux quick-terminal`."
+      }
     },
     "navItems": {
       "gettingStarted": "Primeiros Passos",

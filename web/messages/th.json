@@ -773,7 +773,11 @@
         "terminal": {
           "copyOnSelect": "คัดลอกข้อความเทอร์มินัลที่เลือกไปยังคลิปบอร์ดของระบบเมื่อยืนยันการเลือก รวมถึงการเลือกคำและบรรทัดจากการดับเบิลคลิกและทริปเปิลคลิก",
           "showTextBoxOnNewTerminals": "แสดงอินพุต TextBox รุ่นเบต้าเป็นค่าเริ่มต้นสำหรับเวิร์กสเปซ แท็บเทอร์มินัล และการแบ่งเทอร์มินัลที่สร้างใหม่",
-          "focusTextBoxOnNewTerminals": "โฟกัสอินพุต TextBox รุ่นเบต้าเป็นค่าเริ่มต้นสำหรับเวิร์กสเปซ แท็บเทอร์มินัล และการแบ่งเทอร์มินัลที่สร้างใหม่ การโฟกัสจะแสดง TextBox ด้วย"
+          "focusTextBoxOnNewTerminals": "โฟกัสอินพุต TextBox รุ่นเบต้าเป็นค่าเริ่มต้นสำหรับเวิร์กสเปซ แท็บเทอร์มินัล และการแบ่งเทอร์มินัลที่สร้างใหม่ การโฟกัสจะแสดง TextBox ด้วย",
+          "quickTerminalPosition": "ตำแหน่งริมหน้าจอหรือกึ่งกลางสำหรับ Quick Terminal แบบลอย",
+          "quickTerminalPrimarySizeRatio": "ขนาดของ Quick Terminal ตามแกนที่สไลด์เข้ามา คิดเป็นสัดส่วนของหน้าจอที่มองเห็น",
+          "quickTerminalSecondarySizeRatio": "ขนาดของ Quick Terminal ตามแกนตรงข้าม คิดเป็นสัดส่วนของหน้าจอที่มองเห็น",
+          "quickTerminalAutoHide": "ซ่อน Quick Terminal โดยอัตโนมัติเมื่อเสียโฟกัสแป้นพิมพ์"
         },
         "browser": {
           "defaultSearchEngine": "เครื่องมือค้นหาเริ่มต้นสำหรับคำค้นในแถบที่อยู่ของเบราว์เซอร์ที่ไม่ใช่ URL ใช้ custom กับ customSearchEngineURLTemplate สำหรับผู้ให้บริการอื่น",
@@ -1204,7 +1208,10 @@
     "changelog": {
       "title": "Changelog",
       "metaDescription": "บันทึกการอัปเดต cmux และประวัติเวอร์ชัน ฟีเจอร์ใหม่, แก้ไขบั๊ก และการเปลี่ยนแปลงสำหรับเทอร์มินัล macOS เนทีฟ",
-      "metaTitle": "บันทึกการเปลี่ยนแปลง"
+      "metaTitle": "บันทึกการเปลี่ยนแปลง",
+      "entries": {
+        "quickTerminal": "เพิ่มพาเนล Quick Terminal ที่กำหนดตำแหน่ง/ขนาดได้ พร้อมปุ่มลัด Option-Command-backtick, คำสั่งใน command palette และตัวควบคุม CLI `cmux quick-terminal`"
+      }
     },
     "navItems": {
       "gettingStarted": "เริ่มต้นใช้งาน",

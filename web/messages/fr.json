@@ -773,7 +773,11 @@
         "terminal": {
           "copyOnSelect": "Copie le texte sélectionné dans le terminal dans le presse-papiers système lorsque la sélection est validée, y compris les sélections de mots et de lignes par double ou triple clic.",
           "showTextBoxOnNewTerminals": "Affiche l'entrée TextBox bêta par défaut pour les espaces de travail, onglets et divisions de terminal nouvellement créés.",
-          "focusTextBoxOnNewTerminals": "Place le focus sur l'entrée TextBox bêta par défaut pour les espaces de travail, onglets et divisions de terminal nouvellement créés. Le focus affiche aussi TextBox."
+          "focusTextBoxOnNewTerminals": "Place le focus sur l'entrée TextBox bêta par défaut pour les espaces de travail, onglets et divisions de terminal nouvellement créés. Le focus affiche aussi TextBox.",
+          "quickTerminalPosition": "Position au bord de l'écran ou au centre pour le Quick Terminal flottant.",
+          "quickTerminalPrimarySizeRatio": "Taille du Quick Terminal le long de son axe d'apparition, sous forme de fraction de l'écran visible.",
+          "quickTerminalSecondarySizeRatio": "Taille du Quick Terminal sur l'axe opposé, sous forme de fraction de l'écran visible.",
+          "quickTerminalAutoHide": "Masque automatiquement le Quick Terminal lorsqu'il perd le focus clavier."
         },
         "browser": {
           "defaultSearchEngine": "Moteur de recherche par défaut pour les saisies de la barre d’adresse du navigateur qui ne sont pas des URL. Utilisez custom avec customSearchEngineURLTemplate pour d’autres fournisseurs.",
@@ -1204,7 +1208,10 @@
     "changelog": {
       "title": "Changelog",
       "metaDescription": "Notes de version et historique des versions de cmux. Nouvelles fonctionnalités, corrections de bugs et changements pour le terminal macOS natif.",
-      "metaTitle": "Journal des modifications"
+      "metaTitle": "Journal des modifications",
+      "entries": {
+        "quickTerminal": "Panneau Quick Terminal avec position/taille configurables, raccourci Option-Commande-accent grave, action de palette de commandes et contrôles CLI `cmux quick-terminal`."
+      }
     },
     "navItems": {
       "gettingStarted": "Premiers pas",

@@ -30,6 +30,13 @@ interface ChangelogVersion {
   sections: ChangelogSection[];
 }
 
+const quickTerminalChangelogItem =
+  "Quick Terminal panel with a configurable position/size, Option-Command-backtick shortcut, command palette action, and `cmux quick-terminal` CLI controls.";
+
+const localizedChangelogItems: Record<string, string> = {
+  [quickTerminalChangelogItem]: "entries.quickTerminal",
+};
+
 function parseChangelog(markdown: string): ChangelogVersion[] {
   const versions: ChangelogVersion[] = [];
   let current: ChangelogVersion | null = null;
@@ -312,11 +319,14 @@ export default function ChangelogPage() {
                         <SectionBadge heading={section.heading} />
                       )}
                       <ul style={{ margin: 0, paddingTop: 8, paddingBottom: 0, paddingLeft: 24, listStyle: "disc" }}>
-                        {section.items.map((item, j) => (
-                          <li key={j} style={{ margin: 0, padding: 0, fontSize: 14, lineHeight: 1.6, color: "var(--muted)" }}>
-                            <InlineMarkdown text={item} />
-                          </li>
-                        ))}
+                        {section.items.map((item, j) => {
+                          const localizedKey = localizedChangelogItems[item];
+                          return (
+                            <li key={j} style={{ margin: 0, padding: 0, fontSize: 14, lineHeight: 1.6, color: "var(--muted)" }}>
+                              <InlineMarkdown text={localizedKey ? t(localizedKey) : item} />
+                            </li>
+                          );
+                        })}
                       </ul>
                     </div>
                   );

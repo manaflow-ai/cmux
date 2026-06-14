@@ -773,7 +773,11 @@
         "terminal": {
           "copyOnSelect": "Copia il testo selezionato nel terminale negli appunti di sistema quando la selezione viene confermata, incluse le selezioni di parole e righe con doppio e triplo clic.",
           "showTextBoxOnNewTerminals": "Mostra l'input TextBox beta per impostazione predefinita nei workspace, nelle schede e nelle divisioni del terminale appena creati.",
-          "focusTextBoxOnNewTerminals": "Mette a fuoco l'input TextBox beta per impostazione predefinita nei workspace, nelle schede e nelle divisioni del terminale appena creati. Il focus mostra anche TextBox."
+          "focusTextBoxOnNewTerminals": "Mette a fuoco l'input TextBox beta per impostazione predefinita nei workspace, nelle schede e nelle divisioni del terminale appena creati. Il focus mostra anche TextBox.",
+          "quickTerminalPosition": "Posizione sul bordo dello schermo o al centro per il Quick Terminal flottante.",
+          "quickTerminalPrimarySizeRatio": "Dimensione del Quick Terminal lungo l'asse di scorrimento in entrata, come frazione dello schermo visibile.",
+          "quickTerminalSecondarySizeRatio": "Dimensione del Quick Terminal sull'asse opposto, come frazione dello schermo visibile.",
+          "quickTerminalAutoHide": "Nasconde automaticamente il Quick Terminal quando perde il focus della tastiera."
         },
         "browser": {
           "defaultSearchEngine": "Motore di ricerca predefinito per le query nella barra degli indirizzi del browser che non sono URL. Usa custom con customSearchEngineURLTemplate per altri provider.",
@@ -1204,7 +1208,10 @@
     "changelog": {
       "title": "Changelog",
       "metaDescription": "Note di rilascio e cronologia delle versioni di cmux. Nuove funzionalità, correzioni di bug e modifiche per il terminale macOS nativo.",
-      "metaTitle": "Registro modifiche"
+      "metaTitle": "Registro modifiche",
+      "entries": {
+        "quickTerminal": "Pannello Quick Terminal con posizione/dimensioni configurabili, scorciatoia Opzione-Comando-accento grave, azione nella palette comandi e controlli CLI `cmux quick-terminal`."
+      }
     },
     "navItems": {
       "gettingStarted": "Per iniziare",

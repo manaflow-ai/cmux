@@ -5,7 +5,7 @@ import { Link } from "../../../../i18n/navigation";
 import { CodeBlock } from "../../components/code-block";
 import { Callout } from "../../components/callout";
 import settingsSchema from "../../../../data/cmux.schema.json";
-import { shortcutCategories, type LocalizedText } from "../../../../data/cmux-shortcuts";
+import { localizedShortcutText, shortcutCategories } from "../../../../data/cmux-shortcuts";
 import { DocsHeading } from "../../components/docs-heading";
 
 type SchemaProperty = {
@@ -82,7 +82,11 @@ function buildSettingsFileExample(t: ConfigurationTranslation) {
   //     "idleSeconds": 5,
   //     "maxLiveTerminals": 12
   //   },
-  //   "textBoxMaxLines": 10
+  //   "textBoxMaxLines": 10,
+  //   "quickTerminalPosition": "top",
+  //   "quickTerminalPrimarySizeRatio": 0.38,
+  //   "quickTerminalSecondarySizeRatio": 1,
+  //   "quickTerminalAutoHide": true
   // },
 
   // "browser": {
@@ -128,6 +132,7 @@ function buildSettingsFileExample(t: ConfigurationTranslation) {
   // "shortcuts": {
   //   "bindings": {
   //     "toggleSidebar": "cmd+b",
+  //     "toggleQuickTerminal": "cmd+opt+\`",
   //     "toggleFileExplorer": "cmd+opt+b",
   //     "newTab": ["ctrl+b", "c"],
   //     "commandPalettePrevious": null
@@ -144,10 +149,6 @@ export async function generateMetadata({ params }: { params: Promise<{ locale: s
     description: t("metaDescription"),
     alternates: buildAlternates(locale, "/docs/configuration"),
   };
-}
-
-function localizedText(text: LocalizedText, locale: string) {
-  return locale.startsWith("ja") ? text.ja : text.en;
 }
 
 function shortcutToConfig(shortcut: { combos: string[][]; configValue?: string }) {
@@ -444,10 +445,10 @@ working-directory = ~/code`}</CodeBlock>
                     <code className="text-[12px] font-medium">{shortcut.id}</code>
                   </div>
                   <p className="text-sm text-foreground/90">
-                    {localizedText(shortcut.description, locale)}
+                    {localizedShortcutText(shortcut.description, locale)}
                     {shortcut.note && (
                       <span className="ml-2 text-xs text-muted">
-                        {localizedText(shortcut.note, locale)}
+                        {localizedShortcutText(shortcut.note, locale)}
                       </span>
                     )}
                   </p>

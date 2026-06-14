@@ -58,8 +58,7 @@ extension TabManager {
                 snapshot: snapshot,
                 placementOverride: placementOverride
             )
-            let ordinal = Self.nextPortOrdinal
-            Self.nextPortOrdinal += 1
+            let ordinal = Self.allocatePortOrdinal()
             let newWorkspace = Workspace(
                 title: title ?? detached.title,
                 workingDirectory: normalizedWorkingDirectory(detached.directory) ?? snapshot.preferredWorkingDirectory,

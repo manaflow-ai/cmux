@@ -773,7 +773,11 @@
         "terminal": {
           "copyOnSelect": "ចម្លងអត្ថបទ terminal ដែលបានជ្រើសទៅក្ដារតម្រៀបរបស់ប្រព័ន្ធ ពេលការជ្រើសត្រូវបានបញ្ជាក់ រួមទាំងការជ្រើសពាក្យ និងបន្ទាត់ដោយចុចពីរដង និងចុចបីដង។",
           "showTextBoxOnNewTerminals": "បង្ហាញការបញ្ចូល TextBox បេតាជាលំនាំដើមសម្រាប់ workspace ផ្ទាំងស្ថានីយ និងស្ប្លីតស្ថានីយដែលទើបបង្កើតថ្មី។",
-          "focusTextBoxOnNewTerminals": "ផ្តោតការបញ្ចូល TextBox បេតាជាលំនាំដើមសម្រាប់ workspace ផ្ទាំងស្ថានីយ និងស្ប្លីតស្ថានីយដែលទើបបង្កើតថ្មី។ ការផ្តោតក៏បង្ហាញ TextBox ផងដែរ។"
+          "focusTextBoxOnNewTerminals": "ផ្តោតការបញ្ចូល TextBox បេតាជាលំនាំដើមសម្រាប់ workspace ផ្ទាំងស្ថានីយ និងស្ប្លីតស្ថានីយដែលទើបបង្កើតថ្មី។ ការផ្តោតក៏បង្ហាញ TextBox ផងដែរ។",
+          "quickTerminalPosition": "ទីតាំងនៅគែមអេក្រង់ ឬកណ្ដាល សម្រាប់ Quick Terminal អណ្ដែត។",
+          "quickTerminalPrimarySizeRatio": "ទំហំ Quick Terminal តាមអ័ក្សរុញចូល ជាសមាមាត្រនៃអេក្រង់ដែលមើលឃើញ។",
+          "quickTerminalSecondarySizeRatio": "ទំហំ Quick Terminal តាមអ័ក្សផ្ទុយ ជាសមាមាត្រនៃអេក្រង់ដែលមើលឃើញ។",
+          "quickTerminalAutoHide": "លាក់ Quick Terminal ដោយស្វ័យប្រវត្តិ នៅពេលវាបាត់បង់ focus ក្ដារចុច។"
         },
         "browser": {
           "defaultSearchEngine": "ម៉ាស៊ីនស្វែងរកលំនាំដើមសម្រាប់សំណួរនៅក្នុងរបារអាសយដ្ឋានដែលមិនមែនជា URL។ ប្រើ custom ជាមួយ customSearchEngineURLTemplate សម្រាប់អ្នកផ្តល់ផ្សេងៗ។",
@@ -1204,7 +1208,10 @@
     "changelog": {
       "title": "កំណត់ត្រាផ្លាស់ប្ដូរ",
       "metaDescription": "កំណត់ត្រាការចេញផ្សាយ cmux និងប្រវត្តិកំណែ។ មុខងារថ្មី, ការជួសជុលកំហុស, និងការផ្លាស់ប្ដូរសម្រាប់ទែមីណល macOS ដើម។",
-      "metaTitle": "កំណត់ហេតុផ្លាស់ប្ដូរ"
+      "metaTitle": "កំណត់ហេតុផ្លាស់ប្ដូរ",
+      "entries": {
+        "quickTerminal": "ផ្ទាំង Quick Terminal ដែលកំណត់ទីតាំង/ទំហំបាន ជាមួយផ្លូវកាត់ Option-Command-backtick សកម្មភាព command palette និងការគ្រប់គ្រង CLI `cmux quick-terminal`។"
+      }
     },
     "navItems": {
       "gettingStarted": "ចាប់ផ្ដើម",

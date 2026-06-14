@@ -874,7 +874,11 @@
         "terminal": {
           "copyOnSelect": "Copy selected terminal text to the system clipboard when the selection is committed, including word and line selections from double- and triple-click.",
           "showTextBoxOnNewTerminals": "Show the beta TextBox input by default for newly created workspaces, terminal tabs, and terminal splits.",
-          "focusTextBoxOnNewTerminals": "Focus the beta TextBox input by default for newly created workspaces, terminal tabs, and terminal splits. Focusing also shows the TextBox."
+          "focusTextBoxOnNewTerminals": "Focus the beta TextBox input by default for newly created workspaces, terminal tabs, and terminal splits. Focusing also shows the TextBox.",
+          "quickTerminalPosition": "Screen edge or center position for the floating quick terminal.",
+          "quickTerminalPrimarySizeRatio": "Quick terminal size along its slide-in axis, as a fraction of the visible screen.",
+          "quickTerminalSecondarySizeRatio": "Quick terminal size across the opposite axis, as a fraction of the visible screen.",
+          "quickTerminalAutoHide": "Hide the quick terminal automatically when it loses key focus."
         },
         "browser": {
           "defaultSearchEngine": "Default search engine for non-URL browser address bar queries. Use custom with customSearchEngineURLTemplate for arbitrary providers.",
@@ -1448,7 +1452,10 @@
     "changelog": {
       "title": "Changelog",
       "metaTitle": "Changelog",
-      "metaDescription": "cmux release notes and version history. New features, bug fixes, and changes for the native macOS terminal."
+      "metaDescription": "cmux release notes and version history. New features, bug fixes, and changes for the native macOS terminal.",
+      "entries": {
+        "quickTerminal": "Quick Terminal panel with a configurable position/size, Option-Command-backtick shortcut, command palette action, and `cmux quick-terminal` CLI controls."
+      }
     },
     "claudeCodeTeams": {
       "title": "Claude Code Teams",

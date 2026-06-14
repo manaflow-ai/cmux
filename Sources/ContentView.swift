@@ -6611,6 +6611,14 @@ struct ContentView: View {
                 keywords: ["toggle", "sidebar", "left", "layout"]
             )
         )
+        contributions.append(
+            CommandPaletteCommandContribution(
+                commandId: "palette.toggleQuickTerminal",
+                title: constant(String(localized: "command.toggleQuickTerminal.title", defaultValue: "Toggle Quick Terminal")),
+                subtitle: constant(String(localized: "command.toggleQuickTerminal.subtitle", defaultValue: "Terminal")),
+                keywords: ["quick", "terminal", "toggle", "dropdown", "quake"]
+            )
+        )
         // "Sidebar: <provider>" switch commands for each available view. The
         // built-in views are always offered; `descriptors` adds the hosted
         // extension sidebar only while the experimental Extensions beta is on.
@@ -7780,6 +7788,9 @@ struct ContentView: View {
         }
         registry.register(commandId: "palette.toggleSidebar") {
             sidebarState.toggle()
+        }
+        registry.register(commandId: "palette.toggleQuickTerminal") {
+            AppDelegate.shared?.toggleQuickTerminal(nil)
         }
         // Register a handler for every possible view (including the hosted
         // extension sidebar) regardless of the beta flag, so a contribution that

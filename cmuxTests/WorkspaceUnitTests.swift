@@ -2937,6 +2937,60 @@ final class WorkspacePlacementSettingsTests: XCTestCase {
     }
 }
 
+final class QuickTerminalSettingsTests: XCTestCase {
+    func testDefaultsClampAndResolveFromUserDefaults() {
+        let suiteName = "QuickTerminalSettingsTests.Default.\(UUID().uuidString)"
+        guard let defaults = UserDefaults(suiteName: suiteName) else {
+            XCTFail("Failed to create isolated UserDefaults suite")
+            return
+        }
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        var settings = QuickTerminalSettings.resolved(defaults: defaults)
+        XCTAssertEqual(settings.position, .top)
+        XCTAssertEqual(settings.primarySizeRatio, 0.38, accuracy: 0.001)
+        XCTAssertEqual(settings.secondarySizeRatio, 1.0, accuracy: 0.001)
+        XCTAssertTrue(settings.autoHide)
+
+        defaults.set(QuickTerminalPosition.left.rawValue, forKey: QuickTerminalSettings.positionKey)
+        defaults.set(0.05, forKey: QuickTerminalSettings.primarySizeRatioKey)
+        defaults.set(1.4, forKey: QuickTerminalSettings.secondarySizeRatioKey)
+        defaults.set(false, forKey: QuickTerminalSettings.autoHideKey)
+
+        settings = QuickTerminalSettings.resolved(defaults: defaults)
+        XCTAssertEqual(settings.position, .left)
+        XCTAssertEqual(settings.primarySizeRatio, 0.2, accuracy: 0.001)
+        XCTAssertEqual(settings.secondarySizeRatio, 1.0, accuracy: 0.001)
+        XCTAssertFalse(settings.autoHide)
+    }
+
+    func testEdgePositionsResolveVisibleAndHiddenFrames() {
+        let visibleFrame = NSRect(x: 100, y: 80, width: 1000, height: 800)
+
+        let topFrame = QuickTerminalPosition.top.finalFrame(
+            in: visibleFrame,
+            primarySizeRatio: 0.25,
+            secondarySizeRatio: 0.8
+        )
+        XCTAssertEqual(topFrame, NSRect(x: 200, y: 680, width: 800, height: 200))
+        XCTAssertEqual(
+            QuickTerminalPosition.top.hiddenFrame(from: topFrame, visibleFrame: visibleFrame),
+            NSRect(x: 200, y: 880, width: 800, height: 200)
+        )
+
+        let leftFrame = QuickTerminalPosition.left.finalFrame(
+            in: visibleFrame,
+            primarySizeRatio: 0.3,
+            secondarySizeRatio: 0.5
+        )
+        XCTAssertEqual(leftFrame, NSRect(x: 100, y: 280, width: 420, height: 400))
+        XCTAssertEqual(
+            QuickTerminalPosition.left.hiddenFrame(from: leftFrame, visibleFrame: visibleFrame),
+            NSRect(x: -320, y: 280, width: 420, height: 400)
+        )
+    }
+}
+
 final class WorkspaceWorkingDirectoryInheritanceSettingsTests: XCTestCase {
     func testDefaultsToEnabledWhenUnset() {
         let suiteName = "WorkspaceWorkingDirectoryInheritanceSettingsTests.Default.\(UUID().uuidString)"

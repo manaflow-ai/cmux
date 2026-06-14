@@ -894,6 +894,10 @@ struct cmuxApp: App {
                 }
             }
 
+            splitCommandButton(title: String(localized: "menu.view.toggleQuickTerminal", defaultValue: "Toggle Quick Terminal"), shortcut: menuShortcut(for: .toggleQuickTerminal)) {
+                AppDelegate.shared?.toggleQuickTerminal(nil)
+            }
+
             splitCommandButton(title: String(localized: "menu.view.toggleRightSidebar", defaultValue: "Toggle Right Sidebar"), shortcut: menuShortcut(for: .toggleRightSidebar)) {
                 if AppDelegate.shared?.toggleRightSidebarInActiveMainWindow(
                     preferredWindow: NSApp.keyWindow ?? NSApp.mainWindow
@@ -1454,6 +1458,7 @@ private let cmuxAuxiliaryWindowIdentifiers: Set<String> = [
     "cmux.browser-popup",
     "cmux.browserProfilePopoverDebug",
     "cmux.configEditor",
+    "cmux.quick-terminal",
     "cmux.defaultTerminalRegistrationError",
     "cmux.feedButtonStyleDebug",
     "cmux.feedPreview",

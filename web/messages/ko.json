@@ -773,7 +773,11 @@
         "terminal": {
           "copyOnSelect": "선택이 확정되면 더블 클릭 및 트리플 클릭으로 선택한 단어와 줄을 포함해 선택한 터미널 텍스트를 시스템 클립보드에 복사합니다.",
           "showTextBoxOnNewTerminals": "새로 생성된 작업공간, 터미널 탭, 터미널 분할에서 베타 TextBox 입력을 기본으로 표시합니다.",
-          "focusTextBoxOnNewTerminals": "새로 생성된 작업공간, 터미널 탭, 터미널 분할에서 베타 TextBox 입력에 기본으로 포커스합니다. 포커스하면 TextBox도 표시됩니다."
+          "focusTextBoxOnNewTerminals": "새로 생성된 작업공간, 터미널 탭, 터미널 분할에서 베타 TextBox 입력에 기본으로 포커스합니다. 포커스하면 TextBox도 표시됩니다.",
+          "quickTerminalPosition": "플로팅 Quick Terminal의 화면 가장자리 또는 중앙 위치입니다.",
+          "quickTerminalPrimarySizeRatio": "Quick Terminal이 슬라이드되어 들어오는 축의 크기이며, 보이는 화면에 대한 비율입니다.",
+          "quickTerminalSecondarySizeRatio": "Quick Terminal의 반대 축 크기이며, 보이는 화면에 대한 비율입니다.",
+          "quickTerminalAutoHide": "키 포커스를 잃으면 Quick Terminal을 자동으로 숨깁니다."
         },
         "browser": {
           "defaultSearchEngine": "브라우저 주소 표시줄에서 URL이 아닌 입력에 사용할 기본 검색 엔진입니다. 다른 제공자는 custom과 customSearchEngineURLTemplate을 사용하세요.",
@@ -1204,7 +1208,10 @@
     "changelog": {
       "title": "변경 로그",
       "metaDescription": "cmux 릴리스 노트 및 버전 히스토리. 네이티브 macOS 터미널의 새로운 기능, 버그 수정, 변경 사항.",
-      "metaTitle": "변경 내역"
+      "metaTitle": "변경 내역",
+      "entries": {
+        "quickTerminal": "위치와 크기를 설정할 수 있는 Quick Terminal 패널, Option-Command-백틱 단축키, 명령 팔레트 작업, `cmux quick-terminal` CLI 제어를 추가했습니다."
+      }
     },
     "navItems": {
       "gettingStarted": "시작하기",

@@ -16,6 +16,10 @@ public struct TerminalSection: View {
     @State private var fontSaveTask: Task<Void, Never>?
     @State private var scrollBar: DefaultsValueModel<Bool>
     @State private var copyOnSelect: DefaultsValueModel<Bool>
+    @State private var quickTerminalPosition: DefaultsValueModel<String>
+    @State private var quickTerminalPrimarySizeRatio: DefaultsValueModel<Double>
+    @State private var quickTerminalSecondarySizeRatio: DefaultsValueModel<Double>
+    @State private var quickTerminalAutoHide: DefaultsValueModel<Bool>
     @State private var autoResume: DefaultsValueModel<Bool>
     @State private var hibernation: DefaultsValueModel<Bool>
     @State private var idleSeconds: DefaultsValueModel<Double>
@@ -36,6 +40,10 @@ public struct TerminalSection: View {
         _surfaceTabBarFont = State(initialValue: hostActions.surfaceTabBarFontSize())
         _scrollBar = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.terminal.showScrollBar))
         _copyOnSelect = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.terminal.copyOnSelect))
+        _quickTerminalPosition = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.terminal.quickTerminalPosition))
+        _quickTerminalPrimarySizeRatio = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.terminal.quickTerminalPrimarySizeRatio))
+        _quickTerminalSecondarySizeRatio = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.terminal.quickTerminalSecondarySizeRatio))
+        _quickTerminalAutoHide = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.terminal.quickTerminalAutoHide))
         _autoResume = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.terminal.autoResumeAgentSessions))
         _hibernation = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.terminal.agentHibernationEnabled))
         _idleSeconds = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.terminal.agentHibernationIdleSeconds))
@@ -62,6 +70,36 @@ public struct TerminalSection: View {
             let saved = await hostActions.setSurfaceTabBarFontSize(points)
             if !Task.isCancelled { fontSaveFailed = !saved }
         }
+    }
+
+    private var quickTerminalPositionBinding: Binding<String> {
+        Binding(
+            get: {
+                QuickTerminalPositionOption(rawValue: quickTerminalPosition.current)?.rawValue
+                    ?? QuickTerminalPositionOption.top.rawValue
+            },
+            set: { newValue in
+                quickTerminalPosition.set(
+                    QuickTerminalPositionOption(rawValue: newValue)?.rawValue
+                        ?? QuickTerminalPositionOption.top.rawValue
+                )
+            }
+        )
+    }
+
+    private func quickTerminalRatioBinding(_ model: DefaultsValueModel<Double>) -> Binding<Double> {
+        Binding(
+            get: { clampedQuickTerminalRatio(model.current) },
+            set: { model.set(clampedQuickTerminalRatio($0)) }
+        )
+    }
+
+    private func clampedQuickTerminalRatio(_ value: Double) -> Double {
+        min(max(value, 0.2), 1.0)
+    }
+
+    private func quickTerminalRatioPercentLabel(_ ratio: Double) -> String {
+        "\(Int((clampedQuickTerminalRatio(ratio) * 100).rounded()))%"
     }
 
     @ViewBuilder
@@ -159,6 +197,86 @@ public struct TerminalSection: View {
                     .labelsHidden()
                     .controlSize(.small)
                     .accessibilityIdentifier("SettingsTerminalCopyOnSelectToggle")
+            }
+            SettingsCardDivider()
+            SettingsCardRow(
+                configurationReview: .json("terminal.quickTerminalPosition"),
+                String(localized: "settings.quickTerminal.position", defaultValue: "Quick Terminal Position"),
+                subtitle: String(localized: "settings.quickTerminal.position.subtitle", defaultValue: "Choose where the quick terminal slides in."),
+                controlWidth: 196
+            ) {
+                Picker("", selection: quickTerminalPositionBinding) {
+                    ForEach(QuickTerminalPositionOption.allCases) { option in
+                        Text(verbatim: option.localizedName)
+                            .tag(option.rawValue)
+                    }
+                }
+                .labelsHidden()
+                .pickerStyle(.menu)
+                .accessibilityIdentifier("SettingsQuickTerminalPositionPicker")
+                .accessibilityLabel(
+                    String(localized: "settings.quickTerminal.position", defaultValue: "Quick Terminal Position")
+                )
+            }
+            SettingsCardDivider()
+            SettingsCardRow(
+                configurationReview: .json("terminal.quickTerminalPrimarySizeRatio"),
+                String(localized: "settings.quickTerminal.primarySize", defaultValue: "Quick Terminal Primary Size"),
+                subtitle: String(localized: "settings.quickTerminal.primarySize.subtitle", defaultValue: "Size along the slide-in axis."),
+                controlWidth: 196
+            ) {
+                HStack(spacing: 8) {
+                    Slider(
+                        value: quickTerminalRatioBinding(quickTerminalPrimarySizeRatio),
+                        in: 0.2...1.0
+                    )
+                    .frame(width: 132)
+
+                    Text(verbatim: quickTerminalRatioPercentLabel(quickTerminalPrimarySizeRatio.current))
+                        .font(.system(size: 11, weight: .medium))
+                        .foregroundStyle(.secondary)
+                        .monospacedDigit()
+                        .frame(width: 42, alignment: .trailing)
+                }
+                .accessibilityIdentifier("SettingsQuickTerminalPrimarySizeSlider")
+            }
+            SettingsCardDivider()
+            SettingsCardRow(
+                configurationReview: .json("terminal.quickTerminalSecondarySizeRatio"),
+                String(localized: "settings.quickTerminal.secondarySize", defaultValue: "Quick Terminal Secondary Size"),
+                subtitle: String(localized: "settings.quickTerminal.secondarySize.subtitle", defaultValue: "Size across the opposite axis."),
+                controlWidth: 196
+            ) {
+                HStack(spacing: 8) {
+                    Slider(
+                        value: quickTerminalRatioBinding(quickTerminalSecondarySizeRatio),
+                        in: 0.2...1.0
+                    )
+                    .frame(width: 132)
+
+                    Text(verbatim: quickTerminalRatioPercentLabel(quickTerminalSecondarySizeRatio.current))
+                        .font(.system(size: 11, weight: .medium))
+                        .foregroundStyle(.secondary)
+                        .monospacedDigit()
+                        .frame(width: 42, alignment: .trailing)
+                }
+                .accessibilityIdentifier("SettingsQuickTerminalSecondarySizeSlider")
+            }
+            SettingsCardDivider()
+            SettingsCardRow(
+                configurationReview: .json("terminal.quickTerminalAutoHide"),
+                String(localized: "settings.quickTerminal.autoHide", defaultValue: "Quick Terminal Auto-Hide"),
+                subtitle: quickTerminalAutoHide.current
+                    ? String(localized: "settings.quickTerminal.autoHide.subtitleOn", defaultValue: "Hide automatically when it loses focus.")
+                    : String(localized: "settings.quickTerminal.autoHide.subtitleOff", defaultValue: "Keep visible when focus moves away.")
+            ) {
+                Toggle("", isOn: Binding(get: { quickTerminalAutoHide.current }, set: { quickTerminalAutoHide.set($0) }))
+                    .labelsHidden()
+                    .controlSize(.small)
+                    .accessibilityIdentifier("SettingsQuickTerminalAutoHideToggle")
+                    .accessibilityLabel(
+                        String(localized: "settings.quickTerminal.autoHide", defaultValue: "Quick Terminal Auto-Hide")
+                    )
             }
             SettingsCardDivider()
             SettingsCardRow(
@@ -262,4 +380,29 @@ public struct TerminalSection: View {
         }
     }
 
+}
+
+private enum QuickTerminalPositionOption: String, CaseIterable, Identifiable {
+    case top
+    case bottom
+    case left
+    case right
+    case center
+
+    var id: String { rawValue }
+
+    var localizedName: String {
+        switch self {
+        case .top:
+            return String(localized: "settings.quickTerminal.position.top", defaultValue: "Top")
+        case .bottom:
+            return String(localized: "settings.quickTerminal.position.bottom", defaultValue: "Bottom")
+        case .left:
+            return String(localized: "settings.quickTerminal.position.left", defaultValue: "Left")
+        case .right:
+            return String(localized: "settings.quickTerminal.position.right", defaultValue: "Right")
+        case .center:
+            return String(localized: "settings.quickTerminal.position.center", defaultValue: "Center")
+        }
+    }
 }

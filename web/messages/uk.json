@@ -773,7 +773,11 @@
         "terminal": {
           "copyOnSelect": "Копіює вибраний текст термінала до системного буфера обміну після підтвердження виділення, зокрема слова й рядки, вибрані подвійним або потрійним клацанням.",
           "showTextBoxOnNewTerminals": "Типово показує бета-ввід TextBox для новостворених робочих просторів, вкладок термінала й розділень.",
-          "focusTextBoxOnNewTerminals": "Типово фокусує бета-ввід TextBox для новостворених робочих просторів, вкладок термінала й розділень. Фокусування також показує TextBox."
+          "focusTextBoxOnNewTerminals": "Типово фокусує бета-ввід TextBox для новостворених робочих просторів, вкладок термінала й розділень. Фокусування також показує TextBox.",
+          "quickTerminalPosition": "Положення біля краю екрана або по центру для плаваючого Quick Terminal.",
+          "quickTerminalPrimarySizeRatio": "Розмір Quick Terminal уздовж осі появи як частка видимого екрана.",
+          "quickTerminalSecondarySizeRatio": "Розмір Quick Terminal по протилежній осі як частка видимого екрана.",
+          "quickTerminalAutoHide": "Автоматично приховувати Quick Terminal, коли він втрачає фокус клавіатури."
         },
         "browser": {
           "defaultSearchEngine": "Пошукова система за замовчуванням для запитів в адресному рядку браузера, які не є URL. Для інших провайдерів використовуйте custom з customSearchEngineURLTemplate.",
@@ -1204,7 +1208,10 @@
     "changelog": {
       "title": "Журнал змін",
       "metaTitle": "Журнал змін",
-      "metaDescription": "Примітки до випусків та історія версій cmux. Нові можливості, виправлення помилок та зміни для нативного терміналу macOS."
+      "metaDescription": "Примітки до випусків та історія версій cmux. Нові можливості, виправлення помилок та зміни для нативного терміналу macOS.",
+      "entries": {
+        "quickTerminal": "Панель Quick Terminal із налаштовуваними позицією/розміром, скороченням Option-Command-backtick, дією в палітрі команд і керуванням CLI `cmux quick-terminal`."
+      }
     },
     "claudeCodeTeams": {
       "title": "Claude Code Teams",

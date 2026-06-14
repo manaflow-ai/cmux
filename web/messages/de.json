@@ -773,7 +773,11 @@
         "terminal": {
           "copyOnSelect": "Kopiert ausgewählten Terminaltext in die Systemzwischenablage, sobald die Auswahl bestätigt wird, einschließlich Wort- und Zeilenauswahl per Doppel- und Dreifachklick.",
           "showTextBoxOnNewTerminals": "Zeigt die Beta-TextBox-Eingabe standardmaessig fuer neu erstellte Workspaces, Terminal-Tabs und Terminal-Splits an.",
-          "focusTextBoxOnNewTerminals": "Fokussiert die Beta-TextBox-Eingabe standardmaessig fuer neu erstellte Workspaces, Terminal-Tabs und Terminal-Splits. Fokussieren zeigt die TextBox ebenfalls an."
+          "focusTextBoxOnNewTerminals": "Fokussiert die Beta-TextBox-Eingabe standardmaessig fuer neu erstellte Workspaces, Terminal-Tabs und Terminal-Splits. Fokussieren zeigt die TextBox ebenfalls an.",
+          "quickTerminalPosition": "Bildschirmrand- oder Mittenposition für das schwebende Quick Terminal.",
+          "quickTerminalPrimarySizeRatio": "Größe des Quick Terminals entlang seiner Einschubachse als Anteil des sichtbaren Bildschirms.",
+          "quickTerminalSecondarySizeRatio": "Größe des Quick Terminals entlang der Gegenachse als Anteil des sichtbaren Bildschirms.",
+          "quickTerminalAutoHide": "Quick Terminal automatisch ausblenden, wenn es den Tastaturfokus verliert."
         },
         "browser": {
           "defaultSearchEngine": "Standardsuchmaschine für Nicht-URL-Eingaben in der Browser-Adressleiste. Verwenden Sie custom mit customSearchEngineURLTemplate für beliebige Anbieter.",
@@ -1204,7 +1208,10 @@
     "changelog": {
       "title": "Changelog",
       "metaDescription": "cmux Release-Notes und Versionshistorie. Neue Funktionen, Fehlerbehebungen und Änderungen für das native macOS-Terminal.",
-      "metaTitle": "Änderungsprotokoll"
+      "metaTitle": "Änderungsprotokoll",
+      "entries": {
+        "quickTerminal": "Quick-Terminal-Panel mit konfigurierbarer Position/Größe, Option-Befehl-Backtick-Kurzbefehl, Command-Palette-Aktion und `cmux quick-terminal`-CLI-Steuerung."
+      }
     },
     "navItems": {
       "gettingStarted": "Erste Schritte",

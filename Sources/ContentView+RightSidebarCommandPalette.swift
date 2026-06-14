@@ -14,6 +14,8 @@ extension ContentView {
             return .newBrowserWorkspace
         case "palette.newWindow":
             return .newWindow
+        case "palette.toggleQuickTerminal":
+            return .toggleQuickTerminal
         case "palette.openFolder":
             return .openFolder
         case "palette.reopenPreviousSession":

@@ -773,7 +773,11 @@
         "terminal": {
           "copyOnSelect": "Kopierer markert terminaltekst til systemutklippstavlen når markeringen bekreftes, inkludert ord- og linjemarkeringer fra dobbelt- og trippelklikk.",
           "showTextBoxOnNewTerminals": "Viser beta-TextBox-inndata som standard for nyopprettede arbeidsområder, terminalfaner og terminalsplitt.",
-          "focusTextBoxOnNewTerminals": "Fokuserer beta-TextBox-inndata som standard for nyopprettede arbeidsområder, terminalfaner og terminalsplitt. Fokus viser også TextBox."
+          "focusTextBoxOnNewTerminals": "Fokuserer beta-TextBox-inndata som standard for nyopprettede arbeidsområder, terminalfaner og terminalsplitt. Fokus viser også TextBox.",
+          "quickTerminalPosition": "Skjermkant- eller midtposisjon for den flytende Quick Terminal.",
+          "quickTerminalPrimarySizeRatio": "Quick Terminal-størrelse langs innskyvingsaksen som en andel av den synlige skjermen.",
+          "quickTerminalSecondarySizeRatio": "Quick Terminal-størrelse på motsatt akse som en andel av den synlige skjermen.",
+          "quickTerminalAutoHide": "Skjul Quick Terminal automatisk når den mister tastaturfokus."
         },
         "browser": {
           "defaultSearchEngine": "Standard søkemotor for søk i nettleserens adresselinje som ikke er URLer. Bruk custom med customSearchEngineURLTemplate for andre leverandører.",
@@ -1204,7 +1208,10 @@
     "changelog": {
       "title": "Endringslogg",
       "metaDescription": "cmux utgivelsesnotater og versjonshistorikk. Nye funksjoner, feilrettinger og endringer for den native macOS-terminalen.",
-      "metaTitle": "Endringslogg"
+      "metaTitle": "Endringslogg",
+      "entries": {
+        "quickTerminal": "Quick Terminal-panel med konfigurerbar posisjon/størrelse, Option-Kommando-backtick-snarvei, kommandopalett-handling og `cmux quick-terminal` CLI-kontroller."
+      }
     },
     "navItems": {
       "gettingStarted": "Kom i gang",

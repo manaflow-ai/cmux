@@ -3376,6 +3376,20 @@ struct CMUXCLI {
             )
             return
         }
+        if command == "quick-terminal" {
+            let client = try connectClient(
+                socketPath: resolvedSocketPath,
+                explicitPassword: socketPasswordArg,
+                launchIfNeeded: true
+            )
+            defer { client.close() }
+            try runQuickTerminal(
+                commandArgs: commandArgs,
+                client: client,
+                jsonOutput: jsonOutput
+            )
+            return
+        }
         if command == "open" { try runOpenCommand(commandArgs: commandArgs, socketPath: resolvedSocketPath, explicitPassword: socketPasswordArg, jsonOutput: jsonOutput, idFormat: try resolvedIDFormat(jsonOutput: jsonOutput, raw: idFormatArg)); return }
         if command == "diff" { try runDiffCommand(commandArgs: commandArgs, socketPath: resolvedSocketPath, explicitPassword: socketPasswordArg, jsonOutput: jsonOutput, idFormat: try resolvedIDFormat(jsonOutput: jsonOutput, raw: idFormatArg)); return }
         if command == "restore-session" {
@@ -5618,6 +5632,64 @@ struct CMUXCLI {
 
     private func appLaunchTarget() -> String {
         CLIExecutableLocator.enclosingAppBundle()?.bundleURL.path ?? "cmux"
+    }
+
+    private func runQuickTerminal(
+        commandArgs: [String],
+        client: SocketClient,
+        jsonOutput: Bool
+    ) throws {
+        let normalizedArgs = Array(commandArgs.drop(while: { $0 == "--" }))
+        let subcommand = normalizedArgs.first?.lowercased() ?? "toggle"
+        let remaining = Array(normalizedArgs.dropFirst()).filter { $0 != "--" }
+
+        let method: String
+        switch subcommand {
+        case "toggle":
+            method = "quick_terminal.toggle"
+        case "show":
+            method = "quick_terminal.show"
+        case "hide":
+            method = "quick_terminal.hide"
+        case "status":
+            method = "quick_terminal.status"
+        default:
+            throw CLIError(message: "quick-terminal requires one of: toggle, show, hide, status")
+        }
+        if !remaining.isEmpty {
+            let suffix = remaining.count == 1 ? "" : "s"
+            throw CLIError(message: "quick-terminal \(subcommand): unexpected \(remaining.count) argument\(suffix)")
+        }
+
+        let payload = try client.sendV2(method: method)
+        if jsonOutput {
+            print(jsonString(payload))
+            return
+        }
+
+        if subcommand == "status" {
+            print(formatQuickTerminalStatusPayload(payload))
+        } else {
+            print("OK")
+        }
+    }
+
+    private func formatQuickTerminalStatusPayload(_ payload: [String: Any]) -> String {
+        let available = (payload["available"] as? Bool) ?? false
+        let visible = (payload["visible"] as? Bool) ?? false
+        let position = (payload["position"] as? String) ?? "unknown"
+        let autoHide = (payload["auto_hide"] as? Bool) ?? false
+        let primarySizeRatio = (payload["primary_size_ratio"] as? Double) ?? 0
+        let secondarySizeRatio = (payload["secondary_size_ratio"] as? Double) ?? 0
+
+        return """
+        available: \(available ? "yes" : "no")
+        visible: \(visible ? "yes" : "no")
+        position: \(position)
+        auto_hide: \(autoHide ? "yes" : "no")
+        primary_size_ratio: \(String(format: "%.2f", primarySizeRatio))
+        secondary_size_ratio: \(String(format: "%.2f", secondarySizeRatio))
+        """
     }
 
     private func runFeedback(
@@ -13761,6 +13833,23 @@ struct CMUXCLI {
             Usage: cmux shortcuts
 
             Open the Settings window to Keyboard Shortcuts.
+            """
+        case "quick-terminal":
+            return """
+            Usage: cmux quick-terminal [toggle|show|hide|status]
+
+            Control the floating quick terminal panel.
+
+            Subcommands:
+              toggle    Toggle quick terminal visibility (default)
+              show      Show quick terminal
+              hide      Hide quick terminal
+              status    Print quick terminal status
+
+            Examples:
+              cmux quick-terminal
+              cmux quick-terminal show
+              cmux --json quick-terminal status
             """
         case "disable-browser":
             return """
@@ -33624,6 +33713,7 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
           settings [open [target]|path|docs|<target>]
           config <doctor|check|validate|path|paths|docs|documentation|reload>
           shortcuts
+          quick-terminal [toggle|show|hide|status]
           disable-browser | enable-browser | browser-status
           agent-hibernation <on|off>
           restore-session
@@ -33718,6 +33808,7 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
           clear-log [--workspace <id|ref|index>] [--window <id|ref|index>]
           list-log [--workspace <id|ref|index>] [--window <id|ref|index>] [--limit <n>]
           sidebar-state [--workspace <id|ref|index>] [--window <id|ref|index>]
+          quick-terminal [toggle|show|hide|status]
           set-app-focus <active|inactive|clear>
           simulate-app-active
           simulate-sidebar-drag --window <id|ref|index> --from <ws> --to <ws> [--duration-ms <n>] [--steps <n>]

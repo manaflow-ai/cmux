@@ -638,6 +638,34 @@ final class CmuxSettingsFileStore {
         } else if section.keys.contains("textBoxMaxLines") {
             logInvalid("terminal.textBoxMaxLines", sourcePath: sourcePath)
         }
+
+        if let raw = jsonString(section["quickTerminalPosition"]) {
+            if let position = QuickTerminalPosition(rawValue: raw) {
+                snapshot.managedUserDefaults[QuickTerminalSettings.positionKey] = .string(position.rawValue)
+            } else {
+                logInvalid("terminal.quickTerminalPosition", sourcePath: sourcePath)
+            }
+        } else if section.keys.contains("quickTerminalPosition") {
+            logInvalid("terminal.quickTerminalPosition", sourcePath: sourcePath)
+        }
+
+        if let value = jsonDouble(section["quickTerminalPrimarySizeRatio"]) {
+            snapshot.managedUserDefaults[QuickTerminalSettings.primarySizeRatioKey] = .double(QuickTerminalSettings.clampRatio(value))
+        } else if section.keys.contains("quickTerminalPrimarySizeRatio") {
+            logInvalid("terminal.quickTerminalPrimarySizeRatio", sourcePath: sourcePath)
+        }
+
+        if let value = jsonDouble(section["quickTerminalSecondarySizeRatio"]) {
+            snapshot.managedUserDefaults[QuickTerminalSettings.secondarySizeRatioKey] = .double(QuickTerminalSettings.clampRatio(value))
+        } else if section.keys.contains("quickTerminalSecondarySizeRatio") {
+            logInvalid("terminal.quickTerminalSecondarySizeRatio", sourcePath: sourcePath)
+        }
+
+        if let value = jsonBool(section["quickTerminalAutoHide"]) {
+            snapshot.managedUserDefaults[QuickTerminalSettings.autoHideKey] = .bool(value)
+        } else if section.keys.contains("quickTerminalAutoHide") {
+            logInvalid("terminal.quickTerminalAutoHide", sourcePath: sourcePath)
+        }
     }
 
     private func parseMarkdownSection(

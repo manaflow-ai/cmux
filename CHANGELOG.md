@@ -297,6 +297,7 @@ All notable changes to cmux are documented here.
 ## [0.64.10] - 2026-05-23
 
 ### Added
+- Quick Terminal panel with a configurable position/size, Option-Command-backtick shortcut, command palette action, and `cmux quick-terminal` CLI controls.
 - Copy on Select setting copies the active terminal selection to the clipboard as soon as the mouse is released ([#4011](https://github.com/manaflow-ai/cmux/pull/4011)) -- thanks @kallioaleksi for the report!
 - CmuxExtensionKit sidebar prototypes showcase the upcoming extension API for custom workspace sidebars ([#4309](https://github.com/manaflow-ai/cmux/pull/4309))
 - Ghostty Settings command palette action opens the embedded Ghostty configuration directly ([#4654](https://github.com/manaflow-ai/cmux/pull/4654))

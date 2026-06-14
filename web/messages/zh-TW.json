@@ -773,7 +773,11 @@
         "terminal": {
           "copyOnSelect": "確認選取後，將所選終端機文字複製到系統剪貼簿，包括透過按兩下和按三下選取的單字與整行。",
           "showTextBoxOnNewTerminals": "預設在新建的工作區、終端機分頁和終端機分割中顯示測試版 TextBox 輸入。",
-          "focusTextBoxOnNewTerminals": "預設在新建的工作區、終端機分頁和終端機分割中聚焦測試版 TextBox 輸入。聚焦也會顯示 TextBox。"
+          "focusTextBoxOnNewTerminals": "預設在新建的工作區、終端機分頁和終端機分割中聚焦測試版 TextBox 輸入。聚焦也會顯示 TextBox。",
+          "quickTerminalPosition": "浮動 Quick Terminal 在螢幕邊緣或中央的位置。",
+          "quickTerminalPrimarySizeRatio": "Quick Terminal 沿滑入軸的大小，作為可見螢幕的比例。",
+          "quickTerminalSecondarySizeRatio": "Quick Terminal 沿另一軸的大小，作為可見螢幕的比例。",
+          "quickTerminalAutoHide": "當 Quick Terminal 失去鍵盤焦點時自動隱藏。"
         },
         "browser": {
           "defaultSearchEngine": "瀏覽器位址列輸入不是 URL 時使用的預設搜尋引擎。任意提供者請使用 custom 與 customSearchEngineURLTemplate。",
@@ -1204,7 +1208,10 @@
     "changelog": {
       "title": "更新日誌",
       "metaDescription": "cmux 版本說明和版本歷史。原生 macOS 終端機的新功能、錯誤修復和變更。",
-      "metaTitle": "更新日誌"
+      "metaTitle": "更新日誌",
+      "entries": {
+        "quickTerminal": "新增 Quick Terminal 面板，支援可設定的位置/大小、Option-Command-反引號快捷鍵、指令面板動作，以及 `cmux quick-terminal` CLI 控制。"
+      }
     },
     "navItems": {
       "gettingStarted": "入門指南",

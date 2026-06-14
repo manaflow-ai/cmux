@@ -773,7 +773,11 @@
         "terminal": {
           "copyOnSelect": "Copia el texto seleccionado del terminal al portapapeles del sistema cuando se confirma la selección, incluidas las selecciones de palabras y líneas con doble y triple clic.",
           "showTextBoxOnNewTerminals": "Muestra la entrada TextBox beta de forma predeterminada en espacios de trabajo, pestañas y divisiones de terminal recién creados.",
-          "focusTextBoxOnNewTerminals": "Enfoca la entrada TextBox beta de forma predeterminada en espacios de trabajo, pestañas y divisiones de terminal recién creados. Enfocar también muestra TextBox."
+          "focusTextBoxOnNewTerminals": "Enfoca la entrada TextBox beta de forma predeterminada en espacios de trabajo, pestañas y divisiones de terminal recién creados. Enfocar también muestra TextBox.",
+          "quickTerminalPosition": "Posición en el borde de la pantalla o en el centro para el Quick Terminal flotante.",
+          "quickTerminalPrimarySizeRatio": "Tamaño del Quick Terminal a lo largo de su eje de deslizamiento, como fracción de la pantalla visible.",
+          "quickTerminalSecondarySizeRatio": "Tamaño del Quick Terminal en el eje opuesto, como fracción de la pantalla visible.",
+          "quickTerminalAutoHide": "Oculta el Quick Terminal automáticamente cuando pierde el foco de teclado."
         },
         "browser": {
           "defaultSearchEngine": "Motor de búsqueda predeterminado para consultas de la barra de direcciones del navegador que no son URL. Usa custom con customSearchEngineURLTemplate para otros proveedores.",
@@ -1204,7 +1208,10 @@
     "changelog": {
       "title": "Changelog",
       "metaDescription": "Notas de versión e historial de versiones de cmux. Nuevas funciones, correcciones de errores y cambios para la terminal nativa de macOS.",
-      "metaTitle": "Registro de cambios"
+      "metaTitle": "Registro de cambios",
+      "entries": {
+        "quickTerminal": "Panel Quick Terminal con posición/tamaño configurable, atajo Opción-Comando-acento grave, acción de paleta de comandos y controles CLI `cmux quick-terminal`."
+      }
     },
     "navItems": {
       "gettingStarted": "Primeros pasos",
