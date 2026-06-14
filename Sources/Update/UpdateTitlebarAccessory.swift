@@ -1119,7 +1119,7 @@ struct TitlebarControlsView: View {
 
         return TitlebarShortcutHintActionSlot.allCases.compactMap { slot in
             let shortcut = KeyboardShortcutSettings.shortcut(for: slot.action)
-            guard titlebarShortcutHintShouldShow(
+            guard ShortcutHintTitlebarPolicy.shouldShow(
                 shortcut: shortcut,
                 alwaysShowShortcutHints: alwaysShowShortcutHints,
                 modifierPressed: modifierKeyMonitor.isModifierPressed,

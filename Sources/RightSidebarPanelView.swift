@@ -306,7 +306,7 @@ struct RightSidebarPanelView: View {
                         isSelected: fileExplorerState.mode == mode,
                         badgeCount: mode == .feed ? feedPendingCount : 0,
                         shortcutHint: shortcut,
-                        showsShortcutHint: titlebarShortcutHintShouldShow(
+                        showsShortcutHint: ShortcutHintTitlebarPolicy.shouldShow(
                             shortcut: shortcut,
                             alwaysShowShortcutHints: alwaysShowShortcutHints,
                             modifierPressed: modeShortcutHintMonitor.isModifierPressed,
@@ -372,7 +372,7 @@ struct RightSidebarPanelView: View {
     private var closeButton: some View {
         let _ = keyboardShortcutSettingsObserver.revision
         let shortcut = KeyboardShortcutSettings.shortcut(for: .toggleRightSidebar)
-        let showsShortcutHint = titlebarShortcutHintShouldShow(
+        let showsShortcutHint = ShortcutHintTitlebarPolicy.shouldShow(
             shortcut: shortcut,
             alwaysShowShortcutHints: alwaysShowShortcutHints,
             modifierPressed: closeShortcutHintMonitor.isModifierPressed,
@@ -426,7 +426,7 @@ struct RightSidebarPanelView: View {
     private var focusShortcutHintOverlay: some View {
         let _ = keyboardShortcutSettingsObserver.revision
         let shortcut = KeyboardShortcutSettings.shortcut(for: .focusRightSidebar)
-        let showsFocusShortcutHint = titlebarShortcutHintShouldShow(
+        let showsFocusShortcutHint = ShortcutHintTitlebarPolicy.shouldShow(
             shortcut: shortcut,
             alwaysShowShortcutHints: alwaysShowShortcutHints,
             modifierPressed: focusShortcutHintMonitor.isModifierPressed,

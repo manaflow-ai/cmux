@@ -11,7 +11,6 @@ public struct KeyboardShortcutsSection: View {
     private let catalog: SettingCatalog
     private let errorLog: SettingsErrorLog
     private let hostActions: SettingsHostActions
-
     @State private var bindings: [String: StoredShortcut] = [:]
     /// Parsed `shortcuts.when` overrides keyed by action id. Conflict detection
     /// evaluates each action's effective clause (override, or its built-in
@@ -27,7 +26,6 @@ public struct KeyboardShortcutsSection: View {
     @State private var chordModeActions: Set<String> = []
     @State private var restoreShortcuts: [String: StoredShortcut] = [:]
     @State private var bareKeyRejections: Set<String> = []
-    @LiveSetting(\.shortcuts.showModifierHoldHints) private var showModifierHoldHints
     /// Per-action set marking a recording rejected because a numbered
     /// action (``ShortcutAction/usesNumberedDigitMatching``) was given a
     /// non-`1…9` key. Mirrors legacy `.numberedShortcutRequiresDigit`: the
@@ -42,7 +40,6 @@ public struct KeyboardShortcutsSection: View {
     /// This state captures the conflicting action so the banner can
     /// render without persisting the bad binding.
     @State private var conflictRejections: [String: ShortcutAction] = [:]
-
     public init(
         jsonStore: JSONConfigStore,
         catalog: SettingCatalog,
@@ -62,7 +59,7 @@ public struct KeyboardShortcutsSection: View {
             SettingsCard {
                 chordsRow
                 SettingsCardDivider()
-                modifierHoldHintsRow
+                ModifierHoldHintsSettingsRow()
                 SettingsCardDivider()
                 resetDefaultsRow
                 SettingsCardDivider()
@@ -125,29 +122,6 @@ public struct KeyboardShortcutsSection: View {
                 .controlSize(.small)
                 .accessibilityIdentifier("SettingsKeyboardShortcutsOpenSettingsFileButton")
             }
-        }
-    }
-
-    private var modifierHoldHintsTitle: String {
-        String(localized: "settings.shortcuts.showModifierHoldHints", defaultValue: "Show Shortcut Hints While Holding Modifier Keys")
-    }
-
-    @ViewBuilder
-    private var modifierHoldHintsRow: some View {
-        SettingsCardRow(
-            configurationReview: .json("shortcuts.showModifierHoldHints"),
-            modifierHoldHintsTitle,
-            subtitle: showModifierHoldHints
-                ? String(localized: "settings.shortcuts.showModifierHoldHints.subtitleOn", defaultValue: "Holding Cmd or Control shows shortcut hint chips.")
-                : String(localized: "settings.shortcuts.showModifierHoldHints.subtitleOff", defaultValue: "Holding Cmd or Control does not show shortcut hint chips.")
-        ) {
-            Toggle(isOn: $showModifierHoldHints) {
-                EmptyView()
-            }
-            .labelsHidden()
-            .controlSize(.small)
-            .accessibilityIdentifier("SettingsKeyboardShortcutsModifierHoldHintsToggle")
-            .accessibilityLabel(modifierHoldHintsTitle)
         }
     }
 
