@@ -377,7 +377,7 @@ export function openSshEndpoint(input: {
   });
 }
 
-export function attachOptionsForVm(vm: CloudVmRow, options?: AttachOptions): AttachOptions {
+function attachOptionsForVm(vm: CloudVmRow, options?: AttachOptions): AttachOptions {
   const signedWebSocketAuth =
     options?.signedWebSocketAuth ??
     imageSupportsSignedWebSocketAuth(vm.provider, vm.imageId);

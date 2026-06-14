@@ -3,6 +3,7 @@ import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import postgres, { type Sql } from "postgres";
 import { closeCloudDbForTests } from "../db/client";
+import type { AttachOptions } from "../services/vms/drivers/types";
 import {
   FREE_INITIAL_CREATE_CREDITS_REASON,
   VmBillingGateway,
@@ -28,7 +29,6 @@ import {
   createVm,
   destroyVm,
   execVm,
-  attachOptionsForVm,
   openAttachEndpoint,
   openSshEndpoint,
 } from "../services/vms/workflows";
@@ -68,20 +68,73 @@ afterAll(async () => {
 });
 
 describe("VM Effect workflows", () => {
-  test("enables signed attach only for VMs on signed-auth images", async () => {
-    expect(attachOptionsForVm(testCloudVmRow({
+  test("enables signed attach for signed-auth image VMs", async () => {
+    const vm = testCloudVmRow({
       status: "running",
-      providerVmId: "sh-17agfasevrc18c8f15nn",
-      imageId: "sh-17agfasevrc18c8f15nn",
-    }))).toMatchObject({
-      signedWebSocketAuth: false,
-      webSocketReadinessVerified: false,
-    });
-    expect(attachOptionsForVm(testCloudVmRow({
-      status: "running",
-      providerVmId: "sh-6a3egjzxg8nfo52t21vs",
+      providerVmId: "provider-vm-signed-attach",
       imageId: "sh-6a3egjzxg8nfo52t21vs",
-    }))).toMatchObject({
+    });
+    let observedOptions: AttachOptions | undefined;
+    const repo: VmRepositoryShape = {
+      listUserVms: () => Effect.succeed([]),
+      claimBillingGrant: () => Effect.succeed({ kind: "already_claimed" }),
+      markBillingGrantApplied: () => Effect.void,
+      deleteBillingGrant: () => Effect.void,
+      beginCreate: () => Effect.fail(new Error("unused") as never),
+      activeLimitCandidates: () => Effect.succeed([]),
+      markProviderObservedStatus: () => Effect.succeed(false),
+      markCreateRunning: () => Effect.fail(new Error("unused") as never),
+      markCreateFailed: () => Effect.void,
+      findUserVm: () => Effect.succeed(vm),
+      markDestroyed: () => Effect.void,
+      recordLease: () => Effect.void,
+      activeIdentityLeases: () => Effect.succeed([]),
+      markLeasesRevoked: () => Effect.void,
+      recordUsageEvent: () => Effect.void,
+      recordUsageEvents: () => Effect.void,
+    };
+    const provider: VmProviderGatewayShape = {
+      create: () => Effect.fail(new Error("unused") as never),
+      destroy: () => Effect.void,
+      exec: () => Effect.succeed({ exitCode: 0, stdout: "", stderr: "" }),
+      openAttach: (_provider, _providerVmId, options) =>
+        Effect.sync(() => {
+          observedOptions = options;
+          return {
+            transport: "websocket" as const,
+            url: "wss://provider-vm-signed-attach.vm.freestyle.sh/terminal",
+            headers: {},
+            token: "pty-token",
+            sessionId: "pty-session",
+            expiresAtUnix: Math.floor(Date.now() / 1000) + 300,
+            daemon: {
+              url: "wss://provider-vm-signed-attach.vm.freestyle.sh/rpc",
+              headers: {},
+              token: "rpc-token",
+              sessionId: "rpc-session",
+              expiresAtUnix: Math.floor(Date.now() / 1000) + 300,
+            },
+          };
+        }),
+      openSSH: () => Effect.fail(new Error("unused") as never),
+      revokeSSHIdentity: () => Effect.void,
+    };
+    const layer = Layer.mergeAll(
+      Layer.succeed(VmRepository, repo),
+      Layer.succeed(VmProviderGateway, provider),
+      Layer.succeed(VmBillingGateway, noOpVmBillingGateway()),
+    );
+
+    await Effect.runPromise(
+      openAttachEndpoint({
+        userId: "user-workflow-signed-attach",
+        providerVmId: "provider-vm-signed-attach",
+        options: { requireDaemon: true },
+      }).pipe(Effect.provide(layer)),
+    );
+
+    expect(observedOptions).toMatchObject({
+      requireDaemon: true,
       signedWebSocketAuth: true,
       webSocketReadinessVerified: true,
     });
