@@ -283,12 +283,37 @@ public struct AgentResumeArgv: Sendable, Equatable {
         return [parts.executable, option, sessionId] + preserved
     }
 
+    /// Executable names that are shells or login bootstraps, never an agent binary.
+    ///
+    /// A launch snapshot can degrade to the pane's bootstrap process when no agent
+    /// launch metadata was captured (e.g. the agent was started without the shell
+    /// integration's wrapper). cmux spawns panes via
+    /// `login … /bin/bash --noprofile --norc -c 'exec -l <shell>'`, so such a snapshot
+    /// replays as `bash --resume <id>` — a guaranteed parse error that also drops the
+    /// binding's cd prefix when the child shell exits.
+    /// https://github.com/manaflow-ai/cmux/issues/5796
+    private static let shellBootstrapExecutableNames: Set<String> = [
+        "sh", "bash", "zsh", "fish", "csh", "tcsh", "ksh", "dash", "login",
+    ]
+
+    private func isShellBootstrapExecutable(_ executable: String) -> Bool {
+        var name = URL(fileURLWithPath: executable).lastPathComponent
+        // Login shells rewrite argv[0] with a leading dash ("-bash", "-fish").
+        if name.hasPrefix("-") { name.removeFirst() }
+        return Self.shellBootstrapExecutableNames.contains(name)
+    }
+
     private func commandParts(
         executablePath: String?,
         arguments: [String],
         fallbackExecutable: String
     ) -> (executable: String, tail: [String]) {
         let executable = normalized(executablePath) ?? normalized(arguments.first) ?? fallbackExecutable
+        // A shell is never the agent; fall back to the kind's known executable and
+        // drop the captured argv too — those arguments belong to the shell.
+        guard !isShellBootstrapExecutable(executable) else {
+            return (fallbackExecutable, [])
+        }
         let tail = arguments.isEmpty ? [] : Array(arguments.dropFirst())
         return (executable, tail)
     }

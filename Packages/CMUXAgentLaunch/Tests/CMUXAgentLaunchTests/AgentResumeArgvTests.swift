@@ -68,6 +68,41 @@ struct AgentResumeArgvTests {
         )
     }
 
+    @Test(
+        "A shell bootstrap snapshot falls back to the kind's executable and drops its argv",
+        arguments: [
+            // The pane bootstrap cmux spawns shells through; replaying it emitted
+            // `bash --resume <id>` (https://github.com/manaflow-ai/cmux/issues/5796).
+            (
+                "claude",
+                Optional("/bin/bash"),
+                ["bash", "--noprofile", "--norc", "-c", "exec -l fish"],
+                ["claude", "--resume", "SID"]
+            ),
+            ("codex", Optional("/bin/zsh"), ["zsh", "-il"], ["codex", "resume", "SID"]),
+            // Login shells rewrite argv[0] with a leading dash.
+            ("grok", Optional<String>.none, ["-fish"], ["grok", "-r", "SID"]),
+            (
+                "opencode",
+                Optional("/usr/bin/login"),
+                ["login", "-fp", "user"],
+                ["opencode", "--session", "SID"]
+            ),
+        ]
+    )
+    func shellBootstrapSnapshotFallsBack(
+        kind: String,
+        executablePath: String?,
+        arguments: [String],
+        expected: [String]
+    ) {
+        #expect(
+            AgentResumeArgv().builtInKind(
+                kind: kind, sessionId: "SID", executablePath: executablePath, arguments: arguments
+            ) == expected
+        )
+    }
+
     @Test("cmux wrapper launchers resolve before per-kind verbs")
     func launcherWrappers() {
         #expect(
