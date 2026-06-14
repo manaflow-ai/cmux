@@ -1,7 +1,9 @@
 import AppKit
 import CMUXMobileCore
+import CmuxFileOpen
 import CmuxSettings
 import CmuxSettingsUI
+import CmuxFoundation
 import Foundation
 import OSLog
 import SwiftUI
@@ -76,7 +78,7 @@ final class HostSettingsActions: SettingsHostActions {
         // falling back to the OS default. Opening the config file directly
         // through `NSWorkspace.shared.open` would route to the default
         // `.json` handler and ignore the cmux setting.
-        PreferredEditorSettings.open(configFileURL)
+        PreferredEditorService(defaults: .standard).open(configFileURL)
     }
 
     func sendFeedback() {
@@ -148,6 +150,11 @@ final class HostSettingsActions: SettingsHostActions {
         configWindow = window
         window.makeKeyAndOrderFront(nil)
         window.orderFrontRegardless()
+    }
+
+    func setMenuBarOnly(_ enabled: Bool) -> Bool {
+        MenuBarOnlySettings.setEnabled(enabled)
+        return true
     }
 
     func openMobilePairingWindow() {

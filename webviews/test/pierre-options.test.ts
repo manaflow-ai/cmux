@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { codeViewUnsafeCSS, fileTreeUnsafeCSS } from "../src/pierre-options";
+import { codeViewUnsafeCSS, fileTreeUnsafeCSS, shikiThemeFromGhostty, workerHighlighterOptions } from "../src/pierre-options";
 
 test("code view CSS gives Pierre diff body surfaces the editor background", () => {
   const css = codeViewUnsafeCSS();
@@ -37,4 +37,58 @@ test("file tree sticky overlays use a non-transparent surface", () => {
   expect(css).toContain("[data-file-tree-sticky-overlay-content]");
   expect(css).toContain("background-color: var(--cmux-diff-tree-sticky-bg, var(--cmux-diff-sidebar-bg)) !important");
   expect(css).toContain("box-shadow: 0 1px 0 var(--trees-border-color)");
+});
+
+test("Ghostty Shiki theme maps Markdown token scopes", () => {
+  const theme = shikiThemeFromGhostty(
+    {
+      name: "test-dark",
+      ghosttyName: "Test Dark",
+      type: "dark",
+      background: "#101010",
+      foreground: "#f0f0f0",
+      selectionBackground: "#333333",
+      selectionForeground: "#ffffff",
+      palette: {
+        "1": "#ff453a",
+        "2": "#32d74b",
+        "3": "#ffd60a",
+        "4": "#0a84ff",
+        "5": "#bf5af2",
+        "6": "#64d2ff",
+        "8": "#8e8e93",
+        "9": "#ff6961",
+        "10": "#63e6be",
+        "11": "#ffdf6e",
+        "12": "#5ac8fa",
+        "13": "#ff9ff3",
+        "14": "#7ee7ff",
+      },
+    },
+    { backgroundOpacity: 1 },
+  );
+  const scopes = theme.tokenColors.flatMap((entry) => entry.scope ?? []);
+
+  expect(scopes).toContain("markup.heading");
+  expect(scopes).toContain("markup.bold");
+  expect(scopes).toContain("markup.italic");
+  expect(scopes).toContain("markup.inline.raw");
+  expect(scopes).toContain("markup.underline.link");
+  expect(scopes).toContain("markup.list");
+  expect(scopes).toContain("markup.table");
+});
+
+test("worker highlighter options carry preloaded diff languages", () => {
+  const options = workerHighlighterOptions({
+    collapsed: false,
+    diffIndicators: "bars",
+    expandUnchanged: false,
+    layout: "unified",
+    lineNumbers: true,
+    showBackgrounds: true,
+    wordDiffs: false,
+    wordWrap: false,
+  }, {}, ["text", "markdown", "swift"]);
+
+  expect(options.langs).toEqual(["text", "markdown", "swift"]);
 });
