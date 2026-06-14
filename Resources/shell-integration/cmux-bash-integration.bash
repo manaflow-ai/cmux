@@ -275,7 +275,7 @@ _cmux_install_cli_wrapper() {
 }
 _cmux_install_cli_wrapper claude _CMUX_CLAUDE_WRAPPER cmux-claude-wrapper
 _cmux_install_cli_wrapper grok _CMUX_GROK_WRAPPER
-_cmux_install_cli_wrapper opencode _CMUX_OPENCODE_WRAPPER
+_cmux_install_cli_wrapper opencode _CMUX_OPENCODE_WRAPPER cmux-opencode-wrapper
 _cmux_now() {
     printf '%s\n' "${EPOCHSECONDS:-$SECONDS}"
 }

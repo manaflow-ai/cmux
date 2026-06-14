@@ -312,7 +312,8 @@ final class OpenCodeHookRegressionTests: XCTestCase {
         let appBundleURL = Bundle(for: Self.self).bundleURL.deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
         let enumerator = fileManager.enumerator(at: appBundleURL, includingPropertiesForKeys: nil, options: [.skipsHiddenFiles])
         while let item = enumerator?.nextObject() as? URL {
-            guard item.lastPathComponent == "opencode", item.path.contains(".app/Contents/Resources/bin/opencode") else { continue }
+            guard item.lastPathComponent == "cmux-opencode-wrapper",
+                  item.path.contains(".app/Contents/Resources/bin/cmux-opencode-wrapper") else { continue }
             return item.path
         }
         throw XCTSkip("Bundled opencode wrapper not found in \(appBundleURL.path)")
