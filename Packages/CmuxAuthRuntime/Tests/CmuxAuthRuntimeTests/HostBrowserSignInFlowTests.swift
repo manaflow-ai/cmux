@@ -233,6 +233,27 @@ import Testing
         #expect(clearedSlow)
     }
 
+    @Test func activeAttemptSignInURLCarriesActiveAttemptState() async {
+        let harness = makeHarness()
+        #expect(harness.flow.activeAttemptSignInURL == nil)
+
+        harness.flow.beginSignIn()
+        await waitForSession(harness.factory)
+
+        let fallbackURL = harness.flow.activeAttemptSignInURL
+        #expect(fallbackURL != nil)
+        // The default-browser fallback must carry the same callback state as
+        // the popup so the cmux:// deep link routes back to THIS attempt —
+        // handleCallbackURL matches on cmux_auth_state.
+        let fallbackState = fallbackURL.flatMap {
+            URLComponents(url: $0, resolvingAgainstBaseURL: false)?
+                .queryItems?
+                .first(where: { $0.name == "cmux_auth_state" })?
+                .value
+        }
+        #expect(fallbackState == callbackState(harness.factory.sessions[0]))
+    }
+
     @Test func signOutDuringCallbackValidationWins() async {
         let user = CMUXAuthUser(id: "u1", primaryEmail: "a@b.com", displayName: "A")
         let harness = makeHarness(user: user)

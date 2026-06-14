@@ -40,6 +40,7 @@ public final class HostBrowserSignInFlow {
     @ObservationIgnored private var activeSessionContinuation: CheckedContinuation<URL?, Never>?
     @ObservationIgnored private var activeSessionContinuationAttemptID: UInt64?
     @ObservationIgnored private var activeAttemptTimeoutTask: Task<Void, Never>?
+    @ObservationIgnored private var slowSignInHintTask: Task<Void, Never>?
     @ObservationIgnored private var nextAttemptID: UInt64 = 0
     @ObservationIgnored private var activeAttemptID: UInt64?
     @ObservationIgnored private var activeCallbackState: String?
@@ -97,6 +98,18 @@ public final class HostBrowserSignInFlow {
         let state = makeCallbackState()
         pendingManualCallbackState = state
         return makeSignInURL(state)
+    }
+
+    /// The hosted sign-in URL for the in-flight attempt, to open in the user's
+    /// real default browser when the Safari-backed popup hangs (issue #6015).
+    /// Reuses the active attempt's callback state, so the resulting
+    /// `cmux://auth-callback` deep link routes back into the in-flight attempt
+    /// through ``handleCallbackURL(_:)`` instead of being rejected as a
+    /// stateful callback with no matching attempt. `nil` when no attempt is in
+    /// flight.
+    public var activeAttemptSignInURL: URL? {
+        guard let activeCallbackState else { return nil }
+        return makeSignInURL(activeCallbackState)
     }
 
     /// Run a browser sign-in attempt with a deadline, for the socket
@@ -214,6 +227,7 @@ public final class HostBrowserSignInFlow {
         isSigningIn = true
         log.log("auth.browser.attempt.start id=\(attemptID) generation=\(signOutGeneration) state=\(redactedState(callbackState))")
         scheduleAttemptTimeout(attemptID)
+        scheduleSlowSignInHint(attemptID)
         return Task { @MainActor [weak self] in
             guard let self else { return false }
             defer { self.finishAttempt(attemptID) }
@@ -282,6 +296,7 @@ public final class HostBrowserSignInFlow {
             expectedAttemptID: attemptID
         )
         cancelAttemptTimeout()
+        cancelSlowSignInHint()
         activeAttemptID = nil
         activeCallbackState = nil
         activeSession = nil
@@ -294,6 +309,7 @@ public final class HostBrowserSignInFlow {
         }
         resumeActiveSessionContinuation(returning: nil, reason: "cancelAttempt")
         cancelAttemptTimeout()
+        cancelSlowSignInHint()
         activeAttemptID = nil
         activeCallbackState = nil
         activeSession?.cancel()
@@ -320,6 +336,32 @@ public final class HostBrowserSignInFlow {
     private func cancelAttemptTimeout() {
         activeAttemptTimeoutTask?.cancel()
         activeAttemptTimeoutTask = nil
+    }
+
+    /// After ``slowSignInThreshold`` of an attempt still waiting on the hosted
+    /// browser, flip ``signInIsSlow`` so the account UI can offer the manual
+    /// default-browser fallback. Non-destructive: the popup keeps running, so a
+    /// user who is simply taking their time can still finish in it.
+    private func scheduleSlowSignInHint(_ attemptID: UInt64) {
+        slowSignInHintTask?.cancel()
+        guard slowSignInThreshold > 0 else {
+            slowSignInHintTask = nil
+            return
+        }
+        let threshold = slowSignInThreshold
+        let clock = self.clock
+        slowSignInHintTask = Task { @MainActor [weak self] in
+            try? await clock.sleep(for: .seconds(threshold))
+            guard !Task.isCancelled, let self, self.activeAttemptID == attemptID else { return }
+            self.log.log("auth.browser.attempt.slow id=\(attemptID)")
+            self.signInIsSlow = true
+        }
+    }
+
+    private func cancelSlowSignInHint() {
+        slowSignInHintTask?.cancel()
+        slowSignInHintTask = nil
+        signInIsSlow = false
     }
 
     // MARK: - Callback completion
