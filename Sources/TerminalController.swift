@@ -4009,15 +4009,10 @@ class TerminalController {
         }
     }
 
-    private enum V2WorkspaceColorResolution {
-        case success(String)
-        case failure(V2CallResult)
-    }
-
-    private func v2ResolveWorkspaceColor(params: [String: Any]) -> V2WorkspaceColorResolution {
+    private func v2ResolveWorkspaceColor(params: [String: Any]) -> (color: String?, error: V2CallResult?) {
         guard let colorRaw = v2String(params, "color"),
               !colorRaw.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
-            return .failure(.err(
+            return (nil, .err(
                 code: "invalid_params",
                 message: String(localized: "socket.workspaceColor.invalidOrMissing", defaultValue: "Missing or invalid color."),
                 data: nil
@@ -4029,14 +4024,14 @@ class TerminalController {
         if let entry = effectivePalette.first(where: {
             $0.name.caseInsensitiveCompare(colorInput) == .orderedSame
         }) {
-            return .success(entry.hex)
+            return (entry.hex, nil)
         }
         if let normalized = WorkspaceTabColorSettings.normalizedHex(colorInput) {
-            return .success(normalized)
+            return (normalized, nil)
         }
 
         let colorNames = effectivePalette.map(\.name)
-        return .failure(.err(
+        return (nil, .err(
             code: "invalid_params",
             message: String(localized: "socket.workspaceColor.invalid", defaultValue: "Invalid color. Use a color name or #RRGGBB."),
             data: ["named_colors": colorNames]
@@ -4076,12 +4071,16 @@ class TerminalController {
                 data: nil
             )
         }
-        let color: String
-        switch v2ResolveWorkspaceColor(params: params) {
-        case .success(let resolvedColor):
-            color = resolvedColor
-        case .failure(let error):
+        let colorResolution = v2ResolveWorkspaceColor(params: params)
+        if let error = colorResolution.error {
             return error
+        }
+        guard let color = colorResolution.color else {
+            return .err(
+                code: "invalid_params",
+                message: String(localized: "socket.workspaceColor.invalidOrMissing", defaultValue: "Missing or invalid color."),
+                data: nil
+            )
         }
 
         let workspaceId = requestedWorkspaceId ?? tabManager.selectedTabId
@@ -4298,12 +4297,17 @@ class TerminalController {
                 finish()
 
             case "set_color":
-                let hex: String
-                switch v2ResolveWorkspaceColor(params: params) {
-                case .success(let resolvedColor):
-                    hex = resolvedColor
-                case .failure(let error):
+                let colorResolution = v2ResolveWorkspaceColor(params: params)
+                if let error = colorResolution.error {
                     result = error
+                    return
+                }
+                guard let hex = colorResolution.color else {
+                    result = .err(
+                        code: "invalid_params",
+                        message: String(localized: "socket.workspaceColor.invalidOrMissing", defaultValue: "Missing or invalid color."),
+                        data: nil
+                    )
                     return
                 }
                 tabManager.setTabColor(tabId: workspace.id, color: hex)
@@ -14016,12 +14020,18 @@ class TerminalController {
         let description = v2RawString(params, "description")
         let color: String?
         if v2HasNonNullParam(params, "color") {
-            switch v2ResolveWorkspaceColor(params: params) {
-            case .success(let resolvedColor):
-                color = resolvedColor
-            case .failure(let error):
+            let colorResolution = v2ResolveWorkspaceColor(params: params)
+            if let error = colorResolution.error {
                 return error
             }
+            guard let resolvedColor = colorResolution.color else {
+                return .err(
+                    code: "invalid_params",
+                    message: String(localized: "socket.workspaceColor.invalidOrMissing", defaultValue: "Missing or invalid color."),
+                    data: nil
+                )
+            }
+            color = resolvedColor
         } else {
             color = nil
         }

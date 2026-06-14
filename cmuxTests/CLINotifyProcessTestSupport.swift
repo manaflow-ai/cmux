@@ -478,8 +478,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
         arguments: [String],
         environment: [String: String],
         standardInput: String? = nil,
-        timeout: TimeInterval,
-        currentDirectoryURL: URL? = nil
+        timeout: TimeInterval
     ) -> ProcessRunResult {
         let process = Process()
         let stdoutPipe = Pipe()
@@ -488,7 +487,6 @@ extension CLINotifyProcessIntegrationRegressionTests {
         process.executableURL = URL(fileURLWithPath: executablePath)
         process.arguments = arguments
         process.environment = environment
-        process.currentDirectoryURL = currentDirectoryURL
         process.standardInput = stdinPipe ?? FileHandle.nullDevice
         process.standardOutput = stdoutPipe
         process.standardError = stderrPipe
