@@ -82,7 +82,7 @@ public struct PreferredEditorService: FileOpening {
         process.standardError = FileHandle.nullDevice
 
         let systemOpener = self.systemOpener
-        let commandName = Self.publicCommandName(command)
+        let commandName = command.preferredEditorPublicCommandName
         process.terminationHandler = { @Sendable process in
             // Fall back when the command fails (e.g. command not found exits
             // 127 but /bin/sh itself launched fine).
@@ -129,9 +129,11 @@ public struct PreferredEditorService: FileOpening {
         environment["PATH"] = entries.joined(separator: ":")
         return environment
     }
+}
 
-    private static func publicCommandName(_ command: String) -> String {
-        command.split(separator: " ").first
+private extension String {
+    var preferredEditorPublicCommandName: String {
+        split(separator: " ").first
             .map { URL(fileURLWithPath: String($0)).lastPathComponent } ?? "(empty)"
     }
 }
