@@ -3530,7 +3530,7 @@ private class DisplayLinkProxy {
 // MARK: - Arrow Nub (draggable directional pad)
 
 final class TerminalArrowNubView: UIView {
-    var onArrowKey: ((Data) -> Void)?
+    var onArrowKey: ((TerminalInputAccessoryAction) -> Void)?
 
     // Locked to the size the docked bar actually pins the nub to, so the circular
     // background (cornerRadius = nubSize/2) and the drag clamp track the real frame.
@@ -3552,6 +3552,15 @@ final class TerminalArrowNubView: UIView {
         case up, down, left, right
 
         var repeatDirection: TerminalArrowRepeatService.Direction {
+            switch self {
+            case .up:    return .upArrow
+            case .down:  return .downArrow
+            case .right: return .rightArrow
+            case .left:  return .leftArrow
+            }
+        }
+
+        var accessoryAction: TerminalInputAccessoryAction {
             switch self {
             case .up:    return .upArrow
             case .down:  return .downArrow
@@ -3645,10 +3654,10 @@ final class TerminalArrowNubView: UIView {
             clock: ContinuousClock()
         )
         repeatTask = Task { @MainActor [weak self] in
-            for await bytes in stream {
+            for await _ in stream {
                 guard let self else { return }
                 self.feedbackGenerator.impactOccurred()
-                self.onArrowKey?(bytes)
+                self.onArrowKey?(direction.accessoryAction)
             }
         }
     }

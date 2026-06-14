@@ -103,11 +103,43 @@ struct TerminalInputAccessoryShiftTests {
 
         let up = Data([0x1B, 0x5B, 0x41]) // ESC [ A
         view.simulateAccessoryActionForTesting(.shift) // arm ⇧ (one-shot)
-        view.simulateNubArrowForTesting(up) // nub sends a raw arrow, consumes ⇧
+        view.simulateNubArrowForTesting(.upArrow) // nub sends a raw arrow, consumes ⇧
         view.insertText("a") // ⇧ already spent → lowercase, not "A"
 
         #expect(sequences == [up]) // arrow forwarded unmodified
         #expect(text == ["a"]) // ⇧ did not leak
+    }
+
+    @Test("a one-shot ⌥ is applied to the arrow nub before it is consumed")
+    func alternateAppliesToArrowNub() {
+        let view = TerminalInputTextView()
+        var sequences: [Data] = []
+        view.onEscapeSequence = { sequences.append($0) }
+
+        view.simulateAccessoryActionForTesting(.alternate) // arm ⌥ (one-shot)
+        view.simulateNubArrowForTesting(.leftArrow) // ⌥ + ← = word-left
+        view.simulateNubArrowForTesting(.leftArrow) // ⌥ already spent → plain ←
+
+        #expect(sequences == [
+            Data([0x1B, 0x62]), // ESC b
+            Data([0x1B, 0x5B, 0x44]), // ESC [ D
+        ])
+    }
+
+    @Test("a one-shot ⌘ is applied to the arrow nub before it is consumed")
+    func commandAppliesToArrowNub() {
+        let view = TerminalInputTextView()
+        var sequences: [Data] = []
+        view.onEscapeSequence = { sequences.append($0) }
+
+        view.simulateAccessoryActionForTesting(.command) // arm ⌘ (one-shot)
+        view.simulateNubArrowForTesting(.leftArrow) // ⌘ + ← = start of line
+        view.simulateNubArrowForTesting(.leftArrow) // ⌘ already spent → plain ←
+
+        #expect(sequences == [
+            Data([0x01]), // Ctrl+A
+            Data([0x1B, 0x5B, 0x44]), // ESC [ D
+        ])
     }
 }
 #endif

@@ -170,8 +170,8 @@ final class TerminalInputTextView: UITextView {
 
         // Arrow nub for directional pad
         let nub = TerminalArrowNubView()
-        nub.onArrowKey = { [weak self] data in
-            self?.handleNubArrow(data)
+        nub.onArrowKey = { [weak self] action in
+            self?.handleNubArrow(action)
         }
         nub.translatesAutoresizingMaskIntoConstraints = false
 
@@ -579,8 +579,8 @@ final class TerminalInputTextView: UITextView {
         handleAccessoryAction(action)
     }
 
-    func simulateNubArrowForTesting(_ data: Data) {
-        handleNubArrow(data)
+    func simulateNubArrowForTesting(_ action: TerminalInputAccessoryAction) {
+        handleNubArrow(action)
     }
 
     private func resetStickyTapTimeForTesting(_ action: TerminalInputAccessoryAction) {
@@ -588,15 +588,10 @@ final class TerminalInputTextView: UITextView {
         modifierState.clearDoubleTapWindow()
     }
 
-    /// Forward a raw arrow from the directional nub. The nub sends pre-encoded
-    /// navigation bytes without going through ``handleAccessoryAction(_:)``, so a
-    /// pending one-shot modifier is consumed here to keep it from leaking onto the
-    /// next key (sticky modifiers persist, like every other input path).
-    private func handleNubArrow(_ data: Data) {
-        if let armed = modifierState.armedModifier {
-            consumeModifier(armed)
-        }
-        onEscapeSequence?(data)
+    /// Route a directional-nub arrow through the same modifier-aware path as the
+    /// toolbar arrow buttons.
+    private func handleNubArrow(_ action: TerminalInputAccessoryAction) {
+        handleAccessoryAction(action)
     }
 
     @objc
