@@ -129,6 +129,71 @@ final class AppDelegateBareSpaceShortcutRoutingTests: XCTestCase {
         XCTAssertEqual(manager.tabs.count, initialCount + 1, "Bare Space chord should dispatch on the second stroke")
     }
 
+    func testLegacySurfaceNumberShortcutRespectsConfiguredWhenClause() throws {
+        guard let appDelegate = AppDelegate.shared else {
+            XCTFail("Expected AppDelegate.shared")
+            return
+        }
+
+        let windowId = appDelegate.createMainWindow()
+        defer { closeWindow(withId: windowId) }
+
+        let window = try XCTUnwrap(window(withId: windowId))
+        let manager = try XCTUnwrap(appDelegate.tabManagerFor(windowId: windowId))
+        let workspace = try XCTUnwrap(manager.selectedWorkspace)
+        _ = try XCTUnwrap(workspace.newTerminalSurfaceInFocusedPane(focus: true))
+        _ = try XCTUnwrap(workspace.newTerminalSurfaceInFocusedPane(focus: true))
+        let paneId = try XCTUnwrap(workspace.bonsplitController.focusedPaneId)
+        let tabs = workspace.bonsplitController.tabs(inPane: paneId)
+        XCTAssertGreaterThanOrEqual(tabs.count, 3)
+        workspace.selectSurface(at: 0)
+
+        let directoryURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: directoryURL, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directoryURL) }
+
+        let settingsFileURL = directoryURL.appendingPathComponent("cmux.json", isDirectory: false)
+        try """
+        {
+          "shortcuts": {
+            "bindings": {
+              "selectSurfaceByNumber": "opt+1"
+            },
+            "when": {
+              "selectSurfaceByNumber": "sidebarMode == 'find'"
+            }
+          }
+        }
+        """.write(to: settingsFileURL, atomically: true, encoding: .utf8)
+
+        KeyboardShortcutSettings.settingsFileStore = KeyboardShortcutSettingsFileStore(
+            primaryPath: settingsFileURL.path,
+            fallbackPath: nil,
+            startWatching: false
+        )
+        #if DEBUG
+        appDelegate.debugResetShortcutRoutingStateForTesting()
+        #endif
+
+        guard let event = makeKeyDownEvent(
+            key: "3",
+            modifiers: [.option],
+            keyCode: 20,
+            windowNumber: window.windowNumber
+        ) else {
+            XCTFail("Failed to construct Option+3 event")
+            return
+        }
+
+#if DEBUG
+        XCTAssertFalse(appDelegate.debugHandleCustomShortcut(event: event))
+#else
+        XCTFail("debugHandleCustomShortcut is only available in DEBUG")
+#endif
+        XCTAssertEqual(workspace.bonsplitController.selectedTab(inPane: paneId)?.id, tabs[0].id)
+    }
+
     func testCreateMainWindowUsesPersistedGeometryWhenNoSourceWindow() throws {
         let previousShared = AppDelegate.shared
         let appDelegate = AppDelegate()
@@ -188,13 +253,14 @@ final class AppDelegateBareSpaceShortcutRoutingTests: XCTestCase {
 
     private func makeKeyDownEvent(
         key: String,
+        modifiers: NSEvent.ModifierFlags = [],
         keyCode: UInt16,
         windowNumber: Int
     ) -> NSEvent? {
         NSEvent.keyEvent(
             with: .keyDown,
             location: .zero,
-            modifierFlags: [],
+            modifierFlags: modifiers,
             timestamp: ProcessInfo.processInfo.systemUptime,
             windowNumber: windowNumber,
             context: nil,

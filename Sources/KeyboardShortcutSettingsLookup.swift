@@ -59,6 +59,18 @@ extension KeyboardShortcutSettings {
         configuredShortcutIfPresent(for: action).exists
     }
 
+    static func inheritsLegacySurfaceSelectionConfiguration(for action: Action) -> Bool {
+        guard action.surfaceSelectionDigit != nil else { return false }
+        if configuredShortcutIfPresent(for: action).exists {
+            return false
+        }
+        return legacySurfaceSelectionShortcutIfPresent(for: action).exists
+    }
+
+    static func effectiveWhenClauseAction(for action: Action) -> Action {
+        inheritsLegacySurfaceSelectionConfiguration(for: action) ? .selectSurfaceByNumber : action
+    }
+
     static func menuShortcut(for action: Action) -> StoredShortcut {
         guard !KeyboardShortcutRecorderActivity.isAnyRecorderActive,
               !RecorderHostButton.isActivelyRecording else {
