@@ -353,6 +353,26 @@ import Testing
     #expect(frame.terminalCursorColor == "#333333")
 }
 
+@Test func applyInheritedThemeDropsPartialPalette() throws {
+    // A theme value built with a partial palette must not produce a partial
+    // OSC 4 frame; the helper enforces the same 16-entry invariant as the frame
+    // initializer so inherited and fallback colors never mix.
+    var frame = try MobileTerminalRenderGridFrame(
+        surfaceID: "terminal-a",
+        stateSeq: 1,
+        columns: 4,
+        rows: 1,
+        rowSpans: []
+    )
+    frame.applyInheritedTheme(
+        MobileInheritedTerminalTheme(palette: ["#000000", "#111111"], background: "#222222")
+    )
+    #expect(frame.terminalPalette == nil)
+    #expect(frame.terminalBackground == "#222222")
+    let vt = try #require(String(data: frame.vtPatchBytes(), encoding: .utf8))
+    #expect(!vt.contains("\u{1B}]4;"))
+}
+
 @Test func renderGridFullSnapshotReplaysInheritedPalette() throws {
     // The Mac's resolved 16-color palette is replayed as OSC 4 so the phone's
     // surface resolves ANSI-indexed colors against the Mac's theme instead of

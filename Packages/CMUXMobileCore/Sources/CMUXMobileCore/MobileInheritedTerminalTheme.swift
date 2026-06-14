@@ -41,7 +41,11 @@ extension MobileTerminalRenderGridFrame {
     /// over the static theme. Meaningful only on a full frame; a delta drops the
     /// theme fields, so callers should skip this for deltas.
     public mutating func applyInheritedTheme(_ theme: MobileInheritedTerminalTheme) {
-        terminalPalette = theme.palette
+        // Enforce the same 16-entry invariant the frame initializer applies, so a
+        // partial palette never reaches OSC 4 (which would mix inherited and
+        // fallback colors). A non-16 palette is dropped, keeping the phone's
+        // consistent built-in fallback.
+        terminalPalette = (theme.palette?.count == 16) ? theme.palette : nil
         if terminalForeground == nil { terminalForeground = theme.foreground }
         if terminalBackground == nil { terminalBackground = theme.background }
         if terminalCursorColor == nil { terminalCursorColor = theme.cursor }

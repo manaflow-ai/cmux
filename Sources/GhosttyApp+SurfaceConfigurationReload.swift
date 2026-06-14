@@ -30,6 +30,14 @@ extension GhosttyApp {
         cmuxDebugLog("surface.config.reload source=\(source) soft=\(soft) mode=\(mode)")
 #endif
         GhosttyConfig.invalidateLoadCache()
+        // Drop the mobile inherited-theme cache: it is derived from the parsed
+        // GhosttyConfig that was just invalidated, so a surface-level reload that
+        // changes palette/default colors must re-resolve it for paired phones.
+        // This is independent of the `.ghosttyConfigDidReload` notification below
+        // (whose observers read app-scoped state), so it is dropped directly.
+        // `invalidateInheritedThemeCache()` is nonisolated + thread-safe, so this
+        // is safe whether or not the reload path is on the main actor.
+        MobileTerminalRenderObserver.shared.invalidateInheritedThemeCache()
         // Do not post .ghosttyConfigDidReload here. Its observers read the
         // app-scoped GhosttyApp.config, which this surface-only path leaves
         // unchanged to avoid desyncing the app and other surfaces.

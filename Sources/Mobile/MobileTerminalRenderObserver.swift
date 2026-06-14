@@ -37,9 +37,34 @@ final class MobileTerminalRenderObserver {
     private var renderGridStatesBySurfaceID: [UUID: RenderGridState] = [:]
     /// The Mac's resolved inherited theme, cached so the expensive config-parse +
     /// color-format work stays off the per-keystroke render path. `nil` means
-    /// "not yet resolved"; recomputed lazily and invalidated on Ghostty config
-    /// reload (`.ghosttyConfigDidReload`).
+    /// "not yet resolved"; recomputed lazily and invalidated whenever the parsed
+    /// Ghostty config it derives from is invalidated.
     private var cachedInheritedTheme: MobileInheritedTerminalTheme?
+    /// Set from any thread when the parsed Ghostty config is invalidated (app or
+    /// surface-only reload). The main-actor ``inheritedTheme()`` consumes it and
+    /// re-resolves. A thread-safe flag (rather than touching the main-actor cache
+    /// directly) so the surface-reload path can invalidate without an actor hop
+    /// or `assumeIsolated`, which would be fragile across its callers.
+    private let themeCacheInvalidated = ThemeCacheInvalidationFlag()
+
+    /// A tiny lock-guarded boolean so config invalidation (which can originate off
+    /// the main actor) can signal the main-actor theme cache without an actor hop.
+    private final class ThemeCacheInvalidationFlag: @unchecked Sendable {
+        private let lock = NSLock()
+        private var value = false
+
+        func set() {
+            lock.lock(); defer { lock.unlock() }
+            value = true
+        }
+
+        /// Returns whether the flag was set and clears it, atomically.
+        func consume() -> Bool {
+            lock.lock(); defer { lock.unlock() }
+            defer { value = false }
+            return value
+        }
+    }
 
     private init() {}
 
@@ -91,10 +116,22 @@ final class MobileTerminalRenderObserver {
             queue: .main
         ) { [weak self] _ in
             MainActor.assumeIsolated {
-                self?.cachedInheritedTheme = nil
+                self?.invalidateInheritedThemeCache()
             }
         })
         refreshNotificationDemand()
+    }
+
+    /// Drop the cached inherited theme so the next full frame re-resolves it.
+    /// Called whenever the parsed Ghostty config that the theme derives from is
+    /// invalidated — both the app-scoped `.ghosttyConfigDidReload` and the
+    /// surface-only reload path (`GhosttyApp.reloadSurfaceConfiguration`), which
+    /// invalidates `GhosttyConfig`'s load cache without posting that
+    /// notification. `nonisolated` + thread-safe so either caller (some of which
+    /// run off the main actor) can signal it; the next ``inheritedTheme()`` on
+    /// the main actor re-resolves. Safe to call even when no phone is attached.
+    nonisolated func invalidateInheritedThemeCache() {
+        themeCacheInvalidated.set()
     }
 
     func stop() {
@@ -298,6 +335,10 @@ final class MobileTerminalRenderObserver {
     /// phone inherits it on its very first snapshot rather than waiting for a
     /// later live full event.
     func inheritedTheme() -> MobileInheritedTerminalTheme {
+        // A pending invalidation (from any thread) forces a re-resolve.
+        if themeCacheInvalidated.consume() {
+            cachedInheritedTheme = nil
+        }
         if let cachedInheritedTheme {
             return cachedInheritedTheme
         }
