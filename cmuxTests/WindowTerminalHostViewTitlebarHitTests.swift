@@ -1,5 +1,5 @@
 import AppKit
-import XCTest
+import Testing
 
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
@@ -8,8 +8,9 @@ import XCTest
 #endif
 
 @MainActor
-final class WindowTerminalHostViewTitlebarHitTests: XCTestCase {
-    func testHostViewKeepsTerminalTopRowClickableInsideTitlebarBand() {
+@Suite("Window terminal host titlebar hit testing")
+struct WindowTerminalHostViewTitlebarHitTests {
+    @Test func hostViewKeepsTerminalTopRowClickableInsideTitlebarBand() throws {
         let window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 420, height: 260),
             styleMask: [.titled, .closable],
@@ -17,10 +18,8 @@ final class WindowTerminalHostViewTitlebarHitTests: XCTestCase {
             defer: false
         )
         defer { window.orderOut(nil) }
-        guard let contentView = window.contentView, let container = contentView.superview else {
-            XCTFail("Expected window content container")
-            return
-        }
+        let contentView = try #require(window.contentView, "Expected window content view")
+        let container = try #require(contentView.superview, "Expected window content container")
 
         let host = WindowTerminalHostView(frame: container.convert(contentView.bounds, from: contentView))
         let hostedView = makeHostedTerminalView(frame: host.bounds)
@@ -30,12 +29,12 @@ final class WindowTerminalHostViewTitlebarHitTests: XCTestCase {
         let pointInHostedView = NSPoint(x: hostedView.bounds.midX, y: hostedView.bounds.maxY - 0.5)
         let pointInWindow = hostedView.convert(pointInHostedView, to: nil)
         let pointInHost = host.convert(pointInWindow, from: nil)
-        let event = makeMouseDownEvent(at: pointInWindow, window: window)
+        let event = try makeMouseDownEvent(at: pointInWindow, window: window)
 
-        guard pointInWindow.y >= BonsplitTabBarPassThrough.titlebarInteractionBandMinY(in: window) else {
-            XCTFail("The regression point must exercise the fixed-height titlebar pass-through band")
-            return
-        }
+        try #require(
+            pointInWindow.y >= BonsplitTabBarPassThrough.titlebarInteractionBandMinY(in: window),
+            "The regression point must exercise the fixed-height titlebar pass-through band"
+        )
         assertHitFallsInsideHostedTerminal(
             host.performHitTest(at: pointInHost, currentEvent: event),
             hostedView: hostedView,
@@ -43,7 +42,7 @@ final class WindowTerminalHostViewTitlebarHitTests: XCTestCase {
         )
     }
 
-    func testHostViewPassesThroughRegisteredTitlebarControlsAboveTerminal() {
+    @Test func hostViewPassesThroughRegisteredTitlebarControlsAboveTerminal() throws {
         let window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 420, height: 260),
             styleMask: [.titled, .closable],
@@ -51,10 +50,8 @@ final class WindowTerminalHostViewTitlebarHitTests: XCTestCase {
             defer: false
         )
         defer { window.orderOut(nil) }
-        guard let contentView = window.contentView, let container = contentView.superview else {
-            XCTFail("Expected window content container")
-            return
-        }
+        let contentView = try #require(window.contentView, "Expected window content view")
+        let container = try #require(contentView.superview, "Expected window content container")
 
         let host = WindowTerminalHostView(frame: container.convert(contentView.bounds, from: contentView))
         host.addSubview(makeHostedTerminalView(frame: host.bounds))
@@ -67,14 +64,14 @@ final class WindowTerminalHostViewTitlebarHitTests: XCTestCase {
 
         let pointInWindow = contentView.convert(NSPoint(x: region.frame.midX, y: region.frame.midY), to: nil)
         let pointInHost = host.convert(pointInWindow, from: nil)
-        let event = makeMouseDownEvent(at: pointInWindow, window: window)
+        let event = try makeMouseDownEvent(at: pointInWindow, window: window)
 
-        guard pointInWindow.y >= BonsplitTabBarPassThrough.titlebarInteractionBandMinY(in: window) else {
-            XCTFail("The control point must sit inside the fixed titlebar interaction band")
-            return
-        }
-        XCTAssertNil(
-            host.performHitTest(at: pointInHost, currentEvent: event),
+        try #require(
+            pointInWindow.y >= BonsplitTabBarPassThrough.titlebarInteractionBandMinY(in: window),
+            "The control point must sit inside the fixed titlebar interaction band"
+        )
+        #expect(
+            host.performHitTest(at: pointInHost, currentEvent: event) == nil,
             "Registered titlebar controls must keep receiving clicks even when terminal content underlaps them"
         )
     }
@@ -87,8 +84,8 @@ final class WindowTerminalHostViewTitlebarHitTests: XCTestCase {
         return hostedView
     }
 
-    private func makeMouseDownEvent(at locationInWindow: NSPoint, window: NSWindow) -> NSEvent {
-        guard let event = NSEvent.mouseEvent(
+    private func makeMouseDownEvent(at locationInWindow: NSPoint, window: NSWindow) throws -> NSEvent {
+        try #require(NSEvent.mouseEvent(
             with: .leftMouseDown,
             location: locationInWindow,
             modifierFlags: [],
@@ -98,23 +95,18 @@ final class WindowTerminalHostViewTitlebarHitTests: XCTestCase {
             eventNumber: 0,
             clickCount: 1,
             pressure: 1.0
-        ) else {
-            fatalError("Failed to create leftMouseDown event")
-        }
-        return event
+        ), "Failed to create leftMouseDown event")
     }
 
     private func assertHitFallsInsideHostedTerminal(
         _ hitView: NSView?,
         hostedView: GhosttySurfaceScrollView,
-        message: String,
-        file: StaticString = #filePath,
-        line: UInt = #line
+        message: String
     ) {
         guard let hitView else {
-            XCTFail(message, file: file, line: line)
+            Issue.record(Comment(rawValue: message))
             return
         }
-        XCTAssertTrue(hitView === hostedView || hitView.isDescendant(of: hostedView), message, file: file, line: line)
+        #expect(hitView === hostedView || hitView.isDescendant(of: hostedView), Comment(rawValue: message))
     }
 }
