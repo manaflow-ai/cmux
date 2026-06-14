@@ -85,6 +85,7 @@ jobs:
           snyk test \
             --file=web/package.json \
             --package-manager=npm \
+            --dev \
             --severity-threshold=high \
             --sarif-file-output=snyk-oss.sarif
           status=$?
