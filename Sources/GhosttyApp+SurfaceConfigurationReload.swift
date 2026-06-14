@@ -35,9 +35,10 @@ extension GhosttyApp {
         // changes palette/default colors must re-resolve it for paired phones.
         // This is independent of the `.ghosttyConfigDidReload` notification below
         // (whose observers read app-scoped state), so it is dropped directly.
-        // `invalidateInheritedThemeCache()` is nonisolated + thread-safe, so this
-        // is safe whether or not the reload path is on the main actor.
-        MobileTerminalRenderObserver.shared.invalidateInheritedThemeCache()
+        // `invalidateInheritedThemeCache()` is a nonisolated static + thread-safe,
+        // so this is safe whether or not the reload path is on the main actor and
+        // does not touch the main-actor `shared` instance.
+        MobileTerminalRenderObserver.invalidateInheritedThemeCache()
         // Do not post .ghosttyConfigDidReload here. Its observers read the
         // app-scoped GhosttyApp.config, which this surface-only path leaves
         // unchanged to avoid desyncing the app and other surfaces.
