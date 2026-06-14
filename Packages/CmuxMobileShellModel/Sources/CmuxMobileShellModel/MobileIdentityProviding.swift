@@ -8,4 +8,19 @@
 public protocol MobileIdentityProviding: Sendable {
     /// The current signed-in user's stable identifier, or `nil` when signed out.
     @MainActor var currentUserID: String? { get }
+
+    /// The current signed-in user's primary email, or `nil` when signed out or
+    /// when no email is set on the account.
+    ///
+    /// The Send Feedback router reads this to decide whether the privileged
+    /// direct-to-agent path applies (`@manaflow.ai`); it is also the default
+    /// reply-to address when emailing the feedback inbox.
+    @MainActor var currentUserEmail: String? { get }
+}
+
+public extension MobileIdentityProviding {
+    /// Default so existing conformers (and test doubles) that only model the
+    /// user id keep compiling; they report no email and therefore route to the
+    /// email path, which is the safe fallback.
+    @MainActor var currentUserEmail: String? { nil }
 }

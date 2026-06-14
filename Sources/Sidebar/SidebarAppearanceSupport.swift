@@ -1,18 +1,12 @@
 import AppKit
+import CmuxFoundation
 import Foundation
 import SwiftUI
+import CmuxSettings
 
 enum SidebarMatchTerminalBackgroundSettings {
     static let userDefaultsKey = "sidebarMatchTerminalBackground"
     static let legacyAppliedSettingsFileDefaultKey = "cmux.settingsFile.sidebarMatchTerminalBackground.appliedDefault.v1"
-}
-
-enum SidebarThemeSettings {
-    static let foregroundColorHexKey = "sidebarForegroundColorHex"
-    static let mutedForegroundColorHexKey = "sidebarMutedForegroundColorHex"
-    static let selectionForegroundColorHexKey = "sidebarSelectionForegroundColorHex"
-    static let borderColorHexKey = "sidebarBorderColorHex"
-    static let accentColorHexKey = "sidebarAccentColorHex"
 }
 
 enum SidebarTabItemFontScale {
@@ -263,7 +257,7 @@ struct SidebarWorkspaceRowBackgroundStyle {
 }
 
 func sidebarWorkspaceRowExplicitRailNSColor(
-    activeTabIndicatorStyle: SidebarActiveTabIndicatorStyle,
+    activeTabIndicatorStyle: WorkspaceIndicatorStyle,
     customColorHex: String?,
     colorScheme: ColorScheme
 ) -> NSColor? {
@@ -279,7 +273,7 @@ func sidebarWorkspaceRowExplicitRailNSColor(
 }
 
 func sidebarWorkspaceRowBackgroundStyle(
-    activeTabIndicatorStyle: SidebarActiveTabIndicatorStyle,
+    activeTabIndicatorStyle: WorkspaceIndicatorStyle,
     isActive: Bool,
     isMultiSelected: Bool,
     customColorHex: String?,
