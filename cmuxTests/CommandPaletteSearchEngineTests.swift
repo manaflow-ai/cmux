@@ -1,3 +1,4 @@
+import CmuxCommandPalette
 import XCTest
 
 #if canImport(cmux_DEV)
@@ -337,6 +338,39 @@ final class CommandPaletteSearchEngineTests: XCTestCase {
         )
     }
 
+    func testMobileConnectCommandIsFoundByMobileDeviceQueries() {
+        // Mirror the real command pipeline: a command's searchable corpus is
+        // [title, subtitle] + keywords (see CommandPaletteCommand.searchableTexts).
+        // Pull the keywords from the production source of truth so this test fails
+        // if any of the expected aliases are ever dropped from the contribution.
+        let mobileConnect = FixtureEntry(
+            id: "palette.mobileConnect",
+            rank: 0,
+            title: "Connect iPhone/iPad",
+            searchableTexts: ["Connect iPhone/iPad", "Mobile"]
+                + ContentView.commandPaletteMobileConnectKeywords
+        )
+        // Dense, realistic decoy corpus so the assertion exercises ranking, not a
+        // single-item list.
+        let decoys = makeCommandEntries(count: 64).enumerated().map { offset, entry in
+            FixtureEntry(
+                id: entry.id,
+                rank: offset + 1,
+                title: entry.title,
+                searchableTexts: entry.searchableTexts
+            )
+        }
+        let corpus = [mobileConnect] + decoys
+
+        for query in ["ios", "ipados", "iphone", "ipad", "pair", "mobile", "phone", "connect"] {
+            XCTAssertEqual(
+                optimizedResults(entries: corpus, query: query).first?.id,
+                "palette.mobileConnect",
+                "Expected Connect iPhone/iPad to be the top command palette result for query \"\(query)\""
+            )
+        }
+    }
+
     func testLimitedSearchReturnsSameTopResultsAsFullSearch() {
         let entries = makeLargeWorkspaceSwitcherEntries(count: 800)
         let queries = [
@@ -479,6 +513,12 @@ final class CommandPaletteSearchEngineTests: XCTestCase {
                 searchableTexts: ["Fork Conversation to the Right", "Terminal", "fork", "right"]
             ),
             FixtureEntry(
+                id: "palette.forkAgentConversationNewTab",
+                rank: 2,
+                title: "Fork Conversation to New Tab",
+                searchableTexts: ["Fork Conversation to New Tab", "Terminal", "fork", "new", "tab"]
+            ),
+            FixtureEntry(
                 id: "palette.forkAgentConversationNewWorkspace",
                 rank: 1,
                 title: "Fork Conversation to New Workspace",
@@ -596,70 +636,13 @@ final class CommandPaletteSearchEngineTests: XCTestCase {
         )
     }
 
-    func testForkPostProbeContextRejectsFocusOrRemoteContextChanges() {
+    func testForkableAgentFallbackSnapshotRequiresVerifiedProbeForVisibility() {
         let workspaceId = UUID()
         let panelId = UUID()
-
-        XCTAssertTrue(
-            ContentView.commandPaletteForkPostProbeContextStillMatches(
-                expectedWorkspaceId: workspaceId,
-                expectedPanelId: panelId,
-                expectedIsRemoteContext: false,
-                currentWorkspaceId: workspaceId,
-                currentPanelId: panelId,
-                currentPanelIsTerminal: true,
-                currentIsRemoteContext: false
-            )
+        let supportedKey = ContentView.commandPaletteForkableAgentPanelKey(
+            workspaceId: workspaceId,
+            panelId: panelId
         )
-        XCTAssertFalse(
-            ContentView.commandPaletteForkPostProbeContextStillMatches(
-                expectedWorkspaceId: workspaceId,
-                expectedPanelId: panelId,
-                expectedIsRemoteContext: false,
-                currentWorkspaceId: workspaceId,
-                currentPanelId: UUID(),
-                currentPanelIsTerminal: true,
-                currentIsRemoteContext: false
-            )
-        )
-        XCTAssertFalse(
-            ContentView.commandPaletteForkPostProbeContextStillMatches(
-                expectedWorkspaceId: workspaceId,
-                expectedPanelId: panelId,
-                expectedIsRemoteContext: false,
-                currentWorkspaceId: UUID(),
-                currentPanelId: panelId,
-                currentPanelIsTerminal: true,
-                currentIsRemoteContext: false
-            )
-        )
-        XCTAssertFalse(
-            ContentView.commandPaletteForkPostProbeContextStillMatches(
-                expectedWorkspaceId: workspaceId,
-                expectedPanelId: panelId,
-                expectedIsRemoteContext: false,
-                currentWorkspaceId: workspaceId,
-                currentPanelId: panelId,
-                currentPanelIsTerminal: false,
-                currentIsRemoteContext: false
-            )
-        )
-        XCTAssertFalse(
-            ContentView.commandPaletteForkPostProbeContextStillMatches(
-                expectedWorkspaceId: workspaceId,
-                expectedPanelId: panelId,
-                expectedIsRemoteContext: false,
-                currentWorkspaceId: workspaceId,
-                currentPanelId: panelId,
-                currentPanelIsTerminal: true,
-                currentIsRemoteContext: true
-            )
-        )
-    }
-
-    func testForkableAgentFallbackSnapshotUsesSynchronousSupportOnly() {
-        let workspaceId = UUID()
-        let panelId = UUID()
         let codex = SessionRestorableAgentSnapshot(
             kind: .codex,
             sessionId: "codex-session",
@@ -695,11 +678,20 @@ final class CommandPaletteSearchEngineTests: XCTestCase {
             )
         )
 
-        XCTAssertTrue(
+        XCTAssertFalse(
             ContentView.commandPalettePanelHasForkableAgent(
                 workspaceId: workspaceId,
                 panelId: panelId,
                 supportedPanelKeys: [],
+                fallbackSnapshot: codex
+            )
+        )
+        XCTAssertTrue(
+            ContentView.commandPalettePanelHasForkableAgent(
+                workspaceId: workspaceId,
+                panelId: panelId,
+                supportedPanelKeys: [supportedKey],
+                supportedRemoteContextsByPanelKey: [supportedKey: false],
                 fallbackSnapshot: codex
             )
         )
@@ -711,7 +703,7 @@ final class CommandPaletteSearchEngineTests: XCTestCase {
                 fallbackSnapshot: directOpenCode
             )
         )
-        XCTAssertTrue(
+        XCTAssertFalse(
             ContentView.commandPalettePanelHasForkableAgent(
                 workspaceId: workspaceId,
                 panelId: panelId,
@@ -724,7 +716,26 @@ final class CommandPaletteSearchEngineTests: XCTestCase {
             ContentView.commandPalettePanelHasForkableAgent(
                 workspaceId: workspaceId,
                 panelId: panelId,
+                supportedPanelKeys: [supportedKey],
+                supportedRemoteContextsByPanelKey: [supportedKey: true],
+                fallbackSnapshot: directOpenCode,
+                isRemoteTerminal: true
+            )
+        )
+        XCTAssertFalse(
+            ContentView.commandPalettePanelHasForkableAgent(
+                workspaceId: workspaceId,
+                panelId: panelId,
                 supportedPanelKeys: [],
+                fallbackSnapshot: omoOpenCode
+            )
+        )
+        XCTAssertTrue(
+            ContentView.commandPalettePanelHasForkableAgent(
+                workspaceId: workspaceId,
+                panelId: panelId,
+                supportedPanelKeys: [supportedKey],
+                supportedRemoteContextsByPanelKey: [supportedKey: false],
                 fallbackSnapshot: omoOpenCode
             )
         )
@@ -761,11 +772,20 @@ final class CommandPaletteSearchEngineTests: XCTestCase {
 
         XCTAssertNotNil(snapshot.forkStartupInput(allowLauncherScript: true))
         XCTAssertNil(snapshot.forkStartupInput(allowLauncherScript: false))
-        XCTAssertTrue(
+        XCTAssertFalse(
             ContentView.commandPalettePanelHasForkableAgent(
                 workspaceId: workspaceId,
                 panelId: panelId,
                 supportedPanelKeys: [],
+                fallbackSnapshot: snapshot
+            )
+        )
+        XCTAssertTrue(
+            ContentView.commandPalettePanelHasForkableAgent(
+                workspaceId: workspaceId,
+                panelId: panelId,
+                supportedPanelKeys: [supportedKey],
+                supportedRemoteContextsByPanelKey: [supportedKey: false],
                 fallbackSnapshot: snapshot
             )
         )
@@ -813,50 +833,227 @@ final class CommandPaletteSearchEngineTests: XCTestCase {
         )
     }
 
-    func testForkExecutionUsesCachedSnapshotAfterProcessSnapshotDisappears() {
-        let cached = SessionRestorableAgentSnapshot(
-            kind: .codex,
-            sessionId: "stale-codex-session",
-            workingDirectory: "/tmp/stale repo",
-            launchCommand: nil
-        )
+    func testImmediateForkExecutionRejectsFallbackSnapshotBeforeProbeVerification() {
+        let workspaceId = UUID()
+        let panelId = UUID()
         let fallback = SessionRestorableAgentSnapshot(
-            kind: .claude,
-            sessionId: "fallback-claude-session",
+            kind: .codex,
+            sessionId: "fallback-codex-session",
             workingDirectory: "/tmp/fallback repo",
             launchCommand: nil
         )
-        let live = SessionRestorableAgentSnapshot(
+
+        let snapshot = ContentView.commandPaletteImmediateForkExecutionSnapshot(
+            workspaceId: workspaceId,
+            panelId: panelId,
+            isRemoteTerminal: false,
+            supportedPanelKeys: [],
+            supportedRemoteContextsByPanelKey: [:],
+            snapshotFingerprintsByPanelKey: [:],
+            fallbackSnapshot: fallback,
+            cachedSnapshot: nil
+        )
+
+        XCTAssertNil(snapshot)
+    }
+
+    func testImmediateForkExecutionPrefersVerifiedCachedSnapshotForSynchronousFallback() {
+        let workspaceId = UUID()
+        let panelId = UUID()
+        let panelKey = ContentView.commandPaletteForkableAgentPanelKey(
+            workspaceId: workspaceId,
+            panelId: panelId
+        )
+        let fallback = SessionRestorableAgentSnapshot(
+            kind: .codex,
+            sessionId: "restored-codex-session",
+            workingDirectory: "/tmp/restored repo",
+            launchCommand: nil
+        )
+        let cached = SessionRestorableAgentSnapshot(
             kind: .codex,
             sessionId: "live-codex-session",
             workingDirectory: "/tmp/live repo",
-            launchCommand: nil
+            launchCommand: AgentLaunchCommandSnapshot(
+                launcher: "codex",
+                executablePath: "/opt/homebrew/bin/codex",
+                arguments: ["/opt/homebrew/bin/codex", "resume", "live-codex-session"],
+                workingDirectory: "/tmp/live repo",
+                environment: nil,
+                capturedAt: 124,
+                source: "process"
+            )
+        )
+        let fingerprint = ContentView.commandPaletteForkSnapshotFingerprint(fallback)
+
+        let selection = ContentView.commandPaletteImmediateForkExecutionSnapshotSelection(
+            workspaceId: workspaceId,
+            panelId: panelId,
+            isRemoteTerminal: false,
+            supportedPanelKeys: [panelKey],
+            supportedRemoteContextsByPanelKey: [panelKey: false],
+            snapshotFingerprintsByPanelKey: [panelKey: fingerprint],
+            fallbackSnapshot: fallback,
+            cachedSnapshot: cached
         )
 
-        XCTAssertEqual(
-            ContentView.commandPaletteForkExecutionSnapshot(
-                indexSnapshot: nil,
-                fallbackSnapshot: nil,
-                cachedSnapshot: cached
-            )?.sessionId,
-            cached.sessionId
+        XCTAssertEqual(selection?.snapshot.sessionId, cached.sessionId)
+        XCTAssertEqual(selection?.usedFallbackSnapshot, false)
+        XCTAssertFalse(
+            ContentView.commandPaletteShouldClearForkableAgentProbeResultBeforeProbe(
+                panelKey: panelKey,
+                supportedPanelKeys: [panelKey],
+                supportedRemoteContextsByPanelKey: [panelKey: false],
+                snapshotFingerprintsByPanelKey: [panelKey: fingerprint],
+                expectedSnapshotFingerprint: fingerprint,
+                isRemoteTerminal: false,
+                cachedResultHadFallback: selection?.usedFallbackSnapshot ?? true,
+                panelChanged: false
+            )
         )
-        XCTAssertEqual(
-            ContentView.commandPaletteForkExecutionSnapshot(
-                indexSnapshot: nil,
-                fallbackSnapshot: fallback,
-                cachedSnapshot: cached
-            )?.sessionId,
-            fallback.sessionId
+    }
+
+    func testImmediateForkExecutionUsesProbeVerifiedFallbackSnapshot() {
+        let workspaceId = UUID()
+        let panelId = UUID()
+        let panelKey = ContentView.commandPaletteForkableAgentPanelKey(
+            workspaceId: workspaceId,
+            panelId: panelId
         )
-        XCTAssertEqual(
-            ContentView.commandPaletteForkExecutionSnapshot(
-                indexSnapshot: live,
-                fallbackSnapshot: fallback,
-                cachedSnapshot: cached
-            )?.sessionId,
-            live.sessionId
+        let fallback = SessionRestorableAgentSnapshot(
+            kind: .opencode,
+            sessionId: "opencode-session",
+            workingDirectory: "/tmp/opencode repo",
+            launchCommand: AgentLaunchCommandSnapshot(
+                launcher: "opencode",
+                executablePath: "/opt/homebrew/bin/opencode",
+                arguments: ["/opt/homebrew/bin/opencode"],
+                workingDirectory: "/tmp/opencode repo",
+                environment: nil,
+                capturedAt: 123,
+                source: "environment"
+            )
         )
+        let fingerprint = ContentView.commandPaletteForkSnapshotFingerprint(fallback)
+
+        let selection = ContentView.commandPaletteImmediateForkExecutionSnapshotSelection(
+            workspaceId: workspaceId,
+            panelId: panelId,
+            isRemoteTerminal: false,
+            supportedPanelKeys: [panelKey],
+            supportedRemoteContextsByPanelKey: [panelKey: false],
+            snapshotFingerprintsByPanelKey: [panelKey: fingerprint],
+            fallbackSnapshot: fallback,
+            cachedSnapshot: nil
+        )
+
+        XCTAssertEqual(selection?.snapshot.sessionId, fallback.sessionId)
+        XCTAssertEqual(selection?.usedFallbackSnapshot, true)
+    }
+
+    func testImmediateForkExecutionPrefersProbeVerifiedCachedSnapshot() {
+        let workspaceId = UUID()
+        let panelId = UUID()
+        let panelKey = ContentView.commandPaletteForkableAgentPanelKey(
+            workspaceId: workspaceId,
+            panelId: panelId
+        )
+        let fallback = SessionRestorableAgentSnapshot(
+            kind: .opencode,
+            sessionId: "restored-opencode-session",
+            workingDirectory: "/tmp/opencode repo",
+            launchCommand: AgentLaunchCommandSnapshot(
+                launcher: "opencode",
+                executablePath: "/opt/homebrew/bin/opencode",
+                arguments: ["/opt/homebrew/bin/opencode"],
+                workingDirectory: "/tmp/opencode repo",
+                environment: nil,
+                capturedAt: 123,
+                source: "environment"
+            )
+        )
+        let cached = SessionRestorableAgentSnapshot(
+            kind: .opencode,
+            sessionId: "live-opencode-session",
+            workingDirectory: "/tmp/opencode repo",
+            launchCommand: AgentLaunchCommandSnapshot(
+                launcher: "opencode",
+                executablePath: "/opt/homebrew/bin/opencode",
+                arguments: ["/opt/homebrew/bin/opencode"],
+                workingDirectory: "/tmp/opencode repo",
+                environment: nil,
+                capturedAt: 124,
+                source: "process"
+            )
+        )
+        let fingerprint = ContentView.commandPaletteForkSnapshotFingerprint(fallback)
+
+        let selection = ContentView.commandPaletteImmediateForkExecutionSnapshotSelection(
+            workspaceId: workspaceId,
+            panelId: panelId,
+            isRemoteTerminal: false,
+            supportedPanelKeys: [panelKey],
+            supportedRemoteContextsByPanelKey: [panelKey: false],
+            snapshotFingerprintsByPanelKey: [panelKey: fingerprint],
+            fallbackSnapshot: fallback,
+            cachedSnapshot: cached
+        )
+
+        XCTAssertEqual(selection?.snapshot.sessionId, cached.sessionId)
+        XCTAssertEqual(selection?.usedFallbackSnapshot, false)
+    }
+
+    func testImmediateForkExecutionRejectsStaleProbeFingerprint() {
+        let workspaceId = UUID()
+        let panelId = UUID()
+        let panelKey = ContentView.commandPaletteForkableAgentPanelKey(
+            workspaceId: workspaceId,
+            panelId: panelId
+        )
+        let fallback = SessionRestorableAgentSnapshot(
+            kind: .opencode,
+            sessionId: "opencode-session",
+            workingDirectory: "/tmp/opencode repo",
+            launchCommand: AgentLaunchCommandSnapshot(
+                launcher: "opencode",
+                executablePath: "/opt/homebrew/bin/opencode",
+                arguments: ["/opt/homebrew/bin/opencode"],
+                workingDirectory: "/tmp/opencode repo",
+                environment: nil,
+                capturedAt: 123,
+                source: "environment"
+            )
+        )
+
+        let snapshot = ContentView.commandPaletteImmediateForkExecutionSnapshot(
+            workspaceId: workspaceId,
+            panelId: panelId,
+            isRemoteTerminal: false,
+            supportedPanelKeys: [panelKey],
+            supportedRemoteContextsByPanelKey: [panelKey: false],
+            snapshotFingerprintsByPanelKey: [panelKey: "stale-fingerprint"],
+            fallbackSnapshot: fallback,
+            cachedSnapshot: nil
+        )
+
+        XCTAssertNil(snapshot)
+    }
+
+    func testForkCommandsDismissPaletteBeforeRunning() {
+        let forkCommandIds = [
+            "palette.forkAgentConversationRight",
+            "palette.forkAgentConversationLeft",
+            "palette.forkAgentConversationTop",
+            "palette.forkAgentConversationBottom",
+            "palette.forkAgentConversationNewTab",
+            "palette.forkAgentConversationNewWorkspace"
+        ]
+
+        for commandId in forkCommandIds {
+            XCTAssertTrue(ContentView.commandPaletteShouldDismissBeforeRun(forCommandId: commandId))
+        }
+        XCTAssertFalse(ContentView.commandPaletteShouldDismissBeforeRun(forCommandId: "palette.terminalSplitRight"))
+        XCTAssertFalse(ContentView.commandPaletteShouldDismissBeforeRun(forCommandId: "palette.terminalFocusTextBoxInput"))
     }
 
     func testForkableAgentCacheKeepsVerifiedOpenCodeVisible() {
@@ -993,42 +1190,183 @@ final class CommandPaletteSearchEngineTests: XCTestCase {
         )
     }
 
-    func testCommandPreviewSearchUsesFullCommandCorpus() {
-        let entries = [
-            FixtureEntry(
-                id: "command.find",
-                rank: 0,
-                title: "Find...",
-                searchableTexts: ["Find...", "Search", "find", "search"]
-            ),
-            FixtureEntry(
-                id: "command.finder",
-                rank: 1,
-                title: "Open Current Directory in Finder",
-                searchableTexts: ["Open Current Directory in Finder", "Terminal", "finder", "directory", "open"]
-            ),
-        ]
-        let corpus = entries.map { entry in
-            CommandPaletteSearchCorpusEntry(
-                payload: entry.id,
-                rank: entry.rank,
-                title: entry.title,
-                searchableTexts: entry.searchableTexts
-            )
-        }
-        let corpusByID = Dictionary(uniqueKeysWithValues: corpus.map { ($0.payload, $0) })
-        let searchIndex = CommandPaletteNucleoSearchIndex(entries: corpus)
-
-        let previewCommandIDs = CommandPaletteSearchOrchestrator.commandPreviewMatchCommandIDsForTests(
-            searchCorpus: corpus,
-            searchIndex: searchIndex,
-            candidateCommandIDs: ["command.find"],
-            searchCorpusByID: corpusByID,
-            query: "finde",
-            resultLimit: 48
+    func testForkableAgentProbeResultReuseRequiresCurrentPanelSession() {
+        let workspaceId = UUID()
+        let panelId = UUID()
+        let panelKey = ContentView.commandPaletteForkableAgentPanelKey(
+            workspaceId: workspaceId,
+            panelId: panelId
         )
+        let fingerprint = "verified-fingerprint"
 
-        XCTAssertEqual(previewCommandIDs.first, "command.finder")
+        XCTAssertTrue(
+            ContentView.commandPaletteShouldReuseForkableAgentProbeResult(
+                panelKey: panelKey,
+                supportedPanelKeys: [panelKey],
+                supportedRemoteContextsByPanelKey: [panelKey: false],
+                snapshotFingerprintsByPanelKey: [panelKey: fingerprint],
+                expectedSnapshotFingerprint: fingerprint,
+                isRemoteTerminal: false,
+                cachedResultHadFallback: false,
+                panelChanged: false
+            )
+        )
+        XCTAssertFalse(
+            ContentView.commandPaletteShouldReuseForkableAgentProbeResult(
+                panelKey: panelKey,
+                supportedPanelKeys: [panelKey],
+                supportedRemoteContextsByPanelKey: [panelKey: false],
+                snapshotFingerprintsByPanelKey: [panelKey: fingerprint],
+                expectedSnapshotFingerprint: fingerprint,
+                isRemoteTerminal: false,
+                cachedResultHadFallback: false,
+                panelChanged: true
+            )
+        )
+        XCTAssertFalse(
+            ContentView.commandPaletteShouldReuseForkableAgentProbeResult(
+                panelKey: panelKey,
+                supportedPanelKeys: [panelKey],
+                supportedRemoteContextsByPanelKey: [panelKey: false],
+                snapshotFingerprintsByPanelKey: [panelKey: "stale-fingerprint"],
+                expectedSnapshotFingerprint: fingerprint,
+                isRemoteTerminal: false,
+                cachedResultHadFallback: false,
+                panelChanged: false
+            )
+        )
+        XCTAssertFalse(
+            ContentView.commandPaletteShouldReuseForkableAgentProbeResult(
+                panelKey: panelKey,
+                supportedPanelKeys: [panelKey],
+                supportedRemoteContextsByPanelKey: [panelKey: true],
+                snapshotFingerprintsByPanelKey: [panelKey: fingerprint],
+                expectedSnapshotFingerprint: fingerprint,
+                isRemoteTerminal: false,
+                cachedResultHadFallback: false,
+                panelChanged: false
+            )
+        )
+        XCTAssertFalse(
+            ContentView.commandPaletteShouldReuseForkableAgentProbeResult(
+                panelKey: panelKey,
+                supportedPanelKeys: [panelKey],
+                supportedRemoteContextsByPanelKey: [panelKey: false],
+                snapshotFingerprintsByPanelKey: [panelKey: fingerprint],
+                expectedSnapshotFingerprint: nil,
+                isRemoteTerminal: false,
+                cachedResultHadFallback: true,
+                panelChanged: false
+            )
+        )
+    }
+
+    func testForkableAgentProbeResultClearBeforeProbeClearsFallbackBackedCache() {
+        let workspaceId = UUID()
+        let panelId = UUID()
+        let panelKey = ContentView.commandPaletteForkableAgentPanelKey(
+            workspaceId: workspaceId,
+            panelId: panelId
+        )
+        let fingerprint = "verified-fingerprint"
+
+        XCTAssertFalse(
+            ContentView.commandPaletteShouldClearForkableAgentProbeResultBeforeProbe(
+                panelKey: panelKey,
+                supportedPanelKeys: [panelKey],
+                supportedRemoteContextsByPanelKey: [panelKey: false],
+                snapshotFingerprintsByPanelKey: [panelKey: fingerprint],
+                expectedSnapshotFingerprint: fingerprint,
+                isRemoteTerminal: false,
+                cachedResultHadFallback: false,
+                panelChanged: false
+            )
+        )
+        XCTAssertTrue(
+            ContentView.commandPaletteShouldClearForkableAgentProbeResultBeforeProbe(
+                panelKey: panelKey,
+                supportedPanelKeys: [panelKey],
+                supportedRemoteContextsByPanelKey: [panelKey: false],
+                snapshotFingerprintsByPanelKey: [panelKey: fingerprint],
+                expectedSnapshotFingerprint: fingerprint,
+                isRemoteTerminal: false,
+                cachedResultHadFallback: true,
+                panelChanged: false
+            )
+        )
+        XCTAssertTrue(
+            ContentView.commandPaletteShouldClearForkableAgentProbeResultBeforeProbe(
+                panelKey: panelKey,
+                supportedPanelKeys: [panelKey],
+                supportedRemoteContextsByPanelKey: [panelKey: false],
+                snapshotFingerprintsByPanelKey: [panelKey: fingerprint],
+                expectedSnapshotFingerprint: fingerprint,
+                isRemoteTerminal: false,
+                cachedResultHadFallback: false,
+                panelChanged: true
+            )
+        )
+        XCTAssertTrue(
+            ContentView.commandPaletteShouldClearForkableAgentProbeResultBeforeProbe(
+                panelKey: panelKey,
+                supportedPanelKeys: [panelKey],
+                supportedRemoteContextsByPanelKey: [panelKey: false],
+                snapshotFingerprintsByPanelKey: [panelKey: "stale-fingerprint"],
+                expectedSnapshotFingerprint: fingerprint,
+                isRemoteTerminal: false,
+                cachedResultHadFallback: false,
+                panelChanged: false
+            )
+        )
+    }
+
+    func testForkableAgentMatchedFallbackProbePreservesVerifiedCacheUsage() {
+        XCTAssertFalse(
+            ContentView.commandPaletteForkMatchedFallbackProbeResultHadFallback(
+                cachedResultHadFallback: false
+            )
+        )
+        XCTAssertTrue(
+            ContentView.commandPaletteForkMatchedFallbackProbeResultHadFallback(
+                cachedResultHadFallback: true
+            )
+        )
+        XCTAssertTrue(
+            ContentView.commandPaletteForkMatchedFallbackProbeResultHadFallback(
+                cachedResultHadFallback: nil
+            )
+        )
+    }
+
+    func testForkableAgentProbeResultMatchIgnoresPaletteSession() {
+        let workspaceId = UUID()
+        let panelId = UUID()
+        let panelKey = ContentView.commandPaletteForkableAgentPanelKey(
+            workspaceId: workspaceId,
+            panelId: panelId
+        )
+        let fingerprint = "verified-fingerprint"
+
+        XCTAssertTrue(
+            ContentView.commandPaletteForkableAgentProbeResultMatches(
+                panelKey: panelKey,
+                supportedPanelKeys: [panelKey],
+                supportedRemoteContextsByPanelKey: [panelKey: false],
+                snapshotFingerprintsByPanelKey: [panelKey: fingerprint],
+                expectedSnapshotFingerprint: fingerprint,
+                isRemoteTerminal: false
+            )
+        )
+        XCTAssertFalse(
+            ContentView.commandPaletteForkableAgentProbeResultMatches(
+                panelKey: panelKey,
+                supportedPanelKeys: [panelKey],
+                supportedRemoteContextsByPanelKey: [panelKey: false],
+                snapshotFingerprintsByPanelKey: [panelKey: "stale-fingerprint"],
+                expectedSnapshotFingerprint: fingerprint,
+                isRemoteTerminal: false
+            )
+        )
     }
 
     func testNucleoEmptyResultsFallBackToSwiftSingleEditMatching() throws {
@@ -1168,64 +1506,6 @@ final class CommandPaletteSearchEngineTests: XCTestCase {
         XCTAssertEqual(matches.first?.commandID, "palette.renameTab")
     }
 
-    func testSwiftFallbackMergeKeepsCombinedResultsSortedByScore() {
-        let entries = [
-            FixtureEntry(
-                id: "palette.high",
-                rank: 0,
-                title: "High Score",
-                searchableTexts: ["High Score"]
-            ),
-            FixtureEntry(
-                id: "palette.medium",
-                rank: 1,
-                title: "Medium Score",
-                searchableTexts: ["Medium Score"]
-            ),
-            FixtureEntry(
-                id: "palette.fallback",
-                rank: 2,
-                title: "Fallback Score",
-                searchableTexts: ["Fallback Score"]
-            ),
-        ]
-        let corpus = entries.map { entry in
-            CommandPaletteSearchCorpusEntry(
-                payload: entry.id,
-                rank: entry.rank,
-                title: entry.title,
-                searchableTexts: entry.searchableTexts
-            )
-        }
-        let corpusByID = Dictionary(uniqueKeysWithValues: corpus.map { ($0.payload, $0) })
-
-        let matches = CommandPaletteSearchOrchestrator.mergedSwiftFallbackMatchesForTests(
-            [
-                CommandPaletteResolvedSearchMatch(
-                    commandID: "palette.fallback",
-                    score: 25,
-                    titleMatchIndices: []
-                )
-            ],
-            nucleoMatches: [
-                CommandPaletteResolvedSearchMatch(
-                    commandID: "palette.medium",
-                    score: 80,
-                    titleMatchIndices: []
-                ),
-                CommandPaletteResolvedSearchMatch(
-                    commandID: "palette.high",
-                    score: 100,
-                    titleMatchIndices: []
-                ),
-            ],
-            searchCorpusByID: corpusByID,
-            limit: 3
-        )
-
-        XCTAssertEqual(matches.map(\.commandID), ["palette.high", "palette.medium", "palette.fallback"])
-    }
-
     func testFirstValueDictionaryPreservesFirstDuplicateKey() {
         let values = [
             (id: "palette.duplicate", title: "First"),
@@ -1332,6 +1612,37 @@ final class CommandPaletteSearchEngineTests: XCTestCase {
         XCTAssertEqual(
             optimizedResults(entries: entries, query: "open folder").prefix(2).map(\.id),
             ["palette.openFolder", "palette.openFolderInVSCodeInline"]
+        )
+    }
+
+    // The browser-workspace palette command must not displace the exact-title
+    // match for "New Workspace"; UI flows (and
+    // BrowserPaneNavigationKeybindUITests) rely on it staying the top result.
+    func testCommandSearchKeepsNewWorkspaceAboveNewBrowserWorkspace() {
+        let entries = [
+            FixtureEntry(
+                id: "palette.newWorkspace",
+                rank: 0,
+                title: "New Workspace",
+                searchableTexts: ["New Workspace", "Workspace", "create", "new", "workspace"]
+            ),
+            FixtureEntry(
+                id: "palette.newBrowserWorkspace",
+                rank: 1,
+                title: "New Browser Workspace",
+                searchableTexts: ["New Browser Workspace", "Workspace", "create", "new", "browser", "workspace", "web"]
+            ),
+        ]
+
+        XCTAssertEqual(
+            optimizedResults(entries: entries, query: "New Workspace").first?.id,
+            "palette.newWorkspace",
+            "Exact title match must outrank the browser variant"
+        )
+        XCTAssertEqual(
+            optimizedResults(entries: entries, query: "new browser").first?.id,
+            "palette.newBrowserWorkspace",
+            "Browser-specific query should surface the browser workspace command"
         )
     }
 
@@ -1712,7 +2023,7 @@ final class CommandPaletteSearchEngineTests: XCTestCase {
     }
 
     func testCommandContextFingerprintTracksExactContextValues() {
-        let base = ContentView.commandPaletteContextFingerprint(
+        let base = CommandPaletteContextSnapshot.fingerprint(
             boolValues: [
                 "workspace.hasPullRequests": true,
                 "panel.hasUnread": false,
@@ -1723,7 +2034,7 @@ final class CommandPaletteSearchEngineTests: XCTestCase {
                 "panel.name": "Main",
             ]
         )
-        let unreadChanged = ContentView.commandPaletteContextFingerprint(
+        let unreadChanged = CommandPaletteContextSnapshot.fingerprint(
             boolValues: [
                 "workspace.hasPullRequests": true,
                 "panel.hasUnread": true,
@@ -1734,7 +2045,7 @@ final class CommandPaletteSearchEngineTests: XCTestCase {
                 "panel.name": "Main",
             ]
         )
-        let renamed = ContentView.commandPaletteContextFingerprint(
+        let renamed = CommandPaletteContextSnapshot.fingerprint(
             boolValues: [
                 "workspace.hasPullRequests": true,
                 "panel.hasUnread": false,
@@ -1753,14 +2064,14 @@ final class CommandPaletteSearchEngineTests: XCTestCase {
     func testSwitcherFingerprintTracksMetadataValuesAtSameCardinality() {
         let windowID = UUID()
         let workspaceID = UUID()
-        let base = ContentView.commandPaletteSwitcherFingerprint(
+        let base = CommandPaletteSwitcherFingerprintContext.fingerprint(
             windowContexts: [
-                ContentView.CommandPaletteSwitcherFingerprintContext(
+                CommandPaletteSwitcherFingerprintContext(
                     windowId: windowID,
                     windowLabel: "Window 2",
                     selectedWorkspaceId: workspaceID,
                     workspaces: [
-                        ContentView.CommandPaletteSwitcherFingerprintWorkspace(
+                        CommandPaletteSwitcherFingerprintWorkspace(
                             id: workspaceID,
                             displayName: "Workspace Alpha",
                             metadata: CommandPaletteSwitcherSearchMetadata(
@@ -1774,14 +2085,14 @@ final class CommandPaletteSearchEngineTests: XCTestCase {
                 )
             ]
         )
-        let changedMetadata = ContentView.commandPaletteSwitcherFingerprint(
+        let changedMetadata = CommandPaletteSwitcherFingerprintContext.fingerprint(
             windowContexts: [
-                ContentView.CommandPaletteSwitcherFingerprintContext(
+                CommandPaletteSwitcherFingerprintContext(
                     windowId: windowID,
                     windowLabel: "Window 2",
                     selectedWorkspaceId: workspaceID,
                     workspaces: [
-                        ContentView.CommandPaletteSwitcherFingerprintWorkspace(
+                        CommandPaletteSwitcherFingerprintWorkspace(
                             id: workspaceID,
                             displayName: "Workspace Alpha",
                             metadata: CommandPaletteSwitcherSearchMetadata(
@@ -1795,14 +2106,14 @@ final class CommandPaletteSearchEngineTests: XCTestCase {
                 )
             ]
         )
-        let changedDisplayName = ContentView.commandPaletteSwitcherFingerprint(
+        let changedDisplayName = CommandPaletteSwitcherFingerprintContext.fingerprint(
             windowContexts: [
-                ContentView.CommandPaletteSwitcherFingerprintContext(
+                CommandPaletteSwitcherFingerprintContext(
                     windowId: windowID,
                     windowLabel: "Window 2",
                     selectedWorkspaceId: workspaceID,
                     workspaces: [
-                        ContentView.CommandPaletteSwitcherFingerprintWorkspace(
+                        CommandPaletteSwitcherFingerprintWorkspace(
                             id: workspaceID,
                             displayName: "Workspace Beta",
                             metadata: CommandPaletteSwitcherSearchMetadata(
@@ -1826,19 +2137,19 @@ final class CommandPaletteSearchEngineTests: XCTestCase {
         let workspaceID = UUID()
         let surfaceID = UUID()
 
-        let base = ContentView.commandPaletteSwitcherFingerprint(
+        let base = CommandPaletteSwitcherFingerprintContext.fingerprint(
             windowContexts: [
-                ContentView.CommandPaletteSwitcherFingerprintContext(
+                CommandPaletteSwitcherFingerprintContext(
                     windowId: windowID,
                     windowLabel: nil,
                     selectedWorkspaceId: workspaceID,
                     workspaces: [
-                        ContentView.CommandPaletteSwitcherFingerprintWorkspace(
+                        CommandPaletteSwitcherFingerprintWorkspace(
                             id: workspaceID,
                             displayName: "Workspace Alpha",
                             metadata: CommandPaletteSwitcherSearchMetadata(),
                             surfaces: [
-                                ContentView.CommandPaletteSwitcherFingerprintSurface(
+                                CommandPaletteSwitcherFingerprintSurface(
                                     id: surfaceID,
                                     displayName: "Terminal",
                                     kindLabel: "Terminal",
@@ -1854,19 +2165,19 @@ final class CommandPaletteSearchEngineTests: XCTestCase {
                 )
             ]
         )
-        let changedSurfaceMetadata = ContentView.commandPaletteSwitcherFingerprint(
+        let changedSurfaceMetadata = CommandPaletteSwitcherFingerprintContext.fingerprint(
             windowContexts: [
-                ContentView.CommandPaletteSwitcherFingerprintContext(
+                CommandPaletteSwitcherFingerprintContext(
                     windowId: windowID,
                     windowLabel: nil,
                     selectedWorkspaceId: workspaceID,
                     workspaces: [
-                        ContentView.CommandPaletteSwitcherFingerprintWorkspace(
+                        CommandPaletteSwitcherFingerprintWorkspace(
                             id: workspaceID,
                             displayName: "Workspace Alpha",
                             metadata: CommandPaletteSwitcherSearchMetadata(),
                             surfaces: [
-                                ContentView.CommandPaletteSwitcherFingerprintSurface(
+                                CommandPaletteSwitcherFingerprintSurface(
                                     id: surfaceID,
                                     displayName: "Terminal",
                                     kindLabel: "Terminal",
@@ -1882,19 +2193,19 @@ final class CommandPaletteSearchEngineTests: XCTestCase {
                 )
             ]
         )
-        let changedSurfaceKind = ContentView.commandPaletteSwitcherFingerprint(
+        let changedSurfaceKind = CommandPaletteSwitcherFingerprintContext.fingerprint(
             windowContexts: [
-                ContentView.CommandPaletteSwitcherFingerprintContext(
+                CommandPaletteSwitcherFingerprintContext(
                     windowId: windowID,
                     windowLabel: nil,
                     selectedWorkspaceId: workspaceID,
                     workspaces: [
-                        ContentView.CommandPaletteSwitcherFingerprintWorkspace(
+                        CommandPaletteSwitcherFingerprintWorkspace(
                             id: workspaceID,
                             displayName: "Workspace Alpha",
                             metadata: CommandPaletteSwitcherSearchMetadata(),
                             surfaces: [
-                                ContentView.CommandPaletteSwitcherFingerprintSurface(
+                                CommandPaletteSwitcherFingerprintSurface(
                                     id: surfaceID,
                                     displayName: "Terminal",
                                     kindLabel: "Browser",

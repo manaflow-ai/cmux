@@ -76,6 +76,7 @@ fi
 
 # 3. Frameworks
 if [[ -d "$APP_PATH/Contents/Frameworks" ]]; then
+  "$SCRIPT_DIR/remove-sparkle-sandbox-xpc-services.sh" "$APP_PATH"
   while IFS= read -r -d '' framework; do
     echo "==> signing framework $(basename "$framework")"
     /usr/bin/codesign "${COMMON[@]}" --deep "$framework"

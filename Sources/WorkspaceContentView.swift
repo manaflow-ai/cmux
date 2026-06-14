@@ -1,7 +1,10 @@
 import SwiftUI
 import Foundation
 import AppKit
+import CmuxFoundation
 import Bonsplit
+import CmuxFoundation
+import CmuxTerminal
 
 enum TmuxOverlayExperimentTarget: String, CaseIterable, Codable, Sendable {
     case surface
@@ -108,8 +111,8 @@ final class TmuxWorkspacePaneOverlayModel: ObservableObject {
     @Published private(set) var flashStartedAt: Date?
     @Published private(set) var flashReason: WorkspaceAttentionFlashReason?
 
-    private var lastWorkspaceId: UUID?
-    private var lastFlashToken: UInt64?
+    private var currentWorkspaceId: UUID?
+    private var lastFlashTokenByWorkspaceId: [UUID: UInt64] = [:]
 
     func apply(
         _ state: TmuxWorkspacePaneOverlayRenderState,
@@ -119,20 +122,21 @@ final class TmuxWorkspacePaneOverlayModel: ObservableObject {
         flashRect = state.flashRect
         flashReason = state.flashReason
 
-        let didChangeWorkspace = lastWorkspaceId != state.workspaceId
-        if didChangeWorkspace {
-            lastWorkspaceId = state.workspaceId
-            lastFlashToken = state.flashToken
-            flashStartedAt = nil
-            return
-        }
-
-        if let lastFlashToken,
-           state.flashToken != lastFlashToken,
+        let didChangeWorkspace = currentWorkspaceId != state.workspaceId
+        let previousFlashToken = lastFlashTokenByWorkspaceId[state.workspaceId]
+        let didChangeFlashToken = previousFlashToken.map { state.flashToken != $0 } ?? (state.flashToken > 0)
+        if didChangeFlashToken,
            state.flashRect != nil {
             flashStartedAt = now()
+        } else if didChangeWorkspace {
+            flashStartedAt = nil
         }
-        self.lastFlashToken = state.flashToken
+        currentWorkspaceId = state.workspaceId
+        if (previousFlashToken == nil && state.flashToken == 0) ||
+            !didChangeFlashToken ||
+            state.flashRect != nil {
+            lastFlashTokenByWorkspaceId[state.workspaceId] = state.flashToken
+        }
     }
 
     func clear() {
@@ -140,8 +144,8 @@ final class TmuxWorkspacePaneOverlayModel: ObservableObject {
         flashRect = nil
         flashStartedAt = nil
         flashReason = nil
-        lastWorkspaceId = nil
-        lastFlashToken = nil
+        currentWorkspaceId = nil
+        lastFlashTokenByWorkspaceId = [:]
     }
 }
 
@@ -355,8 +359,20 @@ struct WorkspaceContentView: View {
             )
         }
 
-        bonsplitView
-            .ignoresSafeArea(.container, edges: (isMinimalMode && !isFullScreen) ? .top : [])
+        Group {
+            if workspace.layoutMode == .canvas {
+                WorkspaceCanvasHostView(
+                    workspace: workspace,
+                    isWorkspaceVisible: isWorkspaceVisible,
+                    isWorkspaceInputActive: isWorkspaceInputActive,
+                    portalPriority: workspacePortalPriority,
+                    appearance: appearance
+                )
+            } else {
+                bonsplitView
+            }
+        }
+        .ignoresSafeArea(.container, edges: (isMinimalMode && !isFullScreen) ? .top : [])
     }
 
     private func syncBonsplitNotificationBadges() {
@@ -781,7 +797,7 @@ struct EmptyPanelView: View {
         cmuxDebugLog("emptyPane.newTerminal pane=\(paneId.id.uuidString.prefix(5))")
         #endif
         focusPane()
-        _ = workspace.newTerminalSurface(inPane: paneId)
+        _ = workspace.newTerminalSurface(inPane: paneId, inheritWorkingDirectoryFallback: true)
     }
 
     private func createBrowser() {

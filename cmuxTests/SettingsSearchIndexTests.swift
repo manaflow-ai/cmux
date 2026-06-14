@@ -20,7 +20,9 @@ final class SettingsSearchIndexTests: XCTestCase {
         assertSearch("workspace cwd", contains: SettingsSearchIndex.settingID(for: .app, idSuffix: "workspace-inherit-working-directory"))
         assertSearch("claude sessions", contains: SettingsSearchIndex.settingID(for: .terminal, idSuffix: "agent-auto-resume"))
         assertSearch("opencode resume", contains: SettingsSearchIndex.settingID(for: .terminal, idSuffix: "agent-auto-resume"))
-        assertSearch("textbox height", contains: SettingsSearchIndex.settingID(for: .terminal, idSuffix: "textbox-max-lines"))
+        assertSearch("textbox new terminals", contains: SettingsSearchIndex.settingID(for: .textBox, idSuffix: "show-textbox-new-terminals"))
+        assertSearch("textbox focus", contains: SettingsSearchIndex.settingID(for: .textBox, idSuffix: "focus-textbox-new-terminals"))
+        assertSearch("textbox height", contains: SettingsSearchIndex.settingID(for: .textBox, idSuffix: "textbox-max-lines"))
         assertSearch("tmux resume command approval", contains: SettingsSearchIndex.settingID(for: .terminal, idSuffix: "resume-commands"))
         assertSearch("ctrl b", contains: SettingsSearchIndex.settingID(for: .keyboardShortcuts, idSuffix: "shortcut-chords"))
         assertSearch("split right", contains: SettingsSearchIndex.settingID(for: .keyboardShortcuts, idSuffix: "shortcuts"))
@@ -49,7 +51,21 @@ final class SettingsSearchIndexTests: XCTestCase {
     func testSettingsPathAnchorIncludesTextBoxMaxLines() {
         XCTAssertEqual(
             SettingsSearchIndex.anchorID(forSettingsPath: "terminal.textBoxMaxLines"),
-            SettingsSearchIndex.settingID(for: .terminal, idSuffix: "textbox-max-lines")
+            SettingsSearchIndex.settingID(for: .textBox, idSuffix: "textbox-max-lines")
+        )
+    }
+
+    func testSettingsPathAnchorIncludesShowTextBoxOnNewTerminals() {
+        XCTAssertEqual(
+            SettingsSearchIndex.anchorID(forSettingsPath: "terminal.showTextBoxOnNewTerminals"),
+            SettingsSearchIndex.settingID(for: .textBox, idSuffix: "show-textbox-new-terminals")
+        )
+    }
+
+    func testSettingsPathAnchorIncludesFocusTextBoxOnNewTerminals() {
+        XCTAssertEqual(
+            SettingsSearchIndex.anchorID(forSettingsPath: "terminal.focusTextBoxOnNewTerminals"),
+            SettingsSearchIndex.settingID(for: .textBox, idSuffix: "focus-textbox-new-terminals")
         )
     }
 
