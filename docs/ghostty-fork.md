@@ -12,7 +12,7 @@ When we change the fork, update this document and the parent submodule SHA.
 
 ## Current fork changes
 
-Current cmux pinned fork head: `f644b4c10`, which adds precision pixel-scroll
+Current cmux pinned fork head: `55b399077`, which adds precision pixel-scroll
 rendering for primary-screen scrollback on top of `5697db81` and lets macOS
 native live scroll submit a fractional row offset directly to Ghostty.
 Precision scroll input now accumulates a fractional pixel offset, advances the
@@ -21,7 +21,9 @@ remainder through the renderer state to Metal/OpenGL shaders so backgrounds,
 text, and images translate between rows. cmux iOS uses this for local scrollback
 on non-alt terminal content without waiting for a host round trip, and macOS
 uses the same renderer path while AppKit remains the native scroll gesture
-owner. The patch intentionally avoids the unrelated Neovim GUI, cursor animation, and
+owner. The renderer-space pixel-scroll invariant is that positive
+`pixel_scroll_offset_y` moves rendered cells upward, matching positive fractional
+row offsets from the top of scrollback. The patch intentionally avoids the unrelated Neovim GUI, cursor animation, and
 visual-effect changes in parkers0405/ghostty-pixel-scroll. It also does not port
 Parker's larger hidden extra-row renderer changes, so edge fill during sub-row
 movement is the main conflict/risk area if upstream renderer row-buffer logic
@@ -68,6 +70,7 @@ and pinned in `scripts/ghosttykit-checksums.txt`.
   - `b61a016d` (Forward macOS live scroll as precision input)
   - `a0f40f77` (Forward macOS wheel events as precision input)
   - `f644b4c10` (Drive macOS scrollback by fractional row offset)
+  - `55b399077` (Fix fractional scroll renderer direction)
 - Files:
   - `include/ghostty.h`
   - `src/Surface.zig`
@@ -92,6 +95,9 @@ and pinned in `scripts/ghosttykit-checksums.txt`.
 - Conflict notes:
   - Preserve `ghostty_surface_scroll_to_offset` and the invariant that terminal
     viewport row and renderer pixel remainder are updated together.
+  - Preserve the renderer-space sign invariant: positive `pixel_scroll_offset_y`
+    moves rendered cells upward, so fractional offsets and wheel residuals keep
+    moving in the same direction as committed whole-row viewport changes.
   - Preserve the row-based sync path for scrollbar state coming from the core;
     only user live scrolling should submit fractional offsets from AppKit.
   - If upstream changes `SurfaceScrollView`, keep AppKit as the owner of gesture
