@@ -21,10 +21,12 @@ import CmuxSidebar
 // BrowserSearchSettings paths, so pin the app types.
 private typealias BrowserThemeMode = cmux_DEV.BrowserThemeMode
 private typealias BrowserSearchEngine = cmux_DEV.BrowserSearchEngine
+private typealias BrowserEngine = cmux_DEV.BrowserEngine
 #elseif canImport(cmux)
 @testable import cmux
 private typealias BrowserThemeMode = cmux.BrowserThemeMode
 private typealias BrowserSearchEngine = cmux.BrowserSearchEngine
+private typealias BrowserEngine = cmux.BrowserEngine
 #endif
 
 var cmuxUnitTestInspectorAssociationKey: UInt8 = 0
@@ -5075,7 +5077,7 @@ final class BrowserEngineSettingsTests: XCTestCase {
     }
 
     func testCurrentEngineDefaultsToWebKitWhenUnset() {
-        XCTAssertEqual(BrowserEngineSettings.currentEngine(defaults: defaults), .webKit)
+        XCTAssertEqual(BrowserEngineSettings.currentEngine(defaults: defaults), BrowserEngine.webKit)
         XCTAssertFalse(BrowserAvailabilitySettings.isDisabled(defaults: defaults))
     }
 
@@ -5083,7 +5085,7 @@ final class BrowserEngineSettingsTests: XCTestCase {
         defaults.set(BrowserEngine.systemDefault.rawValue, forKey: BrowserEngineSettings.engineKey)
         defaults.set(false, forKey: BrowserAvailabilitySettings.disabledKey)
 
-        XCTAssertEqual(BrowserEngineSettings.currentEngine(defaults: defaults), .systemDefault)
+        XCTAssertEqual(BrowserEngineSettings.currentEngine(defaults: defaults), BrowserEngine.systemDefault)
         XCTAssertTrue(defaults.bool(forKey: BrowserAvailabilitySettings.disabledKey))
         XCTAssertTrue(BrowserAvailabilitySettings.isDisabled(defaults: defaults))
     }
@@ -5092,13 +5094,13 @@ final class BrowserEngineSettingsTests: XCTestCase {
         defaults.set(BrowserEngine.systemDefault.rawValue, forKey: BrowserEngineSettings.engineKey)
         defaults.set(false, forKey: BrowserAvailabilitySettings.disabledKey)
 
-        XCTAssertEqual(BrowserEngineSettings.currentEngine(defaults: defaults), .systemDefault)
+        XCTAssertEqual(BrowserEngineSettings.currentEngine(defaults: defaults), BrowserEngine.systemDefault)
         XCTAssertTrue(defaults.bool(forKey: BrowserAvailabilitySettings.disabledKey))
 
         defaults.set(BrowserEngine.webKit.rawValue, forKey: BrowserEngineSettings.engineKey)
         defaults.set(true, forKey: BrowserAvailabilitySettings.disabledKey)
 
-        XCTAssertEqual(BrowserEngineSettings.currentEngine(defaults: defaults), .webKit)
+        XCTAssertEqual(BrowserEngineSettings.currentEngine(defaults: defaults), BrowserEngine.webKit)
         XCTAssertFalse(defaults.bool(forKey: BrowserAvailabilitySettings.disabledKey))
     }
 
@@ -5106,14 +5108,14 @@ final class BrowserEngineSettingsTests: XCTestCase {
         defaults.set("chromium", forKey: BrowserEngineSettings.engineKey)
         defaults.set(true, forKey: BrowserAvailabilitySettings.disabledKey)
 
-        XCTAssertEqual(BrowserEngineSettings.currentEngine(defaults: defaults), .systemDefault)
+        XCTAssertEqual(BrowserEngineSettings.currentEngine(defaults: defaults), BrowserEngine.systemDefault)
         XCTAssertEqual(defaults.string(forKey: BrowserEngineSettings.engineKey), BrowserEngine.systemDefault.rawValue)
         XCTAssertTrue(defaults.bool(forKey: BrowserAvailabilitySettings.disabledKey))
 
         defaults.set("chromium", forKey: BrowserEngineSettings.engineKey)
         defaults.removeObject(forKey: BrowserAvailabilitySettings.disabledKey)
 
-        XCTAssertEqual(BrowserEngineSettings.currentEngine(defaults: defaults), .webKit)
+        XCTAssertEqual(BrowserEngineSettings.currentEngine(defaults: defaults), BrowserEngine.webKit)
         XCTAssertEqual(defaults.string(forKey: BrowserEngineSettings.engineKey), BrowserEngine.webKit.rawValue)
         XCTAssertFalse(defaults.bool(forKey: BrowserAvailabilitySettings.disabledKey))
     }
@@ -5121,26 +5123,26 @@ final class BrowserEngineSettingsTests: XCTestCase {
     func testCurrentEngineFallsBackToLegacyDisabledOverrideWhenEngineUnset() {
         defaults.set(true, forKey: BrowserAvailabilitySettings.disabledKey)
 
-        XCTAssertEqual(BrowserEngineSettings.currentEngine(defaults: defaults), .systemDefault)
+        XCTAssertEqual(BrowserEngineSettings.currentEngine(defaults: defaults), BrowserEngine.systemDefault)
         XCTAssertEqual(defaults.string(forKey: BrowserEngineSettings.engineKey), BrowserEngine.systemDefault.rawValue)
         XCTAssertTrue(BrowserAvailabilitySettings.isDisabled(defaults: defaults))
 
         defaults.removeObject(forKey: BrowserEngineSettings.engineKey)
         defaults.set(false, forKey: BrowserAvailabilitySettings.disabledKey)
 
-        XCTAssertEqual(BrowserEngineSettings.currentEngine(defaults: defaults), .webKit)
+        XCTAssertEqual(BrowserEngineSettings.currentEngine(defaults: defaults), BrowserEngine.webKit)
         XCTAssertEqual(defaults.string(forKey: BrowserEngineSettings.engineKey), BrowserEngine.webKit.rawValue)
         XCTAssertFalse(BrowserAvailabilitySettings.isDisabled(defaults: defaults))
     }
 
     func testSetCurrentEngineMirrorsLegacyDisabledOverride() {
-        BrowserEngineSettings.setCurrentEngine(.systemDefault, defaults: defaults)
+        BrowserEngineSettings.setCurrentEngine(BrowserEngine.systemDefault, defaults: defaults)
 
         XCTAssertEqual(defaults.string(forKey: BrowserEngineSettings.engineKey), BrowserEngine.systemDefault.rawValue)
         XCTAssertTrue(defaults.bool(forKey: BrowserAvailabilitySettings.disabledKey))
         XCTAssertTrue(BrowserAvailabilitySettings.isDisabled(defaults: defaults))
 
-        BrowserEngineSettings.setCurrentEngine(.webKit, defaults: defaults)
+        BrowserEngineSettings.setCurrentEngine(BrowserEngine.webKit, defaults: defaults)
 
         XCTAssertEqual(defaults.string(forKey: BrowserEngineSettings.engineKey), BrowserEngine.webKit.rawValue)
         XCTAssertFalse(defaults.bool(forKey: BrowserAvailabilitySettings.disabledKey))
