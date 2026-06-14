@@ -6,7 +6,14 @@ import Foundation
 /// hook events and the on-disk hook session stores.
 @MainActor
 final class AgentChatSessionRegistry {
+    private struct BindingKey: Hashable {
+        var workspaceID: String
+        var surfaceID: String
+    }
+
     private var records: [String: AgentChatSessionRecord] = [:]
+    private var sessionIDsByBinding: [BindingKey: Set<String>] = [:]
+    private var sessionIDsBySurfaceID: [String: Set<String>] = [:]
     private let hookStore: AgentChatHookSessionStore
 
     /// Called after a record mutation with the previous value (nil for a
@@ -42,13 +49,10 @@ final class AgentChatSessionRegistry {
     /// sessions outside the visible terminal set are not swept on every refresh.
     func sessions(workspaceAndSurfaceIDs: [String: Set<String>]) -> [AgentChatSessionRecord] {
         guard !workspaceAndSurfaceIDs.isEmpty else { return [] }
-        sweepDeadProcesses(workspaceAndSurfaceIDs: workspaceAndSurfaceIDs)
-        return records.values
-            .filter { record in
-                guard let workspaceID = record.workspaceID,
-                      let surfaceID = record.surfaceID else { return false }
-                return workspaceAndSurfaceIDs[workspaceID]?.contains(surfaceID) == true
-            }
+        let sessionIDs = sessionIDs(matching: workspaceAndSurfaceIDs)
+        sweepDeadProcesses(sessionIDs: sessionIDs)
+        return sessionIDs
+            .compactMap { records[$0] }
             .sorted { $0.lastActivityAt > $1.lastActivityAt }
     }
 
@@ -57,17 +61,13 @@ final class AgentChatSessionRegistry {
     /// cannot wedge a session in "working" forever.
     private func sweepDeadProcesses(
         workspaceID: String? = nil,
-        workspaceAndSurfaceIDs: [String: Set<String>]? = nil
+        sessionIDs: Set<String>? = nil
     ) {
-        for (sessionID, record) in records {
+        let candidates = sessionIDs ?? Set(records.keys)
+        for sessionID in candidates {
+            guard let record = records[sessionID] else { continue }
             guard record.state != .ended, let pid = record.pid else { continue }
-            if let workspaceAndSurfaceIDs {
-                guard let workspaceID = record.workspaceID,
-                      let surfaceID = record.surfaceID,
-                      workspaceAndSurfaceIDs[workspaceID]?.contains(surfaceID) == true else {
-                    continue
-                }
-            } else if let workspaceID, record.workspaceID != workspaceID {
+            if let workspaceID, record.workspaceID != workspaceID {
                 continue
             }
             // ESRCH means the process is gone; EPERM means it exists but is
@@ -124,8 +124,7 @@ final class AgentChatSessionRegistry {
         guard let previous = records[sessionID] else { return }
         var record = previous
         mutate(&record)
-        records[sessionID] = record
-        onRecordChanged?(record, previous)
+        setRecord(record, previous: previous)
     }
 
     /// A transcript tail can observe a completed assistant turn even when
@@ -154,7 +153,7 @@ final class AgentChatSessionRegistry {
             for entry in hookStore.entries(agentSource: source) {
                 guard records[entry.sessionID] == nil else { continue }
                 let alive = entry.pid.map { kill(pid_t($0), 0) == 0 } ?? false
-                records[entry.sessionID] = AgentChatSessionRecord(
+                let record = AgentChatSessionRecord(
                     sessionID: entry.sessionID,
                     agentKind: kind,
                     workspaceID: entry.workspaceID,
@@ -166,6 +165,7 @@ final class AgentChatSessionRegistry {
                     title: nil,
                     pid: entry.pid
                 )
+                setRecord(record, previous: nil, notify: false)
             }
         }
     }
@@ -195,7 +195,7 @@ final class AgentChatSessionRegistry {
         at timestamp: Date
     ) -> AgentChatSessionRecord {
         if let existing = records[sessionID] { return existing }
-        if let bound = records.values.first(where: { $0.surfaceID == surfaceID && $0.state != .ended }) {
+        if let bound = liveRecord(boundToSurfaceID: surfaceID) {
             return bound
         }
         let record = AgentChatSessionRecord(
@@ -210,8 +210,7 @@ final class AgentChatSessionRegistry {
             title: nil,
             pid: nil
         )
-        records[sessionID] = record
-        onRecordChanged?(record, nil)
+        setRecord(record, previous: nil)
         return record
     }
 
@@ -275,9 +274,70 @@ final class AgentChatSessionRegistry {
 
         let previous = records[sessionID]
         record.state = Self.nextState(previous: record.state, event: event)
-        records[sessionID] = record
-        onRecordChanged?(record, previous)
+        setRecord(record, previous: previous)
         return record
+    }
+
+    private func sessionIDs(matching workspaceAndSurfaceIDs: [String: Set<String>]) -> Set<String> {
+        var result: Set<String> = []
+        for (workspaceID, surfaceIDs) in workspaceAndSurfaceIDs {
+            for surfaceID in surfaceIDs {
+                let key = BindingKey(workspaceID: workspaceID, surfaceID: surfaceID)
+                guard let ids = sessionIDsByBinding[key] else { continue }
+                result.formUnion(ids)
+            }
+        }
+        return result
+    }
+
+    private func liveRecord(boundToSurfaceID surfaceID: String) -> AgentChatSessionRecord? {
+        guard let sessionIDs = sessionIDsBySurfaceID[surfaceID] else { return nil }
+        for sessionID in sessionIDs {
+            guard let record = records[sessionID], record.state != .ended else { continue }
+            return record
+        }
+        return nil
+    }
+
+    private func setRecord(
+        _ record: AgentChatSessionRecord,
+        previous: AgentChatSessionRecord?,
+        notify: Bool = true
+    ) {
+        if let previous {
+            removeIndexes(for: previous)
+        }
+        records[record.sessionID] = record
+        addIndexes(for: record)
+        if notify {
+            onRecordChanged?(record, previous)
+        }
+    }
+
+    private func addIndexes(for record: AgentChatSessionRecord) {
+        if let surfaceID = record.surfaceID {
+            sessionIDsBySurfaceID[surfaceID, default: []].insert(record.sessionID)
+            if let workspaceID = record.workspaceID {
+                sessionIDsByBinding[BindingKey(workspaceID: workspaceID, surfaceID: surfaceID), default: []]
+                    .insert(record.sessionID)
+            }
+        }
+    }
+
+    private func removeIndexes(for record: AgentChatSessionRecord) {
+        if let surfaceID = record.surfaceID {
+            sessionIDsBySurfaceID[surfaceID]?.remove(record.sessionID)
+            if sessionIDsBySurfaceID[surfaceID]?.isEmpty == true {
+                sessionIDsBySurfaceID.removeValue(forKey: surfaceID)
+            }
+            if let workspaceID = record.workspaceID {
+                let key = BindingKey(workspaceID: workspaceID, surfaceID: surfaceID)
+                sessionIDsByBinding[key]?.remove(record.sessionID)
+                if sessionIDsByBinding[key]?.isEmpty == true {
+                    sessionIDsByBinding.removeValue(forKey: key)
+                }
+            }
+        }
     }
 
     /// Strips an agent-name prefix from prefixed workstream ids

@@ -1,0 +1,77 @@
+import Foundation
+import Testing
+
+#if canImport(cmux_DEV)
+    @testable import cmux_DEV
+#elseif canImport(cmux)
+    @testable import cmux
+#endif
+
+@MainActor
+@Suite("Agent chat session registry")
+struct AgentChatSessionRegistryTests {
+    @Test("visible-terminal lookup follows binding updates")
+    func visibleTerminalLookupFollowsBindingUpdates() {
+        let registry = AgentChatSessionRegistry()
+        registry.adoptDetectedSession(
+            sessionID: "older",
+            agentKind: .claude,
+            workspaceID: "workspace-visible",
+            surfaceID: "terminal-one",
+            workingDirectory: nil,
+            transcriptPath: nil,
+            at: Date(timeIntervalSince1970: 100)
+        )
+        registry.adoptDetectedSession(
+            sessionID: "newer",
+            agentKind: .codex,
+            workspaceID: "workspace-visible",
+            surfaceID: "terminal-two",
+            workingDirectory: nil,
+            transcriptPath: nil,
+            at: Date(timeIntervalSince1970: 200)
+        )
+
+        registry.update(sessionID: "older") { record in
+            record.workspaceID = "workspace-hidden"
+            record.surfaceID = "terminal-moved"
+        }
+
+        let visible = registry.sessions(
+            workspaceAndSurfaceIDs: ["workspace-visible": ["terminal-one", "terminal-two"]]
+        )
+        #expect(visible.map(\.sessionID) == ["newer"])
+
+        let moved = registry.sessions(
+            workspaceAndSurfaceIDs: ["workspace-hidden": ["terminal-moved"]]
+        )
+        #expect(moved.map(\.sessionID) == ["older"])
+    }
+
+    @Test("title adoption reuses a live session already bound to the surface")
+    func titleAdoptionReusesLiveSurfaceBinding() {
+        let registry = AgentChatSessionRegistry()
+        let original = registry.adoptDetectedSession(
+            sessionID: "existing",
+            agentKind: .claude,
+            workspaceID: "workspace-a",
+            surfaceID: "terminal-shared",
+            workingDirectory: nil,
+            transcriptPath: nil,
+            at: Date(timeIntervalSince1970: 100)
+        )
+
+        let adopted = registry.adoptDetectedSession(
+            sessionID: "candidate",
+            agentKind: .claude,
+            workspaceID: "workspace-b",
+            surfaceID: "terminal-shared",
+            workingDirectory: nil,
+            transcriptPath: nil,
+            at: Date(timeIntervalSince1970: 200)
+        )
+
+        #expect(adopted.sessionID == original.sessionID)
+        #expect(registry.record(sessionID: "candidate")?.sessionID == nil)
+    }
+}
