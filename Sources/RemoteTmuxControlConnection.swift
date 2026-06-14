@@ -1126,16 +1126,9 @@ final class RemoteTmuxControlConnection {
                 reconnectAttemptCount = 0
                 reconnectTask?.cancel()
                 reconnectTask = nil
-                // DON'T send anything from here: `.enter` is emitted BEFORE the
-                // attach's own %begin/%end block is consumed, and EVERY send (even
-                // kind `.other`) joins the positional result FIFO — a command
-                // queued now would be popped by the attach block and shift every
-                // later result one slot. Defer to the first list-windows result
-                // (attach block drained, windowsByID freshly repopulated): a
-                // reconnect re-seeds the surfaces (the fresh client lost the
-                // screen and subscriptions); a first connect re-applies a grid
-                // that `setClientSize` stored before stdin was live (nothing else
-                // re-applies it, and the remote would stay at ssh's 80×24).
+                // Do not send here: `.enter` precedes the attach result block, so a
+                // command queued now could be consumed by that result and shift the
+                // FIFO. The attach-block drain queues list-windows once alignment is safe.
                 pendingPostAttachAction = wasReconnecting ? .reseed : .applyClientSize
             }
         case let .exit(reason):
@@ -1411,17 +1404,9 @@ final class RemoteTmuxControlConnection {
     }
 
     #if DEBUG
-    func installStdinWriterForTesting(_ writer: RemoteTmuxControlPipeWriter) {
-        stdinWriter = writer
-    }
-
-    func handleMessageForTesting(_ message: RemoteTmuxControlMessage) {
-        handle(message)
-    }
-
-    var pendingCommandKindsForTesting: [RemoteTmuxControlCommandKind] {
-        pendingCommands
-    }
+    func installStdinWriterForTesting(_ writer: RemoteTmuxControlPipeWriter) { stdinWriter = writer }
+    func handleMessageForTesting(_ message: RemoteTmuxControlMessage) { handle(message) }
+    var pendingCommandKindsForTesting: [RemoteTmuxControlCommandKind] { pendingCommands }
     #endif
 
 }
