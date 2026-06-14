@@ -12,6 +12,10 @@ extension MobileShellComposite {
     }
 
     func deliverTerminalRenderGrid(_ frame: MobileTerminalRenderGridFrame, surfaceID: String) {
+        // Record the Mac's inherited theme background so the phone's chrome (the
+        // composer/input-accessory bar) can match it. The single funnel for every
+        // render-grid frame, so all delivery paths feed it.
+        recordInheritedTerminalBackground(from: frame)
         deliverTerminalOutput(
             TerminalOutputDelivery(
                 renderGrid: frame,

@@ -36,6 +36,13 @@ public struct MobileTerminalRenderGridFrame: Codable, Equatable, Sendable {
     public var terminalForeground: String?
     public var terminalBackground: String?
     public var terminalCursorColor: String?
+    /// The Mac's resolved 16-color ANSI palette (palette indices 0...15, oldest
+    /// is index 0), as `#RRGGBB` hex strings, so the phone inherits the Mac's
+    /// Ghostty theme palette instead of a hardcoded Monokai. `nil` when the Mac
+    /// could not resolve a full 16-color palette (so the phone keeps its
+    /// built-in fallback). Carried only on full snapshots; `filteredRows(full:)`
+    /// nils it for delta frames. When non-nil it always has exactly 16 entries.
+    public var terminalPalette: [String]?
     /// Count of scrollback lines carried in ``scrollbackSpans`` (rows above the
     /// visible viewport, oldest first). Only meaningful on a full primary-screen
     /// snapshot; the alternate screen has no scrollback.
@@ -60,6 +67,7 @@ public struct MobileTerminalRenderGridFrame: Codable, Equatable, Sendable {
         terminalForeground: String? = nil,
         terminalBackground: String? = nil,
         terminalCursorColor: String? = nil,
+        terminalPalette: [String]? = nil,
         scrollbackRows: Int = 0,
         scrollbackSpans: [RowSpan] = []
     ) throws {
@@ -136,6 +144,11 @@ public struct MobileTerminalRenderGridFrame: Codable, Equatable, Sendable {
         self.terminalForeground = terminalForeground
         self.terminalBackground = terminalBackground
         self.terminalCursorColor = terminalCursorColor
+        // A palette is only meaningful as a full 16-color set; a partial set
+        // would leave the phone applying some inherited and some fallback
+        // entries, which reads worse than keeping the consistent built-in
+        // fallback. Drop anything that is not exactly 16 entries.
+        self.terminalPalette = (terminalPalette?.count == 16) ? terminalPalette : nil
         self.scrollbackRows = full ? resolvedScrollbackRows : 0
         self.scrollbackSpans = full ? scrollbackSpans : []
     }
@@ -157,6 +170,7 @@ public struct MobileTerminalRenderGridFrame: Codable, Equatable, Sendable {
         let terminalForeground = try container.decodeIfPresent(String.self, forKey: .terminalForeground)
         let terminalBackground = try container.decodeIfPresent(String.self, forKey: .terminalBackground)
         let terminalCursorColor = try container.decodeIfPresent(String.self, forKey: .terminalCursorColor)
+        let terminalPalette = try container.decodeIfPresent([String].self, forKey: .terminalPalette)
         let scrollbackRows = try container.decodeIfPresent(Int.self, forKey: .scrollbackRows) ?? 0
         let scrollbackSpans = try container.decodeIfPresent([RowSpan].self, forKey: .scrollbackSpans) ?? []
         try self.init(
@@ -175,6 +189,7 @@ public struct MobileTerminalRenderGridFrame: Codable, Equatable, Sendable {
             terminalForeground: terminalForeground,
             terminalBackground: terminalBackground,
             terminalCursorColor: terminalCursorColor,
+            terminalPalette: terminalPalette,
             scrollbackRows: scrollbackRows,
             scrollbackSpans: scrollbackSpans
         )
@@ -293,6 +308,7 @@ public struct MobileTerminalRenderGridFrame: Codable, Equatable, Sendable {
             terminalForeground: full ? terminalForeground : nil,
             terminalBackground: full ? terminalBackground : nil,
             terminalCursorColor: full ? terminalCursorColor : nil,
+            terminalPalette: full ? terminalPalette : nil,
             scrollbackRows: full ? scrollbackRows : 0,
             scrollbackSpans: full ? scrollbackSpans : []
         )
@@ -403,6 +419,7 @@ public struct MobileTerminalRenderGridFrame: Codable, Equatable, Sendable {
         case terminalForeground = "terminal_foreground"
         case terminalBackground = "terminal_background"
         case terminalCursorColor = "terminal_cursor_color"
+        case terminalPalette = "terminal_palette"
         case scrollbackRows = "scrollback_rows"
         case scrollbackSpans = "scrollback_spans"
     }

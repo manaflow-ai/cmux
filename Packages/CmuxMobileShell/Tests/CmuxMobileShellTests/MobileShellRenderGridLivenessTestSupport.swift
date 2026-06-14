@@ -345,6 +345,31 @@ func renderGridEventFrame(surfaceID: String, seq: UInt64, text: String) throws -
         rows: 4,
         text: text
     )
+    return try renderGridEventFrame(frame)
+}
+
+/// A full render-grid event frame carrying an inherited theme (default
+/// background + a 16-color palette), so chrome-inheritance behavior can be
+/// exercised through the real delivery path.
+func themedRenderGridEventFrame(
+    surfaceID: String,
+    seq: UInt64,
+    background: String,
+    palette: [String]
+) throws -> Data {
+    let frame = try MobileTerminalRenderGridFrame(
+        surfaceID: surfaceID,
+        stateSeq: seq,
+        columns: 16,
+        rows: 4,
+        rowSpans: [.init(row: 0, column: 0, text: "themed")],
+        terminalBackground: background,
+        terminalPalette: palette
+    )
+    return try renderGridEventFrame(frame)
+}
+
+private func renderGridEventFrame(_ frame: MobileTerminalRenderGridFrame) throws -> Data {
     let envelope: [String: Any] = [
         "kind": "event",
         "topic": "terminal.render_grid",
