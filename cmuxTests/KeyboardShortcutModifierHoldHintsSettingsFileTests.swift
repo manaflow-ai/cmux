@@ -43,6 +43,28 @@ struct KeyboardShortcutModifierHoldHintsSettingsFileTests {
         }
     }
 
+    @Test @MainActor
+    func focusControllerSeedsBonsplitHintEligibilityFromDisabledSetting() throws {
+        let defaults = UserDefaults.standard
+        let key = ShortcutHintDebugSettings.showModifierHoldHintsKey
+        try preservingDefaults(keys: [key]) {
+            defaults.set(false, forKey: key)
+
+            let manager = TabManager(autoWelcomeIfNeeded: false)
+            let workspace = manager.addWorkspace(select: true)
+            workspace.bonsplitController.tabShortcutHintsEnabled = true
+
+            _ = MainWindowFocusController(
+                windowId: UUID(),
+                window: nil,
+                tabManager: manager,
+                fileExplorerState: FileExplorerState()
+            )
+
+            #expect(!workspace.bonsplitController.tabShortcutHintsEnabled)
+        }
+    }
+
     private func preservingDefaults(keys: [String], _ body: () throws -> Void) throws {
         let defaults = UserDefaults.standard
         let saved = keys.map { ($0, defaults.object(forKey: $0)) }
