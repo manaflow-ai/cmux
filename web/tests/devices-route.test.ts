@@ -391,6 +391,11 @@ describe("device registry route", () => {
       "mac_underscore.ts.net",
       "-leading.ts.net",
       ".ts.net",
+      // Leading-zero octets: inet_aton would read these as octal, so they are
+      // not canonical CGNAT and must not be accepted as Tailscale-safe.
+      "0100.64.1.2",
+      "100.064.1.2",
+      "100.64.01.2",
     ]) {
       expect(hostIsTailscaleAttachable(host)).toBe(false);
     }
@@ -408,6 +413,10 @@ describe("device registry route", () => {
     // Valid: id present, tailscale host:port, attachable host, in-range port.
     expect(manualRoutesAreValid(ok())).toBe(true);
     expect(manualRoutesAreValid(ok({}, { host: "my-mac.ts.net", port: 1 }))).toBe(true);
+    expect(manualRoutesAreValid(ok({ priority: 0 }))).toBe(true); // integer priority ok
+    expect(manualRoutesAreValid(ok({ priority: 5 }))).toBe(true);
+    expect(manualRoutesAreValid(ok({ priority: "0" }))).toBe(false); // string priority (iOS drops it)
+    expect(manualRoutesAreValid(ok({ priority: 1.5 }))).toBe(false); // non-integer priority
     // Invalid cases.
     expect(manualRoutesAreValid([])).toBe(false); // empty
     expect(manualRoutesAreValid(ok({ id: undefined }))).toBe(false); // missing id (iOS requires it)

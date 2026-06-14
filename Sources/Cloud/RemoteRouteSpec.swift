@@ -96,8 +96,13 @@ struct RemoteRouteSpec: Equatable {
         let parts = normalized.split(separator: ".", omittingEmptySubsequences: false)
         guard parts.count == 4 else { return false }
         let octets = parts.compactMap { part -> Int? in
+            // Canonical dotted decimal only: a single "0" or no leading zero.
+            // Rejects leading-zero spellings like "0100" that a libc resolver
+            // would read as octal, so a route this marks Tailscale-safe can't
+            // actually dial a different (non-Tailscale) address.
             guard !part.isEmpty,
                   part.utf8.allSatisfy({ (48...57).contains($0) }),
+                  part == "0" || part.first != "0",
                   let value = Int(part),
                   (0...255).contains(value) else {
                 return nil

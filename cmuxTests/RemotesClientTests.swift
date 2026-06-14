@@ -146,6 +146,8 @@ import CMUXMobileCore
         "bad host.ts.net:51001", // malformed .ts.net (space) — not a valid host
         "mac_underscore.ts.net:51001", // invalid label char
         "-leading.ts.net:51001", // leading hyphen label
+        "0100.64.1.2:51001",    // leading-zero octet (octal under inet_aton)
+        "100.064.1.2:51001",    // leading-zero octet
     ])
     func rejectsNonTailscaleHostsAsNotAttachable(_ token: String) throws {
         let spec = try RemoteRouteSpec.parse(token)

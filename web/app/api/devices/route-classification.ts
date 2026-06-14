@@ -212,7 +212,11 @@ export function hostIsTailscaleAttachable(rawHost: string): boolean {
   if (parts.length !== 4) return false;
   const octets: number[] = [];
   for (const part of parts) {
-    if (!/^[0-9]+$/.test(part)) return false;
+    // Canonical dotted decimal only: a single 0, or a non-zero leading digit.
+    // Rejects leading-zero spellings like `0100` that inet_aton would read as
+    // octal (so a route this gate marks Tailscale-safe could dial elsewhere
+    // while the phone still sends the Stack token).
+    if (!/^(0|[1-9][0-9]*)$/.test(part)) return false;
     const value = Number(part);
     if (value < 0 || value > 255) return false;
     octets.push(value);
@@ -281,6 +285,12 @@ export function manualRoutesAreValid(routes: unknown[]): boolean {
     if (!hostIsTailscaleAttachable(host)) return false;
     const port = ep.port;
     if (typeof port !== "number" || !Number.isInteger(port) || port < 1 || port > 65535) {
+      return false;
+    }
+    // `priority` is optional, but the iOS `CmxAttachRoute` decoder reads it as an
+    // Int, so a non-integer (`"0"`, `1.5`) makes the phone drop the route.
+    const priority = record.priority;
+    if (priority !== undefined && (typeof priority !== "number" || !Number.isInteger(priority))) {
       return false;
     }
   }
