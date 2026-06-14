@@ -1220,9 +1220,38 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         updateDockedToolbarVisibility()
         animateDockedToolbar(with: notification)
         setNeedsGeometrySync()
+        // Bug fix (terminal not full height when keyboard closed): the inset this
+        // first sync reads can be stale. At `keyboardWillHide` the view's own
+        // `safeAreaInsets.bottom` (and sometimes the window's) has not yet settled
+        // to its keyboard-down value, and `setNeedsGeometrySync` only QUEUES a sync
+        // for the next display-link frame — if the link is momentarily stopped
+        // (a transition, a quick background/foreground) that queued sync can be
+        // missed, leaving the grid stuck at the shorter keyboard-up height until an
+        // unrelated relayout corrects it. Force a second sync after the keyboard
+        // hide layout pass settles so full height is restored deterministically.
+        // `safeAreaInsetsDidChange` already covers the inset-arrives-late case, but
+        // it does not fire when the inset value is unchanged yet the sync was
+        // dropped, so this is the belt-and-suspenders path.
+        scheduleKeyboardHideHeightResync()
         // No explicit scrollback request here: the grid grew, so the viewport
         // report resizes the Mac surface and the producer exports the taller
         // viewport (which reveals more history) on its own.
+    }
+
+    /// Force a follow-up geometry sync shortly after the keyboard-hide layout
+    /// pass, so the terminal reliably returns to full height even if the first
+    /// sync read a stale safe-area inset or its display-link frame was dropped.
+    ///
+    /// Runs on the main queue (one runloop later, after UIKit has applied the
+    /// keyboard-hide layout) and only while the keyboard is still down and the
+    /// view is on a window, so a fast hide/show flicker does not re-shrink the
+    /// grid. `setNeedsGeometrySync` itself applies directly when the display link
+    /// is stopped, so this guarantees an APPLIED sync, not just a queued one.
+    private func scheduleKeyboardHideHeightResync() {
+        DispatchQueue.main.async { [weak self] in
+            guard let self, self.window != nil, self.keyboardHeight == 0 else { return }
+            self.setNeedsGeometrySync()
+        }
     }
 
     #if DEBUG
@@ -1306,7 +1335,10 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     /// composer band and toolbar stack ABOVE this inset; the grid reserves it too.
     /// Used by ``bottomDockFrames()`` and the grid reservation.
     private var keyboardOccupancyInBounds: CGFloat {
-        keyboardHeight > 0 ? keyboardHeight : safeAreaInsetsBottom
+        TerminalLetterboxGeometry.keyboardOccupancy(
+            keyboardHeight: keyboardHeight,
+            bottomSafeAreaInset: safeAreaInsetsBottom
+        )
     }
 
     /// The bottom safe-area inset (home-indicator height) in this surface's bounds.
@@ -1317,9 +1349,10 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     /// the view's own inset, falling back to the window's, because `safeAreaInsets`
     /// can be zero before the view is on a window.
     private var safeAreaInsetsBottom: CGFloat {
-        let own = safeAreaInsets.bottom
-        if own > 0 { return own }
-        return window?.safeAreaInsets.bottom ?? 0
+        TerminalLetterboxGeometry.resolvedBottomSafeAreaInset(
+            viewInset: safeAreaInsets.bottom,
+            windowInset: window?.safeAreaInsets.bottom ?? 0
+        )
     }
 
     /// Reconcile the docked bar's visibility (and its reserved grid height) with
@@ -2911,27 +2944,37 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         // The main thread only applies the UIKit result. This is the single
         // off-main surface owner: main never calls a blocking libghostty API.
         let scale = preferredScreenScale
-        // Reserve, from the bottom up, the keyboard/safe-area inset
-        // (`keyboardOccupancyInBounds`: keyboard height when up, else the bottom safe
-        // area so the always-visible toolbar clears the home indicator), the open
-        // composer band, and the persistent toolbar — the surface owns the whole bottom
-        // dock in one coordinate system, so the grid shrinks by all three. The order is
-        // immaterial to the reserved total; only the frame positions in
-        // ``bottomDockFrames()`` encode the `terminal / toolbar / composer / keyboard`
-        // stack. While the HIDE button has suppressed the chrome (``chromeHidden``) the
-        // toolbar is off screen and reserves nothing, and the composer band is hidden,
-        // so the grid reclaims the whole height — including the bottom safe area
-        // (the home-indicator strip), matching ``bottomDockFrames()`` pinning the
-        // dock to `bounds.height`. Reserve only an actual keyboard if it is
-        // somehow still up; `keyboardOccupancyInBounds` must not be used here
-        // because its keyboard-down fallback is the safe-area inset, which would
-        // leave an empty strip under the full-screen grid.
-        let reservedBottom = chromeHidden
-            ? max(0, keyboardHeight)
-            : composerBandHeight + reservedToolbarHeight + keyboardOccupancyInBounds
-        let bottomInset = min(reservedBottom, max(0, bounds.height - 1))
-        let containerW = max(1, bounds.width)
-        let containerH = max(1, bounds.height - bottomInset)
+        // Reserve, from the bottom up, the keyboard/safe-area inset (keyboard
+        // height when up, else the bottom safe area so the always-visible toolbar
+        // clears the home indicator), the open composer band, and the persistent
+        // toolbar: the surface owns the whole bottom dock in one coordinate system,
+        // so the grid shrinks by all three. The order is immaterial to the reserved
+        // total; only the frame positions in `bottomDockFrames()` encode the
+        // `terminal / toolbar / composer / keyboard` stack. While the HIDE button
+        // has suppressed the chrome (`chromeHidden`) the toolbar is off screen and
+        // reserves nothing and the composer band is hidden, so the grid reclaims the
+        // whole height including the bottom safe area, matching `bottomDockFrames()`
+        // pinning the dock to `bounds.height`; only an actual keyboard is reserved
+        // then if one is somehow still up.
+        //
+        // The reservation + container math is the host-tested
+        // `TerminalLetterboxGeometry.terminalContainerSize` (the same arithmetic
+        // that was inlined here), so the keyboard open/closed full-height contract
+        // is locked by a unit test and the surface cannot drift from it. Passing
+        // the CURRENT `keyboardHeight` means a keyboard-down sync never inherits a
+        // stale keyboard value (the "terminal not full height when keyboard closed"
+        // bug); the safe-area inset is resolved from the window when the view inset
+        // is a stale 0 right after the keyboard hides (see `safeAreaInsetsBottom`).
+        let container = TerminalLetterboxGeometry.terminalContainerSize(
+            bounds: bounds.size,
+            keyboardHeight: keyboardHeight,
+            composerBandHeight: composerBandHeight,
+            toolbarHeight: reservedToolbarHeight,
+            bottomSafeAreaInset: safeAreaInsetsBottom,
+            chromeHidden: chromeHidden
+        )
+        let containerW = container.width
+        let containerH = container.height
         let containerPxW = UInt32(max(1, Int((containerW * scale).rounded(.down))))
         let containerPxH = UInt32(max(1, Int((containerH * scale).rounded(.down))))
         let eff = effectiveGrid
