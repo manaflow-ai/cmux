@@ -30,6 +30,7 @@ struct AgentResumeShellScriptBuilderTests {
         #expect(script.contains(#"_cmux_resume_retry_delay="${CMUX_AGENT_RESUME_RETRY_DELAY_SECONDS:-0.250}""#))
         #expect(script.contains(#"_cmux_resume_retry_startup_seconds="${CMUX_AGENT_RESUME_RETRY_STARTUP_SECONDS:-5}""#))
         #expect(script.contains(#"/bin/dd bs=4096 count=1 of="$1" 2>/dev/null"#))
+        #expect(script.contains(#"_cmux_resume_script_output="$_cmux_resume_log""#))
         #expect(script.contains(#"/usr/bin/mkfifo "$_cmux_resume_pipe""#))
         #expect(script.contains(#"/usr/bin/script -q -F "$_cmux_resume_script_output""#))
         #expect(script.contains(#"wait "$_cmux_resume_capture_pid" 2>/dev/null || true"#))
