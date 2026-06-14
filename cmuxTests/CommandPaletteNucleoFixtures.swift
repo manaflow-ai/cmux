@@ -1,3 +1,4 @@
+import CmuxCommandPalette
 import Darwin
 import Foundation
 
