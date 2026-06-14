@@ -1,4 +1,5 @@
 import AppKit
+import CmuxTerminal
 import Foundation
 import QuartzCore
 
