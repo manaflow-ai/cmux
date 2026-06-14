@@ -1,6 +1,8 @@
 import XCTest
 import CmuxCore
 import AppKit
+import CmuxFoundation
+import CmuxTerminalCore
 import SwiftUI
 import UniformTypeIdentifiers
 import WebKit
@@ -12,6 +14,7 @@ import CmuxWorkspaces
 import CmuxSidebar
 import UserNotifications
 import Combine
+import CmuxTerminal
 
 import CmuxWorkspaceCore
 

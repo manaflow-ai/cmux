@@ -2,6 +2,7 @@ import AppKit
 import CmuxTerminalEngine
 import Bonsplit
 import SwiftUI
+import CmuxTerminal
 
 struct DockControlDefinition: Codable, Equatable, Identifiable {
     let id: String
