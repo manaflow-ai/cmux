@@ -2464,6 +2464,12 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             }
             throw error
         }
+        // A successful round trip also proves the Mac was reached, so a later local
+        // failure in `connect(ticket:)` (e.g. a pre-send token failure on the
+        // workspace-list request) still resolves with the network gate cleared.
+        if isCurrentConnectionAttempt(generation) {
+            pairingAttemptReachedMac = true
+        }
         let response = try MobileManualAttachTicketCreateResponse.decode(resultData)
         return try response.ticket.constrainingRoutes(to: [route], fallbackDisplayName: displayName)
     }

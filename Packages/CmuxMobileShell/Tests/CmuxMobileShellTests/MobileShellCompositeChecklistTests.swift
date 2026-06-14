@@ -81,6 +81,27 @@ import Testing
         #expect(checklist.trust.isFailed)
     }
 
+    @Test func manualProbeSuccessThenConnectLocalFailureClearsNetworkGate() async throws {
+        // The attach-ticket probe succeeds (reaching the Mac), then connect's first
+        // request fails locally (Stack token unavailable on the second call). The
+        // network gate must stay cleared from the successful probe, not revert to
+        // untested (issue #6084 follow-up).
+        let provider = FirstCallSucceedsTokenProvider()
+        let ticket = try makeTicket(clock: TestClock())
+        let runtime = LivenessTestRuntime(
+            transportFactory: AttachTicketSuccessTransportFactory(ticket: ticket),
+            stackAccessTokenProvider: { try provider.next() },
+            stackAccessTokenForceRefresher: { throw FirstCallSucceedsTokenProvider.TokenError() },
+            now: { TestClock().now }
+        )
+        let store = MobileShellComposite.preview(runtime: runtime)
+        store.signIn()
+        await store.connectManualHost(name: "Work Mac", host: "127.0.0.1", port: 58_465)
+        let checklist = try #require(store.pairingChecklist)
+        #expect(checklist.network == .succeeded)
+        #expect(checklist.authentication.isFailed)
+    }
+
     @Test func preSendTokenFailureLeavesNetworkGateUntested() async throws {
         // The Stack token provider fails, so the request never reaches the
         // transport. The auth gate fails, but the network gate must stay untested
@@ -214,6 +235,77 @@ actor ConnectFailingTransport: CmxByteTransport {
 struct ConnectFailingTransportFactory: CmxByteTransportFactory {
     func makeTransport(for route: CmxAttachRoute) throws -> any CmxByteTransport {
         ConnectFailingTransport()
+    }
+}
+
+/// A transport that answers any framed request with a successful
+/// `mobile.attach_ticket.create` response carrying `ticket`, so the manual-host
+/// pre-connect probe succeeds (and thereby reaches the Mac).
+actor AttachTicketSuccessTransport: CmxByteTransport {
+    private let ticket: CmxAttachTicket
+    private var pendingFrames: [Data] = []
+    private var receiveWaiters: [CheckedContinuation<Data?, Never>] = []
+    private var isClosed = false
+
+    init(ticket: CmxAttachTicket) {
+        self.ticket = ticket
+    }
+
+    func connect() async throws {}
+
+    func receive() async throws -> Data? {
+        if !pendingFrames.isEmpty {
+            return pendingFrames.removeFirst()
+        }
+        if isClosed {
+            return nil
+        }
+        return await withCheckedContinuation { continuation in
+            receiveWaiters.append(continuation)
+        }
+    }
+
+    func send(_ data: Data) async throws {
+        var buffer = data
+        let payloads = try MobileSyncFrameCodec.decodeFrames(from: &buffer)
+        let encoder = JSONEncoder()
+        encoder.dateEncodingStrategy = .iso8601
+        for payload in payloads {
+            let parsed = (try? JSONSerialization.jsonObject(with: payload)) as? [String: Any]
+            guard let id = parsed?["id"] as? String,
+                  let ticketData = try? encoder.encode(ticket),
+                  let ticketJSON = try? JSONSerialization.jsonObject(with: ticketData) else { continue }
+            let envelope: [String: Any] = ["id": id, "ok": true, "result": ["ticket": ticketJSON]]
+            guard let frame = try? MobileSyncFrameCodec.encodeFrame(
+                JSONSerialization.data(withJSONObject: envelope)
+            ) else { continue }
+            deliver(frame)
+        }
+    }
+
+    func close() async {
+        isClosed = true
+        let waiters = receiveWaiters
+        receiveWaiters = []
+        for waiter in waiters {
+            waiter.resume(returning: nil)
+        }
+    }
+
+    private func deliver(_ frame: Data) {
+        if receiveWaiters.isEmpty {
+            pendingFrames.append(frame)
+            return
+        }
+        receiveWaiters.removeFirst().resume(returning: frame)
+    }
+}
+
+struct AttachTicketSuccessTransportFactory: CmxByteTransportFactory {
+    let ticket: CmxAttachTicket
+
+    func makeTransport(for route: CmxAttachRoute) throws -> any CmxByteTransport {
+        AttachTicketSuccessTransport(ticket: ticket)
     }
 }
 
