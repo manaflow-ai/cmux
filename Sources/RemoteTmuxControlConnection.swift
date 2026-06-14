@@ -1220,6 +1220,7 @@ final class RemoteTmuxControlConnection {
             // the positional FIFO (see ``attachBlockDrained``).
             if !attachBlockDrained {
                 attachBlockDrained = true
+                requestWindows()
             } else {
                 handleCommandResult(lines: lines, isError: isError)
             }
