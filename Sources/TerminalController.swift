@@ -1122,6 +1122,10 @@ class TerminalController {
     }
 
     private nonisolated func v2SurfaceReadTextOnSocketWorker(_ request: V2SocketRequest) -> String {
+        if let lineLimit = v2Int(request.params, "lines"), lineLimit <= 0 {
+            return v2Error(id: request.id, code: "invalid_params", message: "lines must be greater than 0")
+        }
+
         v2MainSync {
             v2RefreshKnownRefs()
         }
@@ -4914,7 +4918,7 @@ class TerminalController {
         terminalPanel: TerminalPanel,
         includeScrollback: Bool = false,
         lineLimit: Int? = nil,
-        access: TerminalTextSurfaceAccess = .socketRead(reason: "socket.readText")
+        access: TerminalTextSurfaceAccess
     ) -> String {
         guard let snapshot = readTerminalTextRawSnapshot(
             terminalPanel: terminalPanel,
@@ -10425,7 +10429,8 @@ class TerminalController {
             result = readTerminalTextBase64(
                 terminalPanel: terminalPanel,
                 includeScrollback: includeScrollback,
-                lineLimit: lineLimit
+                lineLimit: lineLimit,
+                access: .socketRead(reason: "socket.readText")
             )
         }
         return result
