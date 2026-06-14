@@ -1,26 +1,15 @@
-import Foundation
+public import Foundation
 
-enum CommandPaletteListScope: String, Sendable {
-    case commands
-    case switcher
-}
-
-struct CommandPaletteUsageEntry: Codable, Sendable {
-    var useCount: Int
-    var lastUsedAt: TimeInterval
-}
-
-struct CommandPaletteResolvedSearchMatch: Sendable {
-    let commandID: String
-    let score: Int
-    let titleMatchIndices: Set<Int>
-}
-
-enum CommandPaletteSearchOrchestrator {
+/// Orchestrates one palette search across both engines: prefers the nucleo
+/// FFI index when available, falls back to the Swift engine, and merges in
+/// Swift single-edit (typo) matches that nucleo cannot produce.
+// lint:allow namespace-type — pure stateless policy/value namespace lifted verbatim from ContentView; no natural receiver, modernization deferred.
+public enum CommandPaletteSearchOrchestrator {
     private static let synchronousSeedCorpusLimit = 256
     private static let singleEditFallbackNucleoProbeLimit = 12
 
-    static func firstValueDictionary<Element, Key: Hashable>(
+    /// Keys `values` by `key`, keeping the first element per key.
+    public static func firstValueDictionary<Element, Key: Hashable>(
         _ values: [Element],
         keyedBy key: (Element) -> Key
     ) -> [Key: Element] {
@@ -32,7 +21,9 @@ enum CommandPaletteSearchOrchestrator {
         return dictionary
     }
 
-    static func resolvedSearchMatches(
+    /// Resolves matches for `query` over the corpus, merging nucleo results
+    /// with Swift single-edit fallback matches when needed.
+    public static func resolvedSearchMatches(
         searchIndex: CommandPaletteNucleoSearchIndex<String>?,
         searchCorpus: [CommandPaletteSearchCorpusEntry<String>],
         searchCorpusByID providedSearchCorpusByID: [String: CommandPaletteSearchCorpusEntry<String>]? = nil,
@@ -186,7 +177,8 @@ enum CommandPaletteSearchOrchestrator {
         }
     }
 
-    private static func mergedSwiftFallbackMatches(
+    /// Internal (not private) so package tests can exercise the merge directly.
+    static func mergedSwiftFallbackMatches(
         _ swiftMatches: [CommandPaletteResolvedSearchMatch],
         nucleoMatches: [CommandPaletteResolvedSearchMatch],
         searchCorpusByID: [String: CommandPaletteSearchCorpusEntry<String>],
@@ -242,21 +234,9 @@ enum CommandPaletteSearchOrchestrator {
         return lhs.commandID < rhs.commandID
     }
 
-    static func mergedSwiftFallbackMatchesForTests(
-        _ swiftMatches: [CommandPaletteResolvedSearchMatch],
-        nucleoMatches: [CommandPaletteResolvedSearchMatch],
-        searchCorpusByID: [String: CommandPaletteSearchCorpusEntry<String>],
-        limit: Int
-    ) -> [CommandPaletteResolvedSearchMatch] {
-        mergedSwiftFallbackMatches(
-            swiftMatches,
-            nucleoMatches: nucleoMatches,
-            searchCorpusByID: searchCorpusByID,
-            limit: limit
-        )
-    }
-
-    static func previewSearchMatches(
+    /// Resolves preview matches: full-corpus search for the commands scope,
+    /// candidate-restricted Swift search for the switcher scope.
+    public static func previewSearchMatches(
         scope: CommandPaletteListScope,
         searchIndex: CommandPaletteNucleoSearchIndex<String>?,
         searchCorpus: [CommandPaletteSearchCorpusEntry<String>],
@@ -312,30 +292,8 @@ enum CommandPaletteSearchOrchestrator {
         )
     }
 
-    static func commandPreviewMatchCommandIDsForTests(
-        searchCorpus: [CommandPaletteSearchCorpusEntry<String>],
-        searchIndex: CommandPaletteNucleoSearchIndex<String>?,
-        candidateCommandIDs: [String],
-        searchCorpusByID: [String: CommandPaletteSearchCorpusEntry<String>],
-        query: String,
-        resultLimit: Int
-    ) -> [String] {
-        let preparedQuery = CommandPaletteFuzzyMatcher.preparedQuery(query)
-        return previewSearchMatches(
-            scope: .commands,
-            searchIndex: searchIndex,
-            searchCorpus: searchCorpus,
-            candidateCommandIDs: candidateCommandIDs,
-            searchCorpusByID: searchCorpusByID,
-            query: query,
-            usageHistory: [:],
-            queryIsEmpty: preparedQuery.isEmpty,
-            historyTimestamp: 0,
-            resultLimit: resultLimit
-        ).map(\.commandID)
-    }
-
-    static func previewCandidateCommandIDs(
+    /// Truncates `resultIDs` to `limit` preview candidates.
+    public static func previewCandidateCommandIDs(
         resultIDs: [String],
         limit: Int
     ) -> [String] {
@@ -344,7 +302,9 @@ enum CommandPaletteSearchOrchestrator {
         return Array(resultIDs.prefix(limit))
     }
 
-    static func shouldSynchronouslySeedResults(
+    /// Whether opening the palette should seed results synchronously instead
+    /// of waiting for the async search task.
+    public static func shouldSynchronouslySeedResults(
         hasVisibleResultsForScope: Bool,
         hasSearchIndex: Bool,
         corpusCount: Int
@@ -352,7 +312,9 @@ enum CommandPaletteSearchOrchestrator {
         !hasVisibleResultsForScope && (hasSearchIndex || corpusCount <= synchronousSeedCorpusLimit)
     }
 
-    static func shouldPreserveEmptyStateWhileSearchPending(
+    /// Whether the visible empty state should be preserved while a search is
+    /// pending, to avoid flashing stale results.
+    public static func shouldPreserveEmptyStateWhileSearchPending(
         isSearchPending: Bool,
         visibleResultsScopeMatches: Bool,
         resolvedSearchScopeMatches: Bool,
@@ -370,7 +332,9 @@ enum CommandPaletteSearchOrchestrator {
         return true
     }
 
-    static func historyBoost(
+    /// Recency/frequency boost for `commandId`; reduced to a third when the
+    /// query is non-empty.
+    public static func historyBoost(
         for commandId: String,
         queryIsEmpty: Bool,
         history: [String: CommandPaletteUsageEntry],
