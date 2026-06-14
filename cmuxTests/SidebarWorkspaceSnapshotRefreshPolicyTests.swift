@@ -47,6 +47,44 @@ final class SidebarWorkspaceSnapshotRefreshPolicyTests: XCTestCase {
         XCTAssertTrue(decision.hasDeferredWorkspaceObservationInvalidation)
     }
 
+    func testContextMenuStatusMetadataChangesUpdateImmediately() {
+        let current = Self.snapshot(
+            metadataEntries: [
+                Self.statusEntry(key: "repo_workspace", value: "example/project • workspace-7", priority: 30),
+                Self.statusEntry(key: "connection", value: "workspace connected", priority: 20),
+                Self.statusEntry(key: "agent", value: "agent running Bash()", priority: 40),
+            ],
+            metadataBlocks: [
+                Self.metadataBlock(key: "old-summary", markdown: "stale summary")
+            ],
+            latestConversationMessage: "old message",
+            listeningPorts: [3000]
+        )
+        let next = Self.snapshot(
+            metadataEntries: [
+                Self.statusEntry(key: "agent", value: "agent stopped", priority: 40),
+            ],
+            metadataBlocks: [],
+            latestConversationMessage: "new message",
+            listeningPorts: [3000, 4000]
+        )
+
+        let decision = SidebarWorkspaceSnapshotRefreshPolicy.decision(
+            current: current,
+            next: next,
+            force: false,
+            contextMenuVisible: true
+        )
+
+        XCTAssertEqual(decision.workspaceSnapshotStorage?.metadataEntries.map(\.key), ["agent"])
+        XCTAssertEqual(decision.workspaceSnapshotStorage?.metadataEntries.first?.value, "agent stopped")
+        XCTAssertEqual(decision.workspaceSnapshotStorage?.metadataBlocks, [])
+        XCTAssertEqual(decision.workspaceSnapshotStorage?.latestConversationMessage, "old message")
+        XCTAssertEqual(decision.workspaceSnapshotStorage?.listeningPorts, [3000])
+        XCTAssertEqual(decision.pendingWorkspaceSnapshot, next)
+        XCTAssertTrue(decision.hasDeferredWorkspaceObservationInvalidation)
+    }
+
     func testContextMenuImmediateOnlyChangeDoesNotCreateDeferredFlush() {
         let current = Self.snapshot(
             title: "old",
@@ -59,6 +97,34 @@ final class SidebarWorkspaceSnapshotRefreshPolicyTests: XCTestCase {
             customDescription: "description",
             isPinned: true,
             customColorHex: "#C0392B"
+        )
+
+        let decision = SidebarWorkspaceSnapshotRefreshPolicy.decision(
+            current: current,
+            next: next,
+            force: false,
+            contextMenuVisible: true
+        )
+
+        XCTAssertEqual(decision.workspaceSnapshotStorage, next)
+        XCTAssertNil(decision.pendingWorkspaceSnapshot)
+        XCTAssertFalse(decision.hasDeferredWorkspaceObservationInvalidation)
+    }
+
+    func testContextMenuMetadataOnlyChangeDoesNotCreateDeferredFlush() {
+        let current = Self.snapshot(
+            metadataEntries: [
+                Self.statusEntry(key: "agent", value: "agent running Bash()", priority: 40)
+            ],
+            metadataBlocks: [
+                Self.metadataBlock(key: "summary", markdown: "old summary")
+            ]
+        )
+        let next = Self.snapshot(
+            metadataEntries: [
+                Self.statusEntry(key: "agent", value: "agent stopped", priority: 40)
+            ],
+            metadataBlocks: []
         )
 
         let decision = SidebarWorkspaceSnapshotRefreshPolicy.decision(
@@ -96,6 +162,8 @@ final class SidebarWorkspaceSnapshotRefreshPolicyTests: XCTestCase {
         isPinned: Bool = false,
         customColorHex: String? = nil,
         remoteConnectionStatusText: String = "Disconnected",
+        metadataEntries: [SidebarStatusEntry] = [],
+        metadataBlocks: [SidebarMetadataBlock] = [],
         latestConversationMessage: String? = nil,
         listeningPorts: [Int] = []
     ) -> SidebarWorkspaceSnapshotBuilder.Snapshot {
@@ -111,8 +179,8 @@ final class SidebarWorkspaceSnapshotRefreshPolicyTests: XCTestCase {
             showsRemoteReconnectAffordance: false,
             copyableSidebarSSHError: nil,
             latestConversationMessage: latestConversationMessage,
-            metadataEntries: [],
-            metadataBlocks: [],
+            metadataEntries: metadataEntries,
+            metadataBlocks: metadataBlocks,
             latestLog: nil,
             progress: nil,
             compactGitBranchSummaryText: nil,
@@ -122,6 +190,24 @@ final class SidebarWorkspaceSnapshotRefreshPolicyTests: XCTestCase {
             branchLinesContainBranch: false,
             pullRequestRows: [],
             listeningPorts: listeningPorts
+        )
+    }
+
+    private static func statusEntry(key: String, value: String, priority: Int = 0) -> SidebarStatusEntry {
+        SidebarStatusEntry(
+            key: key,
+            value: value,
+            priority: priority,
+            timestamp: Date(timeIntervalSince1970: 0)
+        )
+    }
+
+    private static func metadataBlock(key: String, markdown: String, priority: Int = 0) -> SidebarMetadataBlock {
+        SidebarMetadataBlock(
+            key: key,
+            markdown: markdown,
+            priority: priority,
+            timestamp: Date(timeIntervalSince1970: 0)
         )
     }
 

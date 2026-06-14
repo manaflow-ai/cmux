@@ -4,6 +4,8 @@ extension SidebarWorkspaceSnapshotBuilder.Snapshot {
         let customDescription: String?
         let isPinned: Bool
         let customColorHex: String?
+        let metadataEntries: [SidebarStatusEntry]
+        let metadataBlocks: [SidebarMetadataBlock]
     }
 
     var contextMenuImmediateFields: ContextMenuImmediateFields {
@@ -11,7 +13,9 @@ extension SidebarWorkspaceSnapshotBuilder.Snapshot {
             title: title,
             customDescription: customDescription,
             isPinned: isPinned,
-            customColorHex: customColorHex
+            customColorHex: customColorHex,
+            metadataEntries: metadataEntries,
+            metadataBlocks: metadataBlocks
         )
     }
 
@@ -29,8 +33,8 @@ extension SidebarWorkspaceSnapshotBuilder.Snapshot {
             showsRemoteReconnectAffordance: showsRemoteReconnectAffordance,
             copyableSidebarSSHError: copyableSidebarSSHError,
             latestConversationMessage: latestConversationMessage,
-            metadataEntries: metadataEntries,
-            metadataBlocks: metadataBlocks,
+            metadataEntries: snapshot.metadataEntries,
+            metadataBlocks: snapshot.metadataBlocks,
             latestLog: latestLog,
             progress: progress,
             compactGitBranchSummaryText: compactGitBranchSummaryText,
