@@ -6,6 +6,9 @@ import CmuxCommandPaletteUI
 import CmuxPanes
 import CmuxControlSocket
 import CmuxIPCService
+import CmuxTerminalCore
+import CmuxTerminalEngine
+import CmuxTerminalServices
 import CmuxSettings
 import CmuxSettingsUI
 import CmuxSocketControl
@@ -25,6 +28,7 @@ import ObjectiveC.runtime
 import Darwin
 import CmuxFoundation
 import CmuxSession
+import CmuxTerminal
 
 private enum CmuxThemeNotifications {
     static let reloadConfig = Notification.Name("com.cmuxterm.themes.reload-config")
@@ -998,6 +1002,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     override init() {
         super.init()
         Self.shared = self
+        // Inverts the surface registry's legacy AppDelegate.shared reach-up:
+        // the registry asks this delegate (via MainWindowRouteRetiring) to
+        // sweep recoverable main-window routes after a surface unregisters.
+        GhosttyApp.terminalSurfaceRegistry.attachRouteRetirer(self)
     }
 
     func application(_ application: NSApplication, open urls: [URL]) {
@@ -1742,6 +1750,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     func applicationWillTerminate(_ notification: Notification) {
         StartupBreadcrumbLog.append("appDelegate.willTerminate.begin")
         isTerminatingApp = true
+        // Best-effort presence goodbye; unclean exits are covered by the
+        // service's missed-heartbeat timeout.
+        PresenceHeartbeatClient.shared.appWillTerminate()
         closeAllWebInspectorsBeforeAppTeardown()
         _ = saveSessionSnapshotIncludingProcessDetectedIndexes(includeScrollback: true, removeWhenEmpty: false)
         ClosedItemHistoryStore.shared.flushPendingSaves()
@@ -1750,7 +1761,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         CmuxSSHURLProcessLauncher.shared.terminateAll()
         MobileHostService.shared.stop()
         TerminalController.shared.stop()
-        GhosttyPasteboardHelper.cleanupAllOwnedTemporaryImageFiles()
+        GhosttyApp.terminalPasteboard.cleanupAllOwnedTemporaryImageFiles()
         VSCodeServeWebController.shared.stop()
         BrowserProfileStore.shared.flushPendingSaves()
         if TelemetrySettings.enabledForCurrentLaunch {
@@ -1794,6 +1805,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         PhonePushClient.shared.configure(auth: auth.coordinator)
         MobileHostService.shared.configure(auth: auth.coordinator)
         DeviceRegistryClient.shared.configure(auth: auth.coordinator)
+        PresenceHeartbeatClient.shared.configure(auth: auth.coordinator)
         TerminalController.shared.attachAuth(
             coordinator: auth.coordinator,
             browserSignIn: auth.browserSignIn
@@ -6428,7 +6440,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
               let panelId = ghosttyView.terminalSurface?.id else {
             return false
         }
-        return TerminalSurfaceRegistry.shared.isRightSidebarDockSurface(id: panelId)
+        return GhosttyApp.terminalSurfaceRegistry.isRightSidebarDockSurface(id: panelId)
     }
 
     func allowsTerminalKeyboardFocus(
@@ -6455,7 +6467,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
               let panelId = ghosttyView.terminalSurface?.id else {
             return nil
         }
-        if TerminalSurfaceRegistry.shared.isRightSidebarDockSurface(id: panelId) {
+        if GhosttyApp.terminalSurfaceRegistry.isRightSidebarDockSurface(id: panelId) {
             return nil
         }
         return TerminalKeyboardFocusRequest(
@@ -8923,7 +8935,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             }
         }
 
-        panelsCancellable = tab.$panels
+        panelsCancellable = tab.panelsPublisher
             .map { _ in () }
             .sink { _ in
 #if DEBUG
@@ -10268,7 +10280,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                   surfaceId == browserPanelId else { return }
             recordFocusedState()
         })
-        panelsCancellable = tab.$panels
+        panelsCancellable = tab.panelsPublisher
             .map { _ in () }
             .sink { _ in recordFocusedState() }
         DispatchQueue.main.asyncAfter(deadline: .now() + 6.0) { [weak self] in
@@ -10450,7 +10462,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                   surfaceId == panelId else { return }
             Task { @MainActor in evaluate() }
         })
-        panelsCancellable = tab.$panels
+        panelsCancellable = tab.panelsPublisher
             .map { _ in () }
             .sink { _ in
                 Task { @MainActor in evaluate() }
@@ -11028,7 +11040,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         ) { _ in
             Task { @MainActor in evaluate() }
         })
-        panelsCancellable = workspace.$panels
+        panelsCancellable = workspace.panelsPublisher
             .map { _ in () }
             .sink { _ in
                 Task { @MainActor in evaluate() }
@@ -11167,7 +11179,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                    observedWorkspaceId != workspace.id {
                     observedWorkspaceId = workspace.id
                     panelsCancellable?.cancel()
-                    panelsCancellable = workspace.$panels
+                    panelsCancellable = workspace.panelsPublisher
                         .map { _ in () }
                         .sink { _ in attemptResolve() }
                 }
@@ -11318,7 +11330,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 return
             }
             panelsCancellable?.cancel()
-            panelsCancellable = workspace.$panels
+            panelsCancellable = workspace.panelsPublisher
                 .map { _ in () }
                 .sink { _ in attemptFocus() }
             guard let terminalPanel = workspace.terminalPanel(for: surfaceId) else {
@@ -16370,7 +16382,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             Task { @MainActor in finishIfFocused() }
         })
         if let workspace = tabManager.tabs.first(where: { $0.id == tabId }) {
-            cancellables.append(workspace.$panels
+            cancellables.append(workspace.panelsPublisher
                 .map { _ in () }
                 .sink { _ in
                     Task { @MainActor in finishIfFocused() }
@@ -17070,21 +17082,9 @@ private extension NSWindow {
         cmuxDebugLog("performKeyEquiv: \(Self.keyDescription(event)) fr=\(frType)")
 #endif
 
-        // When the terminal surface is the first responder, prevent SwiftUI's
-        // hosting view from consuming key events via performKeyEquivalent.
-        // After a browser panel (WKWebView) has been in the responder chain,
-        // SwiftUI's internal focus system can get into a broken state where it
-        // intercepts key events in the content view hierarchy, returns true
-        // (claiming consumption), but never actually fires the action closure.
-        //
-        // For non-Command keys: bypass the view hierarchy entirely and send
-        // directly to the terminal so arrow keys, Ctrl+N/P, etc. reach keyDown.
-        //
-        // For Command keys: bypass the SwiftUI content view hierarchy and
-        // dispatch directly to the main menu. No SwiftUI view should be handling
-        // Command shortcuts when the terminal is focused — the local event monitor
-        // (handleCustomShortcut) already handles app-level shortcuts, and anything
-        // remaining should be menu items.
+        // When a terminal owns first responder, bypass SwiftUI's hosting view:
+        // after browser focus churn it can claim key equivalents without firing.
+        // Non-Command keys go to Ghostty; Command keys go to the main menu.
         let firstResponderGhosttyView = cmuxOwningGhosttyView(for: self.firstResponder)
         let firstResponderWebView = self.firstResponder.flatMap {
             Self.cmuxOwningWebView(for: $0, in: self, event: event)
@@ -17168,6 +17168,18 @@ private extension NSWindow {
 
             let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
             if !flags.contains(.command) {
+                if shouldDispatchTerminalArrowViaFirstResponderKeyDown(
+                    keyCode: event.keyCode,
+                    firstResponderIsTerminal: true,
+                    firstResponderHasMarkedText: ghosttyView.hasMarkedText(),
+                    flags: event.modifierFlags
+                ) {
+                    if cmuxForceDispatchKeyDownOnce(event, to: ghosttyView, reason: "terminal arrow") {
+                        return true
+                    }
+                    return false
+                }
+
                 let result = ghosttyView.performKeyEquivalent(with: event)
 #if DEBUG
                 cmuxDebugLog("  → ghostty direct: \(result)")

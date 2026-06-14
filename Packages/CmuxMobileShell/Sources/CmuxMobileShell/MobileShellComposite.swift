@@ -80,7 +80,15 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// failing the silence check because `lastTerminalEventAt` stays fresh).
     private static let renderGridLivenessCheckInterval: TimeInterval = 2.5
 
-    public private(set) var isSignedIn: Bool
+    public private(set) var isSignedIn: Bool {
+        didSet {
+            guard oldValue != isSignedIn else { return }
+            // Presence follows the session: subscribe while signed in, tear
+            // down (and blank the map) the moment the user signs out so a
+            // shared device never renders the previous account's devices.
+            evaluatePresenceSubscription()
+        }
+    }
     public private(set) var connectionState: MobileConnectionState {
         didSet {
             // Collapse the ~15 `connectionState = .disconnected/.connected` sites
@@ -401,6 +409,10 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// reconnect uses the locally persisted paired-Mac routes, so pairing
     /// survives the cloud registry being down.
     private let deviceRegistry: (any DeviceRegistryRefreshing)?
+    /// Live presence subscription (the `workers/presence` Durable Object edge).
+    /// Optional and failure-tolerant like the registry: when `nil` or down, the
+    /// device tree simply keeps its registry "last seen" hints.
+    private let presence: (any PresenceSubscribing)?
     private let identityProvider: (any MobileIdentityProviding)?
     private let reachability: any ReachabilityProviding
     // Internal (not private): used by the dismiss-sync extension file.
@@ -528,6 +540,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     var terminalOutputQueuesBySurfaceID: [String: TerminalOutputDeliveryQueue]
     var terminalScrollQueueTokensBySurfaceID: [String: UUID]
     var terminalScrollQueuesBySurfaceID: [String: TerminalScrollDeliveryQueue]
+    var terminalScrollbackPrefetchStatesBySurfaceID: [String: TerminalScrollbackPrefetchState]
     private var rawTerminalInputBuffer: MobileTerminalInputSendBuffer
     private var pairingAttemptID: UUID
 
@@ -581,6 +594,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         workspaces: [MobileWorkspacePreview] = [],
         pairedMacStore: (any MobilePairedMacStoring)? = nil,
         deviceRegistry: (any DeviceRegistryRefreshing)? = nil,
+        presence: (any PresenceSubscribing)? = nil,
         clientIDRepository: MobileClientIDRepository = MobileClientIDRepository(defaults: .standard),
         identityProvider: (any MobileIdentityProviding)? = nil,
         reachability: any ReachabilityProviding = ReachabilityService(),
@@ -597,6 +611,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         self.draftStore = draftStore
         self.pairedMacStore = pairedMacStore
         self.deviceRegistry = deviceRegistry
+        self.presence = presence
         self.identityProvider = identityProvider
         self.reachability = reachability
         self.deliveredNotificationClearer = deliveredNotificationClearer
@@ -652,11 +667,13 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         self.terminalOutputQueuesBySurfaceID = [:]
         self.terminalScrollQueueTokensBySurfaceID = [:]
         self.terminalScrollQueuesBySurfaceID = [:]
+        self.terminalScrollbackPrefetchStatesBySurfaceID = [:]
         self.rawTerminalInputBuffer = MobileTerminalInputSendBuffer()
         self.pairingAttemptID = UUID()
     }
 
     isolated deinit {
+        presenceTask?.cancel()
         networkPathObservationTask?.cancel()
         terminalEventListenerTask?.cancel()
         terminalSubscriptionStartTask?.cancel()
@@ -777,6 +794,9 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
 
     public func resumeForegroundRefresh() {
         startObservingNetworkPathChanges()
+        // Covers stores constructed already-signed-in (no isSignedIn edge) and
+        // restarts a subscription torn down while backgrounded.
+        evaluatePresenceSubscription()
         resyncTerminalOutput(reason: "foreground", restartEventStream: true)
     }
 
@@ -969,10 +989,12 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     private enum RecoveryTrigger: CustomStringConvertible {
         case networkChange
         case manual
+        case presencePush
         var description: String {
             switch self {
             case .networkChange: return "networkChange"
             case .manual: return "manual"
+            case .presencePush: return "presencePush"
             }
         }
     }
@@ -1458,6 +1480,202 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                 if lhsConnected != rhsConnected { return lhsConnected }
                 return lhs.lastSeenAt > rhs.lastSeenAt
             }
+    }
+
+    // MARK: - Live presence
+
+    /// Live per-instance presence from the presence service (`workers/presence`),
+    /// applied snapshot-first then event-by-event. Empty until the first
+    /// snapshot; the device tree then overlays live online/offline state on the
+    /// registry rows instead of registry "last seen" staleness guesses.
+    public private(set) var presenceMap = PresenceMap()
+    private var presenceTask: Task<Void, Never>?
+
+    /// Start or stop the presence subscription to match the session: running
+    /// while signed in (and a client is injected), torn down with a blanked map
+    /// on sign-out. Idempotent; called from the `isSignedIn` edge and from
+    /// `resumeForegroundRefresh()` for stores constructed already-signed-in.
+    private func evaluatePresenceSubscription() {
+        if isSignedIn, presence != nil {
+            startPresenceSubscription()
+        } else {
+            presenceTask?.cancel()
+            presenceTask = nil
+            presenceMap = PresenceMap()
+        }
+    }
+
+    /// Run the subscribe stream with exponential backoff (1s..60s, reset on
+    /// every received frame). The server bounds each stream to the token's
+    /// expiry, so a clean finish (resubscribe with a fresh token) is the
+    /// steady state, not an error. Backoff sleeps are cancellable and the task
+    /// is cancelled on sign-out/deinit, so the loop never outlives the store.
+    private func startPresenceSubscription() {
+        guard presenceTask == nil, let presence else { return }
+        presenceTask = Task { @MainActor [weak self] in
+            let clock = ContinuousClock()
+            var backoff: Duration = .seconds(1)
+            while !Task.isCancelled {
+                do {
+                    let stream = try await presence.subscribe()
+                    for try await update in stream {
+                        guard let self, !Task.isCancelled else { return }
+                        backoff = .seconds(1)
+                        self.applyPresenceUpdate(update)
+                    }
+                } catch is CancellationError {
+                    return
+                } catch {
+                    mobileShellLog.debug(
+                        "presence stream ended: \(String(describing: error), privacy: .public)"
+                    )
+                }
+                if Task.isCancelled { return }
+                guard (try? await clock.sleep(for: backoff)) != nil else { return }
+                backoff = min(backoff * 2, .seconds(60))
+            }
+        }
+    }
+
+    private func applyPresenceUpdate(_ update: PresenceUpdate) {
+        presenceMap.apply(update)
+        switch update {
+        case .routes(let instance), .online(let instance):
+            // Both events can carry fresh attach routes (online = a host that
+            // re-announced after moving networks while the phone was watching).
+            syncPushedRoutes(from: instance)
+        case .snapshot(let snapshot):
+            // The snapshot is the reconcile-on-(re)subscribe path: a port that
+            // changed while the phone was offline lands here. One batch (not
+            // one task per instance) so a multi-tag Mac syncs routes in
+            // deterministic order and kicks at most one reconnect.
+            syncPushedRoutes(from: snapshot.devices.flatMap { device in
+                device.instances.filter(\.online)
+            })
+        case .offline, .seen:
+            break
+        }
+    }
+
+    /// Write presence-pushed attach routes through to the local paired-Mac
+    /// store (the same merge the registry refresh uses), so the next reconnect
+    /// dials the host's fresh port/IP without a registry round trip — and kick
+    /// a reconnect when the phone is sitting disconnected from that very Mac.
+    ///
+    /// Presence only updates Macs the user already paired; it never creates a
+    /// pairing. A live, healthy connection is never torn down here: if the
+    /// route the live session uses disappeared, the transport notices on its
+    /// own and the next reconnect picks up the stored fresh routes.
+    private func syncPushedRoutes(from instance: PresenceInstance) {
+        syncPushedRoutes(from: [instance])
+    }
+
+    /// Batch form: one sequential task for the whole delivery (a snapshot can
+    /// carry several online instances, including multiple tags on one Mac),
+    /// so route upserts apply in deterministic order and the reconnect kick
+    /// fires at most once per delivery instead of once per instance.
+    private func syncPushedRoutes(from instances: [PresenceInstance]) {
+        let candidates = instances.filter { $0.platform.lowercased() != "ios" }
+        guard !candidates.isEmpty else { return }
+        let stackUserID = identityProvider?.currentUserID
+        // Every await below suspends the main actor, so re-check after
+        // each one that the frame's user is still the signed-in user: a
+        // stale presence frame from a previous account must never write
+        // routes into, or kick reconnects for, the next session (mirrors
+        // refreshRegistryDevices' account-switch guard).
+        let userIsCurrent: () -> Bool = { [weak self] in
+            guard let self else { return false }
+            return self.isSignedIn && self.identityProvider?.currentUserID == stackUserID
+        }
+        // Serialized on the paired-Mac write chain: a (re)subscribe delivers
+        // a snapshot immediately followed by online/routes events for the
+        // same device, and two concurrent deliveries would race their
+        // pairedMacStore upserts and could each kick a reconnect. The chain
+        // appends synchronously on the main actor, so deliveries execute
+        // strictly in arrival order.
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            await self.performSerializedPairedMacWrite(ifStillCurrent: userIsCurrent) {
+                [weak self] in
+                guard let self else { return }
+                if self.pairedMacs.isEmpty {
+                    // A presence frame can land before the first paired-Mac
+                    // load (snapshot arrives fast on launch); resolve the
+                    // pairing list before deciding these devices are unknown.
+                    await self.loadPairedMacs()
+                }
+                var onlineDeviceIds: Set<String> = []
+                for instance in candidates {
+                    guard userIsCurrent() else { return }
+                    if instance.online { onlineDeviceIds.insert(instance.deviceId) }
+                    await self.applyPushedRoutes(from: instance, stackUserID: stackUserID)
+                }
+                guard userIsCurrent() else { return }
+                // The Mac this phone wants is online and we are not
+                // connected: reconnect now instead of waiting for the user to
+                // pull Retry. Unambiguous pushes were persisted above, so the
+                // reconnect dials fresh routes; under the multi-instance
+                // ambiguity guard the stored last-known-good routes are
+                // deliberately kept and the reconnect uses those, the same
+                // outcome a manual Retry would have.
+                if self.connectionState != .connected,
+                   let activeMacID = self.pairedMacs.first(where: { $0.isActive })?.macDeviceID,
+                   onlineDeviceIds.contains(activeMacID) {
+                    self.recoverMobileConnection(trigger: .presencePush)
+                }
+            }
+        }
+    }
+
+    /// Per-instance store/registry write-through for the batch sync above.
+    private func applyPushedRoutes(from instance: PresenceInstance, stackUserID: String?) async {
+        // `nil` means the host did not announce routes on this record
+        // ("unchanged" on the wire); an explicit `[]` is a live clear.
+        guard let routes = instance.routes else { return }
+        let deviceId = instance.deviceId
+        guard let mac = pairedMacs.first(where: { $0.macDeviceID == deviceId }) else {
+            return
+        }
+        // Mirror the in-memory registry tree's Connect affordances first, so
+        // an explicit empty set drops stale endpoints from the tree instead
+        // of leaving a Connect affordance pointing at routes the host no
+        // longer advertises.
+        if let deviceIndex = registryDevices.firstIndex(where: { $0.deviceId == deviceId }),
+           let instanceIndex = registryDevices[deviceIndex].instances
+               .firstIndex(where: { $0.tag == instance.tag }) {
+            registryDevices[deviceIndex].instances[instanceIndex].routes = routes
+        }
+        // The paired-Mac store keeps last-known-good reconnect routes, so only
+        // a non-empty push updates it (same merge the registry refresh uses).
+        // The store is device-level (no tag), so substitution must also stay
+        // unambiguous: persist only when this device has exactly one online
+        // route-advertising instance and it is the one that pushed, mirroring
+        // the registry refresh's multi-instance guard. With a stable build and
+        // a tagged debug build both live, keep the locally persisted routes
+        // rather than risk reconnecting the phone to the wrong build's
+        // workspaces.
+        guard !routes.isEmpty,
+              let sole = presenceMap.soleRouteAdvertisingInstance(deviceId: deviceId),
+              sole.tag == instance.tag,
+              let pairedMacStore,
+              let updated = DeviceRegistryService.selectReconnectRoutes(
+                  local: mac.routes,
+                  registry: routes
+              ) else { return }
+        do {
+            try await pairedMacStore.upsert(
+                macDeviceID: deviceId,
+                displayName: mac.displayName,
+                routes: updated,
+                markActive: mac.isActive,
+                stackUserID: stackUserID
+            )
+            await loadPairedMacs()
+        } catch {
+            mobileShellLog.debug(
+                "presence route upsert failed: \(String(describing: error), privacy: .public)"
+            )
+        }
     }
 
     /// Connect the live session to a specific registry app instance (a tag on a
@@ -2862,6 +3080,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         terminalOutputStreamTokensBySurfaceID = terminalOutputStreamTokensBySurfaceID.mapValues { _ in UUID() }
         terminalScrollQueueTokensBySurfaceID = [:]
         terminalScrollQueuesBySurfaceID = [:]
+        terminalScrollbackPrefetchStatesBySurfaceID = [:]
         terminalOutputTransport = .rawBytes
         supportedHostCapabilities = []
         terminalSubscriptionRefreshTask?.cancel()
@@ -4097,6 +4316,26 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         }
     }
 
+    func deliverAuthoritativeTerminalRenderGrid(
+        _ renderGrid: MobileTerminalRenderGridFrame,
+        expectedSurfaceID: String? = nil,
+        source: String
+    ) {
+        guard expectedSurfaceID == nil || renderGrid.surfaceID == expectedSurfaceID,
+              hasTerminalOutputSink(surfaceID: renderGrid.surfaceID) else {
+            return
+        }
+        if let deliveredSeq = deliveredTerminalByteEndSeqBySurfaceID[renderGrid.surfaceID],
+           deliveredSeq > renderGrid.stateSeq {
+            MobileDebugLog.anchormux(
+                "sync.render_grid_stale source=\(source) surface=\(renderGrid.surfaceID) delivered=\(deliveredSeq) frame=\(renderGrid.stateSeq)"
+            )
+            return
+        }
+        markTerminalBytesDelivered(surfaceID: renderGrid.surfaceID, endSeq: renderGrid.stateSeq)
+        deliverTerminalRenderGrid(renderGrid, surfaceID: renderGrid.surfaceID)
+    }
+
     private static func terminalSnapshotReplacementBytes(_ snapshotBytes: Data) -> Data {
         var bytes = Data("\u{1B}c\u{1B}[H\u{1B}[2J\u{1B}[3J".utf8)
         bytes.append(snapshotBytes)
@@ -4129,6 +4368,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         terminalOutputQueuesBySurfaceID.removeValue(forKey: surfaceID)
         terminalScrollQueueTokensBySurfaceID.removeValue(forKey: surfaceID)
         terminalScrollQueuesBySurfaceID.removeValue(forKey: surfaceID)
+        terminalScrollbackPrefetchStatesBySurfaceID.removeValue(forKey: surfaceID)
         deliveredTerminalByteEndSeqBySurfaceID.removeValue(forKey: surfaceID)
         pendingTerminalByteEndSeqBySurfaceID.removeValue(forKey: surfaceID)
         // Tell the Mac this device is no longer viewing the surface so it stops
@@ -4317,18 +4557,10 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
               hasTerminalOutputSink(surfaceID: renderGrid.surfaceID) else {
             return
         }
-        if let deliveredSeq = deliveredTerminalByteEndSeqBySurfaceID[renderGrid.surfaceID],
-           deliveredSeq > renderGrid.stateSeq {
-            MobileDebugLog.anchormux(
-                "sync.render_grid_stale surface=\(renderGrid.surfaceID) delivered=\(deliveredSeq) frame=\(renderGrid.stateSeq)"
-            )
-            return
-        }
-        markTerminalBytesDelivered(surfaceID: renderGrid.surfaceID, endSeq: renderGrid.stateSeq)
         #if DEBUG
         mobileShellLog.info("CMUX_REPLAY live render_grid surface=\(renderGrid.surfaceID, privacy: .public) full=\(renderGrid.full, privacy: .public) spans=\(renderGrid.rowSpans.count, privacy: .public) cleared=\(renderGrid.clearedRows.count, privacy: .public) seq=\(renderGrid.stateSeq, privacy: .public) hasSink=true")
         #endif
-        deliverTerminalRenderGrid(renderGrid, surfaceID: renderGrid.surfaceID)
+        deliverAuthoritativeTerminalRenderGrid(renderGrid, source: "event")
     }
 
     private func handleNotificationDismissedEvent(_ event: MobileEventEnvelope) async {

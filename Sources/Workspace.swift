@@ -4,19 +4,24 @@ import CmuxCore
 import CmuxRemoteDaemon
 import CmuxRemoteSession
 import CmuxRemoteWorkspace
+import CmuxTerminalEngine
 import SwiftUI
 import AppKit
 import Bonsplit
 import CMUXAgentLaunch
 import CmuxBrowser
 import CmuxPanes
+import CmuxSidebar
+import CmuxWorkspaceCore
 import CmuxWorkspaces
+import CmuxNotifications
 import CmuxSocketControl
 import Combine
 import CryptoKit
 import Darwin
 import Network
 import CoreText
+import CmuxTerminal
 
 #if DEBUG
 private func debugWorkspaceDescriptionPreview(_ text: String?, limit: Int = 120) -> String {
@@ -33,64 +38,8 @@ private func debugWorkspaceDescriptionPreview(_ text: String?, limit: Int = 120)
 }
 #endif
 
-enum WorkspacePendingTerminalInputReason {
-    case configurationCommand
-}
-
-enum WorkspacePendingTerminalInputPolicy {
-    static func timeout(for reason: WorkspacePendingTerminalInputReason) -> TimeInterval? {
-        switch reason {
-        case .configurationCommand:
-            return 3.0
-        }
-    }
-}
-
 private final class WorkspacePendingTerminalInputObserver: @unchecked Sendable {
     var observer: NSObjectProtocol?
-}
-
-struct SidebarStatusEntry: Equatable {
-    let key: String
-    let value: String
-    let icon: String?
-    let color: String?
-    let url: URL?
-    let priority: Int
-    let format: SidebarMetadataFormat
-    let timestamp: Date
-
-    init(
-        key: String,
-        value: String,
-        icon: String? = nil,
-        color: String? = nil,
-        url: URL? = nil,
-        priority: Int = 0,
-        format: SidebarMetadataFormat = .plain,
-        timestamp: Date = Date()
-    ) {
-        self.key = key
-        self.value = value
-        self.icon = icon
-        self.color = color
-        self.url = url
-        self.priority = priority
-        self.format = format
-        self.timestamp = timestamp
-    }
-}
-
-struct SidebarMetadataBlock: Equatable {
-    let key: String
-    let markdown: String
-    let priority: Int
-    let timestamp: Date
-}
-
-enum SidebarMetadataFormat: String {
-    case plain
-    case markdown
 }
 
 private struct SessionPaneRestoreEntry {
@@ -2229,7 +2178,7 @@ extension Workspace {
             return
         }
 
-        let timeout = WorkspacePendingTerminalInputPolicy.timeout(for: reason)
+        let timeout = reason.timeout
         let panelId = panel.id
         let registration = WorkspacePendingTerminalInputObserver()
 
@@ -2313,467 +2262,6 @@ extension Workspace {
 }
 
 
-enum SidebarLogLevel: String {
-    case info
-    case progress
-    case success
-    case warning
-    case error
-}
-
-struct SidebarLogEntry: Equatable {
-    let message: String
-    let level: SidebarLogLevel
-    let source: String?
-    let timestamp: Date
-}
-
-struct SidebarProgressState: Equatable {
-    let value: Double
-    let label: String?
-}
-
-struct SidebarGitBranchState: Equatable {
-    let branch: String
-    let isDirty: Bool
-}
-
-enum SidebarPullRequestStatus: String {
-    case open
-    case merged
-    case closed
-}
-
-private func normalizedSidebarBranchName(_ branch: String?) -> String? {
-    guard let branch else { return nil }
-    let trimmed = branch.trimmingCharacters(in: .whitespacesAndNewlines)
-    return trimmed.isEmpty ? nil : trimmed
-}
-
-struct SidebarPullRequestState: Equatable {
-    let number: Int
-    let label: String
-    let url: URL
-    let status: SidebarPullRequestStatus
-    let branch: String?
-    let isStale: Bool
-
-    init(
-        number: Int,
-        label: String,
-        url: URL,
-        status: SidebarPullRequestStatus,
-        branch: String? = nil,
-        isStale: Bool = false
-    ) {
-        self.number = number
-        self.label = label
-        self.url = url
-        self.status = status
-        self.branch = normalizedSidebarBranchName(branch)
-        self.isStale = isStale
-    }
-}
-
-enum SidebarBranchOrdering {
-    struct BranchEntry: Equatable {
-        let name: String
-        let isDirty: Bool
-    }
-
-    struct BranchDirectoryEntry: Equatable {
-        let branch: String?
-        let isDirty: Bool
-        let directory: String?
-    }
-
-    fileprivate static func normalizedDirectory(_ text: String?) -> String? {
-        guard let text else { return nil }
-        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
-        return trimmed.isEmpty ? nil : trimmed
-    }
-
-    private static func relativePathFromTilde(_ directory: String) -> String? {
-        let normalized = normalizedDirectory(directory)
-        switch normalized {
-        case "~":
-            return ""
-        case let path? where path.hasPrefix("~/"):
-            return String(path.dropFirst(2))
-        default:
-            return nil
-        }
-    }
-
-    private static func commonHomeDirectoryPrefix(from absoluteDirectory: String) -> String? {
-        guard let normalized = normalizedDirectory(absoluteDirectory) else { return nil }
-        let standardized = NSString(string: normalized).standardizingPath
-        if standardized == "/root" || standardized.hasPrefix("/root/") {
-            return "/root"
-        }
-
-        let components = NSString(string: standardized).pathComponents
-        if components.count >= 3, components[0] == "/", components[1] == "Users" {
-            return NSString.path(withComponents: Array(components.prefix(3)))
-        }
-        if components.count >= 3, components[0] == "/", components[1] == "home" {
-            return NSString.path(withComponents: Array(components.prefix(3)))
-        }
-        if components.count >= 4, components[0] == "/", components[1] == "var", components[2] == "home" {
-            return NSString.path(withComponents: Array(components.prefix(4)))
-        }
-
-        return nil
-    }
-
-    private static func inferredHomeDirectory(
-        matchingTildeDirectory tildeDirectory: String,
-        absoluteDirectory: String
-    ) -> String? {
-        guard let relativePath = relativePathFromTilde(tildeDirectory),
-              let normalizedAbsolute = normalizedDirectory(absoluteDirectory) else { return nil }
-        let standardizedAbsolute = NSString(string: normalizedAbsolute).standardizingPath
-        let homeDirectory: String
-        if relativePath.isEmpty {
-            homeDirectory = standardizedAbsolute
-        } else {
-            let suffix = "/" + relativePath
-            guard standardizedAbsolute.hasSuffix(suffix) else { return nil }
-            homeDirectory = String(standardizedAbsolute.dropLast(suffix.count))
-        }
-
-        guard commonHomeDirectoryPrefix(from: homeDirectory) == homeDirectory else { return nil }
-        return homeDirectory
-    }
-
-    fileprivate static func inferredRemoteHomeDirectory(
-        from directories: [String],
-        fallbackDirectory: String?
-    ) -> String? {
-        let candidates = directories + [fallbackDirectory].compactMap { $0 }
-        let tildeDirectories = candidates.compactMap { directory -> String? in
-            guard let normalized = normalizedDirectory(directory),
-                  relativePathFromTilde(normalized) != nil else { return nil }
-            return normalized
-        }
-        let absoluteDirectories = candidates.compactMap { directory -> String? in
-            guard let normalized = normalizedDirectory(directory), normalized.hasPrefix("/") else { return nil }
-            return NSString(string: normalized).standardizingPath
-        }
-
-        let inferredHomes = Set(
-            tildeDirectories.flatMap { tildeDirectory in
-                absoluteDirectories.compactMap { absoluteDirectory in
-                    inferredHomeDirectory(
-                        matchingTildeDirectory: tildeDirectory,
-                        absoluteDirectory: absoluteDirectory
-                    )
-                }
-            }
-        )
-
-        if inferredHomes.count == 1 {
-            return inferredHomes.first
-        }
-        if !inferredHomes.isEmpty {
-            return nil
-        }
-
-        return absoluteDirectories.lazy.compactMap(commonHomeDirectoryPrefix(from:)).first
-    }
-
-    private static func expandedTildePath(
-        _ directory: String,
-        homeDirectoryForTildeExpansion: String?
-    ) -> String {
-        guard let relativePath = relativePathFromTilde(directory),
-              let homeDirectory = normalizedDirectory(homeDirectoryForTildeExpansion) else {
-            return directory
-        }
-        if relativePath.isEmpty {
-            return homeDirectory
-        }
-        return NSString(string: homeDirectory).appendingPathComponent(relativePath)
-    }
-
-    fileprivate static func canonicalDirectoryKey(
-        _ directory: String?,
-        homeDirectoryForTildeExpansion: String?
-    ) -> String? {
-        guard let directory = normalizedDirectory(directory) else { return nil }
-        let expanded = expandedTildePath(
-            directory,
-            homeDirectoryForTildeExpansion: homeDirectoryForTildeExpansion
-        )
-        let standardized = NSString(string: expanded).standardizingPath
-        let cleaned = standardized.trimmingCharacters(in: .whitespacesAndNewlines)
-        return cleaned.isEmpty ? nil : cleaned
-    }
-
-    private static func preferredDisplayedDirectory(
-        existing: String?,
-        replacement: String?,
-        homeDirectoryForTildeExpansion: String?
-    ) -> String? {
-        guard let replacement = normalizedDirectory(replacement) else { return existing }
-        guard let existing = normalizedDirectory(existing) else { return replacement }
-
-        let existingUsesTilde = relativePathFromTilde(existing) != nil
-        let replacementUsesTilde = relativePathFromTilde(replacement) != nil
-        if existingUsesTilde != replacementUsesTilde {
-            return replacementUsesTilde ? existing : replacement
-        }
-
-        if canonicalDirectoryKey(existing, homeDirectoryForTildeExpansion: homeDirectoryForTildeExpansion)
-            == canonicalDirectoryKey(
-                replacement,
-                homeDirectoryForTildeExpansion: homeDirectoryForTildeExpansion
-            ) {
-            return existing
-        }
-
-        return replacement
-    }
-
-    static func orderedPaneIds(tree: ExternalTreeNode) -> [String] {
-        switch tree {
-        case .pane(let pane):
-            return [pane.id]
-        case .split(let split):
-            // Bonsplit split order matches visual order for both horizontal and vertical splits.
-            return orderedPaneIds(tree: split.first) + orderedPaneIds(tree: split.second)
-        }
-    }
-
-    static func orderedPanelIds(
-        tree: ExternalTreeNode,
-        paneTabs: [String: [UUID]],
-        fallbackPanelIds: [UUID]
-    ) -> [UUID] {
-        var ordered: [UUID] = []
-        var seen: Set<UUID> = []
-
-        for paneId in orderedPaneIds(tree: tree) {
-            for panelId in paneTabs[paneId] ?? [] {
-                if seen.insert(panelId).inserted {
-                    ordered.append(panelId)
-                }
-            }
-        }
-
-        for panelId in fallbackPanelIds {
-            if seen.insert(panelId).inserted {
-                ordered.append(panelId)
-            }
-        }
-
-        return ordered
-    }
-
-    static func orderedUniqueBranches(
-        orderedPanelIds: [UUID],
-        panelBranches: [UUID: SidebarGitBranchState],
-        fallbackBranch: SidebarGitBranchState?
-    ) -> [BranchEntry] {
-        var orderedNames: [String] = []
-        var branchDirty: [String: Bool] = [:]
-
-        for panelId in orderedPanelIds {
-            guard let state = panelBranches[panelId] else { continue }
-            let name = state.branch.trimmingCharacters(in: .whitespacesAndNewlines)
-            guard !name.isEmpty else { continue }
-
-            if branchDirty[name] == nil {
-                orderedNames.append(name)
-                branchDirty[name] = state.isDirty
-            } else if state.isDirty {
-                branchDirty[name] = true
-            }
-        }
-
-        if orderedNames.isEmpty, let fallbackBranch {
-            let name = fallbackBranch.branch.trimmingCharacters(in: .whitespacesAndNewlines)
-            if !name.isEmpty {
-                return [BranchEntry(name: name, isDirty: fallbackBranch.isDirty)]
-            }
-        }
-
-        return orderedNames.map { name in
-            BranchEntry(name: name, isDirty: branchDirty[name] ?? false)
-        }
-    }
-
-    static func orderedUniquePullRequests(
-        orderedPanelIds: [UUID],
-        panelPullRequests: [UUID: SidebarPullRequestState],
-        fallbackPullRequest: SidebarPullRequestState?
-    ) -> [SidebarPullRequestState] {
-        func statusPriority(_ status: SidebarPullRequestStatus) -> Int {
-            switch status {
-            case .merged: return 3
-            case .open: return 2
-            case .closed: return 1
-            }
-        }
-
-        func freshnessPriority(_ isStale: Bool) -> Int {
-            isStale ? 0 : 1
-        }
-
-        func normalizedReviewURLKey(for url: URL) -> String {
-            guard var components = URLComponents(url: url, resolvingAgainstBaseURL: false) else {
-                return url.absoluteString
-            }
-
-            // Treat URL variants that differ only by query/fragment as the same review item.
-            components.query = nil
-            components.fragment = nil
-            let scheme = components.scheme?.lowercased() ?? ""
-            let host = components.host?.lowercased() ?? ""
-            let port = components.port.map { ":\($0)" } ?? ""
-            var path = components.path
-            if path.hasSuffix("/"), path.count > 1 {
-                path.removeLast()
-            }
-            return "\(scheme)://\(host)\(port)\(path)"
-        }
-
-        func reviewKey(for state: SidebarPullRequestState) -> String {
-            "\(state.label.lowercased())#\(state.number)|\(normalizedReviewURLKey(for: state.url))"
-        }
-
-        var orderedKeys: [String] = []
-        var pullRequestsByKey: [String: SidebarPullRequestState] = [:]
-
-        for panelId in orderedPanelIds {
-            guard let state = panelPullRequests[panelId] else { continue }
-            let key = reviewKey(for: state)
-            if pullRequestsByKey[key] == nil {
-                orderedKeys.append(key)
-                pullRequestsByKey[key] = state
-                continue
-            }
-            guard let existing = pullRequestsByKey[key] else { continue }
-            if freshnessPriority(state.isStale) > freshnessPriority(existing.isStale) {
-                pullRequestsByKey[key] = state
-            } else if freshnessPriority(state.isStale) == freshnessPriority(existing.isStale),
-                      statusPriority(state.status) > statusPriority(existing.status) {
-                pullRequestsByKey[key] = state
-            }
-        }
-
-        if orderedKeys.isEmpty, let fallbackPullRequest {
-            return [fallbackPullRequest]
-        }
-
-        return orderedKeys.compactMap { pullRequestsByKey[$0] }
-    }
-
-    static func orderedUniqueBranchDirectoryEntries(
-        orderedPanelIds: [UUID],
-        panelBranches: [UUID: SidebarGitBranchState],
-        panelDirectories: [UUID: String],
-        defaultDirectory: String?,
-        homeDirectoryForTildeExpansion: String?,
-        fallbackBranch: SidebarGitBranchState?
-    ) -> [BranchDirectoryEntry] {
-        struct EntryKey: Hashable {
-            let directory: String?
-            let branch: String?
-        }
-
-        struct MutableEntry {
-            var branch: String?
-            var isDirty: Bool
-            var directory: String?
-        }
-
-        let normalized = normalizedDirectory
-        let normalizedFallbackBranch = normalized(fallbackBranch?.branch)
-        let shouldUseFallbackBranchPerPanel = !orderedPanelIds.contains {
-            normalized(panelBranches[$0]?.branch) != nil
-        }
-        let defaultBranchForPanels = shouldUseFallbackBranchPerPanel ? normalizedFallbackBranch : nil
-        let defaultBranchDirty = shouldUseFallbackBranchPerPanel ? (fallbackBranch?.isDirty ?? false) : false
-
-        var order: [EntryKey] = []
-        var entries: [EntryKey: MutableEntry] = [:]
-
-        for panelId in orderedPanelIds {
-            let panelBranch = normalized(panelBranches[panelId]?.branch)
-            let branch = panelBranch ?? defaultBranchForPanels
-            let directory = normalized(panelDirectories[panelId])
-            guard branch != nil || directory != nil else { continue }
-
-            let panelDirty = panelBranch != nil
-                ? (panelBranches[panelId]?.isDirty ?? false)
-                : defaultBranchDirty
-
-            let key: EntryKey
-            if let directoryKey = canonicalDirectoryKey(
-                directory,
-                homeDirectoryForTildeExpansion: homeDirectoryForTildeExpansion
-            ) {
-                // Keep one line per directory and allow the latest branch state to overwrite.
-                key = EntryKey(directory: directoryKey, branch: nil)
-            } else {
-                key = EntryKey(directory: nil, branch: branch)
-            }
-
-            guard key.directory != nil || key.branch != nil else { continue }
-
-            if var existing = entries[key] {
-                if key.directory != nil {
-                    if let branch {
-                        existing.branch = branch
-                        existing.isDirty = panelDirty
-                    } else if existing.branch == nil {
-                        existing.isDirty = panelDirty
-                    }
-                    existing.directory = preferredDisplayedDirectory(
-                        existing: existing.directory,
-                        replacement: directory,
-                        homeDirectoryForTildeExpansion: homeDirectoryForTildeExpansion
-                    )
-                    entries[key] = existing
-                } else if panelDirty {
-                    existing.isDirty = true
-                    entries[key] = existing
-                }
-            } else {
-                order.append(key)
-                entries[key] = MutableEntry(branch: branch, isDirty: panelDirty, directory: directory)
-            }
-        }
-
-        if order.isEmpty {
-            let fallbackDirectory = normalized(defaultDirectory)
-            if normalizedFallbackBranch != nil || fallbackDirectory != nil {
-                return [
-                    BranchDirectoryEntry(
-                        branch: normalizedFallbackBranch,
-                        isDirty: fallbackBranch?.isDirty ?? false,
-                        directory: fallbackDirectory
-                    )
-                ]
-            }
-        }
-
-        return order.compactMap { key in
-            guard let entry = entries[key] else { return nil }
-            return BranchDirectoryEntry(
-                branch: entry.branch,
-                isDirty: entry.isDirty,
-                directory: entry.directory
-            )
-        }
-    }
-}
-
-// BrowserPanelRestoreSnapshot (CmuxBrowser): the recently-closed browser
-// stack only reads workspaceId + closedAt; the full payload stays
-// Workspace-owned until the Workspace decomposition lands it in its own
-// browser-panel package.
 struct ClosedBrowserPanelRestoreSnapshot: BrowserPanelRestoreSnapshot {
     let workspaceId: UUID
     let url: URL?
@@ -3051,8 +2539,42 @@ final class Workspace: Identifiable, ObservableObject {
     private var surfaceTabBarButtonSourcePath: String?
     private var surfaceTabBarButtonGlobalConfigPath: String?
 
+    /// The pane-tree sub-model (CmuxPanes): owns the panel registry, the
+    /// surface-id mapping, and the pane-layout bookkeeping. The legacy
+    /// accessors below forward here; `Workspace` hosts the property-observer
+    /// hooks via `PaneTreeHosting`.
+    let paneTree = PaneTreeModel<any Panel>()
+
+    /// The surface-registry sub-model (CmuxWorkspaceCore): owns the
+    /// per-surface registry annotations (tty names, shell-activity states)
+    /// and the transient tab-selection/focus-reassert request state. The
+    /// legacy accessors below forward here. None of the moved properties
+    /// were `@Published`, so no observer hooks are required.
+    private let surfaceRegistry = SurfaceRegistryModel<PendingTabSelectionRequest>()
+
+    /// The split-layout sub-model (CmuxPanes): owns the split/detach
+    /// choreography bookkeeping (programmatic-split flag, detaching surface
+    /// ids, captured transfer payloads, detach-close transaction count). The
+    /// legacy accessors below forward here. None of the moved properties
+    /// were `@Published`, so no observer hooks are required.
+    private let splitLayout = SplitLayoutModel<DetachedSurfaceTransfer>()
+
+    /// Legacy Combine bridge for the remaining `workspace.$panels`
+    /// subscribers. Driven exclusively from `panelsWillChange(to:)`, so it
+    /// emits the new value during willSet and replays the current value on
+    /// subscribe — the exact `Published.Publisher` semantics those call
+    /// sites were written against. Single seam; delete when the subscribers
+    /// move to @Observable observation.
+    let panelsPublisher = CurrentValueSubject<[UUID: any Panel], Never>([:])
+    /// Legacy Combine bridge for the remaining `$paneLayoutVersion`
+    /// subscribers; same contract as `panelsPublisher`.
+    let paneLayoutVersionPublisher = CurrentValueSubject<Int, Never>(0)
+
     /// Mapping from bonsplit TabID to our Panel instances
-    @Published var panels: [UUID: any Panel] = [:]
+    var panels: [UUID: any Panel] {
+        get { paneTree.panels }
+        set { paneTree.panels = newValue }
+    }
 
     /// Monotonic counter bumped only when the spatial (left-to-right, top-to-bottom)
     /// order of panels changes without the panel *set* changing — i.e. a pure
@@ -3062,18 +2584,28 @@ final class Workspace: Identifiable, ObservableObject {
     /// would otherwise never learn about a reorder. We gate the bump on an actual
     /// change of `orderedPanelIds` so that divider drags and selection-only events
     /// (which also flow through `didChangeGeometry`) do not fire `objectWillChange`.
-    @Published var paneLayoutVersion: Int = 0
+    var paneLayoutVersion: Int {
+        get { paneTree.paneLayoutVersion }
+        set { paneTree.paneLayoutVersion = newValue }
+    }
 
     /// Snapshot of `orderedPanelIds` from the last geometry notification, used to
     /// gate `paneLayoutVersion` bumps to genuine reorder events.
-    private var lastOrderedPanelIds: [UUID] = []
+    private var lastOrderedPanelIds: [UUID] {
+        get { paneTree.lastOrderedPanelIds }
+        set { paneTree.lastOrderedPanelIds = newValue }
+    }
 
     /// Subscriptions for panel updates (e.g., browser title changes)
     var panelSubscriptions: [UUID: AnyCancellable] = [:]
     private var agentSessionPanelCallbackIds: Set<UUID> = []
 
-    /// When true, suppresses auto-creation in didSplitPane (programmatic splits handle their own panels)
-    private var isProgrammaticSplit = false
+    /// When true, suppresses auto-creation in didSplitPane (programmatic splits handle their own panels);
+    /// stored in the split-layout sub-model.
+    private var isProgrammaticSplit: Bool {
+        get { splitLayout.isProgrammaticSplit }
+        set { splitLayout.isProgrammaticSplit = newValue }
+    }
     private var debugStressPreloadSelectionDepth = 0
 
     /// Last terminal panel used as an inheritance source (typically last focused terminal).
@@ -3147,7 +2679,7 @@ final class Workspace: Identifiable, ObservableObject {
             }
         )
 
-        for paneId in SidebarBranchOrdering.orderedPaneIds(tree: bonsplitController.treeSnapshot()) {
+        for paneId in bonsplitController.treeSnapshot().orderedPaneIds {
             guard let panelId = selectedPanelsByPaneId[paneId] else { continue }
             return panelId
         }
@@ -3157,24 +2689,6 @@ final class Workspace: Identifiable, ObservableObject {
 
     func effectiveSelectedPanelId(inPane paneId: PaneID) -> UUID? {
         bonsplitController.selectedTab(inPane: paneId).flatMap { panelIdFromSurfaceId($0.id) }
-    }
-
-    enum FocusPanelTrigger {
-        case standard
-        case terminalFirstResponder
-    }
-
-    nonisolated enum RestoredPanelUnreadIndicator: Equatable, Sendable {
-        case visualOnly
-        case workspaceUnread
-
-        init(contributesToWorkspaceUnread: Bool) {
-            self = contributesToWorkspaceUnread ? .workspaceUnread : .visualOnly
-        }
-
-        var contributesToWorkspaceUnread: Bool {
-            self == .workspaceUnread
-        }
     }
 
     /// Published directory for each panel
@@ -3231,7 +2745,12 @@ final class Workspace: Identifiable, ObservableObject {
     @Published var remoteLastHeartbeatAt: Date?
     @Published var listeningPorts: [Int] = []
     @Published private(set) var activeRemoteTerminalSessionCount: Int = 0
-    var surfaceTTYNames: [UUID: String] = [:]
+    /// The controlling-terminal device name per panel id; stored in the
+    /// surface-registry sub-model.
+    var surfaceTTYNames: [UUID: String] {
+        get { surfaceRegistry.surfaceTTYNames }
+        set { surfaceRegistry.surfaceTTYNames = newValue }
+    }
     private var remoteSessionController: RemoteSessionCoordinator?
     private var pendingRemoteForegroundAuthToken: String?
     var activeRemoteSessionControllerID: UUID?
@@ -3272,7 +2791,12 @@ final class Workspace: Identifiable, ObservableObject {
     /// `WorkspaceRemoteSessionController.runProcessOverrideForTesting` static).
     var remoteSessionProcessRunnerOverrideForTesting: (any RemoteSessionProcessRunning)?
 #endif
-    var panelShellActivityStates: [UUID: PanelShellActivityState] = [:]
+    /// The shell-activity classification per panel id; stored in the
+    /// surface-registry sub-model.
+    var panelShellActivityStates: [UUID: PanelShellActivityState] {
+        get { surfaceRegistry.panelShellActivityStates }
+        set { surfaceRegistry.panelShellActivityStates = newValue }
+    }
     /// PIDs associated with agent status entries (e.g. claude_code), keyed by status key.
     /// Used for stale-session detection: if the PID is dead, the status entry is cleared.
     var agentPIDs: [String: pid_t] = [:]
@@ -3376,23 +2900,6 @@ final class Workspace: Identifiable, ObservableObject {
     }
 
     private var processTitle: String
-
-    enum SurfaceKind {
-        static let terminal = "terminal"
-        static let browser = "browser"
-        static let markdown = "markdown"
-        static let filePreview = "filePreview"
-        static let rightSidebarTool = "rightSidebarTool"
-        static let agentSession = "agentSession"
-        static let project = "project"
-        static let extensionBrowser = "extensionBrowser"
-    }
-
-    enum PanelShellActivityState: String {
-        case unknown
-        case promptIdle
-        case commandRunning
-    }
 
     nonisolated static func resolveCloseConfirmation(
         shellActivityState: PanelShellActivityState?,
@@ -3737,6 +3244,7 @@ final class Workspace: Identifiable, ObservableObject {
             appearance: appearance
         )
         self.bonsplitController = BonsplitController(configuration: config)
+        paneTree.attach(host: self)
         bonsplitController.contextMenuShortcuts = Self.buildContextMenuShortcuts()
 
         // Remove the default "Welcome" tab that bonsplit creates
@@ -4000,7 +3508,12 @@ final class Workspace: Identifiable, ObservableObject {
     // MARK: - Surface ID to Panel ID Mapping
 
     /// Mapping from bonsplit TabID (surface ID) to panel UUID
-    var surfaceIdToPanelId: [TabID: UUID] = [:]
+    /// Mapping from bonsplit TabID (surface id) to the owning panel id;
+    /// stored in the pane-tree sub-model.
+    var surfaceIdToPanelId: [TabID: UUID] {
+        get { paneTree.surfaceIdToPanelId }
+        set { paneTree.surfaceIdToPanelId = newValue }
+    }
 
     /// Tab IDs that are allowed to close even if they would normally require confirmation.
     /// This is used by app-level confirmation prompts (for example, Close Tab) so the
@@ -4030,7 +3543,15 @@ final class Workspace: Identifiable, ObservableObject {
     private var pendingPaneClosePanelIds: [UUID: [UUID]] = [:]
     private var pendingPaneCloseHistoryEntries: [UUID: [ClosedPanelHistoryEntry]] = [:]
     private var pendingClosedBrowserRestoreSnapshots: [TabID: ClosedBrowserPanelRestoreSnapshot] = [:]
-    private var isApplyingTabSelection = false
+    /// Re-entrancy guard for the tab-selection apply loop; stored in the
+    /// surface-registry sub-model.
+    private var isApplyingTabSelection: Bool {
+        get { surfaceRegistry.isApplyingTabSelection }
+        set { surfaceRegistry.isApplyingTabSelection = newValue }
+    }
+    /// The pending tab-selection request payload. Stays app-side (it carries
+    /// AppKit hosted-view references); the surface-registry sub-model stores
+    /// it opaquely as its `TabSelectionRequest` generic binding.
     private struct PendingTabSelectionRequest {
         let tabId: TabID
         let pane: PaneID
@@ -4039,7 +3560,12 @@ final class Workspace: Identifiable, ObservableObject {
         let resumeHibernatedAgent: Bool?
         let previousTerminalHostedView: GhosttySurfaceScrollView?
     }
-    private var pendingTabSelection: PendingTabSelectionRequest?
+    /// The coalesced pending tab-selection request; stored in the
+    /// surface-registry sub-model.
+    private var pendingTabSelection: PendingTabSelectionRequest? {
+        get { surfaceRegistry.pendingTabSelection }
+        set { surfaceRegistry.pendingTabSelection = newValue }
+    }
     private var isReconcilingFocusState = false
     private var focusReconcileScheduled = false
 #if DEBUG
@@ -4063,19 +3589,32 @@ final class Workspace: Identifiable, ObservableObject {
     private var agentHibernationAutoResumePresentationVisible = true
     private var isAttemptingLayoutFollowUp = false
     private var isNormalizingPinnedTabOrder = false
-    private var pendingNonFocusSplitFocusReassert: PendingNonFocusSplitFocusReassert?
-    private var nonFocusSplitFocusReassertGeneration: UInt64 = 0
-
-    private struct PendingNonFocusSplitFocusReassert {
-        let generation: UInt64
-        let preferredPanelId: UUID
-        let splitPanelId: UUID
+    /// The pending non-focusing-split focus re-assert request (the value
+    /// type now lives in CmuxWorkspaceCore); stored in the surface-registry
+    /// sub-model.
+    private var pendingNonFocusSplitFocusReassert: PendingNonFocusSplitFocusReassert? {
+        get { surfaceRegistry.pendingNonFocusSplitFocusReassert }
+        set { surfaceRegistry.pendingNonFocusSplitFocusReassert = newValue }
+    }
+    /// Monotonic focus re-assert generation counter; stored in the
+    /// surface-registry sub-model.
+    private var nonFocusSplitFocusReassertGeneration: UInt64 {
+        get { surfaceRegistry.nonFocusSplitFocusReassertGeneration }
+        set { surfaceRegistry.nonFocusSplitFocusReassertGeneration = newValue }
     }
 
-    private var detachingTabIds: Set<TabID> = []
-    private var pendingDetachedSurfaces: [TabID: DetachedSurfaceTransfer] = [:]
-    private var activeDetachCloseTransactions: Int = 0
-    private var isDetachingCloseTransaction: Bool { activeDetachCloseTransactions > 0 }
+    /// Captured detach transfer payloads; stored in the split-layout
+    /// sub-model. Mutations go through the model's detach-choreography
+    /// verbs; this read-only view feeds the empty/count checks.
+    private var pendingDetachedSurfaces: [TabID: DetachedSurfaceTransfer] {
+        splitLayout.pendingDetachedSurfaces
+    }
+    /// Open detach-close transaction count; stored in the split-layout
+    /// sub-model, mutated through its transaction verbs.
+    private var activeDetachCloseTransactions: Int {
+        splitLayout.activeDetachCloseTransactions
+    }
+    private var isDetachingCloseTransaction: Bool { splitLayout.isDetachingCloseTransaction }
     private var pendingRemoteSurfaceTTYName: String?
     private var pendingRemoteSurfaceTTYSurfaceId: UUID?
     private var pendingRemoteSurfacePortKickReason: PortScanKickReason?
@@ -4094,7 +3633,7 @@ final class Workspace: Identifiable, ObservableObject {
 #endif
 
     func panelIdFromSurfaceId(_ surfaceId: TabID) -> UUID? {
-        surfaceIdToPanelId[surfaceId]
+        paneTree.panelId(forSurfaceId: surfaceId)
     }
 
     func markExplicitClose(surfaceId: TabID) {
@@ -4136,7 +3675,7 @@ final class Workspace: Identifiable, ObservableObject {
     }
 
     func surfaceIdFromPanelId(_ panelId: UUID) -> TabID? {
-        surfaceIdToPanelId.first { $0.value == panelId }?.key
+        paneTree.surfaceId(forPanelId: panelId)
     }
 
     private func configureNewTerminalPanel(_ terminalPanel: TerminalPanel) {
@@ -5359,8 +4898,8 @@ final class Workspace: Identifiable, ObservableObject {
         isStale: Bool = false
     ) {
         let existing = panelPullRequests[panelId]
-        let normalizedBranch = normalizedSidebarBranchName(branch)
-        let currentPanelBranch = normalizedSidebarBranchName(panelGitBranches[panelId]?.branch)
+        let normalizedBranch = branch?.normalizedSidebarBranchName
+        let currentPanelBranch = panelGitBranches[panelId]?.branch.normalizedSidebarBranchName
         let resolvedBranch: String? = {
             if let normalizedBranch {
                 return normalizedBranch
@@ -5608,8 +5147,7 @@ final class Workspace: Identifiable, ObservableObject {
 
         let fallbackPanelIds = panels.keys.sorted { $0.uuidString < $1.uuidString }
         let tree = bonsplitController.treeSnapshot()
-        return SidebarBranchOrdering.orderedPanelIds(
-            tree: tree,
+        return tree.orderedPanelIds(
             paneTabs: paneTabs,
             fallbackPanelIds: fallbackPanelIds
         )
@@ -5625,7 +5163,7 @@ final class Workspace: Identifiable, ObservableObject {
         resolvedPanelDirectories: [UUID: String]
     ) -> String? {
         if isRemoteWorkspace {
-            return SidebarBranchOrdering.inferredRemoteHomeDirectory(
+            return SidebarBranchOrdering().inferredRemoteHomeDirectory(
                 from: Array(resolvedPanelDirectories.values),
                 fallbackDirectory: normalizedSidebarDirectory(currentDirectory)
             )
@@ -5666,7 +5204,7 @@ final class Workspace: Identifiable, ObservableObject {
 
         for panelId in orderedPanelIds {
             guard let directory = resolvedDirectories[panelId],
-                  let key = SidebarBranchOrdering.canonicalDirectoryKey(
+                  let key = SidebarBranchOrdering().canonicalDirectoryKey(
                       directory,
                       homeDirectoryForTildeExpansion: homeDirectoryForCanonicalization
                   ) else { continue }
@@ -5697,7 +5235,7 @@ final class Workspace: Identifiable, ObservableObject {
     }
 
     func sidebarGitBranchesInDisplayOrder(orderedPanelIds: [UUID]) -> [SidebarGitBranchState] {
-        SidebarBranchOrdering
+        SidebarBranchOrdering()
             .orderedUniqueBranches(
                 orderedPanelIds: orderedPanelIds,
                 panelBranches: panelGitBranches,
@@ -5714,7 +5252,7 @@ final class Workspace: Identifiable, ObservableObject {
         orderedPanelIds: [UUID]
     ) -> [SidebarBranchOrdering.BranchDirectoryEntry] {
         let resolvedDirectories = sidebarResolvedPanelDirectories(orderedPanelIds: orderedPanelIds)
-        return SidebarBranchOrdering.orderedUniqueBranchDirectoryEntries(
+        return SidebarBranchOrdering().orderedUniqueBranchDirectoryEntries(
             orderedPanelIds: orderedPanelIds,
             panelBranches: panelGitBranches,
             panelDirectories: resolvedDirectories,
@@ -5732,12 +5270,12 @@ final class Workspace: Identifiable, ObservableObject {
 
     func sidebarPullRequestsInDisplayOrder(orderedPanelIds: [UUID]) -> [SidebarPullRequestState] {
         let validPanelPullRequests = panelPullRequests.filter { panelId, state in
-            guard let pullRequestBranch = normalizedSidebarBranchName(state.branch) else {
+            guard let pullRequestBranch = state.branch?.normalizedSidebarBranchName else {
                 return true
             }
-            return normalizedSidebarBranchName(panelGitBranches[panelId]?.branch) == pullRequestBranch
+            return panelGitBranches[panelId]?.branch.normalizedSidebarBranchName == pullRequestBranch
         }
-        return SidebarBranchOrdering.orderedUniquePullRequests(
+        return SidebarBranchOrdering().orderedUniquePullRequests(
             orderedPanelIds: orderedPanelIds,
             panelPullRequests: validPanelPullRequests,
             fallbackPullRequest: nil
@@ -7531,7 +7069,7 @@ final class Workspace: Identifiable, ObservableObject {
             requestTransferredRemoteCleanup: true,
             cleanupControllerSurfaceState: false
         )
-        TerminalSurfaceRegistry.shared.unregister(oldPanel.surface)
+        GhosttyApp.terminalSurfaceRegistry.unregister(oldPanel.surface)
         oldPanel.surface.teardownSurface()
 
         let replacementPanel = TerminalPanel(
@@ -8882,13 +8420,12 @@ final class Workspace: Identifiable, ObservableObject {
         )
 #endif
 
-        detachingTabIds.insert(tabId)
+        splitLayout.markDetaching(tabId)
         forceCloseTabIds.insert(tabId)
-        activeDetachCloseTransactions += 1
-        defer { activeDetachCloseTransactions = max(0, activeDetachCloseTransactions - 1) }
+        splitLayout.openDetachCloseTransaction()
+        defer { splitLayout.closeDetachCloseTransaction() }
         guard bonsplitController.closeTab(tabId) else {
-            detachingTabIds.remove(tabId)
-            pendingDetachedSurfaces.removeValue(forKey: tabId)
+            splitLayout.cancelDetach(tabId)
             forceCloseTabIds.remove(tabId)
 #if DEBUG
             cmuxDebugLog(
@@ -8899,7 +8436,7 @@ final class Workspace: Identifiable, ObservableObject {
             return nil
         }
 
-        var detached = pendingDetachedSurfaces.removeValue(forKey: tabId)
+        var detached = splitLayout.takeDetachedTransfer(tabId)
         if shouldSkipControlMasterCleanupAfterDetach, let detachedTransfer = detached, detachedTransfer.isRemoteTerminal {
             skipControlMasterCleanupAfterDetachedRemoteTransfer = true
             if detachedTransfer.remoteCleanupConfiguration == nil {
@@ -9955,7 +9492,7 @@ final class Workspace: Identifiable, ObservableObject {
         ) { _ in
             enqueueAttempt()
         })
-        layoutFollowUpPanelsCancellable = $panels
+        layoutFollowUpPanelsCancellable = panelsPublisher
             .map { _ in () }
             .sink { _ in
                 enqueueAttempt()
@@ -11058,6 +10595,23 @@ final class Workspace: Identifiable, ObservableObject {
 
 // MARK: - BonsplitDelegate
 
+// MARK: - PaneTreeHosting (legacy @Published observer hooks)
+
+extension Workspace: PaneTreeHosting {
+    /// Legacy `@Published panels` willSet: re-emits objectWillChange and the
+    /// Combine bridge at the exact timing `@Published` used.
+    func panelsWillChange(to newValue: [UUID: any Panel]) {
+        objectWillChange.send()
+        panelsPublisher.send(newValue)
+    }
+
+    /// Legacy `@Published paneLayoutVersion` willSet; same contract.
+    func paneLayoutVersionWillChange(to newValue: Int) {
+        objectWillChange.send()
+        paneLayoutVersionPublisher.send(newValue)
+    }
+}
+
 extension Workspace: BonsplitDelegate {
     @MainActor
     private func shouldCloseWorkspaceOnLastSurface(for tabId: TabID) -> Bool {
@@ -11658,7 +11212,7 @@ extension Workspace: BonsplitDelegate {
         let selectTabId = postCloseSelectTabId.removeValue(forKey: tabId)
         let shouldClearSplitZoom = postCloseClearSplitZoomTabIds.remove(tabId) != nil
         let closedBrowserRestoreSnapshot = pendingClosedBrowserRestoreSnapshots.removeValue(forKey: tabId)
-        let isDetaching = detachingTabIds.remove(tabId) != nil || isDetachingCloseTransaction
+        let isDetaching = splitLayout.consumeDetachingMark(tabId)
         if shouldClearSplitZoom {
             clearSplitZoom()
         }
@@ -11695,7 +11249,7 @@ extension Workspace: BonsplitDelegate {
                 surfaceResumeBindingIndex: nil
             )
             let agentRuntime = agentRuntimeState(forPanelId: panelId)
-            pendingDetachedSurfaces[tabId] = DetachedSurfaceTransfer(
+            splitLayout.storeDetachedTransfer(DetachedSurfaceTransfer(
                 sourceWorkspaceId: id,
                 panelId: panelId,
                 panel: panel,
@@ -11724,7 +11278,7 @@ extension Workspace: BonsplitDelegate {
                     : nil,
                 remotePTYSessionID: remotePTYSessionIDForSnapshot(panelId: panelId),
                 remoteCleanupConfiguration: transferredRemoteCleanupConfiguration
-            )
+            ), for: tabId)
         } else {
             if let closedBrowserRestoreSnapshot {
                 onClosedBrowserPanel?(closedBrowserRestoreSnapshot)

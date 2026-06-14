@@ -1,5 +1,6 @@
 import AppKit
 import ObjectiveC
+import CmuxTerminal
 #if DEBUG
 import Bonsplit
 #endif
