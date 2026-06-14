@@ -10,6 +10,7 @@ public enum PanelType: String, Codable, Sendable {
     case markdown
     case filePreview = "filepreview"
     case rightSidebarTool
+    case agentSession
     case project
     case extensionBrowser
 
@@ -18,6 +19,7 @@ public enum PanelType: String, Codable, Sendable {
             .trimmingCharacters(in: .whitespacesAndNewlines)
             .replacingOccurrences(of: "-", with: "")
             .replacingOccurrences(of: "_", with: "")
+            .replacingOccurrences(of: " ", with: "")
             .lowercased()
         switch normalized {
         case Self.terminal.rawValue:
@@ -32,6 +34,8 @@ public enum PanelType: String, Codable, Sendable {
             self = .filePreview
         case "rightsidebartool":
             self = .rightSidebarTool
+        case "agentsession":
+            self = .agentSession
         case Self.project.rawValue:
             self = .project
         case "extensionbrowser":
