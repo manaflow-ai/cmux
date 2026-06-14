@@ -267,6 +267,20 @@ export const shortcutCategories: ShortcutCategory[] = [
         note: { en: "focused diff viewer", ja: "フォーカス中の差分ビューア" },
       },
       {
+        id: "diffViewerScrollHalfPageDown",
+        combos: [["⌃", "D"]],
+        description: { en: "Scroll diff half page down", ja: "差分を半ページ下にスクロール" },
+        note: { en: "focused diff viewer", ja: "フォーカス中の差分ビューア" },
+        configValue: '"ctrl+d"',
+      },
+      {
+        id: "diffViewerScrollHalfPageUp",
+        combos: [["⌃", "U"]],
+        description: { en: "Scroll diff half page up", ja: "差分を半ページ上にスクロール" },
+        note: { en: "focused diff viewer", ja: "フォーカス中の差分ビューア" },
+        configValue: '"ctrl+u"',
+      },
+      {
         id: "diffViewerScrollToBottom",
         combos: [["⇧", "G"]],
         description: { en: "Scroll diff to bottom", ja: "差分の末尾へスクロール" },
@@ -278,6 +292,20 @@ export const shortcutCategories: ShortcutCategory[] = [
         description: { en: "Scroll diff to top", ja: "差分の先頭へスクロール" },
         note: { en: "focused diff viewer", ja: "フォーカス中の差分ビューア" },
         configValue: '["g", "g"]',
+      },
+      {
+        id: "diffViewerSelectNextFile",
+        combos: [["⌃", "N"]],
+        description: { en: "Select next diff file", ja: "次の差分ファイルを選択" },
+        note: { en: "focused diff viewer", ja: "フォーカス中の差分ビューア" },
+        configValue: '"ctrl+n"',
+      },
+      {
+        id: "diffViewerSelectPreviousFile",
+        combos: [["⌃", "P"]],
+        description: { en: "Select previous diff file", ja: "前の差分ファイルを選択" },
+        note: { en: "focused diff viewer", ja: "フォーカス中の差分ビューア" },
+        configValue: '"ctrl+p"',
       },
       {
         id: "diffViewerOpenFileSearch",

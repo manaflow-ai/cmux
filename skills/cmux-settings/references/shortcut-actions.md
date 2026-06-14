@@ -96,6 +96,19 @@ Values for `shortcuts.bindings.<action>`:
 - `shortcuts.bindings.toggleBrowserDeveloperTools`
 - `shortcuts.bindings.showBrowserJavaScriptConsole`
 
+## Diff viewer
+
+- `shortcuts.bindings.openDiffViewer`
+- `shortcuts.bindings.diffViewerScrollDown`
+- `shortcuts.bindings.diffViewerScrollUp`
+- `shortcuts.bindings.diffViewerScrollHalfPageDown`
+- `shortcuts.bindings.diffViewerScrollHalfPageUp`
+- `shortcuts.bindings.diffViewerScrollToBottom`
+- `shortcuts.bindings.diffViewerScrollToTop`
+- `shortcuts.bindings.diffViewerSelectNextFile`
+- `shortcuts.bindings.diffViewerSelectPreviousFile`
+- `shortcuts.bindings.diffViewerOpenFileSearch`
+
 ## Find
 
 - `shortcuts.bindings.find`

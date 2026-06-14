@@ -129,10 +129,18 @@ public enum ShortcutAction: String, CaseIterable, Sendable, Hashable, SettingCod
     case diffViewerScrollDown
     /// Scrolls the focused diff viewer up one step.
     case diffViewerScrollUp
+    /// Scrolls the focused diff viewer down by a vim-style half page.
+    case diffViewerScrollHalfPageDown
+    /// Scrolls the focused diff viewer up by a vim-style half page.
+    case diffViewerScrollHalfPageUp
     /// Scrolls the focused diff viewer to the bottom.
     case diffViewerScrollToBottom
     /// Scrolls the focused diff viewer to the top.
     case diffViewerScrollToTop
+    /// Selects the next changed file in the focused diff viewer.
+    case diffViewerSelectNextFile
+    /// Selects the previous changed file in the focused diff viewer.
+    case diffViewerSelectPreviousFile
     /// Opens file search inside the focused diff viewer.
     case diffViewerOpenFileSearch
 }
@@ -193,8 +201,11 @@ extension ShortcutAction {
              .find, .findInDirectory, .findNext, .findPrevious,
              .hideFind, .useSelectionForFind, .toggleBrowserDeveloperTools,
              .showBrowserJavaScriptConsole, .toggleBrowserFocusMode, .toggleReactGrab,
-             .diffViewerScrollDown, .diffViewerScrollUp, .diffViewerScrollToBottom,
-             .diffViewerScrollToTop, .diffViewerOpenFileSearch:
+             .diffViewerScrollDown, .diffViewerScrollUp,
+             .diffViewerScrollHalfPageDown, .diffViewerScrollHalfPageUp,
+             .diffViewerScrollToBottom, .diffViewerScrollToTop,
+             .diffViewerSelectNextFile, .diffViewerSelectPreviousFile,
+             .diffViewerOpenFileSearch:
             return .browser
         }
     }
@@ -228,8 +239,12 @@ extension ShortcutAction {
         switch self {
         case .diffViewerScrollDown,
              .diffViewerScrollUp,
+             .diffViewerScrollHalfPageDown,
+             .diffViewerScrollHalfPageUp,
              .diffViewerScrollToBottom,
              .diffViewerScrollToTop,
+             .diffViewerSelectNextFile,
+             .diffViewerSelectPreviousFile,
              .diffViewerOpenFileSearch:
             return true
         default:
@@ -246,6 +261,8 @@ extension ShortcutAction {
     /// mappings agree for every shared action.
     public var defaultFocusWhenClause: ShortcutWhenClause {
         switch self {
+        case .commandPaletteNext, .commandPalettePrevious:
+            return .key(ShortcutContextKnownKey.commandPaletteVisible.rawValue)
         case .switchRightSidebarToFiles, .switchRightSidebarToFind,
              .switchRightSidebarToSessions, .switchRightSidebarToFeed, .switchRightSidebarToDock:
             return .atom(.sidebarFocus)
@@ -256,8 +273,11 @@ extension ShortcutAction {
         case .browserBack, .browserForward, .browserReload,
              .toggleBrowserDeveloperTools, .showBrowserJavaScriptConsole,
              .browserZoomIn, .browserZoomOut, .browserZoomReset, .toggleBrowserFocusMode,
-             .diffViewerScrollDown, .diffViewerScrollUp, .diffViewerScrollToBottom,
-             .diffViewerScrollToTop, .diffViewerOpenFileSearch:
+             .diffViewerScrollDown, .diffViewerScrollUp,
+             .diffViewerScrollHalfPageDown, .diffViewerScrollHalfPageUp,
+             .diffViewerScrollToBottom, .diffViewerScrollToTop,
+             .diffViewerSelectNextFile, .diffViewerSelectPreviousFile,
+             .diffViewerOpenFileSearch:
             return .atom(.browserFocus)
         case .markdownZoomIn, .markdownZoomOut, .markdownZoomReset:
             return .atom(.markdownFocus)
@@ -269,9 +289,9 @@ extension ShortcutAction {
     /// Whether the app's key router consumes this action *before* general
     /// configured-shortcut matching whenever its context holds.
     ///
-    /// The right-sidebar mode shortcuts are pre-routed: while the sidebar is
-    /// focused they win their keystroke outright, and every other binding on the
-    /// same stroke keeps firing outside that context. Conflict detection
+    /// Some actions are pre-routed: while their narrow context holds they win
+    /// their keystroke outright, and every other binding on the same stroke
+    /// keeps firing outside that context. Conflict detection
     /// (``ShortcutWhenClause/bindingsCollide(_:lhsHasPriority:_:rhsHasPriority:)``)
     /// uses this to accept such priority-resolved pairs — e.g. the factory
     /// default Select Surface `⌃1…9` alongside the sidebar's `⌃1…5` — instead of
@@ -279,7 +299,8 @@ extension ShortcutAction {
     /// `handleCustomShortcut`; a drift test asserts the two stay aligned.
     public var hasPriorityShortcutRouting: Bool {
         switch self {
-        case .switchRightSidebarToFiles, .switchRightSidebarToFind,
+        case .commandPaletteNext, .commandPalettePrevious,
+             .switchRightSidebarToFiles, .switchRightSidebarToFind,
              .switchRightSidebarToSessions, .switchRightSidebarToFeed, .switchRightSidebarToDock:
             return true
         default:
@@ -413,10 +434,18 @@ extension ShortcutAction {
             return String(localized: "shortcut.diffViewerScrollDown.label", defaultValue: "Diff Viewer: Scroll Down")
         case .diffViewerScrollUp:
             return String(localized: "shortcut.diffViewerScrollUp.label", defaultValue: "Diff Viewer: Scroll Up")
+        case .diffViewerScrollHalfPageDown:
+            return String(localized: "shortcut.diffViewerScrollHalfPageDown.label", defaultValue: "Diff Viewer: Scroll Half Page Down")
+        case .diffViewerScrollHalfPageUp:
+            return String(localized: "shortcut.diffViewerScrollHalfPageUp.label", defaultValue: "Diff Viewer: Scroll Half Page Up")
         case .diffViewerScrollToBottom:
             return String(localized: "shortcut.diffViewerScrollToBottom.label", defaultValue: "Diff Viewer: Scroll to Bottom")
         case .diffViewerScrollToTop:
             return String(localized: "shortcut.diffViewerScrollToTop.label", defaultValue: "Diff Viewer: Scroll to Top")
+        case .diffViewerSelectNextFile:
+            return String(localized: "shortcut.diffViewerSelectNextFile.label", defaultValue: "Diff Viewer: Next File")
+        case .diffViewerSelectPreviousFile:
+            return String(localized: "shortcut.diffViewerSelectPreviousFile.label", defaultValue: "Diff Viewer: Previous File")
         case .diffViewerOpenFileSearch:
             return String(localized: "shortcut.diffViewerOpenFileSearch.label", defaultValue: "Diff Viewer: Open File Search")
         }

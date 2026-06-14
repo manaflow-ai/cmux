@@ -263,7 +263,7 @@ final class KeyboardShortcutContextTests: XCTestCase {
             }
             XCTAssertEqual(
                 settingsAction.defaultFocusWhenClause,
-                action.shortcutContext.defaultWhenClause,
+                action.defaultWhenClause,
                 action.rawValue
             )
             XCTAssertEqual(

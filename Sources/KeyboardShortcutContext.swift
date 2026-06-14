@@ -109,7 +109,8 @@ extension KeyboardShortcutSettings.Action {
     /// test asserts the two stay aligned.
     var hasPriorityShortcutRouting: Bool {
         switch self {
-        case .switchRightSidebarToFiles, .switchRightSidebarToFind,
+        case .commandPaletteNext, .commandPalettePrevious,
+             .switchRightSidebarToFiles, .switchRightSidebarToFind,
              .switchRightSidebarToSessions, .switchRightSidebarToFeed, .switchRightSidebarToDock:
             return true
         default:
@@ -121,8 +122,12 @@ extension KeyboardShortcutSettings.Action {
         switch self {
         case .diffViewerScrollDown,
              .diffViewerScrollUp,
+             .diffViewerScrollHalfPageDown,
+             .diffViewerScrollHalfPageUp,
              .diffViewerScrollToBottom,
              .diffViewerScrollToTop,
+             .diffViewerSelectNextFile,
+             .diffViewerSelectPreviousFile,
              .diffViewerOpenFileSearch:
             return .browserPanel
         case .switchRightSidebarToFiles, .switchRightSidebarToFind, .switchRightSidebarToSessions, .switchRightSidebarToFeed, .switchRightSidebarToDock:
@@ -136,6 +141,19 @@ extension KeyboardShortcutSettings.Action {
             return .markdownPanel
         default:
             return .application
+        }
+    }
+
+    /// Built-in focus predicate for this action when `shortcuts.when` has no
+    /// override. Most actions derive directly from `shortcutContext`; command
+    /// palette selection is narrower than application-wide because it only fires
+    /// while the palette is open.
+    var defaultWhenClause: ShortcutWhenClause {
+        switch self {
+        case .commandPaletteNext, .commandPalettePrevious:
+            return .key(ShortcutContextKnownKey.commandPaletteVisible.rawValue)
+        default:
+            return shortcutContext.defaultWhenClause
         }
     }
 }

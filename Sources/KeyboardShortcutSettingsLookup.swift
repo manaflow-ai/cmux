@@ -63,7 +63,7 @@ extension KeyboardShortcutSettings {
     /// ``ShortcutWhenClause``. Drives both runtime availability and conflict
     /// detection so the same keystroke can be context-routed.
     static func effectiveWhenClause(for action: Action) -> ShortcutWhenClause {
-        settingsFileStore.whenClause(for: action) ?? action.shortcutContext.defaultWhenClause
+        settingsFileStore.whenClause(for: action) ?? action.defaultWhenClause
     }
 
     /// Whether `action` has an explicit `shortcuts.when` override that restricts focus.
