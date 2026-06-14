@@ -27,6 +27,13 @@ extension CMUXCLI {
         return prefix.contains("cmux claude wrapper - injects hooks and session tracking")
     }
 
+    func isCmuxOpenCodeWrapper(at path: String) -> Bool {
+        guard let data = FileManager.default.contents(atPath: path) else { return false }
+        let prefixData = data.prefix(512)
+        guard let prefix = String(data: prefixData, encoding: .utf8) else { return false }
+        return prefix.contains("cmux opencode wrapper - installs cmux plugins")
+    }
+
     func isCmuxClaudeCommandShim(at path: String) -> Bool {
         let candidate = URL(fileURLWithPath: path, isDirectory: false)
             .standardizedFileURL
@@ -110,6 +117,14 @@ extension CMUXCLI {
 
     func resolveCodexExecutable(searchPath: String?) -> String? {
         resolveExecutableInSearchPath("codex", searchPath: searchPath)
+    }
+
+    func resolveOpenCodeExecutable(searchPath: String?) -> String? {
+        resolveExecutableInSearchPath(
+            "opencode",
+            searchPath: searchPath,
+            skip: { self.isCmuxOpenCodeWrapper(at: $0) }
+        )
     }
 
     func providerExecutableSearchPath(searchPath: String?, includingExecutableAt executablePath: String? = nil) -> String {

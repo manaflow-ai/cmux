@@ -65,8 +65,360 @@ final class OpenCodeHookRegressionTests: XCTestCase {
         XCTAssertFalse(result.stdout.contains("uninstall-hooks"), result.stdout)
     }
 
+    func testBundledOpenCodeWrapperInstallsHooksWhenSocketIsLive() throws {
+        let wrapperPath = try bundledOpenCodeWrapperPath()
+        let shortId = String(UUID().uuidString.prefix(8))
+        let root = URL(fileURLWithPath: "/tmp/cmux-\(shortId)", isDirectory: true)
+        let binDir = root.appendingPathComponent("bin", isDirectory: true)
+        let logURL = root.appendingPathComponent("calls.log", isDirectory: false)
+        let socketURL = root.appendingPathComponent("cmux.sock", isDirectory: false)
+        try FileManager.default.createDirectory(at: binDir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let socketFD = try createUnixSocket(at: socketURL.path)
+        defer {
+            close(socketFD)
+            unlink(socketURL.path)
+        }
+
+        let fakeCmuxURL = binDir.appendingPathComponent("cmux", isDirectory: false)
+        try """
+        #!/bin/sh
+        printf 'cmux:%s\\n' "$*" >> "$CMUX_TEST_LOG"
+        if [ "$1" = "--socket" ]; then
+          shift 2
+        fi
+        if [ "$1" = "ping" ]; then
+          exit 0
+        fi
+        if [ "$1" = "hooks" ] && [ "$2" = "opencode" ] && [ "$3" = "install" ] && [ "$4" = "--yes" ]; then
+          exit 0
+        fi
+        exit 64
+        """.write(to: fakeCmuxURL, atomically: true, encoding: .utf8)
+        chmod(fakeCmuxURL.path, 0o755)
+
+        let fakeOpenCodeURL = binDir.appendingPathComponent("opencode", isDirectory: false)
+        try """
+        #!/bin/sh
+        printf 'opencode:%s\\n' "$*" >> "$CMUX_TEST_LOG"
+        printf 'cmux-bin:%s\\n' "$CMUX_OPENCODE_CMUX_BIN" >> "$CMUX_TEST_LOG"
+        printf 'kind:%s\\n' "$CMUX_AGENT_LAUNCH_KIND" >> "$CMUX_TEST_LOG"
+        printf 'pid:%s\\n' "$CMUX_OPENCODE_PID" >> "$CMUX_TEST_LOG"
+        exit 23
+        """.write(to: fakeOpenCodeURL, atomically: true, encoding: .utf8)
+        chmod(fakeOpenCodeURL.path, 0o755)
+
+        var environment = ProcessInfo.processInfo.environment
+        environment["PATH"] = "\(binDir.path):\(environment["PATH"] ?? "/usr/bin")"
+        environment["CMUX_BUNDLED_CLI_PATH"] = fakeCmuxURL.path
+        environment["CMUX_SOCKET_PATH"] = socketURL.path
+        environment["CMUX_SURFACE_ID"] = UUID().uuidString
+        environment["CMUX_WORKSPACE_ID"] = UUID().uuidString
+        environment["CMUX_TEST_LOG"] = logURL.path
+
+        let result = runProcess(
+            executablePath: wrapperPath,
+            arguments: ["run", "--model", "anthropic/claude-sonnet-4-6", "fix this"],
+            environment: environment,
+            timeout: 5
+        )
+
+        XCTAssertFalse(result.timedOut, result.stderr)
+        XCTAssertEqual(result.status, 23, result.stderr)
+        let log = try String(contentsOf: logURL, encoding: .utf8)
+        XCTAssertTrue(log.contains("cmux:--socket \(socketURL.path) ping"), log)
+        XCTAssertTrue(log.contains("cmux:--socket \(socketURL.path) hooks opencode install --yes"), log)
+        XCTAssertTrue(log.contains("opencode:run --model anthropic/claude-sonnet-4-6 fix this"), log)
+        XCTAssertTrue(log.contains("cmux-bin:\(fakeCmuxURL.path)"), log)
+        XCTAssertTrue(log.contains("kind:opencode"), log)
+        XCTAssertTrue(log.range(of: #"pid:\d+"#, options: .regularExpression) != nil, log)
+    }
+
+    func testBundledOpenCodeWrapperPassesThroughOutsideCmux() throws {
+        let wrapperPath = try bundledOpenCodeWrapperPath()
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("cmux-opencode-wrapper-passthrough-\(UUID().uuidString)", isDirectory: true)
+        let binDir = root.appendingPathComponent("bin", isDirectory: true)
+        let logURL = root.appendingPathComponent("calls.log", isDirectory: false)
+        try FileManager.default.createDirectory(at: binDir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let fakeOpenCodeURL = binDir.appendingPathComponent("opencode", isDirectory: false)
+        try """
+        #!/bin/sh
+        printf 'opencode:%s\\n' "$*" >> "$CMUX_TEST_LOG"
+        printf 'kind:${CMUX_AGENT_LAUNCH_KIND:-unset}\\n' >> "$CMUX_TEST_LOG"
+        exit 17
+        """.write(to: fakeOpenCodeURL, atomically: true, encoding: .utf8)
+        chmod(fakeOpenCodeURL.path, 0o755)
+
+        var environment = ProcessInfo.processInfo.environment
+        environment["PATH"] = "\(binDir.path):\(environment["PATH"] ?? "/usr/bin")"
+        environment["CMUX_TEST_LOG"] = logURL.path
+        environment.removeValue(forKey: "CMUX_SURFACE_ID")
+        environment.removeValue(forKey: "CMUX_SOCKET_PATH")
+        environment.removeValue(forKey: "CMUX_AGENT_LAUNCH_KIND")
+
+        let result = runProcess(
+            executablePath: wrapperPath,
+            arguments: ["--version"],
+            environment: environment,
+            timeout: 5
+        )
+
+        XCTAssertFalse(result.timedOut, result.stderr)
+        XCTAssertEqual(result.status, 17, result.stderr)
+        let log = try String(contentsOf: logURL, encoding: .utf8)
+        XCTAssertEqual(log, "opencode:--version\nkind:unset\n")
+    }
+
+    func testOpenCodeSessionPluginDeduplicatesRuntimeLifecycleEvents() throws {
+        let cliPath = try bundledCLIPath()
+        let nodePath = try nodeExecutablePath()
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("cmux-opencode-plugin-runtime-\(UUID().uuidString)", isDirectory: true)
+        let configDir = root.appendingPathComponent("opencode", isDirectory: true)
+        let binDir = root.appendingPathComponent("bin", isDirectory: true)
+        let logURL = root.appendingPathComponent("cmux.log", isDirectory: false)
+        try FileManager.default.createDirectory(at: binDir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let fakeOpenCodeURL = binDir.appendingPathComponent("opencode", isDirectory: false)
+        try "#!/bin/sh\nexit 0\n".write(to: fakeOpenCodeURL, atomically: true, encoding: .utf8)
+        chmod(fakeOpenCodeURL.path, 0o755)
+
+        var installEnvironment = ProcessInfo.processInfo.environment
+        installEnvironment["OPENCODE_CONFIG_DIR"] = configDir.path
+        installEnvironment["PATH"] = "\(binDir.path):\(installEnvironment["PATH"] ?? "/usr/bin")"
+        installEnvironment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+
+        let installResult = runProcess(
+            executablePath: cliPath,
+            arguments: ["hooks", "opencode", "install", "--yes"],
+            environment: installEnvironment,
+            timeout: 5
+        )
+        XCTAssertFalse(installResult.timedOut, installResult.stderr)
+        XCTAssertEqual(installResult.status, 0, installResult.stderr)
+        try #"{"type":"module"}"#.write(
+            to: configDir.appendingPathComponent("package.json", isDirectory: false),
+            atomically: true,
+            encoding: .utf8
+        )
+
+        let fakeCmuxURL = binDir.appendingPathComponent("cmux", isDirectory: false)
+        try """
+        #!/bin/sh
+        printf '%s\\n' "$*" >> "$CMUX_TEST_LOG"
+        if [ "$1" = "hooks" ]; then
+          cat >/dev/null
+        fi
+        exit 0
+        """.write(to: fakeCmuxURL, atomically: true, encoding: .utf8)
+        chmod(fakeCmuxURL.path, 0o755)
+
+        let lifecycleEvictionSessionCount = 12
+        let scriptURL = root.appendingPathComponent("drive-opencode-plugin.mjs", isDirectory: false)
+        try """
+        import { appendFileSync } from "node:fs";
+
+        const plugin = (await import(process.env.CMUX_TEST_PLUGIN_URL)).default;
+        const sessionId = "opencode-session-1";
+        const cwd = process.env.CMUX_TEST_CWD;
+        const restore = await plugin({ directory: cwd });
+        const send = async (type, properties = {}) => {
+          await restore.event({ event: { type, properties } });
+        };
+        const mark = (label) => appendFileSync(process.env.CMUX_TEST_LOG, `MARK ${label}\\n`);
+        const info = { id: sessionId, directory: cwd };
+        const status = (type) => ({ info: { ...info, status: { type } } });
+        await send("session.created", { info });
+        await send("session.status", status("error"));
+        await send("session.error", { info, error: { message: "upstream quota" } });
+        await send("session.status", status("running"));
+        await send("session.status", { info: { ...info, status: { type: "error", message: "retry after rate limit" } } });
+        await send("session.status", status("running"));
+        await send("session.error", { info, error: { message: "upstream quota" } });
+        await send("permission.asked", { info, message: "approve" });
+        mark("prompt-open");
+        await send("session.updated", { info: { ...info, title: "metadata refresh" } });
+        await send("session.idle", { info });
+        mark("prompt-still-open");
+        await send("permission.replied", { sessionID: sessionId });
+        await send("session.idle", { info });
+        mark("prompt-resolved");
+        await send("session.status", status("running"));
+        await send("session.status", { info: { ...info, status: { type: "queued", message: "done waiting for inactive workbench" } } });
+        await send("session.status", status("idle"));
+        await send("todo.updated", { info });
+        await send("session.idle", { info });
+        await send("session.idle", { note: "missing session id" });
+        await send("session.status", status("running"));
+        await send("session.idle", { info });
+        const archivedInfo = { id: "opencode-session-archived", directory: cwd };
+        await send("session.created", { info: archivedInfo });
+        await send("permission.asked", { info: archivedInfo, message: "approve" });
+        await send("session.updated", { info: { ...archivedInfo, time: { archived: true } } });
+        await send("session.idle", { info: archivedInfo });
+        const protectedInfo = { id: "opencode-session-protected", directory: cwd };
+        await send("session.created", { info: protectedInfo });
+        await send("permission.asked", { info: protectedInfo, message: "approve" });
+        mark("protected-prompt-open");
+        for (let index = 0; index < \(lifecycleEvictionSessionCount); index += 1) {
+          const otherInfo = { id: `opencode-session-${index + 2}`, directory: cwd };
+          await send("session.created", { info: otherInfo });
+          await send("session.status", { info: { ...otherInfo, status: { type: "idle" } } });
+        }
+        await send("session.idle", { info: protectedInfo });
+        mark("protected-prompt-still-open");
+        await send("permission.replied", { sessionID: protectedInfo.id });
+        await send("session.idle", { info: protectedInfo });
+        mark("protected-prompt-resolved");
+        await send("session.idle", { info });
+        """.write(to: scriptURL, atomically: true, encoding: .utf8)
+
+        let pluginURL = configDir.appendingPathComponent("plugins/cmux-session.js", isDirectory: false)
+        var runtimeEnvironment = installEnvironment
+        runtimeEnvironment["CMUX_OPENCODE_CMUX_BIN"] = fakeCmuxURL.path
+        runtimeEnvironment["CMUX_OPENCODE_PID"] = "4242"
+        runtimeEnvironment["CMUX_SURFACE_ID"] = "surface-test"
+        runtimeEnvironment["CMUX_WORKSPACE_ID"] = "workspace-test"
+        runtimeEnvironment["CMUX_TEST_CWD"] = root.path
+        runtimeEnvironment["CMUX_TEST_LOG"] = logURL.path
+        runtimeEnvironment["CMUX_TEST_PLUGIN_URL"] = pluginURL.absoluteString
+        runtimeEnvironment["CMUX_OPENCODE_SESSION_LIFECYCLE_LIMIT"] = "8"
+
+        let result = runProcess(
+            executablePath: nodePath,
+            arguments: [scriptURL.path],
+            environment: runtimeEnvironment,
+            timeout: 5
+        )
+        XCTAssertFalse(result.timedOut, result.stderr)
+        XCTAssertEqual(result.status, 0, result.stderr)
+
+        let log = try String(contentsOf: logURL, encoding: .utf8)
+        let commands = log.split(separator: "\n").map(String.init)
+        let errorNotifications = commands.filter { $0.contains("hooks opencode runtime-notification error") }
+        XCTAssertEqual(errorNotifications.count, 3, log)
+        let needsInputStatuses = commands.filter { $0.contains("hooks opencode runtime-status needs-input") }
+        XCTAssertEqual(needsInputStatuses.count, 3, log)
+        let runningStatuses = commands.filter { $0.contains("hooks opencode runtime-status running") }
+        XCTAssertGreaterThanOrEqual(runningStatuses.count, 5, log)
+        let retryingStatuses = commands.filter { $0.contains("hooks opencode runtime-status retrying") }
+        XCTAssertEqual(retryingStatuses.count, 0, log)
+        let idleStatuses = commands.filter { $0.contains("hooks opencode runtime-status idle") }
+        XCTAssertEqual(idleStatuses.count, 0, log)
+        let stopHooks = commands.filter { $0 == "hooks opencode stop" }
+        XCTAssertGreaterThanOrEqual(stopHooks.count, lifecycleEvictionSessionCount, log)
+
+        let unresolvedPromptCommands = try commandsBetween(commands, after: "MARK prompt-open", before: "MARK prompt-still-open")
+        XCTAssertFalse(unresolvedPromptCommands.contains { isIdleStatusCommand($0) }, log)
+        XCTAssertFalse(unresolvedPromptCommands.contains { isStopHookCommand($0) }, log)
+
+        let resolvedPromptCommands = try commandsBetween(commands, after: "MARK prompt-still-open", before: "MARK prompt-resolved")
+        XCTAssertTrue(resolvedPromptCommands.contains { isRunningStatusCommand($0) }, log)
+        XCTAssertTrue(resolvedPromptCommands.contains { isStopHookCommand($0) }, log)
+
+        let protectedPromptCommands = try commandsBetween(commands, after: "MARK protected-prompt-open", before: "MARK protected-prompt-still-open")
+        XCTAssertFalse(protectedPromptCommands.contains { isIdleStatusCommand($0) }, log)
+        XCTAssertFalse(protectedPromptCommands.contains { isStopHookCommand($0) }, log)
+
+        let protectedResolvedCommands = try commandsBetween(commands, after: "MARK protected-prompt-still-open", before: "MARK protected-prompt-resolved")
+        XCTAssertTrue(protectedResolvedCommands.contains { isRunningStatusCommand($0) }, log)
+        XCTAssertTrue(protectedResolvedCommands.contains { isStopHookCommand($0) }, log)
+    }
+
+    private func commandsBetween(
+        _ commands: [String],
+        after startMarker: String,
+        before endMarker: String,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) throws -> [String] {
+        let startIndex = try XCTUnwrap(commands.firstIndex(of: startMarker), "Missing marker \(startMarker)", file: file, line: line)
+        let searchStart = commands.index(after: startIndex)
+        let endIndex = try XCTUnwrap(commands[searchStart...].firstIndex(of: endMarker), "Missing marker \(endMarker)", file: file, line: line)
+        return Array(commands[searchStart..<endIndex])
+    }
+
+    private func isRunningStatusCommand(_ command: String) -> Bool {
+        command.contains("hooks opencode runtime-status running")
+    }
+
+    private func isIdleStatusCommand(_ command: String) -> Bool {
+        command.contains("hooks opencode runtime-status idle")
+    }
+
+    private func isStopHookCommand(_ command: String) -> Bool {
+        command == "hooks opencode stop"
+    }
+
     private func bundledCLIPath() throws -> String {
         try BundledCLITestSupport.bundledCLIPath(for: Self.self)
+    }
+
+    private func bundledOpenCodeWrapperPath() throws -> String {
+        let fileManager = FileManager.default
+        let appBundleURL = Bundle(for: Self.self).bundleURL.deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
+        let enumerator = fileManager.enumerator(at: appBundleURL, includingPropertiesForKeys: nil, options: [.skipsHiddenFiles])
+        while let item = enumerator?.nextObject() as? URL {
+            guard item.lastPathComponent == "cmux-opencode-wrapper",
+                  item.path.contains(".app/Contents/Resources/bin/cmux-opencode-wrapper") else { continue }
+            return item.path
+        }
+        throw XCTSkip("Bundled opencode wrapper not found in \(appBundleURL.path)")
+    }
+
+    private func nodeExecutablePath() throws -> String {
+        let result = runProcess(
+            executablePath: "/usr/bin/env",
+            arguments: ["which", "node"],
+            environment: ProcessInfo.processInfo.environment,
+            timeout: 5
+        )
+        let path = result.stdout.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !result.timedOut, result.status == 0, !path.isEmpty else {
+            throw XCTSkip("Node executable not found")
+        }
+        return path
+    }
+
+    private func createUnixSocket(at path: String) throws -> Int32 {
+        let fd = socket(AF_UNIX, SOCK_STREAM, 0)
+        guard fd >= 0 else {
+            throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO)
+        }
+
+        var address = sockaddr_un()
+        address.sun_family = sa_family_t(AF_UNIX)
+        let pathBytes = Array(path.utf8)
+        try withUnsafeMutableBytes(of: &address.sun_path) { buffer in
+            guard pathBytes.count < buffer.count else {
+                throw POSIXError(.ENAMETOOLONG)
+            }
+            for index in pathBytes.indices {
+                buffer[index] = pathBytes[index]
+            }
+            buffer[pathBytes.count] = 0
+        }
+
+        let bindResult = withUnsafePointer(to: &address) { pointer in
+            pointer.withMemoryRebound(to: sockaddr.self, capacity: 1) { sockaddrPointer in
+                Darwin.bind(fd, sockaddrPointer, socklen_t(MemoryLayout<sa_family_t>.size + pathBytes.count + 1))
+            }
+        }
+        guard bindResult == 0 else {
+            let capturedErrno = errno
+            close(fd)
+            throw POSIXError(POSIXErrorCode(rawValue: capturedErrno) ?? .EIO)
+        }
+
+        guard listen(fd, 1) == 0 else {
+            let capturedErrno = errno
+            close(fd)
+            throw POSIXError(POSIXErrorCode(rawValue: capturedErrno) ?? .EIO)
+        }
+        return fd
     }
 
     private func runProcess(

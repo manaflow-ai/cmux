@@ -4588,6 +4588,7 @@ final class Workspace: Identifiable, ObservableObject {
         }
         let states = Array(panelStates.values)
         if states.contains(.running) { return .running }
+        if states.contains(.error) { return .error }
         if states.contains(.needsInput) { return .needsInput }
         if states.contains(.unknown) { return .unknown }
         if states.contains(.idle) { return .idle }

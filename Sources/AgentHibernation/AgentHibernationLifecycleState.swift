@@ -5,6 +5,8 @@ enum AgentHibernationLifecycleState: String, Codable, Sendable, Equatable, CaseI
     case running
     case idle
     case needsInput
+    /// Agent session encountered an error and must not be hibernated.
+    case error
 
     init(from decoder: Decoder) throws {
         let container = try decoder.singleValueContainer()
@@ -39,6 +41,8 @@ enum AgentHibernationLifecycleState: String, Codable, Sendable, Equatable, CaseI
             return .idle
         case "needsinput", "needs-input":
             return .needsInput
+        case "error":
+            return .error
         default:
             return nil
         }

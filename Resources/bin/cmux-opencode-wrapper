@@ -1,0 +1,157 @@
+#!/usr/bin/env bash
+# cmux opencode wrapper - installs cmux plugins and captures launch metadata.
+#
+# When running inside a cmux terminal with a live cmux socket, this wrapper
+# installs the bundled OpenCode plugins before launching the real opencode
+# binary. Outside cmux, it passes through unchanged.
+
+find_real_opencode() {
+    local self_dir
+    self_dir="$(cd "$(dirname "$0")" && pwd)"
+    local IFS=:
+    for d in $PATH; do
+        [[ "$d" == "$self_dir" ]] && continue
+        local candidate="$d/opencode"
+        [[ -f "$candidate" && -x "$candidate" ]] || continue
+        if [[ "$candidate" -ef "$0" ]]; then
+            continue
+        fi
+        printf '%s' "$candidate"
+        return 0
+    done
+    return 1
+}
+
+resolve_cmux_bin() {
+    local bundled_cli self_dir
+    bundled_cli="${CMUX_BUNDLED_CLI_PATH:-}"
+    if [[ -n "$bundled_cli" && -f "$bundled_cli" && -x "$bundled_cli" ]]; then
+        printf '%s' "$bundled_cli"
+        return 0
+    fi
+
+    self_dir="$(cd "$(dirname "$0")" && pwd)"
+    bundled_cli="$self_dir/cmux"
+    if [[ -f "$bundled_cli" && -x "$bundled_cli" ]]; then
+        printf '%s' "$bundled_cli"
+        return 0
+    fi
+
+    bundled_cli="$(command -v cmux || true)"
+    if [[ -n "$bundled_cli" && -f "$bundled_cli" && -x "$bundled_cli" ]]; then
+        printf '%s' "$bundled_cli"
+        return 0
+    fi
+
+    return 1
+}
+
+cmux_socket_available() {
+    local socket="${CMUX_SOCKET_PATH:-}"
+    [[ -n "$socket" && -S "$socket" ]] || return 1
+
+    local cmux_bin
+    cmux_bin="$(resolve_cmux_bin)" || return 1
+    CMUXTERM_CLI_RESPONSE_TIMEOUT_SEC=0.75 \
+        "$cmux_bin" --socket "$socket" ping >/dev/null 2>&1
+}
+
+encode_launch_argv() {
+    {
+        printf '%s\0' "$REAL_OPENCODE"
+        if (( $# > 0 )); then
+            printf '%s\0' "$@"
+        fi
+    } | base64 | tr -d '\n'
+}
+
+opencode_passthrough_option_flag() {
+    case "$1" in
+        --help|-h|--version|-v)
+            return 0
+            ;;
+    esac
+    return 1
+}
+
+opencode_passthrough_command_name() {
+    case "$1" in
+        completion|help|version)
+            return 0
+            ;;
+    esac
+    return 1
+}
+
+opencode_command_like_invocation() {
+    local candidate="$1"
+    [[ -n "$candidate" ]] || return 1
+    case "$candidate" in
+        *[![:alnum:]_-]*)
+            return 1
+            ;;
+    esac
+    opencode_passthrough_command_name "$candidate"
+}
+
+should_install_opencode_hooks() {
+    (( $# == 0 )) && return 0
+
+    local arg
+    local skip_next=false
+    for arg in "$@"; do
+        if [[ "$skip_next" == true ]]; then
+            skip_next=false
+            continue
+        fi
+        case "$arg" in
+            --)
+                return 0
+                ;;
+            --log-level|--port|--hostname|--mdns-domain|--cors|--file|-f|\
+            --model|-m|--session|-s|--prompt|--agent)
+                skip_next=true
+                continue
+                ;;
+            -*)
+                if opencode_passthrough_option_flag "$arg"; then
+                    return 1
+                fi
+                continue
+                ;;
+            *)
+                if opencode_command_like_invocation "$arg"; then
+                    return 1
+                fi
+                return 0
+                ;;
+        esac
+    done
+
+    return 0
+}
+
+REAL_OPENCODE="$(find_real_opencode)" || { echo "Error: opencode not found in PATH" >&2; exit 127; }
+
+IN_CMUX=0
+if [[ -n "${CMUX_SURFACE_ID:-}" ]]; then
+    IN_CMUX=1
+fi
+
+if [[ "$IN_CMUX" == "1" && "${CMUX_OPENCODE_HOOKS_DISABLED:-}" != "1" ]] \
+    && cmux_socket_available \
+    && should_install_opencode_hooks "$@"; then
+    CMUX_BIN="$(resolve_cmux_bin || true)"
+    if [[ -n "$CMUX_BIN" ]]; then
+        CMUXTERM_CLI_RESPONSE_TIMEOUT_SEC=2 \
+            "$CMUX_BIN" --socket "$CMUX_SOCKET_PATH" hooks opencode install --yes >/dev/null 2>&1 || true
+        export CMUX_OPENCODE_CMUX_BIN="$CMUX_BIN"
+    fi
+    export CMUX_OPENCODE_PID=$$
+    export CMUX_AGENT_LAUNCH_KIND="opencode"
+    export CMUX_AGENT_LAUNCH_EXECUTABLE="$REAL_OPENCODE"
+    export CMUX_AGENT_LAUNCH_ARGV_B64="$(encode_launch_argv "$@")"
+    export CMUX_AGENT_LAUNCH_CWD="$PWD"
+fi
+
+exec "$REAL_OPENCODE" "$@"

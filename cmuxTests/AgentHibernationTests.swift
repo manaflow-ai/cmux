@@ -15,6 +15,7 @@ final class AgentHibernationTests: XCTestCase {
         XCTAssertEqual(AgentHibernationLifecycleState.parseCLIValue("needsInput"), .needsInput)
         XCTAssertEqual(AgentHibernationLifecycleState.parseCLIValue("needs-input"), .needsInput)
         XCTAssertEqual(AgentHibernationLifecycleState.parseCLIValue("needs_input"), .needsInput)
+        XCTAssertEqual(AgentHibernationLifecycleState.parseCLIValue("error"), .error)
         XCTAssertNil(AgentHibernationLifecycleState.parseCLIValue("paused"))
 
         let decoded = try JSONDecoder().decode(
@@ -133,6 +134,7 @@ final class AgentHibernationTests: XCTestCase {
         let idleNew = AgentHibernationPanelKey(workspaceId: workspaceId, panelId: UUID())
         let runningOld = AgentHibernationPanelKey(workspaceId: workspaceId, panelId: UUID())
         let needsInputOld = AgentHibernationPanelKey(workspaceId: workspaceId, panelId: UUID())
+        let errorOld = AgentHibernationPanelKey(workspaceId: workspaceId, panelId: UUID())
         let unknownOld = AgentHibernationPanelKey(workspaceId: workspaceId, panelId: UUID())
         let unconfirmedInputOld = AgentHibernationPanelKey(workspaceId: workspaceId, panelId: UUID())
         let visibleOld = AgentHibernationPanelKey(workspaceId: workspaceId, panelId: UUID())
@@ -149,6 +151,7 @@ final class AgentHibernationTests: XCTestCase {
                 .init(key: idleNew, hasRestorableAgent: true, isLive: true, isProtected: false, lifecycle: .idle, hasUnconfirmedTerminalInput: false, lastActivityAt: now - 10),
                 .init(key: runningOld, hasRestorableAgent: true, isLive: true, isProtected: false, lifecycle: .running, hasUnconfirmedTerminalInput: false, lastActivityAt: now - 300),
                 .init(key: needsInputOld, hasRestorableAgent: true, isLive: true, isProtected: false, lifecycle: .needsInput, hasUnconfirmedTerminalInput: false, lastActivityAt: now - 300),
+                .init(key: errorOld, hasRestorableAgent: true, isLive: true, isProtected: false, lifecycle: .error, hasUnconfirmedTerminalInput: false, lastActivityAt: now - 300),
                 .init(key: unknownOld, hasRestorableAgent: true, isLive: true, isProtected: false, lifecycle: .unknown, hasUnconfirmedTerminalInput: false, lastActivityAt: now - 300),
                 .init(key: unconfirmedInputOld, hasRestorableAgent: true, isLive: true, isProtected: false, lifecycle: .idle, hasUnconfirmedTerminalInput: true, lastActivityAt: now - 300),
                 .init(key: visibleOld, hasRestorableAgent: true, isLive: true, isProtected: true, lifecycle: .idle, hasUnconfirmedTerminalInput: false, lastActivityAt: now - 300),
@@ -281,6 +284,17 @@ final class AgentHibernationTests: XCTestCase {
 
         XCTAssertEqual(workspace.agentHibernationLifecycleState(panelId: firstPanelId, fallback: nil), .unknown)
         XCTAssertEqual(workspace.agentHibernationLifecycleState(panelId: secondPanelId, fallback: nil), .running)
+    }
+
+    @MainActor
+    func testErrorLifecycleOutranksNeedsInputForPanelAggregation() throws {
+        let workspace = Workspace()
+        let panelId = try XCTUnwrap(workspace.focusedPanelId)
+
+        workspace.setAgentLifecycle(key: "codex", panelId: panelId, lifecycle: .needsInput)
+        workspace.setAgentLifecycle(key: "opencode", panelId: panelId, lifecycle: .error)
+
+        XCTAssertEqual(workspace.agentHibernationLifecycleState(panelId: panelId, fallback: nil), .error)
     }
 
     func testSessionIndexLoadsAgentLifecycleFromHookStore() throws {

@@ -20309,10 +20309,6 @@ struct CMUXCLI {
 
     // MARK: - cmux omo (OpenCode + oh-my-openagent)
 
-    private func resolveOpenCodeExecutable(searchPath: String?) -> String? {
-        resolveExecutableInSearchPath("opencode", searchPath: searchPath)
-    }
-
     private func createOMOShimDirectory() throws -> URL {
         // tmux shim: redirects tmux commands to cmux __tmux-compat
         // Handle -V locally (no socket needed) since __tmux-compat requires a connection.
@@ -26883,12 +26879,297 @@ function hookEnvironment(cwd) {
   return env;
 }
 
-function sendHook(subcommand, ctx, event, extra = {}) {
+function cmuxExecutable() {
+  return process.env.CMUX_OPENCODE_CMUX_BIN || "cmux";
+}
+
+function cmuxArguments(args) {
+  if (process.env.CMUX_SOCKET_PATH) {
+    return ["--socket", process.env.CMUX_SOCKET_PATH, ...args];
+  }
+  return args;
+}
+
+function runCmux(args, options = {}) {
+  return spawnSync(cmuxExecutable(), cmuxArguments(args), options);
+}
+
+function runtimeHookPayload(ctx, event) {
+  const cwd = cwdFor(ctx, event);
+  return {
+    cwd,
+    input: JSON.stringify({
+      session_id: sessionIdFor(event),
+      cwd,
+      event: event && event.type,
+      hook_event_name: event && event.type,
+    }),
+  };
+}
+
+function openCodeProcessPid() {
+  const raw = process.env.CMUX_OPENCODE_PID;
+  if (raw && /^\d+$/.test(raw)) return raw;
+  return String(process.pid);
+}
+
+function notifyOpenCode(kind, body, ctx, event) {
   if (process.env.CMUX_OPENCODE_HOOKS_DISABLED === "1") return;
   if (!process.env.CMUX_SURFACE_ID) return;
 
+  const args = [
+    "hooks",
+    "opencode",
+    "runtime-notification",
+    kind,
+  ];
+  const trimmedBody = typeof body === "string" ? body.trim() : "";
+  if (trimmedBody) {
+    args.push("--body", trimmedBody);
+  }
+  if (process.env.CMUX_WORKSPACE_ID) {
+    args.push("--workspace", process.env.CMUX_WORKSPACE_ID);
+  }
+  if (process.env.CMUX_SURFACE_ID) {
+    args.push("--surface", process.env.CMUX_SURFACE_ID);
+  }
+  try {
+    const payload = runtimeHookPayload(ctx, event);
+    runCmux(args, {
+      input: payload.input,
+      encoding: "utf8",
+      env: hookEnvironment(payload.cwd),
+      stdio: ["pipe", "ignore", "ignore"],
+      timeout: 2000,
+    });
+  } catch (_) {}
+}
+
+function promptBody(props) {
+  return firstString(
+    props.message,
+    props.prompt,
+    props.question,
+    props.reason,
+    props.title
+  );
+}
+
+const STATUS_DESCRIPTORS = {
+  running: { code: "running" },
+  retrying: { code: "retrying" },
+  needsInput: { code: "needs-input" },
+  idle: { code: "idle" },
+  error: { code: "error" },
+};
+
+function statusWords(value, depth = 0) {
+  if (depth > 2 || value == null) return [];
+  if (typeof value === "string") return [value];
+  if (typeof value === "number" || typeof value === "boolean") return [String(value)];
+  if (Array.isArray(value)) return value.flatMap((item) => statusWords(item, depth + 1));
+  if (typeof value === "object") {
+    return ["type", "status", "state", "phase", "reason", "message", "error"]
+      .flatMap((key) => statusWords(value[key], depth + 1));
+  }
+  return [];
+}
+
+function statusWordsForKeys(value, keys, depth = 0) {
+  if (depth > 2 || value == null) return [];
+  if (typeof value !== "object") return statusWords(value, depth);
+  if (Array.isArray(value)) return value.flatMap((item) => statusWordsForKeys(item, keys, depth + 1));
+  return keys.flatMap((key) => statusWordsForKeys(value[key], keys, depth + 1));
+}
+
+function statusTokens(words) {
+  return words.flatMap((word) => String(word).toLowerCase().match(/[a-z0-9]+/g) || []);
+}
+
+function hasAnyStatusToken(tokens, candidates) {
+  return tokens.some((token) => candidates.has(token));
+}
+
+const RETRY_STATUS_TOKENS = new Set(["retry", "retrying", "retried", "throttle", "throttled", "throttling", "backoff"]);
+const ERROR_STATUS_TOKENS = new Set(["error", "errored", "fail", "failed", "failure", "exception", "crash", "crashed", "panic", "panicked"]);
+const IDLE_STATUS_TOKENS = new Set(["idle", "ready", "done", "complete", "completed", "stopped"]);
+const RUNNING_STATUS_TOKENS = new Set(["run", "running", "busy", "active", "work", "working", "stream", "streaming", "process", "processing", "execute", "executing"]);
+
+function hasRetryStatus(tokens) {
+  return hasAnyStatusToken(tokens, RETRY_STATUS_TOKENS) || (tokens.includes("rate") && tokens.includes("limit"));
+}
+
+function descriptorForOpenCodeStatus(rawStatus) {
+  const primaryTokens = statusTokens(statusWordsForKeys(rawStatus, ["type", "status", "state", "phase"]));
+  if (primaryTokens.length) {
+    if (hasAnyStatusToken(primaryTokens, ERROR_STATUS_TOKENS)) return STATUS_DESCRIPTORS.error;
+    if (hasRetryStatus(primaryTokens)) return STATUS_DESCRIPTORS.retrying;
+    if (hasAnyStatusToken(primaryTokens, IDLE_STATUS_TOKENS)) return STATUS_DESCRIPTORS.idle;
+    if (hasAnyStatusToken(primaryTokens, RUNNING_STATUS_TOKENS)) return STATUS_DESCRIPTORS.running;
+    return null;
+  }
+
+  const tokens = statusTokens(statusWords(rawStatus));
+  if (!tokens.length) return null;
+  if (hasAnyStatusToken(tokens, ERROR_STATUS_TOKENS)) return STATUS_DESCRIPTORS.error;
+  if (hasRetryStatus(tokens)) return STATUS_DESCRIPTORS.retrying;
+  if (hasAnyStatusToken(tokens, IDLE_STATUS_TOKENS)) return STATUS_DESCRIPTORS.idle;
+  if (hasAnyStatusToken(tokens, RUNNING_STATUS_TOKENS)) return STATUS_DESCRIPTORS.running;
+  return null;
+}
+
+function sessionLifecycleLimit() {
+  const parsed = Number.parseInt(process.env.CMUX_OPENCODE_SESSION_LIFECYCLE_LIMIT || "", 10);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : 128;
+}
+
+const SESSION_LIFECYCLE_LIMIT = sessionLifecycleLimit();
+const SESSION_LIFECYCLE = new Map();
+
+function canEvictLifecycleRecord(record) {
+  return record && record.phase !== "needs-input" && record.phase !== "error";
+}
+
+function pruneLifecycleRecords() {
+  while (SESSION_LIFECYCLE.size > SESSION_LIFECYCLE_LIMIT) {
+    let evictedSessionId = null;
+    for (const [oldestSessionId, record] of SESSION_LIFECYCLE) {
+      if (canEvictLifecycleRecord(record)) {
+        evictedSessionId = oldestSessionId;
+        break;
+      }
+      if (evictedSessionId === null) evictedSessionId = oldestSessionId;
+    }
+    if (evictedSessionId === null) return;
+    SESSION_LIFECYCLE.delete(evictedSessionId);
+  }
+}
+
+function rememberLifecycleRecord(sessionId, record) {
+  SESSION_LIFECYCLE.delete(sessionId);
+  SESSION_LIFECYCLE.set(sessionId, record);
+  pruneLifecycleRecords();
+}
+
+function lifecycleRecordFor(event) {
   const sessionId = sessionIdFor(event);
-  if (!sessionId) return;
+  if (!sessionId) return null;
+  let record = SESSION_LIFECYCLE.get(sessionId);
+  if (!record) {
+    record = { phase: "unknown", errorNotified: false };
+  }
+  rememberLifecycleRecord(sessionId, record);
+  return record;
+}
+
+function forgetSessionLifecycle(event) {
+  const sessionId = sessionIdFor(event);
+  if (sessionId) SESSION_LIFECYCLE.delete(sessionId);
+}
+
+function markSessionNotIdle(event) {
+  const record = lifecycleRecordFor(event);
+  if (!record) return;
+  record.phase = "active";
+  record.errorNotified = false;
+}
+
+function markSessionUpdated(event) {
+  const record = lifecycleRecordFor(event);
+  if (!record) return false;
+  // Metadata refreshes must not clear unresolved prompts or errors.
+  if (record.phase === "needs-input" || record.phase === "error") return false;
+  const didChange = record.phase !== "active";
+  record.phase = "active";
+  record.errorNotified = false;
+  return didChange;
+}
+
+function markSessionNeedsInput(event) {
+  const record = lifecycleRecordFor(event);
+  if (!record) return;
+  record.phase = "needs-input";
+  record.errorNotified = false;
+}
+
+function markSessionInputResolved(ctx, event) {
+  const record = lifecycleRecordFor(event);
+  if (!record) return;
+  if (record.phase === "needs-input") {
+    record.phase = "active";
+    record.errorNotified = false;
+    setStatus(STATUS_DESCRIPTORS.running, ctx, event);
+  }
+}
+
+function shouldNotifySessionError(event) {
+  const record = lifecycleRecordFor(event);
+  if (!record) return true;
+  if (record.phase === "error" && record.errorNotified) return false;
+  record.phase = "error";
+  record.errorNotified = true;
+  return true;
+}
+
+function notifyOpenCodeErrorOnce(ctx, event) {
+  if (shouldNotifySessionError(event)) {
+    notifyOpenCode("error", null, ctx, event);
+  }
+}
+
+function sendStopHookOnIdleTransition(ctx, event) {
+  const record = lifecycleRecordFor(event);
+  if (!record) return;
+  if (record.phase === "needs-input" || record.phase === "error") return;
+  if (record.phase === "idle") return;
+  if (sendHook("stop", ctx, event)) {
+    record.phase = "idle";
+    record.errorNotified = false;
+  }
+}
+
+function setIdleStatusAndStop(ctx, event) {
+  const record = lifecycleRecordFor(event);
+  if (!record) return;
+  if (record.phase === "needs-input" || record.phase === "error") return;
+  sendStopHookOnIdleTransition(ctx, event);
+}
+
+function setStatus(descriptor, ctx, event) {
+  if (!descriptor) return;
+  if (process.env.CMUX_OPENCODE_HOOKS_DISABLED === "1") return;
+  if (!process.env.CMUX_SURFACE_ID) return;
+
+  const args = [
+    "hooks",
+    "opencode",
+    "runtime-status",
+    descriptor.code,
+    "--pid",
+    openCodeProcessPid(),
+  ];
+  if (process.env.CMUX_WORKSPACE_ID) {
+    args.push("--workspace", process.env.CMUX_WORKSPACE_ID);
+  }
+  args.push("--surface", process.env.CMUX_SURFACE_ID);
+  try {
+    const payload = runtimeHookPayload(ctx, event);
+    runCmux(args, {
+      input: payload.input,
+      encoding: "utf8",
+      env: hookEnvironment(payload.cwd),
+      stdio: ["pipe", "ignore", "ignore"],
+      timeout: 2000,
+    });
+  } catch (_) {}
+}
+
+function sendHook(subcommand, ctx, event, extra = {}) {
+  if (process.env.CMUX_OPENCODE_HOOKS_DISABLED === "1") return false;
+  if (!process.env.CMUX_SURFACE_ID) return false;
+
+  const sessionId = sessionIdFor(event);
+  if (!sessionId) return false;
 
   const cwd = cwdFor(ctx, event);
   const payload = {
@@ -26898,16 +27179,18 @@ function sendHook(subcommand, ctx, event, extra = {}) {
     hook_event_name: event && event.type,
     ...extra,
   };
-  const cmux = process.env.CMUX_OPENCODE_CMUX_BIN || "cmux";
   try {
-    spawnSync(cmux, ["hooks", "opencode", subcommand], {
+    const result = runCmux(["hooks", "opencode", subcommand], {
       input: JSON.stringify(payload),
       encoding: "utf8",
       env: hookEnvironment(cwd),
       stdio: ["pipe", "ignore", "ignore"],
       timeout: 5000,
     });
-  } catch (_) {}
+    return result.status === 0;
+  } catch (_) {
+    return false;
+  }
 }
 
 const CMUXSessionRestore = async (ctx) => {
@@ -26918,25 +27201,58 @@ const CMUXSessionRestore = async (ctx) => {
       const props = eventProperties(event);
       switch (event && event.type) {
         case "session.created":
+          markSessionNotIdle(event);
           sendHook("session-start", ctx, event);
           break;
         case "session.updated":
           if (props.info && props.info.time && props.info.time.archived) {
             sendHook("session-end", ctx, event);
+            forgetSessionLifecycle(event);
           } else {
-            sendHook("session-start", ctx, event);
+            if (markSessionUpdated(event)) {
+              sendHook("session-start", ctx, event);
+            }
           }
           break;
-        case "session.status":
-          if (props.status && props.status.type === "idle") {
-            sendHook("stop", ctx, event);
+        case "session.status": {
+          const descriptor = descriptorForOpenCodeStatus(props.status || props.info?.status || props);
+          if (descriptor === STATUS_DESCRIPTORS.idle) {
+            setIdleStatusAndStop(ctx, event);
+          } else if (descriptor === STATUS_DESCRIPTORS.error) {
+            setStatus(descriptor, ctx, event);
+            notifyOpenCodeErrorOnce(ctx, event);
+          } else if (descriptor) {
+            setStatus(descriptor, ctx, event);
+            markSessionNotIdle(event);
           }
           break;
+        }
         case "session.idle":
-          sendHook("stop", ctx, event);
+          setIdleStatusAndStop(ctx, event);
+          break;
+        case "permission.asked":
+          markSessionNeedsInput(event);
+          setStatus(STATUS_DESCRIPTORS.needsInput, ctx, event);
+          notifyOpenCode("permission", promptBody(props), ctx, event);
+          break;
+        case "question.asked":
+          markSessionNeedsInput(event);
+          setStatus(STATUS_DESCRIPTORS.needsInput, ctx, event);
+          notifyOpenCode("question", promptBody(props), ctx, event);
+          break;
+        case "permission.replied":
+        case "permission.answered":
+        case "question.replied":
+        case "question.answered":
+          markSessionInputResolved(ctx, event);
+          break;
+        case "session.error":
+          setStatus(STATUS_DESCRIPTORS.error, ctx, event);
+          notifyOpenCodeErrorOnce(ctx, event);
           break;
         case "session.deleted":
           sendHook("session-end", ctx, event);
+          forgetSessionLifecycle(event);
           break;
         default:
           break;
@@ -28910,6 +29226,130 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
         return normalizedHookValue(env["CMUX_SURFACE_ID"]) ?? ""
     }
 
+    private struct OpenCodeRuntimeStatusDescriptor {
+        let value: String
+        let icon: String
+        let color: String
+        let priority: Int?
+        let lifecycle: AgentHibernationLifecycleState
+        let runtimeStatus: AgentHookRuntimeStatus
+    }
+
+    private func positiveProcessIdentifier(_ rawValue: String?) -> Int? {
+        guard let rawValue = normalizedHookValue(rawValue),
+              let pid = Int(rawValue),
+              pid > 0 else {
+            return nil
+        }
+        return pid
+    }
+
+    private func openCodeRuntimeStatusDescriptor(
+        _ rawValue: String?,
+        displayName: String
+    ) -> OpenCodeRuntimeStatusDescriptor? {
+        guard let normalized = normalizedHookValue(rawValue)?
+            .lowercased()
+            .replacingOccurrences(of: "_", with: "-") else {
+            return nil
+        }
+
+        switch normalized {
+        case "running":
+            return OpenCodeRuntimeStatusDescriptor(
+                value: String(localized: "agent.generic.status.running", defaultValue: "Running"),
+                icon: "bolt.fill",
+                color: "#4C8DFF",
+                priority: nil,
+                lifecycle: .running,
+                runtimeStatus: .running
+            )
+        case "retrying":
+            return OpenCodeRuntimeStatusDescriptor(
+                value: String(localized: "agent.generic.status.retrying", defaultValue: "Retrying"),
+                icon: "arrow.triangle.2.circlepath",
+                color: "#FF9500",
+                priority: 100,
+                lifecycle: .running,
+                runtimeStatus: .running
+            )
+        case "needs-input":
+            return OpenCodeRuntimeStatusDescriptor(
+                value: String.localizedStringWithFormat(
+                    String(localized: "agent.generic.notification.status.needsInput", defaultValue: "%@ needs input"),
+                    displayName
+                ),
+                icon: "bell.fill",
+                color: "#4C8DFF",
+                priority: 100,
+                lifecycle: .needsInput,
+                runtimeStatus: .needsInput
+            )
+        case "idle":
+            return OpenCodeRuntimeStatusDescriptor(
+                value: String(localized: "agent.generic.notification.status.idle", defaultValue: "Idle"),
+                icon: "pause.circle.fill",
+                color: "#8E8E93",
+                priority: nil,
+                lifecycle: .idle,
+                runtimeStatus: .idle
+            )
+        case "error":
+            return OpenCodeRuntimeStatusDescriptor(
+                value: String.localizedStringWithFormat(
+                    String(localized: "agent.generic.notification.status.error", defaultValue: "%@ error"),
+                    displayName
+                ),
+                icon: "exclamationmark.triangle.fill",
+                color: "#FF3B30",
+                priority: 100,
+                lifecycle: .error,
+                runtimeStatus: .error
+            )
+        default:
+            return nil
+        }
+    }
+
+    private func openCodeRuntimeNotificationSummary(
+        kind rawKind: String?,
+        body rawBody: String?,
+        displayName: String
+    ) -> (subtitle: String, body: String, status: AgentHookNotificationStatus)? {
+        guard let kind = normalizedHookValue(rawKind)?
+            .lowercased()
+            .replacingOccurrences(of: "_", with: "-") else {
+            return nil
+        }
+        let explicitBody = normalizedHookValue(rawBody)
+
+        switch kind {
+        case "permission":
+            return (
+                subtitle: String(localized: "agent.generic.notification.subtitle.permission", defaultValue: "Permission"),
+                body: explicitBody ?? String(localized: "agent.generic.notification.body.approvalNeeded", defaultValue: "Approval needed"),
+                status: .needsInput
+            )
+        case "question":
+            return (
+                subtitle: String(localized: "agent.generic.notification.subtitle.waiting", defaultValue: "Waiting"),
+                body: explicitBody ?? String(localized: "agent.generic.notification.body.waitingForInput", defaultValue: "Waiting for input"),
+                status: .needsInput
+            )
+        case "error":
+            return (
+                subtitle: String(localized: "agent.generic.notification.subtitle.error", defaultValue: "Error"),
+                body: String.localizedStringWithFormat(
+                    String(localized: "agent.generic.notification.body.reportedError", defaultValue: "%@ reported an error"),
+                    displayName
+                ),
+                status: .error
+            )
+        default:
+            return nil
+        }
+    }
+
     private func runGenericAgentHook(
         def: AgentHookDef,
         commandArgs: [String],
@@ -29065,8 +29505,10 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
             switch notificationStatus {
             case .idle?:
                 return .idle
-            case .needsInput?, .error?:
+            case .needsInput?:
                 return .needsInput
+            case .error?:
+                return .error
             case nil:
                 return nil
             }
@@ -29271,6 +29713,128 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
         }
 
         switch action {
+        case .runtimeStatus:
+            guard def.name == "opencode",
+                  let descriptor = openCodeRuntimeStatusDescriptor(hookArgs.first, displayName: def.displayName) else {
+                print("{}")
+                return
+            }
+            let mapped = sessionId.isEmpty ? nil : (try? store.lookup(sessionId: sessionId))
+            guard let target = resolveAgentHookTarget(mapped: mapped) else {
+                didSendFeedTelemetry = true
+                print("{}")
+                return
+            }
+            let workspaceId = target.workspaceId
+            let surfaceId = target.surfaceId
+            let pid = positiveProcessIdentifier(optionValue(hookArgs, name: "--pid"))
+                ?? positiveProcessIdentifier(env["CMUX_OPENCODE_PID"])
+                ?? mapped?.pid
+                ?? inferredPID
+            let launchCommand = agentLaunchCommandFromEnvironment(
+                env,
+                fallbackPID: pid,
+                fallbackKind: def.name,
+                cwd: hookCwd ?? mapped?.cwd
+            )
+            if !sessionId.isEmpty {
+                try? store.upsert(
+                    sessionId: sessionId,
+                    workspaceId: workspaceId,
+                    surfaceId: surfaceId,
+                    cwd: hookCwd ?? mapped?.cwd,
+                    transcriptPath: input.transcriptPath ?? mapped?.transcriptPath,
+                    pid: pid,
+                    launchCommand: launchCommand ?? mapped?.launchCommand,
+                    agentLifecycle: descriptor.lifecycle,
+                    runtimeStatus: descriptor.runtimeStatus,
+                    updateRuntimeStatus: true
+                )
+            }
+            if let pid {
+                _ = try? sendV1Command(
+                    "set_agent_pid \(pidKey) \(pid) --tab=\(workspaceId)\(socketPanelOption(surfaceId))",
+                    client: client
+                )
+            }
+            if descriptor.lifecycle == .idle {
+                if !hasNewerRunningSession(workspaceId: workspaceId, surfaceId: surfaceId) {
+                    setAgentLifecycle(
+                        client: client,
+                        key: def.statusKey,
+                        lifecycle: descriptor.lifecycle,
+                        workspaceId: workspaceId,
+                        surfaceId: surfaceId
+                    )
+                }
+                setIdleStatusUnlessAnotherSessionIsRunning(workspaceId: workspaceId, surfaceId: surfaceId)
+            } else {
+                setAgentLifecycle(
+                    client: client,
+                    key: def.statusKey,
+                    lifecycle: descriptor.lifecycle,
+                    workspaceId: workspaceId,
+                    surfaceId: surfaceId
+                )
+                var statusCommand = "set_status \(shellQuote(def.statusKey)) \(shellQuote(descriptor.value)) --icon=\(shellQuote(descriptor.icon)) --color=\(shellQuote(descriptor.color)) --tab=\(workspaceId)\(socketPanelOption(surfaceId))"
+                if let priority = descriptor.priority {
+                    statusCommand += " --priority=\(priority)"
+                }
+                _ = try? sendV1Command(statusCommand, client: client)
+            }
+            sendAgentFeedTelemetry(workspaceId: workspaceId)
+            print("{}")
+            return
+
+        case .runtimeNotification:
+            guard def.name == "opencode",
+                  let summary = openCodeRuntimeNotificationSummary(
+                    kind: hookArgs.first,
+                    body: optionValue(hookArgs, name: "--body"),
+                    displayName: def.displayName
+                  ) else {
+                print("{}")
+                return
+            }
+            let mapped = sessionId.isEmpty ? nil : (try? store.lookup(sessionId: sessionId))
+            guard let target = resolveAgentHookTarget(mapped: mapped) else {
+                didSendFeedTelemetry = true
+                print("{}")
+                return
+            }
+            let workspaceId = target.workspaceId
+            let surfaceId = target.surfaceId
+            let pid = positiveProcessIdentifier(env["CMUX_OPENCODE_PID"]) ?? mapped?.pid ?? inferredPID
+            let launchCommand = agentLaunchCommandFromEnvironment(
+                env,
+                fallbackPID: pid,
+                fallbackKind: def.name,
+                cwd: hookCwd ?? mapped?.cwd
+            )
+            if !sessionId.isEmpty {
+                try? store.upsert(
+                    sessionId: sessionId,
+                    workspaceId: workspaceId,
+                    surfaceId: surfaceId,
+                    cwd: hookCwd ?? mapped?.cwd,
+                    transcriptPath: input.transcriptPath ?? mapped?.transcriptPath,
+                    pid: pid,
+                    launchCommand: launchCommand ?? mapped?.launchCommand,
+                    agentLifecycle: agentLifecycle(for: summary.status),
+                    lastSubtitle: summary.subtitle,
+                    lastBody: summary.body,
+                    lastNotificationStatus: summary.status,
+                    updateLastNotificationStatus: true,
+                    runtimeStatus: runtimeStatus(for: summary.status),
+                    updateRuntimeStatus: true
+                )
+            }
+            let payload = notificationPayload(title: def.displayName, subtitle: summary.subtitle, body: summary.body)
+            _ = try? sendV1Command("notify_target_async \(workspaceId) \(surfaceId) \(payload)", client: client)
+            sendAgentFeedTelemetry(workspaceId: workspaceId)
+            print("{}")
+            return
+
         case .sessionStart:
             let mapped = sessionId.isEmpty ? nil : (try? store.lookup(sessionId: sessionId))
             guard let target = resolveAgentHookTarget(mapped: mapped) else {
@@ -30575,6 +31139,7 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
         case "cursor": envKey = "CMUX_CURSOR_PID"
         case "gemini": envKey = "CMUX_GEMINI_PID"
         case "antigravity": envKey = "CMUX_ANTIGRAVITY_PID"
+        case "opencode": envKey = "CMUX_OPENCODE_PID"
         case "rovodev": envKey = "CMUX_ROVODEV_PID"
         case "hermes-agent": envKey = "CMUX_HERMES_AGENT_PID"
         case "copilot": envKey = "CMUX_COPILOT_PID"
