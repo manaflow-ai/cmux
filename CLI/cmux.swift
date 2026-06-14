@@ -27077,10 +27077,10 @@ function markSessionNotIdle(event) {
 function markSessionUpdated(event) {
   const record = lifecycleRecordFor(event);
   if (!record) return false;
-  if (record.phase === "needs-input" || record.phase === "error") return false;
+  const didChange = record.phase !== "active";
   record.phase = "active";
   record.errorNotified = false;
-  return true;
+  return didChange;
 }
 
 function markSessionNeedsInput(event) {
