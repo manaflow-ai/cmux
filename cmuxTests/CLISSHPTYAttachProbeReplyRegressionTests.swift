@@ -74,6 +74,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
         let queuedProbeReplies =
             "\u{1B}]11;rgb:e5e5/e9e9/f0f0\u{1B}\\" +
             "\u{1B}]10;rgb:4141/4848/5858\u{07}" +
+            "\u{1B}]12;rgb:ffff/ffff/ffff\u{07}" +
             "\u{1B}[1;1R" +
             "\u{1B}[?1;2c" +
             "\u{1B}[?0u" +

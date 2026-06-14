@@ -193,7 +193,7 @@ final class SSHPTYAttachReconnectInputFilter {
         guard bytes[cursor] == semicolon else {
             return .passThrough
         }
-        guard command == [0x31, 0x30] || command == [0x31, 0x31] else {
+        guard command == [0x31, 0x30] || command == [0x31, 0x31] || command == [0x31, 0x32] else {
             return .passThrough
         }
 
@@ -240,7 +240,8 @@ final class SSHPTYAttachReconnectInputFilter {
         command.isEmpty ||
             command == [0x31] ||
             command == [0x31, 0x30] ||
-            command == [0x31, 0x31]
+            command == [0x31, 0x31] ||
+            command == [0x31, 0x32]
     }
 
     private static func shouldStripCSIReply(bytes: [UInt8], bodyStart: Int, finalIndex: Int) -> Bool {

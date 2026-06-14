@@ -6,6 +6,7 @@ import Testing
         let filter = SSHPTYAttachReconnectInputFilter(enabled: true)
         #expect(filter.filter(Data("\u{1B}[1;1R\u{1B}[?1;2c\u{1B}[?0u".utf8)) == Data())
         #expect(filter.filter(Data("\u{1B}]11;rgb:e5e5/e9e9/f0f0\u{07}".utf8)) == Data())
+        #expect(filter.filter(Data("\u{1B}]12;rgb:ffff/ffff/ffff\u{07}".utf8)) == Data())
 
         let normalInput = Data("printf keep\n".utf8)
         #expect(filter.filter(normalInput) == normalInput)
@@ -35,7 +36,7 @@ import Testing
     @Test func buffersOSCColorReplySplitBeforeCommandSeparator() {
         let filter = SSHPTYAttachReconnectInputFilter(enabled: true)
         #expect(filter.filter(Data("\u{1B}]1".utf8)) == Data())
-        #expect(filter.filter(Data("1".utf8)) == Data())
+        #expect(filter.filter(Data("2".utf8)) == Data())
 
         let normalInput = Data("printf keep\n".utf8)
         #expect(filter.filter(Data(";rgb:e5e5/e9e9/f0f0\u{07}".utf8) + normalInput) == normalInput)
