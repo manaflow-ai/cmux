@@ -309,6 +309,7 @@ touch ~/.config/ghostty/config`}</CodeBlock>
 font-size = 13
 sidebar-font-size = 14
 surface-tab-bar-font-size = 11
+surface-tabs-fill-pane-width = true
 theme = One Dark
 scrollback-limit = 50000000
 split-divider-color = #3e4451

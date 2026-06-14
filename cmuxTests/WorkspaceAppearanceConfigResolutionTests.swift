@@ -73,4 +73,17 @@ final class WorkspaceAppearanceConfigResolutionTests: XCTestCase {
 
         XCTAssertEqual(resolved.backgroundColor.hexString(), "#272822")
     }
+
+    func testAppearanceSignatureIncludesSurfaceTabsFillPaneWidth() {
+        var fixedWidth = GhosttyConfig()
+        fixedWidth.surfaceTabsFillPaneWidth = false
+
+        var fillWidth = fixedWidth
+        fillWidth.surfaceTabsFillPaneWidth = true
+
+        XCTAssertNotEqual(
+            WorkspaceContentView.ghosttyAppearanceSignature(fixedWidth, usesHostLayerBackground: false),
+            WorkspaceContentView.ghosttyAppearanceSignature(fillWidth, usesHostLayerBackground: false)
+        )
+    }
 }

@@ -28,6 +28,11 @@ public enum CmuxGhosttyConfigSettingEditor {
     /// The largest surface-tab-bar font size cmux allows.
     public static let maxSurfaceTabBarFontSize = 14.0
 
+    /// The config key that enables surface tabs to stretch across a pane.
+    public static let surfaceTabsFillPaneWidthKey = "surface-tabs-fill-pane-width"
+    /// The default surface tab width mode.
+    public static let defaultSurfaceTabsFillPaneWidth = false
+
     /// Clamps a sidebar font size to its allowed range, substituting the default
     /// for non-finite input.
     public static func clampedSidebarFontSize(_ value: Double) -> Double {
@@ -62,6 +67,35 @@ public enum CmuxGhosttyConfigSettingEditor {
     /// or `nil` when absent.
     public static func parsedSurfaceTabBarFontSize(in contents: String) -> Double? {
         parsedFontSize(in: contents, key: surfaceTabBarFontSizeKey, clamp: clampedSurfaceTabBarFontSize)
+    }
+
+    /// Serializes a boolean Ghostty config value (`true`/`false`).
+    public static func formattedBool(_ value: Bool) -> String {
+        value ? "true" : "false"
+    }
+
+    /// Reads the last occurrence of the surface-tabs-fill-pane-width flag, or `nil` if unset/unparseable.
+    public static func parsedSurfaceTabsFillPaneWidth(in contents: String) -> Bool? {
+        guard let raw = parsedValue(for: surfaceTabsFillPaneWidthKey, in: contents) else {
+            return nil
+        }
+        return parsedBoolLiteral(raw)
+    }
+
+    /// Parses a Ghostty-style boolean literal, accepting common truthy and falsy spellings.
+    public static func parsedBoolLiteral(_ rawValue: String) -> Bool? {
+        let normalized = rawValue
+            .trimmingCharacters(in: CharacterSet(charactersIn: "\""))
+            .trimmingCharacters(in: .whitespaces)
+            .lowercased()
+        switch normalized {
+        case "true", "1", "yes", "on":
+            return true
+        case "false", "0", "no", "off":
+            return false
+        default:
+            return nil
+        }
     }
 
     /// Formats a point size for display, trimming trailing zeros (`12`, `13.5`, `13.75`).

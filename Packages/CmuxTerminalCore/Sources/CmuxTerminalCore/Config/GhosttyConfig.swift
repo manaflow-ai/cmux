@@ -51,6 +51,8 @@ public struct GhosttyConfig {
     public var fontSize: CGFloat = 12
     /// The surface tab-bar font size, in points.
     public var surfaceTabBarFontSize: CGFloat = Self.defaultSurfaceTabBarFontSize
+    /// Whether surface tabs stretch to fill their pane's available tab-bar width.
+    public var surfaceTabsFillPaneWidth: Bool = CmuxGhosttyConfigSettingEditor.defaultSurfaceTabsFillPaneWidth
     /// The sidebar font size, in points.
     public var sidebarFontSize: CGFloat = Self.defaultSidebarFontSize
     /// The configured `theme` directive value, or `nil` when unset.
@@ -508,6 +510,10 @@ public struct GhosttyConfig {
                 case "surface-tab-bar-font-size":
                     if let size = Double(value), size.isFinite {
                         surfaceTabBarFontSize = Self.clampedSurfaceTabBarFontSize(CGFloat(size))
+                    }
+                case "surface-tabs-fill-pane-width":
+                    if let enabled = CmuxGhosttyConfigSettingEditor.parsedBoolLiteral(value) {
+                        surfaceTabsFillPaneWidth = enabled
                     }
                 case "sidebar-font-size":
                     if let size = Double(value), size.isFinite {

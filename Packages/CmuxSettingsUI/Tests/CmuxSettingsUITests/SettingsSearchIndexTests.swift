@@ -25,6 +25,12 @@ struct SettingsSearchIndexTests {
         #expect(result.contains(where: { $0.title == "Automation" }))
     }
 
+    @Test func tabFillPaneWidthQueryFindsTerminalRow() {
+        let index = SettingsSearchIndex(catalog: SettingCatalog())
+        let result = index.match("fill pane width")
+        #expect(result.contains { $0.id == "setting:terminal:tabs-fill-pane-width" })
+    }
+
     @Test func diacriticInsensitiveMatch() {
         let index = SettingsSearchIndex(catalog: SettingCatalog())
         let plain = index.match("automation")
