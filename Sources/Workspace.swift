@@ -3672,14 +3672,13 @@ final class Workspace: Identifiable, ObservableObject {
     }
 
     private func configureNewTerminalPanel(_ terminalPanel: TerminalPanel) {
-        // Record which env keys this freshly-created panel inherited from the
-        // workspace, so a later respawn (which reuses this panel even after a
-        // move to another workspace) can drop them and re-apply the current
-        // workspace's env instead of leaking the source workspace's (#5995).
-        // Only creation runs through here — attach uses configureTerminalPanel —
-        // so the keys keep reflecting the workspace the surface's env was built
-        // from until the panel is respawned.
-        terminalPanel.seededWorkspaceEnvironmentKeys = Set(workspaceEnvironment.keys)
+        // Record the workspace env this freshly-created panel inherited, so a later
+        // respawn (which reuses this panel even after a move to another workspace)
+        // can drop it and re-apply the current workspace's env instead of leaking
+        // the source workspace's (#5995). Only creation runs through here — attach
+        // uses configureTerminalPanel — so it keeps reflecting the workspace the
+        // surface's env was built from until the panel is respawned.
+        terminalPanel.seededWorkspaceEnvironment = workspaceEnvironment
         if TerminalTextBoxInputSettings.focusOnNewTerminals() {
             terminalPanel.preferTextBoxInputWhenActivated()
         } else if TerminalTextBoxInputSettings.showOnNewTerminals() {
@@ -7058,13 +7057,16 @@ final class Workspace: Identifiable, ObservableObject {
         // Drop env this surface inherited from its (possibly previous) workspace,
         // then re-fold the current workspace's env below, so a terminal moved
         // between workspaces respawns with the destination's variables rather than
-        // the source's (#5995). configureNewTerminalPanel re-records the keys for
-        // the replacement panel against the current workspace.
-        let oldSeededWorkspaceKeys = oldPanel.seededWorkspaceEnvironmentKeys
+        // the source's (#5995). Only entries whose value still equals the seeded
+        // workspace value are dropped, so an explicit per-surface override that
+        // shares a workspace key keeps its value. configureNewTerminalPanel
+        // re-records the seeded env for the replacement panel against the current
+        // workspace.
+        let oldSeededWorkspaceEnvironment = oldPanel.seededWorkspaceEnvironment
         let initialEnvironmentOverrides = oldPanel.surface.respawnInitialEnvironmentOverrides
-            .filter { !oldSeededWorkspaceKeys.contains($0.key) }
+            .filter { oldSeededWorkspaceEnvironment[$0.key] != $0.value }
         let additionalEnvironment = startupEnvironmentMergingWorkspaceEnvironment(
-            oldPanel.surface.respawnAdditionalEnvironment.filter { !oldSeededWorkspaceKeys.contains($0.key) }
+            oldPanel.surface.respawnAdditionalEnvironment.filter { oldSeededWorkspaceEnvironment[$0.key] != $0.value }
         )
 
         oldPanel.unfocus()

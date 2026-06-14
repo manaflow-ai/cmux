@@ -3680,21 +3680,46 @@ class TerminalController {
 
     /// `workspace.env` — read a workspace's user-defined environment (issue #5995).
     /// Resolves the workspace by `workspace_id` / surface / pane, falling back to the
-    /// selected workspace, and returns the raw configured set. Secret masking is a
+    /// selected workspace only when no explicit target is supplied, and returns the
+    /// raw configured set. An explicit-but-unresolvable target errors. Secret masking is a
     /// CLI presentation concern (`cmux workspace env --mask`): the local control
     /// socket already exposes the surrounding workspace state, so values are returned
     /// verbatim and the env set is deliberately kept out of `workspace.list` so a
     /// plain listing never echoes secrets.
     private nonisolated func v2WorkspaceEnv(params: [String: Any]) -> V2CallResult {
-        if v2HasNonNullParam(params, "workspace_id"), v2UUID(params, "workspace_id") == nil {
-            return .err(code: "invalid_params", message: "Missing or invalid workspace_id", data: nil)
+        // Validate any explicit target before resolving. This endpoint can print
+        // secrets, so a malformed or stale explicit target must error rather than
+        // silently fall back to the selected workspace (unlike the generic
+        // v2ResolveWorkspace, which falls through to the selection).
+        for key in ["workspace_id", "surface_id", "terminal_id", "tab_id", "pane_id"] {
+            if v2HasNonNullParam(params, key), v2UUID(params, key) == nil {
+                return .err(code: "invalid_params", message: "Missing or invalid \(key)", data: nil)
+            }
         }
         return v2MainSync { () -> V2CallResult in
             v2RefreshKnownRefs()
             guard let tabManager = v2ResolveTabManager(params: params) else {
                 return .err(code: "unavailable", message: "TabManager not available", data: nil)
             }
-            guard let workspace = v2ResolveWorkspace(params: params, tabManager: tabManager) else {
+            // Resolve strictly for explicit targets; only fall back to the selected
+            // workspace when no explicit target was supplied.
+            let resolved: Workspace?
+            if let wsId = v2UUID(params, "workspace_id") {
+                resolved = tabManager.tabs.first(where: { $0.id == wsId })
+            } else if let surfaceId = v2UUID(params, "surface_id") ?? v2UUID(params, "terminal_id") ?? v2UUID(params, "tab_id") {
+                resolved = tabManager.tabs.first(where: { $0.panels[surfaceId] != nil })
+            } else if let paneId = v2UUID(params, "pane_id") {
+                if let located = v2LocatePane(paneId), located.tabManager === tabManager {
+                    resolved = located.workspace
+                } else {
+                    resolved = nil
+                }
+            } else if let selectedId = tabManager.selectedTabId {
+                resolved = tabManager.tabs.first(where: { $0.id == selectedId })
+            } else {
+                resolved = nil
+            }
+            guard let workspace = resolved else {
                 return .err(code: "not_found", message: "Workspace not found", data: nil)
             }
             let windowId = v2ResolveWindowId(tabManager: tabManager)

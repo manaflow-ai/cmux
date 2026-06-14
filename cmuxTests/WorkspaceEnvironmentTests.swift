@@ -107,15 +107,16 @@ struct WorkspaceEnvironmentTests {
         #expect(replacement.surface.respawnAdditionalEnvironment["AWS_PROFILE"] == "prod")
     }
 
-    /// A new terminal panel records the workspace env keys it was seeded with, so a
-    /// later respawn can drop a previous workspace's env when the surface has been
-    /// moved (the same panel travels with the move).
+    /// A new terminal panel records the workspace env (key and value) it was seeded
+    /// with, so a later respawn can drop a previous workspace's env when the surface
+    /// has been moved (the same panel travels with the move) while preserving an
+    /// explicit per-surface override that shares a workspace key.
     @Test
-    func newPanelRecordsSeededWorkspaceEnvironmentKeys() throws {
+    func newPanelRecordsSeededWorkspaceEnvironment() throws {
         let workspace = Workspace(workspaceEnvironment: ["AWS_PROFILE": "prod", "API_BASE": "https://x"])
         let panelId = try #require(workspace.focusedPanelId)
         let panel = try #require(workspace.terminalPanel(for: panelId))
-        #expect(panel.seededWorkspaceEnvironmentKeys == ["AWS_PROFILE", "API_BASE"])
+        #expect(panel.seededWorkspaceEnvironment == ["AWS_PROFILE": "prod", "API_BASE": "https://x"])
     }
 
     /// An explicit per-surface environment (layout `env`, scrollback replay, SSH
