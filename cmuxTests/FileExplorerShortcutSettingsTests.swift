@@ -14,7 +14,7 @@ private typealias ShortcutStroke = cmux.ShortcutStroke
 #endif
 
 @MainActor
-@Suite struct FileExplorerShortcutSettingsTests {
+@Suite(.serialized) struct FileExplorerShortcutSettingsTests {
     @Test func openSelectionShortcutsAreSidebarFocusedAndSettingsBacked() throws {
         let primary = KeyboardShortcutSettings.Action.fileExplorerOpenSelection
         let finderAlias = KeyboardShortcutSettings.Action.fileExplorerOpenSelectionFinderAlias
