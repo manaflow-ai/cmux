@@ -263,6 +263,13 @@ public final class ChatConversationStore {
     public func retry(pendingID: String) async {
         guard let index = pending.firstIndex(where: { $0.id == pendingID }),
               case .failed = pending[index].delivery else { return }
+        // Same queue-while-busy rule as send(): delivering into a working agent
+        // strands the submit Enter. Re-queue and let flushQueuedSends deliver it
+        // in turn order on the next idle transition.
+        if case .working = agentState {
+            updatePending(id: pendingID, delivery: .queued)
+            return
+        }
         await deliver(pending[index])
     }
 

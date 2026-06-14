@@ -384,6 +384,44 @@ struct ChatConversationStoreTests {
         #expect(store.lastErrorDescription == nil)
     }
 
+    @Test("retry while the agent is working re-queues instead of delivering")
+    func retryWhileWorkingRequeues() async {
+        let source = SilentSendEventSource()
+        let store = Self.makeStore(source: source)
+        let runTask = Task { await store.run() }
+        defer { runTask.cancel() }
+        #expect(await TestPoller.waitUntil { store.isConnected })
+
+        // First send fails (agent idle) → a failed pending row.
+        await source.setSendFailure(true)
+        await store.send(text: "flaky")
+        #expect(await TestPoller.waitUntil {
+            if case .failed = Self.pendingItems(store.rows).first?.delivery { return true }
+            return false
+        })
+        await source.setSendFailure(false)
+
+        // The agent goes back to working; retrying now must QUEUE, not paste-
+        // submit into the busy agent (the stranded-Enter bug retry shared with
+        // send before the fix).
+        let working = ChatAgentState.working(since: Self.baseTime)
+        await source.emit(.stateChanged(working))
+        #expect(await TestPoller.waitUntil { store.agentState == working })
+
+        guard let id = Self.pendingItems(store.rows).first?.id else {
+            Issue.record("expected a pending row to retry")
+            return
+        }
+        await store.retry(pendingID: id)
+        #expect(Self.pendingItems(store.rows).first?.delivery == .queued)
+
+        // And it flushes cleanly once the agent next goes idle.
+        await source.emit(.stateChanged(.idle))
+        #expect(await TestPoller.waitUntil {
+            Self.pendingItems(store.rows).first?.delivery == .delivered
+        })
+    }
+
     @Test("discard removes a failed pending row")
     func discardRemovesFailedPending() async {
         let source = FailingChatEventSource(failuresRemaining: .max)

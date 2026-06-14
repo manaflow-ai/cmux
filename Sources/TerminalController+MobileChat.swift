@@ -8,9 +8,14 @@ import Foundation
 /// exactly like composer input.
 extension TerminalController {
     /// Actionable error for a chat session whose terminal binding cannot
-    /// be resolved even after a hook-store refresh.
-    static let chatTerminalBindingErrorMessage =
-        "The agent's terminal moved. Open it once on your Mac (or send the agent any prompt there), then retry."
+    /// be resolved even after a hook-store refresh. Surfaces verbatim in the
+    /// iOS chat error banner, so it is localized.
+    static var chatTerminalBindingErrorMessage: String {
+        String(
+            localized: "mobile.chat.error.terminalMoved",
+            defaultValue: "The agent's terminal moved. Open it once on your Mac (or send the agent any prompt there), then retry."
+        )
+    }
 
     /// Routes one `mobile.chat.*` method to its handler (single dispatch
     /// case in `mobileHostHandleRPC` keeps the god-file growth flat).
@@ -131,7 +136,10 @@ extension TerminalController {
             #if DEBUG
             cmuxDebugLog("mobile.chat.history not_found session=\(sessionID.prefix(8))")
             #endif
-            return .err(code: "not_found", message: "This conversation's transcript isn't readable on the Mac yet. Send the agent a prompt from its terminal, then retry.", data: [
+            return .err(code: "not_found", message: String(
+                localized: "mobile.chat.error.transcriptNotReadable",
+                defaultValue: "This conversation's transcript isn't readable on the Mac yet. Send the agent a prompt from its terminal, then retry."
+            ), data: [
                 "session_id": sessionID
             ])
         }
@@ -217,7 +225,10 @@ extension TerminalController {
         }
         let keyResult = terminalPanel.sendNamedKeyResult(hard ? "ctrl+c" : "escape")
         guard keyResult.accepted else {
-            return .err(code: "surface_unavailable", message: "Interrupt key was not accepted", data: nil)
+            return .err(code: "surface_unavailable", message: String(
+                localized: "mobile.chat.error.interruptNotAccepted",
+                defaultValue: "Interrupt key was not accepted"
+            ), data: nil)
         }
         terminalPanel.surface.forceRefresh(reason: "mobileHost.chatInterrupt")
         return .ok(["interrupted": true, "hard": hard])
@@ -242,7 +253,10 @@ extension TerminalController {
             terminalPanel.surface.forceRefresh(reason: "mobileHost.chatAnswer")
             return .ok(["answered": true, "option_index": optionIndex])
         case .inputQueueFull, .surfaceUnavailable, .processExited:
-            return .err(code: "surface_unavailable", message: "Answer key was not accepted", data: nil)
+            return .err(code: "surface_unavailable", message: String(
+                localized: "mobile.chat.error.answerNotAccepted",
+                defaultValue: "Answer key was not accepted"
+            ), data: nil)
         }
     }
 
