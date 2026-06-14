@@ -9663,6 +9663,11 @@ struct SidebarTabItemSettingsSnapshot: Equatable {
     let activeTabIndicatorStyle: WorkspaceIndicatorStyle
     let selectionColorHex: String?
     let notificationBadgeColorHex: String?
+    let foregroundColorHex: String?
+    let mutedForegroundColorHex: String?
+    let selectionForegroundColorHex: String?
+    let borderColorHex: String?
+    let accentColorHex: String?
     let visibleAuxiliaryDetails: SidebarWorkspaceAuxiliaryDetailVisibility
     let iMessageModeEnabled: Bool
 
@@ -9719,6 +9724,11 @@ struct SidebarTabItemSettingsSnapshot: Equatable {
         activeTabIndicatorStyle = settings.value(for: catalog.workspaceColors.indicatorStyle)
         selectionColorHex = defaults.string(forKey: "sidebarSelectionColorHex")
         notificationBadgeColorHex = defaults.string(forKey: "sidebarNotificationBadgeColorHex")
+        foregroundColorHex = defaults.string(forKey: GhosttyConfig.sidebarForegroundColorHexKey)
+        mutedForegroundColorHex = defaults.string(forKey: GhosttyConfig.sidebarMutedForegroundColorHexKey)
+        selectionForegroundColorHex = defaults.string(forKey: GhosttyConfig.sidebarSelectionForegroundColorHexKey)
+        borderColorHex = defaults.string(forKey: GhosttyConfig.sidebarBorderColorHexKey)
+        accentColorHex = defaults.string(forKey: GhosttyConfig.sidebarAccentColorHexKey)
         iMessageModeEnabled = IMessageModeSettings.isEnabled(defaults: defaults)
     }
 
@@ -10161,11 +10171,12 @@ struct SidebarWorkspaceTopDropIndicator: View {
     let isVisible: Bool
     let isFirstRow: Bool
     let rowSpacing: CGFloat
+    var color: Color = cmuxAccentColor()
 
     var body: some View {
         if isVisible {
             Rectangle()
-                .fill(cmuxAccentColor())
+                .fill(color)
                 .frame(height: 2)
                 .padding(.horizontal, 8)
                 .offset(y: isFirstRow ? 0 : -(rowSpacing / 2))
@@ -10648,7 +10659,7 @@ struct VerticalTabsSidebar: View {
         .accessibilityIdentifier("Sidebar")
         .ignoresSafeArea()
         .overlay(alignment: .trailing) {
-            SidebarTrailingBorder()
+            SidebarTrailingBorder(settings: tabItemSettings)
         }
         .background(
             WindowAccessor { window in
@@ -12242,7 +12253,7 @@ struct VerticalTabsSidebar: View {
             dragState.beginDragging(tabId: tabId)
             return SidebarTabDragPayload.provider(for: tabId)
         }
-        let tabDropDelegateFactory: (CGFloat?) -> SidebarTabDropDelegate = { [
+        let tabDropDelegateFactory: (CGFloat) -> SidebarTabDropDelegate = { [
             tabId = tab.id,
             selectedTabIds = $selectedTabIds,
             lastSidebarSelectionIndex = $lastSidebarSelectionIndex
@@ -13270,10 +13281,10 @@ struct TabItemView: View, Equatable {
     let isBeingDragged: Bool
     let topDropIndicatorVisible: Bool
     let onDragStart: () -> NSItemProvider
-    /// Factory invoked from `body` with a stable drop-hit height. Closure
+    /// Factory invoked from `body` with the row's measured `rowHeight`. Closure
     /// captures the parent's `dragState`, so TabItemView itself never holds an
-    /// `@Observable` store reference or layout-driven state (snapshot-boundary rule).
-    let tabDropDelegateFactory: (CGFloat?) -> SidebarTabDropDelegate
+    /// `@Observable` store reference (snapshot-boundary rule).
+    let tabDropDelegateFactory: (CGFloat) -> SidebarTabDropDelegate
     let contextMenuWorkspaceIds: [UUID]
     let remoteContextMenuWorkspaceIds: [UUID]
     let allRemoteContextMenuTargetsConnecting: Bool
@@ -13290,9 +13301,8 @@ struct TabItemView: View, Equatable {
     @State private var workspaceSnapshotStorage: SidebarWorkspaceSnapshotBuilder.Snapshot?
     @StateObject private var contextMenuState = SidebarTabItemContextMenuState()
     @State private var rowInteractionState = SidebarWorkspaceRowInteractionState()
-    @State var workspaceFinderDirectoryOpenRequest: WorkspaceFinderDirectoryOpenRequest?
-    @State var metadataRowsExpanded = false
-    @State var metadataBlocksExpanded = false
+    @State private var rowHeight: CGFloat = 1
+    @State private var workspaceFinderDirectoryOpenRequest: WorkspaceFinderDirectoryOpenRequest?
 
     var isMultiSelected: Bool {
         selectedTabIds.contains(tab.id)
@@ -13354,6 +13364,31 @@ struct TabItemView: View, Equatable {
         settings.notificationBadgeColorHex
     }
 
+    private var configuredForegroundColor: Color? {
+        configuredColor(settings.foregroundColorHex)
+    }
+
+    private var configuredMutedForegroundColor: Color? {
+        configuredColor(settings.mutedForegroundColorHex)
+    }
+
+    private var configuredSelectionForegroundNSColor: NSColor? {
+        settings.selectionForegroundColorHex.flatMap(NSColor.init(hex:))
+    }
+
+    private var configuredBorderColor: Color? {
+        configuredColor(settings.borderColorHex)
+    }
+
+    private var configuredAccentColor: Color? {
+        configuredColor(settings.accentColorHex)
+    }
+
+    private func configuredColor(_ hex: String?) -> Color? {
+        guard let color = hex.flatMap(NSColor.init(hex:)) else { return nil }
+        return Color(nsColor: color)
+    }
+
     private var selectedWorkspaceBackgroundNSColor: NSColor {
         sidebarSelectedWorkspaceBackgroundNSColor(
             for: colorScheme,
@@ -13362,7 +13397,10 @@ struct TabItemView: View, Equatable {
     }
 
     private func selectedWorkspaceForegroundNSColor(opacity: CGFloat) -> NSColor {
-        sidebarSelectedWorkspaceForegroundNSColor(
+        if let configuredSelectionForegroundNSColor {
+            return configuredSelectionForegroundNSColor.withAlphaComponent(max(0, min(opacity, 1)))
+        }
+        return sidebarSelectedWorkspaceForegroundNSColor(
             on: selectedWorkspaceBackgroundNSColor,
             opacity: opacity
         )
@@ -13407,7 +13445,7 @@ struct TabItemView: View, Equatable {
         case .leftRail:
             return .clear
         case .solidFill:
-            return Color.primary.opacity(0.5)
+            return configuredBorderColor ?? Color.primary.opacity(0.5)
         }
     }
 
@@ -13416,22 +13454,30 @@ struct TabItemView: View, Equatable {
     }
 
     private var activePrimaryTextColor: Color {
-        usesInvertedActiveForeground
-            ? Color(nsColor: selectedWorkspaceForegroundNSColor(opacity: 1.0))
-            : .primary
+        if usesInvertedActiveForeground {
+            return Color(nsColor: selectedWorkspaceForegroundNSColor(opacity: 1.0))
+        }
+        return configuredForegroundColor ?? .primary
     }
 
     private func activeSecondaryColor(_ opacity: Double = 0.75) -> Color {
-        usesInvertedActiveForeground
-            ? Color(nsColor: selectedWorkspaceForegroundNSColor(opacity: CGFloat(opacity)))
-            : .secondary
+        if usesInvertedActiveForeground {
+            return Color(nsColor: selectedWorkspaceForegroundNSColor(opacity: CGFloat(opacity)))
+        }
+        if let configuredMutedForegroundColor {
+            return configuredMutedForegroundColor.opacity(opacity)
+        }
+        if let configuredForegroundColor {
+            return configuredForegroundColor.opacity(opacity)
+        }
+        return .secondary
     }
 
     private var activeUnreadBadgeFillColor: Color {
         if let hex = sidebarNotificationBadgeColorHex, let nsColor = NSColor(hex: hex) {
             return Color(nsColor: nsColor)
         }
-        return usesInvertedActiveForeground ? activePrimaryTextColor.opacity(0.25) : cmuxAccentColor()
+        return usesInvertedActiveForeground ? activePrimaryTextColor.opacity(0.25) : sidebarAccentColor
     }
 
     private var activeUnreadBadgeTextColor: Color {
@@ -13439,11 +13485,24 @@ struct TabItemView: View, Equatable {
     }
 
     private var activeProgressTrackColor: Color {
-        usesInvertedActiveForeground ? activeSecondaryColor(0.15) : Color.secondary.opacity(0.2)
+        if usesInvertedActiveForeground {
+            return activeSecondaryColor(0.15)
+        }
+        if let configuredMutedForegroundColor {
+            return configuredMutedForegroundColor.opacity(0.2)
+        }
+        if let configuredForegroundColor {
+            return configuredForegroundColor.opacity(0.2)
+        }
+        return Color.secondary.opacity(0.2)
     }
 
     private var activeProgressFillColor: Color {
-        usesInvertedActiveForeground ? activeSecondaryColor(0.8) : cmuxAccentColor()
+        usesInvertedActiveForeground ? activeSecondaryColor(0.8) : sidebarAccentColor
+    }
+
+    private var sidebarAccentColor: Color {
+        configuredAccentColor ?? cmuxAccentColor()
     }
 
     private var shortcutHintEmphasis: Double {
@@ -13522,6 +13581,18 @@ struct TabItemView: View, Equatable {
             return String(localized: "remote.status.disconnected", defaultValue: "Disconnected")
         case .suspended:
             return String(localized: "remote.status.suspended", defaultValue: "Unreachable")
+        }
+    }
+
+    private var rowHeightProbe: some View {
+        GeometryReader { proxy in
+            Color.clear
+                .onAppear {
+                    rowHeight = max(proxy.size.height, 1)
+                }
+                .onChange(of: proxy.size.height) { newHeight in
+                    rowHeight = max(newHeight, 1)
+                }
         }
     }
 
@@ -13616,13 +13687,6 @@ struct TabItemView: View, Equatable {
             : nil
         let effectiveSubtitle = latestNotificationSubtitle ?? conversationMessageSubtitle
         let detailVisibility = visibleAuxiliaryDetails
-        let titleLineLimit = settings.wrapsWorkspaceTitles
-            ? SidebarWorkspaceRowDropMetrics.maxWrappedTitleLines
-            : 1
-        let dropTargetHeight = workspaceDropTargetHeight(
-            snapshot: workspaceSnapshot,
-            effectiveSubtitle: effectiveSubtitle
-        )
         let scaledUnreadBadgeSize = 16 * fontScale
         let scaledCloseButtonHitSize = max(16, 16 * fontScale)
         let scaledCloseButtonWidth = max(
@@ -13653,7 +13717,7 @@ struct TabItemView: View, Equatable {
                 Text(workspaceSnapshot.title)
                     .font(.system(size: scaledFontSize(12.5), weight: titleFontWeight))
                     .foregroundColor(activePrimaryTextColor)
-                    .lineLimit(titleLineLimit)
+                    .lineLimit(settings.wrapsWorkspaceTitles ? SidebarWorkspaceRowTextLimits.maxWrappedTitleLines : 1)
                     .truncationMode(.tail)
                     .fixedSize(horizontal: false, vertical: true)
                     .frame(maxWidth: .infinity, alignment: .leading)
@@ -13666,7 +13730,10 @@ struct TabItemView: View, Equatable {
                 // row. (Matches the group-header plus-button pattern.)
                 if canCloseWorkspace {
                     Button(action: {
-                        closeWorkspace(method: "button")
+                        #if DEBUG
+                        cmuxDebugLog("sidebar.close workspace=\(tab.id.uuidString.prefix(5)) method=button")
+                        #endif
+                        tabManager.closeWorkspaceWithConfirmation(tab)
                     }) {
                         Image(systemName: "xmark")
                             .font(.system(size: scaledFontSize(9), weight: .medium))
@@ -13685,7 +13752,6 @@ struct TabItemView: View, Equatable {
             if let description = workspaceSnapshot.customDescription {
                 SidebarWorkspaceDescriptionText(
                     markdown: description,
-                    isActive: usesInvertedActiveForeground,
                     activeForegroundColor: activeSecondaryColor(0.84),
                     fontScale: fontScale
                 )
@@ -13708,7 +13774,6 @@ struct TabItemView: View, Equatable {
                 if !metadataEntries.isEmpty {
                     SidebarMetadataRows(
                         entries: metadataEntries,
-                        isExpanded: $metadataRowsExpanded,
                         isActive: usesInvertedActiveForeground,
                         activeForegroundColor: activeSecondaryColor(0.95),
                         activeSecondaryForegroundColor: activeSecondaryColor(0.65),
@@ -13720,8 +13785,6 @@ struct TabItemView: View, Equatable {
                 if !metadataBlocks.isEmpty {
                     SidebarMetadataMarkdownBlocks(
                         blocks: metadataBlocks,
-                        isExpanded: $metadataBlocksExpanded,
-                        isActive: usesInvertedActiveForeground,
                         activeForegroundColor: activeSecondaryColor(0.8),
                         activeSecondaryForegroundColor: activeSecondaryColor(0.65),
                         fontScale: fontScale,
@@ -13954,6 +14017,7 @@ struct TabItemView: View, Equatable {
         )
         .shortcutHintVisibilityAnimation(value: showsWorkspaceShortcutHint)
         .padding(.horizontal, 6)
+        .background { rowHeightProbe }
         .contentShape(Rectangle())
         .opacity(isBeingDragged ? 0.6 : 1)
         .overlay {
@@ -13961,27 +14025,44 @@ struct TabItemView: View, Equatable {
         }
         .overlay {
             MiddleClickCapture {
-                closeWorkspace(method: "middleClick")
+                #if DEBUG
+                cmuxDebugLog("sidebar.close workspace=\(tab.id.uuidString.prefix(5)) method=middleClick")
+                #endif
+                tabManager.closeWorkspaceWithConfirmation(tab)
             }
         }
         .overlay(alignment: .top) {
             SidebarWorkspaceTopDropIndicator(
                 isVisible: topDropIndicatorVisible,
                 isFirstRow: index == 0,
-                rowSpacing: rowSpacing
+                rowSpacing: rowSpacing,
+                color: sidebarAccentColor
             )
         }
         .onAppear {
             refreshWorkspaceSnapshot(force: true)
         }
         .task(id: workspaceFinderDirectoryOpenRequest) {
-            await openPendingFinderDirectoryRequest()
+            guard let request = workspaceFinderDirectoryOpenRequest else { return }
+            await WorkspaceFinderDirectoryOpener.openInFinder(request.directoryURL)
+            guard !Task.isCancelled, workspaceFinderDirectoryOpenRequest == request else { return }
+            workspaceFinderDirectoryOpenRequest = nil
         }
         .onReceive(
             tab.sidebarImmediateObservationPublisher
                 .receive(on: RunLoop.main)
         ) { _ in
-            refreshWorkspaceSnapshotAfterObservation(source: "immediate")
+#if DEBUG
+            let description = tab.customDescription ?? ""
+            cmuxDebugLog(
+                "sidebar.row.invalidate workspace=\(tab.id.uuidString.prefix(8)) " +
+                "source=immediate " +
+                "title=\"\(debugCommandPaletteTextPreview(tab.title))\" " +
+                "descLen=\((description as NSString).length) " +
+                "desc=\"\(debugCommandPaletteTextPreview(description))\""
+            )
+#endif
+            refreshWorkspaceSnapshot()
         }
         .onReceive(
             tab.sidebarObservationPublisher
@@ -13991,14 +14072,24 @@ struct TabItemView: View, Equatable {
                 // row redraws once with the settled state instead of blinking.
                 .debounce(for: Self.workspaceObservationCoalesceInterval, scheduler: RunLoop.main)
         ) { _ in
-            refreshWorkspaceSnapshotAfterObservation(source: "debounced")
+#if DEBUG
+            let description = tab.customDescription ?? ""
+            cmuxDebugLog(
+                "sidebar.row.invalidate workspace=\(tab.id.uuidString.prefix(8)) " +
+                "source=debounced " +
+                "title=\"\(debugCommandPaletteTextPreview(tab.title))\" " +
+                "descLen=\((description as NSString).length) " +
+                "desc=\"\(debugCommandPaletteTextPreview(description))\""
+            )
+#endif
+            refreshWorkspaceSnapshot()
         }
         .onChange(of: settings) { _ in
             refreshWorkspaceSnapshot(force: true)
         }
         .onDrag(onDragStart)
         .internalOnlyTabDrag()
-        .onDrop(of: SidebarTabDragPayload.dropContentTypes, delegate: tabDropDelegateFactory(dropTargetHeight))
+        .onDrop(of: SidebarTabDragPayload.dropContentTypes, delegate: tabDropDelegateFactory(rowHeight))
         .onDrop(of: BonsplitTabDragPayload.dropContentTypes, delegate: SidebarBonsplitTabDropDelegate(
             targetWorkspaceId: tab.id,
             tabManager: tabManager,
@@ -14034,7 +14125,7 @@ struct TabItemView: View, Equatable {
         }
     }
 
-    func refreshWorkspaceSnapshot(force: Bool = false) {
+    private func refreshWorkspaceSnapshot(force: Bool = false) {
         let nextSnapshot = makeWorkspaceSnapshot()
         let decision = SidebarWorkspaceSnapshotRefreshPolicy.decision(
             current: workspaceSnapshotStorage,
@@ -14839,7 +14930,7 @@ struct TabItemView: View, Equatable {
     }
 
     private var pullRequestForegroundColor: Color {
-        isActive ? activeSecondaryColor(0.75) : .secondary
+        activeSecondaryColor(0.75)
     }
 
     private func openPullRequestLink(_ url: URL) {
@@ -14909,7 +15000,7 @@ struct TabItemView: View, Equatable {
             }
         }
         switch level {
-        case .info: return .secondary
+        case .info: return activeSecondaryColor(0.5)
         case .progress: return .blue
         case .success: return .green
         case .warning: return .orange
@@ -15117,7 +15208,6 @@ struct TabItemView: View, Equatable {
 
 private struct SidebarWorkspaceDescriptionText: View {
     let markdown: String
-    let isActive: Bool
     let activeForegroundColor: Color
     let fontScale: CGFloat
 
@@ -15133,7 +15223,7 @@ private struct SidebarWorkspaceDescriptionText: View {
         .font(.system(size: 10.5 * fontScale))
         .foregroundColor(foregroundColor)
         .multilineTextAlignment(.leading)
-        .lineLimit(SidebarWorkspaceRowDropMetrics.maxDescriptionLines)
+        .lineLimit(SidebarWorkspaceRowTextLimits.maxDescriptionLines)
         .fixedSize(horizontal: false, vertical: true)
         .frame(maxWidth: .infinity, alignment: .leading)
         .accessibilityIdentifier("SidebarWorkspaceDescriptionText")
@@ -15167,7 +15257,7 @@ private struct SidebarWorkspaceDescriptionText: View {
     }
 
     private var foregroundColor: Color {
-        isActive ? activeForegroundColor : .secondary.opacity(0.95)
+        activeForegroundColor
     }
 
     private func accessibilityText(renderedMarkdown: AttributedString?) -> String {
@@ -15180,12 +15270,14 @@ private struct SidebarWorkspaceDescriptionText: View {
 
 private struct SidebarMetadataRows: View {
     let entries: [SidebarStatusEntry]
-    @Binding var isExpanded: Bool
     let isActive: Bool
     let activeForegroundColor: Color
     let activeSecondaryForegroundColor: Color
     let fontScale: CGFloat
     let onFocus: () -> Void
+
+    @State private var isExpanded: Bool = false
+    private let collapsedEntryLimit = 3
 
     var body: some View {
         VStack(alignment: .leading, spacing: 2) {
@@ -15208,7 +15300,7 @@ private struct SidebarMetadataRows: View {
                 }
                 .buttonStyle(.plain)
                 .font(.system(size: 10 * fontScale, weight: .semibold))
-                .foregroundColor(isActive ? activeSecondaryForegroundColor : .secondary.opacity(0.9))
+                .foregroundColor(activeSecondaryForegroundColor)
                 .frame(maxWidth: .infinity, alignment: .leading)
             }
         }
@@ -15216,10 +15308,8 @@ private struct SidebarMetadataRows: View {
     }
 
     private var visibleEntries: [SidebarStatusEntry] {
-        guard !isExpanded, entries.count > SidebarWorkspaceRowDropMetrics.collapsedMetadataEntryLimit else {
-            return entries
-        }
-        return Array(entries.prefix(SidebarWorkspaceRowDropMetrics.collapsedMetadataEntryLimit))
+        guard !isExpanded, entries.count > collapsedEntryLimit else { return entries }
+        return Array(entries.prefix(collapsedEntryLimit))
     }
 
     private var helpText: String {
@@ -15231,7 +15321,7 @@ private struct SidebarMetadataRows: View {
     }
 
     private var shouldShowToggle: Bool {
-        entries.count > SidebarWorkspaceRowDropMetrics.collapsedMetadataEntryLimit
+        entries.count > collapsedEntryLimit
     }
 }
 
@@ -15286,7 +15376,7 @@ private struct SidebarMetadataEntryRow: View {
         if let raw = entry.color, let explicit = Color(hex: raw) {
             return explicit
         }
-        return isActive ? activeForegroundColor.opacity(0.84) : .secondary
+        return activeForegroundColor
     }
 
     private var iconView: AnyView? {
@@ -15336,19 +15426,19 @@ private struct SidebarMetadataEntryRow: View {
 
 private struct SidebarMetadataMarkdownBlocks: View {
     let blocks: [SidebarMetadataBlock]
-    @Binding var isExpanded: Bool
-    let isActive: Bool
     let activeForegroundColor: Color
     let activeSecondaryForegroundColor: Color
     let fontScale: CGFloat
     let onFocus: () -> Void
+
+    @State private var isExpanded: Bool = false
+    private let collapsedBlockLimit = 1
 
     var body: some View {
         VStack(alignment: .leading, spacing: 3) {
             ForEach(visibleBlocks, id: \.key) { block in
                 SidebarMetadataMarkdownBlockRow(
                     block: block,
-                    isActive: isActive,
                     activeForegroundColor: activeForegroundColor,
                     fontScale: fontScale,
                     onFocus: onFocus
@@ -15364,27 +15454,24 @@ private struct SidebarMetadataMarkdownBlocks: View {
                 }
                 .buttonStyle(.plain)
                 .font(.system(size: 10 * fontScale, weight: .semibold))
-                .foregroundColor(isActive ? activeSecondaryForegroundColor : .secondary.opacity(0.9))
+                .foregroundColor(activeSecondaryForegroundColor)
                 .frame(maxWidth: .infinity, alignment: .leading)
             }
         }
     }
 
     private var visibleBlocks: [SidebarMetadataBlock] {
-        guard !isExpanded, blocks.count > SidebarWorkspaceRowDropMetrics.collapsedMetadataBlockLimit else {
-            return blocks
-        }
-        return Array(blocks.prefix(SidebarWorkspaceRowDropMetrics.collapsedMetadataBlockLimit))
+        guard !isExpanded, blocks.count > collapsedBlockLimit else { return blocks }
+        return Array(blocks.prefix(collapsedBlockLimit))
     }
 
     private var shouldShowToggle: Bool {
-        blocks.count > SidebarWorkspaceRowDropMetrics.collapsedMetadataBlockLimit
+        blocks.count > collapsedBlockLimit
     }
 }
 
 private struct SidebarMetadataMarkdownBlockRow: View {
     let block: SidebarMetadataBlock
-    let isActive: Bool
     let activeForegroundColor: Color
     let fontScale: CGFloat
     let onFocus: () -> Void
@@ -15406,15 +15493,21 @@ private struct SidebarMetadataMarkdownBlockRow: View {
         }
         .font(.system(size: 10 * fontScale))
         .multilineTextAlignment(.leading)
-        .lineLimit(SidebarWorkspaceRowDropMetrics.maxMetadataBlockLines)
+        .lineLimit(SidebarWorkspaceRowTextLimits.maxMetadataBlockLines)
         .fixedSize(horizontal: false, vertical: true)
         .contentShape(Rectangle())
         .onTapGesture { onFocus() }
     }
 
     private var foregroundColor: Color {
-        isActive ? activeForegroundColor : .secondary
+        activeForegroundColor
     }
+}
+
+private enum SidebarWorkspaceRowTextLimits {
+    static let maxWrappedTitleLines = 8
+    static let maxDescriptionLines = 12
+    static let maxMetadataBlockLines = 12
 }
 
 /// Immutable, equatable snapshot of the group list a row's "Move to Group"
@@ -16371,6 +16464,7 @@ struct WindowChromeBorder: View {
 
     let orientation: Orientation
     var ignoresSafeArea = true
+    var colorOverride: NSColor? = nil
     @State private var separatorColor = WindowChromeSeparatorColor.current()
 
     var body: some View {
@@ -16383,7 +16477,7 @@ struct WindowChromeBorder: View {
 
     private var border: some View {
         Rectangle()
-            .fill(Color(nsColor: separatorColor))
+            .fill(Color(nsColor: colorOverride ?? separatorColor))
             .frame(
                 maxWidth: orientation == .horizontal ? .infinity : nil,
                 maxHeight: orientation == .vertical ? .infinity : nil
@@ -16401,10 +16495,15 @@ struct WindowChromeBorder: View {
     }
 }
 
-/// 1px trailing border on the sidebar, derived from the terminal chrome background.
+/// 1px trailing border on the sidebar, themeable with Ghostty config.
 private struct SidebarTrailingBorder: View {
+    let settings: SidebarTabItemSettingsSnapshot
+
     var body: some View {
-        WindowChromeBorder(orientation: .vertical)
+        WindowChromeBorder(
+            orientation: .vertical,
+            colorOverride: settings.borderColorHex.flatMap(NSColor.init(hex:))
+        )
     }
 }
 

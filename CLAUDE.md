@@ -38,17 +38,17 @@ App path:
 **Claude Code** outputs:
 
 ```markdown
-=======================================================
+-------------------------------------------------------
 [cmux DEV my-tag.app](file:///Users/someone/Library/Developer/Xcode/DerivedData/cmux-my-tag/Build/Products/Debug/cmux%20DEV%20my-tag.app)
-=======================================================
+-------------------------------------------------------
 ```
 
 **Codex** outputs:
 
 ```markdown
-=======================================================
+-------------------------------------------------------
 [my-tag: file:///Users/someone/Library/Developer/Xcode/DerivedData/cmux-my-tag/Build/Products/Debug/cmux%20DEV%20my-tag.app](file:///Users/someone/Library/Developer/Xcode/DerivedData/cmux-my-tag/Build/Products/Debug/cmux%20DEV%20my-tag.app)
-=======================================================
+-------------------------------------------------------
 ```
 
 Never use `/tmp/cmux-<tag>/...` app links in chat output.

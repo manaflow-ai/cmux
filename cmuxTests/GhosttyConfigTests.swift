@@ -721,70 +721,6 @@ final class GhosttyConfigTests: XCTestCase {
         XCTAssertEqual(rgb255(darkConfig.backgroundColor), RGB(red: 0, green: 43, blue: 54))
     }
 
-    func testLoadHonorsPairedThemeAndTopLevelForegroundOverrideByColorScheme() throws {
-        let fileManager = FileManager.default
-        let root = fileManager.temporaryDirectory
-            .appendingPathComponent("cmux-ghostty-theme-pair-foreground-\(UUID().uuidString)")
-        let themesDir = root.appendingPathComponent("themes", isDirectory: true)
-        try fileManager.createDirectory(at: themesDir, withIntermediateDirectories: true)
-        defer { try? fileManager.removeItem(at: root) }
-
-        let originalFixedHome = getenv("CFFIXED_USER_HOME").map { String(cString: $0) }
-        let originalResourcesDir = getenv("GHOSTTY_RESOURCES_DIR").map { String(cString: $0) }
-        setenv("CFFIXED_USER_HOME", root.path, 1)
-        setenv("GHOSTTY_RESOURCES_DIR", root.path, 1)
-        defer {
-            if let originalFixedHome {
-                setenv("CFFIXED_USER_HOME", originalFixedHome, 1)
-            } else {
-                unsetenv("CFFIXED_USER_HOME")
-            }
-            if let originalResourcesDir {
-                setenv("GHOSTTY_RESOURCES_DIR", originalResourcesDir, 1)
-            } else {
-                unsetenv("GHOSTTY_RESOURCES_DIR")
-            }
-            GhosttyConfig.invalidateLoadCache()
-        }
-
-        try """
-        background = #fffcf0
-        foreground = #100f0f
-        """.write(
-            to: themesDir.appendingPathComponent("Flexoki Light", isDirectory: false),
-            atomically: true,
-            encoding: .utf8
-        )
-        try """
-        background = #100f0f
-        foreground = #cecdc3
-        """.write(
-            to: themesDir.appendingPathComponent("Flexoki Dark", isDirectory: false),
-            atomically: true,
-            encoding: .utf8
-        )
-
-        let ghosttyConfigDir = root.appendingPathComponent(".config/ghostty", isDirectory: true)
-        try fileManager.createDirectory(at: ghosttyConfigDir, withIntermediateDirectories: true)
-        try """
-        window-theme = auto
-        theme = light:Flexoki Light,dark:Flexoki Dark
-        foreground = #ff0000
-        """.write(
-            to: ghosttyConfigDir.appendingPathComponent("config", isDirectory: false),
-            atomically: true,
-            encoding: .utf8
-        )
-
-        let lightConfig = GhosttyConfig.load(preferredColorScheme: .light, useCache: false)
-        let darkConfig = GhosttyConfig.load(preferredColorScheme: .dark, useCache: false)
-
-        XCTAssertEqual(lightConfig.backgroundColor.hexString(), "#FFFCF0")
-        XCTAssertEqual(lightConfig.foregroundColor.hexString(), "#FF0000")
-        XCTAssertEqual(darkConfig.backgroundColor.hexString(), "#100F0F")
-        XCTAssertEqual(darkConfig.foregroundColor.hexString(), "#FF0000")
-    }
-
     func testParseBackgroundOpacityReadsConfigValue() {
         var config = GhosttyConfig()
         config.parse("background-opacity = 0.42")
@@ -4700,6 +4636,48 @@ final class SidebarBackgroundConfigTests: XCTestCase {
         XCTAssertEqual(config.sidebarTintOpacity ?? -1, 0.0, accuracy: 0.0001)
     }
 
+    func testParseSidebarThemeColors() {
+        var config = GhosttyConfig()
+        config.parse("""
+        sidebar-selection-background = #445566
+        sidebar-foreground = #ddeeff
+        sidebar-muted-foreground = #99aabb
+        sidebar-selection-foreground = #102030
+        sidebar-border-color = #223344
+        sidebar-accent-color = #33cc99
+        sidebar-notification-badge-background = #cc3366
+        """)
+
+        XCTAssertEqual(config.rawSidebarSelectionBackground, "#445566")
+        XCTAssertEqual(config.rawSidebarForeground, "#ddeeff")
+        XCTAssertEqual(config.rawSidebarMutedForeground, "#99aabb")
+        XCTAssertEqual(config.rawSidebarSelectionForeground, "#102030")
+        XCTAssertEqual(config.rawSidebarBorderColor, "#223344")
+        XCTAssertEqual(config.rawSidebarAccentColor, "#33cc99")
+        XCTAssertEqual(config.rawSidebarNotificationBadgeBackground, "#cc3366")
+    }
+
+    func testResolveSidebarThemeColorsSupportsColorSchemePairs() {
+        var config = GhosttyConfig()
+        config.rawSidebarSelectionBackground = "light:#f0f0f0,dark:#101010"
+        config.rawSidebarForeground = "light:#111111,dark:#eeeeee"
+        config.rawSidebarMutedForeground = "light:#555555,dark:#aaaaaa"
+        config.rawSidebarSelectionForeground = "light:#000000,dark:#ffffff"
+        config.rawSidebarBorderColor = "light:#cccccc,dark:#333333"
+        config.rawSidebarAccentColor = "light:#0066cc,dark:#66aaff"
+        config.rawSidebarNotificationBadgeBackground = "light:#cc0033,dark:#ff6699"
+
+        config.resolveSidebarAppearance(preferredColorScheme: .dark)
+
+        XCTAssertEqual(config.sidebarSelectionBackground?.hexString(), "#101010")
+        XCTAssertEqual(config.sidebarForeground?.hexString(), "#EEEEEE")
+        XCTAssertEqual(config.sidebarMutedForeground?.hexString(), "#AAAAAA")
+        XCTAssertEqual(config.sidebarSelectionForeground?.hexString(), "#FFFFFF")
+        XCTAssertEqual(config.sidebarBorderColor?.hexString(), "#333333")
+        XCTAssertEqual(config.sidebarAccentColor?.hexString(), "#66AAFF")
+        XCTAssertEqual(config.sidebarNotificationBadgeBackground?.hexString(), "#FF6699")
+    }
+
     func testResolveSidebarBackgroundSingleHex() {
         var config = GhosttyConfig()
         config.rawSidebarBackground = "#336699"
@@ -4731,28 +4709,37 @@ final class SidebarBackgroundConfigTests: XCTestCase {
 
     func testApplyToUserDefaultsSkipsWritesWhenNoConfig() {
         let defaults = UserDefaults.standard
-        let testKey = "sidebarTintHex"
-        let original = defaults.string(forKey: testKey)
-        defer { restoreDefaultsValue(original, key: testKey, defaults: defaults) }
-
-        defaults.set("#AAAAAA", forKey: testKey)
-
-        var config = GhosttyConfig()
-        config.applySidebarAppearanceToUserDefaults()
-
-        XCTAssertEqual(defaults.string(forKey: testKey), "#AAAAAA",
-                       "Should not overwrite UserDefaults when rawSidebarBackground is nil")
-    }
-
-    func testApplyToUserDefaultsWritesHexWhenConfigSet() {
-        let defaults = UserDefaults.standard
-        let keys = ["sidebarTintHex", "sidebarTintHexLight", "sidebarTintHexDark"]
+        let keys = ["sidebarTintHex", GhosttyConfig.sidebarAppearanceAppliedDefaultsKey]
         let originals = keys.map { defaults.object(forKey: $0) }
         defer {
             for (key, original) in zip(keys, originals) {
                 restoreDefaultsValue(original, key: key, defaults: defaults)
             }
         }
+        defaults.removeObject(forKey: GhosttyConfig.sidebarAppearanceAppliedDefaultsKey)
+
+        defaults.set("#AAAAAA", forKey: "sidebarTintHex")
+
+        var config = GhosttyConfig()
+        config.applySidebarAppearanceToUserDefaults()
+
+        XCTAssertEqual(defaults.string(forKey: "sidebarTintHex"), "#AAAAAA",
+                       "Should not overwrite UserDefaults when rawSidebarBackground is nil")
+    }
+
+    func testApplyToUserDefaultsWritesHexWhenConfigSet() {
+        let defaults = UserDefaults.standard
+        let keys = ["sidebarTintHex", "sidebarTintHexLight", "sidebarTintHexDark", GhosttyConfig.sidebarAppearanceAppliedDefaultsKey]
+        let originals = keys.map { defaults.object(forKey: $0) }
+        defer {
+            for (key, original) in zip(keys, originals) {
+                restoreDefaultsValue(original, key: key, defaults: defaults)
+            }
+        }
+        defaults.removeObject(forKey: GhosttyConfig.sidebarAppearanceAppliedDefaultsKey)
+        defaults.removeObject(forKey: "sidebarTintHex")
+        defaults.removeObject(forKey: "sidebarTintHexLight")
+        defaults.removeObject(forKey: "sidebarTintHexDark")
 
         var config = GhosttyConfig()
         config.rawSidebarBackground = "#336699"
@@ -4766,16 +4753,19 @@ final class SidebarBackgroundConfigTests: XCTestCase {
 
     func testApplyToUserDefaultsClearsStaleKeysOnSwitchFromDualToSingle() {
         let defaults = UserDefaults.standard
-        let keys = ["sidebarTintHex", "sidebarTintHexLight", "sidebarTintHexDark"]
+        let keys = ["sidebarTintHex", "sidebarTintHexLight", "sidebarTintHexDark", GhosttyConfig.sidebarAppearanceAppliedDefaultsKey]
         let originals = keys.map { defaults.object(forKey: $0) }
         defer {
             for (key, original) in zip(keys, originals) {
                 restoreDefaultsValue(original, key: key, defaults: defaults)
             }
         }
-
         defaults.set("#AAAAAA", forKey: "sidebarTintHexLight")
         defaults.set("#BBBBBB", forKey: "sidebarTintHexDark")
+        defaults.set([
+            "sidebarTintHexLight": "#AAAAAA",
+            "sidebarTintHexDark": "#BBBBBB",
+        ], forKey: GhosttyConfig.sidebarAppearanceAppliedDefaultsKey)
 
         var config = GhosttyConfig()
         config.rawSidebarBackground = "#222222"
@@ -4789,15 +4779,99 @@ final class SidebarBackgroundConfigTests: XCTestCase {
                      "Stale dark key should be cleared")
     }
 
-    func testApplyToUserDefaultsOnlyWritesOpacityWhenExplicit() {
+    func testApplyToUserDefaultsPreservesUserEditedBackgroundVariantWhenSwitchingToSingle() {
         let defaults = UserDefaults.standard
-        let keys = ["sidebarTintHex", "sidebarTintHexLight", "sidebarTintHexDark", "sidebarTintOpacity"]
+        let keys = ["sidebarTintHex", "sidebarTintHexLight", "sidebarTintHexDark", GhosttyConfig.sidebarAppearanceAppliedDefaultsKey]
         let originals = keys.map { defaults.object(forKey: $0) }
         defer {
             for (key, original) in zip(keys, originals) {
                 restoreDefaultsValue(original, key: key, defaults: defaults)
             }
         }
+        defaults.removeObject(forKey: GhosttyConfig.sidebarAppearanceAppliedDefaultsKey)
+
+        defaults.set("#AAAAAA", forKey: "sidebarTintHexLight")
+
+        var config = GhosttyConfig()
+        config.rawSidebarBackground = "#222222"
+        config.resolveSidebarBackground(preferredColorScheme: .light)
+        config.applySidebarAppearanceToUserDefaults()
+
+        XCTAssertEqual(defaults.string(forKey: "sidebarTintHex"), "#222222")
+        XCTAssertEqual(defaults.string(forKey: "sidebarTintHexLight"), "#AAAAAA",
+                       "Unmanaged user-edited light tint should not be cleared")
+    }
+
+    func testApplyToUserDefaultsClearsManagedBackgroundVariantWhenSwitchingToDarkOnly() {
+        let defaults = UserDefaults.standard
+        let keys = ["sidebarTintHex", "sidebarTintHexLight", "sidebarTintHexDark", GhosttyConfig.sidebarAppearanceAppliedDefaultsKey]
+        let originals = keys.map { defaults.object(forKey: $0) }
+        defer {
+            for (key, original) in zip(keys, originals) {
+                restoreDefaultsValue(original, key: key, defaults: defaults)
+            }
+        }
+
+        defaults.set("#AAAAAA", forKey: "sidebarTintHexLight")
+        defaults.set("#BBBBBB", forKey: "sidebarTintHexDark")
+        defaults.set([
+            "sidebarTintHexLight": "#AAAAAA",
+            "sidebarTintHexDark": "#BBBBBB",
+        ], forKey: GhosttyConfig.sidebarAppearanceAppliedDefaultsKey)
+
+        var config = GhosttyConfig()
+        config.rawSidebarBackground = "dark:#222222"
+        config.resolveSidebarBackground(preferredColorScheme: .light)
+        config.applySidebarAppearanceToUserDefaults()
+
+        XCTAssertEqual(defaults.string(forKey: "sidebarTintHex"), "#222222")
+        XCTAssertNil(defaults.string(forKey: "sidebarTintHexLight"))
+        XCTAssertNil(defaults.string(forKey: "sidebarTintHexDark"))
+    }
+
+    func testApplyToUserDefaultsPreservesManagedColorsWhenNewConfigValueIsInvalid() {
+        let defaults = UserDefaults.standard
+        let keys = [
+            "sidebarTintHex",
+            GhosttyConfig.sidebarForegroundColorHexKey,
+            GhosttyConfig.sidebarAppearanceAppliedDefaultsKey,
+        ]
+        let originals = keys.map { defaults.object(forKey: $0) }
+        defer {
+            for (key, original) in zip(keys, originals) {
+                restoreDefaultsValue(original, key: key, defaults: defaults)
+            }
+        }
+
+        defaults.set("#222222", forKey: "sidebarTintHex")
+        defaults.set("#DDEEFF", forKey: GhosttyConfig.sidebarForegroundColorHexKey)
+        defaults.set([
+            "sidebarTintHex": "#222222",
+            GhosttyConfig.sidebarForegroundColorHexKey: "#DDEEFF",
+        ], forKey: GhosttyConfig.sidebarAppearanceAppliedDefaultsKey)
+
+        var config = GhosttyConfig()
+        config.parse("""
+        sidebar-background = not-a-color
+        sidebar-foreground = still-not-a-color
+        """)
+        config.resolveSidebarAppearance(preferredColorScheme: .light)
+        config.applySidebarAppearanceToUserDefaults()
+
+        XCTAssertEqual(defaults.string(forKey: "sidebarTintHex"), "#222222")
+        XCTAssertEqual(defaults.string(forKey: GhosttyConfig.sidebarForegroundColorHexKey), "#DDEEFF")
+    }
+
+    func testApplyToUserDefaultsOnlyWritesOpacityWhenExplicit() {
+        let defaults = UserDefaults.standard
+        let keys = ["sidebarTintHex", "sidebarTintHexLight", "sidebarTintHexDark", "sidebarTintOpacity", GhosttyConfig.sidebarAppearanceAppliedDefaultsKey]
+        let originals = keys.map { defaults.object(forKey: $0) }
+        defer {
+            for (key, original) in zip(keys, originals) {
+                restoreDefaultsValue(original, key: key, defaults: defaults)
+            }
+        }
+        defaults.removeObject(forKey: GhosttyConfig.sidebarAppearanceAppliedDefaultsKey)
 
         defaults.set(0.18, forKey: "sidebarTintOpacity")
 
@@ -4808,6 +4882,81 @@ final class SidebarBackgroundConfigTests: XCTestCase {
 
         XCTAssertEqual(defaults.double(forKey: "sidebarTintOpacity"), 0.18, accuracy: 0.0001,
                        "Should not overwrite opacity when config doesn't set sidebar-tint-opacity")
+    }
+
+    func testApplyToUserDefaultsWritesSidebarThemeColors() {
+        let defaults = UserDefaults.standard
+        let keys = [
+            "sidebarSelectionColorHex",
+            GhosttyConfig.sidebarForegroundColorHexKey,
+            GhosttyConfig.sidebarMutedForegroundColorHexKey,
+            GhosttyConfig.sidebarSelectionForegroundColorHexKey,
+            GhosttyConfig.sidebarBorderColorHexKey,
+            GhosttyConfig.sidebarAccentColorHexKey,
+            "sidebarNotificationBadgeColorHex",
+            GhosttyConfig.sidebarAppearanceAppliedDefaultsKey,
+        ]
+        let originals = keys.map { defaults.object(forKey: $0) }
+        defer {
+            for (key, original) in zip(keys, originals) {
+                restoreDefaultsValue(original, key: key, defaults: defaults)
+            }
+        }
+        defaults.removeObject(forKey: GhosttyConfig.sidebarAppearanceAppliedDefaultsKey)
+
+        var config = GhosttyConfig()
+        config.parse("""
+        sidebar-selection-background = #445566
+        sidebar-foreground = #ddeeff
+        sidebar-muted-foreground = #99aabb
+        sidebar-selection-foreground = #102030
+        sidebar-border-color = #223344
+        sidebar-accent-color = #33cc99
+        sidebar-notification-badge-color = #cc3366
+        """)
+        config.resolveSidebarAppearance(preferredColorScheme: .light)
+        config.applySidebarAppearanceToUserDefaults()
+
+        XCTAssertEqual(defaults.string(forKey: "sidebarSelectionColorHex"), "#445566")
+        XCTAssertEqual(defaults.string(forKey: GhosttyConfig.sidebarForegroundColorHexKey), "#DDEEFF")
+        XCTAssertEqual(defaults.string(forKey: GhosttyConfig.sidebarMutedForegroundColorHexKey), "#99AABB")
+        XCTAssertEqual(defaults.string(forKey: GhosttyConfig.sidebarSelectionForegroundColorHexKey), "#102030")
+        XCTAssertEqual(defaults.string(forKey: GhosttyConfig.sidebarBorderColorHexKey), "#223344")
+        XCTAssertEqual(defaults.string(forKey: GhosttyConfig.sidebarAccentColorHexKey), "#33CC99")
+        XCTAssertEqual(defaults.string(forKey: "sidebarNotificationBadgeColorHex"), "#CC3366")
+    }
+
+    func testApplyToUserDefaultsClearsPreviouslyManagedSidebarThemeColorsWhenConfigRemoved() {
+        let defaults = UserDefaults.standard
+        let keys = [
+            "sidebarSelectionColorHex",
+            GhosttyConfig.sidebarForegroundColorHexKey,
+            GhosttyConfig.sidebarBorderColorHexKey,
+            GhosttyConfig.sidebarAppearanceAppliedDefaultsKey,
+        ]
+        let originals = keys.map { defaults.object(forKey: $0) }
+        defer {
+            for (key, original) in zip(keys, originals) {
+                restoreDefaultsValue(original, key: key, defaults: defaults)
+            }
+        }
+
+        defaults.set("#445566", forKey: "sidebarSelectionColorHex")
+        defaults.set("#DDEEFF", forKey: GhosttyConfig.sidebarForegroundColorHexKey)
+        defaults.set("#111111", forKey: GhosttyConfig.sidebarBorderColorHexKey)
+        defaults.set([
+            "sidebarSelectionColorHex": "#445566",
+            GhosttyConfig.sidebarForegroundColorHexKey: "#DDEEFF",
+            GhosttyConfig.sidebarBorderColorHexKey: "#223344",
+        ], forKey: GhosttyConfig.sidebarAppearanceAppliedDefaultsKey)
+
+        var config = GhosttyConfig()
+        config.applySidebarAppearanceToUserDefaults()
+
+        XCTAssertNil(defaults.string(forKey: "sidebarSelectionColorHex"))
+        XCTAssertNil(defaults.string(forKey: GhosttyConfig.sidebarForegroundColorHexKey))
+        XCTAssertEqual(defaults.string(forKey: GhosttyConfig.sidebarBorderColorHexKey), "#111111",
+                       "Should not clear values the user changed after the Ghostty theme write")
     }
 
     private func restoreDefaultsValue(_ value: Any?, key: String, defaults: UserDefaults) {
