@@ -622,6 +622,8 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     private var lastAppliedContentScale: CGFloat = 0
     private var surfaceHasReceivedOutput: Bool = false
     private var shouldScrollInitialOutputToBottom = true
+    private var activeScreen: MobileTerminalRenderGridFrame.Screen = .primary
+    private let scrollForwardingPolicy = MobileTerminalScrollForwardingPolicy()
     /// Serial background queue for `ghostty_surface_process_output`, which
     /// blocks on libghostty's internal renderer/IO futex. Running it on the
     /// main thread hangs the app until the scene-update watchdog kills it.
@@ -1811,6 +1813,9 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         let cell = pendingScrollCell
         pendingScrollLines = 0
         applyLocalScrollbackScroll(lines: lines, col: cell.col, row: cell.row)
+        guard scrollForwardingPolicy.shouldForwardToHost(activeScreen: activeScreen) else {
+            return
+        }
         delegate?.ghosttySurfaceView(self, didScrollLines: lines, atCol: cell.col, row: cell.row)
     }
 
@@ -2107,6 +2112,20 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
 
     public func processOutput(_ data: Data) {
         processOutput(data, completion: nil)
+    }
+
+    /// Applies metadata attached to the next terminal output chunk.
+    ///
+    /// Render-grid output carries the authoritative active screen, which lets
+    /// local scrollback stay phone-local on the primary screen while alternate
+    /// screen TUIs still receive host mouse-wheel events.
+    /// - Parameter activeScreen: The active screen from the render-grid frame,
+    ///   or `nil` for raw byte fallback chunks.
+    public func applyTerminalOutputMetadata(
+        activeScreen: MobileTerminalRenderGridFrame.Screen?
+    ) {
+        guard let activeScreen else { return }
+        self.activeScreen = activeScreen
     }
 
     /// Process terminal output and return after the output has been applied.

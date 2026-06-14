@@ -90,6 +90,22 @@ import Testing
     #expect(!vt.contains("old"))
 }
 
+@Test func terminalOutputDeliveryCarriesRenderGridActiveScreen() throws {
+    let frame = try MobileTerminalRenderGridFrame(
+        surfaceID: "terminal",
+        stateSeq: 1,
+        columns: 12,
+        rows: 2,
+        rowSpans: [],
+        activeScreen: .alternate
+    )
+    let delivery = TerminalOutputDelivery(renderGrid: frame, replaceable: false)
+    let rawDelivery = TerminalOutputDelivery(bytes: Data("raw".utf8), replaceable: false)
+
+    #expect(delivery.activeScreen == .alternate)
+    #expect(rawDelivery.activeScreen == nil)
+}
+
 @Test func terminalOutputQueuePreservesNonreplaceableBarriers() {
     var queue = TerminalOutputDeliveryQueue()
     let inFlight = TerminalOutputDelivery(bytes: Data("in-flight".utf8), replaceable: false)

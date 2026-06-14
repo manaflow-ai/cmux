@@ -1,3 +1,4 @@
+public import CMUXMobileCore
 public import Foundation
 
 /// A seam exposing per-surface terminal output as an `AsyncStream`.
@@ -14,10 +15,18 @@ public import Foundation
 /// propagation is a structured, cancellable `AsyncSequence` instead of a stored
 /// callback.
 public struct MobileTerminalOutputChunk: Sendable {
+    /// The active terminal screen captured by the render-grid frame that
+    /// produced ``data``. Raw byte fallback chunks carry `nil`.
+    public let activeScreen: MobileTerminalRenderGridFrame.Screen?
     public let data: Data
     public let streamToken: UUID
 
-    public init(data: Data, streamToken: UUID) {
+    public init(
+        data: Data,
+        streamToken: UUID,
+        activeScreen: MobileTerminalRenderGridFrame.Screen? = nil
+    ) {
+        self.activeScreen = activeScreen
         self.data = data
         self.streamToken = streamToken
     }
