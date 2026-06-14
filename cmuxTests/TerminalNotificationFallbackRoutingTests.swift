@@ -1,5 +1,5 @@
-import XCTest
 import AppKit
+import Testing
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
 #elseif canImport(cmux)
@@ -7,8 +7,10 @@ import AppKit
 #endif
 
 @MainActor
+@Suite(.serialized)
 final class TerminalNotificationFallbackRoutingTests: TerminalNotificationSocketTestCase {
-    func testNotificationOpenDoesNotFallbackToUnrelatedWindowContext() async throws {
+    @Test
+    func notificationOpenDoesNotFallbackToUnrelatedWindowContext() async throws {
         let fixture = try makeSocketFixture(name: "notif-open-unowned")
         defer { fixture.cleanup() }
 
@@ -32,7 +34,7 @@ final class TerminalNotificationFallbackRoutingTests: TerminalNotificationSocket
 
         let selectedWorkspace = fixture.workspace
         let targetWorkspace = fixture.manager.addWorkspace(title: "Unowned Notification", select: false)
-        let targetSurfaceId = try XCTUnwrap(targetWorkspace.focusedPanelId)
+        let targetSurfaceId = try #require(targetWorkspace.focusedPanelId)
         let notification = makeNotification(tabId: targetWorkspace.id, surfaceId: targetSurfaceId, title: "Unowned")
         fixture.store.replaceNotificationsForTesting([notification])
         fixture.manager.selectTab(selectedWorkspace)
@@ -43,12 +45,12 @@ final class TerminalNotificationFallbackRoutingTests: TerminalNotificationSocket
             to: fixture.socketPath
         )
 
-        XCTAssertEqual(response["ok"] as? Bool, false, "\(response)")
-        let error = try XCTUnwrap(response["error"] as? [String: Any])
-        XCTAssertEqual(error["code"] as? String, "not_found")
-        let data = try XCTUnwrap(error["data"] as? [String: Any])
-        XCTAssertEqual(data["opened"] as? Bool, false)
-        XCTAssertEqual(fixture.manager.selectedTabId, selectedWorkspace.id)
-        XCTAssertEqual(fixture.notification(notification.id)?.isRead, false)
+        #expect(response["ok"] as? Bool == false)
+        let error = try #require(response["error"] as? [String: Any])
+        #expect(error["code"] as? String == "not_found")
+        let data = try #require(error["data"] as? [String: Any])
+        #expect(data["opened"] as? Bool == false)
+        #expect(fixture.manager.selectedTabId == selectedWorkspace.id)
+        #expect(fixture.notification(notification.id)?.isRead == false)
     }
 }

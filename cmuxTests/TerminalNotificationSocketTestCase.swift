@@ -1,6 +1,6 @@
-import XCTest
 import AppKit
 import Darwin
+import Testing
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
 #elseif canImport(cmux)
@@ -8,15 +8,9 @@ import Darwin
 #endif
 
 @MainActor
-class TerminalNotificationSocketTestCase: XCTestCase {
-    override func setUp() {
-        super.setUp()
+class TerminalNotificationSocketTestCase {
+    init() {
         TerminalController.shared.stop()
-    }
-
-    override func tearDown() {
-        TerminalController.shared.stop()
-        super.tearDown()
     }
 
     struct SocketFixture {
@@ -78,7 +72,7 @@ class TerminalNotificationSocketTestCase: XCTestCase {
         AppFocusState.overrideIsFocused = false
 
         let workspace = manager.addWorkspace(title: "Socket Notifications", select: true)
-        let surfaceId = try XCTUnwrap(workspace.focusedPanelId)
+        let surfaceId = try #require(workspace.focusedPanelId)
 
         let windowId: UUID?
         let window: NSWindow?
@@ -156,7 +150,7 @@ class TerminalNotificationSocketTestCase: XCTestCase {
             RunLoop.current.run(until: Date().addingTimeInterval(0.01))
         }
         let message = "Socket did not appear at \(path) within \(timeout)s"
-        XCTFail(message)
+        Issue.record(message)
         throw NSError(
             domain: "TerminalNotificationSocketActionTests",
             code: 1,

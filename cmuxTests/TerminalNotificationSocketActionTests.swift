@@ -1,4 +1,4 @@
-import XCTest
+import Testing
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
 #elseif canImport(cmux)
@@ -6,8 +6,10 @@ import XCTest
 #endif
 
 @MainActor
+@Suite(.serialized)
 final class TerminalNotificationSocketActionTests: TerminalNotificationSocketTestCase {
-    func testNotificationDismissRemovesSingleNotification() async throws {
+    @Test
+    func notificationDismissRemovesSingleNotification() async throws {
         let fixture = try makeSocketFixture(name: "notif-dismiss")
         defer { fixture.cleanup() }
 
@@ -21,14 +23,15 @@ final class TerminalNotificationSocketActionTests: TerminalNotificationSocketTes
             to: fixture.socketPath
         )
 
-        XCTAssertEqual(response["ok"] as? Bool, true, "\(response)")
-        let result = try XCTUnwrap(response["result"] as? [String: Any])
-        XCTAssertEqual(result["dismissed"] as? Int, 1)
-        XCTAssertFalse(fixture.store.notifications.contains(where: { $0.id == target.id }))
-        XCTAssertTrue(fixture.store.notifications.contains(where: { $0.id == sibling.id }))
+        #expect(response["ok"] as? Bool == true)
+        let result = try #require(response["result"] as? [String: Any])
+        #expect(result["dismissed"] as? Int == 1)
+        #expect(!fixture.store.notifications.contains(where: { $0.id == target.id }))
+        #expect(fixture.store.notifications.contains(where: { $0.id == sibling.id }))
     }
 
-    func testNotificationDismissAllReadRemovesOnlyReadNotifications() async throws {
+    @Test
+    func notificationDismissAllReadRemovesOnlyReadNotifications() async throws {
         let fixture = try makeSocketFixture(name: "notif-dismiss-read")
         defer { fixture.cleanup() }
 
@@ -43,16 +46,17 @@ final class TerminalNotificationSocketActionTests: TerminalNotificationSocketTes
             to: fixture.socketPath
         )
 
-        XCTAssertEqual(response["ok"] as? Bool, true, "\(response)")
-        let result = try XCTUnwrap(response["result"] as? [String: Any])
-        XCTAssertEqual(result["dismissed"] as? Int, 2)
-        XCTAssertEqual(result["all_read"] as? Bool, true)
-        XCTAssertFalse(fixture.store.notifications.contains(where: { $0.id == firstRead.id }))
-        XCTAssertFalse(fixture.store.notifications.contains(where: { $0.id == secondRead.id }))
-        XCTAssertTrue(fixture.store.notifications.contains(where: { $0.id == unread.id }))
+        #expect(response["ok"] as? Bool == true)
+        let result = try #require(response["result"] as? [String: Any])
+        #expect(result["dismissed"] as? Int == 2)
+        #expect(result["all_read"] as? Bool == true)
+        #expect(!fixture.store.notifications.contains(where: { $0.id == firstRead.id }))
+        #expect(!fixture.store.notifications.contains(where: { $0.id == secondRead.id }))
+        #expect(fixture.store.notifications.contains(where: { $0.id == unread.id }))
     }
 
-    func testNotificationMarkReadSupportsIdTabSurfaceAndAllSelectors() async throws {
+    @Test
+    func notificationMarkReadSupportsIdTabSurfaceAndAllSelectors() async throws {
         let fixture = try makeSocketFixture(name: "notif-read")
         defer { fixture.cleanup() }
 
@@ -68,9 +72,9 @@ final class TerminalNotificationSocketActionTests: TerminalNotificationSocketTes
             params: ["id": idTarget.id.uuidString],
             to: fixture.socketPath
         )
-        XCTAssertEqual(response["ok"] as? Bool, true, "\(response)")
-        XCTAssertEqual(fixture.notification(idTarget.id)?.isRead, true)
-        XCTAssertEqual(fixture.notification(surfaceTarget.id)?.isRead, false)
+        #expect(response["ok"] as? Bool == true)
+        #expect(fixture.notification(idTarget.id)?.isRead == true)
+        #expect(fixture.notification(surfaceTarget.id)?.isRead == false)
 
         response = try await sendV2RequestAsync(
             method: "notification.mark_read",
@@ -80,17 +84,17 @@ final class TerminalNotificationSocketActionTests: TerminalNotificationSocketTes
             ],
             to: fixture.socketPath
         )
-        XCTAssertEqual(response["ok"] as? Bool, true, "\(response)")
-        XCTAssertEqual(fixture.notification(surfaceTarget.id)?.isRead, true)
-        XCTAssertEqual(fixture.notification(surfaceSibling.id)?.isRead, false)
+        #expect(response["ok"] as? Bool == true)
+        #expect(fixture.notification(surfaceTarget.id)?.isRead == true)
+        #expect(fixture.notification(surfaceSibling.id)?.isRead == false)
 
         response = try await sendV2RequestAsync(
             method: "notification.mark_read",
             params: ["all": true],
             to: fixture.socketPath
         )
-        XCTAssertEqual(response["ok"] as? Bool, true, "\(response)")
-        XCTAssertTrue(fixture.store.notifications.allSatisfy(\.isRead))
+        #expect(response["ok"] as? Bool == true)
+        #expect(fixture.store.notifications.allSatisfy(\.isRead))
 
         response = try await sendV2RequestAsync(
             method: "notification.mark_read",
@@ -100,12 +104,13 @@ final class TerminalNotificationSocketActionTests: TerminalNotificationSocketTes
             ],
             to: fixture.socketPath
         )
-        XCTAssertEqual(response["ok"] as? Bool, false, "\(response)")
-        let error = try XCTUnwrap(response["error"] as? [String: Any])
-        XCTAssertEqual(error["code"] as? String, "invalid_params")
+        #expect(response["ok"] as? Bool == false)
+        let error = try #require(response["error"] as? [String: Any])
+        #expect(error["code"] as? String == "invalid_params")
     }
 
-    func testNotificationMarkReadRejectsUnknownId() async throws {
+    @Test
+    func notificationMarkReadRejectsUnknownId() async throws {
         let fixture = try makeSocketFixture(name: "notif-read-missing")
         defer { fixture.cleanup() }
 
@@ -116,20 +121,21 @@ final class TerminalNotificationSocketActionTests: TerminalNotificationSocketTes
             to: fixture.socketPath
         )
 
-        XCTAssertEqual(response["ok"] as? Bool, false, "\(response)")
-        let error = try XCTUnwrap(response["error"] as? [String: Any])
-        XCTAssertEqual(error["code"] as? String, "not_found")
-        XCTAssertEqual(error["message"] as? String, "Notification not found")
-        let data = try XCTUnwrap(error["data"] as? [String: Any])
-        XCTAssertEqual(data["id"] as? String, missingId.uuidString)
+        #expect(response["ok"] as? Bool == false)
+        let error = try #require(response["error"] as? [String: Any])
+        #expect(error["code"] as? String == "not_found")
+        #expect(error["message"] as? String == "Notification not found")
+        let data = try #require(error["data"] as? [String: Any])
+        #expect(data["id"] as? String == missingId.uuidString)
     }
 
-    func testNotificationOpenFocusesDestinationAndMarksRead() async throws {
+    @Test
+    func notificationOpenFocusesDestinationAndMarksRead() async throws {
         let fixture = try makeSocketFixture(name: "notif-open", includeWindow: true)
         defer { fixture.cleanup() }
 
         let targetWorkspace = fixture.manager.addWorkspace(title: "Open Target", select: false)
-        let targetSurfaceId = try XCTUnwrap(targetWorkspace.focusedPanelId)
+        let targetSurfaceId = try #require(targetWorkspace.focusedPanelId)
         let notification = makeNotification(tabId: targetWorkspace.id, surfaceId: targetSurfaceId, title: "Open")
         fixture.store.replaceNotificationsForTesting([notification])
         fixture.manager.selectTab(fixture.workspace)
@@ -140,23 +146,24 @@ final class TerminalNotificationSocketActionTests: TerminalNotificationSocketTes
             to: fixture.socketPath
         )
 
-        XCTAssertEqual(response["ok"] as? Bool, true, "\(response)")
-        let result = try XCTUnwrap(response["result"] as? [String: Any])
-        XCTAssertEqual(result["opened"] as? Bool, true)
-        XCTAssertEqual(result["workspace_id"] as? String, targetWorkspace.id.uuidString)
-        XCTAssertEqual(result["surface_id"] as? String, targetSurfaceId.uuidString)
-        XCTAssertEqual(result["is_read"] as? Bool, true)
-        XCTAssertEqual(fixture.manager.selectedTabId, targetWorkspace.id)
-        XCTAssertEqual(fixture.manager.focusedSurfaceId(for: targetWorkspace.id), targetSurfaceId)
-        XCTAssertEqual(fixture.notification(notification.id)?.isRead, true)
+        #expect(response["ok"] as? Bool == true)
+        let result = try #require(response["result"] as? [String: Any])
+        #expect(result["opened"] as? Bool == true)
+        #expect(result["workspace_id"] as? String == targetWorkspace.id.uuidString)
+        #expect(result["surface_id"] as? String == targetSurfaceId.uuidString)
+        #expect(result["is_read"] as? Bool == true)
+        #expect(fixture.manager.selectedTabId == targetWorkspace.id)
+        #expect(fixture.manager.focusedSurfaceId(for: targetWorkspace.id) == targetSurfaceId)
+        #expect(fixture.notification(notification.id)?.isRead == true)
     }
 
-    func testNotificationJumpToUnreadOpensLatestUnreadAndNoOpsWhenNoneRemain() async throws {
+    @Test
+    func notificationJumpToUnreadOpensLatestUnreadAndNoOpsWhenNoneRemain() async throws {
         let fixture = try makeSocketFixture(name: "notif-jump", includeWindow: true)
         defer { fixture.cleanup() }
 
         let targetWorkspace = fixture.manager.addWorkspace(title: "Unread Target", select: false)
-        let targetSurfaceId = try XCTUnwrap(targetWorkspace.focusedPanelId)
+        let targetSurfaceId = try #require(targetWorkspace.focusedPanelId)
         let older = makeNotification(tabId: fixture.workspace.id, surfaceId: fixture.surfaceId, title: "Older")
         let latest = makeNotification(tabId: targetWorkspace.id, surfaceId: targetSurfaceId, title: "Latest")
         fixture.store.replaceNotificationsForTesting([latest, older])
@@ -168,15 +175,15 @@ final class TerminalNotificationSocketActionTests: TerminalNotificationSocketTes
             to: fixture.socketPath
         )
 
-        XCTAssertEqual(response["ok"] as? Bool, true, "\(response)")
-        var result = try XCTUnwrap(response["result"] as? [String: Any])
-        XCTAssertEqual(result["opened"] as? Bool, true)
-        XCTAssertEqual(result["workspace_id"] as? String, targetWorkspace.id.uuidString)
-        XCTAssertEqual(result["surface_id"] as? String, targetSurfaceId.uuidString)
-        XCTAssertEqual(result["is_read"] as? Bool, true)
-        XCTAssertEqual(fixture.manager.selectedTabId, targetWorkspace.id)
-        XCTAssertEqual(fixture.manager.focusedSurfaceId(for: targetWorkspace.id), targetSurfaceId)
-        XCTAssertEqual(fixture.notification(latest.id)?.isRead, true)
+        #expect(response["ok"] as? Bool == true)
+        var result = try #require(response["result"] as? [String: Any])
+        #expect(result["opened"] as? Bool == true)
+        #expect(result["workspace_id"] as? String == targetWorkspace.id.uuidString)
+        #expect(result["surface_id"] as? String == targetSurfaceId.uuidString)
+        #expect(result["is_read"] as? Bool == true)
+        #expect(fixture.manager.selectedTabId == targetWorkspace.id)
+        #expect(fixture.manager.focusedSurfaceId(for: targetWorkspace.id) == targetSurfaceId)
+        #expect(fixture.notification(latest.id)?.isRead == true)
 
         fixture.store.markAllRead()
         let selectedBeforeNoop = fixture.manager.selectedTabId
@@ -188,19 +195,20 @@ final class TerminalNotificationSocketActionTests: TerminalNotificationSocketTes
             to: fixture.socketPath
         )
 
-        XCTAssertEqual(response["ok"] as? Bool, true, "\(response)")
-        result = try XCTUnwrap(response["result"] as? [String: Any])
-        XCTAssertEqual(result["opened"] as? Bool, false)
-        XCTAssertEqual(fixture.manager.selectedTabId, selectedBeforeNoop)
-        XCTAssertEqual(fixture.manager.focusedSurfaceId(for: targetWorkspace.id), focusedBeforeNoop)
+        #expect(response["ok"] as? Bool == true)
+        result = try #require(response["result"] as? [String: Any])
+        #expect(result["opened"] as? Bool == false)
+        #expect(fixture.manager.selectedTabId == selectedBeforeNoop)
+        #expect(fixture.manager.focusedSurfaceId(for: targetWorkspace.id) == focusedBeforeNoop)
     }
 
-    func testNotificationJumpToUnreadPayloadMatchesOpenedFallbackNotification() async throws {
+    @Test
+    func notificationJumpToUnreadPayloadMatchesOpenedFallbackNotification() async throws {
         let fixture = try makeSocketFixture(name: "notif-jump-skip", includeWindow: true)
         defer { fixture.cleanup() }
 
         let targetWorkspace = fixture.manager.addWorkspace(title: "Unread Fallback", select: false)
-        let targetSurfaceId = try XCTUnwrap(targetWorkspace.focusedPanelId)
+        let targetSurfaceId = try #require(targetWorkspace.focusedPanelId)
         let unopenable = makeNotification(tabId: UUID(), surfaceId: nil, title: "Closed Workspace")
         let openable = makeNotification(tabId: targetWorkspace.id, surfaceId: targetSurfaceId, title: "Openable")
         fixture.store.replaceNotificationsForTesting([unopenable, openable])
@@ -212,14 +220,14 @@ final class TerminalNotificationSocketActionTests: TerminalNotificationSocketTes
             to: fixture.socketPath
         )
 
-        XCTAssertEqual(response["ok"] as? Bool, true, "\(response)")
-        let result = try XCTUnwrap(response["result"] as? [String: Any])
-        XCTAssertEqual(result["opened"] as? Bool, true)
-        XCTAssertEqual(result["id"] as? String, openable.id.uuidString)
-        XCTAssertEqual(result["workspace_id"] as? String, targetWorkspace.id.uuidString)
-        XCTAssertEqual(result["surface_id"] as? String, targetSurfaceId.uuidString)
-        XCTAssertEqual(fixture.manager.selectedTabId, targetWorkspace.id)
-        XCTAssertEqual(fixture.notification(openable.id)?.isRead, true)
+        #expect(response["ok"] as? Bool == true)
+        let result = try #require(response["result"] as? [String: Any])
+        #expect(result["opened"] as? Bool == true)
+        #expect(result["id"] as? String == openable.id.uuidString)
+        #expect(result["workspace_id"] as? String == targetWorkspace.id.uuidString)
+        #expect(result["surface_id"] as? String == targetSurfaceId.uuidString)
+        #expect(fixture.manager.selectedTabId == targetWorkspace.id)
+        #expect(fixture.notification(openable.id)?.isRead == true)
     }
 
 }
