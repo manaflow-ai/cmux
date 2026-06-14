@@ -1,101 +1,125 @@
-import XCTest
+import Foundation
+import Testing
 
 #if canImport(cmux_DEV)
-@testable import cmux_DEV
+    @testable import cmux_DEV
 #elseif canImport(cmux)
-@testable import cmux
+    @testable import cmux
 #endif
 
 /// Behavior coverage for per-workspace user-defined environment variables
 /// (issue #5995): the initial shell inherits them, every later pane/split
 /// inherits them, they survive session restore, explicit per-surface env wins,
 /// and the managed `CMUX_*` variables can never be clobbered.
+@Suite(.serialized)
 @MainActor
-final class WorkspaceEnvironmentTests: XCTestCase {
+struct WorkspaceEnvironmentTests {
 
     // MARK: - Sanitization
 
-    func testSanitizedWorkspaceEnvironmentTrimsKeysAndDropsBlanks() {
+    @Test
+    func sanitizedWorkspaceEnvironmentTrimsKeysAndDropsBlanks() {
         let result = Workspace.sanitizedWorkspaceEnvironment([
             "  FOO  ": "bar",   // key is trimmed
             "": "ignored",      // blank key is dropped
             "EMPTY": "",        // blank value is dropped (matches additionalEnvironment)
             "OK": "value",
         ])
-        XCTAssertEqual(result, ["FOO": "bar", "OK": "value"])
+        #expect(result == ["FOO": "bar", "OK": "value"])
+    }
+
+    /// Regression for the Swift→C truncation bypass: a NUL in a key collapses it
+    /// at `strdup`/Ghostty, so `"CMUX_SOCKET_PATH\0x"` would dodge the exact-match
+    /// protection and overwrite the managed variable. NUL/`=` keys and NUL values
+    /// must be rejected at the sanitizer (the single choke point).
+    @Test
+    func sanitizedWorkspaceEnvironmentRejectsKeysThatTruncateAtTheCBoundary() {
+        let result = Workspace.sanitizedWorkspaceEnvironment([
+            "CMUX_SOCKET_PATH\u{0}x": "spoofed",  // NUL would truncate to CMUX_SOCKET_PATH
+            "BAD=KEY": "v",                        // '=' is never a valid env var name
+            "NUL_VALUE": "a\u{0}b",                // NUL in the value
+            "GOOD": "value",
+        ])
+        #expect(result == ["GOOD": "value"])
     }
 
     // MARK: - Acceptance: initial shell inherits the workspace environment
 
-    func testInitialShellInheritsWorkspaceEnvironment() throws {
+    @Test
+    func initialShellInheritsWorkspaceEnvironment() throws {
         let workspace = Workspace(workspaceEnvironment: ["AWS_PROFILE": "prod", "API_BASE": "https://api.example.com"])
-        let panelId = try XCTUnwrap(workspace.focusedPanelId)
-        let panel = try XCTUnwrap(workspace.terminalPanel(for: panelId))
+        let panelId = try #require(workspace.focusedPanelId)
+        let panel = try #require(workspace.terminalPanel(for: panelId))
         let env = panel.surface.respawnInitialEnvironmentOverrides
-        XCTAssertEqual(env["AWS_PROFILE"], "prod")
-        XCTAssertEqual(env["API_BASE"], "https://api.example.com")
+        #expect(env["AWS_PROFILE"] == "prod")
+        #expect(env["API_BASE"] == "https://api.example.com")
     }
 
     // MARK: - Acceptance: later panes/splits inherit it, with no per-pane re-export
 
-    func testLaterSurfaceInheritsWorkspaceEnvironment() throws {
+    @Test
+    func laterSurfaceInheritsWorkspaceEnvironment() throws {
         let workspace = Workspace(workspaceEnvironment: ["AWS_PROFILE": "prod"])
-        let firstPanelId = try XCTUnwrap(workspace.focusedPanelId)
-        let paneId = try XCTUnwrap(workspace.paneId(forPanelId: firstPanelId))
-        let second = try XCTUnwrap(workspace.newTerminalSurface(inPane: paneId, focus: false))
-        XCTAssertEqual(second.surface.respawnAdditionalEnvironment["AWS_PROFILE"], "prod")
+        let firstPanelId = try #require(workspace.focusedPanelId)
+        let paneId = try #require(workspace.paneId(forPanelId: firstPanelId))
+        let second = try #require(workspace.newTerminalSurface(inPane: paneId, focus: false))
+        #expect(second.surface.respawnAdditionalEnvironment["AWS_PROFILE"] == "prod")
     }
 
     /// An explicit per-surface environment (layout `env`, scrollback replay, SSH
     /// startup) overlays the workspace set rather than being discarded.
-    func testExplicitSurfaceEnvironmentOverridesWorkspaceEnvironment() throws {
+    @Test
+    func explicitSurfaceEnvironmentOverridesWorkspaceEnvironment() throws {
         let workspace = Workspace(workspaceEnvironment: ["AWS_PROFILE": "prod", "SHARED": "workspace"])
-        let firstPanelId = try XCTUnwrap(workspace.focusedPanelId)
-        let paneId = try XCTUnwrap(workspace.paneId(forPanelId: firstPanelId))
-        let second = try XCTUnwrap(workspace.newTerminalSurface(
+        let firstPanelId = try #require(workspace.focusedPanelId)
+        let paneId = try #require(workspace.paneId(forPanelId: firstPanelId))
+        let second = try #require(workspace.newTerminalSurface(
             inPane: paneId,
             focus: false,
             startupEnvironment: ["SHARED": "surface", "EXTRA": "x"]
         ))
         let env = second.surface.respawnAdditionalEnvironment
-        XCTAssertEqual(env["SHARED"], "surface")     // explicit wins
-        XCTAssertEqual(env["AWS_PROFILE"], "prod")    // workspace value preserved
-        XCTAssertEqual(env["EXTRA"], "x")
+        #expect(env["SHARED"] == "surface")     // explicit wins
+        #expect(env["AWS_PROFILE"] == "prod")    // workspace value preserved
+        #expect(env["EXTRA"] == "x")
     }
 
-    func testEmptyWorkspaceEnvironmentLeavesSurfaceEnvironmentUntouched() throws {
+    @Test
+    func emptyWorkspaceEnvironmentLeavesSurfaceEnvironmentUntouched() throws {
         let workspace = Workspace()
-        let firstPanelId = try XCTUnwrap(workspace.focusedPanelId)
-        let paneId = try XCTUnwrap(workspace.paneId(forPanelId: firstPanelId))
-        let second = try XCTUnwrap(workspace.newTerminalSurface(
+        let firstPanelId = try #require(workspace.focusedPanelId)
+        let paneId = try #require(workspace.paneId(forPanelId: firstPanelId))
+        let second = try #require(workspace.newTerminalSurface(
             inPane: paneId,
             focus: false,
             startupEnvironment: ["ONLY": "surface"]
         ))
-        XCTAssertEqual(second.surface.respawnAdditionalEnvironment, ["ONLY": "surface"])
+        #expect(second.surface.respawnAdditionalEnvironment == ["ONLY": "surface"])
     }
 
     // MARK: - Acceptance: persistence across session restore
 
-    func testWorkspaceEnvironmentSurvivesSessionRestore() throws {
+    @Test
+    func workspaceEnvironmentSurvivesSessionRestore() throws {
         let source = Workspace(workspaceEnvironment: ["AWS_PROFILE": "prod", "API_BASE": "https://api.example.com"])
         let snapshot = source.sessionSnapshot(includeScrollback: false)
-        XCTAssertEqual(snapshot.environment, ["AWS_PROFILE": "prod", "API_BASE": "https://api.example.com"])
+        #expect(snapshot.environment == ["AWS_PROFILE": "prod", "API_BASE": "https://api.example.com"])
 
         let restored = Workspace()
         restored.restoreSessionSnapshot(snapshot)
-        XCTAssertEqual(restored.workspaceEnvironment, ["AWS_PROFILE": "prod", "API_BASE": "https://api.example.com"])
+        #expect(restored.workspaceEnvironment == ["AWS_PROFILE": "prod", "API_BASE": "https://api.example.com"])
 
-        let restoredPanelId = try XCTUnwrap(restored.focusedPanelId)
-        let restoredPanel = try XCTUnwrap(restored.terminalPanel(for: restoredPanelId))
+        let restoredPanelId = try #require(restored.focusedPanelId)
+        let restoredPanel = try #require(restored.terminalPanel(for: restoredPanelId))
         // Restored terminals spawn fresh shells through newTerminalSurface, which
         // threads the workspace environment via additionalEnvironment.
-        XCTAssertEqual(restoredPanel.surface.respawnAdditionalEnvironment["AWS_PROFILE"], "prod")
+        #expect(restoredPanel.surface.respawnAdditionalEnvironment["AWS_PROFILE"] == "prod")
     }
 
-    func testEmptyWorkspaceEnvironmentIsNotPersisted() {
+    @Test
+    func emptyWorkspaceEnvironmentIsNotPersisted() {
         let workspace = Workspace()
-        XCTAssertNil(workspace.sessionSnapshot(includeScrollback: false).environment)
+        #expect(workspace.sessionSnapshot(includeScrollback: false).environment == nil)
     }
 
     // MARK: - Acceptance: managed CMUX_* variables cannot be clobbered
@@ -104,7 +128,8 @@ final class WorkspaceEnvironmentTests: XCTestCase {
     /// `initialEnvironmentOverrides`, both of which `mergedStartupEnvironment`
     /// applies only for keys absent from `protectedKeys`. This proves a workspace
     /// env entry can never overwrite the variables the daemon relies on.
-    func testWorkspaceEnvironmentCannotClobberProtectedCmuxVariables() {
+    @Test
+    func workspaceEnvironmentCannotClobberProtectedCmuxVariables() {
         let merged = TerminalSurface.mergedStartupEnvironment(
             base: ["CMUX_WORKSPACE_ID": "real-id", "TERM": "xterm-ghostty"],
             protectedKeys: ["CMUX_WORKSPACE_ID", "TERM"],
@@ -116,14 +141,15 @@ final class WorkspaceEnvironmentTests: XCTestCase {
             initialEnvironmentOverrides: ["CMUX_WORKSPACE_ID": "also-spoofed"],
             ambientEnvironment: [:]
         )
-        XCTAssertEqual(merged["CMUX_WORKSPACE_ID"], "real-id")
-        XCTAssertEqual(merged["TERM"], "xterm-ghostty")
-        XCTAssertEqual(merged["AWS_PROFILE"], "prod")
+        #expect(merged["CMUX_WORKSPACE_ID"] == "real-id")
+        #expect(merged["TERM"] == "xterm-ghostty")
+        #expect(merged["AWS_PROFILE"] == "prod")
     }
 
     // MARK: - Persistence schema (Codable)
 
-    func testSessionWorkspaceSnapshotEnvironmentRoundTrips() throws {
+    @Test
+    func sessionWorkspaceSnapshotEnvironmentRoundTrips() throws {
         let snapshot = SessionWorkspaceSnapshot(
             processTitle: "Terminal",
             isPinned: false,
@@ -136,13 +162,14 @@ final class WorkspaceEnvironmentTests: XCTestCase {
         )
         let data = try JSONEncoder().encode(snapshot)
         let decoded = try JSONDecoder().decode(SessionWorkspaceSnapshot.self, from: data)
-        XCTAssertEqual(decoded.environment, ["AWS_PROFILE": "prod"])
+        #expect(decoded.environment == ["AWS_PROFILE": "prod"])
     }
 
     /// A manifest written before this feature has no `environment` key; it must
     /// decode cleanly with a nil environment (and a nil environment must not bloat
     /// new manifests).
-    func testSessionWorkspaceSnapshotOmitsAndToleratesAbsentEnvironment() throws {
+    @Test
+    func sessionWorkspaceSnapshotOmitsAndToleratesAbsentEnvironment() throws {
         let snapshot = SessionWorkspaceSnapshot(
             processTitle: "Terminal",
             isPinned: false,
@@ -153,22 +180,25 @@ final class WorkspaceEnvironmentTests: XCTestCase {
             logEntries: []
         )
         let data = try JSONEncoder().encode(snapshot)
-        let object = try XCTUnwrap(try JSONSerialization.jsonObject(with: data) as? [String: Any])
-        XCTAssertNil(object["environment"], "nil environment should be omitted from the manifest")
+        let raw = try JSONSerialization.jsonObject(with: data)
+        let object = try #require(raw as? [String: Any])
+        #expect(object["environment"] == nil, "nil environment should be omitted from the manifest")
         let decoded = try JSONDecoder().decode(SessionWorkspaceSnapshot.self, from: data)
-        XCTAssertNil(decoded.environment)
+        #expect(decoded.environment == nil)
     }
 
     // MARK: - Config entry point (cmux.json)
 
-    func testCmuxWorkspaceDefinitionDecodesEnv() throws {
+    @Test
+    func cmuxWorkspaceDefinitionDecodesEnv() throws {
         let json = #"{"name":"Build","env":{"AWS_PROFILE":"prod","API_BASE":"https://api.example.com"}}"#
         let definition = try JSONDecoder().decode(CmuxWorkspaceDefinition.self, from: Data(json.utf8))
-        XCTAssertEqual(definition.env, ["AWS_PROFILE": "prod", "API_BASE": "https://api.example.com"])
+        #expect(definition.env == ["AWS_PROFILE": "prod", "API_BASE": "https://api.example.com"])
     }
 
-    func testCmuxWorkspaceDefinitionEnvIsOptional() throws {
+    @Test
+    func cmuxWorkspaceDefinitionEnvIsOptional() throws {
         let definition = try JSONDecoder().decode(CmuxWorkspaceDefinition.self, from: Data(#"{"name":"Build"}"#.utf8))
-        XCTAssertNil(definition.env)
+        #expect(definition.env == nil)
     }
 }

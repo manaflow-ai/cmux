@@ -5685,14 +5685,26 @@ final class Workspace: Identifiable, ObservableObject {
     /// entry with a blank key or blank value. Dropping blank values keeps behavior
     /// identical across the `additionalEnvironment` channel (which already skips
     /// empty values) and the `initialEnvironmentOverrides` channel (which would
-    /// otherwise export a blank value on the initial shell only). Reserved `CMUX_*`
-    /// variables are intentionally *not* stripped here — they are protected at
-    /// spawn time by `mergedStartupEnvironment(protectedKeys:)`, which is the single
-    /// authority on which keys are managed.
+    /// otherwise export a blank value on the initial shell only).
+    ///
+    /// Reserved `CMUX_*` variables are intentionally *not* stripped by name — they
+    /// are protected at spawn time by `mergedStartupEnvironment(protectedKeys:)`,
+    /// the single authority on which keys are managed. That protection is an exact
+    /// Swift-string match, but the env eventually crosses the Swift→C boundary
+    /// (`strdup` / Ghostty), where a key is truncated at its first NUL. A key like
+    /// `"CMUX_SOCKET_PATH\0x"` would dodge the exact-match check yet collapse to
+    /// `CMUX_SOCKET_PATH` in the spawned shell, so reject any key containing a NUL
+    /// (and `=`, which is never a valid env var name) and any value containing a
+    /// NUL. This is the single choke point for every entry point (CLI, cmux.json,
+    /// session restore), so the guard cannot be bypassed.
     static func sanitizedWorkspaceEnvironment(_ environment: [String: String]) -> [String: String] {
         environment.reduce(into: [String: String]()) { result, pair in
             let key = pair.key.trimmingCharacters(in: .whitespacesAndNewlines)
-            guard !key.isEmpty, !pair.value.isEmpty else { return }
+            guard !key.isEmpty,
+                  !pair.value.isEmpty,
+                  !key.contains("\0"),
+                  !key.contains("="),
+                  !pair.value.contains("\0") else { return }
             result[key] = pair.value
         }
     }
