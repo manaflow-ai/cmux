@@ -2,14 +2,10 @@ import AppKit
 import Carbon
 
 class KeyboardLayout {
-    private enum ModifierTranslationMode {
-        case shortcut
-        case textInput
-    }
-
     /// Test-only override for the current input source ID.
     #if DEBUG
     static var debugInputSourceIdOverride: String?
+    static var debugCharacterForInputSourceKind: ((InputSourceKind, UInt16, NSEvent.ModifierFlags, TranslationMode, Bool) -> String?)?
     #endif
 
     /// Return a string ID of the current keyboard input source.
@@ -30,35 +26,51 @@ class KeyboardLayout {
     /// preserving command-aware layouts such as "Dvorak - QWERTY Command".
     /// Some CJK input sources lack kTISPropertyUnicodeKeyLayoutData, and others (Korean
     /// 두벌식) have it but UCKeyTranslate still returns non-ASCII characters. In either
-    /// case we fall back to TISCopyCurrentASCIICapableKeyboardInputSource().
+    /// case we ask the current keyboard layout input source before falling back to
+    /// TISCopyCurrentASCIICapableKeyboardInputSource().
     static func character(
         forKeyCode keyCode: UInt16,
         modifierFlags: NSEvent.ModifierFlags = []
     ) -> String? {
-        if let source = TISCopyCurrentKeyboardInputSource()?.takeRetainedValue(),
-           let result = characterFromInputSource(
-               source,
-               forKeyCode: keyCode,
-               modifierFlags: modifierFlags,
-               mode: .shortcut
-           ),
-           result.allSatisfy(\.isASCII) {
-            return result
-        }
-        // Current input source has no Unicode layout data or returned a non-ASCII
-        // character (e.g. Korean 두벌식 has layout data but UCKeyTranslate still
-        // produces Hangul). Fall back to the ASCII-capable source so shortcut
-        // matching still works.
-        if let asciiSource = TISCopyCurrentASCIICapableKeyboardInputSource()?.takeRetainedValue(),
-           let result = characterFromInputSource(
-               asciiSource,
-               forKeyCode: keyCode,
-               modifierFlags: modifierFlags,
-               mode: .shortcut
-           ) {
-            return result
+        let sourceKinds: [InputSourceKind] = [
+            .currentKeyboardInputSource,
+            .currentKeyboardLayoutInputSource,
+            .currentASCIICapableKeyboardInputSource,
+        ]
+
+        for sourceKind in sourceKinds {
+            if let result = character(
+                from: sourceKind,
+                forKeyCode: keyCode,
+                modifierFlags: modifierFlags,
+                mode: .shortcut
+            ),
+               !result.isEmpty,
+               result.allSatisfy(\.isASCII) {
+                return result
+            }
         }
         return nil
+    }
+
+    /// Translate a physical keyCode through the user's ASCII-capable keyboard source.
+    /// Terminal copy-mode vim keys use this for physical h/j/k/l fallback when an IME
+    /// reports non-ASCII characters; app shortcut matching should use `character`.
+    static func asciiCapableCharacter(
+        forKeyCode keyCode: UInt16,
+        modifierFlags: NSEvent.ModifierFlags = []
+    ) -> String? {
+        guard let result = character(
+            from: .currentASCIICapableKeyboardInputSource,
+            forKeyCode: keyCode,
+            modifierFlags: modifierFlags,
+            mode: .shortcut
+        ),
+              !result.isEmpty,
+              result.allSatisfy(\.isASCII) else {
+            return nil
+        }
+        return result
     }
 
     /// Translate a physical keyCode using the current input source exactly as
@@ -67,11 +79,8 @@ class KeyboardLayout {
         forKeyCode keyCode: UInt16,
         modifierFlags: NSEvent.ModifierFlags
     ) -> String? {
-        guard let source = TISCopyCurrentKeyboardInputSource()?.takeRetainedValue() else {
-            return nil
-        }
-        return characterFromInputSource(
-            source,
+        character(
+            from: .currentKeyboardInputSource,
             forKeyCode: keyCode,
             modifierFlags: modifierFlags,
             mode: .textInput,
@@ -125,7 +134,7 @@ class KeyboardLayout {
         _ source: TISInputSource,
         forKeyCode keyCode: UInt16,
         modifierFlags: NSEvent.ModifierFlags,
-        mode: ModifierTranslationMode,
+        mode: TranslationMode,
         lowercased: Bool = true
     ) -> String? {
         guard let layoutDataPointer = TISGetInputSourceProperty(source, kTISPropertyUnicodeKeyLayoutData) else {
@@ -158,9 +167,46 @@ class KeyboardLayout {
         return lowercased ? result.lowercased() : result
     }
 
+    private static func character(
+        from sourceKind: InputSourceKind,
+        forKeyCode keyCode: UInt16,
+        modifierFlags: NSEvent.ModifierFlags,
+        mode: TranslationMode,
+        lowercased: Bool = true
+    ) -> String? {
+        #if DEBUG
+        if let debugCharacterForInputSourceKind,
+           let result = debugCharacterForInputSourceKind(sourceKind, keyCode, modifierFlags, mode, lowercased) {
+            return lowercased ? result.lowercased() : result
+        }
+        #endif
+
+        guard let source = inputSource(for: sourceKind) else {
+            return nil
+        }
+        return characterFromInputSource(
+            source,
+            forKeyCode: keyCode,
+            modifierFlags: modifierFlags,
+            mode: mode,
+            lowercased: lowercased
+        )
+    }
+
+    private static func inputSource(for sourceKind: InputSourceKind) -> TISInputSource? {
+        switch sourceKind {
+        case .currentKeyboardInputSource:
+            return TISCopyCurrentKeyboardInputSource()?.takeRetainedValue()
+        case .currentKeyboardLayoutInputSource:
+            return TISCopyCurrentKeyboardLayoutInputSource()?.takeRetainedValue()
+        case .currentASCIICapableKeyboardInputSource:
+            return TISCopyCurrentASCIICapableKeyboardInputSource()?.takeRetainedValue()
+        }
+    }
+
     private static func translationModifierKeyState(
         for modifierFlags: NSEvent.ModifierFlags,
-        mode: ModifierTranslationMode
+        mode: TranslationMode
     ) -> UInt32 {
         let translatedModifiers: NSEvent.ModifierFlags = {
             switch mode {
