@@ -82,6 +82,14 @@ struct FeedEventClassificationTests {
         #expect(classify("claude", "PermissionRequest", tool: "AskUserQuestion").name == "AskUserQuestion")
     }
 
+    @Test func claudeLifecycleFeedEventsStayTelemetryAndPreserveNames() {
+        for event in ["PostToolUse", "PreCompact", "PostCompact", "SubagentStart", "SubagentStop"] {
+            let classification = classify("claude", event, tool: "Bash")
+            #expect(classification.name == event)
+            #expect(classification.actionable == false)
+        }
+    }
+
     // MARK: Generic agents without a dedicated approval event
 
     /// Agents whose only signal is `PreToolUse` (gemini, copilot, …) still
@@ -113,6 +121,14 @@ struct FeedEventClassificationTests {
         #expect(classify("codex", "beforeShellExecution", tool: "shell").name == "PreToolUse")
         #expect(classify("codex", "PermissionRequest", tool: "shell").name == "PreToolUse")
         #expect(classify("codex", "PermissionRequest", tool: "shell").actionable == false)
+    }
+
+    @Test func codexLifecycleFeedEventsStayTelemetryAndPreserveNames() {
+        for event in ["PostToolUse", "PreCompact", "PostCompact", "SubagentStart", "SubagentStop"] {
+            let classification = classify("codex", event, tool: "shell")
+            #expect(classification.name == event)
+            #expect(classification.actionable == false)
+        }
     }
 
     /// Unknown source + unknown event is safe by default.

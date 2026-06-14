@@ -28462,6 +28462,8 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
         "PostCompact",
         "SessionStart",
         "UserPromptSubmit",
+        "SubagentStart",
+        "SubagentStop",
         "Stop",
     ]
 
@@ -28474,6 +28476,8 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
         case "PostCompact": return "post_compact"
         case "SessionStart": return "session_start"
         case "UserPromptSubmit": return "user_prompt_submit"
+        case "SubagentStart": return "subagent_start"
+        case "SubagentStop": return "subagent_stop"
         case "Stop": return "stop"
         default: return nil
         }
@@ -28481,7 +28485,8 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
 
     private static func codexHookEventUsesMatcher(_ eventName: String) -> Bool {
         switch eventName {
-        case "PreToolUse", "PermissionRequest", "PostToolUse", "PreCompact", "PostCompact", "SessionStart":
+        case "PreToolUse", "PermissionRequest", "PostToolUse", "PreCompact", "PostCompact", "SessionStart",
+             "SubagentStart", "SubagentStop":
             return true
         default:
             return false
@@ -32446,6 +32451,11 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
             eventDict["workspace_id"] = workspaceId
         }
         let toolInput = stdinObj["tool_input"] ?? stdinObj["toolInput"] ?? toolCall?["args"]
+        let toolResponse = stdinObj["tool_response"]
+            ?? stdinObj["toolResponse"]
+            ?? stdinObj["tool_result"]
+            ?? stdinObj["toolResult"]
+            ?? toolCall?["response"]
         if let cwd = firstString(in: stdinObj, keys: ["cwd", "working_directory", "workingDirectory"])
             ?? firstWorkspacePath(in: stdinObj)
             ?? (toolInput as? [String: Any]).flatMap({ firstString(in: $0, keys: ["Cwd", "cwd"]) }) {
@@ -32453,7 +32463,9 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
         }
         if !toolName.isEmpty { eventDict["tool_name"] = toolName }
         let promptText = hookEventName == "UserPromptSubmit" ? feedPromptText(from: stdinObj) : nil
-        if let toolInput {
+        if hookEventName == "PostToolUse", let toolResponse {
+            eventDict["tool_input"] = toolResponse
+        } else if let toolInput {
             eventDict["tool_input"] = toolInput
         }
         if let context = feedContextForEvent(

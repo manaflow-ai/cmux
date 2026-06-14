@@ -120,6 +120,44 @@ struct WorkstreamStoreTests {
         #expect(store.items[0].kind == .toolUse)
     }
 
+    @Test("OpenAI CLI lifecycle feed events stay telemetry")
+    func openAICLILifecycleFeedEventsStayTelemetry() {
+        let store = WorkstreamStore(ringCapacity: 10)
+        let events: [WorkstreamEvent.HookEventName] = [
+            .postToolUse,
+            .preCompact,
+            .postCompact,
+            .subagentStart,
+            .subagentStop,
+        ]
+
+        for event in events {
+            store.ingest(WorkstreamEvent(
+                sessionId: "codex-session",
+                hookEventName: event,
+                source: "codex"
+            ))
+        }
+
+        #expect(store.items.count == events.count)
+        #expect(store.pending.isEmpty)
+        #expect(store.items.allSatisfy { $0.status == .telemetry })
+        #expect(store.items.map(\.title).contains("PreCompact"))
+        #expect(store.items.map(\.title).contains("PostCompact"))
+        #expect(store.items.map(\.title).contains("SubagentStart"))
+        #expect(!store.items.contains { $0.kind == .sessionStart })
+        if let subagentStartItem = store.items.first(where: { $0.title == "SubagentStart" }) {
+            #expect(subagentStartItem.kind == .toolUse)
+            if case .toolUse(let toolName, _) = subagentStartItem.payload {
+                #expect(toolName == "subagent")
+            } else {
+                Issue.record("expected SubagentStart to decode as toolUse telemetry")
+            }
+        } else {
+            Issue.record("expected SubagentStart item")
+        }
+    }
+
     @Test("Telemetry payloads preserve prompt, stop, and todo content")
     func telemetryContent() {
         let store = WorkstreamStore(ringCapacity: 10)

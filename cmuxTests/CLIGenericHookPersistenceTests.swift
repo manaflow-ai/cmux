@@ -3134,6 +3134,24 @@ extension CLINotifyProcessIntegrationRegressionTests {
             allCommands.contains { $0 == previousBundledHookCommand },
             "Codex setup should replace bundled-CLI hooks that did not pin CMUX_SOCKET_PATH, saw \(allCommands)"
         )
+        for feedEvent in [
+            "PreToolUse",
+            "PermissionRequest",
+            "PostToolUse",
+            "PreCompact",
+            "PostCompact",
+            "SubagentStart",
+            "SubagentStop",
+        ] {
+            XCTAssertEqual(
+                allCommands.filter {
+                    $0.contains("CMUX_BUNDLED_CLI_PATH")
+                        && $0.contains("\"$cmux_cli\" --socket \"$CMUX_SOCKET_PATH\" hooks feed --source codex --event \(feedEvent)")
+                }.count,
+                1,
+                "Codex setup should install one bundled Feed hook for \(feedEvent), saw \(allCommands)"
+            )
+        }
         XCTAssertEqual(
             allCommands.filter { $0.contains("hooks codex prompt-submit") }.count,
             1,
