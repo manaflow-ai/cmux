@@ -27,6 +27,22 @@ extension RemoteSessionCoordinator {
         }
     }
 
+    /// Enables or disables remote listening-port discovery on the coordinator
+    /// queue. The app derives the flag from the sidebar ports-visibility
+    /// settings (`sidebar.showPorts` and `sidebar.hideAllDetails`): disabling
+    /// tears down any active poll timer and in-flight scan burst and stops
+    /// every ssh-spawning scan; enabling resumes polling when the daemon is
+    /// ready and re-arms a TTY-scoped refresh so ports repopulate promptly.
+    public func updateRemotePortScanningEnabled(_ enabled: Bool) {
+        queue.async { [weak self] in
+            self?.updateRemotePortScanningEnabledLocked(enabled)
+        }
+    }
+
+    func updateRemotePortScanningEnabledLocked(_ enabled: Bool) {
+        remotePortScanningEnabled = enabled
+    }
+
     func updateRemotePortScanTTYsLocked(_ ttyNames: [UUID: String]) {
         let previousTTYNames = remotePortScanTTYNames
         let nextTTYNames = ttyNames.reduce(into: [UUID: String]()) { result, entry in
