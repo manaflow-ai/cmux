@@ -15468,7 +15468,7 @@ struct CMUXCLI {
         return (value, remaining)
     }
 
-    private func parseRepeatedOption(_ args: [String], name: String) -> ([String], [String]) {
+    func parseRepeatedOption(_ args: [String], name: String) -> ([String], [String]) {
         var remaining: [String] = []
         var values: [String] = []
         var skipNext = false
