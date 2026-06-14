@@ -7,7 +7,7 @@ import Testing
 @testable import cmux
 #endif
 
-@Suite("Shortcut hint modifier policy")
+@Suite("Shortcut hint modifier policy", .serialized)
 struct ShortcutHintModifierPolicyTests {
     @Test
     func titlebarShortcutHintActionSlotsIncludeFocusHistoryNavigation() {
