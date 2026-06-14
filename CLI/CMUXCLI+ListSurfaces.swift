@@ -154,6 +154,7 @@ extension CMUXCLI {
         terminalOnly: Bool
     ) -> [[String: Any]] {
         let windows = payload["windows"] as? [[String: Any]] ?? []
+        let activeSurfaceHandle = listSurfaceActiveHandle(payload)
         var result: [[String: Any]] = []
 
         for window in windows {
@@ -182,7 +183,8 @@ extension CMUXCLI {
                         copyTreeListValue(into: &row, key: "window_index", from: window["index"])
                         copyTreeListValue(into: &row, key: "window_key", from: window["key"])
                         copyTreeListValue(into: &row, key: "pane_focused", from: pane["focused"])
-                        row["active"] = listSurfaceBool(surface["active"])
+                        row["active"] = listSurfaceMatchesHandle(surface, handle: activeSurfaceHandle)
+                            || listSurfaceBool(surface["active"])
                         result.append(row)
                     }
                 }
@@ -190,6 +192,35 @@ extension CMUXCLI {
         }
 
         return result
+    }
+
+    private func listSurfaceActiveHandle(_ payload: [String: Any]) -> String? {
+        guard let active = payload["active"] as? [String: Any] else { return nil }
+        return listSurfaceHandle(active, refKey: "surface_ref", idKey: "surface_id")
+    }
+
+    private func listSurfaceMatchesHandle(_ surface: [String: Any], handle: String?) -> Bool {
+        guard let handle else { return false }
+        return ["ref", "id", "surface_ref", "surface_id"].contains { key in
+            listSurfaceHandleString(surface[key]) == handle
+        }
+    }
+
+    private func listSurfaceHandle(
+        _ item: [String: Any],
+        refKey: String,
+        idKey: String
+    ) -> String? {
+        if let ref = listSurfaceHandleString(item[refKey]) {
+            return ref
+        }
+        return listSurfaceHandleString(item[idKey])
+    }
+
+    private func listSurfaceHandleString(_ value: Any?) -> String? {
+        guard let string = listSurfaceDebugString(value)?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !string.isEmpty else { return nil }
+        return string
     }
 
     private func listSurfaceBool(_ value: Any?) -> Bool {
