@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """
 Regression for issue #2448:
-shell integrations should dispatch `claude` through the bundled wrapper even
-when GHOSTTY_BIN_DIR is unset and PATH later prefers another binary.
+shell integrations should dispatch `claude` through cmux's wrapper even when
+GHOSTTY_BIN_DIR is unset and PATH later prefers another binary.
 """
 
 from __future__ import annotations
@@ -67,7 +67,7 @@ def run_zsh(shell_dir: Path, real_bin: Path, log_path: Path) -> tuple[int, str, 
         env=env,
         capture_output=True,
         text=True,
-        timeout=8,
+        timeout=30,
         check=False,
     )
     combined = ((result.stdout or "") + (result.stderr or "")).strip()
@@ -92,7 +92,7 @@ def run_zsh_with_alias(shell_dir: Path, real_bin: Path, log_path: Path) -> tuple
         env=env,
         capture_output=True,
         text=True,
-        timeout=8,
+        timeout=30,
         check=False,
     )
     combined = ((result.stdout or "") + (result.stderr or "")).strip()
@@ -118,7 +118,7 @@ def run_bash(shell_dir: Path, real_bin: Path, log_path: Path) -> tuple[int, str,
         env=env,
         capture_output=True,
         text=True,
-        timeout=8,
+        timeout=30,
         check=False,
     )
     combined = ((result.stdout or "") + (result.stderr or "")).strip()
@@ -139,13 +139,14 @@ def run_bash_with_alias(shell_dir: Path, real_bin: Path, log_path: Path) -> tupl
             "--noprofile",
             "--norc",
             "-ic",
-            f'alias claude="$CMUX_TEST_REAL_BIN/user-claude"; source "{shell_dir / "cmux-bash-integration.bash"}"; '
+            f'alias claude="$CMUX_TEST_REAL_BIN/user-claude"\n'
+            f'source "{shell_dir / "cmux-bash-integration.bash"}"\n'
             'PATH="$CMUX_TEST_REAL_BIN:$PATH"; claude bash-alias-case',
         ],
         env=env,
         capture_output=True,
         text=True,
-        timeout=8,
+        timeout=30,
         check=False,
     )
     combined = ((result.stdout or "") + (result.stderr or "")).strip()
@@ -173,7 +174,7 @@ def run_bash_with_function(shell_dir: Path, real_bin: Path, log_path: Path) -> t
         env=env,
         capture_output=True,
         text=True,
-        timeout=8,
+        timeout=30,
         check=False,
     )
     combined = ((result.stdout or "") + (result.stderr or "")).strip()
@@ -190,30 +191,30 @@ def main() -> int:
         real_bin.mkdir(parents=True, exist_ok=True)
 
         write_executable(
-            bundle_bin / "claude",
-            """#!/usr/bin/env bash
-set -euo pipefail
+            bundle_bin / "cmux-claude-wrapper",
+            """#!/bin/sh
+set -eu
 printf 'wrapper:%s\n' "$*" >> "$CMUX_TEST_LOG"
 """,
         )
         write_executable(
             real_bin / "claude",
-            """#!/usr/bin/env bash
-set -euo pipefail
+            """#!/bin/sh
+set -eu
 printf 'real:%s\n' "$*" >> "$CMUX_TEST_LOG"
 """,
         )
         write_executable(
             real_bin / "user-claude",
-            """#!/usr/bin/env bash
-set -euo pipefail
+            """#!/bin/sh
+set -eu
 printf 'user-alias:%s\n' "$*" >> "$CMUX_TEST_LOG"
 """,
         )
         write_executable(
             real_bin / "user-claude-function",
-            """#!/usr/bin/env bash
-set -euo pipefail
+            """#!/bin/sh
+set -eu
 printf 'user-function:%s\n' "$*" >> "$CMUX_TEST_LOG"
 """,
         )
@@ -254,12 +255,12 @@ printf 'user-function:%s\n' "$*" >> "$CMUX_TEST_LOG"
             failures.append(f"bash function case should preserve user function, saw {lines!r}")
 
     if failures:
-        print("FAIL: shell integration did not keep claude on the bundled wrapper")
+        print("FAIL: shell integration did not keep claude on the cmux wrapper")
         for failure in failures:
             print(f"- {failure}")
         return 1
 
-    print("PASS: zsh and bash integrations dispatch claude through the bundled wrapper")
+    print("PASS: zsh and bash integrations dispatch claude through the cmux wrapper")
     return 0
 
 

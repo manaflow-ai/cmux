@@ -1,5 +1,11 @@
 import XCTest
 import AppKit
+// Selective imports: the app target also defines AppIconMode/StoredShortcut/etc.,
+// so a blanket `import CmuxSettings` here makes those names ambiguous. Import only
+// the settings symbols this file needs.
+import struct CmuxSettings.AppCatalogSection
+import struct CmuxSettings.QuitConfirmationStore
+import enum CmuxSettings.ConfirmQuitMode
 
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
@@ -672,7 +678,7 @@ final class KeyboardShortcutSettingsFileStoreStartupTests: XCTestCase {
 
     func testManagedBoolUserDefaultSurvivesSettingsFileReapplyUntilFileChanges() throws {
         let defaults = UserDefaults.standard
-        let key = QuitWarningSettings.warnBeforeQuitKey
+        let key = AppCatalogSection().warnBeforeQuit.userDefaultsKey
 
         try preservingDefaults(keys: [key, settingsFileBackupsDefaultsKey, importedManagedDefaultsKey]) {
             defaults.removeObject(forKey: key)
@@ -735,7 +741,7 @@ final class KeyboardShortcutSettingsFileStoreStartupTests: XCTestCase {
 
     func testConfirmQuitImportsEnumFromCmuxJSON() throws {
         let defaults = UserDefaults.standard
-        let key = QuitWarningSettings.confirmQuitKey
+        let key = AppCatalogSection().confirmQuitMode.userDefaultsKey
 
         try preservingDefaults(keys: [key, settingsFileBackupsDefaultsKey, importedManagedDefaultsKey]) {
             defaults.removeObject(forKey: key)
@@ -764,15 +770,15 @@ final class KeyboardShortcutSettingsFileStoreStartupTests: XCTestCase {
                 startWatching: false
             )
 
-            XCTAssertEqual(defaults.string(forKey: key), QuitConfirmationMode.dirtyOnly.rawValue)
-            XCTAssertEqual(QuitWarningSettings.confirmQuitMode(defaults: defaults), .dirtyOnly)
+            XCTAssertEqual(defaults.string(forKey: key), ConfirmQuitMode.dirtyOnly.rawValue)
+            XCTAssertEqual(QuitConfirmationStore(defaults: defaults).confirmQuitMode, .dirtyOnly)
         }
     }
 
     func testLegacyWarnBeforeQuitMapsToConfirmQuitWhenConfirmQuitIsAbsent() throws {
         let defaults = UserDefaults.standard
-        let confirmQuitKey = QuitWarningSettings.confirmQuitKey
-        let warnBeforeQuitKey = QuitWarningSettings.warnBeforeQuitKey
+        let confirmQuitKey = AppCatalogSection().confirmQuitMode.userDefaultsKey
+        let warnBeforeQuitKey = AppCatalogSection().warnBeforeQuit.userDefaultsKey
 
         try preservingDefaults(keys: [
             confirmQuitKey,
@@ -780,7 +786,7 @@ final class KeyboardShortcutSettingsFileStoreStartupTests: XCTestCase {
             settingsFileBackupsDefaultsKey,
             importedManagedDefaultsKey,
         ]) {
-            defaults.set(QuitConfirmationMode.always.rawValue, forKey: confirmQuitKey)
+            defaults.set(ConfirmQuitMode.always.rawValue, forKey: confirmQuitKey)
             defaults.removeObject(forKey: warnBeforeQuitKey)
             defaults.removeObject(forKey: settingsFileBackupsDefaultsKey)
             defaults.removeObject(forKey: importedManagedDefaultsKey)
@@ -807,16 +813,16 @@ final class KeyboardShortcutSettingsFileStoreStartupTests: XCTestCase {
                 startWatching: false
             )
 
-            XCTAssertEqual(defaults.string(forKey: confirmQuitKey), QuitConfirmationMode.never.rawValue)
+            XCTAssertEqual(defaults.string(forKey: confirmQuitKey), ConfirmQuitMode.never.rawValue)
             XCTAssertEqual(defaults.object(forKey: warnBeforeQuitKey) as? Bool, false)
-            XCTAssertEqual(QuitWarningSettings.confirmQuitMode(defaults: defaults), .never)
+            XCTAssertEqual(QuitConfirmationStore(defaults: defaults).confirmQuitMode, .never)
         }
     }
 
     func testLegacyWarnBeforeQuitMigrationPreservesUserOverride() throws {
         let defaults = UserDefaults.standard
-        let confirmQuitKey = QuitWarningSettings.confirmQuitKey
-        let warnBeforeQuitKey = QuitWarningSettings.warnBeforeQuitKey
+        let confirmQuitKey = AppCatalogSection().confirmQuitMode.userDefaultsKey
+        let warnBeforeQuitKey = AppCatalogSection().warnBeforeQuit.userDefaultsKey
 
         try preservingDefaults(keys: [
             confirmQuitKey,
@@ -856,21 +862,21 @@ final class KeyboardShortcutSettingsFileStoreStartupTests: XCTestCase {
 
             XCTAssertNil(defaults.string(forKey: confirmQuitKey))
             XCTAssertEqual(defaults.object(forKey: warnBeforeQuitKey) as? Bool, true)
-            XCTAssertEqual(QuitWarningSettings.confirmQuitMode(defaults: defaults), .always)
+            XCTAssertEqual(QuitConfirmationStore(defaults: defaults).confirmQuitMode, .always)
 
             try writeSettingsFile("{}", to: settingsFileURL)
             store.reload()
 
             XCTAssertNil(defaults.string(forKey: confirmQuitKey))
             XCTAssertEqual(defaults.object(forKey: warnBeforeQuitKey) as? Bool, true)
-            XCTAssertEqual(QuitWarningSettings.confirmQuitMode(defaults: defaults), .always)
+            XCTAssertEqual(QuitConfirmationStore(defaults: defaults).confirmQuitMode, .always)
         }
     }
 
     func testInvalidConfirmQuitDoesNotAbortRemainingAppSettings() throws {
         let defaults = UserDefaults.standard
-        let confirmQuitKey = QuitWarningSettings.confirmQuitKey
-        let warnBeforeQuitKey = QuitWarningSettings.warnBeforeQuitKey
+        let confirmQuitKey = AppCatalogSection().confirmQuitMode.userDefaultsKey
+        let warnBeforeQuitKey = AppCatalogSection().warnBeforeQuit.userDefaultsKey
 
         try preservingDefaults(keys: [
             confirmQuitKey,
@@ -906,9 +912,9 @@ final class KeyboardShortcutSettingsFileStoreStartupTests: XCTestCase {
                 startWatching: false
             )
 
-            XCTAssertEqual(defaults.string(forKey: confirmQuitKey), QuitConfirmationMode.never.rawValue)
+            XCTAssertEqual(defaults.string(forKey: confirmQuitKey), ConfirmQuitMode.never.rawValue)
             XCTAssertEqual(defaults.object(forKey: warnBeforeQuitKey) as? Bool, false)
-            XCTAssertEqual(QuitWarningSettings.confirmQuitMode(defaults: defaults), .never)
+            XCTAssertEqual(QuitConfirmationStore(defaults: defaults).confirmQuitMode, .never)
         }
     }
 
