@@ -3801,6 +3801,45 @@ final class WindowTerminalHostViewTests: XCTestCase {
         )
     }
 
+    func testHostViewKeepsTerminalTopRowClickableInsideTitlebarBand() {
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 420, height: 260),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        defer { window.orderOut(nil) }
+        guard let contentView = window.contentView,
+              let container = contentView.superview else {
+            XCTFail("Expected window content container")
+            return
+        }
+
+        let hostFrame = container.convert(contentView.bounds, from: contentView)
+        let host = WindowTerminalHostView(frame: hostFrame)
+        host.autoresizingMask = [.width, .height]
+
+        let hostedView = makeHostedTerminalView(frame: host.bounds)
+        host.addSubview(hostedView)
+        container.addSubview(host, positioned: .above, relativeTo: contentView)
+
+        let pointInHostedView = NSPoint(x: hostedView.bounds.midX, y: hostedView.bounds.maxY - 0.5)
+        let pointInWindow = hostedView.convert(pointInHostedView, to: nil)
+        let pointInHost = host.convert(pointInWindow, from: nil)
+        let event = makeMouseDownEvent(at: pointInWindow, window: window)
+
+        XCTAssertGreaterThanOrEqual(
+            pointInWindow.y,
+            BonsplitTabBarPassThrough.titlebarInteractionBandMinY(in: window),
+            "The regression point must exercise the fixed-height titlebar pass-through band"
+        )
+        assertHitFallsInsideHostedTerminal(
+            host.performHitTest(at: pointInHost, currentEvent: event),
+            hostedView: hostedView,
+            message: "Minimal-mode terminal content that extends into the titlebar band should keep receiving top-row mouse-downs"
+        )
+    }
+
     func testHostViewPassesThroughWhenNoTerminalSubviewIsHit() {
         let host = WindowTerminalHostView(frame: NSRect(x: 0, y: 0, width: 200, height: 120))
 
