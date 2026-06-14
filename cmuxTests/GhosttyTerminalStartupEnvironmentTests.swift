@@ -1,4 +1,5 @@
 import Foundation
+import CmuxTerminalEngine
 import Testing
 
 #if canImport(cmux_DEV)
@@ -17,7 +18,7 @@ struct GhosttyTerminalStartupEnvironmentTests {
             context: GHOSTTY_SURFACE_CONTEXT_SPLIT,
             configTemplate: nil
         )
-        defer { TerminalSurfaceRegistry.shared.unregister(surface) }
+        defer { GhosttyApp.terminalSurfaceRegistry.unregister(surface) }
 
         let expectedContextValues = [
             "CMUX_WORKSPACE_ID": workspaceId.uuidString,

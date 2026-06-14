@@ -1,4 +1,7 @@
 import CmuxControlSocket
+import CmuxCore
+import CmuxPanes
+import CmuxWorkspaces
 import Foundation
 
 /// The workspace-domain witnesses for the stage-3c ``ControlCommandCoordinator``:
@@ -382,7 +385,7 @@ extension TerminalController: ControlWorkspaceContext {
             return .notFound
         }
         let tree = ws.bonsplitController.treeSnapshot()
-        let equalizeResult = SplitEqualizer.equalize(
+        let equalizeResult = tabManager.paneLayout.equalizeSplits(
             in: tree,
             controller: ws.bonsplitController,
             orientationFilter: orientationFilter

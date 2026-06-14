@@ -8,11 +8,19 @@ import Bonsplit
 import UserNotifications
 import Sparkle
 import CmuxUpdater
+import CmuxCommandPaletteUI
+
+import CmuxSettings
 
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
+// The app target still declares legacy duplicates of these CmuxSettings
+// value types; with CmuxSettings imported unconditionally the names are
+// ambiguous. These tests exercise the app-side paths, so pin the app types.
+private typealias StoredShortcut = cmux_DEV.StoredShortcut
 #elseif canImport(cmux)
 @testable import cmux
+private typealias StoredShortcut = cmux.StoredShortcut
 #endif
 
 final class SplitShortcutTransientFocusGuardTests: XCTestCase {
@@ -677,7 +685,7 @@ final class CommandPaletteFocusStealerClassificationTests: XCTestCase {
     func testTreatsGhosttySurfaceViewAsFocusStealer() {
         let surfaceView = GhosttyNSView(frame: NSRect(x: 0, y: 0, width: 120, height: 80))
 
-        XCTAssertTrue(isCommandPaletteFocusStealingTerminalOrBrowserResponder(surfaceView))
+        XCTAssertTrue(surfaceView.isCommandPaletteFocusStealingTerminalOrBrowser)
     }
 
     func testTreatsTextFieldInsideTerminalHostedViewAsFocusStealer() {
@@ -688,7 +696,7 @@ final class CommandPaletteFocusStealerClassificationTests: XCTestCase {
         hostedView.addSubview(textField)
 
         XCTAssertTrue(
-            isCommandPaletteFocusStealingTerminalOrBrowserResponder(textField),
+            textField.isCommandPaletteFocusStealingTerminalOrBrowser,
             "Terminal-owned overlay text inputs should not be allowed to reclaim focus from the command palette"
         )
     }
@@ -696,13 +704,13 @@ final class CommandPaletteFocusStealerClassificationTests: XCTestCase {
     func testDoesNotTreatUnrelatedTextFieldAsFocusStealer() {
         let textField = NSTextField(frame: NSRect(x: 0, y: 0, width: 120, height: 24))
 
-        XCTAssertFalse(isCommandPaletteFocusStealingTerminalOrBrowserResponder(textField))
+        XCTAssertFalse(textField.isCommandPaletteFocusStealingTerminalOrBrowser)
     }
 
     func testDoesNotReadTextViewDelegateForFocusStealerClassification() {
         let textView = DelegateTrackingTextView(frame: NSRect(x: 0, y: 0, width: 120, height: 24))
 
-        XCTAssertFalse(isCommandPaletteFocusStealingTerminalOrBrowserResponder(textView))
+        XCTAssertFalse(textView.isCommandPaletteFocusStealingTerminalOrBrowser)
         XCTAssertEqual(
             textView.delegateReadCount,
             0,
@@ -720,7 +728,7 @@ final class CommandPaletteFocusStealerClassificationTests: XCTestCase {
         hostedView.addSubview(textView)
 
         XCTAssertTrue(
-            isCommandPaletteFocusStealingTerminalOrBrowserResponder(textView),
+            textView.isCommandPaletteFocusStealingTerminalOrBrowser,
             "NSTextView responders should still be blocked via the NSView hierarchy walk when the delegate is not a view"
         )
     }
@@ -735,7 +743,7 @@ final class CommandPaletteFocusStealerClassificationTests: XCTestCase {
         hostedView.addSubview(textView)
 
         XCTAssertTrue(
-            isCommandPaletteFocusStealingTerminalOrBrowserResponder(textView),
+            textView.isCommandPaletteFocusStealingTerminalOrBrowser,
             "NSTextView responders should still be blocked via the NSView hierarchy walk when the delegate view is unrelated"
         )
     }
@@ -1636,7 +1644,8 @@ final class LastSurfaceCloseShortcutSettingsTests: XCTestCase {
         }
         defer { defaults.removePersistentDomain(forName: suiteName) }
 
-        XCTAssertTrue(LastSurfaceCloseShortcutSettings.closesWorkspace(defaults: defaults))
+        let key = SettingCatalog().app.keepWorkspaceOpenWhenClosingLastSurface
+        XCTAssertTrue(UserDefaultsSettingsClient(defaults: defaults).value(for: key))
     }
 
     func testStoredTrueClosesWorkspace() {
@@ -1647,8 +1656,9 @@ final class LastSurfaceCloseShortcutSettingsTests: XCTestCase {
         }
         defer { defaults.removePersistentDomain(forName: suiteName) }
 
-        defaults.set(true, forKey: LastSurfaceCloseShortcutSettings.key)
-        XCTAssertTrue(LastSurfaceCloseShortcutSettings.closesWorkspace(defaults: defaults))
+        let key = SettingCatalog().app.keepWorkspaceOpenWhenClosingLastSurface
+        defaults.set(true, forKey: key.userDefaultsKey)
+        XCTAssertTrue(UserDefaultsSettingsClient(defaults: defaults).value(for: key))
     }
 
     func testStoredFalseKeepsWorkspaceOpen() {
@@ -1659,8 +1669,9 @@ final class LastSurfaceCloseShortcutSettingsTests: XCTestCase {
         }
         defer { defaults.removePersistentDomain(forName: suiteName) }
 
-        defaults.set(false, forKey: LastSurfaceCloseShortcutSettings.key)
-        XCTAssertFalse(LastSurfaceCloseShortcutSettings.closesWorkspace(defaults: defaults))
+        let key = SettingCatalog().app.keepWorkspaceOpenWhenClosingLastSurface
+        defaults.set(false, forKey: key.userDefaultsKey)
+        XCTAssertFalse(UserDefaultsSettingsClient(defaults: defaults).value(for: key))
     }
 }
 

@@ -1,4 +1,5 @@
 import AppKit
+import CmuxTerminalEngine
 import Bonsplit
 import SwiftUI
 
@@ -892,7 +893,7 @@ final class DockKeyboardFocusView: NSView {
               let surfaceId = ghosttyView.terminalSurface?.id else {
             return false
         }
-        return TerminalSurfaceRegistry.shared.isRightSidebarDockSurface(id: surfaceId)
+        return GhosttyApp.terminalSurfaceRegistry.isRightSidebarDockSurface(id: surfaceId)
     }
 
     func focusFirstItemFromCoordinator() { _ = focusFirstControl?() }

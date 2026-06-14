@@ -1,3 +1,4 @@
+import CmuxFoundation
 import Darwin
 import Foundation
 
@@ -101,7 +102,7 @@ extension CMUXCLI {
         var output = Data()
         let outputLock = NSLock()
         pipe.fileHandleForReading.readabilityHandler = { handle in
-            switch ProcessPipeReader.readAvailableDataOrEndOfFile(from: handle) {
+            switch handle.readAvailableDataOrEndOfFile() {
             case .data(let data):
                 outputLock.lock()
                 output.append(data)
@@ -117,7 +118,7 @@ extension CMUXCLI {
         } catch { return nil }
         process.waitUntilExit()
         pipe.fileHandleForReading.readabilityHandler = nil
-        let remaining = ProcessPipeReader.readDataToEndOfFileOrEmpty(from: pipe.fileHandleForReading)
+        let remaining = pipe.fileHandleForReading.readDataToEndOfFileOrEmpty()
         if !remaining.isEmpty {
             outputLock.lock()
             output.append(remaining)
