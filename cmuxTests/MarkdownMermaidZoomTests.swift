@@ -76,10 +76,23 @@ final class MarkdownMermaidZoomTests: XCTestCase {
         let fittedWidth = try XCTUnwrap(fitted["width"])
         XCTAssertGreaterThan(fittedWidth, baselineWidth * 1.8)
         XCTAssertLessThanOrEqual(fittedWidth, (try XCTUnwrap(fitted["containerWidth"])) + 2)
+        XCTAssertEqual(fitted["inlineMaxWidthCleared"] ?? 1, 0, accuracy: 0.001)
 
         coordinator.setFontSize(MarkdownFontSizeSettings.defaultPointSize * 2)
         let fittedZoomed = try await waitForMermaidSnapshot(in: webView, expectedZoom: 2)
-        XCTAssertGreaterThan(try XCTUnwrap(fittedZoomed["width"]), fittedWidth * 1.8)
+        let fittedZoomedWidth = try XCTUnwrap(fittedZoomed["width"])
+        XCTAssertGreaterThan(fittedZoomedWidth, fittedWidth * 1.8)
+
+        let widerFrame = NSRect(x: 0, y: 0, width: 960, height: 480)
+        window.setFrame(widerFrame, display: true)
+        webView.frame = widerFrame
+        _ = try await webView.evaluateJavaScript("window.__cmuxSetMarkdownZoom(2);")
+        let widened = try await waitForMermaidSnapshot(
+            in: webView,
+            expectedZoom: 2,
+            minimumWidth: fittedZoomedWidth * 1.1
+        )
+        XCTAssertGreaterThan(try XCTUnwrap(widened["width"]), fittedZoomedWidth * 1.1)
     }
 
     private func renderMarkdown(_ markdown: String, in webView: WKWebView) async throws {
@@ -90,16 +103,17 @@ final class MarkdownMermaidZoomTests: XCTestCase {
 
     private func waitForMermaidSnapshot(
         in webView: WKWebView,
-        expectedZoom: Double? = nil
+        expectedZoom: Double? = nil,
+        minimumWidth: Double? = nil
     ) async throws -> [String: Double] {
         let deadline = Date().addingTimeInterval(3)
         var lastSnapshot: [String: Double]?
         while Date() < deadline {
             if let snapshot = try await mermaidSnapshot(in: webView) {
                 lastSnapshot = snapshot
-                if let expectedZoom {
-                    if abs((snapshot["zoom"] ?? -1) - expectedZoom) <= 0.001 { return snapshot }
-                } else if (snapshot["width"] ?? 0) > 0 {
+                let zoomMatches = expectedZoom.map { abs((snapshot["zoom"] ?? -1) - $0) <= 0.001 } ?? true
+                let widthMatches = minimumWidth.map { (snapshot["width"] ?? 0) >= $0 } ?? ((snapshot["width"] ?? 0) > 0)
+                if zoomMatches && widthMatches {
                     return snapshot
                 }
             }

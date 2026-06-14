@@ -1119,6 +1119,7 @@ html { scroll-behavior: smooth; }
 
   var mermaidInitialized = false;
   var cmuxMarkdownZoom = 1;
+  var mermaidResizeObserver = null;
 
   function normalizedMarkdownZoom(value) {
     var zoom = Number(value);
@@ -1148,9 +1149,24 @@ html { scroll-behavior: smooth; }
     return { width: parts[2], height: parts[3] };
   }
 
-  function mermaidBaseSize(svg) {
-    var cachedWidth = Number(svg.getAttribute('data-cmux-mermaid-base-width'));
-    var cachedHeight = Number(svg.getAttribute('data-cmux-mermaid-base-height'));
+  function mermaidRememberOriginalSizing(svg) {
+    if (svg.hasAttribute('data-cmux-mermaid-original-max-width')) { return; }
+    svg.setAttribute('data-cmux-mermaid-original-max-width', svg.style.maxWidth || '');
+    svg.setAttribute('data-cmux-mermaid-original-width', svg.style.width || '');
+    svg.setAttribute('data-cmux-mermaid-original-height', svg.style.height || '');
+  }
+
+  function mermaidRestoreOriginalSizing(svg) {
+    mermaidRememberOriginalSizing(svg);
+    svg.style.maxWidth = svg.getAttribute('data-cmux-mermaid-original-max-width') || '';
+    svg.style.width = svg.getAttribute('data-cmux-mermaid-original-width') || '';
+    svg.style.height = svg.getAttribute('data-cmux-mermaid-original-height') || '';
+  }
+
+  function mermaidIntrinsicSize(svg) {
+    mermaidRememberOriginalSizing(svg);
+    var cachedWidth = Number(svg.getAttribute('data-cmux-mermaid-natural-width'));
+    var cachedHeight = Number(svg.getAttribute('data-cmux-mermaid-natural-height'));
     if (
       Number.isFinite(cachedWidth) &&
       cachedWidth > 0 &&
@@ -1161,19 +1177,10 @@ html { scroll-behavior: smooth; }
     }
 
     var viewBox = mermaidViewBoxSize(svg);
-    var rect = svg.getBoundingClientRect ? svg.getBoundingClientRect() : null;
-    var width = rect ? rect.width : NaN;
-    var height = rect ? rect.height : NaN;
-    if ((!Number.isFinite(height) || height <= 0) && viewBox && Number.isFinite(width) && width > 0) {
-      height = width * (viewBox.height / viewBox.width);
+    var width = mermaidNumericLength(svg.getAttribute('data-cmux-mermaid-original-max-width'));
+    if (!Number.isFinite(width) || width <= 0) {
+      width = mermaidNumericLength(svg.getAttribute('data-cmux-mermaid-original-width'));
     }
-    if (Number.isFinite(width) && width > 0 && Number.isFinite(height) && height > 0) {
-      svg.setAttribute('data-cmux-mermaid-base-width', String(width));
-      svg.setAttribute('data-cmux-mermaid-base-height', String(height));
-      return { width: width, height: height };
-    }
-
-    width = mermaidNumericLength(svg.style.maxWidth);
     if (!Number.isFinite(width) || width <= 0) {
       width = mermaidNumericLength(svg.getAttribute('width'));
     }
@@ -1181,7 +1188,10 @@ html { scroll-behavior: smooth; }
       width = viewBox.width;
     }
 
-    var height = mermaidNumericLength(svg.getAttribute('height'));
+    var height = mermaidNumericLength(svg.getAttribute('data-cmux-mermaid-original-height'));
+    if (!Number.isFinite(height) || height <= 0) {
+      height = mermaidNumericLength(svg.getAttribute('height'));
+    }
     if ((!Number.isFinite(height) || height <= 0) && viewBox && Number.isFinite(width) && width > 0) {
       height = width * (viewBox.height / viewBox.width);
     }
@@ -1193,15 +1203,45 @@ html { scroll-behavior: smooth; }
       return null;
     }
 
-    svg.setAttribute('data-cmux-mermaid-base-width', String(width));
-    svg.setAttribute('data-cmux-mermaid-base-height', String(height));
+    svg.setAttribute('data-cmux-mermaid-natural-width', String(width));
+    svg.setAttribute('data-cmux-mermaid-natural-height', String(height));
     return { width: width, height: height };
+  }
+
+  function mermaidCurrentBaseSize(svg, natural) {
+    var container = svg.closest ? svg.closest('.cmux-mermaid') : svg.parentElement;
+    var rect = container && container.getBoundingClientRect ? container.getBoundingClientRect() : null;
+    var containerWidth = rect ? rect.width : NaN;
+    if (!Number.isFinite(containerWidth) || containerWidth <= 0) {
+      containerWidth = container ? container.clientWidth : NaN;
+    }
+    var width = natural.width;
+    if (Number.isFinite(containerWidth) && containerWidth > 0) {
+      width = Math.min(containerWidth, natural.width);
+    }
+    return { width: width, height: width * (natural.height / natural.width) };
+  }
+
+  function ensureMermaidResizeObserver() {
+    if (mermaidResizeObserver || typeof ResizeObserver === 'undefined' || !contentEl) { return; }
+    mermaidResizeObserver = new ResizeObserver(function() {
+      if (Math.abs(cmuxMarkdownZoom - 1) > 0.0001) {
+        applyMermaidZoom(contentEl);
+      }
+    });
+    mermaidResizeObserver.observe(contentEl);
   }
 
   function applyMermaidZoomToSVG(svg) {
     if (!svg) { return; }
-    var base = mermaidBaseSize(svg);
-    if (!base) { return; }
+    var natural = mermaidIntrinsicSize(svg);
+    if (!natural) { return; }
+    if (Math.abs(cmuxMarkdownZoom - 1) <= 0.0001) {
+      mermaidRestoreOriginalSizing(svg);
+      svg.setAttribute('data-cmux-mermaid-zoom', '1');
+      return;
+    }
+    var base = mermaidCurrentBaseSize(svg, natural);
     var width = Math.max(1, base.width * cmuxMarkdownZoom);
     var height = Math.max(1, base.height * cmuxMarkdownZoom);
     svg.style.maxWidth = 'none';
@@ -1211,6 +1251,7 @@ html { scroll-behavior: smooth; }
   }
 
   function applyMermaidZoom(root) {
+    ensureMermaidResizeObserver();
     var scope = root || contentEl;
     if (!scope || !scope.querySelectorAll) { return; }
     Array.prototype.forEach.call(scope.querySelectorAll('.cmux-mermaid svg'), applyMermaidZoomToSVG);
