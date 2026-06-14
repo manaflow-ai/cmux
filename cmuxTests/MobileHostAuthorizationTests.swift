@@ -1111,19 +1111,18 @@ final class MobileHostAuthorizationTests: XCTestCase {
 
     // MARK: - Advertised mobile host capabilities
 
-    func testMobileHostAdvertisesWorkspaceActionsCapability() {
-        // The iOS client gates rename/pin on `workspace.actions.v1`; every
-        // mobile.host.status path reads this single list, so advertising it here
-        // is what makes the feature visible to a supporting Mac.
+    func testMobileHostAdvertisesWorkspaceActionCapabilities() {
         let capabilities = MobileHostService.mobileHostCapabilities
         XCTAssertTrue(capabilities.contains("workspace.actions.v1"))
+        XCTAssertTrue(capabilities.contains("workspace.read_state.v1"))
+        XCTAssertTrue(capabilities.contains("workspace.close.v1"))
         XCTAssertTrue(capabilities.contains("terminal.render_grid.v1"))
     }
 
     // MARK: - Mobile workspace.action sub-action gate
 
-    func testMobileWorkspaceActionGateAllowsOnlyPinUnpinRename() {
-        for action in ["pin", "unpin", "rename", "PIN", "UnPin", "RENAME"] {
+    func testMobileWorkspaceActionGateAllowsOnlyPinNameAndReadStateActions() {
+        for action in ["pin", "unpin", "rename", "mark_read", "mark_unread", "PIN", "UnPin", "RENAME", "MARK_READ", "Mark_Unread"] {
             XCTAssertTrue(
                 TerminalController.mobileAllowsWorkspaceAction(action),
                 "mobile workspace.action '\(action)' should be allowed"
@@ -1133,7 +1132,7 @@ final class MobileHostAuthorizationTests: XCTestCase {
             "move_up", "move-down", "move_top",
             "close_others", "close_above", "close_below",
             "set_color", "clear_color", "set_description", "clear_description",
-            "clear_name", "mark_read", "mark_unread", "self_destruct", "",
+            "clear_name", "close", "self_destruct", "",
         ] {
             XCTAssertFalse(
                 TerminalController.mobileAllowsWorkspaceAction(action),

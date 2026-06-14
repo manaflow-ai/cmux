@@ -764,6 +764,7 @@
         },
         "app": {
           "confirmQuit": "控制 cmux 在退出前何時要求確認。無論此設定為何，DEV 建置都會立即退出。舊的 app.warnBeforeQuit 仍會作為布林後備值接受。",
+          "windowTitleTemplate": "可選的 NSWindow 標題範本。留空會保留 cmux 既有的預設標題行為，包括回退到目前目錄。支援的預留位置：'{windowId}'、'{windowToken}'、'{activeWorkspace}'、'{activeDirectory}'、'{defaultTitle}'、'{appName}'。",
           "warnBeforeQuit": "用於退出確認的舊版布林後備值。新設定請使用 app.confirmQuit。",
           "warnBeforeClosingTabXButton": "使用分頁關閉按鈕關閉分頁前顯示確認。",
           "hideTabCloseButton": "在窗格分頁列中隱藏分頁關閉按鈕。",
@@ -922,6 +923,8 @@
         "surfaces": "Surface",
         "surfacesBlurb": "Surface 是窗格內的分頁。",
         "splitPanes": "分割窗格",
+        "canvas": "畫布",
+        "canvasBlurb": "一種自由的二維佈局模式，窗格漂浮在可任意平移的無限畫布上。對齊與分佈指令可在指令面板中使用。",
         "browser": "瀏覽器",
         "notifications": "通知",
         "find": "搜尋",

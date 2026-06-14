@@ -325,8 +325,8 @@ private struct OmnibarAddressButtonStyleBody: View {
     }
 }
 
-private extension View {
-    func cmuxFlatSymbolColorRendering() -> some View {
+private extension Image {
+    func cmuxFlatSymbolColorRendering() -> Image {
         // `symbolColorRenderingMode(.flat)` is not available in the current SDK
         // used by CI/local builds. Keep this modifier as a compatibility no-op.
         self
@@ -417,6 +417,7 @@ struct BrowserPanelView: View {
     let portalPriority: Int
     let onRequestPanelFocus: () -> Void
     @Environment(\.colorScheme) private var colorScheme
+    @Environment(\.cmuxCanvasInlineBrowserHosting) private var canvasInlineBrowserHosting
     @Environment(\.openWindow) private var openWindow
     @Environment(\.paneDropZone) private var paneDropZone
     @State private var omnibarState = OmnibarState()
@@ -457,6 +458,15 @@ struct BrowserPanelView: View {
     @State private var focusFlashAnimationGeneration: Int = 0
     @State private var omnibarPillFrame: CGRect = .zero
     @State private var addressBarHeight: CGFloat = 0
+    @State private var addressBarWidth: CGFloat = 0
+
+    /// Below this chrome width the full accessory row would crowd out the
+    /// omnibar, so the plain-action buttons collapse into an overflow menu.
+    private static let compactChromeWidthThreshold: CGFloat = 420
+
+    private var isChromeCompact: Bool {
+        addressBarWidth > 0 && addressBarWidth < Self.compactChromeWidthThreshold
+    }
     @State private var isBrowserImportHintPopoverPresented = false
     @State private var focusModeShortcutHintMonitor = WindowScopedShortcutHintModifierMonitor(activation: .commandOnly)
     @State private var lastHandledAddressBarFocusRequestId: UUID?
@@ -1145,6 +1155,9 @@ struct BrowserPanelView: View {
         .onPreferenceChange(BrowserAddressBarHeightPreferenceKey.self) { height in
             addressBarHeight = height
         }
+        .onPreferenceChange(BrowserAddressBarWidthPreferenceKey.self) { width in
+            addressBarWidth = width
+        }
         .onReceive(NotificationCenter.default.publisher(for: .webViewDidReceiveClick)) { notification in
             handleBrowserWebViewClickIntent(notification)
         }
@@ -1226,17 +1239,35 @@ struct BrowserPanelView: View {
                 if shouldShowToolbarImportHintChip {
                     browserImportHintToolbarChip
                 }
-                browserFocusModeButtonWithShortcutHint
-                screenshotPageButton
-                reactGrabButton
-                browserProfileButton
-                browserThemeModeButton
-                developerToolsButton
+                if isChromeCompact {
+                    // Narrow panes can't fit the full accessory row without
+                    // clipping the omnibar; collapse the plain-action buttons
+                    // into an overflow menu and keep the popover-anchored
+                    // profile/theme controls present.
+                    browserOverflowMenu
+                    browserProfileButton
+                    browserThemeModeButton
+                } else {
+                    browserFocusModeButtonWithShortcutHint
+                    screenshotPageButton
+                    reactGrabButton
+                    browserProfileButton
+                    browserThemeModeButton
+                    developerToolsButton
+                }
             }
         }
         .padding(.horizontal, 8)
         .padding(.vertical, addressBarVerticalPadding)
         .background(browserChromeBackground)
+        .background {
+            GeometryReader { geo in
+                Color.clear.preference(
+                    key: BrowserAddressBarWidthPreferenceKey.self,
+                    value: geo.size.width
+                )
+            }
+        }
         .background(
             WindowAccessor { window in
                 focusModeShortcutHintMonitor.setHostWindow(window)
@@ -1265,7 +1296,7 @@ struct BrowserPanelView: View {
                 panel.goBack()
             }) {
                 Image(systemName: "chevron.left")
-                    .font(.system(size: chromeMetrics.navigationIconFontSize, weight: .medium))
+                    .cmuxSymbolRasterSize(chromeMetrics.navigationIconFontSize, weight: .medium)
                     .frame(width: addressBarButtonHitSize, height: addressBarButtonHitSize, alignment: .center)
                     .contentShape(Rectangle())
             }
@@ -1281,7 +1312,7 @@ struct BrowserPanelView: View {
                 panel.goForward()
             }) {
                 Image(systemName: "chevron.right")
-                    .font(.system(size: chromeMetrics.navigationIconFontSize, weight: .medium))
+                    .cmuxSymbolRasterSize(chromeMetrics.navigationIconFontSize, weight: .medium)
                     .frame(width: addressBarButtonHitSize, height: addressBarButtonHitSize, alignment: .center)
                     .contentShape(Rectangle())
             }
@@ -1292,7 +1323,7 @@ struct BrowserPanelView: View {
 
             Button(action: handleReloadOrStopButtonAction) {
                 Image(systemName: panel.isLoading ? "xmark" : "arrow.clockwise")
-                    .font(.system(size: chromeMetrics.navigationIconFontSize, weight: .medium))
+                    .cmuxSymbolRasterSize(chromeMetrics.navigationIconFontSize, weight: .medium)
                     .frame(width: addressBarButtonHitSize, height: addressBarButtonHitSize, alignment: .center)
                     .contentShape(Rectangle())
             }
@@ -1318,7 +1349,7 @@ struct BrowserPanelView: View {
             Image(systemName: screenshotPageCopied ? "checkmark" : "camera")
                 .symbolRenderingMode(.monochrome)
                 .cmuxFlatSymbolColorRendering()
-                .font(.system(size: devToolsButtonIconSize, weight: .medium))
+                .cmuxSymbolRasterSize(devToolsButtonIconSize, weight: .medium)
                 .foregroundStyle(screenshotPageButtonColor)
                 .frame(width: addressBarButtonSize, height: addressBarButtonSize, alignment: .center)
         }
@@ -1372,7 +1403,7 @@ struct BrowserPanelView: View {
         Button(action: handleBrowserFocusModeButtonAction) {
             HStack(spacing: 5) {
                 Image(systemName: "keyboard")
-                    .font(.system(size: devToolsButtonIconSize, weight: .medium))
+                    .cmuxSymbolRasterSize(devToolsButtonIconSize, weight: .medium)
                     .scaleEffect(panel.isBrowserFocusModeActive ? 1.08 : 1.0)
                     .animation(.spring(response: 0.18, dampingFraction: 0.82), value: panel.isBrowserFocusModeActive)
                 if panel.isBrowserFocusModeActive {
@@ -1420,7 +1451,7 @@ struct BrowserPanelView: View {
             Image(systemName: "cursorarrow.click.2")
                 .symbolRenderingMode(.monochrome)
                 .cmuxFlatSymbolColorRendering()
-                .font(.system(size: devToolsButtonIconSize, weight: .medium))
+                .cmuxSymbolRasterSize(devToolsButtonIconSize, weight: .medium)
                 .foregroundStyle(panel.isReactGrabActive ? Color.accentColor : Color.secondary)
                 .frame(width: addressBarButtonSize, height: addressBarButtonSize, alignment: .center)
         }
@@ -1437,7 +1468,7 @@ struct BrowserPanelView: View {
             Image(systemName: devToolsIconOption.rawValue)
                 .symbolRenderingMode(.monochrome)
                 .cmuxFlatSymbolColorRendering()
-                .font(.system(size: devToolsButtonIconSize, weight: .medium))
+                .cmuxSymbolRasterSize(devToolsButtonIconSize, weight: .medium)
                 .foregroundStyle(devToolsColorOption.color)
                 .frame(width: addressBarButtonSize, height: addressBarButtonSize, alignment: .center)
         }
@@ -1454,7 +1485,7 @@ struct BrowserPanelView: View {
             Image(systemName: "person.crop.circle")
                 .symbolRenderingMode(.monochrome)
                 .cmuxFlatSymbolColorRendering()
-                .font(.system(size: devToolsButtonIconSize, weight: .medium))
+                .cmuxSymbolRasterSize(devToolsButtonIconSize, weight: .medium)
                 .foregroundStyle(devToolsColorOption.color)
                 .frame(width: addressBarButtonSize, height: addressBarButtonSize, alignment: .center)
         }
@@ -1475,6 +1506,57 @@ struct BrowserPanelView: View {
         .accessibilityIdentifier("BrowserProfileButton")
     }
 
+    /// Overflow menu shown in compact chrome: the plain-action accessory
+    /// buttons (focus mode, screenshot, React Grab, dev tools) as menu items.
+    /// Profile and theme stay as visible buttons since they anchor popovers.
+    private var browserOverflowMenu: some View {
+        Menu {
+            Button(action: handleBrowserFocusModeButtonAction) {
+                Label(
+                    panel.isBrowserFocusModeActive
+                        ? String(localized: "browser.focusMode.active", defaultValue: "Focus Mode")
+                        : String(localized: "browser.focusMode.enter", defaultValue: "Enter Focus Mode"),
+                    systemImage: "keyboard"
+                )
+            }
+            .disabled(!panel.canToggleBrowserFocusMode)
+
+            Button(action: handleScreenshotPageButtonAction) {
+                Label(
+                    String(localized: "browser.screenshotPage.copy.help", defaultValue: "Screenshot Page to Clipboard"),
+                    systemImage: "camera"
+                )
+            }
+            .disabled(!panel.shouldRenderWebView)
+
+            Button {
+                panel.clearReactGrabRoundTrip(reason: "overflowMenu.manualStart")
+                Task { await panel.toggleOrInjectReactGrab() }
+            } label: {
+                Label(
+                    String(localized: "browser.reactGrab", defaultValue: "Inject React Grab"),
+                    systemImage: "cursorarrow.click.2"
+                )
+            }
+
+            Button(action: { openDevTools() }) {
+                Label(developerToolsButtonHelp, systemImage: devToolsIconOption.rawValue)
+            }
+        } label: {
+            Image(systemName: "ellipsis")
+                .symbolRenderingMode(.monochrome)
+                .cmuxFlatSymbolColorRendering()
+                .font(.system(size: devToolsButtonIconSize, weight: .medium))
+                .foregroundStyle(devToolsColorOption.color)
+                .frame(width: addressBarButtonSize, height: addressBarButtonSize, alignment: .center)
+        }
+        .menuStyle(.borderlessButton)
+        .menuIndicator(.hidden)
+        .frame(width: addressBarButtonSize, height: addressBarButtonSize, alignment: .center)
+        .safeHelp(String(localized: "browser.moreActions", defaultValue: "More Actions"))
+        .accessibilityIdentifier("BrowserOverflowMenu")
+    }
+
     private var browserThemeModeButton: some View {
         Button(action: {
             isBrowserThemeMenuPresented.toggle()
@@ -1482,7 +1564,7 @@ struct BrowserPanelView: View {
             Image(systemName: browserThemeMode.iconName)
                 .symbolRenderingMode(.monochrome)
                 .cmuxFlatSymbolColorRendering()
-                .font(.system(size: devToolsButtonIconSize, weight: .medium))
+                .cmuxSymbolRasterSize(devToolsButtonIconSize, weight: .medium)
                 .foregroundStyle(browserThemeModeIconColor)
                 .frame(width: addressBarButtonSize, height: addressBarButtonSize, alignment: .center)
         }
@@ -1509,7 +1591,7 @@ struct BrowserPanelView: View {
         }) {
             HStack(spacing: 4) {
                 Image(systemName: "square.and.arrow.down.on.square")
-                    .font(.system(size: 10, weight: .medium))
+                    .cmuxSymbolRasterSize(10, weight: .medium)
                 Text(String(localized: "browser.import.hint.toolbar", defaultValue: "Import"))
                     .font(.system(size: 11, weight: .medium))
                     .lineLimit(1)
@@ -1539,7 +1621,7 @@ struct BrowserPanelView: View {
                     } label: {
                         HStack(spacing: 8) {
                             Image(systemName: profile.id == panel.profileID ? "checkmark" : "circle")
-                                .font(.system(size: 10, weight: .semibold))
+                                .cmuxSymbolRasterSize(10, weight: .semibold)
                                 .opacity(profile.id == panel.profileID ? 1.0 : 0.0)
                                 .frame(width: 12, alignment: .center)
                             Text(profile.displayName)
@@ -1602,7 +1684,7 @@ struct BrowserPanelView: View {
                 } label: {
                     HStack(spacing: 8) {
                         Image(systemName: mode == browserThemeMode ? "checkmark" : "circle")
-                            .font(.system(size: 10, weight: .semibold))
+                            .cmuxSymbolRasterSize(10, weight: .semibold)
                             .opacity(mode == browserThemeMode ? 1.0 : 0.0)
                             .frame(width: 12, alignment: .center)
                         Text(mode.displayName)
@@ -1635,7 +1717,7 @@ struct BrowserPanelView: View {
         return HStack(spacing: 4) {
             if showSecureBadge {
                 Image(systemName: "lock.fill")
-                    .font(.system(size: chromeMetrics.secureBadgeFontSize))
+                    .cmuxSymbolRasterSize(chromeMetrics.secureBadgeFontSize)
                     .foregroundColor(.secondary)
             }
 
@@ -1725,9 +1807,13 @@ struct BrowserPanelView: View {
     }
 
     private var webView: some View {
+        // Canvas-hosted panes force inline hosting: window-portal positioning
+        // visibly trails the pane during canvas pans (out-of-process WebKit
+        // compositing), and portal content cannot scale with magnification.
         let useLocalInlineDeveloperToolsHosting =
-            panel.shouldUseLocalInlineDeveloperToolsHosting() &&
-            isCurrentPaneOwner
+            (panel.shouldUseLocalInlineDeveloperToolsHosting() &&
+             isCurrentPaneOwner) ||
+            canvasInlineBrowserHosting
 
         return Group {
             if panel.shouldRenderWebView {
@@ -3592,6 +3678,14 @@ private struct OmnibarPillFramePreferenceKey: PreferenceKey {
 }
 
 private struct BrowserAddressBarHeightPreferenceKey: PreferenceKey {
+    static var defaultValue: CGFloat = 0
+
+    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
+        value = max(value, nextValue())
+    }
+}
+
+private struct BrowserAddressBarWidthPreferenceKey: PreferenceKey {
     static var defaultValue: CGFloat = 0
 
     static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
@@ -5754,6 +5848,12 @@ struct WebViewRepresentable: NSViewRepresentable {
             return slotView
         }
 
+#if DEBUG
+        func localInlineSlotViewForDebug() -> WindowBrowserSlotView? {
+            localInlineSlotView
+        }
+#endif
+
         func setLocalInlineSlotHidden(_ hidden: Bool) {
             localInlineSlotView?.isHidden = hidden
             if hidden {
@@ -7316,6 +7416,19 @@ struct WebViewRepresentable: NSViewRepresentable {
             )
             DispatchQueue.main.async { [weak host, weak webView] in
                 guard let host, let webView else { return }
+#if DEBUG
+                let slotFrame = host.localInlineSlotViewForDebug()?.frame ?? .zero
+                let companions = webView.superview?.subviews
+                    .filter { $0 !== webView }
+                    .map { String(describing: type(of: $0)) }
+                    .joined(separator: ",") ?? "-"
+                cmuxDebugLog(
+                    "browser.localInline.frames host=\(host.bounds) slot=\(slotFrame) " +
+                    "web=\(webView.frame) webSuper=\(String(describing: type(of: webView.superview))) " +
+                    "inspector=\(webView.cmuxInspectorFrontendWebView() != nil ? 1 : 0) " +
+                    "companions=\(companions)"
+                )
+#endif
                 if let sourceSuperview = Self.localInlineTransferRoot(for: webView),
                    sourceSuperview === slotView {
                     Self.moveWebKitRelatedSubviewsIntoHostIfNeeded(

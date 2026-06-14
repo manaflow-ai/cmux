@@ -293,30 +293,6 @@ final class MobileHostService {
     static let shared = MobileHostService()
     nonisolated private static let maximumActiveConnectionCount = 10
 
-    /// The single source of truth for the capabilities advertised to mobile
-    /// clients via `mobile.host.status`. Every status path (the public-status
-    /// cache, the network status gate, and `TerminalController`'s full
-    /// status) reads this so the lists cannot drift; iOS gates features
-    /// like rename/pin on the entries present here.
-    ///
-    /// This also advertises `dogfood.v1`, the agent feedback round-trip
-    /// (`dogfood.feedback.submit`). It is advertised on every build type so the
-    /// privileged Send Feedback path (offered only to `@manaflow.ai` users on an
-    /// active connection) works on Release (beta/prod) too; the sink itself is
-    /// still gated by the same-account Stack-auth check the rest of the mobile
-    /// data plane enforces.
-    nonisolated static var mobileHostCapabilities: [String] {
-        [
-            "events.v1",
-            "terminal.bytes.v1",
-            "terminal.render_grid.v1",
-            "terminal.replay.v1",
-            "terminal.viewport.v1",
-            "workspace.actions.v1",
-            "dogfood.v1",
-        ]
-    }
-
     /// The single shape every public `mobile.host.status` reply uses (the
     /// public-status cache, the network status gate, and
     /// `TerminalController`'s no-private-metadata branch), so the fields
@@ -399,6 +375,12 @@ final class MobileHostService {
     private var activeConnections: [UUID: MobileHostConnection] = [:]
     private var clientIDsByConnectionID: [UUID: Set<String>] = [:]
     private var lastErrorDescription: String?
+    /// Watches for network path changes while the listener is bound, so the
+    /// advertised route set (and the team device registry that
+    /// ``DeviceRegistryClient`` mirrors it into) refreshes when the Mac moves
+    /// networks or Tailscale flips, not only when the listener restarts.
+    /// `nil` while stopped.
+    private var pathMonitor: MobileHostNetworkPathMonitor?
     /// Injected once via `configure(auth:)` at app startup, before the
     /// listener starts accepting connections.
     private var auth: AuthCoordinator?
@@ -725,6 +707,7 @@ final class MobileHostService {
             }
         })
         MobileHostPublicStatusCache.update(routes: routeResolver.routes(port: port).routes)
+        startNetworkPathMonitorIfNeeded()
         drainReadinessWaiters()
     }
 
@@ -792,6 +775,7 @@ final class MobileHostService {
             listenerUsesEphemeralFallback = !usePreferredPort
             listenerPort = nil
             nextListener.start(queue: callbackQueue)
+            startNetworkPathMonitorIfNeeded()
         } catch {
             if usePreferredPort {
                 mobileHostLog.info("mobile host preferred port unavailable before listener start, falling back to an ephemeral port")
@@ -820,6 +804,7 @@ final class MobileHostService {
     }
 
     func stop() {
+        stopNetworkPathMonitor()
         listenerGeneration = UUID()
         listenerUsesEphemeralFallback = false
         listener?.stateUpdateHandler = nil
@@ -1384,6 +1369,12 @@ final class MobileHostService {
             return nil
         case "workspace.create":
             return nil
+        case "workspace.group.collapse", "workspace.group.expand":
+            // Display-only group state. Keyed by `group_id` (not a workspace or
+            // terminal selection), so it is Mac-scoped like the workspace list and
+            // not constrained by the ticket's workspace/terminal pin. The Stack
+            // same-account gate in `authorizationError` remains authoritative.
+            return nil
         case "mobile.terminal.create", "terminal.create":
             return nil
         case "mobile.terminal.input", "terminal.input",
@@ -1602,6 +1593,52 @@ final class MobileHostService {
         MobileHostPublicStatusCache.update(
             routes: routeResolver.routes(port: port, tailscaleHosts: tailscaleHosts).routes
         )
+    }
+
+    // MARK: - Network path monitoring
+
+    /// Begin republishing routes on network path changes (observation and
+    /// dedup live in ``MobileHostNetworkPathMonitor``). Idempotent; runs for
+    /// the lifetime of the listener and is stopped by ``stop()``.
+    private func startNetworkPathMonitorIfNeeded() {
+        guard pathMonitor == nil else { return }
+        let monitor = MobileHostNetworkPathMonitor { [weak self] in
+            self?.handleNetworkPathChange()
+        }
+        monitor.start(queue: callbackQueue)
+        pathMonitor = monitor
+    }
+
+    private func stopNetworkPathMonitor() {
+        pathMonitor?.cancel()
+        pathMonitor = nil
+    }
+
+    private func handleNetworkPathChange() {
+        // The cached Tailscale hosts (and any in-flight resolution) may describe
+        // the previous network; drop them on EVERY path observation so no later
+        // refresh can be satisfied from, or raced by, old-path state. This must
+        // happen before the no-port early return: the monitor's first
+        // observation can land mid-bind, advancing its dedup baseline, and the
+        // `.ready` publish that follows would otherwise be free to reuse a
+        // TTL-fresh cache from the previous network with no further path
+        // callback coming to correct it.
+        routeResolver.invalidateResolvedTailscaleHostCache()
+        guard let port = listenerPort else {
+            // Mid-bind (no port yet): the `.ready` handler publishes against the
+            // current path when the bind completes, and the invalidation above
+            // guarantees it resolves freshly.
+            return
+        }
+        let generation = listenerGeneration
+        // Same two-phase publish as the listener-ready handler: immediate routes
+        // from interface scan now, DNS-resolved hosts when they land.
+        routeResolver.refreshTailscaleRoutes(onResolvedHosts: { [weak self] hosts in
+            Task { @MainActor [weak self] in
+                self?.updatePublicStatusRoutes(port: port, generation: generation, tailscaleHosts: hosts)
+            }
+        })
+        MobileHostPublicStatusCache.update(routes: routeResolver.routes(port: port).routes)
     }
 }
 

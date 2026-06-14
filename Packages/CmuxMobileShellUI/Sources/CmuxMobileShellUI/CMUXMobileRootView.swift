@@ -87,6 +87,16 @@ struct CMUXMobileRootView: View {
             // nothing ever resolves `didFinishStoredMacReconnectAttempt`.
             reconnectStoredMacIfNeeded()
         }
+        #if os(iOS)
+        // A notification tap can arrive before the workspace (or terminal) it
+        // targets is loaded (cold launch, or attach still in flight); re-apply
+        // the parked deep link as the lists fill in. The version counter is a
+        // cheap change signal: it bumps on any workspace or terminal list
+        // mutation without allocating ID arrays on every body evaluation.
+        .onChange(of: store.workspaceTopologyVersion) { _, _ in
+            pushCoordinator.workspacesDidChange()
+        }
+        #endif
         .onChange(of: scenePhase) { _, phase in
             guard phase == .active else { return }
             store.resumeForegroundRefresh()
@@ -345,15 +355,26 @@ struct CMUXMobileRootView: View {
 
     private func signOut() {
         #if os(iOS)
+        // The hook receives the tokens captured before the local-first clear:
+        // by the time it runs, the live token store is already empty.
         let pushCoordinator = pushCoordinator
-        let onSignedOut: @Sendable () async -> Void = { await pushCoordinator.unregisterFromServer() }
+        let onSignedOut: @Sendable (String?, String?) async -> Void = { accessToken, refreshToken in
+            await pushCoordinator.unregisterFromServer(
+                accessToken: accessToken,
+                refreshToken: refreshToken
+            )
+        }
         #else
-        let onSignedOut: @Sendable () async -> Void = {}
+        let onSignedOut: @Sendable (String?, String?) async -> Void = { _, _ in }
         #endif
         Task {
-            await authManager.signOut(onSignedOut: onSignedOut)
+            // Local shell teardown first so the whole UI lands signed out
+            // immediately; authManager.signOut clears the local session up
+            // front and only then runs its bounded best-effort server teardown
+            // (push-token DELETE, Stack session revocation).
             didAuthenticateWithAttachTicket = false
             store.signOut()
+            await authManager.signOut(onSignedOut: onSignedOut)
         }
     }
 

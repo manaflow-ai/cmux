@@ -1,13 +1,20 @@
 import AppKit
+import CmuxCommandPalette
+import CmuxCore
+import CmuxFoundation
+import CmuxPanes
 import CmuxSocketControl
+import CmuxWorkspaces
 import Bonsplit
 import Combine
 import CmuxSidebarInterpreterClient
+import CmuxTerminal
 @_spi(CmuxHostTransport) import CmuxExtensionKit
 import CmuxSidebarProviderKit
 import CmuxExtensionSidebarExamples
 import CmuxSettings
 import CmuxSettingsUI
+import CmuxSidebar
 import CmuxSidebarRemoteRender
 import CmuxSwiftRender
 import CmuxSwiftRenderUI
@@ -995,7 +1002,7 @@ private final class SelectedWorkspaceDirectoryObserver: ObservableObject {
     func wire(tabManager: TabManager) {
         guard self.tabManager !== tabManager || cancellable == nil else { return }
         self.tabManager = tabManager
-        cancellable = tabManager.$selectedTabId
+        cancellable = tabManager.selectedTabIdPublisher
             .map { [weak tabManager] tabId -> Workspace? in
                 guard let tabId, let tabManager else { return nil }
                 return tabManager.tabs.first(where: { $0.id == tabId })
@@ -1481,6 +1488,7 @@ struct ContentView: View {
         static let workspaceShouldPin = "workspace.shouldPin"
         static let workspaceHasPullRequests = "workspace.hasPullRequests"
         static let workspaceHasSplits = "workspace.hasSplits"
+        static let workspaceCanvasLayout = "workspace.canvasLayout"
         static let workspaceHasPeers = "workspace.hasPeers"
         static let workspaceHasAbove = "workspace.hasAbove"
         static let workspaceHasBelow = "workspace.hasBelow"
@@ -2187,9 +2195,9 @@ struct ContentView: View {
     }
 
     private func terminalContentWithRightSidebarPanel(appearance: WindowAppearanceSnapshot) -> some View {
-        // File explorer is always in the view tree. Visibility is controlled by
-        // frame width (0 when hidden), avoiding SwiftUI view insertion/removal
-        // and all associated transition animations.
+        // The right-sidebar shell remains in the view tree so its frame can
+        // animate without SwiftUI insertion/removal. Cold hidden launches defer
+        // heavy mode content until the sidebar has been shown at least once.
         return HStack(spacing: 0) {
             terminalContentWithSidebarDropOverlay(appearance: appearance)
             rightSidebarPanelWithBackdrop(appearance: appearance)
@@ -2731,7 +2739,7 @@ struct ContentView: View {
             fileExplorerStore.applyWorkspaceRoot(.none)
             return
         }
-        fileExplorerStore.applyWorkspaceRoot(.local(path: dir))
+        fileExplorerStore.applyWorkspaceRoot(.local(workspaceId: tab.id, path: dir))
     }
 
     private var shouldSyncFileExplorerStore: Bool {
@@ -3094,7 +3102,7 @@ struct ContentView: View {
             }
         })
 
-        view = AnyView(view.onReceive(tabManager.$tabs) { tabs in
+        view = AnyView(view.onReceive(tabManager.tabsPublisher) { tabs in
             let existingIds = Set(tabs.map { $0.id })
             if let retiringWorkspaceId, !existingIds.contains(retiringWorkspaceId) {
                 self.retiringWorkspaceId = nil
@@ -6383,6 +6391,17 @@ struct ContentView: View {
             } else {
                 supportsFork = false
             }
+#if DEBUG
+            cmuxDebugLog(
+                "palette.forkProbe panel=\(panelId.uuidString.prefix(5)) " +
+                    "indexSnapshot=\(indexSnapshot != nil ? 1 : 0) " +
+                    "fallbackSnapshot=\(fallbackSnapshot != nil ? 1 : 0) " +
+                    "kind=\(snapshot?.kind.rawValue ?? "none") " +
+                    "session=\(snapshot.map { String($0.sessionId.prefix(8)) } ?? "none") " +
+                    "launcher=\(snapshot?.launchCommand?.launcher ?? "none") " +
+                    "supportsFork=\(supportsFork ? 1 : 0)"
+            )
+#endif
             guard !Task.isCancelled else { return }
 
             await MainActor.run {
@@ -6645,6 +6664,10 @@ struct ContentView: View {
                 CommandPaletteContextKeys.workspaceHasSplits,
                 workspace.bonsplitController.allPaneIds.count > 1
             )
+            snapshot.setBool(
+                CommandPaletteContextKeys.workspaceCanvasLayout,
+                workspace.layoutMode == .canvas
+            )
             let workspaceIndex = tabManager.tabs.firstIndex { $0.id == workspace.id }
             snapshot.setBool(CommandPaletteContextKeys.workspaceHasPeers, tabManager.tabs.count > 1)
             snapshot.setBool(CommandPaletteContextKeys.workspaceHasAbove, (workspaceIndex ?? 0) > 0)
@@ -6800,6 +6823,15 @@ struct ContentView: View {
                 title: constant(String(localized: "command.newWorkspace.title", defaultValue: "New Workspace")),
                 subtitle: constant(String(localized: "command.newWorkspace.subtitle", defaultValue: "Workspace")),
                 keywords: ["create", "new", "workspace"]
+            )
+        )
+        contributions.append(
+            CommandPaletteCommandContribution(
+                commandId: "palette.newBrowserWorkspace",
+                title: constant(String(localized: "command.newBrowserWorkspace.title", defaultValue: "New Browser Workspace")),
+                subtitle: constant(String(localized: "command.newBrowserWorkspace.subtitle", defaultValue: "Workspace")),
+                keywords: ["create", "new", "browser", "workspace", "web"],
+                when: { !$0.bool(CommandPaletteContextKeys.browserDisabled) }
             )
         )
         contributions.append(
@@ -6980,6 +7012,7 @@ struct ContentView: View {
             )
         )
         contributions.append(contentsOf: Self.commandPaletteViewCommandContributions())
+        contributions.append(contentsOf: Self.commandPaletteCanvasCommandContributions())
         contributions.append(
             CommandPaletteCommandContribution(
                 commandId: "palette.showNotifications",
@@ -8008,6 +8041,16 @@ struct ContentView: View {
                 debugSource: "palette.newWorkspace"
             )
         }
+        registry.register(commandId: "palette.newBrowserWorkspace") {
+            // Let command-palette dismissal complete first so omnibar focus
+            // is not blocked by the palette visibility guard.
+            DispatchQueue.main.async {
+                _ = AppDelegate.shared?.performNewBrowserWorkspaceAction(
+                    tabManager: tabManager,
+                    debugSource: "palette.newBrowserWorkspace"
+                )
+            }
+        }
         registry.register(commandId: "palette.openFolder") {
             // Defer so the command palette dismisses before the modal sheet appears.
             DispatchQueue.main.async {
@@ -8120,6 +8163,7 @@ struct ContentView: View {
             workspacePresentationMode = WorkspacePresentationModeSettings.Mode.standard.rawValue
         }
         registerViewCommandHandlers(&registry)
+        registerCanvasCommandHandlers(&registry)
         registry.register(commandId: "palette.showNotifications") {
             AppDelegate.shared?.toggleNotificationsPopover(animated: false)
         }
@@ -10030,7 +10074,7 @@ struct SidebarTabItemSettingsSnapshot: Equatable {
     let openPullRequestLinksInCmuxBrowser: Bool
     let openPortLinksInCmuxBrowser: Bool
     let showsNotificationMessage: Bool
-    let activeTabIndicatorStyle: SidebarActiveTabIndicatorStyle
+    let activeTabIndicatorStyle: WorkspaceIndicatorStyle
     let selectionColorHex: String?
     let notificationBadgeColorHex: String?
     let visibleAuxiliaryDetails: SidebarWorkspaceAuxiliaryDetailVisibility
@@ -10044,13 +10088,15 @@ struct SidebarTabItemSettingsSnapshot: Equatable {
         sidebarShortcutHintYOffset = ShortcutHintDebugSettings.defaultSidebarHintY
         alwaysShowShortcutHints = ShortcutHintDebugSettings.alwaysShowHints()
         sidebarFontScale = SidebarTabItemFontScale.scale(for: sidebarFontSize)
+        let settings = UserDefaultsSettingsClient(defaults: defaults)
+        let catalog = SettingCatalog()
         showsGitBranch = Self.bool(defaults: defaults, key: "sidebarShowGitBranch", defaultValue: true)
-        usesVerticalBranchLayout = SidebarBranchLayoutSettings.usesVerticalLayout(defaults: defaults)
-        stacksBranchAndDirectory = SidebarBranchDirectoryStackedSettings.isStacked(defaults: defaults)
-        usesLastSegmentPath = SidebarPathLastSegmentSettings.isLastSegmentOnly(defaults: defaults)
+        usesVerticalBranchLayout = settings.value(for: catalog.sidebar.branchVerticalLayout)
+        stacksBranchAndDirectory = settings.value(for: catalog.sidebar.stackBranchDirectory)
+        usesLastSegmentPath = settings.value(for: catalog.sidebar.pathLastSegmentOnly)
         showsGitBranchIcon = Self.bool(defaults: defaults, key: "sidebarShowGitBranchIcon", defaultValue: false)
         showsSSH = Self.bool(defaults: defaults, key: "sidebarShowSSH", defaultValue: SidebarWorkspaceDetailDefaults.showSSH)
-        makesPullRequestsClickable = SidebarPullRequestClickabilitySettings.isClickable(defaults: defaults)
+        makesPullRequestsClickable = settings.value(for: catalog.sidebar.makePullRequestsClickable)
         openPullRequestLinksInCmuxBrowser = BrowserLinkOpenSettings.openSidebarPullRequestLinksInCmuxBrowser(
             defaults: defaults
         )
@@ -10058,22 +10104,15 @@ struct SidebarTabItemSettingsSnapshot: Equatable {
             defaults: defaults
         )
 
-        hidesAllDetails = SidebarWorkspaceDetailSettings.hidesAllDetails(defaults: defaults)
+        hidesAllDetails = settings.value(for: catalog.sidebar.hideAllDetails)
         wrapsWorkspaceTitles = SidebarWorkspaceTitleWrapSettings.wraps(defaults: defaults)
-        let showsWorkspaceDescriptionSetting = SidebarWorkspaceDetailSettings.showsWorkspaceDescription(
-            defaults: defaults
-        )
-        showsWorkspaceDescription = SidebarWorkspaceDetailSettings.resolvedWorkspaceDescriptionVisibility(
-            showWorkspaceDescription: showsWorkspaceDescriptionSetting,
+        let detailVisibility = SidebarWorkspaceDetailVisibility(
+            showWorkspaceDescription: settings.value(for: catalog.sidebar.showWorkspaceDescription),
+            showNotificationMessage: settings.value(for: catalog.sidebar.showNotificationMessage),
             hideAllDetails: hidesAllDetails
         )
-        let showsNotificationMessageSetting = SidebarWorkspaceDetailSettings.showsNotificationMessage(
-            defaults: defaults
-        )
-        showsNotificationMessage = SidebarWorkspaceDetailSettings.resolvedNotificationMessageVisibility(
-            showNotificationMessage: showsNotificationMessageSetting,
-            hideAllDetails: hidesAllDetails
-        )
+        showsWorkspaceDescription = detailVisibility.showsWorkspaceDescription
+        showsNotificationMessage = detailVisibility.showsNotificationMessage
 
         let showsMetadata = Self.bool(defaults: defaults, key: "sidebarShowStatusPills", defaultValue: SidebarWorkspaceDetailDefaults.showCustomMetadata)
         let showsLog = Self.bool(defaults: defaults, key: "sidebarShowLog", defaultValue: SidebarWorkspaceDetailDefaults.showLog)
@@ -10091,7 +10130,7 @@ struct SidebarTabItemSettingsSnapshot: Equatable {
             hideAllDetails: hidesAllDetails
         )
 
-        activeTabIndicatorStyle = SidebarActiveTabIndicatorSettings.current(defaults: defaults)
+        activeTabIndicatorStyle = settings.value(for: catalog.workspaceColors.indicatorStyle)
         selectionColorHex = defaults.string(forKey: "sidebarSelectionColorHex")
         notificationBadgeColorHex = defaults.string(forKey: "sidebarNotificationBadgeColorHex")
         iMessageModeEnabled = IMessageModeSettings.isEnabled(defaults: defaults)
@@ -10647,7 +10686,6 @@ struct VerticalTabsSidebar: View {
     // row sitting behind the open menu. See `SidebarShortcutHintFreezePolicy`.
     @State private var frozenShortcutHintsTabId: UUID?
     @State private var frozenShortcutHintsValue: Bool = false
-    @State private var workspaceRowsMeasurement: SidebarWorkspaceRowsMeasurement<UUID>?
     @State private var pendingSelectedWorkspaceScrollId: UUID?
     @State private var collapsedExtensionSidebarSectionIds: Set<String> = []
     @State private var extensionSidebarWorktreeCreationInFlightSectionIds: Set<String> = []
@@ -11171,27 +11209,11 @@ struct VerticalTabsSidebar: View {
                 viewportHeight: geometryProxy.size.height,
                 insets: scrollInsets
             )
-            let measuredWorkspaceRowsHeight = workspaceRowsMeasurement?.rowsHeight(
-                for: renderContext.visibleWorkspaceRowIds
-            )
-            // The empty drop/tap area below the last row is sized to the
-            // remaining viewport so the scroll content fills (but never
-            // exceeds) the visible height when the rows fit. Sizing it to a
-            // finite remainder — instead of the old `maxHeight: .infinity` —
-            // is what keeps the document view from always overflowing, so the
-            // overlay scroller stays hidden when there is nothing to scroll
-            // (https://github.com/manaflow-ai/cmux/issues/3241).
-            let emptyAreaHeight = SidebarWorkspaceScrollLayout.emptyAreaHeight(
-                contentMinHeight: contentMinHeight,
-                rowsHeight: measuredWorkspaceRowsHeight
-            )
-
             ScrollViewReader { scrollProxy in
                 ScrollView(.vertical) {
                     workspaceScrollContent(
                         renderContext: renderContext,
-                        minHeight: contentMinHeight,
-                        emptyAreaHeight: emptyAreaHeight
+                        minHeight: contentMinHeight
                     )
                 }
                 .background(
@@ -11290,12 +11312,6 @@ struct VerticalTabsSidebar: View {
                     }
                     requestSelectedWorkspaceScroll(scrollProxy, renderContext: renderContext)
                 }
-                .onChange(of: renderContext.visibleWorkspaceRowIds) { _, _ in
-                    // Drop the stale rows-height measurement so the empty-area
-                    // sizing recomputes for the new row set. The measurement is
-                    // also keyed by workspace ids, so this is belt-and-suspenders.
-                    workspaceRowsMeasurement = nil
-                }
                 .onReceive(NotificationCenter.default.publisher(for: .workspaceOrderDidChange)) { notification in
                     requestSelectedWorkspaceScrollAfterWorkspaceOrderChange(notification)
                 }
@@ -11308,16 +11324,16 @@ struct VerticalTabsSidebar: View {
                     // unrelated sidebar event fires.
                     anchorCwdRevision &+= 1
                 }
-                .onReceive(NotificationCenter.default.publisher(for: .sidebarMultiSelectionDidHide)) { notification in
+                .onReceive(NotificationCenter.default.publisher(for: SidebarMultiSelectionDidHideEvent.notificationName)) { notification in
                     // Group collapse hides some workspaces without changing
                     // focus or wiping the rest of the multi-selection. Strip
                     // only the hidden ids; if focus moved, make sure the new
                     // focused id is still represented.
-                    guard let manager = notification.object as? TabManager,
-                          manager === tabManager,
-                          let hidden = notification.userInfo?[SidebarMultiSelectionHideKey.hiddenWorkspaceIds] as? Set<UUID> else { return }
-                    var next = selectedTabIds.subtracting(hidden)
-                    if let movedFocus = notification.userInfo?[SidebarMultiSelectionHideKey.focusedWorkspaceId] as? UUID {
+                    guard let model = notification.object as? SidebarMultiSelectionModel,
+                          model === tabManager.sidebarMultiSelection,
+                          let event = SidebarMultiSelectionDidHideEvent(notification) else { return }
+                    var next = selectedTabIds.subtracting(event.hiddenWorkspaceIds)
+                    if let movedFocus = event.focusedWorkspaceId {
                         next.insert(movedFocus)
                         if let index = tabManager.tabs.firstIndex(where: { $0.id == movedFocus }) {
                             lastSidebarSelectionIndex = index
@@ -11327,15 +11343,16 @@ struct VerticalTabsSidebar: View {
                         selectedTabIds = next
                     }
                 }
-                .onReceive(NotificationCenter.default.publisher(for: .sidebarMultiSelectionShouldCollapse)) { notification in
+                .onReceive(NotificationCenter.default.publisher(for: SidebarMultiSelectionShouldCollapseEvent.notificationName)) { notification in
                     // Keyboard nav (selectNextTab/selectPreviousTab) posts
                     // this so any stale Shift-click range in the sidebar's
                     // SwiftUI selectedTabIds collapses to just the newly-
                     // focused workspace. Without this, batch context-menu /
                     // shortcut actions would still target the stale range.
-                    guard let manager = notification.object as? TabManager,
-                          manager === tabManager,
-                          let focusedId = notification.userInfo?[SidebarMultiSelectionCollapseKey.focusedWorkspaceId] as? UUID else { return }
+                    guard let model = notification.object as? SidebarMultiSelectionModel,
+                          model === tabManager.sidebarMultiSelection,
+                          let event = SidebarMultiSelectionShouldCollapseEvent(notification) else { return }
+                    let focusedId = event.focusedWorkspaceId
                     let next: Set<UUID> = tabManager.tabs.contains(where: { $0.id == focusedId }) ? [focusedId] : []
                     if selectedTabIds != next {
                         selectedTabIds = next
@@ -11343,21 +11360,6 @@ struct VerticalTabsSidebar: View {
                     if let index = tabManager.tabs.firstIndex(where: { $0.id == focusedId }) {
                         lastSidebarSelectionIndex = index
                     }
-                }
-                .onPreferenceChange(SidebarWorkspaceRowsHeightPreferenceKey.self) { measurement in
-                    guard let measurement else {
-                        workspaceRowsMeasurement = nil
-                        return
-                    }
-                    let nextMeasurement = SidebarWorkspaceRowsMeasurement(
-                        workspaceIds: measurement.workspaceIds,
-                        rowsHeight: max(0, measurement.rowsHeight)
-                    )
-                    if let workspaceRowsMeasurement,
-                       workspaceRowsMeasurement.isEquivalent(to: nextMeasurement) {
-                        return
-                    }
-                    workspaceRowsMeasurement = nextMeasurement
                 }
             }
         }
@@ -12468,10 +12470,21 @@ struct VerticalTabsSidebar: View {
 
     private func workspaceScrollContent(
         renderContext: WorkspaceListRenderContext,
-        minHeight: CGFloat,
-        emptyAreaHeight: CGFloat
+        minHeight: CGFloat
     ) -> some View {
-        VStack(spacing: 0) {
+        // Rows take their natural height; the empty drop/tap area stretches to
+        // fill the remaining viewport. SidebarRowsFillLayout sizes that
+        // remainder from the explicit viewport height (`minHeight`, the floored
+        // content height from the scroll geometry) rather than from a layout
+        // proposal, which a vertical ScrollView leaves unspecified in the
+        // scroll axis. So we never measure the LazyVStack's whole-content height
+        // into @State. That measurement (a .background GeometryReader writing a
+        // PreferenceKey) fed a non-converging relayout loop (#2586 / #5764 /
+        // #5845). The empty area fills exactly to the viewport when rows fit and
+        // collapses to 0 when they overflow, so the overlay scroller stays
+        // hidden (#3241) and the blank area below the last row stays a
+        // drop/tap target.
+        SidebarRowsFillLayout(viewportHeight: minHeight) {
             workspaceRows(renderContext: renderContext)
 
             SidebarEmptyArea(
@@ -12483,8 +12496,7 @@ struct VerticalTabsSidebar: View {
                 topDropIndicatorVisible: emptyAreaTopDropIndicatorVisible(),
                 tabDropDelegate: emptyAreaTabDropDelegate(renderContext: renderContext),
                 bonsplitDropIndicator: dropIndicatorBinding,
-                expandsVertically: false,
-                minimumHeight: emptyAreaHeight
+                expandsVertically: false
             )
         }
         .frame(minHeight: minHeight, alignment: .top)
@@ -12522,18 +12534,11 @@ struct VerticalTabsSidebar: View {
         }
         .padding(.vertical, SidebarWorkspaceListMetrics.rowVerticalPadding)
         .frame(maxWidth: .infinity, alignment: .leading)
-        let measuredRows = rows
-            .background {
-                GeometryReader { proxy in
-                    Color.clear.preference(
-                        key: SidebarWorkspaceRowsHeightPreferenceKey.self,
-                        value: SidebarWorkspaceRowsMeasurement(
-                            workspaceIds: renderContext.visibleWorkspaceRowIds,
-                            rowsHeight: proxy.size.height
-                        )
-                    )
-                }
-            }
+        // No whole-content height measurement here. Reading the LazyVStack's
+        // total height via a .background GeometryReader (to size the empty area)
+        // fed a non-converging relayout loop (#2586 / #5764 / #5845). The
+        // empty-area fill is now handled geometrically by SidebarRowsFillLayout
+        // in workspaceScrollContent without measuring these rows.
 
         // Gate ONLY the per-row frame-anchor *reader* (the virtualization-defeating
         // work) behind the drag-active check, and keep the Bonsplit drop-capture
@@ -12543,7 +12548,7 @@ struct VerticalTabsSidebar: View {
         // the drop NSView, orphaning the in-flight drag. Applying it at the stable outer
         // level keeps the NSView identity-stable across gate flips. (#5325 review)
         rowsWithGatedDropTargetReader(
-            rows: measuredRows,
+            rows: rows,
             renderContext: renderContext,
             shouldCollect: shouldCollectWorkspaceDropTargets
         )
@@ -12779,14 +12784,14 @@ struct SidebarWorkspaceFrameAnchorModifier: ViewModifier {
     let id: UUID
     let isEnabled: Bool
 
-    @ViewBuilder
     func body(content: Content) -> some View {
-        if isEnabled {
-            content.anchorPreference(key: SidebarWorkspaceRowFramePreferenceKey.self, value: .bounds) { anchor in
-                [id: anchor]
-            }
-        } else {
-            content
+        // Branchless: always apply anchorPreference, emit [:] when disabled. An
+        // if/else gives `content` distinct identity per state, so flipping
+        // isEnabled at drag start/end recreated every visible row's subtree
+        // (lost @State, fresh snapshot builds + relayout mid-drag). The frame
+        // *reader* stays gated on the drag (#5325), so an empty emit costs nothing.
+        content.anchorPreference(key: SidebarWorkspaceRowFramePreferenceKey.self, value: .bounds) { anchor in
+            isEnabled ? [id: anchor] : [:]
         }
     }
 }
@@ -14557,18 +14562,9 @@ private struct SidebarHelpMenuButton: View {
             isPopoverPresented.toggle()
         } label: {
             Image(systemName: "questionmark.circle")
-                .resizable()
-                .scaledToFit()
-                .fontWeight(.medium)
                 .symbolRenderingMode(.monochrome)
+                .cmuxSymbolRasterSize(iconSize, weight: .medium)
                 .foregroundStyle(Color(nsColor: .secondaryLabelColor))
-                // Drive the symbol's raster size from an explicit frame rather
-                // than font metrics. During the window's pre-visible layout pass
-                // the font metrics aren't resolved yet, so a `.font`-sized symbol
-                // rasterizes at 0×0 — which macOS 26+ rejects with an uncaught
-                // `NSInvalidArgumentException` (targetSizeInPoints.width/height>0),
-                // crashing on launch. A fixed frame keeps the raster size positive.
-                .frame(width: iconSize, height: iconSize, alignment: .center)
                 .frame(width: buttonSize, height: buttonSize, alignment: .center)
         }
         .buttonStyle(SidebarFooterIconButtonStyle())
@@ -14990,27 +14986,6 @@ private struct SidebarScrollViewResolver: NSViewRepresentable {
     }
 }
 
-private final class SidebarScrollViewResolverView: NSView {
-    var onResolve: ((NSScrollView?) -> Void)?
-
-    override func viewDidMoveToSuperview() {
-        super.viewDidMoveToSuperview()
-        resolveScrollView()
-    }
-
-    override func viewDidMoveToWindow() {
-        super.viewDidMoveToWindow()
-        resolveScrollView()
-    }
-
-    func resolveScrollView() {
-        DispatchQueue.main.async { [weak self] in
-            guard let self else { return }
-            onResolve?(self.enclosingScrollView)
-        }
-    }
-}
-
 private struct SidebarEmptyArea: View {
     @EnvironmentObject var tabManager: TabManager
     let rowSpacing: CGFloat
@@ -15319,7 +15294,6 @@ struct TabItemView: View, Equatable {
     @StateObject private var contextMenuState = SidebarTabItemContextMenuState()
     @State private var rowInteractionState = SidebarWorkspaceRowInteractionState()
     @State private var rowHeight: CGFloat = 1
-    @State private var workspaceFinderDirectoryCache = WorkspaceFinderDirectoryCache()
     @State private var workspaceFinderDirectoryOpenRequest: WorkspaceFinderDirectoryOpenRequest?
 
     var isMultiSelected: Bool {
@@ -15370,7 +15344,7 @@ struct TabItemView: View, Equatable {
         return makeWorkspaceSnapshot()
     }
 
-    private var activeTabIndicatorStyle: SidebarActiveTabIndicatorStyle {
+    private var activeTabIndicatorStyle: WorkspaceIndicatorStyle {
         settings.activeTabIndicatorStyle
     }
 
@@ -15648,8 +15622,6 @@ struct TabItemView: View, Equatable {
         let accessibilityHintText = String(localized: "sidebar.workspace.accessibilityHint", defaultValue: "Activate to focus this workspace. Drag to reorder, or use Move Up and Move Down actions.")
         let moveUpActionText = String(localized: "sidebar.workspace.moveUpAction", defaultValue: "Move Up")
         let moveDownActionText = String(localized: "sidebar.workspace.moveDownAction", defaultValue: "Move Down")
-        let finderDirectoryPath = WorkspaceFinderDirectoryResolver.path(for: tab)
-        let finderDirectoryCacheKey = WorkspaceFinderDirectoryCacheKey(path: finderDirectoryPath)
         let latestNotificationSubtitle = latestNotificationText
         let conversationMessageSubtitle = !settings.hidesAllDetails && settings.iMessageModeEnabled
             ? workspaceSnapshot.latestConversationMessage?
@@ -15727,7 +15699,6 @@ struct TabItemView: View, Equatable {
                     activeForegroundColor: activeSecondaryColor(0.84),
                     fontScale: fontScale
                 )
-                .id(description)
             }
 
             if let subtitle = effectiveSubtitle {
@@ -15753,7 +15724,7 @@ struct TabItemView: View, Equatable {
                         fontScale: fontScale,
                         onFocus: { updateSelection() }
                     )
-                    .transition(.opacity.combined(with: .move(edge: .top)))
+                    .transition(.opacity)
                 }
                 if !metadataBlocks.isEmpty {
                     SidebarMetadataMarkdownBlocks(
@@ -15764,7 +15735,7 @@ struct TabItemView: View, Equatable {
                         fontScale: fontScale,
                         onFocus: { updateSelection() }
                     )
-                    .transition(.opacity.combined(with: .move(edge: .top)))
+                    .transition(.opacity)
                 }
             }
 
@@ -15779,7 +15750,7 @@ struct TabItemView: View, Equatable {
                         .lineLimit(1)
                         .truncationMode(.tail)
                 }
-                .transition(.opacity.combined(with: .move(edge: .top)))
+                .transition(.opacity)
             }
 
             if detailVisibility.showsProgress, let progress = workspaceSnapshot.progress {
@@ -15802,7 +15773,7 @@ struct TabItemView: View, Equatable {
                             .lineLimit(1)
                     }
                 }
-                .transition(.opacity.combined(with: .move(edge: .top)))
+                .transition(.opacity)
             }
 
             // Branch + directory row
@@ -15956,9 +15927,12 @@ struct TabItemView: View, Equatable {
                 .lineLimit(1)
             }
         }
-        .animation(.easeInOut(duration: 0.2), value: workspaceSnapshot.latestLog)
-        .animation(.easeInOut(duration: 0.2), value: workspaceSnapshot.progress != nil)
-        .animation(.easeInOut(duration: 0.2), value: workspaceSnapshot.metadataBlocks.count)
+        // No implicit .animation(value:) on agent-mutable fields: animating a
+        // row-height change interpolates the LazyVStack's measured height over
+        // every frame of the 0.2s curve, and with dozens of agent sessions some
+        // row is always animating, so the sidebar-wide layout re-runs at display
+        // refresh rate (#5764 / #5845). Lazy rows must be height-stable after
+        // they appear; content changes now apply in one discrete layout pass.
         .padding(.horizontal, 10)
         .padding(.vertical, 8)
         .background(
@@ -16011,11 +15985,6 @@ struct TabItemView: View, Equatable {
         }
         .onAppear {
             refreshWorkspaceSnapshot(force: true)
-        }
-        .task(id: finderDirectoryCacheKey) {
-            let cache = await WorkspaceFinderDirectoryResolver.cache(for: finderDirectoryCacheKey)
-            guard !Task.isCancelled else { return }
-            workspaceFinderDirectoryCache = cache
         }
         .task(id: workspaceFinderDirectoryOpenRequest) {
             guard let request = workspaceFinderDirectoryOpenRequest else { return }
@@ -16190,10 +16159,13 @@ struct TabItemView: View, Equatable {
         let renameWorkspaceShortcut = KeyboardShortcutSettings.shortcut(for: .renameWorkspace)
         let editWorkspaceDescriptionShortcut = KeyboardShortcutSettings.shortcut(for: .editWorkspaceDescription)
         let closeWorkspaceShortcut = KeyboardShortcutSettings.shortcut(for: .closeWorkspace)
-        let finderDirectoryCacheKey = WorkspaceFinderDirectoryCacheKey(
-            path: isMulti ? nil : WorkspaceFinderDirectoryResolver.path(for: tab)
-        )
-        let finderDirectoryURL = workspaceFinderDirectoryCache.url(for: finderDirectoryCacheKey)
+        // Gate "Show in Finder" on whether a directory is *configured* (IO-free),
+        // not on a disk stat: this menu builder runs as part of the row body, a
+        // hot path. The stat happens once at click time (WorkspaceFinderDirectoryOpener
+        // re-validates and beeps if the directory is gone).
+        let finderDirectoryPath: String? = isMulti
+            ? nil
+            : WorkspaceFinderDirectoryResolver.path(for: tab)
         Button(pinLabel) {
             guard let contextMenuPinState else {
                 NSSound.beep()
@@ -16405,9 +16377,11 @@ struct TabItemView: View, Equatable {
 
         if !isMulti {
             Button(String(localized: "contextMenu.showWorkspaceInFinder", defaultValue: "Show in Finder")) {
-                workspaceFinderDirectoryOpenRequest = WorkspaceFinderDirectoryOpenRequest(directoryURL: finderDirectoryURL)
+                guard let finderDirectoryPath else { return }
+                let url = URL(fileURLWithPath: finderDirectoryPath, isDirectory: true)
+                workspaceFinderDirectoryOpenRequest = WorkspaceFinderDirectoryOpenRequest(directoryURL: url)
             }
-            .disabled(finderDirectoryURL == nil)
+            .disabled(finderDirectoryPath == nil)
         }
     }
 
@@ -17380,7 +17354,7 @@ private struct SidebarMetadataEntryRow: View {
             symbolName = iconRaw
         }
         guard !symbolName.isEmpty else { return nil }
-        return AnyView(Image(systemName: symbolName).font(.system(size: 8 * fontScale, weight: .medium)))
+        return AnyView(Image(systemName: symbolName).cmuxSymbolRasterSize(8 * fontScale, weight: .medium))
     }
 
     @ViewBuilder
@@ -17458,9 +17432,12 @@ private struct SidebarMetadataMarkdownBlockRow: View {
     let fontScale: CGFloat
     let onFocus: () -> Void
 
-    @State private var renderedMarkdown: AttributedString?
-
     var body: some View {
+        // Render inline (memoized) so the FIRST render is already attributed.
+        // Parsing in onAppear into @State performed a guaranteed nil ->
+        // attributed swap on every first appearance, changing the row's height
+        // mid-scroll and re-feeding the sidebar-wide layout cycle (#5764).
+        let renderedMarkdown = SidebarMetadataMarkdownRenderer.rendered(block.markdown)
         Group {
             if let renderedMarkdown {
                 Text(renderedMarkdown)
@@ -17475,21 +17452,10 @@ private struct SidebarMetadataMarkdownBlockRow: View {
         .fixedSize(horizontal: false, vertical: true)
         .contentShape(Rectangle())
         .onTapGesture { onFocus() }
-        .onAppear(perform: renderMarkdown)
-        .onChange(of: block.markdown) { _ in
-            renderMarkdown()
-        }
     }
 
     private var foregroundColor: Color {
         isActive ? activeForegroundColor : .secondary
-    }
-
-    private func renderMarkdown() {
-        renderedMarkdown = try? AttributedString(
-            markdown: block.markdown,
-            options: .init(interpretedSyntax: .full)
-        )
     }
 }
 
@@ -19236,21 +19202,3 @@ enum SidebarPresetOption: String, CaseIterable, Identifiable {
     }
 }
 
-extension NSColor {
-    func hexString(includeAlpha: Bool = false) -> String {
-        let color = usingColorSpace(.sRGB) ?? self
-        var red: CGFloat = 0
-        var green: CGFloat = 0
-        var blue: CGFloat = 0
-        var alpha: CGFloat = 0
-        color.getRed(&red, green: &green, blue: &blue, alpha: &alpha)
-        let redByte = min(255, max(0, Int(red * 255)))
-        let greenByte = min(255, max(0, Int(green * 255)))
-        let blueByte = min(255, max(0, Int(blue * 255)))
-        if includeAlpha {
-            let alphaByte = min(255, max(0, Int(alpha * 255)))
-            return String(format: "#%02X%02X%02X%02X", redByte, greenByte, blueByte, alphaByte)
-        }
-        return String(format: "#%02X%02X%02X", redByte, greenByte, blueByte)
-    }
-}

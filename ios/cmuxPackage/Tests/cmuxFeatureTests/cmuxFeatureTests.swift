@@ -26,8 +26,13 @@ final class TerminalOutputCollector {
     /// Begin consuming the surface's output stream into ``lines``.
     func mount(store: CMUXMobileShellStore, surfaceID: String) {
         task = Task { @MainActor [weak self] in
-            for await data in store.terminalOutputStream(surfaceID: surfaceID) {
-                self?.lines.append(String(data: data, encoding: .utf8) ?? "")
+            for await chunk in store.terminalOutputStream(surfaceID: surfaceID) {
+                guard let self else { break }
+                self.lines.append(String(data: chunk.data, encoding: .utf8) ?? "")
+                store.terminalOutputDidProcess(
+                    surfaceID: surfaceID,
+                    streamToken: chunk.streamToken
+                )
             }
         }
     }
@@ -2154,7 +2159,7 @@ final class TerminalOutputCollector {
     await store.connectPairingURL(try attachURL(for: ticket).absoluteString)
 
     let subscribeRequests = try await waitForRequestCount("mobile.events.subscribe", count: 1, router: router)
-    #expect(subscribeRequests.first?.topics == ["workspace.updated", "terminal.render_grid"])
+    #expect(subscribeRequests.first?.topics == ["workspace.updated", "terminal.render_grid", "notification.dismissed", "notification.badge"])
 
     collector.mount(store: store, surfaceID: "live-terminal")
     _ = try await waitForRequestCount("mobile.terminal.replay", count: 1, router: router)
@@ -3522,4 +3527,151 @@ private func rpcErrorFrame(code: String? = nil, message: String) throws -> Data 
     ]
     let envelopeData = try JSONSerialization.data(withJSONObject: envelope)
     return try MobileSyncFrameCodec.encodeFrame(envelopeData)
+}
+
+// MARK: - Push notification deep-link
+
+/// Inert registration stub: deep-link tests exercise tap routing only.
+private struct InertPushRegistration: PushRegistering {
+    var isEnabled: Bool {
+        get async { false }
+    }
+    func setEnabled(_ enabled: Bool) async {}
+    func register(deviceToken: Data) async {}
+    func syncTokenIfPossible() async {}
+    func unregisterFromServer() async {}
+    func unregisterFromServer(accessToken: String?, refreshToken: String?) async {}
+}
+
+@MainActor private func deeplinkTestStore() -> CMUXMobileShellStore {
+    CMUXMobileShellStore(
+        runtime: testRuntime(
+            transportFactory: RecordingNeverConnectTransportFactory(dials: TransportDialRecorder())
+        ),
+        reachability: OfflineReachability()
+    )
+}
+
+/// Cold launch from a notification tap: `didReceive` fires before the root
+/// view has mounted, so no store is bound yet. The tap must survive until the
+/// store binds and its workspace list loads, then navigate. Pre-fix the tap
+/// was dropped (`reason: no_store`) and the user landed on the workspaces
+/// home screen.
+@Test @MainActor func notificationTapBeforeStoreBindsNavigatesOnceWorkspacesLoad() async throws {
+    let coordinator = MobilePushCoordinator(registration: InertPushRegistration())
+
+    // Tap arrives first: nothing is bound.
+    coordinator.handleTap(workspaceId: "workspace-docs", surfaceId: "terminal-notes")
+
+    // Root view mounts: store binds already carrying the attached list.
+    let store = deeplinkTestStore()
+    store.workspaces = PreviewMobileHost.workspaces
+    coordinator.bind(store: store)
+
+    #expect(store.selectedWorkspaceID == MobileWorkspacePreview.ID(rawValue: "workspace-docs"))
+    #expect(store.selectedTerminalID == MobileTerminalPreview.ID(rawValue: "terminal-notes"))
+}
+
+/// Tap lands while the store is bound but the Mac attach has not delivered
+/// the workspace list yet: the deep link applies when the list fills in,
+/// driven by the root view's workspace-list change hook.
+@Test @MainActor func notificationTapBeforeAttachAppliesWhenWorkspaceArrives() async throws {
+    let coordinator = MobilePushCoordinator(registration: InertPushRegistration())
+    let store = deeplinkTestStore()
+    coordinator.bind(store: store)
+
+    coordinator.handleTap(workspaceId: "workspace-docs", surfaceId: "terminal-notes")
+    // Target not loaded yet: no navigation to an absent workspace.
+    #expect(store.selectedWorkspaceID == nil)
+
+    store.workspaces = PreviewMobileHost.workspaces
+    coordinator.workspacesDidChange()
+
+    #expect(store.selectedWorkspaceID == MobileWorkspacePreview.ID(rawValue: "workspace-docs"))
+    #expect(store.selectedTerminalID == MobileTerminalPreview.ID(rawValue: "terminal-notes"))
+}
+
+/// A parked tap expires: navigating minutes later would yank the user out of
+/// whatever they moved on to.
+@Test @MainActor func notificationTapExpiresInsteadOfNavigatingLate() async throws {
+    nonisolated(unsafe) var currentTime = Date(timeIntervalSince1970: 1_000_000)
+    let coordinator = MobilePushCoordinator(
+        registration: InertPushRegistration(),
+        now: { currentTime }
+    )
+    coordinator.handleTap(workspaceId: "workspace-docs", surfaceId: "terminal-notes")
+
+    currentTime = currentTime.addingTimeInterval(121)
+    let store = deeplinkTestStore()
+    store.workspaces = PreviewMobileHost.workspaces
+    coordinator.bind(store: store)
+
+    #expect(store.selectedWorkspaceID == nil)
+    #expect(store.selectedTerminalID == nil)
+}
+
+/// A surface-only tap (no workspaceId in the payload) must wait for the
+/// terminal's owning workspace to load, then navigate to that workspace and
+/// select the terminal. Pre-fix it bypassed the membership gate: the terminal
+/// was selected against an empty store and the tap was discarded with no
+/// retry, stranding the user on the home screen.
+@Test @MainActor func surfaceOnlyNotificationTapWaitsForOwningWorkspace() async throws {
+    let coordinator = MobilePushCoordinator(registration: InertPushRegistration())
+    let store = deeplinkTestStore()
+    coordinator.bind(store: store)
+
+    coordinator.handleTap(workspaceId: nil, surfaceId: "terminal-notes")
+    // Nothing loaded yet: the tap must stay parked, not be spent.
+    #expect(store.selectedTerminalID == nil)
+
+    store.workspaces = PreviewMobileHost.workspaces
+    coordinator.workspacesDidChange()
+
+    #expect(store.selectedWorkspaceID == MobileWorkspacePreview.ID(rawValue: "workspace-docs"))
+    #expect(store.selectedTerminalID == MobileTerminalPreview.ID(rawValue: "terminal-notes"))
+}
+
+/// The workspace snapshot can arrive before its terminal list fills in. The
+/// tap lands the user in the right workspace immediately and keeps the
+/// terminal part parked, selecting it when its snapshot arrives instead of
+/// pointing the store at a non-existent surface.
+@Test @MainActor func notificationTapKeepsTerminalParkedUntilItsSnapshotArrives() async throws {
+    let coordinator = MobilePushCoordinator(registration: InertPushRegistration())
+    let store = deeplinkTestStore()
+    coordinator.bind(store: store)
+
+    coordinator.handleTap(workspaceId: "workspace-docs", surfaceId: "terminal-notes")
+    store.workspaces = [
+        MobileWorkspacePreview(id: "workspace-docs", name: "Docs", terminals: [])
+    ]
+    coordinator.workspacesDidChange()
+
+    // Workspace navigation happens now; the absent terminal is not selected.
+    #expect(store.selectedWorkspaceID == MobileWorkspacePreview.ID(rawValue: "workspace-docs"))
+    #expect(store.selectedTerminalID == nil)
+
+    store.workspaces = PreviewMobileHost.workspaces
+    coordinator.workspacesDidChange()
+
+    #expect(store.selectedTerminalID == MobileTerminalPreview.ID(rawValue: "terminal-notes"))
+}
+
+/// A resolved tap must emit the one-shot navigation intent the compact
+/// (iPhone) shell consumes to push its `NavigationStack`: selection alone
+/// leaves an empty path untouched by design, which is what stranded
+/// cold-launch taps on the workspaces home screen.
+@Test @MainActor func notificationTapEmitsConsumableCompactNavigationIntent() async throws {
+    let coordinator = MobilePushCoordinator(registration: InertPushRegistration())
+    let store = deeplinkTestStore()
+    store.workspaces = PreviewMobileHost.workspaces
+    coordinator.bind(store: store)
+
+    coordinator.handleTap(workspaceId: "workspace-docs", surfaceId: nil)
+
+    let target = MobileWorkspacePreview.ID(rawValue: "workspace-docs")
+    #expect(store.deeplinkWorkspaceNavigationRequest?.workspaceID == target)
+    #expect(store.consumeDeeplinkWorkspaceNavigationRequest() == target)
+    // One-shot: a later layout remount cannot replay a stale push.
+    #expect(store.deeplinkWorkspaceNavigationRequest == nil)
+    #expect(store.consumeDeeplinkWorkspaceNavigationRequest() == nil)
 }
