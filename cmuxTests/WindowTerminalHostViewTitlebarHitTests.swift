@@ -42,6 +42,35 @@ struct WindowTerminalHostViewTitlebarHitTests {
         )
     }
 
+    @Test func titlebarDoubleClickMonitorDefersToTerminalTopRowInsideTitlebarBand() throws {
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 420, height: 260),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        defer { window.orderOut(nil) }
+        let contentView = try #require(window.contentView, "Expected window content view")
+        let container = try #require(contentView.superview, "Expected window content container")
+
+        let host = WindowTerminalHostView(frame: container.convert(contentView.bounds, from: contentView))
+        let hostedView = makeHostedTerminalView(frame: host.bounds)
+        host.addSubview(hostedView)
+        container.addSubview(host, positioned: .above, relativeTo: contentView)
+
+        let pointInHostedView = NSPoint(x: hostedView.bounds.midX, y: hostedView.bounds.maxY - 0.5)
+        let pointInWindow = hostedView.convert(pointInHostedView, to: nil)
+
+        try #require(
+            pointInWindow.y >= BonsplitTabBarPassThrough.titlebarInteractionBandMinY(in: window),
+            "The regression point must exercise the fixed-height titlebar pass-through band"
+        )
+        #expect(
+            minimalModeTitlebarDoubleClickShouldDefer(window: window, locationInWindow: pointInWindow),
+            "Synthetic titlebar double-click handling must yield to hosted terminal content in the top row"
+        )
+    }
+
     @Test func hostViewPassesThroughRegisteredTitlebarControlsAboveTerminal() throws {
         let window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 420, height: 260),
