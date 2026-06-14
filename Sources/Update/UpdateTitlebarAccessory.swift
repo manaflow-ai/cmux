@@ -1,11 +1,8 @@
 import AppKit
 import Bonsplit
 import Combine
+import CmuxFoundation
 import SwiftUI
-
-final class NonDraggableHostingView<Content: View>: NSHostingView<Content> {
-    override var mouseDownCanMoveWindow: Bool { false }
-}
 
 enum TitlebarControlsStyle: Int, CaseIterable, Identifiable {
     case classic
@@ -1161,7 +1158,7 @@ struct TitlebarControlsView: View {
         titlebarIconChrome(config: config, iconGeometryKeyPrefix: iconGeometryKeyPrefix) {
             Image(systemName: systemName)
                 .symbolRenderingMode(.monochrome)
-                .font(.system(size: config.iconSize, weight: TitlebarControlIconStyle.weight))
+                .cmuxSymbolRasterSize(config.iconSize, weight: TitlebarControlIconStyle.weight)
         }
     }
 
@@ -1897,7 +1894,7 @@ final class TitlebarControlsAccessoryViewController: NSTitlebarAccessoryViewCont
     private var showsWorkspaceTitlebar: Bool { !WorkspacePresentationModeSettings.isMinimal() }
 
     init(notificationStore: TerminalNotificationStore) {
-        let containerView = NSView()
+        let containerView = TitlebarAccessoryContainerView()
         self.containerView = containerView
         self.notificationStore = notificationStore
         let toggleSidebar = { [weak containerView] in
@@ -2347,7 +2344,7 @@ private struct NotificationsPopoverView: View {
             Button(action: jumpToLatestUnread) {
                 HStack(spacing: 5) {
                     Image(systemName: "arrow.down.to.line")
-                        .font(.system(size: 10, weight: .semibold))
+                        .cmuxSymbolRasterSize(10, weight: .semibold)
                     Text(String(localized: "notifications.jumpToLatest", defaultValue: "Jump to Latest"))
                         .font(.system(size: 11))
                     if !jumpToUnreadShortcut.displayString.isEmpty {
@@ -2471,7 +2468,7 @@ private struct NotificationsPopoverView: View {
     private func emptyState(systemImage: String, title: String, subtitle: String?) -> some View {
         VStack(spacing: 10) {
             Image(systemName: systemImage)
-                .font(.system(size: 30, weight: .light))
+                .cmuxSymbolRasterSize(30, weight: .light)
                 .foregroundColor(.secondary.opacity(0.7))
             Text(title)
                 .font(.system(size: 14, weight: .medium))
@@ -2655,7 +2652,7 @@ private struct NotificationPopoverRow: View {
                 Circle()
                     .fill(Color.primary.opacity(0.1))
                 Image(systemName: "xmark")
-                    .font(.system(size: 9, weight: .bold))
+                    .cmuxSymbolRasterSize(9, weight: .bold)
                     .foregroundColor(.primary.opacity(0.7))
             }
             .frame(width: 20, height: 20)

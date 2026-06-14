@@ -764,6 +764,7 @@
         },
         "app": {
           "confirmQuit": "កំណត់ពេលដែល cmux ស្នើសុំការបញ្ជាក់មុនពេលចាកចេញ។ កំណែ DEV តែងតែចាកចេញភ្លាមៗ ដោយមិនគិតពីការកំណត់នេះទេ។ app.warnBeforeQuit ចាស់នៅតែត្រូវបានទទួលយកជាជម្រើសបម្រុង boolean។",
+          "windowTitleTemplate": "គំរូចំណងជើង NSWindow ជាជម្រើស។ ទុកទទេ ដើម្បីរក្សាឥរិយាបថចំណងជើងលំនាំដើមដែលមានស្រាប់របស់ cmux រួមទាំង fallback ទៅថតបច្ចុប្បន្ន។ Placeholder ដែលគាំទ្រ៖ '{windowId}', '{windowToken}', '{activeWorkspace}', '{activeDirectory}', '{defaultTitle}', '{appName}'។",
           "warnBeforeQuit": "ជម្រើសបម្រុង boolean ចាស់សម្រាប់ការបញ្ជាក់មុនចាកចេញ។ ប្រើ app.confirmQuit សម្រាប់ការកំណត់ថ្មី។",
           "warnBeforeClosingTabXButton": "បង្ហាញការបញ្ជាក់ មុនពេលបិទផ្ទាំងដោយប៊ូតុងបិទផ្ទាំង។",
           "hideTabCloseButton": "លាក់ប៊ូតុងបិទផ្ទាំងនៅក្នុងរបារផ្ទាំងរបស់ផ្ទាំងបង្អួច។",
@@ -922,6 +923,8 @@
         "surfaces": "Surface",
         "surfacesBlurb": "Surface គឺជាផ្ទាំងក្នុងបន្ទះ។",
         "splitPanes": "បន្ទះបំបែក",
+        "canvas": "ផ្ទាំងក្រណាត់",
+        "canvasBlurb": "របៀបប្លង់ 2D សេរីដែលផ្ទាំងអណ្តែតលើផ្ទាំងក្រណាត់គ្មានដែនកំណត់ដែលអាចរំកិលបាន។ ពាក្យបញ្ជាតម្រឹមនិងចែកចាយមាននៅក្នុងបន្ទះពាក្យបញ្ជា។",
         "browser": "កម្មវិធីរុករក",
         "notifications": "ជូនដំណឹង",
         "find": "ស្វែងរក",

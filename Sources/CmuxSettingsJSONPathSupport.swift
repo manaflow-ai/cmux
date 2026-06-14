@@ -68,6 +68,7 @@ extension CmuxSettingsFileStore {
         "app.language",
         "app.appearance",
         "app.appIcon",
+        "app.windowTitleTemplate",
         "app.menuBarOnly",
         "app.newWorkspacePlacement",
         "app.workspaceInheritWorkingDirectory",
@@ -169,6 +170,8 @@ extension CmuxSettingsFileStore {
         "markdown.fontSize",
         "markdown.fontFamily",
         "markdown.maxWidth",
+        "canvas.paneGap",
+        "canvas.snappingEnabled",
         "fileEditor.wordWrap",
         "shortcuts.bindings",
     ]

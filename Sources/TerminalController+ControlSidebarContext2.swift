@@ -1,5 +1,8 @@
 import CmuxControlSocket
+import CmuxRemoteSession
 import Foundation
+import CmuxWorkspaceCore
+import CmuxSidebar
 
 /// The live-app half of the v1 sidebar telemetry/report commands
 /// (`report_git_branch` / `report_pr` / `report_ports` / `report_pwd` /
@@ -212,7 +215,7 @@ extension TerminalController {
     }
 
     func controlSidebarScheduleScopedShellState(scope: ControlSidebarPanelScope, stateRawValue: String) {
-        guard let state = Workspace.PanelShellActivityState(rawValue: stateRawValue) else {
+        guard let state = PanelShellActivityState(rawValue: stateRawValue) else {
             // Unreachable: the coordinator only forwards a value this app produced.
             return
         }
@@ -230,7 +233,7 @@ extension TerminalController {
     }
 
     func controlSidebarUpdateShellState(tabArg: String?, panelArg: String?, stateRawValue: String) -> ControlSidebarPanelWriteResolution {
-        guard let state = Workspace.PanelShellActivityState(rawValue: stateRawValue) else {
+        guard let state = PanelShellActivityState(rawValue: stateRawValue) else {
             // Unreachable: the coordinator only forwards a value this app produced.
             return .tabNotFound
         }
@@ -282,7 +285,7 @@ extension TerminalController {
     }
 
     func controlSidebarScheduleScopedPortsKick(scope: ControlSidebarPanelScope, reasonRawValue: String) {
-        guard let reason = WorkspaceRemoteSessionController.PortScanKickReason(rawValue: reasonRawValue) else {
+        guard let reason = PortScanKickReason(rawValue: reasonRawValue) else {
             // Unreachable: the coordinator only forwards a value this app produced.
             return
         }
@@ -303,7 +306,7 @@ extension TerminalController {
     }
 
     func controlSidebarPortsKick(tabArg: String?, panelArg: String?, reasonRawValue: String) -> ControlSidebarPanelWriteResolution {
-        guard let reason = WorkspaceRemoteSessionController.PortScanKickReason(rawValue: reasonRawValue) else {
+        guard let reason = PortScanKickReason(rawValue: reasonRawValue) else {
             // Unreachable: the coordinator only forwards a value this app produced.
             return .tabNotFound
         }

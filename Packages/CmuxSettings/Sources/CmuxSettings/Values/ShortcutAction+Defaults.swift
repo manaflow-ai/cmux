@@ -76,6 +76,19 @@ extension ShortcutAction {
         case .equalizeSplits: return ShortcutStroke(key: "=", command: true, control: true)
         case .splitBrowserRight: return ShortcutStroke(key: "d", command: true, option: true)
         case .splitBrowserDown: return ShortcutStroke(key: "d", command: true, shift: true, option: true)
+        case .toggleCanvasLayout: return ShortcutStroke(key: "c", command: true, control: true)
+        case .canvasRevealFocusedPane: return ShortcutStroke(key: "r", command: true, control: true)
+        case .canvasOverview: return ShortcutStroke(key: "o", command: true, control: true)
+        case .canvasZoomIn: return ShortcutStroke(key: "=", command: true, option: true)
+        case .canvasZoomOut: return ShortcutStroke(key: "-", command: true, option: true)
+        case .canvasZoomReset: return ShortcutStroke(key: "0", command: true, option: true)
+        case .canvasTidy: return ShortcutStroke(key: "t", command: true, control: true)
+        case .canvasAlignLeft, .canvasAlignRight, .canvasAlignTop, .canvasAlignBottom,
+             .canvasEqualizeWidths, .canvasEqualizeHeights,
+             .canvasDistributeHorizontally, .canvasDistributeVertically:
+            // Unbound by default; reachable through the command palette and
+            // the canvas.* socket verbs.
+            return nil
         case .nextSurface: return ShortcutStroke(key: "]", command: true, shift: true)
         case .prevSurface: return ShortcutStroke(key: "[", command: true, shift: true)
         case .selectSurfaceByNumber: return ShortcutStroke(key: "1", control: true)

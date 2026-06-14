@@ -179,7 +179,7 @@ struct SignInView: View {
                 }
 
                 GlassInputPill(height: 60, alignment: .center) {
-                    TextField(L10n.string("mobile.signIn.codePlaceholder", defaultValue: "000000"), text: $code)
+                    TextField(L10n.string("mobile.signIn.codePlaceholder", defaultValue: "ABC123"), text: $code)
                         .textFieldStyle(.plain)
                         .mobileOneTimeCodeInput()
                         .multilineTextAlignment(.center)

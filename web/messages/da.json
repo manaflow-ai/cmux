@@ -764,6 +764,7 @@
         },
         "app": {
           "confirmQuit": "Styrer hvornår cmux beder om bekræftelse før afslutning. DEV-builds afsluttes altid straks uanset denne indstilling. Den ældre app.warnBeforeQuit accepteres stadig som boolesk fallback.",
+          "windowTitleTemplate": "Valgfri skabelon for NSWindow-titlen. Tom bevarer cmux' eksisterende standardtiteladfærd, inklusive fallback til den aktuelle mappe. Understøttede pladsholdere: '{windowId}', '{windowToken}', '{activeWorkspace}', '{activeDirectory}', '{defaultTitle}', '{appName}'.",
           "warnBeforeQuit": "Ældre boolesk fallback til afslutningsbekræftelse. Brug app.confirmQuit til nye konfigurationer.",
           "warnBeforeClosingTabXButton": "Vis en bekræftelse, før en fane lukkes med fanens luk-knap.",
           "hideTabCloseButton": "Skjul fanernes luk-knapper i rudens fanelinje.",
@@ -922,6 +923,8 @@
         "surfaces": "Surfaces",
         "surfacesBlurb": "Surfaces er faner inde i et panel.",
         "splitPanes": "Opdelte paneler",
+        "canvas": "Lærred",
+        "canvasBlurb": "En fri 2D-layouttilstand, hvor ruder flyder på et uendeligt lærred, der kan panoreres. Justerings- og fordelingskommandoer findes i kommandopaletten.",
         "browser": "Browser",
         "notifications": "Notifikationer",
         "find": "Find",
