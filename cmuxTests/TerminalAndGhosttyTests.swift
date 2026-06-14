@@ -23,64 +23,104 @@ import CmuxTerminal
 @testable import cmux
 #endif
 
-final class TerminalSurfaceResizePolicyTests: XCTestCase {
-    func testPixelOnlyResizeWithinExistingGridIsCoalesced() {
-        XCTAssertFalse(
-            TerminalSurface.shouldApplySurfacePixelSizeChange(
+@Suite
+struct TerminalSurfaceResizePolicyTests {
+    @Test
+    func pixelOnlyResizeWithinExistingGridIsCoalesced() {
+        #expect(
+            !TerminalSurface.shouldApplySurfacePixelSizeChange(
                 currentColumns: 80,
                 currentRows: 24,
+                currentWidthPx: 800,
+                currentHeightPx: 480,
                 currentCellWidthPx: 10,
                 currentCellHeightPx: 20,
                 targetWidthPx: 805,
                 targetHeightPx: 485,
                 coalescePixelOnlyResize: true,
                 hasAppliedPixelSize: true
-            ),
-            "Pixel-only live-resize churn inside the same terminal grid should not be forwarded to Ghostty as a PTY resize"
+            )
         )
     }
 
-    func testResizeAppliesWhenGridChangesOutsideLiveResizeOrFirstApply() {
-        XCTAssertTrue(
+    @Test
+    func paddingPixelsDoNotDistortGridChangeDetection() {
+        #expect(
+            !TerminalSurface.shouldApplySurfacePixelSizeChange(
+                currentColumns: 80,
+                currentRows: 24,
+                currentWidthPx: 805,
+                currentHeightPx: 485,
+                currentCellWidthPx: 10,
+                currentCellHeightPx: 20,
+                targetWidthPx: 814,
+                targetHeightPx: 485,
+                coalescePixelOnlyResize: true,
+                hasAppliedPixelSize: true
+            )
+        )
+
+        #expect(
             TerminalSurface.shouldApplySurfacePixelSizeChange(
                 currentColumns: 80,
                 currentRows: 24,
+                currentWidthPx: 805,
+                currentHeightPx: 485,
+                currentCellWidthPx: 10,
+                currentCellHeightPx: 20,
+                targetWidthPx: 804,
+                targetHeightPx: 485,
+                coalescePixelOnlyResize: true,
+                hasAppliedPixelSize: true
+            )
+        )
+    }
+
+    @Test
+    func resizeAppliesWhenGridChangesOutsideLiveResizeOrFirstApply() {
+        #expect(
+            TerminalSurface.shouldApplySurfacePixelSizeChange(
+                currentColumns: 80,
+                currentRows: 24,
+                currentWidthPx: 800,
+                currentHeightPx: 480,
                 currentCellWidthPx: 10,
                 currentCellHeightPx: 20,
                 targetWidthPx: 810,
                 targetHeightPx: 485,
                 coalescePixelOnlyResize: true,
                 hasAppliedPixelSize: true
-            ),
-            "A resize that changes the terminal grid must still be forwarded"
+            )
         )
 
-        XCTAssertTrue(
+        #expect(
             TerminalSurface.shouldApplySurfacePixelSizeChange(
                 currentColumns: 80,
                 currentRows: 24,
+                currentWidthPx: 800,
+                currentHeightPx: 480,
                 currentCellWidthPx: 10,
                 currentCellHeightPx: 20,
                 targetWidthPx: 805,
                 targetHeightPx: 485,
                 coalescePixelOnlyResize: false,
                 hasAppliedPixelSize: true
-            ),
-            "Non-live layout changes should keep Ghostty's renderer pixel size fresh even when the terminal grid is unchanged"
+            )
         )
 
-        XCTAssertTrue(
+        #expect(
             TerminalSurface.shouldApplySurfacePixelSizeChange(
                 currentColumns: 80,
                 currentRows: 24,
+                currentWidthPx: 800,
+                currentHeightPx: 480,
                 currentCellWidthPx: 10,
                 currentCellHeightPx: 20,
                 targetWidthPx: 805,
                 targetHeightPx: 485,
                 coalescePixelOnlyResize: true,
                 hasAppliedPixelSize: false
-            ),
-            "The first observed pixel size must be applied even during live resize"
+            )
         )
     }
 }

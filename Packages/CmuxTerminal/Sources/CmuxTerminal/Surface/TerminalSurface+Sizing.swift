@@ -45,6 +45,8 @@ extension TerminalSurface {
     ///
     /// - Parameter currentColumns: The current terminal grid column count.
     /// - Parameter currentRows: The current terminal grid row count.
+    /// - Parameter currentWidthPx: The current surface width in pixels.
+    /// - Parameter currentHeightPx: The current surface height in pixels.
     /// - Parameter currentCellWidthPx: The current terminal cell width in pixels.
     /// - Parameter currentCellHeightPx: The current terminal cell height in pixels.
     /// - Parameter targetWidthPx: The candidate surface width in pixels.
@@ -55,6 +57,8 @@ extension TerminalSurface {
     public static func shouldApplySurfacePixelSizeChange(
         currentColumns: UInt32,
         currentRows: UInt32,
+        currentWidthPx: UInt32,
+        currentHeightPx: UInt32,
         currentCellWidthPx: UInt32,
         currentCellHeightPx: UInt32,
         targetWidthPx: UInt32,
@@ -71,9 +75,23 @@ extension TerminalSurface {
             return true
         }
 
-        let targetColumns = max(UInt32(1), targetWidthPx / currentCellWidthPx)
-        let targetRows = max(UInt32(1), targetHeightPx / currentCellHeightPx)
-        return targetColumns != currentColumns || targetRows != currentRows
+        let currentGridWidthPx = UInt64(currentColumns) * UInt64(currentCellWidthPx)
+        let currentGridHeightPx = UInt64(currentRows) * UInt64(currentCellHeightPx)
+        let horizontalNonGridPixels = UInt64(currentWidthPx) > currentGridWidthPx
+            ? UInt64(currentWidthPx) - currentGridWidthPx
+            : 0
+        let verticalNonGridPixels = UInt64(currentHeightPx) > currentGridHeightPx
+            ? UInt64(currentHeightPx) - currentGridHeightPx
+            : 0
+        let targetGridWidthPx = UInt64(targetWidthPx) > horizontalNonGridPixels
+            ? UInt64(targetWidthPx) - horizontalNonGridPixels
+            : 0
+        let targetGridHeightPx = UInt64(targetHeightPx) > verticalNonGridPixels
+            ? UInt64(targetHeightPx) - verticalNonGridPixels
+            : 0
+        let targetColumns = max(UInt64(1), targetGridWidthPx / UInt64(currentCellWidthPx))
+        let targetRows = max(UInt64(1), targetGridHeightPx / UInt64(currentCellHeightPx))
+        return targetColumns != UInt64(currentColumns) || targetRows != UInt64(currentRows)
     }
 
     /// Applies a new backing size/scale to the runtime surface.
@@ -147,6 +165,8 @@ extension TerminalSurface {
             let shouldApplySizeChange = Self.shouldApplySurfacePixelSizeChange(
                 currentColumns: UInt32(currentSize.columns),
                 currentRows: UInt32(currentSize.rows),
+                currentWidthPx: currentSize.width_px,
+                currentHeightPx: currentSize.height_px,
                 currentCellWidthPx: currentSize.cell_width_px,
                 currentCellHeightPx: currentSize.cell_height_px,
                 targetWidthPx: wpx,
