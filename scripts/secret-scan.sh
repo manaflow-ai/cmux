@@ -15,6 +15,7 @@
 #
 # Install gitleaks locally with:  brew install gitleaks
 # Override the binary (used by CI) with: CMUX_GITLEAKS_BIN=/path/to/gitleaks
+# Scan a git history range with: CMUX_GITLEAKS_LOG_OPTS='base..HEAD'
 
 set -euo pipefail
 
@@ -40,25 +41,33 @@ cd "$PROJECT_DIR"
 
 gitleaks_version="$("$GITLEAKS_BIN" version 2>/dev/null | tr -d '[:space:]')"
 gitleaks_version="${gitleaks_version#v}"  # normalize a possible "v8.30.1" prefix
-echo "==> Scanning working tree with gitleaks ${gitleaks_version:-(unknown version)} ..."
 if [ -n "$gitleaks_version" ] && [ "$gitleaks_version" != "$EXPECTED_GITLEAKS_VERSION" ]; then
   echo "warning: local gitleaks $gitleaks_version differs from the version CI pins" \
        "($EXPECTED_GITLEAKS_VERSION); results may differ from CI." >&2
   echo "         See docs/secret-scanning.md." >&2
 fi
 
-# `dir` scans the on-disk files (honouring .gitignore) rather than full git
-# history, so it reflects what is currently checked in. --redact keeps any
-# matched secret out of the scanner's own output.
-#
 # `|| status=$?` captures gitleaks' exit code without tripping `set -e` when it
 # reports leaks (exit 1), so the summary below still runs.
 status=0
-"$GITLEAKS_BIN" dir "$PROJECT_DIR" \
-  --config "$PROJECT_DIR/.gitleaks.toml" \
-  --redact \
-  --verbose \
-  --no-banner || status=$?
+if [ -n "${CMUX_GITLEAKS_LOG_OPTS:-}" ]; then
+  echo "==> Scanning git history (${CMUX_GITLEAKS_LOG_OPTS}) with gitleaks ${gitleaks_version:-(unknown version)} ..."
+  "$GITLEAKS_BIN" git \
+    --config "$PROJECT_DIR/.gitleaks.toml" \
+    --redact \
+    --verbose \
+    --no-banner \
+    --log-opts "$CMUX_GITLEAKS_LOG_OPTS" \
+    "$PROJECT_DIR" || status=$?
+else
+  echo "==> Scanning working tree with gitleaks ${gitleaks_version:-(unknown version)} ..."
+  "$GITLEAKS_BIN" dir \
+    --config "$PROJECT_DIR/.gitleaks.toml" \
+    --redact \
+    --verbose \
+    --no-banner \
+    "$PROJECT_DIR" || status=$?
+fi
 
 if [ "$status" -eq 0 ]; then
   echo "==> No leaks found."

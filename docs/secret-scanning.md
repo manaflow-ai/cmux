@@ -28,6 +28,13 @@ To run gitleaks directly (the script is a thin wrapper around this):
 gitleaks dir . --config .gitleaks.toml --redact --verbose
 ```
 
+To scan a commit range, set `CMUX_GITLEAKS_LOG_OPTS` to the git-log range:
+
+```bash
+CMUX_GITLEAKS_LOG_OPTS="$(git merge-base origin/main HEAD)..HEAD" \
+  ./scripts/secret-scan.sh
+```
+
 `gitleaks` also auto-loads `.gitleaks.toml` when it is at the scan root, so
 external review tools that run a bare `gitleaks` over the checkout pick up the
 same allowlist automatically.
@@ -73,5 +80,7 @@ intended strings are suppressed and the scan is otherwise clean.
 ## CI
 
 [`.github/workflows/secret-scan.yml`](../.github/workflows/secret-scan.yml) runs
-the same scan on every pull request and push to `main` (without checking out
-submodules), so security audits stay actionable.
+the same scanner on every pull request and push to `main` (without checking out
+submodules). Pull requests scan the git range from the PR base to `HEAD`, so a
+secret added in one PR commit and removed before merge is still caught. Pushes to
+`main` use the current working-tree scan.
