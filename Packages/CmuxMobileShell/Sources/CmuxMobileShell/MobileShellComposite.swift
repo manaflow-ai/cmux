@@ -4488,11 +4488,20 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     }
 
     /// Record the Mac's resolved default terminal background for `surfaceID` from
-    /// a render-grid frame. A delta frame omits the background (nil), so the last
-    /// known value is preserved across deltas.
+    /// a render-grid frame.
+    ///
+    /// A nil background means two different things depending on `frame.full`:
+    /// a delta simply omits the field (the established value must persist), but a
+    /// full snapshot that carries no background is authoritative — the Mac's
+    /// configured default background was removed or no longer resolves, so the
+    /// chrome must fall back. Distinguish them so a theme change that drops the
+    /// background actually reverts the chrome instead of leaving a stale color.
     func recordInheritedTerminalBackground(from frame: MobileTerminalRenderGridFrame) {
-        guard let background = frame.terminalBackground else { return }
-        inheritedTerminalBackgroundBySurfaceID[frame.surfaceID] = background
+        if let background = frame.terminalBackground {
+            inheritedTerminalBackgroundBySurfaceID[frame.surfaceID] = background
+        } else if frame.full {
+            inheritedTerminalBackgroundBySurfaceID.removeValue(forKey: frame.surfaceID)
+        }
     }
 
     /// The Mac's resolved default terminal background (`#RRGGBB`) the phone's

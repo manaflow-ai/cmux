@@ -100,4 +100,46 @@ struct MobileShellInheritedThemeTests {
     collector.unmount()
 }
 
+/// A full snapshot with no background is authoritative: the Mac's configured
+/// default background was removed or no longer resolves, so the previously
+/// inherited chrome background must be cleared (revert to the fallback), not
+/// kept stale.
+@Test func inheritedTerminalBackgroundClearedByBackgroundlessFullFrame() async throws {
+    let clock = TestClock()
+    let router = LivenessHostRouter()
+    let box = TransportBox()
+    let store = try await makeConnectedStore(router: router, box: box, clock: clock)
+
+    let collector = OutputCollector()
+    collector.mount(store: store, surfaceID: "live-terminal")
+    _ = try await pollUntil { await router.count(of: "mobile.terminal.replay") >= 1 }
+
+    let transport = try #require(box.get())
+    let palette = (0..<16).map { _ in "#abcdef" }
+    let themed = try themedRenderGridEventFrame(
+        surfaceID: "live-terminal",
+        seq: 5,
+        background: "#0A0B0C",
+        palette: palette
+    )
+    await transport.deliver(themed)
+    _ = try await pollUntil {
+        store.inheritedTerminalBackground(surfaceID: "live-terminal") == "#0A0B0C"
+    }
+
+    // A full frame with no background (theme background removed/unresolved on the
+    // Mac). `renderGridEventFrame` builds a full snapshot with no terminal colors.
+    let backgroundless = try renderGridEventFrame(surfaceID: "live-terminal", seq: 6, text: "plain")
+    await transport.deliver(backgroundless)
+    let cleared = try await pollUntil {
+        store.inheritedTerminalBackground(surfaceID: "live-terminal") == nil
+    }
+    #expect(
+        cleared,
+        "a full snapshot with no background must clear the inherited chrome color so it does not stay stale"
+    )
+
+    collector.unmount()
+}
+
 }
