@@ -47,7 +47,7 @@
 2199	Sources/SessionPersistence.swift
 2133	cmuxTests/ShortcutAndCommandPaletteTests.swift
 2117	cmuxTests/CmuxConfigTests.swift
-2031	Sources/KeyboardShortcutSettingsFileStore.swift
+2032	Sources/KeyboardShortcutSettingsFileStore.swift
 1949	Sources/Panels/BrowserWebAuthnSupport.swift
 1860	cmuxTests/NotificationAndMenuBarTests.swift
 1794	Sources/SessionIndexStore.swift
@@ -92,12 +92,12 @@
 937	Sources/TextBoxMentionIndexStore.swift
 924	Sources/DockPanelView.swift
 917	cmuxTests/WorkspaceGroupTests.swift
+910	Sources/CommandPalette/CommandPaletteSettingsToggle.swift
 905	Sources/CmuxSSHURLRequest.swift
-903	Sources/CommandPalette/CommandPaletteSettingsToggle.swift
 878	Sources/WorkspaceContentView.swift
 868	Sources/Panels/BrowserScreenshotSnapshotter.swift
 864	Sources/Panels/TerminalPanel.swift
-856	Packages/CmuxSettingsUI/Sources/CmuxSettingsUI/Sections/AppSection.swift
+859	Packages/CmuxSettingsUI/Sources/CmuxSettingsUI/Sections/AppSection.swift
 852	Packages/CmuxControlSocket/Sources/CmuxControlSocket/Coordinator/Workspace/ControlCommandCoordinator+Workspace.swift
 847	cmuxTests/AgentSessionAutoResumeSettingsTests.swift
 845	cmuxTests/SSHStartupSignalLifecycleTests.swift
@@ -112,7 +112,7 @@
 756	Sources/Panels/AgentSessionWebRendererCoordinator.swift
 752	Sources/TerminalController+ControlWorkspaceContext.swift
 752	cmuxUITests/CloseWorkspaceCmdDUITests.swift
-739	Sources/App/MenuBarExtraController.swift
+743	Sources/App/MenuBarExtraController.swift
 738	Packages/CMUXProjectModel/Sources/CMUXProjectModel/XcodeProjectAdapter.swift
 738	Packages/CmuxAuthRuntime/Sources/CmuxAuthRuntime/Coordinator/AuthCoordinator.swift
 716	Sources/TaskManagerSnapshot.swift

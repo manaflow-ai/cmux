@@ -5,9 +5,16 @@ extension MenuBarOnlySettings {
     static let legacyCommandPaletteUsageKey = "commandPalette.commandUsage.v1"
     static let legacyCommandPaletteMenuBarOnlyCommandId = "palette.toggleSetting.menuBarOnly"
 
+    static func normalizeLegacyStoredPreference(defaults: UserDefaults = .standard) {
+        guard defaults.object(forKey: menuBarOnlyKey) != nil,
+              defaults.bool(forKey: menuBarOnlyKey),
+              defaults.object(forKey: explicitEnableKey) == nil else { return }
+        setEnabled(!legacyCommandPaletteToggleWasUsed(defaults: defaults), defaults: defaults)
+    }
+
     static func legacyCommandPaletteToggleWasUsed(defaults: UserDefaults = .standard) -> Bool {
-        guard let data = defaults.data(forKey: legacyCommandPaletteUsageKey),
-              let history = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { return false }
+        guard let data = defaults.data(forKey: legacyCommandPaletteUsageKey) else { return false }
+        guard let history = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { return true }
         return history[legacyCommandPaletteMenuBarOnlyCommandId] != nil
     }
 }

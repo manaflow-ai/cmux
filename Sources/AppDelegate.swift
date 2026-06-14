@@ -1225,6 +1225,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         if isRunningUnderXCTest {
             NSApp.setActivationPolicy(.regular)
         } else {
+            MenuBarOnlySettings.normalizeLegacyStoredPreference()
             syncActivationPolicy()
         }
         StartupBreadcrumbLog.append("appDelegate.didFinish.activationPolicy.synced")
@@ -8576,6 +8577,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
     private func syncApplicationPresentationPreferences(defaults: UserDefaults = .standard) {
+        MenuBarOnlySettings.normalizeLegacyStoredPreference(defaults: defaults)
         syncActivationPolicy(defaults: defaults)
         syncMenuBarExtraVisibility(defaults: defaults)
     }
