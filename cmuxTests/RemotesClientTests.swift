@@ -119,6 +119,36 @@ import CMUXMobileCore
         #expect(route.endpoint == .hostPort(host: "100.64.1.2", port: 51001))
     }
 
+    // MARK: - Attachability (the iOS auth policy gate)
+
+    @Test(arguments: [
+        "100.64.1.2:51001",     // CGNAT lower bound
+        "100.127.255.255:51001", // CGNAT upper bound
+        "100.100.50.7:51001",
+        "my-mac.tailnet.ts.net:51001",
+        "MY-MAC.TS.NET:51001",  // case-insensitive suffix
+    ])
+    func acceptsTailscaleAttachableHosts(_ token: String) throws {
+        let route = try RemoteRouteSpec.parse(token).attachRoute(id: "m", priority: 0)
+        #expect(RemotesClient.routeIsAttachable(route))
+    }
+
+    @Test(arguments: [
+        "192.168.1.50:51001",   // private LAN
+        "10.0.0.5:51001",       // private LAN
+        "172.16.0.9:51001",
+        "100.63.0.1:51001",     // just below CGNAT
+        "100.128.0.1:51001",    // just above CGNAT
+        "8.8.8.8:51001",        // public, not Tailscale
+        "my-mac.local:51001",   // bonjour
+        "example.com:51001",    // bare hostname
+        "[fd7a:115c:a1e0::1]:51001", // Tailscale IPv6 ULA (no IPv6 auth path)
+    ])
+    func rejectsNonTailscaleHostsAsNotAttachable(_ token: String) throws {
+        let route = try RemoteRouteSpec.parse(token).attachRoute(id: "m", priority: 0)
+        #expect(!RemotesClient.routeIsAttachable(route))
+    }
+
     // MARK: - Deterministic device id (idempotency on name)
 
     @Test func deviceIdIsStableForSameName() {

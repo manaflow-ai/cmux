@@ -1,5 +1,6 @@
 import CMUXMobileCore
 import CmuxAuthRuntime
+import CmuxMobileShellModel
 import CryptoKit
 import Foundation
 
@@ -9,6 +10,7 @@ enum RemotesClientError: Error, CustomStringConvertible, Equatable {
     case notSignedIn
     case invalidRoute(String)
     case loopbackRoute(host: String)
+    case notAttachable(host: String)
     case noRoutes
     case emptyName
     case notFound(String)
@@ -25,7 +27,14 @@ enum RemotesClientError: Error, CustomStringConvertible, Equatable {
         case let .loopbackRoute(host):
             return """
                 Refusing to add a loopback remote (\(host)). A phone that dials localhost / 127.0.0.1 / ::1 dials \
-                itself, so the remote would never be reachable. Use the Mac's Tailscale name, LAN IP, or hostname instead.
+                itself, so the remote would never be reachable. Use the Mac's Tailscale address instead.
+                """
+        case let .notAttachable(host):
+            return """
+                '\(host)' is not attachable from the iOS app. A signed-in phone can only authenticate to a \
+                registry route over Tailscale, so the host must be a Tailscale address: a 100.64.x.x-100.127.x.x \
+                (CGNAT) IP or a *.ts.net MagicDNS name. A plain LAN IP, hostname, or Tailscale IPv6 address would \
+                show in the device list but fail to connect. Run `tailscale ip -4` on the Mac for its 100.x address.
                 """
         case .noRoutes:
             return "At least one --route host:port is required. Example: cmux remotes add my-mac --route 100.64.1.2:51001"
@@ -197,6 +206,13 @@ actor RemotesClient {
         let attachRoutes = try specs.enumerated().map { index, spec in
             try spec.attachRoute(id: "manual-\(index)", priority: index)
         }
+        // A registry route is only attachable from a signed-in phone when the
+        // iOS auth policy will send the Stack token over it. Reject anything
+        // else here so we never register a remote that shows in the device list
+        // but deterministically fails to connect (`insecureManualRoute`).
+        for (spec, route) in zip(specs, attachRoutes) where !Self.routeIsAttachable(route) {
+            throw RemotesClientError.notAttachable(host: spec.host)
+        }
 
         var body: [String: Any] = [
             "deviceId": deviceId,
@@ -225,6 +241,15 @@ actor RemotesClient {
         let deviceId = try await resolveDeviceId(target: target)
         let (data, http) = try await request("DELETE", path: "/api/devices", jsonBody: ["deviceId": deviceId])
         try ensureOK(http, data: data)
+        // The DELETE is idempotent and returns ok even when nothing was removed
+        // (a not-owned id, or a row deleted concurrently). Report the truth from
+        // `deleted` so the CLI never claims success when the remote is still
+        // listed (e.g. another member's deviceId seen via `remotes list`).
+        let obj = try? decodeJSONObject(data)
+        let deleted = (obj?["deleted"] as? Int) ?? Int((obj?["deleted"] as? Double) ?? 1)
+        if deleted < 1 {
+            throw RemotesClientError.notFound(target)
+        }
         return deviceId
     }
 
@@ -234,10 +259,22 @@ actor RemotesClient {
     /// as-is; anything else is matched against the registry by display name
     /// (case-insensitive) and, as a fallback, the name-derived UUID.
     private func resolveDeviceId(target: String) async throws -> String {
-        if Self.isUUID(target) {
-            return target.lowercased()
-        }
+        // Always resolve against the team's registry list so removal reports
+        // success only when a row this caller can actually delete exists. The
+        // DELETE endpoint is idempotent (it returns ok even when nothing was
+        // deleted, e.g. a UUID that does not exist or belongs to another
+        // member), so without this pre-check `remotes remove <uuid>` could print
+        // success while leaving the remote in the list. team members can see
+        // each other's deviceIds via `remotes list`, so this guards both typos
+        // and not-owned ids.
         let remotes = try await list()
+        if Self.isUUID(target) {
+            let normalized = target.lowercased()
+            if remotes.contains(where: { $0.deviceId.lowercased() == normalized }) {
+                return normalized
+            }
+            throw RemotesClientError.notFound(target)
+        }
         // Match by exact display name first (case-insensitive).
         if let match = remotes.first(where: {
             ($0.displayName ?? "").compare(target, options: .caseInsensitive) == .orderedSame
@@ -277,6 +314,15 @@ actor RemotesClient {
 
     static func isUUID(_ value: String) -> Bool {
         UUID(uuidString: value.trimmingCharacters(in: .whitespacesAndNewlines)) != nil
+    }
+
+    /// Whether a signed-in phone could authenticate to this route from the
+    /// registry. Defers to the same `MobileShellRouteAuthPolicy` the iOS attach
+    /// path enforces, so `remotes add` and the phone agree on what is reachable
+    /// (a manual host:port is attachable only when its host is a Tailscale
+    /// CGNAT 100.64/10 IP or a *.ts.net name).
+    static func routeIsAttachable(_ route: CmxAttachRoute) -> Bool {
+        MobileShellRouteAuthPolicy.routeAllowsStackAuth(route)
     }
 
     // MARK: - Display parsing

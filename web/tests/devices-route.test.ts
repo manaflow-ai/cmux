@@ -23,7 +23,8 @@ mock.module("../app/lib/stack", () => ({
   isStackConfigured: () => true,
 }));
 
-const { DELETE, GET, POST, hostIsLoopback } = await import("../app/api/devices/route");
+const { DELETE, GET, POST } = await import("../app/api/devices/route");
+const { hostIsLoopback } = await import("../app/api/devices/route-classification");
 
 let sql: Sql | null = null;
 
@@ -302,6 +303,19 @@ describe("device registry route", () => {
       }),
     );
     expect(del.status).toBe(200);
+    expect((await del.json()).deleted).toBe(1);
+
+    // Deleting an unknown deviceId is an idempotent no-op, but `deleted` is 0 so
+    // the CLI can report "not found" instead of a false success.
+    const noop = await DELETE(
+      new Request("https://cmux.test/api/devices", {
+        method: "DELETE",
+        headers: authHeaders(),
+        body: JSON.stringify({ deviceId: "99999999-9999-4999-8999-999999999999" }),
+      }),
+    );
+    expect(noop.status).toBe(200);
+    expect((await noop.json()).deleted).toBe(0);
 
     const [{ devicesTotal }] = await sql<{ devicesTotal: number }[]>`
       select count(*)::int as "devicesTotal" from devices
@@ -513,6 +527,9 @@ describe("device registry route", () => {
       }),
     );
     expect(del.status).toBe(200); // idempotent no-op, not an error
+    // Nothing was deleted (owned by user 1), so `deleted` is 0: the CLI reports
+    // not-found rather than a false success for another member's deviceId.
+    expect((await del.json()).deleted).toBe(0);
 
     const [{ total }] = await sql<{ total: number }[]>`
       select count(*)::int as total from devices where device_uuid = ${DEVICE_A}
