@@ -1,3 +1,4 @@
+import CmuxSettings
 import Foundation
 
 /// Host-supplied callbacks the package's section views invoke for
@@ -44,9 +45,25 @@ public protocol SettingsHostActions: AnyObject {
     /// Firefox source picker + profile selection + cookie prompt).
     func openBrowserImportFlow()
 
-    /// Asks the OS for notification authorization. No-op if the user
-    /// has already responded (granted or denied).
-    func requestNotificationAuthorization()
+    /// Returns the latest OS-level notification authorization state the host
+    /// has cached for the current app bundle.
+    func desktopNotificationAuthorizationState() -> DesktopNotificationAuthorizationState
+
+    /// Refreshes the OS-level notification authorization state for the current
+    /// app bundle.
+    func refreshDesktopNotificationAuthorizationState() async -> DesktopNotificationAuthorizationState
+
+    /// Streams OS-level notification authorization state changes from the host.
+    ///
+    /// The App section subscribes to keep the row live when the user changes
+    /// notification permission in System Settings and returns to cmux.
+    func desktopNotificationAuthorizationStateUpdates() -> AsyncStream<DesktopNotificationAuthorizationState>
+
+    /// Asks the OS for notification authorization.
+    ///
+    /// - Returns: The refreshed authorization state after the request path
+    ///   completes.
+    func requestNotificationAuthorization() async -> DesktopNotificationAuthorizationState
 
     /// Opens the cmux terminal config preview window (the legacy
     /// "Open Config" row in the App section). The host owns the
@@ -172,6 +189,22 @@ public extension SettingsHostActions {
         (1...65535).contains(port) ? .savedForLater(port: port) : .invalid(requestedPort: port)
     }
 
+    func desktopNotificationAuthorizationState() -> DesktopNotificationAuthorizationState {
+        .unknown
+    }
+
+    func refreshDesktopNotificationAuthorizationState() async -> DesktopNotificationAuthorizationState {
+        desktopNotificationAuthorizationState()
+    }
+
+    func desktopNotificationAuthorizationStateUpdates() -> AsyncStream<DesktopNotificationAuthorizationState> {
+        AsyncStream { $0.finish() }
+    }
+
+    func requestNotificationAuthorization() async -> DesktopNotificationAuthorizationState {
+        desktopNotificationAuthorizationState()
+    }
+
     func sidebarFontSize() -> SettingsFontSize {
         SettingsFontSize(points: 12.5, minimum: 10, maximum: 20, defaultValue: 12.5)
     }
@@ -208,7 +241,12 @@ public final class NoopSettingsHostActions: SettingsHostActions {
     public func openSystemNotificationSettings() {}
     public func restartApp() {}
     public func openBrowserImportFlow() {}
-    public func requestNotificationAuthorization() {}
+    public func desktopNotificationAuthorizationState() -> DesktopNotificationAuthorizationState { .unknown }
+    public func refreshDesktopNotificationAuthorizationState() async -> DesktopNotificationAuthorizationState { .unknown }
+    public func desktopNotificationAuthorizationStateUpdates() -> AsyncStream<DesktopNotificationAuthorizationState> {
+        AsyncStream { $0.finish() }
+    }
+    public func requestNotificationAuthorization() async -> DesktopNotificationAuthorizationState { .unknown }
     public func openTerminalConfigWindow() {}
     public func openMobilePairingWindow() {}
     /// No-op notification sound preview used by tests, previews, and

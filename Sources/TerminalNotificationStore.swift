@@ -237,6 +237,9 @@ final class TerminalNotificationStore: ObservableObject {
     }
 
     static let shared = TerminalNotificationStore()
+    static let authorizationStateDidChangeNotification = Notification.Name(
+        "cmux.notificationAuthorizationStateDidChange"
+    )
 
     static let categoryIdentifier = "com.cmuxterm.app.userNotification"
     static let actionShowIdentifier = "com.cmuxterm.app.userNotification.show"
@@ -463,7 +466,15 @@ final class TerminalNotificationStore: ObservableObject {
             refreshUnreadPresentation()
         }
     }
-    @Published private(set) var authorizationState: NotificationAuthorizationState = .unknown
+    @Published private(set) var authorizationState: NotificationAuthorizationState = .unknown {
+        didSet {
+            guard authorizationState != oldValue else { return }
+            NotificationCenter.default.post(
+                name: Self.authorizationStateDidChangeNotification,
+                object: self
+            )
+        }
+    }
     private var suppressNotificationDiffPublishing = false
 
     private let center = UNUserNotificationCenter.current()
@@ -647,9 +658,30 @@ final class TerminalNotificationStore: ObservableObject {
         }
     }
 
-    func requestAuthorizationFromSettings() {
+    @MainActor
+    func refreshAuthorizationStatusFromSettings() async -> NotificationAuthorizationState {
+        await withCheckedContinuation { continuation in
+            center.getNotificationSettings { [weak self] settings in
+                let status = settings.authorizationStatus
+                Task { @MainActor in
+                    guard let self else {
+                        continuation.resume(returning: .unknown)
+                        return
+                    }
+                    self.authorizationState = Self.authorizationState(from: status)
+                    self.logAuthorization(
+                        "settings refresh status=\(Self.authorizationStatusLabel(status)) mapped=\(self.authorizationState.statusLabel)"
+                    )
+                    continuation.resume(returning: self.authorizationState)
+                }
+            }
+        }
+    }
+
+    @MainActor
+    func requestAuthorizationFromSettings() async -> NotificationAuthorizationState {
         logAuthorization("settings request tapped state=\(authorizationState.statusLabel)")
-        ensureAuthorization(origin: .settingsButton) { _, _ in }
+        return await ensureAuthorizationResult(origin: .settingsButton)
     }
 
     func openNotificationSettings() {
@@ -698,6 +730,16 @@ final class TerminalNotificationStore: ObservableObject {
                         body: content.body
                     )
                 }
+            }
+        }
+    }
+
+    @MainActor
+    private func ensureAuthorizationResult(origin: AuthorizationRequestOrigin) async -> NotificationAuthorizationState {
+        await withCheckedContinuation { continuation in
+            ensureAuthorization(origin: origin) { [weak self] _, state in
+                self?.authorizationState = state
+                continuation.resume(returning: state)
             }
         }
     }
