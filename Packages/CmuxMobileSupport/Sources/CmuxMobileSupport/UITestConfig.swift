@@ -34,6 +34,37 @@ public struct UITestConfig {
         value(for: "CMUX_UITEST_ATTACH_URL")
     }
 
+    /// The dogfood attach URL to auto-open after sign-in, if injected.
+    ///
+    /// Unlike ``attachURL`` (which is gated on ``mockDataEnabled`` so it only
+    /// fires under the XCUITest mock harness), this reads `CMUX_DOGFOOD_ATTACH_URL`
+    /// *without* the mock gate. The dev-launch tooling
+    /// (`scripts/mobile-dev-launch.sh`, `scripts/dev-setup.sh`) signs in for real
+    /// against the live backend (`CMUX_UITEST_MOCK_DATA=0`) and wants the phone to
+    /// auto-pair to the freshly built Mac dev app. With the mock off, ``attachURL``
+    /// is always `nil`, so a dedicated, not-mock-gated accessor is required for the
+    /// real-backend auto-pair path to fire. DEBUG-only; always `nil` in release.
+    public static var dogfoodAttachURL: String? {
+        dogfoodAttachURL(from: ProcessInfo.processInfo.environment)
+    }
+
+    /// The dogfood attach URL for an explicit environment, not gated on mock data.
+    ///
+    /// - Parameter env: The environment dictionary to read.
+    /// - Returns: The trimmed value of `CMUX_DOGFOOD_ATTACH_URL` when present and
+    ///   non-empty; otherwise `nil`. Always `nil` in release builds.
+    public static func dogfoodAttachURL(from env: [String: String]) -> String? {
+        #if DEBUG
+        // Read the env directly, NOT through the mock-gated value(for:), so the
+        // URL is returned with CMUX_UITEST_MOCK_DATA=0 (the real-backend
+        // dev-launch path) and iOS auto-pair actually fires.
+        let value = env["CMUX_DOGFOOD_ATTACH_URL"]?.trimmingCharacters(in: .whitespacesAndNewlines)
+        return value?.isEmpty == false ? value : nil
+        #else
+        return nil
+        #endif
+    }
+
     /// Whether the standalone terminal-layout preview is enabled.
     ///
     /// When `CMUX_UITEST_TERMINAL_PREVIEW=1`, the root view renders a standalone

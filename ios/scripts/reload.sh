@@ -140,6 +140,19 @@ BUNDLE_ID="dev.cmux.ios.$TAG_SLUG"
 DERIVED_DATA="$HOME/Library/Developer/Xcode/DerivedData/cmux-ios-$TAG_SLUG"
 DESTINATION="platform=iOS Simulator,name=$SIMULATOR_NAME"
 
+# Dev-build identity baked into the app's Info.plist (CMUXGitSHA / CMUXDevTag),
+# surfaced in-app under Settings > About so a dogfood build is tellable. The
+# short SHA marks "+" when the working tree is dirty. Use `git status --porcelain`
+# (not `git diff HEAD`) so an UNTRACKED new source file also flips the marker:
+# SwiftPM/Xcode compile untracked files under Sources, so a build that contains
+# uncommitted local work must never read as a clean committed SHA. These default
+# empty in Shared.xcconfig, so a TestFlight/release build shows a clean "1.0.0"
+# while a reload shows "1.0.0 (123) · <tag> · <sha>".
+GIT_SHA="$(git -C "$IOS_DIR" rev-parse --short HEAD 2>/dev/null || true)"
+if [[ -n "$GIT_SHA" && -n "$(git -C "$IOS_DIR" status --porcelain 2>/dev/null)" ]]; then
+  GIT_SHA="$GIT_SHA+"
+fi
+
 LOCAL_ASC_CONFIG="$IOS_DIR/Config/AppStoreConnect.local.plist"
 if [[ -f "$LOCAL_ASC_CONFIG" ]]; then
   ASC_API_KEY_ID="${ASC_API_KEY_ID:-$(/usr/libexec/PlistBuddy -c 'Print :ASC_API_KEY_ID' "$LOCAL_ASC_CONFIG" 2>/dev/null || true)}"
@@ -393,6 +406,8 @@ reload_simulator() {
     -derivedDataPath "$DERIVED_DATA" \
     PRODUCT_BUNDLE_IDENTIFIER="$BUNDLE_ID" \
     PRODUCT_DISPLAY_NAME="$DISPLAY_NAME" \
+    CMUX_GIT_SHA="$GIT_SHA" \
+    CMUX_DEV_TAG="$TAG" \
     EXCLUDED_SOURCE_FILE_NAMES=Info.plist \
     CODE_SIGNING_ALLOWED=NO \
     SWIFT_OPTIMIZATION_LEVEL=-O \
@@ -492,6 +507,8 @@ reload_device() {
   build_args+=(
     PRODUCT_BUNDLE_IDENTIFIER="$BUNDLE_ID"
     PRODUCT_DISPLAY_NAME="$DISPLAY_NAME"
+    CMUX_GIT_SHA="$GIT_SHA"
+    CMUX_DEV_TAG="$TAG"
     EXCLUDED_SOURCE_FILE_NAMES=Info.plist
     CODE_SIGNING_ALLOWED=YES
     CODE_SIGN_STYLE=Automatic

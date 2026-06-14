@@ -45,7 +45,11 @@ public struct MobileDebugLog: Sendable {
     /// the executable's build timestamp (changes on every rebuild). All dev
     /// builds share `CFBundleVersion = 1`, so the exec mtime is the only signal
     /// that distinguishes one reload from the next.
-    static let buildStamp: String = {
+    ///
+    /// Public so the composition root can stamp the same identity into a
+    /// ``DiagnosticLog`` export header, keeping one build-identity source of
+    /// truth across both the string log and the structured log.
+    public static let buildStamp: String = {
         var parts: [String] = []
         if let name = Bundle.main.object(forInfoDictionaryKey: "CFBundleName") as? String {
             parts.append(name)
