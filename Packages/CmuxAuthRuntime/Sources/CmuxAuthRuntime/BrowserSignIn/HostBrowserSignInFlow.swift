@@ -239,6 +239,7 @@ public final class HostBrowserSignInFlow {
             }
             guard self.activeAttemptID == attemptID else { return false }
             self.cancelAttemptTimeout()
+            self.cancelSlowSignInHint()
             return await self.completeCallback(url: callbackURL, attemptID: attemptID)
         }
     }
