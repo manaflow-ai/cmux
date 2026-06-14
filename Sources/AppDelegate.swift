@@ -1083,11 +1083,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             _ = synchronizeActiveMainWindowContext(preferredWindow: NSApp.keyWindow ?? NSApp.mainWindow)
             return true
         }
-        _ = mainWindowVisibilityController.showApplicationWindows(
+        if mainWindowVisibilityController.showApplicationWindows(
             windows: mainWindowsForVisibilityController(),
             reason: .applicationReopen,
             activation: .none
-        )
+        ) == nil {
+            NSSound.beep()
+        }
         return true
     }
 
