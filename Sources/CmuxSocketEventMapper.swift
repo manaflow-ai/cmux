@@ -64,7 +64,7 @@ enum CmuxSocketEventMapper {
             return DomainEventMapping(name: "workspace.renamed", category: "workspace", params: .unchanged)
         case "workspace.move_to_window":
             return DomainEventMapping(name: "workspace.moved", category: "workspace", params: .unchanged)
-        case "workspace.action":
+        case "workspace.action", "workspace.set_color", "workspace.setColor", "workspace.clear_color", "workspace.clearColor":
             return DomainEventMapping(name: "workspace.action", category: "workspace", params: .unchanged)
         case "surface.split_off", "surface.drag_to_split":
             return DomainEventMapping(name: "pane.created", category: "pane", params: .unchanged)

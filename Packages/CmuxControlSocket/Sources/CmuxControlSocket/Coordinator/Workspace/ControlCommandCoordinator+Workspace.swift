@@ -38,6 +38,10 @@ extension ControlCommandCoordinator {
             return workspacePromptSubmit(request.params)
         case "workspace.rename":
             return workspaceRename(request.params)
+        case "workspace.set_color", "workspace.setColor":
+            return workspaceSetColor(request.params)
+        case "workspace.clear_color", "workspace.clearColor":
+            return workspaceClearColor(request.params)
         case "workspace.next":
             return workspaceNext(request.params)
         case "workspace.previous":

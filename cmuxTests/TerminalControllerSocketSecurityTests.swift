@@ -205,6 +205,100 @@ final class TerminalControllerSocketSecurityTests: XCTestCase {
         XCTAssertEqual(payload["has_ssh_options"] as? Bool, true)
     }
 
+    func testWorkspaceColorRPCsMutateCustomColor() async throws {
+        let socketPath = makeSocketPath("ws-color")
+        let manager = TabManager()
+        let workspace = manager.addWorkspace(select: true, eagerLoadTerminal: false)
+
+        defer {
+            if manager.tabs.contains(where: { $0.id == workspace.id }) {
+                manager.closeWorkspace(workspace)
+            }
+        }
+
+        TerminalController.shared.start(
+            tabManager: manager,
+            socketPath: socketPath,
+            accessMode: .allowAll
+        )
+        try waitForSocket(at: socketPath)
+
+        var response = try await sendV2RequestAsync(
+            method: "workspace.set_color",
+            params: [
+                "workspace_id": workspace.id.uuidString,
+                "color": "#1565c0",
+            ],
+            to: socketPath
+        )
+
+        XCTAssertEqual(response["ok"] as? Bool, true, "Unexpected JSON-RPC response: \(response)")
+        var result = try XCTUnwrap(response["result"] as? [String: Any])
+        XCTAssertEqual(result["workspace_id"] as? String, workspace.id.uuidString)
+        XCTAssertEqual(result["action"] as? String, "set_color")
+        XCTAssertEqual(result["color"] as? String, "#1565C0")
+        XCTAssertEqual(workspace.customColor, "#1565C0")
+
+        response = try await sendV2RequestAsync(
+            method: "workspace.setColor",
+            params: [
+                "workspace_id": workspace.id.uuidString,
+                "color": "#abc123",
+            ],
+            to: socketPath
+        )
+
+        XCTAssertEqual(response["ok"] as? Bool, true, "Unexpected JSON-RPC response: \(response)")
+        result = try XCTUnwrap(response["result"] as? [String: Any])
+        XCTAssertEqual(result["workspace_id"] as? String, workspace.id.uuidString)
+        XCTAssertEqual(result["action"] as? String, "set_color")
+        XCTAssertEqual(result["color"] as? String, "#ABC123")
+        XCTAssertEqual(workspace.customColor, "#ABC123")
+
+        response = try await sendV2RequestAsync(
+            method: "workspace.clear_color",
+            params: ["workspace_id": workspace.id.uuidString],
+            to: socketPath
+        )
+
+        XCTAssertEqual(response["ok"] as? Bool, true, "Unexpected JSON-RPC response: \(response)")
+        result = try XCTUnwrap(response["result"] as? [String: Any])
+        XCTAssertEqual(result["workspace_id"] as? String, workspace.id.uuidString)
+        XCTAssertEqual(result["action"] as? String, "clear_color")
+        XCTAssertTrue(result["color"] is NSNull)
+        XCTAssertNil(workspace.customColor)
+    }
+
+    func testWorkspaceCreateAppliesInitialColor() async throws {
+        let socketPath = makeSocketPath("ws-create-color")
+        let manager = TabManager()
+
+        TerminalController.shared.start(
+            tabManager: manager,
+            socketPath: socketPath,
+            accessMode: .allowAll
+        )
+        try waitForSocket(at: socketPath)
+
+        let response = try await sendV2RequestAsync(
+            method: "workspace.create",
+            params: [
+                "title": "Research",
+                "color": "#abc123",
+                "focus": false,
+            ],
+            to: socketPath
+        )
+
+        XCTAssertEqual(response["ok"] as? Bool, true, "Unexpected JSON-RPC response: \(response)")
+        let result = try XCTUnwrap(response["result"] as? [String: Any])
+        XCTAssertEqual(result["color"] as? String, "#ABC123")
+        let workspaceId = try XCTUnwrap(result["workspace_id"] as? String)
+        let workspaceUUID = try XCTUnwrap(UUID(uuidString: workspaceId))
+        let createdWorkspace = try XCTUnwrap(manager.tabs.first { $0.id == workspaceUUID })
+        XCTAssertEqual(createdWorkspace.customColor, "#ABC123")
+    }
+
     func testRemoteConfigureRejectsInvalidPersistentDaemonSlot() throws {
         let response = try handleV2Request(
             method: "workspace.remote.configure",

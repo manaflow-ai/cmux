@@ -116,7 +116,11 @@ extension TerminalController: ControlWorkspaceContext {
     /// (also driven by `v2MobileWorkspaceCreate`), bridging its Foundation result
     /// — one source of truth for the create logic, byte-identical wire output.
     func controlWorkspaceCreate(params: [String: JSONValue]) -> ControlCallResult {
-        switch v2WorkspaceCreate(params: params.mapValues(\.foundationObject)) {
+        bridgeWorkspaceResult(v2WorkspaceCreate(params: params.mapValues(\.foundationObject)))
+    }
+
+    private func bridgeWorkspaceResult(_ result: V2CallResult) -> ControlCallResult {
+        switch result {
         case let .ok(payload):
             return .ok(JSONValue(foundationObject: payload) ?? .object([:]))
         case let .err(code, message, data):
@@ -321,6 +325,14 @@ extension TerminalController: ControlWorkspaceContext {
         tabManager.setCustomTitle(tabId: workspaceID, title: title)
         let windowId = AppDelegate.shared?.windowId(for: tabManager)
         return .resolved(windowID: windowId)
+    }
+
+    func controlSetWorkspaceColor(params: [String: JSONValue]) -> ControlCallResult {
+        bridgeWorkspaceResult(v2WorkspaceSetColor(params: params.mapValues(\.foundationObject)))
+    }
+
+    func controlClearWorkspaceColor(params: [String: JSONValue]) -> ControlCallResult {
+        bridgeWorkspaceResult(v2WorkspaceClearColor(params: params.mapValues(\.foundationObject)))
     }
 
     // MARK: - Navigation
@@ -749,4 +761,3 @@ extension TerminalController: ControlWorkspaceContext {
         return .string(uuid.uuidString)
     }
 }
-

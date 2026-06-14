@@ -285,6 +285,14 @@ extension ControlWorkspaceContext {
         title: String
     ) -> ControlWorkspaceRoutedResolution { .tabManagerUnavailable }
 
+    func controlSetWorkspaceColor(params: [String: JSONValue]) -> ControlCallResult {
+        .err(code: "unavailable", message: "", data: nil)
+    }
+
+    func controlClearWorkspaceColor(params: [String: JSONValue]) -> ControlCallResult {
+        .err(code: "unavailable", message: "", data: nil)
+    }
+
     func controlSelectNextWorkspace(routing: ControlRoutingSelectors) -> ControlWorkspaceNavigationResolution {
         .tabManagerUnavailable
     }

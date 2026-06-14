@@ -153,6 +153,21 @@ public protocol ControlWorkspaceContext: AnyObject {
         title: String
     ) -> ControlWorkspaceRoutedResolution
 
+    /// Sets a workspace's custom tab color for `workspace.set_color`.
+    ///
+    /// The app-side body owns palette resolution and mutation because named
+    /// colors live with app settings.
+    ///
+    /// - Parameter params: The raw command params.
+    /// - Returns: The bridged call result.
+    func controlSetWorkspaceColor(params: [String: JSONValue]) -> ControlCallResult
+
+    /// Clears a workspace's custom tab color for `workspace.clear_color`.
+    ///
+    /// - Parameter params: The raw command params.
+    /// - Returns: The bridged call result.
+    func controlClearWorkspaceColor(params: [String: JSONValue]) -> ControlCallResult
+
     /// Selects the next workspace for `workspace.next`.
     ///
     /// - Parameter routing: The routing selectors used for TabManager
