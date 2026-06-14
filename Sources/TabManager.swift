@@ -5328,7 +5328,7 @@ class TabManager: ObservableObject {
             // workspace does not freeze the main thread; fall back to a fresh load only
             // while the cache has not loaded yet. See closedPanelHistoryEntry.
             let snapshot = workspace.sessionSnapshot(
-                includeScrollback: true,
+                includeScrollback: false,
                 restorableAgentIndex: SharedLiveAgentIndex.shared.currentIndexSchedulingRefresh()
                     ?? RestorableAgentSessionIndex.load()
             )
