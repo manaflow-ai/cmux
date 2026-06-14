@@ -194,7 +194,10 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     }
     public var pairingCode: String
     public var workspaces: [MobileWorkspacePreview] {
-        didSet { workspaceTopologyVersion &+= 1 }
+        didSet {
+            workspaceTopologyVersion &+= 1
+            terminalWorkspaceIDsByTerminalID = Self.terminalWorkspaceIndex(for: workspaces)
+        }
     }
     /// Bumped on every ``workspaces`` mutation: a cheap "lists may have
     /// changed" signal (e.g. for retrying a parked notification deep link).
@@ -540,6 +543,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     var terminalScrollQueuesBySurfaceID: [String: TerminalScrollDeliveryQueue]
     var terminalScrollbackPrefetchStatesBySurfaceID: [String: TerminalScrollbackPrefetchState]
     private var rawTerminalInputBuffer: MobileTerminalInputSendBuffer
+    @ObservationIgnored private var terminalWorkspaceIDsByTerminalID: [MobileTerminalPreview.ID: MobileWorkspacePreview.ID] = [:]
     private var pairingAttemptID: UUID
 
     public var phase: MobileShellPhase {
@@ -669,6 +673,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         self.terminalScrollQueuesBySurfaceID = [:]
         self.terminalScrollbackPrefetchStatesBySurfaceID = [:]
         self.rawTerminalInputBuffer = MobileTerminalInputSendBuffer()
+        self.terminalWorkspaceIDsByTerminalID = Self.terminalWorkspaceIndex(for: workspaces)
         self.pairingAttemptID = UUID()
     }
 
@@ -2765,6 +2770,31 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         }
     }
 
+    private static func terminalWorkspaceIndex(
+        for workspaces: [MobileWorkspacePreview]
+    ) -> [MobileTerminalPreview.ID: MobileWorkspacePreview.ID] {
+        var index: [MobileTerminalPreview.ID: MobileWorkspacePreview.ID] = [:]
+        for workspace in workspaces {
+            for terminal in workspace.terminals where index[terminal.id] == nil {
+                index[terminal.id] = workspace.id
+            }
+        }
+        return index
+    }
+
+    private func workspaceID(forTerminalID terminalID: MobileTerminalPreview.ID) -> MobileWorkspacePreview.ID? {
+        if let workspaceID = terminalWorkspaceIDsByTerminalID[terminalID] {
+            return workspaceID
+        }
+        guard let workspace = workspaces.first(where: { workspace in
+            workspace.terminals.contains(where: { $0.id == terminalID })
+        }) else {
+            return nil
+        }
+        terminalWorkspaceIDsByTerminalID[terminalID] = workspace.id
+        return workspace.id
+    }
+
     public func sendTerminalRawInput(_ text: String) {
         #if DEBUG
         mobileShellLog.debug("enqueue raw terminal input byteCount=\(text.utf8.count, privacy: .public)")
@@ -2787,19 +2817,13 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         guard !data.isEmpty else { return }
         guard let text = String(data: data, encoding: .utf8) else { return }
         let terminalID = MobileTerminalPreview.ID(rawValue: surfaceID)
-        // Fast path: the surface receiving input is normally the selected
-        // terminal, so resolve its workspace in O(1) and skip the scan.
-        if selectedTerminalID == terminalID, let workspaceID = selectedWorkspace?.id {
-            enqueueRawTerminalInput(text, workspaceID: workspaceID, terminalID: terminalID)
+        guard let workspaceID = workspaceID(forTerminalID: terminalID) else {
+            #if DEBUG
+            mobileShellLog.info("skip raw terminal input enqueue surface not found surface=\(surfaceID, privacy: .private)")
+            #endif
             return
         }
-        // Fallback: locate the owning workspace by surface id.
-        guard let workspace = workspaces.first(where: { workspace in
-            workspace.terminals.contains(where: { $0.id.rawValue == surfaceID })
-        }) else {
-            return
-        }
-        enqueueRawTerminalInput(text, workspaceID: workspace.id, terminalID: terminalID)
+        enqueueRawTerminalInput(text, workspaceID: workspaceID, terminalID: terminalID)
     }
 
     /// Enqueue raw input into the coalescing FIFO and start the drain loop when
@@ -2860,12 +2884,9 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         guard let text = String(data: data, encoding: .utf8) else {
             return
         }
-        let workspaceCandidate = workspaces.first(where: { workspace in
-            workspace.terminals.contains(where: { $0.id.rawValue == surfaceID })
-        })
-        guard let workspace = workspaceCandidate else { return }
         let terminalID = MobileTerminalPreview.ID(rawValue: surfaceID)
-        await submitTerminalRawInput(text, workspaceID: workspace.id, terminalID: terminalID)
+        guard let workspaceID = workspaceID(forTerminalID: terminalID) else { return }
+        await submitTerminalRawInput(text, workspaceID: workspaceID, terminalID: terminalID)
     }
 
     private func submitTerminalRawInput(
