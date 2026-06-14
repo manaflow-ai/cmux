@@ -8,12 +8,7 @@ import Testing
 // `tr '[:upper:]' '[:lower:]'`), must sanitize the version segment before it is
 // interpolated into remote shell, and must strip internal markers from the
 // stdout used in user-facing error detail.
-//
-// `.serialized`: each script case spawns a real `Process` with `Pipe`s; the
-// suite shares the process-global fd table and is not parallel-safe, matching
-// RemoteSessionProcessRunnerTests.
-@Suite("RemotePlatformProbeScript", .serialized)
-struct RemotePlatformProbeScriptTests {
+extension RemoteProcessPipeTests {
     private struct ProcessResult {
         let status: Int32
         let stdout: String
