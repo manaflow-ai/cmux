@@ -142,15 +142,7 @@ public final class ChatConversationStore {
             let streamStartedAt = now()
             for await event in stream {
                 apply(event)
-                // If the initial history fetch failed (e.g. the Mac couldn't
-                // read the transcript yet — a title-detected agent adopted
-                // before its jsonl was written), a live frame means it is
-                // readable now. Retry so the error banner clears and full
-                // context loads instead of parking on the failure. No-ops once
-                // loaded; only re-runs while the fetch still throws.
-                if !hasLoadedInitialHistory {
-                    await loadInitialHistoryIfNeeded()
-                }
+                if !hasLoadedInitialHistory { await loadInitialHistoryIfNeeded() }
                 // Flush queued sends inline once the agent goes idle —
                 // structured here in the async run loop rather than a
                 // detached Task spawned from the synchronous apply().
@@ -311,8 +303,6 @@ public final class ChatConversationStore {
 
     private func loadInitialHistoryIfNeeded() async {
         guard !hasLoadedInitialHistory else { return }
-        // A fresh newest-page load re-anchors paging; truncated-at-head is only
-        // re-discovered if a later loadOlder hits the Mac cache head.
         historyTruncatedAtHead = false
         do {
             let page = try await source.history(
@@ -365,8 +355,6 @@ public final class ChatConversationStore {
     /// After a stream drop, fetches the newest page and merges anything the
     /// window missed while disconnected.
     private func resyncTail() async {
-        // Re-deriving the window from the newest page resets paging; a later
-        // loadOlder re-discovers truncated-at-head if it still applies.
         historyTruncatedAtHead = false
         do {
             let page = try await source.history(
@@ -486,12 +474,7 @@ public final class ChatConversationStore {
             reconcileTerminalPending(against: blocks)
             reproject()
         case .reset:
-            // The transcript was truncated/replaced on the Mac (tailer
-            // re-read from scratch). The window's seq space is void; clear
-            // and re-anchor from fresh history. Delivered pendings die with
-            // the old transcript (their echo is gone), but failed rows keep
-            // their retry and in-flight sends may still land in the new
-            // transcript and reconcile normally.
+            // Transcript reset invalidates seq space; re-anchor from fresh history.
             messages = []
             // Terminal blocks must clear here too: the terminal reproject()
             // does not consult `messages`, so without this the synchronous
@@ -501,10 +484,6 @@ public final class ChatConversationStore {
             terminalBlockOrder = []
             pending.removeAll { $0.delivery == .delivered }
             hasMoreHistory = false
-            // The new transcript re-anchors paging from scratch; a stale
-            // truncated-at-head flag would render the "earlier history is on
-            // your Mac" cell above a fresh short conversation. resyncTail
-            // re-derives the real paging state.
             historyTruncatedAtHead = false
             reproject()
             Task { await resyncTail() }

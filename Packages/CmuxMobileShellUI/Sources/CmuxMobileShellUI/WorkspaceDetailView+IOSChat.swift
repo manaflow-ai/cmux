@@ -19,7 +19,7 @@ extension WorkspaceDetailView {
     /// session while chat mode is on.
     var chosenChatSession: ChatSessionDescriptor? {
         if let pinnedChatSessionID {
-            return availableChatSessions.first { $0.id == pinnedChatSessionID }
+            return pinnedChatSessionCandidates.first { $0.id == pinnedChatSessionID }
         }
         return sessionForSelectedTerminal
     }
@@ -36,6 +36,14 @@ extension WorkspaceDetailView {
                 primary: currentChatSessions,
                 fallback: store.seededChatSessions(workspaceID: workspace.id.rawValue)
             )
+    }
+
+    var pinnedChatSessionCandidates: [ChatSessionDescriptor] {
+        let currentChatSessions = chatSessionsWorkspaceID == workspace.id ? chatSessions : []
+        let seeded = store.seededChatSessions(workspaceID: workspace.id.rawValue)
+        guard !seeded.isEmpty else { return currentChatSessions }
+        var seen = Set(currentChatSessions.map(\.id))
+        return currentChatSessions + seeded.filter { seen.insert($0.id).inserted }
     }
 
     /// The tab/terminal name for a session, for the chat header subtitle.
