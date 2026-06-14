@@ -705,7 +705,9 @@ private func sessionRowMenuItems(entry: SessionEntry, onResume: ((SessionEntry) 
     }
     if let cwd = entry.cwd, !cwd.isEmpty {
         Button {
-            NSWorkspace.shared.open(URL(fileURLWithPath: cwd))
+            Task { @MainActor in
+                await SessionRowDirectoryOpener.openWorkingDirectory(cwd: cwd)
+            }
         } label: {
             Text(String(localized: "sessionIndex.row.openCwd", defaultValue: "Open Working Directory"))
         }
@@ -717,6 +719,23 @@ private func sessionRowMenuItems(entry: SessionEntry, onResume: ((SessionEntry) 
         } label: {
             Text(String(localized: "sessionIndex.row.openPR", defaultValue: "Open Pull Request"))
         }
+    }
+}
+
+// MARK: - Open Working Directory action
+
+/// Shared action backing the session-index row "Open Working Directory" menu
+/// item (used by both the full row and the popover row). `open` defaults to the
+/// shared Finder opener; tests inject a capturing closure to observe what the
+/// row routes. See issue #5977.
+enum SessionRowDirectoryOpener {
+    @MainActor
+    static func openWorkingDirectory(
+        cwd: String?,
+        open: @MainActor (URL?) async -> Void = { await WorkspaceFinderDirectoryOpener.openInFinder($0) }
+    ) async {
+        guard let cwd, !cwd.isEmpty else { return }
+        NSWorkspace.shared.open(URL(fileURLWithPath: cwd))
     }
 }
 

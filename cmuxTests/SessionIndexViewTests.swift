@@ -437,6 +437,33 @@ final class SessionIndexViewTests: XCTestCase {
         return SessionPopoverHarness(host: host, section: section, search: search, loadSnapshot: loadSnapshot)
     }
 
+    // MARK: - Open Working Directory routing (issue #5977)
+
+    /// The session-index row "Open Working Directory" action must route its
+    /// `cwd` through the shared ``WorkspaceFinderDirectoryOpener`` (which reveals
+    /// the directory in Finder and beeps on a stale/deleted path) instead of
+    /// `NSWorkspace.shared.open`, which silently does nothing when the directory
+    /// was moved or removed.
+    ///
+    /// Before the fix ``SessionRowDirectoryOpener/openWorkingDirectory(cwd:open:)``
+    /// called `NSWorkspace.shared.open` directly and ignored the injected opener,
+    /// so the capturing closure below never fires and this test fails.
+    func testOpenWorkingDirectoryRoutesCwdThroughFinderOpener() async {
+        let cwd = "/private/tmp/cmux-openwd-\(UUID().uuidString)"
+        var routed: [URL?] = []
+        await SessionRowDirectoryOpener.openWorkingDirectory(cwd: cwd) { routed.append($0) }
+        XCTAssertEqual(routed, [URL(fileURLWithPath: cwd)] as [URL?])
+    }
+
+    /// A missing or empty `cwd` must still reach the Finder opener as `nil` (so it
+    /// beeps), rather than being silently dropped.
+    func testOpenWorkingDirectoryRoutesNilForMissingCwd() async {
+        var routed: [URL?] = []
+        await SessionRowDirectoryOpener.openWorkingDirectory(cwd: nil) { routed.append($0) }
+        await SessionRowDirectoryOpener.openWorkingDirectory(cwd: "") { routed.append($0) }
+        XCTAssertEqual(routed, [nil, nil] as [URL?])
+    }
+
     private func makeEntry(
         agent: SessionAgent = .claude,
         sessionId: String = UUID().uuidString,
