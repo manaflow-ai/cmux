@@ -548,6 +548,16 @@ final class TerminalInputTextView: UITextView {
             onBackspace?()
             return
         }
+        if shiftAccessoryArmed, markedTextRange == nil, !hasText {
+            // Shift does not change Backspace, but a one-shot ⇧ must still be
+            // consumed here so it cannot leak onto the next key (matching the
+            // Control branch above).
+            if !shiftAccessorySticky {
+                setShiftAccessoryArmed(false)
+            }
+            onBackspace?()
+            return
+        }
         if markedTextRange != nil || hasText {
             super.deleteBackward()
             return
@@ -1134,13 +1144,13 @@ final class TerminalInputTextView: UITextView {
     /// the meaningful combination — back-tab (CSI Z), which agents and TUIs use to
     /// cycle backward through fields/modes. Other keys have no distinct shifted
     /// encoding, so the unmodified key is sent (Shift is still consumed), matching
-    /// how the Control branch handles special keys.
+    /// how the Control branch handles special keys. Only non-modifier actions reach
+    /// here (the call site guards on `!action.isModifier`), so the modifier cases
+    /// are intentionally left to `default` (their `output` is `nil` regardless).
     private func shiftAccessoryOutput(for action: TerminalInputAccessoryAction) -> Data? {
         switch action {
         case .tab:
             return TerminalHardwareKeyResolver.data(input: "\t", modifierFlags: [.shift])
-        case .control, .alternate, .command, .shift:
-            return nil
         default:
             return action.output
         }

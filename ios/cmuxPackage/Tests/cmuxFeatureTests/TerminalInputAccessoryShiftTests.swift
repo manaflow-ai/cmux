@@ -76,5 +76,21 @@ struct TerminalInputAccessoryShiftTests {
 
         #expect(sequences == [tab])
     }
+
+    @Test("a one-shot ⇧ is consumed by Backspace and does not leak to the next key")
+    func shiftConsumedByBackspace() {
+        let view = TerminalInputTextView()
+        var backspaces = 0
+        var text: [String] = []
+        view.onBackspace = { backspaces += 1 }
+        view.onText = { text.append($0) }
+
+        view.simulateAccessoryActionForTesting(.shift) // arm ⇧ (one-shot)
+        view.deleteBackward() // Backspace consumes ⇧, sends a normal backspace
+        view.insertText("a") // ⇧ already spent → lowercase, not "A"
+
+        #expect(backspaces == 1)
+        #expect(text == ["a"])
+    }
 }
 #endif
