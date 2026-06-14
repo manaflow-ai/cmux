@@ -242,7 +242,7 @@ export default function ChangelogPage() {
   const versions = parseChangelog(markdown);
 
   return (
-    <div className="max-w-[640px] overflow-hidden">
+    <div className="max-w-[640px]">
       <DocsHeading level={1} id="title" className="docs-heading-compact">{t("title")}</DocsHeading>
 
       <div style={{ paddingTop: 16 }}>
