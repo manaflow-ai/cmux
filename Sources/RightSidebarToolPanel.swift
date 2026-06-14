@@ -146,7 +146,12 @@ final class RightSidebarToolPanel: Panel, ObservableObject {
                   let window = anchor.window else { return }
             _ = window.makeFirstResponder(anchor)
         case .feed:
-            _ = feedFocusHostView?.focusHostFromCoordinator()
+            guard let host = feedFocusHostView else { return }
+            if let responder = host.window?.firstResponder,
+               host.ownsKeyboardFocus(responder) {
+                return
+            }
+            _ = host.focusHostFromCoordinator()
         case .dock:
             break
         }
