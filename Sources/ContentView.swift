@@ -13321,6 +13321,9 @@ struct TabItemView: View, Equatable {
     @State private var rowHeight: CGFloat = 1
     @State private var workspaceFinderDirectoryOpenRequest: WorkspaceFinderDirectoryOpenRequest?
 
+    private static let maxWrappedTitleLines = 8
+    private static let maxDisplayedTitleCharacters = 2048
+
     var isMultiSelected: Bool {
         selectedTabIds.contains(tab.id)
     }
@@ -13655,6 +13658,11 @@ struct TabItemView: View, Equatable {
             : nil
         let effectiveSubtitle = latestNotificationSubtitle ?? conversationMessageSubtitle
         let detailVisibility = visibleAuxiliaryDetails
+        let titleLineLimit = settings.wrapsWorkspaceTitles ? Self.maxWrappedTitleLines : 1
+        let displayedTitle = workspaceSnapshot.title.sidebarBoundedDisplayString(
+            maxDisplayedLines: titleLineLimit,
+            maxDisplayedCharacters: Self.maxDisplayedTitleCharacters
+        )
         let scaledUnreadBadgeSize = 16 * fontScale
         let scaledCloseButtonHitSize = max(16, 16 * fontScale)
         let scaledCloseButtonWidth = max(
@@ -13682,10 +13690,10 @@ struct TabItemView: View, Equatable {
                         .safeHelp(protectedWorkspaceTooltip)
                 }
 
-                Text(workspaceSnapshot.title)
+                Text(displayedTitle)
                     .font(.system(size: scaledFontSize(12.5), weight: titleFontWeight))
                     .foregroundColor(activePrimaryTextColor)
-                    .lineLimit(settings.wrapsWorkspaceTitles ? nil : 1)
+                    .lineLimit(titleLineLimit)
                     .truncationMode(.tail)
                     .fixedSize(horizontal: false, vertical: true)
                     .frame(maxWidth: .infinity, alignment: .leading)
@@ -15180,23 +15188,31 @@ private struct SidebarWorkspaceDescriptionText: View {
     let isActive: Bool
     let activeForegroundColor: Color
     let fontScale: CGFloat
+    private static let maxDisplayedLines = 12
+    private static let maxDisplayedCharacters = 4096
 
     var body: some View {
-        let renderedMarkdown = SidebarMarkdownRenderer.renderWorkspaceDescription(markdown)
+        let displayMarkdown = markdown.sidebarBoundedDisplayString(
+            maxDisplayedLines: Self.maxDisplayedLines,
+            maxDisplayedCharacters: Self.maxDisplayedCharacters
+        )
+        let renderedMarkdown = SidebarMarkdownRenderer.renderWorkspaceDescription(displayMarkdown)
         Group {
             if let renderedMarkdown {
                 Text(renderedMarkdown)
             } else {
-                Text(markdown)
+                Text(displayMarkdown)
             }
         }
         .font(.system(size: 10.5 * fontScale))
         .foregroundColor(foregroundColor)
         .multilineTextAlignment(.leading)
+        .lineLimit(Self.maxDisplayedLines)
+        .truncationMode(.tail)
         .fixedSize(horizontal: false, vertical: true)
         .frame(maxWidth: .infinity, alignment: .leading)
         .accessibilityIdentifier("SidebarWorkspaceDescriptionText")
-        .accessibilityLabel(accessibilityText(renderedMarkdown: renderedMarkdown))
+        .accessibilityLabel(accessibilityText(renderedMarkdown: renderedMarkdown, displayMarkdown: displayMarkdown))
         .onAppear {
 #if DEBUG
             let newlineCount = markdown.reduce(into: 0) { count, character in
@@ -15229,11 +15245,41 @@ private struct SidebarWorkspaceDescriptionText: View {
         isActive ? activeForegroundColor : .secondary.opacity(0.95)
     }
 
-    private func accessibilityText(renderedMarkdown: AttributedString?) -> String {
+    private func accessibilityText(renderedMarkdown: AttributedString?, displayMarkdown: String) -> String {
         if let renderedMarkdown {
             return String(renderedMarkdown.characters)
         }
-        return markdown
+        return displayMarkdown
+    }
+}
+
+private extension String {
+    func sidebarBoundedDisplayString(maxDisplayedLines: Int, maxDisplayedCharacters: Int) -> String {
+        var result = ""
+        result.reserveCapacity(maxDisplayedCharacters)
+        var lineCount = 1
+        var characterCount = 0
+        var truncated = false
+
+        for character in self {
+            if characterCount >= maxDisplayedCharacters {
+                truncated = true
+                break
+            }
+            if character == "\n" {
+                if lineCount >= maxDisplayedLines {
+                    truncated = true
+                    break
+                }
+                lineCount += 1
+            }
+            result.append(character)
+            characterCount += 1
+        }
+
+        guard truncated else { return self }
+        let trimmed = result.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? "..." : trimmed + "..."
     }
 }
 
@@ -15480,31 +15526,10 @@ private struct SidebarMetadataMarkdownBlockRow: View {
     }
 
     private static func displayMarkdown(from markdown: String) -> String {
-        var result = ""
-        result.reserveCapacity(min(markdown.count, maxDisplayedCharacters))
-        var lineCount = 1
-        var characterCount = 0
-        var truncated = false
-
-        for character in markdown {
-            if characterCount >= maxDisplayedCharacters {
-                truncated = true
-                break
-            }
-            if character == "\n" {
-                if lineCount >= maxDisplayedLines {
-                    truncated = true
-                    break
-                }
-                lineCount += 1
-            }
-            result.append(character)
-            characterCount += 1
-        }
-
-        guard truncated else { return markdown }
-        let trimmed = result.trimmingCharacters(in: .whitespacesAndNewlines)
-        return trimmed.isEmpty ? "..." : trimmed + "..."
+        markdown.sidebarBoundedDisplayString(
+            maxDisplayedLines: maxDisplayedLines,
+            maxDisplayedCharacters: maxDisplayedCharacters
+        )
     }
 }
 
