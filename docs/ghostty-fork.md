@@ -12,17 +12,16 @@ When we change the fork, update this document and the parent submodule SHA.
 
 ## Current fork changes
 
-Current cmux pinned fork head: `a0f40f77`, which adds precision pixel-scroll
-rendering for primary-screen scrollback on top of `5697db81` and forwards
-macOS native wheel events from the `NSScrollView` wrapper into the same
-precision input.
+Current cmux pinned fork head: `f644b4c10`, which adds precision pixel-scroll
+rendering for primary-screen scrollback on top of `5697db81` and lets macOS
+native live scroll submit a fractional row offset directly to Ghostty.
 Precision scroll input now accumulates a fractional pixel offset, advances the
 terminal viewport only when a full row boundary is crossed, and passes the
 remainder through the renderer state to Metal/OpenGL shaders so backgrounds,
 text, and images translate between rows. cmux iOS uses this for local scrollback
-on non-alt terminal content without waiting for a host round trip, and the
-desktop wrapper uses it for trackpad and native scrollbar scrolling. The
-patch intentionally avoids the unrelated Neovim GUI, cursor animation, and
+on non-alt terminal content without waiting for a host round trip, and macOS
+uses the same renderer path while AppKit remains the native scroll gesture
+owner. The patch intentionally avoids the unrelated Neovim GUI, cursor animation, and
 visual-effect changes in parkers0405/ghostty-pixel-scroll. It also does not port
 Parker's larger hidden extra-row renderer changes, so edge fill during sub-row
 movement is the main conflict/risk area if upstream renderer row-buffer logic
@@ -63,26 +62,40 @@ The corresponding prebuilt archive is published at
 https://github.com/manaflow-ai/ghostty/releases/tag/xcframework-34cbf180d8917b802d61d9929cfb493594f2ab52-crashsubdir-cmux-crash-v1
 and pinned in `scripts/ghosttykit-checksums.txt`.
 
-### 0) macOS precision wheel-event forwarding
+### 0) macOS fractional row-offset scroll forwarding
 
 - Commits:
   - `b61a016d` (Forward macOS live scroll as precision input)
   - `a0f40f77` (Forward macOS wheel events as precision input)
+  - `f644b4c10` (Drive macOS scrollback by fractional row offset)
 - Files:
+  - `include/ghostty.h`
+  - `src/Surface.zig`
+  - `src/apprt/embedded.zig`
+  - `macos/Sources/Ghostty/Ghostty.Surface.swift`
   - `macos/Sources/Ghostty/Surface View/SurfaceScrollView.swift`
 - Summary:
-  - Converts native `NSScrollView` wheel events into `Ghostty.Input.MouseScrollEvent`
-    with the original precision and momentum flags.
-  - Keeps programmatic scrollbar synchronization row-based, but sends user
-    scroll deltas through the terminal core so the renderer pixel-scroll
-    remainder is used on desktop too.
-  - Uses a private `NSScrollView` subclass to forward the raw `NSEvent` stream;
-    forwarding inferred bounds-change deltas was too coarse for smooth desktop
-    trackpad scrolling.
+  - Adds `ghostty_surface_scroll_to_offset`, a C API that takes a fractional
+    row offset from the top of primary-screen scrollback.
+  - Ghostty clamps the offset, scrolls the terminal viewport to the integer row,
+    and writes the fractional remainder into renderer state as a pixel offset.
+  - `SurfaceScrollView` keeps AppKit as the native gesture and scrollbar owner:
+    live-scroll notifications read the current `NSScrollView` position and call
+    `scroll(toRowOffset:)`.
+  - A reverse-engineered `Ghostty 1.3.1-scroll` DMG exposed the same ownership
+    shape through symbols such as `handleLiveScroll(force:)`,
+    `handleEndLiveScroll()`, `currentRowOffset()`, and
+    `ghostty_surface_scroll_to_offset`.
+  - The previous `a0f40f77` wheel-event forwarding approach is superseded. It
+    made AppKit and Ghostty both interpret the same scroll gesture, so desktop
+    still felt row-stepped instead of continuously position-driven.
 - Conflict notes:
-  - Preserve the row-based sync path for scrollbar state coming from the core.
-  - Preserve precision input forwarding for user wheel events if
-    upstream changes the wrapper or scrollbar model.
+  - Preserve `ghostty_surface_scroll_to_offset` and the invariant that terminal
+    viewport row and renderer pixel remainder are updated together.
+  - Preserve the row-based sync path for scrollbar state coming from the core;
+    only user live scrolling should submit fractional offsets from AppKit.
+  - If upstream changes `SurfaceScrollView`, keep AppKit as the owner of gesture
+    position and Ghostty as the owner of terminal/render state.
 
 ### 1) Precision pixel-scroll rendering
 
