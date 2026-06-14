@@ -36,8 +36,82 @@ extension TerminalSurface {
         abs(lhs - rhs) <= epsilon
     }
 
+    /// Returns whether a backing-pixel resize should be forwarded to Ghostty.
+    ///
+    /// Ghostty uses one surface-size API for both renderer pixels and PTY
+    /// geometry. During AppKit live resize, pixel churn can arrive without a
+    /// terminal grid change; coalescing those pixel-only updates avoids
+    /// redundant PTY resizes while preserving ordinary layout and scale changes.
+    ///
+    /// - Parameter currentColumns: The current terminal grid column count.
+    /// - Parameter currentRows: The current terminal grid row count.
+    /// - Parameter currentWidthPx: The current raw surface width in pixels.
+    /// - Parameter currentHeightPx: The current raw surface height in pixels.
+    /// - Parameter currentCellWidthPx: The current terminal cell width in pixels.
+    /// - Parameter currentCellHeightPx: The current terminal cell height in pixels.
+    /// - Parameter targetWidthPx: The candidate surface width in pixels.
+    /// - Parameter targetHeightPx: The candidate surface height in pixels.
+    /// - Parameter coalescePixelOnlyResize: Whether same-grid pixel-only resizes should be skipped.
+    /// - Parameter hasAppliedPixelSize: Whether a previous runtime pixel size has been applied.
+    /// - Returns: `true` when Ghostty should receive the new pixel size.
+    public static func shouldApplySurfacePixelSizeChange(
+        currentColumns: UInt32,
+        currentRows: UInt32,
+        currentWidthPx: UInt32,
+        currentHeightPx: UInt32,
+        currentCellWidthPx: UInt32,
+        currentCellHeightPx: UInt32,
+        targetWidthPx: UInt32,
+        targetHeightPx: UInt32,
+        coalescePixelOnlyResize: Bool,
+        hasAppliedPixelSize: Bool
+    ) -> Bool {
+        guard hasAppliedPixelSize else { return true }
+        guard coalescePixelOnlyResize else { return true }
+        guard currentColumns > 0,
+              currentRows > 0,
+              currentCellWidthPx > 0,
+              currentCellHeightPx > 0 else {
+            return true
+        }
+
+        let cellWidth = UInt64(currentCellWidthPx)
+        let cellHeight = UInt64(currentCellHeightPx)
+        let currentColumnCount = UInt64(currentColumns)
+        let currentRowCount = UInt64(currentRows)
+        let rawTargetColumns = max(UInt64(1), UInt64(targetWidthPx) / cellWidth)
+        let rawTargetRows = max(UInt64(1), UInt64(targetHeightPx) / cellHeight)
+        let currentGridWidthPx = currentColumnCount * cellWidth
+        let currentGridHeightPx = currentRowCount * cellHeight
+        let horizontalCurrentRemainder = UInt64(currentWidthPx) > currentGridWidthPx
+            ? UInt64(currentWidthPx) - currentGridWidthPx
+            : 0
+        let verticalCurrentRemainder = UInt64(currentHeightPx) > currentGridHeightPx
+            ? UInt64(currentHeightPx) - currentGridHeightPx
+            : 0
+        let adjustedTargetGridWidthPx = UInt64(targetWidthPx) > horizontalCurrentRemainder
+            ? UInt64(targetWidthPx) - horizontalCurrentRemainder
+            : 0
+        let adjustedTargetGridHeightPx = UInt64(targetHeightPx) > verticalCurrentRemainder
+            ? UInt64(targetHeightPx) - verticalCurrentRemainder
+            : 0
+        let adjustedTargetColumns = max(UInt64(1), adjustedTargetGridWidthPx / cellWidth)
+        let adjustedTargetRows = max(UInt64(1), adjustedTargetGridHeightPx / cellHeight)
+        return rawTargetColumns != currentColumnCount
+            || rawTargetRows != currentRowCount
+            || adjustedTargetColumns != currentColumnCount
+            || adjustedTargetRows != currentRowCount
+    }
+
     /// Applies a new backing size/scale to the runtime surface.
     ///
+    /// - Parameter width: The logical surface width in points.
+    /// - Parameter height: The logical surface height in points.
+    /// - Parameter xScale: The horizontal backing scale.
+    /// - Parameter yScale: The vertical backing scale.
+    /// - Parameter layerScale: The backing scale assigned to the hosting layer.
+    /// - Parameter backingSize: The precomputed backing size in pixels, if available.
+    /// - Parameter coalescePixelOnlyResize: Whether same-grid pixel-only resizes should be skipped.
     /// - Returns: Whether a runtime size or scale change was applied.
     @discardableResult
     @MainActor
@@ -47,7 +121,8 @@ extension TerminalSurface {
         xScale: CGFloat,
         yScale: CGFloat,
         layerScale: CGFloat,
-        backingSize: CGSize? = nil
+        backingSize: CGSize? = nil,
+        coalescePixelOnlyResize: Bool = false
     ) -> Bool {
         guard let surface = liveSurfaceForGhosttyAccess(reason: "updateSize") else { return false }
         _ = layerScale
@@ -95,6 +170,30 @@ extension TerminalSurface {
         }
 
         if sizeChanged {
+            let currentSize = ghostty_surface_size(surface)
+            let shouldApplySizeChange = Self.shouldApplySurfacePixelSizeChange(
+                currentColumns: UInt32(currentSize.columns),
+                currentRows: UInt32(currentSize.rows),
+                currentWidthPx: currentSize.width_px,
+                currentHeightPx: currentSize.height_px,
+                currentCellWidthPx: currentSize.cell_width_px,
+                currentCellHeightPx: currentSize.cell_height_px,
+                targetWidthPx: wpx,
+                targetHeightPx: hpx,
+                coalescePixelOnlyResize: coalescePixelOnlyResize && !scaleChanged,
+                hasAppliedPixelSize: lastPixelWidth > 0 && lastPixelHeight > 0
+            )
+            guard shouldApplySizeChange else {
+                #if DEBUG
+                Self.sizeLog(
+                    "updateSize-skip-pixel-only surface=\(id.uuidString.prefix(8)) " +
+                    "size=\(wpx)x\(hpx) prev=\(lastPixelWidth)x\(lastPixelHeight) " +
+                    "grid=\(currentSize.columns)x\(currentSize.rows) " +
+                    "cell=\(currentSize.cell_width_px)x\(currentSize.cell_height_px)"
+                )
+                #endif
+                return scaleChanged
+            }
             ghostty_surface_set_size(surface, wpx, hpx)
             lastPixelWidth = wpx
             lastPixelHeight = hpx
