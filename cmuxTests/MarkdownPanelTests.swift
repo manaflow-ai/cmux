@@ -740,6 +740,67 @@ final class MarkdownPanelTests: XCTestCase {
         XCTAssertTrue((image["src"] as? String ?? "").hasPrefix("data:image/png;base64,"))
     }
 
+    func testMarkdownRenderScalesRenderedMermaidDiagramWithViewerZoom() async throws {
+        let markdownURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-markdown-mermaid-zoom-\(UUID().uuidString).md")
+
+        let frame = NSRect(x: 0, y: 0, width: 720, height: 480)
+        let configuration = WKWebViewConfiguration()
+        let mermaidHandler = MarkdownMermaidStubHandler()
+        configuration.userContentController.add(mermaidHandler, name: "cmuxLib")
+        let webView = MarkdownWebView(frame: frame, configuration: configuration)
+        mermaidHandler.webView = webView
+        let coordinator = MarkdownWebRenderer.Coordinator()
+        coordinator.webView = webView
+        let window = NSWindow(contentRect: frame, styleMask: [.borderless], backing: .buffered, defer: false)
+        window.contentView = webView
+        window.orderFrontRegardless()
+        defer {
+            webView.navigationDelegate = nil
+            coordinator.webView = nil
+            configuration.userContentController.removeScriptMessageHandler(forName: "cmuxLib")
+            window.close()
+        }
+
+        let loaded = expectation(description: "markdown shell loaded")
+        let loadDelegate = MarkdownShellLoadDelegate(expectation: loaded)
+        webView.navigationDelegate = loadDelegate
+        webView.loadHTMLString(
+            MarkdownViewerAssets.shared.shellHTML(isDark: true),
+            baseURL: markdownURL
+        )
+        await fulfillment(of: [loaded], timeout: 5)
+        if let error = loadDelegate.error {
+            throw error
+        }
+
+        coordinator.setFontSize(MarkdownFontSizeSettings.defaultPointSize)
+        try await renderMarkdown(
+            """
+            Prose before the diagram.
+
+            ```mermaid
+            flowchart LR
+              host[Host process] --> backend[Backend]
+              backend --> worker[Worker]
+            ```
+            """,
+            in: webView
+        )
+
+        let baseline = try await waitForMermaidSnapshot(in: webView)
+        let baselineWidth = try XCTUnwrap(baseline["width"])
+        XCTAssertEqual(baseline["zoom"] ?? -1, 1, accuracy: 0.001)
+        XCTAssertEqual(baselineWidth, 240, accuracy: 2)
+
+        coordinator.setFontSize(MarkdownFontSizeSettings.defaultPointSize * 2)
+        let zoomed = try await waitForMermaidSnapshot(in: webView, expectedZoom: 2)
+        let zoomedWidth = try XCTUnwrap(zoomed["width"])
+
+        XCTAssertGreaterThan(zoomedWidth, baselineWidth * 1.8)
+        XCTAssertEqual(zoomed["inlineMaxWidthCleared"] ?? 0, 1, accuracy: 0.001)
+    }
+
     func testMarkdownRenderBlocksRemoteImagesUntilUserAction() async throws {
         let markdownURL = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-markdown-remote-image-\(UUID().uuidString).md")
@@ -1367,6 +1428,59 @@ final class MarkdownPanelTests: XCTestCase {
         )
     }
 
+    private func waitForMermaidSnapshot(
+        in webView: WKWebView,
+        expectedZoom: Double? = nil
+    ) async throws -> [String: Double] {
+        let deadline = Date().addingTimeInterval(3)
+        var lastSnapshot: [String: Double]?
+
+        while Date() < deadline {
+            let result = try await webView.evaluateJavaScript(
+                """
+                (function() {
+                  var svg = document.querySelector('.cmux-mermaid svg');
+                  if (!svg) { return null; }
+                  var rect = svg.getBoundingClientRect();
+                  var computed = window.getComputedStyle(svg);
+                  var zoom = Number(svg.getAttribute('data-cmux-mermaid-zoom') || '1');
+                  return {
+                    width: rect.width || Number.parseFloat(computed.width) || 0,
+                    height: rect.height || Number.parseFloat(computed.height) || 0,
+                    zoom: Number.isFinite(zoom) ? zoom : 1,
+                    inlineMaxWidthCleared: svg.style.maxWidth === 'none' ? 1 : 0
+                  };
+                })();
+                """
+            )
+            if let raw = result as? [String: Any] {
+                var snapshot: [String: Double] = [:]
+                for (key, value) in raw {
+                    if let number = value as? NSNumber {
+                        snapshot[key] = number.doubleValue
+                    }
+                }
+                lastSnapshot = snapshot
+                if let expectedZoom {
+                    if abs((snapshot["zoom"] ?? -1) - expectedZoom) <= 0.001 {
+                        return snapshot
+                    }
+                } else if (snapshot["width"] ?? 0) > 0 {
+                    return snapshot
+                }
+            }
+            try await Task.sleep(nanoseconds: 100_000_000)
+        }
+
+        throw NSError(
+            domain: "MarkdownPanelTests",
+            code: 2,
+            userInfo: [
+                NSLocalizedDescriptionKey: "Timed out waiting for Mermaid diagram snapshot. Last snapshot: \(String(describing: lastSnapshot))"
+            ]
+        )
+    }
+
     private func remoteImageSnapshot(in webView: WKWebView) async throws -> [String: Any] {
         let result = try await webView.evaluateJavaScript(
             """
@@ -1570,5 +1684,36 @@ private final class MarkdownRemoteImageHoldingSchemeHandler: NSObject, WKURLSche
         for task in openTasks {
             task.didFailWithError(error)
         }
+    }
+}
+
+@MainActor
+private final class MarkdownMermaidStubHandler: NSObject, WKScriptMessageHandler {
+    weak var webView: WKWebView?
+
+    func userContentController(
+        _ userContentController: WKUserContentController,
+        didReceive message: WKScriptMessage
+    ) {
+        guard message.name == "cmuxLib",
+              let body = message.body as? [String: Any],
+              body["lib"] as? String == "mermaid" else { return }
+
+        webView?.evaluateJavaScript(
+            """
+            (function() {
+              window.mermaid = {
+                initialize: function() {},
+                render: function() {
+                  return Promise.resolve({
+                    svg: '<svg data-stub-mermaid="1" width="100%" style="max-width:240px;" viewBox="0 0 240 120" xmlns="http://www.w3.org/2000/svg"><rect x="0" y="0" width="240" height="120" fill="#d73a49"></rect><text x="20" y="65" font-size="18" fill="#ffffff">Mermaid label</text></svg>'
+                  });
+                }
+              };
+              if (window.__cmuxLibLoaded) { window.__cmuxLibLoaded('mermaid'); }
+            })();
+            """,
+            completionHandler: nil
+        )
     }
 }
