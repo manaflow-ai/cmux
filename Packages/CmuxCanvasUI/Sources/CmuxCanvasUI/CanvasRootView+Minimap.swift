@@ -7,9 +7,12 @@ extension CanvasRootView {
             pane.panelIds.contains { descriptorsByPanelId[$0.rawValue]?.isFocused == true }
         }?.id
         let panes = model.layout.panes.map { pane in
-            let frame = paneViews[pane.id]
-                .map { canvasRect(fromDocument: $0.frame) }
-                ?? pane.frame.cgRect
+            let frame: CGRect
+            if let dragSession, dragSession.paneID == pane.id {
+                frame = dragSession.lastFrame
+            } else {
+                frame = pane.frame.cgRect
+            }
             return CanvasMinimapPaneSnapshot(id: pane.id, frame: frame)
         }
         let snapshot = CanvasMinimapSnapshot(
