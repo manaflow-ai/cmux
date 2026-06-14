@@ -9,7 +9,6 @@ on:
 
 permissions:
   contents: read
-  actions: write
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -532,6 +531,31 @@ jobs:
           bun run agent-session-web:test
           git diff --exit-code -- Resources/agent-session-react Resources/agent-session-solid
 
+      - name: Ensure Bash 5.3 for shell integration regression
+        run: |
+          set -euo pipefail
+
+          candidates=("/opt/homebrew/bin/bash" "/usr/local/bin/bash" "$(command -v bash || true)")
+          for candidate in "${candidates[@]}"; do
+            if [ -x "$candidate" ] && "$candidate" -c '(( BASH_VERSINFO[0] > 5 || (BASH_VERSINFO[0] == 5 && BASH_VERSINFO[1] >= 3) ))'; then
+              echo "CMUX_TEST_BASH=$candidate" >> "$GITHUB_ENV"
+              "$candidate" --version | head -1
+              exit 0
+            fi
+          done
+
+          brew install bash
+          for candidate in /opt/homebrew/bin/bash /usr/local/bin/bash; do
+            if [ -x "$candidate" ] && "$candidate" -c '(( BASH_VERSINFO[0] > 5 || (BASH_VERSINFO[0] == 5 && BASH_VERSINFO[1] >= 3) ))'; then
+              echo "CMUX_TEST_BASH=$candidate" >> "$GITHUB_ENV"
+              "$candidate" --version | head -1
+              exit 0
+            fi
+          done
+
+          echo "Bash >= 5.3 unavailable after brew install" >&2
+          exit 1
+
       - name: Run CLI no-socket regressions
         run: |
           set -euo pipefail
@@ -554,6 +578,7 @@ jobs:
           python3 tests/test_stress_cli_socket_api.py
           CMUX_CLI_BIN="$CLI_BIN" python3 tests/test_cli_omo_openagent_plugin_migration.py
           CMUX_CLI_BIN="$CLI_BIN" python3 tests/test_cli_socket_autodiscovery.py
+          python3 tests/test_shell_bash_background_helpers_disowned.py
           python3 tests/test_claude_wrapper_hooks.py
           python3 tests/test_claude_wrapper_user_binary_resolution.py
           CMUX_CLI_BIN="$CLI_BIN" python3 tests/test_cli_claude_teams_fallback_path.py

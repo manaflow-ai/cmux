@@ -32,20 +32,26 @@ _cmux_send() {
     esac
 }
 
+_CMUX_BASH_PS0_INLINE_ACTIVE="${_CMUX_BASH_PS0_INLINE_ACTIVE:-0}"
+_cmux_run_bg() {
+    if [[ "${_CMUX_BASH_PS0_INLINE_ACTIVE:-0}" == "1" ]]; then
+        # Bash 5.3's inline PS0 expansion leaks background jobs into the
+        # interactive job table. Start the helper from a command-substitution
+        # subshell so the user shell never owns the job notification.
+        : "$("$@" >/dev/null 2>&1 & disown "$!" 2>/dev/null || true)"
+        return 0
+    fi
+
+    ( "$@" >/dev/null 2>&1 & disown "$!" 2>/dev/null || true )
+}
+
 _cmux_detach_bg() {
-    ( "$@" >/dev/null 2>&1 & ) >/dev/null 2>&1
+    _cmux_run_bg "$@"
 }
 
 _cmux_send_bg() {
     local payload="$1"
-    if [[ "${_CMUX_IN_PREEXEC:-}" == "1" ]]; then
-        {
-            _cmux_send "$payload"
-        } >/dev/null 2>&1 &
-        disown
-        return 0
-    fi
-    _cmux_detach_bg _cmux_send "$payload"
+    _cmux_run_bg _cmux_send "$payload"
 }
 
 _cmux_start_tracked_bg() {
@@ -1364,7 +1370,12 @@ _cmux_command_starts_nested_shell() {
 }
 
 _cmux_preexec_command() {
-    local cmd="${1:-${BASH_COMMAND:-}}"
+    local cmd=""
+    if (( $# > 0 )); then
+        cmd="$1"
+    else
+        cmd="${BASH_COMMAND:-}"
+    fi
     _cmux_tmux_sync_cmux_environment
 
     local cmux_has_unix_socket=0
@@ -1417,6 +1428,9 @@ _cmux_bash_history_command() {
 _cmux_bash_preexec_hook() {
     local cmd="${1:-}"
     local history_cmd=""
+    # Bash 5.3's inline `${ ...; }` PS0 updates BASH_COMMAND to cmux's
+    # own helper command before function arguments are expanded. Interactive
+    # history is the stable source for the user command on that path.
     history_cmd="$(_cmux_bash_history_command 2>/dev/null || true)"
     if [[ -n "$history_cmd" ]]; then
         cmd="$history_cmd"
@@ -1427,6 +1441,14 @@ _cmux_bash_preexec_hook() {
 _cmux_bash_preexec_hook_subshell() {
     local _CMUX_IN_PREEXEC=1
     _cmux_bash_preexec_hook "$@"
+}
+
+_cmux_bash_preexec_inline_ps0() {
+    _CMUX_BASH_PS0_INLINE_ACTIVE=1
+    {
+        _cmux_bash_preexec_hook
+        _CMUX_BASH_PS0_INLINE_ACTIVE=0
+    } || _CMUX_BASH_PS0_INLINE_ACTIVE=0
 }
 
 _cmux_prompt_command() {
@@ -1601,11 +1623,11 @@ _cmux_install_prompt_command() {
         esac
     fi
 
-        if (( BASH_VERSINFO[0] > 4 || (BASH_VERSINFO[0] == 4 && BASH_VERSINFO[1] >= 4) )); then
+    if (( BASH_VERSINFO[0] > 4 || (BASH_VERSINFO[0] == 4 && BASH_VERSINFO[1] >= 4) )); then
         if (( BASH_VERSINFO[0] > 5 || (BASH_VERSINFO[0] == 5 && BASH_VERSINFO[1] >= 3) )); then
-            builtin readonly _CMUX_BASH_PS0='${ _cmux_bash_preexec_hook; }'
+            builtin readonly _CMUX_BASH_PS0='${ _cmux_bash_preexec_inline_ps0; }'
         else
-            builtin readonly _CMUX_BASH_PS0='$(_cmux_bash_preexec_hook_subshell >/dev/null)'
+            builtin readonly _CMUX_BASH_PS0='$(_cmux_bash_preexec_hook_subshell "$BASH_COMMAND" >/dev/null)'
         fi
         if [[ "$PS0" != *"${_CMUX_BASH_PS0}"* ]]; then
             PS0=$PS0"${_CMUX_BASH_PS0}"
