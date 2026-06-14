@@ -14609,8 +14609,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             return false
         }
         // No name prompt: TabManager auto-names ("Group N"). Rename via the
-        // header context menu.
-        tabManager.createWorkspaceGroup(name: "", childWorkspaceIds: eligibleIds)
+        // header context menu. selectAnchor: false keeps the user focused on
+        // the workspace they were already in rather than the new empty anchor.
+        tabManager.createWorkspaceGroup(name: "", childWorkspaceIds: eligibleIds, selectAnchor: false)
         return true
     }
 
