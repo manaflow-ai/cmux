@@ -442,7 +442,7 @@ extension CMUXCLI {
                 routedArguments: routedArguments,
                 socketPath: socketPath
             )
-            dispatch = "if [ -x \(quotedCLIPath) ]; then \(primaryInvocation); elif command -v cmux >/dev/null 2>&1; then \(fallbackInvocation); else echo '{}'; fi"
+            dispatch = "if [ -x \(quotedCLIPath) ]; then \(primaryInvocation) || echo '{}'; elif command -v cmux >/dev/null 2>&1; then \(fallbackInvocation) || echo '{}'; else echo '{}'; fi"
         } else {
             dispatch = "command -v cmux >/dev/null 2>&1 && \(fallbackInvocation) || echo '{}'"
         }
