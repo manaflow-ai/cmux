@@ -27,6 +27,10 @@ struct WorkspaceChatPane: View {
     @Environment(BrowserSurfaceStore.self) private var browserStore
 
     @State private var conversation: ChatConversationStore?
+    /// Full content width, used to bound the toolbar-principal header so a long
+    /// workspace name truncates in the center instead of overflowing under the
+    /// back button / trailing toolbar buttons.
+    @State private var contentWidth: CGFloat = 0
 
     var body: some View {
         Group {
@@ -41,6 +45,7 @@ struct WorkspaceChatPane: View {
                 // live session-state header is supplied here as a principal
                 // item rather than by ChatScreen, which would be dropped
                 // under the workspace's own chrome.
+                .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { contentWidth = $0 }
                 .toolbar {
                     ToolbarItem(placement: .principal) {
                         ChatSessionHeaderView(
@@ -50,6 +55,13 @@ struct WorkspaceChatPane: View {
                             titleOverride: workspaceName,
                             subtitle: tabName
                         )
+                        // The principal item is screen-centered and does not
+                        // reserve space for the back button + 3 trailing
+                        // toolbar buttons, so an unbounded long title overflows
+                        // under them. Bound it to the clear center gap (reserve
+                        // ~300pt for both bar-button clusters + margins) so the
+                        // name truncates instead of underlapping the toolbar.
+                        .frame(maxWidth: contentWidth > 0 ? max(96, contentWidth - 300) : 180)
                     }
                 }
             } else {

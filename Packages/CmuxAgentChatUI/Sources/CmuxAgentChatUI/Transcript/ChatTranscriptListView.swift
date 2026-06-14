@@ -1,5 +1,9 @@
 import CmuxAgentChat
 import SwiftUI
+#if os(iOS)
+import Combine
+import UIKit
+#endif
 
 /// The scrolling transcript: lazy rows, bottom-anchored auto-follow, an
 /// unread-aware scroll-to-bottom pill, and top-edge history paging.
@@ -85,6 +89,20 @@ public struct ChatTranscriptListView: View {
                     guard isAtBottom else { return }
                     proxy.scrollTo(Self.bottomAnchorID, anchor: .bottom)
                 }
+                // WhatsApp-style keyboard pinning: when the keyboard shows or
+                // hides while the user is at the bottom, re-pin the last rows
+                // above the composer instead of letting the rising accessory
+                // bar / keyboard cover them. `.defaultScrollAnchor(.bottom)`
+                // alone does not re-anchor on the keyboard safe-area change
+                // (the composer safeAreaInset absorbs it), so do it explicitly.
+                // Guarded by `isAtBottom` so a reading user's scroll is never
+                // stolen. Animated to ride the keyboard transition.
+                .onReceive(Self.keyboardWillChangePublisher) { _ in
+                    guard isAtBottom else { return }
+                    withAnimation(.snappy(duration: 0.25)) {
+                        proxy.scrollTo(Self.bottomAnchorID, anchor: .bottom)
+                    }
+                }
                 .overlay(alignment: .bottomTrailing) {
                     // The pill's fade/scale is animated HERE, scoped by
                     // `value: isAtBottom`, so only this overlay animates. The
@@ -108,6 +126,13 @@ public struct ChatTranscriptListView: View {
                                         proxy.scrollTo(Self.bottomAnchorID, anchor: .bottom)
                                     }
                                 }
+                                // Engage at-bottom immediately: scrolling to the
+                                // last row's id lands above the 1pt bottom anchor,
+                                // so its visibility callback may not fire and the
+                                // pill would otherwise linger until a manual nudge.
+                                // The tap IS a request to be at the bottom, so set
+                                // it directly (and re-engage tail-follow).
+                                isAtBottom = true
                             }
                             .padding(.trailing, 12)
                             .padding(.bottom, 8)
@@ -140,6 +165,14 @@ public struct ChatTranscriptListView: View {
     }
 
     private static let bottomAnchorID = "chat.bottom.anchor"
+
+    #if os(iOS)
+    /// Fires on every keyboard frame change (show, hide, height change), used
+    /// to re-pin the transcript bottom above the composer.
+    private static let keyboardWillChangePublisher = NotificationCenter.default
+        .publisher(for: UIResponder.keyboardWillChangeFrameNotification)
+        .map { _ in () }
+    #endif
 
     private var isWorking: Bool {
         if case .working = agentState { return true }
