@@ -52,7 +52,7 @@ jobs:
       - name: Warn when Snyk Code SARIF is missing
         if: env.SNYK_TOKEN_PRESENT == 'true' && hashFiles('snyk-code.sarif') == ''
         run: |
-          echo "::warning::Snyk Code did not produce snyk-code.sarif; check the scan step logs before relying on SAST findings."
+          echo "::warning::Code scanning did not produce its SARIF report; check the scan step logs before relying on static analysis findings."
 
       - name: Upload Snyk Code SARIF
         if: env.SNYK_TOKEN_PRESENT == 'true' && hashFiles('snyk-code.sarif') != ''
@@ -86,7 +86,7 @@ jobs:
       - name: Warn when Snyk Open Source SARIF is missing
         if: env.SNYK_TOKEN_PRESENT == 'true' && hashFiles('snyk-oss.sarif') == ''
         run: |
-          echo "::warning::Snyk Open Source did not produce snyk-oss.sarif; check the scan step logs before relying on OSS findings."
+          echo "::warning::Dependency scanning did not produce its SARIF report; check the scan step logs before relying on dependency findings."
 
       - name: Upload Snyk Open Source SARIF
         if: env.SNYK_TOKEN_PRESENT == 'true' && hashFiles('snyk-oss.sarif') != ''
