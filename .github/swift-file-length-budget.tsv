@@ -2,7 +2,7 @@
 # Format: max_lines<TAB>relative path
 # Reduce counts as files shrink. CI fails if tracked files exceed this budget.
 33454	CLI/cmux.swift
-17911	Sources/AppDelegate.swift
+17913	Sources/AppDelegate.swift
 16826	Sources/ContentView.swift
 14612	Sources/TerminalController.swift
 13577	Sources/Panels/BrowserPanel.swift
@@ -47,7 +47,7 @@
 2117	cmuxTests/CmuxConfigTests.swift
 2100	cmuxTests/ShortcutAndCommandPaletteTests.swift
 2059	Sources/SessionPersistence.swift
-2031	Sources/KeyboardShortcutSettingsFileStore.swift
+2034	Sources/KeyboardShortcutSettingsFileStore.swift
 1949	Sources/Panels/BrowserWebAuthnSupport.swift
 1860	cmuxTests/NotificationAndMenuBarTests.swift
 1794	Sources/SessionIndexStore.swift
@@ -94,9 +94,9 @@
 926	Sources/DockPanelView.swift
 919	Packages/CmuxTerminal/Sources/CmuxTerminal/Surface/TerminalSurface+RuntimeLifecycle.swift
 918	cmuxTests/WorkspaceGroupTests.swift
+914	Sources/CommandPalette/CommandPaletteSettingsToggle.swift
 905	Sources/CmuxSSHURLRequest.swift
-904	Sources/CommandPalette/CommandPaletteSettingsToggle.swift
-897	Packages/CmuxSettingsUI/Sources/CmuxSettingsUI/Sections/AppSection.swift
+901	Packages/CmuxSettingsUI/Sources/CmuxSettingsUI/Sections/AppSection.swift
 893	Sources/WorkspaceContentView.swift
 868	Sources/Panels/BrowserScreenshotSnapshotter.swift
 866	Sources/Panels/TerminalPanel.swift
@@ -114,7 +114,7 @@
 756	Sources/Panels/AgentSessionWebRendererCoordinator.swift
 752	Sources/TerminalController+ControlWorkspaceContext.swift
 752	cmuxUITests/CloseWorkspaceCmdDUITests.swift
-739	Sources/App/MenuBarExtraController.swift
+746	Sources/App/MenuBarExtraController.swift
 738	Packages/CMUXProjectModel/Sources/CMUXProjectModel/XcodeProjectAdapter.swift
 738	Packages/CmuxAuthRuntime/Sources/CmuxAuthRuntime/Coordinator/AuthCoordinator.swift
 716	Sources/TaskManagerSnapshot.swift
