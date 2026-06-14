@@ -1,0 +1,88 @@
+From: cmux fork
+Subject: [PATCH] ui/accessibility: rename anon-namespace SDK-shadow backports in browser_accessibility_cocoa.mm
+
+`ui/accessibility/platform/browser_accessibility_cocoa.mm` defines several
+"private WebKit accessibility" constants in an anonymous namespace as local
+backports for macOS versions where those constants were not in the public
+SDK. The macOS 26.2 SDK now declares the same identifiers publicly
+(@available(macos 26.0)). Unqualified use sites in this file therefore
+trigger:
+
+    error: reference to 'NSAccessibilityUIElementsForSearchPredicateParameterizedAttribute' is ambiguous
+    error: reference to 'NSAccessibilityScrollToVisibleAction' is ambiguous
+
+Unlike patches 0003/0004 (`-Wunguarded-availability-new`), this is a
+hard name-collision error, not a warning -- a diagnostic pragma cannot
+silence it. The minimal fix is to rename the anonymous-namespace
+backports so they no longer shadow the SDK names. The string literal
+values are unchanged, so runtime behavior is preserved, and the file
+keeps working on macOS deployment target 11.0 (Chromium's floor).
+
+Only the two identifiers the SDK now provides are renamed; the other
+private backports in the same anonymous namespace
+(`UIElementCountForSearchPredicate...`, text-marker attrs, value-autofill
+attrs) are left untouched because the SDK does not (yet) collide on them.
+
+Drop when upstream chromium either deletes these backports (now that the
+SDK provides them and the deployment target allows it) or guards them
+with `__has_attribute(availability)` / `@available` checks.
+
+--- a/ui/accessibility/platform/browser_accessibility_cocoa.mm
++++ b/ui/accessibility/platform/browser_accessibility_cocoa.mm
+@@ -74,8 +74,12 @@ namespace {
+ NSString* const
+     NSAccessibilityUIElementCountForSearchPredicateParameterizedAttribute =
+         @"AXUIElementCountForSearchPredicate";
++// cmux fork: renamed from NSAccessibilityUIElementsForSearchPredicateParameterizedAttribute
++// to avoid a name collision with the macOS 26.2 SDK, which now declares the
++// same identifier publicly with @available(macos 26.0). String literal value
++// unchanged.
+ NSString* const
+-    NSAccessibilityUIElementsForSearchPredicateParameterizedAttribute =
++    CmuxNSAccessibilityUIElementsForSearchPredicateParameterizedAttribute =
+         @"AXUIElementsForSearchPredicate";
+
+ // Private attributes for text markers.
+@@ -201,7 +205,9 @@ NSString* const NSAccessibilityValueAutofillAvailableAttribute =
+ // const NSAccessibilityValueAutofillTypeAttribute = @"AXValueAutofillType";
+
+ // Actions.
+-NSString* const NSAccessibilityScrollToVisibleAction = @"AXScrollToVisible";
++// cmux fork: renamed from NSAccessibilityScrollToVisibleAction to avoid a
++// name collision with the macOS 26.2 SDK (introduced in macOS 26.0).
++NSString* const CmuxNSAccessibilityScrollToVisibleAction = @"AXScrollToVisible";
+
+ // A mapping from an accessibility attribute to its method name.
+ NSDictionary* gAttributeToMethodNameMap = nil;
+@@ -2189,7 +2195,7 @@ class V8ScopedHandleScope {
+   if ([attribute
+           isEqualToString:
+-              NSAccessibilityUIElementsForSearchPredicateParameterizedAttribute]) {
++              CmuxNSAccessibilityUIElementsForSearchPredicateParameterizedAttribute]) {
+     return [self accessibilityUIElementsForSearchPredicate:parameter];
+   }
+   if ([attribute isEqualToString:NSAccessibilityCellForColumnAndRowParameterizedAttribute]) {
+@@ -2369,7 +2375,7 @@ class V8ScopedHandleScope {
+   return @[
+     NSAccessibilityUIElementCountForSearchPredicateParameterizedAttribute,
+-    NSAccessibilityUIElementsForSearchPredicateParameterizedAttribute,
++    CmuxNSAccessibilityUIElementsForSearchPredicateParameterizedAttribute,
+     NSAccessibilityEndTextMarkerAttribute,
+     NSAccessibilityStartTextMarkerAttribute,
+     NSAccessibilitySelectedTextMarkerRangeAttribute,
+@@ -2417,7 +2423,7 @@ class V8ScopedHandleScope {
+   return [actions arrayByAddingObjectsFromArray:@[
+                        NSAccessibilityShowMenuAction,
+-                       NSAccessibilityScrollToVisibleAction, nil];
++                       CmuxNSAccessibilityScrollToVisibleAction, nil];
+ }
+
+ - (NSArray*)accessibilityAttributeNames {
+@@ -2720,7 +2726,7 @@ class V8ScopedHandleScope {
+   } else if ([action isEqualToString:NSAccessibilityShowMenuAction]) {
+     [self accessibilityShowMenuAction];
+-  } else if ([action isEqualToString:NSAccessibilityScrollToVisibleAction]) {
++  } else if ([action isEqualToString:CmuxNSAccessibilityScrollToVisibleAction]) {
+     [self accessibilityScrollToVisibleAction];
+   } else {
+     // Do nothing.
