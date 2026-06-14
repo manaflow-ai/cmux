@@ -4,6 +4,7 @@ import AppKit
 final class FileExplorerNSOutlineView: NSOutlineView {
     /// Leading margin applied to disclosure triangles and content.
     static let leadingMargin: CGFloat = 8
+    var fileExplorerPanelPlacement: FileExplorerPanelPlacement = .rightSidebar
     var onQuickSearchChanged: ((String?) -> Void)?
     private var quickSearchActive = false
     private var quickSearchQuery = ""

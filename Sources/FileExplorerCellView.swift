@@ -1,4 +1,5 @@
 import AppKit
+import UniformTypeIdentifiers
 
 final class FileExplorerCellView: NSTableCellView {
     private let iconView = NSImageView()
@@ -94,7 +95,8 @@ final class FileExplorerCellView: NSTableCellView {
                 iconView.image = folderIcon
                 iconView.contentTintColor = nil
             } else {
-                let fileIcon = NSWorkspace.shared.icon(forFileType: (node.name as NSString).pathExtension)
+                let pathExtension = (node.name as NSString).pathExtension
+                let fileIcon = NSWorkspace.shared.icon(for: UTType(filenameExtension: pathExtension) ?? .data)
                 fileIcon.size = NSSize(width: style.iconSize, height: style.iconSize)
                 iconView.image = fileIcon
                 iconView.contentTintColor = nil

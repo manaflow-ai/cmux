@@ -1,6 +1,7 @@
 import AppKit
 
 final class FileExplorerSearchField: NSSearchField {
+    var fileExplorerPanelPlacement: FileExplorerPanelPlacement = .rightSidebar
     var onCancel: (() -> Void)?
     var onMoveSelection: ((Int) -> Void)?
     var onCommit: (() -> Void)?

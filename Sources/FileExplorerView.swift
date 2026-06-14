@@ -10,71 +10,6 @@ private func fileExplorerDebugResponder(_ responder: NSResponder?) -> String {
 }
 #endif
 
-private final class FileExplorerExternalOpenRequest: NSObject {
-    let fileURL: URL
-    let applicationURL: URL?
-
-    init(fileURL: URL, applicationURL: URL?) {
-        self.fileURL = fileURL
-        self.applicationURL = applicationURL
-    }
-}
-
-private func addFileExplorerExternalOpenItems(
-    to menu: NSMenu,
-    fileURL: URL,
-    target: AnyObject,
-    action: Selector
-) {
-    let applications = FileExternalOpenApplicationResolver.live.applications(for: fileURL)
-    let primaryApplication = applications.first { $0.isDefault } ?? applications.first
-    let otherApplications = applications.filter { application in
-        application.id != primaryApplication?.id
-    }
-
-    if let primaryApplication {
-        let openItem = NSMenuItem(
-            title: FileExternalOpenText.openInApplication(primaryApplication.displayName),
-            action: action,
-            keyEquivalent: ""
-        )
-        openItem.target = target
-        openItem.representedObject = FileExplorerExternalOpenRequest(
-            fileURL: fileURL,
-            applicationURL: primaryApplication.url
-        )
-        menu.addItem(openItem)
-
-        guard !otherApplications.isEmpty else { return }
-        let openWithMenu = NSMenu(title: FileExternalOpenText.openWithMenu)
-        for application in otherApplications {
-            let appItem = NSMenuItem(
-                title: application.displayName,
-                action: action,
-                keyEquivalent: ""
-            )
-            appItem.target = target
-            appItem.representedObject = FileExplorerExternalOpenRequest(
-                fileURL: fileURL,
-                applicationURL: application.url
-            )
-            openWithMenu.addItem(appItem)
-        }
-        let openWithItem = NSMenuItem(title: FileExternalOpenText.openWithMenu, action: nil, keyEquivalent: "")
-        openWithItem.submenu = openWithMenu
-        menu.addItem(openWithItem)
-    } else {
-        let openItem = NSMenuItem(
-            title: FileExternalOpenText.openExternally,
-            action: action,
-            keyEquivalent: ""
-        )
-        openItem.target = target
-        openItem.representedObject = FileExplorerExternalOpenRequest(fileURL: fileURL, applicationURL: nil)
-        menu.addItem(openItem)
-    }
-}
-
 // MARK: - File Explorer Panel (single NSViewRepresentable)
 
 enum FileExplorerPanelPresentation: Equatable {
@@ -131,6 +66,7 @@ struct FileExplorerPanelView: NSViewRepresentable {
         context.coordinator.onFocus = onFocus
         context.coordinator.onContainerChange = onContainerChange
         context.coordinator.onContainerChange?(container)
+        container.updateShortcutPlacement(placement)
         container.updateHeader(store: store)
         container.updatePresentation(presentation)
         context.coordinator.reloadIfNeeded()
@@ -619,12 +555,11 @@ struct FileExplorerPanelView: NSViewRepresentable {
             let isLocal = store.provider is LocalFileExplorerProvider
 
             if !node.isDirectory && isLocal {
-                addFileExplorerExternalOpenItems(
-                    to: menu,
+                FileExplorerExternalOpenMenuItems(
                     fileURL: URL(fileURLWithPath: node.path),
                     target: self,
                     action: #selector(contextMenuOpenExternally(_:))
-                )
+                ).add(to: menu)
             }
 
             if isLocal {
@@ -753,6 +688,7 @@ final class FileExplorerContainerView: NSView {
         self.coordinator = coordinator
 
         super.init(frame: .zero)
+        updateShortcutPlacement(coordinator.placement)
         configureSearchDebounce()
 
         // Header
@@ -1016,6 +952,12 @@ final class FileExplorerContainerView: NSView {
 
     func representedRightSidebarMode() -> RightSidebarMode {
         presentation.rightSidebarMode
+    }
+
+    func updateShortcutPlacement(_ placement: FileExplorerPanelPlacement) {
+        searchField.fileExplorerPanelPlacement = placement
+        outlineView.fileExplorerPanelPlacement = placement
+        searchResultsView.fileExplorerPanelPlacement = placement
     }
 
     func updatePresentation(_ nextPresentation: FileExplorerPanelPresentation) {
@@ -1643,12 +1585,11 @@ extension FileExplorerContainerView: NSSearchFieldDelegate, NSTableViewDataSourc
         openInCmuxItem.representedObject = NSNumber(value: row)
         menu.addItem(openInCmuxItem)
 
-        addFileExplorerExternalOpenItems(
-            to: menu,
+        FileExplorerExternalOpenMenuItems(
             fileURL: URL(fileURLWithPath: searchSnapshot.results[row].path),
             target: self,
             action: #selector(contextMenuOpenSearchResultExternally(_:))
-        )
+        ).add(to: menu)
 
         let revealItem = NSMenuItem(
             title: FileExternalOpenText.revealInFinder,

@@ -27,7 +27,7 @@ extension FileExplorerPanelView.Coordinator {
 
 extension FileExplorerNSOutlineView {
     func handleOpenSelectionShortcut(_ event: NSEvent) -> Bool {
-        guard event.isFileExplorerOpenSelectionShortcut else { return false }
+        guard event.isFileExplorerOpenSelectionShortcut(in: fileExplorerPanelPlacement) else { return false }
         endQuickSearch()
         fileExplorerCoordinator?.openSelectedNode(in: self)
         return true
@@ -36,7 +36,7 @@ extension FileExplorerNSOutlineView {
 
 extension FileExplorerSearchResultsTableView {
     func handleOpenSelectionShortcut(_ event: NSEvent) -> Bool {
-        guard event.isFileExplorerOpenSelectionShortcut else { return false }
+        guard event.isFileExplorerOpenSelectionShortcut(in: fileExplorerPanelPlacement) else { return false }
         onCommit?()
         return true
     }
@@ -45,7 +45,7 @@ extension FileExplorerSearchResultsTableView {
 extension FileExplorerSearchField {
     func handleOpenSelectionShortcut(_ event: NSEvent) -> Bool {
         guard !RightSidebarKeyboardNavigation.isPlainPrintableText(event) else { return false }
-        guard event.isFileExplorerOpenSelectionShortcut else { return false }
+        guard event.isFileExplorerOpenSelectionShortcut(in: fileExplorerPanelPlacement) else { return false }
         onCommit?()
         return true
     }
@@ -54,7 +54,14 @@ extension FileExplorerSearchField {
 @MainActor
 extension NSEvent {
     var isFileExplorerOpenSelectionShortcut: Bool {
-        isFileExplorerOpenSelectionShortcut(in: fileExplorerOpenSelectionShortcutContext)
+        isFileExplorerOpenSelectionShortcut(
+            in: AppDelegate.shared?.shortcutEventFocusContext(self).shortcutContext ??
+                ShortcutFocusState(browser: false, markdown: false, sidebar: false).context
+        )
+    }
+
+    func isFileExplorerOpenSelectionShortcut(in placement: FileExplorerPanelPlacement) -> Bool {
+        isFileExplorerOpenSelectionShortcut(in: placement.openSelectionShortcutContext(for: self))
     }
 
     func isFileExplorerOpenSelectionShortcut(in context: ShortcutContext) -> Bool {
@@ -66,10 +73,11 @@ extension NSEvent {
 }
 
 @MainActor
-private extension NSEvent {
-    var fileExplorerOpenSelectionShortcutContext: ShortcutContext {
-        var context = AppDelegate.shared?.shortcutEventFocusContext(self).shortcutContext ??
-            ShortcutFocusState(browser: false, markdown: false, sidebar: true).context
+private extension FileExplorerPanelPlacement {
+    func openSelectionShortcutContext(for event: NSEvent) -> ShortcutContext {
+        var context = AppDelegate.shared?.shortcutEventFocusContext(event).shortcutContext ??
+            ShortcutFocusState(browser: false, markdown: false, sidebar: false).context
+        guard self == .rightSidebar else { return context }
         context.setBool(ShortcutFocusAtom.sidebarFocus.rawValue, true)
         context.setBool(ShortcutFocusAtom.browserFocus.rawValue, false)
         context.setBool(ShortcutFocusAtom.markdownFocus.rawValue, false)

@@ -1,6 +1,7 @@
 import AppKit
 
 final class FileExplorerSearchResultsTableView: NSTableView {
+    var fileExplorerPanelPlacement: FileExplorerPanelPlacement = .rightSidebar
     var onCancel: (() -> Void)?
     var onMoveSelection: ((Int) -> Void)?
     var onCommit: (() -> Void)?

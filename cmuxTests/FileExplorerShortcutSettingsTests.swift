@@ -6,9 +6,11 @@ import Testing
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
 private typealias StoredShortcut = cmux_DEV.StoredShortcut
+private typealias ShortcutStroke = cmux_DEV.ShortcutStroke
 #elseif canImport(cmux)
 @testable import cmux
 private typealias StoredShortcut = cmux.StoredShortcut
+private typealias ShortcutStroke = cmux.ShortcutStroke
 #endif
 
 @MainActor
@@ -79,6 +81,47 @@ private typealias StoredShortcut = cmux.StoredShortcut
             let context = ShortcutFocusState(browser: false, markdown: false, sidebar: true).context
 
             #expect(!event.isFileExplorerOpenSelectionShortcut(in: context))
+        }
+    }
+
+    @Test func openSelectionMatcherUsesPanelPlacementContext() throws {
+        try withIsolatedShortcutSettings {
+            let event = try #require(
+                makeKeyDownEvent(shortcut: KeyboardShortcutSettings.Action.fileExplorerOpenSelection.defaultShortcut)
+            )
+
+            #expect(event.isFileExplorerOpenSelectionShortcut(in: FileExplorerPanelPlacement.rightSidebar))
+            #expect(!event.isFileExplorerOpenSelectionShortcut(in: FileExplorerPanelPlacement.pane))
+
+            try writeSettingsFile(
+                """
+                {
+                  "shortcuts": {
+                    "when": {
+                      "fileExplorerOpenSelection": "terminalFocus"
+                    }
+                  }
+                }
+                """
+            )
+            KeyboardShortcutSettings.settingsFileStore.reload()
+
+            #expect(!event.isFileExplorerOpenSelectionShortcut(in: FileExplorerPanelPlacement.rightSidebar))
+            #expect(event.isFileExplorerOpenSelectionShortcut(in: FileExplorerPanelPlacement.pane))
+        }
+    }
+
+    @Test func openSelectionSetShortcutRejectsChords() throws {
+        try withIsolatedShortcutSettings {
+            let chord = StoredShortcut(
+                first: ShortcutStroke(key: "o", command: true, shift: false, option: false, control: false),
+                second: ShortcutStroke(key: "p", command: false, shift: false, option: false, control: false)
+            )
+
+            KeyboardShortcutSettings.setShortcut(chord, for: .fileExplorerOpenSelection)
+
+            #expect(KeyboardShortcutSettings.shortcut(for: .fileExplorerOpenSelection) ==
+                KeyboardShortcutSettings.Action.fileExplorerOpenSelection.defaultShortcut)
         }
     }
 

@@ -896,9 +896,8 @@ enum KeyboardShortcutSettings {
         _ shortcut: StoredShortcut,
         action: Action
     ) -> StoredShortcut? {
-        if shortcut.isUnbound {
-            return shortcut
-        }
+        if shortcut.isUnbound { return shortcut }
+        if shortcut.hasChord && !action.allowsChordShortcut { return nil }
 
         switch action.resolvedRecordedShortcutIgnoringConflicts(shortcut) {
         case let .accepted(normalizedShortcut):
