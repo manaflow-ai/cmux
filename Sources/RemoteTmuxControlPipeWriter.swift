@@ -59,6 +59,8 @@ final class RemoteTmuxControlPipeWriter {
     func close() {
         guard !closed else { return }
         closed = true
-        try? handle.close()
+        queue.async { [handle] in
+            try? handle.close()
+        }
     }
 }
