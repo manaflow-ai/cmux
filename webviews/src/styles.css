@@ -24,14 +24,23 @@
   --cmux-diff-accent: light-dark(#0a84ff, #7ab7ff);
   --cmux-diff-text-muted: color-mix(in lab, var(--cmux-diff-fg) 72%, var(--cmux-diff-bg));
   --cmux-diff-text-subtle: color-mix(in lab, var(--cmux-diff-fg) 84%, var(--cmux-diff-bg));
+  /* Page fill for the diff surface. Opaque themes (background-opacity 1) paint
+     the terminal color so loading/empty regions match the theme; transparent
+     themes leave it clear so the blurred window backdrop shows. The actual
+     opaque-vs-transparent choice is set per opacity by applyDiffViewerAppearance;
+     these defaults cover the no-appearance case. */
+  --cmux-diff-surface-fill-light: var(--cmux-diff-bg-light);
+  --cmux-diff-surface-fill-dark: var(--cmux-diff-bg-dark);
+  --cmux-diff-surface-fill: var(--cmux-diff-surface-fill-light);
 
-  background: transparent;
+  background: var(--cmux-diff-surface-fill);
   color: var(--cmux-diff-fg);
 }
 @media (prefers-color-scheme: dark) {
   :root {
     --cmux-diff-bg: var(--cmux-diff-bg-dark);
     --cmux-diff-fg: var(--cmux-diff-fg-dark);
+    --cmux-diff-surface-fill: var(--cmux-diff-surface-fill-dark);
   }
 }
 * {
@@ -40,17 +49,20 @@
 html,
 body {
   height: 100%;
-  background: transparent;
+  background: var(--cmux-diff-surface-fill);
   overflow: hidden;
 }
 body {
   margin: 0;
   height: 100vh;
   min-height: 0;
-  /* Transparent so the cmux window backdrop (faded terminal color for
-     transparent themes, solid otherwise) shows through, matching the markdown
-     and terminal panels. `--cmux-diff-bg` is still used opaque for blends. */
-  background: transparent;
+  /* Opaque themes paint the terminal color here so loading and empty regions
+     match the theme: the browser pane behind a transparent diff page is a plain
+     gray window backdrop, not the terminal color (only transparent themes get a
+     terminal-colored window-root backdrop behind every pane). Transparent themes
+     keep this clear so the blurred backdrop shows, matching the markdown and
+     terminal panels. `--cmux-diff-bg` is still used opaque for blends. */
+  background: var(--cmux-diff-surface-fill);
   color: var(--cmux-diff-fg);
   display: flex;
   flex-direction: column;
@@ -712,4 +724,197 @@ body[data-loading="true"] #status::before {
   body[data-loading="true"] #status::before {
     animation: none;
   }
+}
+
+/* Diff review comments */
+#comments-section {
+  flex: 0 0 auto;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  max-height: 40%;
+  border-top: 1px solid var(--cmux-diff-border);
+  background: var(--cmux-diff-sidebar-bg);
+}
+#comments-header {
+  display: flex;
+  align-items: center;
+  min-height: 30px;
+  padding: 0 10px;
+  color: var(--cmux-diff-text-muted);
+  font-size: var(--cmux-diff-ui-font-size);
+}
+#comments-list {
+  min-height: 0;
+  overflow-y: auto;
+  padding: 0 6px 6px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.comments-empty {
+  padding: 2px 7px 6px;
+  color: var(--cmux-diff-text-muted);
+  font-size: var(--cmux-diff-ui-font-size);
+}
+.comment-entry {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 5px 7px;
+  border: 0;
+  border-radius: 5px;
+  background: transparent;
+  color: var(--cmux-diff-text-subtle);
+  font: inherit;
+  font-size: var(--cmux-diff-ui-font-size);
+  text-align: left;
+  cursor: pointer;
+}
+.comment-entry:hover {
+  background: var(--cmux-diff-hover-bg);
+}
+.comment-entry-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+}
+.comment-entry-location {
+  font-weight: 500;
+  color: var(--cmux-diff-fg);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.comment-entry-badge {
+  flex: 0 0 auto;
+  padding: 0 5px;
+  border-radius: 4px;
+  background: var(--cmux-diff-muted-bg);
+  color: var(--cmux-diff-text-muted);
+  font-size: calc(var(--cmux-diff-ui-font-size) - 1px);
+}
+.comment-entry-message {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--cmux-diff-text-muted);
+}
+.comment-composer,
+.comment-card {
+  margin: 8px 12px;
+  padding: 10px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-width: 680px;
+  border: 1px solid var(--cmux-diff-border);
+  border-radius: 10px;
+  background: light-dark(
+    color-mix(in lab, var(--cmux-diff-bg) 92%, #fff),
+    color-mix(in lab, var(--cmux-diff-bg) 90%, #fff)
+  );
+  box-shadow: 0 1px 2px color-mix(in lab, #000 10%, transparent), 0 2px 8px color-mix(in lab, #000 6%, transparent);
+  color: var(--cmux-diff-fg);
+  font-family: var(--cmux-diff-ui-font-family);
+  font-size: 13px;
+  line-height: 1.45;
+}
+.comment-composer:focus-within {
+  border-color: color-mix(in lab, var(--cmux-diff-accent) 60%, var(--cmux-diff-border));
+  box-shadow: 0 0 0 3px color-mix(in lab, var(--cmux-diff-accent) 18%, transparent);
+}
+.comment-composer-input {
+  width: 100%;
+  box-sizing: border-box;
+  resize: none;
+  min-height: 52px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--cmux-diff-fg);
+  font: inherit;
+}
+.comment-composer-input::placeholder {
+  color: var(--cmux-diff-text-muted);
+}
+.comment-composer-input:focus-visible {
+  outline: none;
+}
+.comment-composer-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+.comment-composer-buttons {
+  display: inline-flex;
+  gap: 6px;
+}
+.comment-button {
+  padding: 4px 12px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--cmux-diff-text-muted);
+  font: inherit;
+  font-weight: 500;
+  cursor: pointer;
+}
+.comment-button:hover:not(:disabled) {
+  background: var(--cmux-diff-hover-bg);
+  color: var(--cmux-diff-fg);
+}
+.comment-button:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+.comment-button-primary {
+  background: var(--cmux-diff-accent);
+  color: light-dark(#fff, #08233f);
+}
+.comment-button-primary:hover:not(:disabled) {
+  background: color-mix(in lab, var(--cmux-diff-accent) 86%, var(--cmux-diff-fg));
+  color: light-dark(#fff, #08233f);
+}
+.comment-card-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  min-height: 20px;
+}
+.comment-card-location {
+  font-weight: 500;
+  font-size: calc(var(--cmux-diff-ui-font-size) - 1px);
+  color: var(--cmux-diff-text-muted);
+}
+.comment-card-actions {
+  display: inline-flex;
+  gap: 2px;
+  opacity: 0;
+  transition: opacity 100ms ease;
+}
+.comment-card:hover .comment-card-actions,
+.comment-card:focus-within .comment-card-actions {
+  opacity: 1;
+}
+.comment-card-action {
+  padding: 1px 6px;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--cmux-diff-text-muted);
+  font: inherit;
+  font-size: calc(var(--cmux-diff-ui-font-size) - 1px);
+  cursor: pointer;
+}
+.comment-card-action:hover {
+  background: var(--cmux-diff-hover-bg);
+  color: var(--cmux-diff-fg);
+}
+.comment-card-message {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
 }

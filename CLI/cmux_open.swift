@@ -1,3 +1,4 @@
+import CryptoKit
 import Darwin
 import Foundation
 
@@ -400,7 +401,16 @@ extension CMUXCLI {
         static func localized() -> DiffViewerLabels {
             DiffViewerLabels(values: [
                 "additions": CMUXDiffViewerLocalization.string("diffViewer.additions", defaultValue: "Additions"),
+                "addComment": CMUXDiffViewerLocalization.string("diffViewer.addComment", defaultValue: "Add comment"),
                 "bars": CMUXDiffViewerLocalization.string("diffViewer.bars", defaultValue: "Bars"),
+                "cancelComment": CMUXDiffViewerLocalization.string("diffViewer.cancelComment", defaultValue: "Cancel"),
+                "comments": CMUXDiffViewerLocalization.string("diffViewer.comments", defaultValue: "Comments"),
+                "commentPlaceholder": CMUXDiffViewerLocalization.string("diffViewer.commentPlaceholder", defaultValue: "Leave a comment"),
+                "deleteComment": CMUXDiffViewerLocalization.string("diffViewer.deleteComment", defaultValue: "Delete"),
+                "editComment": CMUXDiffViewerLocalization.string("diffViewer.editComment", defaultValue: "Edit"),
+                "noComments": CMUXDiffViewerLocalization.string("diffViewer.noComments", defaultValue: "No comments yet"),
+                "outdatedComment": CMUXDiffViewerLocalization.string("diffViewer.outdatedComment", defaultValue: "Outdated"),
+                "saveComment": CMUXDiffViewerLocalization.string("diffViewer.saveComment", defaultValue: "Comment"),
                 "changedFiles": CMUXDiffViewerLocalization.string("diffViewer.changedFiles", defaultValue: "Changed files"),
                 "classic": CMUXDiffViewerLocalization.string("diffViewer.classic", defaultValue: "Classic"),
                 "commit": CMUXDiffViewerLocalization.string("about.commit", defaultValue: "Commit"),
@@ -833,6 +843,12 @@ extension CMUXCLI {
         )
         if let cwd = parsedArgs.cwd {
             diffSourceContext.repoRoot = try gitRepoRoot(startingAt: resolvePath(cwd))
+        } else if parsedArgs.source == nil {
+            // Piped patches get a best-effort repo root from the CLI's cwd so
+            // diff comments can persist per repository.
+            diffSourceContext.repoRoot = try? gitRepoRoot(
+                startingAt: FileManager.default.currentDirectoryPath
+            )
         }
         if parsedArgs.source != nil {
             try resolveTargetIfNeeded()
@@ -896,10 +912,13 @@ extension CMUXCLI {
             return
         }
 
-        let completedViewer = try completeDeferredDiffViewer(viewer)
+        // Finalize the deferred viewer (writes the real diff HTML in place of the
+        // opening placeholder); its temp file path is an internal detail, so keep it
+        // out of the human output. Scripts that need it can use `--json`.
+        _ = try completeDeferredDiffViewer(viewer)
         let surfaceText = formatHandle(payload, kind: "surface", idFormat: idFormat) ?? "unknown"
         let paneText = formatHandle(payload, kind: "pane", idFormat: idFormat) ?? "unknown"
-        print("OK surface=\(surfaceText) pane=\(paneText) path=\(completedViewer.fileURL.path)")
+        print("OK surface=\(surfaceText) pane=\(paneText)")
     }
 
     private func diffViewerRuntime(socketPath: String) -> URL? {
@@ -3083,6 +3102,7 @@ extension CMUXCLI {
             layoutSource: layoutSource,
             appearance: appearance,
             sourceOptions: [],
+            repoRoot: context.repoRoot,
             runtime: runtime
         )
         let assets = try ensureDiffViewerAssets(nextTo: viewerFileURL, runtime: runtime)
@@ -5798,10 +5818,27 @@ extension CMUXCLI {
             if FileManager.default.fileExists(atPath: appDirectory.path, isDirectory: &isDirectory),
                isDirectory.boolValue,
                FileManager.default.fileExists(atPath: entry.path) {
-                return (sourceDirectory: appDirectory, targetDirectoryName: candidate.targetName)
+                // The shared /tmp asset cache is written by every running cmux
+                // build (stable, nightly, each tagged dev app). Content-key the
+                // directory so builds with different webview bundles coexist
+                // instead of clobbering each other's chunks, which broke pages
+                // whose per-token allowlist no longer matched the files on disk.
+                let targetName = "\(candidate.targetName)-\(try diffViewerAppAssetContentKey(directory: appDirectory))"
+                return (sourceDirectory: appDirectory, targetDirectoryName: targetName)
             }
         }
         throw CLIError(message: "Bundled cmux diff viewer app assets not found")
+    }
+
+    private func diffViewerAppAssetContentKey(directory: URL) throws -> String {
+        var hasher = SHA256()
+        for relativePath in try diffViewerBundledAssetRelativePaths(in: directory).sorted() {
+            hasher.update(data: Data(relativePath.utf8))
+            let fileURL = directory.appendingPathComponent(relativePath, isDirectory: false)
+            hasher.update(data: try Data(contentsOf: fileURL, options: .mappedIfSafe))
+        }
+        let digest = hasher.finalize()
+        return digest.map { String(format: "%02x", $0) }.joined().prefix(12).lowercased()
     }
 
     private func copyDiffViewerAsset(relativePath: String, from sourceDirectory: URL, to targetDirectory: URL) throws {

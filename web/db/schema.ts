@@ -166,3 +166,93 @@ export const cloudVmBillingGrants = pgTable(
       .on(table.billingCustomerType, table.billingCustomerId, table.itemId, table.reason),
   ],
 );
+
+/**
+ * Device registry — the team-scoped record of which physical machines (Macs /
+ * hosts) and their running cmux app instances exist, so a phone can auto-pair
+ * on reload instead of re-scanning a QR.
+ *
+ * Two-level model:
+ *   `devices` (a physical machine) -> `deviceAppInstances` (one running cmux
+ *   build/tag on that machine).
+ *
+ * The registry is a best-effort *rendezvous* layer that lets a re-launched
+ * phone look up the current routes for the Mac it last paired with. It is NOT
+ * an authority on pairing: a phone keeps its own local paired-Mac store and
+ * falls back to it if the registry is unreachable, so pairing survives the
+ * cloud registry being down.
+ *
+ * Device identity is a cmux-GENERATED persisted UUID (see Mac
+ * `MobileHostIdentity.deviceID()` / iOS `MobileDeviceIdentity`), NOT
+ * IOPlatformUUID. It is cross-platform, survives relaunch, and is
+ * user-renamable via `displayName`.
+ */
+export const devices = pgTable(
+  "devices",
+  {
+    // Surrogate primary key for the team-scoped device row.
+    id: uuid("id").defaultRandom().primaryKey(),
+    // Stack team that owns this device row. All registry reads/writes are
+    // scoped to a team the caller is a verified member of (`X-Cmux-Team-Id`).
+    teamId: text("team_id").notNull(),
+    // The cmux-generated persisted UUID supplied by the device. It is the
+    // device's stable, global identity (mirrors Mac `MobileHostIdentity` / iOS
+    // `MobileDeviceIdentity`), but identity is modeled per team: one row per
+    // (team, device), so a Mac in two teams registers a row in each and a phone
+    // scoped to either team can find it. NOTE (key-pinning phase): a pinned
+    // per-device key for revoke attaches per team-device row, which is the
+    // correct revoke granularity. P1 stores identity only.
+    deviceUuid: uuid("device_uuid").notNull(),
+    // Stack user that registered the device (audit / future per-user views).
+    userId: text("user_id").notNull(),
+    // "mac" | "ios" | "linux" | ... (free-form so new host platforms need no
+    // migration). The host that advertises routes is typically "mac".
+    platform: text("platform").notNull(),
+    // User-renamable label (e.g. the Mac's name). Optional.
+    displayName: text("display_name"),
+    // Flexible bag for arbitrary metadata (OS version, model, capabilities,
+    // and later a pinned key fingerprint). Avoids a migration per new field.
+    labels: jsonb("labels").$type<Record<string, unknown>>().notNull().default(sql`'{}'::jsonb`),
+    lastSeenAt: timestamp("last_seen_at", { withTimezone: true }).notNull().defaultNow(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    uniqueIndex("devices_team_device_uuid_unique").on(table.teamId, table.deviceUuid),
+    index("devices_team_last_seen_idx").on(table.teamId, table.lastSeenAt),
+    index("devices_team_user_idx").on(table.teamId, table.userId),
+  ],
+);
+
+/**
+ * A running cmux app instance on a device, keyed by `(deviceId, tag)` so each
+ * tagged build (`dev.cmux.<tag>`, stable, etc.) on the same machine is its own
+ * row. Holds the attach `routes` the phone uses to reconnect; the registry is
+ * port-flexible, so the endpoint lives in `routes` jsonb rather than a fixed
+ * column. A re-register updates the routes for the same `(deviceId, tag)`.
+ */
+export const deviceAppInstances = pgTable(
+  "device_app_instances",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    deviceId: uuid("device_id")
+      .notNull()
+      .references(() => devices.id, { onDelete: "cascade" }),
+    teamId: text("team_id").notNull(),
+    // The cmux build tag this instance is running (e.g. "stable" or a dev tag).
+    // Defaults to "default" when the build does not distinguish tags.
+    tag: text("tag").notNull().default("default"),
+    // Attach routes advertised by this instance, ordered by priority. Shape
+    // mirrors the Mac/iOS `CmxAttachRoute` (kind + endpoint + priority), kept as
+    // jsonb so the registry stays port- and transport-flexible.
+    routes: jsonb("routes").$type<unknown[]>().notNull().default(sql`'[]'::jsonb`),
+    labels: jsonb("labels").$type<Record<string, unknown>>().notNull().default(sql`'{}'::jsonb`),
+    lastSeenAt: timestamp("last_seen_at", { withTimezone: true }).notNull().defaultNow(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    uniqueIndex("device_app_instances_device_tag_unique").on(table.deviceId, table.tag),
+    index("device_app_instances_team_last_seen_idx").on(table.teamId, table.lastSeenAt),
+  ],
+);

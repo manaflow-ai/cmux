@@ -1,8 +1,10 @@
+import CmuxFoundation
 import AppKit
 import Foundation
 import os
 import UserNotifications
 import Bonsplit
+import CmuxSettings
 
 nonisolated private let terminalNotificationLogger = Logger(
     subsystem: "com.cmuxterm.app",
@@ -31,605 +33,6 @@ extension UNUserNotificationCenter {
         guard !ids.isEmpty else { return }
         Self.removalQueue.async {
             self.removePendingNotificationRequests(withIdentifiers: ids)
-        }
-    }
-}
-
-enum NotificationSoundSettings {
-    static let key = "notificationSound"
-    static let defaultValue = "default"
-    static let customFileValue = "custom_file"
-    static let customFilePathKey = "notificationSoundCustomFilePath"
-    static let defaultCustomFilePath = ""
-    private static let stagedCustomSoundBaseName = "cmux-custom-notification-sound"
-    private static let customSoundPreparationQueue = DispatchQueue(
-        label: "com.cmuxterm.notification-sound-preparation",
-        qos: .utility
-    )
-    private static let systemSoundBaseName = "cmux-system-notification-sound"
-    private static let systemSoundDirectoryURL = URL(fileURLWithPath: "/System/Library/Sounds", isDirectory: true)
-    private static let pendingCustomSoundPreparationLock = NSLock()
-    private static var pendingCustomSoundPreparationPaths: Set<String> = []
-    private static let activePlaybackSoundsLock = NSLock()
-    private static var activePlaybackSounds: [ObjectIdentifier: NSSound] = [:]
-    private static let activePlaybackSoundDelegate = ActivePlaybackSoundDelegate()
-    private static let notificationSoundSupportedExtensions: Set<String> = [
-        "aif",
-        "aiff",
-        "caf",
-        "wav",
-    ]
-
-    private final class ActivePlaybackSoundDelegate: NSObject, NSSoundDelegate {
-        func sound(_ sound: NSSound, didFinishPlaying finishedPlaying: Bool) {
-            NotificationSoundSettings.releaseActivePlaybackSound(sound)
-        }
-    }
-
-    private struct CustomSoundSourceMetadata: Codable, Equatable {
-        let sourcePath: String
-        let sourceSize: UInt64
-        let sourceModificationTime: Double
-        let sourceFileIdentifier: UInt64?
-    }
-
-    enum CustomSoundPreparationIssue: Error {
-        case emptyPath
-        case missingFile(path: String)
-        case missingFileExtension(path: String)
-        case stagingFailed(path: String, details: String)
-
-        var logMessage: String {
-            switch self {
-            case .emptyPath:
-                return "Notification custom sound path is empty"
-            case .missingFile(let path):
-                return "Notification custom sound file does not exist: \(path)"
-            case .missingFileExtension(let path):
-                return "Notification custom sound requires a file extension: \(path)"
-            case .stagingFailed(let path, let details):
-                return "Failed to stage custom notification sound from \(path): \(details)"
-            }
-        }
-    }
-    static let customCommandKey = "notificationCustomCommand"
-    static let defaultCustomCommand = ""
-
-    static let systemSounds: [(label: String, value: String)] = [
-        ("Default", "default"),
-        ("Basso", "Basso"),
-        ("Blow", "Blow"),
-        ("Bottle", "Bottle"),
-        ("Frog", "Frog"),
-        ("Funk", "Funk"),
-        ("Glass", "Glass"),
-        ("Hero", "Hero"),
-        ("Morse", "Morse"),
-        ("Ping", "Ping"),
-        ("Pop", "Pop"),
-        ("Purr", "Purr"),
-        ("Sosumi", "Sosumi"),
-        ("Submarine", "Submarine"),
-        ("Tink", "Tink"),
-        ("Custom File...", customFileValue),
-        ("None", "none"),
-    ]
-
-    static func sound(
-        defaults: UserDefaults = .standard,
-        systemSoundStagingDirectory: URL? = nil
-    ) -> UNNotificationSound? {
-        let value = defaults.string(forKey: key) ?? defaultValue
-        switch value {
-        case "default":
-            return .default
-        case "none":
-            return nil
-        case customFileValue:
-            guard let customSoundName = stagedCustomSoundName(defaults: defaults) else {
-                return nil
-            }
-            return UNNotificationSound(named: UNNotificationSoundName(rawValue: customSoundName))
-        default:
-            guard let stagedSystemSoundName = stagedSystemSoundName(
-                for: value,
-                stagingDirectory: systemSoundStagingDirectory
-            ) else {
-                NSLog("Notification system sound unavailable, falling back to default: \(value)")
-                return .default
-            }
-            return UNNotificationSound(named: UNNotificationSoundName(rawValue: stagedSystemSoundName))
-        }
-    }
-
-    static func usesSystemSound(defaults: UserDefaults = .standard) -> Bool {
-        let value = defaults.string(forKey: key) ?? defaultValue
-        switch value {
-        case "none":
-            return false
-        case customFileValue:
-            return customFileURL(defaults: defaults) != nil
-        default:
-            return true
-        }
-    }
-
-    static func isSilent(defaults: UserDefaults = .standard) -> Bool {
-        return (defaults.string(forKey: key) ?? defaultValue) == "none"
-    }
-
-    static func isCustomFileSelected(defaults: UserDefaults = .standard) -> Bool {
-        (defaults.string(forKey: key) ?? defaultValue) == customFileValue
-    }
-
-    static func stagedCustomSoundName(defaults: UserDefaults = .standard) -> String? {
-        let rawPath = defaults.string(forKey: customFilePathKey) ?? defaultCustomFilePath
-        guard let normalizedPath = normalizedCustomFilePath(rawPath) else {
-            NSLog("Notification custom sound unavailable: \(CustomSoundPreparationIssue.emptyPath.logMessage)")
-            return nil
-        }
-
-        let sourceURL = URL(fileURLWithPath: (normalizedPath as NSString).expandingTildeInPath)
-        let sourceExtension = sourceURL.pathExtension
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-            .lowercased()
-        guard !sourceExtension.isEmpty else {
-            NSLog("Notification custom sound unavailable: \(CustomSoundPreparationIssue.missingFileExtension(path: sourceURL.path).logMessage)")
-            return nil
-        }
-
-        let destinationExtension = stagedCustomSoundFileExtension(forSourceExtension: sourceExtension)
-        let stagedFileName = stagedCustomSoundFileName(
-            forSourceURL: sourceURL,
-            destinationExtension: destinationExtension
-        )
-        let stagedURL = stagedSoundDirectoryURL().appendingPathComponent(stagedFileName, isDirectory: false)
-        let fileManager = FileManager.default
-        guard fileManager.fileExists(atPath: sourceURL.path) else {
-            NSLog("Notification custom sound unavailable: \(CustomSoundPreparationIssue.missingFile(path: sourceURL.path).logMessage)")
-            return nil
-        }
-
-        if fileManager.fileExists(atPath: stagedURL.path) {
-            if let sourceMetadata = currentSourceMetadata(for: sourceURL, fileManager: fileManager),
-               let stagedMetadata = loadStagedSourceMetadata(for: stagedURL),
-               stagedMetadata == sourceMetadata {
-                return stagedFileName
-            }
-        }
-
-        if destinationExtension == sourceExtension {
-            switch prepareCustomFileForNotifications(path: normalizedPath) {
-            case .success(let preparedName):
-                return preparedName
-            case .failure(let issue):
-                NSLog("Notification custom sound unavailable: \(issue.logMessage)")
-                return nil
-            }
-        }
-
-        queueCustomSoundPreparation(path: normalizedPath)
-        NSLog("Notification custom sound not ready yet, staging in background: \(sourceURL.path)")
-        return nil
-    }
-
-    static func prepareCustomFileForNotifications(path: String) -> Result<String, CustomSoundPreparationIssue> {
-        guard let normalizedPath = normalizedCustomFilePath(path) else {
-            return .failure(.emptyPath)
-        }
-        let sourceURL = URL(fileURLWithPath: (normalizedPath as NSString).expandingTildeInPath)
-        return prepareCustomSound(from: sourceURL)
-    }
-
-    private static func prepareCustomSound(from sourceURL: URL) -> Result<String, CustomSoundPreparationIssue> {
-        let sourcePath = sourceURL.path
-        let fileManager = FileManager.default
-        guard fileManager.fileExists(atPath: sourcePath) else {
-            return .failure(.missingFile(path: sourcePath))
-        }
-        let sourceExtension = sourceURL.pathExtension.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !sourceExtension.isEmpty else {
-            return .failure(.missingFileExtension(path: sourcePath))
-        }
-        let destinationExtension = stagedCustomSoundFileExtension(forSourceExtension: sourceExtension)
-
-        let destinationDirectory = stagedSoundDirectoryURL()
-        let destinationFileName = stagedCustomSoundFileName(
-            forSourceURL: sourceURL,
-            destinationExtension: destinationExtension
-        )
-        let destinationURL = destinationDirectory.appendingPathComponent(destinationFileName, isDirectory: false)
-        let sourceMetadata = currentSourceMetadata(for: sourceURL, fileManager: fileManager)
-
-        do {
-            try fileManager.createDirectory(at: destinationDirectory, withIntermediateDirectories: true)
-            if fileManager.fileExists(atPath: destinationURL.path) {
-                let stagedMetadata = loadStagedSourceMetadata(for: destinationURL)
-                if stagedMetadata != sourceMetadata {
-                    try? fileManager.removeItem(at: destinationURL)
-                }
-            }
-            if destinationExtension == sourceExtension.lowercased() {
-                try copyStagedSoundIfNeeded(from: sourceURL, to: destinationURL, fileManager: fileManager)
-            } else {
-                try transcodeStagedSoundIfNeeded(from: sourceURL, to: destinationURL, fileManager: fileManager)
-            }
-            if let sourceMetadata {
-                try saveStagedSourceMetadata(sourceMetadata, for: destinationURL)
-            }
-            try cleanupStaleStagedSoundFiles(
-                in: destinationDirectory,
-                keeping: destinationFileName,
-                preservingSourceURL: sourceURL,
-                fileManager: fileManager
-            )
-            return .success(destinationFileName)
-        } catch {
-            return .failure(.stagingFailed(path: sourcePath, details: error.localizedDescription))
-        }
-    }
-
-    static func customFileURL(defaults: UserDefaults = .standard) -> URL? {
-        guard let path = normalizedCustomFilePath(defaults.string(forKey: customFilePathKey) ?? defaultCustomFilePath) else {
-            return nil
-        }
-        return URL(fileURLWithPath: (path as NSString).expandingTildeInPath)
-    }
-
-    static func playCustomFileSound(defaults: UserDefaults = .standard) {
-        guard let url = customFileURL(defaults: defaults) else { return }
-        playSoundFile(at: url)
-    }
-
-    static func playCustomFileSound(path: String) {
-        guard let normalizedPath = normalizedCustomFilePath(path) else { return }
-        let url = URL(fileURLWithPath: (normalizedPath as NSString).expandingTildeInPath)
-        playSoundFile(at: url)
-    }
-
-    static func playSelectedSound(defaults: UserDefaults = .standard) {
-        let value = defaults.string(forKey: key) ?? defaultValue
-        playSound(value: value, defaults: defaults)
-    }
-
-    static func previewSound(value: String, defaults: UserDefaults = .standard) {
-        playSound(value: value, defaults: defaults)
-    }
-
-    static func previewSound(value: String, customFilePath: String, defaults: UserDefaults = .standard) {
-        playSound(value: value, defaults: defaults, customFilePath: customFilePath)
-    }
-
-    private static func playSound(value: String, defaults: UserDefaults, customFilePath: String? = nil) {
-        switch value {
-        case "default":
-            NSSound.beep()
-        case "none":
-            break
-        case customFileValue:
-            if let customFilePath,
-               normalizedCustomFilePath(customFilePath) != nil {
-                playCustomFileSound(path: customFilePath)
-            } else {
-                playCustomFileSound(defaults: defaults)
-            }
-        default:
-            playSystemSound(named: value)
-        }
-    }
-
-    static func stagedSystemSoundFileName(for value: String) -> String {
-        "\(systemSoundBaseName)-\(value).aiff"
-    }
-
-    static func stagedSystemSoundName(
-        for value: String,
-        fileManager: FileManager = .default,
-        sourceDirectory: URL = systemSoundDirectoryURL,
-        stagingDirectory: URL? = nil
-    ) -> String? {
-        guard systemSounds.contains(where: { option in
-            option.value == value && value != defaultValue && value != customFileValue && value != "none"
-        }) else {
-            return nil
-        }
-
-        let sourceURL = sourceDirectory.appendingPathComponent("\(value).aiff", isDirectory: false)
-        guard fileManager.fileExists(atPath: sourceURL.path) else {
-            return nil
-        }
-
-        let destinationDirectory = stagedSoundDirectoryURL(stagingDirectory)
-        let destinationFileName = stagedSystemSoundFileName(for: value)
-        let destinationURL = destinationDirectory.appendingPathComponent(destinationFileName, isDirectory: false)
-        do {
-            try fileManager.createDirectory(at: destinationDirectory, withIntermediateDirectories: true)
-            try copyStagedSoundIfNeeded(from: sourceURL, to: destinationURL, fileManager: fileManager)
-            return destinationFileName
-        } catch {
-            NSLog("Failed to stage notification system sound \(value): \(error.localizedDescription)")
-            return nil
-        }
-    }
-
-    private static func playSystemSound(named value: String) {
-        guard let sound = NSSound(named: NSSound.Name(value)) else {
-            return
-        }
-        retainActivePlaybackSound(sound)
-        sound.delegate = activePlaybackSoundDelegate
-        if !sound.play() {
-            releaseActivePlaybackSound(sound)
-        }
-    }
-
-    static func stagedCustomSoundFileExtension(forSourceExtension sourceExtension: String) -> String {
-        let normalized = sourceExtension
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-            .lowercased()
-        guard !normalized.isEmpty else { return "caf" }
-        if notificationSoundSupportedExtensions.contains(normalized) {
-            return normalized
-        }
-        return "caf"
-    }
-
-    static func stagedCustomSoundFileName(forSourceURL sourceURL: URL, destinationExtension: String) -> String {
-        let normalizedExtension = destinationExtension
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-            .lowercased()
-        let ext = normalizedExtension.isEmpty ? "caf" : normalizedExtension
-        let signature = stagedCustomSoundSourceSignature(for: sourceURL)
-        return "\(stagedCustomSoundBaseName)-\(signature).\(ext)"
-    }
-
-    private static func normalizedCustomFilePath(_ rawPath: String) -> String? {
-        let trimmed = rawPath.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { return nil }
-        return trimmed
-    }
-
-    private static func stagedSoundDirectoryURL(_ override: URL? = nil) -> URL {
-        if let override {
-            return override
-        }
-        return URL(fileURLWithPath: NSHomeDirectory(), isDirectory: true)
-            .appendingPathComponent("Library", isDirectory: true)
-            .appendingPathComponent("Sounds", isDirectory: true)
-    }
-
-    private static func queueCustomSoundPreparation(path: String) {
-        let expandedPath = (path as NSString).expandingTildeInPath
-        pendingCustomSoundPreparationLock.lock()
-        if pendingCustomSoundPreparationPaths.contains(expandedPath) {
-            pendingCustomSoundPreparationLock.unlock()
-            return
-        }
-        pendingCustomSoundPreparationPaths.insert(expandedPath)
-        pendingCustomSoundPreparationLock.unlock()
-
-        customSoundPreparationQueue.async {
-            defer {
-                pendingCustomSoundPreparationLock.lock()
-                pendingCustomSoundPreparationPaths.remove(expandedPath)
-                pendingCustomSoundPreparationLock.unlock()
-            }
-            _ = prepareCustomFileForNotifications(path: expandedPath)
-        }
-    }
-
-    private static func playSoundFile(at url: URL) {
-        DispatchQueue.main.async {
-            guard let sound = NSSound(contentsOf: url, byReference: false) else {
-                NSLog("Notification custom sound failed to load from path: \(url.path)")
-                return
-            }
-            retainActivePlaybackSound(sound)
-            sound.delegate = activePlaybackSoundDelegate
-            if !sound.play() {
-                releaseActivePlaybackSound(sound)
-            }
-        }
-    }
-
-    private static func retainActivePlaybackSound(_ sound: NSSound) {
-        activePlaybackSoundsLock.lock()
-        activePlaybackSounds[ObjectIdentifier(sound)] = sound
-        activePlaybackSoundsLock.unlock()
-    }
-
-    private static func releaseActivePlaybackSound(_ sound: NSSound) {
-        activePlaybackSoundsLock.lock()
-        activePlaybackSounds.removeValue(forKey: ObjectIdentifier(sound))
-        activePlaybackSoundsLock.unlock()
-    }
-
-    private static func cleanupStaleStagedSoundFiles(
-        in directoryURL: URL,
-        keeping fileName: String,
-        preservingSourceURL: URL,
-        fileManager: FileManager
-    ) throws {
-        let legacyPrefix = "\(stagedCustomSoundBaseName)."
-        let hashedPrefix = "\(stagedCustomSoundBaseName)-"
-        let normalizedSource = preservingSourceURL.standardizedFileURL
-        let keptStagedURL = directoryURL.appendingPathComponent(fileName, isDirectory: false)
-        let keptMetadataFileName = stagedSourceMetadataURL(for: keptStagedURL).lastPathComponent
-        for fileNameCandidate in try fileManager.contentsOfDirectory(atPath: directoryURL.path) {
-            let isManagedName = fileNameCandidate.hasPrefix(legacyPrefix) || fileNameCandidate.hasPrefix(hashedPrefix)
-            let isKeptManagedFile = fileNameCandidate == fileName || fileNameCandidate == keptMetadataFileName
-            guard isManagedName, !isKeptManagedFile else { continue }
-            let staleURL = directoryURL.appendingPathComponent(fileNameCandidate, isDirectory: false)
-            if staleURL.standardizedFileURL == normalizedSource {
-                continue
-            }
-            try? fileManager.removeItem(at: staleURL)
-            try? fileManager.removeItem(at: stagedSourceMetadataURL(for: staleURL))
-        }
-    }
-
-    private static func copyStagedSoundIfNeeded(
-        from sourceURL: URL,
-        to destinationURL: URL,
-        fileManager: FileManager
-    ) throws {
-        let normalizedSource = sourceURL.standardizedFileURL
-        let normalizedDestination = destinationURL.standardizedFileURL
-        guard normalizedSource != normalizedDestination else { return }
-
-        if fileManager.fileExists(atPath: normalizedDestination.path) {
-            let sourceAttributes = try fileManager.attributesOfItem(atPath: normalizedSource.path)
-            let destinationAttributes = try fileManager.attributesOfItem(atPath: normalizedDestination.path)
-            let sourceSize = sourceAttributes[.size] as? NSNumber
-            let destinationSize = destinationAttributes[.size] as? NSNumber
-            let sourceDate = sourceAttributes[.modificationDate] as? Date
-            let destinationDate = destinationAttributes[.modificationDate] as? Date
-            if sourceSize == destinationSize && sourceDate == destinationDate {
-                return
-            }
-            try fileManager.removeItem(at: normalizedDestination)
-        }
-
-        do {
-            try fileManager.copyItem(at: normalizedSource, to: normalizedDestination)
-        } catch {
-            let nsError = error as NSError
-            if nsError.domain == NSCocoaErrorDomain,
-               nsError.code == NSFileWriteFileExistsError,
-               fileManager.fileExists(atPath: normalizedDestination.path) {
-                return
-            }
-            throw error
-        }
-    }
-
-    private static func transcodeStagedSoundIfNeeded(
-        from sourceURL: URL,
-        to destinationURL: URL,
-        fileManager: FileManager
-    ) throws {
-        let normalizedSource = sourceURL.standardizedFileURL
-        let normalizedDestination = destinationURL.standardizedFileURL
-        guard normalizedSource != normalizedDestination else { return }
-
-        if fileManager.fileExists(atPath: normalizedDestination.path) {
-            let sourceAttributes = try fileManager.attributesOfItem(atPath: normalizedSource.path)
-            let destinationAttributes = try fileManager.attributesOfItem(atPath: normalizedDestination.path)
-            let sourceDate = sourceAttributes[.modificationDate] as? Date
-            let destinationDate = destinationAttributes[.modificationDate] as? Date
-            if let sourceDate, let destinationDate, destinationDate >= sourceDate {
-                return
-            }
-            try fileManager.removeItem(at: normalizedDestination)
-        }
-
-        let outputPipe = Pipe()
-        let errorPipe = Pipe()
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: "/usr/bin/afconvert")
-        process.arguments = [
-            "-f", "caff",
-            "-d", "LEI16",
-            normalizedSource.path,
-            normalizedDestination.path,
-        ]
-        process.standardOutput = outputPipe
-        process.standardError = errorPipe
-        try process.run()
-        process.waitUntilExit()
-        guard process.terminationStatus == 0 else {
-            let errorData = ProcessPipeReader.readDataToEndOfFileOrEmpty(from: errorPipe.fileHandleForReading)
-            let errorOutput = String(data: errorData, encoding: .utf8)?
-                .trimmingCharacters(in: .whitespacesAndNewlines)
-            if fileManager.fileExists(atPath: normalizedDestination.path) {
-                try? fileManager.removeItem(at: normalizedDestination)
-            }
-            let description: String
-            if let errorOutput, !errorOutput.isEmpty {
-                description = errorOutput
-            } else {
-                description = "afconvert failed with exit code \(process.terminationStatus)"
-            }
-            throw NSError(
-                domain: "NotificationSoundSettings",
-                code: Int(process.terminationStatus),
-                userInfo: [
-                    NSLocalizedDescriptionKey: description,
-                ]
-            )
-        }
-    }
-
-    private static func stagedCustomSoundSourceSignature(for sourceURL: URL) -> String {
-        let normalizedPath = sourceURL.standardizedFileURL.path
-        var hash: UInt64 = 0xcbf29ce484222325
-        for byte in normalizedPath.utf8 {
-            hash ^= UInt64(byte)
-            hash &*= 0x100000001b3
-        }
-        return String(format: "%016llx", hash)
-    }
-
-    private static func stagedSourceMetadataURL(for stagedURL: URL) -> URL {
-        stagedURL.appendingPathExtension("source-metadata")
-    }
-
-    private static func currentSourceMetadata(for sourceURL: URL, fileManager: FileManager) -> CustomSoundSourceMetadata? {
-        guard let attributes = try? fileManager.attributesOfItem(atPath: sourceURL.path) else {
-            return nil
-        }
-        guard let sourceSizeNumber = attributes[.size] as? NSNumber else {
-            return nil
-        }
-        let sourceDate = (attributes[.modificationDate] as? Date) ?? .distantPast
-        let fileIdentifier = (attributes[.systemFileNumber] as? NSNumber)?.uint64Value
-        return CustomSoundSourceMetadata(
-            sourcePath: sourceURL.standardizedFileURL.path,
-            sourceSize: sourceSizeNumber.uint64Value,
-            sourceModificationTime: sourceDate.timeIntervalSinceReferenceDate,
-            sourceFileIdentifier: fileIdentifier
-        )
-    }
-
-    private static func loadStagedSourceMetadata(for stagedURL: URL) -> CustomSoundSourceMetadata? {
-        let metadataURL = stagedSourceMetadataURL(for: stagedURL)
-        guard let data = try? Data(contentsOf: metadataURL) else {
-            return nil
-        }
-        return try? JSONDecoder().decode(CustomSoundSourceMetadata.self, from: data)
-    }
-
-    private static func saveStagedSourceMetadata(_ metadata: CustomSoundSourceMetadata, for stagedURL: URL) throws {
-        let metadataURL = stagedSourceMetadataURL(for: stagedURL)
-        let data = try JSONEncoder().encode(metadata)
-        try data.write(to: metadataURL, options: .atomic)
-    }
-
-    private static let customCommandQueue = DispatchQueue(
-        label: "com.cmuxterm.notification-custom-command",
-        qos: .utility
-    )
-
-    static func runCustomCommand(title: String, subtitle: String, body: String, defaults: UserDefaults = .standard) {
-        let command = (defaults.string(forKey: customCommandKey) ?? defaultCustomCommand)
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !command.isEmpty else { return }
-        customCommandQueue.async {
-            let process = Process()
-            process.executableURL = URL(fileURLWithPath: "/bin/sh")
-            process.arguments = ["-c", command]
-            var env = ProcessInfo.processInfo.environment
-            env["CMUX_NOTIFICATION_TITLE"] = title
-            env["CMUX_NOTIFICATION_SUBTITLE"] = subtitle
-            env["CMUX_NOTIFICATION_BODY"] = body
-            process.environment = env
-            process.standardOutput = FileHandle.nullDevice
-            process.standardError = FileHandle.nullDevice
-            do {
-                try process.run()
-            } catch {
-                NSLog("Notification command failed to launch: \(error)")
-            }
         }
     }
 }
@@ -837,6 +240,186 @@ final class TerminalNotificationStore: ObservableObject {
 
     static let categoryIdentifier = "com.cmuxterm.app.userNotification"
     static let actionShowIdentifier = "com.cmuxterm.app.userNotification.show"
+
+    /// Mobile-host event topic the Mac emits when one or more delivered
+    /// notifications are dismissed/cleared on this Mac, so an attached phone can
+    /// clear the matching banners it is mirroring. Payload carries the stable
+    /// notification ids plus the authoritative unread count
+    /// (`["ids": [String], "unread_count": Int]`) — never any terminal content —
+    /// so dismiss-sync is safe even with phone-forward hideContent on.
+    static let dismissedEventTopic = "notification.dismissed"
+
+    /// Mobile-host event topic carrying the authoritative unread-notification
+    /// count (`["unread_count": Int]`) whenever it changes. The phone SETS its
+    /// app-icon badge to this absolute total (never local ±1 arithmetic), so any
+    /// drift self-heals on the next event. Emitted from the same chokepoint that
+    /// refreshes the Mac Dock badge, so every mutation lane is covered.
+    static let badgeEventTopic = "notification.badge"
+
+    /// The number of unread notification *entries* — the count the iOS app icon
+    /// badge mirrors. The phone's banners mirror notification entries, so its
+    /// badge counts exactly those. (The Mac Dock badge additionally counts
+    /// workspace-level manual unread indicators, which have no phone banner.)
+    var unreadNotificationCount: Int { indexes.unreadCount }
+
+    /// Recently dismissed/cleared notification ids, kept so the phone's
+    /// foreground reconcile sweep can classify a delivered banner as "handled
+    /// here" even after the entry left the store entirely (remove / clear-all
+    /// paths). Bounded ring: oldest evicted past ``dismissedTombstoneCapacity``.
+    /// Holds opaque UUIDs only, never content.
+    ///
+    /// Write-through persisted to `UserDefaults` (lazy-loaded on first use) so
+    /// the reconcile lane survives a Mac relaunch: session restore keeps
+    /// notification ids stable, so a phone that reconnects after this app
+    /// restarted must still learn that a banner it holds was dismissed here
+    /// even when the silent dismiss push never reached it.
+    private var dismissedTombstoneIDs = Set<UUID>()
+    private var dismissedTombstoneOrder: [UUID] = []
+    private var dismissedTombstonesLoaded = false
+    private static let dismissedTombstoneCapacity = 512
+    static let dismissedTombstoneDefaultsKey = "cmux.notifications.dismissedTombstoneIds"
+
+    private func loadDismissedTombstonesIfNeeded() {
+        guard !dismissedTombstonesLoaded else { return }
+        dismissedTombstonesLoaded = true
+        let stored = UserDefaults.standard.stringArray(forKey: Self.dismissedTombstoneDefaultsKey) ?? []
+        for id in stored.compactMap({ UUID(uuidString: $0) }) where dismissedTombstoneIDs.insert(id).inserted {
+            dismissedTombstoneOrder.append(id)
+        }
+    }
+
+    private func recordDismissTombstones(ids: [UUID]) {
+        loadDismissedTombstonesIfNeeded()
+        for id in ids where dismissedTombstoneIDs.insert(id).inserted {
+            dismissedTombstoneOrder.append(id)
+        }
+        let overflow = dismissedTombstoneOrder.count - Self.dismissedTombstoneCapacity
+        if overflow > 0 {
+            for stale in dismissedTombstoneOrder.prefix(overflow) {
+                dismissedTombstoneIDs.remove(stale)
+            }
+            dismissedTombstoneOrder.removeFirst(overflow)
+        }
+        UserDefaults.standard.set(
+            dismissedTombstoneOrder.map(\.uuidString),
+            forKey: Self.dismissedTombstoneDefaultsKey
+        )
+    }
+
+    /// Drop the in-memory tombstone copy so the next use re-reads the persisted
+    /// ring — the behavior-test analogue of a process restart.
+    func reloadDismissedTombstonesForTesting() {
+        dismissedTombstoneIDs.removeAll()
+        dismissedTombstoneOrder.removeAll()
+        dismissedTombstonesLoaded = false
+    }
+
+    /// Phone-banner dismissals for superseded notifications, deferred until the
+    /// replacement banner push for the same tab/surface is actually queued.
+    /// ``PhonePushClient/forward(_:badgeCount:)`` throttles per tab/surface, so
+    /// dismissing the old banner unconditionally could strand the phone with no
+    /// banner at all for a still-unread notification when the replacement push
+    /// was dropped. When a replacement forward is expected, the store stashes
+    /// the superseded ids here and emits the dismiss only after the push is
+    /// queued, making clear+replace atomic from the phone's perspective; when
+    /// no replacement will be forwarded at all, `recordNotification` emits the
+    /// dismiss immediately instead of stashing. While deferred, the phone keeps
+    /// the older (stale-text) banner — the pre-existing throttle behavior — and
+    /// the reconcile sweep still classifies the ids correctly because they are
+    /// tombstoned at supersede time.
+    private var supersededPhoneDismissBuffer = SupersededPhoneDismissBuffer()
+
+    /// Classify which of the phone's delivered banner ids have been handled on
+    /// this Mac: still in the store and read, or recently removed (tombstoned).
+    /// Ids this Mac has never seen are NOT reported handled — they may belong to
+    /// a different paired Mac — so the phone leaves those banners alone. An id
+    /// that is currently unread is never handled, even if an older tombstone
+    /// exists (markUnread after a dismiss resurrects it).
+    func reconcileHandledNotificationIDs(deliveredIDs: [UUID]) -> [String] {
+        guard !deliveredIDs.isEmpty else { return [] }
+        loadDismissedTombstonesIfNeeded()
+        var readIDs = Set<UUID>()
+        var knownIDs = Set<UUID>()
+        for notification in notifications {
+            knownIDs.insert(notification.id)
+            if notification.isRead { readIDs.insert(notification.id) }
+        }
+        return deliveredIDs
+            .filter { id in
+                if knownIDs.contains(id) { return readIDs.contains(id) }
+                return dismissedTombstoneIDs.contains(id)
+            }
+            .map(\.uuidString)
+    }
+
+    /// Forwards a dismiss/clear to the user's phone. Call only from the
+    /// change-confirmed branch of a user-driven read/clear/remove path, so the
+    /// Mac→iOS→Mac echo can't loop. Session restore / surface rebind paths must
+    /// NOT call this: they reassign ids on churn and would clear a phone banner
+    /// that should persist.
+    ///
+    /// Two lanes share this chokepoint: the instant peer event for a
+    /// live-attached phone, and a silent APNs badge push (the cold lane) so a
+    /// pocketed phone still drops the banner and badge. Both carry the
+    /// authoritative unread count.
+    ///
+    /// The cold lane is sent UNCONDITIONALLY (never gated on live subscribers):
+    /// the push route fans out to every iOS device token registered for the
+    /// user, so one live-attached phone must not starve an offline second
+    /// device of its dismiss. The push is idempotent on a device that already
+    /// handled the live event — removing an already-removed banner is a no-op
+    /// and the badge is an absolute SET — and bursts coalesce in
+    /// ``PhonePushClient/forwardDismissed(ids:badgeCount:)``.
+    private func emitNotificationsDismissed(ids: [String]) {
+        guard !ids.isEmpty else { return }
+        recordDismissTombstones(ids: ids.compactMap { UUID(uuidString: $0) })
+        let unreadCount = indexes.unreadCount
+        // Live lane: nonisolated static fan-out; short-circuits when no phone is
+        // subscribed.
+        MobileHostService.emitEvent(
+            topic: Self.dismissedEventTopic,
+            payload: ["ids": ids, "unread_count": unreadCount]
+        )
+        // Cold lane: mirror the dismiss through APNs for every registered
+        // device, attached or not (no-op unless phone forwarding is on).
+        PhonePushClient.shared.forwardDismissed(ids: ids, badgeCount: unreadCount)
+    }
+
+    /// A user-driven dismiss emit that also carries any stale superseded-banner
+    /// ids the caller drained from ``supersededPhoneDismissBuffer``. Once the
+    /// current notification for a tab/surface is read/cleared/removed, no
+    /// replacement push will ever flush those stragglers (their forward was
+    /// throttled), so they must ride along with the triggering emit or an
+    /// offline phone keeps the stale banner until its next reconcile.
+    private func emitNotificationsDismissed(ids: [String], drainedSuperseded: [String]) {
+        guard !drainedSuperseded.isEmpty else {
+            emitNotificationsDismissed(ids: ids)
+            return
+        }
+        let extra = drainedSuperseded.filter { !ids.contains($0) }
+        emitNotificationsDismissed(ids: ids + extra)
+    }
+
+    /// The last unread count pushed over ``badgeEventTopic``, so the chokepoint
+    /// only emits on real transitions.
+    private var lastEmittedPhoneBadgeCount: Int?
+
+    /// Pushes the authoritative unread count to an attached phone whenever it
+    /// changes. Runs from ``refreshUnreadPresentation()`` — the same chokepoint
+    /// that refreshes the Mac Dock badge — so every mutation lane (markRead,
+    /// markUnread, record, restore, clear) keeps the phone badge correct without
+    /// per-call-site emits. Cheap when nothing is attached (subscriber
+    /// short-circuit inside `emitEvent`).
+    private func emitUnreadBadgeEventIfChanged() {
+        let count = indexes.unreadCount
+        guard count != lastEmittedPhoneBadgeCount else { return }
+        lastEmittedPhoneBadgeCount = count
+        MobileHostService.emitEvent(
+            topic: Self.badgeEventTopic,
+            payload: ["unread_count": count]
+        )
+    }
+
     private enum AuthorizationRequestOrigin: String {
         case notificationDelivery = "notification_delivery"
         case settingsButton = "settings_button"
@@ -851,6 +434,15 @@ final class TerminalNotificationStore: ObservableObject {
         }
     }
     @Published private(set) var notificationMenuSnapshot = NotificationMenuSnapshotBuilder.make(notifications: [])
+    /// Coalesced, equality-guarded per-workspace unread projection for the
+    /// sidebar. The workspace list observes THIS instead of the whole store so
+    /// high-frequency notification churn that does not change a workspace's
+    /// badge count or latest-message text never republishes to the sidebar.
+    /// This is the boundary that keeps the workspace list off the store's hot
+    /// publish path (issue #2586 class of sidebar re-render spins). Owned (not
+    /// `@Published`) so its updates stay independent of the store's own
+    /// `objectWillChange`.
+    let sidebarUnread = SidebarUnreadModel()
     // Workspace-level unread drives sidebar workspace badges; pane-level manual
     // unread remains owned by Workspace.manualUnreadPanelIds.
     @Published private(set) var manualUnreadWorkspaceIds: Set<UUID> = [] {
@@ -862,7 +454,15 @@ final class TerminalNotificationStore: ObservableObject {
     @Published private(set) var restoredUnreadWorkspaceIds: Set<UUID> = [] {
         didSet { refreshUnreadPresentation() }
     }
-    @Published private(set) var focusedReadIndicatorByTabId: [UUID: UUID] = [:]
+    @Published private(set) var focusedReadIndicatorByTabId: [UUID: UUID] = [:] {
+        didSet {
+            // The sidebar/pane read-indicator presentation derives from this map
+            // (see hasVisibleNotificationIndicator); keep the coalesced
+            // SidebarUnreadModel in sync when it changes on its own.
+            guard focusedReadIndicatorByTabId != oldValue else { return }
+            refreshUnreadPresentation()
+        }
+    }
     @Published private(set) var authorizationState: NotificationAuthorizationState = .unknown
     private var suppressNotificationDiffPublishing = false
 
@@ -971,7 +571,44 @@ final class TerminalNotificationStore: ObservableObject {
         if notificationMenuSnapshot != nextMenuSnapshot {
             notificationMenuSnapshot = nextMenuSnapshot
         }
+        sidebarUnread.apply(
+            totalUnreadCount: unreadCount,
+            summaries: buildSidebarUnreadSummaries(),
+            unreadSurfaceKeys: Set(indexes.unreadByTabSurface.map {
+                SidebarSurfaceUnreadKey(workspaceId: $0.tabId, surfaceId: $0.surfaceId)
+            }),
+            focusedReadIndicatorByWorkspaceId: focusedReadIndicatorByTabId,
+            manualUnreadWorkspaceIds: manualUnreadWorkspaceIds
+        )
         refreshDockBadge()
+        emitUnreadBadgeEventIfChanged()
+    }
+
+    /// Builds the per-workspace unread summaries the sidebar renders. Mirrors
+    /// `unreadCount(forTabId:)` and `latestNotification(forTabId:)` so the
+    /// coalesced model is a drop-in source for the sidebar's per-row reads.
+    /// Only workspaces with a non-default summary are included; absent entries
+    /// resolve to `(0, nil)` via `SidebarUnreadModel.summary(forWorkspaceId:)`.
+    private func buildSidebarUnreadSummaries() -> [UUID: SidebarWorkspaceUnreadSummary] {
+        var ids = Set(indexes.unreadCountByTabId.keys)
+        ids.formUnion(indexes.latestByTabId.keys)
+        ids.formUnion(workspaceUnreadIndicatorIds)
+        var result: [UUID: SidebarWorkspaceUnreadSummary] = [:]
+        result.reserveCapacity(ids.count)
+        for id in ids {
+            let count = unreadCount(forTabId: id)
+            let latestText: String? = indexes.latestByTabId[id].flatMap { notification in
+                let text = notification.body.isEmpty ? notification.title : notification.body
+                let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+                return trimmed.isEmpty ? nil : trimmed
+            }
+            if count == 0, latestText == nil { continue }
+            result[id] = SidebarWorkspaceUnreadSummary(
+                unreadCount: count,
+                latestNotificationText: latestText
+            )
+        }
+        return result
     }
 
     private func logAuthorization(_ message: String) {
@@ -1012,7 +649,7 @@ final class TerminalNotificationStore: ObservableObject {
 
     func requestAuthorizationFromSettings() {
         logAuthorization("settings request tapped state=\(authorizationState.statusLabel)")
-        ensureAuthorization(origin: .settingsButton) { _ in }
+        ensureAuthorization(origin: .settingsButton) { _, _ in }
     }
 
     func openNotificationSettings() {
@@ -1034,7 +671,7 @@ final class TerminalNotificationStore: ObservableObject {
 
     func sendSettingsTestNotification() {
         logAuthorization("settings test tapped state=\(authorizationState.statusLabel)")
-        ensureAuthorization(origin: .settingsTest) { [weak self] authorized in
+        ensureAuthorization(origin: .settingsTest) { [weak self] authorized, _ in
             guard let self, authorized else { return }
 
             let content = UNMutableNotificationContent()
@@ -1069,7 +706,7 @@ final class TerminalNotificationStore: ObservableObject {
         logAuthorization("app became active deferred=\(hasDeferredAuthorizationRequest)")
         if hasDeferredAuthorizationRequest {
             hasDeferredAuthorizationRequest = false
-            ensureAuthorization(origin: .settingsButton) { _ in }
+            ensureAuthorization(origin: .settingsButton) { _, _ in }
             return
         }
         refreshAuthorizationStatus()
@@ -1485,7 +1122,8 @@ final class TerminalNotificationStore: ObservableObject {
             "notification.store.effectsOnly workspace=\(notification.tabId.uuidString.prefix(8)) surface=\(notification.surfaceId?.uuidString.prefix(8) ?? "nil") desktop=\(effects.desktop ? 1 : 0) sound=\(effects.sound ? 1 : 0) command=\(effects.command ? 1 : 0) suppressExternal=\(shouldSuppressExternalDelivery ? 1 : 0)"
         )
 #endif
-        if effects.reorderWorkspace, WorkspaceAutoReorderSettings.isEnabled() {
+        if effects.reorderWorkspace,
+           UserDefaultsSettingsClient(defaults: .standard).value(for: SettingCatalog().app.reorderOnNotification) {
             AppDelegate.shared?.tabManagerFor(tabId: notification.tabId)?
                 .moveTabToTopForNotification(notification.tabId)
         }
@@ -1525,7 +1163,8 @@ final class TerminalNotificationStore: ObservableObject {
             setFocusedReadIndicator(forTabId: notification.tabId, surfaceId: notification.surfaceId)
         }
 
-        if effects.reorderWorkspace, WorkspaceAutoReorderSettings.isEnabled() {
+        if effects.reorderWorkspace,
+           UserDefaultsSettingsClient(defaults: .standard).value(for: SettingCatalog().app.reorderOnNotification) {
             AppDelegate.shared?.tabManagerFor(tabId: notification.tabId)?
                 .moveTabToTopForNotification(notification.tabId)
         }
@@ -1542,6 +1181,48 @@ final class TerminalNotificationStore: ObservableObject {
         if !idsToClear.isEmpty {
             center.removeDeliveredNotificationsOffMain(withIdentifiers: idsToClear)
             center.removePendingNotificationRequestsOffMain(withIdentifiers: idsToClear)
+            // A newer notification for this tab+surface superseded the old one
+            // and its Mac banner was just cleared. When a replacement banner
+            // push is expected, DEFER the phone-banner dismiss until that push
+            // is actually queued (see ``deliverNotificationSideEffects``): the
+            // phone must never lose its only banner to a dismissal whose
+            // replacement was throttled. When no replacement will be forwarded
+            // (suppressed/focused, non-desktop effects, forwarding off, or the
+            // `.onlyWhenAway` presence gate suppressing it while the Mac is
+            // active), emit the dismiss immediately — nothing is coming to
+            // replace the banner, and the Mac is not showing one either, so
+            // deferring would just leave the stale banner stuck until a later
+            // forward. Only the burst throttle is a legitimate defer-and-flush
+            // case, which is why ``PhonePushClient/willForwardReplacement()``
+            // mirrors the real send gate but ignores that throttle.
+            let replacementWillForward = !shouldSuppressExternalDelivery
+                && effects.desktop
+                && PhonePushClient.shared.willForwardReplacement()
+            if replacementWillForward {
+                // The superseded entries already left the store; tombstone them
+                // now so the reconcile sweep stays correct while the dismiss is
+                // deferred.
+                recordDismissTombstones(ids: idsToClear.compactMap { UUID(uuidString: $0) })
+                supersededPhoneDismissBuffer.stash(
+                    ids: idsToClear,
+                    forKey: SupersededPhoneDismissBuffer.key(
+                        tabId: notification.tabId,
+                        surfaceId: notification.surfaceId
+                    )
+                )
+            } else {
+                // Also drain anything still parked for this key from an earlier
+                // throttled supersede; this emit is its last guaranteed ride.
+                emitNotificationsDismissed(
+                    ids: idsToClear,
+                    drainedSuperseded: supersededPhoneDismissBuffer.flush(
+                        forKey: SupersededPhoneDismissBuffer.key(
+                            tabId: notification.tabId,
+                            surfaceId: notification.surfaceId
+                        )
+                    )
+                )
+            }
         }
         deliverNotificationSideEffects(
             notification,
@@ -1584,9 +1265,27 @@ final class TerminalNotificationStore: ObservableObject {
             notificationDeliveryHandler(self, notification, effects)
             // Mirror to the user's iPhone (opt-in, off by default). Only on the
             // desktop-delivery path so it matches what the Mac actually shows;
-            // suppressed/focused notifications are not forwarded.
+            // suppressed/focused notifications are not forwarded. The badge is
+            // the authoritative unread total at send time (the store was already
+            // mutated above, so it includes this notification); the server
+            // stamps it as `aps.badge` so the icon badge is SET, not incremented.
             if effects.desktop {
-                PhonePushClient.shared.forward(notification)
+                let queued = PhonePushClient.shared.forward(notification, badgeCount: indexes.unreadCount)
+                // Only once the replacement banner push is queued is it safe to
+                // clear the superseded banners it replaces (deferred from
+                // `recordNotification`); a throttled push leaves them stashed
+                // for the next successful forward of this tab/surface.
+                if queued {
+                    let superseded = supersededPhoneDismissBuffer.flush(
+                        forKey: SupersededPhoneDismissBuffer.key(
+                            tabId: notification.tabId,
+                            surfaceId: notification.surfaceId
+                        )
+                    )
+                    if !superseded.isEmpty {
+                        emitNotificationsDismissed(ids: superseded)
+                    }
+                }
             }
         }
     }
@@ -1610,7 +1309,7 @@ final class TerminalNotificationStore: ObservableObject {
             "Notification hook failed hookId=\(failure.hookId, privacy: .public) sourcePath=\(failure.sourcePath ?? "<unknown>", privacy: .private) message=\(failure.message, privacy: .private)"
         )
 
-        ensureAuthorization(origin: .notificationDelivery) { [weak self] authorized in
+        ensureAuthorization(origin: .notificationDelivery) { [weak self] authorized, _ in
             guard let self, authorized else { return }
             let title = String(
                 localized: "notificationHook.failure.title",
@@ -1644,9 +1343,17 @@ final class TerminalNotificationStore: ObservableObject {
         var updated = notifications
         guard let index = updated.firstIndex(where: { $0.id == id }) else { return }
         guard !updated[index].isRead else { return }
+        let supersededKey = SupersededPhoneDismissBuffer.key(
+            tabId: updated[index].tabId,
+            surfaceId: updated[index].surfaceId
+        )
         updated[index].isRead = true
         notifications = updated
         center.removeDeliveredNotificationsOffMain(withIdentifiers: [id.uuidString])
+        emitNotificationsDismissed(
+            ids: [id.uuidString],
+            drainedSuperseded: supersededPhoneDismissBuffer.flush(forKey: supersededKey)
+        )
     }
 
     func markUnread(id: UUID) {
@@ -1684,17 +1391,30 @@ final class TerminalNotificationStore: ObservableObject {
         setWorkspaceRestoredUnread(false, forTabId: tabId)
         if !idsToClear.isEmpty {
             center.removeDeliveredNotificationsOffMain(withIdentifiers: idsToClear)
+            emitNotificationsDismissed(
+                ids: idsToClear,
+                drainedSuperseded: supersededPhoneDismissBuffer.flush(matchingTabId: tabId)
+            )
         }
     }
 
     func markRead(forTabId tabId: UUID, surfaceId: UUID?) {
         var updated = notifications
         var idsToClear: [String] = []
+        var supersededDrained = supersededPhoneDismissBuffer.flush(
+            forKey: SupersededPhoneDismissBuffer.key(tabId: tabId, surfaceId: surfaceId)
+        )
         for index in updated.indices {
             if updated[index].matches(tabId: tabId, surfaceId: surfaceId),
                !updated[index].isRead {
                 updated[index].isRead = true
                 idsToClear.append(updated[index].id.uuidString)
+                supersededDrained.append(contentsOf: supersededPhoneDismissBuffer.flush(
+                    forKey: SupersededPhoneDismissBuffer.key(
+                        tabId: updated[index].tabId,
+                        surfaceId: updated[index].surfaceId
+                    )
+                ))
             }
         }
         if !idsToClear.isEmpty {
@@ -1709,6 +1429,7 @@ final class TerminalNotificationStore: ObservableObject {
         if !idsToClear.isEmpty {
             center.removeDeliveredNotificationsOffMain(withIdentifiers: idsToClear)
             center.removePendingNotificationRequestsOffMain(withIdentifiers: idsToClear)
+            emitNotificationsDismissed(ids: idsToClear, drainedSuperseded: supersededDrained)
         }
     }
 
@@ -1786,6 +1507,10 @@ final class TerminalNotificationStore: ObservableObject {
         if !idsToClear.isEmpty {
             center.removeDeliveredNotificationsOffMain(withIdentifiers: idsToClear)
             center.removePendingNotificationRequestsOffMain(withIdentifiers: idsToClear)
+            emitNotificationsDismissed(
+                ids: idsToClear,
+                drainedSuperseded: supersededPhoneDismissBuffer.flushAll()
+            )
         }
     }
 
@@ -1800,6 +1525,15 @@ final class TerminalNotificationStore: ObservableObject {
             clearFocusedReadIndicator(forTabId: removed.tabId, surfaceId: removed.surfaceId)
         }
         center.removeDeliveredNotificationsOffMain(withIdentifiers: [id.uuidString])
+        let supersededDrained = removed.map { removedNotification in
+            supersededPhoneDismissBuffer.flush(
+                forKey: SupersededPhoneDismissBuffer.key(
+                    tabId: removedNotification.tabId,
+                    surfaceId: removedNotification.surfaceId
+                )
+            )
+        } ?? []
+        emitNotificationsDismissed(ids: [id.uuidString], drainedSuperseded: supersededDrained)
     }
 
     func restoreSessionNotifications(_ restoredNotifications: [TerminalNotification], forTabId tabId: UUID) {
@@ -1876,6 +1610,7 @@ final class TerminalNotificationStore: ObservableObject {
         CmuxEventBus.shared.publishNotificationCleared(ids: ids, workspaceId: nil, surfaceId: nil)
         center.removeDeliveredNotificationsOffMain(withIdentifiers: ids)
         center.removePendingNotificationRequestsOffMain(withIdentifiers: ids)
+        emitNotificationsDismissed(ids: ids, drainedSuperseded: supersededPhoneDismissBuffer.flushAll())
     }
 
     func clearNotifications(
@@ -1889,9 +1624,18 @@ final class TerminalNotificationStore: ObservableObject {
         var updated: [TerminalNotification] = []
         updated.reserveCapacity(notifications.count)
         var idsToClear: [String] = []
+        var supersededDrained = supersededPhoneDismissBuffer.flush(
+            forKey: SupersededPhoneDismissBuffer.key(tabId: tabId, surfaceId: surfaceId)
+        )
         for notification in notifications {
             if notification.matches(tabId: tabId, surfaceId: surfaceId) {
                 idsToClear.append(notification.id.uuidString)
+                supersededDrained.append(contentsOf: supersededPhoneDismissBuffer.flush(
+                    forKey: SupersededPhoneDismissBuffer.key(
+                        tabId: notification.tabId,
+                        surfaceId: notification.surfaceId
+                    )
+                ))
             } else {
                 updated.append(notification)
             }
@@ -1908,6 +1652,7 @@ final class TerminalNotificationStore: ObservableObject {
             CmuxEventBus.shared.publishNotificationCleared(ids: idsToClear, workspaceId: tabId, surfaceId: surfaceId)
             center.removeDeliveredNotificationsOffMain(withIdentifiers: idsToClear)
             center.removePendingNotificationRequestsOffMain(withIdentifiers: idsToClear)
+            emitNotificationsDismissed(ids: idsToClear, drainedSuperseded: supersededDrained)
         }
     }
 
@@ -1973,6 +1718,10 @@ final class TerminalNotificationStore: ObservableObject {
             CmuxEventBus.shared.publishNotificationCleared(ids: idsToClear, workspaceId: tabId, surfaceId: nil)
             center.removeDeliveredNotificationsOffMain(withIdentifiers: idsToClear)
             center.removePendingNotificationRequestsOffMain(withIdentifiers: idsToClear)
+            emitNotificationsDismissed(
+                ids: idsToClear,
+                drainedSuperseded: supersededPhoneDismissBuffer.flush(matchingTabId: tabId)
+            )
         }
     }
 
@@ -1997,7 +1746,7 @@ final class TerminalNotificationStore: ObservableObject {
             return
         }
 
-        ensureAuthorization(origin: .notificationDelivery) { [weak self] authorized in
+        ensureAuthorization(origin: .notificationDelivery) { [weak self] authorized, effectiveAuthorizationState in
             guard let self else { return }
             let content = UNMutableNotificationContent()
             content.title = self.resolvedNotificationTitle(for: notification)
@@ -2008,7 +1757,7 @@ final class TerminalNotificationStore: ObservableObject {
                     title: content.title,
                     subtitle: content.subtitle,
                     body: content.body,
-                    effects: effects
+                    effects: Self.fallbackEffects(effects, authorizationState: effectiveAuthorizationState)
                 )
                 return
             }
@@ -2087,9 +1836,15 @@ final class TerminalNotificationStore: ObservableObject {
         }
     }
 
+    /// `completion` receives the decision plus the effective authorization
+    /// state behind it. The state matters for the just-prompted-and-declined
+    /// case: `authorizationState` is refreshed asynchronously there, so a
+    /// caller reading the property would still see `.notDetermined` and play
+    /// the fallback sound for the very notification whose prompt the user
+    /// just denied.
     private func ensureAuthorization(
         origin: AuthorizationRequestOrigin,
-        _ completion: @escaping (Bool) -> Void
+        _ completion: @escaping (Bool, NotificationAuthorizationState) -> Void
     ) {
         if origin == .notificationDelivery,
            let cachedDecision = Self.cachedDeliveryAuthorizationDecision(
@@ -2099,7 +1854,7 @@ final class TerminalNotificationStore: ObservableObject {
             if !cachedDecision, authorizationState == .notDetermined {
                 hasDeferredAuthorizationRequest = true
             }
-            completion(cachedDecision)
+            completion(cachedDecision, authorizationState)
             return
         }
 
@@ -2107,7 +1862,7 @@ final class TerminalNotificationStore: ObservableObject {
         center.getNotificationSettings { [weak self] settings in
             DispatchQueue.main.async {
                 guard let self else {
-                    completion(false)
+                    completion(false, .unknown)
                     return
                 }
 
@@ -2117,13 +1872,13 @@ final class TerminalNotificationStore: ObservableObject {
                 )
                 switch settings.authorizationStatus {
                 case .authorized, .provisional, .ephemeral:
-                    completion(true)
+                    completion(true, self.authorizationState)
                 case .denied:
                     if origin != .notificationDelivery {
                         self.logAuthorization("ensure denied origin=\(origin.rawValue) prompting_settings")
                         self.promptToEnableNotifications()
                     }
-                    completion(false)
+                    completion(false, .denied)
                 case .notDetermined:
                     if Self.shouldDeferAutomaticAuthorizationRequest(
                         origin: origin,
@@ -2132,13 +1887,13 @@ final class TerminalNotificationStore: ObservableObject {
                     ) {
                         self.logAuthorization("ensure deferred origin=\(origin.rawValue)")
                         self.hasDeferredAuthorizationRequest = true
-                        completion(false)
+                        completion(false, .notDetermined)
                     } else {
                         self.requestAuthorizationIfNeeded(origin: origin, completion)
                     }
                 @unknown default:
                     self.logAuthorization("ensure unknown status origin=\(origin.rawValue)")
-                    completion(false)
+                    completion(false, .unknown)
                 }
             }
         }
@@ -2146,7 +1901,7 @@ final class TerminalNotificationStore: ObservableObject {
 
     private func requestAuthorizationIfNeeded(
         origin: AuthorizationRequestOrigin,
-        _ completion: @escaping (Bool) -> Void
+        _ completion: @escaping (Bool, NotificationAuthorizationState) -> Void
     ) {
         let isAutomaticRequest = origin == .notificationDelivery
         guard Self.shouldRequestAuthorization(
@@ -2156,7 +1911,7 @@ final class TerminalNotificationStore: ObservableObject {
             logAuthorization(
                 "request blocked origin=\(origin.rawValue) automatic=\(isAutomaticRequest) hasRequestedAutomatic=\(hasRequestedAutomaticAuthorization)"
             )
-            completion(false)
+            completion(false, authorizationState)
             return
         }
         if isAutomaticRequest {
@@ -2176,7 +1931,14 @@ final class TerminalNotificationStore: ObservableObject {
                 self.logAuthorization(
                     "request callback origin=\(origin.rawValue) granted=\(granted) error=\(error?.localizedDescription ?? "nil") mapped=\(self.authorizationState.statusLabel)"
                 )
-                completion(granted)
+                // A non-grant without an error is the user answering the
+                // prompt with a live denial, even while authorizationState is
+                // still refreshing. A request error is not a user decision,
+                // so it reports .unknown and the fallback sound stays on
+                // (fail-open).
+                let effectiveState: NotificationAuthorizationState =
+                    granted ? .authorized : (error == nil ? .denied : .unknown)
+                completion(granted, effectiveState)
             }
         }
     }
@@ -2374,5 +2136,101 @@ final class TerminalNotificationStore: ObservableObject {
             runTag: TaggedRunBadgeSettings.normalizedTag()
         )
         NSApp?.dockTile.badgeLabel = label
+    }
+}
+
+/// Immutable per-workspace unread projection rendered by the sidebar. Equatable
+/// so the coalesced model only republishes when a workspace's badge or
+/// latest-message text actually changes. `latestNotificationText` is the
+/// trimmed body-or-title of the latest notification (read or unread) and is NOT
+/// gated by the `showsSidebarNotificationMessage` setting; the sidebar applies
+/// that gate at its read site.
+struct SidebarWorkspaceUnreadSummary: Equatable {
+    var unreadCount: Int
+    var latestNotificationText: String?
+}
+
+/// Workspace + surface pair used to mirror the store's per-surface unread set.
+struct SidebarSurfaceUnreadKey: Hashable {
+    var workspaceId: UUID
+    var surfaceId: UUID?
+}
+
+/// Lightweight observable that the workspace sidebar and `ContentView` observe
+/// instead of `TerminalNotificationStore`. `TerminalNotificationStore` drives it
+/// from its single `refreshUnreadPresentation()` coalescing hub with equality
+/// guards, so notification activity that does not change any workspace's badge,
+/// latest-text, per-surface unread, or read-indicator never fires
+/// `objectWillChange` here. That is what stops high-frequency notification churn
+/// from re-rendering the workspace list (issue #2586 class of sidebar re-render
+/// spins). The query methods mirror the equivalent `TerminalNotificationStore`
+/// reads exactly so callers can switch source without behavior change.
+@MainActor
+final class SidebarUnreadModel: ObservableObject {
+    @Published private(set) var totalUnreadCount: Int = 0
+    @Published private(set) var summaryByWorkspaceId: [UUID: SidebarWorkspaceUnreadSummary] = [:]
+    @Published private(set) var unreadSurfaceKeys: Set<SidebarSurfaceUnreadKey> = []
+    @Published private(set) var focusedReadIndicatorByWorkspaceId: [UUID: UUID] = [:]
+    @Published private(set) var manualUnreadWorkspaceIds: Set<UUID> = []
+
+    func apply(
+        totalUnreadCount: Int,
+        summaries: [UUID: SidebarWorkspaceUnreadSummary],
+        unreadSurfaceKeys: Set<SidebarSurfaceUnreadKey>,
+        focusedReadIndicatorByWorkspaceId: [UUID: UUID],
+        manualUnreadWorkspaceIds: Set<UUID>
+    ) {
+        if self.totalUnreadCount != totalUnreadCount {
+            self.totalUnreadCount = totalUnreadCount
+        }
+        if summaryByWorkspaceId != summaries {
+            summaryByWorkspaceId = summaries
+        }
+        if self.unreadSurfaceKeys != unreadSurfaceKeys {
+            self.unreadSurfaceKeys = unreadSurfaceKeys
+        }
+        if self.focusedReadIndicatorByWorkspaceId != focusedReadIndicatorByWorkspaceId {
+            self.focusedReadIndicatorByWorkspaceId = focusedReadIndicatorByWorkspaceId
+        }
+        if self.manualUnreadWorkspaceIds != manualUnreadWorkspaceIds {
+            self.manualUnreadWorkspaceIds = manualUnreadWorkspaceIds
+        }
+    }
+
+    func summary(forWorkspaceId id: UUID) -> SidebarWorkspaceUnreadSummary {
+        summaryByWorkspaceId[id] ?? SidebarWorkspaceUnreadSummary(unreadCount: 0, latestNotificationText: nil)
+    }
+
+    func unreadCount(forWorkspaceId id: UUID) -> Int {
+        summary(forWorkspaceId: id).unreadCount
+    }
+
+    func latestNotificationText(forWorkspaceId id: UUID) -> String? {
+        summary(forWorkspaceId: id).latestNotificationText
+    }
+
+    func workspaceIsUnread(forWorkspaceId id: UUID) -> Bool {
+        unreadCount(forWorkspaceId: id) > 0
+    }
+
+    func hasManualUnread(forWorkspaceId id: UUID) -> Bool {
+        manualUnreadWorkspaceIds.contains(id)
+    }
+
+    func hasUnreadNotification(forWorkspaceId id: UUID, surfaceId: UUID?) -> Bool {
+        unreadSurfaceKeys.contains(SidebarSurfaceUnreadKey(workspaceId: id, surfaceId: surfaceId))
+    }
+
+    func hasVisibleNotificationIndicator(forWorkspaceId id: UUID, surfaceId: UUID?) -> Bool {
+        hasUnreadNotification(forWorkspaceId: id, surfaceId: surfaceId) ||
+            (focusedReadIndicatorByWorkspaceId[id].map { $0 == surfaceId } ?? false)
+    }
+
+    func canMarkWorkspaceRead(forWorkspaceIds ids: [UUID]) -> Bool {
+        ids.contains { workspaceIsUnread(forWorkspaceId: $0) }
+    }
+
+    func canMarkWorkspaceUnread(forWorkspaceIds ids: [UUID]) -> Bool {
+        ids.contains { !workspaceIsUnread(forWorkspaceId: $0) }
     }
 }

@@ -1,10 +1,36 @@
 import { CodeView, WorkerPoolContextProvider, type CodeViewHandle, useWorkerPool } from "@pierre/diffs/react";
 import { getFiletypeFromFileName, parsePatchFiles, preloadHighlighter, processFile, registerCustomTheme } from "@pierre/diffs";
+import type { SelectedLineRange } from "@pierre/diffs";
 import { FileTree, useFileTree } from "@pierre/trees/react";
 import { preparePresortedFileTreeInput } from "@pierre/trees";
-import { useEffect, useReducer, useRef, useState } from "react";
+import { useCallback, useEffect, useReducer, useRef, useState } from "react";
 import { copyGitApplyCommand, resolveDiffNavigationURL } from "./actions";
 import { resolveDiffViewerAppearance } from "./appearance";
+import { lineTextFor, type CommentFileDiff } from "./comments/anchor";
+import {
+  applyCommentAnnotations,
+  sidebarCommentEntries,
+  withCommentAnnotations,
+  type CommentAnnotation,
+  type SidebarCommentEntry,
+} from "./comments/annotations";
+import {
+  deleteComment as bridgeDeleteComment,
+  diffCommentsBridgeAvailable,
+  saveComment as bridgeSaveComment,
+} from "./comments/bridge";
+import { CommentComposer } from "./comments/CommentComposer";
+import { CommentsSidebarSection } from "./comments/CommentsSection";
+import { commentSubmissionText } from "./comments/format";
+import { resolveCommentLabels, type DiffCommentLabels } from "./comments/labels";
+import { SavedComment } from "./comments/SavedComment";
+import type {
+  CommentDraft,
+  DiffCommentRecord,
+  DiffCommentSide,
+} from "./comments/types";
+import { useCommentsBootstrap } from "./comments/useCommentsBootstrap";
+import { resolveDiffFileLanguage, resolveDiffPreloadLanguages } from "./diff-language";
 import { fileName, type DiffItem, type FileTreeSource, type StreamMetrics, streamPatch } from "./diff-stream";
 import { applyPierreFileTreeGitStatus, planPierreFileTreeRefresh, selectPierreFileTreePath } from "./file-tree-refresh";
 import { Icon, type IconName } from "./icons";
@@ -30,11 +56,14 @@ type ConfigProps = {
 type AppState = {
   activeItemId: string;
   activeTreePath: string;
+  comments: DiffCommentRecord[];
   copyFeedback: string;
+  draft: CommentDraft | null;
   fileSearchOpen: boolean;
   filesWidth: number;
   filesVisible: boolean;
   items: DiffItem[];
+  languages: string[];
   metrics: StreamMetrics | null;
   options: DiffViewerOptions;
   optionsOpen: boolean;
@@ -44,9 +73,12 @@ type AppState = {
 
 type AppAction =
   | { type: "append-items"; items: DiffItem[] }
+  | { type: "remove-comment"; id: string }
   | { type: "rename-item"; oldId: string; newId: string }
   | { type: "set-active-item"; itemId: string; treePath?: string }
+  | { type: "set-comments"; comments: DiffCommentRecord[] }
   | { type: "set-copy-feedback"; message: string }
+  | { type: "set-draft"; draft: CommentDraft | null }
   | { type: "set-file-search-open"; open: boolean }
   | { type: "set-files-width"; width: number }
   | { type: "set-files-visible"; visible: boolean }
@@ -54,7 +86,8 @@ type AppAction =
   | { type: "set-option"; key: keyof DiffViewerOptions; value: any }
   | { type: "set-options-open"; open: boolean }
   | { type: "set-status"; status: DiffViewerStatus }
-  | { type: "set-tree-source"; source: FileTreeSource };
+  | { type: "set-tree-source"; source: FileTreeSource }
+  | { type: "upsert-comment"; comment: DiffCommentRecord };
 
 const fileSkeletonWidths = ["82%", "64%", "76%", "58%", "70%", "46%"];
 const diffSkeletonWidths = ["58%", "88%", "72%", "94%", "64%", "82%", "52%", "78%"];
@@ -67,11 +100,14 @@ function initialAppState(config: DiffViewerConfig, initialStatus: DiffViewerStat
   return {
     activeItemId: "",
     activeTreePath: "",
+    comments: [],
     copyFeedback: "",
+    draft: null,
     fileSearchOpen: false,
     filesWidth: 252,
     filesVisible: true,
     items: [],
+    languages: ["text"],
     metrics: null,
     options: {
       collapsed: false,
@@ -92,20 +128,35 @@ function initialAppState(config: DiffViewerConfig, initialStatus: DiffViewerStat
 function reducer(state: AppState, action: AppAction): AppState {
   switch (action.type) {
   case "append-items": {
-    const nextItems = state.options.collapsed
-      ? action.items.map((item) => ({ ...item, collapsed: true }))
-      : action.items;
+    const nextItems = action.items.map((item) => {
+      resolveDiffItemLanguage(item);
+      const annotated = withCommentAnnotations(item, state.comments, state.draft);
+      return state.options.collapsed ? { ...annotated, collapsed: true } : annotated;
+    });
+    const languages = mergeLanguages(state.languages, nextItems.flatMap(diffItemPreloadLanguages));
     return {
       ...state,
       activeItemId: state.activeItemId || nextItems[0]?.id || "",
       items: [...state.items, ...nextItems],
+      languages,
       status: state.status.loading ? createDiffViewerStatus("", { loading: false }) : state.status,
+    };
+  }
+  case "remove-comment": {
+    const comments = state.comments.filter((comment) => comment.id !== action.id);
+    return {
+      ...state,
+      comments,
+      items: applyCommentAnnotations(state.items, comments, state.draft),
     };
   }
   case "rename-item":
     return {
       ...state,
       activeItemId: state.activeItemId === action.oldId ? action.newId : state.activeItemId,
+      draft: state.draft?.itemId === action.oldId
+        ? { ...state.draft, itemId: action.newId }
+        : state.draft,
       items: state.items.map((item) => (
         item.id === action.oldId || item.id === action.newId
           ? { ...item, id: action.newId, version: (item.version ?? 0) + 1 }
@@ -118,8 +169,20 @@ function reducer(state: AppState, action: AppAction): AppState {
       activeItemId: action.itemId,
       activeTreePath: action.treePath ?? state.activeTreePath,
     };
+  case "set-comments":
+    return {
+      ...state,
+      comments: action.comments,
+      items: applyCommentAnnotations(state.items, action.comments, state.draft),
+    };
   case "set-copy-feedback":
     return { ...state, copyFeedback: action.message };
+  case "set-draft":
+    return {
+      ...state,
+      draft: action.draft,
+      items: applyCommentAnnotations(state.items, state.comments, action.draft),
+    };
   case "set-file-search-open":
     return { ...state, fileSearchOpen: action.open, filesVisible: action.open ? true : state.filesVisible };
   case "set-files-width":
@@ -154,6 +217,17 @@ function reducer(state: AppState, action: AppAction): AppState {
       treeSource: source,
     };
   }
+  case "upsert-comment": {
+    const exists = state.comments.some((comment) => comment.id === action.comment.id);
+    const comments = exists
+      ? state.comments.map((comment) => (comment.id === action.comment.id ? action.comment : comment))
+      : [...state.comments, action.comment];
+    return {
+      ...state,
+      comments,
+      items: applyCommentAnnotations(state.items, comments, state.draft),
+    };
+  }
   }
 }
 
@@ -170,14 +244,71 @@ export function App({ config, initialStatus }: ConfigProps) {
   const viewerContainerRef = useRef<HTMLDivElement | null>(null);
   const workerModuleURL = resolveDiffViewerAssetURL(config.assets?.workerModuleURL);
   const workerPoolOptions = createDiffWorkerPoolOptions(workerModuleURL);
-  const highlighterOptions = workerHighlighterOptions(state.options, appearance);
+  const highlighterOptions = workerHighlighterOptions(state.options, appearance, state.languages);
+  const repoRoot = typeof payload.repoRoot === "string" && payload.repoRoot !== "" ? payload.repoRoot : null;
+  const bridgeAvailable = diffCommentsBridgeAvailable() && repoRoot != null;
+  const commentLabels = resolveCommentLabels(payload);
+  const comments = useDiffComments({
+    bridgeAvailable,
+    dispatch,
+    latestState,
+    repoRoot,
+  });
   const renderedCodeViewOptions = codeViewOptions(state.options, appearance);
+  renderedCodeViewOptions.onGutterUtilityClick = comments.onGutterUtilityClick as any;
 
   usePageDataAttributes(state);
   usePendingReplacement(payload, label, dispatch);
   useRenderDiff(config, label, dispatch, latestState);
+  useCommentsBootstrap(bridgeAvailable ? repoRoot : null, comments.onLoaded);
   useKeyboardShortcuts(payload.shortcuts ?? {}, viewerContainerRef, dispatch);
   useOptionsDismiss(state.optionsOpen, dispatch);
+
+  const renderCommentAnnotation = (annotation: CommentAnnotation, item: DiffItem) => {
+    const metadata = annotation.metadata;
+    if (metadata.kind === "draft") {
+      return (
+        <CommentComposer
+          labels={commentLabels}
+          onCancel={() => dispatch({ type: "set-draft", draft: null })}
+          onSave={(message) => comments.saveDraft(item, message)}
+        />
+      );
+    }
+    return (
+      <SavedComment
+        comment={metadata.comment}
+        labels={commentLabels}
+        onDelete={() => comments.remove(metadata.comment)}
+        onSaveMessage={(message) => comments.editMessage(metadata.comment, message, item.fileDiff)}
+      />
+    );
+  };
+
+  const diffStreamComplete = Number.isFinite(state.metrics?.completedAt) && (state.metrics?.completedAt ?? 0) > 0;
+  const commentEntries = sidebarCommentEntries(state.items, state.comments, diffStreamComplete);
+  const selectCommentEntry = (entry: SidebarCommentEntry) => {
+    if (entry.itemId == null) {
+      return;
+    }
+    if (entry.anchor.state === "outdated") {
+      codeViewRef.current?.scrollTo({ type: "item", id: entry.itemId, align: "start", behavior: "smooth-auto" });
+    } else {
+      codeViewRef.current?.scrollTo({
+        type: "line",
+        id: entry.itemId,
+        lineNumber: entry.anchor.line,
+        side: entry.comment.side,
+        align: "center",
+        behavior: "smooth-auto",
+      });
+    }
+    dispatch({
+      type: "set-active-item",
+      itemId: entry.itemId,
+      treePath: state.treeSource?.treePathByItemId.get(entry.itemId),
+    });
+  };
 
   const selectedTreePath = state.treeSource?.treePathByItemId.get(state.activeItemId) ?? state.activeTreePath;
   const scrollToItem = (itemId: string) => {
@@ -226,7 +357,11 @@ export function App({ config, initialStatus }: ConfigProps) {
       />
       <section id="content" style={{ "--cmux-diff-files-width": `${state.filesWidth}px` } as React.CSSProperties}>
         <FilesSidebar
+          commentEntries={commentEntries}
+          commentLabels={commentLabels}
+          hasDraft={state.draft != null}
           label={label}
+          onSelectComment={selectCommentEntry}
           onSelectItem={scrollToItem}
           selectedPath={selectedTreePath}
           dispatch={dispatch}
@@ -245,6 +380,8 @@ export function App({ config, initialStatus }: ConfigProps) {
                 containerRef={viewerContainerRef}
                 items={state.items}
                 options={renderedCodeViewOptions}
+                renderAnnotation={(annotation, item) =>
+                  renderCommentAnnotation(annotation as CommentAnnotation, item as DiffItem)}
               />
             </WorkerPoolContextProvider>
           ) : null}
@@ -264,6 +401,102 @@ export function App({ config, initialStatus }: ConfigProps) {
 
 function resolveDiffViewerAssetURL(rawURL: string | undefined): URL {
   return new URL(rawURL || defaultWorkerModuleURL, window.location.href);
+}
+
+/**
+ * Bundles the diff comment handlers: loading persisted comments, opening a
+ * draft from the gutter utility, and saving/editing/deleting. Saved comments
+ * carry a precomputed `submissionText`; native code pools them per workspace
+ * and consumes the pool on TextBox submit.
+ */
+function useDiffComments({
+  bridgeAvailable,
+  dispatch,
+  latestState,
+  repoRoot,
+}: {
+  bridgeAvailable: boolean;
+  dispatch: React.Dispatch<AppAction>;
+  latestState: React.MutableRefObject<AppState>;
+  repoRoot: string | null;
+}) {
+  const onLoaded = useCallback(
+    (comments: DiffCommentRecord[]) => dispatch({ type: "set-comments", comments }),
+    [dispatch],
+  );
+
+  const onGutterUtilityClick = (range: SelectedLineRange, context: { item: DiffItem }) => {
+    const side: DiffCommentSide = range.side === "deletions" ? "deletions" : "additions";
+    dispatch({
+      type: "set-draft",
+      draft: {
+        itemId: context.item.id,
+        side,
+        startLine: Math.min(range.start, range.end),
+        endLine: Math.max(range.start, range.end),
+      },
+    });
+  };
+
+  const saveDraft = (item: DiffItem, message: string) => {
+    const draft = latestState.current.draft;
+    if (draft == null || draft.itemId !== item.id || message.trim() === "") {
+      return;
+    }
+    const input = {
+      filePath: fileName(item.fileDiff, ""),
+      side: draft.side,
+      startLine: draft.startLine,
+      endLine: draft.endLine,
+      lineText: lineTextFor(item.fileDiff, draft.side, draft.endLine) ?? "",
+      message,
+    };
+    const record = { ...input, submissionText: commentSubmissionText(input, item.fileDiff) };
+    const save = bridgeAvailable && repoRoot != null
+      ? bridgeSaveComment(repoRoot, record)
+      : Promise.resolve(localCommentRecord(record));
+    save
+      .then((saved) => {
+        dispatch({ type: "upsert-comment", comment: saved });
+        dispatch({ type: "set-draft", draft: null });
+      })
+      .catch((error) => console.warn("cmux diff comment save failed", error));
+  };
+
+  const editMessage = (
+    comment: DiffCommentRecord,
+    message: string,
+    fileDiff: CommentFileDiff | null | undefined,
+  ) => {
+    if (message.trim() === "") {
+      return;
+    }
+    const edited = { ...comment, message, updatedAt: new Date().toISOString() };
+    const updated = { ...edited, submissionText: commentSubmissionText(edited, fileDiff) };
+    const save = bridgeAvailable && repoRoot != null
+      ? bridgeSaveComment(repoRoot, updated)
+      : Promise.resolve(updated);
+    save
+      .then((saved) => dispatch({ type: "upsert-comment", comment: saved }))
+      .catch((error) => console.warn("cmux diff comment edit failed", error));
+  };
+
+  const remove = (comment: DiffCommentRecord) => {
+    if (bridgeAvailable && repoRoot != null) {
+      bridgeDeleteComment(repoRoot, comment.id)
+        .catch((error) => console.warn("cmux diff comment delete failed", error));
+    }
+    dispatch({ type: "remove-comment", id: comment.id });
+  };
+
+  return { editMessage, onGutterUtilityClick, onLoaded, remove, saveDraft };
+}
+
+function localCommentRecord(
+  input: Omit<DiffCommentRecord, "id" | "createdAt" | "updatedAt">,
+): DiffCommentRecord {
+  const now = new Date().toISOString();
+  return { ...input, id: crypto.randomUUID(), createdAt: now, updatedAt: now };
 }
 
 function initialDiffViewerLayout(payload: Record<string, any>): DiffViewerLayout {
@@ -590,14 +823,22 @@ function MenuButton({
 }
 
 function FilesSidebar({
+  commentEntries,
+  commentLabels,
   dispatch,
+  hasDraft,
   label,
+  onSelectComment,
   onSelectItem,
   selectedPath,
   state,
 }: {
+  commentEntries: SidebarCommentEntry[];
+  commentLabels: DiffCommentLabels;
   dispatch: React.Dispatch<AppAction>;
+  hasDraft: boolean;
   label: DiffViewerLabelResolver;
+  onSelectComment: (entry: SidebarCommentEntry) => void;
   onSelectItem: (itemId: string) => void;
   selectedPath: string;
   state: AppState;
@@ -676,6 +917,12 @@ function FilesSidebar({
           <div className="visually-hidden">{state.status.message}</div>
         )}
       </div>
+      <CommentsSidebarSection
+        entries={commentEntries}
+        hasDraft={hasDraft}
+        labels={commentLabels}
+        onSelect={onSelectComment}
+      />
     </aside>
   );
 }
@@ -813,11 +1060,22 @@ function sameWorkerHighlighterOptions(
   next: ReturnType<typeof workerHighlighterOptions>,
 ): boolean {
   return previous?.lineDiffType === next.lineDiffType &&
+    sameStringArray(previous?.langs, next.langs) &&
     previous?.maxLineDiffLength === next.maxLineDiffLength &&
     previous?.preferredHighlighter === next.preferredHighlighter &&
     sameThemeOption(previous?.theme, next.theme) &&
     previous?.tokenizeMaxLineLength === next.tokenizeMaxLineLength &&
     previous?.useTokenTransformer === next.useTokenTransformer;
+}
+
+function sameStringArray(previous: readonly string[] | undefined, next: readonly string[] | undefined): boolean {
+  if (previous === next) {
+    return true;
+  }
+  if (previous == null || next == null || previous.length !== next.length) {
+    return false;
+  }
+  return previous.every((value, index) => value === next[index]);
 }
 
 function sameThemeOption(
@@ -920,8 +1178,7 @@ function useRenderDiff(
         const themes = Array.from(new Set([appearance.theme?.light, appearance.theme?.dark].filter(Boolean)));
         const langs = Array.from(new Set(items.flatMap((item) => {
           const diff = item.fileDiff ?? {};
-          const lang = diff.lang ?? getFiletypeFromFileName(fileName(diff, "")) ?? "text";
-          return lang ? [lang] : [];
+          return resolveDiffPreloadLanguages(fileName(diff, ""), diff.lang, diff, getFiletypeFromFileName);
         })));
         preloadHighlighter({ themes, langs: langs.length > 0 ? langs : ["text"] })
           .catch((error) => console.warn("cmux diff highlighter preload failed", error));
@@ -937,6 +1194,33 @@ function useRenderDiff(
       dispatch({ type: "set-status", status: createDiffViewerStatus(label("renderFailed"), { error: true, loading: false, statusOnly: true }) });
     });
   }, [config, dispatch, label, latestState]);
+}
+
+function resolveDiffItemLanguage(item: DiffItem): void {
+  const diff = item.fileDiff;
+  if (diff == null) {
+    return;
+  }
+  const lang = resolveDiffFileLanguage(fileName(diff, ""), diff.lang, getFiletypeFromFileName);
+  diff.lang = lang;
+}
+
+function diffItemPreloadLanguages(item: DiffItem): string[] {
+  const diff = item.fileDiff;
+  if (diff == null) {
+    return [];
+  }
+  return resolveDiffPreloadLanguages(fileName(diff, ""), diff.lang, diff, getFiletypeFromFileName);
+}
+
+function mergeLanguages(current: string[], next: string[]): string[] {
+  const languages = new Set(current);
+  for (const language of next) {
+    if (language.trim().length > 0) {
+      languages.add(language);
+    }
+  }
+  return Array.from(languages);
 }
 
 function isStatusOnlyPayload(payload: any): boolean {

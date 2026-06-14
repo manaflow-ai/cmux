@@ -1,6 +1,9 @@
 import Foundation
 import Testing
 
+import CmuxFoundation
+import CmuxSettings
+
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
 #elseif canImport(cmux)
@@ -177,7 +180,9 @@ struct WorkspaceGroupTests {
 
         var groupMemberIds: [UUID] = []
         var visibleWorkspaceIds: [UUID] = []
+        var visibleRowIds: [UUID] = []
         for item in items {
+            visibleRowIds.append(item.rowWorkspaceId)
             switch item {
             case .groupHeader(let renderedGroup, let memberWorkspaceIds) where renderedGroup.id == groupId:
                 groupMemberIds = memberWorkspaceIds
@@ -195,6 +200,11 @@ struct WorkspaceGroupTests {
         ])
         #expect(!visibleWorkspaceIds.contains(originalIds[1]))
         #expect(!visibleWorkspaceIds.contains(originalIds[2]))
+        #expect(visibleRowIds == [
+            originalIds[0],
+            group.anchorWorkspaceId,
+            originalIds[3],
+        ])
     }
 
     @Test func groupHeaderEdgeDropUsesTopLevelIndicatorScope() throws {
@@ -238,6 +248,59 @@ struct WorkspaceGroupTests {
             dropIndicator: indicator,
             tabIds: forcedTopLevelIds
         ))
+    }
+
+    @Test func draggingGroupedChildAboveItsGroupPromotesToTopLevel() throws {
+        let manager = makeTabManager()
+        manager.addWorkspace(autoWelcomeIfNeeded: false)
+        manager.addWorkspace(autoWelcomeIfNeeded: false)
+        let originalIds = manager.tabs.map(\.id)
+
+        let groupId = try #require(manager.createWorkspaceGroup(name: "Lower", childWorkspaceIds: [
+            originalIds[1],
+            originalIds[2],
+        ]))
+        let group = try #require(manager.workspaceGroups.first { $0.id == groupId })
+        let draggedId = originalIds[1]
+        let targetId = originalIds[0]
+        let usesTopLevelRows = manager.sidebarReorderUsesTopLevelRows(
+            forDraggedWorkspaceId: draggedId,
+            targetWorkspaceId: targetId
+        )
+        let reorderIds = manager.sidebarReorderWorkspaceIds(
+            forDraggedWorkspaceId: draggedId,
+            targetWorkspaceId: targetId,
+            usesTopLevelRows: usesTopLevelRows
+        )
+        let pinnedIds = manager.sidebarReorderPinnedWorkspaceIds(
+            forDraggedWorkspaceId: draggedId,
+            targetWorkspaceId: targetId,
+            usesTopLevelRows: usesTopLevelRows
+        )
+        let targetIndex = try #require(SidebarDropPlanner.targetIndex(
+            draggedTabId: draggedId,
+            targetTabId: targetId,
+            indicator: SidebarDropIndicator(tabId: group.anchorWorkspaceId, edge: .top),
+            tabIds: reorderIds,
+            pinnedTabIds: pinnedIds
+        ))
+
+        let moved = manager.reorderSidebarWorkspace(
+            tabId: draggedId,
+            toIndex: targetIndex,
+            isDragOperation: true,
+            usesTopLevelRows: usesTopLevelRows
+        )
+
+        #expect(moved)
+        #expect(manager.tabs.first { $0.id == draggedId }?.groupId == nil)
+        #expect(manager.tabs.map(\.id) == [
+            originalIds[0],
+            draggedId,
+            group.anchorWorkspaceId,
+            originalIds[2],
+            originalIds[3],
+        ])
     }
 
     @Test func createUnpinnedGroupFromPinnedGroupChildStaysBelowPinnedGroups() throws {
@@ -645,8 +708,10 @@ struct WorkspaceGroupTests {
         let manager = makeTabManager()
         let children = manager.tabs.map(\.id)
         let groupId = manager.createWorkspaceGroup(name: "G", childWorkspaceIds: children)!
-        WorkspaceGroupAnchorCloseSettings.setSuppressed(true)
-        defer { WorkspaceGroupAnchorCloseSettings.setSuppressed(false) }
+        let anchorCloseKey = SettingCatalog().workspaceGroups.anchorCloseSuppressed
+        let settings = UserDefaultsSettingsClient(defaults: .standard)
+        settings.set(true, for: anchorCloseKey)
+        defer { settings.reset(anchorCloseKey) }
         let group = try #require(manager.workspaceGroups.first(where: { $0.id == groupId }))
         let anchor = try #require(manager.tabs.first(where: { $0.id == group.anchorWorkspaceId }))
 
