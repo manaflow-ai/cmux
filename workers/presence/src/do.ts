@@ -34,7 +34,7 @@ import {
   type PresenceInstance,
 } from "./core";
 import { parseHello, type SyncServerFrame } from "./sync";
-import { gcTombstones, nextTombstoneGcTime, resolveHelloFrames, type SyncStorage } from "./syncStorage";
+import { gcTombstones, nextTombstoneGcTime, readHead, resolveHelloFrames, type SyncStorage } from "./syncStorage";
 import {
   DEVICES_COLLECTION,
   groupInstancesByDevice,
@@ -188,15 +188,39 @@ export class TeamPresence extends DurableObject {
     await this.ctx.storage.put(key, instance);
     this.broadcast(events);
     // Project ONLY this device's presence change onto the synced device-list
-    // collection (DESIGN.md §5.2). A heartbeat changes exactly one device, so we
-    // reconcile just that device — reading its own `inst:<deviceId>:` instances
-    // and owner pin — instead of scanning the whole team every ~15s beat. The
-    // upsert mints a sync rev only on a list-shape change, so a steady-state
-    // `seen` tick stays quiet. Additive: never touches presence keys; old DO
-    // instances without this code simply skip it.
-    await this.syncOneDevice(beat.deviceId, now);
+    // collection (DESIGN.md §5.2), and ONLY when the heartbeat could have changed
+    // list-shape. The common case — a `seen` tick on an already-known instance
+    // whose identity/routes are unchanged — can never alter the device record
+    // (which carries no per-tick `lastSeenAt`), so we skip the sync storage work
+    // entirely on those beats. That keeps steady-state heartbeating at zero extra
+    // storage ops per tick instead of a prefix-list + owner read + compare every
+    // ~15s per instance. A new instance, an owner pin, or a routes/identity
+    // change still projects. Additive: old DO instances simply skip all of this.
+    if (this.heartbeatMayChangeListShape(existing, instance, owner.pin, events)) {
+      await this.syncOneDevice(beat.deviceId, now);
+    }
     await this.ensureAlarmFor(instance);
     return this.heartbeatOk(teamId, instance);
+  }
+
+  /** Whether a heartbeat could have changed a device's synced list-shape, so the
+   * common steady-state `seen` tick skips sync reconciliation. List-shape can
+   * change on: a new instance (`!existing`), an owner pin, a routes change (a
+   * `routes` event), or an identity change (platform/displayName) on this
+   * instance. A pure `seen` event with unchanged identity cannot. */
+  private heartbeatMayChangeListShape(
+    existing: PresenceInstance | undefined,
+    instance: PresenceInstance,
+    ownerPinned: boolean,
+    events: readonly PresenceEvent[],
+  ): boolean {
+    if (existing === undefined) return true;      // new instance (tag added)
+    if (ownerPinned) return true;                 // owner pin is list-shape (display/trust)
+    if (existing.platform !== instance.platform) return true;
+    if (existing.displayName !== instance.displayName) return true;
+    // A `routes` event signals routes changed; `online` means it came back (a
+    // re-add). A pure `seen` event with unchanged identity is the no-op case.
+    return events.some((e) => e.type === "routes" || e.type === "online");
   }
 
   /** Reconcile a single device's sync record from its current instances + owner.
@@ -340,6 +364,17 @@ export class TeamPresence extends DurableObject {
     for (const { name, cursor } of collections) {
       if (name !== DEVICES_COLLECTION) continue; // phase 1 serves only `devices`
       subscribed.push(name);
+      // Rollout backfill: an existing DO has `inst:*` presence but no
+      // `synced:devices:*` projection yet (it is built lazily on heartbeat/alarm
+      // after this code deploys). If a client subscribes before any heartbeat
+      // rebuilds the projection, the head is still 0 and it would get an empty
+      // snapshot, hiding currently-present devices. So when the projection is
+      // empty but presence instances exist, build it from the live presence map
+      // once, here, before resolving. Additive and idempotent (the per-device
+      // upsert mints revs only for real records).
+      if ((await readHead(this.syncStorage(), name)) === 0) {
+        await this.syncDeviceRecords(Date.now());
+      }
       const resolved = await resolveHelloFrames<DeviceRecord>(
         this.syncStorage(),
         name,
