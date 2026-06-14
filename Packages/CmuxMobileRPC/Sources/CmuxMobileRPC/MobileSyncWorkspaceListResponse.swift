@@ -56,6 +56,16 @@ public struct MobileSyncWorkspaceListResponse: Decodable, Sendable {
             case isReady = "is_ready"
             case chatSession = "chat_session"
         }
+
+        public init(from decoder: any Decoder) throws {
+            let container = try decoder.container(keyedBy: CodingKeys.self)
+            id = try container.decode(String.self, forKey: .id)
+            title = try container.decode(String.self, forKey: .title)
+            currentDirectory = try container.decodeIfPresent(String.self, forKey: .currentDirectory)
+            isFocused = try container.decode(Bool.self, forKey: .isFocused)
+            isReady = try container.decodeIfPresent(Bool.self, forKey: .isReady)
+            chatSession = try? container.decode(ChatSessionDescriptor.self, forKey: .chatSession)
+        }
     }
 
     /// The full workspace list.

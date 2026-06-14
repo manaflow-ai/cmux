@@ -177,6 +177,47 @@ import Testing
         #expect(terminal.chatSession?.terminalID == "t-1")
     }
 
+    @Test func workspaceListResponseIgnoresMalformedOptionalChatSession() throws {
+        let json = Data("""
+        {
+          "workspaces": [
+            {
+              "id": "ws-1",
+              "title": "cmux",
+              "is_selected": true,
+              "terminals": [
+                {
+                  "id": "t-1",
+                  "title": "Build",
+                  "is_focused": true,
+                  "chat_session": {
+                    "session_id": "future-session",
+                    "agent_kind": "future-agent",
+                    "title": "Future payload",
+                    "workspace_id": "ws-1",
+                    "terminal_id": "t-1",
+                    "cwd": "/Users/test/project",
+                    "state": {
+                      "state": "future-state",
+                      "since": "not-a-date"
+                    },
+                    "last_activity_at": "not-a-date"
+                  }
+                }
+              ]
+            }
+          ]
+        }
+        """.utf8)
+
+        let response = try MobileSyncWorkspaceListResponse.decode(json)
+        let workspace = try #require(response.workspaces.first)
+        let terminal = try #require(workspace.terminals.first)
+        #expect(terminal.id == "t-1")
+        #expect(terminal.title == "Build")
+        #expect(terminal.chatSession == nil)
+    }
+
     @Test func attachTicketInputDecodesAttachURL() throws {
         let route = try CmxAttachRoute(
             id: "tailscale",
