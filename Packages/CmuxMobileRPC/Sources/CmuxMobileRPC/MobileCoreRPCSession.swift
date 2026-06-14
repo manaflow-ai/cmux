@@ -37,10 +37,11 @@ actor MobileCoreRPCSession {
     private var cancelledQueuedRequestIDs: Set<String> = []
     private var listeners: [UUID: EventListener] = [:]
     private var isTearingDown: Bool = false
-    /// Whether at least one request has reached the transport-send stage (its auth
-    /// was built and `send` was entered). Stays false when a request fails locally
-    /// before any send, letting pairing tell a pre-send auth/token failure apart
-    /// from a host rejection that proves the network was reached.
+    /// Whether at least one request reached the transport over a *connected*
+    /// channel (its auth was built and `ensureConnected()` succeeded). Stays false
+    /// when a request fails locally before any send, or when the transport never
+    /// connected, letting pairing tell a pre-send/unreachable failure apart from a
+    /// host rejection that proves the network was reached.
     private(set) var didAttemptSend = false
     /// Pending writes drained by `writerTask`. Serializes `transport.send` so
     /// two concurrent `send(payload:requestID:)` callers never trip
@@ -61,12 +62,14 @@ actor MobileCoreRPCSession {
     }
 
     func send(payload: Data, requestID: String) async throws -> Data {
-        // Reaching `send` means the caller already built the request's auth, so any
-        // failure from here on is a real transport/host interaction (not a local
-        // pre-send auth/token failure). Pairing reads this to decide whether the
-        // network gate was genuinely exercised (issue #6084).
-        didAttemptSend = true
         _ = try await ensureConnected()
+        // Only now is the transport connected: the network path to the Mac is up,
+        // so any failure from here is a real host interaction — not a local
+        // pre-send auth/token failure, and not a route that failed to connect.
+        // Pairing reads this to decide whether the network gate was genuinely
+        // reached (issue #6084); setting it before `ensureConnected()` would mark
+        // an unreachable route as reached.
+        didAttemptSend = true
         let frame = try MobileSyncFrameCodec.encodeFrame(payload)
 
         let result: Result<Data, MobileShellConnectionError> = await withTaskCancellationHandler {

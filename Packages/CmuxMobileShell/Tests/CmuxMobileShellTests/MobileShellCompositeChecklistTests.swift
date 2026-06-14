@@ -65,6 +65,28 @@ import Testing
         #expect(checklist.trust == .pending)
     }
 
+    @Test func unreachableRouteThenPreSendAuthFailureLeavesNetworkUntested() async throws {
+        // Multi-route attempt: the first route fails to connect, then a later
+        // request fails its Stack-token build before any send. The network gate
+        // must stay untested — an unreachable route must not leave a sticky
+        // "reached" that greens the network gate (issue #6084 autoreview follow-up).
+        let provider = FirstCallSucceedsTokenProvider()
+        let runtime = LivenessTestRuntime(
+            transportFactory: ConnectFailingTransportFactory(),
+            stackAccessTokenProvider: { try provider.next() },
+            stackAccessTokenForceRefresher: { throw FirstCallSucceedsTokenProvider.TokenError() },
+            now: { TestClock().now }
+        )
+        let store = MobileShellComposite.preview(runtime: runtime)
+        store.signIn()
+        let result = await connectAcceptingVersionWarning(store, try attachURL(for: makeTwoRouteTicket()))
+        #expect(result == .failed)
+        let checklist = try #require(store.pairingChecklist)
+        #expect(checklist.network == .pending)
+        #expect(checklist.authentication.isFailed)
+        #expect(checklist.trust == .pending)
+    }
+
     @Test func successfulPairingClearsEveryGate() async throws {
         let runtime = LivenessTestRuntime(
             transportFactory: LivenessTransportFactory(router: LivenessHostRouter(), box: TransportBox()),
@@ -100,6 +122,61 @@ import Testing
         let result = await store.connectPairingURLResult(url)
         guard result == .needsUserApproval else { return result }
         return await store.acceptPairingVersionWarning()
+    }
+
+    private func makeTwoRouteTicket() throws -> CmxAttachTicket {
+        let routeA = try CmxAttachRoute(
+            id: "debug_loopback_a",
+            kind: .debugLoopback,
+            endpoint: .hostPort(host: "127.0.0.1", port: 51111)
+        )
+        let routeB = try CmxAttachRoute(
+            id: "debug_loopback_b",
+            kind: .debugLoopback,
+            endpoint: .hostPort(host: "127.0.0.1", port: 52222)
+        )
+        return try CmxAttachTicket(
+            workspaceID: "live-workspace",
+            terminalID: "live-terminal",
+            macDeviceID: "test-mac",
+            macDisplayName: "Test Mac",
+            routes: [routeA, routeB],
+            expiresAt: TestClock().now.addingTimeInterval(3600)
+        )
+    }
+}
+
+/// A Stack-token provider that succeeds exactly once, then fails — so the first
+/// route's request builds auth (and then fails to connect) while a later route's
+/// request fails its token build before any send.
+final class FirstCallSucceedsTokenProvider: @unchecked Sendable {
+    struct TokenError: Error {}
+    private let lock = NSLock()
+    private var count = 0
+
+    func next() throws -> String {
+        let n: Int = lock.withLock {
+            count += 1
+            return count
+        }
+        guard n == 1 else { throw TokenError() }
+        return "token-1"
+    }
+}
+
+/// A transport whose `connect()` always fails, modeling an unreachable route.
+actor ConnectFailingTransport: CmxByteTransport {
+    struct ConnectFailed: Error {}
+
+    func connect() async throws { throw ConnectFailed() }
+    func receive() async throws -> Data? { nil }
+    func send(_ data: Data) async throws {}
+    func close() async {}
+}
+
+struct ConnectFailingTransportFactory: CmxByteTransportFactory {
+    func makeTransport(for route: CmxAttachRoute) throws -> any CmxByteTransport {
+        ConnectFailingTransport()
     }
 }
 

@@ -100,11 +100,12 @@ public final class MobileCoreRPCClient: MobileSyncing, Sendable {
         }
     }
 
-    /// Whether any request on this client reached the transport-send stage. False
-    /// means every attempt failed locally before a packet could leave the device
-    /// (e.g. the Stack token provider failed, or an attach ticket was expired),
-    /// which pairing uses to avoid marking the network gate cleared for a failure
-    /// that never reached the Mac (issue #6084).
+    /// Whether any request on this client reached the transport over a connected
+    /// channel. False means every attempt failed locally before a packet could
+    /// leave the device (the Stack token provider failed, or an attach ticket was
+    /// expired) or the transport never connected, which pairing uses to avoid
+    /// marking the network gate cleared for a failure that never reached the Mac
+    /// (issue #6084).
     public func didAttemptHostSend() async -> Bool {
         await session.didAttemptSend
     }
