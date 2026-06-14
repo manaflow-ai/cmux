@@ -1580,6 +1580,23 @@ final class WorkspaceChromeColorTests: XCTestCase {
         XCTAssertEqual(colors.splitButtonBackdropHex, "#00000000")
         XCTAssertEqual(colors.paneBackgroundHex, "#00000000")
     }
+
+    func testApplyGhosttyChromeUsesParsedSplitDividerColor() {
+        var config = GhosttyConfig()
+        config.parse("""
+        background = #272822
+        background-opacity = 1
+        split-divider-color = #78a9ff
+        """)
+
+        let workspace = Workspace(title: "Tests")
+        workspace.applyGhosttyChrome(from: config, reason: "test-split-divider-color")
+
+        XCTAssertEqual(
+            workspace.bonsplitController.configuration.appearance.chromeColors.borderHex,
+            "#78A9FF"
+        )
+    }
 }
 
 // WindowTransparencyDecisionTests was deleted: its subjects (the free functions
