@@ -3,7 +3,7 @@ import Foundation
 import XCTest
 
 extension CLINotifyProcessIntegrationRegressionTests {
-    func testSSHPTYAttachDropsQueuedTerminalProbeRepliesBeforeForwardingInput() throws {
+    func testSSHPTYAttachPreservesPipedProbeLikeInputBeforeForwardingInput() throws {
         let cliPath = try bundledCLIPath()
         let socketPath = makeSocketPath("sshptyprobe")
         let listenerFD = try bindUnixSocket(at: socketPath)
@@ -100,8 +100,8 @@ extension CLINotifyProcessIntegrationRegressionTests {
         let forwardedBridgeInput = bridgeInput.snapshot()
         XCTAssertEqual(
             String(data: forwardedBridgeInput, encoding: .utf8),
-            forwardedInput,
-            "Terminal probe replies queued during reconnect must not be forwarded into the remote PTY."
+            queuedProbeReplies + forwardedInput,
+            "Probe-like bytes from piped stdin must stay byte-for-byte because reconnect filtering only applies to terminal stdin."
         )
         let methods = state.snapshot().compactMap { self.jsonObject($0)?["method"] as? String }
         XCTAssertEqual(methods, [

@@ -10590,7 +10590,7 @@ struct CMUXCLI {
         )
         defer { resizeSource.cancel() }
 
-        SSHPTYAttachReconnectInputFilter.startStdinPump(fd: fd, filterEnabled: requireExisting && command == nil)
+        SSHPTYAttachReconnectInputFilter.startStdinPump(fd: fd, filterEnabled: requireExisting && command == nil && isatty(STDIN_FILENO) == 1)
 
         var outputBuffer = [UInt8](repeating: 0, count: 32768)
         while true {
