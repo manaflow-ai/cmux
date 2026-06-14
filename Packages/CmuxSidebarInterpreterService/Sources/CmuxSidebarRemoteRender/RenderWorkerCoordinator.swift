@@ -3,6 +3,7 @@ import CmuxSidebarInterpreterClient
 import CmuxSwiftRender
 import CmuxSwiftRenderUI
 import Observation
+import QuartzCore
 import SwiftUI
 
 /// The render worker's main-actor state machine: owns the offscreen surface
@@ -26,7 +27,16 @@ final class RenderWorkerCoordinator {
 
     private var remoteContext: RemoteRenderContext?
     private var window: RemoteWorkerWindow?
-    private var hosting: NSHostingView<RemoteWorkerRootView>?
+    private var hosting: RemoteWorkerHostingView?
+
+    /// Commits invalidations that arrive between host messages (SwiftUI
+    /// scheduling its own re-render, AppKit display passes) at display
+    /// refresh, instead of letting them ride the next 1 s scene tick. Idles
+    /// paused; armed by the window/hosting dirtiness signals wired in
+    /// `ensureSurface()`.
+    private lazy var displayPump = RemoteWorkerDisplayPump { [weak self] in
+        self?.pump(reason: "displaylink")
+    }
     /// Tappable regions of the current render, in the root coordinate space
     /// (top-left origin), refreshed by the root view's preference observer.
     private var tapTargets: [SidebarTapTarget] = []
@@ -43,6 +53,11 @@ final class RenderWorkerCoordinator {
     private var geometry = RenderSurfaceGeometry(width: 280, height: 600, scale: 2)
     private var swiftRender: RenderNode?
     private var hasRendered = false
+    /// The state the most recent `refresh()` actually put on screen (which may
+    /// be `lastGoodState`, not `model.state`, while a broken save is on disk).
+    /// Geometry republishes reuse it so a drag-resize never flips a last-good
+    /// sticky render back to an error state.
+    private var displayedState: CustomSidebarModel.State?
     /// The most recent file state that produced a working view, kept so a
     /// broken mid-edit save (or an atomic save's transient delete) does NOT
     /// replace a working sidebar. Reset when the selected file changes.
@@ -66,7 +81,8 @@ final class RenderWorkerCoordinator {
 
     private func debugLog(_ message: @autoclosure () -> String) {
         guard debugEnabled else { return }
-        FileHandle.standardError.write(Data("render-worker: \(message())\n".utf8))
+        let timestamp = String(format: "%.3f", CACurrentMediaTime() * 1000)
+        FileHandle.standardError.write(Data("render-worker: [t=\(timestamp)ms] \(message())\n".utf8))
     }
 
     /// Applies one host message. Called from a single FIFO consumer, so
@@ -96,10 +112,13 @@ final class RenderWorkerCoordinator {
         remoteContext = context
 
         let frame = NSRect(x: 0, y: 0, width: geometry.width, height: geometry.height)
-        let hosting = NSHostingView(rootView: currentContent())
+        let hosting = RemoteWorkerHostingView(rootView: currentContent())
         // The host dictates the surface size; don't let SwiftUI fight it.
         hosting.sizingOptions = []
         hosting.frame = frame
+        hosting.onInvalidation = { [weak self] in
+            self?.displayPump.noteInvalidation()
+        }
 
         let window = RemoteWorkerWindow(
             contentRect: frame,
@@ -108,6 +127,9 @@ final class RenderWorkerCoordinator {
             defer: false
         )
         window.isReleasedWhenClosed = false
+        window.onViewsNeedDisplay = { [weak self] in
+            self?.displayPump.noteInvalidation()
+        }
         window.contentView = hosting
         hosting.wantsLayer = true
 
@@ -140,6 +162,7 @@ final class RenderWorkerCoordinator {
             hasRendered = false
             lastGoodState = nil
             lastGoodRender = nil
+            displayedState = nil
             let model = CustomSidebarModel(fileURL: url)
             self.model = model
             model.start()
@@ -155,7 +178,16 @@ final class RenderWorkerCoordinator {
         let size = NSSize(width: geometry.width, height: geometry.height)
         window.setContentSize(size)
         hosting.frame = NSRect(origin: .zero, size: size)
-        pump()
+        // Republish the root view so SwiftUI re-evaluates the tree at the new
+        // size inside THIS pump. Resizing the hosting view alone only marks
+        // AppKit layout dirty; SwiftUI's own render update would otherwise
+        // wait for a display cycle the never-ordered window never runs,
+        // leaving the repaint to the host's next 1 s scene tick. Reuses the
+        // cached interpretation and the displayed (possibly last-good) state;
+        // nothing is re-interpreted here.
+        hosting.rootView = currentContent(state: displayedState)
+        debugLog("geometry applied \(Int(geometry.width))x\(Int(geometry.height))@\(geometry.scale) rootView republished")
+        pump(reason: "geometry")
     }
 
     /// Re-arms Observation on the model so disk reloads (kqueue → model state
@@ -220,14 +252,16 @@ final class RenderWorkerCoordinator {
                 swiftRender = lastGoodRender
             }
         }
+        displayedState = displayState
         hosting.rootView = currentContent(state: displayState)
-        pump()
+        debugLog("rootView republished (scene refresh)")
+        pump(reason: "refresh")
     }
 
     private func currentContent(state: CustomSidebarModel.State? = nil) -> RemoteWorkerRootView {
         RemoteWorkerRootView(
             content: CustomSidebarContentView(
-                state: state ?? model?.state ?? .missing,
+                state: state ?? displayedState ?? model?.state ?? .missing,
                 swiftRender: swiftRender,
                 hasRenderedSwift: hasRendered,
                 dispatch: dispatch,
@@ -235,6 +269,9 @@ final class RenderWorkerCoordinator {
             ),
             onTapTargetsChange: { [weak self] targets in
                 self?.tapTargets = targets
+                self?.debugLog(
+                    "tap targets updated count=\(targets.count) maxX=\(Int(targets.map(\.frame.maxX).max() ?? 0))"
+                )
             }
         )
     }
@@ -242,8 +279,9 @@ final class RenderWorkerCoordinator {
     /// Forces the offscreen view tree through layout and commits the layer
     /// tree to the window server. The explicit flush is the worker's display
     /// driver — there is no on-screen window to drive one.
-    private func pump() {
+    private func pump(reason: StaticString = "message") {
         guard let window, let hosting else { return }
+        let start = CACurrentMediaTime()
         window.layoutIfNeeded()
         hosting.layoutSubtreeIfNeeded()
         if let layer = hosting.layer, geometry.scale != 1 {
@@ -259,6 +297,12 @@ final class RenderWorkerCoordinator {
             remoteContext.layer = layer
         }
         CATransaction.flush()
+        // This commit flushed everything invalidated so far; let the display
+        // pump pause instead of re-pumping it on the next tick.
+        displayPump.pumpCompleted()
+        debugLog(
+            "pump committed reason=\(reason) bounds=\(Int(hosting.bounds.width))x\(Int(hosting.bounds.height)) took=\(String(format: "%.2f", (CACurrentMediaTime() - start) * 1000))ms"
+        )
     }
 
     // MARK: - Input

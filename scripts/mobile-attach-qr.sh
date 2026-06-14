@@ -81,9 +81,13 @@ CMUX_TAG="$TAG" "$REPO_ROOT/scripts/cmux-debug-cli.sh" rpc mobile.attach_ticket.
 chmod 600 "$RAW_JSON_TMP"
 mv "$RAW_JSON_TMP" "$RAW_JSON"
 
-REPO_ROOT="$REPO_ROOT" RAW_JSON="$RAW_JSON" HTML_PATH="$HTML_PATH" ROUTE_ID="$ROUTE_ID" ROUTE_KIND="$ROUTE_KIND" node <<'NODE'
-const fs = require("fs");
-const path = require("path");
+REPO_ROOT="$REPO_ROOT" RAW_JSON="$RAW_JSON" HTML_PATH="$HTML_PATH" ROUTE_ID="$ROUTE_ID" ROUTE_KIND="$ROUTE_KIND" node --input-type=module <<'NODE'
+import fs from "node:fs";
+import path from "node:path";
+import { createRequire } from "node:module";
+import { pathToFileURL } from "node:url";
+
+const require = createRequire(import.meta.url);
 
 const repoRoot = process.env.REPO_ROOT;
 const rawPath = process.env.RAW_JSON;
@@ -97,26 +101,15 @@ main().catch((error) => {
 });
 
 async function main() {
-const payload = JSON.parse(fs.readFileSync(rawPath, "utf8"));
-if (!payload.ticket || !Array.isArray(payload.ticket.routes)) {
-  throw new Error("mobile.attach_ticket.create did not return a ticket with routes");
-}
+const { buildAttachURL } = await import(
+  pathToFileURL(path.join(repoRoot, "scripts", "lib", "attach-url.mjs")).href
+);
 
-let routes = payload.ticket.routes;
-if (routeID) {
-  routes = routes.filter((route) => route.id === routeID);
-}
-if (routeKind) {
-  routes = routes.filter((route) => route.kind === routeKind);
-}
-if (routes.length === 0) {
-  throw new Error(`No matching route for route_id=${routeID || "(none)"} route_kind=${routeKind || "(none)"}`);
-}
-
-payload.ticket.routes = routes;
-payload.routes = routes;
-const encodedPayload = Buffer.from(JSON.stringify(payload.ticket)).toString("base64url");
-payload.attach_url = `cmux-ios://attach?v=${payload.ticket.version || 1}&payload=${encodedPayload}`;
+const rawPayload = JSON.parse(fs.readFileSync(rawPath, "utf8"));
+// Shared encode recipe: filter routes, base64url-encode the ticket, build the
+// cmux-ios://attach URL. Same module dev-setup.sh uses for headless minting.
+const { attachURL, routes, payload } = buildAttachURL(rawPayload, { routeID, routeKind });
+payload.attach_url = attachURL;
 
 let qrSVG = "";
 try {
