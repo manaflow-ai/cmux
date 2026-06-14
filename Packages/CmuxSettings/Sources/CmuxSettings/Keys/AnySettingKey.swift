@@ -40,6 +40,11 @@ public struct AnySettingKey: Sendable {
     /// Where the underlying key persists, plus backend-specific metadata.
     public let kind: Kind
 
+    /// The value contract for a ``Kind/userDefaults`` entry, or `nil` for
+    /// ``Kind/jsonConfig`` / ``Kind/secretFile`` entries. Captured at
+    /// construction because ``AnySettingKey`` erases the underlying `Value`.
+    public let userDefaultsValueContract: UserDefaultsValueContract?
+
     /// Runs legacy-key migration for this entry against a `UserDefaults`
     /// suite. The closure was captured with the underlying `Value` type, so
     /// it validates the legacy value decodes correctly before copying — a
@@ -64,6 +69,12 @@ public struct AnySettingKey: Sendable {
             suite: key.suite,
             legacyKeys: key.legacyUserDefaultsKeys
         )
+        self.userDefaultsValueContract = UserDefaultsValueContract(
+            valueTypeName: String(reflecting: Value.self),
+            defaultStorageRepresentation: AnySettingKey.canonicalDefaultRepresentation(
+                key.defaultValue.encodeForUserDefaults()
+            )
+        )
         self.migrateUserDefaultsLegacyKeys = { defaults in
             AnySettingKey.migrateLegacyDefaultsKey(key, defaults: defaults)
         }
@@ -74,6 +85,7 @@ public struct AnySettingKey: Sendable {
     public init<Value>(_ key: JSONKey<Value>) {
         self.id = key.id
         self.kind = .jsonConfig
+        self.userDefaultsValueContract = nil
         self.migrateUserDefaultsLegacyKeys = { _ in }
         self.resetInJSON = { store in
             try? await store.reset(key)
@@ -86,8 +98,36 @@ public struct AnySettingKey: Sendable {
     public init(_ key: SecretFileKey) {
         self.id = key.id
         self.kind = .secretFile(fileName: key.fileName)
+        self.userDefaultsValueContract = nil
         self.migrateUserDefaultsLegacyKeys = { _ in }
         self.resetInJSON = { _ in }
+    }
+
+    /// A canonical, order-independent string for a plist-compatible default
+    /// value, so two equal defaults always render identically regardless of
+    /// dictionary key-enumeration order. `String(describing:)` does not
+    /// guarantee that for container defaults — `Dictionary`'s description
+    /// ordering is not stable — which would let a future aliased dictionary
+    /// default false-mismatch (or false-match) in the value contract.
+    ///
+    /// Recurses through the plist shapes `encodeForUserDefaults()` can produce
+    /// (scalars, `Data`, arrays, string-keyed dictionaries): dictionary keys
+    /// are sorted at every level and `Data` is base64-encoded at any depth, so
+    /// nested `Data` stays deterministic too (a case `JSONSerialization` can't
+    /// encode).
+    private static func canonicalDefaultRepresentation(_ value: Any) -> String {
+        switch value {
+        case let data as Data:
+            return "data:\(data.base64EncodedString())"
+        case let array as [Any]:
+            return "[" + array.map(canonicalDefaultRepresentation).joined(separator: ",") + "]"
+        case let dictionary as [String: Any]:
+            return "{" + dictionary.sorted { $0.key < $1.key }
+                .map { "\($0.key):\(canonicalDefaultRepresentation($0.value))" }
+                .joined(separator: ",") + "}"
+        default:
+            return String(describing: value)
+        }
     }
 
     private static func migrateLegacyDefaultsKey<Value>(
