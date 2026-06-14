@@ -428,7 +428,6 @@ struct CLICodexHookTimeoutRegressionTests {
                     "pid": 4242,
                     "agentLifecycle": "idle",
                     "runtimeStatus": "idle",
-                    "lastPromptTurnId": "turn-done",
                     "terminalPromptTurnIds": ["turn-done"],
                     "startedAt": now,
                     "updatedAt": now,

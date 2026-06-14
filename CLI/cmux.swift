@@ -1010,12 +1010,20 @@ private final class ClaudeHookSessionStore {
         }
     }
 
-    func codexSessionStartIsStale(sessionId: String, incomingPID: Int?) throws -> Bool {
+    func codexSessionStartIsStale(
+        sessionId: String,
+        incomingPID: Int?,
+        includeTerminalPromptTurnIds: Bool = true
+    ) throws -> Bool {
         let normalized = normalizeSessionId(sessionId)
         guard !normalized.isEmpty else { return false }
         return try withLockedState { state in
             guard let record = state.sessions[normalized] else { return false }
-            return codexSessionStartIsStale(record, incomingPID: incomingPID)
+            return codexSessionStartIsStale(
+                record,
+                incomingPID: incomingPID,
+                includeTerminalPromptTurnIds: includeTerminalPromptTurnIds
+            )
         }
     }
 
@@ -1143,11 +1151,16 @@ private final class ClaudeHookSessionStore {
         Set(terminalPromptTurnStack(from: record))
     }
 
-    private func codexSessionStartIsStale(_ record: ClaudeHookSessionRecord, incomingPID: Int?) -> Bool {
+    private func codexSessionStartIsStale(
+        _ record: ClaudeHookSessionRecord,
+        incomingPID: Int?,
+        includeTerminalPromptTurnIds: Bool = true
+    ) -> Bool {
         if max(record.activePromptDepth ?? 0, record.activePromptTurnIds?.count ?? 0) > 0 {
             return true
         }
         let hasCompletedTurnState = normalizeOptional(record.lastPromptTurnId) != nil
+            || (includeTerminalPromptTurnIds && !terminalPromptTurnSet(from: record).isEmpty)
         guard hasCompletedTurnState,
               let incomingPID,
               let existingPID = record.pid else {
@@ -1183,6 +1196,7 @@ private final class ClaudeHookSessionStore {
         if terminalTurnIds.count > Self.maxRememberedTerminalPromptTurnIds {
             terminalTurnIds.removeFirst(terminalTurnIds.count - Self.maxRememberedTerminalPromptTurnIds)
         }
+        record.lastPromptTurnId = normalizedTurnId
         record.terminalPromptTurnIds = terminalTurnIds.isEmpty ? nil : terminalTurnIds
     }
 
@@ -29279,6 +29293,13 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                 fallbackKind: def.name,
                 cwd: hookCwd ?? mapped?.cwd
             )
+            func codexSessionStartWentStaleAfterAccept() -> Bool {
+                def.name == "codex" && ((try? store.codexSessionStartIsStale(
+                    sessionId: sessionId,
+                    incomingPID: pid,
+                    includeTerminalPromptTurnIds: false
+                )) == true)
+            }
             if !sessionId.isEmpty {
                 let acceptedSessionStart: Bool
                 if def.name == "codex" {
@@ -29316,8 +29337,7 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                     return
                 }
             }
-            if def.name == "codex",
-               (try? store.codexSessionStartIsStale(sessionId: sessionId, incomingPID: pid)) == true {
+            if codexSessionStartWentStaleAfterAccept() {
                 telemetry.breadcrumb("\(def.name)-hook.session-start.stale-after-turn")
                 didSendFeedTelemetry = true
                 print("{}")
@@ -29325,8 +29345,7 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
             }
             sendAgentFeedTelemetryUnlessSuppressed(workspaceId: workspaceId)
             if !suppressVisibleMutations {
-                if def.name == "codex",
-                   (try? store.codexSessionStartIsStale(sessionId: sessionId, incomingPID: pid)) == true {
+                if codexSessionStartWentStaleAfterAccept() {
                     telemetry.breadcrumb("\(def.name)-hook.session-start.stale-after-turn")
                     didSendFeedTelemetry = true
                     print("{}")
@@ -29347,8 +29366,7 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                 if suppressVisibleMutations {
                     telemetry.breadcrumb("\(def.name)-hook.session-start.nested-suppressed")
                 } else {
-                    if def.name == "codex",
-                       (try? store.codexSessionStartIsStale(sessionId: sessionId, incomingPID: pid)) == true {
+                    if codexSessionStartWentStaleAfterAccept() {
                         telemetry.breadcrumb("\(def.name)-hook.session-start.stale-after-turn")
                         didSendFeedTelemetry = true
                         print("{}")
@@ -29367,8 +29385,7 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                     )
                 }
             }
-            if def.name == "codex",
-               (try? store.codexSessionStartIsStale(sessionId: sessionId, incomingPID: pid)) == true {
+            if codexSessionStartWentStaleAfterAccept() {
                 telemetry.breadcrumb("\(def.name)-hook.session-start.stale-after-turn")
                 didSendFeedTelemetry = true
                 print("{}")
@@ -29564,7 +29581,11 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                 nestedPromptEvent: nestedPromptSubmit,
                 env: env
             )
-            if !suppressVisibleMutations || incomingCodexTurnIsTerminal {
+            let incomingTerminalPromptMatchesStoredPID = incomingCodexTurnIsTerminal &&
+                (pid == nil || mapped?.pid == nil || pid == mapped?.pid)
+            let shouldRecordPromptBaseline = !suppressVisibleMutations &&
+                (!incomingCodexTurnIsTerminal || incomingTerminalPromptMatchesStoredPID)
+            if shouldRecordPromptBaseline {
                 if !incomingCodexTurnIsTerminal, codexPromptTurnWentTerminal() {
                     stopStaleCodexPromptSubmit()
                     return
