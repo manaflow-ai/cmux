@@ -4947,27 +4947,6 @@ class TerminalController {
         return output
     }
 
-    /// Scrollback rows included in a cold-attach render-grid replay snapshot.
-    /// Live render-grid events carry no scrollback (the client already has it);
-    /// only the replay anchor needs history. Kept minimal on purpose: a
-    /// freshly-attached device gets the live screen immediately, and deeper
-    /// history is a follow-up (incremental scrollback paging on scroll-to-top).
-    /// Tune up to trade replay payload size for more attach-time history.
-    nonisolated static let mobileReplayScrollbackLineBudget = 1
-
-    private func mobileTerminalRenderGridFrame(
-        terminalPanel: TerminalPanel,
-        surfaceID: UUID,
-        seq: UInt64,
-        scrollbackLines: Int = TerminalController.mobileReplayScrollbackLineBudget
-    ) -> MobileTerminalRenderGridFrame? {
-        guard surfaceID == terminalPanel.id else { return nil }
-        return terminalPanel.surface.mobileRenderGridFrame(
-            stateSeq: seq,
-            scrollbackLines: scrollbackLines
-        )?.frame
-    }
-
     private func readPlainTerminalTextForSnapshot(
         terminalPanel: TerminalPanel,
         includeScrollback: Bool = false,
@@ -14165,10 +14144,12 @@ class TerminalController {
             terminalPanel.surface.mobileScroll(deltaLines: deltaLines, col: max(0, col), row: max(0, row))
             MobileTerminalRenderObserver.shared.noteTerminalBytes(surfaceID: terminalPanel.id)
         }
-        return .ok([
-            "workspace_id": resolved.workspace.id.uuidString,
-            "surface_id": surfaceId.uuidString,
-        ])
+        return .ok(mobileTerminalScrollResponsePayload(
+            workspaceID: resolved.workspace.id,
+            terminalPanel: terminalPanel,
+            surfaceID: surfaceId,
+            params: params
+        ))
     }
 
     func v2MobileTerminalMouse(params: [String: Any]) -> V2CallResult {
