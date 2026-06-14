@@ -179,6 +179,11 @@ enum PanelOverlayRingMetrics {
     static let cornerRadius: CGFloat = 6
     static let lineWidth: CGFloat = 2.5
 
+    static func cornerRadius(forWindowCornerRadius windowCornerRadius: CGFloat?) -> CGFloat {
+        guard let windowCornerRadius else { return cornerRadius }
+        return max(0, windowCornerRadius - inset)
+    }
+
     static func pathRect(in bounds: CGRect) -> CGRect {
         bounds.insetBy(dx: inset, dy: inset)
     }
@@ -219,7 +224,6 @@ enum FocusFlashPattern {
     static let duration: TimeInterval = 0.9
     static let curves: [FocusFlashCurve] = [.easeOut, .easeIn, .easeOut, .easeIn]
     static let ringInset: Double = Double(PanelOverlayRingMetrics.inset)
-    static let ringCornerRadius: Double = Double(PanelOverlayRingMetrics.cornerRadius)
 
     static var segments: [FocusFlashSegment] {
         let stepCount = min(curves.count, values.count - 1, keyTimes.count - 1)

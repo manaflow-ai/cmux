@@ -558,13 +558,35 @@ final class TerminalDefaultFileOpenRequestTests: XCTestCase {
 
 
 final class FocusFlashPatternTests: XCTestCase {
+    func testPanelOverlayRingRadiusTracksInsetWindowCornerRadius() {
+        let radiusBeyondInset: CGFloat = 10
+        let windowRadiusLargerThanInset = PanelOverlayRingMetrics.inset + radiusBeyondInset
+        XCTAssertEqual(
+            PanelOverlayRingMetrics.cornerRadius(forWindowCornerRadius: windowRadiusLargerThanInset),
+            radiusBeyondInset,
+            accuracy: 0.0001
+        )
+
+        let windowRadiusEqualToInset = PanelOverlayRingMetrics.inset
+        XCTAssertEqual(
+            PanelOverlayRingMetrics.cornerRadius(forWindowCornerRadius: windowRadiusEqualToInset),
+            0,
+            accuracy: 0.0001
+        )
+
+        XCTAssertEqual(
+            PanelOverlayRingMetrics.cornerRadius(forWindowCornerRadius: nil),
+            PanelOverlayRingMetrics.cornerRadius,
+            accuracy: 0.0001
+        )
+    }
+
     func testFocusFlashPatternMatchesTerminalDoublePulseShape() {
         XCTAssertEqual(FocusFlashPattern.values, [0, 1, 0, 1, 0])
         XCTAssertEqual(FocusFlashPattern.keyTimes, [0, 0.25, 0.5, 0.75, 1])
         XCTAssertEqual(FocusFlashPattern.duration, 0.9, accuracy: 0.0001)
         XCTAssertEqual(FocusFlashPattern.curves, [.easeOut, .easeIn, .easeOut, .easeIn])
         XCTAssertEqual(FocusFlashPattern.ringInset, Double(PanelOverlayRingMetrics.inset), accuracy: 0.0001)
-        XCTAssertEqual(FocusFlashPattern.ringCornerRadius, Double(PanelOverlayRingMetrics.cornerRadius), accuracy: 0.0001)
     }
 
     func testFocusFlashPatternSegmentsCoverFullDoublePulseTimeline() {

@@ -7897,7 +7897,6 @@ final class GhosttySurfaceScrollView: NSView {
 
     private enum NotificationRingMetrics {
         static let inset = PanelOverlayRingMetrics.inset
-        static let cornerRadius = PanelOverlayRingMetrics.cornerRadius
         static let lineWidth = PanelOverlayRingMetrics.lineWidth
     }
 
@@ -10881,7 +10880,7 @@ final class GhosttySurfaceScrollView: NSView {
             layer: notificationRingLayer,
             bounds: notificationRingOverlayView.bounds,
             inset: NotificationRingMetrics.inset,
-            radius: NotificationRingMetrics.cornerRadius
+            radius: overlayRingCornerRadius()
         )
     }
 
@@ -10891,7 +10890,7 @@ final class GhosttySurfaceScrollView: NSView {
         switch style {
         case .navigation, .notification:
             inset = NotificationRingMetrics.inset
-            radius = NotificationRingMetrics.cornerRadius
+            radius = overlayRingCornerRadius()
         }
         updateOverlayRingPath(
             layer: flashLayer,
@@ -10899,6 +10898,11 @@ final class GhosttySurfaceScrollView: NSView {
             inset: inset,
             radius: radius
         )
+    }
+
+    private func overlayRingCornerRadius() -> CGFloat {
+        let windowCornerRadius = uiWindow.flatMap { WindowGlassEffect.windowCornerRadius(for: $0) }
+        return PanelOverlayRingMetrics.cornerRadius(forWindowCornerRadius: windowCornerRadius)
     }
 
     private func updateFlashAppearance(style: FlashStyle) {

@@ -5,6 +5,7 @@ struct TmuxWorkspacePaneOverlayView: View {
     let flashRect: CGRect?
     let flashStartedAt: Date?
     let flashReason: WorkspaceAttentionFlashReason?
+    let windowCornerRadius: CGFloat?
     @State private var completedFlashStartedAt: Date?
 
     var body: some View {
@@ -108,7 +109,9 @@ struct TmuxWorkspacePaneOverlayView: View {
               rect.height > PanelOverlayRingMetrics.inset * 2 else { return nil }
         return Path(
             roundedRect: PanelOverlayRingMetrics.pathRect(in: rect),
-            cornerRadius: PanelOverlayRingMetrics.cornerRadius
+            cornerRadius: PanelOverlayRingMetrics.cornerRadius(
+                forWindowCornerRadius: windowCornerRadius
+            )
         )
     }
 }

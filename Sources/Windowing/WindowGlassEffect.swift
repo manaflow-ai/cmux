@@ -479,7 +479,7 @@ enum WindowGlassEffect {
         return -max(0, themeFrame.safeAreaInsets.top)
     }
 
-    private static func windowCornerRadius(for window: NSWindow) -> CGFloat? {
+    static func windowCornerRadius(for window: NSWindow) -> CGFloat? {
         guard window.responds(to: Selector(("_cornerRadius"))) else {
             return nil
         }
