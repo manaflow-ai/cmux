@@ -17,8 +17,8 @@ final class SSHPTYAttachReconnectInputFilter {
     private static let questionMark: UInt8 = 0x3F
     private static let dollar: UInt8 = 0x24
     private static let maxPendingProbeBytes = 512
-    // Terminal ESC disambiguation: enough for split probe replies, bounded for real Escape keys.
-    private static let ambiguousEscapeTimeoutMilliseconds: Int32 = 25
+    // Terminal reconnect drain: enough for split queued replies, bounded for live input.
+    private static let initialProbeDrainTimeoutMilliseconds: Int32 = 25
 
     private var isFiltering: Bool
     private var pending = [UInt8]()
@@ -30,15 +30,24 @@ final class SSHPTYAttachReconnectInputFilter {
     static func startStdinPump(fd: Int32, filterEnabled: Bool) {
         DispatchQueue.global(qos: .userInteractive).async {
             let reconnectInputFilter = SSHPTYAttachReconnectInputFilter(enabled: filterEnabled)
+            if filterEnabled,
+               !Self.stdinHasReadyInput(timeoutMilliseconds: Self.initialProbeDrainTimeoutMilliseconds) {
+                reconnectInputFilter.stopFilteringAtProbeBoundary()
+            }
             var buffer = [UInt8](repeating: 0, count: 8192)
             while true {
                 let count = Darwin.read(STDIN_FILENO, &buffer, buffer.count)
                 if count > 0 {
                     var input = reconnectInputFilter.filter(Data(buffer.prefix(count)))
-                    if input.isEmpty,
-                       reconnectInputFilter.hasPendingAmbiguousEscape,
-                       !Self.stdinHasReadyInput(timeoutMilliseconds: Self.ambiguousEscapeTimeoutMilliseconds) {
-                        input = reconnectInputFilter.flushPendingAmbiguousEscape()
+                    if input.isEmpty {
+                        if reconnectInputFilter.hasPendingInput {
+                            if !Self.stdinHasReadyInput(timeoutMilliseconds: Self.initialProbeDrainTimeoutMilliseconds) {
+                                input = reconnectInputFilter.flushPendingInput()
+                            }
+                        } else if reconnectInputFilter.isFilteringAtProbeBoundary,
+                                  !Self.stdinHasReadyInput(timeoutMilliseconds: Self.initialProbeDrainTimeoutMilliseconds) {
+                            reconnectInputFilter.stopFilteringAtProbeBoundary()
+                        }
                     }
                     guard !input.isEmpty else {
                         continue
@@ -118,17 +127,29 @@ final class SSHPTYAttachReconnectInputFilter {
         return data
     }
 
-    var hasPendingAmbiguousEscape: Bool {
-        isFiltering && pending.count == 1 && pending[0] == Self.escape
+    var hasPendingInput: Bool {
+        isFiltering && !pending.isEmpty
     }
 
-    func flushPendingAmbiguousEscape() -> Data {
-        guard hasPendingAmbiguousEscape else {
+    var isFilteringAtProbeBoundary: Bool {
+        isFiltering && pending.isEmpty
+    }
+
+    func flushPendingInput() -> Data {
+        guard hasPendingInput else {
             return Data()
         }
+        let data = Data(pending)
         pending.removeAll(keepingCapacity: true)
         isFiltering = false
-        return Data([Self.escape])
+        return data
+    }
+
+    func stopFilteringAtProbeBoundary() {
+        guard isFilteringAtProbeBoundary else {
+            return
+        }
+        isFiltering = false
     }
 
     private static func reconnectProbeReplySequence(in bytes: [UInt8], at start: Int) -> SequenceMatch {
