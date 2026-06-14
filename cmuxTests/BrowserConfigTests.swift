@@ -1850,6 +1850,23 @@ final class BrowserDeveloperToolsConfigurationTests: XCTestCase {
         }
     }
 
+    func testAttachedWebInspectorIsDisabledOnMacOS15() {
+        XCTAssertFalse(
+            BrowserDeveloperToolsAttachmentPolicy.allowsAttachedInspector(
+                osVersion: OperatingSystemVersion(majorVersion: 15, minorVersion: 7, patchVersion: 5)
+            ),
+            "The crash report is WebKit::WebInspectorUIProxy::platformAttach on macOS 15.7.5; cmux should not force side-attached Web Inspector there."
+        )
+    }
+
+    func testAttachedWebInspectorRemainsEnabledOnMacOS26() {
+        XCTAssertTrue(
+            BrowserDeveloperToolsAttachmentPolicy.allowsAttachedInspector(
+                osVersion: OperatingSystemVersion(majorVersion: 26, minorVersion: 0, patchVersion: 0)
+            )
+        )
+    }
+
     func testBrowserPanelRefreshesUnderPageBackgroundColorWhenGhosttyBackgroundChanges() {
         let panel = BrowserPanel(workspaceId: UUID())
         let updatedColor = NSColor(srgbRed: 0.18, green: 0.29, blue: 0.44, alpha: 1.0)
@@ -3733,6 +3750,23 @@ final class BrowserDeveloperToolsVisibilityPersistenceTests: XCTestCase {
         )
         XCTAssertTrue(panel.isDeveloperToolsVisible())
         XCTAssertEqual(inspector.attachCount, 2)
+    }
+
+    func testShowDeveloperToolsSkipsAttachWhenAttachmentPolicyDisallowsIt() throws {
+        let (panel, inspector) = makePanelWithInspector()
+        defer { closeBrowserPanel(panel) }
+
+        try BrowserDeveloperToolsAttachmentPolicy.withAttachedInspectorAllowedForTesting(false) {
+            XCTAssertTrue(panel.showDeveloperTools())
+        }
+
+        XCTAssertTrue(panel.isDeveloperToolsVisible())
+        XCTAssertEqual(
+            inspector.attachCount,
+            0,
+            "macOS versions with unstable WebKit side attach should open DevTools without calling the private attach selector."
+        )
+        XCTAssertEqual(inspector.showCount, 1)
     }
 
     func testSyncRespectsManualCloseAndPreventsUnexpectedRestore() {

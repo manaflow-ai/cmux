@@ -21,16 +21,45 @@ final class PostHogAnalytics {
     private let workQueueSpecificKey = DispatchSpecificKey<Void>()
     private let utcHourFormatter: DateFormatter
     private let utcDayFormatter: DateFormatter
+    private let flushImplementation: () -> Void
 
     private var didStart = false
     private var activeCheckTimer: Timer?
 
     private init() {
-        workQueue = DispatchQueue(label: "com.cmux.posthog.analytics", qos: .utility)
-        utcHourFormatter = Self.makeUTCFormatter("yyyy-MM-dd'T'HH")
-        utcDayFormatter = Self.makeUTCFormatter("yyyy-MM-dd")
+        self.workQueue = DispatchQueue(label: "com.cmux.posthog.analytics", qos: .utility)
+        self.utcHourFormatter = Self.makeUTCFormatter("yyyy-MM-dd'T'HH")
+        self.utcDayFormatter = Self.makeUTCFormatter("yyyy-MM-dd")
+        self.flushImplementation = { PostHogSDK.shared.flush() }
         workQueue.setSpecific(key: workQueueSpecificKey, value: ())
     }
+
+    private init(
+        workQueue: DispatchQueue,
+        didStart: Bool,
+        flushImplementation: @escaping () -> Void
+    ) {
+        self.workQueue = workQueue
+        self.utcHourFormatter = Self.makeUTCFormatter("yyyy-MM-dd'T'HH")
+        self.utcDayFormatter = Self.makeUTCFormatter("yyyy-MM-dd")
+        self.flushImplementation = flushImplementation
+        self.didStart = didStart
+        workQueue.setSpecific(key: workQueueSpecificKey, value: ())
+    }
+
+#if DEBUG
+    static func makeForTesting(
+        workQueue: DispatchQueue,
+        didStart: Bool,
+        flushImplementation: @escaping () -> Void
+    ) -> PostHogAnalytics {
+        PostHogAnalytics(
+            workQueue: workQueue,
+            didStart: didStart,
+            flushImplementation: flushImplementation
+        )
+    }
+#endif
 
     private var isEnabled: Bool {
         guard TelemetrySettings.enabledForCurrentLaunch else { return false }
@@ -56,7 +85,7 @@ final class PostHogAnalytics {
             let didCaptureHourly = self.trackHourlyActiveOnWorkQueue(reason: reason, flush: false)
             if didCaptureDaily || didCaptureHourly {
                 // On app focus we can capture both events; flush once to reduce extra work.
-                PostHogSDK.shared.flush()
+                self.flushImplementation()
             }
         }
     }
@@ -74,9 +103,9 @@ final class PostHogAnalytics {
     }
 
     func flush() {
-        dispatchSyncOnWorkQueue {
-            guard didStart else { return }
-            PostHogSDK.shared.flush()
+        dispatchAsyncOnWorkQueue { [weak self] in
+            guard let self, self.didStart else { return }
+            self.flushImplementation()
         }
     }
 
@@ -144,7 +173,7 @@ final class PostHogAnalytics {
 
         if flush && Self.shouldFlushAfterCapture(event: event) {
             // For active metrics we care more about delivery than batching.
-            PostHogSDK.shared.flush()
+            flushImplementation()
         }
 
         return true
@@ -176,7 +205,7 @@ final class PostHogAnalytics {
 
         if flush && Self.shouldFlushAfterCapture(event: event) {
             // Keep hourly freshness and avoid losing a deduped hour on abrupt exits.
-            PostHogSDK.shared.flush()
+            flushImplementation()
         }
 
         return true
@@ -188,14 +217,6 @@ final class PostHogAnalytics {
             return
         }
         workQueue.async(execute: block)
-    }
-
-    private func dispatchSyncOnWorkQueue(_ block: () -> Void) {
-        if DispatchQueue.getSpecific(key: workQueueSpecificKey) != nil {
-            block()
-            return
-        }
-        workQueue.sync(execute: block)
     }
 
     private func utcHourString(_ date: Date) -> String {

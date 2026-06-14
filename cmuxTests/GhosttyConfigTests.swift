@@ -3719,6 +3719,36 @@ final class UITestLaunchManifestTests: XCTestCase {
 }
 
 final class PostHogAnalyticsPropertiesTests: XCTestCase {
+    func testFlushReturnsWithoutWaitingForBusyAnalyticsQueue() {
+        let queue = DispatchQueue(label: "com.cmux.posthog.analytics.test")
+        let queuedWorkStarted = DispatchSemaphore(value: 0)
+        let releaseQueuedWork = DispatchSemaphore(value: 0)
+        queue.async {
+            queuedWorkStarted.signal()
+            _ = releaseQueuedWork.wait(timeout: .now() + 5)
+        }
+        XCTAssertEqual(queuedWorkStarted.wait(timeout: .now() + 1), .success)
+
+        let analytics = PostHogAnalytics.makeForTesting(
+            workQueue: queue,
+            didStart: true,
+            flushImplementation: {}
+        )
+        let flushReturned = expectation(description: "flush returned")
+        DispatchQueue.global(qos: .userInitiated).async {
+            analytics.flush()
+            flushReturned.fulfill()
+        }
+
+        let result = XCTWaiter().wait(for: [flushReturned], timeout: 0.2)
+        releaseQueuedWork.signal()
+        XCTAssertEqual(
+            result,
+            .completed,
+            "PostHogAnalytics.flush must not synchronously wait for the analytics queue while the main thread is terminating."
+        )
+    }
+
     func testDailyActivePropertiesIncludeVersionAndBuild() {
         let properties = PostHogAnalytics.dailyActiveProperties(
             dayUTC: "2026-02-21",

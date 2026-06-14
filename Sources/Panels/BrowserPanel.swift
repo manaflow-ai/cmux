@@ -59,6 +59,36 @@ private struct BrowserFocusModePlainEscapeEventFingerprint: Equatable {
     }
 }
 
+enum BrowserDeveloperToolsAttachmentPolicy {
+    private static let firstStableAttachedInspectorMajorVersion = 26
+
+#if DEBUG
+    private nonisolated(unsafe) static var attachedInspectorAllowedOverrideForTesting: Bool?
+
+    static func withAttachedInspectorAllowedForTesting<T>(
+        _ allowed: Bool?,
+        _ body: () throws -> T
+    ) rethrows -> T {
+        let previous = attachedInspectorAllowedOverrideForTesting
+        attachedInspectorAllowedOverrideForTesting = allowed
+        defer { attachedInspectorAllowedOverrideForTesting = previous }
+        return try body()
+    }
+#endif
+
+    static func allowsAttachedInspector(
+        osVersion: OperatingSystemVersion = ProcessInfo.processInfo.operatingSystemVersion
+    ) -> Bool {
+#if DEBUG
+        if let attachedInspectorAllowedOverrideForTesting {
+            return attachedInspectorAllowedOverrideForTesting
+        }
+#endif
+        // macOS 15 WebKit 20621 crashes inside WebInspectorUIProxy::platformAttach.
+        return osVersion.majorVersion >= firstStableAttachedInspectorMajorVersion
+    }
+}
+
 enum GhosttyBackgroundTheme {
     static func clampedOpacity(_ opacity: Double) -> CGFloat {
         WindowAppearanceSnapshot.clampedOpacity(opacity)
@@ -6935,6 +6965,10 @@ extension BrowserPanel {
     }
 
     private func prepareDeveloperToolsForRevealIfNeeded(_ inspector: NSObject) {
+        guard BrowserDeveloperToolsAttachmentPolicy.allowsAttachedInspector() else {
+            setPreferredDeveloperToolsPresentation(.detached)
+            return
+        }
         if preferredDeveloperToolsPresentation != .unknown {
             guard preferredDeveloperToolsPresentation == .attached else { return }
             guard webView.superview != nil, webView.window != nil else { return }
