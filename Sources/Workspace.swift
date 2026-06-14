@@ -7,6 +7,7 @@ import CmuxRemoteWorkspace
 import CmuxTerminalEngine
 import SwiftUI
 import AppKit
+import CmuxFoundation
 import Bonsplit
 import CMUXAgentLaunch
 import CmuxBrowser

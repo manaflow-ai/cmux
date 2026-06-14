@@ -1,4 +1,5 @@
 import Bonsplit
+import CmuxFoundation
 import SwiftUI
 import WebKit
 import AppKit

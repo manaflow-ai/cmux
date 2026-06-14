@@ -1,5 +1,6 @@
 import CmuxMobileShellModel
 import CmuxMobileSupport
+import Foundation
 import SwiftUI
 
 /// Display-only derivations of ``MobileWorkspacePreview`` used by the workspace
@@ -42,49 +43,28 @@ extension MobileWorkspacePreview {
     }
 
     /// The row's trailing slot: the connection problem when there is one,
-    /// otherwise the compact relative activity time. `now` is threaded from the
-    /// row's `TimelineView` so the label refreshes as time passes and stays
-    /// deterministic in tests.
-    func timestampOrStatus(connectionStatus: MobileMacConnectionStatus, now: Date) -> String {
+    /// otherwise a static activity timestamp. This intentionally avoids a live
+    /// relative clock in list rows so native swipe tracking is not invalidated by
+    /// timer-driven row updates.
+    func timestampOrStatus(connectionStatus: MobileMacConnectionStatus) -> String {
         if connectionStatus != .connected {
             return connectionStatus.label
         }
-        return relativeActivityLabel(now: now)
+        return activityTimestampLabel()
     }
 
-    /// Compact relative time for the row's trailing slot, like a messaging list:
-    /// "now" under a minute, then "2m", "1h", "3d", and a localized month/day
-    /// past a week. Empty when there is no real activity timestamp. The bucket
-    /// and its count come from ``MobileRelativeActivity``, computed purely from
-    /// the injected `now`, so the label is deterministic in tests (only the
-    /// `monthDay` case formats the date itself, which does not depend on `now`).
-    func relativeActivityLabel(now: Date) -> String {
+    /// Static timestamp for the row's trailing slot. Recent activity shows the
+    /// local time; older activity shows a compact month/day. Empty when there is
+    /// no real activity timestamp.
+    func activityTimestampLabel(referenceDate: Date = .now, calendar: Calendar = .current) -> String {
         let date = latestActivityDate
-        switch MobileRelativeActivity.bucket(for: date, now: now) {
-        case .none:
-            // The trailing slot stays empty rather than echoing the epoch.
+        guard date > Date(timeIntervalSince1970: 1) else {
             return ""
-        case .now:
-            return L10n.string("mobile.workspace.preview.justNow", defaultValue: "now")
-        case .minutes(let minutes):
-            return String(
-                format: L10n.string("mobile.workspace.preview.minutesCompactFormat", defaultValue: "%dm"),
-                minutes
-            )
-        case .hours(let hours):
-            return String(
-                format: L10n.string("mobile.workspace.preview.hoursCompactFormat", defaultValue: "%dh"),
-                hours
-            )
-        case .days(let days):
-            return String(
-                format: L10n.string("mobile.workspace.preview.daysCompactFormat", defaultValue: "%dd"),
-                days
-            )
-        case .monthDay:
-            // Past a week, a month/day date is more useful than "5 weeks ago".
-            return date.formatted(.dateTime.month(.defaultDigits).day(.defaultDigits))
         }
+        if calendar.isDate(date, inSameDayAs: referenceDate) {
+            return date.formatted(.dateTime.hour().minute())
+        }
+        return date.formatted(.dateTime.month(.defaultDigits).day(.defaultDigits))
     }
 
     func detailLine(connectionStatus: MobileMacConnectionStatus) -> String {
