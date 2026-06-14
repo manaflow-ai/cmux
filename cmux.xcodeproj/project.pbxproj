@@ -754,6 +754,9 @@
 		D0B10000A1B2C3D4E5F60001 /* TerminalPaneDropTargetView.swift in Sources */ = {isa = PBXBuildFile; fileRef = D0B10001A1B2C3D4E5F60001 /* TerminalPaneDropTargetView.swift */; };
 		A5001401 /* TerminalPanel.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001411 /* TerminalPanel.swift */; };
 		A5001403 /* TerminalPanelView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001413 /* TerminalPanelView.swift */; };
+		C9A57601C9A57601C9A57601 /* TerminalScrollbackExplicitScrollPacketExpectation.swift in Sources */ = {isa = PBXBuildFile; fileRef = C9A57602C9A57602C9A57602 /* TerminalScrollbackExplicitScrollPacketExpectation.swift */; };
+		C9A57603C9A57603C9A57603 /* TerminalScrollbackScrollbarSyncDecision.swift in Sources */ = {isa = PBXBuildFile; fileRef = C9A57604C9A57604C9A57604 /* TerminalScrollbackScrollbarSyncDecision.swift */; };
+		C9A57605C9A57605C9A57605 /* TerminalScrollbackViewportIntent.swift in Sources */ = {isa = PBXBuildFile; fileRef = C9A57606C9A57606C9A57606 /* TerminalScrollbackViewportIntent.swift */; };
 		C0DE53350000000000000001 /* TerminalSearchOverlayHostingView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE53350000000000000002 /* TerminalSearchOverlayHostingView.swift */; };
 		C0DE53360000000000000001 /* TerminalSearchOverlayMouseReleaseTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE53360000000000000002 /* TerminalSearchOverlayMouseReleaseTests.swift */; };
 		A5001543 /* TerminalSSHSessionDetector.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001545 /* TerminalSSHSessionDetector.swift */; };
@@ -1603,6 +1606,9 @@
 		D0B10001A1B2C3D4E5F60001 /* TerminalPaneDropTargetView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalPaneDropTargetView.swift; sourceTree = "<group>"; };
 		A5001411 /* TerminalPanel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/TerminalPanel.swift; sourceTree = "<group>"; };
 		A5001413 /* TerminalPanelView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/TerminalPanelView.swift; sourceTree = "<group>"; };
+		C9A57602C9A57602C9A57602 /* TerminalScrollbackExplicitScrollPacketExpectation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalScrollbackExplicitScrollPacketExpectation.swift; sourceTree = "<group>"; };
+		C9A57604C9A57604C9A57604 /* TerminalScrollbackScrollbarSyncDecision.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalScrollbackScrollbarSyncDecision.swift; sourceTree = "<group>"; };
+		C9A57606C9A57606C9A57606 /* TerminalScrollbackViewportIntent.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalScrollbackViewportIntent.swift; sourceTree = "<group>"; };
 		C0DE53350000000000000002 /* TerminalSearchOverlayHostingView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Find/TerminalSearchOverlayHostingView.swift; sourceTree = "<group>"; };
 		C0DE53360000000000000002 /* TerminalSearchOverlayMouseReleaseTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalSearchOverlayMouseReleaseTests.swift; sourceTree = "<group>"; };
 		A5001545 /* TerminalSSHSessionDetector.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalSSHSessionDetector.swift; sourceTree = "<group>"; };
@@ -2155,6 +2161,9 @@
 				A5001014 /* GhosttyConfig.swift */,
 				C4041001000000000000001A /* CommandClickFileOpenRouter.swift */,
 				A5001015 /* GhosttyTerminalView.swift */,
+				C9A57602C9A57602C9A57602 /* TerminalScrollbackExplicitScrollPacketExpectation.swift */,
+				C9A57604C9A57604C9A57604 /* TerminalScrollbackScrollbarSyncDecision.swift */,
+				C9A57606C9A57606C9A57606 /* TerminalScrollbackViewportIntent.swift */,
 				C13519000000000000000006 /* RestorableAgentTypes.swift */,
 				D36A00030000000000000002 /* AgentHibernationLifecycleState.swift */,
 				B3575000000000000000000B /* SessionIndexModels.swift */,
@@ -3575,6 +3584,9 @@
 				D0B10000A1B2C3D4E5F60001 /* TerminalPaneDropTargetView.swift in Sources */,
 				A5001401 /* TerminalPanel.swift in Sources */,
 				A5001403 /* TerminalPanelView.swift in Sources */,
+				C9A57601C9A57601C9A57601 /* TerminalScrollbackExplicitScrollPacketExpectation.swift in Sources */,
+				C9A57603C9A57603C9A57603 /* TerminalScrollbackScrollbarSyncDecision.swift in Sources */,
+				C9A57605C9A57605C9A57605 /* TerminalScrollbackViewportIntent.swift in Sources */,
 				C0DE53350000000000000001 /* TerminalSearchOverlayHostingView.swift in Sources */,
 				A5001543 /* TerminalSSHSessionDetector.swift in Sources */,
 				C750500000000000000000B1 /* TerminalSurfaceRuntimeWiring.swift in Sources */,

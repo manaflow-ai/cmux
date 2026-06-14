@@ -984,6 +984,97 @@ final class GhosttyPasteboardHelperTests: XCTestCase {
     }
 }
 
+final class TerminalScrollbackViewportIntentTests: XCTestCase {
+    private func makeScrollbar(total: UInt64, offset: UInt64, len: UInt64) -> GhosttyScrollbar {
+        GhosttyScrollbar(
+            c: ghostty_action_scrollbar_s(
+                total: total,
+                offset: offset,
+                len: len
+            )
+        )
+    }
+
+    func testReviewingScrollbackSuppressesPassiveBottomPacket() {
+        let bottomScrollbar = makeScrollbar(total: 100, offset: 90, len: 10)
+
+        let decision = TerminalScrollbackViewportIntent.reviewingScrollback
+            .scrollbarSyncDecision(for: bottomScrollbar)
+
+        XCTAssertEqual(decision.intent, .reviewingScrollback)
+        XCTAssertFalse(decision.allowExplicitScrollbarSync)
+        XCTAssertFalse(decision.shouldSynchronizeViewport)
+    }
+
+    func testReviewingScrollbackPreservesVisibleRowsForPassiveNonBottomPacket() {
+        let nonBottomScrollbar = makeScrollbar(total: 100, offset: 40, len: 10)
+
+        let decision = TerminalScrollbackViewportIntent.reviewingScrollback
+            .scrollbarSyncDecision(for: nonBottomScrollbar)
+
+        XCTAssertEqual(decision.intent, .reviewingScrollback)
+        XCTAssertFalse(decision.allowExplicitScrollbarSync)
+        XCTAssertTrue(decision.shouldSynchronizeViewport)
+    }
+
+    func testFollowOutputKeepsFollowingThroughPassiveNonBottomPacket() {
+        let nonBottomScrollbar = makeScrollbar(total: 100, offset: 40, len: 10)
+
+        let decision = TerminalScrollbackViewportIntent.followOutput
+            .scrollbarSyncDecision(for: nonBottomScrollbar)
+
+        XCTAssertEqual(decision.intent, .followOutput)
+        XCTAssertFalse(decision.allowExplicitScrollbarSync)
+        XCTAssertTrue(decision.shouldSynchronizeViewport)
+    }
+
+    func testBottomScrollIntentWaitsForBottomPacketBeforeResumingFollowOutput() {
+        let nonBottomScrollbar = makeScrollbar(total: 100, offset: 40, len: 10)
+        let bottomScrollbar = makeScrollbar(total: 100, offset: 90, len: 10)
+        let pendingIntent = TerminalScrollbackViewportIntent.awaitingExplicitScrollPacket(.bottom)
+
+        let streamingDecision = pendingIntent.scrollbarSyncDecision(for: nonBottomScrollbar)
+
+        XCTAssertEqual(streamingDecision.intent, pendingIntent)
+        XCTAssertFalse(streamingDecision.allowExplicitScrollbarSync)
+        XCTAssertTrue(streamingDecision.shouldSynchronizeViewport)
+
+        let bottomDecision = streamingDecision.intent.scrollbarSyncDecision(for: bottomScrollbar)
+
+        XCTAssertEqual(bottomDecision.intent, .followOutput)
+        XCTAssertTrue(bottomDecision.allowExplicitScrollbarSync)
+        XCTAssertTrue(bottomDecision.shouldSynchronizeViewport)
+    }
+
+    func testLiveScrollDoesNotClearPendingExplicitScrollIntent() {
+        let pendingIntent = TerminalScrollbackViewportIntent.awaitingExplicitScrollPacket(.bottom)
+
+        let nextIntent = pendingIntent.applyingLiveScroll(
+            distanceFromBottom: 80,
+            bottomThreshold: 5
+        )
+
+        XCTAssertEqual(nextIntent, pendingIntent)
+    }
+
+    func testLiveScrollTracksReviewAndFollowIntentWhenNoExplicitPacketIsPending() {
+        XCTAssertEqual(
+            TerminalScrollbackViewportIntent.followOutput.applyingLiveScroll(
+                distanceFromBottom: 6,
+                bottomThreshold: 5
+            ),
+            .reviewingScrollback
+        )
+        XCTAssertEqual(
+            TerminalScrollbackViewportIntent.reviewingScrollback.applyingLiveScroll(
+                distanceFromBottom: 0,
+                bottomThreshold: 5
+            ),
+            .followOutput
+        )
+    }
+}
+
 @MainActor
 final class TerminalOffscreenStartupTests: XCTestCase {
 #if DEBUG
@@ -3921,6 +4012,15 @@ final class GhosttySurfaceOverlayTests: XCTestCase {
         }
     }
 
+    private final class NoOpBindingSurfaceView: GhosttyNSView {
+        private(set) var performedBindingActions: [String] = []
+
+        override func performBindingAction(_ action: String) -> Bool {
+            performedBindingActions.append(action)
+            return true
+        }
+    }
+
     private final class KeyStatusTestWindow: NSWindow {
         override var isKeyWindow: Bool { true }
     }
@@ -4003,6 +4103,162 @@ final class GhosttySurfaceOverlayTests: XCTestCase {
         return true
     }
 
+    private struct ManualScrollbackFixture {
+        let window: NSWindow
+        let surfaceView: ScrollbarPostingSurfaceView
+        let hostedView: GhosttySurfaceScrollView
+        let scrollView: NSScrollView
+    }
+
+    private func makeManualScrollbackFixture(
+        scrollAwayFromBottom: Bool = true,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) -> ManualScrollbackFixture? {
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 360, height: 240),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+
+        guard let contentView = window.contentView else {
+            XCTFail("Expected content view", file: file, line: line)
+            window.orderOut(nil)
+            return nil
+        }
+
+        let surfaceView = ScrollbarPostingSurfaceView(frame: NSRect(x: 0, y: 0, width: 160, height: 120))
+        surfaceView.cellSize = CGSize(width: 10, height: 10)
+        let hostedView = GhosttySurfaceScrollView(surfaceView: surfaceView)
+        hostedView.frame = contentView.bounds
+        hostedView.autoresizingMask = [.width, .height]
+        contentView.addSubview(hostedView)
+
+        window.makeKeyAndOrderFront(nil)
+        window.displayIfNeeded()
+        contentView.layoutSubtreeIfNeeded()
+        hostedView.layoutSubtreeIfNeeded()
+        RunLoop.current.run(until: Date().addingTimeInterval(0.05))
+
+        guard let scrollView = hostedView.subviews.first(where: { $0 is NSScrollView }) as? NSScrollView else {
+            XCTFail("Expected hosted terminal scroll view", file: file, line: line)
+            window.orderOut(nil)
+            return nil
+        }
+
+        NotificationCenter.default.post(
+            name: .ghosttyDidUpdateScrollbar,
+            object: surfaceView,
+            userInfo: [GhosttyNotificationKey.scrollbar: makeScrollbar(total: 100, offset: 90, len: 10)]
+        )
+        RunLoop.current.run(until: Date().addingTimeInterval(0.01))
+        XCTAssertEqual(scrollView.contentView.bounds.origin.y, 0, accuracy: 0.01, file: file, line: line)
+
+        guard scrollAwayFromBottom else {
+            return ManualScrollbackFixture(
+                window: window,
+                surfaceView: surfaceView,
+                hostedView: hostedView,
+                scrollView: scrollView
+            )
+        }
+
+        surfaceView.nextScrollbar = makeScrollbar(total: 100, offset: 40, len: 10)
+        guard let cgEvent = CGEvent(
+            scrollWheelEvent2Source: nil,
+            units: .pixel,
+            wheelCount: 2,
+            wheel1: 0,
+            wheel2: -12,
+            wheel3: 0
+        ), let scrollEvent = NSEvent(cgEvent: cgEvent) else {
+            XCTFail("Expected scroll wheel event", file: file, line: line)
+            window.orderOut(nil)
+            return nil
+        }
+
+        scrollView.scrollWheel(with: scrollEvent)
+        surfaceView.nextScrollbar = nil
+        RunLoop.current.run(until: Date().addingTimeInterval(0.01))
+        XCTAssertEqual(scrollView.contentView.bounds.origin.y, 500, accuracy: 0.01, file: file, line: line)
+
+        return ManualScrollbackFixture(
+            window: window,
+            surfaceView: surfaceView,
+            hostedView: hostedView,
+            scrollView: scrollView
+        )
+    }
+
+    func testPassiveNonBottomPacketKeepsFollowModeForLaterBottomPacket() {
+        guard let fixture = makeManualScrollbackFixture(scrollAwayFromBottom: false) else { return }
+        defer { fixture.window.orderOut(nil) }
+
+        NotificationCenter.default.post(
+            name: .ghosttyDidUpdateScrollbar,
+            object: fixture.surfaceView,
+            userInfo: [GhosttyNotificationKey.scrollbar: makeScrollbar(total: 100, offset: 40, len: 10)]
+        )
+        RunLoop.current.run(until: Date().addingTimeInterval(0.01))
+        XCTAssertEqual(
+            fixture.scrollView.contentView.bounds.origin.y,
+            500,
+            accuracy: 0.01,
+            "While following output, passive non-bottom packets may move the viewport but must not enter review mode"
+        )
+
+        NotificationCenter.default.post(
+            name: .ghosttyDidUpdateScrollbar,
+            object: fixture.surfaceView,
+            userInfo: [GhosttyNotificationKey.scrollbar: makeScrollbar(total: 100, offset: 90, len: 10)]
+        )
+        RunLoop.current.run(until: Date().addingTimeInterval(0.01))
+        XCTAssertEqual(
+            fixture.scrollView.contentView.bounds.origin.y,
+            0,
+            accuracy: 0.01,
+            "A later bottom packet should still be honored when no user scroll moved the viewport into review mode"
+        )
+    }
+
+    func testBottomLiveScrollKeepsFollowModeForLaterBottomPacket() {
+        guard let fixture = makeManualScrollbackFixture(scrollAwayFromBottom: false) else { return }
+        defer { fixture.window.orderOut(nil) }
+
+        NotificationCenter.default.post(
+            name: NSScrollView.didLiveScrollNotification,
+            object: fixture.scrollView
+        )
+        RunLoop.current.run(until: Date().addingTimeInterval(0.01))
+
+        NotificationCenter.default.post(
+            name: .ghosttyDidUpdateScrollbar,
+            object: fixture.surfaceView,
+            userInfo: [GhosttyNotificationKey.scrollbar: makeScrollbar(total: 100, offset: 40, len: 10)]
+        )
+        RunLoop.current.run(until: Date().addingTimeInterval(0.01))
+        XCTAssertEqual(
+            fixture.scrollView.contentView.bounds.origin.y,
+            500,
+            accuracy: 0.01,
+            "A bottom live-scroll notification must not put the viewport into review mode"
+        )
+
+        NotificationCenter.default.post(
+            name: .ghosttyDidUpdateScrollbar,
+            object: fixture.surfaceView,
+            userInfo: [GhosttyNotificationKey.scrollbar: makeScrollbar(total: 100, offset: 90, len: 10)]
+        )
+        RunLoop.current.run(until: Date().addingTimeInterval(0.01))
+        XCTAssertEqual(
+            fixture.scrollView.contentView.bounds.origin.y,
+            0,
+            accuracy: 0.01,
+            "A later bottom packet should still be honored after a live-scroll notification at bottom"
+        )
+    }
+
     func testTrackpadScrollRoutesToTerminalSurfaceAndPreservesKeyboardFocusPath() {
         let window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 360, height: 240),
@@ -4065,75 +4321,160 @@ final class GhosttySurfaceOverlayTests: XCTestCase {
     }
 
     func testExplicitWheelScrollKeepsScrollbackPinnedAgainstLaterBottomPacket() {
-        let window = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 360, height: 240),
-            styleMask: [.titled, .closable],
-            backing: .buffered,
-            defer: false
-        )
-        defer { window.orderOut(nil) }
-
-        guard let contentView = window.contentView else {
-            XCTFail("Expected content view")
-            return
-        }
-
-        let surfaceView = ScrollbarPostingSurfaceView(frame: NSRect(x: 0, y: 0, width: 160, height: 120))
-        surfaceView.cellSize = CGSize(width: 10, height: 10)
-        let hostedView = GhosttySurfaceScrollView(surfaceView: surfaceView)
-        hostedView.frame = contentView.bounds
-        hostedView.autoresizingMask = [.width, .height]
-        contentView.addSubview(hostedView)
-
-        window.makeKeyAndOrderFront(nil)
-        window.displayIfNeeded()
-        contentView.layoutSubtreeIfNeeded()
-        hostedView.layoutSubtreeIfNeeded()
-        RunLoop.current.run(until: Date().addingTimeInterval(0.05))
-
-        guard let scrollView = hostedView.subviews.first(where: { $0 is NSScrollView }) as? NSScrollView else {
-            XCTFail("Expected hosted terminal scroll view")
-            return
-        }
+        guard let fixture = makeManualScrollbackFixture() else { return }
+        defer { fixture.window.orderOut(nil) }
 
         NotificationCenter.default.post(
             name: .ghosttyDidUpdateScrollbar,
-            object: surfaceView,
-            userInfo: [GhosttyNotificationKey.scrollbar: makeScrollbar(total: 100, offset: 90, len: 10)]
-        )
-        RunLoop.current.run(until: Date().addingTimeInterval(0.01))
-        XCTAssertEqual(scrollView.contentView.bounds.origin.y, 0, accuracy: 0.01)
-
-        surfaceView.nextScrollbar = makeScrollbar(total: 100, offset: 40, len: 10)
-
-        guard let cgEvent = CGEvent(
-            scrollWheelEvent2Source: nil,
-            units: .pixel,
-            wheelCount: 2,
-            wheel1: 0,
-            wheel2: -12,
-            wheel3: 0
-        ), let scrollEvent = NSEvent(cgEvent: cgEvent) else {
-            XCTFail("Expected scroll wheel event")
-            return
-        }
-
-        scrollView.scrollWheel(with: scrollEvent)
-        RunLoop.current.run(until: Date().addingTimeInterval(0.01))
-        XCTAssertEqual(scrollView.contentView.bounds.origin.y, 500, accuracy: 0.01)
-
-        NotificationCenter.default.post(
-            name: .ghosttyDidUpdateScrollbar,
-            object: surfaceView,
+            object: fixture.surfaceView,
             userInfo: [GhosttyNotificationKey.scrollbar: makeScrollbar(total: 100, offset: 90, len: 10)]
         )
         RunLoop.current.run(until: Date().addingTimeInterval(0.01))
 
         XCTAssertEqual(
-            scrollView.contentView.bounds.origin.y,
+            fixture.scrollView.contentView.bounds.origin.y,
             500,
             accuracy: 0.01,
             "A passive bottom packet should not yank the viewport after an explicit wheel scroll into scrollback"
+        )
+    }
+
+    func testStreamingOutputPreservesManualScrollbackPosition() {
+        guard let fixture = makeManualScrollbackFixture() else { return }
+        defer { fixture.window.orderOut(nil) }
+
+        NotificationCenter.default.post(
+            name: .ghosttyDidUpdateScrollbar,
+            object: fixture.surfaceView,
+            userInfo: [GhosttyNotificationKey.scrollbar: makeScrollbar(total: 110, offset: 40, len: 10)]
+        )
+        RunLoop.current.run(until: Date().addingTimeInterval(0.01))
+
+        XCTAssertEqual(
+            fixture.scrollView.contentView.bounds.origin.y,
+            600,
+            accuracy: 0.01,
+            "Streaming output should keep the same scrollback rows visible instead of drifting toward bottom"
+        )
+    }
+
+    func testScrollToBottomIntentSurvivesConcurrentStreamingScrollbarPacket() {
+        guard let fixture = makeManualScrollbackFixture() else { return }
+        defer { fixture.window.orderOut(nil) }
+
+        fixture.hostedView.noteExplicitScrollIntent(expectBottomPacket: true)
+
+        NotificationCenter.default.post(
+            name: .ghosttyDidUpdateScrollbar,
+            object: fixture.surfaceView,
+            userInfo: [GhosttyNotificationKey.scrollbar: makeScrollbar(total: 110, offset: 40, len: 10)]
+        )
+        RunLoop.current.run(until: Date().addingTimeInterval(0.01))
+        XCTAssertEqual(
+            fixture.scrollView.contentView.bounds.origin.y,
+            600,
+            accuracy: 0.01,
+            "Concurrent streaming output should preserve scrollback without consuming the pending bottom intent"
+        )
+
+        NotificationCenter.default.post(
+            name: .ghosttyDidUpdateScrollbar,
+            object: fixture.surfaceView,
+            userInfo: [GhosttyNotificationKey.scrollbar: makeScrollbar(total: 110, offset: 100, len: 10)]
+        )
+        RunLoop.current.run(until: Date().addingTimeInterval(0.01))
+        XCTAssertEqual(
+            fixture.scrollView.contentView.bounds.origin.y,
+            0,
+            accuracy: 0.01,
+            "The explicit scroll-to-bottom packet should still resume bottom follow after a concurrent output packet"
+        )
+    }
+
+    func testScrollToBottomIntentSurvivesConcurrentLiveScrollNotification() {
+        guard let fixture = makeManualScrollbackFixture() else { return }
+        defer { fixture.window.orderOut(nil) }
+
+        fixture.hostedView.noteExplicitScrollIntent(expectBottomPacket: true)
+
+        NotificationCenter.default.post(
+            name: NSScrollView.didLiveScrollNotification,
+            object: fixture.scrollView
+        )
+        RunLoop.current.run(until: Date().addingTimeInterval(0.01))
+
+        NotificationCenter.default.post(
+            name: .ghosttyDidUpdateScrollbar,
+            object: fixture.surfaceView,
+            userInfo: [GhosttyNotificationKey.scrollbar: makeScrollbar(total: 100, offset: 90, len: 10)]
+        )
+        RunLoop.current.run(until: Date().addingTimeInterval(0.01))
+        XCTAssertEqual(
+            fixture.scrollView.contentView.bounds.origin.y,
+            0,
+            accuracy: 0.01,
+            "A live-scroll notification must not clear an explicit scroll-to-bottom intent before its bottom packet"
+        )
+    }
+
+    func testRolledBackExplicitScrollIntentDoesNotConsumeLaterPassiveBottomPacket() {
+        guard let fixture = makeManualScrollbackFixture() else { return }
+        defer { fixture.window.orderOut(nil) }
+
+        let request = fixture.hostedView.noteExplicitScrollIntent()
+        fixture.hostedView.rollbackExplicitScrollIntent(
+            generation: request.generation,
+            to: request.previousIntent
+        )
+
+        NotificationCenter.default.post(
+            name: .ghosttyDidUpdateScrollbar,
+            object: fixture.surfaceView,
+            userInfo: [GhosttyNotificationKey.scrollbar: makeScrollbar(total: 100, offset: 90, len: 10)]
+        )
+        RunLoop.current.run(until: Date().addingTimeInterval(0.01))
+        XCTAssertEqual(
+            fixture.scrollView.contentView.bounds.origin.y,
+            500,
+            accuracy: 0.01,
+            "A no-op explicit scroll must not let a later passive bottom packet leave scrollback review"
+        )
+    }
+
+    func testNoOpExplicitScrollCancelsKeyboardCopyModeCursorFallback() throws {
+#if DEBUG
+        let surfaceView = NoOpBindingSurfaceView(frame: NSRect(x: 0, y: 0, width: 160, height: 120))
+        surfaceView.debugBeginKeyboardCopyModeViewportJumpCursorSyncForTesting(fallbackLineDelta: 12)
+        XCTAssertTrue(surfaceView.debugHasPendingKeyboardCopyModeViewportJumpCursorSyncForTesting())
+
+        XCTAssertFalse(surfaceView.debugPerformExplicitScrollBindingActionForTesting("scroll_page_lines:12"))
+
+        XCTAssertEqual(surfaceView.performedBindingActions, ["scroll_page_lines:12"])
+        XCTAssertFalse(
+            surfaceView.debugHasPendingKeyboardCopyModeViewportJumpCursorSyncForTesting(),
+            "No-op copy-mode scroll bindings must not leave the cursor fallback armed"
+        )
+#else
+        throw XCTSkip("Debug-only regression test")
+#endif
+    }
+
+    func testResizeScrollbarUpdatePreservesManualScrollbackPosition() {
+        guard let fixture = makeManualScrollbackFixture() else { return }
+        defer { fixture.window.orderOut(nil) }
+
+        NotificationCenter.default.post(
+            name: .ghosttyDidUpdateScrollbar,
+            object: fixture.surfaceView,
+            userInfo: [GhosttyNotificationKey.scrollbar: makeScrollbar(total: 100, offset: 40, len: 20)]
+        )
+        RunLoop.current.run(until: Date().addingTimeInterval(0.01))
+
+        XCTAssertEqual(
+            fixture.scrollView.contentView.bounds.origin.y,
+            400,
+            accuracy: 0.01,
+            "Resize-driven scrollbar updates should preserve manual scrollback instead of resetting the viewport"
         )
     }
 
