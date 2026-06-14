@@ -124,6 +124,31 @@ import Testing
         }
     }
 
+    @Test func notInstalledSurvivesAReportAfterSuccessfulApply() throws {
+        // Regression: a missing-override pass applies a fallback title (which
+        // clears stale status) and THEN reports not_installed. The order must
+        // leave the Settings note visible rather than wiping it.
+        try withAutoNamingSetting(true) {
+            try withManager { _, workspace in
+                AutoNamingStatusStore.clear()
+                _ = try call(method: "workspace.set_auto_title", params: [
+                    "workspace_id": workspace.id.uuidString,
+                    "title": "Fix auth bug"
+                ])
+                #expect(AutoNamingStatusStore.current() == nil) // apply cleared
+                _ = try call(method: "workspace.set_auto_title", params: [
+                    "failure": "not_installed",
+                    "agent": "codex",
+                    "workspace_id": workspace.id.uuidString
+                ])
+                let status = AutoNamingStatusStore.current()
+                #expect(status?.category == .notInstalled)
+                #expect(status?.agent == "codex")
+                AutoNamingStatusStore.clear()
+            }
+        }
+    }
+
     @Test func probeReportsLiveSettingState() throws {
         try withAutoNamingSetting(true) {
             let envelope = try call(method: "workspace.set_auto_title", params: ["probe": true])

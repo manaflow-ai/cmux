@@ -112,6 +112,9 @@ extension CMUXCLI {
         }()
         guard let sourceResult, !sourceResult.messages.isEmpty else { return }
 
+        let resolution = resolvedSummarizerAgent(
+            probe: probe, sessionAgent: def.name, env: env, telemetry: telemetry
+        )
         runMessageBackedAutoName(
             sessionId: sessionId,
             workspaceId: workspaceId,
@@ -120,17 +123,12 @@ extension CMUXCLI {
             lineCount: sourceResult.lineCount,
             sessionStore: sessionStore,
             client: client,
+            missingOverride: resolution.missingOverride,
             telemetryKey: "\(def.name)-hook.auto-name",
             telemetry: telemetry
         ) { engine, outcome in
             guard let context = engine.buildContext(from: sourceResult.messages) else { return nil }
             let prompt = engine.buildPrompt(currentTitle: outcome.lastTitle, context: context)
-            let resolution = resolvedSummarizerAgent(
-                probe: probe, sessionAgent: def.name, env: env, telemetry: telemetry
-            )
-            if let missing = resolution.missingOverride {
-                reportAutoNamingProblem("not_installed", agent: missing, workspaceId: workspaceId, client: client)
-            }
             guard let raw = summarize(
                 summarizerAgent: resolution.agent,
                 prompt: prompt,
@@ -153,6 +151,7 @@ extension CMUXCLI {
         lineCount: Int,
         sessionStore: ClaudeHookSessionStore,
         client: SocketClient,
+        missingOverride: String?,
         telemetryKey: String,
         telemetry: CLISocketSentryTelemetry,
         rawResponse: (AutoNamingEngine, ClaudeHookSessionStore.AutoNamingBeginOutcome) -> String?
@@ -165,6 +164,7 @@ extension CMUXCLI {
             lineCount: lineCount,
             sessionStore: sessionStore,
             client: client,
+            missingOverride: missingOverride,
             telemetryKey: telemetryKey,
             telemetry: telemetry,
             rawResponse: rawResponse
@@ -179,6 +179,7 @@ extension CMUXCLI {
         lineCount: Int,
         sessionStore: ClaudeHookSessionStore,
         client: SocketClient,
+        missingOverride: String?,
         telemetryKey: String,
         telemetry: CLISocketSentryTelemetry,
         rawResponse: (AutoNamingEngine, ClaudeHookSessionStore.AutoNamingBeginOutcome) -> String?
@@ -191,6 +192,7 @@ extension CMUXCLI {
             lineCount: lineCount,
             sessionStore: sessionStore,
             client: client,
+            missingOverride: missingOverride,
             telemetryKey: telemetryKey,
             telemetry: telemetry,
             rawResponse: rawResponse
@@ -204,6 +206,7 @@ extension CMUXCLI {
         lineCount: Int,
         sessionStore: ClaudeHookSessionStore,
         client: SocketClient,
+        missingOverride: String?,
         telemetryKey: String,
         telemetry: CLISocketSentryTelemetry,
         rawResponse: (AutoNamingEngine, ClaudeHookSessionStore.AutoNamingBeginOutcome) -> String?
@@ -245,6 +248,11 @@ extension CMUXCLI {
             telemetryKey: telemetryKey,
             telemetry: telemetry
         )
+        // Re-report a missing override only after the apply, so the app's
+        // clear-on-apply doesn't immediately wipe the Settings note.
+        if confirmedTitle != nil, let missing = missingOverride {
+            reportAutoNamingProblem("not_installed", agent: missing, workspaceId: workspaceId, client: client)
+        }
     }
 
     func applyAutoNamingTitle(

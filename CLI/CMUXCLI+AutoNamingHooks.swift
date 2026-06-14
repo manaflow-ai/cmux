@@ -78,9 +78,6 @@ extension CMUXCLI {
         let resolution = resolvedSummarizerAgent(
             probe: probe, sessionAgent: "claude", env: env, telemetry: telemetry
         )
-        if let missing = resolution.missingOverride {
-            reportAutoNamingProblem("not_installed", agent: missing, workspaceId: workspaceId, client: client)
-        }
         guard let rawResponse = summarize(
             summarizerAgent: resolution.agent,
             prompt: prompt,
@@ -103,6 +100,11 @@ extension CMUXCLI {
             telemetryKey: "claude-hook.auto-name",
             telemetry: telemetry
         )
+        // Re-report a missing override only after the fallback apply, so the
+        // app's clear-on-apply doesn't immediately wipe the Settings note.
+        if confirmedTitle != nil, let missing = resolution.missingOverride {
+            reportAutoNamingProblem("not_installed", agent: missing, workspaceId: workspaceId, client: client)
+        }
     }
 
     /// Spawns a detached generic-agent auto-name pass via a bounded shell wrapper.
@@ -198,6 +200,9 @@ extension CMUXCLI {
               !lines.isEmpty else {
             return
         }
+        let resolution = resolvedSummarizerAgent(
+            probe: probe, sessionAgent: "codex", env: env, telemetry: telemetry
+        )
         runFileBackedAutoName(
             sessionId: sessionId,
             workspaceId: workspaceId,
@@ -206,18 +211,13 @@ extension CMUXCLI {
             lineCount: textFileGrowthMetric(path: transcriptPath, fallbackLineCount: lines.count),
             sessionStore: sessionStore,
             client: client,
+            missingOverride: resolution.missingOverride,
             telemetryKey: "codex-hook.auto-name",
             telemetry: telemetry
         ) { engine, outcome in
             let messages = engine.extractCodexMessages(fromRolloutLines: lines)
             guard let context = engine.buildContext(from: messages) else { return nil }
             let prompt = engine.buildPrompt(currentTitle: outcome.lastTitle, context: context)
-            let resolution = resolvedSummarizerAgent(
-                probe: probe, sessionAgent: "codex", env: env, telemetry: telemetry
-            )
-            if let missing = resolution.missingOverride {
-                reportAutoNamingProblem("not_installed", agent: missing, workspaceId: workspaceId, client: client)
-            }
             guard let raw = summarize(
                 summarizerAgent: resolution.agent,
                 prompt: prompt,
