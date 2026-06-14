@@ -440,6 +440,13 @@ These files change frequently upstream; be careful when rebasing the fork:
     and macOS wrapper. If upstream refactors surface creation or post-create focus sync, re-check that
     background panes can start unfocused without synthesizing a focus-loss transition during creation.
 
+- `src/Surface.zig` (modifier tracking)
+  - `modsChanged` and the key callback's link-highlight gate must compare binding mods against
+    binding mods (stored mouse mods are binding-only). cmux sends sided modifier bits on key
+    events for `macos-option-as-alt = left|right`; comparing raw mods re-dirties the screen and
+    re-runs the link refresh on every event while a sided or lock modifier is held. If upstream
+    refactors modifier tracking, keep the binding-normalized comparison.
+
 - `src/termio/stream_handler.zig`
   - Keep DECSET 1004 enablement side-effect free. xterm-compatible focus reporting should only emit
     `CSI I` / `CSI O` on actual focus transitions, not immediately when the mode is enabled.

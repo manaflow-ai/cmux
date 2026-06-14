@@ -76,8 +76,7 @@ struct GhosttyDrawableSizeRetryTests {
         #expect(surfaceView.debugLastDrawableSizeForTesting() == initialDrawableSize)
         #expect(surfaceView.debugDeferredSurfaceSizeRetryQueuedForTesting())
 
-        let realizedLayer = GhosttyMetalLayer()
-        realizedLayer.setSurfaceView(surfaceView)
+        let realizedLayer = try #require(surfaceView.makeBackingLayer() as? CAMetalLayer)
         realizedLayer.contentsScale = window.backingScaleFactor
         realizedLayer.masksToBounds = true
         realizedLayer.drawableSize = initialDrawableSize
