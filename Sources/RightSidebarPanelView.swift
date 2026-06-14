@@ -1,6 +1,7 @@
 import AppKit
 import Bonsplit
 import CMUXWorkstream
+import CmuxFoundation
 import SwiftUI
 
 private func rightSidebarDebugResponder(_ responder: NSResponder?) -> String {

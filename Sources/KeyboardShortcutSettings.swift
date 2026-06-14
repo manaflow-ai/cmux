@@ -130,6 +130,23 @@ enum KeyboardShortcutSettings {
         case splitBrowserRight
         case splitBrowserDown
 
+        // Canvas layout
+        case toggleCanvasLayout
+        case canvasRevealFocusedPane
+        case canvasOverview
+        case canvasZoomIn
+        case canvasZoomOut
+        case canvasZoomReset
+        case canvasTidy
+        case canvasAlignLeft
+        case canvasAlignRight
+        case canvasAlignTop
+        case canvasAlignBottom
+        case canvasEqualizeWidths
+        case canvasEqualizeHeights
+        case canvasDistributeHorizontally
+        case canvasDistributeVertically
+
         // File Explorer
         case toggleRightSidebar = "toggleFileExplorer"
 
@@ -231,6 +248,21 @@ enum KeyboardShortcutSettings {
             case .equalizeSplits: return String(localized: "shortcut.equalizeSplits.label", defaultValue: "Equalize Splits")
             case .splitBrowserRight: return String(localized: "shortcut.splitBrowserRight.label", defaultValue: "Split Browser Right")
             case .splitBrowserDown: return String(localized: "shortcut.splitBrowserDown.label", defaultValue: "Split Browser Down")
+            case .toggleCanvasLayout: return String(localized: "shortcut.toggleCanvasLayout.label", defaultValue: "Toggle Canvas Layout")
+            case .canvasRevealFocusedPane: return String(localized: "shortcut.canvasRevealFocusedPane.label", defaultValue: "Canvas: Reveal Focused Pane")
+            case .canvasOverview: return String(localized: "shortcut.canvasOverview.label", defaultValue: "Canvas: Toggle Overview")
+            case .canvasZoomIn: return String(localized: "shortcut.canvasZoomIn.label", defaultValue: "Canvas: Zoom In")
+            case .canvasZoomOut: return String(localized: "shortcut.canvasZoomOut.label", defaultValue: "Canvas: Zoom Out")
+            case .canvasZoomReset: return String(localized: "shortcut.canvasZoomReset.label", defaultValue: "Canvas: Actual Size")
+            case .canvasTidy: return String(localized: "shortcut.canvasTidy.label", defaultValue: "Canvas: Tidy Panes")
+            case .canvasAlignLeft: return String(localized: "shortcut.canvasAlignLeft.label", defaultValue: "Canvas: Align Left Edges")
+            case .canvasAlignRight: return String(localized: "shortcut.canvasAlignRight.label", defaultValue: "Canvas: Align Right Edges")
+            case .canvasAlignTop: return String(localized: "shortcut.canvasAlignTop.label", defaultValue: "Canvas: Align Top Edges")
+            case .canvasAlignBottom: return String(localized: "shortcut.canvasAlignBottom.label", defaultValue: "Canvas: Align Bottom Edges")
+            case .canvasEqualizeWidths: return String(localized: "shortcut.canvasEqualizeWidths.label", defaultValue: "Canvas: Equalize Widths")
+            case .canvasEqualizeHeights: return String(localized: "shortcut.canvasEqualizeHeights.label", defaultValue: "Canvas: Equalize Heights")
+            case .canvasDistributeHorizontally: return String(localized: "shortcut.canvasDistributeHorizontally.label", defaultValue: "Canvas: Distribute Horizontally")
+            case .canvasDistributeVertically: return String(localized: "shortcut.canvasDistributeVertically.label", defaultValue: "Canvas: Distribute Vertically")
             case .toggleRightSidebar: return String(localized: "shortcut.toggleRightSidebar.label", defaultValue: "Toggle Right Sidebar")
             case .saveFilePreview: return String(localized: "shortcut.saveFilePreview.label", defaultValue: "Save File Preview")
             case .openBrowser: return String(localized: "shortcut.openBrowser.label", defaultValue: "Open Browser")
@@ -401,6 +433,31 @@ enum KeyboardShortcutSettings {
                 return StoredShortcut(key: "d", command: true, shift: false, option: true, control: false)
             case .splitBrowserDown:
                 return StoredShortcut(key: "d", command: true, shift: true, option: true, control: false)
+            case .toggleCanvasLayout:
+                return StoredShortcut(key: "c", command: true, shift: false, option: false, control: true)
+            case .canvasRevealFocusedPane:
+                return StoredShortcut(key: "r", command: true, shift: false, option: false, control: true)
+            case .canvasOverview:
+                return StoredShortcut(key: "o", command: true, shift: false, option: false, control: true)
+            case .canvasZoomIn:
+                return StoredShortcut(key: "=", command: true, shift: false, option: true, control: false)
+            case .canvasZoomOut:
+                return StoredShortcut(key: "-", command: true, shift: false, option: true, control: false)
+            case .canvasZoomReset:
+                return StoredShortcut(key: "0", command: true, shift: false, option: true, control: false)
+            case .canvasTidy:
+                return StoredShortcut(key: "t", command: true, shift: false, option: false, control: true)
+            case .canvasAlignLeft,
+                 .canvasAlignRight,
+                 .canvasAlignTop,
+                 .canvasAlignBottom,
+                 .canvasEqualizeWidths,
+                 .canvasEqualizeHeights,
+                 .canvasDistributeHorizontally,
+                 .canvasDistributeVertically:
+                // Unbound by default: reachable through the command palette and
+                // the canvas.* socket verbs; users opt into keys via Settings.
+                return .unbound
             case .nextSurface:
                 return StoredShortcut(key: "]", command: true, shift: true, option: false, control: false)
             case .prevSurface:

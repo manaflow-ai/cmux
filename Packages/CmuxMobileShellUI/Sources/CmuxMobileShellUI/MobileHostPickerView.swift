@@ -61,12 +61,39 @@ struct MobileHostPickerView: View {
                 MobilePairingScannerSheet { code in
                     showingScanner = false
                     Task {
-                        _ = await store.connectPairingURL(code)
+                        let result = await store.connectPairingURLResult(code)
+                        if result != .needsUserApproval {
+                            await store.loadPairedMacs()
+                            dismiss()
+                        }
+                    }
+                }
+            }
+        }
+        .alert(
+            L10n.string("mobile.pairing.versionWarningTitle", defaultValue: "Compatibility mismatch"),
+            isPresented: Binding(
+                get: { store.pairingVersionWarning != nil },
+                set: { _ in }
+            )
+        ) {
+            Button(L10n.string("mobile.common.cancel", defaultValue: "Cancel"), role: .cancel) {
+                store.cancelPairing()
+            }
+            Button(
+                L10n.string("mobile.pairing.versionWarningContinue", defaultValue: "Continue anyway"),
+                role: .destructive
+            ) {
+                Task {
+                    let result = await store.acceptPairingVersionWarning()
+                    if result != .needsUserApproval {
                         await store.loadPairedMacs()
                         dismiss()
                     }
                 }
             }
+        } message: {
+            Text(store.pairingVersionWarning ?? "")
         }
         .accessibilityIdentifier("MobileHostPicker")
     }

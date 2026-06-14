@@ -1,3 +1,4 @@
+import CmuxCommandPalette
 import Foundation
 import XCTest
 
@@ -16,7 +17,7 @@ final class RightSidebarCommandPaletteTests: XCTestCase {
             defaults.removeObject(forKey: RightSidebarBetaFeatureSettings.dockEnabledKey)
             let contributions = ContentView.commandPaletteRightSidebarModeCommandContributions()
             let contributionsByID = Dictionary(uniqueKeysWithValues: contributions.map { ($0.commandId, $0) })
-            let context = ContentView.CommandPaletteContextSnapshot()
+            let context = CommandPaletteContextSnapshot()
 
             for mode in RightSidebarMode.availableModes() {
                 let commandID = ContentView.commandPaletteRightSidebarModeCommandID(mode)
@@ -89,16 +90,16 @@ final class RightSidebarCommandPaletteTests: XCTestCase {
     }
 
     func testNewNotePaletteCommandsRequireWorkspaceButNotNotesSidebarBeta() {
-        var context = ContentView.CommandPaletteContextSnapshot()
+        var context = CommandPaletteContextSnapshot()
         XCTAssertFalse(
             ContentView.commandPaletteNewNoteCommandsVisible(context),
             "New Note commands need a workspace target"
         )
 
-        context.setBool(ContentView.CommandPaletteContextKeys.notesBetaEnabled, false)
+        context.setBool(CommandPaletteContextKeys.notesBetaEnabled, false)
         XCTAssertFalse(ContentView.commandPaletteNewNoteCommandsVisible(context))
 
-        context.setBool(ContentView.CommandPaletteContextKeys.hasWorkspace, true)
+        context.setBool(CommandPaletteContextKeys.hasWorkspace, true)
         XCTAssertTrue(ContentView.commandPaletteNewNoteCommandsVisible(context))
     }
 

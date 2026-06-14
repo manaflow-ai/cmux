@@ -1113,6 +1113,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         if isRunningUnderXCTest {
             NSApp.setActivationPolicy(.regular)
         } else {
+            MenuBarOnlySettings.normalizeLegacyStoredPreference()
             syncActivationPolicy()
         }
         StartupBreadcrumbLog.append("appDelegate.didFinish.activationPolicy.synced")
@@ -8424,6 +8425,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
     private func syncApplicationPresentationPreferences(defaults: UserDefaults = .standard) {
+        MenuBarOnlySettings.normalizeLegacyStoredPreference(defaults: defaults)
         syncActivationPolicy(defaults: defaults)
         syncMenuBarExtraVisibility(defaults: defaults)
     }
@@ -13375,6 +13377,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             return true
         }
         if matchConfiguredShortcut(event: event, action: .equalizeSplits) { performEqualizeSplitsShortcut(); return true }
+        // Canvas layout actions share one executor with the palette, View
+        // menu, and the canvas.* socket verbs.
+        for action in KeyboardShortcutSettings.Action.canvasActions {
+            if matchConfiguredShortcut(event: event, action: action),
+               let canvasAction = action.canvasAction {
+                if let workspace = preferredMainWindowContextForShortcutRouting(event: event)?.tabManager.selectedWorkspace
+                    ?? tabManager?.selectedWorkspace {
+                    CanvasActionExecutor(workspace: workspace).perform(canvasAction)
+                }
+                return true
+            }
+        }
         // Configured split actions.
         if matchConfiguredShortcut(event: event, action: .splitRight) {
 #if DEBUG
