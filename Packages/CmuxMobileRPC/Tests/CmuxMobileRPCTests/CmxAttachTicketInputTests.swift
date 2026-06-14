@@ -86,6 +86,21 @@ import Testing
         #expect(decoded.authToken == "legacy-token")
     }
 
+    @Test func missingLegacyCompatibilityDecodesAsUnknown() throws {
+        let payload = """
+        {"version":1,"workspaceID":"","terminalID":null,"macDeviceID":"mac-1",\
+        "macDisplayName":null,"macUserID":"user_mac_123",\
+        "routes":[{"id":"tailscale","kind":"tailscale",\
+        "endpoint":{"type":"host_port","host":"100.64.0.5","port":8443},\
+        "priority":0}]}
+        """
+        let decoded = try CmxAttachTicketInput.decode(
+            attachURL(payload: Data(payload.utf8))
+        )
+
+        #expect(decoded.macPairingCompatibilityVersion == 0)
+    }
+
     @Test func compactPayloadFailsLoudlyOnPreCompactDecoder() throws {
         // Old-phone-scans-new-QR: replicate the decode path shipped before
         // the compact grammar existed (plain Codable + iso8601) and prove it
