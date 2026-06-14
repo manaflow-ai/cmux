@@ -2,6 +2,13 @@ import Foundation
 
 /// Settings under the dotted-id prefix `browser.*`.
 public struct BrowserCatalogSection: SettingCatalogSection {
+    /// Browser runtime used for browser tabs and intercepted links.
+    public let engine = DefaultsKey<BrowserEngine>(
+        id: "browser.engine",
+        defaultValue: .webKit,
+        userDefaultsKey: "browserEngine"
+    )
+
     public let defaultSearchEngine = DefaultsKey<BrowserSearchEngine>(
         id: "browser.defaultSearchEngine",
         defaultValue: .google,

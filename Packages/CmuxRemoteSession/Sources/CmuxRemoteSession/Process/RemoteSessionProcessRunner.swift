@@ -100,9 +100,9 @@ public struct RemoteSessionProcessRunner: RemoteSessionProcessRunning {
         // `fileDescriptor` accessor raises an uncatchable ObjC exception,
         // whereas `read(2)` on a closed descriptor fails cleanly with EBADF
         // and lands in the captured readError, exactly like any other
-        // mid-drain read failure. The handles stay alive until
-        // `finishCaptureAndCloseReadHandles` (every exit path), so the
-        // descriptors cannot be recycled under the readers.
+        // mid-drain read failure. Keep the handles strongly referenced until
+        // `finishCapture` completes on every exit path; do not close them
+        // there because the test hook may already have closed them.
         let stdoutDescriptor = stdoutHandle.fileDescriptor
         let stderrDescriptor = stderrHandle.fileDescriptor
         captureGroup.enter()
@@ -126,12 +126,10 @@ public struct RemoteSessionProcessRunner: RemoteSessionProcessRunning {
         readHandlesDidInstall?(stdoutHandle, stderrHandle)
 
         var didFinishCapture = false
-        func finishCaptureAndCloseReadHandles() {
+        func finishCapture() {
             guard !didFinishCapture else { return }
             didFinishCapture = true
             captureGroup.wait()
-            try? stdoutHandle.close()
-            try? stderrHandle.close()
             if let stdoutReadError = captureState.stdoutReadError {
                 debugLog(
                     "remote.proc.stdoutReadError exec=\(URL(fileURLWithPath: executable).lastPathComponent) " +
@@ -152,7 +150,7 @@ public struct RemoteSessionProcessRunner: RemoteSessionProcessRunning {
         } catch {
             try? stdoutPipe.fileHandleForWriting.close()
             try? stderrPipe.fileHandleForWriting.close()
-            finishCaptureAndCloseReadHandles()
+            finishCapture()
             debugLog(
                 "remote.proc.launchFailed exec=\(URL(fileURLWithPath: executable).lastPathComponent) " +
                 "error=\(error.localizedDescription)"
@@ -188,11 +186,11 @@ public struct RemoteSessionProcessRunner: RemoteSessionProcessRunning {
         if !didExitBeforeTimeout, process.isRunning {
             if let operation, operation.isCancelled {
                 terminateProcessAndWait()
-                finishCaptureAndCloseReadHandles()
+                finishCapture()
                 throw operation.cancellationError
             }
             terminateProcessAndWait()
-            finishCaptureAndCloseReadHandles()
+            finishCapture()
             debugLog(
                 "remote.proc.timeout exec=\(URL(fileURLWithPath: executable).lastPathComponent) " +
                 "timeout=\(Int(timeout)) args=\(debugShellCommand(executable: executable, arguments: arguments))"
@@ -202,7 +200,7 @@ public struct RemoteSessionProcessRunner: RemoteSessionProcessRunning {
             ])
         }
 
-        finishCaptureAndCloseReadHandles()
+        finishCapture()
         let stdout = String(data: captureState.stdoutData, encoding: .utf8) ?? ""
         let stderr = String(data: captureState.stderrData, encoding: .utf8) ?? ""
         if let operation, operation.isCancelled {

@@ -107,6 +107,12 @@ final class HostSettingsActions: SettingsHostActions {
         BrowserDataImportCoordinator.shared.presentImportDialog()
     }
 
+    func setBrowserEngine(_ engineRawValue: String) -> Bool {
+        guard let engine = BrowserEngineSettings.engine(for: engineRawValue) else { return false }
+        BrowserEngineSettings.setCurrentEngine(engine)
+        return true
+    }
+
     func requestNotificationAuthorization() {
         TerminalNotificationStore.shared.requestAuthorizationFromSettings()
     }

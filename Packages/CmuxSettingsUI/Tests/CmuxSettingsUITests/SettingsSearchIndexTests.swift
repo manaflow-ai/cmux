@@ -56,4 +56,11 @@ struct SettingsSearchIndexTests {
         let index = SettingsSearchIndex(catalog: SettingCatalog())
         #expect(index.anchorID(forSettingsPath: "totally.bogus.path") == nil)
     }
+
+    @Test func browserEngineSearchFindsEngineRow() {
+        let index = SettingsSearchIndex(catalog: SettingCatalog())
+        let matches = index.match("chromium browser engine")
+        #expect(matches.contains { $0.id == "setting:browser:engine" })
+        #expect(index.anchorID(forSettingsPath: "browser.engine") == "setting:browser:engine")
+    }
 }

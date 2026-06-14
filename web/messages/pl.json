@@ -758,6 +758,12 @@
       "exampleConfig": "Przykładowa konfiguracja",
       "metaTitle": "Konfiguracja",
       "schemaDescriptions": {
+        "browser": {
+          "engine": "Silnik/środowisko uruchomieniowe przeglądarki dla poleceń przeglądarki i przechwytywania linków. webkit działa wewnątrz cmux; systemDefault otwiera w domyślnej przeglądarce macOS.",
+          "defaultSearchEngine": "Domyślna wyszukiwarka dla wpisów w pasku adresu przeglądarki, które nie są URL-ami. Użyj custom z customSearchEngineURLTemplate dla innych dostawców.",
+          "customSearchEngineName": "Nazwa wyświetlana, gdy defaultSearchEngine ma wartość custom.",
+          "customSearchEngineURLTemplate": "URL wyszukiwania używany, gdy defaultSearchEngine ma wartość custom. Dodaj symbol zastępczy zapytania lub %s dla zakodowanego zapytania. Bez symbolu zastępczego cmux doda q= do URL."
+        },
         "automation": {
           "ampIntegration": "Włącza haki integracji cmux dla Amp. Po wyłączeniu dołączona wtyczka pozostaje nieaktywna bez konieczności jej usuwania.",
           "suppressSubagentNotifications": "Ukrywa widoczne powiadomienia o zakończeniu i zmiany statusu zagnieżdżonych agentów podrzędnych Codex lub Claude, zachowując ich zdarzenia w telemetrii Feed."
@@ -774,11 +780,6 @@
           "copyOnSelect": "Kopiuje zaznaczony tekst terminala do schowka systemowego po zatwierdzeniu zaznaczenia, w tym zaznaczenia słów i wierszy wykonane dwuklikiem lub potrójnym kliknięciem.",
           "showTextBoxOnNewTerminals": "Domyślnie pokazuje wejście TextBox beta dla nowo utworzonych obszarów roboczych, kart terminala i podziałów.",
           "focusTextBoxOnNewTerminals": "Domyślnie ustawia fokus na wejściu TextBox beta dla nowo utworzonych obszarów roboczych, kart terminala i podziałów. Fokus pokazuje też TextBox."
-        },
-        "browser": {
-          "defaultSearchEngine": "Domyślna wyszukiwarka dla wpisów w pasku adresu przeglądarki, które nie są URL-ami. Użyj custom z customSearchEngineURLTemplate dla innych dostawców.",
-          "customSearchEngineName": "Nazwa wyświetlana, gdy defaultSearchEngine ma wartość custom.",
-          "customSearchEngineURLTemplate": "URL wyszukiwania używany, gdy defaultSearchEngine ma wartość custom. Dodaj symbol zastępczy zapytania lub %s dla zakodowanego zapytania. Bez symbolu zastępczego cmux doda q= do URL."
         },
         "workspaceGroups": {
           "newWorkspacePlacement": "Globalna wartość domyślna określająca, gdzie Cmd-N w grupie, przycisk + w nagłówku grupy i skonfigurowane akcje grupy umieszczają nowy workspace: `afterCurrent` (po aktywnym workspace w grupie, z fallbackiem do top), `top` (druga pozycja, tuż za kotwicą) albo `end` (po ostatnim członku).",

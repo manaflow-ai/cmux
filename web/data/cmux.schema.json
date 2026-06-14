@@ -954,6 +954,13 @@
       "type": "object",
       "additionalProperties": false,
       "properties": {
+        "engine": {
+          "type": "string",
+          "enum": ["webkit", "systemDefault"],
+          "default": "webkit",
+          "descriptionKey": "schemaDescriptions.browser.engine",
+          "description": "Browser engine/runtime for browser commands and link interception. webkit runs inside cmux; systemDefault opens in the macOS default browser."
+        },
         "defaultSearchEngine": {
           "type": "string",
           "enum": ["google", "duckduckgo", "bing", "kagi", "startpage", "brave", "perplexity", "exa", "yahoo", "ecosia", "qwant", "mojeek", "wikipedia", "github", "baidu", "yandex", "custom"],

@@ -14,6 +14,7 @@ final class SettingsSearchIndexTests: XCTestCase {
         assertSearch("cmd q", contains: SettingsSearchIndex.settingID(for: .app, idSuffix: "warn-before-quit"))
         assertSearch("sound file", contains: SettingsSearchIndex.settingID(for: .app, idSuffix: "notification-sound"))
         assertSearch("disable browser", contains: SettingsSearchIndex.settingID(for: .browser, idSuffix: "enable-browser"))
+        assertSearch("chromium browser engine", contains: SettingsSearchIndex.settingID(for: .browser, idSuffix: "engine"))
         assertSearch("http allowlist", contains: SettingsSearchIndex.settingID(for: .browser, idSuffix: "http-allowlist"))
         assertSearch("claude executable", contains: SettingsSearchIndex.settingID(for: .automation, idSuffix: "claude-path"))
         assertSearch("resume on reopen", contains: SettingsSearchIndex.settingID(for: .terminal, idSuffix: "agent-auto-resume"))
@@ -38,6 +39,13 @@ final class SettingsSearchIndexTests: XCTestCase {
         XCTAssertEqual(
             SettingsSearchIndex.anchorID(forSettingsPath: "browser.enabled"),
             SettingsSearchIndex.settingID(for: .browser, idSuffix: "enable-browser")
+        )
+    }
+
+    func testSettingsPathAnchorIncludesBrowserEngine() {
+        XCTAssertEqual(
+            SettingsSearchIndex.anchorID(forSettingsPath: "browser.engine"),
+            SettingsSearchIndex.settingID(for: .browser, idSuffix: "engine")
         )
     }
 

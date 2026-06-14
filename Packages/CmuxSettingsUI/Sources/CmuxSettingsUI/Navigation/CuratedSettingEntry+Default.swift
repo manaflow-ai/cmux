@@ -121,6 +121,7 @@ extension Array where Element == CuratedSettingEntry {
 
             // Browser
             .init(section: .browser, id: "enable-browser", title: "Enable cmux Browser", synonyms: "browser.disabled enable disable webview embedded browser tabs links"),
+            .init(section: .browser, id: "engine", title: "Browser Engine", synonyms: "browser.engine webkit chromium chrome default browser engine runtime external"),
             .init(section: .browser, id: "search-engine", title: "Default Search Engine", synonyms: "browser.defaultSearchEngine omnibar address bar google duckduckgo bing kagi brave startpage perplexity exa yahoo ecosia qwant mojeek wikipedia github baidu yandex custom search provider engine name url template"),
             .init(section: .browser, id: "search-suggestions", title: "Show Search Suggestions", synonyms: "browser.showSearchSuggestions suggest autocomplete address bar search suggestions"),
             .init(section: .browser, id: "theme", title: "Browser Theme", synonyms: "browser.theme web page theme color scheme light dark system"),

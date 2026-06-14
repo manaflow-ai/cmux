@@ -758,6 +758,12 @@
       "exampleConfig": "예시 설정",
       "metaTitle": "설정",
       "schemaDescriptions": {
+        "browser": {
+          "engine": "브라우저 명령과 링크 가로채기에 사용하는 브라우저 엔진/런타임입니다. webkit은 cmux 내부에서 실행되고 systemDefault는 macOS 기본 브라우저에서 엽니다.",
+          "defaultSearchEngine": "브라우저 주소 표시줄에서 URL이 아닌 입력에 사용할 기본 검색 엔진입니다. 다른 제공자는 custom과 customSearchEngineURLTemplate을 사용하세요.",
+          "customSearchEngineName": "defaultSearchEngine이 custom일 때 사용할 표시 이름입니다.",
+          "customSearchEngineURLTemplate": "defaultSearchEngine이 custom일 때 사용할 검색 URL입니다. 인코딩된 검색어에는 쿼리 자리표시자 또는 %s를 포함하세요. 자리표시자가 없으면 cmux가 URL에 q=를 추가합니다."
+        },
         "automation": {
           "ampIntegration": "Amp의 cmux 통합 훅을 활성화합니다. 비활성화하면 번들된 플러그인은 제거하지 않고도 비활성 상태로 유지됩니다.",
           "suppressSubagentNotifications": "중첩된 Codex 또는 Claude 하위 에이전트의 표시되는 완료 알림과 상태 변경을 억제하면서 해당 이벤트는 Feed 텔레메트리에 유지합니다."
@@ -774,11 +780,6 @@
           "copyOnSelect": "선택이 확정되면 더블 클릭 및 트리플 클릭으로 선택한 단어와 줄을 포함해 선택한 터미널 텍스트를 시스템 클립보드에 복사합니다.",
           "showTextBoxOnNewTerminals": "새로 생성된 작업공간, 터미널 탭, 터미널 분할에서 베타 TextBox 입력을 기본으로 표시합니다.",
           "focusTextBoxOnNewTerminals": "새로 생성된 작업공간, 터미널 탭, 터미널 분할에서 베타 TextBox 입력에 기본으로 포커스합니다. 포커스하면 TextBox도 표시됩니다."
-        },
-        "browser": {
-          "defaultSearchEngine": "브라우저 주소 표시줄에서 URL이 아닌 입력에 사용할 기본 검색 엔진입니다. 다른 제공자는 custom과 customSearchEngineURLTemplate을 사용하세요.",
-          "customSearchEngineName": "defaultSearchEngine이 custom일 때 사용할 표시 이름입니다.",
-          "customSearchEngineURLTemplate": "defaultSearchEngine이 custom일 때 사용할 검색 URL입니다. 인코딩된 검색어에는 쿼리 자리표시자 또는 %s를 포함하세요. 자리표시자가 없으면 cmux가 URL에 q=를 추가합니다."
         },
         "workspaceGroups": {
           "newWorkspacePlacement": "그룹 안에서 Cmd-N, 그룹 헤더의 + 버튼, 구성된 그룹 액션이 새 workspace를 배치할 위치의 전역 기본값입니다: `afterCurrent` (활성 그룹 내 workspace 바로 뒤, 없으면 top), `top` (앵커 바로 뒤의 두 번째 위치), `end` (마지막 멤버 뒤).",

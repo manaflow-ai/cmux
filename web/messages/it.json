@@ -758,6 +758,12 @@
       "exampleConfig": "Esempio di configurazione",
       "metaTitle": "Configurazione",
       "schemaDescriptions": {
+        "browser": {
+          "engine": "Motore/runtime del browser per i comandi del browser e l’intercettazione dei link. webkit viene eseguito dentro cmux; systemDefault apre nel browser predefinito di macOS.",
+          "defaultSearchEngine": "Motore di ricerca predefinito per le query nella barra degli indirizzi del browser che non sono URL. Usa custom con customSearchEngineURLTemplate per altri provider.",
+          "customSearchEngineName": "Nome visualizzato quando defaultSearchEngine è custom.",
+          "customSearchEngineURLTemplate": "URL di ricerca usato quando defaultSearchEngine è custom. Includi il segnaposto della query o %s per la query codificata. Senza segnaposto, cmux aggiunge q= all’URL."
+        },
         "automation": {
           "ampIntegration": "Abilita gli hook di integrazione cmux per Amp. Se disabilitato, il plugin in bundle rimane inattivo senza dover essere rimosso.",
           "suppressSubagentNotifications": "Nasconde le notifiche visibili di completamento e le modifiche di stato degli agenti figli Codex o Claude annidati, mantenendo i loro eventi nella telemetria Feed."
@@ -774,11 +780,6 @@
           "copyOnSelect": "Copia il testo selezionato nel terminale negli appunti di sistema quando la selezione viene confermata, incluse le selezioni di parole e righe con doppio e triplo clic.",
           "showTextBoxOnNewTerminals": "Mostra l'input TextBox beta per impostazione predefinita nei workspace, nelle schede e nelle divisioni del terminale appena creati.",
           "focusTextBoxOnNewTerminals": "Mette a fuoco l'input TextBox beta per impostazione predefinita nei workspace, nelle schede e nelle divisioni del terminale appena creati. Il focus mostra anche TextBox."
-        },
-        "browser": {
-          "defaultSearchEngine": "Motore di ricerca predefinito per le query nella barra degli indirizzi del browser che non sono URL. Usa custom con customSearchEngineURLTemplate per altri provider.",
-          "customSearchEngineName": "Nome visualizzato quando defaultSearchEngine è custom.",
-          "customSearchEngineURLTemplate": "URL di ricerca usato quando defaultSearchEngine è custom. Includi il segnaposto della query o %s per la query codificata. Senza segnaposto, cmux aggiunge q= all’URL."
         },
         "workspaceGroups": {
           "newWorkspacePlacement": "Valore predefinito globale per dove Cmd-N dentro un gruppo, il pulsante + nell’intestazione del gruppo e le azioni di gruppo configurate inseriscono il nuovo workspace: `afterCurrent` (dopo il workspace attivo nel gruppo, con fallback a top), `top` (seconda posizione, subito dopo l’ancora) o `end` (dopo l’ultimo membro).",

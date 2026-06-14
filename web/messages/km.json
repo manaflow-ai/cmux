@@ -758,6 +758,12 @@
       "exampleConfig": "ឧទាហរណ៍កំណត់រចនាសម្ព័ន្ធ",
       "metaTitle": "ការកំណត់រចនាសម្ព័ន្ធ",
       "schemaDescriptions": {
+        "browser": {
+          "engine": "ម៉ាស៊ីន/Runtime របស់កម្មវិធីរុករក សម្រាប់ពាក្យបញ្ជាកម្មវិធីរុករក និងការចាប់យកតំណ។ webkit ដំណើរការនៅក្នុង cmux; systemDefault បើកក្នុងកម្មវិធីរុករកលំនាំដើមរបស់ macOS។",
+          "defaultSearchEngine": "ម៉ាស៊ីនស្វែងរកលំនាំដើមសម្រាប់សំណួរនៅក្នុងរបារអាសយដ្ឋានដែលមិនមែនជា URL។ ប្រើ custom ជាមួយ customSearchEngineURLTemplate សម្រាប់អ្នកផ្តល់ផ្សេងៗ។",
+          "customSearchEngineName": "ឈ្មោះបង្ហាញដែលប្រើនៅពេល defaultSearchEngine ជា custom។",
+          "customSearchEngineURLTemplate": "URL ស្វែងរកដែលប្រើនៅពេល defaultSearchEngine ជា custom។ ដាក់ទីតាំងជំនួសសំណួរ ឬ %s សម្រាប់ពាក្យស្វែងរកដែលបានអ៊ិនកូដ។ ប្រសិនបើគ្មានទីតាំងជំនួស cmux បន្ថែម q= ទៅ URL។"
+        },
         "automation": {
           "ampIntegration": "បើកដំណើរ cmux integration hooks សម្រាប់ Amp។ ពេលបិទ កម្មវិធីបន្ថែមដែលរួមបញ្ចូលនឹងនៅអសកម្ម ដោយមិនចាំបាច់ដកវាចេញ។",
           "suppressSubagentNotifications": "បិទការជូនដំណឹងបញ្ចប់ដែលបង្ហាញ និងការផ្លាស់ប្តូរស្ថានភាពពីភ្នាក់ងារកូន Codex ឬ Claude ដែលបានបង្កប់ ខណៈពេលរក្សាព្រឹត្តិការណ៍របស់វានៅក្នុងទេលេមេទ្រី Feed។"
@@ -774,11 +780,6 @@
           "copyOnSelect": "ចម្លងអត្ថបទ terminal ដែលបានជ្រើសទៅក្ដារតម្រៀបរបស់ប្រព័ន្ធ ពេលការជ្រើសត្រូវបានបញ្ជាក់ រួមទាំងការជ្រើសពាក្យ និងបន្ទាត់ដោយចុចពីរដង និងចុចបីដង។",
           "showTextBoxOnNewTerminals": "បង្ហាញការបញ្ចូល TextBox បេតាជាលំនាំដើមសម្រាប់ workspace ផ្ទាំងស្ថានីយ និងស្ប្លីតស្ថានីយដែលទើបបង្កើតថ្មី។",
           "focusTextBoxOnNewTerminals": "ផ្តោតការបញ្ចូល TextBox បេតាជាលំនាំដើមសម្រាប់ workspace ផ្ទាំងស្ថានីយ និងស្ប្លីតស្ថានីយដែលទើបបង្កើតថ្មី។ ការផ្តោតក៏បង្ហាញ TextBox ផងដែរ។"
-        },
-        "browser": {
-          "defaultSearchEngine": "ម៉ាស៊ីនស្វែងរកលំនាំដើមសម្រាប់សំណួរនៅក្នុងរបារអាសយដ្ឋានដែលមិនមែនជា URL។ ប្រើ custom ជាមួយ customSearchEngineURLTemplate សម្រាប់អ្នកផ្តល់ផ្សេងៗ។",
-          "customSearchEngineName": "ឈ្មោះបង្ហាញដែលប្រើនៅពេល defaultSearchEngine ជា custom។",
-          "customSearchEngineURLTemplate": "URL ស្វែងរកដែលប្រើនៅពេល defaultSearchEngine ជា custom។ ដាក់ទីតាំងជំនួសសំណួរ ឬ %s សម្រាប់ពាក្យស្វែងរកដែលបានអ៊ិនកូដ។ ប្រសិនបើគ្មានទីតាំងជំនួស cmux បន្ថែម q= ទៅ URL។"
         },
         "workspaceGroups": {
           "newWorkspacePlacement": "តម្លៃលំនាំដើមសកលសម្រាប់ទីតាំងដែល Cmd-N នៅក្នុងក្រុម ប៊ូតុង + ក្នុងក្បាលក្រុម និងសកម្មភាពក្រុមដែលបានកំណត់ ដាក់ workspace ថ្មី: `afterCurrent` (បន្ទាប់ពី workspace សកម្មក្នុងក្រុម ហើយត្រឡប់ទៅ top ប្រសិនបើគ្មាន), `top` (ទីតាំងទីពីរ បន្ទាប់ពី anchor ភ្លាមៗ) ឬ `end` (បន្ទាប់ពីសមាជិកចុងក្រោយ).",

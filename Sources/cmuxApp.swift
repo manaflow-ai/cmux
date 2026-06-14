@@ -77,6 +77,7 @@ struct cmuxApp: App {
         // single struct; nothing in the package or app references a
         // shared static.
         let settingsCatalog = SettingCatalog()
+        _ = BrowserEngineSettings.currentEngine(defaults: .standard)
         let configFileURL = CmuxConfigLocation().userConfigFile
         // Relocate a pre-existing socket password out of the legacy
         // Application Support directory before any store reads it. The CLI reads

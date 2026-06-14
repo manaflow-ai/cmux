@@ -1027,6 +1027,129 @@ final class KeyboardShortcutSettingsFileStoreTests: XCTestCase {
         XCTAssertEqual(defaults.integer(forKey: AutomationSettings.portRangeKey), 42)
     }
 
+    func testSettingsFileStoreAppliesBrowserEngineSetting() throws {
+        let defaults = UserDefaults.standard
+        let previousEngine = defaults.object(forKey: BrowserEngineSettings.engineKey)
+        let previousDisabled = defaults.object(forKey: BrowserAvailabilitySettings.disabledKey)
+        let previousBackups = defaults.data(forKey: settingsFileBackupsDefaultsKey)
+        defer {
+            if let previousEngine {
+                defaults.set(previousEngine, forKey: BrowserEngineSettings.engineKey)
+            } else {
+                defaults.removeObject(forKey: BrowserEngineSettings.engineKey)
+            }
+            if let previousDisabled {
+                defaults.set(previousDisabled, forKey: BrowserAvailabilitySettings.disabledKey)
+            } else {
+                defaults.removeObject(forKey: BrowserAvailabilitySettings.disabledKey)
+            }
+            if let previousBackups {
+                defaults.set(previousBackups, forKey: settingsFileBackupsDefaultsKey)
+            } else {
+                defaults.removeObject(forKey: settingsFileBackupsDefaultsKey)
+            }
+        }
+        defaults.removeObject(forKey: BrowserEngineSettings.engineKey)
+        defaults.removeObject(forKey: BrowserAvailabilitySettings.disabledKey)
+        defaults.removeObject(forKey: settingsFileBackupsDefaultsKey)
+
+        let directoryURL = try makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directoryURL) }
+
+        let settingsFileURL = directoryURL.appendingPathComponent("cmux.json", isDirectory: false)
+        try writeSettingsFile(
+            """
+            {
+              "browser": {
+                "engine": "systemDefault"
+              }
+            }
+            """,
+            to: settingsFileURL
+        )
+
+        _ = KeyboardShortcutSettingsFileStore(
+            primaryPath: settingsFileURL.path,
+            fallbackPath: nil,
+            startWatching: false
+        )
+
+        XCTAssertEqual(
+            defaults.string(forKey: BrowserEngineSettings.engineKey),
+            CmuxSettings.BrowserEngine.systemDefault.rawValue
+        )
+        XCTAssertEqual(defaults.object(forKey: BrowserAvailabilitySettings.disabledKey) as? Bool, true)
+        XCTAssertTrue(BrowserAvailabilitySettings.isDisabled())
+    }
+
+    func testSettingsFileStoreIgnoresInvalidBrowserEngineButAppliesOtherBrowserSettings() throws {
+        let defaults = UserDefaults.standard
+        let previousEngine = defaults.object(forKey: BrowserEngineSettings.engineKey)
+        let previousDisabled = defaults.object(forKey: BrowserAvailabilitySettings.disabledKey)
+        let previousSearchEngine = defaults.object(forKey: BrowserSearchSettings.searchEngineKey)
+        let previousBackups = defaults.data(forKey: settingsFileBackupsDefaultsKey)
+        defer {
+            if let previousEngine {
+                defaults.set(previousEngine, forKey: BrowserEngineSettings.engineKey)
+            } else {
+                defaults.removeObject(forKey: BrowserEngineSettings.engineKey)
+            }
+            if let previousDisabled {
+                defaults.set(previousDisabled, forKey: BrowserAvailabilitySettings.disabledKey)
+            } else {
+                defaults.removeObject(forKey: BrowserAvailabilitySettings.disabledKey)
+            }
+            if let previousSearchEngine {
+                defaults.set(previousSearchEngine, forKey: BrowserSearchSettings.searchEngineKey)
+            } else {
+                defaults.removeObject(forKey: BrowserSearchSettings.searchEngineKey)
+            }
+            if let previousBackups {
+                defaults.set(previousBackups, forKey: settingsFileBackupsDefaultsKey)
+            } else {
+                defaults.removeObject(forKey: settingsFileBackupsDefaultsKey)
+            }
+        }
+        let directoryURL = try makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directoryURL) }
+
+        for invalidEngineJSON in ["\"chromium\"", "42"] {
+            defaults.removeObject(forKey: BrowserEngineSettings.engineKey)
+            defaults.removeObject(forKey: BrowserAvailabilitySettings.disabledKey)
+            defaults.removeObject(forKey: BrowserSearchSettings.searchEngineKey)
+            defaults.removeObject(forKey: settingsFileBackupsDefaultsKey)
+
+            let settingsFileURL = directoryURL.appendingPathComponent(
+                "cmux-\(UUID().uuidString).json",
+                isDirectory: false
+            )
+            try writeSettingsFile(
+                """
+                {
+                  "browser": {
+                    "engine": \(invalidEngineJSON),
+                    "defaultSearchEngine": "duckduckgo"
+                  }
+                }
+                """,
+                to: settingsFileURL
+            )
+
+            _ = KeyboardShortcutSettingsFileStore(
+                primaryPath: settingsFileURL.path,
+                fallbackPath: nil,
+                startWatching: false
+            )
+
+            XCTAssertNil(defaults.string(forKey: BrowserEngineSettings.engineKey))
+            XCTAssertNil(defaults.object(forKey: BrowserAvailabilitySettings.disabledKey))
+            XCTAssertEqual(
+                defaults.string(forKey: BrowserSearchSettings.searchEngineKey),
+                CmuxSettings.BrowserSearchEngine.duckduckgo.rawValue
+            )
+        }
+    }
+
     func testSettingsFileStoreAppliesBrowserHiddenWebViewDiscardDelayAtMaximum() throws {
         let defaults = UserDefaults.standard
         let previousEnabled = defaults.object(forKey: BrowserHiddenWebViewDiscardPolicy.enabledKey)

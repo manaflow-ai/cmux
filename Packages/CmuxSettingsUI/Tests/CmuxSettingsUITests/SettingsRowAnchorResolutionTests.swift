@@ -66,6 +66,7 @@ struct SettingsRowAnchorResolutionTests {
         "automation.suppressSubagentNotifications",
         "browser.defaultSearchEngine",
         "browser.discardHiddenWebViews",
+        "browser.engine",
         "browser.hiddenWebViewDiscardDelaySeconds",
         "browser.hostsToOpenInEmbeddedBrowser",
         "browser.interceptTerminalOpenCommandInCmuxBrowser",

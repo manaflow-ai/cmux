@@ -522,6 +522,69 @@ enum BrowserImportHintSettings {
     }
 }
 
+enum BrowserEngine: String, CaseIterable, Identifiable {
+    case webKit = "webkit"
+    case systemDefault = "systemDefault"
+
+    var id: String { rawValue }
+
+    var usesEmbeddedBrowser: Bool {
+        self == .webKit
+    }
+}
+
+enum BrowserEngineSettings {
+    static let engineKey = "browserEngine"
+    static let legacyDisabledKey = "browserDisabledOverride"
+    static let didChangeNotification = Notification.Name("cmux.browserEngineDidChange")
+    static let defaultEngine: BrowserEngine = .webKit
+
+    static func engine(for rawValue: String?) -> BrowserEngine? {
+        guard let rawValue else { return nil }
+        return BrowserEngine(rawValue: rawValue)
+    }
+
+    static func currentEngine(defaults: UserDefaults = .standard) -> BrowserEngine {
+        if let rawEngine = defaults.string(forKey: engineKey) {
+            if let engine = engine(for: rawEngine) {
+                mirrorLegacyDisabledIfNeeded(engine, defaults: defaults)
+                return engine
+            }
+            let repairedEngine = legacyEngine(defaults: defaults) ?? defaultEngine
+            setCurrentEngine(repairedEngine, defaults: defaults)
+            return repairedEngine
+        }
+        if let migratedEngine = legacyEngine(defaults: defaults) {
+            defaults.set(migratedEngine.rawValue, forKey: engineKey)
+            return migratedEngine
+        }
+        return defaultEngine
+    }
+
+    static func setCurrentEngine(_ engine: BrowserEngine, defaults: UserDefaults = .standard) {
+        defaults.set(engine.rawValue, forKey: engineKey)
+        applyCurrentEngineSideEffects(engine, defaults: defaults)
+    }
+
+    private static func applyCurrentEngineSideEffects(_ engine: BrowserEngine, defaults: UserDefaults = .standard) {
+        mirrorLegacyDisabledIfNeeded(engine, defaults: defaults)
+        NotificationCenter.default.post(name: didChangeNotification, object: nil)
+        NotificationCenter.default.post(name: BrowserAvailabilitySettings.didChangeNotification, object: nil)
+    }
+
+    private static func mirrorLegacyDisabledIfNeeded(_ engine: BrowserEngine, defaults: UserDefaults) {
+        let disabled = !engine.usesEmbeddedBrowser
+        if defaults.object(forKey: legacyDisabledKey) == nil || defaults.bool(forKey: legacyDisabledKey) != disabled {
+            defaults.set(disabled, forKey: legacyDisabledKey)
+        }
+    }
+
+    private static func legacyEngine(defaults: UserDefaults) -> BrowserEngine? {
+        guard defaults.object(forKey: legacyDisabledKey) != nil else { return nil }
+        return defaults.bool(forKey: legacyDisabledKey) ? .systemDefault : .webKit
+    }
+}
+
 struct BrowserProfileDefinition: Codable, Hashable, Identifiable, Sendable {
     let id: UUID
     var displayName: String
@@ -947,16 +1010,12 @@ enum BrowserLinkOpenSettings {
 }
 
 enum BrowserAvailabilitySettings {
-    static let disabledKey = "browserDisabledOverride"
+    static let disabledKey = BrowserEngineSettings.legacyDisabledKey
     static let didChangeNotification = Notification.Name("cmux.browserAvailabilityDidChange")
     static let defaultDisabled = false
 
     static func isDisabled(defaults: UserDefaults = .standard) -> Bool {
-        // No synchronize() on read: it forces a blocking prefs-plist reload on a path hit from link-open/pane-create; UserDefaults stays coherent in-process and via cfprefsd.
-        if defaults.object(forKey: disabledKey) == nil {
-            return defaultDisabled
-        }
-        return defaults.bool(forKey: disabledKey)
+        !BrowserEngineSettings.currentEngine(defaults: defaults).usesEmbeddedBrowser
     }
 
     static func isEnabled(defaults: UserDefaults = .standard) -> Bool {
@@ -964,9 +1023,7 @@ enum BrowserAvailabilitySettings {
     }
 
     static func setDisabled(_ disabled: Bool, defaults: UserDefaults = .standard) {
-        // `set` already persists; `synchronize()` is a deprecated no-op-style fsync.
-        defaults.set(disabled, forKey: disabledKey)
-        NotificationCenter.default.post(name: didChangeNotification, object: nil)
+        BrowserEngineSettings.setCurrentEngine(disabled ? .systemDefault : .webKit, defaults: defaults)
     }
 }
 

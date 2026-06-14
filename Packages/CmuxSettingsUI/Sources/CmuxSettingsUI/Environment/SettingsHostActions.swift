@@ -44,6 +44,19 @@ public protocol SettingsHostActions: AnyObject {
     /// Firefox source picker + profile selection + cookie prompt).
     func openBrowserImportFlow()
 
+    /// Applies a browser-engine change through the host's runtime path.
+    ///
+    /// Hosts that return `true` have synchronously persisted the
+    /// `browser.engine` value and posted any compatibility notifications.
+    /// Package-only renderers return `false` so the Settings package can
+    /// persist the value through its injected settings store.
+    ///
+    /// - Parameter engineRawValue: Raw ``CmuxSettings/BrowserEngine``
+    ///   value requested by the package setting.
+    /// - Returns: `true` when the host handled persistence and runtime
+    ///   side effects; otherwise `false`.
+    func setBrowserEngine(_ engineRawValue: String) -> Bool
+
     /// Asks the OS for notification authorization. No-op if the user
     /// has already responded (granted or denied).
     func requestNotificationAuthorization()
@@ -149,6 +162,7 @@ public protocol SettingsHostActions: AnyObject {
 }
 
 public extension SettingsHostActions {
+    func setBrowserEngine(_ engineRawValue: String) -> Bool { false }
     func openMobilePairingWindow() {}
 
     /// Default no-op for package previews and tests that have no activation-policy host.
@@ -208,6 +222,7 @@ public final class NoopSettingsHostActions: SettingsHostActions {
     public func openSystemNotificationSettings() {}
     public func restartApp() {}
     public func openBrowserImportFlow() {}
+    public func setBrowserEngine(_ engineRawValue: String) -> Bool { false }
     public func requestNotificationAuthorization() {}
     public func openTerminalConfigWindow() {}
     public func openMobilePairingWindow() {}

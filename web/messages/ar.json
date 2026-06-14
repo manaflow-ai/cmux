@@ -758,6 +758,12 @@
       "exampleConfig": "مثال على الإعدادات",
       "metaTitle": "الإعدادات",
       "schemaDescriptions": {
+        "browser": {
+          "engine": "محرك/بيئة تشغيل المتصفح لأوامر المتصفح واعتراض الروابط. يعمل webkit داخل cmux؛ ويفتح systemDefault في متصفح macOS الافتراضي.",
+          "defaultSearchEngine": "محرك البحث الافتراضي لاستعلامات شريط عنوان المتصفح التي ليست عناوين URL. استخدم custom مع customSearchEngineURLTemplate لموفري بحث آخرين.",
+          "customSearchEngineName": "اسم العرض المستخدم عندما تكون defaultSearchEngine هي custom.",
+          "customSearchEngineURLTemplate": "عنوان URL للبحث عند استخدام custom. أدرج موضع الاستعلام أو %s لعبارة البحث المرمزة. عند عدم وجود موضع، يضيف cmux q= إلى العنوان."
+        },
         "automation": {
           "ampIntegration": "تفعيل خطافات تكامل cmux لـ Amp. عند التعطيل، يظل المكون الإضافي المرفق غير نشط دون الحاجة إلى إزالته.",
           "suppressSubagentNotifications": "قم بإخفاء إشعارات الإكمال المرئية وتغييرات الحالة من وكلاء Codex أو Claude الفرعيين المتداخلين مع إبقاء أحداثهم في قياسات Feed."
@@ -774,11 +780,6 @@
           "copyOnSelect": "ينسخ نص الطرفية المحدد إلى حافظة النظام عند تثبيت التحديد، بما في ذلك تحديد الكلمات والأسطر بالنقر المزدوج والثلاثي.",
           "showTextBoxOnNewTerminals": "يعرض إدخال TextBox التجريبي افتراضيًا لمساحات العمل وتبويبات الطرفية وتقسيماتها المنشأة حديثًا.",
           "focusTextBoxOnNewTerminals": "يركز إدخال TextBox التجريبي افتراضيًا لمساحات العمل وتبويبات الطرفية وتقسيماتها المنشأة حديثًا. التركيز يعرض TextBox أيضًا."
-        },
-        "browser": {
-          "defaultSearchEngine": "محرك البحث الافتراضي لاستعلامات شريط عنوان المتصفح التي ليست عناوين URL. استخدم custom مع customSearchEngineURLTemplate لموفري بحث آخرين.",
-          "customSearchEngineName": "اسم العرض المستخدم عندما تكون defaultSearchEngine هي custom.",
-          "customSearchEngineURLTemplate": "عنوان URL للبحث عند استخدام custom. أدرج موضع الاستعلام أو %s لعبارة البحث المرمزة. عند عدم وجود موضع، يضيف cmux q= إلى العنوان."
         },
         "workspaceGroups": {
           "newWorkspacePlacement": "الإعداد الافتراضي العام لمكان وضع مساحة العمل الجديدة عند استخدام Cmd-N داخل مجموعة أو زر + في رأس المجموعة أو إجراءات المجموعة المضبوطة: `afterCurrent` (بعد مساحة العمل النشطة داخل المجموعة، مع الرجوع إلى top)، أو `top` (الموضع الثاني بعد المرساة مباشرة)، أو `end` (بعد آخر عضو).",

@@ -967,6 +967,15 @@ final class CmuxSettingsFileStore {
         sourcePath: String,
         snapshot: inout ResolvedSettingsSnapshot
     ) {
+        if section.keys.contains("engine") {
+            if let raw = jsonString(section["engine"]),
+               let engine = BrowserEngineSettings.engine(for: raw) {
+                snapshot.managedUserDefaults[BrowserEngineSettings.engineKey] = .string(engine.rawValue)
+                snapshot.managedUserDefaults[BrowserAvailabilitySettings.disabledKey] = .bool(!engine.usesEmbeddedBrowser)
+            } else {
+                logInvalid("browser.engine", sourcePath: sourcePath)
+            }
+        }
         if let raw = jsonString(section["defaultSearchEngine"]) {
             guard let engine = BrowserSearchEngine(rawValue: raw) else {
                 logInvalid("browser.defaultSearchEngine", sourcePath: sourcePath)

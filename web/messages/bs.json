@@ -758,6 +758,12 @@
       "exampleConfig": "Primjer konfiguracije",
       "metaTitle": "Konfiguracija",
       "schemaDescriptions": {
+        "browser": {
+          "engine": "Engine/runtime preglednika za komande preglednika i presretanje linkova. webkit radi unutar cmux-a; systemDefault otvara u zadanom macOS pregledniku.",
+          "defaultSearchEngine": "Zadani pretraživač za upite u adresnoj traci preglednika koji nisu URL-ovi. Koristite custom uz customSearchEngineURLTemplate za druge pružatelje.",
+          "customSearchEngineName": "Prikazani naziv koji se koristi kada je defaultSearchEngine custom.",
+          "customSearchEngineURLTemplate": "URL pretrage koji se koristi kada je defaultSearchEngine custom. Uključite rezervirano mjesto za upit ili %s za kodirani upit. Ako nema rezerviranog mjesta, cmux dodaje q= u URL."
+        },
         "automation": {
           "ampIntegration": "Omogući cmux integracijske kuke za Amp. Kada je onemogućeno, priloženi dodatak ostaje neaktivan bez potrebe za uklanjanjem.",
           "suppressSubagentNotifications": "Sakrij vidljiva obavještenja o završetku i promjene statusa od ugniježđenih Codex ili Claude podagenata, uz zadržavanje njihovih događaja u Feed telemetriji."
@@ -774,11 +780,6 @@
           "copyOnSelect": "Kopira odabrani tekst iz terminala u sistemski međuspremnik kada se odabir potvrdi, uključujući riječi i redove odabrane dvoklikom ili troklikom.",
           "showTextBoxOnNewTerminals": "Podrazumijevano prikazuje beta TextBox unos za novokreirane radne prostore, terminalske tabove i podjele.",
           "focusTextBoxOnNewTerminals": "Podrazumijevano fokusira beta TextBox unos za novokreirane radne prostore, terminalske tabove i podjele. Fokusiranje također prikazuje TextBox."
-        },
-        "browser": {
-          "defaultSearchEngine": "Zadani pretraživač za upite u adresnoj traci preglednika koji nisu URL-ovi. Koristite custom uz customSearchEngineURLTemplate za druge pružatelje.",
-          "customSearchEngineName": "Prikazani naziv koji se koristi kada je defaultSearchEngine custom.",
-          "customSearchEngineURLTemplate": "URL pretrage koji se koristi kada je defaultSearchEngine custom. Uključite rezervirano mjesto za upit ili %s za kodirani upit. Ako nema rezerviranog mjesta, cmux dodaje q= u URL."
         },
         "workspaceGroups": {
           "newWorkspacePlacement": "Globalna zadana vrijednost za mjesto gdje Cmd-N unutar grupe, + dugme u zaglavlju grupe i podešene grupne akcije stavljaju novi workspace: `afterCurrent` (poslije aktivnog workspacea u grupi, uz povratak na top), `top` (druga pozicija, odmah poslije sidra) ili `end` (poslije zadnjeg člana).",

@@ -758,6 +758,12 @@
       "exampleConfig": "ตัวอย่างคอนฟิก",
       "metaTitle": "การตั้งค่า",
       "schemaDescriptions": {
+        "browser": {
+          "engine": "เอนจิน/รันไทม์ของเบราว์เซอร์สำหรับคำสั่งเบราว์เซอร์และการดักจับลิงก์ webkit ทำงานภายใน cmux; systemDefault เปิดในเบราว์เซอร์เริ่มต้นของ macOS",
+          "defaultSearchEngine": "เครื่องมือค้นหาเริ่มต้นสำหรับคำค้นในแถบที่อยู่ของเบราว์เซอร์ที่ไม่ใช่ URL ใช้ custom กับ customSearchEngineURLTemplate สำหรับผู้ให้บริการอื่น",
+          "customSearchEngineName": "ชื่อที่แสดงเมื่อ defaultSearchEngine เป็น custom",
+          "customSearchEngineURLTemplate": "URL ค้นหาที่ใช้เมื่อ defaultSearchEngine เป็น custom ใส่ตัวแทนคำค้นหรือ %s สำหรับคำค้นที่เข้ารหัส หากไม่มีตัวแทน cmux จะเพิ่ม q= ให้กับ URL"
+        },
         "automation": {
           "ampIntegration": "เปิดใช้งาน cmux integration hooks สำหรับ Amp เมื่อปิดใช้งาน ปลั๊กอินที่มาพร้อมกันจะอยู่ในสถานะไม่ทำงานโดยไม่ต้องถอดออก",
           "suppressSubagentNotifications": "ซ่อนการแจ้งเตือนการทำงานเสร็จและการเปลี่ยนสถานะที่มองเห็นได้จากเอเจนต์ลูก Codex หรือ Claude แบบซ้อน โดยยังคงเก็บเหตุการณ์ไว้ในเทเลเมทรี Feed"
@@ -774,11 +780,6 @@
           "copyOnSelect": "คัดลอกข้อความเทอร์มินัลที่เลือกไปยังคลิปบอร์ดของระบบเมื่อยืนยันการเลือก รวมถึงการเลือกคำและบรรทัดจากการดับเบิลคลิกและทริปเปิลคลิก",
           "showTextBoxOnNewTerminals": "แสดงอินพุต TextBox รุ่นเบต้าเป็นค่าเริ่มต้นสำหรับเวิร์กสเปซ แท็บเทอร์มินัล และการแบ่งเทอร์มินัลที่สร้างใหม่",
           "focusTextBoxOnNewTerminals": "โฟกัสอินพุต TextBox รุ่นเบต้าเป็นค่าเริ่มต้นสำหรับเวิร์กสเปซ แท็บเทอร์มินัล และการแบ่งเทอร์มินัลที่สร้างใหม่ การโฟกัสจะแสดง TextBox ด้วย"
-        },
-        "browser": {
-          "defaultSearchEngine": "เครื่องมือค้นหาเริ่มต้นสำหรับคำค้นในแถบที่อยู่ของเบราว์เซอร์ที่ไม่ใช่ URL ใช้ custom กับ customSearchEngineURLTemplate สำหรับผู้ให้บริการอื่น",
-          "customSearchEngineName": "ชื่อที่แสดงเมื่อ defaultSearchEngine เป็น custom",
-          "customSearchEngineURLTemplate": "URL ค้นหาที่ใช้เมื่อ defaultSearchEngine เป็น custom ใส่ตัวแทนคำค้นหรือ %s สำหรับคำค้นที่เข้ารหัส หากไม่มีตัวแทน cmux จะเพิ่ม q= ให้กับ URL"
         },
         "workspaceGroups": {
           "newWorkspacePlacement": "ค่าเริ่มต้นส่วนกลางสำหรับตำแหน่งที่ Cmd-N ภายในกลุ่ม ปุ่ม + ในหัวกลุ่ม และการกระทำของกลุ่มที่ตั้งค่าไว้จะวาง workspace ใหม่: `afterCurrent` (หลัง workspace ที่ใช้งานอยู่ในกลุ่ม และ fallback เป็น top), `top` (ตำแหน่งที่สอง ถัดจาก anchor ทันที) หรือ `end` (หลังสมาชิกสุดท้าย).",

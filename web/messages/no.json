@@ -758,6 +758,12 @@
       "exampleConfig": "Eksempelkonfigurasjon",
       "metaTitle": "Konfigurasjon",
       "schemaDescriptions": {
+        "browser": {
+          "engine": "Nettlesermotor/kjøretid for nettleserkommandoer og lenkeavskjæring. webkit kjører inne i cmux; systemDefault åpner i macOS-standardnettleseren.",
+          "defaultSearchEngine": "Standard søkemotor for søk i nettleserens adresselinje som ikke er URLer. Bruk custom med customSearchEngineURLTemplate for andre leverandører.",
+          "customSearchEngineName": "Visningsnavn som brukes når defaultSearchEngine er custom.",
+          "customSearchEngineURLTemplate": "Søke-URL som brukes når defaultSearchEngine er custom. Inkluder søkeplassholderen eller %s for det kodede søket. Uten plassholder legger cmux til q= i URLen."
+        },
         "automation": {
           "ampIntegration": "Aktiver cmux-integrasjonskroker for Amp. Når deaktivert, forblir den medfølgende programtillegget inaktivt uten å måtte fjernes.",
           "suppressSubagentNotifications": "Undertrykk synlige fullføringsvarsler og statusendringer fra innebygde Codex- eller Claude-underagenter, samtidig som hendelsene deres beholdes i Feed-telemetri."
@@ -774,11 +780,6 @@
           "copyOnSelect": "Kopierer markert terminaltekst til systemutklippstavlen når markeringen bekreftes, inkludert ord- og linjemarkeringer fra dobbelt- og trippelklikk.",
           "showTextBoxOnNewTerminals": "Viser beta-TextBox-inndata som standard for nyopprettede arbeidsområder, terminalfaner og terminalsplitt.",
           "focusTextBoxOnNewTerminals": "Fokuserer beta-TextBox-inndata som standard for nyopprettede arbeidsområder, terminalfaner og terminalsplitt. Fokus viser også TextBox."
-        },
-        "browser": {
-          "defaultSearchEngine": "Standard søkemotor for søk i nettleserens adresselinje som ikke er URLer. Bruk custom med customSearchEngineURLTemplate for andre leverandører.",
-          "customSearchEngineName": "Visningsnavn som brukes når defaultSearchEngine er custom.",
-          "customSearchEngineURLTemplate": "Søke-URL som brukes når defaultSearchEngine er custom. Inkluder søkeplassholderen eller %s for det kodede søket. Uten plassholder legger cmux til q= i URLen."
         },
         "workspaceGroups": {
           "newWorkspacePlacement": "Global standard for hvor Cmd-N i en gruppe, + knappen i gruppehodet og konfigurerte gruppehandlinger plasserer det nye workspace: `afterCurrent` (etter aktivt workspace i gruppen, med top som fallback), `top` (andre plass, rett etter ankeret) eller `end` (etter siste medlem).",

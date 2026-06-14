@@ -859,6 +859,12 @@
       "settingsFileChords": "Use a string for a single shortcut or a two-item array for a chord. Example: [\"ctrl+b\", \"c\"] means press Ctrl+B, then C.",
       "exampleConfig": "Example config",
       "schemaDescriptions": {
+        "browser": {
+          "engine": "Browser engine/runtime for browser commands and link interception. webkit runs inside cmux; systemDefault opens in the macOS default browser.",
+          "defaultSearchEngine": "Default search engine for non-URL browser address bar queries. Use custom with customSearchEngineURLTemplate for arbitrary providers.",
+          "customSearchEngineName": "Display name used when defaultSearchEngine is custom.",
+          "customSearchEngineURLTemplate": "Search URL used when defaultSearchEngine is custom. Include the query placeholder or %s for the encoded query. If omitted, cmux appends q= to the URL."
+        },
         "automation": {
           "ampIntegration": "Enable cmux integration hooks for Amp. When disabled, the bundled plugin stays inactive without needing to be removed.",
           "suppressSubagentNotifications": "Suppress visible completion notifications and status mutations from nested Codex or Claude child agents while keeping their events in Feed telemetry."
@@ -875,11 +881,6 @@
           "copyOnSelect": "Copy selected terminal text to the system clipboard when the selection is committed, including word and line selections from double- and triple-click.",
           "showTextBoxOnNewTerminals": "Show the beta TextBox input by default for newly created workspaces, terminal tabs, and terminal splits.",
           "focusTextBoxOnNewTerminals": "Focus the beta TextBox input by default for newly created workspaces, terminal tabs, and terminal splits. Focusing also shows the TextBox."
-        },
-        "browser": {
-          "defaultSearchEngine": "Default search engine for non-URL browser address bar queries. Use custom with customSearchEngineURLTemplate for arbitrary providers.",
-          "customSearchEngineName": "Display name used when defaultSearchEngine is custom.",
-          "customSearchEngineURLTemplate": "Search URL used when defaultSearchEngine is custom. Include the query placeholder or %s for the encoded query. If omitted, cmux appends q= to the URL."
         },
         "workspaceGroups": {
           "newWorkspacePlacement": "Global default for where Cmd-N inside a group, the group header + button, and configured group actions place the new workspace: `afterCurrent` (after the active in-group workspace, falling back to top), `top` (second slot, just after the anchor), or `end` (after the last member).",

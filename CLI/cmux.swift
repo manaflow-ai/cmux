@@ -3014,6 +3014,9 @@ struct CMUXCLI {
     }
 
     private static let browserDisabledDefaultsKey = "browserDisabledOverride"
+    private static let browserEngineDefaultsKey = "browserEngine"
+    private static let browserEngineWebKitValue = "webkit"
+    private static let browserEngineSystemDefaultValue = "systemDefault"
     private static let defaultBrowserSettingsDomain = "com.cmuxterm.app"
 
     private static func containingAppBundleIdentifier() -> String? {
@@ -3120,9 +3123,11 @@ struct CMUXCLI {
 
         switch action {
         case "disable", "disable-browser":
+            defaults.set(Self.browserEngineSystemDefaultValue, forKey: Self.browserEngineDefaultsKey)
             defaults.set(true, forKey: Self.browserDisabledDefaultsKey)
             defaults.synchronize()
         case "enable", "enable-browser":
+            defaults.set(Self.browserEngineWebKitValue, forKey: Self.browserEngineDefaultsKey)
             defaults.set(false, forKey: Self.browserDisabledDefaultsKey)
             defaults.synchronize()
         case "status", "browser-status":
@@ -3131,13 +3136,25 @@ struct CMUXCLI {
             throw CLIError(message: "Unknown browser availability command: \(action)")
         }
 
-        let disabled = defaults.object(forKey: Self.browserDisabledDefaultsKey) == nil
-            ? false
-            : defaults.bool(forKey: Self.browserDisabledDefaultsKey)
+        let rawEngine = defaults.string(forKey: Self.browserEngineDefaultsKey)
+        let engine: String
+        if let rawEngine,
+           rawEngine == Self.browserEngineWebKitValue || rawEngine == Self.browserEngineSystemDefaultValue {
+            engine = rawEngine
+        } else if defaults.object(forKey: Self.browserDisabledDefaultsKey) == nil {
+            engine = Self.browserEngineWebKitValue
+        } else {
+            engine = defaults.bool(forKey: Self.browserDisabledDefaultsKey)
+                ? Self.browserEngineSystemDefaultValue
+                : Self.browserEngineWebKitValue
+        }
+        let disabled = engine == Self.browserEngineSystemDefaultValue
         let payload: [String: Any] = [
             "enabled": !disabled,
             "disabled": disabled,
+            "engine": engine,
             "domain": domain,
+            "engine_key": Self.browserEngineDefaultsKey,
             "key": Self.browserDisabledDefaultsKey
         ]
         if effectiveJSONOutput {

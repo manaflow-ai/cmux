@@ -758,6 +758,12 @@
       "exampleConfig": "Beispielkonfiguration",
       "metaTitle": "Konfiguration",
       "schemaDescriptions": {
+        "browser": {
+          "engine": "Browser-Engine/Laufzeit für Browserbefehle und Link-Interception. webkit läuft innerhalb von cmux; systemDefault öffnet im macOS-Standardbrowser.",
+          "defaultSearchEngine": "Standardsuchmaschine für Nicht-URL-Eingaben in der Browser-Adressleiste. Verwenden Sie custom mit customSearchEngineURLTemplate für beliebige Anbieter.",
+          "customSearchEngineName": "Anzeigename, der verwendet wird, wenn defaultSearchEngine custom ist.",
+          "customSearchEngineURLTemplate": "Such-URL, die verwendet wird, wenn defaultSearchEngine custom ist. Verwenden Sie den Abfrageplatzhalter oder %s für den kodierten Suchbegriff. Ohne Platzhalter fügt cmux q= zur URL hinzu."
+        },
         "automation": {
           "ampIntegration": "Aktiviere cmux-Integrations-Hooks für Amp. Wenn deaktiviert, bleibt das gebündelte Plugin inaktiv, ohne entfernt werden zu müssen.",
           "suppressSubagentNotifications": "Unterdrücke sichtbare Abschlussbenachrichtigungen und Statusänderungen von verschachtelten Codex- oder Claude-Unteragenten, während ihre Ereignisse in der Feed-Telemetrie bleiben."
@@ -774,11 +780,6 @@
           "copyOnSelect": "Kopiert ausgewählten Terminaltext in die Systemzwischenablage, sobald die Auswahl bestätigt wird, einschließlich Wort- und Zeilenauswahl per Doppel- und Dreifachklick.",
           "showTextBoxOnNewTerminals": "Zeigt die Beta-TextBox-Eingabe standardmaessig fuer neu erstellte Workspaces, Terminal-Tabs und Terminal-Splits an.",
           "focusTextBoxOnNewTerminals": "Fokussiert die Beta-TextBox-Eingabe standardmaessig fuer neu erstellte Workspaces, Terminal-Tabs und Terminal-Splits. Fokussieren zeigt die TextBox ebenfalls an."
-        },
-        "browser": {
-          "defaultSearchEngine": "Standardsuchmaschine für Nicht-URL-Eingaben in der Browser-Adressleiste. Verwenden Sie custom mit customSearchEngineURLTemplate für beliebige Anbieter.",
-          "customSearchEngineName": "Anzeigename, der verwendet wird, wenn defaultSearchEngine custom ist.",
-          "customSearchEngineURLTemplate": "Such-URL, die verwendet wird, wenn defaultSearchEngine custom ist. Verwenden Sie den Abfrageplatzhalter oder %s für den kodierten Suchbegriff. Ohne Platzhalter fügt cmux q= zur URL hinzu."
         },
         "workspaceGroups": {
           "newWorkspacePlacement": "Globaler Standard dafür, wo Cmd-N innerhalb einer Gruppe, die + Schaltfläche im Gruppenkopf und konfigurierte Gruppenaktionen den neuen Workspace platzieren: `afterCurrent` (nach dem aktiven Workspace in der Gruppe, mit Rückfall auf top), `top` (zweite Position direkt nach dem Anker) oder `end` (nach dem letzten Mitglied).",

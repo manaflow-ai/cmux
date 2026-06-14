@@ -758,6 +758,12 @@
       "exampleConfig": "Örnek yapılandırma",
       "metaTitle": "Yapılandırma",
       "schemaDescriptions": {
+        "browser": {
+          "engine": "Tarayıcı komutları ve bağlantı yakalama için tarayıcı motoru/çalışma zamanı. webkit cmux içinde çalışır; systemDefault macOS varsayılan tarayıcısında açar.",
+          "defaultSearchEngine": "Tarayıcı adres çubuğundaki URL olmayan sorgular için varsayılan arama motoru. Diğer sağlayıcılar için custom ile customSearchEngineURLTemplate kullanın.",
+          "customSearchEngineName": "defaultSearchEngine custom olduğunda kullanılan görünen ad.",
+          "customSearchEngineURLTemplate": "defaultSearchEngine custom olduğunda kullanılan arama URL’si. Kodlanmış sorgu için sorgu yer tutucusunu veya %s ekleyin. Yer tutucu yoksa cmux URL’ye q= ekler."
+        },
         "automation": {
           "ampIntegration": "Amp için cmux entegrasyon kancalarını etkinleştirir. Devre dışı bırakıldığında, paketlenmiş eklenti kaldırılmaya gerek kalmadan etkin olmayan durumda kalır.",
           "suppressSubagentNotifications": "İç içe Codex veya Claude alt ajanlarından gelen görünür tamamlanma bildirimlerini ve durum değişikliklerini gizler, olaylarını Feed telemetrisinde tutar."
@@ -774,11 +780,6 @@
           "copyOnSelect": "Seçim kesinleştiğinde seçilen terminal metnini sistem panosuna kopyalar; çift ve üçlü tıklamayla yapılan sözcük ve satır seçimleri dahil.",
           "showTextBoxOnNewTerminals": "Yeni oluşturulan çalışma alanları, terminal sekmeleri ve terminal bölmeleri için beta TextBox girişini varsayılan olarak gösterir.",
           "focusTextBoxOnNewTerminals": "Yeni oluşturulan çalışma alanları, terminal sekmeleri ve terminal bölmeleri için beta TextBox girişini varsayılan olarak odaklar. Odaklamak TextBox'ı da gösterir."
-        },
-        "browser": {
-          "defaultSearchEngine": "Tarayıcı adres çubuğundaki URL olmayan sorgular için varsayılan arama motoru. Diğer sağlayıcılar için custom ile customSearchEngineURLTemplate kullanın.",
-          "customSearchEngineName": "defaultSearchEngine custom olduğunda kullanılan görünen ad.",
-          "customSearchEngineURLTemplate": "defaultSearchEngine custom olduğunda kullanılan arama URL’si. Kodlanmış sorgu için sorgu yer tutucusunu veya %s ekleyin. Yer tutucu yoksa cmux URL’ye q= ekler."
         },
         "workspaceGroups": {
           "newWorkspacePlacement": "Bir grup içindeki Cmd-N, grup başlığındaki + düğmesi ve yapılandırılmış grup eylemlerinin yeni workspace’i nereye yerleştireceğine dair genel varsayılan: `afterCurrent` (gruptaki aktif workspace’ten sonra, yoksa top), `top` (ankordan hemen sonraki ikinci konum) veya `end` (son üyeden sonra).",
