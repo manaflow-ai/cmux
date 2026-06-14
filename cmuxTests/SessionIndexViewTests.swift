@@ -137,6 +137,112 @@ final class SessionIndexViewTests: XCTestCase {
         )
     }
 
+    func testTmuxSessionIndexBuildsAttachEntriesWithWindowAndPaneCounts() {
+        let separator = "\u{1F}"
+        let entries = SessionIndexStore.tmuxEntriesForTesting(
+            sessionsOutput: [
+                "detached\(separator)1\(separator)0\(separator)2000",
+                "work session\(separator)2\(separator)1\(separator)1000",
+            ].joined(separator: "\n"),
+            windowsOutput: [
+                "work session\(separator)1",
+                "work session\(separator)2",
+                "detached\(separator)1",
+            ].joined(separator: "\n"),
+            executablePath: "/opt/homebrew/bin/tmux",
+            now: Date(timeIntervalSince1970: 3000)
+        )
+
+        XCTAssertEqual(entries.map(\.sessionId), ["work session", "detached"])
+        let work = entries[0]
+        XCTAssertEqual(work.agent, .tmux)
+        XCTAssertEqual(
+            work.displayTitle,
+            String.localizedStringWithFormat(
+                String(localized: "sessionIndex.tmux.sessionTitle.manyWindowsManyPanes", defaultValue: "%@ · %d windows, %d panes"),
+                "work session",
+                2,
+                3
+            )
+        )
+        XCTAssertEqual(work.resumeCommand, "'/opt/homebrew/bin/tmux' 'attach' '-t' 'work session'")
+        XCTAssertFalse(work.supportsTranscriptPreview)
+    }
+
+    func testTmuxSectionKeepsAttachedSessionsBeforeNewerDetachedSessions() {
+        let detached = makeEntry(
+            agent: .tmux,
+            sessionId: "detached",
+            title: "detached",
+            modified: Date(timeIntervalSince1970: 5_000),
+            specifics: .tmux(attachCommand: "tmux attach -t detached", attachedCount: 0)
+        )
+        let attached = makeEntry(
+            agent: .tmux,
+            sessionId: "attached",
+            title: "attached",
+            modified: Date(timeIntervalSince1970: 1_000),
+            specifics: .tmux(attachCommand: "tmux attach -t attached", attachedCount: 1)
+        )
+
+        let sorted = SessionIndexStore.entriesForSectionForTesting(
+            agent: .tmux,
+            entries: [detached, attached]
+        )
+
+        XCTAssertEqual(sorted.map(\.sessionId), ["attached", "detached"])
+    }
+
+    func testTmuxSessionIndexFallsBackToNowWhenCreatedTimestampIsMalformed() {
+        let separator = "\u{1F}"
+        let now = Date(timeIntervalSince1970: 4_000)
+        let entries = SessionIndexStore.tmuxEntriesForTesting(
+            sessionsOutput: "scratch\(separator)1\(separator)0\(separator)not-a-timestamp",
+            windowsOutput: "scratch\(separator)1",
+            now: now
+        )
+
+        XCTAssertEqual(entries.first?.modified, now)
+        XCTAssertEqual(entries.first?.resumeCommand, "'tmux' 'attach' '-t' 'scratch'")
+    }
+
+    func testTmuxSessionIndexFallsBackToOnePanePerWindowWhenWindowListingIsMissing() {
+        let separator = "\u{1F}"
+        let entries = SessionIndexStore.tmuxEntriesForTesting(
+            sessionsOutput: "scratch\(separator)2\(separator)0\(separator)4000",
+            windowsOutput: "",
+            now: Date(timeIntervalSince1970: 5_000)
+        )
+
+        XCTAssertEqual(
+            entries.first?.displayTitle,
+            String.localizedStringWithFormat(
+                String(localized: "sessionIndex.tmux.sessionTitle.manyWindowsManyPanes", defaultValue: "%@ · %d windows, %d panes"),
+                "scratch",
+                2,
+                2
+            )
+        )
+    }
+
+    func testTmuxCommandRunnerCapturesProcessOutput() async {
+        let output = await SessionIndexStore.runTmuxCommandForTesting(
+            executablePath: "/bin/echo",
+            arguments: ["hello"]
+        )
+
+        XCTAssertEqual(output, "hello\n")
+    }
+
+    func testTmuxCommandRunnerReturnsNilForNonzeroExit() async {
+        let output = await SessionIndexStore.runTmuxCommandForTesting(
+            executablePath: "/bin/sh",
+            arguments: ["-c", "exit 2"]
+        )
+
+        XCTAssertNil(output)
+    }
+
     // Regression for https://github.com/manaflow-ai/cmux/issues/5262.
     // cmux captures Codex's *internal* sandbox-policy `type`, which is a superset of
     // the values the `--sandbox` CLI flag accepts. A
@@ -458,6 +564,7 @@ final class SessionIndexViewTests: XCTestCase {
             modified: modified,
             fileURL: fileURL,
             specifics: specifics ?? agent.defaultSpecificsForTesting(
+                sessionId: sessionId,
                 claudeConfigDirectoryForResume: claudeConfigDirectoryForResume
             )
         )
@@ -574,6 +681,7 @@ final class SessionIndexViewTests: XCTestCase {
 
 private extension SessionAgent {
     func defaultSpecificsForTesting(
+        sessionId: String,
         claudeConfigDirectoryForResume: String? = nil
     ) -> AgentSpecifics {
         switch self {
@@ -585,6 +693,8 @@ private extension SessionAgent {
             )
         case .codex:
             return .codex(model: nil, approvalPolicy: nil, sandboxMode: nil, effort: nil)
+        case .tmux:
+            return .tmux(attachCommand: "tmux attach -t \(sessionId)", attachedCount: 0)
         case .grok:
             return .grok(model: nil, permissionMode: nil, sandboxMode: nil, grokHome: nil)
         case .opencode:

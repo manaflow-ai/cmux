@@ -37,6 +37,7 @@ struct RegisteredSessionAgent: Hashable, Sendable {
 enum SessionAgent: Identifiable, Codable, Sendable, Hashable {
     case claude
     case codex
+    case tmux
     case grok
     case opencode
     case rovodev
@@ -45,13 +46,14 @@ enum SessionAgent: Identifiable, Codable, Sendable, Hashable {
 
     var id: String { rawValue }
 
-    static let builtInCases: [SessionAgent] = [.claude, .codex, .grok, .opencode, .rovodev, .hermesAgent]
+    static let builtInCases: [SessionAgent] = [.claude, .codex, .tmux, .grok, .opencode, .rovodev, .hermesAgent]
 
     init?(rawValue: String) {
         let value = rawValue.trimmingCharacters(in: .whitespacesAndNewlines)
         switch value {
         case "claude": self = .claude
         case "codex": self = .codex
+        case "tmux": self = .tmux
         case "grok": self = .grok
         case "opencode": self = .opencode
         case "rovodev": self = .rovodev
@@ -66,6 +68,7 @@ enum SessionAgent: Identifiable, Codable, Sendable, Hashable {
         switch self {
         case .claude: return "claude"
         case .codex: return "codex"
+        case .tmux: return "tmux"
         case .grok: return "grok"
         case .opencode: return "opencode"
         case .rovodev: return "rovodev"
@@ -198,6 +201,7 @@ struct PullRequestLink: Hashable {
 enum AgentSpecifics: Hashable {
     case claude(model: String?, permissionMode: String?, configDirectoryForResume: String?)
     case codex(model: String?, approvalPolicy: String?, sandboxMode: String?, effort: String?)
+    case tmux(attachCommand: String, attachedCount: Int)
     case grok(model: String?, permissionMode: String?, sandboxMode: String?, grokHome: String?)
     case opencode(providerModel: String?, agentName: String?)
     case rovodev
@@ -303,6 +307,10 @@ struct SessionEntry: Identifiable, Hashable {
         resumeCommandWithCwd
     }
 
+    var supportsTranscriptPreview: Bool {
+        fileURL != nil || agent == .opencode || agent == .hermesAgent
+    }
+
     /// Shell command that resumes this session after guarding the launch directory.
     var resumeCommandWithCwd: String? {
         guard let command = resumeCommandWithoutWorkingDirectory else { return nil }
@@ -349,6 +357,8 @@ struct SessionEntry: Identifiable, Hashable {
                 parts.append("-c model_reasoning_effort=\(Self.shellQuote(effort))")
             }
             return parts.joined(separator: " ")
+        case let .tmux(attachCommand, _):
+            return attachCommand
         case let .grok(model, permissionMode, sandboxMode, grokHome):
             var argv = ["grok", "-r", sessionId]
             if let model, !model.isEmpty {

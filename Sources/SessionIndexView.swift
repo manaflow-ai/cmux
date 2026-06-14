@@ -195,11 +195,15 @@ struct SessionIndexView: View {
             LazyVStack(alignment: .leading, spacing: 0) {
                 ForEach(Array(sections.enumerated()), id: \.element.key) { index, section in
                     // Drop above this row -> insert dragged section BEFORE this section's key.
-                    SectionReorderGap(
-                        beforeKey: section.key,
-                        isValidDrop: draggedKey == nil || draggedKey != section.key,
-                        actions: gapActions
-                    ).equatable()
+                    if section.allowsSectionReorder {
+                        SectionReorderGap(
+                            beforeKey: section.key,
+                            isValidDrop: draggedKey == nil || draggedKey != section.key,
+                            actions: gapActions
+                        ).equatable()
+                    } else {
+                        Color.clear.frame(height: 4)
+                    }
                     IndexSectionView(
                         section: section,
                         rowLimit: Self.collapsedRowLimit,
@@ -222,7 +226,10 @@ struct SessionIndexView: View {
                             }
                         ),
                         actions: IndexSectionActions(
-                            onBeginDrag: { dragCoordinator.draggedKey = section.key },
+                            onBeginDrag: {
+                                guard section.allowsSectionReorder else { return }
+                                dragCoordinator.draggedKey = section.key
+                            },
                             onPreviewEntry: { entry in
                                 previewEntry = entry
                             },
@@ -239,11 +246,13 @@ struct SessionIndexView: View {
                     let _ = index
                 }
                 // Trailing gap -> append.
-                SectionReorderGap(
-                    beforeKey: nil,
-                    isValidDrop: true,
-                    actions: gapActions
-                ).equatable()
+                if sections.contains(where: \.allowsSectionReorder) {
+                    SectionReorderGap(
+                        beforeKey: nil,
+                        isValidDrop: true,
+                        actions: gapActions
+                    ).equatable()
+                }
             }
             .padding(.bottom, 8)
         }
@@ -428,8 +437,9 @@ private struct IndexSectionView: View, Equatable {
         )
     }
 
+    @ViewBuilder
     private var sectionHeader: some View {
-        Button {
+        let header = Button {
             isCollapsed.toggle()
         } label: {
             HStack(spacing: 8) {
@@ -451,19 +461,25 @@ private struct IndexSectionView: View, Equatable {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .onDrag {
-            let beginDrag = actions.onBeginDrag
-            DispatchQueue.main.async { beginDrag() }
-            return NSItemProvider(object: section.key.raw as NSString)
-        } preview: {
-            HStack(spacing: 8) {
-                sectionIconView
-                Text(section.title)
-                    .font(.system(size: 13))
-            }
-            .padding(.horizontal, 10)
-            .padding(.vertical, 5)
-            .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 6, style: .continuous))
+
+        if section.allowsSectionReorder {
+            header
+                .onDrag {
+                    let beginDrag = actions.onBeginDrag
+                    DispatchQueue.main.async { beginDrag() }
+                    return NSItemProvider(object: section.key.raw as NSString)
+                } preview: {
+                    HStack(spacing: 8) {
+                        sectionIconView
+                        Text(section.title)
+                            .font(.system(size: 13))
+                    }
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 5)
+                    .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 6, style: .continuous))
+                }
+        } else {
+            header
         }
     }
 
@@ -592,7 +608,11 @@ private struct SessionRow: View, Equatable {
         .onHover { isHovered = $0 }
         .help(helpText)
         .onTapGesture(count: 2) {
-            onPreviewPresentationChange(true)
+            if entry.supportsTranscriptPreview {
+                onPreviewPresentationChange(true)
+            } else {
+                onResume?(entry)
+            }
         }
         .onDrag {
             sessionDragItemProvider(for: entry)
@@ -1503,7 +1523,7 @@ private enum SessionTranscriptLoader {
                 usesGrokTranscriptLayout: usesGrokTranscriptLayout,
                 id: id
             )
-        case .hermesAgent:
+        case .tmux, .hermesAgent:
             return nil
         }
     }
@@ -1834,7 +1854,7 @@ private enum SessionTranscriptLoader {
             return containsAny(data, needles: genericRoleNeedles)
         case .registered:
             return true
-        case .hermesAgent:
+        case .tmux, .hermesAgent:
             return false
         }
     }
@@ -1867,7 +1887,7 @@ private enum SessionTranscriptLoader {
             }
         case .grok:
             return inferredGrokRole(from: data)
-        case .hermesAgent:
+        case .tmux, .hermesAgent:
             return nil
         }
         return nil
