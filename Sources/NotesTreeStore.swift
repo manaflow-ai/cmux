@@ -25,7 +25,7 @@ final class NotesTreeStore: ObservableObject {
     /// only when the bound cwd changes, which always reloads the tree.
     private(set) var headerDisplayPath = ""
 
-    private var projectRoot: String?
+    var projectRoot: String?
     private var workspaceTitle: String = ""
     private var cwd: String?
     /// The workspace's persistent note anchor — the identity the folder,
@@ -738,6 +738,8 @@ final class NotesTreeStore: ObservableObject {
                 }
             } else if !allObserved.isEmpty {
                 self.emptyObservationRetries = 0
+                self.emptyObservationRetryTask?.cancel()
+                self.emptyObservationRetryTask = nil
             }
         }
     }
@@ -823,51 +825,6 @@ final class NotesTreeStore: ObservableObject {
         return path
     }
 
-    /// Move a note/folder into `destinationFolder`. Returns the new path, or nil
-    /// on failure (e.g. invalid move). Both endpoints must lie inside
-    /// `.cmux/notes`: the move pasteboard type is globally forgeable, so a
-    /// crafted drag payload must never be able to relocate arbitrary
-    /// user-writable files into (or around) the project.
-    @discardableResult
-    func move(sourcePath: String, intoFolder destinationFolder: String) -> String? {
-        guard isMutablePath(sourcePath),
-              let notesDir = notesDirPath,
-              NotesTreeStorage.isWithin(child: destinationFolder, orEqualTo: notesDir)
-        else { return nil }
-        let moved = try? NotesTreeStorage.move(sourcePath: sourcePath, intoFolder: destinationFolder)
-        if let moved {
-            rebaseIndexedBodies(from: sourcePath, to: moved)
-            postRelocation(from: sourcePath, to: moved)
-        }
-        reload()
-        return moved
-    }
-
-    /// Keep `index.json` pointing at bodies a raw tree move/rename relocated.
-    /// An indexed note that was filed into the tree (or a folder containing
-    /// one) moves with plain FileManager calls; without the rebase its index
-    /// record silently orphans and `cmux note read/open` loses the note.
-    private func rebaseIndexedBodies(from oldPath: String, to newPath: String) {
-        guard let projectRoot else { return }
-        try? CmuxNoteStore.rebaseBodyPaths(
-            projectRoot: projectRoot, fromAbsolutePath: oldPath, toAbsolutePath: newPath
-        )
-    }
-
-    /// Announce a completed on-disk relocation so open viewers (markdown
-    /// panels on the moved note, or on notes inside a moved/renamed folder)
-    /// re-point at the new path instead of going "File unavailable".
-    private func postRelocation(from oldPath: String, to newPath: String) {
-        let old = (oldPath as NSString).standardizingPath
-        let new = (newPath as NSString).standardizingPath
-        guard old != new else { return }
-        NotificationCenter.default.post(
-            name: .cmuxNoteFileRelocated,
-            object: nil,
-            userInfo: ["oldPath": old, "newPath": new]
-        )
-    }
-
     /// Rename a note/folder in place. Confined to the project's `.cmux/notes`
     /// directory (which covers both the workspace subtree and the flat notes
     /// at its root). Carries the collapsed-state of the renamed subtree over
@@ -876,12 +833,29 @@ final class NotesTreeStore: ObservableObject {
     @discardableResult
     func rename(path: String, toName newName: String) -> String? {
         guard isMutablePath(path) else { return nil }
-        guard let renamed = try? NotesTreeStorage.rename(sourcePath: path, toName: newName) else {
+        let oldPrefix = (path as NSString).standardizingPath
+        guard let renamed = try? NotesTreeStorage.plannedRenameDestination(
+            sourcePath: oldPrefix,
+            toName: newName
+        ) else {
             reload()
             return nil
         }
-        let oldPrefix = (path as NSString).standardizingPath
         let newPrefix = (renamed as NSString).standardizingPath
+        do {
+            if oldPrefix != newPrefix {
+                try rebaseIndexedBodies(from: oldPrefix, to: newPrefix)
+                do {
+                    try FileManager.default.moveItem(atPath: oldPrefix, toPath: newPrefix)
+                } catch {
+                    try? rebaseIndexedBodies(from: newPrefix, to: oldPrefix)
+                    throw error
+                }
+            }
+        } catch {
+            reload()
+            return nil
+        }
         if oldPrefix != newPrefix {
             collapsedPaths = Set(collapsedPaths.map { collapsed in
                 if collapsed == oldPrefix { return newPrefix }
@@ -891,32 +865,9 @@ final class NotesTreeStore: ObservableObject {
                 return collapsed
             })
         }
-        rebaseIndexedBodies(from: oldPrefix, to: newPrefix)
         postRelocation(from: oldPrefix, to: newPrefix)
         reload()
         return renamed
-    }
-
-    /// Move a note/folder to the system trash. Confined to the project's
-    /// `.cmux/notes` directory so the tree can never delete outside the notes
-    /// store.
-    func delete(path: String) {
-        guard isMutablePath(path) else { return }
-        do {
-            try FileManager.default.trashItem(at: URL(fileURLWithPath: path), resultingItemURL: nil)
-        } catch {
-            // Trash can fail (permissions, volumes without Trash, transient
-            // FS errors); the file is still on disk, so the index must keep
-            // its records — dropping them would orphan an existing note.
-            reload()
-            return
-        }
-        // Indexed notes whose body just went to the Trash (directly, or via a
-        // trashed ancestor folder) must leave the index with it.
-        if let projectRoot {
-            try? CmuxNoteStore.removeRecords(underAbsolutePath: path, projectRoot: projectRoot)
-        }
-        reload()
     }
 
     /// Move an index-owned flat note into `destinationFolder` through the flat
@@ -1053,7 +1004,7 @@ final class NotesTreeStore: ObservableObject {
 
     /// A path the tree may rename/delete: inside `.cmux/notes`, but never the
     /// notes directory itself nor the workspace's own root folder.
-    private func isMutablePath(_ path: String) -> Bool {
+    func isMutablePath(_ path: String) -> Bool {
         if let projectRoot, !NoteSupport.projectNotesDirectoryIsTrusted(projectRoot: projectRoot) {
             return false
         }

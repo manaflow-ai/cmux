@@ -12397,7 +12397,6 @@ extension Workspace: BonsplitDelegate {
             return !bonsplitController.allPaneIds.isEmpty
         case .diffViewer:
             return owningTabManager != nil
-                && CmuxGitDiffAvailability.hasDisplayableDiff(in: surfaceTabBarBaseCwd(inPane: pane))
         case .newWorkspace, .cloudVM, .newTerminal, .newBrowser, .newNote, .splitRight, .splitDown,
              .rightSidebarFiles, .rightSidebarFind, .rightSidebarVault,
              .revealCurrentDirectoryInFinder, .customizeSurfaceTabBar:

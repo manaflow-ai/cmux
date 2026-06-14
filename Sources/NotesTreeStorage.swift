@@ -533,6 +533,14 @@ enum NotesTreeStorage {
     /// name equals the current one).
     @discardableResult
     static func rename(sourcePath: String, toName newName: String) throws -> String {
+        let src = standardized(sourcePath)
+        let dest = try plannedRenameDestination(sourcePath: sourcePath, toName: newName)
+        guard dest != src else { return src }
+        try FileManager.default.moveItem(atPath: src, toPath: dest)
+        return dest
+    }
+
+    static func plannedRenameDestination(sourcePath: String, toName newName: String) throws -> String {
         let fm = FileManager.default
         let src = standardized(sourcePath)
         guard fm.fileExists(atPath: src) else { throw NotesTreeStorageError.sourceMissing(src) }
@@ -547,13 +555,9 @@ enum NotesTreeStorage {
         // collides with itself in `uniquePath` and would come back suffixed
         // (`Todo-2.md`); rename in place instead.
         if targetName.caseInsensitiveCompare((src as NSString).lastPathComponent) == .orderedSame {
-            let dest = (parent as NSString).appendingPathComponent(targetName)
-            try fm.moveItem(atPath: src, toPath: dest)
-            return dest
+            return (parent as NSString).appendingPathComponent(targetName)
         }
-        let dest = uniquePath(inFolder: parent, base: stem, ext: isNote ? "md" : nil)
-        try fm.moveItem(atPath: src, toPath: dest)
-        return dest
+        return uniquePath(inFolder: parent, base: stem, ext: isNote ? "md" : nil)
     }
 
     /// Filesystem-safe display name: path separators/colons become hyphens,
@@ -579,6 +583,16 @@ enum NotesTreeStorage {
     /// absolute path.
     @discardableResult
     static func move(sourcePath: String, intoFolder destinationFolder: String) throws -> String {
+        let src = standardized(sourcePath)
+        let destDir = standardized(destinationFolder)
+        let dest = try plannedMoveDestination(sourcePath: sourcePath, intoFolder: destinationFolder)
+        guard dest != src else { return src }
+        try FileManager.default.createDirectory(atPath: destDir, withIntermediateDirectories: true)
+        try FileManager.default.moveItem(atPath: src, toPath: dest)
+        return dest
+    }
+
+    static func plannedMoveDestination(sourcePath: String, intoFolder destinationFolder: String) throws -> String {
         let fm = FileManager.default
         let src = standardized(sourcePath)
         let destDir = standardized(destinationFolder)
@@ -591,10 +605,7 @@ enum NotesTreeStorage {
         if (src as NSString).deletingLastPathComponent == destDir { return src }
         let ext = (basename as NSString).pathExtension
         let stem = (basename as NSString).deletingPathExtension
-        let dest = uniquePath(inFolder: destDir, base: stem, ext: ext.isEmpty ? nil : ext)
-        try fm.createDirectory(atPath: destDir, withIntermediateDirectories: true)
-        try fm.moveItem(atPath: src, toPath: dest)
-        return dest
+        return uniquePath(inFolder: destDir, base: stem, ext: ext.isEmpty ? nil : ext)
     }
 
     // MARK: Session-folder sync
@@ -836,25 +847,6 @@ enum NotesTreeStorage {
             counter += 1
         }
         return candidate
-    }
-
-    /// Lowercase, hyphen-joined slug of `value`; `fallback` when empty.
-    static func slugify(_ value: String, fallback: String) -> String {
-        let lowered = value.lowercased()
-        var out = ""
-        var lastWasHyphen = false
-        for scalar in lowered.unicodeScalars {
-            if CharacterSet.alphanumerics.contains(scalar) {
-                out.unicodeScalars.append(scalar)
-                lastWasHyphen = false
-            } else if !lastWasHyphen {
-                out.append("-")
-                lastWasHyphen = true
-            }
-        }
-        let trimmed = out.trimmingCharacters(in: CharacterSet(charactersIn: "-"))
-        let capped = String(trimmed.prefix(48))
-        return capped.isEmpty ? fallback : capped
     }
 
     /// First 6 alphanumerics from the tail of an id (session), for a short,

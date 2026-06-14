@@ -6809,14 +6809,6 @@ struct ContentView: View {
                 CommandPaletteContextKeys.workspaceHasPullRequests,
                 !workspace.sidebarPullRequestsInDisplayOrder().isEmpty
             )
-            if let cwd = workspace.resolvedWorkingDirectory() {
-                snapshot.setBool(
-                    CommandPaletteContextKeys.workspaceHasGitDiff,
-                    CmuxGitDiffAvailability.hasDisplayableDiff(in: cwd)
-                )
-            } else {
-                snapshot.setBool(CommandPaletteContextKeys.workspaceHasGitDiff, false)
-            }
             snapshot.setBool(
                 CommandPaletteContextKeys.workspaceHasSplits,
                 workspace.bonsplitController.allPaneIds.count > 1
@@ -7602,8 +7594,7 @@ struct ContentView: View {
                 when: {
                     $0.bool(CommandPaletteContextKeys.hasWorkspace) &&
                     !$0.bool(CommandPaletteContextKeys.browserDisabled)
-                },
-                enablement: { $0.bool(CommandPaletteContextKeys.workspaceHasGitDiff) }
+                }
             )
         )
         contributions.append(

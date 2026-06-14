@@ -211,6 +211,7 @@
 		EFB18E3C0000000000000001 /* CMUXMobileCore in Frameworks */ = {isa = PBXBuildFile; productRef = EFB18E3B3099DFE2ECA3C263 /* CMUXMobileCore */; };
 		CA1F0A01CA1F0A01CA1F0A01 /* CmuxModalAlertPresentation.swift in Sources */ = {isa = PBXBuildFile; fileRef = CA1F0A02CA1F0A02CA1F0A02 /* CmuxModalAlertPresentation.swift */; };
 		B1723BD44F3448CD939F12AD /* CmuxNoteModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0E5A5CCF827C4E0BA8A2B663 /* CmuxNoteModels.swift */; };
+		C0DE43310000000000000001 /* CmuxNoteStore+BodyPath.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE43310000000000000002 /* CmuxNoteStore+BodyPath.swift */; };
 		8E220C8D4318488FB97FCD2E /* CmuxNoteStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2DD5CCB7C0564B569D8C2AA9 /* CmuxNoteStore.swift */; };
 		E3B7A30000000000000000D3 /* CmuxNotifications in Frameworks */ = {isa = PBXBuildFile; productRef = E3B7A30000000000000000D2 /* CmuxNotifications */; };
 		C0DE31390000000000000101 /* CMUXOpenCommandTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE31390000000000000102 /* CMUXOpenCommandTests.swift */; };
@@ -500,8 +501,10 @@
 		CAFE000000000000000000B6 /* NotesTreeContainerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = CAFE000000000000000000A6 /* NotesTreeContainerView.swift */; };
 		CAFE000000000000000000B1 /* NotesTreeNode.swift in Sources */ = {isa = PBXBuildFile; fileRef = CAFE000000000000000000A1 /* NotesTreeNode.swift */; };
 		CAFE000000000000000000B5 /* NotesTreePanelView.swift in Sources */ = {isa = PBXBuildFile; fileRef = CAFE000000000000000000A5 /* NotesTreePanelView.swift */; };
+		C0DE43310000000000000003 /* NotesTreeStorage+Slug.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE43310000000000000004 /* NotesTreeStorage+Slug.swift */; };
 		CAFE000000000000000000B2 /* NotesTreeStorage.swift in Sources */ = {isa = PBXBuildFile; fileRef = CAFE000000000000000000A2 /* NotesTreeStorage.swift */; };
 		CAFE000000000000000000B7 /* NotesTreeStorageTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = CAFE000000000000000000A7 /* NotesTreeStorageTests.swift */; };
+		C0DE43310000000000000005 /* NotesTreeStore+Relocation.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE43310000000000000006 /* NotesTreeStore+Relocation.swift */; };
 		CAFE000000000000000000B3 /* NotesTreeStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = CAFE000000000000000000A3 /* NotesTreeStore.swift */; };
 		EF1062F821F44048A0FC119E /* NoteSupport.swift in Sources */ = {isa = PBXBuildFile; fileRef = 86D8BE9B5C29429F8AF0D2D4 /* NoteSupport.swift */; };
 		734F49D37E543DD01C2F4FEF /* NotificationAndMenuBarTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D2C075029771815DD5DA1332 /* NotificationAndMenuBarTests.swift */; };
@@ -1103,6 +1106,7 @@
 		2F0C07000000000000000001 /* CmuxMainWindow.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/CmuxMainWindow.swift; sourceTree = "<group>"; };
 		CA1F0A02CA1F0A02CA1F0A02 /* CmuxModalAlertPresentation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CmuxModalAlertPresentation.swift; sourceTree = "<group>"; };
 		0E5A5CCF827C4E0BA8A2B663 /* CmuxNoteModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CmuxNoteModels.swift; sourceTree = "<group>"; };
+		C0DE43310000000000000002 /* CmuxNoteStore+BodyPath.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CmuxNoteStore+BodyPath.swift"; sourceTree = "<group>"; };
 		2DD5CCB7C0564B569D8C2AA9 /* CmuxNoteStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CmuxNoteStore.swift; sourceTree = "<group>"; };
 		C0DE31390000000000000102 /* CMUXOpenCommandTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CMUXOpenCommandTests.swift; sourceTree = "<group>"; };
 		A9F100000000000000000005 /* CmuxRuntimeDebugCapture.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CmuxRuntimeDebugCapture.swift; sourceTree = "<group>"; };
@@ -1354,8 +1358,10 @@
 		CAFE000000000000000000A6 /* NotesTreeContainerView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotesTreeContainerView.swift; sourceTree = "<group>"; };
 		CAFE000000000000000000A1 /* NotesTreeNode.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotesTreeNode.swift; sourceTree = "<group>"; };
 		CAFE000000000000000000A5 /* NotesTreePanelView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotesTreePanelView.swift; sourceTree = "<group>"; };
+		C0DE43310000000000000004 /* NotesTreeStorage+Slug.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "NotesTreeStorage+Slug.swift"; sourceTree = "<group>"; };
 		CAFE000000000000000000A2 /* NotesTreeStorage.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotesTreeStorage.swift; sourceTree = "<group>"; };
 		CAFE000000000000000000A7 /* NotesTreeStorageTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotesTreeStorageTests.swift; sourceTree = "<group>"; };
+		C0DE43310000000000000006 /* NotesTreeStore+Relocation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "NotesTreeStore+Relocation.swift"; sourceTree = "<group>"; };
 		CAFE000000000000000000A3 /* NotesTreeStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotesTreeStore.swift; sourceTree = "<group>"; };
 		86D8BE9B5C29429F8AF0D2D4 /* NoteSupport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NoteSupport.swift; sourceTree = "<group>"; };
 		D2C075029771815DD5DA1332 /* NotificationAndMenuBarTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotificationAndMenuBarTests.swift; sourceTree = "<group>"; };
@@ -2360,6 +2366,7 @@
 				A5001651 /* CmuxConfig.swift */,
 				0E5A5CCF827C4E0BA8A2B663 /* CmuxNoteModels.swift */,
 				2DD5CCB7C0564B569D8C2AA9 /* CmuxNoteStore.swift */,
+				C0DE43310000000000000002 /* CmuxNoteStore+BodyPath.swift */,
 				86D8BE9B5C29429F8AF0D2D4 /* NoteSupport.swift */,
 				C10D00040000000000000004 /* CmuxSurfaceTabBarBuiltInAction.swift */,
 				C0DEF0A10000000000000002 /* CmuxConfigUI.swift */,
@@ -2369,7 +2376,9 @@
 				FE001001 /* FileExplorerStore.swift */,
 				CAFE000000000000000000A1 /* NotesTreeNode.swift */,
 				CAFE000000000000000000A2 /* NotesTreeStorage.swift */,
+				C0DE43310000000000000004 /* NotesTreeStorage+Slug.swift */,
 				CAFE000000000000000000A3 /* NotesTreeStore.swift */,
+				C0DE43310000000000000006 /* NotesTreeStore+Relocation.swift */,
 				CAFE000000000000000000A4 /* NotesTreeCellView.swift */,
 				CAFE000000000000000000A5 /* NotesTreePanelView.swift */,
 				CAFE000000000000000000A6 /* NotesTreeContainerView.swift */,
@@ -3202,6 +3211,7 @@
 				2F0C07000000000000000002 /* CmuxMainWindow.swift in Sources */,
 				CA1F0A01CA1F0A01CA1F0A01 /* CmuxModalAlertPresentation.swift in Sources */,
 				B1723BD44F3448CD939F12AD /* CmuxNoteModels.swift in Sources */,
+				C0DE43310000000000000001 /* CmuxNoteStore+BodyPath.swift in Sources */,
 				8E220C8D4318488FB97FCD2E /* CmuxNoteStore.swift in Sources */,
 				A9F200000000000000000005 /* CmuxRuntimeDebugCapture.swift in Sources */,
 				A9F200000000000000000006 /* CmuxRuntimeDebugCaptureConfiguration.swift in Sources */,
@@ -3363,7 +3373,9 @@
 				CAFE000000000000000000B6 /* NotesTreeContainerView.swift in Sources */,
 				CAFE000000000000000000B1 /* NotesTreeNode.swift in Sources */,
 				CAFE000000000000000000B5 /* NotesTreePanelView.swift in Sources */,
+				C0DE43310000000000000003 /* NotesTreeStorage+Slug.swift in Sources */,
 				CAFE000000000000000000B2 /* NotesTreeStorage.swift in Sources */,
+				C0DE43310000000000000005 /* NotesTreeStore+Relocation.swift in Sources */,
 				CAFE000000000000000000B3 /* NotesTreeStore.swift in Sources */,
 				EF1062F821F44048A0FC119E /* NoteSupport.swift in Sources */,
 				B7F00002 /* NotificationSoundSettings.swift in Sources */,

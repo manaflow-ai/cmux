@@ -516,8 +516,8 @@ extension TerminalController {
             // user's notes vanished.
             return .err(
                 code: "internal_error",
-                message: "\(NoteRPCMessage.listFailed): \(error.localizedDescription)",
-                data: nil
+                message: NoteRPCMessage.listFailed,
+                data: ["detail": error.localizedDescription]
             )
         }
         let resolution = CmuxNoteContextResolver.resolve(
