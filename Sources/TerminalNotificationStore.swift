@@ -1781,6 +1781,9 @@ final class TerminalNotificationStore: ObservableObject {
                 content: content,
                 trigger: nil
             )
+            let commandTitle = content.title
+            let commandSubtitle = content.subtitle
+            let commandBody = content.body
 
             let nativeDeliveryHooks = self.nativeNotificationDeliveryHooks
             nativeDeliveryHooks.schedule(request) { error in
@@ -1790,9 +1793,7 @@ final class TerminalNotificationStore: ObservableObject {
                     )
                     NativeNotificationDeliveryHooks.playNativeUnavailableFeedback(effects: effects)
                 } else if effects.command {
-                    Task { @MainActor in
-                        nativeDeliveryHooks.runCommand(title: content.title, subtitle: content.subtitle, body: content.body)
-                    }
+                    nativeDeliveryHooks.runCommand(title: commandTitle, subtitle: commandSubtitle, body: commandBody)
                 }
             }
         }
