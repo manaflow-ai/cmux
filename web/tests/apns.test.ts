@@ -1,15 +1,20 @@
 import crypto from "node:crypto";
 import { EventEmitter } from "node:events";
+import type http2 from "node:http2";
 import { describe, expect, test } from "bun:test";
 import {
   apnsHostForEnvironment,
   buildApnsPayload,
+  CMUX_APNS_CATEGORY,
   shouldPruneToken,
 } from "../services/apns/payload";
 import { summarizeApnsSendResults } from "../services/apns/response";
 import { sendApnsNotification, signApnsJwt, normalizeP8 } from "../services/apns/sender";
 import {
+  MAX_PUSH_BADGE_COUNT,
   MAX_PUSH_BODY_CHARS,
+  MAX_PUSH_DISMISS_IDS,
+  MAX_PUSH_ID_CHARS,
   normalizeApnsBundle,
   parsePushPayload,
   readBoundedJsonObject,
@@ -36,6 +41,33 @@ describe("apns payload", () => {
     expect("cmux" in payload).toBe(false);
   });
 
+  test("carries the stable notification id and dismiss-sync category", () => {
+    const payload = buildApnsPayload({
+      title: "claude",
+      body: "Agent finished",
+      workspaceId: "ws-1",
+      notificationId: "n-42",
+    }) as { aps: Record<string, unknown>; cmux: Record<string, string> };
+
+    // The category is what arms iOS customDismissAction; the cmux key lets an
+    // iOS swipe tell the Mac which notification was dismissed.
+    expect(payload.aps.category).toBe(CMUX_APNS_CATEGORY);
+    expect(payload.cmux).toEqual({ workspaceId: "ws-1", notificationId: "n-42" });
+  });
+
+  test("keeps the notification id even when content is hidden (id is not content)", () => {
+    const payload = buildApnsPayload({
+      title: "secret",
+      body: "secret output",
+      notificationId: "n-9",
+      hideContent: true,
+    }) as { aps: { alert: Record<string, string>; category: string }; cmux: Record<string, string> };
+
+    expect(payload.aps.alert.title).toBe("cmux");
+    expect(payload.aps.category).toBe(CMUX_APNS_CATEGORY);
+    expect(payload.cmux).toEqual({ notificationId: "n-9" });
+  });
+
   test("hideContent redacts terminal content but keeps a generic compatibility body and deep-link", () => {
     const payload = buildApnsPayload({
       title: "secret-host",
@@ -54,6 +86,37 @@ describe("apns payload", () => {
   test("empty title falls back to cmux", () => {
     const payload = buildApnsPayload({ title: "   ", body: "b" }) as { aps: { alert: { title: string } } };
     expect(payload.aps.alert.title).toBe("cmux");
+  });
+
+  test("stamps aps.badge with the authoritative unread count on a notify push", () => {
+    const payload = buildApnsPayload({
+      title: "claude",
+      body: "Agent finished",
+      badgeCount: 3,
+    }) as { aps: Record<string, unknown> };
+
+    expect(payload.aps.badge).toBe(3);
+  });
+
+  test("leaves the badge alone when no count was sent (older Macs)", () => {
+    const payload = buildApnsPayload({ title: "t", body: "b" }) as { aps: Record<string, unknown> };
+    expect("badge" in payload.aps).toBe(false);
+  });
+
+  test("dismiss push is banner-less: content-available + badge + dismissed ids only", () => {
+    const payload = buildApnsPayload({
+      kind: "dismiss",
+      title: "",
+      body: "",
+      dismissedIds: ["n-1", "n-2"],
+      badgeCount: 0,
+    }) as { aps: Record<string, unknown>; cmux: Record<string, unknown> };
+
+    expect(payload.aps).toEqual({ "content-available": 1, badge: 0 });
+    // Nothing visible: no alert, no sound, no category.
+    expect("alert" in payload.aps).toBe(false);
+    expect("sound" in payload.aps).toBe(false);
+    expect(payload.cmux).toEqual({ dismissedIds: ["n-1", "n-2"] });
   });
 });
 
@@ -119,17 +182,22 @@ describe("apns route policy", () => {
       body: " done ",
       workspaceId: " ws-1 ",
       surfaceId: " sf-1 ",
+      notificationId: " n-1 ",
       hideContent: true,
     });
 
     expect(parsed).toEqual({
       ok: true,
       value: {
+        kind: "notify",
         title: "agent",
         subtitle: "workspace",
         body: "done",
         workspaceId: "ws-1",
         surfaceId: "sf-1",
+        notificationId: "n-1",
+        dismissedIds: [],
+        badgeCount: null,
         hideContent: true,
       },
     });
@@ -142,6 +210,87 @@ describe("apns route policy", () => {
       ok: false,
       error: "body_too_long",
     });
+  });
+
+  test("absent notificationId parses to null and over-long is rejected", () => {
+    const parsed = parsePushPayload({ title: "agent", body: "done" });
+    expect(parsed).toEqual({
+      ok: true,
+      value: {
+        kind: "notify",
+        title: "agent",
+        subtitle: null,
+        body: "done",
+        workspaceId: null,
+        surfaceId: null,
+        notificationId: null,
+        dismissedIds: [],
+        badgeCount: null,
+        hideContent: false,
+      },
+    });
+
+    expect(
+      parsePushPayload({ title: "agent", body: "done", notificationId: "x".repeat(MAX_PUSH_ID_CHARS + 1) }),
+    ).toEqual({ ok: false, error: "notification_id_too_long" });
+  });
+
+  test("parses a dismiss push: text-free, requires ids, carries the badge", () => {
+    const parsed = parsePushPayload({
+      kind: "dismiss",
+      notificationIds: [" n-1 ", "n-2"],
+      badgeCount: 4,
+    });
+
+    expect(parsed).toEqual({
+      ok: true,
+      value: {
+        kind: "dismiss",
+        title: "",
+        subtitle: null,
+        body: "",
+        workspaceId: null,
+        surfaceId: null,
+        notificationId: null,
+        dismissedIds: ["n-1", "n-2"],
+        badgeCount: 4,
+        hideContent: false,
+      },
+    });
+
+    expect(parsePushPayload({ kind: "dismiss", badgeCount: 0 })).toEqual({
+      ok: false,
+      error: "missing_dismissed_ids",
+    });
+    expect(parsePushPayload({ kind: "dismiss", notificationIds: "n-1" })).toEqual({
+      ok: false,
+      error: "bad_notification_ids",
+    });
+    expect(
+      parsePushPayload({
+        kind: "dismiss",
+        notificationIds: Array.from({ length: MAX_PUSH_DISMISS_IDS + 1 }, (_, i) => `n-${i}`),
+      }),
+    ).toEqual({ ok: false, error: "too_many_notification_ids" });
+    expect(
+      parsePushPayload({ kind: "dismiss", notificationIds: ["x".repeat(MAX_PUSH_ID_CHARS + 1)] }),
+    ).toEqual({ ok: false, error: "notification_id_too_long" });
+  });
+
+  test("badge count is tolerant: malformed is ignored, runaway is clamped", () => {
+    const value = (badgeCount: unknown) => {
+      const parsed = parsePushPayload({ title: "agent", body: "done", badgeCount });
+      if (!parsed.ok) throw new Error(parsed.error);
+      return parsed.value.badgeCount;
+    };
+
+    expect(value(7)).toBe(7);
+    expect(value(0)).toBe(0);
+    expect(value(undefined)).toBeNull();
+    expect(value("7")).toBeNull();
+    expect(value(-1)).toBeNull();
+    expect(value(1.5)).toBeNull();
+    expect(value(MAX_PUSH_BADGE_COUNT + 100)).toBe(MAX_PUSH_BADGE_COUNT);
   });
 
   test("reads only bounded JSON objects from requests", async () => {
@@ -433,5 +582,191 @@ describe("apns sender transport", () => {
       { deviceToken: "b".repeat(64), status: 0, reason: "request failed", prune: false },
     ]);
     expect(closed).toEqual([productionHost]);
+  });
+
+  test("stamps apns-collapse-id from the notification id so the banner is dismiss-syncable", async () => {
+    const capturedHeaders: http2.OutgoingHttpHeaders[] = [];
+
+    class FakeRequest extends EventEmitter {
+      setTimeout() {
+        return this;
+      }
+      close() {
+        return this;
+      }
+      end() {
+        this.emit("response", { ":status": 200 });
+        this.emit("end");
+        return this;
+      }
+    }
+
+    class FakeSession extends EventEmitter {
+      request(headers: http2.OutgoingHttpHeaders) {
+        capturedHeaders.push(headers);
+        return new FakeRequest();
+      }
+      close() {}
+    }
+
+    const transport = {
+      connect: () => new FakeSession(),
+    } as unknown as Parameters<typeof sendApnsNotification>[4];
+
+    const { privateKey } = crypto.generateKeyPairSync("ec", { namedCurve: "P-256" });
+    const p8 = privateKey.export({ type: "pkcs8", format: "pem" }) as string;
+
+    await sendApnsNotification(
+      { keyP8: p8, keyId: "KID-COLLAPSE", teamId: "TEAM456" },
+      [{ deviceToken: "a".repeat(64), bundleId: "com.cmuxterm.app", environment: "production" }],
+      { title: "agent", body: "done", notificationId: "n-7" },
+      1000,
+      transport,
+    );
+
+    expect(capturedHeaders).toHaveLength(1);
+    expect(capturedHeaders[0]["apns-collapse-id"]).toBe("n-7");
+  });
+
+  test("omits apns-collapse-id when there is no notification id", async () => {
+    const capturedHeaders: http2.OutgoingHttpHeaders[] = [];
+
+    class FakeRequest extends EventEmitter {
+      setTimeout() {
+        return this;
+      }
+      close() {
+        return this;
+      }
+      end() {
+        this.emit("response", { ":status": 200 });
+        this.emit("end");
+        return this;
+      }
+    }
+
+    class FakeSession extends EventEmitter {
+      request(headers: http2.OutgoingHttpHeaders) {
+        capturedHeaders.push(headers);
+        return new FakeRequest();
+      }
+      close() {}
+    }
+
+    const transport = {
+      connect: () => new FakeSession(),
+    } as unknown as Parameters<typeof sendApnsNotification>[4];
+
+    const { privateKey } = crypto.generateKeyPairSync("ec", { namedCurve: "P-256" });
+    const p8 = privateKey.export({ type: "pkcs8", format: "pem" }) as string;
+
+    await sendApnsNotification(
+      { keyP8: p8, keyId: "KID-NO-COLLAPSE", teamId: "TEAM456" },
+      [{ deviceToken: "a".repeat(64), bundleId: "com.cmuxterm.app", environment: "production" }],
+      { title: "agent", body: "done" },
+      1000,
+      transport,
+    );
+
+    expect(capturedHeaders).toHaveLength(1);
+    expect("apns-collapse-id" in capturedHeaders[0]).toBe(false);
+  });
+
+  test("dismiss push: never collapses onto the banner and downgrades to priority 5", async () => {
+    const capturedHeaders: http2.OutgoingHttpHeaders[] = [];
+
+    class FakeRequest extends EventEmitter {
+      setTimeout() {
+        return this;
+      }
+      close() {
+        return this;
+      }
+      end() {
+        this.emit("response", { ":status": 200 });
+        this.emit("end");
+        return this;
+      }
+    }
+
+    class FakeSession extends EventEmitter {
+      request(headers: http2.OutgoingHttpHeaders) {
+        capturedHeaders.push(headers);
+        return new FakeRequest();
+      }
+      close() {}
+    }
+
+    const transport = {
+      connect: () => new FakeSession(),
+    } as unknown as Parameters<typeof sendApnsNotification>[4];
+
+    const { privateKey } = crypto.generateKeyPairSync("ec", { namedCurve: "P-256" });
+    const p8 = privateKey.export({ type: "pkcs8", format: "pem" }) as string;
+
+    await sendApnsNotification(
+      { keyP8: p8, keyId: "KID-DISMISS", teamId: "TEAM456" },
+      [{ deviceToken: "a".repeat(64), bundleId: "com.cmuxterm.app", environment: "production" }],
+      {
+        kind: "dismiss",
+        title: "",
+        body: "",
+        // notificationId would normally collapse; a dismiss push must NOT,
+        // or APNs would replace the visible banner with the silent payload.
+        notificationId: "n-7",
+        dismissedIds: ["n-7"],
+        badgeCount: 0,
+      },
+      1000,
+      transport,
+    );
+
+    expect(capturedHeaders).toHaveLength(1);
+    expect("apns-collapse-id" in capturedHeaders[0]).toBe(false);
+    expect(capturedHeaders[0]["apns-priority"]).toBe("5");
+  });
+
+  test("notify push keeps the default immediate priority", async () => {
+    const capturedHeaders: http2.OutgoingHttpHeaders[] = [];
+
+    class FakeRequest extends EventEmitter {
+      setTimeout() {
+        return this;
+      }
+      close() {
+        return this;
+      }
+      end() {
+        this.emit("response", { ":status": 200 });
+        this.emit("end");
+        return this;
+      }
+    }
+
+    class FakeSession extends EventEmitter {
+      request(headers: http2.OutgoingHttpHeaders) {
+        capturedHeaders.push(headers);
+        return new FakeRequest();
+      }
+      close() {}
+    }
+
+    const transport = {
+      connect: () => new FakeSession(),
+    } as unknown as Parameters<typeof sendApnsNotification>[4];
+
+    const { privateKey } = crypto.generateKeyPairSync("ec", { namedCurve: "P-256" });
+    const p8 = privateKey.export({ type: "pkcs8", format: "pem" }) as string;
+
+    await sendApnsNotification(
+      { keyP8: p8, keyId: "KID-NOTIFY-PRIO", teamId: "TEAM456" },
+      [{ deviceToken: "a".repeat(64), bundleId: "com.cmuxterm.app", environment: "production" }],
+      { title: "agent", body: "done", badgeCount: 2 },
+      1000,
+      transport,
+    );
+
+    expect(capturedHeaders).toHaveLength(1);
+    expect("apns-priority" in capturedHeaders[0]).toBe(false);
   });
 });
