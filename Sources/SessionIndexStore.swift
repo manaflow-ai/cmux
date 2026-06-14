@@ -157,6 +157,7 @@ struct IndexSection: Identifiable, Equatable {
     let title: String
     let icon: SectionIcon
     let entries: [SessionEntry]
+    let mayHaveMoreOnDisk: Bool
 
     var id: SectionKey { key }
 }
@@ -276,7 +277,8 @@ final class SessionIndexStore: ObservableObject {
                     key: .agent(agent),
                     title: agent.displayName,
                     icon: .agent(agent),
-                    entries: entries
+                    entries: entries,
+                    mayHaveMoreOnDisk: false
                 )
             }
         case .directory:
@@ -303,7 +305,8 @@ final class SessionIndexStore: ObservableObject {
                         key: .directory(path.isEmpty ? nil : path),
                         title: directoryDisplayName(path),
                         icon: .folder,
-                        entries: buckets[path] ?? []
+                        entries: buckets[path] ?? [],
+                        mayHaveMoreOnDisk: true
                     )
                 }
         }

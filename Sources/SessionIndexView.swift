@@ -394,7 +394,7 @@ private struct IndexSectionView: View, Equatable {
                         .equatable()
                         .id(entry.id)
                 }
-                if section.entries.count > rowLimit {
+                if section.entries.count > rowLimit || section.mayHaveMoreOnDisk {
                     showMoreButton
                 }
                 Spacer(minLength: 2)
