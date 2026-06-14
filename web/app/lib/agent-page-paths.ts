@@ -68,6 +68,7 @@ export const agentReadablePages = [
   { path: "/docs/skills", title: "Skills" },
   { path: "/docs/notifications", title: "Notifications" },
   { path: "/docs/ssh", title: "SSH" },
+  { path: "/docs/deeplinks", title: "Deep Links" },
   {
     path: "/docs/agent-integrations/claude-code-teams",
     title: "Claude Code Teams",
