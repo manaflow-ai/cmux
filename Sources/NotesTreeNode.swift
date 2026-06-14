@@ -51,7 +51,8 @@ enum NotesTreeKind: Equatable, Sendable {
 /// by reference and compares them by identity. The full subtree is materialized
 /// eagerly by ``NotesTreeStore`` (notes trees are small), so `children` is
 /// non-nil for every directory node after a load.
-final class NotesTreeNode: Identifiable {
+// Nodes are built as an isolated snapshot off-main, then owned and mutated by NotesTreeStore on the main thread.
+final class NotesTreeNode: Identifiable, @unchecked Sendable {
     /// Stable identity: the node's absolute filesystem path, or the synthetic
     /// `cmux-virtual-session://…` identity for live (unmaterialized) sessions.
     let id: String

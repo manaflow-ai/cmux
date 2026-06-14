@@ -571,7 +571,7 @@ import Testing
     /// Moving an index-owned pane note out of a terminal row and into the
     /// workspace tree must keep showing the record title, not the UUID body
     /// filename that backs the flat note store.
-    @Test @MainActor func movedIndexedNoteKeepsRecordTitleInTree() throws {
+    @Test @MainActor func movedIndexedNoteKeepsRecordTitleInTree() async throws {
         let store = NotesTreeStore()
         store.setWorkspace(
             title: "WS", projectRoot: projectRoot, currentDirectory: "/work", anchorId: "anchor-display"
@@ -592,6 +592,7 @@ import Testing
             attachment: target
         )
         let moved = try #require(store.moveFlatNote(path: created.path, intoFolder: root))
+        await store.waitForPendingReloadForTesting()
         #expect((moved as NSString).lastPathComponent != "Pane Title.md")
         #expect(store.isIndexedNote(path: moved))
         let workspaceTarget = CmuxNoteAttachmentTarget.workspace(workspaceAnchorId: "anchor-display")
@@ -676,7 +677,7 @@ import Testing
     /// Every observed terminal becomes a virtual folder row. Pane-attached
     /// flat notes nest there immediately, while session records only appear
     /// there when the latest pane observation still sees that session live.
-    @Test @MainActor func terminalRowsNestAnchoredNotesAndOnlyObservedSessions() throws {
+    @Test @MainActor func terminalRowsNestAnchoredNotesAndOnlyObservedSessions() async throws {
         let root = try NotesTreeStorage.ensureWorkspaceRoot(
             projectRoot: projectRoot, cwd: "/work", title: "WS", anchorId: "anchor-term"
         )
@@ -725,6 +726,7 @@ import Testing
             NotesTreeObservedTerminal(panelId: UUID().uuidString, anchorId: "anchor-pane-1", title: "build shell"),
             NotesTreeObservedTerminal(panelId: UUID().uuidString, anchorId: nil, title: "scratch")
         ])
+        await store.waitForPendingReloadForTesting()
 
         // Both terminals appear, in pane order, as virtual rows.
         let terminalRows = store.rootNodes.compactMap { node in
@@ -756,6 +758,7 @@ import Testing
                 terminalPanelId: anchored.marker.panelId
             )
         ])
+        await store.waitForPendingReloadForTesting()
         let refreshedTerminalRows = store.rootNodes.compactMap { node in
             node.kind.terminalMarker.map { (node: node, marker: $0) }
         }
@@ -774,6 +777,7 @@ import Testing
         // When the session exits, the terminal goes back to its shell title
         // and the session plus its note return to Past.
         store.applyObservedSessions([])
+        await store.waitForPendingReloadForTesting()
         let endedTerminalRows = store.rootNodes.compactMap { node in
             node.kind.terminalMarker.map { (node: node, marker: $0) }
         }
@@ -785,7 +789,7 @@ import Testing
         #expect((endedPastSession.children ?? []).contains { $0.displayName == "Pane note" })
     }
 
-    @Test @MainActor func terminalRowsReflectActiveAgentSessionAndRevertWhenItEnds() throws {
+    @Test @MainActor func terminalRowsReflectActiveAgentSessionAndRevertWhenItEnds() async throws {
         let store = NotesTreeStore()
         store.setWorkspace(
             title: "WS", projectRoot: projectRoot, currentDirectory: "/work", anchorId: "anchor-active"
@@ -794,6 +798,7 @@ import Testing
         store.applyObservedTerminals([
             NotesTreeObservedTerminal(panelId: panelId, anchorId: nil, title: "zsh")
         ])
+        await store.waitForPendingReloadForTesting()
         var row = try #require(store.rootNodes.first { $0.kind.terminalMarker?.panelId == panelId })
         #expect(row.displayName == "zsh")
         #expect(row.kind.terminalMarker?.activeSession == nil)
@@ -806,17 +811,19 @@ import Testing
                 terminalPanelId: panelId
             )
         ])
+        await store.waitForPendingReloadForTesting()
         row = try #require(store.rootNodes.first { $0.kind.terminalMarker?.panelId == panelId })
         #expect(row.displayName == "Claude Code")
         #expect(row.kind.terminalMarker?.activeSession?.sessionId == "s-active")
 
         store.applyObservedSessions([])
+        await store.waitForPendingReloadForTesting()
         row = try #require(store.rootNodes.first { $0.kind.terminalMarker?.panelId == panelId })
         #expect(row.displayName == "zsh")
         #expect(row.kind.terminalMarker?.activeSession == nil)
     }
 
-    @Test @MainActor func observedTerminalTitleChangesRefreshRows() throws {
+    @Test @MainActor func observedTerminalTitleChangesRefreshRows() async throws {
         let store = NotesTreeStore()
         store.setWorkspace(
             title: "WS", projectRoot: projectRoot, currentDirectory: "/work", anchorId: "anchor-title"
@@ -826,15 +833,17 @@ import Testing
         store.applyObservedTerminals([
             NotesTreeObservedTerminal(panelId: panelId, anchorId: "anchor-pane", title: "old title")
         ])
+        await store.waitForPendingReloadForTesting()
         #expect(store.rootNodes.compactMap(\.kind.terminalMarker).map(\.title) == ["old title"])
 
         store.applyObservedTerminals([
             NotesTreeObservedTerminal(panelId: panelId, anchorId: "anchor-pane", title: "new title")
         ])
+        await store.waitForPendingReloadForTesting()
         #expect(store.rootNodes.compactMap(\.kind.terminalMarker).map(\.title) == ["new title"])
     }
 
-    @Test @MainActor func droppingTreeNoteOnTerminalFilesItUnderTerminalAnchor() throws {
+    @Test @MainActor func droppingTreeNoteOnTerminalFilesItUnderTerminalAnchor() async throws {
         let root = try NotesTreeStorage.ensureWorkspaceRoot(
             projectRoot: projectRoot, cwd: "/work", title: "WS", anchorId: "anchor-drop"
         )
@@ -858,6 +867,7 @@ import Testing
             surfaceKind: PanelType.terminal.rawValue
         )
         let filedPath = try #require(store.attachNote(path: looseNote, toTerminal: terminal, target: target))
+        await store.waitForPendingReloadForTesting()
         #expect(!fm.fileExists(atPath: looseNote))
         #expect(fm.fileExists(atPath: filedPath))
 
@@ -871,7 +881,7 @@ import Testing
         #expect(!store.rootNodes.contains { $0.path == filedPath })
     }
 
-    @Test @MainActor func droppingIndexedNoteOnAnotherTerminalReplacesWorkspaceAttachment() throws {
+    @Test @MainActor func droppingIndexedNoteOnAnotherTerminalReplacesWorkspaceAttachment() async throws {
         _ = try NotesTreeStorage.ensureWorkspaceRoot(
             projectRoot: projectRoot, cwd: "/work", title: "WS", anchorId: "anchor-move"
         )
@@ -909,6 +919,7 @@ import Testing
         store.applyObservedTerminals([first, second])
 
         let filedPath = try #require(store.attachNote(path: created.path, toTerminal: second, target: secondTarget))
+        await store.waitForPendingReloadForTesting()
         #expect(filedPath == created.path)
         let record = try #require(try CmuxNoteStore.list(projectRoot: projectRoot).first { $0.slug == "pane-note" })
         #expect(record.attachments.contains { $0.matches(secondTarget) })

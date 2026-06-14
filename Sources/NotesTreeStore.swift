@@ -66,6 +66,8 @@ final class NotesTreeStore: ObservableObject {
     private var watchers: [FileWatcher] = []
     private var watcherTasks: [Task<Void, Never>] = []
     private var watchedDirs: Set<String> = []
+    private var reloadTask: Task<Void, Never>?
+    private var reloadGeneration = 0
     private var reloadCoalesceTask: Task<Void, Never>?
     private var markerRefreshTask: Task<Void, Never>?
     private var visibilityRefreshTask: Task<Void, Never>?
@@ -127,6 +129,7 @@ final class NotesTreeStore: ObservableObject {
         // cancel it and lift the throttle so the new workspace scans immediately.
         markerRefreshTask?.cancel()
         markerRefreshTask = nil
+        cancelPendingReload()
         emptyObservationRetryTask?.cancel()
         emptyObservationRetryTask = nil
         lastMarkerRefresh = nil
@@ -140,8 +143,9 @@ final class NotesTreeStore: ObservableObject {
 
     /// Detach from any workspace and empty the tree (remote/no-selection state).
     func clear() {
-        guard hasWorkspace || !rootNodes.isEmpty else { return }
+        guard hasWorkspace || !rootNodes.isEmpty || reloadTask != nil else { return }
         stopWatchers()
+        cancelPendingReload()
         reloadCoalesceTask?.cancel()
         reloadCoalesceTask = nil
         markerRefreshTask?.cancel()
@@ -234,38 +238,86 @@ final class NotesTreeStore: ObservableObject {
         // A symlinked `.cmux`/`.cmux/notes` re-roots every path below it;
         // refuse to render (or later mutate) such a tree at all.
         guard let root = resolvedRootPath, currentRootIsTrusted(root) else {
+            cancelPendingReload()
             clearRenderedRoot()
             return
         }
-        let indexedRefs = projectRoot.flatMap { projectRoot in
-            workspaceAnchorId.map { NotesTreeStorage.listIndexedNotes(projectRoot: projectRoot, workspaceAnchorId: $0) }
+        reloadGeneration &+= 1
+        let generation = reloadGeneration
+        let request = NotesTreeReloadRequest(
+            root: root,
+            notesDirPath: notesDirPath,
+            projectRoot: projectRoot,
+            workspaceAnchorId: workspaceAnchorId,
+            observedTerminals: observedTerminals,
+            observedSessionKeys: observedSessionKeys,
+            observedSessions: observedSessions,
+            maxDepth: maxDepth,
+            nodeBudget: nodeBudget,
+            sessionRowLimit: sessionRowLimit,
+            maxWatchers: maxWatchers
+        )
+        reloadTask?.cancel()
+        reloadTask = Task { @MainActor [weak self] in
+            let buildTask = Task.detached(priority: .utility) {
+                Self.buildReloadResult(request)
+            }
+            let result = await buildTask.value
+            guard let self else { return }
+            defer {
+                if self.reloadGeneration == generation {
+                    self.reloadTask = nil
+                }
+            }
+            guard !Task.isCancelled, self.reloadGeneration == generation else { return }
+            guard self.hasWorkspace,
+                  self.resolvedRootPath == root,
+                  self.currentRootIsTrusted(root)
+            else {
+                self.clearRenderedRootIfCurrent(root)
+                return
+            }
+            self.rootNodes = result.nodes
+            self.contentRevision &+= 1
+            self.refreshWatchers(forDirectories: result.watchedDirs)
+        }
+    }
+
+    private static func buildReloadResult(_ request: NotesTreeReloadRequest) -> NotesTreeReloadResult {
+        let indexedRefs = request.projectRoot.flatMap { projectRoot in
+            request.workspaceAnchorId.map {
+                NotesTreeStorage.listIndexedNotes(projectRoot: projectRoot, workspaceAnchorId: $0)
+            }
         } ?? []
         let indexedTitleByPath = Dictionary(
             uniqueKeysWithValues: indexedRefs.map {
                 (($0.path as NSString).standardizingPath, $0.title)
             }
         )
-        var budget = nodeBudget
+        var budget = request.nodeBudget
         var nodes = buildChildren(
-            ofDirectory: root,
+            ofDirectory: request.root,
             depth: 0,
+            maxDepth: request.maxDepth,
             budget: &budget,
             indexedTitleByPath: indexedTitleByPath
         )
-        let records = NotesTreeStorage.readWorkspaceSessions(inRoot: root)
+        let records = NotesTreeStorage.readWorkspaceSessions(inRoot: request.root)
         nodes.append(contentsOf: sessionRowNodes(
             records: records,
             materializedInto: nodes,
-            visibleSessionKeys: observedSessionKeys
+            visibleSessionKeys: request.observedSessionKeys,
+            sessionRowLimit: request.sessionRowLimit
         ))
         let pastSessionRows = pastSessionRowNodes(
             records: records,
             materializedInto: nodes,
-            visibleSessionKeys: observedSessionKeys
+            visibleSessionKeys: request.observedSessionKeys,
+            sessionRowLimit: request.sessionRowLimit
         )
         let activeSessionByTerminal = terminalActiveSessions(
             records: records,
-            observations: observedSessions
+            observations: request.observedSessions
         )
 
         // Terminal rows: every live terminal pane, in pane order, as a virtual
@@ -273,7 +325,7 @@ final class NotesTreeStore: ObservableObject {
         // notes and current sessions can land beneath the terminal that owns
         // them.
         var terminalNodeByAnchor: [String: NotesTreeNode] = [:]
-        let terminalNodes = observedTerminals.map { terminal in
+        let terminalNodes = request.observedTerminals.map { terminal in
             var terminal = terminal
             if let active = activeSessionByTerminal[terminal.panelId]
                 ?? terminal.anchorId.flatMap({ activeSessionByTerminal[$0] }) {
@@ -317,7 +369,7 @@ final class NotesTreeStore: ObservableObject {
         if !pastSessionRows.isEmpty {
             nodes.append(NotesTreeNode(
                 name: "past",
-                path: "cmux-virtual-past://\(workspaceAnchorId ?? root)",
+                path: "cmux-virtual-past://\(request.workspaceAnchorId ?? request.root)",
                 kind: .pastFolder,
                 isVirtual: true,
                 children: pastSessionRows.sorted(by: nodeDisplayOrder)
@@ -347,7 +399,7 @@ final class NotesTreeStore: ObservableObject {
                 // A flat note whose body was moved INSIDE the workspace folder
                 // is already listed as a real file; skip the index ref so the
                 // note doesn't appear twice.
-                guard !NotesTreeStorage.isWithin(child: ref.path, orEqualTo: root) else { continue }
+                guard !NotesTreeStorage.isWithin(child: ref.path, orEqualTo: request.root) else { continue }
                 let node = NotesTreeNode(name: ref.title, path: ref.path, kind: .note)
                 if let anchor = ref.surfaceAnchorId,
                    let terminalNode = terminalNodeByAnchor[anchor],
@@ -376,7 +428,7 @@ final class NotesTreeStore: ObservableObject {
         // Terminals keep pane order (the order they sit in the workspace),
         // not name order; everything else uses the standard display order.
         let terminalPaneOrder: [String: Int] = Dictionary(
-            uniqueKeysWithValues: observedTerminals.enumerated().map { ($0.element.panelId, $0.offset) }
+            uniqueKeysWithValues: request.observedTerminals.enumerated().map { ($0.element.panelId, $0.offset) }
         )
         nodes.sort { lhs, rhs in
             if let lhsTerminal = lhs.kind.terminalMarker, let rhsTerminal = rhs.kind.terminalMarker {
@@ -385,12 +437,18 @@ final class NotesTreeStore: ObservableObject {
             }
             return nodeDisplayOrder(lhs, rhs)
         }
-        rootNodes = nodes
-        contentRevision &+= 1
-        refreshWatchers(forRoot: root)
+        return NotesTreeReloadResult(
+            nodes: nodes,
+            watchedDirs: watcherDirectories(
+                root: request.root,
+                notesDirPath: request.notesDirPath,
+                nodes: nodes,
+                maxWatchers: request.maxWatchers
+            )
+        )
     }
 
-    private func nodeDisplayOrder(_ lhs: NotesTreeNode, _ rhs: NotesTreeNode) -> Bool {
+    private static func nodeDisplayOrder(_ lhs: NotesTreeNode, _ rhs: NotesTreeNode) -> Bool {
         NotesTreeStorage.displayOrder(
             NotesTreeEntry(name: lhs.name, path: lhs.path, kind: lhs.kind),
             NotesTreeEntry(name: rhs.name, path: rhs.path, kind: rhs.kind)
@@ -399,10 +457,11 @@ final class NotesTreeStore: ObservableObject {
 
     /// Rows for currently observed workspace sessions that have no
     /// user-created materialized folder yet.
-    private func sessionRowNodes(
+    private static func sessionRowNodes(
         records: [NotesWorkspaceSessionRecord],
         materializedInto nodes: [NotesTreeNode],
-        visibleSessionKeys: Set<String>
+        visibleSessionKeys: Set<String>,
+        sessionRowLimit: Int
     ) -> [NotesTreeNode] {
         guard !records.isEmpty, !visibleSessionKeys.isEmpty else { return [] }
         var materializedIds = Set<String>()
@@ -440,10 +499,11 @@ final class NotesTreeStore: ObservableObject {
     /// Rows for previously observed sessions. These are grouped under the
     /// virtual Past folder after they are no longer present in a live terminal,
     /// preserving the workspace's context without deleting or moving note files.
-    private func pastSessionRowNodes(
+    private static func pastSessionRowNodes(
         records: [NotesWorkspaceSessionRecord],
         materializedInto nodes: [NotesTreeNode],
-        visibleSessionKeys: Set<String>
+        visibleSessionKeys: Set<String>,
+        sessionRowLimit: Int
     ) -> [NotesTreeNode] {
         guard !records.isEmpty else { return [] }
         var materializedIds = Set<String>()
@@ -492,9 +552,10 @@ final class NotesTreeStore: ObservableObject {
         }
     }
 
-    private func buildChildren(
+    private static func buildChildren(
         ofDirectory directory: String,
         depth: Int,
+        maxDepth: Int,
         budget: inout Int,
         indexedTitleByPath: [String: String]
     ) -> [NotesTreeNode] {
@@ -508,6 +569,7 @@ final class NotesTreeStore: ObservableObject {
                 ? buildChildren(
                     ofDirectory: entry.path,
                     depth: depth + 1,
+                    maxDepth: maxDepth,
                     budget: &budget,
                     indexedTitleByPath: indexedTitleByPath
                 )
@@ -779,7 +841,7 @@ final class NotesTreeStore: ObservableObject {
         "\(agent)\n\(sessionId)"
     }
 
-    private func terminalActiveSessions(
+    private static func terminalActiveSessions(
         records: [NotesWorkspaceSessionRecord],
         observations: [NotesTreeObservedSession]
     ) -> [String: NotesSessionMarker] {
@@ -1044,7 +1106,7 @@ final class NotesTreeStore: ObservableObject {
     /// Collapse every directory in the tree (the header's Collapse All action).
     func collapseAll() {
         var dirs = Set<String>()
-        collectDirectories(rootNodes, into: &dirs)
+        Self.collectDirectories(rootNodes, into: &dirs)
         guard !dirs.isEmpty else { return }
         collapsedPaths.formUnion(dirs)
         contentRevision &+= 1
@@ -1070,17 +1132,26 @@ final class NotesTreeStore: ObservableObject {
     /// created is observed), the flat-notes directory, and every directory in
     /// the tree, so external writes refresh the sidebar. Only rebuilds when the
     /// watched-directory set changes.
-    private func refreshWatchers(forRoot root: String) {
+    private static func watcherDirectories(
+        root: String,
+        notesDirPath: String?,
+        nodes: [NotesTreeNode],
+        maxWatchers: Int
+    ) -> Set<String> {
         var dirs = Set<String>()
         dirs.insert(nearestExistingDirectory(of: root))
-        if let notesDir = notesDirPath {
-            dirs.insert(nearestExistingDirectory(of: notesDir))
+        if let notesDirPath {
+            dirs.insert(nearestExistingDirectory(of: notesDirPath))
         }
-        collectDirectories(rootNodes, into: &dirs)
+        collectDirectories(nodes, into: &dirs)
         if dirs.count > maxWatchers {
             // Defensive cap: prefer the shallowest paths.
             dirs = Set(dirs.sorted { $0.count < $1.count }.prefix(maxWatchers))
         }
+        return dirs
+    }
+
+    private func refreshWatchers(forDirectories dirs: Set<String>) {
         guard dirs != watchedDirs else { return }
         stopWatchers()
         watchedDirs = dirs
@@ -1099,14 +1170,14 @@ final class NotesTreeStore: ObservableObject {
 
     /// Real directories only — virtual session rows have no on-disk path to
     /// watch or collapse.
-    private func collectDirectories(_ nodes: [NotesTreeNode], into set: inout Set<String>) {
+    private static func collectDirectories(_ nodes: [NotesTreeNode], into set: inout Set<String>) {
         for node in nodes where node.kind.isDirectory && !node.isVirtual {
             set.insert(node.path)
             if let children = node.children { collectDirectories(children, into: &set) }
         }
     }
 
-    private func nearestExistingDirectory(of path: String) -> String {
+    private static func nearestExistingDirectory(of path: String) -> String {
         let fm = FileManager.default
         var current = (path as NSString).standardizingPath
         while !current.isEmpty, current != "/" {
@@ -1119,6 +1190,17 @@ final class NotesTreeStore: ObservableObject {
         return current.isEmpty ? "/" : current
     }
 
+    private func cancelPendingReload() {
+        reloadGeneration &+= 1
+        reloadTask?.cancel()
+        reloadTask = nil
+    }
+
+    @MainActor
+    func waitForPendingReloadForTesting() async {
+        await reloadTask?.value
+    }
+
     private func stopWatchers() {
         for task in watcherTasks { task.cancel() }
         watcherTasks = []
@@ -1128,9 +1210,29 @@ final class NotesTreeStore: ObservableObject {
 
     deinit {
         for task in watcherTasks { task.cancel() }
+        reloadTask?.cancel()
         reloadCoalesceTask?.cancel()
         markerRefreshTask?.cancel()
         visibilityRefreshTask?.cancel()
         emptyObservationRetryTask?.cancel()
     }
+}
+
+private struct NotesTreeReloadRequest: Sendable {
+    var root: String
+    var notesDirPath: String?
+    var projectRoot: String?
+    var workspaceAnchorId: String?
+    var observedTerminals: [NotesTreeObservedTerminal]
+    var observedSessionKeys: Set<String>
+    var observedSessions: [NotesTreeObservedSession]
+    var maxDepth: Int
+    var nodeBudget: Int
+    var sessionRowLimit: Int
+    var maxWatchers: Int
+}
+
+private struct NotesTreeReloadResult: Sendable {
+    var nodes: [NotesTreeNode]
+    var watchedDirs: Set<String>
 }
