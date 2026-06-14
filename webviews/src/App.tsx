@@ -3,7 +3,7 @@ import { getFiletypeFromFileName, parsePatchFiles, preloadHighlighter, processFi
 import type { SelectedLineRange } from "@pierre/diffs";
 import { FileTree, useFileTree } from "@pierre/trees/react";
 import { preparePresortedFileTreeInput } from "@pierre/trees";
-import { useCallback, useEffect, useReducer, useRef, useState, type RefObject } from "react";
+import { useCallback, useEffect, useMemo, useReducer, useRef, useState, type RefObject } from "react";
 import { copyGitApplyCommand, resolveDiffNavigationURL } from "./actions";
 import { resolveDiffViewerAppearance } from "./appearance";
 import { lineTextFor, type CommentFileDiff } from "./comments/anchor";
@@ -912,6 +912,7 @@ function FilesSidebar({
           <PierreFileTree
             fileSearchOpen={state.fileSearchOpen}
             fileSearchFocusRequest={state.fileSearchFocusRequest}
+            items={state.items}
             label={label}
             onSelectItem={onSelectItem}
             selectedPath={selectedPath}
@@ -936,6 +937,7 @@ function FilesSidebar({
 function PierreFileTree({
   fileSearchOpen,
   fileSearchFocusRequest,
+  items,
   label,
   onSelectItem,
   selectedPath,
@@ -943,14 +945,34 @@ function PierreFileTree({
 }: {
   fileSearchOpen: boolean;
   fileSearchFocusRequest: number;
+  items: DiffItem[];
   label: DiffViewerLabelResolver;
   onSelectItem: (itemId: string) => void;
   selectedPath: string;
   source: FileTreeSource;
 }) {
+  const [searchValue, setSearchValue] = useState("");
+  const searchInputRef = useRef<HTMLInputElement | null>(null);
+  const searchIndex = useMemo(() => diffFileSearchIndex(source, items), [items, source]);
+  const filteredPaths = useMemo(() => {
+    const query = normalizeDiffFileSearchQuery(fileSearchOpen ? searchValue : "");
+    if (!query) {
+      return source.paths;
+    }
+    return source.paths.filter((path) => searchIndex.get(path)?.includes(query));
+  }, [fileSearchOpen, searchIndex, searchValue, source.paths]);
+  const filteredPathSet = useMemo(() => new Set(filteredPaths), [filteredPaths]);
+  const visibleSource = useMemo<FileTreeSource>(() => ({
+    ...source,
+    gitStatus: source.gitStatus.filter((entry) => filteredPathSet.has(entry.path)),
+    gitStatusPatch: undefined,
+    pathCount: filteredPaths.length,
+    paths: filteredPaths,
+    statsChanged: true,
+  }), [filteredPathSet, filteredPaths, source]);
   const latest = useSyncedRef({ label, onSelectItem, source });
   const fileTreeRootRef = useRef<HTMLDivElement | null>(null);
-  const [initialPreparedInput] = useState(() => preparePresortedFileTreeInput(source.paths));
+  const [initialPreparedInput] = useState(() => preparePresortedFileTreeInput(visibleSource.paths));
   const { model } = useFileTree({
     flattenEmptyDirectories: false,
     id: "cmux-diff-file-tree",
@@ -960,10 +982,9 @@ function PierreFileTree({
     itemHeight: 24,
     overscan: 12,
     preparedInput: initialPreparedInput,
-    search: true,
-    searchBlurBehavior: "retain",
+    search: false,
     stickyFolders: true,
-    gitStatus: source.gitStatus as any,
+    gitStatus: visibleSource.gitStatus as any,
     sort: () => 0,
     unsafeCSS: fileTreeUnsafeCSS(),
     onSelectionChange(paths: readonly string[]) {
@@ -975,13 +996,41 @@ function PierreFileTree({
     },
   });
 
-  usePierreFileTreeSource(model, source);
-  usePierreFileTreeSearch(model, fileSearchOpen, fileSearchFocusRequest, fileTreeRootRef);
-  usePierreFileTreeSelection(model, selectedPath);
+  usePierreFileTreeSource(model, visibleSource);
+  useDiffFileSearchFocus(fileSearchOpen, fileSearchFocusRequest, searchInputRef);
+  usePierreFileTreeSelection(model, filteredPathSet.has(selectedPath) ? selectedPath : "");
 
   return (
-    <div ref={fileTreeRootRef} style={{ height: "100%" }}>
-      <FileTree model={model} style={{ height: "100%" }} />
+    <div
+      ref={fileTreeRootRef}
+      id="diff-file-tree"
+      data-search-value={searchValue}
+      data-search-result-count={filteredPaths.length}
+      style={{ height: "100%" }}
+    >
+      {fileSearchOpen ? (
+        <div
+          id="diff-file-search-container"
+          data-file-tree-search-container
+          data-open="true"
+        >
+          <input
+            ref={searchInputRef}
+            data-file-tree-search-input
+            type="search"
+            value={searchValue}
+            placeholder={label("fileSearchPlaceholder")}
+            onChange={(event) => setSearchValue(event.currentTarget.value)}
+            onKeyDown={(event) => {
+              if (event.key === "Escape") {
+                setSearchValue("");
+                event.currentTarget.blur();
+              }
+            }}
+          />
+        </div>
+      ) : null}
+      <FileTree model={model} style={{ flex: "1 1 auto", minHeight: 0 }} />
     </div>
   );
 }
@@ -1124,84 +1173,109 @@ function usePierreFileTreeSource(
   }, [model, source]);
 }
 
-function usePierreFileTreeSearch(
-  model: ReturnType<typeof useFileTree>["model"],
+function useDiffFileSearchFocus(
   fileSearchOpen: boolean,
   fileSearchFocusRequest: number,
-  fileTreeRootRef: RefObject<HTMLDivElement | null>,
+  searchInputRef: RefObject<HTMLInputElement | null>,
 ): void {
   useEffect(() => {
-    if (fileSearchOpen) {
-      let animationFrame = 0;
-      let attempts = 0;
-      const maxFocusAttempts = 8;
-      const focusSearchInput = () => {
-        model.openSearch("");
-        if (focusPierreFileTreeSearchInput(fileTreeRootRef.current) || attempts >= maxFocusAttempts) {
-          return;
-        }
-        attempts += 1;
-        animationFrame = window.requestAnimationFrame(focusSearchInput);
-      };
-      focusSearchInput();
-      return () => {
-        if (animationFrame !== 0) {
-          window.cancelAnimationFrame(animationFrame);
-        }
-      };
-    } else {
-      model.closeSearch();
+    if (!fileSearchOpen) {
+      return undefined;
     }
-    return undefined;
-  }, [fileSearchFocusRequest, fileSearchOpen, fileTreeRootRef, model]);
-}
-
-function focusPierreFileTreeSearchInput(root: ParentNode | null): boolean {
-  const searchInput = findPierreFileTreeSearchInput(root);
-  if (!(searchInput instanceof HTMLElement)) {
-    return false;
-  }
-  const searchContainer = searchInput.closest("[data-file-tree-search-container]");
-  if (searchContainer?.getAttribute("data-open") === "false") {
-    return false;
-  }
-  searchInput.focus();
-  if ("select" in searchInput && typeof searchInput.select === "function") {
-    searchInput.select();
-  }
-  return isPierreFileTreeSearchInputFocused(searchInput);
-}
-
-function isPierreFileTreeSearchInputFocused(searchInput: HTMLElement): boolean {
-  const root = searchInput.getRootNode();
-  if (root instanceof ShadowRoot) {
-    return root.activeElement === searchInput;
-  }
-  return document.activeElement === searchInput;
-}
-
-function findPierreFileTreeSearchInput(root: ParentNode | null): HTMLElement | null {
-  if (!root) {
-    return null;
-  }
-  const searchInput = root.querySelector("[data-file-tree-search-input]");
-  if (searchInput instanceof HTMLElement) {
-    return searchInput;
-  }
-  const elements = root.querySelectorAll("*");
-  for (const element of elements) {
-    const shadowSearchInput = element.shadowRoot ? findPierreFileTreeSearchInput(element.shadowRoot) : null;
-    if (shadowSearchInput) {
-      return shadowSearchInput;
-    }
-  }
-  return null;
+    let animationFrame = 0;
+    let attempts = 0;
+    const maxFocusAttempts = 8;
+    const focusSearchInput = () => {
+      const input = searchInputRef.current;
+      if (input) {
+        input.focus();
+        input.select();
+        return;
+      }
+      if (attempts >= maxFocusAttempts) {
+        return;
+      }
+      attempts += 1;
+      animationFrame = window.requestAnimationFrame(focusSearchInput);
+    };
+    focusSearchInput();
+    return () => {
+      if (animationFrame !== 0) {
+        window.cancelAnimationFrame(animationFrame);
+      }
+    };
+  }, [fileSearchFocusRequest, fileSearchOpen, searchInputRef]);
 }
 
 function usePierreFileTreeSelection(model: ReturnType<typeof useFileTree>["model"], selectedPath: string): void {
   useEffect(() => {
     selectPierreFileTreePath(model, selectedPath);
   }, [model, selectedPath]);
+}
+
+function diffFileSearchIndex(source: FileTreeSource, items: readonly DiffItem[]): Map<string, string> {
+  const itemById = new Map(items.map((item) => [item.id, item]));
+  return new Map(source.paths.map((path) => {
+    const itemId = source.pathToItemId.get(path);
+    const item = itemId ? itemById.get(itemId) : undefined;
+    return [path, diffViewerFileSearchHaystack(path, item)];
+  }));
+}
+
+export function diffViewerFileSearchHaystack(path: string, item: DiffItem | undefined): string {
+  return normalizeDiffFileSearchQuery(`${path}\n${diffItemSearchText(item)}`);
+}
+
+function diffItemSearchText(item: DiffItem | undefined): string {
+  const fileDiff = item?.fileDiff;
+  if (fileDiff == null) {
+    return "";
+  }
+  const strings: string[] = [];
+  collectDiffSearchStrings(fileDiff, strings, new WeakSet<object>());
+  return strings.join("\n");
+}
+
+function collectDiffSearchStrings(value: unknown, strings: string[], seen: WeakSet<object>): void {
+  if (typeof value === "string") {
+    strings.push(value);
+    return;
+  }
+  if (!value || typeof value !== "object") {
+    return;
+  }
+  if (seen.has(value)) {
+    return;
+  }
+  seen.add(value);
+  if (Array.isArray(value)) {
+    for (const item of value) {
+      collectDiffSearchStrings(item, strings, seen);
+    }
+    return;
+  }
+  for (const [key, nested] of Object.entries(value)) {
+    if (!diffSearchKeyHasContent(key)) {
+      continue;
+    }
+    collectDiffSearchStrings(nested, strings, seen);
+  }
+}
+
+function diffSearchKeyHasContent(key: string): boolean {
+  return key === "name" ||
+    key === "newName" ||
+    key === "oldName" ||
+    key === "prevName" ||
+    key === "additionLines" ||
+    key === "deletionLines" ||
+    key === "hunks" ||
+    key === "hunkContent" ||
+    key === "hunkSpecs";
+}
+
+function normalizeDiffFileSearchQuery(value: string): string {
+  return value.trim().toLowerCase();
 }
 
 function useRenderDiff(

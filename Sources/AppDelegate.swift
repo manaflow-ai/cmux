@@ -6644,7 +6644,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
     @discardableResult
-    func performFindShortcutInActiveMainWindow(preferredWindow: NSWindow? = nil) -> Bool {
+    func performFindShortcutInActiveMainWindow(preferredWindow: NSWindow? = nil, event: NSEvent? = nil) -> Bool {
         let context = preferredRegisteredMainWindowContext(preferredWindow: preferredWindow)
 
         guard let context else {
@@ -6669,7 +6669,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             mainWindowVisibilityController.focusForInWindowCommand(window, reason: .findShortcut)
         }
 
-        if performDiffViewerFindShortcutBeforeBrowserFind(in: context) {
+        if performDiffViewerFindShortcutBeforeBrowserFind(in: context, event: event) {
 #if DEBUG
             let afterResponder = window?.firstResponder.map { String(describing: type(of: $0)) } ?? "nil"
             dlog(
@@ -6703,8 +6703,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
     @discardableResult
-    private func performDiffViewerFindShortcutBeforeBrowserFind(in context: MainWindowContext) -> Bool {
-        guard let browserPanel = context.tabManager.focusedBrowserPanel,
+    private func performDiffViewerFindShortcutBeforeBrowserFind(in context: MainWindowContext, event: NSEvent?) -> Bool {
+        let eventBrowserPanel = event.flatMap { shortcutEventBrowserPanel($0) }
+        let focusedBrowserPanel = context.tabManager.focusedBrowserPanel
+        let browserPanel = eventBrowserPanel ?? focusedBrowserPanel
+#if DEBUG
+        let eventPanelId = eventBrowserPanel.map { String($0.id.uuidString.prefix(5)) } ?? "nil"
+        let focusedPanelId = focusedBrowserPanel.map { String($0.id.uuidString.prefix(5)) } ?? "nil"
+        let chosenPanelId = browserPanel.map { String($0.id.uuidString.prefix(5)) } ?? "nil"
+        let chosenURL = browserPanel?.webView.url?.absoluteString ?? "nil"
+        cmuxDebugLog(
+            "find.diffViewer.owner eventPanel=\(eventPanelId) focusedPanel=\(focusedPanelId) " +
+            "chosen=\(chosenPanelId) isDiff=\(cmuxIsDiffViewerURL(browserPanel?.webView.url) ? 1 : 0) " +
+            "url=\(chosenURL)"
+        )
+#endif
+        guard let browserPanel,
               cmuxIsDiffViewerURL(browserPanel.webView.url) else {
             return false
         }
@@ -6728,10 +6742,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         browserPanel.webView.evaluateJavaScript(Self.diffViewerFindMenuBridgeScript) { [weak browserPanel] result, error in
             DispatchQueue.main.async {
                 guard let browserPanel else { return }
-                if let result = result as? String,
-                   result == "opened" {
-                    return
-                }
 #if DEBUG
                 if let error {
                     cmuxDebugLog("find.diffViewer.menuBridge fallback=startFind error=\(error.localizedDescription)")
@@ -6739,6 +6749,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                     cmuxDebugLog("find.diffViewer.menuBridge fallback=startFind result=\(String(describing: result))")
                 }
 #endif
+                if let result = result as? String,
+                   result.hasPrefix("opened") {
+                    return
+                }
                 browserPanel.startFind()
             }
         }
@@ -6769,16 +6783,49 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
       }
 
       function requestFileSearchFocus() {
+        const toggle = document.getElementById("file-search-toggle");
+        if (toggle) {
+          const isPressed = toggle.getAttribute("aria-pressed") === "true";
+          if (!isPressed) {
+            toggle.click();
+          } else if (!findOpenFileSearchInput(document)) {
+            toggle.click();
+            requestAnimationFrame(() => toggle.click());
+          }
+        }
         document.dispatchEvent(new CustomEvent("cmux:focus-file-search", { bubbles: true }));
+        window.dispatchEvent(new CustomEvent("cmux:focus-file-search"));
+      }
+
+      function state(label) {
+        const toggle = document.getElementById("file-search-toggle");
+        const input = findOpenFileSearchInput(document);
+        const rect = input?.getBoundingClientRect();
+        const active = document.activeElement;
+        return label +
+          " pressed=" + (toggle?.getAttribute("aria-pressed") ?? "nil") +
+          " input=" + (input ? "1" : "0") +
+          " focused=" + (input?.matches(":focus") ? "1" : "0") +
+          " rect=" + (rect ? `${Math.round(rect.width)}x${Math.round(rect.height)}@${Math.round(rect.x)},${Math.round(rect.y)}` : "nil") +
+          " active=" + (active ? active.tagName : "nil") +
+          " url=" + location.href;
+      }
+
+      function afterRender(callback) {
+        requestAnimationFrame(() => requestAnimationFrame(callback));
       }
 
       const searchInput = findOpenFileSearchInput(document);
       if (focusInput(searchInput)) {
-        return "already-open";
+        return state("already-open");
       }
 
       requestFileSearchFocus();
-      return "opened";
+      afterRender(() => {
+        const openedInput = findOpenFileSearchInput(document);
+        focusInput(openedInput);
+      });
+      return state("opened-requested");
     })()
     """
 
@@ -6806,22 +6853,50 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
       }
 
       function requestFileSearchFocus() {
+        const toggle = document.getElementById("file-search-toggle");
+        if (toggle) {
+          const isPressed = toggle.getAttribute("aria-pressed") === "true";
+          if (!isPressed) {
+            toggle.click();
+          } else if (!findOpenFileSearchInput(document)) {
+            toggle.click();
+            requestAnimationFrame(() => toggle.click());
+          }
+        }
         document.dispatchEvent(new CustomEvent("cmux:focus-file-search", { bubbles: true }));
+        window.dispatchEvent(new CustomEvent("cmux:focus-file-search"));
+      }
+
+      function state(label) {
+        const toggle = document.getElementById("file-search-toggle");
+        const input = findOpenFileSearchInput(document);
+        const rect = input?.getBoundingClientRect();
+        const active = document.activeElement;
+        return label +
+          " pressed=" + (toggle?.getAttribute("aria-pressed") ?? "nil") +
+          " input=" + (input ? "1" : "0") +
+          " focused=" + (input?.matches(":focus") ? "1" : "0") +
+          " rect=" + (rect ? `${Math.round(rect.width)}x${Math.round(rect.height)}@${Math.round(rect.x)},${Math.round(rect.y)}` : "nil") +
+          " active=" + (active ? active.tagName : "nil") +
+          " url=" + location.href;
+      }
+
+      function afterRender(callback) {
+        requestAnimationFrame(() => requestAnimationFrame(callback));
       }
 
       let searchInput = findOpenFileSearchInput(document);
       if (focusInput(searchInput)) {
-        return "focused";
+        return state("focused");
       }
 
       requestFileSearchFocus();
 
-      searchInput = findOpenFileSearchInput(document);
-      if (focusInput(searchInput)) {
-        return "opened";
-      }
-
-      return "opened-pending";
+      afterRender(() => {
+        searchInput = findOpenFileSearchInput(document);
+        focusInput(searchInput);
+      });
+      return state("opened-requested");
     })()
     """
 
@@ -12957,7 +13032,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         if cmuxCloseFocusedTerminalFindForEscape(event: event, appDelegate: self) { return true }
         if matchConfiguredShortcut(event: event, action: .find) {
             let shortcutWindow = resolvedShortcutEventWindow(event)
-            cmuxRememberFindSelectionBeforePanelFocusMove(tabManager: tabManager, window: shortcutWindow ?? NSApp.keyWindow); return performFindShortcutInActiveMainWindow(preferredWindow: shortcutWindow)
+            cmuxRememberFindSelectionBeforePanelFocusMove(tabManager: tabManager, window: shortcutWindow ?? NSApp.keyWindow); return performFindShortcutInActiveMainWindow(preferredWindow: shortcutWindow, event: event)
         }
 
         // Keep keyboard routing deterministic after split close/reparent transitions:
@@ -14581,7 +14656,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     func handleBrowserSurfaceKeyEquivalentBeforeMainMenu(_ event: NSEvent) -> Bool {
         if matchConfiguredShortcut(event: event, action: .find) {
             let shortcutWindow = resolvedShortcutEventWindow(event)
-            cmuxRememberFindSelectionBeforePanelFocusMove(tabManager: tabManager, window: shortcutWindow ?? NSApp.keyWindow); return performFindShortcutInActiveMainWindow(preferredWindow: shortcutWindow)
+            cmuxRememberFindSelectionBeforePanelFocusMove(tabManager: tabManager, window: shortcutWindow ?? NSApp.keyWindow); return performFindShortcutInActiveMainWindow(preferredWindow: shortcutWindow, event: event)
         }
         if matchConfiguredShortcut(event: event, action: .findInDirectory) {
             return focusFileSearchInActiveMainWindow(preferredWindow: resolvedShortcutEventWindow(event))

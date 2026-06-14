@@ -502,6 +502,35 @@ body[data-loading="false"]:not([data-status-only="true"]) #loading-layer {
   height: 100%;
   min-height: 0;
 }
+#diff-file-tree {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+#diff-file-search-container {
+  flex: 0 0 auto;
+  margin: 0 4px 8px 0;
+  padding: 0 5px 8px 1px;
+  border-bottom: 1px solid var(--cmux-diff-border);
+}
+#diff-file-search-container[data-open="false"] {
+  display: none;
+}
+#diff-file-search-container input {
+  width: 100%;
+  height: 32px;
+  border: 1px solid color-mix(in lab, var(--cmux-diff-fg) 18%, transparent);
+  border-radius: 5px;
+  background: color-mix(in lab, var(--cmux-diff-bg) 92%, var(--cmux-diff-fg));
+  color: var(--cmux-diff-fg);
+  font: inherit;
+  outline: none;
+  padding: 0 9px;
+}
+#diff-file-search-container input:focus {
+  border-color: color-mix(in lab, var(--cmux-diff-accent) 72%, transparent);
+  box-shadow: 0 0 0 2px color-mix(in lab, var(--cmux-diff-accent) 22%, transparent);
+}
 .file-entry {
   width: 100%;
   min-height: 30px;

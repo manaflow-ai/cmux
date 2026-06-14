@@ -434,6 +434,7 @@ extension CMUXCLI {
                 "hideBackgrounds": CMUXDiffViewerLocalization.string("diffViewer.hideBackgrounds", defaultValue: "Hide backgrounds"),
                 "hideFiles": CMUXDiffViewerLocalization.string("diffViewer.hideFiles", defaultValue: "Hide files"),
                 "hideFileSearch": CMUXDiffViewerLocalization.string("diffViewer.hideFileSearch", defaultValue: "Hide file search"),
+                "fileSearchPlaceholder": CMUXDiffViewerLocalization.string("diffViewer.fileSearchPlaceholder", defaultValue: "Search files and contents..."),
                 "hideLineNumbers": CMUXDiffViewerLocalization.string("diffViewer.hideLineNumbers", defaultValue: "Hide line numbers"),
                 "indicatorStyle": CMUXDiffViewerLocalization.string("diffViewer.indicatorStyle", defaultValue: "Indicator style"),
                 "jumpToFile": CMUXDiffViewerLocalization.string("diffViewer.jumpToFile", defaultValue: "Jump to file"),

@@ -2,7 +2,7 @@ import { afterEach, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
 import { flushSync } from "react-dom";
 import { createRoot, type Root } from "react-dom/client";
-import { App } from "../src/App";
+import { App, diffViewerFileSearchHaystack } from "../src/App";
 import { createDiffViewerStatus } from "../src/status";
 
 type FetchMock = (input: RequestInfo | URL, init?: RequestInit) => Promise<Response> | Response;
@@ -10,7 +10,7 @@ type FetchMock = (input: RequestInfo | URL, init?: RequestInit) => Promise<Respo
 let root: Root | null = null;
 let dom: JSDOM | null = null;
 const originalGlobals = new Map<string, any>();
-for (const key of ["window", "document", "navigator", "Element", "Node", "HTMLElement", "HTMLStyleElement", "customElements", "fetch"]) {
+for (const key of ["window", "document", "navigator", "Element", "Node", "Event", "InputEvent", "KeyboardEvent", "MouseEvent", "HTMLElement", "HTMLStyleElement", "customElements", "fetch"]) {
   originalGlobals.set(key, (globalThis as any)[key]);
 }
 
@@ -135,6 +135,25 @@ test("files sidebar width can be changed from the resize separator", async () =>
   await waitFor(() => contentFilesWidth() === "272px");
 });
 
+test("diff viewer file search indexes changed file contents", () => {
+  const haystack = diffViewerFileSearchHaystack("src/search-after.ts", {
+    id: "file-1",
+    fileDiff: {
+      hunks: [{
+        additionLines: ["  return \"No matches\";"],
+        deletionLines: ["  return \"No results\";"],
+      }],
+      newName: "src/search-after.ts",
+      oldName: "src/search-before.ts",
+    },
+  } as any);
+
+  expect(haystack).toContain("src/search-after.ts");
+  expect(haystack).toContain("no matches");
+  expect(haystack).toContain("no results");
+  expect(haystack).not.toContain("undefined");
+});
+
 test("Cmd+F opens diff viewer file search, then typing targets can fall through to browser find", async () => {
   dom = createDom();
   installDomGlobals(dom, async () => new Response([
@@ -145,6 +164,17 @@ test("Cmd+F opens diff viewer file search, then typing targets can fall through 
     "@@ -1 +1 @@",
     "-before",
     "+after",
+    "",
+    "diff --git a/src/search-before.ts b/src/search-after.ts",
+    "index 3333333..4444444 100644",
+    "--- a/src/search-before.ts",
+    "+++ b/src/search-after.ts",
+    "@@ -1,2 +1,4 @@",
+    " export function labelForResult(count: number):",
+    "-  if (count === 0) return \"No results\";",
+    "+  if (count === 0) {",
+    "+    return \"No matches\";",
+    "+  }",
     "",
   ].join("\n")));
 
@@ -166,7 +196,7 @@ test("Cmd+F opens diff viewer file search, then typing targets can fall through 
   );
 
   await waitForEffects();
-  await waitFor(() => dom!.window.document.getElementById("files-count")?.textContent === "1");
+  await waitFor(() => dom!.window.document.getElementById("files-count")?.textContent === "2");
   const firstCmdF = new dom.window.KeyboardEvent("keydown", {
     bubbles: true,
     cancelable: true,
@@ -202,9 +232,8 @@ test("Cmd+F opens diff viewer file search, then typing targets can fall through 
   expect(activeFileTreeSearchInput()?.dispatchEvent(repeatedCmdF)).toBe(true);
   expect(repeatedCmdF.defaultPrevented).toBe(false);
 
-  const visibleSearchInput = findFileTreeSearchInput(dom.window.document.getElementById("file-list"));
-  visibleSearchInput?.closest("[data-file-tree-search-container]")?.setAttribute("data-open", "false");
-  visibleSearchInput?.blur();
+  fileSearchToggle()?.click();
+  await waitFor(() => fileSearchToggle()?.getAttribute("aria-pressed") === "false");
   expect(activeFileTreeSearchInput()).toBeNull();
 
   dom.window.document.dispatchEvent(new dom.window.CustomEvent("cmux:focus-file-search", { bubbles: true }));
@@ -295,6 +324,10 @@ function installDomGlobals(nextDom: JSDOM, fetchImpl: FetchMock): void {
   (globalThis as any).navigator = nextDom.window.navigator;
   (globalThis as any).Element = nextDom.window.Element;
   (globalThis as any).Node = nextDom.window.Node;
+  (globalThis as any).Event = nextDom.window.Event;
+  (globalThis as any).InputEvent = nextDom.window.InputEvent;
+  (globalThis as any).KeyboardEvent = nextDom.window.KeyboardEvent;
+  (globalThis as any).MouseEvent = nextDom.window.MouseEvent;
   (globalThis as any).HTMLButtonElement = nextDom.window.HTMLButtonElement;
   (globalThis as any).HTMLDivElement = nextDom.window.HTMLDivElement;
   (globalThis as any).HTMLElement = nextDom.window.HTMLElement;
@@ -305,6 +338,18 @@ function installDomGlobals(nextDom: JSDOM, fetchImpl: FetchMock): void {
   (globalThis as any).SVGElement = nextDom.window.SVGElement;
   (globalThis as any).CustomEvent = nextDom.window.CustomEvent;
   (globalThis as any).customElements = nextDom.window.customElements;
+  (nextDom.window.HTMLElement.prototype as any).attachEvent = function attachEvent(
+    eventName: string,
+    listener: EventListener,
+  ) {
+    this.addEventListener(eventName.replace(/^on/, ""), listener);
+  };
+  (nextDom.window.HTMLElement.prototype as any).detachEvent = function detachEvent(
+    eventName: string,
+    listener: EventListener,
+  ) {
+    this.removeEventListener(eventName.replace(/^on/, ""), listener);
+  };
   (globalThis as any).requestAnimationFrame = requestAnimationFrame;
   (globalThis as any).cancelAnimationFrame = cancelAnimationFrame;
   (globalThis as any).ResizeObserver = TestResizeObserver;

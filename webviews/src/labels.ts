@@ -24,6 +24,7 @@ const DEFAULT_DIFF_VIEWER_LABELS = {
   hideBackgrounds: "Hide backgrounds",
   hideFiles: "Hide files",
   hideFileSearch: "Hide file search",
+  fileSearchPlaceholder: "Search files and contents...",
   hideLineNumbers: "Hide line numbers",
   indicatorStyle: "Indicator style",
   jumpToFile: "Jump to file",
