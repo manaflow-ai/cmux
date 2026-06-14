@@ -15,11 +15,21 @@ import Foundation
 /// and recompute only when the Ghostty config reloads) rather than rebuilt on
 /// every render-grid export.
 public struct MobileInheritedTerminalTheme: Equatable, Sendable {
+    /// The 16-color ANSI palette (indices 0...15) as `#RRGGBB` hex, or `nil` when
+    /// the Mac could not resolve a full 16-color palette.
     public var palette: [String]?
+    /// The default foreground color as `#RRGGBB` hex, or `nil` when the user has
+    /// not configured one (the phone keeps its own default).
     public var foreground: String?
+    /// The default background color as `#RRGGBB` hex, or `nil` when the user has
+    /// not configured one (the phone keeps its own default).
     public var background: String?
+    /// The cursor color as `#RRGGBB` hex, or `nil` when the user has not
+    /// configured one (the phone keeps its own default).
     public var cursor: String?
 
+    /// Creates an inherited theme. Each color is an optional `#RRGGBB` hex string;
+    /// see the property docs for what `nil` means per field.
     public init(
         palette: [String]? = nil,
         foreground: String? = nil,
