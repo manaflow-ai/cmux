@@ -1,6 +1,7 @@
 import Foundation
 import CmuxGit
 import CmuxSidebarGit
+import CmuxSidebar
 
 // MARK: - SidebarGitHosting conformance
 //

@@ -448,16 +448,22 @@ jobs:
       - name: Run Swift package unit tests
         run: |
           set -euo pipefail
+          # CmuxCommandPalette's nucleo FFI tests load the Rust dylib through
+          # CMUX_NUCLEO_FFI_LIB (they skip when it is absent, so build it here
+          # to keep the FFI parity suite a real gate).
+          cargo build --manifest-path Native/CommandPaletteNucleoFFI/Cargo.toml --release
+          export CMUX_NUCLEO_FFI_LIB="$PWD/Native/CommandPaletteNucleoFFI/target/release/libcmux_command_palette_nucleo_ffi.dylib"
           # The cmux-unit scheme only runs the cmuxTests app-host suite; it does
           # not execute the SPM package test targets. Run them here so package
           # tests (settings stores, secret-file migration, socket-control
           # convergence, etc.) are a real CI gate, not just compiled.
           # Scoped to packages that build headlessly via SwiftPM (no GhosttyKit /
           # app-target dependency). Add a package here once its `swift test`
-          # is confirmed to resolve standalone. CmuxTerminalCore is the one
-          # GhosttyKit-referencing exception: its binaryTarget only needs the
+          # is confirmed to resolve standalone. The GhosttyKit-referencing
+          # packages (CmuxTerminalCore and the terminal packages stacked on
+          # it) are the exception: their binaryTarget only needs the
           # xcframework present at the repo root (downloaded earlier in this
-          # job), and its test runner links a C stub for the @_silgen_name
+          # job), and their test runners link a C stub for the @_silgen_name
           # symbol instead of the GhosttyKit archive.
           PACKAGES=(
             CMUXAuthCore
@@ -466,6 +472,7 @@ jobs:
             CmuxRemoteWorkspace
             CmuxRemoteSession
             CmuxAuthRuntime
+            CmuxCommandPalette
             CmuxControlSocket
             CmuxFileWatch
             CmuxFoundation
@@ -475,6 +482,8 @@ jobs:
             CmuxSettingsUI
             CmuxSocketControl
             CmuxTerminalCore
+            CmuxTerminalEngine
+            CmuxTerminalServices
             CmuxUpdater
             CMUXAgentLaunch
           )
@@ -483,14 +492,15 @@ jobs:
           # lib-prefixed: "unexpected binary name"/"unexpected binary
           # framework"). The build and every test still succeed, but the
           # diagnostic poisons the process exit code on a fresh .build. For
-          # CmuxTerminalCore only, tolerate exactly that case: a nonzero exit
-          # passes only when the all-tests-passed summary is present, no test
-          # failures are reported, and the only error lines are that known
-          # diagnostic. Everything else (compile errors, test failures,
-          # crashes) still fails the job.
+          # the GhosttyKit-referencing packages only, tolerate exactly that
+          # case: a nonzero exit passes only when the all-tests-passed summary
+          # is present, no test failures are reported, and the only error
+          # lines are that known diagnostic. Everything else (compile errors,
+          # test failures, crashes) still fails the job.
           for pkg in "${PACKAGES[@]}"; do
             echo "::group::swift test Packages/$pkg"
-            if [ "$pkg" = "CmuxTerminalCore" ]; then
+            case "$pkg" in
+            CmuxTerminalCore|CmuxTerminalEngine|CmuxTerminalServices)
               status=0
               output="$(swift test --package-path "Packages/$pkg" 2>&1)" || status=$?
               printf '%s\n' "$output"
@@ -503,9 +513,11 @@ jobs:
                   exit "$status"
                 fi
               fi
-            else
+              ;;
+            *)
               swift test --package-path "Packages/$pkg"
-            fi
+              ;;
+            esac
             echo "::endgroup::"
           done
 

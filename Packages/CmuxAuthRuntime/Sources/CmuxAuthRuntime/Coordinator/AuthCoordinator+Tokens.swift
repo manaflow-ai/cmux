@@ -47,7 +47,7 @@ extension AuthCoordinator {
         if await client.refreshToken() != nil {
             throw AuthError.networkError
         }
-        clearAuthState()
+        clearAuthState(preservePendingCode: true)
         throw AuthError.unauthorized
     }
 
@@ -101,7 +101,7 @@ extension AuthCoordinator {
         if await client.refreshToken() != nil {
             throw AuthError.networkError
         }
-        clearAuthState()
+        clearAuthState(preservePendingCode: true)
         throw AuthError.unauthorized
     }
 }

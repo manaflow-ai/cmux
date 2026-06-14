@@ -1,6 +1,7 @@
 #if DEBUG
 import AppKit
 import Foundation
+import CmuxTerminal
 
 @MainActor
 final class TerminalViewportUITestRecorder {

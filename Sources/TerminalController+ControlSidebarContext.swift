@@ -1,5 +1,6 @@
 import CmuxControlSocket
 import Foundation
+import CmuxSidebar
 
 /// The live-app half of the v1 sidebar metadata commands (`set_status` /
 /// `report_meta` / `report_meta_block` / agent PID + lifecycle / `log` /

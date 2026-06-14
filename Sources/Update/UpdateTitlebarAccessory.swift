@@ -1,11 +1,8 @@
 import AppKit
 import Bonsplit
 import Combine
+import CmuxFoundation
 import SwiftUI
-
-final class NonDraggableHostingView<Content: View>: NSHostingView<Content> {
-    override var mouseDownCanMoveWindow: Bool { false }
-}
 
 enum TitlebarControlsStyle: Int, CaseIterable, Identifiable {
     case classic
@@ -1897,7 +1894,7 @@ final class TitlebarControlsAccessoryViewController: NSTitlebarAccessoryViewCont
     private var showsWorkspaceTitlebar: Bool { !WorkspacePresentationModeSettings.isMinimal() }
 
     init(notificationStore: TerminalNotificationStore) {
-        let containerView = NSView()
+        let containerView = TitlebarAccessoryContainerView()
         self.containerView = containerView
         self.notificationStore = notificationStore
         let toggleSidebar = { [weak containerView] in

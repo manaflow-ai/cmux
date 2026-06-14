@@ -3,6 +3,7 @@ import CmuxRemoteSession
 import Bonsplit
 import CmuxControlSocket
 import Foundation
+import CmuxWorkspaceCore
 
 /// The surface-domain resume (`resume.set` / `.get` / `.clear`) and reporting
 /// (`report_tty` / `report_shell_state` / `ports_kick`) witnesses, plus the token
@@ -321,7 +322,7 @@ extension TerminalController {
         requestedSurfaceID: UUID?,
         stateRawValue: String
     ) -> ControlSurfaceReportShellStateResolution {
-        guard let state = Workspace.PanelShellActivityState(rawValue: stateRawValue) else {
+        guard let state = PanelShellActivityState(rawValue: stateRawValue) else {
             // Unreachable: the coordinator only forwards a value the app produced.
             return .pending
         }
