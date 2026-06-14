@@ -3868,6 +3868,24 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         connectionErrorGuidance = Self.localizedDeleteErrorGuidance()
     }
 
+    /// Headline shown when a remote delete (workspace or surface) fails after
+    /// the optimistic removal has been reverted by ``restoreSelection``.
+    private static func localizedDeleteError() -> String {
+        L10n.string(
+            "mobile.delete.failed.message",
+            defaultValue: "Couldn't delete that on your Mac."
+        )
+    }
+
+    /// Actionable next-step line shown beneath ``localizedDeleteError`` so the
+    /// user knows the item is still there and why.
+    private static func localizedDeleteErrorGuidance() -> String {
+        L10n.string(
+            "mobile.delete.failed.guidance",
+            defaultValue: "Check your connection to your Mac and try again."
+        )
+    }
+
     private func restoreSelection(
         workspaceID: MobileWorkspacePreview.ID?,
         terminalID: MobileTerminalPreview.ID?
