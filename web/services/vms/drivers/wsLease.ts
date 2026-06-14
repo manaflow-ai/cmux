@@ -1,4 +1,4 @@
-import { createHash, createPrivateKey, randomBytes, sign } from "node:crypto";
+import { createHash, createPrivateKey, randomBytes, sign, type KeyObject } from "node:crypto";
 
 export function shellQuote(value: string): string {
   return `'${value.replace(/'/g, `'\\''`)}'`;
@@ -47,6 +47,8 @@ export type WebSocketLease = ReturnType<typeof makeWebSocketLease>;
 export type ReusableRpcLease = Pick<WebSocketLease, "token" | "sessionId" | "expiresAtUnix">;
 export type WebSocketAuthToken = Pick<WebSocketLease, "token" | "sessionId" | "expiresAtUnix">;
 
+let cachedSigningKey: { privateKeyPem: string; key: KeyObject } | null = null;
+
 export function makeSignedWebSocketAuthToken(
   kind: "pty" | "rpc",
   audience: string,
@@ -66,8 +68,7 @@ export function makeSignedWebSocketAuthToken(
     jti: randomBytes(16).toString("hex"),
   };
   const payload = Buffer.from(JSON.stringify(claims)).toString("base64url");
-  const key = createPrivateKey(normalizedPrivateKeyPem(privateKeyPem));
-  const signature = sign(null, Buffer.from(payload), key).toString("base64url");
+  const signature = sign(null, Buffer.from(payload), signingKey(privateKeyPem)).toString("base64url");
   return {
     token: `${payload}.${signature}`,
     sessionId,
@@ -98,4 +99,15 @@ export function isReusableRpcLease(value: unknown): value is ReusableRpcLease {
 
 function normalizedPrivateKeyPem(value: string): string {
   return value.trim().replace(/\\n/g, "\n");
+}
+
+function signingKey(privateKeyPem: string): KeyObject {
+  const normalized = normalizedPrivateKeyPem(privateKeyPem);
+  if (!cachedSigningKey || cachedSigningKey.privateKeyPem !== normalized) {
+    cachedSigningKey = {
+      privateKeyPem: normalized,
+      key: createPrivateKey(normalized),
+    };
+  }
+  return cachedSigningKey.key;
 }
