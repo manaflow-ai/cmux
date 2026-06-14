@@ -10,6 +10,7 @@ import UserNotifications
 import CmuxGit
 import CmuxSidebarGit
 import CmuxSidebar
+import CmuxTerminal
 
 #if canImport(cmux_DEV)
 @testable import cmux_DEV

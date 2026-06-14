@@ -28,6 +28,7 @@ import ObjectiveC.runtime
 import Darwin
 import CmuxFoundation
 import CmuxSession
+import CmuxTerminal
 
 private enum CmuxThemeNotifications {
     static let reloadConfig = Notification.Name("com.cmuxterm.themes.reload-config")

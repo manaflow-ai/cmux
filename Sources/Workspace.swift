@@ -21,6 +21,7 @@ import CryptoKit
 import Darwin
 import Network
 import CoreText
+import CmuxTerminal
 
 #if DEBUG
 private func debugWorkspaceDescriptionPreview(_ text: String?, limit: Int = 120) -> String {
