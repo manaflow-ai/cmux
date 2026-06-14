@@ -764,6 +764,7 @@
         },
         "app": {
           "confirmQuit": "Određuje kada cmux traži potvrdu prije izlaska. DEV verzije se uvijek odmah zatvaraju bez obzira na ovu postavku. Naslijeđeni app.warnBeforeQuit se i dalje prihvata kao boolean rezervna opcija.",
+          "windowTitleTemplate": "Opcionalni predložak za NSWindow naslov. Prazno zadržava postojeće zadano ponašanje naslova u cmux-u, uključujući rezervu na trenutni direktorij. Podržani rezervisani izrazi: '{windowId}', '{windowToken}', '{activeWorkspace}', '{activeDirectory}', '{defaultTitle}', '{appName}'.",
           "warnBeforeQuit": "Naslijeđena boolean rezervna opcija za potvrdu izlaska. Za nove konfiguracije koristite app.confirmQuit.",
           "warnBeforeClosingTabXButton": "Prikaži potvrdu prije zatvaranja taba dugmetom za zatvaranje taba.",
           "hideTabCloseButton": "Sakrij dugmad za zatvaranje tabova na traci tabova okna.",
@@ -926,6 +927,8 @@
         "surfaces": "Površine",
         "surfacesBlurb": "Površine su tabovi unutar panela.",
         "splitPanes": "Podijeljeni paneli",
+        "canvas": "Platno",
+        "canvasBlurb": "Slobodni 2D raspored u kojem okna plutaju na beskonačnom platnu koje se može pomicati. Komande za poravnanje i raspoređivanje dostupne su iz komandne palete.",
         "browser": "Preglednik",
         "notifications": "Notifikacije",
         "find": "Pretraga",

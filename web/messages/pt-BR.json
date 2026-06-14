@@ -764,6 +764,7 @@
         },
         "app": {
           "confirmQuit": "Controla quando o cmux pede confirmação antes de sair. Builds DEV sempre saem imediatamente, independentemente desta configuração. O app.warnBeforeQuit legado ainda é aceito como fallback booleano.",
+          "windowTitleTemplate": "Modelo opcional para o título NSWindow. Em branco preserva o comportamento de título padrão existente do cmux, incluindo o fallback para o diretório atual. Espaços reservados compatíveis: '{windowId}', '{windowToken}', '{activeWorkspace}', '{activeDirectory}', '{defaultTitle}', '{appName}'.",
           "warnBeforeQuit": "Fallback booleano legado para confirmação de saída. Use app.confirmQuit em novas configurações.",
           "warnBeforeClosingTabXButton": "Mostrar uma confirmação antes de fechar uma aba com o botão de fechar aba.",
           "hideTabCloseButton": "Ocultar os botões de fechar aba na barra de abas do painel.",
@@ -926,6 +927,8 @@
         "surfaces": "Superfícies",
         "surfacesBlurb": "Superfícies são abas dentro de um painel.",
         "splitPanes": "Painéis Divididos",
+        "canvas": "Canvas",
+        "canvasBlurb": "Um modo de layout 2D livre em que os painéis flutuam sobre um canvas infinito e rolável. Comandos de alinhamento e distribuição estão disponíveis na paleta de comandos.",
         "browser": "Navegador",
         "notifications": "Notificações",
         "find": "Buscar",

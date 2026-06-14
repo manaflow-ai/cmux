@@ -764,6 +764,7 @@
         },
         "app": {
           "confirmQuit": "cmux가 종료 전에 확인을 요청하는 시점을 제어합니다. DEV 빌드는 이 설정과 관계없이 항상 즉시 종료됩니다. 기존 app.warnBeforeQuit도 boolean 대체값으로 계속 허용됩니다.",
+          "windowTitleTemplate": "선택적 NSWindow 제목 템플릿입니다. 비워 두면 현재 디렉터리 대체 동작을 포함해 cmux의 기존 기본 제목 동작을 유지합니다. 지원되는 자리표시자: '{windowId}', '{windowToken}', '{activeWorkspace}', '{activeDirectory}', '{defaultTitle}', '{appName}'.",
           "warnBeforeQuit": "종료 확인을 위한 기존 boolean 대체값입니다. 새 구성에는 app.confirmQuit을 사용하세요.",
           "warnBeforeClosingTabXButton": "탭 닫기 버튼으로 탭을 닫기 전에 확인을 표시합니다.",
           "hideTabCloseButton": "창 영역 탭 막대에서 탭 닫기 버튼을 숨깁니다.",
@@ -926,6 +927,8 @@
         "surfaces": "서피스",
         "surfacesBlurb": "서피스는 패널 내의 탭입니다.",
         "splitPanes": "분할 패널",
+        "canvas": "캔버스",
+        "canvasBlurb": "창이 무한히 이동 가능한 캔버스 위에 떠 있는 자유형 2D 레이아웃 모드입니다. 정렬 및 분배 명령은 명령 팔레트에서 사용할 수 있습니다.",
         "browser": "브라우저",
         "notifications": "알림",
         "find": "찾기",
