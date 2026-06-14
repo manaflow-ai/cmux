@@ -19152,14 +19152,17 @@ struct CMUXCLI {
         private var suppressedApprovalKeys = Set<String>()
         private var suppressedApprovalOrder: [String] = []
         private var reportedSpawnFailureFingerprints = Set<String>()
+        private var reportedSpawnFailureOrder: [String] = []
         private var spawnFailureDeliveryStates: [String: SpawnFailureDeliveryState] = [:]
         private var spawnFailureDeliveryOrder: [String] = []
         private let maxSpawnFailureDeliveryStates = 100
+        private let maxReportedSpawnFailureFingerprints = 100
+        private let appServerLogReadChunkSize = 16_384
+        private let maxAppServerLogLineBytes = 16_384
         private let appServerLogQueue = DispatchQueue(label: "com.cmux.codex-teams.app-server-log", qos: .utility)
         private var appServerLogSource: DispatchSourceFileSystemObject?
         private var appServerLogOffset: UInt64 = 0
-        private var appServerLogBuffer = ""
-        private var appServerLogPendingUTF8Bytes = Data()
+        private var appServerLogLineBuffer = Data()
 
         private struct SpawnFailureDeliveryState {
             var diagnostic: CodexTeamsSpawnFailureDiagnostic
@@ -19277,8 +19280,7 @@ struct CMUXCLI {
             let endOffset = (try? handle.seekToEnd()) ?? 0
             if appServerLogOffset > endOffset {
                 appServerLogOffset = 0
-                appServerLogBuffer = ""
-                appServerLogPendingUTF8Bytes.removeAll(keepingCapacity: true)
+                appServerLogLineBuffer.removeAll(keepingCapacity: true)
             }
             let startOffset = appServerLogOffset
             guard startOffset < endOffset else { return }
@@ -19288,50 +19290,55 @@ struct CMUXCLI {
                 return
             }
 
-            let data = handle.readDataToEndOfFile()
-            appServerLogOffset = startOffset + UInt64(data.count)
-            var pendingData = appServerLogPendingUTF8Bytes
-            pendingData.append(data)
-            let completeByteCount = CMUXCLI.codexTeamsCompleteUTF8PrefixLength(pendingData)
-            appServerLogPendingUTF8Bytes = Data(pendingData.suffix(pendingData.count - completeByteCount))
-            guard completeByteCount > 0 else {
-                return
+            var offset = startOffset
+            retryPendingSpawnFailureDiagnosticsSafely()
+            while offset < endOffset {
+                let readLength = Int(min(UInt64(appServerLogReadChunkSize), endOffset - offset))
+                let data = handle.readData(ofLength: readLength)
+                guard !data.isEmpty else { break }
+                offset += UInt64(data.count)
+                appServerLogOffset = offset
+                consumeAppServerLogData(data, logPath: path)
             }
-            let text = String(decoding: pendingData.prefix(completeByteCount), as: UTF8.self)
-            guard !text.isEmpty else { return }
-            consumeAppServerLogText(text, logPath: path)
         }
 
-        private func consumeAppServerLogText(_ text: String, logPath: String) {
-            retryPendingSpawnFailureDiagnosticsSafely()
-            appServerLogBuffer += text
-            var parts = appServerLogBuffer.components(separatedBy: "\n")
-            if appServerLogBuffer.hasSuffix("\n") {
-                appServerLogBuffer = ""
-            } else {
-                appServerLogBuffer = parts.popLast() ?? ""
-            }
-
-            for rawLine in parts {
-                let line = rawLine.trimmingCharacters(in: CharacterSet(charactersIn: "\r"))
-                guard let diagnostic = CMUXCLI.codexTeamsSpawnFailureDiagnostic(
-                    fromLogLine: line,
-                    logPath: logPath
-                ) else {
+        private func consumeAppServerLogData(_ data: Data, logPath: String) {
+            guard !data.isEmpty else { return }
+            for byte in data {
+                if byte == 0x0A {
+                    flushAppServerLogLine(logPath: logPath, preservingIncompleteUTF8Suffix: false)
                     continue
                 }
-                publishSpawnFailureDiagnosticSafely(diagnostic)
-            }
-
-            if appServerLogBuffer.count > 16_384 {
-                if let diagnostic = CMUXCLI.codexTeamsSpawnFailureDiagnostic(
-                    fromLogLine: appServerLogBuffer,
-                    logPath: logPath
-                ) {
-                    publishSpawnFailureDiagnosticSafely(diagnostic)
+                appServerLogLineBuffer.append(byte)
+                if appServerLogLineBuffer.count >= maxAppServerLogLineBytes {
+                    flushAppServerLogLine(logPath: logPath, preservingIncompleteUTF8Suffix: true)
                 }
-                appServerLogBuffer = ""
             }
+        }
+
+        private func flushAppServerLogLine(
+            logPath: String,
+            preservingIncompleteUTF8Suffix: Bool
+        ) {
+            guard !appServerLogLineBuffer.isEmpty else { return }
+            let completeByteCount = preservingIncompleteUTF8Suffix
+                ? CMUXCLI.codexTeamsCompleteUTF8PrefixLength(appServerLogLineBuffer)
+                : appServerLogLineBuffer.count
+            let lineData = Data(appServerLogLineBuffer.prefix(completeByteCount))
+            let pendingSuffix = Data(appServerLogLineBuffer.suffix(appServerLogLineBuffer.count - completeByteCount))
+            appServerLogLineBuffer.removeAll(keepingCapacity: true)
+            appServerLogLineBuffer.append(contentsOf: pendingSuffix)
+
+            guard !lineData.isEmpty else { return }
+            let line = String(decoding: lineData, as: UTF8.self)
+                .trimmingCharacters(in: CharacterSet(charactersIn: "\r"))
+            guard let diagnostic = CMUXCLI.codexTeamsSpawnFailureDiagnostic(
+                fromLogLine: line,
+                logPath: logPath
+            ) else {
+                return
+            }
+            publishSpawnFailureDiagnosticSafely(diagnostic)
         }
 
         private func publishSpawnFailureDiagnosticSafely(_ diagnostic: CodexTeamsSpawnFailureDiagnostic) {
@@ -19412,7 +19419,7 @@ struct CMUXCLI {
             defer { stateLock.unlock() }
             guard var state = spawnFailureDeliveryStates[result.fingerprint] else {
                 if result.notificationSucceeded == true && result.statusSucceeded == true {
-                    reportedSpawnFailureFingerprints.insert(result.fingerprint)
+                    markSpawnFailureReportedLocked(fingerprint: result.fingerprint)
                 }
                 return
             }
@@ -19426,9 +19433,28 @@ struct CMUXCLI {
             }
             if state.notificationDelivered && state.statusDelivered {
                 removeSpawnFailureDeliveryStateLocked(fingerprint: result.fingerprint)
-                reportedSpawnFailureFingerprints.insert(result.fingerprint)
+                markSpawnFailureReportedLocked(fingerprint: result.fingerprint)
             } else {
                 storeSpawnFailureDeliveryStateLocked(state, fingerprint: result.fingerprint)
+            }
+        }
+
+        private func markSpawnFailureReportedLocked(fingerprint: String) {
+            let inserted = reportedSpawnFailureFingerprints.insert(fingerprint).inserted
+            if inserted {
+                reportedSpawnFailureOrder.append(fingerprint)
+            }
+            pruneReportedSpawnFailureFingerprintsLocked()
+        }
+
+        private func pruneReportedSpawnFailureFingerprintsLocked() {
+            while reportedSpawnFailureFingerprints.count > maxReportedSpawnFailureFingerprints {
+                guard !reportedSpawnFailureOrder.isEmpty else {
+                    reportedSpawnFailureFingerprints.removeAll(keepingCapacity: true)
+                    return
+                }
+                let evicted = reportedSpawnFailureOrder.removeFirst()
+                reportedSpawnFailureFingerprints.remove(evicted)
             }
         }
 
