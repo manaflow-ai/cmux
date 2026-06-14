@@ -6290,6 +6290,79 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
 #endif
     }
 
+    func testTerminalKeyEquivalentRoutesActiveOptionDigitWorkspaceShortcut() throws {
+#if DEBUG
+        guard let appDelegate = AppDelegate.shared else {
+            XCTFail("Expected AppDelegate.shared")
+            return
+        }
+
+        let windowId = appDelegate.createMainWindow()
+        defer { closeWindow(withId: windowId) }
+
+        guard let window = window(withId: windowId),
+              let manager = appDelegate.tabManagerFor(windowId: windowId),
+              let workspace = manager.selectedWorkspace,
+              let panelId = workspace.focusedPanelId,
+              let terminalPanel = workspace.terminalPanel(for: panelId) else {
+            XCTFail("Expected focused terminal panel")
+            return
+        }
+
+        let secondWorkspace = manager.addTab(select: false)
+        manager.selectTab(at: 0)
+        terminalPanel.hostedView.setVisibleInUI(true)
+        terminalPanel.hostedView.setActive(true)
+        terminalPanel.hostedView.moveFocus()
+        window.makeKeyAndOrderFront(nil)
+        window.displayIfNeeded()
+        RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
+
+        XCTAssertTrue(
+            terminalPanel.hostedView.isSurfaceViewFirstResponder(),
+            "Expected terminal surface to own first responder before key-equivalent routing"
+        )
+
+        let optionWorkspaceNumber = StoredShortcut(
+            key: "1",
+            command: false,
+            shift: false,
+            option: true,
+            control: false
+        )
+
+        withTemporaryShortcut(action: .selectWorkspaceByNumber, shortcut: optionWorkspaceNumber) {
+            guard let event = NSEvent.keyEvent(
+                with: .keyDown,
+                location: .zero,
+                modifierFlags: [.option],
+                timestamp: ProcessInfo.processInfo.systemUptime,
+                windowNumber: window.windowNumber,
+                context: nil,
+                characters: "™",
+                charactersIgnoringModifiers: "2",
+                isARepeat: false,
+                keyCode: 19 // kVK_ANSI_2
+            ) else {
+                XCTFail("Failed to construct Option+2 event")
+                return
+            }
+
+            XCTAssertTrue(
+                window.performKeyEquivalent(with: event),
+                "Terminal key-equivalent fallback should route active Option+digit workspace bindings"
+            )
+            XCTAssertEqual(
+                manager.selectedTabId,
+                secondWorkspace.id,
+                "Option+2 should select workspace 2 before the terminal fast path receives printable Option text"
+            )
+        }
+#else
+        throw XCTSkip("debug terminal focus assertions are only available in DEBUG builds")
+#endif
+    }
+
     func testInactiveOptionDigitWorkspaceWhenClauseStillForwardsPrintableOptionText() throws {
 #if DEBUG
         guard let appDelegate = AppDelegate.shared else {

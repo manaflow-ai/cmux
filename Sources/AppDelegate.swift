@@ -14454,6 +14454,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         handleCustomShortcut(event: event)
     }
 
+    /// Route numbered workspace/surface key-equivalent fallbacks through the same
+    /// app shortcut dispatcher before terminal-owned non-Command keys go to Ghostty.
+    @discardableResult
+    func handleRoutableNumberedShortcutKeyEquivalent(_ event: NSEvent) -> Bool {
+        guard routableNumberedConfiguredShortcutDigit(event: event, action: .selectWorkspaceByNumber) != nil ||
+            routableNumberedConfiguredShortcutDigit(event: event, action: .selectSurfaceByNumber) != nil else {
+            return false
+        }
+        return handleCustomShortcut(event: event)
+    }
+
     /// WebKit can consume the configured Find shortcut as a browser find key equivalent before SwiftUI
     /// command actions run. Keep this pre-menu route narrow so normal menu-backed
     /// browser shortcuts such as New Workspace, Close Tab, and Reload Page still use AppKit.
@@ -17210,6 +17221,10 @@ private extension NSWindow {
 
             let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
             if !flags.contains(.command) {
+                if AppDelegate.shared?.handleRoutableNumberedShortcutKeyEquivalent(event) == true {
+                    return true
+                }
+
                 if shouldDispatchTerminalArrowViaFirstResponderKeyDown(
                     keyCode: event.keyCode,
                     firstResponderIsTerminal: true,
