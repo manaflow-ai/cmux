@@ -5481,7 +5481,7 @@ final class Workspace: Identifiable, ObservableObject {
         let previousConfiguration = remoteConfiguration
         skipControlMasterCleanupAfterDetachedRemoteTransfer = false
         pendingRemoteDisconnectReplacement = nil
-        remoteDisconnectPlaceholderPanelIds.removeAll()
+        let remoteDisconnectPlaceholderPanelIdsToClear = remoteDisconnectPlaceholderPanelIds
         if let previousConfiguration,
            previousConfiguration != configuration,
            !previousConfiguration.hasSamePersistentPTYIdentity(as: configuration) {
@@ -5491,6 +5491,7 @@ final class Workspace: Identifiable, ObservableObject {
         }
         remoteConfiguration = configuration
         seedInitialRemoteTerminalSessionIfNeeded(configuration: configuration)
+        remoteDisconnectPlaceholderPanelIds.subtract(remoteDisconnectPlaceholderPanelIdsToClear)
         clearRemoteDetectedSurfacePorts()
         remoteDetectedPorts = []
         remoteForwardedPorts = []
@@ -5658,7 +5659,9 @@ final class Workspace: Identifiable, ObservableObject {
         }
         guard activeRemoteTerminalSurfaceIds.isEmpty else { return }
         let terminalIds = panels.compactMap { panelId, panel in
-            panel is TerminalPanel ? panelId : nil
+            panel is TerminalPanel && !remoteDisconnectPlaceholderPanelIds.contains(panelId)
+                ? panelId
+                : nil
         }
         if terminalIds.count == 1, let initialPanelId = terminalIds.first {
             trackRemoteTerminalSurface(initialPanelId)
