@@ -94,7 +94,7 @@ private func performFileExplorerFileOpen(path: String, onOpenFilePreview: (Strin
     case .preview:
         onOpenFilePreview(path)
     case .defaultEditor:
-        FileExternalOpenAction.openDefault(fileURL: URL(fileURLWithPath: path))
+        NSWorkspace.shared.open(URL(fileURLWithPath: path))
     case .preferredEditor:
         PreferredEditorService(defaults: .standard).open(URL(fileURLWithPath: path))
     }
