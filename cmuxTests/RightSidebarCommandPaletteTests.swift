@@ -1,3 +1,4 @@
+import Darwin
 import Foundation
 import XCTest
 
@@ -8,6 +9,12 @@ import XCTest
 #endif
 
 final class RightSidebarCommandPaletteTests: XCTestCase {
+    private struct ProcessRunResult {
+        let status: Int32
+        let stdout: String
+        let timedOut: Bool
+    }
+
     func testCommandPaletteIncludesGuiModeCommand() throws {
         let contributions = ContentView.commandPaletteViewCommandContributions()
         let contribution = try XCTUnwrap(
@@ -75,6 +82,40 @@ final class RightSidebarCommandPaletteTests: XCTestCase {
             XCTAssertFalse(provider.setupCommand.isEmpty)
             XCTAssertFalse(provider.taskCommandPreview.isEmpty)
             XCTAssertFalse(provider.capabilityLabels.isEmpty)
+        }
+    }
+
+    func testGuiModeHookBackedProvidersMatchBundledCLIHookAgents() throws {
+        let cliPath = try bundledCLIPath()
+        var environment = ProcessInfo.processInfo.environment
+        for key in Array(environment.keys) where key.hasPrefix("CMUX_") {
+            environment.removeValue(forKey: key)
+        }
+        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+
+        let result = runProcess(
+            executablePath: cliPath,
+            arguments: ["hooks", "agents", "--json"],
+            environment: environment,
+            timeout: 5
+        )
+
+        XCTAssertFalse(result.timedOut, result.stdout)
+        XCTAssertEqual(result.status, 0, result.stdout)
+        let data = try XCTUnwrap(result.stdout.data(using: .utf8))
+        let object = try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: Any])
+        let agents = try XCTUnwrap(object["agents"] as? [[String: Any]])
+        let hookBackedProviderIDs = agents.compactMap { $0["name"] as? String }
+        let guiHookBackedProviderIDs = GuiModeProviderID.allCases
+            .filter { $0 != .claude }
+            .map(\.rawValue)
+
+        XCTAssertEqual(Set(hookBackedProviderIDs), Set(guiHookBackedProviderIDs))
+        for agent in agents {
+            let name = try XCTUnwrap(agent["name"] as? String)
+            XCTAssertEqual(agent["installCommand"] as? String, "cmux hooks \(name) install")
+            XCTAssertFalse((agent["displayName"] as? String ?? "").isEmpty)
+            XCTAssertFalse((agent["statusKey"] as? String ?? "").isEmpty)
         }
     }
 
@@ -222,5 +263,53 @@ final class RightSidebarCommandPaletteTests: XCTestCase {
         } else {
             defaults.removeObject(forKey: key)
         }
+    }
+
+    private func bundledCLIPath() throws -> String {
+        try BundledCLITestSupport.bundledCLIPath(for: Self.self)
+    }
+
+    private func runProcess(
+        executablePath: String,
+        arguments: [String],
+        environment: [String: String],
+        timeout: TimeInterval
+    ) -> ProcessRunResult {
+        let process = Process()
+        let outputPipe = Pipe()
+        process.executableURL = URL(fileURLWithPath: executablePath)
+        process.arguments = arguments
+        process.environment = environment
+        process.standardInput = FileHandle.nullDevice
+        process.standardOutput = outputPipe
+        process.standardError = outputPipe
+
+        do {
+            try process.run()
+        } catch {
+            return ProcessRunResult(status: -1, stdout: String(describing: error), timedOut: false)
+        }
+
+        let exitSignal = DispatchSemaphore(value: 0)
+        DispatchQueue.global(qos: .userInitiated).async {
+            process.waitUntilExit()
+            exitSignal.signal()
+        }
+
+        let timedOut = exitSignal.wait(timeout: .now() + timeout) == .timedOut
+        if timedOut {
+            process.terminate()
+            if exitSignal.wait(timeout: .now() + 1) == .timedOut,
+               process.isRunning {
+                kill(process.processIdentifier, SIGKILL)
+                _ = exitSignal.wait(timeout: .now() + 1)
+            }
+        }
+
+        return ProcessRunResult(
+            status: process.terminationStatus,
+            stdout: String(data: outputPipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? "",
+            timedOut: timedOut
+        )
     }
 }

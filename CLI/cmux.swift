@@ -13503,6 +13503,7 @@ struct CMUXCLI {
             return """
             Usage: cmux hooks setup [agent] [--agent <name>] [--yes|-y]
                    cmux hooks uninstall [agent] [--agent <name>] [--yes|-y]
+                   cmux hooks agents [--json]
                    cmux hooks <agent> install [--yes|-y] (opencode supports --project)
                    cmux hooks <agent> uninstall [--yes|-y] (opencode supports --project)
                    cmux hooks <agent> <event> [flags]
@@ -13517,6 +13518,7 @@ struct CMUXCLI {
             Hook targets:
               setup              Install hooks for all supported agents on PATH
               uninstall          Remove hooks for all supported agents
+              agents             List hook-backed agents supported by this cmux build
               <agent> install    Install one agent integration
               <agent> uninstall  Remove one agent integration
               <agent> <event>    Internal hook entrypoint used by generated configs
@@ -32428,6 +32430,10 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
             )
             return true
 
+        case "agents", "list-agents":
+            printHooksAgentList(arguments: Array(commandArgs.dropFirst()))
+            return true
+
         default:
             guard let def = Self.agentDef(named: first) else {
                 if first == "feed" || first == "claude" {
@@ -32454,6 +32460,30 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
             default:
                 return false
             }
+        }
+    }
+
+    private func printHooksAgentList(arguments: [String]) {
+        let agents = Self.agentDefs.map { def in
+            [
+                "aliases": def.aliases.sorted(),
+                "binaryName": def.binaryName,
+                "configDir": def.configDir,
+                "configFile": def.configFile,
+                "displayName": def.displayName,
+                "installCommand": "cmux hooks \(def.name) install",
+                "name": def.name,
+                "statusKey": def.statusKey,
+            ] as [String: Any]
+        }
+
+        if arguments.contains("--json") || ProcessInfo.processInfo.arguments.contains("--json") {
+            print(jsonString(["agents": agents]))
+            return
+        }
+
+        for agent in agents {
+            print("\(agent["name"] ?? "")\t\(agent["displayName"] ?? "")")
         }
     }
 
