@@ -6709,10 +6709,27 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             return false
         }
 
+        if browserPanel.searchState != nil {
+            browserPanel.hideFind()
+            browserPanel.webView.evaluateJavaScript(Self.diffViewerFocusFileSearchScript) { result, error in
+#if DEBUG
+                DispatchQueue.main.async {
+                    if let error {
+                        cmuxDebugLog("find.diffViewer.menuBridge returnToFileSearch error=\(error.localizedDescription)")
+                    } else {
+                        cmuxDebugLog("find.diffViewer.menuBridge returnToFileSearch result=\(String(describing: result))")
+                    }
+                }
+#endif
+            }
+            return true
+        }
+
         browserPanel.webView.evaluateJavaScript(Self.diffViewerFindMenuBridgeScript) { [weak browserPanel] result, error in
             DispatchQueue.main.async {
                 guard let browserPanel else { return }
-                if let result = result as? String, result == "opened" {
+                if let result = result as? String,
+                   result == "opened" || result == "focused" {
                     return
                 }
 #if DEBUG
@@ -6748,6 +6765,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         searchContainer?.getAttribute("data-open") === "true";
 
       if (searchIsOpen) {
+        if (searchInput) {
+          searchInput.focus();
+          if (typeof searchInput.select === "function") searchInput.select();
+          return "focused";
+        }
         return "already-open";
       }
 
@@ -6760,6 +6782,54 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
       });
       document.dispatchEvent(event);
       return event.defaultPrevented ? "opened" : "unhandled";
+    })()
+    """
+
+    private static let diffViewerFocusFileSearchScript = """
+    (() => {
+      function findFileSearchInput(root) {
+        const direct = root.querySelector?.("[data-file-tree-search-input]");
+        if (direct) return direct;
+        for (const element of root.querySelectorAll?.("*") ?? []) {
+          if (!element.shadowRoot) continue;
+          const found = findFileSearchInput(element.shadowRoot);
+          if (found) return found;
+        }
+        return null;
+      }
+
+      function focusInput(input) {
+        if (!input) return false;
+        input.focus();
+        if (typeof input.select === "function") input.select();
+        return true;
+      }
+
+      const toggle = document.getElementById("file-search-toggle");
+      let searchInput = findFileSearchInput(document);
+      const searchContainer = searchInput?.closest("[data-file-tree-search-container]");
+      const searchIsOpen = toggle?.getAttribute("aria-pressed") === "true" ||
+        searchContainer?.getAttribute("data-open") === "true";
+
+      if (searchIsOpen && focusInput(searchInput)) {
+        return "focused";
+      }
+
+      const event = new KeyboardEvent("keydown", {
+        bubbles: true,
+        cancelable: true,
+        code: "KeyF",
+        key: "f",
+        metaKey: true
+      });
+      document.dispatchEvent(event);
+
+      searchInput = findFileSearchInput(document);
+      if (focusInput(searchInput)) {
+        return "opened";
+      }
+
+      return event.defaultPrevented ? "opened-pending" : "unhandled";
     })()
     """
 
