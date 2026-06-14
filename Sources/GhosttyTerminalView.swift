@@ -237,60 +237,6 @@ private func terminalKeyTableIndicatorText(_ name: String) -> String {
     }
 }
 
-func terminalKeyboardCopyModeShouldBypassForShortcut(modifierFlags: NSEvent.ModifierFlags) -> Bool {
-    CmuxTerminalCopyMode.terminalKeyboardCopyModeShouldBypassForShortcut(
-        modifiers: TerminalKeyboardCopyModeModifiers(modifierFlags: modifierFlags)
-    )
-}
-
-func terminalKeyboardSelectionMoveForCommandEquivalent(
-    keyCode: UInt16,
-    modifierFlags: NSEvent.ModifierFlags
-) -> TerminalKeyboardCopyModeSelectionMove? {
-    CmuxTerminalCopyMode.terminalKeyboardSelectionMoveForCommandEquivalent(
-        keyCode: keyCode,
-        modifiers: terminalKeyboardCopyModeModifiers(modifierFlags)
-    )
-}
-
-func terminalKeyboardCopyModeAction(
-    keyCode: UInt16,
-    charactersIgnoringModifiers: String?,
-    modifierFlags: NSEvent.ModifierFlags,
-    hasSelection: Bool,
-    asciiCharacterProvider: (UInt16, NSEvent.ModifierFlags) -> String? = KeyboardLayout.character(forKeyCode:modifierFlags:)
-) -> TerminalKeyboardCopyModeAction? {
-    CmuxTerminalCopyMode.terminalKeyboardCopyModeAction(
-        keyCode: keyCode,
-        charactersIgnoringModifiers: charactersIgnoringModifiers,
-        modifiers: TerminalKeyboardCopyModeModifiers(modifierFlags: modifierFlags),
-        hasSelection: hasSelection,
-        asciiCharacterProvider: { keyCode in
-            asciiCharacterProvider(keyCode, [])
-        }
-    )
-}
-
-func terminalKeyboardCopyModeResolve(
-    keyCode: UInt16,
-    charactersIgnoringModifiers: String?,
-    modifierFlags: NSEvent.ModifierFlags,
-    hasSelection: Bool,
-    state: inout TerminalKeyboardCopyModeInputState,
-    asciiCharacterProvider: (UInt16, NSEvent.ModifierFlags) -> String? = KeyboardLayout.character(forKeyCode:modifierFlags:)
-) -> TerminalKeyboardCopyModeResolution {
-    CmuxTerminalCopyMode.terminalKeyboardCopyModeResolve(
-        keyCode: keyCode,
-        charactersIgnoringModifiers: charactersIgnoringModifiers,
-        modifiers: TerminalKeyboardCopyModeModifiers(modifierFlags: modifierFlags),
-        hasSelection: hasSelection,
-        state: &state,
-        asciiCharacterProvider: { keyCode in
-            asciiCharacterProvider(keyCode, [])
-        }
-    )
-}
-
 // GhosttySurfaceCallbackContext moved to CmuxTerminalCore behind the
 // TerminalSurfaceControlling/TerminalSurfaceHosting seams; the conformances
 // and concrete-typed convenience accessors live here.

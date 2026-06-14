@@ -1784,43 +1784,6 @@ final class TerminalKeyboardCopyModeActionTests: XCTestCase {
         XCTAssertFalse(terminalKeyboardCopyModeShouldBypassForShortcut(modifierFlags: [.control]))
     }
 
-    func testCommandShiftArrowsMapToNativeSelectionMoves() {
-        XCTAssertEqual(
-            terminalKeyboardSelectionMoveForCommandEquivalent(
-                keyCode: 123,
-                modifierFlags: [.command, .shift]
-            ),
-            .beginningOfLine
-        )
-        XCTAssertEqual(
-            terminalKeyboardSelectionMoveForCommandEquivalent(
-                keyCode: 124,
-                modifierFlags: [.command, .shift]
-            ),
-            .endOfLine
-        )
-        XCTAssertEqual(
-            terminalKeyboardSelectionMoveForCommandEquivalent(
-                keyCode: 126,
-                modifierFlags: [.command, .shift]
-            ),
-            .home
-        )
-        XCTAssertEqual(
-            terminalKeyboardSelectionMoveForCommandEquivalent(
-                keyCode: 125,
-                modifierFlags: [.command, .shift]
-            ),
-            .end
-        )
-        XCTAssertNil(
-            terminalKeyboardSelectionMoveForCommandEquivalent(
-                keyCode: 123,
-                modifierFlags: [.shift]
-            )
-        )
-    }
-
     func testVimMotionsWithoutSelectionMoveCursorInsteadOfViewport() {
         XCTAssertEqual(
             terminalKeyboardCopyModeAction(

@@ -1,6 +1,7 @@
 import XCTest
 import AppKit
 import CmuxTerminal
+import CmuxTerminalCopyMode
 
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
@@ -13,6 +14,30 @@ final class GhosttyCommandShiftForwardingTests: XCTestCase {
     private static let keyCodeANSIK: UInt16 = 40
     private static let keyCodeLeftArrow: UInt16 = 123
     private static let keyCodeUpArrow: UInt16 = 126
+
+    func testCommandShiftArrowsMapToNativeSelectionMoves() {
+        let cases: [(UInt16, TerminalKeyboardCopyModeSelectionMove)] = [
+            (123, .beginningOfLine),
+            (124, .endOfLine),
+            (126, .home),
+            (125, .end),
+        ]
+        for (keyCode, expectedMove) in cases {
+            XCTAssertEqual(
+                terminalKeyboardSelectionMoveForCommandEquivalent(
+                    keyCode: keyCode,
+                    modifierFlags: [.command, .shift]
+                ),
+                expectedMove
+            )
+        }
+        XCTAssertNil(
+            terminalKeyboardSelectionMoveForCommandEquivalent(
+                keyCode: Self.keyCodeLeftArrow,
+                modifierFlags: [.shift]
+            )
+        )
+    }
 
     private struct HostedTerminal {
         let surface: TerminalSurface
