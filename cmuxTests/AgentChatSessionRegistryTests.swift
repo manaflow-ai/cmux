@@ -104,4 +104,34 @@ struct AgentChatSessionRegistryTests {
 
         #expect(!registry.hasLiveSession(workspaceID: "workspace-b", surfaceID: "terminal-b"))
     }
+
+    @Test("title adoption sweeps stale surface bindings")
+    func titleAdoptionSweepsStaleSurfaceBindings() {
+        let registry = AgentChatSessionRegistry()
+        registry.adoptDetectedSession(
+            sessionID: "stale",
+            agentKind: .claude,
+            workspaceID: "workspace-a",
+            surfaceID: "terminal-a",
+            workingDirectory: nil,
+            transcriptPath: nil,
+            at: Date(timeIntervalSince1970: 100)
+        )
+        registry.update(sessionID: "stale") { record in
+            record.pid = Int(Int32.max)
+        }
+
+        let adopted = registry.adoptDetectedSession(
+            sessionID: "fresh",
+            agentKind: .claude,
+            workspaceID: "workspace-b",
+            surfaceID: "terminal-a",
+            workingDirectory: nil,
+            transcriptPath: nil,
+            at: Date(timeIntervalSince1970: 200)
+        )
+
+        #expect(adopted.sessionID == "fresh")
+        #expect(registry.record(sessionID: "stale")?.state == .ended)
+    }
 }

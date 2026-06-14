@@ -301,11 +301,15 @@ final class AgentChatSessionRegistry {
 
     private func liveRecord(boundToSurfaceID surfaceID: String) -> AgentChatSessionRecord? {
         guard let sessionIDs = sessionIDsBySurfaceID[surfaceID] else { return nil }
+        sweepDeadProcesses(sessionIDs: sessionIDs)
+        var newest: AgentChatSessionRecord?
         for sessionID in sessionIDs {
             guard let record = records[sessionID], record.state != .ended else { continue }
-            return record
+            if newest.map({ record.lastActivityAt > $0.lastActivityAt }) ?? true {
+                newest = record
+            }
         }
-        return nil
+        return newest
     }
 
     private func setRecord(
