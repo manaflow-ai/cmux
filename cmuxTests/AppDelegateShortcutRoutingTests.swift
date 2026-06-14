@@ -5955,6 +5955,16 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         )
     }
 
+    func testDiffViewerFileSearchDefaultsToCmdF() {
+        let cmdF = StoredShortcut(key: "f", command: true, shift: false, option: false, control: false)
+        XCTAssertEqual(KeyboardShortcutSettings.shortcut(for: .diffViewerOpenFileSearch), cmdF)
+        XCTAssertEqual(
+            KeyboardShortcutSettings.Action.diffViewerOpenFileSearch.normalizedRecordedShortcutResult(cmdF),
+            .accepted(cmdF),
+            "Default Diff Viewer file search shortcut must be accepted as a browser-content shortcut"
+        )
+    }
+
     func testBrowserFirstFindShortcutRoutingFallsBackToKeyCodeForNonLatinInput() {
         let event = makeKeyEvent(
             modifierFlags: [.command],

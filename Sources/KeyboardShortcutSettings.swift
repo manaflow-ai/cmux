@@ -492,7 +492,7 @@ enum KeyboardShortcutSettings {
                     second: ShortcutStroke(key: "g", command: false, shift: false, option: false, control: false)
                 )
             case .diffViewerOpenFileSearch:
-                return StoredShortcut(key: "/", command: false, shift: false, option: false, control: false)
+                return StoredShortcut(key: "f", command: true, shift: false, option: false, control: false)
             }
         }
 
@@ -564,6 +564,9 @@ enum KeyboardShortcutSettings {
                 KeyboardShortcutSettings.effectiveWhenClause(for: proposedAction),
                 rhsHasPriority: proposedAction.hasPriorityShortcutRouting
             ) else {
+                return false
+            }
+            if KeyboardShortcutSettings.actionsMayShareShortcut(self, proposedAction) {
                 return false
             }
             return KeyboardShortcutSettings.shortcutsConflict(
@@ -764,6 +767,11 @@ enum KeyboardShortcutSettings {
             }
         }
         return nil
+    }
+
+    private static func actionsMayShareShortcut(_ lhs: Action, _ rhs: Action) -> Bool {
+        (lhs == .find && rhs == .diffViewerOpenFileSearch)
+            || (lhs == .diffViewerOpenFileSearch && rhs == .find)
     }
 
     private enum ShortcutConflictMatchMode {
