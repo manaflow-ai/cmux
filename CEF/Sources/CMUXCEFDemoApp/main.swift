@@ -93,7 +93,7 @@ final class DemoController: NSObject, NSSplitViewDelegate {
             .deletingLastPathComponent()
             .deletingLastPathComponent()
             .deletingLastPathComponent()
-            .appendingPathComponent("CEFArtifacts", isDirectory: true)
+            .appendingPathComponent("Frameworks", isDirectory: true)
         let helperPath = execURL.appendingPathComponent("CMUXCEFHelper")
 
         do {

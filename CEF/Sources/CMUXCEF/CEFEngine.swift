@@ -9,6 +9,8 @@ public enum CEFEngineError: Error, Sendable, Equatable {
     case missingRootCachePath
     case cefInitializeFailed(message: String?)
     case unsupportedOperatingSystem(minimum: String)
+    /// One or more extension directory paths cannot be represented in Chromium's comma-delimited switch.
+    case loadExtensionDirectoryPathContainsComma
     case bridge(NSError)
 }
 
@@ -70,7 +72,7 @@ public final class CEFEngine {
 
         let bridgeConfig = CMUXCEFEngineConfigBridge()
         bridgeConfig.rootCachePath = config.rootCachePath.path
-        bridgeConfig.loadExtensionsArg = Self.serializeLoadExtensionsArg(
+        bridgeConfig.loadExtensionsArg = try Self.serializeLoadExtensionsArg(
             config.extensionDirectories)
         bridgeConfig.logSeverity = config.logSeverity
         bridgeConfig.disableSandbox = config.disableSandbox
@@ -120,8 +122,11 @@ public final class CEFEngine {
         cefBridge.quitMessageLoop()
     }
 
-    private static func serializeLoadExtensionsArg(_ urls: [URL]) -> String? {
+    static func serializeLoadExtensionsArg(_ urls: [URL]) throws -> String? {
         guard !urls.isEmpty else { return nil }
+        guard urls.allSatisfy({ !$0.path.contains(",") }) else {
+            throw CEFEngineError.loadExtensionDirectoryPathContainsComma
+        }
         return urls.map(\.path).joined(separator: ",")
     }
 }

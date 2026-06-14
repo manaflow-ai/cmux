@@ -90,15 +90,7 @@ func startCEFEngineIfAvailable() -> Bool {
         // `Chromium Embedded Framework.framework`. Pass the bundle's
         // Frameworks directory, not the framework itself.
         let frameworksDir = runtime.frameworksDirectory
-        let bundledFrameworksDir = Bundle.main.bundleURL
-            .appendingPathComponent("Contents/Frameworks", isDirectory: true)
-        let bundledHelperExec = bundledFrameworksDir
-            .appendingPathComponent("cmux Helper.app", isDirectory: true)
-            .appendingPathComponent("Contents/MacOS/cmux Helper")
-        let runtimeHelperExec = runtime.helperExecutableURL
-        let helperExec = FileManager.default.isExecutableFile(atPath: bundledHelperExec.path)
-            ? bundledHelperExec
-            : runtimeHelperExec
+        let helperExec = runtime.helperExecutableURL
         guard FileManager.default.isExecutableFile(atPath: helperExec.path) else {
             #if DEBUG
             cmuxDebugLog("cef.helper.missing path=\(helperExec.path)")

@@ -99,7 +99,8 @@ fi
 # ─── Lockfile parsing (python3 to avoid jq dependency) ───────────────────────
 
 read_lock() {
-  python3 - "$LOCKFILE" "$1" <<'PY'
+  local value
+  if ! value=$(python3 - "$LOCKFILE" "$1" <<'PY'
 import json, sys
 with open(sys.argv[1]) as f:
     lock = json.load(f)
@@ -113,14 +114,20 @@ for part in key.split('.'):
         node = node[part]
 print(node)
 PY
+  ); then
+    echo "fetch_cef: failed to parse lockfile key '$1'" >&2
+    return 2
+  fi
+  printf '%s\n' "${value}"
 }
 
-CEF_VERSION="$(read_lock version)"
-TARBALL_NAME="$(read_lock platforms.macosarm64.tarball)"
-TARBALL_SHA256="$(read_lock platforms.macosarm64.sha256)"
-TARBALL_SIZE="$(read_lock platforms.macosarm64.size_bytes)"
-EXTRACTED_NAME="$(read_lock platforms.macosarm64.extracted_dir_name)"
-PUBLIC_BASE_URL="$(read_lock sources[0].base_url)"
+CEF_VERSION="$(read_lock version)" || exit 2
+TARBALL_NAME="$(read_lock platforms.macosarm64.tarball)" || exit 2
+TARBALL_SHA256="$(read_lock platforms.macosarm64.sha256)" || exit 2
+TARBALL_SIZE="$(read_lock platforms.macosarm64.size_bytes)" || exit 2
+EXTRACTED_NAME="$(read_lock platforms.macosarm64.extracted_dir_name)" || exit 2
+PUBLIC_BASE_URL="$(read_lock sources[0].base_url)" || exit 2
+LOCK_SHA256="$(shasum -a 256 "${LOCKFILE}" | awk '{print $1}')"
 
 if [[ "${DO_PRINT_PATHS}" == "1" ]]; then
   printf 'CEF_VERSION=%s\nDEST=%s\nCACHE=%s\nTARBALL=%s\nEXTRACTED=%s\n' \
@@ -250,6 +257,7 @@ build_wrapper_and_install() {
   local frameworks_dir="${DEST}/Frameworks"
   local fw_name="Chromium Embedded Framework"
   local wrapper_static="${cef_dir}/libcef_dll_wrapper/Release/libcef_dll_wrapper.a"
+  local stamp_file="${frameworks_dir}/.cmux-cef-sdk.lock.sha256"
 
   if [[ ! -f "${wrapper_static}" ]]; then
     echo "fetch_cef: building C++ wrapper at ${cef_dir}"
@@ -270,6 +278,7 @@ build_wrapper_and_install() {
   rm -rf "${frameworks_dir}/${fw_name}.framework"
   cp -R "${cef_dir}/Release/${fw_name}.framework" "${frameworks_dir}/"
   restructure_framework "${frameworks_dir}/${fw_name}.framework"
+  printf '%s\n' "${LOCK_SHA256}" > "${stamp_file}"
 }
 
 # Restructures CEF's flat .framework into the versioned macOS layout that

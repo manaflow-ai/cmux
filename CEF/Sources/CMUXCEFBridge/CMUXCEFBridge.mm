@@ -690,10 +690,7 @@ public:
         if (!frame->IsMain()) return;
         // ERR_ABORTED is fired during normal navigation cancellation; not an error.
         if (errorCode == ERR_ABORTED) return;
-        NSString *msg = [NSString stringWithFormat:@"CEF load error %d (%s) for %s",
-                         static_cast<int>(errorCode),
-                         errorText.ToString().c_str(),
-                         failedUrl.ToString().c_str()];
+        NSString *msg = @"Chromium could not load this page.";
         NSError *err = [NSError errorWithDomain:@"CMUXCEF.load"
                                            code:static_cast<NSInteger>(errorCode)
                                        userInfo:@{NSLocalizedDescriptionKey: msg}];
@@ -965,8 +962,18 @@ static void CMUXCEFParkCEFWindow(NSWindow *window) {
         for (NSInteger b = NSWindowCloseButton; b <= NSWindowZoomButton; ++b) {
             [[_cefPlatformWindow standardWindowButton:(NSWindowButton)b] setHidden:YES];
         }
-        CGFloat screenHeight = [[[NSScreen screens] firstObject] frame].size.height;
-        int cefY = (int)(screenHeight - NSMaxY(screenRect));
+        NSScreen *targetScreen = [_hostNSWindow screen];
+        for (NSScreen *screen in [NSScreen screens]) {
+            if (NSIntersectsRect([screen frame], screenRect)) {
+                targetScreen = screen;
+                break;
+            }
+        }
+        if (targetScreen == nil) {
+            targetScreen = [NSScreen mainScreen] ?: [[NSScreen screens] firstObject];
+        }
+        CGFloat screenMaxY = NSMaxY([targetScreen frame]);
+        int cefY = (int)(screenMaxY - NSMaxY(screenRect));
         CefRect cefRect((int)NSMinX(screenRect), cefY,
                         (int)NSWidth(screenRect), (int)NSHeight(screenRect));
         _cefWindow->SetBounds(cefRect);

@@ -28,6 +28,7 @@ enum CEFRuntimeInstallerError: LocalizedError, Equatable {
     case downloadedFileHashMismatch(got: String, expected: String)
     case expectedExtractedDirectoryMissing(String)
     case expectedFrameworkMissing(String)
+    case expectedHelperMissing(String)
     case commandFailed(executable: String, status: Int32, output: String)
 
     var errorDescription: String? {
@@ -51,7 +52,7 @@ enum CEFRuntimeInstallerError: LocalizedError, Equatable {
                 localized: "cefRuntime.installError.integrityCheckFailed",
                 defaultValue: "The Chromium runtime download could not be verified. Try again, or switch back to WKWebView."
             )
-        case .expectedExtractedDirectoryMissing, .expectedFrameworkMissing, .commandFailed:
+        case .expectedExtractedDirectoryMissing, .expectedFrameworkMissing, .expectedHelperMissing, .commandFailed:
             return String(
                 localized: "cefRuntime.installError.installationFailed",
                 defaultValue: "The Chromium runtime could not be installed. Try again, or switch back to WKWebView."
@@ -75,6 +76,8 @@ enum CEFRuntimeInstallerError: LocalizedError, Equatable {
             return "expectedExtractedDirectoryMissing path=\(path)"
         case .expectedFrameworkMissing(let path):
             return "expectedFrameworkMissing path=\(path)"
+        case .expectedHelperMissing(let path):
+            return "expectedHelperMissing path=\(path)"
         case .commandFailed(let executable, let status, let output):
             return "commandFailed executable=\(executable) status=\(status) output=\(output)"
         }
@@ -370,9 +373,14 @@ final class CEFRuntimeInstaller {
         }
         try fileManager.moveItem(at: installRoot, to: finalRoot)
 
+        let helperExecutableURL = CEFRuntimeLocator.bundledHelperExecutableURL()
+        guard fileManager.isExecutableFile(atPath: helperExecutableURL.path) else {
+            throw CEFRuntimeInstallerError.expectedHelperMissing(helperExecutableURL.path)
+        }
         guard CEFRuntimeLocation(
             versionRoot: finalRoot,
-            frameworksDirectory: finalRoot.appendingPathComponent("Frameworks", isDirectory: true)
+            frameworksDirectory: finalRoot.appendingPathComponent("Frameworks", isDirectory: true),
+            helperExecutableURL: helperExecutableURL
         ).isUsable else {
             throw CEFRuntimeInstallerError.expectedFrameworkMissing(finalRoot.path)
         }

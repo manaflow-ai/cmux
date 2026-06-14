@@ -3,6 +3,7 @@ import Foundation
 struct CEFRuntimeLocation: Equatable, Sendable {
     let versionRoot: URL
     let frameworksDirectory: URL
+    let helperExecutableURL: URL
 
     var frameworkBinaryURL: URL {
         frameworksDirectory
@@ -10,14 +11,9 @@ struct CEFRuntimeLocation: Equatable, Sendable {
             .appendingPathComponent("Versions/A/Chromium Embedded Framework")
     }
 
-    var helperExecutableURL: URL {
-        frameworksDirectory
-            .appendingPathComponent("cmux Helper.app", isDirectory: true)
-            .appendingPathComponent("Contents/MacOS/cmux Helper")
-    }
-
     var isUsable: Bool {
         FileManager.default.isExecutableFile(atPath: frameworkBinaryURL.path)
+            && FileManager.default.isExecutableFile(atPath: helperExecutableURL.path)
     }
 }
 
@@ -40,6 +36,7 @@ enum CEFRuntimeLocator {
     static func installedLocation(
         descriptor: CEFRuntimeDescriptor = .current,
         root: URL? = nil,
+        bundle: Bundle = .main,
         fileManager: FileManager = .default
     ) -> CEFRuntimeLocation? {
         let runtimeRoot: URL
@@ -54,7 +51,8 @@ enum CEFRuntimeLocator {
         let versionRoot = runtimeRoot.appendingPathComponent(descriptor.version, isDirectory: true)
         let location = CEFRuntimeLocation(
             versionRoot: versionRoot,
-            frameworksDirectory: versionRoot.appendingPathComponent("Frameworks", isDirectory: true)
+            frameworksDirectory: versionRoot.appendingPathComponent("Frameworks", isDirectory: true),
+            helperExecutableURL: bundledHelperExecutableURL(bundle: bundle)
         )
         return location.isUsable ? location : nil
     }
@@ -64,12 +62,20 @@ enum CEFRuntimeLocator {
             .appendingPathComponent("Contents/Frameworks", isDirectory: true)
         let location = CEFRuntimeLocation(
             versionRoot: bundle.bundleURL,
-            frameworksDirectory: frameworksDirectory
+            frameworksDirectory: frameworksDirectory,
+            helperExecutableURL: bundledHelperExecutableURL(bundle: bundle)
         )
         return location.isUsable ? location : nil
     }
 
     static func resolvedLocation() -> CEFRuntimeLocation? {
         installedLocation() ?? bundledLocation()
+    }
+
+    static func bundledHelperExecutableURL(bundle: Bundle = .main) -> URL {
+        bundle.bundleURL
+            .appendingPathComponent("Contents/Frameworks", isDirectory: true)
+            .appendingPathComponent("cmux Helper.app", isDirectory: true)
+            .appendingPathComponent("Contents/MacOS/cmux Helper")
     }
 }

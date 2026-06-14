@@ -25,6 +25,7 @@
     },
     "platforms": {
       "type": "object",
+      "required": ["macosarm64"],
       "additionalProperties": false,
       "properties": {
         "macosarm64": {
@@ -33,8 +34,7 @@
         "macosx64": {
           "$ref": "#/definitions/platform"
         }
-      },
-      "minProperties": 1
+      }
     },
     "sources": {
       "type": "array",

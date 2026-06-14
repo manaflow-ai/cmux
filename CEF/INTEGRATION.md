@@ -1,6 +1,6 @@
 # CEF integration notes
 
-CEF is wired into `GhosttyTabs.xcodeproj` as a local Swift package named
+CEF is wired into `cmux.xcodeproj` as a local Swift package named
 `CMUXCEF`. New browser panes can opt into it through the Debug menu browser
 engine selector; WKWebView remains the default.
 
@@ -20,7 +20,7 @@ That script:
    the helper build.
 
 The CEF SDK step downloads the pinned tarball from `vendor/cef.lock.json`,
-verifies size and SHA1, extracts it under `CEF/CEF/`, builds
+verifies size and SHA-256, extracts it under `CEF/CEF/`, builds
 `libcef_dll_wrapper.a`, and populates `CEF/Frameworks/`.
 
 ## Xcode build behavior
@@ -44,8 +44,8 @@ CMUX_EMBED_CEF_FRAMEWORK=1 ./scripts/reload.sh --tag cef-bundled
 
 When CEF is selected from `Debug > Browser Engine` and no runtime is installed,
 cmux asks the user for confirmation, downloads the pinned runtime, verifies the
-size and SHA1, installs it under Application Support, and starts CEF from that
-installed framework. If install or startup fails, cmux leaves WKWebView
+size and SHA-256, installs it under Application Support, and starts CEF from that
+installed framework plus the bundled helper apps. If install or startup fails, cmux leaves WKWebView
 available.
 
 CEF runtime startup and helper execution require macOS 15.0 or later. On older
