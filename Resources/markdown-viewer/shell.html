@@ -1227,19 +1227,26 @@ html { scroll-behavior: smooth; }
     return { width: width, height: width * (natural.height / natural.width) };
   }
 
+  function mermaidContentWidth(entry) {
+    return Math.round(
+      (entry && entry.contentRect && entry.contentRect.width) ||
+      contentEl.getBoundingClientRect().width ||
+      contentEl.clientWidth ||
+      0
+    );
+  }
+
   function ensureMermaidResizeObserver() {
     if (mermaidResizeObserver || typeof ResizeObserver === 'undefined' || !contentEl) { return; }
-    mermaidObservedWidth = Math.round(contentEl.getBoundingClientRect().width || contentEl.clientWidth || 0);
+    mermaidObservedWidth = mermaidContentWidth(null);
     mermaidResizeObserver = new ResizeObserver(function(entries) {
-      if (Math.abs(cmuxMarkdownZoom - 1) <= 0.0001) { return; }
-      var entry = entries && entries[0];
-      var width = Math.round(
-        (entry && entry.contentRect && entry.contentRect.width) ||
-        contentEl.getBoundingClientRect().width ||
-        contentEl.clientWidth ||
-        0
-      );
-      if (width <= 0 || width === mermaidObservedWidth) { return; }
+      var width = mermaidContentWidth(entries && entries[0]);
+      if (width <= 0) { return; }
+      if (Math.abs(cmuxMarkdownZoom - 1) <= 0.0001) {
+        mermaidObservedWidth = width;
+        return;
+      }
+      if (width === mermaidObservedWidth) { return; }
       mermaidObservedWidth = width;
       applyMermaidZoom(contentEl);
     });
@@ -1275,6 +1282,7 @@ html { scroll-behavior: smooth; }
 
   window.__cmuxSetMarkdownZoom = function(zoom) {
     cmuxMarkdownZoom = normalizedMarkdownZoom(zoom);
+    mermaidObservedWidth = mermaidContentWidth(null);
     applyMermaidZoom(contentEl);
   };
 
