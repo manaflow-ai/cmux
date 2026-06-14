@@ -1,7 +1,10 @@
 import SwiftUI
 import Foundation
 import AppKit
+import CmuxFoundation
 import Bonsplit
+import CmuxFoundation
+import CmuxTerminal
 
 enum TmuxOverlayExperimentTarget: String, CaseIterable, Codable, Sendable {
     case surface
@@ -351,9 +354,19 @@ struct WorkspaceContentView: View {
         }
 
         // The bridge owns the presentation-mode subscription so a minimal-mode
-        // toggle re-layouts this stored subtree instead of re-building it.
+        // toggle re-layouts this stored content subtree instead of re-building it.
         MinimalModeSafeAreaBridge(isFullScreen: isFullScreen) {
-            bonsplitView
+            if workspace.layoutMode == .canvas {
+                WorkspaceCanvasHostView(
+                    workspace: workspace,
+                    isWorkspaceVisible: isWorkspaceVisible,
+                    isWorkspaceInputActive: isWorkspaceInputActive,
+                    portalPriority: workspacePortalPriority,
+                    appearance: appearance
+                )
+            } else {
+                bonsplitView
+            }
         }
     }
 
@@ -779,7 +792,7 @@ struct EmptyPanelView: View {
         cmuxDebugLog("emptyPane.newTerminal pane=\(paneId.id.uuidString.prefix(5))")
         #endif
         focusPane()
-        _ = workspace.newTerminalSurface(inPane: paneId)
+        _ = workspace.newTerminalSurface(inPane: paneId, inheritWorkingDirectoryFallback: true)
     }
 
     private func createBrowser() {

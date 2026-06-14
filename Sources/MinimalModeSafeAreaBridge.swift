@@ -1,7 +1,7 @@
 import SwiftUI
 
 /// Applies the minimal-mode top safe-area cancellation to a workspace's
-/// Bonsplit subtree while owning the presentation-mode subscription
+/// content subtree while owning the presentation-mode subscription
 /// (https://github.com/manaflow-ai/cmux/issues/5732). On a toggle only this
 /// wrapper's body re-runs; `content` is the stored view value from the
 /// workspace body, so SwiftUI skips its body and just re-layouts instead of

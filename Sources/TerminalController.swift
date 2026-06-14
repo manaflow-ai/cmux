@@ -1,6 +1,15 @@
 import AppKit
+import CmuxRemoteSession
+import CmuxCore
 import CmuxAuthRuntime
+import CmuxFeedback
 import CmuxControlSocket
+import CmuxFoundation
+import CmuxPanes
+import CmuxRemoteDaemon
+import CmuxRemoteWorkspace
+import CmuxTerminalEngine
+import CmuxTerminalServices
 import CmuxSettings
 import CmuxSocketControl
 import CmuxSwiftRenderUI
@@ -10,10 +19,13 @@ import CMUXWorkstream
 import Foundation
 import Bonsplit
 import WebKit
+import CmuxSidebar
+import CmuxTerminal
+import CmuxWorkspaceCore
 
 extension Notification.Name {
     static let socketListenerDidStart = Notification.Name("cmux.socketListenerDidStart")
-    static let terminalSurfaceDidBecomeReady = Notification.Name("cmux.terminalSurfaceDidBecomeReady")
+    // terminalSurfaceDidBecomeReady moved to CmuxTerminal (posted by TerminalSurface).
     static let terminalSurfaceHostedViewDidMoveToWindow = Notification.Name("cmux.terminalSurfaceHostedViewDidMoveToWindow")
     static let mainWindowContextsDidChange = Notification.Name("cmux.mainWindowContextsDidChange")
     static let browserDownloadEventDidArrive = Notification.Name("cmux.browserDownloadEventDidArrive")
@@ -26,7 +38,7 @@ nonisolated private struct SocketLineProcessingResult: Sendable {
 }
 
 nonisolated private struct RemotePTYSocketTarget {
-    let controller: WorkspaceRemoteSessionController?
+    let controller: RemoteSessionCoordinator?
     let windowId: UUID?
     let windowRef: Any
     let workspaceId: UUID
@@ -98,6 +110,11 @@ class TerminalController {
     @MainActor private(set) var browserSignInFlow: HostBrowserSignInFlow?
     // Sendable value type; injected at construction so socket auth never reaches a global.
     private nonisolated let passwordStore: SocketControlPasswordStore
+    /// Process-wide proxy-tunnel broker (one shared tunnel per remote transport across all
+    /// windows), constructed at this app-hub composition point and injected into each
+    /// `WorkspaceRemoteSessionController`; ownership moves to the composition root with the
+    /// planned `RemoteSessionCoordinator` wiring.
+    nonisolated let remoteProxyBroker: any RemoteProxyBrokering
     // Stateless Sendable structs from CmuxControlSocket; injected at construction.
     // `transport` is internal so sibling-file extensions (CmuxEventStream) can write through it.
     nonisolated let transport: SocketTransport
@@ -267,10 +284,14 @@ class TerminalController {
     private init(
         passwordStore: SocketControlPasswordStore = SocketControlPasswordStore(),
         transport: SocketTransport = SocketTransport(),
-        listenerPolicy: SocketListenerPolicy = SocketListenerPolicy()
+        listenerPolicy: SocketListenerPolicy = SocketListenerPolicy(),
+        remoteProxyBroker: any RemoteProxyBrokering = RemoteProxyBroker(
+            tunnelProvider: RemoteDaemonProxyTunnelProvider(strings: .appLocalized, ptyBridgeStrings: AppRemotePTYBridgeStrings())
+        )
     ) {
         self.passwordStore = passwordStore
         self.transport = transport
+        self.remoteProxyBroker = remoteProxyBroker
         let serverEventTarget = ServerEventTarget()
         let socketServer = SocketControlServer(
             transport: transport,
@@ -585,7 +606,7 @@ class TerminalController {
 
     nonisolated static func parseReportedShellActivityState(
         _ rawState: String
-    ) -> Workspace.PanelShellActivityState? {
+    ) -> PanelShellActivityState? {
         switch rawState.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() {
         case "prompt", "idle":
             return .promptIdle
@@ -600,7 +621,7 @@ class TerminalController {
 
     nonisolated static func parseRemotePortScanKickReason(
         _ rawReason: String
-    ) -> WorkspaceRemoteSessionController.PortScanKickReason? {
+    ) -> PortScanKickReason? {
         switch rawReason.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() {
         case "command", "running", "foreground", "start":
             return .command
@@ -4609,7 +4630,7 @@ class TerminalController {
                 }
             }
 
-            let surfaces = TerminalSurfaceRegistry.shared.allSurfaces()
+            let surfaces = GhosttyApp.terminalSurfaceRegistry.allTerminalSurfaces()
             let terminals: [[String: Any]] = surfaces.enumerated().map { index, terminalSurface in
                 let mapped = mappedLocations[ObjectIdentifier(terminalSurface)]
                 let hostedView = terminalSurface.hostedView
@@ -4896,7 +4917,7 @@ class TerminalController {
         normalizeLineEndings: Bool = true
     ) -> String? {
         var actionSucceeded = false
-        let exportedPath = GhosttyPasteboardHelper.captureNextStandardClipboardWrite {
+        let exportedPath = GhosttyApp.terminalPasteboard.captureNextStandardClipboardWrite {
             let ok = terminalPanel.performBindingAction(bindingAction)
             actionSucceeded = ok
             return ok
@@ -4929,27 +4950,6 @@ class TerminalController {
             output = Self.tailTerminalLines(output, maxLines: lineLimit)
         }
         return output
-    }
-
-    /// Scrollback rows included in a cold-attach render-grid replay snapshot.
-    /// Live render-grid events carry no scrollback (the client already has it);
-    /// only the replay anchor needs history. Kept minimal on purpose: a
-    /// freshly-attached device gets the live screen immediately, and deeper
-    /// history is a follow-up (incremental scrollback paging on scroll-to-top).
-    /// Tune up to trade replay payload size for more attach-time history.
-    nonisolated static let mobileReplayScrollbackLineBudget = 1
-
-    private func mobileTerminalRenderGridFrame(
-        terminalPanel: TerminalPanel,
-        surfaceID: UUID,
-        seq: UInt64,
-        scrollbackLines: Int = TerminalController.mobileReplayScrollbackLineBudget
-    ) -> MobileTerminalRenderGridFrame? {
-        guard surfaceID == terminalPanel.id else { return nil }
-        return terminalPanel.surface.mobileRenderGridFrame(
-            stateSeq: seq,
-            scrollbackLines: scrollbackLines
-        )?.frame
     }
 
     private func readPlainTerminalTextForSnapshot(
@@ -7112,11 +7112,11 @@ class TerminalController {
     /// `__cmuxClick(el)`, `__cmuxHover(el)`, `__cmuxSetChecked(el, desired)`, and `__cmuxKey(t,type,key)`.
     private nonisolated static let browserInputHelpers = """
     function __cmuxCenter(el){const r=el.getBoundingClientRect();return {x:Math.floor(r.left+Math.min(r.width,r.width/2)),y:Math.floor(r.top+Math.min(r.height,r.height/2))};}
-    function __cmuxPointer(el,type,c,buttons){try{el.dispatchEvent(new PointerEvent(type,{bubbles:true,cancelable:true,composed:true,view:window,pointerId:1,pointerType:'mouse',isPrimary:true,button:0,buttons:buttons,clientX:c.x,clientY:c.y,screenX:c.x,screenY:c.y}));}catch(e){}}
+    function __cmuxPointer(el,type,c,buttons,bubbles){try{el.dispatchEvent(new PointerEvent(type,{bubbles:(bubbles===false?false:true),cancelable:true,composed:true,view:window,pointerId:1,pointerType:'mouse',isPrimary:true,button:0,buttons:buttons,clientX:c.x,clientY:c.y,screenX:c.x,screenY:c.y}));}catch(e){}}
     function __cmuxMouse(el,type,c,buttons,detail,bubbles){el.dispatchEvent(new MouseEvent(type,{bubbles:(bubbles===false?false:true),cancelable:true,composed:true,view:window,button:0,buttons:buttons,detail:detail||0,clientX:c.x,clientY:c.y,screenX:c.x,screenY:c.y}));}
     function __cmuxClick(el){const c=__cmuxCenter(el);
       __cmuxPointer(el,'pointerover',c,0);__cmuxMouse(el,'mouseover',c,0);
-      __cmuxPointer(el,'pointerenter',c,0);__cmuxMouse(el,'mouseenter',c,0,0,false);
+      __cmuxPointer(el,'pointerenter',c,0,false);__cmuxMouse(el,'mouseenter',c,0,0,false);
       __cmuxPointer(el,'pointermove',c,0);__cmuxMouse(el,'mousemove',c,0);
       __cmuxPointer(el,'pointerdown',c,1);__cmuxMouse(el,'mousedown',c,1,1);
       if(typeof el.focus==='function'){try{el.focus({preventScroll:true});}catch(e){try{el.focus();}catch(e2){}}}
@@ -7125,7 +7125,7 @@ class TerminalController {
     }
     function __cmuxHover(el){const c=__cmuxCenter(el);
       __cmuxPointer(el,'pointerover',c,0);__cmuxMouse(el,'mouseover',c,0);
-      __cmuxPointer(el,'pointerenter',c,0);__cmuxMouse(el,'mouseenter',c,0,0,false);
+      __cmuxPointer(el,'pointerenter',c,0,false);__cmuxMouse(el,'mouseenter',c,0,0,false);
       __cmuxPointer(el,'pointermove',c,0);__cmuxMouse(el,'mousemove',c,0);
     }
     function __cmuxSetChecked(el,desired){
@@ -13389,6 +13389,16 @@ class TerminalController {
             result = v2MobileTerminalMouse(params: request.params)
         case "workspace.action":
             result = v2MobileWorkspaceAction(params: request.params)
+        case "workspace.close":
+            result = v2MobileWorkspaceClose(params: request.params)
+        case "workspace.group.collapse":
+            result = v2MobileWorkspaceGroupSetCollapsed(params: request.params, isCollapsed: true)
+        case "workspace.group.expand":
+            result = v2MobileWorkspaceGroupSetCollapsed(params: request.params, isCollapsed: false)
+        case "notification.dismiss":
+            result = v2MobileNotificationDismiss(params: request.params)
+        case "notification.reconcile":
+            result = v2MobileNotificationReconcile(params: request.params)
         case "dogfood.feedback.submit":
             result = await v2MobileDogfoodFeedbackSubmit(params: request.params)
         default:
@@ -13603,25 +13613,7 @@ class TerminalController {
         }
     }
 
-    /// The `workspace.action` sub-actions the mobile data plane may invoke.
-    ///
-    /// Mobile gets pin/unpin/rename only. The other sub-actions of
-    /// ``v2WorkspaceAction(params:)`` (`move_*`, `close_*`, `set_color`,
-    /// `set_description`, `mark_*`, …) reorder the global sidebar or destroy
-    /// sibling workspaces, so they stay on the Mac/automation socket. The action
-    /// is normalized exactly as ``v2ActionKey(_:_:)`` so this gate and the
-    /// handler can never disagree on which action runs.
-    /// - Parameter rawAction: The raw `action` param value.
-    /// - Returns: `true` when the normalized action is mobile-allowed.
-    nonisolated static func mobileAllowsWorkspaceAction(_ rawAction: String?) -> Bool {
-        guard let trimmed = rawAction?.trimmingCharacters(in: .whitespacesAndNewlines),
-              !trimmed.isEmpty else { return false }
-        let normalized = trimmed.lowercased().replacingOccurrences(of: "-", with: "_")
-        return ["pin", "unpin", "rename"].contains(normalized)
-    }
-
-    /// Mobile-gated wrapper over ``v2WorkspaceAction(params:)``: rejects every
-    /// sub-action except pin/unpin/rename before dispatching.
+    /// Mobile-gated wrapper over ``v2WorkspaceAction(params:)``.
     private func v2MobileWorkspaceAction(params: [String: Any]) -> V2CallResult {
         let rawAction = v2RawString(params, "action")
         guard Self.mobileAllowsWorkspaceAction(rawAction) else {
@@ -13773,170 +13765,14 @@ class TerminalController {
         }
     }
 
-    func v2MobileWorkspaceList(
-        params: [String: Any],
-        tabManager resolvedTabManager: TabManager? = nil,
-        createdWorkspaceID: String? = nil,
-        createdTerminalID: String? = nil
-    ) -> V2CallResult {
-        let requestedWorkspaceID = v2UUID(params, "workspace_id")
-        if v2HasNonNullParam(params, "workspace_id"), requestedWorkspaceID == nil {
-            return .err(code: "invalid_params", message: "Missing or invalid workspace_id", data: nil)
-        }
-        let requestedTerminalID: UUID?
-        switch mobileTerminalAliasUUID(params: params) {
-        case .missing:
-            requestedTerminalID = nil
-        case let .value(terminalID):
-            requestedTerminalID = terminalID
-        case .invalid:
-            return .err(code: "invalid_params", message: "Missing or invalid terminal_id", data: nil)
-        case .conflict:
-            return .err(code: "invalid_params", message: "Conflicting terminal identifiers", data: nil)
-        }
-
-        // The phone shows workspaces from *every* open Mac window. Enumerate all
-        // registered main windows and flatten their workspaces into one list,
-        // but only when the caller has not named a specific target. When a
-        // `workspace_id`, `window_id`, terminal alias, or an explicit
-        // `resolvedTabManager` (the create/terminal-create paths pass one) is
-        // present, keep today's single-window scoped behavior so those requests
-        // resolve exactly the named target.
-        let scopeToSingleWindow = resolvedTabManager != nil
-            || requestedWorkspaceID != nil
-            || v2HasNonNullParam(params, "window_id")
-            || requestedTerminalID != nil
-
-        // `is_selected` has no single answer across multiple windows. Mark only
-        // the frontmost/key window's selected workspace as selected; in the old
-        // single-window path this is exactly the one selected workspace. Using
-        // `currentScriptableMainWindow()` (not `isKeyWindow`) means a backgrounded
-        // app, where no window is key, still reports the same selection the old
-        // path would have, instead of marking nothing selected.
-        let selectedWorkspaceID = scopeToSingleWindow
-            ? nil
-            : AppDelegate.shared?.currentScriptableMainWindow()?.tabManager.selectedTabId
-
-        let workspaces: [[String: Any]]
-        if scopeToSingleWindow {
-            guard let tabManager = resolvedTabManager ?? v2ResolveTabManager(params: params) else {
-                return .err(code: "unavailable", message: "Workspace context is unavailable", data: nil)
-            }
-            let visibleWorkspaces = requestedWorkspaceID.map { workspaceID in
-                tabManager.tabs.filter { $0.id == workspaceID }
-            } ?? tabManager.tabs
-            if let requestedWorkspaceID, visibleWorkspaces.isEmpty {
-                return .err(
-                    code: "not_found",
-                    message: "Workspace not found",
-                    data: ["workspace_id": requestedWorkspaceID.uuidString]
-                )
-            }
-            let scopedWorkspaces = visibleWorkspaces.map { workspace in
-                mobileWorkspacePayload(
-                    workspace: workspace,
-                    isSelected: workspace.id == tabManager.selectedTabId,
-                    requestedTerminalID: requestedTerminalID
-                )
-            }
-            if let requestedTerminalID,
-               !scopedWorkspaces.contains(where: { workspace in
-                   guard let terminals = workspace["terminals"] as? [[String: Any]] else { return false }
-                   return terminals.contains { ($0["id"] as? String) == requestedTerminalID.uuidString }
-               }) {
-                return .err(
-                    code: "not_found",
-                    message: "Terminal not found",
-                    data: ["surface_id": requestedTerminalID.uuidString]
-                )
-            }
-            workspaces = scopedWorkspaces
-        } else {
-            guard let app = AppDelegate.shared else {
-                return .err(code: "unavailable", message: "Workspace context is unavailable", data: nil)
-            }
-            var flattened: [[String: Any]] = []
-            // `listMainWindowSummaries()` already dedupes window ids, but guard
-            // against the same window or workspace appearing twice anyway: a
-            // workspace lives in exactly one window, and ids are globally unique.
-            var seenWindowIDs: Set<UUID> = []
-            var seenWorkspaceIDs: Set<UUID> = []
-            for summary in app.listMainWindowSummaries() {
-                guard seenWindowIDs.insert(summary.windowId).inserted else { continue }
-                guard let windowTabManager = app.tabManagerFor(windowId: summary.windowId) else { continue }
-                for workspace in windowTabManager.tabs where seenWorkspaceIDs.insert(workspace.id).inserted {
-                    flattened.append(
-                        mobileWorkspacePayload(
-                            workspace: workspace,
-                            isSelected: workspace.id == selectedWorkspaceID,
-                            requestedTerminalID: requestedTerminalID
-                        )
-                    )
-                }
-            }
-            workspaces = flattened
-        }
-
-        var payload: [String: Any] = [
-            "workspaces": workspaces
-        ]
-        if let createdWorkspaceID {
-            payload["created_workspace_id"] = createdWorkspaceID
-        }
-        if let createdTerminalID {
-            payload["created_terminal_id"] = createdTerminalID
-        }
-        return .ok(payload)
-    }
-
-    /// Serializes one workspace into the iOS-facing mobile workspace list shape.
-    ///
-    /// Shared by the single-window (scoped) and all-windows enumeration branches
-    /// of `v2MobileWorkspaceList` so the two never diverge. When
-    /// `requestedTerminalID` is non-nil the terminals array is filtered to that
-    /// one terminal (only the scoped branch passes it; the all-windows branch
-    /// always passes nil, so it lists every terminal). The scoped
-    /// terminal-not-found check is enforced by the caller after the list is built.
-    private func mobileWorkspacePayload(
-        workspace: Workspace,
-        isSelected: Bool,
-        requestedTerminalID: UUID?
-    ) -> [String: Any] {
-        let terminals = mobileTerminalPanels(in: workspace).compactMap { terminal -> [String: Any]? in
-            if let requestedTerminalID, terminal.id != requestedTerminalID {
-                return nil
-            }
-            return [
-                "id": terminal.id.uuidString,
-                "title": workspace.panelTitle(panelId: terminal.id) ?? terminal.displayTitle,
-                "current_directory": v2OrNull(
-                    mobileNonEmpty(workspace.panelDirectories[terminal.id])
-                        ?? mobileNonEmpty(terminal.directory)
-                        ?? mobileNonEmpty(terminal.requestedWorkingDirectory)
-                ),
-                "is_ready": terminal.surface.surface != nil,
-                "is_focused": terminal.id == workspace.focusedPanelId
-            ]
-        }
-
-        return [
-            "id": workspace.id.uuidString,
-            "title": workspace.title,
-            "current_directory": v2OrNull(mobileNonEmpty(workspace.currentDirectory)),
-            "is_selected": isSelected,
-            "is_pinned": workspace.isPinned,
-            "terminals": terminals
-        ]
-    }
-
-    private enum MobileTerminalAliasUUID {
+    enum MobileTerminalAliasUUID {
         case missing
         case value(UUID)
         case invalid
         case conflict
     }
 
-    private func mobileTerminalAliasUUID(params: [String: Any]) -> MobileTerminalAliasUUID {
+    func mobileTerminalAliasUUID(params: [String: Any]) -> MobileTerminalAliasUUID {
         var selected: UUID?
         var sawAlias = false
         for key in ["surface_id", "terminal_id", "tab_id"] {
@@ -14148,7 +13984,7 @@ class TerminalController {
                 createParams["workspace_id"] = createdWorkspaceID
             }
             // workspace.updated emit is handled by MobileWorkspaceListObserver
-            // which watches TabManager.$tabs directly. Don't fire here.
+            // which watches TabManager.tabsPublisher directly. Don't fire here.
             return v2MobileWorkspaceList(
                 params: createParams,
                 tabManager: tabManager,
@@ -14176,7 +14012,7 @@ class TerminalController {
             inPane: paneId,
             focus: false,
             autoRefreshMetadata: false,
-            preserveFocusWhenUnfocused: false
+            preserveFocusWhenUnfocused: false, inheritWorkingDirectoryFallback: true
         ) else {
             return .err(code: "internal_error", message: "Failed to create terminal", data: nil)
         }
@@ -14314,10 +14150,12 @@ class TerminalController {
             terminalPanel.surface.mobileScroll(deltaLines: deltaLines, col: max(0, col), row: max(0, row))
             MobileTerminalRenderObserver.shared.noteTerminalBytes(surfaceID: terminalPanel.id)
         }
-        return .ok([
-            "workspace_id": resolved.workspace.id.uuidString,
-            "surface_id": surfaceId.uuidString,
-        ])
+        return .ok(mobileTerminalScrollResponsePayload(
+            workspaceID: resolved.workspace.id,
+            terminalPanel: terminalPanel,
+            surfaceID: surfaceId,
+            params: params
+        ))
     }
 
     func v2MobileTerminalMouse(params: [String: Any]) -> V2CallResult {
@@ -14418,7 +14256,7 @@ class TerminalController {
 
         applyMobileViewportReport(params: params, terminalPanel: terminalPanel)
 
-        guard let escapedPath = GhosttyPasteboardHelper.saveImageData(imageData, fileExtension: format) else {
+        guard let escapedPath = GhosttyApp.terminalPasteboard.saveImageData(imageData, fileExtension: format) else {
             return .err(code: "invalid_params", message: "Image payload was empty or exceeded the size limit", data: nil)
         }
 
@@ -14754,7 +14592,7 @@ class TerminalController {
         return (tabManager, workspace, surfaceId)
     }
 
-    private func mobileTerminalPanels(in workspace: Workspace) -> [TerminalPanel] {
+    func mobileTerminalPanels(in workspace: Workspace) -> [TerminalPanel] {
         // Use the workspace's spatial (left-to-right, top-to-bottom) panel order
         // so the phone's terminal dropdown matches the on-screen bonsplit layout,
         // rather than focused-first/UUID order. `is_focused` in the payload still
@@ -14762,7 +14600,7 @@ class TerminalController {
         orderedPanels(in: workspace).compactMap { $0 as? TerminalPanel }
     }
 
-    private func mobileNonEmpty(_ raw: String?) -> String? {
+    func mobileNonEmpty(_ raw: String?) -> String? {
         let trimmed = raw?.trimmingCharacters(in: .whitespacesAndNewlines)
         return trimmed?.isEmpty == false ? trimmed : nil
     }
