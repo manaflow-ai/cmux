@@ -186,7 +186,7 @@ final class SidebarWidthPolicyTests: XCTestCase {
 
         XCTAssertEqual(defaults.double(forKey: managedKey), 900, accuracy: 0.001)
         let configuredMaximumWidth = try XCTUnwrap(
-            RightSidebarWidthSettings.configuredMaximumWidth(from: defaults.double(forKey: managedKey))
+            RightSidebarWidthSettings().configuredMaximumWidth(from: defaults.double(forKey: managedKey))
         )
         XCTAssertEqual(configuredMaximumWidth, 900, accuracy: 0.001)
     }
@@ -244,7 +244,7 @@ final class SidebarWidthPolicyTests: XCTestCase {
             accuracy: 0.001
         )
         let configuredMaximumWidth = try XCTUnwrap(
-            RightSidebarWidthSettings.configuredMaximumWidth(from: defaults.double(forKey: managedKey))
+            RightSidebarWidthSettings().configuredMaximumWidth(from: defaults.double(forKey: managedKey))
         )
         XCTAssertEqual(
             configuredMaximumWidth,

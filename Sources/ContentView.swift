@@ -1415,7 +1415,7 @@ struct ContentView: View {
     }
 
     private var rightSidebarConfiguredMaximumWidth: CGFloat? {
-        guard let width = RightSidebarWidthSettings.configuredMaximumWidth(from: rightSidebarMaxWidthSetting) else {
+        guard let width = RightSidebarWidthSettings().configuredMaximumWidth(from: rightSidebarMaxWidthSetting) else {
             return nil
         }
         return CGFloat(width)
@@ -16765,4 +16765,3 @@ enum SidebarPresetOption: String, CaseIterable, Identifiable {
         }
     }
 }
-

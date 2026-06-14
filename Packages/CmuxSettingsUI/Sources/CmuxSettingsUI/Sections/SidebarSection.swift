@@ -10,6 +10,7 @@ import SwiftUI
 public struct SidebarSection: View {
     private let catalog: SettingCatalog
     private let hostActions: SettingsHostActions
+    private let rightSidebarWidthSettings = RightSidebarWidthSettings()
 
     @State private var sidebarFont: SettingsFontSize
     @State private var fontSaveFailed = false
@@ -90,14 +91,14 @@ public struct SidebarSection: View {
             get: { rightMaxWidthOverrideEnabled },
             set: { enabled in
                 if enabled {
-                    let restored = RightSidebarWidthSettings.storedMaximumWidthWhenEnabling(
+                    let restored = rightSidebarWidthSettings.storedMaximumWidthWhenEnabling(
                         rememberedStoredValue: rememberedRightMaxWidth.current
                     )
                     rememberedRightMaxWidth.set(restored)
                     rightMaxWidth.set(restored)
                 } else {
                     rememberedRightMaxWidth.set(
-                        RightSidebarWidthSettings.storedRememberedMaximumWidth(
+                        rightSidebarWidthSettings.storedRememberedMaximumWidth(
                             activeStoredValue: rightMaxWidth.current,
                             rememberedStoredValue: rememberedRightMaxWidth.current
                         )
@@ -111,13 +112,13 @@ public struct SidebarSection: View {
     private var rightMaxWidthEditorBinding: Binding<Double> {
         Binding(
             get: {
-                RightSidebarWidthSettings.editorMaximumWidth(
+                rightSidebarWidthSettings.editorMaximumWidth(
                     activeStoredValue: rightMaxWidth.current,
                     rememberedStoredValue: rememberedRightMaxWidth.current
                 )
             },
             set: {
-                let clamped = Self.clampedRightMaxWidth($0)
+                let clamped = clampedRightMaxWidth($0)
                 rememberedRightMaxWidth.set(clamped)
                 if rightMaxWidthOverrideEnabled {
                     rightMaxWidth.set(clamped)
@@ -133,8 +134,8 @@ public struct SidebarSection: View {
         return String(localized: "settings.sidebar.rightMaxWidth.subtitleOff", defaultValue: "Use the built-in dynamic cap that keeps extra terminal space reserved.")
     }
 
-    private static func clampedRightMaxWidth(_ value: Double) -> Double {
-        RightSidebarWidthSettings.clampedSettingsEditorMaximumWidth(value)
+    private func clampedRightMaxWidth(_ value: Double) -> Double {
+        rightSidebarWidthSettings.clampedSettingsEditorMaximumWidth(value)
     }
 
     @ViewBuilder

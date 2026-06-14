@@ -638,7 +638,7 @@ final class CmuxSettingsFileStore {
 
         if let value = jsonDouble(section[RightSidebarWidthSettings.jsonKey]), value > 0 {
             snapshot.managedUserDefaults[RightSidebarWidthSettings.maxWidthKey] = .double(
-                RightSidebarWidthSettings.clampedSettingsEditorMaximumWidth(value)
+                RightSidebarWidthSettings().clampedSettingsEditorMaximumWidth(value)
             )
         } else if section.keys.contains(RightSidebarWidthSettings.jsonKey) {
             logInvalid(RightSidebarWidthSettings.settingsPath, sourcePath: sourcePath)

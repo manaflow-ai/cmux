@@ -3,8 +3,10 @@ import Testing
 
 @Suite("RightSidebarWidthSettings")
 struct RightSidebarWidthSettingsTests {
+    private let settings = RightSidebarWidthSettings()
+
     @Test func disabledOverrideRestoresRememberedCustomMaximumWhenEnabledAgain() {
-        let restored = RightSidebarWidthSettings.storedMaximumWidthWhenEnabling(
+        let restored = settings.storedMaximumWidthWhenEnabling(
             rememberedStoredValue: 1_234
         )
 
@@ -12,7 +14,7 @@ struct RightSidebarWidthSettingsTests {
     }
 
     @Test func invalidRememberedMaximumFallsBackToDefaultWhenEnabled() {
-        let restored = RightSidebarWidthSettings.storedMaximumWidthWhenEnabling(
+        let restored = settings.storedMaximumWidthWhenEnabling(
             rememberedStoredValue: RightSidebarWidthSettings.noOverrideValue
         )
 
@@ -20,7 +22,7 @@ struct RightSidebarWidthSettingsTests {
     }
 
     @Test func activeCustomMaximumWinsOverRememberedValueForEditor() {
-        let editorValue = RightSidebarWidthSettings.editorMaximumWidth(
+        let editorValue = settings.editorMaximumWidth(
             activeStoredValue: 1_500,
             rememberedStoredValue: 900
         )
@@ -30,14 +32,14 @@ struct RightSidebarWidthSettingsTests {
 
     @Test func configuredMaximumWidthIsClampedToEditorRange() throws {
         let configured = try #require(
-            RightSidebarWidthSettings.configuredMaximumWidth(from: 10_000)
+            settings.configuredMaximumWidth(from: 10_000)
         )
 
         #expect(configured == RightSidebarWidthSettings.settingsEditorMaximumWidth)
     }
 
     @Test func rememberedCustomMaximumIsClampedToEditorRange() {
-        let restored = RightSidebarWidthSettings.storedMaximumWidthWhenEnabling(
+        let restored = settings.storedMaximumWidthWhenEnabling(
             rememberedStoredValue: 10_000
         )
 
