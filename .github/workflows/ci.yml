@@ -286,13 +286,27 @@ jobs:
           key: spm-${{ hashFiles('cmux.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved') }}
           restore-keys: spm-
 
-      - name: Prepare isolated DerivedData
+      - name: Prepare DerivedData path
         run: |
           set -euo pipefail
-          DERIVED_DATA_PATH="${RUNNER_TEMP}/cmux-derived-data-tests-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
-          rm -rf "$DERIVED_DATA_PATH"
+          # Stable (non per-run) path so the incremental build products can be
+          # cached across runs. Xcode's incremental build validates restored
+          # products against the current sources, so a warm restore recompiles
+          # only what changed instead of rebuilding the whole app + test bundle
+          # (the focused-gate step used to spend ~3 min on that full compile).
+          DERIVED_DATA_PATH="$HOME/Library/Developer/Xcode/DerivedData/cmux-tests"
           mkdir -p "$DERIVED_DATA_PATH"
           echo "CMUX_DERIVED_DATA_PATH=$DERIVED_DATA_PATH" >> "$GITHUB_ENV"
+
+      - name: Cache DerivedData
+        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          path: ~/Library/Developer/Xcode/DerivedData/cmux-tests
+          key: deriveddata-tests-${{ hashFiles('cmux.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved') }}-${{ hashFiles('cmux.xcodeproj/project.pbxproj') }}-${{ steps.ghostty-revision.outputs.sha }}
+          restore-keys: |
+            deriveddata-tests-${{ hashFiles('cmux.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved') }}-${{ hashFiles('cmux.xcodeproj/project.pbxproj') }}-
+            deriveddata-tests-${{ hashFiles('cmux.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved') }}-
+            deriveddata-tests-
 
       - name: Resolve Swift packages
         run: |
@@ -315,6 +329,60 @@ jobs:
             sleep $((attempt * 5))
           done
 
+      - name: Build for testing
+        run: |
+          set -euo pipefail
+          SOURCE_PACKAGES_DIR="$PWD/.ci-source-packages"
+          # Build the app + cmuxTests bundle once. Every test step below runs via
+          # test-without-building against these products, so the bundle is no
+          # longer rebuilt and relinked for each focused gate plus the main
+          # suite (four separate build-graph resolutions today).
+          xcodebuild -project cmux.xcodeproj -scheme cmux-unit -configuration Debug \
+            -derivedDataPath "$CMUX_DERIVED_DATA_PATH" \
+            -clonedSourcePackagesDirPath "$SOURCE_PACKAGES_DIR" \
+            -disableAutomaticPackageResolution \
+            -destination "platform=macOS" \
+            CMUX_SKIP_ZIG_BUILD=1 \
+            build-for-testing
+
+      - name: Enumerate tests (sharding diagnostic)
+        run: |
+          set -euo pipefail
+          SOURCE_PACKAGES_DIR="$PWD/.ci-source-packages"
+          # Capture the authoritative flat test-identifier list produced by
+          # xcodebuild itself (covers both XCTest and swift-testing @Test cases,
+          # which a source grep would miss). A follow-up change partitions this
+          # list to shard the suite across runners; for now this only records
+          # the JSON shape and count needed to write that partition safely.
+          xcodebuild -project cmux.xcodeproj -scheme cmux-unit -configuration Debug \
+            -derivedDataPath "$CMUX_DERIVED_DATA_PATH" \
+            -clonedSourcePackagesDirPath "$SOURCE_PACKAGES_DIR" \
+            -disableAutomaticPackageResolution \
+            -destination "platform=macOS" \
+            -enumerate-tests -test-enumeration-style flat -test-enumeration-format json \
+            -test-enumeration-output-path /tmp/cmux-test-enum.json \
+            test-without-building || true
+          echo "=== enumerate output (first 3000 bytes) ==="
+          head -c 3000 /tmp/cmux-test-enum.json 2>/dev/null || true
+          echo ""
+          echo "=== parsed summary ==="
+          python3 - <<'PY' || true
+          import json
+          try:
+              d = json.load(open('/tmp/cmux-test-enum.json'))
+          except Exception as e:
+              print('parse error:', e)
+              raise SystemExit(0)
+          print('top-level type:', type(d).__name__)
+          if isinstance(d, dict):
+              print('keys:', list(d.keys()))
+              for k, v in d.items():
+                  if isinstance(v, list):
+                      print(f'  {k}: list len={len(v)} sample={v[:3]}')
+          elif isinstance(d, list):
+              print('list len=', len(d), 'sample=', d[:3])
+          PY
+
       - name: Run Ghostty split-theme appearance regression
         run: |
           set -euo pipefail
@@ -324,12 +392,11 @@ jobs:
             -clonedSourcePackagesDirPath "$SOURCE_PACKAGES_DIR" \
             -disableAutomaticPackageResolution \
             -destination "platform=macOS" \
-            CMUX_SKIP_ZIG_BUILD=1 \
             -only-testing:cmuxTests/AppearanceSettingsTests/testSplitGhosttyThemeUsesStoredDarkModeWhenAppAppearanceIsStaleLight \
             -only-testing:cmuxTests/AppearanceSettingsTests/testSplitGhosttyThemeUsesStoredLightModeWhenAppAppearanceIsStaleDark \
             -only-testing:cmuxTests/AppearanceSettingsTests/testSplitGhosttyThemeUsesSystemLightWhenAppAppearanceIsStaleDark \
             -only-testing:cmuxTests/AppearanceSettingsTests/testSplitGhosttyThemeUsesSystemDarkWhenAppAppearanceIsStaleLight \
-            test
+            test-without-building
 
       - name: Run browser system proxy mirror regression
         run: |
@@ -346,9 +413,8 @@ jobs:
             -clonedSourcePackagesDirPath "$SOURCE_PACKAGES_DIR" \
             -disableAutomaticPackageResolution \
             -destination "platform=macOS" \
-            CMUX_SKIP_ZIG_BUILD=1 \
             -only-testing:cmuxTests/BrowserSystemProxyMirrorTests \
-            test
+            test-without-building
 
       - name: Run Option/Alt sided-modifier regression
         run: |
@@ -365,9 +431,8 @@ jobs:
             -clonedSourcePackagesDirPath "$SOURCE_PACKAGES_DIR" \
             -disableAutomaticPackageResolution \
             -destination "platform=macOS" \
-            CMUX_SKIP_ZIG_BUILD=1 \
             -only-testing:cmuxTests/GhosttyOptionAsAltModsTests \
-            test
+            test-without-building
 
       - name: Run unit tests
         run: |
@@ -386,8 +451,7 @@ jobs:
               -clonedSourcePackagesDirPath "$SOURCE_PACKAGES_DIR" \
               -disableAutomaticPackageResolution \
               -destination "platform=macOS" \
-              CMUX_SKIP_ZIG_BUILD=1 \
-              test 2>&1 &
+              test-without-building 2>&1 &
             local xcodebuild_pid=$!
             local timeout_seconds="${CMUX_UNIT_TEST_TIMEOUT_SECONDS:-900}"
             local deadline=$((SECONDS + timeout_seconds))
@@ -422,6 +486,20 @@ jobs:
             mkdir -p ~/Library/Caches/org.swift.swiftpm
             rm -rf "$CMUX_DERIVED_DATA_PATH"
             mkdir -p "$CMUX_DERIVED_DATA_PATH"
+            # DerivedData was wiped to clear the corrupt SwiftPM state, so the
+            # build products that test-without-building needs are gone. Re-resolve
+            # and rebuild for testing before retrying the suite.
+            xcodebuild -project cmux.xcodeproj -scheme cmux-unit -configuration Debug \
+              -derivedDataPath "$CMUX_DERIVED_DATA_PATH" \
+              -clonedSourcePackagesDirPath "$SOURCE_PACKAGES_DIR" \
+              -resolvePackageDependencies
+            xcodebuild -project cmux.xcodeproj -scheme cmux-unit -configuration Debug \
+              -derivedDataPath "$CMUX_DERIVED_DATA_PATH" \
+              -clonedSourcePackagesDirPath "$SOURCE_PACKAGES_DIR" \
+              -disableAutomaticPackageResolution \
+              -destination "platform=macOS" \
+              CMUX_SKIP_ZIG_BUILD=1 \
+              build-for-testing
             set +e
             run_unit_tests | tee /tmp/test-output.txt
             EXIT_CODE=${PIPESTATUS[0]}
