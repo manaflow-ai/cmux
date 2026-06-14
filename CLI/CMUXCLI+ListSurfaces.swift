@@ -40,6 +40,20 @@ extension CMUXCLI {
         }
     }
 
+    func validateListSurfacesCommandSyntax(
+        commandName: String,
+        commandArgs: [String],
+        terminalOnly: Bool,
+        windowOverride: String? = nil
+    ) throws {
+        _ = try parseListSurfacesCommandOptions(
+            commandArgs,
+            commandName: commandName,
+            terminalOnly: terminalOnly,
+            windowOverride: windowOverride
+        )
+    }
+
     private func parseListSurfacesCommandOptions(
         _ args: [String],
         commandName: String,

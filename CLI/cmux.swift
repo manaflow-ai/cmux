@@ -3162,6 +3162,9 @@ struct CMUXCLI {
         if normalizedCommand == "surface", commandArgs.first?.lowercased() == "resume" {
             return false
         }
+        if normalizedCommand == "list-surfaces" || normalizedCommand == "list-terminals" {
+            return false
+        }
         return true
     }
 
@@ -3302,6 +3305,15 @@ struct CMUXCLI {
                 jsonOutput: jsonOutput
             )
             return
+        }
+
+        if command == "list-surfaces" || command == "list-terminals" {
+            try validateListSurfacesCommandSyntax(
+                commandName: command,
+                commandArgs: commandArgs,
+                terminalOnly: command == "list-terminals",
+                windowOverride: windowId
+            )
         }
 
         // If the argument is a path (not a known command), open a workspace there.
