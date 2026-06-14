@@ -35,15 +35,6 @@ extension CMUXCLI {
         let arguments: [String]
         let stdinPrompt: String
         switch def.name {
-        case "gemini":
-            executablePath = executable("gemini")
-            arguments = [
-                "--sandbox",
-                "--approval-mode", "default",
-                "--output-format", "text",
-                "-p", ""
-            ]
-            stdinPrompt = prompt
         case "opencode":
             guard let promptPath = promptFile() else { return nil }
             executablePath = executable("opencode")

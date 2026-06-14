@@ -7,7 +7,6 @@ import Testing
     private let engine = AutoNamingEngine()
 
     @Test(arguments: [
-        "gemini",
         "pi",
         "omp"
     ])
@@ -71,12 +70,12 @@ import Testing
 
     @Test func sharedEnginePipelineParityWithHookContent() {
         let messages = engine.extractHookMessages(fromPayloadObjects: [[
-            "prompt": "Name Gemini and OpenCode sessions",
+            "prompt": "Name Pi and OpenCode sessions",
             "assistant_response": "Use the same auto-naming engine."
         ]])
         let context = try! #require(engine.buildContext(from: messages))
         let prompt = engine.buildPrompt(currentTitle: nil, context: context)
-        #expect(prompt.contains("Name Gemini and OpenCode sessions"))
+        #expect(prompt.contains("Name Pi and OpenCode sessions"))
         #expect(prompt.contains("Use the same auto-naming engine."))
         #expect(!prompt.contains("current title"))
     }

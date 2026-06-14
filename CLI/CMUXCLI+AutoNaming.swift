@@ -252,8 +252,10 @@ struct AutoNamingEngine: Sendable {
                   let object = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] else {
                 continue
             }
-            let role = firstString(in: object, keys: ["role", "type"])?.lowercased()
-            guard role == "user" || role == "assistant" else { continue }
+            guard let role = firstString(in: object, keys: ["role", "type"])?.lowercased(),
+                  role == "user" || role == "assistant" else {
+                continue
+            }
             let rawText = firstText(in: object, keys: ["content", "text", "message"])
             let text = role == "user" ? grokUserText(rawText) : rawText
             guard let trimmed = text?.trimmingCharacters(in: .whitespacesAndNewlines),

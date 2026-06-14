@@ -13,7 +13,7 @@ extension CMUXCLI {
             return .codexRollout
         case "grok":
             return .grokHistory
-        case "opencode", "gemini", "pi", "omp":
+        case "opencode", "pi", "omp":
             return .hookMessageCache
         default:
             return nil
