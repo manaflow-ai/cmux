@@ -16,6 +16,15 @@ public final class HostBrowserSignInFlow {
     /// Whether a browser sign-in attempt (popup + completion) is in flight.
     public private(set) var isSigningIn = false
 
+    /// Whether the in-flight sign-in attempt has been waiting on the hosted
+    /// (Safari-backed) `ASWebAuthenticationSession` longer than
+    /// ``slowSignInThreshold`` without delivering a callback. The Settings
+    /// account UI watches this to offer an "open sign-in in your default
+    /// browser" fallback when the system sign-in window hangs (issue #6015),
+    /// instead of leaving the user on an indefinite spinner. Resets to `false`
+    /// whenever an attempt completes, is cancelled, or is replaced.
+    public private(set) var signInIsSlow = false
+
     private let coordinator: AuthCoordinator
     private let tokenStore: any StackAuthTokenStoreProtocol
     private let sessionFactory: any HostBrowserAuthSessionFactory
@@ -24,6 +33,7 @@ public final class HostBrowserSignInFlow {
     private let callbackScheme: @MainActor () -> String
     private let clock: any Clock<Duration>
     private let browserAttemptTimeout: TimeInterval
+    private let slowSignInThreshold: TimeInterval
     private let log = AuthDebugLog()
 
     @ObservationIgnored private var activeSession: (any HostBrowserAuthSession)?
@@ -49,6 +59,9 @@ public final class HostBrowserSignInFlow {
     ///   - callbackScheme: The custom callback scheme for the popup.
     ///   - clock: Drives the sign-in deadline; tests inject a virtual clock.
     ///   - browserAttemptTimeout: Cancels abandoned external-browser attempts.
+    ///   - slowSignInThreshold: How long an attempt may wait on the hosted
+    ///     browser before ``signInIsSlow`` flips to surface the manual
+    ///     default-browser fallback. `0` disables the hint.
     public init(
         coordinator: AuthCoordinator,
         tokenStore: any StackAuthTokenStoreProtocol,
@@ -57,7 +70,8 @@ public final class HostBrowserSignInFlow {
         makeSignInURL: @escaping @MainActor (_ callbackState: String) -> URL,
         callbackScheme: @escaping @MainActor () -> String,
         clock: any Clock<Duration> = ContinuousClock(),
-        browserAttemptTimeout: TimeInterval = 10 * 60
+        browserAttemptTimeout: TimeInterval = 10 * 60,
+        slowSignInThreshold: TimeInterval = 30
     ) {
         self.coordinator = coordinator
         self.tokenStore = tokenStore
@@ -67,6 +81,7 @@ public final class HostBrowserSignInFlow {
         self.callbackScheme = callbackScheme
         self.clock = clock
         self.browserAttemptTimeout = browserAttemptTimeout
+        self.slowSignInThreshold = slowSignInThreshold
     }
 
     /// Start a browser sign-in without awaiting the result (Settings button).

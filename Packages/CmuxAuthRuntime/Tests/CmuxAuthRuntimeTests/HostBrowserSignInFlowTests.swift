@@ -18,7 +18,8 @@ import Testing
 
     private func makeHarness(
         user: CMUXAuthUser? = nil,
-        browserAttemptTimeout: TimeInterval = 5 * 60
+        browserAttemptTimeout: TimeInterval = 5 * 60,
+        slowSignInThreshold: TimeInterval = 30
     ) -> Harness {
         let store = FakeKeyValueStore()
         // The fake client reads and clears the SAME token store the flow
@@ -45,7 +46,8 @@ import Testing
             callbackRouter: AuthCallbackRouter(),
             makeSignInURL: { URL(string: "https://example.test/handler/sign-in?cmux_auth_state=\($0)")! },
             callbackScheme: { "cmux-dev" },
-            browserAttemptTimeout: browserAttemptTimeout
+            browserAttemptTimeout: browserAttemptTimeout,
+            slowSignInThreshold: slowSignInThreshold
         )
         return Harness(flow: flow, coordinator: coordinator, client: client, tokenStore: tokenStore, factory: factory)
     }
@@ -195,6 +197,40 @@ import Testing
         #expect(harness.factory.sessions[0].cancelled)
         #expect(harness.flow.isSigningIn == false)
         #expect(harness.coordinator.isAuthenticated == false)
+    }
+
+    @Test func slowSignInSurfacesBrowserFallback() async throws {
+        // A popup that never delivers a callback models the issue #6015 hang:
+        // ASWebAuthenticationSession opens its Safari window but the hosted
+        // page never redirects to cmux://auth-callback, so the user is left
+        // staring at a dead window. Past the slow threshold the flow must flip
+        // `signInIsSlow` so the account UI can offer the "open in your default
+        // browser" fallback instead of an indefinite spinner.
+        let harness = makeHarness(slowSignInThreshold: 0.05)
+        #expect(harness.flow.signInIsSlow == false)
+
+        harness.flow.beginSignIn()
+        await waitForSession(harness.factory)
+
+        var becameSlow = false
+        for _ in 0..<200 {
+            if harness.flow.signInIsSlow { becameSlow = true; break }
+            try await Task.sleep(for: .milliseconds(10))
+        }
+        #expect(becameSlow)
+
+        // Resolving the attempt clears the slow flag so a later sign-in starts
+        // from a clean slate.
+        harness.factory.sessions[0].cancel()
+        var clearedSlow = false
+        for _ in 0..<200 {
+            if harness.flow.signInIsSlow == false, harness.flow.isSigningIn == false {
+                clearedSlow = true
+                break
+            }
+            try await Task.sleep(for: .milliseconds(10))
+        }
+        #expect(clearedSlow)
     }
 
     @Test func signOutDuringCallbackValidationWins() async {
