@@ -5930,6 +5930,31 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         }
     }
 
+    func testBrowserFirstFindShortcutRoutingLetsDiffViewerOwnCmdF() throws {
+        let event = makeKeyEvent(
+            modifierFlags: [.command],
+            characters: "f",
+            charactersIgnoringModifiers: "f",
+            keyCode: 3
+        )
+        let diffViewerURL = try XCTUnwrap(URL(string: "cmux-diff-viewer://0123456789abcdef/diff.html"))
+        let loopbackDiffViewerURL = try XCTUnwrap(URL(string: "http://127.0.0.1:49152/0123456789abcdef/diff.html#cmux-diff-viewer"))
+        let ordinaryBrowserURL = try XCTUnwrap(URL(string: "https://example.com/diff.html"))
+
+        XCTAssertTrue(
+            shouldRouteBrowserFindCommandEquivalentThroughWebContentFirst(event, pageURL: diffViewerURL),
+            "Diff viewer Cmd+F should reach the page first so the built-in file search can open"
+        )
+        XCTAssertTrue(
+            shouldRouteBrowserFindCommandEquivalentThroughWebContentFirst(event, pageURL: loopbackDiffViewerURL),
+            "HTTP-served diff viewer Cmd+F should also reach the page first"
+        )
+        XCTAssertFalse(
+            shouldRouteBrowserFindCommandEquivalentThroughWebContentFirst(event, pageURL: ordinaryBrowserURL),
+            "Ordinary browser pages should keep the app-owned Cmd+F behavior"
+        )
+    }
+
     func testBrowserFirstFindShortcutRoutingFallsBackToKeyCodeForNonLatinInput() {
         let event = makeKeyEvent(
             modifierFlags: [.command],

@@ -135,6 +135,56 @@ test("files sidebar width can be changed from the resize separator", async () =>
   await waitFor(() => contentFilesWidth() === "272px");
 });
 
+test("Cmd+F opens diff viewer file search, then typing targets can fall through to browser find", async () => {
+  dom = createDom();
+  installDomGlobals(dom, () => {
+    throw new Error("unexpected fetch");
+  });
+
+  renderApp(
+    <App
+      config={{
+        payload: {
+          shortcuts: {
+            diffViewerOpenFileSearch: {
+              first: { key: "f", command: true, shift: false, option: false, control: false },
+            },
+          },
+          statusMessage: "Rendered diff",
+          title: "Diff",
+        },
+      }}
+      initialStatus={createDiffViewerStatus("Rendered diff", { loading: false, statusOnly: true })}
+    />,
+  );
+
+  await waitForEffects();
+  const firstCmdF = new dom.window.KeyboardEvent("keydown", {
+    bubbles: true,
+    cancelable: true,
+    code: "KeyF",
+    key: "f",
+    metaKey: true,
+  });
+
+  expect(dom.window.document.dispatchEvent(firstCmdF)).toBe(false);
+  expect(firstCmdF.defaultPrevented).toBe(true);
+  await waitFor(() => fileSearchToggle()?.getAttribute("aria-pressed") === "true");
+
+  const input = dom.window.document.createElement("input");
+  dom.window.document.body.append(input);
+  const repeatedCmdF = new dom.window.KeyboardEvent("keydown", {
+    bubbles: true,
+    cancelable: true,
+    code: "KeyF",
+    key: "f",
+    metaKey: true,
+  });
+
+  expect(input.dispatchEvent(repeatedCmdF)).toBe(true);
+  expect(repeatedCmdF.defaultPrevented).toBe(false);
+});
+
 test("layout toggle persists user choice while explicit payload layout wins", async () => {
   dom = createDom();
   installDomGlobals(dom, () => {
@@ -227,8 +277,16 @@ function copyGitApplyButton(): HTMLButtonElement | undefined {
     .find((button) => button.textContent?.includes("Copy git apply command"));
 }
 
+function fileSearchToggle(): HTMLButtonElement | null | undefined {
+  return dom?.window.document.querySelector<HTMLButtonElement>("#file-search-toggle");
+}
+
 function contentFilesWidth(): string | undefined {
   return dom?.window.document.getElementById("content")?.style.getPropertyValue("--cmux-diff-files-width");
+}
+
+async function waitForEffects(): Promise<void> {
+  await new Promise((resolve) => setTimeout(resolve, 0));
 }
 
 async function waitFor(predicate: () => boolean): Promise<void> {
