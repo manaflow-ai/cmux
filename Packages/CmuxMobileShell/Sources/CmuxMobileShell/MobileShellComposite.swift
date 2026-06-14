@@ -310,6 +310,11 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// (the field is cleared only on ack), pasting the message to the agent
     /// twice. Not observed: it gates an async flow, not view state.
     @ObservationIgnored private var isSubmittingComposerInput = false
+    /// Pending image attachments per terminal, keyed by terminal id so switching
+    /// terminals keeps each draft's own attachments (mirroring how the text draft
+    /// is keyed). Observed so the composer's chip row re-renders on add/remove.
+    /// Sent in order on the next submit and then cleared for that terminal.
+    private var pendingAttachmentsByTerminalID: [String: [MobilePendingAttachment]] = [:]
     public var selectedWorkspaceID: MobileWorkspacePreview.ID? {
         didSet {
             syncSelectedTerminalForWorkspace()
@@ -2690,6 +2695,64 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         #endif
     }
 
+    /// The pending image attachments for a terminal, in pick order. Empty when
+    /// none are staged. Drives the composer's chip row.
+    /// - Parameter terminalID: The terminal whose attachments to read; `nil`
+    ///   falls back to the selected terminal.
+    public func pendingAttachments(forTerminalID terminalID: String? = nil) -> [MobilePendingAttachment] {
+        guard let key = terminalID ?? selectedTerminalID?.rawValue else { return [] }
+        return pendingAttachmentsByTerminalID[key] ?? []
+    }
+
+    /// Stage a picked image as a pending attachment for a terminal, appended in
+    /// pick order so it sends after earlier picks. A no-op when the bytes are
+    /// empty.
+    /// - Parameters:
+    ///   - data: The encoded image bytes (PNG/JPEG), already under the size cap.
+    ///   - format: A lowercase format hint (`"png"`/`"jpg"`).
+    ///   - terminalID: The terminal to stage under; `nil` falls back to the
+    ///     selected terminal.
+    public func addPendingAttachment(_ data: Data, format: String, forTerminalID terminalID: String? = nil) {
+        guard !data.isEmpty, let key = terminalID ?? selectedTerminalID?.rawValue else { return }
+        pendingAttachmentsByTerminalID[key, default: []].append(
+            MobilePendingAttachment(data: data, format: format)
+        )
+    }
+
+    /// Remove one staged attachment by id. A no-op when the id is not staged.
+    /// - Parameters:
+    ///   - id: The attachment's stable id.
+    ///   - terminalID: The terminal it is staged under; `nil` falls back to the
+    ///     selected terminal.
+    public func removePendingAttachment(id: MobilePendingAttachment.ID, forTerminalID terminalID: String? = nil) {
+        guard let key = terminalID ?? selectedTerminalID?.rawValue,
+              var list = pendingAttachmentsByTerminalID[key] else { return }
+        list.removeAll { $0.id == id }
+        if list.isEmpty {
+            pendingAttachmentsByTerminalID[key] = nil
+        } else {
+            pendingAttachmentsByTerminalID[key] = list
+        }
+    }
+
+    /// Drop every staged attachment for a terminal (used after a successful send).
+    /// - Parameter terminalID: The terminal to clear; `nil` falls back to the
+    ///   selected terminal.
+    public func clearPendingAttachments(forTerminalID terminalID: String? = nil) {
+        guard let key = terminalID ?? selectedTerminalID?.rawValue else { return }
+        pendingAttachmentsByTerminalID[key] = nil
+    }
+
+    /// Whether the composer's Send should be enabled: text is non-empty OR at
+    /// least one attachment is staged. An attachments-only send (empty text) is
+    /// allowed, so the gating cannot key on text alone.
+    /// - Parameter terminalID: The terminal whose composer to gate; `nil` falls
+    ///   back to the selected terminal.
+    public func composerCanSend(forTerminalID terminalID: String? = nil) -> Bool {
+        let textNonEmpty = !terminalInputText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        return textNonEmpty || !pendingAttachments(forTerminalID: terminalID).isEmpty
+    }
+
     /// Submit the composer's text to the selected terminal as a bracketed paste
     /// plus a single Return, then clear the field while keeping the composer
     /// open. Unlike ``submitTerminalInput()``, this delivers a multi-line block
@@ -2718,6 +2781,32 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         let sent = await sendRemoteTerminalPaste(text, submitKey: "return")
         guard sent else { return }
         await reconcileComposerDraftAfterSend(sentText: text, submittedTerminalID: submittedTerminalID)
+    }
+
+    /// Send the composer's staged attachments then its text, iMessage-style: the
+    /// images are delivered first (in pick order) so their injected file paths
+    /// land before the message that references them, then the text is submitted.
+    /// Attachments for the submitted terminal are cleared once they have all been
+    /// sent.
+    ///
+    /// Allowed with empty text as long as at least one attachment is staged; an
+    /// images-only send skips the (no-op) text submit. Captures the submitted
+    /// terminal up front so a mid-flight terminal switch clears the right key.
+    public func submitComposer() async {
+        let submittedTerminalID = selectedTerminalID
+        let attachments = pendingAttachments(forTerminalID: submittedTerminalID?.rawValue)
+        // Deliver each image first and await it, so the agent's terminal has the
+        // file paths before the text arrives.
+        for attachment in attachments {
+            await submitTerminalPasteImage(attachment.data, format: attachment.format)
+        }
+        // Clear what we sent (only this terminal's staged set) before the text
+        // submit so the chip row empties immediately.
+        if !attachments.isEmpty {
+            clearPendingAttachments(forTerminalID: submittedTerminalID?.rawValue)
+        }
+        // Submit the text (a no-op when empty, e.g. an images-only send).
+        await submitComposerInput()
     }
 
     /// Clear the sent text from wherever it now lives after a successful
