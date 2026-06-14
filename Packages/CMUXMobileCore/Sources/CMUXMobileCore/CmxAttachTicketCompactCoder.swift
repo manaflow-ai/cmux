@@ -9,7 +9,11 @@ import Foundation
 /// The compact grammar keeps the same envelope but encodes only what pairing
 /// actually consumes: short keys, no empty optional fields, no auth token, no
 /// display name (read post-handshake from `mobile.host.status`), and no
-/// expiry. A pairing QR never expires; the owner's Stack access token is the
+/// expiry. It does keep non-secret pairing context: the Mac account email,
+/// shared pairing compatibility level, and app version/build, so the phone can
+/// fail fast on an account mismatch and warn before continuing across
+/// compatibility skew. A pairing QR never expires;
+/// the owner's Stack access token is the
 /// host's sole authorization gate (`MobileHostService.authorizationError(for:)`),
 /// so ticket age authorizes nothing.
 ///
@@ -25,7 +29,8 @@ import Foundation
 ///   shows a pairing error instead of silently misreading the ticket.
 ///
 /// Key map (ticket): `v` version, `w` workspaceID (omitted when empty),
-/// `t` terminalID, `d` macDeviceID, `r` routes.
+/// `t` terminalID, `d` macDeviceID, `u` Mac account email, `pc` pairing
+/// compatibility version, `av` app version, `ab` app build, `r` routes.
 /// Key map (route): `i` id (omitted when the decoder can resynthesize it:
 /// `kind` for the first route of a kind, `kind_N` for the Nth), `k` kind raw
 /// value, `p` priority (omitted when 0), `e` endpoint.
