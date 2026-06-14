@@ -3260,6 +3260,14 @@ struct CMUXCLI {
         }
 
         if command == "help" { print(usage()); return }
+        if command == "__codex-teams-spawn-failure-diagnostic" {
+            try runCodexTeamsSpawnFailureDiagnosticCommand(commandArgs: commandArgs)
+            return
+        }
+        if command == "__codex-teams-complete-utf8-prefix-length" {
+            try runCodexTeamsCompleteUTF8PrefixLengthCommand(commandArgs: commandArgs)
+            return
+        }
         if command == "remote-daemon-status" { try runRemoteDaemonStatus(commandArgs: commandArgs, jsonOutput: jsonOutput); return }
         if command == "vm-pty-connect" { try runVMPtyConnect(commandArgs: commandArgs); return }
         if command == "docs" { try runDocsCommand(commandArgs: commandArgs, jsonOutput: jsonOutput); return }
@@ -18862,6 +18870,37 @@ struct CMUXCLI {
         let spawn: CodexTeamsSpawn?
     }
 
+    private enum CodexTeamsSpawnFailureKind: String {
+        case fullHistoryForkOverride = "full_history_fork_override"
+        case genericSpawnFailure = "generic_spawn_failure"
+    }
+
+    private struct CodexTeamsSpawnFailureDiagnostic {
+        let kind: CodexTeamsSpawnFailureKind
+        let errorText: String
+        let logPath: String
+        let title: String
+        let subtitle: String
+        let body: String
+        let statusValue: String
+
+        var fingerprint: String {
+            "\(kind.rawValue)|\(errorText)|\(logPath)"
+        }
+
+        var jsonPayload: [String: Any] {
+            [
+                "kind": kind.rawValue,
+                "error_text": errorText,
+                "log_path": logPath,
+                "title": title,
+                "subtitle": subtitle,
+                "body": body,
+                "status_value": statusValue
+            ]
+        }
+    }
+
     private final class CodexTeamsAsyncBox<Value>: @unchecked Sendable {
         private let lock = NSLock()
         private var stored: Value?
@@ -19083,6 +19122,7 @@ struct CMUXCLI {
 
     private final class CodexTeamsWatcher {
         private let appServerURL: String
+        private let appServerLogPath: String?
         private let workspaceId: String
         private let rootSurfaceId: String
         private let codexExecutable: String
@@ -19098,19 +19138,55 @@ struct CMUXCLI {
         private var threadById: [String: CodexTeamsThread] = [:]
         private var pendingThreadIds = Set<String>()
         private var openedThreadIds = Set<String>()
+        private var openingThreadIds = Set<String>()
         private var readinessProbeThreadIds = Set<String>()
         private var attachableThreadIds = Set<String>()
         private let readinessLock = NSLock()
         private let stateLock = NSLock()
+        private let subagentOpenLock = NSLock()
+        private let socketLock = NSLock()
         private var lastAgentSurfaceId: String?
         private var subscribedThreadIds = Set<String>()
         private var approvalItemById: [String: [String: Any]] = [:]
         private var approvalItemOrder: [String] = []
         private var suppressedApprovalKeys = Set<String>()
         private var suppressedApprovalOrder: [String] = []
+        private var reportedSpawnFailureFingerprints = Set<String>()
+        private var reportedSpawnFailureOrder: [String] = []
+        private var spawnFailureDeliveryStates: [String: SpawnFailureDeliveryState] = [:]
+        private var spawnFailureDeliveryOrder: [String] = []
+        private let maxSpawnFailureDeliveryStates = 100
+        private let maxReportedSpawnFailureFingerprints = 100
+        private let appServerLogReadChunkSize = 16_384
+        private let maxAppServerLogLineBytes = 16_384
+        private let appServerLogQueue = DispatchQueue(label: "com.cmux.codex-teams.app-server-log", qos: .utility)
+        private var appServerLogSource: DispatchSourceFileSystemObject?
+        private var appServerLogOffset: UInt64 = 0
+        private var appServerLogLineBuffer = Data()
+
+        private struct SpawnFailureDeliveryState {
+            var diagnostic: CodexTeamsSpawnFailureDiagnostic
+            var notificationDelivered = false
+            var statusDelivered = false
+            var notificationInFlight = false
+            var statusInFlight = false
+        }
+
+        private struct SpawnFailurePublishAttempt {
+            var diagnostic: CodexTeamsSpawnFailureDiagnostic
+            var deliverNotification: Bool
+            var deliverStatus: Bool
+        }
+
+        private struct SpawnFailurePublishResult {
+            var fingerprint: String
+            var notificationSucceeded: Bool?
+            var statusSucceeded: Bool?
+        }
 
         init(
             appServerURL: String,
+            appServerLogPath: String?,
             workspaceId: String,
             rootSurfaceId: String,
             codexExecutable: String,
@@ -19120,6 +19196,7 @@ struct CMUXCLI {
             socketPassword: String?
         ) {
             self.appServerURL = appServerURL
+            self.appServerLogPath = appServerLogPath
             self.workspaceId = workspaceId
             self.rootSurfaceId = rootSurfaceId
             self.codexExecutable = codexExecutable
@@ -19133,6 +19210,8 @@ struct CMUXCLI {
             guard let url = URL(string: appServerURL) else {
                 throw CLIError(message: "Invalid Codex app-server URL: \(appServerURL)")
             }
+            startAppServerLogDiagnostics()
+            defer { stopAppServerLogDiagnostics() }
             let reconcileWaiter = DispatchSemaphore(value: 0)
             while true {
                 let connection = CodexTeamsAppServerConnection(url: url)
@@ -19152,6 +19231,333 @@ struct CMUXCLI {
                 }
                 _ = reconcileWaiter.wait(timeout: .now() + CMUXCLI.codexTeamsReconcileInterval)
             }
+        }
+
+        private func startAppServerLogDiagnostics() {
+            guard let appServerLogPath = appServerLogPath?.trimmingCharacters(in: .whitespacesAndNewlines),
+                  !appServerLogPath.isEmpty else {
+                return
+            }
+            appServerLogQueue.async { [weak self] in
+                guard let self else { return }
+                self.installAppServerLogSource(path: appServerLogPath)
+                self.readAppServerLog(path: appServerLogPath)
+            }
+        }
+
+        private func stopAppServerLogDiagnostics() {
+            appServerLogQueue.sync {
+                appServerLogSource?.cancel()
+                appServerLogSource = nil
+            }
+        }
+
+        private func installAppServerLogSource(path: String) {
+            guard appServerLogSource == nil else { return }
+            let fd = open(path, O_EVTONLY)
+            guard fd >= 0 else { return }
+            let source = DispatchSource.makeFileSystemObjectSource(
+                fileDescriptor: fd,
+                eventMask: [.write, .extend, .delete, .rename],
+                queue: appServerLogQueue
+            )
+            source.setEventHandler { [weak self] in
+                self?.readAppServerLog(path: path)
+            }
+            source.setCancelHandler {
+                close(fd)
+            }
+            source.resume()
+            appServerLogSource = source
+        }
+
+        private func readAppServerLog(path: String) {
+            guard let handle = try? FileHandle(forReadingFrom: URL(fileURLWithPath: path, isDirectory: false)) else {
+                return
+            }
+            defer { try? handle.close() }
+
+            let endOffset = (try? handle.seekToEnd()) ?? 0
+            if appServerLogOffset > endOffset {
+                appServerLogOffset = 0
+                appServerLogLineBuffer.removeAll(keepingCapacity: true)
+            }
+            let startOffset = appServerLogOffset
+            guard startOffset < endOffset else { return }
+            do {
+                try handle.seek(toOffset: startOffset)
+            } catch {
+                return
+            }
+
+            var offset = startOffset
+            retryPendingSpawnFailureDiagnosticsSafely()
+            while offset < endOffset {
+                let readLength = Int(min(UInt64(appServerLogReadChunkSize), endOffset - offset))
+                let data = handle.readData(ofLength: readLength)
+                guard !data.isEmpty else { break }
+                offset += UInt64(data.count)
+                appServerLogOffset = offset
+                consumeAppServerLogData(data, logPath: path)
+            }
+        }
+
+        private func consumeAppServerLogData(_ data: Data, logPath: String) {
+            guard !data.isEmpty else { return }
+            for byte in data {
+                if byte == 0x0A {
+                    flushAppServerLogLine(logPath: logPath, preservingIncompleteUTF8Suffix: false)
+                    continue
+                }
+                appServerLogLineBuffer.append(byte)
+                if appServerLogLineBuffer.count >= maxAppServerLogLineBytes {
+                    flushAppServerLogLine(logPath: logPath, preservingIncompleteUTF8Suffix: true)
+                }
+            }
+        }
+
+        private func flushAppServerLogLine(
+            logPath: String,
+            preservingIncompleteUTF8Suffix: Bool
+        ) {
+            guard !appServerLogLineBuffer.isEmpty else { return }
+            let completeByteCount = preservingIncompleteUTF8Suffix
+                ? CMUXCLI.codexTeamsCompleteUTF8PrefixLength(appServerLogLineBuffer)
+                : appServerLogLineBuffer.count
+            let lineData = Data(appServerLogLineBuffer.prefix(completeByteCount))
+            let pendingSuffix = Data(appServerLogLineBuffer.suffix(appServerLogLineBuffer.count - completeByteCount))
+            appServerLogLineBuffer.removeAll(keepingCapacity: true)
+            appServerLogLineBuffer.append(contentsOf: pendingSuffix)
+
+            guard !lineData.isEmpty else { return }
+            let line = String(decoding: lineData, as: UTF8.self)
+                .trimmingCharacters(in: CharacterSet(charactersIn: "\r"))
+            guard let diagnostic = CMUXCLI.codexTeamsSpawnFailureDiagnostic(
+                fromLogLine: line,
+                logPath: logPath
+            ) else {
+                return
+            }
+            publishSpawnFailureDiagnosticSafely(diagnostic)
+        }
+
+        private func publishSpawnFailureDiagnosticSafely(_ diagnostic: CodexTeamsSpawnFailureDiagnostic) {
+            let attempt: SpawnFailurePublishAttempt?
+            stateLock.lock()
+            attempt = scheduleSpawnFailureDiagnosticLocked(diagnostic)
+            stateLock.unlock()
+
+            guard let attempt else {
+                return
+            }
+            publishSpawnFailureDiagnosticAttempts([attempt])
+        }
+
+        private func retryPendingSpawnFailureDiagnosticsSafely() {
+            let attempts: [SpawnFailurePublishAttempt]
+            stateLock.lock()
+            attempts = schedulePendingSpawnFailureDiagnosticsLocked()
+            stateLock.unlock()
+            publishSpawnFailureDiagnosticAttempts(attempts)
+        }
+
+        private func scheduleSpawnFailureDiagnosticLocked(
+            _ diagnostic: CodexTeamsSpawnFailureDiagnostic
+        ) -> SpawnFailurePublishAttempt? {
+            guard !reportedSpawnFailureFingerprints.contains(diagnostic.fingerprint) else {
+                return nil
+            }
+            var state = spawnFailureDeliveryStates[diagnostic.fingerprint] ?? SpawnFailureDeliveryState(diagnostic: diagnostic)
+            let deliverNotification = !state.notificationDelivered && !state.notificationInFlight
+            let deliverStatus = !state.statusDelivered && !state.statusInFlight
+            guard deliverNotification || deliverStatus else {
+                spawnFailureDeliveryStates[diagnostic.fingerprint] = state
+                return nil
+            }
+            state.notificationInFlight = state.notificationInFlight || deliverNotification
+            state.statusInFlight = state.statusInFlight || deliverStatus
+            storeSpawnFailureDeliveryStateLocked(state, fingerprint: diagnostic.fingerprint)
+            return SpawnFailurePublishAttempt(
+                diagnostic: state.diagnostic,
+                deliverNotification: deliverNotification,
+                deliverStatus: deliverStatus
+            )
+        }
+
+        private func schedulePendingSpawnFailureDiagnosticsLocked() -> [SpawnFailurePublishAttempt] {
+            guard !spawnFailureDeliveryStates.isEmpty else { return [] }
+            var attempts: [SpawnFailurePublishAttempt] = []
+            for fingerprint in spawnFailureDeliveryStates.keys.sorted() {
+                guard !reportedSpawnFailureFingerprints.contains(fingerprint),
+                      var state = spawnFailureDeliveryStates[fingerprint] else {
+                    continue
+                }
+                let deliverNotification = !state.notificationDelivered && !state.notificationInFlight
+                let deliverStatus = !state.statusDelivered && !state.statusInFlight
+                guard deliverNotification || deliverStatus else { continue }
+                state.notificationInFlight = state.notificationInFlight || deliverNotification
+                state.statusInFlight = state.statusInFlight || deliverStatus
+                storeSpawnFailureDeliveryStateLocked(state, fingerprint: fingerprint)
+                attempts.append(SpawnFailurePublishAttempt(
+                    diagnostic: state.diagnostic,
+                    deliverNotification: deliverNotification,
+                    deliverStatus: deliverStatus
+                ))
+            }
+            return attempts
+        }
+
+        private func publishSpawnFailureDiagnosticAttempts(_ attempts: [SpawnFailurePublishAttempt]) {
+            for attempt in attempts {
+                let result = publishSpawnFailureDiagnostic(attempt)
+                recordSpawnFailurePublishResult(result)
+            }
+        }
+
+        private func recordSpawnFailurePublishResult(_ result: SpawnFailurePublishResult) {
+            stateLock.lock()
+            defer { stateLock.unlock() }
+            guard var state = spawnFailureDeliveryStates[result.fingerprint] else {
+                if result.notificationSucceeded == true && result.statusSucceeded == true {
+                    markSpawnFailureReportedLocked(fingerprint: result.fingerprint)
+                }
+                return
+            }
+            if let notificationSucceeded = result.notificationSucceeded {
+                state.notificationInFlight = false
+                state.notificationDelivered = state.notificationDelivered || notificationSucceeded
+            }
+            if let statusSucceeded = result.statusSucceeded {
+                state.statusInFlight = false
+                state.statusDelivered = state.statusDelivered || statusSucceeded
+            }
+            if state.notificationDelivered && state.statusDelivered {
+                removeSpawnFailureDeliveryStateLocked(fingerprint: result.fingerprint)
+                markSpawnFailureReportedLocked(fingerprint: result.fingerprint)
+            } else {
+                storeSpawnFailureDeliveryStateLocked(state, fingerprint: result.fingerprint)
+            }
+        }
+
+        private func markSpawnFailureReportedLocked(fingerprint: String) {
+            let inserted = reportedSpawnFailureFingerprints.insert(fingerprint).inserted
+            if inserted {
+                reportedSpawnFailureOrder.append(fingerprint)
+            }
+            pruneReportedSpawnFailureFingerprintsLocked()
+        }
+
+        private func pruneReportedSpawnFailureFingerprintsLocked() {
+            while reportedSpawnFailureFingerprints.count > maxReportedSpawnFailureFingerprints {
+                guard !reportedSpawnFailureOrder.isEmpty else {
+                    reportedSpawnFailureFingerprints.removeAll(keepingCapacity: true)
+                    return
+                }
+                let evicted = reportedSpawnFailureOrder.removeFirst()
+                reportedSpawnFailureFingerprints.remove(evicted)
+            }
+        }
+
+        private func storeSpawnFailureDeliveryStateLocked(
+            _ state: SpawnFailureDeliveryState,
+            fingerprint: String
+        ) {
+            if spawnFailureDeliveryStates[fingerprint] == nil {
+                spawnFailureDeliveryOrder.append(fingerprint)
+            }
+            spawnFailureDeliveryStates[fingerprint] = state
+            pruneSpawnFailureDeliveryStatesLocked()
+        }
+
+        private func pruneSpawnFailureDeliveryStatesLocked() {
+            while spawnFailureDeliveryStates.count > maxSpawnFailureDeliveryStates {
+                let noProgress = spawnFailureDeliveryOrder.first { fingerprint in
+                    guard let state = spawnFailureDeliveryStates[fingerprint] else { return true }
+                    return !state.notificationInFlight &&
+                        !state.statusInFlight &&
+                        !state.notificationDelivered &&
+                        !state.statusDelivered
+                }
+                let partialProgress = spawnFailureDeliveryOrder.first { fingerprint in
+                    guard let state = spawnFailureDeliveryStates[fingerprint] else { return true }
+                    return !state.notificationInFlight &&
+                        !state.statusInFlight &&
+                        (state.notificationDelivered || state.statusDelivered)
+                }
+                guard let evicted = noProgress ?? partialProgress else {
+                    return
+                }
+                removeSpawnFailureDeliveryStateLocked(fingerprint: evicted)
+            }
+        }
+
+        private func removeSpawnFailureDeliveryStateLocked(fingerprint: String) {
+            spawnFailureDeliveryStates.removeValue(forKey: fingerprint)
+            spawnFailureDeliveryOrder.removeAll { $0 == fingerprint }
+        }
+
+        private func publishSpawnFailureDiagnostic(_ attempt: SpawnFailurePublishAttempt) -> SpawnFailurePublishResult {
+            let diagnostic = attempt.diagnostic
+            var notificationSucceeded: Bool?
+            if attempt.deliverNotification {
+                notificationSucceeded = false
+                do {
+                    _ = try sendSocketV2(method: "notification.create_for_target", params: [
+                        "workspace_id": workspaceId,
+                        "surface_id": rootSurfaceId,
+                        "title": diagnostic.title,
+                        "subtitle": diagnostic.subtitle,
+                        "body": diagnostic.body
+                    ])
+                    notificationSucceeded = true
+                } catch {
+                    fputs("cmux codex-teams watcher failed to notify spawn failure: \(error)\n", stderr)
+                }
+            }
+
+            var statusSucceeded: Bool?
+            if attempt.deliverStatus {
+                statusSucceeded = false
+                let statusCommand = "set_status codex \(diagnostic.statusValue) --icon=exclamationmark.triangle.fill --color=#FF453A --priority=100 --tab=\(workspaceId) --panel=\(rootSurfaceId)"
+                do {
+                    let response = try sendSocketCommand(statusCommand)
+                    if response.hasPrefix("ERROR:") {
+                        fputs("cmux codex-teams watcher failed to set spawn failure status: \(response)\n", stderr)
+                    } else {
+                        statusSucceeded = true
+                    }
+                } catch {
+                    fputs("cmux codex-teams watcher failed to set spawn failure status: \(error)\n", stderr)
+                }
+            }
+            return SpawnFailurePublishResult(
+                fingerprint: diagnostic.fingerprint,
+                notificationSucceeded: notificationSucceeded,
+                statusSucceeded: statusSucceeded
+            )
+        }
+
+        private func sendSocketV2(
+            method: String,
+            params: [String: Any] = [:],
+            responseTimeout: TimeInterval? = nil
+        ) throws -> [String: Any] {
+            socketLock.lock()
+            defer { socketLock.unlock() }
+            return try socketClient.sendV2(
+                method: method,
+                params: params,
+                responseTimeout: responseTimeout
+            )
+        }
+
+        private func sendSocketCommand(
+            _ command: String,
+            responseTimeout: TimeInterval? = nil
+        ) throws -> String {
+            socketLock.lock()
+            defer { socketLock.unlock() }
+            return try socketClient.send(command: command, responseTimeout: responseTimeout)
         }
 
         private func backfillLoadedThreads(connection: CodexTeamsAppServerConnection) throws {
@@ -19388,6 +19794,7 @@ struct CMUXCLI {
         }
 
         private func observeThreadSafely(_ thread: CodexTeamsThread) throws {
+            retryPendingSpawnFailureDiagnosticsSafely()
             stateLock.lock()
             defer { stateLock.unlock() }
             try observeThread(thread)
@@ -19453,23 +19860,64 @@ struct CMUXCLI {
             depthByThreadId[thread.id] = depth
             guard depth <= maxAutoDepth else { return }
             guard !openedThreadIds.contains(thread.id) else { return }
+            guard !openingThreadIds.contains(thread.id) else { return }
             guard CMUXCLI.codexTeamsThreadMayBeAttachable(thread) else { return }
             guard codexTeamsConsumeAttachableThreadId(thread.id) else {
                 codexTeamsScheduleReadinessProbe(threadId: thread.id)
                 return
             }
 
+            // Serialize target selection and pane creation, but never wait or send socket I/O while holding stateLock.
+            stateLock.unlock()
+            subagentOpenLock.lock()
+            stateLock.lock()
+            defer { subagentOpenLock.unlock() }
+
+            guard !openedThreadIds.contains(thread.id) else { return }
+            guard !openingThreadIds.contains(thread.id) else { return }
+            guard CMUXCLI.codexTeamsThreadMayBeAttachable(thread) else { return }
+            let targetSurfaceId = lastAgentSurfaceId ?? rootSurfaceId
+            let direction = lastAgentSurfaceId == nil ? "right" : "down"
+            openingThreadIds.insert(thread.id)
+
+            // SocketClient is one FD; serialize its reads/writes without holding stateLock.
+            stateLock.unlock()
             do {
-                try openSubagent(thread, spawn: spawn, depth: depth)
-            } catch {
-                if lastAgentSurfaceId != nil {
-                    lastAgentSurfaceId = nil
-                    try openSubagent(thread, spawn: spawn, depth: depth)
-                } else {
-                    throw error
+                let surfaceId: String
+                do {
+                    surfaceId = try openSubagent(
+                        thread,
+                        spawn: spawn,
+                        depth: depth,
+                        targetSurfaceId: targetSurfaceId,
+                        direction: direction
+                    )
+                } catch {
+                    guard targetSurfaceId != rootSurfaceId else {
+                        throw error
+                    }
+                    stateLock.lock()
+                    if lastAgentSurfaceId == targetSurfaceId {
+                        lastAgentSurfaceId = nil
+                    }
+                    stateLock.unlock()
+                    surfaceId = try openSubagent(
+                        thread,
+                        spawn: spawn,
+                        depth: depth,
+                        targetSurfaceId: rootSurfaceId,
+                        direction: "right"
+                    )
                 }
+                stateLock.lock()
+                openingThreadIds.remove(thread.id)
+                lastAgentSurfaceId = surfaceId
+                openedThreadIds.insert(thread.id)
+            } catch {
+                stateLock.lock()
+                openingThreadIds.remove(thread.id)
+                throw error
             }
-            openedThreadIds.insert(thread.id)
         }
 
         private func codexTeamsScheduleReadinessProbe(threadId: String) {
@@ -19528,8 +19976,10 @@ struct CMUXCLI {
         private func openSubagent(
             _ thread: CodexTeamsThread,
             spawn: CodexTeamsSpawn,
-            depth: Int
-        ) throws {
+            depth: Int,
+            targetSurfaceId: String,
+            direction: String
+        ) throws -> String {
             let commandText = CMUXCLI.codexTeamsResumeCommandText(
                 codexExecutable: codexExecutable,
                 appServerURL: appServerURL,
@@ -19542,8 +19992,6 @@ struct CMUXCLI {
                 throw CLIError(message: "Failed to create Codex subagent startup script")
             }
 
-            let targetSurfaceId = lastAgentSurfaceId ?? rootSurfaceId
-            let direction = lastAgentSurfaceId == nil ? "right" : "down"
             var splitParams: [String: Any] = [
                 "workspace_id": workspaceId,
                 "surface_id": targetSurfaceId,
@@ -19563,14 +20011,13 @@ struct CMUXCLI {
                 splitParams["working_directory"] = cwd
             }
 
-            let created = try socketClient.sendV2(method: "surface.split", params: splitParams)
+            let created = try sendSocketV2(method: "surface.split", params: splitParams)
             guard let surfaceId = created["surface_id"] as? String else {
                 throw CLIError(message: "surface.split did not return surface_id")
             }
-            lastAgentSurfaceId = surfaceId
 
             do {
-                _ = try socketClient.sendV2(method: "tab.action", params: [
+                _ = try sendSocketV2(method: "tab.action", params: [
                     "workspace_id": workspaceId,
                     "surface_id": surfaceId,
                     "action": "rename",
@@ -19580,13 +20027,14 @@ struct CMUXCLI {
                 // The subagent pane already exists, so a rename failure should not stop watching.
             }
             do {
-                _ = try socketClient.sendV2(method: "workspace.equalize_splits", params: [
+                _ = try sendSocketV2(method: "workspace.equalize_splits", params: [
                     "workspace_id": workspaceId,
                     "orientation": "vertical"
                 ])
             } catch {
                 // Layout polish is best-effort after the pane is opened.
             }
+            return surfaceId
         }
     }
 
@@ -19787,6 +20235,290 @@ struct CMUXCLI {
         return "Codex d\(depth): \(label)"
     }
 
+    private static func codexTeamsSpawnFailureDiagnostic(
+        fromLogText logText: String,
+        logPath: String
+    ) -> CodexTeamsSpawnFailureDiagnostic? {
+        for line in logText.components(separatedBy: .newlines) {
+            if let diagnostic = codexTeamsSpawnFailureDiagnostic(fromLogLine: line, logPath: logPath) {
+                return diagnostic
+            }
+        }
+        return nil
+    }
+
+    private static func codexTeamsSpawnFailureDiagnostic(
+        fromLogLine rawLine: String,
+        logPath: String
+    ) -> CodexTeamsSpawnFailureDiagnostic? {
+        let line = codexTeamsDiagnosticSingleLine(rawLine)
+        guard !line.isEmpty else { return nil }
+
+        var pairs: [(keyPath: String, value: String)] = [("line", line)]
+        var parsedStructuredLog = false
+        if let data = line.data(using: .utf8),
+           let object = try? JSONSerialization.jsonObject(with: data, options: [.fragmentsAllowed]) {
+            parsedStructuredLog = true
+            codexTeamsCollectDiagnosticStrings(object, keyPath: nil, pairs: &pairs)
+        }
+
+        if let fullHistoryError = codexTeamsFullHistoryForkErrorText(pairs: pairs, fallback: line) {
+            return codexTeamsSpawnFailureDiagnostic(
+                kind: .fullHistoryForkOverride,
+                errorText: fullHistoryError,
+                logPath: logPath
+            )
+        }
+
+        guard codexTeamsSignalLooksLikeSpawnFailure(
+            pairs: pairs,
+            fallback: line,
+            allowFreeformFallback: !parsedStructuredLog
+        ) else {
+            return nil
+        }
+
+        return codexTeamsSpawnFailureDiagnostic(
+            kind: .genericSpawnFailure,
+            errorText: codexTeamsPreferredSpawnFailureErrorText(pairs: pairs, fallback: line),
+            logPath: logPath
+        )
+    }
+
+    private static func codexTeamsSpawnFailureDiagnostic(
+        kind: CodexTeamsSpawnFailureKind,
+        errorText: String,
+        logPath: String
+    ) -> CodexTeamsSpawnFailureDiagnostic {
+        let normalizedError = codexTeamsDiagnosticTruncate(
+            codexTeamsDiagnosticSingleLine(errorText),
+            maxLength: 600
+        )
+        let normalizedLogPath = codexTeamsDiagnosticSingleLine(logPath)
+        let title = String(localized: "command.cmuxConfig.defaultCodexTitle", defaultValue: "Codex")
+        let subtitle = String(
+            localized: "cli.codexTeams.spawnFailure.subtitle",
+            defaultValue: "Subagent spawn failed"
+        )
+        let statusValue = String(
+            localized: "cli.codexTeams.spawnFailure.status",
+            defaultValue: "Codex subagent spawn failed"
+        )
+        let bodyFormat: String
+        switch kind {
+        case .fullHistoryForkOverride:
+            bodyFormat = String(
+                localized: "cli.codexTeams.spawnFailure.body.fullHistoryForkOverride",
+                defaultValue: "Codex could not start the subagent because a forked subagent must use the parent session's configuration. No subagent pane was opened. Error: %@ Log: %@"
+            )
+        case .genericSpawnFailure:
+            bodyFormat = String(
+                localized: "cli.codexTeams.spawnFailure.body.generic",
+                defaultValue: "Codex could not start the subagent. No subagent pane was opened. Error: %@ Log: %@"
+            )
+        }
+
+        return CodexTeamsSpawnFailureDiagnostic(
+            kind: kind,
+            errorText: normalizedError,
+            logPath: normalizedLogPath,
+            title: title,
+            subtitle: subtitle,
+            body: String.localizedStringWithFormat(bodyFormat, normalizedError, normalizedLogPath),
+            statusValue: statusValue
+        )
+    }
+
+    private static func codexTeamsCollectDiagnosticStrings(
+        _ value: Any,
+        keyPath: String?,
+        pairs: inout [(keyPath: String, value: String)]
+    ) {
+        if let string = value as? String {
+            let normalized = codexTeamsDiagnosticSingleLine(string)
+            if !normalized.isEmpty {
+                pairs.append((keyPath ?? "value", normalized))
+            }
+            return
+        }
+        if let number = value as? NSNumber {
+            pairs.append((keyPath ?? "value", number.stringValue))
+            return
+        }
+        if let object = value as? [String: Any] {
+            for (key, child) in object {
+                let childPath = keyPath.map { "\($0).\(key)" } ?? key
+                codexTeamsCollectDiagnosticStrings(child, keyPath: childPath, pairs: &pairs)
+            }
+            return
+        }
+        if let array = value as? [Any] {
+            for (index, child) in array.enumerated() {
+                let childPath = keyPath.map { "\($0)[\(index)]" } ?? "[\(index)]"
+                codexTeamsCollectDiagnosticStrings(child, keyPath: childPath, pairs: &pairs)
+            }
+        }
+    }
+
+    private static func codexTeamsFullHistoryForkErrorText(
+        pairs: [(keyPath: String, value: String)],
+        fallback: String
+    ) -> String? {
+        let needle = "full-history forked agents inherit the parent agent type, model, and reasoning effort"
+        if fallback.lowercased().contains(needle) {
+            return fallback
+        }
+        return pairs.first { $0.value.lowercased().contains(needle) }?.value
+    }
+
+    private static func codexTeamsSignalLooksLikeSpawnFailure(
+        pairs: [(keyPath: String, value: String)],
+        fallback: String,
+        allowFreeformFallback: Bool
+    ) -> Bool {
+        let signal = pairs
+            .flatMap { [$0.keyPath, $0.value] }
+            .joined(separator: " ")
+            .lowercased()
+        let hasSpawnContext = signal.contains("spawn_agent") ||
+            signal.contains("spawn agent") ||
+            signal.contains("thread_spawn") ||
+            (signal.contains("spawn") && signal.contains("subagent")) ||
+            (signal.contains("subagent") && signal.contains("creation")) ||
+            (signal.contains("collab") && (signal.contains("agent") || signal.contains("subagent")))
+        guard hasSpawnContext else { return false }
+        if pairs.contains(where: codexTeamsDiagnosticPairLooksLikeFailure) {
+            return true
+        }
+        guard allowFreeformFallback else {
+            return false
+        }
+        return codexTeamsFreeformSignalLooksLikeFailure(signal) ||
+            codexTeamsFreeformSignalLooksLikeFailure(fallback.lowercased())
+    }
+
+    private static func codexTeamsDiagnosticPairLooksLikeFailure(_ pair: (keyPath: String, value: String)) -> Bool {
+        let key = pair.keyPath.lowercased()
+        guard key != "line" else { return false }
+        let value = pair.value.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        guard !codexTeamsDiagnosticValueLooksNonFailure(value) else { return false }
+        if key == "error" ||
+            key.hasSuffix(".error") ||
+            key.contains("error.") ||
+            key.contains(".error.") ||
+            key.contains("error_message") ||
+            key.contains("error-message") {
+            return true
+        }
+        if key.contains("error_code") || key.contains("errorcode") {
+            return true
+        }
+        if key.contains("status") || key.contains("state") || key.contains("level") {
+            return value == "error" || codexTeamsFreeformSignalLooksLikeFailure(value)
+        }
+        return false
+    }
+
+    private static func codexTeamsDiagnosticValueLooksNonFailure(_ value: String) -> Bool {
+        let normalized = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        return normalized.isEmpty ||
+            normalized == "0" ||
+            normalized == "false" ||
+            normalized == "none" ||
+            normalized == "null" ||
+            normalized == "<null>" ||
+            normalized == "ok" ||
+            normalized == "success" ||
+            normalized == "successful"
+    }
+
+    private static func codexTeamsFreeformSignalLooksLikeFailure(_ signal: String) -> Bool {
+        signal.contains("failed") ||
+            signal.contains("failure") ||
+            signal.contains("rejected") ||
+            signal.contains("invalid") ||
+            signal.contains("exception") ||
+            signal.contains("denied") ||
+            signal.contains("could not") ||
+            signal.contains("cannot") ||
+            signal.contains("unable to") ||
+            signal.contains(" error:") ||
+            signal.contains(" error=")
+    }
+
+    private static func codexTeamsPreferredSpawnFailureErrorText(
+        pairs: [(keyPath: String, value: String)],
+        fallback: String
+    ) -> String {
+        let preferredKeyFragments = ["message", "error", "body", "text", "description", "details", "reason"]
+        let preferred = pairs.filter { pair in
+            let key = pair.keyPath.lowercased()
+            return preferredKeyFragments.contains { key.contains($0) }
+        }
+        let failureWords = ["error", "failed", "failure", "rejected", "invalid", "exception", "denied"]
+        if let candidate = preferred.first(where: { pair in
+            let value = pair.value.lowercased()
+            return failureWords.contains { value.contains($0) }
+        }) {
+            return candidate.value
+        }
+        if let candidate = preferred.first {
+            return candidate.value
+        }
+        return fallback
+    }
+
+    private static func codexTeamsDiagnosticSingleLine(_ value: String) -> String {
+        value
+            .replacingOccurrences(of: "\\s+", with: " ", options: .regularExpression)
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private static func codexTeamsDiagnosticTruncate(_ value: String, maxLength: Int) -> String {
+        guard value.count > maxLength else { return value }
+        let index = value.index(value.startIndex, offsetBy: max(0, maxLength - 1))
+        return String(value[..<index]) + "…"
+    }
+
+    private static func codexTeamsCompleteUTF8PrefixLength(_ data: Data) -> Int {
+        guard !data.isEmpty else { return 0 }
+
+        let suffix = [UInt8](data.suffix(4))
+        var continuationCount = 0
+        var index = suffix.count - 1
+        while index >= 0 {
+            let byte = suffix[index]
+            guard byte & 0b1100_0000 == 0b1000_0000 else { break }
+            continuationCount += 1
+            index -= 1
+        }
+
+        guard index >= 0 else {
+            return data.count
+        }
+
+        let leadByte = suffix[index]
+        let expectedByteCount: Int
+        switch leadByte {
+        case 0x00...0x7F:
+            expectedByteCount = 1
+        case 0xC2...0xDF:
+            expectedByteCount = 2
+        case 0xE0...0xEF:
+            expectedByteCount = 3
+        case 0xF0...0xF4:
+            expectedByteCount = 4
+        default:
+            return data.count
+        }
+
+        let availableByteCount = continuationCount + 1
+        if expectedByteCount > availableByteCount {
+            return data.count - availableByteCount
+        }
+        return data.count
+    }
+
     private func runCodexTeams(
         commandArgs: [String],
         socketPath: String,
@@ -19930,6 +20662,8 @@ struct CMUXCLI {
             rootSurfaceId,
             "--app-server-url",
             appServerURL,
+            "--app-server-log",
+            appServerLogURL.path,
             "--codex-path",
             codexExecutableForShell,
             "--launch-path",
@@ -20157,6 +20891,45 @@ struct CMUXCLI {
             .appendingPathComponent("cmux-codex-teams-\(port)-\(name).log")
     }
 
+    private func runCodexTeamsSpawnFailureDiagnosticCommand(commandArgs: [String]) throws {
+        let (logPath, remaining) = parseOption(commandArgs, name: "--log-path")
+        let normalizedLogPath = logPath?.trimmingCharacters(in: .whitespacesAndNewlines)
+            ?? String(localized: "cli.codexTeams.spawnFailure.logPath.unknown", defaultValue: "unknown")
+        let logText = remaining.joined(separator: "\n")
+        guard let diagnostic = Self.codexTeamsSpawnFailureDiagnostic(
+            fromLogText: logText,
+            logPath: normalizedLogPath
+        ) else {
+            print(jsonString([:]))
+            return
+        }
+        print(jsonString(diagnostic.jsonPayload))
+    }
+
+    private func runCodexTeamsCompleteUTF8PrefixLengthCommand(commandArgs: [String]) throws {
+        guard commandArgs.count == 1 else {
+            throw CLIError(
+                message: "Usage: cmux __codex-teams-complete-utf8-prefix-length <hex-bytes>",
+                exitCode: 2
+            )
+        }
+        let hex = commandArgs[0].trimmingCharacters(in: .whitespacesAndNewlines)
+        guard hex.count.isMultiple(of: 2) else {
+            throw CLIError(message: "hex byte input must contain an even number of characters", exitCode: 2)
+        }
+        var data = Data()
+        var index = hex.startIndex
+        while index < hex.endIndex {
+            let next = hex.index(index, offsetBy: 2)
+            guard let byte = UInt8(hex[index..<next], radix: 16) else {
+                throw CLIError(message: "hex byte input contains non-hex characters", exitCode: 2)
+            }
+            data.append(byte)
+            index = next
+        }
+        print(Self.codexTeamsCompleteUTF8PrefixLength(data))
+    }
+
     private func waitForCodexTeamsAppServer(appServerURL: String) throws {
         guard let url = URL(string: appServerURL) else {
             throw CLIError(message: "Invalid Codex app-server URL: \(appServerURL)")
@@ -20237,7 +21010,8 @@ struct CMUXCLI {
         let (workspaceId, rem0) = parseOption(commandArgs, name: "--workspace-id")
         let (surfaceId, rem1) = parseOption(rem0, name: "--surface-id")
         let (appServerURL, rem2) = parseOption(rem1, name: "--app-server-url")
-        let (codexPath, rem3) = parseOption(rem2, name: "--codex-path")
+        let (appServerLogPath, rem2a) = parseOption(rem2, name: "--app-server-log")
+        let (codexPath, rem3) = parseOption(rem2a, name: "--codex-path")
         let (launchPath, rem4) = parseOption(rem3, name: "--launch-path")
         let (maxDepthRaw, rem5a) = parseOption(rem4, name: "--max-auto-depth")
         let (ownerPidRaw, rem5) = parseOption(rem5a, name: "--owner-pid")
@@ -20282,6 +21056,7 @@ struct CMUXCLI {
 
         let watcher = CodexTeamsWatcher(
             appServerURL: appServerURL,
+            appServerLogPath: appServerLogPath,
             workspaceId: workspaceId,
             rootSurfaceId: surfaceId,
             codexExecutable: (codexExecutable?.isEmpty == false ? codexExecutable! : "codex"),

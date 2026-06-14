@@ -52,6 +52,221 @@ final class CMUXCLIErrorOutputRegressionTests: XCTestCase {
         }
     }
 
+    func testCodexTeamsSpawnFailureDiagnosticExplainsFullHistoryForkOverride() throws {
+        let cliPath = try bundledCLIPath()
+        var environment = ProcessInfo.processInfo.environment
+        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+        environment["AppleLanguages"] = "(en)"
+        environment["AppleLocale"] = "en_US"
+
+        let logPath = "/tmp/cmux-codex-teams-12345-app-server.log"
+        let appServerError = "Full-history forked agents inherit the parent agent type, model, and reasoning effort; omit agent_type, model, and reasoning_effort, or spawn without a full-history fork."
+        let result = runProcess(
+            executablePath: cliPath,
+            arguments: [
+                "__codex-teams-spawn-failure-diagnostic",
+                "--log-path",
+                logPath,
+                appServerError,
+            ],
+            environment: environment,
+            timeout: 5
+        )
+
+        XCTAssertFalse(result.timedOut, result.stdout)
+        XCTAssertEqual(result.status, 0, result.stdout)
+        let payload = try XCTUnwrap(
+            JSONSerialization.jsonObject(with: Data(result.stdout.utf8)) as? [String: Any],
+            result.stdout
+        )
+        XCTAssertEqual(payload["kind"] as? String, "full_history_fork_override")
+        XCTAssertEqual(payload["error_text"] as? String, appServerError)
+        let body = try XCTUnwrap(payload["body"] as? String, result.stdout)
+        XCTAssertTrue(
+            body.contains("a forked subagent must use the parent session's configuration"),
+            body
+        )
+        XCTAssertTrue(body.contains(appServerError), body)
+        XCTAssertTrue(body.contains(logPath), body)
+    }
+
+    func testCodexTeamsSpawnFailureDiagnosticClassifiesGenericSpawnAgentErrors() throws {
+        let cliPath = try bundledCLIPath()
+        var environment = ProcessInfo.processInfo.environment
+        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+        environment["AppleLanguages"] = "(en)"
+        environment["AppleLocale"] = "en_US"
+
+        let logPath = "/tmp/cmux-codex-teams-23456-app-server.log"
+        let appServerError = "provider rejected subagent configuration"
+        let logLine = #"{"method":"spawn_agent","error":{"message":"\#(appServerError)"}}"#
+        let result = runProcess(
+            executablePath: cliPath,
+            arguments: [
+                "__codex-teams-spawn-failure-diagnostic",
+                "--log-path",
+                logPath,
+                logLine,
+            ],
+            environment: environment,
+            timeout: 5
+        )
+
+        XCTAssertFalse(result.timedOut, result.stdout)
+        XCTAssertEqual(result.status, 0, result.stdout)
+        let payload = try XCTUnwrap(
+            JSONSerialization.jsonObject(with: Data(result.stdout.utf8)) as? [String: Any],
+            result.stdout
+        )
+        XCTAssertEqual(payload["kind"] as? String, "generic_spawn_failure")
+        XCTAssertEqual(payload["error_text"] as? String, appServerError)
+        let body = try XCTUnwrap(payload["body"] as? String, result.stdout)
+        XCTAssertTrue(body.contains("No subagent pane was opened"), body)
+        XCTAssertTrue(body.contains(appServerError), body)
+        XCTAssertTrue(body.contains(logPath), body)
+    }
+
+    func testCodexTeamsSpawnFailureDiagnosticIgnoresUnrelatedErrors() throws {
+        let cliPath = try bundledCLIPath()
+        var environment = ProcessInfo.processInfo.environment
+        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+        environment["AppleLanguages"] = "(en)"
+        environment["AppleLocale"] = "en_US"
+
+        let result = runProcess(
+            executablePath: cliPath,
+            arguments: [
+                "__codex-teams-spawn-failure-diagnostic",
+                "--log-path",
+                "/tmp/cmux-codex-teams-34567-app-server.log",
+                #"{"error":{"message":"theme refresh failed"}}"#,
+            ],
+            environment: environment,
+            timeout: 5
+        )
+
+        XCTAssertFalse(result.timedOut, result.stdout)
+        XCTAssertEqual(result.status, 0, result.stdout)
+        let payload = try XCTUnwrap(
+            JSONSerialization.jsonObject(with: Data(result.stdout.utf8)) as? [String: Any],
+            result.stdout
+        )
+        XCTAssertTrue(payload.isEmpty, result.stdout)
+    }
+
+    func testCodexTeamsSpawnFailureDiagnosticIgnoresSuccessfulSpawnAgentErrorMetadata() throws {
+        let cliPath = try bundledCLIPath()
+        var environment = ProcessInfo.processInfo.environment
+        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+        environment["AppleLanguages"] = "(en)"
+        environment["AppleLocale"] = "en_US"
+
+        let result = runProcess(
+            executablePath: cliPath,
+            arguments: [
+                "__codex-teams-spawn-failure-diagnostic",
+                "--log-path",
+                "/tmp/cmux-codex-teams-45678-app-server.log",
+                #"{"method":"spawn_agent","error_code":0,"message":"completed without error","metadata":{"subagent":"created"}}"#,
+            ],
+            environment: environment,
+            timeout: 5
+        )
+
+        XCTAssertFalse(result.timedOut, result.stdout)
+        XCTAssertEqual(result.status, 0, result.stdout)
+        let payload = try XCTUnwrap(
+            JSONSerialization.jsonObject(with: Data(result.stdout.utf8)) as? [String: Any],
+            result.stdout
+        )
+        XCTAssertTrue(payload.isEmpty, result.stdout)
+    }
+
+    func testCodexTeamsSpawnFailureDiagnosticIgnoresSuccessfulSpawnAgentPromptText() throws {
+        let cliPath = try bundledCLIPath()
+        var environment = ProcessInfo.processInfo.environment
+        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+        environment["AppleLanguages"] = "(en)"
+        environment["AppleLocale"] = "en_US"
+
+        let result = runProcess(
+            executablePath: cliPath,
+            arguments: [
+                "__codex-teams-spawn-failure-diagnostic",
+                "--log-path",
+                "/tmp/cmux-codex-teams-56789-app-server.log",
+                #"{"method":"spawn_agent","params":{"message":"investigate the failed build","subagent":"created"}}"#,
+            ],
+            environment: environment,
+            timeout: 5
+        )
+
+        XCTAssertFalse(result.timedOut, result.stdout)
+        XCTAssertEqual(result.status, 0, result.stdout)
+        let payload = try XCTUnwrap(
+            JSONSerialization.jsonObject(with: Data(result.stdout.utf8)) as? [String: Any],
+            result.stdout
+        )
+        XCTAssertTrue(payload.isEmpty, result.stdout)
+    }
+
+    func testCodexTeamsAppServerLogUTF8PrefixDefersIncompleteMultibyteSuffix() throws {
+        let cliPath = try bundledCLIPath()
+        var environment = ProcessInfo.processInfo.environment
+        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+        var data = Data("spawn failed: ".utf8)
+        let multibyteCharacterBytes: [UInt8] = [0xF0, 0x9F, 0x98, 0xB5]
+        data.append(contentsOf: multibyteCharacterBytes.prefix(2))
+
+        let result = runProcess(
+            executablePath: cliPath,
+            arguments: ["__codex-teams-complete-utf8-prefix-length", hexString(data)],
+            environment: environment,
+            timeout: 5
+        )
+
+        XCTAssertFalse(result.timedOut, result.stdout)
+        XCTAssertEqual(result.status, 0, result.stdout)
+        XCTAssertEqual(
+            result.stdout.trimmingCharacters(in: .whitespacesAndNewlines),
+            String(Data("spawn failed: ".utf8).count)
+        )
+
+        data.append(contentsOf: multibyteCharacterBytes.dropFirst(2))
+        let completedResult = runProcess(
+            executablePath: cliPath,
+            arguments: ["__codex-teams-complete-utf8-prefix-length", hexString(data)],
+            environment: environment,
+            timeout: 5
+        )
+        XCTAssertFalse(completedResult.timedOut, completedResult.stdout)
+        XCTAssertEqual(completedResult.status, 0, completedResult.stdout)
+        XCTAssertEqual(
+            completedResult.stdout.trimmingCharacters(in: .whitespacesAndNewlines),
+            String(data.count)
+        )
+    }
+
+    func testCodexTeamsAppServerLogUTF8PrefixDoesNotDeferInvalidTrailingBytes() throws {
+        let cliPath = try bundledCLIPath()
+        var environment = ProcessInfo.processInfo.environment
+        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+        let data = Data([0x73, 0x70, 0x61, 0x77, 0x6e, 0x80])
+        let result = runProcess(
+            executablePath: cliPath,
+            arguments: ["__codex-teams-complete-utf8-prefix-length", hexString(data)],
+            environment: environment,
+            timeout: 5
+        )
+
+        XCTAssertFalse(result.timedOut, result.stdout)
+        XCTAssertEqual(result.status, 0, result.stdout)
+        XCTAssertEqual(
+            result.stdout.trimmingCharacters(in: .whitespacesAndNewlines),
+            String(data.count)
+        )
+    }
+
     func testBundledCLIInTaggedDebugAppPrefersItsOwnSocketWithoutEnvironmentOverride() throws {
         let cliPath = try bundledCLIPath()
         let tagSlug = "cli-socket-\(UUID().uuidString.lowercased())"
@@ -1378,6 +1593,10 @@ final class CMUXCLIErrorOutputRegressionTests: XCTestCase {
 
     private func shellSingleQuote(_ value: String) -> String {
         "'\(value.replacingOccurrences(of: "'", with: "'\"'\"'"))'"
+    }
+
+    private func hexString(_ data: Data) -> String {
+        data.map { String(format: "%02x", $0) }.joined()
     }
 
     private func lstatPathExists(_ path: String) -> Bool {
