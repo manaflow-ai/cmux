@@ -1055,6 +1055,14 @@ private final class SelectedWorkspaceDirectoryObserver: ObservableObject {
     }
 }
 
+func titlebarShortcutHintShouldShow(
+    shortcut: StoredShortcut,
+    alwaysShowShortcutHints: Bool,
+    modifierPressed: Bool
+) -> Bool {
+    !shortcut.isUnbound && (alwaysShowShortcutHints || (shortcut.command && modifierPressed))
+}
+
 struct ContentView: View {
     var updateViewModel: UpdateStateModel
     let windowId: UUID

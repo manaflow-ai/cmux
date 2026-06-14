@@ -14,7 +14,9 @@ final class WindowScopedShortcutHintModifierMonitor {
     @ObservationIgnored private var flagsMonitor: Any?
     @ObservationIgnored private var keyDownMonitor: Any?
     @ObservationIgnored private var appResignObserver: NSObjectProtocol?
-    @ObservationIgnored private var pendingShowWorkItem: DispatchWorkItem?
+    // One-shot timer implements the intentional hold delay from synchronous NSEvent callbacks.
+    @ObservationIgnored private var pendingShowTimer: DispatchSourceTimer?
+    @ObservationIgnored private var pendingShowGeneration = 0
 
     private var hasHostWindowObservers: Bool {
         hostWindowDidBecomeKeyObserver != nil && hostWindowDidResignKeyObserver != nil
@@ -117,30 +119,42 @@ final class WindowScopedShortcutHintModifierMonitor {
 
     private func queueHintShow() {
         guard !isModifierPressed else { return }
-        guard pendingShowWorkItem == nil else { return }
+        guard pendingShowTimer == nil else { return }
 
-        let workItem = DispatchWorkItem { [weak self] in
-            guard let self else { return }
-            self.pendingShowWorkItem = nil
-            guard let hostWindow = self.hostWindow,
-                  self.isCurrentWindow(eventWindow: nil),
-                  self.allowsHintsForWindow(hostWindow),
-                  self.activation.shouldShowHints(for: NSEvent.modifierFlags) else {
-                return
+        pendingShowGeneration &+= 1
+        let generation = pendingShowGeneration
+        let timer = DispatchSource.makeTimerSource(queue: .main)
+        timer.schedule(deadline: .now() + ShortcutHintModifierPolicy.intentionalHoldDelay)
+        timer.setEventHandler { [weak self] in
+            Task { @MainActor [weak self] in
+                self?.showHintIfStillEligible(generation: generation)
             }
-            self.isModifierPressed = true
         }
 
-        pendingShowWorkItem = workItem
-        DispatchQueue.main.asyncAfter(deadline: .now() + ShortcutHintModifierPolicy.intentionalHoldDelay, execute: workItem)
+        pendingShowTimer = timer
+        timer.resume()
     }
 
     private func cancelPendingHintShow(resetVisible: Bool) {
-        pendingShowWorkItem?.cancel()
-        pendingShowWorkItem = nil
+        pendingShowGeneration &+= 1
+        pendingShowTimer?.cancel()
+        pendingShowTimer = nil
         if resetVisible, isModifierPressed {
             isModifierPressed = false
         }
+    }
+
+    private func showHintIfStillEligible(generation: Int) {
+        guard pendingShowGeneration == generation else { return }
+        pendingShowTimer?.cancel()
+        pendingShowTimer = nil
+        guard let hostWindow,
+              isCurrentWindow(eventWindow: nil),
+              allowsHintsForWindow(hostWindow),
+              activation.shouldShowHints(for: NSEvent.modifierFlags) else {
+            return
+        }
+        isModifierPressed = true
     }
 
     private func removeHostWindowObservers() {
