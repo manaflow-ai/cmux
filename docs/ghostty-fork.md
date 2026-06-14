@@ -12,8 +12,22 @@ When we change the fork, update this document and the parent submodule SHA.
 
 ## Current fork changes
 
-The fork was refreshed from upstream `main` again on May 1, 2026.
-Current cmux pinned fork head: `34cbf180d`, merging the surface registry
+Current cmux pinned fork head: `5697db81`, which adds the Darwin-only
+`ghostty_surface_set_renderer_realized` C API (a `display_realized` renderer-thread
+mailbox message that drives `displayUnrealized()`/`displayRealized()`) on top of
+`34cbf180d`. cmux uses it to release an occluded terminal's GPU renderer
+resources (Metal swap chain / IOSurface) while keeping its PTY alive, then
+rebuild them on re-show. The API returns whether the message was enqueued (a
+`.forever` `BlockingQueue.push` can still drop on a spurious wakeup while full) so
+the embedder only advances its realize/unrealize mirror state on success. The push is `.instant` (non-blocking) so it never stalls the embedder's main thread waiting on the renderer. See
+manaflow-ai/ghostty branch `feat-renderer-realized-offscreen` and
+https://github.com/manaflow-ai/cmux/issues/4607. The prebuilt archive is
+published at
+https://github.com/manaflow-ai/ghostty/releases/tag/xcframework-5697db813b1b0fe14873093e9028f36513ddc187-crashsubdir-cmux-crash-v1
+and pinned in `scripts/ghosttykit-checksums.txt`.
+
+The prior head was refreshed from upstream `main` on May 1, 2026.
+Earlier cmux pinned fork head: `34cbf180d`, merging the surface registry
 serialization for https://github.com/manaflow-ai/cmux/issues/5458 (`e5c962a72`,
 landed on cmux `main`) into the iOS render bounded-acquire line (`f78189ac1`)
 combined with the cmd-click link refresh under mouse reporting (`df789cd4b`,
@@ -425,6 +439,13 @@ These files change frequently upstream; be careful when rebasing the fork:
   - The initial `focused` plumbing has to stay aligned across the C config, embedded runtime surface,
     and macOS wrapper. If upstream refactors surface creation or post-create focus sync, re-check that
     background panes can start unfocused without synthesizing a focus-loss transition during creation.
+
+- `src/Surface.zig` (modifier tracking)
+  - `modsChanged` and the key callback's link-highlight gate must compare binding mods against
+    binding mods (stored mouse mods are binding-only). cmux sends sided modifier bits on key
+    events for `macos-option-as-alt = left|right`; comparing raw mods re-dirties the screen and
+    re-runs the link refresh on every event while a sided or lock modifier is held. If upstream
+    refactors modifier tracking, keep the binding-normalized comparison.
 
 - `src/termio/stream_handler.zig`
   - Keep DECSET 1004 enablement side-effect free. xterm-compatible focus reporting should only emit

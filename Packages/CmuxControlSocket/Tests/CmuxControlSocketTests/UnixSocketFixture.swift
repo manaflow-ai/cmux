@@ -53,8 +53,7 @@ enum UnixSocketFixture {
         return fd
     }
 
-    /// Connects a blocking client to the Unix socket at `path`, returning the
-    /// connected client fd.
+    /// Connects a blocking client to the Unix socket at `path`.
     static func connectClient(to path: String) throws -> Int32 {
         let fd = socket(AF_UNIX, SOCK_STREAM, 0)
         guard fd >= 0 else {

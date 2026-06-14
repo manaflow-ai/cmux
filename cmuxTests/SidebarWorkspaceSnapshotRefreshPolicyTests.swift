@@ -1,4 +1,6 @@
 import AppKit
+import CmuxSidebar
+import CmuxWorkspaces
 import SwiftUI
 import XCTest
 
@@ -106,6 +108,7 @@ final class SidebarWorkspaceSnapshotRefreshPolicyTests: XCTestCase {
             remoteWorkspaceSidebarText: nil,
             remoteConnectionStatusText: remoteConnectionStatusText,
             remoteStateHelpText: "",
+            showsRemoteReconnectAffordance: false,
             copyableSidebarSSHError: nil,
             latestConversationMessage: latestConversationMessage,
             metadataEntries: [],

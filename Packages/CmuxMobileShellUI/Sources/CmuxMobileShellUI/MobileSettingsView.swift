@@ -138,6 +138,16 @@ struct MobileSettingsView: View {
                         Text(L10n.string("mobile.settings.wrapTitles", defaultValue: "Wrap Workspace Titles"))
                     }
                     .accessibilityIdentifier("MobileSettingsWrapTitles")
+
+                    Picker(selection: $displaySettings.workspacePreviewLineCount) {
+                        Text(L10n.string("mobile.settings.previewLines.one", defaultValue: "1 Line"))
+                            .tag(1)
+                        Text(L10n.string("mobile.settings.previewLines.two", defaultValue: "2 Lines"))
+                            .tag(2)
+                    } label: {
+                        Text(L10n.string("mobile.settings.previewLines", defaultValue: "Preview Lines"))
+                    }
+                    .accessibilityIdentifier("MobileSettingsPreviewLines")
                 }
 
                 Section(L10n.string("mobile.settings.notifications", defaultValue: "Notifications")) {

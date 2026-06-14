@@ -54,7 +54,6 @@ extension SocketTransport {
         let fd = socket(AF_UNIX, SOCK_STREAM, 0)
         guard fd >= 0 else { return nil }
         defer { close(fd) }
-        // Keep the short-lived probe fd out of any concurrent PTY fork.
         _ = configureCloseOnExec(fd)
         configureSocketTimeouts(fd, timeout: timeout)
 

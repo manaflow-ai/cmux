@@ -1,6 +1,9 @@
 import XCTest
+import CmuxCore
 import AppKit
 import Darwin
+import CmuxTerminal
+import struct CmuxSettings.IntegrationsCatalogSection
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
 #elseif canImport(cmux)
@@ -1131,17 +1134,17 @@ final class TerminalControllerSocketSecurityTests: XCTestCase {
         let manager = TabManager()
         let workspace = manager.addWorkspace(select: true)
         let defaults = UserDefaults.standard
-        let previousSuppressionDefault = defaults.object(forKey: AgentSubagentNotificationSettings.suppressNotificationsKey)
+        let previousSuppressionDefault = defaults.object(forKey: IntegrationsCatalogSection().suppressSubagentNotifications.userDefaultsKey)
 
-        defaults.set(true, forKey: AgentSubagentNotificationSettings.suppressNotificationsKey)
+        defaults.set(true, forKey: IntegrationsCatalogSection().suppressSubagentNotifications.userDefaultsKey)
         defer {
             if manager.tabs.contains(where: { $0.id == workspace.id }) {
                 manager.closeWorkspace(workspace)
             }
             if let previousSuppressionDefault {
-                defaults.set(previousSuppressionDefault, forKey: AgentSubagentNotificationSettings.suppressNotificationsKey)
+                defaults.set(previousSuppressionDefault, forKey: IntegrationsCatalogSection().suppressSubagentNotifications.userDefaultsKey)
             } else {
-                defaults.removeObject(forKey: AgentSubagentNotificationSettings.suppressNotificationsKey)
+                defaults.removeObject(forKey: IntegrationsCatalogSection().suppressSubagentNotifications.userDefaultsKey)
             }
         }
 

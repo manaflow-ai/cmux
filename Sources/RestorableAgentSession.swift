@@ -903,9 +903,26 @@ struct RestorableAgentSessionIndex: Sendable {
         let processIDs: Set<Int>
     }
 
+    enum ProcessDetectedSessionIDSource: Sendable {
+        case explicit
+        case inferredLatestSessionFile
+    }
+
+    typealias ProcessDetectedSnapshotEntry = (
+        snapshot: SessionRestorableAgentSnapshot,
+        updatedAt: TimeInterval,
+        processIDs: Set<Int>,
+        sessionIDSource: ProcessDetectedSessionIDSource
+    )
+
     private struct SessionKey: Hashable {
         let kind: RestorableAgentKind
         let sessionId: String
+    }
+
+    private struct PanelKindKey: Hashable {
+        let panelKey: PanelKey
+        let kind: RestorableAgentKind
     }
 
     private let entriesByPanel: [PanelKey: Entry]
@@ -988,7 +1005,7 @@ struct RestorableAgentSessionIndex: Sendable {
         homeDirectory: String,
         fileManager: FileManager,
         registry: CmuxVaultAgentRegistry,
-        detectedSnapshots: [PanelKey: (snapshot: SessionRestorableAgentSnapshot, updatedAt: TimeInterval, processIDs: Set<Int>)],
+        detectedSnapshots: [PanelKey: ProcessDetectedSnapshotEntry],
         processArgumentsProvider: (Int) -> CmuxTopProcessArguments? = {
             CmuxTopProcessSnapshot.processArgumentsAndEnvironment(for: $0)
         }
@@ -1008,7 +1025,7 @@ struct RestorableAgentSessionIndex: Sendable {
                     : (kind: .custom(registration.id), registration: registration)
             }
         var hookCandidatesBySession: [SessionKey: Entry] = [:]
-        var hookCandidatesByPanel: [PanelKey: Entry] = [:]
+        var hookCandidatesByPanelAndKind: [PanelKindKey: Entry] = [:]
 
         for (kind, registration) in hookKinds {
             let fileURL = kind.hookStoreFileURL(homeDirectory: homeDirectory)
@@ -1019,13 +1036,20 @@ struct RestorableAgentSessionIndex: Sendable {
             }
 
             for record in state.sessions.values {
-                let effectiveRecord = kind == .claude
+                var effectiveRecord = kind == .claude
                     ? resolvedClaudeWorkflowRecord(
                         record,
                         fileManager: fileManager,
                         lookup: claudeTranscriptLookup
                     )
                     : record
+                // Drop untrusted launch captures before ANY derivation: the
+                // working directory below would otherwise inherit the foreign
+                // agent's launch cwd even though the launch command is stripped.
+                effectiveRecord.launchCommand = trustedLaunchCommand(
+                    effectiveRecord.launchCommand,
+                    kind: kind
+                )
                 let normalizedSessionId = effectiveRecord.sessionId.trimmingCharacters(in: .whitespacesAndNewlines)
                 guard !normalizedSessionId.isEmpty,
                       let workspaceId = UUID(uuidString: effectiveRecord.workspaceId),
@@ -1054,6 +1078,7 @@ struct RestorableAgentSessionIndex: Sendable {
                 )
                 let key = PanelKey(workspaceId: workspaceId, panelId: panelId)
                 let sessionKey = SessionKey(kind: kind, sessionId: normalizedSessionId)
+                let panelKindKey = PanelKindKey(panelKey: key, kind: kind)
                 let liveProcessID = liveScopedProcessID(
                     for: effectiveRecord,
                     kind: kind,
@@ -1067,8 +1092,10 @@ struct RestorableAgentSessionIndex: Sendable {
                     updatedAt: effectiveRecord.updatedAt,
                     processIDs: liveProcessID.map { [$0] } ?? []
                 )
-                if hookCandidatesByPanel[key]?.updatedAt ?? -Double.infinity <= effectiveRecord.updatedAt {
-                    hookCandidatesByPanel[key] = entry
+                let previousPanelKindUpdatedAt =
+                    hookCandidatesByPanelAndKind[panelKindKey]?.updatedAt ?? -Double.infinity
+                if previousPanelKindUpdatedAt <= effectiveRecord.updatedAt {
+                    hookCandidatesByPanelAndKind[panelKindKey] = entry
                 }
                 if hookCandidatesBySession[sessionKey]?.updatedAt ?? -Double.infinity <= effectiveRecord.updatedAt {
                     hookCandidatesBySession[sessionKey] = entry
@@ -1084,10 +1111,13 @@ struct RestorableAgentSessionIndex: Sendable {
         }
 
         for (key, detected) in detectedSnapshots {
+            let sameKindPanelCandidate = hookCandidatesByPanelAndKind[
+                PanelKindKey(panelKey: key, kind: detected.snapshot.kind)
+            ]
             if let existing = Self.matchingHookEntry(
                 for: detected.snapshot,
                 resolved: resolved[key],
-                panelCandidate: hookCandidatesByPanel[key],
+                panelCandidate: sameKindPanelCandidate,
                 sessionCandidate: hookCandidatesBySession[
                     SessionKey(kind: detected.snapshot.kind, sessionId: detected.snapshot.sessionId)
                 ]
@@ -1096,6 +1126,16 @@ struct RestorableAgentSessionIndex: Sendable {
                     snapshot: detected.snapshot,
                     lifecycle: existing.lifecycle,
                     updatedAt: existing.updatedAt,
+                    processIDs: detected.processIDs
+                )
+            } else if detected.sessionIDSource == .inferredLatestSessionFile,
+                      let panelCandidate = sameKindPanelCandidate {
+                // Latest-file detection is ambiguous when multiple panels share a cwd; preserve the exact
+                // hook-store identity while still carrying live process evidence for this panel.
+                resolved[key] = Entry(
+                    snapshot: panelCandidate.snapshot,
+                    lifecycle: panelCandidate.lifecycle,
+                    updatedAt: panelCandidate.updatedAt,
                     processIDs: detected.processIDs
                 )
             } else {
@@ -1127,6 +1167,23 @@ struct RestorableAgentSessionIndex: Sendable {
 
     private static func normalizedWorkingDirectory(_ rawValue: String?) -> String? {
         normalizedNonEmptyValue(rawValue)
+    }
+
+    /// Drops launch captures that cannot describe this agent kind: a capture
+    /// inherited from a different agent's session (codex started under claude
+    /// carries claude's `CMUX_AGENT_LAUNCH_*`) or the hook dispatch shell's own
+    /// argv. Resume/fork then fall back to the kind's bare verbs instead of
+    /// rendering the foreign binary. Existing poisoned records heal on load.
+    private static func trustedLaunchCommand(
+        _ launchCommand: AgentLaunchCommandSnapshot?,
+        kind: RestorableAgentKind
+    ) -> AgentLaunchCommandSnapshot? {
+        guard let launchCommand else { return nil }
+        guard AgentLaunchCaptureTrust.launcherDescribesKind(launchCommand.launcher, kind: kind.rawValue),
+              !AgentLaunchCaptureTrust.argvLooksLikeShellWrapper(launchCommand.arguments) else {
+            return nil
+        }
+        return launchCommand
     }
 
     private static func hookRecordIsRestorable(
