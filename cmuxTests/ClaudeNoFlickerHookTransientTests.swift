@@ -376,6 +376,10 @@ struct ClaudeNoFlickerHookTransientTests {
         #expect(server.wait(timeout: .now() + 5) == .success, "mock server did not finish")
         #expect(!result.timedOut && result.status == 0, Comment(rawValue: result.stderr))
         let commands = context.state.snapshot()
+        #expect(
+            !commands.contains { ClaudeHookRoutingTestSupport.jsonObject($0)?["method"] as? String == "system.top" },
+            "Stored target without live hook PID must not trigger process snapshot recovery, saw \(commands)"
+        )
         let expectedStatusPrefix = "set_status claude_code Running --icon=bolt.fill --color=#4C8DFF --tab=\(context.workspaceId)"
         let expectedPanel = "--panel=\(context.surfaceId)"
         let storedPIDWasRepublished = commands.contains {
