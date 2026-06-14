@@ -108,16 +108,10 @@ extension TerminalSurface {
             lastPixelWidth = wpx
             lastPixelHeight = hpx
             if manualIO {
-                // Repaint via the renderer thread instead of a synchronous
-                // main-thread `ghostty_surface_render_now`. render_now runs the
-                // full updateFrame on the main thread while the always-live
-                // macOS renderer thread runs it too, so a grid-size change races
-                // the shaper / RenderState teardown → double-free / use-after-free
-                // (crash on display-move backing-scale changes, upstream #6040).
-                // `refresh` only wakes the renderer thread, so updateFrame runs on
-                // one thread; the grid paints a frame later (cosmetic). The DECAWM
-                // re-enable stays in call order after the resize, preserving the
-                // manual-I/O no-reflow wrapping.
+                // Async refresh, not render_now: render_now runs updateFrame on
+                // the main thread and races the always-live macOS renderer
+                // thread on a grid-size change (shaper double-free). Keep the
+                // DECAWM re-enable after the resize so no-reflow ordering holds.
                 ghostty_surface_refresh(surface)
                 if suppressManualReflow {
                     writeProcessOutputData(Self.decawmEnableSequence, to: surface)
