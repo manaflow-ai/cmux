@@ -1837,6 +1837,9 @@ struct SessionWorkspaceSnapshot: Codable, Sendable {
     var progress: SessionProgressSnapshot?
     var gitBranch: SessionGitBranchSnapshot?
     var remote: SessionRemoteWorkspaceSnapshot?
+    /// User-defined per-workspace environment variables (issue #5995). Optional
+    /// with a `nil` default so manifests written before this field decode cleanly.
+    var environment: [String: String]? = nil
 }
 
 struct SessionWorkspaceGroupSnapshot: Codable, Sendable, Equatable {
