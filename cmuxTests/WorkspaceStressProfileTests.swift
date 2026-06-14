@@ -1,4 +1,5 @@
 import XCTest
+import struct CmuxSettings.AccountCatalogSection
 
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
@@ -69,13 +70,14 @@ final class WorkspaceStressProfileTests: XCTestCase {
 
     func testWorkspaceCreationAndSwitchingStressProfile() {
         let config = StressConfig.current()
-        let welcomeWasShown = UserDefaults.standard.object(forKey: WelcomeSettings.shownKey)
-        UserDefaults.standard.set(true, forKey: WelcomeSettings.shownKey)
+        let welcomeShownKey = AccountCatalogSection().welcomeShown.userDefaultsKey
+        let welcomeWasShown = UserDefaults.standard.object(forKey: welcomeShownKey)
+        UserDefaults.standard.set(true, forKey: welcomeShownKey)
         defer {
             if let welcomeWasShown {
-                UserDefaults.standard.set(welcomeWasShown, forKey: WelcomeSettings.shownKey)
+                UserDefaults.standard.set(welcomeWasShown, forKey: welcomeShownKey)
             } else {
-                UserDefaults.standard.removeObject(forKey: WelcomeSettings.shownKey)
+                UserDefaults.standard.removeObject(forKey: welcomeShownKey)
             }
         }
 
@@ -202,13 +204,14 @@ final class WorkspaceStressProfileTests: XCTestCase {
 
     func testWorkspaceBatchActionsStressProfile() {
         let config = StressConfig.current()
-        let welcomeWasShown = UserDefaults.standard.object(forKey: WelcomeSettings.shownKey)
-        UserDefaults.standard.set(true, forKey: WelcomeSettings.shownKey)
+        let welcomeShownKey = AccountCatalogSection().welcomeShown.userDefaultsKey
+        let welcomeWasShown = UserDefaults.standard.object(forKey: welcomeShownKey)
+        UserDefaults.standard.set(true, forKey: welcomeShownKey)
         defer {
             if let welcomeWasShown {
-                UserDefaults.standard.set(welcomeWasShown, forKey: WelcomeSettings.shownKey)
+                UserDefaults.standard.set(welcomeWasShown, forKey: welcomeShownKey)
             } else {
-                UserDefaults.standard.removeObject(forKey: WelcomeSettings.shownKey)
+                UserDefaults.standard.removeObject(forKey: welcomeShownKey)
             }
         }
 

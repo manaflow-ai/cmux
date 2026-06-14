@@ -15,8 +15,9 @@ import CmuxSidebar
 import UserNotifications
 import Combine
 import CmuxTerminal
-
 import CmuxWorkspaceCore
+import struct CmuxSettings.IntegrationsCatalogSection
+import enum CmuxSettings.KiroNotificationLevel
 
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
@@ -923,13 +924,13 @@ final class KeyboardShortcutSettingsFileStoreTests: XCTestCase {
 
     func testSettingsFileStoreAppliesSubagentNotificationSuppression() throws {
         let defaults = UserDefaults.standard
-        let previousValue = defaults.object(forKey: AgentSubagentNotificationSettings.suppressNotificationsKey)
+        let previousValue = defaults.object(forKey: IntegrationsCatalogSection().suppressSubagentNotifications.userDefaultsKey)
         let previousBackups = defaults.data(forKey: settingsFileBackupsDefaultsKey)
         defer {
             if let previousValue {
-                defaults.set(previousValue, forKey: AgentSubagentNotificationSettings.suppressNotificationsKey)
+                defaults.set(previousValue, forKey: IntegrationsCatalogSection().suppressSubagentNotifications.userDefaultsKey)
             } else {
-                defaults.removeObject(forKey: AgentSubagentNotificationSettings.suppressNotificationsKey)
+                defaults.removeObject(forKey: IntegrationsCatalogSection().suppressSubagentNotifications.userDefaultsKey)
             }
             if let previousBackups {
                 defaults.set(previousBackups, forKey: settingsFileBackupsDefaultsKey)
@@ -937,7 +938,7 @@ final class KeyboardShortcutSettingsFileStoreTests: XCTestCase {
                 defaults.removeObject(forKey: settingsFileBackupsDefaultsKey)
             }
         }
-        defaults.removeObject(forKey: AgentSubagentNotificationSettings.suppressNotificationsKey)
+        defaults.removeObject(forKey: IntegrationsCatalogSection().suppressSubagentNotifications.userDefaultsKey)
         defaults.removeObject(forKey: settingsFileBackupsDefaultsKey)
 
         let directoryURL = try makeTemporaryDirectory()
@@ -962,22 +963,22 @@ final class KeyboardShortcutSettingsFileStoreTests: XCTestCase {
         )
 
         XCTAssertEqual(
-            defaults.object(forKey: AgentSubagentNotificationSettings.suppressNotificationsKey) as? Bool,
+            defaults.object(forKey: IntegrationsCatalogSection().suppressSubagentNotifications.userDefaultsKey) as? Bool,
             false
         )
     }
 
     func testSettingsFileStoreInvalidKiroNotificationLevelDoesNotSkipLaterAutomationKeys() throws {
         let defaults = UserDefaults.standard
-        let previousKiroLevel = defaults.object(forKey: KiroIntegrationSettings.notificationLevelKey)
+        let previousKiroLevel = defaults.object(forKey: IntegrationsCatalogSection().kiroNotificationLevel.userDefaultsKey)
         let previousPortBase = defaults.object(forKey: AutomationSettings.portBaseKey)
         let previousPortRange = defaults.object(forKey: AutomationSettings.portRangeKey)
         let previousBackups = defaults.data(forKey: settingsFileBackupsDefaultsKey)
         defer {
             if let previousKiroLevel {
-                defaults.set(previousKiroLevel, forKey: KiroIntegrationSettings.notificationLevelKey)
+                defaults.set(previousKiroLevel, forKey: IntegrationsCatalogSection().kiroNotificationLevel.userDefaultsKey)
             } else {
-                defaults.removeObject(forKey: KiroIntegrationSettings.notificationLevelKey)
+                defaults.removeObject(forKey: IntegrationsCatalogSection().kiroNotificationLevel.userDefaultsKey)
             }
             if let previousPortBase {
                 defaults.set(previousPortBase, forKey: AutomationSettings.portBaseKey)
@@ -995,7 +996,7 @@ final class KeyboardShortcutSettingsFileStoreTests: XCTestCase {
                 defaults.removeObject(forKey: settingsFileBackupsDefaultsKey)
             }
         }
-        defaults.removeObject(forKey: KiroIntegrationSettings.notificationLevelKey)
+        defaults.removeObject(forKey: IntegrationsCatalogSection().kiroNotificationLevel.userDefaultsKey)
         defaults.removeObject(forKey: AutomationSettings.portBaseKey)
         defaults.removeObject(forKey: AutomationSettings.portRangeKey)
         defaults.removeObject(forKey: settingsFileBackupsDefaultsKey)
@@ -1023,7 +1024,7 @@ final class KeyboardShortcutSettingsFileStoreTests: XCTestCase {
             startWatching: false
         )
 
-        XCTAssertNil(defaults.object(forKey: KiroIntegrationSettings.notificationLevelKey))
+        XCTAssertNil(defaults.object(forKey: IntegrationsCatalogSection().kiroNotificationLevel.userDefaultsKey))
         XCTAssertEqual(defaults.integer(forKey: AutomationSettings.portBaseKey), 32100)
         XCTAssertEqual(defaults.integer(forKey: AutomationSettings.portRangeKey), 42)
     }
