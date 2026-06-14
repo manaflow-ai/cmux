@@ -203,7 +203,11 @@ export function routesContainLoopback(routes: unknown[]): boolean {
  */
 export function hostIsTailscaleAttachable(rawHost: string): boolean {
   const host = rawHost.trim().toLowerCase();
-  if (host.endsWith(".ts.net")) return true;
+  // A *.ts.net MagicDNS name, but only when the whole string is a syntactically
+  // valid DNS hostname (labels of letters/digits/hyphens, dot-separated, no
+  // scheme, spaces, port, or path). A loose suffix check would accept junk like
+  // "bad host.ts.net" or "https://mac.ts.net" that the phone cannot dial.
+  if (host.endsWith(".ts.net") && isValidDnsHostname(host)) return true;
   const parts = host.split(".");
   if (parts.length !== 4) return false;
   const octets: number[] = [];
@@ -214,6 +218,17 @@ export function hostIsTailscaleAttachable(rawHost: string): boolean {
     octets.push(value);
   }
   return octets[0] === 100 && octets[1] >= 64 && octets[1] <= 127;
+}
+
+/** A syntactically valid DNS hostname: 1-253 chars, dot-separated labels of
+ * 1-63 chars using letters/digits/hyphens, no leading/trailing hyphen per label. */
+function isValidDnsHostname(host: string): boolean {
+  if (host.length === 0 || host.length > 253) return false;
+  const labels = host.split(".");
+  for (const label of labels) {
+    if (!/^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$/.test(label)) return false;
+  }
+  return true;
 }
 
 /**

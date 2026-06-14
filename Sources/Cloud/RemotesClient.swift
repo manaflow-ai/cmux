@@ -107,11 +107,15 @@ actor RemotesClient {
             let routes = Self.parseDisplayRoutes(primary?["routes"])
             let labels = device["labels"] as? [String: Any]
             let manual = (labels?["manual"] as? Bool) ?? false
+            // For manual remotes the instance `tag` is a fixed internal value;
+            // the user's display tag (if any) is stored in the instance labels.
+            let instanceLabels = primary?["labels"] as? [String: Any]
+            let displayTag = (instanceLabels?["tag"] as? String) ?? (primary?["tag"] as? String)
             return RemoteSummary(
                 deviceId: (device["deviceId"] as? String) ?? "",
                 displayName: device["displayName"] as? String,
                 platform: (device["platform"] as? String) ?? "?",
-                tag: primary?["tag"] as? String,
+                tag: displayTag,
                 routes: routes,
                 lastSeen: (primary?["lastSeenAt"] as? String) ?? (device["lastSeenAt"] as? String),
                 manual: manual
@@ -152,21 +156,33 @@ actor RemotesClient {
             throw RemotesClientError.notAttachable(host: spec.host)
         }
 
+        // A manual remote is a SINGLE registry entry. The backend keys instances
+        // by `(deviceId, tag)` and the iOS refresh returns nil when a device has
+        // 2+ non-empty instances (it can't pick a tagged app), so letting the
+        // user's `--tag` drive the instance key would leave a stale instance on
+        // a tag change and silently disable registry routes for that remote.
+        // Pin a fixed instance tag and carry the user's `--tag` as an instance
+        // label, so re-adding the same name always updates the one instance.
         var body: [String: Any] = [
             "deviceId": deviceId,
             "platform": "mac",
             "displayName": name,
             "manual": true,
+            "tag": Self.manualInstanceTag,
             "routes": attachRoutes.map(\.mobileHostJSONObject),
         ]
         if let tag = rawTag?.trimmingCharacters(in: .whitespacesAndNewlines), !tag.isEmpty {
-            body["tag"] = tag
+            body["instanceLabels"] = ["tag": tag]
         }
 
         let (data, http) = try await request("POST", path: "/api/devices", jsonBody: body)
         try ensureOK(http, data: data)
         return deviceId
     }
+
+    /// The fixed instance tag for every manual remote, so re-adding the same
+    /// name updates one instance regardless of the user's display `--tag`.
+    static let manualInstanceTag = "cmux-remotes-manual"
 
     /// Remove a remote by display name or device UUID. Resolves a name to its
     /// device UUID via the registry list first, then DELETEs. Returns the

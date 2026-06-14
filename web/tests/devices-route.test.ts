@@ -383,6 +383,14 @@ describe("device registry route", () => {
       "example.com",
       "my-mac.local",
       "fd7a:115c:a1e0::1",
+      // Malformed .ts.net strings that pass a naive suffix check but are not
+      // dialable bare hosts.
+      "bad host.ts.net",
+      "https://mac.ts.net",
+      "mac.ts.net:51001",
+      "mac_underscore.ts.net",
+      "-leading.ts.net",
+      ".ts.net",
     ]) {
       expect(hostIsTailscaleAttachable(host)).toBe(false);
     }

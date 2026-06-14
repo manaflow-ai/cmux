@@ -85,7 +85,12 @@ struct RemoteRouteSpec: Equatable {
     /// reimplemented here rather than imported.)
     var isTailscaleAttachable: Bool {
         let normalized = host.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-        if normalized.hasSuffix(".ts.net") { return true }
+        // A *.ts.net MagicDNS name, but only when the whole string is a valid
+        // DNS hostname (no spaces, scheme, port, or path); a loose suffix check
+        // would accept undialable junk like "bad host.ts.net".
+        if normalized.hasSuffix(".ts.net"), Self.isValidDNSHostname(normalized) {
+            return true
+        }
         // CGNAT 100.64.0.0/10: first octet 100, second octet 64...127, dotted
         // quad with all-decimal octets in 0...255.
         let parts = normalized.split(separator: ".", omittingEmptySubsequences: false)
@@ -101,6 +106,22 @@ struct RemoteRouteSpec: Equatable {
         }
         guard octets.count == 4 else { return false }
         return octets[0] == 100 && (64...127).contains(octets[1])
+    }
+
+    /// A syntactically valid DNS hostname: 1-253 chars, dot-separated labels of
+    /// 1-63 chars using ASCII letters/digits/hyphens, no leading/trailing label
+    /// hyphen.
+    static func isValidDNSHostname(_ host: String) -> Bool {
+        guard !host.isEmpty, host.count <= 253 else { return false }
+        for label in host.split(separator: ".", omittingEmptySubsequences: false) {
+            guard !label.isEmpty, label.count <= 63 else { return false }
+            let chars = Array(label)
+            let allValid = chars.allSatisfy { c in
+                c.isASCII && (c.isLetter || c.isNumber || c == "-")
+            }
+            guard allValid, chars.first != "-", chars.last != "-" else { return false }
+        }
+        return true
     }
 }
 

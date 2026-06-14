@@ -143,6 +143,9 @@ import CMUXMobileCore
         "my-mac.local:51001",   // bonjour
         "example.com:51001",    // bare hostname
         "[fd7a:115c:a1e0::1]:51001", // Tailscale IPv6 ULA (no IPv6 auth path)
+        "bad host.ts.net:51001", // malformed .ts.net (space) — not a valid host
+        "mac_underscore.ts.net:51001", // invalid label char
+        "-leading.ts.net:51001", // leading hyphen label
     ])
     func rejectsNonTailscaleHostsAsNotAttachable(_ token: String) throws {
         let spec = try RemoteRouteSpec.parse(token)
