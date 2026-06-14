@@ -1,5 +1,6 @@
 import AppKit
 import Bonsplit
+import CmuxCommandPalette
 import Foundation
 
 func browserOmnibarSelectionDeltaForControlNavigation(
@@ -424,22 +425,6 @@ enum BrowserZoomShortcutAction: Equatable {
     case zoomIn
     case zoomOut
     case reset
-}
-
-struct CommandPaletteDebugResultRow {
-    let commandId: String
-    let title: String
-    let shortcutHint: String?
-    let trailingLabel: String?
-    let score: Int
-}
-
-struct CommandPaletteDebugSnapshot {
-    let query: String
-    let mode: String
-    let results: [CommandPaletteDebugResultRow]
-
-    static let empty = CommandPaletteDebugSnapshot(query: "", mode: "commands", results: [])
 }
 
 func browserZoomShortcutAction(
