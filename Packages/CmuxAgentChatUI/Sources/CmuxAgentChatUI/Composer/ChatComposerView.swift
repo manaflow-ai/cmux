@@ -367,8 +367,14 @@ public struct ChatComposerView: View {
     private func removeAttachment(id: String) {
         guard let index = attachments.firstIndex(where: { $0.id == id }) else { return }
         attachments.remove(at: index)
-        if pickedItems.indices.contains(index) {
-            pickedItems.remove(at: index)
+        // Remove the matching picker item by IDENTITY, not by the attachments
+        // index: `loadPickedItems` skips items that fail to decode, so the two
+        // arrays can be misaligned and an index-coupled removal drops the wrong
+        // photo. A staged attachment's id is the item's `itemIdentifier`, so
+        // match on that. Items with no identifier (rare) simply stay selected
+        // in the picker rather than risk removing a different one.
+        if let pickedIndex = pickedItems.firstIndex(where: { $0.itemIdentifier == id }) {
+            pickedItems.remove(at: pickedIndex)
         }
     }
 

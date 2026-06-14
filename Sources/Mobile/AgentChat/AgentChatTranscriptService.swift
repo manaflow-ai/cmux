@@ -26,6 +26,13 @@ final class AgentChatTranscriptService {
     /// explicit history request retries, so per-hook-event resolution
     /// failures don't rescan the filesystem during tool storms.
     private var failedResolutions: Set<String> = []
+    /// Last time `adoptDetectedClaudeSession` ran a filesystem scan for a
+    /// surface that had no session yet, keyed by surface id. Bounds the
+    /// main-actor directory walk to once per `detectionScanThrottle` while a
+    /// title-detected claude has not yet written its transcript; a successful
+    /// adoption removes the entry.
+    private var detectionScanAt: [String: Date] = [:]
+    private static let detectionScanThrottle: TimeInterval = 4
 
     /// Creates the service.
     ///
@@ -123,9 +130,23 @@ final class AgentChatTranscriptService {
         let alreadyBound = registry.sessions(workspaceID: workspaceID)
             .contains { $0.surfaceID == surfaceID && $0.state != .ended }
         if alreadyBound { return true }
+        // A claude detected by title before it has written its transcript jsonl
+        // (the launch race) resolves to nothing. List-level adoption runs this
+        // on every workspace-list RPC and every "claude" title change across
+        // ALL workspaces, so without a throttle an un-resolvable surface drives
+        // a fresh main-actor directory walk on each call during a title burst.
+        // Bound the filesystem scan to once per surface per window; a success
+        // clears the entry (and `alreadyBound` short-circuits forever after).
+        let now = Date()
+        if let lastScan = detectionScanAt[surfaceID],
+           now.timeIntervalSince(lastScan) < Self.detectionScanThrottle {
+            return false
+        }
+        detectionScanAt[surfaceID] = now
         guard let resolved = resolver.newestClaudeTranscript(workingDirectory: workingDirectory) else {
             return false
         }
+        detectionScanAt.removeValue(forKey: surfaceID)
         registry.adoptDetectedSession(
             sessionID: resolved.sessionID,
             agentKind: .claude,

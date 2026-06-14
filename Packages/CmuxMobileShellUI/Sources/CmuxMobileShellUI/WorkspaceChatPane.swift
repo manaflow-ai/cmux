@@ -1,6 +1,7 @@
 #if os(iOS)
 import CmuxAgentChat
 import CmuxAgentChatUI
+import CmuxMobileBrowser
 import CmuxMobileShell
 import CmuxMobileShellModel
 import SwiftUI
@@ -22,6 +23,8 @@ struct WorkspaceChatPane: View {
     @Binding var draft: String
     /// Flips chat mode off (the toggle's "back to terminal" path).
     let onExitChat: () -> Void
+
+    @Environment(BrowserSurfaceStore.self) private var browserStore
 
     @State private var conversation: ChatConversationStore?
 
@@ -70,6 +73,13 @@ struct WorkspaceChatPane: View {
     private func openTerminal() {
         if let terminalID = session.terminalID {
             store.selectedTerminalID = MobileTerminalPreview.ID(rawValue: terminalID)
+        }
+        // Close any active browser pane for this workspace first: the detail
+        // body prefers browser over terminal, so leaving a browser open would
+        // make "Open Terminal" land back on the browser instead of the
+        // terminal the user asked for (matches the terminal-picker path).
+        if let workspaceID = session.workspaceID {
+            browserStore.closeBrowser(for: workspaceID)
         }
         onExitChat()
     }
