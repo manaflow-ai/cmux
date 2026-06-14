@@ -95,9 +95,6 @@ struct WorkspaceNavigationRow: View {
             NavigationLink(value: workspace.id) {
                 rowLabel
             }
-            .simultaneousGesture(TapGesture().onEnded {
-                selectWorkspace(workspace.id)
-            })
         case .sidebar:
             Button {
                 selectWorkspace(workspace.id)
