@@ -3254,59 +3254,12 @@ final class Workspace: Identifiable, ObservableObject {
                 initialTabId = surfaceIdFromPanelId(initialDetachedSurface.panelId)
             }
         } else if initialSurface == .browser {
-            // Create the initial browser panel in its default new-tab state.
-            // Mirrors the minimal terminal branch below plus the browser panel
-            // wiring `attachDetachedSurface` performs for reattached panels.
-            let browserPanel = BrowserPanel(
-                workspaceId: id,
-                profileID: resolvedNewBrowserProfileID()
-            )
-            configureBrowserPanel(browserPanel)
-            panels[browserPanel.id] = browserPanel
-            panelTitles[browserPanel.id] = browserPanel.displayTitle
-            // Land the first activation in the address bar so a URL can be
-            // typed immediately; BrowserPanelView consumes the pending request
-            // when the surface first appears.
-            _ = browserPanel.requestAddressBarFocus(selectionIntent: .selectAll)
-
-            if let tabId = bonsplitController.createTab(
-                title: browserPanel.displayTitle,
-                icon: browserPanel.displayIcon,
-                kind: SurfaceKind.browser,
-                isDirty: browserPanel.isDirty,
-                isLoading: browserPanel.isLoading,
-                isAudioMuted: browserPanel.isMuted,
-                isPinned: false
-            ) {
-                surfaceIdToPanelId[tabId] = browserPanel.id
-                initialTabId = tabId
-            }
-            installBrowserPanelSubscription(browserPanel)
+            initialTabId = installInitialBrowserPanel()
         } else if initialSurface == .guiMode {
-            let guiPanel = AgentSessionPanel(
-                workspaceId: id,
-                rendererKind: .guiMode,
-                initialProviderID: .codex,
+            initialTabId = installInitialGuiModePanel(
+                initialDirectory: initialDirectory,
                 workingDirectory: hasWorkingDirectory ? trimmedWorkingDirectory : nil
             )
-            panels[guiPanel.id] = guiPanel
-            panelTitles[guiPanel.id] = guiPanel.displayTitle
-            if !initialDirectory.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                panelDirectories[guiPanel.id] = initialDirectory
-            }
-
-            if let tabId = bonsplitController.createTab(
-                title: guiPanel.displayTitle,
-                icon: guiPanel.displayIcon,
-                kind: SurfaceKind.agentSession,
-                isDirty: guiPanel.isDirty,
-                isLoading: false,
-                isPinned: false
-            ) {
-                surfaceIdToPanelId[tabId] = guiPanel.id
-                initialTabId = tabId
-            }
-            installAgentSessionPanelSubscription(guiPanel)
         } else {
             // Create initial terminal panel
             let terminalPanel = TerminalPanel(
@@ -3707,7 +3660,7 @@ final class Workspace: Identifiable, ObservableObject {
         }
     }
 
-    private func configureBrowserPanel(_ browserPanel: BrowserPanel) {
+    func configureBrowserPanel(_ browserPanel: BrowserPanel) {
         browserPanel.webViewDidRequestClose = { [weak self, weak browserPanel] in
             guard let self, let browserPanel else { return }
             guard self.panels[browserPanel.id] is BrowserPanel else { return }
@@ -3727,7 +3680,7 @@ final class Workspace: Identifiable, ObservableObject {
         tmuxWorkspaceFlashToken &+= 1
     }
 
-    private func installBrowserPanelSubscription(_ browserPanel: BrowserPanel) {
+    func installBrowserPanelSubscription(_ browserPanel: BrowserPanel) {
         let browserTabState = Publishers.CombineLatest4(
             browserPanel.$pageTitle.removeDuplicates(), browserPanel.$currentURL.removeDuplicates(),
             browserPanel.$isLoading.removeDuplicates(), browserPanel.$faviconPNGData.removeDuplicates(by: { $0 == $1 })
@@ -3783,7 +3736,7 @@ final class Workspace: Identifiable, ObservableObject {
         preferredBrowserProfileID = profileID
     }
 
-    private func resolvedNewBrowserProfileID(
+    func resolvedNewBrowserProfileID(
         preferredProfileID: UUID? = nil,
         sourcePanelId: UUID? = nil
     ) -> UUID {
@@ -3869,7 +3822,7 @@ final class Workspace: Identifiable, ObservableObject {
         panelSubscriptions[filePreviewPanel.id] = subscription
     }
 
-    private func installAgentSessionPanelSubscription(_ agentPanel: AgentSessionPanel) {
+    func installAgentSessionPanelSubscription(_ agentPanel: AgentSessionPanel) {
         agentPanel.onDisplayStateChanged = { [weak self, weak agentPanel] newTitle, isDirty in
             guard let self,
                   let agentPanel,

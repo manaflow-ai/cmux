@@ -1067,18 +1067,7 @@ class TabManager: ObservableObject {
             let insertIndex = newTabInsertIndex(snapshot: snapshot, placementOverride: placementOverride)
             let ordinal = Self.nextPortOrdinal
             Self.nextPortOrdinal += 1
-            let defaultTitle: String
-            switch initialSurface {
-            case .terminal:
-                defaultTitle = "Terminal \(nextTabCount)"
-            case .browser:
-                // Match the browser surface's blank new-tab title; the
-                // single-panel title sync keeps the workspace title following
-                // the page title once the user navigates.
-                defaultTitle = String(localized: "browser.newTab", defaultValue: "New tab")
-            case .guiMode:
-                defaultTitle = String(localized: "guiMode.workspace.home.title", defaultValue: "GUI Mode")
-            }
+            let defaultTitle = initialSurface.defaultWorkspaceTitle(nextTabCount: nextTabCount)
             let newWorkspace = makeWorkspaceForCreation(
                 title: title ?? defaultTitle,
                 workingDirectory: workingDirectory,
