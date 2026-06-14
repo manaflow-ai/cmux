@@ -15447,24 +15447,29 @@ private struct SidebarMetadataMarkdownBlockRow: View {
     let activeForegroundColor: Color
     let fontScale: CGFloat
     let onFocus: () -> Void
+    private static let maxDisplayedLines = 12
+    private static let maxDisplayedCharacters = 4096
 
     var body: some View {
         // Render inline (memoized) so the FIRST render is already attributed.
         // Parsing in onAppear into @State performed a guaranteed nil ->
         // attributed swap on every first appearance, changing the row's height
         // mid-scroll and re-feeding the sidebar-wide layout cycle (#5764).
-        let renderedMarkdown = SidebarMetadataMarkdownRenderer.rendered(block.markdown)
+        let displayMarkdown = Self.displayMarkdown(from: block.markdown)
+        let renderedMarkdown = SidebarMetadataMarkdownRenderer.rendered(displayMarkdown)
         Group {
             if let renderedMarkdown {
                 Text(renderedMarkdown)
                     .foregroundColor(foregroundColor)
             } else {
-                Text(block.markdown)
+                Text(displayMarkdown)
                     .foregroundColor(foregroundColor)
             }
         }
         .font(.system(size: 10 * fontScale))
         .multilineTextAlignment(.leading)
+        .lineLimit(Self.maxDisplayedLines)
+        .truncationMode(.tail)
         .fixedSize(horizontal: false, vertical: true)
         .contentShape(Rectangle())
         .onTapGesture { onFocus() }
@@ -15472,6 +15477,34 @@ private struct SidebarMetadataMarkdownBlockRow: View {
 
     private var foregroundColor: Color {
         isActive ? activeForegroundColor : .secondary
+    }
+
+    private static func displayMarkdown(from markdown: String) -> String {
+        var result = ""
+        result.reserveCapacity(min(markdown.count, maxDisplayedCharacters))
+        var lineCount = 1
+        var characterCount = 0
+        var truncated = false
+
+        for character in markdown {
+            if characterCount >= maxDisplayedCharacters {
+                truncated = true
+                break
+            }
+            if character == "\n" {
+                if lineCount >= maxDisplayedLines {
+                    truncated = true
+                    break
+                }
+                lineCount += 1
+            }
+            result.append(character)
+            characterCount += 1
+        }
+
+        guard truncated else { return markdown }
+        let trimmed = result.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? "..." : trimmed + "..."
     }
 }
 
