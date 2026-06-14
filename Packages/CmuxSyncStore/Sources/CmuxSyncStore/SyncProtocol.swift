@@ -80,7 +80,7 @@ public enum SyncFrameCodec {
             return .snapshot(
                 collection: collection,
                 snapshotRev: snapshotRev,
-                records: try parseRecords(obj["records"]),
+                records: try requireRecords(obj["records"], frame: "sync.snapshot"),
                 complete: complete
             )
         case "sync.delta":
@@ -88,7 +88,7 @@ public enum SyncFrameCodec {
                   let rev = intValue(obj["rev"]) else {
                 throw SyncFrameParseError.malformed("sync.delta missing collection/rev")
             }
-            return .delta(collection: collection, rev: rev, records: try parseRecords(obj["records"]))
+            return .delta(collection: collection, rev: rev, records: try requireRecords(obj["records"], frame: "sync.delta"))
         case "sync.tick":
             guard let collection = obj["collection"] as? String,
                   let rev = intValue(obj["rev"]) else {
@@ -113,8 +113,16 @@ public enum SyncFrameCodec {
         return try JSONSerialization.data(withJSONObject: payload)
     }
 
-    private static func parseRecords(_ value: Any?) throws -> [SyncWireRecord] {
-        guard let array = value as? [[String: Any]] else { return [] }
+    /// Records for a delta/snapshot frame. The field is REQUIRED and must be an
+    /// array: a frame that claims to be sync but whose `records` is missing or
+    /// the wrong type is structurally broken and throws, so the client
+    /// reconnects/resyncs rather than committing an empty frame that would
+    /// silently advance the cursor (or reconcile against an empty snapshot set)
+    /// and durably lose records.
+    private static func requireRecords(_ value: Any?, frame: String) throws -> [SyncWireRecord] {
+        guard let array = value as? [[String: Any]] else {
+            throw SyncFrameParseError.malformed("\(frame) missing or non-array records")
+        }
         return try array.map { try parseRecord($0) }
     }
 

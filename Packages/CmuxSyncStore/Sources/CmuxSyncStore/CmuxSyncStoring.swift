@@ -79,12 +79,15 @@ public protocol CmuxSyncStoring: Sendable {
         now: Date
     ) async throws
 
-    /// Whether the one-time migration seeding has already run for an account.
-    /// (DESIGN.md §6 idempotency key)
-    func migrationCompleted(accountID: String) async throws -> Bool
-    /// Record that migration seeding ran for an account.
-    func markMigrationCompleted(accountID: String) async throws
+    /// Whether the one-time migration seeding has already run for an
+    /// (account, team) scope. Keyed by both because the seeded provisional rows
+    /// are team-scoped: the same account in a different team must still seed that
+    /// team's rows. (DESIGN.md §6 idempotency key)
+    func migrationCompleted(accountID: String, teamID: String) async throws -> Bool
+    /// Record that migration seeding ran for an (account, team) scope.
+    func markMigrationCompleted(accountID: String, teamID: String) async throws
 
-    /// Clear all synced state for a team (sign-out of that scope). (DESIGN.md §11)
+    /// Clear all synced state for a team (sign-out of that scope), INCLUDING its
+    /// migration markers, so a re-sign-in re-seeds the fallback. (DESIGN.md §11)
     func clear(teamID: String) async throws
 }

@@ -48,12 +48,19 @@ public actor SyncFrameApplier {
     /// received mid-paging are queued and drained after the snapshot commits;
     /// deltas/ticks outside paging apply immediately. `.unknown` (a presence
     /// frame) is ignored.
-    public func apply(_ frame: SyncServerFrame) async throws {
+    ///
+    /// Returns whether a sync commit actually happened (the store was written or
+    /// the cursor advanced). An `.unknown` presence frame, an incomplete snapshot
+    /// page (buffered only), and a delta queued during paging return `false`, so
+    /// the caller's `onApplied` UI invalidation does NOT fire on high-frequency
+    /// presence traffic or partial pages.
+    @discardableResult
+    public func apply(_ frame: SyncServerFrame) async throws -> Bool {
         switch frame {
         case let .snapshot(collection, snapshotRev, records, complete):
-            try await applySnapshotPage(collection: collection, snapshotRev: snapshotRev, records: records, complete: complete)
+            return try await applySnapshotPage(collection: collection, snapshotRev: snapshotRev, records: records, complete: complete)
         case let .delta(collection, rev, records):
-            try await applyDeltaFrame(collection: collection, rev: rev, records: records)
+            return try await applyDeltaFrame(collection: collection, rev: rev, records: records)
         case let .tick(collection, rev):
             // A tick advances the cursor when nothing record-shaped changed. Safe
             // because the DO guarantees it has sent every record up to head
@@ -64,9 +71,11 @@ public actor SyncFrameApplier {
                     teamID: teamID, collection: collection, frameRev: rev,
                     records: [], sortKeyFor: sortKeyFor, now: now()
                 )
+                return true
             }
+            return false
         case .unknown:
-            break // presence frame or future type; not ours
+            return false // presence frame or future type; not ours
         }
     }
 
@@ -77,7 +86,9 @@ public actor SyncFrameApplier {
         builds.removeAll()
     }
 
-    private func applySnapshotPage(collection: String, snapshotRev: Int, records: [SyncWireRecord], complete: Bool) async throws {
+    /// Returns true once the snapshot's `complete` page commits; an incomplete
+    /// page only buffers and returns false.
+    private func applySnapshotPage(collection: String, snapshotRev: Int, records: [SyncWireRecord], complete: Bool) async throws -> Bool {
         var build = builds[collection] ?? SnapshotBuild(snapshotRev: snapshotRev)
         // A snapshotRev change mid-paging means the server restarted the
         // snapshot; discard the stale buffer and start fresh.
@@ -87,7 +98,7 @@ public actor SyncFrameApplier {
         build.records.append(contentsOf: records)
         if !complete {
             builds[collection] = build
-            return
+            return false // buffered only, nothing committed yet
         }
         // Commit the full snapshot atomically (upserts + rev>=1 reconciliation +
         // cursor = snapshotRev), then drain the deltas that raced the paging.
@@ -105,17 +116,21 @@ public actor SyncFrameApplier {
                 records: delta.records, sortKeyFor: sortKeyFor, now: now()
             )
         }
+        return true
     }
 
-    private func applyDeltaFrame(collection: String, rev: Int, records: [SyncWireRecord]) async throws {
+    /// Returns true when the delta is applied to the store; false when it is
+    /// queued during paging (committed later when the snapshot completes).
+    private func applyDeltaFrame(collection: String, rev: Int, records: [SyncWireRecord]) async throws -> Bool {
         if builds[collection] != nil {
             // Mid-paging: queue, do not apply yet (DESIGN.md §3.4).
             builds[collection]?.queuedDeltas.append((rev: rev, records: records))
-            return
+            return false
         }
         try await store.applyDelta(
             teamID: teamID, collection: collection, frameRev: rev,
             records: records, sortKeyFor: sortKeyFor, now: now()
         )
+        return true
     }
 }

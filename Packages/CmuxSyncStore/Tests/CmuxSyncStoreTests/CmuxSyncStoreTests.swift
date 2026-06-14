@@ -251,6 +251,24 @@ private let sortKey: @Sendable (SyncWireRecord) -> Double = { DeviceSyncFacade.s
         try await applier.apply(.unknown) // a presence frame on the shared socket
         #expect(try await store.cursor(teamID: TEAM, collection: COLL) == 0)
     }
+
+    @Test func applyReportsCommitOnlyOnActualWrite() async throws {
+        let (store, dir) = try makeStore()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let applier = SyncFrameApplier(store: store, teamID: TEAM, sortKeyFor: sortKey, now: { Date() })
+        // Presence noise commits nothing.
+        #expect(try await applier.apply(.unknown) == false)
+        // An incomplete snapshot page buffers only — no commit.
+        #expect(try await applier.apply(.snapshot(collection: COLL, snapshotRev: 2, records: [try deviceRecord(id: "dev-A", rev: 1)], complete: false)) == false)
+        // A delta mid-paging is queued — no commit.
+        #expect(try await applier.apply(.delta(collection: COLL, rev: 3, records: [try deviceRecord(id: "dev-B", rev: 3)])) == false)
+        // The completing page commits => true.
+        #expect(try await applier.apply(.snapshot(collection: COLL, snapshotRev: 2, records: [], complete: true)) == true)
+        // A normal delta commits => true.
+        #expect(try await applier.apply(.delta(collection: COLL, rev: 4, records: [try deviceRecord(id: "dev-C", rev: 4)])) == true)
+        // An idle tick commits (advances cursor) => true.
+        #expect(try await applier.apply(.tick(collection: COLL, rev: 9)) == true)
+    }
 }
 
 @Suite struct LocalFirstRenderTests {
@@ -319,6 +337,18 @@ private let sortKey: @Sendable (SyncWireRecord) -> Double = { DeviceSyncFacade.s
     @Test func nonJSONThrows() {
         #expect(throws: SyncFrameParseError.self) {
             _ = try SyncFrameCodec.parse(Data("not json".utf8))
+        }
+    }
+
+    @Test func deltaOrSnapshotWithoutRecordsArrayThrows() {
+        // A frame claiming to be sync but missing/wrong-typed `records` must
+        // throw, so the client resyncs instead of committing an empty frame that
+        // would silently advance the cursor / reconcile against nothing.
+        #expect(throws: SyncFrameParseError.self) {
+            _ = try SyncFrameCodec.parse(Data(#"{"type":"sync.delta","collection":"devices","rev":9}"#.utf8))
+        }
+        #expect(throws: SyncFrameParseError.self) {
+            _ = try SyncFrameCodec.parse(Data(#"{"type":"sync.snapshot","collection":"devices","snapshotRev":9,"complete":true,"records":"oops"}"#.utf8))
         }
     }
 
@@ -426,6 +456,37 @@ private let sortKey: @Sendable (SyncWireRecord) -> Double = { DeviceSyncFacade.s
         // Second run is a no-op (marker short-circuit).
         let second = try await migration.runIfNeeded(accountID: "acct-1", teamID: TEAM)
         #expect(second == 0)
+        #expect(try await store.liveRecords(teamID: TEAM, collection: COLL).count == 1)
+    }
+
+    @Test func sameAccountReseedsForADifferentTeam() async throws {
+        let (store, dir) = try makeStore()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let mac = MobilePairedMac(macDeviceID: "mac-1", displayName: "Studio", routes: [],
+            createdAt: Date(timeIntervalSince1970: 1000), lastSeenAt: Date(timeIntervalSince1970: 2000),
+            isActive: true, stackUserID: "acct-1")
+        let migration = PairedMacMigration(pairedStore: FakePairedStore(macs: [mac]), syncStore: store)
+        // Migrate for team-1.
+        #expect(try await migration.runIfNeeded(accountID: "acct-1", teamID: "team-1") == 1)
+        // Same account, DIFFERENT team must still seed (marker is per team).
+        #expect(try await migration.runIfNeeded(accountID: "acct-1", teamID: "team-2") == 1)
+        #expect(try await store.liveRecords(teamID: "team-1", collection: COLL).count == 1)
+        #expect(try await store.liveRecords(teamID: "team-2", collection: COLL).count == 1)
+    }
+
+    @Test func clearTeamRemovesMarkerSoReSignInReseeds() async throws {
+        let (store, dir) = try makeStore()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let mac = MobilePairedMac(macDeviceID: "mac-1", displayName: "Studio", routes: [],
+            createdAt: Date(timeIntervalSince1970: 1000), lastSeenAt: Date(timeIntervalSince1970: 2000),
+            isActive: true, stackUserID: "acct-1")
+        let migration = PairedMacMigration(pairedStore: FakePairedStore(macs: [mac]), syncStore: store)
+        #expect(try await migration.runIfNeeded(accountID: "acct-1", teamID: TEAM) == 1)
+        // Sign-out clears the team scope, INCLUDING its migration marker.
+        try await store.clear(teamID: TEAM)
+        #expect(try await store.liveRecords(teamID: TEAM, collection: COLL).isEmpty)
+        // Re-sign-in re-seeds the fallback rows we just cleared.
+        #expect(try await migration.runIfNeeded(accountID: "acct-1", teamID: TEAM) == 1)
         #expect(try await store.liveRecords(teamID: TEAM, collection: COLL).count == 1)
     }
 

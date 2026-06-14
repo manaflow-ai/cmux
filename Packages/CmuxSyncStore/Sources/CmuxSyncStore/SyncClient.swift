@@ -65,8 +65,13 @@ public struct SyncClient: Sendable {
                 } catch {
                     continue // skip an unparseable frame rather than tearing down
                 }
-                try await applier.apply(frame)
-                if let onApplied { await onApplied() }
+                // Only fire the UI-invalidation callback when a sync commit
+                // actually happened. A presence frame (.unknown), an incomplete
+                // snapshot page, or a delta queued during paging commits nothing,
+                // so high-frequency presence traffic on this shared socket does
+                // not drive spurious SQLite reloads / UI invalidations.
+                let committed = try await applier.apply(frame)
+                if committed, let onApplied { await onApplied() }
             }
         } catch {
             await applier.resetInFlight()

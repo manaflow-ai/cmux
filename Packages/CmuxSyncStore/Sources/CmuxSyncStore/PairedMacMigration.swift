@@ -35,7 +35,7 @@ public struct PairedMacMigration: Sendable {
     /// - Returns: The number of records seeded (0 if already migrated).
     @discardableResult
     public func runIfNeeded(accountID: String, teamID: String, now: Date = Date()) async throws -> Int {
-        if try await syncStore.migrationCompleted(accountID: accountID) {
+        if try await syncStore.migrationCompleted(accountID: accountID, teamID: teamID) {
             return 0
         }
         let macs = try await pairedStore.loadAll(stackUserID: accountID)
@@ -54,7 +54,7 @@ public struct PairedMacMigration: Sendable {
             )
             seeded += 1
         }
-        try await syncStore.markMigrationCompleted(accountID: accountID)
+        try await syncStore.markMigrationCompleted(accountID: accountID, teamID: teamID)
         return seeded
     }
 

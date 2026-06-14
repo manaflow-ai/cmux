@@ -278,7 +278,7 @@ public actor CmuxSyncStore: CmuxSyncStoring {
         ])
     }
 
-    public func migrationCompleted(accountID: String) throws -> Bool {
+    public func migrationCompleted(accountID: String, teamID: String) throws -> Bool {
         try ensureReady()
         var statement: OpaquePointer?
         defer { sqlite3_finalize(statement) }
@@ -286,14 +286,14 @@ public actor CmuxSyncStore: CmuxSyncStoring {
         guard rc == SQLITE_OK else {
             throw CmuxSyncStoreError.prepareFailed(rc, lastErrorMessage())
         }
-        try bind(statement: statement, parameters: [.text(migrationKey(accountID))])
+        try bind(statement: statement, parameters: [.text(migrationKey(accountID: accountID, teamID: teamID))])
         return sqlite3_step(statement) == SQLITE_ROW
     }
 
-    public func markMigrationCompleted(accountID: String) throws {
+    public func markMigrationCompleted(accountID: String, teamID: String) throws {
         try ensureReady()
         try exec("INSERT OR REPLACE INTO sync_meta (key, value) VALUES (?, '1');",
-                 binding: [.text(migrationKey(accountID))])
+                 binding: [.text(migrationKey(accountID: accountID, teamID: teamID))])
     }
 
     public func clear(teamID: String) throws {
@@ -301,12 +301,34 @@ public actor CmuxSyncStore: CmuxSyncStoring {
         try transaction {
             try exec("DELETE FROM sync_records WHERE team_id = ?;", binding: [.text(teamID)])
             try exec("DELETE FROM sync_cursors WHERE team_id = ?;", binding: [.text(teamID)])
+            // Clear this team's migration markers too, so a re-sign-in re-seeds
+            // the provisional fallback rows we just deleted.
+            try exec("DELETE FROM sync_meta WHERE key LIKE ? ESCAPE '\\';",
+                     binding: [.text("\(migrationKeyPrefix(teamID: teamID))%")])
         }
     }
 
     // MARK: - Internals
 
-    private func migrationKey(_ accountID: String) -> String { "migrated:\(accountID)" }
+    /// Migration marker key, scoped by team THEN account so a team's markers form
+    /// a `migrated:<teamId>:` prefix `clear(teamID)` can delete. The team id is
+    /// percent/underscore-escaped for the LIKE in `clear` via the ESCAPE clause.
+    private func migrationKey(accountID: String, teamID: String) -> String {
+        "\(migrationKeyPrefix(teamID: teamID))\(accountID)"
+    }
+
+    private func migrationKeyPrefix(teamID: String) -> String {
+        "migrated:\(escapeLike(teamID)):"
+    }
+
+    /// Escape `%`, `_`, and the `\` escape char so a team id is matched literally
+    /// by the `LIKE ... ESCAPE '\'` prefix delete in `clear`.
+    private func escapeLike(_ value: String) -> String {
+        value
+            .replacingOccurrences(of: "\\", with: "\\\\")
+            .replacingOccurrences(of: "%", with: "\\%")
+            .replacingOccurrences(of: "_", with: "\\_")
+    }
 
     private func recordRev(teamID: String, collection: String, recordID: String) throws -> Int? {
         var statement: OpaquePointer?
