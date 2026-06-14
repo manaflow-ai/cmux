@@ -44,6 +44,8 @@ public struct WorkspaceRemoteConfiguration: Equatable, Sendable {
     /// a `DaemonHello`. Reverse-relay still stays off, but SSH-backed VM workspaces can talk to
     /// the baked daemon through an SSH local forward to `/run/cmuxd-remote.sock`.
     public let skipDaemonBootstrap: Bool
+    /// Desktop-to-desktop mobile attach metadata carried by an SSH local forward.
+    public let remoteMacTunnel: WorkspaceRemoteMacTunnel?
 
     /// Creates a configuration, normalizing the agent socket path and gating
     /// the persistent daemon slot on `preserveAfterTerminalExit` exactly like
@@ -65,7 +67,8 @@ public struct WorkspaceRemoteConfiguration: Equatable, Sendable {
         daemonWebSocketEndpoint: WorkspaceRemoteWebSocketDaemonEndpoint? = nil,
         preserveAfterTerminalExit: Bool = false,
         persistentDaemonSlot: String? = nil,
-        skipDaemonBootstrap: Bool = false
+        skipDaemonBootstrap: Bool = false,
+        remoteMacTunnel: WorkspaceRemoteMacTunnel? = nil
     ) {
         self.transport = transport
         self.destination = destination
@@ -86,6 +89,7 @@ public struct WorkspaceRemoteConfiguration: Equatable, Sendable {
             ? Self.normalizedPersistentDaemonSlot(persistentDaemonSlot)
             : nil
         self.skipDaemonBootstrap = skipDaemonBootstrap
+        self.remoteMacTunnel = remoteMacTunnel
     }
 
     /// Resolves the SSH agent socket to use for a remote configuration from an explicit socket or durable options.
@@ -204,7 +208,90 @@ extension WorkspaceRemoteConfiguration {
             preserveAfterTerminalExit: preserveAfterTerminalExit ? true : nil,
             skipDaemonBootstrap: skipDaemonBootstrap,
             relayPort: preserveAfterTerminalExit ? relayPort : nil,
-            persistentDaemonSlot: preserveAfterTerminalExit ? persistentDaemonSlot : nil
+            persistentDaemonSlot: preserveAfterTerminalExit ? persistentDaemonSlot : nil,
+            remoteMacTunnel: remoteMacTunnel
         )
+    }
+}
+
+public struct WorkspaceRemoteMacTunnel: Codable, Equatable, Sendable {
+    public let attachURL: String
+    public let localHost: String
+    public let localPort: Int
+    public let remoteHost: String
+    public let remotePort: Int
+
+    public init?(
+        attachURL: String?,
+        localHost: String?,
+        localPort: Int?,
+        remoteHost: String?,
+        remotePort: Int?
+    ) {
+        guard let attachURL = Self.normalizedString(attachURL),
+              let localHost = Self.normalizedHost(localHost),
+              let localPort,
+              (1...65535).contains(localPort),
+              let remoteHost = Self.normalizedHost(remoteHost),
+              let remotePort,
+              (1...65535).contains(remotePort) else {
+            return nil
+        }
+        self.attachURL = attachURL
+        self.localHost = localHost
+        self.localPort = localPort
+        self.remoteHost = remoteHost
+        self.remotePort = remotePort
+    }
+
+    public init?(attachURL: String?, localEndpoint: String?, forwardTarget: String?) {
+        let local = Self.splitHostPort(localEndpoint)
+        let remote = Self.splitHostPort(forwardTarget)
+        self.init(
+            attachURL: attachURL,
+            localHost: local?.host,
+            localPort: local?.port,
+            remoteHost: remote?.host,
+            remotePort: remote?.port
+        )
+    }
+
+    public var localEndpoint: String {
+        "\(localHost):\(localPort)"
+    }
+
+    public var forwardTarget: String {
+        "\(remoteHost):\(remotePort)"
+    }
+
+    public var localForwardSSHOption: String {
+        "LocalForward=\(localEndpoint) \(forwardTarget)"
+    }
+
+    private static func normalizedString(_ value: String?) -> String? {
+        guard let value else { return nil }
+        let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? nil : trimmed
+    }
+
+    private static func normalizedHost(_ value: String?) -> String? {
+        guard let host = normalizedString(value),
+              !host.contains(" "),
+              !host.contains("\t"),
+              !host.contains("\n") else {
+            return nil
+        }
+        return host
+    }
+
+    private static func splitHostPort(_ value: String?) -> (host: String, port: Int)? {
+        guard let value = normalizedString(value),
+              let separator = value.lastIndex(of: ":") else {
+            return nil
+        }
+        let host = String(value[..<separator])
+        let portText = String(value[value.index(after: separator)...])
+        guard let port = Int(portText) else { return nil }
+        return (host, port)
     }
 }

@@ -904,6 +904,41 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
     }
 
     @MainActor
+    func testRemoteStatusPayloadIncludesRemoteMacTunnelMetadata() throws {
+        let tunnel = try XCTUnwrap(WorkspaceRemoteMacTunnel(
+            attachURL: "cmux-ios://attach?v=1&payload=test",
+            localEndpoint: "127.0.0.1:49321",
+            forwardTarget: "100.102.73.120:61848"
+        ))
+        let workspace = Workspace()
+        let config = WorkspaceRemoteConfiguration(
+            destination: "cmux@mac-mini",
+            port: 2222,
+            identityFile: nil,
+            sshOptions: [
+                "ExitOnForwardFailure=yes",
+                tunnel.localForwardSSHOption,
+            ],
+            localProxyPort: nil,
+            relayPort: nil,
+            relayID: nil,
+            relayToken: nil,
+            localSocketPath: nil,
+            terminalStartupCommand: "ssh -p 2222 -o ExitOnForwardFailure=yes -o 'LocalForward=127.0.0.1:49321 100.102.73.120:61848' -tt cmux@mac-mini",
+            skipDaemonBootstrap: true,
+            remoteMacTunnel: tunnel
+        )
+
+        workspace.configureRemoteConnection(config, autoConnect: false)
+        let payload = workspace.remoteStatusPayload()
+        let remoteMac = try XCTUnwrap(payload["remote_mac"] as? [String: Any])
+
+        XCTAssertEqual(remoteMac["attach_url"] as? String, tunnel.attachURL)
+        XCTAssertEqual(remoteMac["local_endpoint"] as? String, tunnel.localEndpoint)
+        XCTAssertEqual(remoteMac["forward_target"] as? String, tunnel.forwardTarget)
+    }
+
+    @MainActor
     func testSkipBootstrapPersistentPTYDoesNotFailBakedCapabilityPreflight() {
         let workspace = Workspace()
         let config = WorkspaceRemoteConfiguration(
@@ -1324,6 +1359,45 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
         XCTAssertTrue(workspace.panels.isEmpty)
         XCTAssertTrue(workspace.isRemoteWorkspace)
         XCTAssertEqual(workspace.remoteConfiguration?.preserveAfterTerminalExit, true)
+    }
+
+    @MainActor
+    func testRemoteTerminalSessionEndPreservesRemoteMacTunnelWorkspace() throws {
+        let workspace = Workspace()
+        let tunnel = try XCTUnwrap(WorkspaceRemoteMacTunnel(
+            attachURL: "cmux-ios://attach?v=1&payload=test",
+            localEndpoint: "127.0.0.1:49324",
+            forwardTarget: "127.0.0.1:22"
+        ))
+        let config = WorkspaceRemoteConfiguration(
+            destination: "cmux-macmini",
+            port: nil,
+            identityFile: nil,
+            sshOptions: [
+                "BatchMode=yes",
+                "LocalForward=127.0.0.1:49324 127.0.0.1:22",
+            ],
+            localProxyPort: nil,
+            relayPort: 64017,
+            relayID: String(repeating: "a", count: 16),
+            relayToken: String(repeating: "b", count: 64),
+            localSocketPath: "/tmp/cmux-debug-test.sock",
+            terminalStartupCommand: "ssh -N cmux-macmini",
+            remoteMacTunnel: tunnel
+        )
+
+        workspace.configureRemoteConnection(config, autoConnect: false)
+
+        let panelID = try XCTUnwrap(workspace.focusedTerminalPanel?.id)
+        workspace.markRemoteTerminalSessionEnded(surfaceId: panelID, relayPort: 64017)
+
+        XCTAssertTrue(workspace.isRemoteWorkspace)
+        XCTAssertEqual(workspace.activeRemoteTerminalSessionCount, 0)
+        XCTAssertEqual(workspace.remoteConfiguration?.remoteMacTunnel, tunnel)
+        let remoteMac = try XCTUnwrap(workspace.remoteStatusPayload()["remote_mac"] as? [String: String])
+        XCTAssertEqual(remoteMac["attach_url"], tunnel.attachURL)
+        XCTAssertEqual(remoteMac["local_endpoint"], tunnel.localEndpoint)
+        XCTAssertEqual(remoteMac["forward_target"], tunnel.forwardTarget)
     }
 
     @MainActor
@@ -6392,6 +6466,137 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
         let selectParams = try XCTUnwrap(requests[3]["params"] as? [String: Any])
         XCTAssertEqual(selectParams["workspace_id"] as? String, workspaceID)
         XCTAssertEqual(selectParams["window_id"] as? String, windowID)
+    }
+
+    @MainActor
+    func testRemoteMacOpenCanCreateDedicatedWindowForDevice() throws {
+        let cliPath = try bundledCLIPath()
+        let socketPath = makeSocketPath("rmacwin")
+        let listenerFD = try bindUnixSocket(at: socketPath)
+        let state = MockSocketServerState()
+        let workspaceID = "11111111-1111-1111-1111-111111111111"
+        let workspaceRef = "workspace:7"
+        let newWindowID = "22222222-2222-2222-2222-222222222222"
+        let fakeBin = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-rmac-ssh-\(UUID().uuidString)", isDirectory: true)
+        let fakeSSH = fakeBin.appendingPathComponent("ssh")
+
+        try FileManager.default.createDirectory(at: fakeBin, withIntermediateDirectories: true)
+        try """
+        #!/bin/sh
+        cat <<'JSON'
+        {"ticket":{"version":1,"workspaceID":"","terminalID":null,"macDeviceID":"mac-mini","macDisplayName":"Mac mini","routes":[{"id":"tailscale","kind":"tailscale","endpoint":{"type":"host_port","host":"100.64.1.2","port":58465},"priority":0}],"expiresAt":"2096-10-02T07:06:40Z","auth_token":"secret"}}
+        JSON
+        """.write(to: fakeSSH, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: fakeSSH.path)
+
+        defer {
+            Darwin.close(listenerFD)
+            unlink(socketPath)
+            try? FileManager.default.removeItem(at: fakeBin)
+        }
+
+        let serverHandled = startMockServer(listenerFD: listenerFD, state: state) { line in
+            if line == "new_window" {
+                return "OK \(newWindowID)"
+            }
+            guard let data = line.data(using: .utf8),
+                  let payload = try? JSONSerialization.jsonObject(with: data, options: []) as? [String: Any],
+                  let id = payload["id"] as? String,
+                  let method = payload["method"] as? String else {
+                return self.v2Response(
+                    id: "unknown",
+                    ok: false,
+                    error: ["code": "unexpected", "message": "Unexpected payload"]
+                )
+            }
+
+            switch method {
+            case "workspace.create":
+                return self.v2Response(
+                    id: id,
+                    ok: true,
+                    result: [
+                        "workspace_id": workspaceID,
+                        "window_id": newWindowID,
+                    ]
+                )
+            case "workspace.rename":
+                return self.v2Response(id: id, ok: true, result: ["workspace_id": workspaceID])
+            case "workspace.remote.configure":
+                return self.v2Response(
+                    id: id,
+                    ok: true,
+                    result: [
+                        "workspace_id": workspaceID,
+                        "workspace_ref": workspaceRef,
+                        "window_id": newWindowID,
+                        "remote": [
+                            "enabled": true,
+                            "state": "disconnected",
+                        ],
+                    ]
+                )
+            default:
+                return self.v2Response(
+                    id: id,
+                    ok: false,
+                    error: ["code": "unexpected", "message": "Unexpected method \(method)"]
+                )
+            }
+        }
+
+        var environment = ProcessInfo.processInfo.environment
+        environment["CMUX_SOCKET_PATH"] = socketPath
+        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+        environment["CMUX_CLAUDE_HOOK_SENTRY_DISABLED"] = "1"
+        environment["PATH"] = "\(fakeBin.path):/usr/bin:/bin"
+
+        let result = runProcess(
+            executablePath: cliPath,
+            arguments: [
+                "remote", "mac", "open", "cmux-macmini",
+                "--new-window",
+                "--no-focus",
+                "--local-port", "49321",
+            ],
+            environment: environment,
+            timeout: 5
+        )
+
+        wait(for: [serverHandled], timeout: 5)
+
+        XCTAssertFalse(result.timedOut, result.stderr)
+        XCTAssertEqual(result.status, 0, result.stderr)
+        XCTAssertTrue(result.stdout.contains("OK workspace=\(workspaceRef) target=cmux-macmini state=disconnected"), result.stdout)
+        XCTAssertTrue(result.stdout.contains("tunnel=127.0.0.1:49321 -> 100.64.1.2:58465"), result.stdout)
+        XCTAssertTrue(result.stderr.isEmpty, result.stderr)
+
+        XCTAssertEqual(state.commands.first, "new_window")
+        let requests = try state.commands.dropFirst().map { line -> [String: Any] in
+            let data = try XCTUnwrap(line.data(using: .utf8))
+            return try XCTUnwrap(JSONSerialization.jsonObject(with: data, options: []) as? [String: Any])
+        }
+        XCTAssertEqual(
+            requests.compactMap { $0["method"] as? String },
+            ["workspace.create", "workspace.rename", "workspace.remote.configure"]
+        )
+
+        let createParams = try XCTUnwrap(requests[0]["params"] as? [String: Any])
+        XCTAssertEqual(createParams["window_id"] as? String, newWindowID)
+        let renameParams = try XCTUnwrap(requests[1]["params"] as? [String: Any])
+        XCTAssertEqual(renameParams["workspace_id"] as? String, workspaceID)
+        XCTAssertEqual(renameParams["title"] as? String, "cmux:cmux-macmini")
+        let configureParams = try XCTUnwrap(requests[2]["params"] as? [String: Any])
+        XCTAssertEqual(configureParams["workspace_id"] as? String, workspaceID)
+        XCTAssertEqual(configureParams["remote_mac_local_endpoint"] as? String, "127.0.0.1:49321")
+        XCTAssertEqual(configureParams["remote_mac_forward_target"] as? String, "100.64.1.2:58465")
+        let sshOptions = try XCTUnwrap(configureParams["ssh_options"] as? [String])
+        XCTAssertTrue(sshOptions.contains("ConnectionAttempts=3"))
+        XCTAssertTrue(sshOptions.contains("ServerAliveInterval=10"))
+        XCTAssertTrue(sshOptions.contains("ServerAliveCountMax=3"))
+        XCTAssertTrue(sshOptions.contains("ExitOnForwardFailure=yes"))
+        XCTAssertTrue(sshOptions.contains("LocalForward=127.0.0.1:49321 100.64.1.2:58465"))
     }
 
     @MainActor

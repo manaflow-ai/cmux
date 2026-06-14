@@ -549,6 +549,11 @@ extension TerminalController: ControlWorkspaceContext {
             .trimmingCharacters(in: .whitespacesAndNewlines)
         let terminalStartupCommand = v2RawString(params, "terminal_startup_command")?
             .trimmingCharacters(in: .whitespacesAndNewlines)
+        let remoteMacTunnel = WorkspaceRemoteMacTunnel(
+            attachURL: v2RawString(params, "remote_mac_attach_url"),
+            localEndpoint: v2RawString(params, "remote_mac_local_endpoint"),
+            forwardTarget: v2RawString(params, "remote_mac_forward_target")
+        )
         var persistentDaemonSlot = v2RawString(params, "persistent_daemon_slot")?
             .trimmingCharacters(in: .whitespacesAndNewlines)
         if v2HasNonNullParam(params, "persistent_daemon_slot") {
@@ -669,10 +674,12 @@ extension TerminalController: ControlWorkspaceContext {
             daemonWebSocketEndpoint: daemonWebSocketEndpoint,
             preserveAfterTerminalExit: preserveAfterTerminalExit,
             persistentDaemonSlot: persistentDaemonSlot?.isEmpty == true ? nil : persistentDaemonSlot,
-            skipDaemonBootstrap: skipDaemonBootstrap
+            skipDaemonBootstrap: skipDaemonBootstrap,
+            remoteMacTunnel: remoteMacTunnel
         )
         workspace.configureRemoteConnection(config, autoConnect: autoConnect)
         notifyRemotePTYControllerAvailabilityChanged()
+        _ = AppDelegate.shared?.persistSessionSnapshotAfterControlMutation()
 
         let windowId = AppDelegate.shared?.windowId(for: owner)
         return .ok(.object([
@@ -749,4 +756,3 @@ extension TerminalController: ControlWorkspaceContext {
         return .string(uuid.uuidString)
     }
 }
-

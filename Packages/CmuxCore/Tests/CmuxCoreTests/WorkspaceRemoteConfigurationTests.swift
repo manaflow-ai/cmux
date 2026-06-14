@@ -94,7 +94,8 @@ struct WorkspaceRemoteConfigurationValueTests {
         relayPort: Int? = nil,
         preserveAfterTerminalExit: Bool = false,
         persistentDaemonSlot: String? = nil,
-        skipDaemonBootstrap: Bool = false
+        skipDaemonBootstrap: Bool = false,
+        remoteMacTunnel: WorkspaceRemoteMacTunnel? = nil
     ) -> WorkspaceRemoteConfiguration {
         WorkspaceRemoteConfiguration(
             transport: transport,
@@ -110,7 +111,8 @@ struct WorkspaceRemoteConfigurationValueTests {
             terminalStartupCommand: nil,
             preserveAfterTerminalExit: preserveAfterTerminalExit,
             persistentDaemonSlot: persistentDaemonSlot,
-            skipDaemonBootstrap: skipDaemonBootstrap
+            skipDaemonBootstrap: skipDaemonBootstrap,
+            remoteMacTunnel: remoteMacTunnel
         )
     }
 
@@ -131,6 +133,32 @@ struct WorkspaceRemoteConfigurationValueTests {
     func displayTarget() {
         #expect(makeConfiguration().displayTarget == "user@host")
         #expect(makeConfiguration(port: 2222).displayTarget == "user@host:2222")
+    }
+
+    @Test("session snapshot preserves remote Mac tunnel metadata and durable local forwards")
+    func sessionSnapshotPreservesRemoteMacTunnel() throws {
+        let tunnel = try #require(WorkspaceRemoteMacTunnel(
+            attachURL: "cmux-ios://attach?v=1&payload=test",
+            localEndpoint: "127.0.0.1:49321",
+            forwardTarget: "100.102.73.120:61848"
+        ))
+        let configuration = makeConfiguration(
+            sshOptions: [
+                "ControlMaster=auto",
+                "ControlPath=/tmp/cmux-%C",
+                "ExitOnForwardFailure=yes",
+                tunnel.localForwardSSHOption,
+            ],
+            remoteMacTunnel: tunnel
+        )
+
+        let snapshot = try #require(configuration.sessionSnapshot())
+
+        #expect(snapshot.remoteMacTunnel == tunnel)
+        #expect(snapshot.sshOptions.contains("ExitOnForwardFailure=yes"))
+        #expect(snapshot.sshOptions.contains(tunnel.localForwardSSHOption))
+        #expect(!snapshot.sshOptions.contains { $0.hasPrefix("ControlMaster") })
+        #expect(!snapshot.sshOptions.contains { $0.hasPrefix("ControlPath") })
     }
 
     @Test("proxy broker transport key separates bootstrap modes and ignores transient options")

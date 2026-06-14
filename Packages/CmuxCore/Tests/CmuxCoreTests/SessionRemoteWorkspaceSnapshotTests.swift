@@ -15,7 +15,12 @@ struct SessionRemoteWorkspaceSnapshotTests {
             preserveAfterTerminalExit: true,
             skipDaemonBootstrap: true,
             relayPort: 7000,
-            persistentDaemonSlot: "slot"
+            persistentDaemonSlot: "slot",
+            remoteMacTunnel: WorkspaceRemoteMacTunnel(
+                attachURL: "cmux-ios://attach?v=1&payload=test",
+                localEndpoint: "127.0.0.1:49321",
+                forwardTarget: "100.102.73.120:61848"
+            )
         )
         let data = try JSONEncoder().encode(snapshot)
         let decoded = try JSONDecoder().decode(SessionRemoteWorkspaceSnapshot.self, from: data)
@@ -43,6 +48,7 @@ struct SessionRemoteWorkspaceSnapshotTests {
         #expect(decoded.skipDaemonBootstrap == nil)
         #expect(decoded.relayPort == nil)
         #expect(decoded.persistentDaemonSlot == nil)
+        #expect(decoded.remoteMacTunnel == nil)
     }
 
     @Test("transport raw values are the persisted wire strings")

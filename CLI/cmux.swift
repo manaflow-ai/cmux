@@ -1,5 +1,6 @@
 import Foundation
 import CMUXAgentLaunch
+import CMUXMobileCore
 import CmuxFoundation
 import CmuxSettings
 import CmuxSocketControl
@@ -3965,6 +3966,14 @@ struct CMUXCLI {
 
         case "ssh":
             try runSSH(
+                commandArgs: commandArgs,
+                client: client,
+                jsonOutput: jsonOutput,
+                idFormat: idFormat,
+                windowOverride: windowId
+            )
+        case "remote":
+            try runRemoteNamespace(
                 commandArgs: commandArgs,
                 client: client,
                 jsonOutput: jsonOutput,
@@ -8016,6 +8025,26 @@ struct CMUXCLI {
         let sessionId: String
     }
 
+    private struct RemoteMacOpenOptions {
+        let destination: String
+        let sshPort: Int?
+        let identityFile: String?
+        let workspaceName: String?
+        let windowRaw: String?
+        let createNewWindow: Bool
+        let noFocus: Bool
+        let sshOptions: [String]
+        let localPort: Int
+        let ttlSeconds: Int
+        let remoteCMUXPath: String
+        let routeKind: CmxAttachTransportKind
+    }
+
+    private struct RemoteMacTicketMint {
+        let rawResponse: [String: Any]
+        let ticket: CmxAttachTicket
+    }
+
     private struct TerminalSize {
         let cols: Int
         let rows: Int
@@ -8085,9 +8114,384 @@ struct CMUXCLI {
         )
     }
 
+    private func runRemoteNamespace(
+        commandArgs: [String],
+        client: SocketClient,
+        jsonOutput: Bool,
+        idFormat: CLIIDFormat,
+        windowOverride: String?
+    ) throws {
+        guard let subcommand = commandArgs.first?.lowercased() else {
+            throw CLIError(message: "Usage: cmux remote mac open <user@mac>")
+        }
+        switch subcommand {
+        case "mac":
+            try runRemoteMac(commandArgs: Array(commandArgs.dropFirst()), client: client, jsonOutput: jsonOutput, idFormat: idFormat, windowOverride: windowOverride)
+        default:
+            throw CLIError(message: "Unknown remote subcommand '\(subcommand)'. Try: cmux remote mac open <user@mac>")
+        }
+    }
+
+    private func runRemoteMac(
+        commandArgs: [String],
+        client: SocketClient,
+        jsonOutput: Bool,
+        idFormat: CLIIDFormat,
+        windowOverride: String?
+    ) throws {
+        let action = commandArgs.first?.lowercased() ?? "open"
+        let rest = action == "open" ? Array(commandArgs.dropFirst()) : commandArgs
+        guard action == "open" else {
+            throw CLIError(message: "Usage: cmux remote mac open <user@mac>")
+        }
+        let options = try parseRemoteMacOpenOptions(rest, windowOverride: windowOverride)
+        let targetWindowRaw = try remoteMacTargetWindowRaw(options: options, client: client)
+        let mint = try mintRemoteMacAttachTicket(options)
+        let tunneled = try CmxSSHTunneledAttachTicket(
+            ticket: mint.ticket,
+            localPort: options.localPort,
+            supportedRemoteKinds: [options.routeKind]
+        )
+        guard case let .hostPort(remoteHost, remotePort) = tunneled.remoteRoute.endpoint else {
+            throw CLIError(message: "Remote Mac attach route is not a host/port route.")
+        }
+
+        var sshOptions = remoteMacSSHOptionsWithNetworkDefaults(options.sshOptions)
+        if !hasSSHOptionKey(sshOptions, key: "ExitOnForwardFailure") {
+            sshOptions.append("ExitOnForwardFailure=yes")
+        }
+        sshOptions.append("LocalForward=127.0.0.1:\(options.localPort) \(remoteHost):\(remotePort)")
+
+        let workspaceName = options.workspaceName ?? "cmux:\(options.destination)"
+        let attachURL = try tunneled.attachURL().absoluteString
+        let sshCommandOptions = SSHCommandOptions(
+            destination: options.destination,
+            port: options.sshPort,
+            identityFile: options.identityFile,
+            workspaceName: workspaceName,
+            windowRaw: targetWindowRaw,
+            noFocus: options.noFocus,
+            sshOptions: sshOptions,
+            extraArguments: [],
+            localSocketPath: client.socketPath,
+            remoteRelayPort: 0,
+            skipDaemonBootstrap: true
+        )
+        let relayID = UUID().uuidString.lowercased()
+        let relayToken = try randomHex(byteCount: 32)
+        _ = try runSSHWithOptions(
+            sshCommandOptions,
+            relayID: relayID,
+            relayToken: relayToken,
+            client: client,
+            jsonOutput: jsonOutput,
+            idFormat: idFormat,
+            decorateConfigureParams: { params in
+                params["remote_mac_attach_url"] = attachURL
+                params["remote_mac_local_endpoint"] = "127.0.0.1:\(options.localPort)"
+                params["remote_mac_forward_target"] = "\(remoteHost):\(remotePort)"
+            }
+        ) { payload in
+            payload["remote_mac_attach_url"] = attachURL
+            payload["remote_mac_local_endpoint"] = "127.0.0.1:\(options.localPort)"
+            payload["remote_mac_forward_target"] = "\(remoteHost):\(remotePort)"
+            payload["remote_mac_ticket"] = mint.rawResponse["ticket"]
+        }
+        if !jsonOutput {
+            print("attach_url=\(attachURL)")
+            print("tunnel=127.0.0.1:\(options.localPort) -> \(remoteHost):\(remotePort)")
+        }
+    }
+
+    private func parseRemoteMacOpenOptions(
+        _ commandArgs: [String],
+        windowOverride: String?
+    ) throws -> RemoteMacOpenOptions {
+        var destination: String?
+        var sshPort: Int?
+        var identityFile: String?
+        var workspaceName: String?
+        var windowRaw: String?
+        var createNewWindow = false
+        var noFocus = false
+        var sshOptions: [String] = []
+        var localPort: Int?
+        var ttlSeconds = 600
+        var remoteCMUXPath = "cmux"
+        var routeKind = CmxAttachTransportKind.tailscale
+
+        var index = 0
+        while index < commandArgs.count {
+            let arg = commandArgs[index]
+            switch arg {
+            case "--port":
+                guard index + 1 < commandArgs.count else {
+                    throw CLIError(message: "remote mac open: --port requires a value")
+                }
+                sshPort = try parseTCPPort(commandArgs[index + 1], flag: "--port")
+                index += 2
+            case "--identity":
+                guard index + 1 < commandArgs.count else {
+                    throw CLIError(message: "remote mac open: --identity requires a path")
+                }
+                identityFile = commandArgs[index + 1]
+                index += 2
+            case "--name":
+                guard index + 1 < commandArgs.count else {
+                    throw CLIError(message: "remote mac open: --name requires a workspace title")
+                }
+                workspaceName = commandArgs[index + 1]
+                index += 2
+            case "--window":
+                guard index + 1 < commandArgs.count else {
+                    throw CLIError(message: "remote mac open: --window requires a window id")
+                }
+                windowRaw = commandArgs[index + 1]
+                index += 2
+            case "--new-window":
+                createNewWindow = true
+                index += 1
+            case "--no-focus":
+                noFocus = true
+                index += 1
+            case "--ssh-option":
+                guard index + 1 < commandArgs.count else {
+                    throw CLIError(message: "remote mac open: --ssh-option requires a value")
+                }
+                let value = commandArgs[index + 1].trimmingCharacters(in: .whitespacesAndNewlines)
+                if !value.isEmpty {
+                    sshOptions.append(value)
+                }
+                index += 2
+            case "--local-port":
+                guard index + 1 < commandArgs.count else {
+                    throw CLIError(message: "remote mac open: --local-port requires a value")
+                }
+                localPort = try parseTCPPort(commandArgs[index + 1], flag: "--local-port")
+                index += 2
+            case "--ttl":
+                guard index + 1 < commandArgs.count else {
+                    throw CLIError(message: "remote mac open: --ttl requires seconds")
+                }
+                guard let parsed = Int(commandArgs[index + 1]), (30...3600).contains(parsed) else {
+                    throw CLIError(message: "remote mac open: --ttl must be 30-3600 seconds")
+                }
+                ttlSeconds = parsed
+                index += 2
+            case "--remote-cmux":
+                guard index + 1 < commandArgs.count else {
+                    throw CLIError(message: "remote mac open: --remote-cmux requires a path")
+                }
+                let value = commandArgs[index + 1].trimmingCharacters(in: .whitespacesAndNewlines)
+                guard !value.isEmpty else {
+                    throw CLIError(message: "remote mac open: --remote-cmux cannot be empty")
+                }
+                remoteCMUXPath = value
+                index += 2
+            case "--route-kind":
+                guard index + 1 < commandArgs.count else {
+                    throw CLIError(message: "remote mac open: --route-kind requires a value")
+                }
+                guard let parsed = CmxAttachTransportKind(rawValue: commandArgs[index + 1]) else {
+                    throw CLIError(message: "remote mac open: --route-kind must be tailscale")
+                }
+                routeKind = parsed
+                index += 2
+            default:
+                if arg.hasPrefix("--") {
+                    throw CLIError(message: "remote mac open: unknown flag '\(arg)'")
+                }
+                guard destination == nil else {
+                    throw CLIError(message: "remote mac open: unexpected argument '\(arg)'")
+                }
+                destination = arg
+                index += 1
+            }
+        }
+
+        guard routeKind == .tailscale else {
+            throw CLIError(message: "remote mac open: only --route-kind tailscale can be SSH-forwarded today")
+        }
+        guard let destination, !destination.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            throw CLIError(message: "Usage: cmux remote mac open <user@mac>")
+        }
+        if destination.hasPrefix("-") {
+            throw CLIError(message: "remote mac open: destination must be <user@host>")
+        }
+        if createNewWindow && (windowRaw != nil || windowOverride != nil) {
+            throw CLIError(message: "remote mac open: --new-window cannot be combined with --window")
+        }
+
+        return RemoteMacOpenOptions(
+            destination: destination,
+            sshPort: sshPort,
+            identityFile: identityFile,
+            workspaceName: workspaceName,
+            windowRaw: windowRaw ?? windowOverride,
+            createNewWindow: createNewWindow,
+            noFocus: noFocus,
+            sshOptions: sshOptions,
+            localPort: localPort ?? generateRemoteRelayPort(),
+            ttlSeconds: ttlSeconds,
+            remoteCMUXPath: remoteCMUXPath,
+            routeKind: routeKind
+        )
+    }
+
+    private func remoteMacTargetWindowRaw(options: RemoteMacOpenOptions, client: SocketClient) throws -> String? {
+        guard options.createNewWindow else {
+            return options.windowRaw
+        }
+        let response = try sendV1Command("new_window", client: client)
+        let windowID = parseNewWindowID(response)
+        guard !windowID.isEmpty else {
+            throw CLIError(message: "remote mac open: new_window did not return a window id")
+        }
+        return windowID
+    }
+
+    private func parseNewWindowID(_ response: String) -> String {
+        let trimmed = response.trimmingCharacters(in: .whitespacesAndNewlines)
+        if trimmed.hasPrefix("OK ") {
+            return String(trimmed.dropFirst(3)).trimmingCharacters(in: .whitespacesAndNewlines)
+        }
+        return trimmed
+    }
+
+    private func parseTCPPort(_ raw: String, flag: String) throws -> Int {
+        guard let port = Int(raw), (1...65_535).contains(port) else {
+            throw CLIError(message: "remote mac open: \(flag) must be 1-65535")
+        }
+        return port
+    }
+
+    private func mintRemoteMacAttachTicket(_ options: RemoteMacOpenOptions) throws -> RemoteMacTicketMint {
+        let params: [String: Any] = [
+            "scope": "mac",
+            "route_kind": options.routeKind.rawValue,
+            "ttl_seconds": options.ttlSeconds,
+        ]
+        let paramsData = try JSONSerialization.data(withJSONObject: params, options: [.sortedKeys])
+        guard let paramsJSON = String(data: paramsData, encoding: .utf8) else {
+            throw CLIError(message: "remote mac open: failed to encode attach-ticket params")
+        }
+        let remoteScript = [
+            shellQuote(options.remoteCMUXPath),
+            "--json",
+            "rpc",
+            "mobile.attach_ticket.create",
+            shellQuote(paramsJSON),
+        ].joined(separator: " ")
+        let mintSSHOptions = SSHCommandOptions(
+            destination: options.destination,
+            port: options.sshPort,
+            identityFile: options.identityFile,
+            workspaceName: nil,
+            windowRaw: nil,
+            noFocus: true,
+            sshOptions: remoteMacSSHOptionsWithNetworkDefaults(options.sshOptions),
+            extraArguments: [posixShellCommand(remoteScript)],
+            localSocketPath: "",
+            remoteRelayPort: 0,
+            skipDaemonBootstrap: true
+        )
+        let output = try runRemoteMacSSHCommand(arguments: buildSSHCommandArguments(mintSSHOptions))
+        let response = try decodeRemoteMacJSONObject(output)
+        guard let ticketObject = response["ticket"] else {
+            throw CLIError(message: "remote mac open: remote cmux did not return an attach ticket. Make sure iOS pairing is enabled on the remote Mac.")
+        }
+        let ticketData = try JSONSerialization.data(withJSONObject: ticketObject, options: [])
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+        let ticket = try decoder.decode(CmxAttachTicket.self, from: ticketData)
+        return RemoteMacTicketMint(rawResponse: response, ticket: ticket)
+    }
+
+    private func remoteMacSSHOptionsWithNetworkDefaults(_ options: [String]) -> [String] {
+        var merged = options
+        if !hasSSHOptionKey(merged, key: "ConnectionAttempts") {
+            merged.append("ConnectionAttempts=3")
+        }
+        if !hasSSHOptionKey(merged, key: "ServerAliveInterval") {
+            merged.append("ServerAliveInterval=10")
+        }
+        if !hasSSHOptionKey(merged, key: "ServerAliveCountMax") {
+            merged.append("ServerAliveCountMax=3")
+        }
+        return merged
+    }
+
+    private func runRemoteMacSSHCommand(arguments: [String]) throws -> String {
+        guard let launchPath = arguments.first else {
+            throw CLIError(message: "remote mac open: could not construct ssh command")
+        }
+        let process = Process()
+        if launchPath.contains("/") {
+            process.executableURL = URL(fileURLWithPath: launchPath)
+            process.arguments = Array(arguments.dropFirst())
+        } else {
+            process.executableURL = URL(fileURLWithPath: "/usr/bin/env")
+            process.arguments = arguments
+        }
+        let stdout = Pipe()
+        let stderr = Pipe()
+        process.standardOutput = stdout
+        process.standardError = stderr
+        do {
+            try process.run()
+        } catch {
+            throw CLIError(message: "remote mac open: failed to launch ssh: \(error.localizedDescription)")
+        }
+        let outputGroup = DispatchGroup()
+        let outputLock = NSLock()
+        var outputData = Data()
+        var errorData = Data()
+        outputGroup.enter()
+        DispatchQueue.global(qos: .utility).async {
+            let data = stdout.fileHandleForReading.readDataToEndOfFile()
+            outputLock.lock()
+            outputData = data
+            outputLock.unlock()
+            outputGroup.leave()
+        }
+        outputGroup.enter()
+        DispatchQueue.global(qos: .utility).async {
+            let data = stderr.fileHandleForReading.readDataToEndOfFile()
+            outputLock.lock()
+            errorData = data
+            outputLock.unlock()
+            outputGroup.leave()
+        }
+        process.waitUntilExit()
+        outputGroup.wait()
+        let output = String(data: outputData, encoding: .utf8) ?? ""
+        let errorOutput = String(data: errorData, encoding: .utf8) ?? ""
+        guard process.terminationStatus == 0 else {
+            let detail = errorOutput.trimmingCharacters(in: .whitespacesAndNewlines)
+            throw CLIError(message: detail.isEmpty ? "remote mac open: ssh exited with status \(process.terminationStatus)" : detail)
+        }
+        return output
+    }
+
+    private func decodeRemoteMacJSONObject(_ output: String) throws -> [String: Any] {
+        let trimmed = output.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let start = trimmed.firstIndex(of: "{"),
+              let end = trimmed.lastIndex(of: "}"),
+              start <= end else {
+            throw CLIError(message: "remote mac open: remote cmux did not print JSON")
+        }
+        let jsonText = String(trimmed[start...end])
+        guard let data = jsonText.data(using: .utf8),
+              let object = try JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+            throw CLIError(message: "remote mac open: remote cmux printed invalid JSON")
+        }
+        return object
+    }
+
     /// Generic "open a workspace, SSH into the remote, bootstrap cmuxd-remote, forward socket,
     /// drop the user in a shell" pipeline. The inner loop of `cmux ssh`; also called from
     /// `cmux vm new`/`shell`/`attach` so cloud VMs reuse the exact same bootstrap.
+    @discardableResult
     private func runSSHWithOptions(
         _ sshOptions: SSHCommandOptions,
         relayID: String,
@@ -8095,8 +8499,10 @@ struct CMUXCLI {
         client: SocketClient,
         jsonOutput: Bool,
         idFormat: CLIIDFormat,
-        vmIDForSplitAttach: String? = nil
-    ) throws {
+        vmIDForSplitAttach: String? = nil,
+        decorateConfigureParams: ((inout [String: Any]) -> Void)? = nil,
+        decoratePayload: ((inout [String: Any]) -> Void)? = nil
+    ) throws -> [String: Any] {
         let sshStartedAt = Date()
         func logSSHTiming(_ stage: String, extra: String = "") {
             let elapsedMs = Int(Date().timeIntervalSince(sshStartedAt) * 1000)
@@ -8329,6 +8735,7 @@ struct CMUXCLI {
                 configureParams["preserve_after_terminal_exit"] = true
                 configureParams["persistent_daemon_slot"] = persistentDaemonSlot
             }
+            decorateConfigureParams?(&configureParams)
 
             cliDebugLog(
                 "cli.ssh.remote.configure workspace=\(String(workspaceId.prefix(8))) " +
@@ -8399,6 +8806,7 @@ struct CMUXCLI {
         if let persistentDaemonSlot {
             payload["persistent_daemon_slot"] = persistentDaemonSlot
         }
+        decoratePayload?(&payload)
         logSSHTiming("complete", extra: "workspace=\(String(workspaceId.prefix(8)))")
         if jsonOutput {
             print(jsonString(formatIDs(payload, mode: idFormat)))
@@ -8408,6 +8816,7 @@ struct CMUXCLI {
             let state = (remote?["state"] as? String) ?? "unknown"
             print("OK workspace=\(workspaceHandle) target=\(sshOptions.displayDestination) state=\(state)")
         }
+        return payload
     }
 
     private func parseSSHCommandOptions(
@@ -14261,6 +14670,34 @@ struct CMUXCLI {
               cmux ssh dev@my-host --forward-agent
               cmux ssh dev@my-host --ssh-option UserKnownHostsFile=/dev/null --ssh-option StrictHostKeyChecking=no
             """)
+        case "remote":
+            return """
+            Usage: cmux remote mac open <destination> [flags]
+
+            Open a managed SSH workspace to a remote Mac running cmux, mint a
+            mobile attach ticket from that remote cmux instance, and rewrite the
+            ticket to a local SSH tunnel endpoint.
+
+            The remote Mac must be signed in to cmux, have Mobile/iOS pairing
+            enabled, and advertise a Tailscale mobile route.
+
+            Flags:
+              --name <title>          Optional workspace title
+              --port <n>              SSH port
+              --identity <path>       SSH identity file path
+              --ssh-option <opt>      Extra SSH -o option (repeatable)
+              --local-port <n>        Local forwarded port (default: generated)
+              --ttl <seconds>         Attach ticket TTL, 30-3600 (default: 600)
+              --remote-cmux <path>    Remote cmux CLI path/name (default: cmux)
+              --window <id|ref|index> Target window for the managed workspace
+              --new-window            Create a dedicated local window for this remote Mac
+              --no-focus              Create workspace without switching to it
+
+            Example:
+              cmux remote mac open lawrence@mac-mini
+              cmux remote mac open cmux-macmini --new-window
+              cmux remote mac open cmux-macmini --name "mini cmux" --identity ~/.ssh/id_ed25519
+            """
         case "ssh-session-list":
             return """
             Usage: cmux ssh-session-list [--workspace <id|ref|index> | --all-workspaces]
@@ -33259,6 +33696,7 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
           list-workspaces [--window <id|ref|index>]
           new-workspace [--name <title>] [--description <text>] [--cwd <path>] [--command <text>] [--layout <json>] [--window <id|ref|index>] [--focus <true|false>]
           ssh <destination> [--name <title>] [--port <n>] [--identity <path>] [-A|--forward-agent] [-a|--no-forward-agent] [--ssh-option <opt>] [--window <id|ref|index>] [--no-focus] [-- <remote-command-args>]
+          remote mac open <destination> [--name <title>] [--port <n>] [--identity <path>] [--local-port <n>] [--ttl <seconds>] [--remote-cmux <path>] [--ssh-option <opt>] [--window <id|ref|index> | --new-window] [--no-focus]
           ssh-session-list [--workspace <id|ref|index> | --all-workspaces]
           ssh-session-attach --session-id <id> [--workspace <id|ref|index>] [--pane <id|ref|index> | --split <left|right|up|down>]
           ssh-session-cleanup [--workspace <id|ref|index> | --all-workspaces] (--session-id <id> | --all)

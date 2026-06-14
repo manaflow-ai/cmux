@@ -3207,6 +3207,92 @@ final class TabManagerSessionSnapshotTests: XCTestCase {
         XCTAssertEqual(configuration.terminalStartupCommand, "ssh -p 2222 -o StrictHostKeyChecking=accept-new -tt dev@example.com")
     }
 
+    func testSessionRemoteWorkspaceSnapshotRestoresRemoteMacTunnelForReconnect() throws {
+        let tunnel = try XCTUnwrap(WorkspaceRemoteMacTunnel(
+            attachURL: "cmux-ios://attach?v=1&payload=test",
+            localEndpoint: "127.0.0.1:49321",
+            forwardTarget: "100.102.73.120:61848"
+        ))
+        let snapshot = SessionRemoteWorkspaceSnapshot(
+            transport: .ssh,
+            destination: "cmux@mac-mini",
+            port: 2222,
+            identityFile: "/Users/test/.ssh/id_ed25519",
+            sshOptions: ["StrictHostKeyChecking=accept-new"],
+            preserveAfterTerminalExit: nil,
+            skipDaemonBootstrap: true,
+            remoteMacTunnel: tunnel
+        )
+
+        let configuration = try XCTUnwrap(snapshot.workspaceConfiguration())
+
+        XCTAssertEqual(configuration.remoteMacTunnel, tunnel)
+        XCTAssertTrue(configuration.sshOptions.contains("ExitOnForwardFailure=yes"))
+        XCTAssertTrue(configuration.sshOptions.contains("LocalForward=127.0.0.1:49321 100.102.73.120:61848"))
+        XCTAssertEqual(
+            configuration.terminalStartupCommand,
+            "ssh -p 2222 -i /Users/test/.ssh/id_ed25519 -o StrictHostKeyChecking=accept-new -o ExitOnForwardFailure=yes -o 'LocalForward=127.0.0.1:49321 100.102.73.120:61848' -tt cmux@mac-mini"
+        )
+    }
+
+    func testSessionSnapshotRestoresRemoteMacTunnelPanelWithReconnectCommand() throws {
+        let manager = TabManager()
+        let remoteWorkspace = manager.addWorkspace(select: true)
+        remoteWorkspace.setCustomTitle("Remote Mac Tunnel")
+        let tunnel = try XCTUnwrap(WorkspaceRemoteMacTunnel(
+            attachURL: "cmux-ios://attach?v=1&payload=test",
+            localEndpoint: "127.0.0.1:49325",
+            forwardTarget: "127.0.0.1:22"
+        ))
+        let configuration = WorkspaceRemoteConfiguration(
+            destination: "cmux-macmini",
+            port: nil,
+            identityFile: nil,
+            sshOptions: [
+                "BatchMode=yes",
+                "ExitOnForwardFailure=yes",
+                tunnel.localForwardSSHOption,
+            ],
+            localProxyPort: nil,
+            relayPort: nil,
+            relayID: nil,
+            relayToken: nil,
+            localSocketPath: nil,
+            terminalStartupCommand: "ssh -o BatchMode=yes -o ExitOnForwardFailure=yes -o '\(tunnel.localForwardSSHOption)' -tt cmux-macmini",
+            skipDaemonBootstrap: true,
+            remoteMacTunnel: tunnel
+        )
+        remoteWorkspace.configureRemoteConnection(configuration, autoConnect: false)
+        let originalPanelId = try XCTUnwrap(remoteWorkspace.focusedPanelId)
+
+        var snapshot = manager.sessionSnapshot(includeScrollback: false)
+        let workspaceIndex = try XCTUnwrap(
+            snapshot.workspaces.firstIndex { $0.customTitle == "Remote Mac Tunnel" }
+        )
+        let panelIndex = try XCTUnwrap(
+            snapshot.workspaces[workspaceIndex].panels.firstIndex { $0.id == originalPanelId }
+        )
+        snapshot.workspaces[workspaceIndex].panels[panelIndex].terminal?.isRemoteTerminal = false
+        snapshot.workspaces[workspaceIndex].panels[panelIndex].terminal?.remotePTYSessionID = nil
+
+        let restored = TabManager()
+        restored.restoreSessionSnapshot(snapshot)
+
+        let restoredWorkspace = try XCTUnwrap(restored.tabs.first { $0.customTitle == "Remote Mac Tunnel" })
+        XCTAssertEqual(restoredWorkspace.remoteConfiguration?.remoteMacTunnel, tunnel)
+        let restoredPanelId = try XCTUnwrap(restoredWorkspace.focusedPanelId)
+        let restoredInitialCommand = try XCTUnwrap(
+            restoredWorkspace.terminalPanel(for: restoredPanelId)?.surface.debugInitialCommand()
+        )
+        XCTAssertEqual(restoredInitialCommand, restoredWorkspace.remoteConfiguration?.terminalStartupCommand)
+        XCTAssertTrue(restoredInitialCommand.contains(tunnel.localForwardSSHOption), restoredInitialCommand)
+        XCTAssertEqual(
+            restoredWorkspace.sessionSnapshot(includeScrollback: false)
+                .panels.first { $0.id == restoredPanelId }?.terminal?.isRemoteTerminal,
+            true
+        )
+    }
+
     func testSessionRemoteWorkspaceSnapshotDropsInvalidSSHPortFromReconnectCommand() throws {
         let snapshot = SessionRemoteWorkspaceSnapshot(
             transport: .ssh,
