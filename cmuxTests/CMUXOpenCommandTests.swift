@@ -277,6 +277,8 @@ final class CMUXOpenCommandTests: XCTestCase {
           "shortcuts": {
             "bindings": {
               "diffViewerScrollDown": "ctrl+j",
+              "diffViewerScrollHalfPageDown": "ctrl+d",
+              "diffViewerSelectPreviousFile": "ctrl+p",
               "diffViewerScrollToTop": ["g", "g"],
               "diffViewerOpenFileSearch": null
             }
@@ -347,7 +349,7 @@ final class CMUXOpenCommandTests: XCTestCase {
         wait(for: [serverHandled], timeout: 5)
         XCTAssertFalse(result.timedOut, result.stderr)
         XCTAssertEqual(result.status, 0, result.stderr)
-        XCTAssertTrue(result.stdout.hasPrefix("OK surface=surface-id pane=pane-id path="), result.stdout)
+        XCTAssertTrue(result.stdout.hasPrefix("OK surface=surface-id pane=pane-id"), result.stdout)
         XCTAssertEqual(state.commands.compactMap { Self.v2Payload(from: $0)?["method"] as? String }, ["browser.open_split"])
 
         let commandPayload = try XCTUnwrap(Self.v2Payload(from: try XCTUnwrap(state.commands.first)))
@@ -381,27 +383,43 @@ final class CMUXOpenCommandTests: XCTestCase {
         let scrollUpFirst = try XCTUnwrap(scrollUp["first"] as? [String: Any])
         XCTAssertEqual(scrollUpFirst["key"] as? String, "k")
         XCTAssertEqual(scrollUpFirst["control"] as? Bool, false)
+        let halfPageDown = try XCTUnwrap(shortcuts["diffViewerScrollHalfPageDown"] as? [String: Any])
+        let halfPageDownFirst = try XCTUnwrap(halfPageDown["first"] as? [String: Any])
+        XCTAssertEqual(halfPageDownFirst["key"] as? String, "d")
+        XCTAssertEqual(halfPageDownFirst["control"] as? Bool, true)
+        let halfPageUp = try XCTUnwrap(shortcuts["diffViewerScrollHalfPageUp"] as? [String: Any])
+        let halfPageUpFirst = try XCTUnwrap(halfPageUp["first"] as? [String: Any])
+        XCTAssertEqual(halfPageUpFirst["key"] as? String, "u")
+        XCTAssertEqual(halfPageUpFirst["control"] as? Bool, true)
         let scrollTop = try XCTUnwrap(shortcuts["diffViewerScrollToTop"] as? [String: Any])
         XCTAssertEqual((try XCTUnwrap(scrollTop["first"] as? [String: Any]))["key"] as? String, "g")
         XCTAssertEqual((try XCTUnwrap(scrollTop["second"] as? [String: Any]))["key"] as? String, "g")
+        let nextFile = try XCTUnwrap(shortcuts["diffViewerSelectNextFile"] as? [String: Any])
+        let nextFileFirst = try XCTUnwrap(nextFile["first"] as? [String: Any])
+        XCTAssertEqual(nextFileFirst["key"] as? String, "n")
+        XCTAssertEqual(nextFileFirst["control"] as? Bool, true)
+        let previousFile = try XCTUnwrap(shortcuts["diffViewerSelectPreviousFile"] as? [String: Any])
+        let previousFileFirst = try XCTUnwrap(previousFile["first"] as? [String: Any])
+        XCTAssertEqual(previousFileFirst["key"] as? String, "p")
+        XCTAssertEqual(previousFileFirst["control"] as? Bool, true)
         let fileSearch = try XCTUnwrap(shortcuts["diffViewerOpenFileSearch"] as? [String: Any])
         XCTAssertEqual(fileSearch["unbound"] as? Bool, true)
         let files = try diffViewerAllowedFiles(for: rawURL, from: params)
         XCTAssertTrue(html.contains("Review diff"), html)
         XCTAssertTrue(html.contains("<script id=\"cmux-diff-viewer-config\" type=\"application/json\">"), html)
         XCTAssertTrue(html.contains("<div id=\"root\"></div>"), html)
-        XCTAssertTrue(html.contains("<script type=\"module\" src=\"./assets/cmux-diff-viewer-app/main.mjs\"></script>"), html)
+        let appModuleRequestPath = try Self.diffViewerAppModuleRequestPath(from: html)
+        XCTAssertTrue(html.contains("<script type=\"module\" src=\".\(appModuleRequestPath)\"></script>"), html)
         let assetDirectory = viewerFileURL.deletingLastPathComponent()
             .appendingPathComponent("assets", isDirectory: true)
             .appendingPathComponent("pierre-diffs-1.2.7-trees-1.0.0-beta.4", isDirectory: true)
-        let appAssetDirectory = viewerFileURL.deletingLastPathComponent()
-            .appendingPathComponent("assets", isDirectory: true)
-            .appendingPathComponent("cmux-diff-viewer-app", isDirectory: true)
+        let appMainURL = viewerFileURL.deletingLastPathComponent()
+            .appendingPathComponent(String(appModuleRequestPath.dropFirst()), isDirectory: false)
         XCTAssertTrue(FileManager.default.fileExists(atPath: assetDirectory.appendingPathComponent("diffs.mjs").path))
         XCTAssertTrue(FileManager.default.fileExists(atPath: assetDirectory.appendingPathComponent("trees.mjs").path))
         XCTAssertTrue(FileManager.default.fileExists(atPath: assetDirectory.appendingPathComponent("worker-pool/worker-pool.mjs").path))
         XCTAssertTrue(FileManager.default.fileExists(atPath: assetDirectory.appendingPathComponent("worker-pool/worker-portable.js").path))
-        XCTAssertTrue(FileManager.default.fileExists(atPath: appAssetDirectory.appendingPathComponent("main.mjs").path))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: appMainURL.path))
         XCTAssertEqual(viewerAssets["diffsModuleURL"], "./assets/pierre-diffs-1.2.7-trees-1.0.0-beta.4/diffs.mjs")
         XCTAssertEqual(viewerAssets["treesModuleURL"], "./assets/pierre-diffs-1.2.7-trees-1.0.0-beta.4/trees.mjs")
         XCTAssertEqual(viewerAssets["workerPoolModuleURL"], "./assets/pierre-diffs-1.2.7-trees-1.0.0-beta.4/worker-pool/worker-pool.mjs")
@@ -424,7 +442,7 @@ final class CMUXOpenCommandTests: XCTestCase {
                 file["mime_type"] as? String == "text/x-diff"
         })
         XCTAssertTrue(files.contains { file in
-            file["request_path"] as? String == "/assets/cmux-diff-viewer-app/main.mjs" &&
+            file["request_path"] as? String == appModuleRequestPath &&
                 file["mime_type"] as? String == "text/javascript"
         })
         XCTAssertTrue(files.contains { file in
@@ -537,16 +555,19 @@ final class CMUXOpenCommandTests: XCTestCase {
         let params = try XCTUnwrap(payload["params"] as? [String: Any])
         let rawURL = try XCTUnwrap(params["url"] as? String)
         let files = try diffViewerAllowedFiles(for: rawURL, from: params)
+        let viewerFileURL = try diffViewerHTMLFileURL(for: rawURL, from: params)
+        let html = try String(contentsOf: viewerFileURL, encoding: .utf8)
+        let appModuleRequestPath = try Self.diffViewerAppModuleRequestPath(from: html)
         let appEntry = try XCTUnwrap(files.first { file in
-            (file["request_path"] as? String)?.hasSuffix("/assets/cmux-diff-viewer-app/main.mjs") == true
+            file["request_path"] as? String == appModuleRequestPath
         })
         let appFilePath = try XCTUnwrap(appEntry["file_path"] as? String)
         let appMain = try String(contentsOfFile: appFilePath, encoding: .utf8)
         XCTAssertTrue(appMain.contains("cmuxTaggedSocketAssetMarker = 'target-\(tag)'"), appMain)
 
-        let stateURL = URL(fileURLWithPath: NSTemporaryDirectory(), isDirectory: true)
+        let stateURL = URL(fileURLWithPath: "/tmp", isDirectory: true)
             .appendingPathComponent("cmux-diff-viewer-\(Darwin.getuid())", isDirectory: true)
-            .appendingPathComponent(".server-state", isDirectory: false)
+            .appendingPathComponent(".server.json", isDirectory: false)
         let serverState = try JSONSerialization.jsonObject(with: Data(contentsOf: stateURL)) as? [String: Any]
         XCTAssertEqual(serverState?["executablePath"] as? String, targetCLIURL.path)
     }
@@ -2292,6 +2313,14 @@ final class CMUXOpenCommandTests: XCTestCase {
         return String(tail[..<end])
             .replacingOccurrences(of: "&amp;", with: "&")
             .replacingOccurrences(of: "&quot;", with: "\"")
+    }
+
+    private static func diffViewerAppModuleRequestPath(from html: String) throws -> String {
+        let marker = "<script type=\"module\" src=\"."
+        let start = try XCTUnwrap(html.range(of: marker)?.upperBound)
+        let tail = html[start...]
+        let end = try XCTUnwrap(tail.range(of: "\"></script>")?.lowerBound)
+        return String(tail[..<end])
     }
 
     private func diffViewerHTMLFileURL(from params: [String: Any]) throws -> URL {

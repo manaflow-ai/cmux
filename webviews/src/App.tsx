@@ -255,7 +255,6 @@ export function App({ config, initialStatus }: ConfigProps) {
   usePendingReplacement(payload, label, dispatch);
   useRenderDiff(config, label, dispatch, latestState);
   useCommentsBootstrap(bridgeAvailable ? repoRoot : null, comments.onLoaded);
-  useKeyboardShortcuts(payload.shortcuts ?? {}, viewerContainerRef, dispatch);
   useOptionsDismiss(state.optionsOpen, dispatch);
 
   const renderCommentAnnotation = (annotation: CommentAnnotation, item: DiffItem) => {
@@ -305,7 +304,7 @@ export function App({ config, initialStatus }: ConfigProps) {
   };
 
   const selectedTreePath = state.treeSource?.treePathByItemId.get(state.activeItemId) ?? state.activeTreePath;
-  const scrollToItem = (itemId: string) => {
+  const scrollToItem = useCallback((itemId: string) => {
     const target = scrollTargetForItem(itemId, state.items);
     if (!target) {
       return;
@@ -316,7 +315,15 @@ export function App({ config, initialStatus }: ConfigProps) {
       itemId: target,
       treePath: state.treeSource?.treePathByItemId.get(target),
     });
-  };
+  }, [state.items, state.treeSource]);
+  const scrollToAdjacentItem = useCallback((delta: number) => {
+    const targetId = adjacentDiffItemId(state.items, state.activeItemId, delta);
+    if (!targetId) {
+      return;
+    }
+    scrollToItem(targetId);
+  }, [scrollToItem, state.activeItemId, state.items]);
+  useKeyboardShortcuts(payload.shortcuts ?? {}, viewerContainerRef, dispatch, scrollToAdjacentItem);
   const setStatus = (status: DiffViewerStatus) => {
     applyDiffViewerStatusToDocument(status);
     dispatch({ type: "set-status", status });
@@ -1252,12 +1259,17 @@ function useKeyboardShortcuts(
   shortcuts: any,
   viewerRef: React.MutableRefObject<HTMLDivElement | null>,
   dispatch: React.Dispatch<AppAction>,
+  onSelectAdjacentItem: (delta: number) => void,
 ) {
   useEffect(() => {
     const scrollDownShortcut = normalizeShortcut(shortcuts.diffViewerScrollDown);
     const scrollUpShortcut = normalizeShortcut(shortcuts.diffViewerScrollUp);
+    const scrollHalfPageDownShortcut = normalizeShortcut(shortcuts.diffViewerScrollHalfPageDown);
+    const scrollHalfPageUpShortcut = normalizeShortcut(shortcuts.diffViewerScrollHalfPageUp);
     const scrollBottomShortcut = normalizeShortcut(shortcuts.diffViewerScrollToBottom);
     const scrollTopShortcut = normalizeShortcut(shortcuts.diffViewerScrollToTop);
+    const selectNextFileShortcut = normalizeShortcut(shortcuts.diffViewerSelectNextFile);
+    const selectPreviousFileShortcut = normalizeShortcut(shortcuts.diffViewerSelectPreviousFile);
     const fileSearchShortcut = normalizeShortcut(shortcuts.diffViewerOpenFileSearch);
     let pendingChord: PendingChord | null = null;
     let chordTimeout = 0;
@@ -1291,9 +1303,29 @@ function useKeyboardShortcuts(
         scrollViewerBy(viewerRef.current, -1);
         return;
       }
+      if (shortcutMatchesEvent(scrollHalfPageDownShortcut, event)) {
+        event.preventDefault();
+        scrollViewerBy(viewerRef.current, 1, 0.5);
+        return;
+      }
+      if (shortcutMatchesEvent(scrollHalfPageUpShortcut, event)) {
+        event.preventDefault();
+        scrollViewerBy(viewerRef.current, -1, 0.5);
+        return;
+      }
       if (shortcutMatchesEvent(scrollBottomShortcut, event)) {
         event.preventDefault();
         viewerRef.current?.scrollTo({ top: viewerRef.current.scrollHeight, behavior: "auto" });
+        return;
+      }
+      if (shortcutMatchesEvent(selectNextFileShortcut, event)) {
+        event.preventDefault();
+        onSelectAdjacentItem(1);
+        return;
+      }
+      if (shortcutMatchesEvent(selectPreviousFileShortcut, event)) {
+        event.preventDefault();
+        onSelectAdjacentItem(-1);
         return;
       }
       if (shortcutMatchesEvent(fileSearchShortcut, event)) {
@@ -1315,7 +1347,7 @@ function useKeyboardShortcuts(
       clearPendingChord();
       document.removeEventListener("keydown", listener);
     };
-  }, [dispatch, shortcuts, viewerRef]);
+  }, [dispatch, onSelectAdjacentItem, shortcuts, viewerRef]);
 }
 
 function useOptionsDismiss(optionsOpen: boolean, dispatch: React.Dispatch<AppAction>) {
@@ -1414,12 +1446,26 @@ function isTypingShortcutTarget(target: EventTarget | null): boolean {
   return Boolean(element?.closest("input, textarea, select, [contenteditable='true']"));
 }
 
-function scrollViewerBy(viewer: HTMLDivElement | null, direction: number): void {
+function scrollViewerBy(viewer: HTMLDivElement | null, direction: number, viewportRatio = 0.38): void {
   if (!viewer) {
     return;
   }
-  const amount = Math.max(80, Math.floor(viewer.clientHeight * 0.38));
+  const amount = Math.max(80, Math.floor(viewer.clientHeight * viewportRatio));
   viewer.scrollBy({ top: direction * amount, behavior: "auto" });
+}
+
+export function adjacentDiffItemId(
+  items: readonly Pick<DiffItem, "id">[],
+  activeItemId: string,
+  delta: number,
+): string {
+  if (items.length === 0) {
+    return "";
+  }
+  const currentIndex = items.findIndex((item) => item.id === activeItemId);
+  const startIndex = currentIndex >= 0 ? currentIndex : delta > 0 ? -1 : 0;
+  const nextIndex = (startIndex + delta + items.length) % items.length;
+  return items[nextIndex]?.id ?? "";
 }
 
 function scrollTargetForItem(itemId: string, items: DiffItem[]): string {

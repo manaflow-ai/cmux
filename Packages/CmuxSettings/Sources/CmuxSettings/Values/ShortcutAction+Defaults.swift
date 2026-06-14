@@ -124,8 +124,12 @@ extension ShortcutAction {
         case .toggleReactGrab: return ShortcutStroke(key: "g", command: true, shift: true)
         case .diffViewerScrollDown: return ShortcutStroke(key: "j")
         case .diffViewerScrollUp: return ShortcutStroke(key: "k")
+        case .diffViewerScrollHalfPageDown: return ShortcutStroke(key: "d", control: true)
+        case .diffViewerScrollHalfPageUp: return ShortcutStroke(key: "u", control: true)
         case .diffViewerScrollToBottom: return ShortcutStroke(key: "g", shift: true)
         case .diffViewerScrollToTop: return nil
+        case .diffViewerSelectNextFile: return ShortcutStroke(key: "n", control: true)
+        case .diffViewerSelectPreviousFile: return ShortcutStroke(key: "p", control: true)
         case .diffViewerOpenFileSearch: return ShortcutStroke(key: "/")
         }
     }

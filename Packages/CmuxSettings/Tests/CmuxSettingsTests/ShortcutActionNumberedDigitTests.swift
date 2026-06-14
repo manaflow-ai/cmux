@@ -22,12 +22,23 @@ struct ShortcutActionNumberedDigitTests {
         )
     }
 
+    @Test func diffViewerVimNavigationDefaultsUseControlChords() {
+        #expect(ShortcutAction.diffViewerScrollHalfPageDown.defaultShortcut == StoredShortcut(first: ShortcutStroke(key: "d", control: true)))
+        #expect(ShortcutAction.diffViewerScrollHalfPageUp.defaultShortcut == StoredShortcut(first: ShortcutStroke(key: "u", control: true)))
+        #expect(ShortcutAction.diffViewerSelectNextFile.defaultShortcut == StoredShortcut(first: ShortcutStroke(key: "n", control: true)))
+        #expect(ShortcutAction.diffViewerSelectPreviousFile.defaultShortcut == StoredShortcut(first: ShortcutStroke(key: "p", control: true)))
+    }
+
     @Test func onlyDiffViewerContentActionsAllowBareFirstStrokes() {
         let bareFirstStrokeActions: Set<ShortcutAction> = [
             .diffViewerScrollDown,
             .diffViewerScrollUp,
+            .diffViewerScrollHalfPageDown,
+            .diffViewerScrollHalfPageUp,
             .diffViewerScrollToBottom,
             .diffViewerScrollToTop,
+            .diffViewerSelectNextFile,
+            .diffViewerSelectPreviousFile,
             .diffViewerOpenFileSearch,
         ]
 

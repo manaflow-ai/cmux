@@ -1,6 +1,7 @@
 import { afterEach, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
 import { copyGitApplyCommand, resolveDiffNavigationURL } from "../src/actions";
+import { adjacentDiffItemId } from "../src/App";
 import { createDiffViewerLabelResolver } from "../src/labels";
 
 const originalGlobals = new Map<string, any>();
@@ -86,4 +87,15 @@ test("resolveDiffNavigationURL strips query and fragment for custom scheme rewri
   expect(resolveDiffNavigationURL("https://example.com/diff/target?source=worktree#file")).toBe(
     "cmux-diff-viewer://local/target",
   );
+});
+
+test("adjacentDiffItemId wraps next and previous file navigation", () => {
+  const items = [{ id: "one" }, { id: "two" }, { id: "three" }];
+
+  expect(adjacentDiffItemId(items, "one", 1)).toBe("two");
+  expect(adjacentDiffItemId(items, "one", -1)).toBe("three");
+  expect(adjacentDiffItemId(items, "three", 1)).toBe("one");
+  expect(adjacentDiffItemId(items, "", 1)).toBe("one");
+  expect(adjacentDiffItemId(items, "", -1)).toBe("three");
+  expect(adjacentDiffItemId([], "", 1)).toBe("");
 });

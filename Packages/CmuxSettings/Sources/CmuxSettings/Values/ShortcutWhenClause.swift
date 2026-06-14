@@ -132,8 +132,7 @@ public indirect enum ShortcutWhenClause: Equatable, Sendable {
     ///
     /// `hasPriority` marks a side the app's key router consumes before general
     /// shortcut matching whenever its clause holds (see
-    /// ``ShortcutAction/hasPriorityShortcutRouting`` — today the right-sidebar
-    /// mode shortcuts). Such a pair coexists when the non-prioritized side can
+    /// ``ShortcutAction/hasPriorityShortcutRouting``). Such a pair coexists when the non-prioritized side can
     /// still fire somewhere outside the winner's context
     /// (`canCoexist(loser, !winner)`): the winner owns every overlapping state
     /// and the loser owns the rest — the same most-specific-wins resolution VS

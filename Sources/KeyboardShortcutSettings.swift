@@ -174,8 +174,12 @@ enum KeyboardShortcutSettings {
         case openDiffViewer
         case diffViewerScrollDown
         case diffViewerScrollUp
+        case diffViewerScrollHalfPageDown
+        case diffViewerScrollHalfPageUp
         case diffViewerScrollToBottom
         case diffViewerScrollToTop
+        case diffViewerSelectNextFile
+        case diffViewerSelectPreviousFile
         case diffViewerOpenFileSearch
 
         var id: String { rawValue }
@@ -285,8 +289,12 @@ enum KeyboardShortcutSettings {
             case .openDiffViewer: return String(localized: "shortcut.openDiffViewer.label", defaultValue: "Open Diff Viewer")
             case .diffViewerScrollDown: return String(localized: "shortcut.diffViewerScrollDown.label", defaultValue: "Diff Viewer: Scroll Down")
             case .diffViewerScrollUp: return String(localized: "shortcut.diffViewerScrollUp.label", defaultValue: "Diff Viewer: Scroll Up")
+            case .diffViewerScrollHalfPageDown: return String(localized: "shortcut.diffViewerScrollHalfPageDown.label", defaultValue: "Diff Viewer: Scroll Half Page Down")
+            case .diffViewerScrollHalfPageUp: return String(localized: "shortcut.diffViewerScrollHalfPageUp.label", defaultValue: "Diff Viewer: Scroll Half Page Up")
             case .diffViewerScrollToBottom: return String(localized: "shortcut.diffViewerScrollToBottom.label", defaultValue: "Diff Viewer: Scroll to Bottom")
             case .diffViewerScrollToTop: return String(localized: "shortcut.diffViewerScrollToTop.label", defaultValue: "Diff Viewer: Scroll to Top")
+            case .diffViewerSelectNextFile: return String(localized: "shortcut.diffViewerSelectNextFile.label", defaultValue: "Diff Viewer: Next File")
+            case .diffViewerSelectPreviousFile: return String(localized: "shortcut.diffViewerSelectPreviousFile.label", defaultValue: "Diff Viewer: Previous File")
             case .diffViewerOpenFileSearch: return String(localized: "shortcut.diffViewerOpenFileSearch.label", defaultValue: "Diff Viewer: Open File Search")
             }
         }
@@ -541,6 +549,10 @@ enum KeyboardShortcutSettings {
                 return StoredShortcut(key: "j", command: false, shift: false, option: false, control: false)
             case .diffViewerScrollUp:
                 return StoredShortcut(key: "k", command: false, shift: false, option: false, control: false)
+            case .diffViewerScrollHalfPageDown:
+                return StoredShortcut(key: "d", command: false, shift: false, option: false, control: true)
+            case .diffViewerScrollHalfPageUp:
+                return StoredShortcut(key: "u", command: false, shift: false, option: false, control: true)
             case .diffViewerScrollToBottom:
                 return StoredShortcut(key: "g", command: false, shift: true, option: false, control: false)
             case .diffViewerScrollToTop:
@@ -548,6 +560,10 @@ enum KeyboardShortcutSettings {
                     first: ShortcutStroke(key: "g", command: false, shift: false, option: false, control: false),
                     second: ShortcutStroke(key: "g", command: false, shift: false, option: false, control: false)
                 )
+            case .diffViewerSelectNextFile:
+                return StoredShortcut(key: "n", command: false, shift: false, option: false, control: true)
+            case .diffViewerSelectPreviousFile:
+                return StoredShortcut(key: "p", command: false, shift: false, option: false, control: true)
             case .diffViewerOpenFileSearch:
                 return StoredShortcut(key: "/", command: false, shift: false, option: false, control: false)
             }
@@ -570,8 +586,12 @@ enum KeyboardShortcutSettings {
             switch self {
             case .diffViewerScrollDown,
                  .diffViewerScrollUp,
+                 .diffViewerScrollHalfPageDown,
+                 .diffViewerScrollHalfPageUp,
                  .diffViewerScrollToBottom,
                  .diffViewerScrollToTop,
+                 .diffViewerSelectNextFile,
+                 .diffViewerSelectPreviousFile,
                  .diffViewerOpenFileSearch:
                 return true
             default:
@@ -583,8 +603,12 @@ enum KeyboardShortcutSettings {
             switch self {
             case .diffViewerScrollDown,
                  .diffViewerScrollUp,
+                 .diffViewerScrollHalfPageDown,
+                 .diffViewerScrollHalfPageUp,
                  .diffViewerScrollToBottom,
                  .diffViewerScrollToTop,
+                 .diffViewerSelectNextFile,
+                 .diffViewerSelectPreviousFile,
                  .diffViewerOpenFileSearch:
                 return true
             default:
@@ -612,7 +636,7 @@ enum KeyboardShortcutSettings {
             // A `shortcuts.when` override (or the built-in context default) can
             // make them non-overlapping — e.g. ⌃1 selecting a workspace only when
             // the sidebar is NOT focused coexists with the sidebar's ⌃1 (issue
-            // #5189) — and a pre-routed action (sidebar modes) wins its context
+            // #5189) — and a pre-routed action wins its context
             // outright, so the factory Select Surface ⌃1…9 coexists with the
             // sidebar's ⌃1…5 by priority.
             guard ShortcutWhenClause.bindingsCollide(
