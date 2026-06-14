@@ -2786,16 +2786,20 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     public func sendTerminalRawInput(_ data: Data, surfaceID: String) {
         guard !data.isEmpty else { return }
         guard let text = String(data: data, encoding: .utf8) else { return }
+        let terminalID = MobileTerminalPreview.ID(rawValue: surfaceID)
+        // Fast path: the surface receiving input is normally the selected
+        // terminal, so resolve its workspace in O(1) and skip the scan.
+        if selectedTerminalID == terminalID, let workspaceID = selectedWorkspace?.id {
+            enqueueRawTerminalInput(text, workspaceID: workspaceID, terminalID: terminalID)
+            return
+        }
+        // Fallback: locate the owning workspace by surface id.
         guard let workspace = workspaces.first(where: { workspace in
             workspace.terminals.contains(where: { $0.id.rawValue == surfaceID })
         }) else {
             return
         }
-        enqueueRawTerminalInput(
-            text,
-            workspaceID: workspace.id,
-            terminalID: MobileTerminalPreview.ID(rawValue: surfaceID)
-        )
+        enqueueRawTerminalInput(text, workspaceID: workspace.id, terminalID: terminalID)
     }
 
     /// Enqueue raw input into the coalescing FIFO and start the drain loop when
