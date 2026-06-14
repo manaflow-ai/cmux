@@ -132,6 +132,27 @@ final class MobileTerminalRenderObserver {
     /// the main actor re-resolves. Safe to call even when no phone is attached.
     nonisolated func invalidateInheritedThemeCache() {
         themeCacheInvalidated.set()
+        // Marking the cache dirty alone is not enough: an idle/background
+        // terminal produces no render frames, so a theme/config change with no
+        // content change would not push any new event and the attached phone
+        // would keep the old palette/chrome until unrelated activity. Schedule a
+        // global render-grid update so the forced full snapshot (the
+        // `themeChanged` branch in `emitRenderGrid`) is actually emitted. Hops to
+        // the main actor since this can be called off it; no-op when no phone is
+        // subscribed.
+        Task { @MainActor [weak self] in
+            self?.scheduleThemeRefreshEmit()
+        }
+    }
+
+    /// Force a global render-grid emit so a theme change with no content change
+    /// still pushes a fresh full snapshot to attached phones. A Ghostty tick is
+    /// scheduled too so a background workspace (which produces no frame
+    /// notifications) still flushes.
+    private func scheduleThemeRefreshEmit() {
+        guard hasAnyRenderEventSubscribers else { return }
+        enqueueTerminalUpdate(surfaceID: nil)
+        GhosttyApp.shared.scheduleTick()
     }
 
     func stop() {
