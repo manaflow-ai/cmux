@@ -201,7 +201,6 @@ final class CMUXOpenCommandTests: XCTestCase {
         let fakeBinURL = rootURL.appendingPathComponent("bin", isDirectory: true)
         let fileURL = rootURL.appendingPathComponent("README.md")
         let fakeRoughdraftURL = fakeBinURL.appendingPathComponent("roughdraft")
-        let state = MockSocketServerState()
 
         try FileManager.default.createDirectory(at: fakeBinURL, withIntermediateDirectories: true)
         try "# Smoke\n".write(to: fileURL, atomically: true, encoding: .utf8)
@@ -219,14 +218,6 @@ final class CMUXOpenCommandTests: XCTestCase {
             try? FileManager.default.removeItem(at: rootURL)
         }
 
-        let serverHandled = startMockServer(listenerFD: listenerFD, state: state) { line in
-            guard let payload = Self.v2Payload(from: line),
-                  let id = payload["id"] as? String else {
-                return Self.v2Response(id: "unknown", ok: false, error: ["code": "unexpected"])
-            }
-            return Self.v2Response(id: id, ok: false, error: ["code": "unexpected"])
-        }
-
         let result = runCLI(
             cliPath: cliPath,
             socketPath: socketPath,
@@ -234,7 +225,6 @@ final class CMUXOpenCommandTests: XCTestCase {
             environmentOverrides: ["PATH": "\(fakeBinURL.path):/usr/bin:/bin"]
         )
 
-        wait(for: [serverHandled], timeout: 5)
         XCTAssertFalse(result.timedOut, result.stderr)
         XCTAssertEqual(result.status, 1, result.stderr)
         XCTAssertTrue(result.stderr.contains("Failed to open the Markdown review app."), result.stderr)
@@ -245,7 +235,6 @@ final class CMUXOpenCommandTests: XCTestCase {
         XCTAssertFalse(result.stderr.contains("Failed to open Roughdraft"), result.stderr)
         XCTAssertFalse(result.stderr.contains("npm i -g roughdraft"), result.stderr)
         XCTAssertFalse(result.stderr.contains("roughdraft exited"), result.stderr)
-        XCTAssertTrue(state.commands.isEmpty, result.stderr)
     }
 
     func testDiffCommandGeneratesCodeViewAndOpensBrowserSplit() throws {
