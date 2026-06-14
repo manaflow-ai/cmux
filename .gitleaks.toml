@@ -68,14 +68,16 @@ regexes = ['''token=sk-abc123def456ghij''']
 #   - diff-viewer URL token (a UUID) exercised by DiffComments tests
 #   - websocket-lease fuzz seed corpus (a sha256 hex literal)
 #   - command-palette focus probe marker
+#   - relay CLI token hex (an obviously-synthetic incrementing hex literal)
 # ---------------------------------------------------------------------------
 [[allowlists]]
-description = "Synthetic test-only tokens (attach-ticket / diff-viewer / fuzz seed / focus probe)"
+description = "Synthetic test-only tokens (attach-ticket / diff-viewer / fuzz seed / focus probe / relay token)"
 paths = [
   '''Packages/CMUXMobileCore/Tests/CMUXMobileCoreTests/CmxAttachTicketCompactCoderTests\.swift''',
   '''cmuxTests/DiffCommentStoreTests\.swift''',
   '''daemon/remote/cmd/cmuxd-remote/ws_pty_fuzz_test\.go''',
   '''tests_v2/test_command_palette_focus\.py''',
+  '''Packages/CmuxRemoteWorkspace/Tests/CmuxRemoteWorkspaceTests/RemoteCLIRelayServerTests\.swift''',
 ]
 
 # ---------------------------------------------------------------------------
