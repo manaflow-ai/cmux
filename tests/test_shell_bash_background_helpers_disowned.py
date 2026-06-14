@@ -183,10 +183,20 @@ def _run_interactive_bash(bash_path: str, tmp: Path) -> tuple[int, str, str]:
         commands = "\n".join(
             [
                 f'source "{SHELL_DIR / "cmux-bash-integration.bash"}"',
+                "sleep 5 & cmux_user_bg_pid=$!",
                 "echo OK",
                 "gh pr view 123",
                 "sleep 0.2",
                 "echo AFTER",
+                "cmux_current_bang=$!",
+                'echo "CMUX_TEST_USER_BG_PID=$cmux_user_bg_pid"',
+                'echo "CMUX_TEST_CURRENT_BANG=$cmux_current_bang"',
+                (
+                    'if [[ "$cmux_current_bang" != "$cmux_user_bg_pid" ]]; then '
+                    'echo "CMUX_TEST_BANG_CHANGED"; fi'
+                ),
+                'kill "$cmux_user_bg_pid" 2>/dev/null || true',
+                'wait "$cmux_user_bg_pid" 2>/dev/null || true',
                 "sleep 0.2",
                 "exit 0",
                 "",
@@ -244,6 +254,17 @@ def main() -> int:
 
     if "OK" not in output or "AFTER" not in output:
         print(f"FAIL: interactive bash did not run the probe commands, rc={rc}")
+        print(output)
+        return 1
+
+    user_bg_matches = re.findall(r"CMUX_TEST_USER_BG_PID=([0-9]+)", output)
+    current_bang_matches = re.findall(r"CMUX_TEST_CURRENT_BANG=([0-9]+)", output)
+    if not user_bg_matches or not current_bang_matches:
+        print("FAIL: interactive bash did not report $! preservation markers")
+        print(output)
+        return 1
+    if user_bg_matches[-1] != current_bang_matches[-1] or "CMUX_TEST_BANG_CHANGED" in output:
+        print("FAIL: cmux bash prompt helpers changed the user's last background PID")
         print(output)
         return 1
 
