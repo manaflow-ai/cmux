@@ -237,6 +237,71 @@ final class CMUXOpenCommandTests: XCTestCase {
         XCTAssertFalse(result.stderr.contains("roughdraft exited"), result.stderr)
     }
 
+    func testRoughdraftOpenBypassesRemoteProxyForLocalDocumentURL() throws {
+        let cliPath = try bundledCLIPath()
+        let socketPath = makeSocketPath("roughdraft-bypass")
+        let listenerFD = try bindUnixSocket(at: socketPath)
+        let rootURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-roughdraft-\(UUID().uuidString)", isDirectory: true)
+        let fakeBinURL = rootURL.appendingPathComponent("bin", isDirectory: true)
+        let fileURL = rootURL.appendingPathComponent("README.md")
+        let fakeRoughdraftURL = fakeBinURL.appendingPathComponent("roughdraft")
+        let roughdraftURL = "http://127.0.0.1:8765/roughdraft/README"
+        let state = MockSocketServerState()
+
+        try FileManager.default.createDirectory(at: fakeBinURL, withIntermediateDirectories: true)
+        try "# Smoke\n".write(to: fileURL, atomically: true, encoding: .utf8)
+        try """
+        #!/bin/sh
+        echo "\(roughdraftURL)"
+        exit 0
+        """.write(to: fakeRoughdraftURL, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: fakeRoughdraftURL.path)
+
+        defer {
+            Darwin.close(listenerFD)
+            unlink(socketPath)
+            try? FileManager.default.removeItem(at: rootURL)
+        }
+
+        let serverHandled = startMockServer(listenerFD: listenerFD, state: state) { line in
+            guard let payload = Self.v2Payload(from: line),
+                  let id = payload["id"] as? String,
+                  let method = payload["method"] as? String,
+                  method == "browser.open_split",
+                  let params = payload["params"] as? [String: Any],
+                  let rawURL = params["url"] as? String else {
+                return Self.v2Response(id: "unknown", ok: false, error: ["code": "unexpected"])
+            }
+            return Self.v2Response(
+                id: id,
+                ok: true,
+                result: ["surface_id": "surface-id", "pane_id": "pane-id", "url": rawURL]
+            )
+        }
+
+        let result = runCLI(
+            cliPath: cliPath,
+            socketPath: socketPath,
+            arguments: ["roughdraft", "open", fileURL.path],
+            environmentOverrides: [
+                "PATH": "\(fakeBinURL.path):/usr/bin:/bin",
+                "CMUX_WORKSPACE_ID": "workspace:1",
+            ]
+        )
+
+        wait(for: [serverHandled], timeout: 5)
+        XCTAssertFalse(result.timedOut, result.stderr)
+        XCTAssertEqual(result.status, 0, result.stderr)
+        XCTAssertEqual(state.commands.compactMap { Self.v2Payload(from: $0)?["method"] as? String }, ["browser.open_split"])
+
+        let commandPayload = try XCTUnwrap(Self.v2Payload(from: try XCTUnwrap(state.commands.first)))
+        let params = try XCTUnwrap(commandPayload["params"] as? [String: Any])
+        XCTAssertEqual(params["url"] as? String, roughdraftURL)
+        XCTAssertEqual(params["workspace_id"] as? String, "workspace:1")
+        XCTAssertEqual(params["bypass_remote_proxy"] as? Bool, true)
+    }
+
     func testDiffCommandGeneratesCodeViewAndOpensBrowserSplit() throws {
         let cliPath = try bundledCLIPath()
         let socketPath = makeSocketPath("diff-open")
