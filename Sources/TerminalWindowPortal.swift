@@ -200,7 +200,7 @@ final class WindowTerminalHostView: NSView {
         return hitView === self ? nil : hitView
     }
 
-    private func shouldPassThroughToTitlebar(at point: NSPoint, hostedTerminalHitView: NSView? = nil) -> Bool {
+    private func shouldPassThroughToTitlebar(at point: NSPoint, hostedTerminalHitView: NSView?) -> Bool {
         guard let window else { return false }
         let windowPoint = convert(point, to: nil)
         guard windowPoint.y >= BonsplitTabBarPassThrough.titlebarInteractionBandMinY(in: window) else { return false }
@@ -218,9 +218,7 @@ final class WindowTerminalHostView: NSView {
             eventType: eventType
         ) else { return false }
         guard decision.result else { return false }
-        if decision.registryHit {
-            return true
-        }
+        if decision.registryHit { return true }
         return hostedTerminalHitView == nil
     }
 
@@ -237,8 +235,9 @@ final class WindowTerminalHostView: NSView {
     }
 
     private func shouldPassThroughToChrome(at point: NSPoint, eventType: NSEvent.EventType?) -> Bool {
-        shouldPassThroughToTitlebar(at: point)
-            || shouldPassThroughToPaneTabBar(at: point, eventType: eventType, hostedTerminalHitView: hostedTerminalHitView(at: point))
+        let hostedTerminalHitView = hostedTerminalHitView(at: point)
+        return shouldPassThroughToTitlebar(at: point, hostedTerminalHitView: hostedTerminalHitView)
+            || shouldPassThroughToPaneTabBar(at: point, eventType: eventType, hostedTerminalHitView: hostedTerminalHitView)
     }
 
     private func cursorRectIntersectsChromePassThrough(_ rect: NSRect) -> Bool {
