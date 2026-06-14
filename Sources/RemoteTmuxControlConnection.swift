@@ -884,10 +884,19 @@ final class RemoteTmuxControlConnection {
     /// there's no buffer-name collision. `text` must be a single line (callers route
     /// only single-line content — e.g. file/image paths — here).
     func pastePane(paneId: Int, text: String) -> Bool {
-        guard !text.isEmpty else { return false }
+        guard let commands = Self.pastePaneCommands(paneId: paneId, text: text) else { return false }
+        return send(commands.setBuffer) && send(commands.pasteBuffer)
+    }
+
+    nonisolated static func pastePaneCommands(paneId: Int, text: String)
+        -> (setBuffer: String, pasteBuffer: String)?
+    {
+        guard !text.isEmpty else { return nil }
         let buffer = "cmux-paste-\(paneId)"
-        return send("set-buffer -b \(buffer) \(RemoteTmuxHost.shellSingleQuoted(text))")
-            && send("paste-buffer -p -d -b \(buffer) -t %\(paneId)")
+        return (
+            setBuffer: "set-buffer -b \(buffer) -- \(RemoteTmuxHost.shellSingleQuoted(text))",
+            pasteBuffer: "paste-buffer -p -d -b \(buffer) -t %\(paneId)"
+        )
     }
 
     /// Detaches: terminating ssh kills the control client but leaves the remote

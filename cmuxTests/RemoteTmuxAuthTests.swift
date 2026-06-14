@@ -73,6 +73,13 @@ import Testing
         #expect(!args.contains("BatchMode=yes"))
     }
 
+    @Test func controlModeArgumentsAreNonInteractive() {
+        let host = RemoteTmuxHost(destination: "user@host")
+        let args = host.controlModeArguments(sessionName: "work", createIfMissing: false)
+        #expect(consecutive(args, "-o", "BatchMode=yes"))
+        #expect(!args.contains("BatchMode=no"))
+    }
+
     @Test func controlArgsAppendPortAndIdentity() {
         let host = RemoteTmuxHost(destination: "user@host", port: 2222, identityFile: "/keys/id")
         let args = host.sshControlArguments(controlPersistSeconds: 180, batchMode: true)
@@ -133,6 +140,16 @@ import Testing
         let connection = RemoteTmuxControlConnection(host: RemoteTmuxHost(destination: "user@host"), sessionName: "work")
         #expect(connection.pastePane(paneId: 1, text: "/tmp/image.png") == false)
         #expect(connection.pastePane(paneId: 1, text: "") == false)
+    }
+
+    @Test func pastePaneCommandsProtectOptionLookingText() throws {
+        let commands = try #require(RemoteTmuxControlConnection.pastePaneCommands(paneId: 7, text: "-n not-an-option"))
+        #expect(commands.setBuffer == "set-buffer -b cmux-paste-7 -- '-n not-an-option'")
+        #expect(commands.pasteBuffer == "paste-buffer -p -d -b cmux-paste-7 -t %7")
+    }
+
+    @Test func pastePaneCommandsRejectEmptyText() {
+        #expect(RemoteTmuxControlConnection.pastePaneCommands(paneId: 7, text: "") == nil)
     }
 
     // MARK: - Interactive auth invocation (what `cmux ssh-tmux` runs in the tty)

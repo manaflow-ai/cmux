@@ -103,9 +103,10 @@ struct RemoteTmuxHost: Sendable, Equatable, Identifiable {
     ///
     /// - Parameter controlPersistSeconds: how long the master lingers idle
     ///   after the last client detaches, so back-to-back commands stay fast.
-    /// - Parameter batchMode: when `true`, ssh never prompts interactively
-    ///   (correct for non-interactive discovery/mutation commands; the
-    ///   `tmux -CC` control client runs under a PTY and must NOT set this).
+    /// - Parameter batchMode: when `true`, ssh never prompts interactively.
+    ///   Use this for discovery/mutation commands and for the pipe-backed local
+    ///   `tmux -CC` control client; interactive prompts are handled only by
+    ///   ``interactiveAuthInvocation()`` running in the user's terminal.
     func sshControlArguments(controlPersistSeconds: Int, batchMode: Bool) -> [String] {
         var args = [
             "-o", "ControlMaster=auto",
@@ -214,7 +215,7 @@ struct RemoteTmuxHost: Sendable, Equatable, Identifiable {
         var args = ["-tt"]
         args.append(contentsOf: sshControlArguments(
             controlPersistSeconds: controlPersistSeconds,
-            batchMode: false
+            batchMode: true
         ))
         let quotedName = Self.shellSingleQuoted(sessionName)
         let remoteCommand = createIfMissing
