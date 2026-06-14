@@ -18,7 +18,8 @@ import Testing
 
     private func makeHarness(
         user: CMUXAuthUser? = nil,
-        browserAttemptTimeout: TimeInterval = 5 * 60
+        browserAttemptTimeout: TimeInterval = 5 * 60,
+        slowSignInThreshold: TimeInterval = 30
     ) -> Harness {
         let store = FakeKeyValueStore()
         // The fake client reads and clears the SAME token store the flow
@@ -45,7 +46,8 @@ import Testing
             callbackRouter: AuthCallbackRouter(),
             makeSignInURL: { URL(string: "https://example.test/handler/sign-in?cmux_auth_state=\($0)")! },
             callbackScheme: { "cmux-dev" },
-            browserAttemptTimeout: browserAttemptTimeout
+            browserAttemptTimeout: browserAttemptTimeout,
+            slowSignInThreshold: slowSignInThreshold
         )
         return Harness(flow: flow, coordinator: coordinator, client: client, tokenStore: tokenStore, factory: factory)
     }
@@ -195,6 +197,113 @@ import Testing
         #expect(harness.factory.sessions[0].cancelled)
         #expect(harness.flow.isSigningIn == false)
         #expect(harness.coordinator.isAuthenticated == false)
+    }
+
+    @Test func slowSignInSurfacesBrowserFallback() async throws {
+        // A popup that never delivers a callback models the issue #6015 hang:
+        // ASWebAuthenticationSession opens its Safari window but the hosted
+        // page never redirects to cmux://auth-callback, so the user is left
+        // staring at a dead window. Past the slow threshold the flow must flip
+        // `signInIsSlow` so the account UI can offer the "open in your default
+        // browser" fallback instead of an indefinite spinner.
+        let harness = makeHarness(slowSignInThreshold: 0.05)
+        #expect(harness.flow.signInIsSlow == false)
+
+        harness.flow.beginSignIn()
+        await waitForSession(harness.factory)
+
+        var becameSlow = false
+        for _ in 0..<200 {
+            if harness.flow.signInIsSlow { becameSlow = true; break }
+            try await Task.sleep(for: .milliseconds(10))
+        }
+        #expect(becameSlow)
+
+        // Resolving the attempt clears the slow flag so a later sign-in starts
+        // from a clean slate.
+        harness.factory.sessions[0].cancel()
+        var clearedSlow = false
+        for _ in 0..<200 {
+            if harness.flow.signInIsSlow == false, harness.flow.isSigningIn == false {
+                clearedSlow = true
+                break
+            }
+            try await Task.sleep(for: .milliseconds(10))
+        }
+        #expect(clearedSlow)
+    }
+
+    @Test func activeAttemptSignInURLCarriesActiveAttemptState() async {
+        let harness = makeHarness()
+        #expect(harness.flow.activeAttemptSignInURL == nil)
+
+        harness.flow.beginSignIn()
+        await waitForSession(harness.factory)
+
+        let fallbackURL = harness.flow.activeAttemptSignInURL
+        #expect(fallbackURL != nil)
+        // The default-browser fallback must carry the same callback state as
+        // the popup so the cmux:// deep link routes back to THIS attempt —
+        // handleCallbackURL matches on cmux_auth_state.
+        let fallbackState = fallbackURL.flatMap {
+            URLComponents(url: $0, resolvingAgainstBaseURL: false)?
+                .queryItems?
+                .first(where: { $0.name == "cmux_auth_state" })?
+                .value
+        }
+        #expect(fallbackState == callbackState(harness.factory.sessions[0]))
+    }
+
+    @Test func issuedFallbackCallbackSurvivesPopupCancellation() async throws {
+        let user = CMUXAuthUser(id: "u1", primaryEmail: "a@b.com", displayName: "A")
+        let harness = makeHarness(user: user)
+
+        harness.flow.beginSignIn()
+        await waitForSession(harness.factory)
+        let fallbackURL = try #require(harness.flow.activeAttemptSignInURL)
+        let fallbackState = try #require(URLComponents(url: fallbackURL, resolvingAgainstBaseURL: false)?
+            .queryItems?
+            .first(where: { $0.name == "cmux_auth_state" })?
+            .value)
+
+        harness.factory.sessions[0].cancel()
+        while harness.flow.isSigningIn {
+            await Task.yield()
+        }
+
+        let callbackResult = await harness.flow.handleCallbackURL(callbackURL(state: fallbackState))
+
+        #expect(callbackResult)
+        #expect(harness.coordinator.isAuthenticated)
+        #expect(harness.coordinator.currentUser == user)
+        #expect(await harness.tokenStore.getStoredRefreshToken() == "refresh-1")
+        #expect(await harness.tokenStore.getStoredAccessToken() == "access-1")
+    }
+
+    @Test func issuedFallbackCallbackAfterSignOutIsRejected() async throws {
+        let user = CMUXAuthUser(id: "u1", primaryEmail: "a@b.com", displayName: "A")
+        let harness = makeHarness(user: user)
+
+        harness.flow.beginSignIn()
+        await waitForSession(harness.factory)
+        let fallbackURL = try #require(harness.flow.activeAttemptSignInURL)
+        let fallbackState = try #require(URLComponents(url: fallbackURL, resolvingAgainstBaseURL: false)?
+            .queryItems?
+            .first(where: { $0.name == "cmux_auth_state" })?
+            .value)
+
+        harness.factory.sessions[0].cancel()
+        while harness.flow.isSigningIn {
+            await Task.yield()
+        }
+        await harness.flow.signOut()
+
+        let callbackResult = await harness.flow.handleCallbackURL(callbackURL(state: fallbackState))
+
+        #expect(callbackResult == false)
+        #expect(harness.coordinator.isAuthenticated == false)
+        #expect(await harness.tokenStore.getStoredRefreshToken() == nil)
+        #expect(await harness.tokenStore.getStoredAccessToken() == nil)
     }
 
     @Test func signOutDuringCallbackValidationWins() async {
