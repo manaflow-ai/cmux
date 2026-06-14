@@ -68,6 +68,19 @@ extension TerminalController: ControlDebugContext {
         readTerminalText(surfaceArgument)
     }
 
+    func controlDebugTerminalScrollToRowOffset(surfaceArgument: String, rowOffset: Double) -> Bool {
+        guard let tabManager else { return false }
+        let trimmed = surfaceArgument.trimmingCharacters(in: .whitespacesAndNewlines)
+        let panel: TerminalPanel?
+        if trimmed.isEmpty {
+            panel = tabManager.selectedTerminalPanel
+        } else {
+            panel = resolveTerminalPanel(from: trimmed, tabManager: tabManager)
+        }
+        guard let panel else { return false }
+        return panel.surface.debugScrollToRowOffsetForTesting(rowOffset)
+    }
+
     func controlDebugRenderStats(surfaceArgument: String) -> String {
         renderStats(surfaceArgument)
     }

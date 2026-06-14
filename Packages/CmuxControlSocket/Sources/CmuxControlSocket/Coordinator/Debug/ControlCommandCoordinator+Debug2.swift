@@ -232,6 +232,28 @@ extension ControlCommandCoordinator {
         return .ok(.object(["base64": .string(b64)]))
     }
 
+    /// `debug.terminal.scroll_to_row_offset` — drive Ghostty's fractional
+    /// row-offset scroll API for renderer verification.
+    func debugTerminalScrollToRowOffset(_ params: [String: JSONValue]) -> ControlCallResult {
+        let surfaceArg = string(params, "surface_id") ?? ""
+        guard let rowOffset = double(params, "row_offset"), rowOffset.isFinite else {
+            return .err(code: "invalid_params", message: "Missing or invalid row_offset", data: nil)
+        }
+        let didScroll = debugContext?.controlDebugTerminalScrollToRowOffset(
+            surfaceArgument: surfaceArg,
+            rowOffset: rowOffset
+        ) ?? false
+        guard didScroll else {
+            return .err(code: "not_found", message: "Terminal surface not found", data: .object([
+                "surface_id": .string(surfaceArg)
+            ]))
+        }
+        return .ok(.object([
+            "surface_id": .string(surfaceArg),
+            "row_offset": .double(rowOffset)
+        ]))
+    }
+
     /// `debug.terminal.render_stats` — renderer stats (shared v1 body's JSON,
     /// decoded exactly as the legacy wrapper did).
     func debugRenderStats(_ params: [String: JSONValue]) -> ControlCallResult {
