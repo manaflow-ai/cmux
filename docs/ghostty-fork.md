@@ -12,15 +12,16 @@ When we change the fork, update this document and the parent submodule SHA.
 
 ## Current fork changes
 
-Current cmux pinned fork head: `b61a016d`, which adds precision pixel-scroll
-rendering for primary-screen scrollback on top of `5697db81` and forwards the
-macOS native `NSScrollView` live-scroll path into the same precision input.
+Current cmux pinned fork head: `a0f40f77`, which adds precision pixel-scroll
+rendering for primary-screen scrollback on top of `5697db81` and forwards
+macOS native wheel events from the `NSScrollView` wrapper into the same
+precision input.
 Precision scroll input now accumulates a fractional pixel offset, advances the
 terminal viewport only when a full row boundary is crossed, and passes the
 remainder through the renderer state to Metal/OpenGL shaders so backgrounds,
 text, and images translate between rows. cmux iOS uses this for local scrollback
 on non-alt terminal content without waiting for a host round trip, and the
-desktop wrapper uses it for trackpad and native scrollbar live scrolling. The
+desktop wrapper uses it for trackpad and native scrollbar scrolling. The
 patch intentionally avoids the unrelated Neovim GUI, cursor animation, and
 visual-effect changes in parkers0405/ghostty-pixel-scroll. It also does not port
 Parker's larger hidden extra-row renderer changes, so edge fill during sub-row
@@ -62,20 +63,25 @@ The corresponding prebuilt archive is published at
 https://github.com/manaflow-ai/ghostty/releases/tag/xcframework-34cbf180d8917b802d61d9929cfb493594f2ab52-crashsubdir-cmux-crash-v1
 and pinned in `scripts/ghosttykit-checksums.txt`.
 
-### 0) macOS precision live-scroll forwarding
+### 0) macOS precision wheel-event forwarding
 
-- Commit: `b61a016d` (Forward macOS live scroll as precision input)
+- Commits:
+  - `b61a016d` (Forward macOS live scroll as precision input)
+  - `a0f40f77` (Forward macOS wheel events as precision input)
 - Files:
   - `macos/Sources/Ghostty/Surface View/SurfaceScrollView.swift`
 - Summary:
-  - Converts native `NSScrollView` live-scroll movement into
-    `Ghostty.Input.MouseScrollEvent` with the precision flag set.
+  - Converts native `NSScrollView` wheel events into `Ghostty.Input.MouseScrollEvent`
+    with the original precision and momentum flags.
   - Keeps programmatic scrollbar synchronization row-based, but sends user
     scroll deltas through the terminal core so the renderer pixel-scroll
     remainder is used on desktop too.
+  - Uses a private `NSScrollView` subclass to forward the raw `NSEvent` stream;
+    forwarding inferred bounds-change deltas was too coarse for smooth desktop
+    trackpad scrolling.
 - Conflict notes:
   - Preserve the row-based sync path for scrollbar state coming from the core.
-  - Preserve precision input forwarding for user live-scroll movement if
+  - Preserve precision input forwarding for user wheel events if
     upstream changes the wrapper or scrollbar model.
 
 ### 1) Precision pixel-scroll rendering
