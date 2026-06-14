@@ -462,12 +462,10 @@ extension CMUXCLI {
     private enum DiffViewerShortcutAction: String, CaseIterable {
         case scrollDown = "diffViewerScrollDown"
         case scrollUp = "diffViewerScrollUp"
-        case scrollHalfPageDown = "diffViewerScrollHalfPageDown"
-        case scrollHalfPageUp = "diffViewerScrollHalfPageUp"
+        case scrollHalfPageDown = "diffViewerScrollHalfPageDown", scrollHalfPageUp = "diffViewerScrollHalfPageUp"
         case scrollToBottom = "diffViewerScrollToBottom"
         case scrollToTop = "diffViewerScrollToTop"
-        case selectNextFile = "diffViewerSelectNextFile"
-        case selectPreviousFile = "diffViewerSelectPreviousFile"
+        case selectNextFile = "diffViewerSelectNextFile", selectPreviousFile = "diffViewerSelectPreviousFile"
         case openFileSearch = "diffViewerOpenFileSearch"
 
         var defaultShortcut: DiffViewerShortcut {
@@ -476,10 +474,8 @@ extension CMUXCLI {
                 return DiffViewerShortcut(first: DiffViewerShortcutStroke(key: "j"))
             case .scrollUp:
                 return DiffViewerShortcut(first: DiffViewerShortcutStroke(key: "k"))
-            case .scrollHalfPageDown:
-                return DiffViewerShortcut(first: DiffViewerShortcutStroke(key: "d", control: true))
-            case .scrollHalfPageUp:
-                return DiffViewerShortcut(first: DiffViewerShortcutStroke(key: "u", control: true))
+            case .scrollHalfPageDown: return DiffViewerShortcut(first: DiffViewerShortcutStroke(key: "d", control: true))
+            case .scrollHalfPageUp: return DiffViewerShortcut(first: DiffViewerShortcutStroke(key: "u", control: true))
             case .scrollToBottom:
                 return DiffViewerShortcut(first: DiffViewerShortcutStroke(key: "g", shift: true))
             case .scrollToTop:
@@ -487,10 +483,8 @@ extension CMUXCLI {
                     first: DiffViewerShortcutStroke(key: "g"),
                     second: DiffViewerShortcutStroke(key: "g")
                 )
-            case .selectNextFile:
-                return DiffViewerShortcut(first: DiffViewerShortcutStroke(key: "n", control: true))
-            case .selectPreviousFile:
-                return DiffViewerShortcut(first: DiffViewerShortcutStroke(key: "p", control: true))
+            case .selectNextFile: return DiffViewerShortcut(first: DiffViewerShortcutStroke(key: "n", control: true))
+            case .selectPreviousFile: return DiffViewerShortcut(first: DiffViewerShortcutStroke(key: "p", control: true))
             case .openFileSearch:
                 return DiffViewerShortcut(first: DiffViewerShortcutStroke(key: "/"))
             }

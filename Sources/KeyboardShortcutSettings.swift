@@ -549,10 +549,8 @@ enum KeyboardShortcutSettings {
                 return StoredShortcut(key: "j", command: false, shift: false, option: false, control: false)
             case .diffViewerScrollUp:
                 return StoredShortcut(key: "k", command: false, shift: false, option: false, control: false)
-            case .diffViewerScrollHalfPageDown:
-                return StoredShortcut(key: "d", command: false, shift: false, option: false, control: true)
-            case .diffViewerScrollHalfPageUp:
-                return StoredShortcut(key: "u", command: false, shift: false, option: false, control: true)
+            case .diffViewerScrollHalfPageDown: return StoredShortcut(key: "d", command: false, shift: false, option: false, control: true)
+            case .diffViewerScrollHalfPageUp: return StoredShortcut(key: "u", command: false, shift: false, option: false, control: true)
             case .diffViewerScrollToBottom:
                 return StoredShortcut(key: "g", command: false, shift: true, option: false, control: false)
             case .diffViewerScrollToTop:
@@ -560,10 +558,8 @@ enum KeyboardShortcutSettings {
                     first: ShortcutStroke(key: "g", command: false, shift: false, option: false, control: false),
                     second: ShortcutStroke(key: "g", command: false, shift: false, option: false, control: false)
                 )
-            case .diffViewerSelectNextFile:
-                return StoredShortcut(key: "n", command: false, shift: false, option: false, control: true)
-            case .diffViewerSelectPreviousFile:
-                return StoredShortcut(key: "p", command: false, shift: false, option: false, control: true)
+            case .diffViewerSelectNextFile: return StoredShortcut(key: "n", command: false, shift: false, option: false, control: true)
+            case .diffViewerSelectPreviousFile: return StoredShortcut(key: "p", command: false, shift: false, option: false, control: true)
             case .diffViewerOpenFileSearch:
                 return StoredShortcut(key: "/", command: false, shift: false, option: false, control: false)
             }
@@ -584,15 +580,9 @@ enum KeyboardShortcutSettings {
 
         var allowsBareFirstStroke: Bool {
             switch self {
-            case .diffViewerScrollDown,
-                 .diffViewerScrollUp,
-                 .diffViewerScrollHalfPageDown,
-                 .diffViewerScrollHalfPageUp,
-                 .diffViewerScrollToBottom,
-                 .diffViewerScrollToTop,
-                 .diffViewerSelectNextFile,
-                 .diffViewerSelectPreviousFile,
-                 .diffViewerOpenFileSearch:
+            case .diffViewerScrollDown, .diffViewerScrollUp, .diffViewerScrollHalfPageDown, .diffViewerScrollHalfPageUp,
+                 .diffViewerScrollToBottom, .diffViewerScrollToTop,
+                 .diffViewerSelectNextFile, .diffViewerSelectPreviousFile, .diffViewerOpenFileSearch:
                 return true
             default:
                 return false
@@ -601,15 +591,9 @@ enum KeyboardShortcutSettings {
 
         var isBrowserContentShortcut: Bool {
             switch self {
-            case .diffViewerScrollDown,
-                 .diffViewerScrollUp,
-                 .diffViewerScrollHalfPageDown,
-                 .diffViewerScrollHalfPageUp,
-                 .diffViewerScrollToBottom,
-                 .diffViewerScrollToTop,
-                 .diffViewerSelectNextFile,
-                 .diffViewerSelectPreviousFile,
-                 .diffViewerOpenFileSearch:
+            case .diffViewerScrollDown, .diffViewerScrollUp, .diffViewerScrollHalfPageDown, .diffViewerScrollHalfPageUp,
+                 .diffViewerScrollToBottom, .diffViewerScrollToTop,
+                 .diffViewerSelectNextFile, .diffViewerSelectPreviousFile, .diffViewerOpenFileSearch:
                 return true
             default:
                 return false
@@ -632,13 +616,9 @@ enum KeyboardShortcutSettings {
             configuredShortcut: StoredShortcut
         ) -> Bool {
             // Two bindings on the same keystroke only collide when some focus
-            // state activates both AND router priority cannot decide the overlap.
-            // A `shortcuts.when` override (or the built-in context default) can
-            // make them non-overlapping — e.g. ⌃1 selecting a workspace only when
-            // the sidebar is NOT focused coexists with the sidebar's ⌃1 (issue
-            // #5189) — and a pre-routed action wins its context
-            // outright, so the factory Select Surface ⌃1…9 coexists with the
-            // sidebar's ⌃1…5 by priority.
+            // state activates both and router priority cannot choose a winner.
+            // A `shortcuts.when` override or built-in default can make bindings
+            // non-overlapping; pre-routed actions own their overlap.
             guard ShortcutWhenClause.bindingsCollide(
                 KeyboardShortcutSettings.effectiveWhenClause(for: self),
                 lhsHasPriority: hasPriorityShortcutRouting,
