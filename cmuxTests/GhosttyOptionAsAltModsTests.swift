@@ -20,7 +20,7 @@ import Testing
 /// `= left` the right Option can never compose characters (`…`, `@`, `ą`,
 /// `/`), and with `= right` the right Option is never treated as Alt.
 @MainActor
-@Suite struct GhosttyOptionAsAltModsTests {
+@Suite(.serialized) struct GhosttyOptionAsAltModsTests {
     // MARK: NSEvent flags -> libghostty mods side bits
 
     @Test func rightOptionCarriesAltAndAltRightSideBit() {
@@ -128,6 +128,135 @@ import Testing
         #expect(!translated.contains(.option))
     }
 
+    // MARK: Non-Latin keyboard layout shortcut fallback
+
+    #if DEBUG
+    @Test
+    func keyboardLayoutUsesCurrentKeyboardLayoutBeforeASCIICapableFallbackForIME() {
+        var requestedSourceKinds: [KeyboardLayout.InputSourceKind] = []
+        var observedKeyCodes: [UInt16] = []
+        var observedModifierFlags: [NSEvent.ModifierFlags] = []
+        var observedModes: [KeyboardLayout.TranslationMode] = []
+        var observedLowercasing: [Bool] = []
+        KeyboardLayout.debugCharacterForInputSourceKind = { sourceKind, keyCode, modifierFlags, mode, lowercased in
+            requestedSourceKinds.append(sourceKind)
+            observedKeyCodes.append(keyCode)
+            observedModifierFlags.append(modifierFlags)
+            observedModes.append(mode)
+            observedLowercasing.append(lowercased)
+            switch sourceKind {
+            case .currentKeyboardInputSource:
+                return "ㅣ"
+            case .currentKeyboardLayoutInputSource:
+                return "L"
+            case .currentASCIICapableKeyboardInputSource:
+                return "x"
+            }
+        }
+        defer { KeyboardLayout.debugCharacterForInputSourceKind = nil }
+
+        #expect(
+            KeyboardLayout.character(forKeyCode: UInt16(kVK_ANSI_L), modifierFlags: [.command, .shift]) == "l",
+            "IME shortcut translation should use the active keyboard layout before falling back to the user's ASCII-capable source"
+        )
+        #expect(
+            requestedSourceKinds == [.currentKeyboardInputSource, .currentKeyboardLayoutInputSource],
+            "A matching current keyboard layout should prevent the unrelated ASCII-capable fallback from owning the shortcut"
+        )
+        #expect(observedKeyCodes == [UInt16(kVK_ANSI_L), UInt16(kVK_ANSI_L)])
+        #expect(observedModifierFlags.allSatisfy { $0.contains(.command) && $0.contains(.shift) })
+        #expect(observedModes == [.shortcut, .shortcut])
+        #expect(observedLowercasing == [true, true])
+    }
+
+    @Test
+    func affectedCommandShortcutsMatchWithNonLatinCharactersIgnoringModifiers() throws {
+        let cases: [
+            (
+                name: String,
+                shortcut: StoredShortcut,
+                modifiers: NSEvent.ModifierFlags,
+                chars: String,
+                keyCode: UInt16
+            )
+        ] = [
+            (
+                "Cmd+T",
+                KeyboardShortcutSettings.Action.newSurface.defaultShortcut,
+                [.command],
+                "ㅅ",
+                UInt16(kVK_ANSI_T)
+            ),
+            (
+                "Cmd+Shift+L",
+                KeyboardShortcutSettings.Action.openBrowser.defaultShortcut,
+                [.command, .shift],
+                "ㅣ",
+                UInt16(kVK_ANSI_L)
+            ),
+            (
+                "Cmd+Shift+M",
+                KeyboardShortcutSettings.Action.toggleTerminalCopyMode.defaultShortcut,
+                [.command, .shift],
+                "ㅡ",
+                UInt16(kVK_ANSI_M)
+            ),
+        ]
+
+        for testCase in cases {
+            let event = try makeKeyEvent(
+                modifierFlags: testCase.modifiers,
+                characters: testCase.chars,
+                charactersIgnoringModifiers: testCase.chars,
+                keyCode: testCase.keyCode
+            )
+            let matches = testCase.shortcut.matches(event: event) { keyCode, _ in
+                switch keyCode {
+                case UInt16(kVK_ANSI_T): return "t"
+                case UInt16(kVK_ANSI_L): return "l"
+                case UInt16(kVK_ANSI_M): return "m"
+                default: return nil
+                }
+            }
+
+            #expect(
+                matches,
+                "\(testCase.name) should match its configured shortcut when an IME reports non-Latin event characters"
+            )
+        }
+    }
+
+    @Test
+    func vimKeysUseASCIICapableMappingBeforeActiveLayoutMapping() {
+        var requestedSourceKinds: [KeyboardLayout.InputSourceKind] = []
+        var observedModes: [KeyboardLayout.TranslationMode] = []
+        KeyboardLayout.debugCharacterForInputSourceKind = { sourceKind, _, _, mode, _ in
+            requestedSourceKinds.append(sourceKind)
+            observedModes.append(mode)
+            switch sourceKind {
+            case .currentKeyboardInputSource:
+                return "ㅗ"
+            case .currentKeyboardLayoutInputSource:
+                return "l"
+            case .currentASCIICapableKeyboardInputSource:
+                return "h"
+            }
+        }
+        defer { KeyboardLayout.debugCharacterForInputSourceKind = nil }
+
+        #expect(
+            terminalKeyboardCopyModeAction(
+                keyCode: 4,
+                charactersIgnoringModifiers: "ㅗ",
+                modifierFlags: [],
+                hasSelection: false
+            ) == .adjustSelection(.left)
+        )
+        #expect(requestedSourceKinds == [.currentASCIICapableKeyboardInputSource])
+        #expect(observedModes == [.shortcut])
+    }
+    #endif
+
     // MARK: Option composition per keyboard layout (issue #5993 acceptance)
 
     @Test func usLayoutOptionSemicolonComposesEllipsis() throws {
@@ -181,5 +310,25 @@ import Testing
             composed == expected,
             Comment(rawValue: "Option translation on \(layoutID) produced \(composed) instead of \(expected)")
         )
+    }
+
+    private func makeKeyEvent(
+        modifierFlags: NSEvent.ModifierFlags,
+        characters: String,
+        charactersIgnoringModifiers: String,
+        keyCode: UInt16
+    ) throws -> NSEvent {
+        try #require(NSEvent.keyEvent(
+            with: .keyDown,
+            location: .zero,
+            modifierFlags: modifierFlags,
+            timestamp: ProcessInfo.processInfo.systemUptime,
+            windowNumber: 0,
+            context: nil,
+            characters: characters,
+            charactersIgnoringModifiers: charactersIgnoringModifiers,
+            isARepeat: false,
+            keyCode: keyCode
+        ))
     }
 }

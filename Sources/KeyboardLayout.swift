@@ -2,17 +2,6 @@ import AppKit
 import Carbon
 
 class KeyboardLayout {
-    enum InputSourceKind: Equatable {
-        case currentKeyboardInputSource
-        case currentKeyboardLayoutInputSource
-        case currentASCIICapableKeyboardInputSource
-    }
-
-    enum TranslationMode: Equatable {
-        case shortcut
-        case textInput
-    }
-
     /// Test-only override for the current input source ID.
     #if DEBUG
     static var debugInputSourceIdOverride: String?

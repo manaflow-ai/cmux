@@ -193,9 +193,6 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         #endif
         KeyboardShortcutSettings.settingsFileStore = originalSettingsFileStore
         AppDelegate.shared?.shortcutLayoutCharacterProvider = KeyboardLayout.character(forKeyCode:modifierFlags:)
-        #if DEBUG
-        KeyboardLayout.debugCharacterForInputSourceKind = nil
-        #endif
         AppDelegate.shared?.debugCloseMainWindowConfirmationHandler = nil
         AppDelegate.shared?.debugCreateMainWindowSourceIsNativeFullScreenOverride = nil
         if AppDelegate.shared?.dismissNotificationsPopoverIfShown() == true {
@@ -6083,100 +6080,6 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
     }
 
     // MARK: - Non-Latin keyboard layout shortcut tests
-
-    func testKeyboardLayoutUsesCurrentKeyboardLayoutBeforeASCIICapableFallbackForIME() {
-#if DEBUG
-        var requestedSourceKinds: [KeyboardLayout.InputSourceKind] = []
-        var observedKeyCodes: [UInt16] = []
-        var observedModifierFlags: [NSEvent.ModifierFlags] = []
-        var observedModes: [KeyboardLayout.TranslationMode] = []
-        var observedLowercasing: [Bool] = []
-        KeyboardLayout.debugCharacterForInputSourceKind = { sourceKind, keyCode, modifierFlags, mode, lowercased in
-            requestedSourceKinds.append(sourceKind)
-            observedKeyCodes.append(keyCode)
-            observedModifierFlags.append(modifierFlags)
-            observedModes.append(mode)
-            observedLowercasing.append(lowercased)
-            switch sourceKind {
-            case .currentKeyboardInputSource:
-                return "ㅣ"
-            case .currentKeyboardLayoutInputSource:
-                return "L"
-            case .currentASCIICapableKeyboardInputSource:
-                return "x"
-            }
-        }
-        defer { KeyboardLayout.debugCharacterForInputSourceKind = nil }
-
-        XCTAssertEqual(
-            KeyboardLayout.character(forKeyCode: UInt16(kVK_ANSI_L), modifierFlags: [.command, .shift]),
-            "l",
-            "IME shortcut translation should use the active keyboard layout before falling back to the user's ASCII-capable source"
-        )
-        XCTAssertEqual(
-            requestedSourceKinds,
-            [.currentKeyboardInputSource, .currentKeyboardLayoutInputSource],
-            "A matching current keyboard layout should prevent the unrelated ASCII-capable fallback from owning the shortcut"
-        )
-        XCTAssertEqual(observedKeyCodes, [UInt16(kVK_ANSI_L), UInt16(kVK_ANSI_L)])
-        XCTAssertTrue(observedModifierFlags.allSatisfy { $0.contains(.command) && $0.contains(.shift) })
-        XCTAssertEqual(observedModes, [.shortcut, .shortcut])
-        XCTAssertEqual(observedLowercasing, [true, true])
-#else
-        XCTFail("debugCharacterForInputSourceKind is only available in DEBUG")
-#endif
-    }
-
-    func testAffectedCommandShortcutsMatchWithNonLatinCharactersIgnoringModifiers() {
-        guard let appDelegate = AppDelegate.shared else {
-            XCTFail("Expected AppDelegate.shared")
-            return
-        }
-
-        appDelegate.shortcutLayoutCharacterProvider = { keyCode, _ in
-            switch keyCode {
-            case UInt16(kVK_ANSI_T): return "t"
-            case UInt16(kVK_ANSI_L): return "l"
-            case UInt16(kVK_ANSI_M): return "m"
-            default: return nil
-            }
-        }
-        defer {
-            appDelegate.shortcutLayoutCharacterProvider = KeyboardLayout.character(forKeyCode:modifierFlags:)
-        }
-
-        let cases: [
-            (
-                name: String,
-                action: KeyboardShortcutSettings.Action,
-                modifiers: NSEvent.ModifierFlags,
-                chars: String,
-                keyCode: UInt16
-            )
-        ] = [
-            ("Cmd+T", .newSurface, [.command], "ㅅ", UInt16(kVK_ANSI_T)),
-            ("Cmd+Shift+L", .openBrowser, [.command, .shift], "ㅣ", UInt16(kVK_ANSI_L)),
-            ("Cmd+Shift+M", .toggleTerminalCopyMode, [.command, .shift], "ㅡ", UInt16(kVK_ANSI_M)),
-        ]
-
-        for testCase in cases {
-            let event = makeKeyEvent(
-                modifierFlags: testCase.modifiers,
-                characters: testCase.chars,
-                charactersIgnoringModifiers: testCase.chars,
-                keyCode: testCase.keyCode
-            )
-
-#if DEBUG
-            XCTAssertTrue(
-                appDelegate.debugMatchesConfiguredShortcut(event: event, action: testCase.action),
-                "\(testCase.name) should match its configured shortcut when an IME reports non-Latin event characters"
-            )
-#else
-            XCTFail("debugMatchesConfiguredShortcut is only available in DEBUG")
-#endif
-        }
-    }
 
     func testCmdTWorksWithRussianKeyboardLayout() {
         guard let appDelegate = AppDelegate.shared else {

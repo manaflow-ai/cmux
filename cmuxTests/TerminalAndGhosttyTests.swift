@@ -1859,40 +1859,6 @@ final class TerminalKeyboardCopyModeActionTests: XCTestCase {
         }
     }
 
-    func testVimKeysUseASCIICapableMappingBeforeActiveLayoutMapping() throws {
-#if DEBUG
-        var requestedSourceKinds: [KeyboardLayout.InputSourceKind] = []
-        var observedModes: [KeyboardLayout.TranslationMode] = []
-        KeyboardLayout.debugCharacterForInputSourceKind = { sourceKind, _, _, mode, _ in
-            requestedSourceKinds.append(sourceKind)
-            observedModes.append(mode)
-            switch sourceKind {
-            case .currentKeyboardInputSource:
-                return "ㅗ"
-            case .currentKeyboardLayoutInputSource:
-                return "l"
-            case .currentASCIICapableKeyboardInputSource:
-                return "h"
-            }
-        }
-        defer { KeyboardLayout.debugCharacterForInputSourceKind = nil }
-
-        XCTAssertEqual(
-            terminalKeyboardCopyModeAction(
-                keyCode: 4,
-                charactersIgnoringModifiers: "ㅗ",
-                modifierFlags: [],
-                hasSelection: false
-            ),
-            .adjustSelection(.left)
-        )
-        XCTAssertEqual(requestedSourceKinds, [.currentASCIICapableKeyboardInputSource])
-        XCTAssertEqual(observedModes, [.shortcut])
-#else
-        throw XCTSkip("Debug-only regression test")
-#endif
-    }
-
     func testCapsLockDoesNotBlockLetterMappings() {
         let cases: [(keyCode: UInt16, characters: String, move: TerminalKeyboardCopyModeSelectionMove)] = [
             (4, "h", .left),
