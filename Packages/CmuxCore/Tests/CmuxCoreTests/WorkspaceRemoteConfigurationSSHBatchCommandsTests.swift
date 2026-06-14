@@ -36,7 +36,7 @@ struct WorkspaceRemoteConfigurationSSHBatchCommandsTests {
     private let expectedBatchArguments: [String] = [
         "-o", "ConnectTimeout=6",
         "-o", "ServerAliveInterval=20",
-        "-o", "ServerAliveCountMax=2",
+        "-o", "ServerAliveCountMax=6",
         "-o", "BatchMode=yes",
         "-o", "ControlMaster=no",
         "-p", "2222",
@@ -85,7 +85,7 @@ struct WorkspaceRemoteConfigurationSSHBatchCommandsTests {
                 "-T",
                 "-o", "ConnectTimeout=6",
                 "-o", "ServerAliveInterval=20",
-                "-o", "ServerAliveCountMax=2",
+                "-o", "ServerAliveCountMax=6",
                 "-o", "StrictHostKeyChecking=accept-new",
                 "-o", "BatchMode=yes",
                 "-o", "ControlMaster=no",
