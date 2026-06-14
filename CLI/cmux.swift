@@ -10884,31 +10884,22 @@ struct CMUXCLI {
         )
         defer { resizeSource.cancel() }
 
-        DispatchQueue.global(qos: .userInteractive).async {
-            var buffer = [UInt8](repeating: 0, count: 8192)
-            while true {
-                let count = Darwin.read(STDIN_FILENO, &buffer, buffer.count)
-                if count > 0 {
-                    do {
-                        try self.writeAll(fd: fd, data: Data(buffer.prefix(count)))
-                    } catch {
-                        _ = shutdown(fd, SHUT_WR)
-                        return
-                    }
-                } else if count == 0 {
-                    _ = shutdown(fd, SHUT_WR)
-                    return
-                } else if errno != EINTR {
-                    _ = shutdown(fd, SHUT_WR)
-                    return
-                }
-            }
+        var reconnectInputFilterControl: SSHPTYAttachReconnectInputFilterControl?
+        do {
+            reconnectInputFilterControl = try SSHPTYAttachReconnectInputFilter.startStdinPump(
+                fd: fd,
+                filterEnabled: requireExisting && command == nil && isatty(STDIN_FILENO) == 1
+            )
+        } catch {
+            throw CLIError(message: "ssh-pty-attach: bridge write failed")
         }
 
         var outputBuffer = [UInt8](repeating: 0, count: 32768)
         while true {
             let count = Darwin.read(fd, &outputBuffer, outputBuffer.count)
             if count > 0 {
+                reconnectInputFilterControl?.stopFiltering()
+                reconnectInputFilterControl = nil
                 FileHandle.standardOutput.write(Data(outputBuffer.prefix(count)))
             } else if count == 0 {
                 resizeSource.cancel()
