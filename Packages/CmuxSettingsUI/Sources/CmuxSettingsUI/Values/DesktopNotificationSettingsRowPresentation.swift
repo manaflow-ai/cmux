@@ -42,21 +42,28 @@ struct DesktopNotificationSettingsRowPresentation: Equatable, Sendable {
         }
     }
 
-    var primaryAction: DesktopNotificationPrimaryAction {
+    var primaryAction: DesktopNotificationPrimaryAction? {
         switch authorizationState {
-        case .unknown, .notDetermined:
+        case .unknown:
+            nil
+        case .notDetermined:
             .requestAuthorization
-        case .authorized, .denied, .provisional, .ephemeral:
+        case .authorized, .provisional, .ephemeral:
+            .sendTest
+        case .denied:
             .openSystemSettings
         }
     }
 
-    var primaryActionTitle: LocalizedTextValue {
+    var primaryActionTitle: LocalizedTextValue? {
+        guard let primaryAction else { return nil }
         switch primaryAction {
         case .requestAuthorization:
-            .desktopNotificationActionEnable
+            return .desktopNotificationActionEnable
         case .openSystemSettings:
-            .desktopNotificationActionOpenSystemSettings
+            return .desktopNotificationActionOpenSystemSettings
+        case .sendTest:
+            return .desktopNotificationActionSendTest
         }
     }
 }

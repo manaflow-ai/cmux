@@ -116,6 +116,36 @@ final class HostSettingsActions: SettingsHostActions {
         return DesktopNotificationAuthorizationState(state)
     }
 
+    func desktopNotificationAuthorizationStateUpdates() -> AsyncStream<DesktopNotificationAuthorizationState> {
+        AsyncStream { continuation in
+            let (signals, signalContinuation) = AsyncStream<Void>.makeStream(
+                bufferingPolicy: .bufferingNewest(1)
+            )
+            let observer = NotificationCenterObserverToken(
+                NotificationCenter.default.addObserver(
+                    forName: TerminalNotificationStore.authorizationStateDidChangeNotification,
+                    object: TerminalNotificationStore.shared,
+                    queue: nil
+                ) { _ in
+                    signalContinuation.yield(())
+                }
+            )
+            let drainTask = Task { @MainActor in
+                continuation.yield(DesktopNotificationAuthorizationState(TerminalNotificationStore.shared.authorizationState))
+                for await _ in signals {
+                    if Task.isCancelled { break }
+                    continuation.yield(DesktopNotificationAuthorizationState(TerminalNotificationStore.shared.authorizationState))
+                }
+                continuation.finish()
+            }
+            continuation.onTermination = { _ in
+                drainTask.cancel()
+                signalContinuation.finish()
+                observer.remove()
+            }
+        }
+    }
+
     func requestNotificationAuthorization() async -> DesktopNotificationAuthorizationState {
         let state = await TerminalNotificationStore.shared.requestAuthorizationFromSettings()
         return DesktopNotificationAuthorizationState(state)
@@ -232,7 +262,7 @@ final class HostSettingsActions: SettingsHostActions {
             let (signals, signalContinuation) = AsyncStream<Void>.makeStream(
                 bufferingPolicy: .bufferingNewest(1)
             )
-            let observer = MobileHostStatusObserverToken(
+            let observer = NotificationCenterObserverToken(
                 NotificationCenter.default.addObserver(
                     forName: .mobileHostStatusDidChange,
                     object: nil,
@@ -359,7 +389,7 @@ private extension DesktopNotificationAuthorizationState {
 /// doesn't model `Sendable`; the token is immutable and only hands the opaque
 /// observer back to NotificationCenter's thread-safe removal API. CmuxSettings
 /// has an identical internal token, which isn't `public`, so it's duplicated.
-final class MobileHostStatusObserverToken: @unchecked Sendable {
+final class NotificationCenterObserverToken: @unchecked Sendable {
     private let token: NSObjectProtocol
 
     init(_ token: NSObjectProtocol) {

@@ -15,6 +15,7 @@ enum LocalizedTextValue: Equatable, Sendable {
     case desktopNotificationSubtitleEphemeral
     case desktopNotificationActionEnable
     case desktopNotificationActionOpenSystemSettings
+    case desktopNotificationActionSendTest
 
     var key: String {
         switch self {
@@ -46,6 +47,8 @@ enum LocalizedTextValue: Equatable, Sendable {
             "settings.notifications.desktop.action.enable"
         case .desktopNotificationActionOpenSystemSettings:
             "settings.notifications.desktop.action.openSystemSettings"
+        case .desktopNotificationActionSendTest:
+            "settings.notifications.desktop.sendTest"
         }
     }
 
@@ -79,6 +82,8 @@ enum LocalizedTextValue: Equatable, Sendable {
             String(localized: "settings.notifications.desktop.action.enable", defaultValue: "Enable")
         case .desktopNotificationActionOpenSystemSettings:
             String(localized: "settings.notifications.desktop.action.openSystemSettings", defaultValue: "Open System Settings")
+        case .desktopNotificationActionSendTest:
+            String(localized: "settings.notifications.desktop.sendTest", defaultValue: "Send Test")
         }
     }
 }

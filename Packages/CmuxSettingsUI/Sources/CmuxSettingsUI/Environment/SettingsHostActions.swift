@@ -53,6 +53,12 @@ public protocol SettingsHostActions: AnyObject {
     /// app bundle.
     func refreshDesktopNotificationAuthorizationState() async -> DesktopNotificationAuthorizationState
 
+    /// Streams OS-level notification authorization state changes from the host.
+    ///
+    /// The App section subscribes to keep the row live when the user changes
+    /// notification permission in System Settings and returns to cmux.
+    func desktopNotificationAuthorizationStateUpdates() -> AsyncStream<DesktopNotificationAuthorizationState>
+
     /// Asks the OS for notification authorization.
     ///
     /// - Returns: The refreshed authorization state after the request path
@@ -191,6 +197,10 @@ public extension SettingsHostActions {
         desktopNotificationAuthorizationState()
     }
 
+    func desktopNotificationAuthorizationStateUpdates() -> AsyncStream<DesktopNotificationAuthorizationState> {
+        AsyncStream { $0.finish() }
+    }
+
     func requestNotificationAuthorization() async -> DesktopNotificationAuthorizationState {
         desktopNotificationAuthorizationState()
     }
@@ -233,6 +243,9 @@ public final class NoopSettingsHostActions: SettingsHostActions {
     public func openBrowserImportFlow() {}
     public func desktopNotificationAuthorizationState() -> DesktopNotificationAuthorizationState { .unknown }
     public func refreshDesktopNotificationAuthorizationState() async -> DesktopNotificationAuthorizationState { .unknown }
+    public func desktopNotificationAuthorizationStateUpdates() -> AsyncStream<DesktopNotificationAuthorizationState> {
+        AsyncStream { $0.finish() }
+    }
     public func requestNotificationAuthorization() async -> DesktopNotificationAuthorizationState { .unknown }
     public func openTerminalConfigWindow() {}
     public func openMobilePairingWindow() {}

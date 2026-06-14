@@ -11,12 +11,18 @@ struct DesktopNotificationSettingsRowActions {
         let presentation = DesktopNotificationSettingsRowPresentation(
             authorizationState: authorizationState
         )
-        switch presentation.primaryAction {
+        guard let primaryAction = presentation.primaryAction else {
+            return authorizationState
+        }
+        switch primaryAction {
         case .requestAuthorization:
             return await hostActions.requestNotificationAuthorization()
         case .openSystemSettings:
             hostActions.openSystemNotificationSettings()
             return await hostActions.refreshDesktopNotificationAuthorizationState()
+        case .sendTest:
+            hostActions.sendTestNotification()
+            return authorizationState
         }
     }
 }

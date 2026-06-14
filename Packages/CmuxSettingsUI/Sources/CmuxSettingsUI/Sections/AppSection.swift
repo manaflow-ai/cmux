@@ -132,6 +132,11 @@ public struct AppSection: View {
             if telemetryAtAppear == nil { telemetryAtAppear = telemetry.current }
             await refreshDesktopNotificationAuthorization()
         }
+        .task {
+            for await state in hostActions.desktopNotificationAuthorizationStateUpdates() {
+                desktopNotificationAuthorization = state
+            }
+        }
     }
 
     @ViewBuilder
@@ -544,14 +549,12 @@ public struct AppSection: View {
                         .font(.system(size: 11, weight: .semibold))
                         .foregroundStyle(.secondary)
                         .frame(width: 98, alignment: .trailing)
-                    Button(desktopNotificationPresentation.primaryActionTitle.localizedString) {
-                        performDesktopNotificationPrimaryAction()
+                    if let primaryActionTitle = desktopNotificationPresentation.primaryActionTitle {
+                        Button(primaryActionTitle.localizedString) {
+                            performDesktopNotificationPrimaryAction()
+                        }
+                        .controlSize(.small)
                     }
-                    .controlSize(.small)
-                    Button(String(localized: "settings.notifications.desktop.sendTest", defaultValue: "Send Test")) {
-                        hostActions.sendTestNotification()
-                    }
-                    .controlSize(.small)
                 }
             }
             SettingsCardDivider()
@@ -687,8 +690,9 @@ public struct AppSection: View {
 
     private func performDesktopNotificationPrimaryAction() {
         Task { @MainActor in
-            desktopNotificationAuthorization = await DesktopNotificationSettingsRowActions(hostActions: hostActions)
+            let nextState = await DesktopNotificationSettingsRowActions(hostActions: hostActions)
                 .performPrimaryAction(for: desktopNotificationAuthorization)
+            desktopNotificationAuthorization = nextState
         }
     }
 
