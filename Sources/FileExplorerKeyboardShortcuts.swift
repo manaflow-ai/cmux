@@ -1,4 +1,5 @@
 import AppKit
+import CmuxSettings
 
 extension FileExplorerPanelView.Coordinator {
     func openSelectedNode(in outlineView: NSOutlineView) {
@@ -50,11 +51,30 @@ extension FileExplorerSearchField {
     }
 }
 
+@MainActor
 extension NSEvent {
     var isFileExplorerOpenSelectionShortcut: Bool {
+        isFileExplorerOpenSelectionShortcut(in: fileExplorerOpenSelectionShortcutContext)
+    }
+
+    func isFileExplorerOpenSelectionShortcut(in context: ShortcutContext) -> Bool {
         KeyboardShortcutSettings.Action.fileExplorerOpenSelectionActions.contains { action in
-            KeyboardShortcutSettings.shortcut(for: action).matches(event: self)
+            KeyboardShortcutSettings.shortcut(for: action).matches(event: self) &&
+                KeyboardShortcutSettings.effectiveWhenClause(for: action).evaluate(context)
         }
+    }
+}
+
+@MainActor
+private extension NSEvent {
+    var fileExplorerOpenSelectionShortcutContext: ShortcutContext {
+        var context = AppDelegate.shared?.shortcutEventFocusContext(self).shortcutContext ??
+            ShortcutFocusState(browser: false, markdown: false, sidebar: true).context
+        context.setBool(ShortcutFocusAtom.sidebarFocus.rawValue, true)
+        context.setBool(ShortcutFocusAtom.browserFocus.rawValue, false)
+        context.setBool(ShortcutFocusAtom.markdownFocus.rawValue, false)
+        context.setBool(ShortcutFocusAtom.terminalFocus.rawValue, false)
+        return context
     }
 }
 

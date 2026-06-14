@@ -1,12 +1,17 @@
+import AppKit
 import CmuxSettings
+import Foundation
 import Testing
 
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
+private typealias StoredShortcut = cmux_DEV.StoredShortcut
 #elseif canImport(cmux)
 @testable import cmux
+private typealias StoredShortcut = cmux.StoredShortcut
 #endif
 
+@MainActor
 @Suite struct FileExplorerShortcutSettingsTests {
     @Test func openSelectionShortcutsAreSidebarFocusedAndSettingsBacked() throws {
         let primary = KeyboardShortcutSettings.Action.fileExplorerOpenSelection
@@ -53,6 +58,30 @@ import Testing
         }
     }
 
+    @Test func openSelectionMatcherHonorsWhenClauseOverride() throws {
+        try withIsolatedShortcutSettings {
+            try writeSettingsFile(
+                """
+                {
+                  "shortcuts": {
+                    "when": {
+                      "fileExplorerOpenSelection": "terminalFocus"
+                    }
+                  }
+                }
+                """
+            )
+            KeyboardShortcutSettings.settingsFileStore.reload()
+
+            let event = try #require(
+                makeKeyDownEvent(shortcut: KeyboardShortcutSettings.Action.fileExplorerOpenSelection.defaultShortcut)
+            )
+            let context = ShortcutFocusState(browser: false, markdown: false, sidebar: true).context
+
+            #expect(!event.isFileExplorerOpenSelectionShortcut(in: context))
+        }
+    }
+
     private func withIsolatedShortcutSettings(_ body: () throws -> Void) rethrows {
         let originalSettingsFileStore = KeyboardShortcutSettings.installIsolatedTestFileStore(
             prefix: "cmux-file-explorer-shortcut-settings"
@@ -64,5 +93,34 @@ import Testing
         }
 
         try body()
+    }
+
+    private func writeSettingsFile(_ contents: String) throws {
+        let settingsFileURL = KeyboardShortcutSettings.settingsFileStore.settingsFileURLForEditing()
+        try FileManager.default.createDirectory(
+            at: settingsFileURL.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
+        try contents.write(to: settingsFileURL, atomically: true, encoding: .utf8)
+    }
+
+    private func makeKeyDownEvent(shortcut: StoredShortcut) -> NSEvent? {
+        guard !shortcut.isUnbound,
+              !shortcut.hasChord,
+              let keyCode = shortcut.firstStroke.resolvedKeyCode() else {
+            return nil
+        }
+        return NSEvent.keyEvent(
+            with: .keyDown,
+            location: .zero,
+            modifierFlags: shortcut.modifierFlags,
+            timestamp: ProcessInfo.processInfo.systemUptime,
+            windowNumber: 0,
+            context: nil,
+            characters: shortcut.menuItemKeyEquivalent ?? shortcut.key,
+            charactersIgnoringModifiers: shortcut.menuItemKeyEquivalent ?? shortcut.key,
+            isARepeat: false,
+            keyCode: keyCode
+        )
     }
 }
