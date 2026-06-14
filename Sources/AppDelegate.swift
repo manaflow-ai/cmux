@@ -888,6 +888,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private var didPrepareStartupSessionSnapshot = false
     var didAttemptStartupSessionRestore = false
     private var isApplyingSessionRestore = false
+#if DEBUG
+    @MainActor var debugLoadReopenSessionSnapshot: (() -> AppSessionSnapshot?)?
+    @MainActor var debugCreateMainWindowForSessionRestore: ((SessionWindowSnapshot, Bool) -> UUID)?
+#endif
     private var sessionAutosaveTimer: DispatchSourceTimer?
     private var sessionAutosaveTickInFlight = false
     private var sessionAutosaveDeferredRetryPending = false
@@ -3104,7 +3108,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
     @discardableResult
     func reopenPreviousSession(shouldActivate: Bool = true) -> Bool {
-        guard let snapshot = sessionSnapshotStore.loadReopenSessionSnapshot(fileURL: nil) else {
+        guard let snapshot = loadReopenSessionSnapshot() else {
             return false
         }
         return restorePreviousSessionSnapshot(snapshot, shouldActivate: shouldActivate)
@@ -3115,9 +3119,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         _ snapshot: AppSessionSnapshot,
         shouldActivate: Bool = true
     ) -> Bool {
-        let snapshotWindows = Array(
-            snapshot.windows.prefix(SessionPersistencePolicy.maxWindowsPerSnapshot)
-        )
+        let snapshotWindows = Self.manualReopenSessionWindows(from: snapshot)
         guard !snapshotWindows.isEmpty else { return false }
 
         isApplyingSessionRestore = true
@@ -3126,8 +3128,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         var createdWindowIds: [UUID] = []
 
         for windowSnapshot in snapshotWindows {
-            let windowId = createMainWindow(
-                sessionWindowSnapshot: windowSnapshot,
+            let windowId = createMainWindowForSessionRestore(
+                windowSnapshot,
                 shouldActivate: false
             )
             createdWindowIds.append(windowId)
@@ -3146,6 +3148,50 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
 
         return true
+    }
+
+    nonisolated static func manualReopenSessionWindows(
+        from snapshot: AppSessionSnapshot
+    ) -> [SessionWindowSnapshot] {
+        // Manual reopen is additive and stricter than startup restore: user-triggered
+        // restore must not turn stale empty snapshot windows into fallback workspaces.
+        let maxWindows = SessionPersistencePolicy.maxWindowsPerSnapshot
+        guard maxWindows > 0 else { return [] }
+
+        var windows: [SessionWindowSnapshot] = []
+        windows.reserveCapacity(maxWindows)
+        for window in snapshot.windows where !window.tabManager.workspaces.isEmpty {
+            windows.append(window)
+            if windows.count == maxWindows {
+                break
+            }
+        }
+        return windows
+    }
+
+    private func loadReopenSessionSnapshot() -> AppSessionSnapshot? {
+#if DEBUG
+        if let debugLoadReopenSessionSnapshot {
+            return debugLoadReopenSessionSnapshot()
+        }
+#endif
+        return sessionSnapshotStore.loadReopenSessionSnapshot(fileURL: nil)
+    }
+
+    @discardableResult
+    private func createMainWindowForSessionRestore(
+        _ windowSnapshot: SessionWindowSnapshot,
+        shouldActivate: Bool
+    ) -> UUID {
+#if DEBUG
+        if let debugCreateMainWindowForSessionRestore {
+            return debugCreateMainWindowForSessionRestore(windowSnapshot, shouldActivate)
+        }
+#endif
+        return createMainWindow(
+            sessionWindowSnapshot: windowSnapshot,
+            shouldActivate: shouldActivate
+        )
     }
 
     private func applySessionWindowSnapshot(
@@ -4379,18 +4425,24 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         windowId: UUID = UUID(),
         tabManager: TabManager,
         cmuxConfigStore: CmuxConfigStore? = nil,
-        fileExplorerState: FileExplorerState? = nil
+        fileExplorerState: FileExplorerState? = nil,
+        window: NSWindow? = nil
     ) -> UUID {
         tabManager.windowId = windowId
-        mainWindowContexts[ObjectIdentifier(tabManager)] = MainWindowContext(
+        let context = MainWindowContext(
             windowId: windowId,
             tabManager: tabManager,
             sidebarState: SidebarState(),
             sidebarSelectionState: SidebarSelectionState(),
             fileExplorerState: fileExplorerState,
             cmuxConfigStore: cmuxConfigStore,
-            window: nil
+            window: window
         )
+        if let window {
+            mainWindowContexts[ObjectIdentifier(window)] = context
+        } else {
+            mainWindowContexts[ObjectIdentifier(tabManager)] = context
+        }
         ensureMobileWorkspaceListObserver(for: tabManager)
         notifyMainWindowContextsDidChange()
         return windowId
