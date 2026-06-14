@@ -901,8 +901,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
 
     /// Close a terminal surface through the Mac's existing surface/workspace
     /// close paths. If the surface is the last terminal in the workspace, the
-    /// Mac may close the containing workspace; selection is moved first so the
-    /// phone does not show a blank detail while the remote list catches up.
+    /// Mac decides whether the containing workspace still has non-terminal panels
+    /// or must close too; the refreshed remote list reconciles that final state.
     public func deleteTerminal(
         id terminalID: MobileTerminalPreview.ID,
         in workspaceID: MobileWorkspacePreview.ID
@@ -911,8 +911,9 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
               workspace.terminals.contains(where: { $0.id == terminalID }) else {
             return
         }
-        let deletesWorkspace = workspace.terminals.count <= 1
-        guard !deletesWorkspace || workspaces.count > 1 else {
+        let removesLastKnownTerminal = workspace.terminals.count <= 1
+        let usesRemoteClient = remoteClient != nil
+        guard usesRemoteClient || !removesLastKnownTerminal || workspaces.count > 1 else {
             return
         }
         let previousWorkspaceID = selectedWorkspaceID
@@ -924,30 +925,22 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         if selectedWorkspaceID == workspaceID, selectedTerminalID == terminalID {
             selectedTerminalID = terminalNeighborID
         }
-        if terminalNeighborID == nil, selectedWorkspaceID == workspaceID {
+        if !usesRemoteClient, removesLastKnownTerminal, selectedWorkspaceID == workspaceID {
             setSelectedWorkspaceID(neighboringWorkspaceID(afterDeleting: workspaceID))
         }
 
-        guard remoteClient != nil else {
+        guard usesRemoteClient else {
             deleteLocalTerminal(id: terminalID, in: workspaceID)
             return
         }
 
         enqueueDeleteMutation { [weak self] in
-            if deletesWorkspace {
-                await self?.deleteRemoteWorkspace(
-                    id: workspaceID,
-                    previousWorkspaceID: previousWorkspaceID,
-                    previousTerminalID: previousTerminalID
-                )
-            } else {
-                await self?.deleteRemoteTerminal(
-                    id: terminalID,
-                    in: workspaceID,
-                    previousWorkspaceID: previousWorkspaceID,
-                    previousTerminalID: previousTerminalID
-                )
-            }
+            await self?.deleteRemoteTerminal(
+                id: terminalID,
+                in: workspaceID,
+                previousWorkspaceID: previousWorkspaceID,
+                previousTerminalID: previousTerminalID
+            )
         }
     }
 
