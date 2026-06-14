@@ -5562,8 +5562,19 @@ final class Workspace: Identifiable, ObservableObject {
         controller.start()
     }
 
-    func reconnectRemoteConnection() {
+    func reconnectRemoteConnection(surfaceId: UUID? = nil) {
         guard let configuration = remoteConfiguration else { return }
+        let reconnectingPlaceholderSurfaceId = surfaceId.flatMap { candidate -> UUID? in
+            guard remoteDisconnectPlaceholderPanelIds.contains(candidate),
+                  panels[candidate] is TerminalPanel else {
+                return nil
+            }
+            return candidate
+        }
+        if let reconnectingPlaceholderSurfaceId {
+            remoteDisconnectPlaceholderPanelIds.remove(reconnectingPlaceholderSurfaceId)
+            trackRemoteTerminalSurface(reconnectingPlaceholderSurfaceId)
+        }
         configureRemoteConnection(configuration, autoConnect: true)
     }
 
@@ -9232,7 +9243,11 @@ final class Workspace: Identifiable, ObservableObject {
           fi
           cmux_reconnect_socket="${CMUX_SOCKET_PATH:-${CMUX_SOCKET:-}}"
           if [ -n "$cmux_reconnect_cli" ] && [ -n "$cmux_reconnect_socket" ] && [ -n "${CMUX_WORKSPACE_ID:-}" ]; then
-            cmux_reconnect_payload="{\\"workspace_id\\":\\"$CMUX_WORKSPACE_ID\\"}"
+            cmux_reconnect_payload="{\\"workspace_id\\":\\"$CMUX_WORKSPACE_ID\\""
+            if [ -n "${CMUX_SURFACE_ID:-}" ]; then
+              cmux_reconnect_payload="$cmux_reconnect_payload,\\"surface_id\\":\\"$CMUX_SURFACE_ID\\""
+            fi
+            cmux_reconnect_payload="$cmux_reconnect_payload}"
             if "$cmux_reconnect_cli" --socket "$cmux_reconnect_socket" rpc workspace.remote.reconnect "$cmux_reconnect_payload" >/dev/null 2>&1; then
               exec /bin/sh -lc "$cmux_disconnect_reconnect_command"
             fi

@@ -14653,7 +14653,8 @@ struct TabItemView: View, Equatable {
             remoteWorkspaceSidebarText: remoteWorkspaceSidebarText,
             remoteConnectionStatusText: remoteConnectionStatusText,
             remoteStateHelpText: remoteStateHelpText,
-            showsRemoteReconnectAffordance: tab.remoteConnectionState == .suspended,
+            showsRemoteReconnectAffordance: tab.remoteConnectionState == .suspended
+                || tab.remoteConnectionState == .disconnected,
             copyableSidebarSSHError: copyableSidebarSSHError,
             latestConversationMessage: tab.latestConversationMessage,
             metadataEntries: detailVisibility.showsMetadata ? tab.sidebarStatusEntriesInDisplayOrder() : [],
