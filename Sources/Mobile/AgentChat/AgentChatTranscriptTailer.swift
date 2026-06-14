@@ -199,6 +199,10 @@ actor AgentChatTranscriptTailer {
             cache = []
             parseState = ChatTranscriptParseState()
             headTruncated = false
+            // A rotated/replaced transcript (e.g. `claude --resume` rewriting
+            // the file) carries a new first prompt; allow it to be rediscovered
+            // and re-emitted as the title instead of keeping the stale one.
+            reportedTitle = false
             loadInitialTail()
             await onBatch(Batch(appended: [], updated: [], discoveredTitle: nil, didReset: true))
             return

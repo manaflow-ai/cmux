@@ -48,15 +48,30 @@ struct AgentChatTranscriptResolver: Sendable {
     /// bypasses cmux's hook injection), so we never learned its session id.
     /// The newest `.jsonl` in the cwd's project dir is the live conversation.
     ///
-    /// - Parameter workingDirectory: The agent's working directory.
-    /// - Returns: The session id and absolute transcript path, or `nil` when
-    ///   the project dir has no transcripts.
-    func newestClaudeTranscript(workingDirectory: String) -> (sessionID: String, path: String)? {
+    /// - Parameters:
+    ///   - workingDirectory: The agent's working directory.
+    ///   - excludingSessionIDs: Session ids already bound to another surface;
+    ///     their transcripts are skipped so two hook-bypassed claudes in the
+    ///     same directory each adopt a distinct conversation instead of both
+    ///     resolving to the single newest file (and the second getting nothing).
+    /// - Returns: The session id and absolute transcript path of the newest
+    ///   unclaimed transcript, or `nil` when none is found.
+    func newestClaudeTranscript(
+        workingDirectory: String,
+        excludingSessionIDs: Set<String> = []
+    ) -> (sessionID: String, path: String)? {
+        // The home project dir is a junk drawer of every home-rooted claude
+        // conversation, so newest-by-mtime there is almost never *this*
+        // terminal's session. Refuse title-detected adoption from $HOME; a
+        // hooked claude in ~ still resolves by its exact session id via
+        // `claudeFallbackPath`, so only the fuzzy path is blocked.
+        let home = homeDirectory.resolvingSymlinksInPath().path
         // claude encodes the project dir from the cwd it sees, which is the
         // symlink-resolved path (getcwd → /private/tmp), while a panel's cwd
         // is often the unresolved form (/tmp). Try every form so a /tmp-rooted
         // terminal still finds its /private/tmp transcript dir.
         let candidates = Self.cwdCandidates(workingDirectory)
+            .filter { URL(fileURLWithPath: $0).resolvingSymlinksInPath().path != home }
         for cwd in candidates {
             let projectDir = RestorableAgentSessionIndex.encodeClaudeProjectDir(cwd)
             let dir = homeDirectory
@@ -69,7 +84,10 @@ struct AgentChatTranscriptResolver: Sendable {
                 options: [.skipsHiddenFiles]
             ) else { continue }
             let newest = entries
-                .filter { $0.pathExtension == "jsonl" }
+                .filter {
+                    $0.pathExtension == "jsonl"
+                        && !excludingSessionIDs.contains($0.deletingPathExtension().lastPathComponent)
+                }
                 .max { lhs, rhs in
                     let lDate = (try? lhs.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate) ?? .distantPast
                     let rDate = (try? rhs.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate) ?? .distantPast

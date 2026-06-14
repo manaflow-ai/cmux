@@ -143,7 +143,12 @@ final class AgentChatTranscriptService {
             return false
         }
         detectionScanAt[surfaceID] = now
-        guard let resolved = resolver.newestClaudeTranscript(workingDirectory: workingDirectory) else {
+        // Skip transcripts already bound to another surface so two hook-bypassed
+        // claudes in one directory each adopt a distinct conversation.
+        guard let resolved = resolver.newestClaudeTranscript(
+            workingDirectory: workingDirectory,
+            excludingSessionIDs: registry.claimedSessionIDs()
+        ) else {
             return false
         }
         detectionScanAt.removeValue(forKey: surfaceID)
