@@ -5,26 +5,25 @@ import { flushSync } from "react-dom";
 import { createRoot } from "react-dom/client";
 import { GuiModeApp } from "../src/gui-mode/GuiModeApp";
 import { submitGuiModePrompt } from "../src/gui-mode/bridge";
+import { guiModeFallbackProviderIds, guiModeFallbackProviders } from "../src/gui-mode/providerCatalog";
 
-const expectedProviderIds = [
-  "codex",
-  "claude",
-  "opencode",
-  "grok",
-  "pi",
-  "omp",
-  "amp",
-  "cursor",
-  "gemini",
-  "kiro",
-  "antigravity",
-  "rovodev",
-  "hermes-agent",
-  "copilot",
-  "codebuddy",
-  "factory",
-  "qoder",
-];
+const expectedProviderIds = guiModeFallbackProviderIds;
+
+test("GUI mode fallback catalog has complete provider snapshots", () => {
+  expect(guiModeFallbackProviders).toHaveLength(17);
+  expect(new Set(expectedProviderIds).size).toBe(expectedProviderIds.length);
+
+  for (const provider of guiModeFallbackProviders) {
+    expect(provider.accentColor).toMatch(/^#[0-9a-f]{6}$/);
+    expect(provider.capabilities.length).toBeGreaterThan(0);
+    expect(provider.detail.length).toBeGreaterThan(0);
+    expect(provider.displayName.length).toBeGreaterThan(0);
+    expect(provider.runtimeMode.length).toBeGreaterThan(0);
+    expect(provider.setupCommand.length).toBeGreaterThan(0);
+    expect(provider.supportLabel.length).toBeGreaterThan(0);
+    expect(provider.taskCommandPreview).toBe(`/task-worktree-pr --provider ${provider.id}`);
+  }
+});
 
 test("GUI mode renders the composer while native context is pending", async () => {
   const dom = new JSDOM("<!doctype html><html><body><div id='root'></div></body></html>", {
@@ -64,6 +63,7 @@ test("GUI mode renders the composer while native context is pending", async () =
     });
     expect(dom.window.document.querySelector(".gui-mode-summary-command")?.textContent)
       .toBe("cmux hooks qoder install");
+    expect((qoderOption as HTMLElement).style.getPropertyValue("--gui-provider-accent")).toBe("#c084fc");
   } finally {
     flushSync(() => root.unmount());
     await new Promise((resolve) => setTimeout(resolve, 0));

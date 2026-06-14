@@ -101,6 +101,45 @@ enum GuiModeProviderID: String, CaseIterable, Codable, Identifiable, Sendable {
         }
     }
 
+    var accentColor: String {
+        switch self {
+        case .codex:
+            return "#22c55e"
+        case .claude:
+            return "#d97706"
+        case .opencode:
+            return "#38bdf8"
+        case .grok:
+            return "#f43f5e"
+        case .pi:
+            return "#a78bfa"
+        case .omp:
+            return "#f59e0b"
+        case .amp:
+            return "#14b8a6"
+        case .cursor:
+            return "#60a5fa"
+        case .gemini:
+            return "#818cf8"
+        case .kiro:
+            return "#f97316"
+        case .antigravity:
+            return "#e879f9"
+        case .rovodev:
+            return "#0ea5e9"
+        case .hermesAgent:
+            return "#34d399"
+        case .copilot:
+            return "#10b981"
+        case .codebuddy:
+            return "#fb7185"
+        case .factory:
+            return "#facc15"
+        case .qoder:
+            return "#c084fc"
+        }
+    }
+
     var setupCommand: String {
         switch self {
         case .claude:

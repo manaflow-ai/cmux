@@ -81,9 +81,9 @@
 
 .gui-mode-runtime-pill {
   max-width: 100%;
-  border: 1px solid color-mix(in srgb, var(--agent-accent) 42%, var(--agent-border));
+  border: 1px solid color-mix(in srgb, var(--gui-provider-accent, var(--agent-accent)) 48%, var(--agent-border));
   border-radius: 8px;
-  color: color-mix(in srgb, var(--agent-accent) 72%, var(--agent-text));
+  color: color-mix(in srgb, var(--gui-provider-accent, var(--agent-accent)) 76%, var(--agent-text));
   font-size: 12px;
   font-weight: 650;
   line-height: 16px;
@@ -104,12 +104,15 @@
 }
 
 .gui-mode-provider-option {
+  --gui-provider-accent: var(--agent-accent);
   display: grid;
   gap: 5px;
   min-height: 62px;
-  border: 1px solid var(--agent-border);
+  border: 1px solid color-mix(in srgb, var(--gui-provider-accent) 22%, var(--agent-border));
   border-radius: 8px;
-  background: color-mix(in srgb, var(--agent-surface) 82%, transparent);
+  background:
+    linear-gradient(180deg, color-mix(in srgb, var(--gui-provider-accent) 7%, transparent), transparent 62%),
+    color-mix(in srgb, var(--agent-surface) 86%, transparent);
   color: var(--agent-text);
   cursor: pointer;
   font: inherit;
@@ -120,18 +123,26 @@
 
 .gui-mode-provider-option:hover,
 .gui-mode-provider-option[aria-selected="true"] {
-  border-color: color-mix(in srgb, var(--agent-accent) 70%, var(--agent-border));
+  border-color: color-mix(in srgb, var(--gui-provider-accent) 72%, var(--agent-border));
   background:
-    linear-gradient(135deg, rgba(55, 97, 110, 0.14), rgba(136, 94, 51, 0.08)),
-    color-mix(in srgb, var(--agent-accent) 10%, var(--agent-surface));
+    linear-gradient(135deg, color-mix(in srgb, var(--gui-provider-accent) 18%, transparent), transparent),
+    color-mix(in srgb, var(--gui-provider-accent) 8%, var(--agent-surface));
 }
 
 .gui-mode-provider-option-top {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
+  grid-template-columns: 8px minmax(0, 1fr) auto;
   align-items: center;
   gap: 8px;
   min-width: 0;
+}
+
+.gui-mode-provider-mark {
+  width: 8px;
+  height: 8px;
+  border-radius: 999px;
+  background: var(--gui-provider-accent);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--gui-provider-accent) 18%, transparent);
 }
 
 .gui-mode-provider-name,
@@ -146,7 +157,7 @@
 
 .gui-mode-provider-support {
   max-width: 86px;
-  color: color-mix(in srgb, var(--agent-accent) 72%, var(--agent-text));
+  color: color-mix(in srgb, var(--gui-provider-accent) 76%, var(--agent-text));
   font-size: 10px;
   font-weight: 700;
   line-height: 14px;
@@ -188,14 +199,15 @@
 }
 
 .gui-mode-provider-summary {
+  --gui-provider-accent: var(--agent-accent);
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
   align-items: center;
   gap: 10px 14px;
-  border: 1px solid var(--agent-border);
+  border: 1px solid color-mix(in srgb, var(--gui-provider-accent) 26%, var(--agent-border));
   border-radius: 8px;
   background:
-    linear-gradient(135deg, rgba(63, 102, 112, 0.12), rgba(112, 94, 59, 0.1)),
+    linear-gradient(135deg, color-mix(in srgb, var(--gui-provider-accent) 16%, transparent), transparent),
     color-mix(in srgb, var(--agent-surface) 72%, transparent);
   padding: 12px;
 }
@@ -208,7 +220,7 @@
 
 .gui-mode-summary-name {
   overflow: hidden;
-  color: var(--agent-text);
+  color: color-mix(in srgb, var(--gui-provider-accent) 28%, var(--agent-text));
   font-size: 13px;
   font-weight: 700;
   line-height: 18px;
@@ -274,9 +286,11 @@
   gap: 10px;
   align-content: start;
   min-height: calc(100vh - 40px);
-  border: 1px solid var(--agent-border);
+  border: 1px solid color-mix(in srgb, var(--gui-provider-accent, var(--agent-accent)) 28%, var(--agent-border));
   border-radius: 8px;
-  background: var(--agent-surface);
+  background:
+    linear-gradient(145deg, color-mix(in srgb, var(--gui-provider-accent, var(--agent-accent)) 11%, transparent), transparent 38%),
+    var(--agent-surface);
   padding: 16px;
 }
 

@@ -53,6 +53,8 @@ final class RightSidebarCommandPaletteTests: XCTestCase {
             XCTAssertFalse(provider.displayName.isEmpty)
             XCTAssertFalse(provider.detail.isEmpty)
             XCTAssertFalse(provider.supportLabel.isEmpty)
+            XCTAssertTrue(provider.accentColor.hasPrefix("#"))
+            XCTAssertEqual(provider.accentColor.count, 7)
             XCTAssertFalse(provider.setupCommand.isEmpty)
             XCTAssertFalse(provider.taskCommandPreview.isEmpty)
             XCTAssertFalse(provider.capabilityLabels.isEmpty)
@@ -85,6 +87,7 @@ final class RightSidebarCommandPaletteTests: XCTestCase {
 
         for provider in providers {
             XCTAssertNotNil(provider["displayName"] as? String)
+            XCTAssertNotNil(provider["accentColor"] as? String)
             XCTAssertNotNil(provider["detail"] as? String)
             XCTAssertNotNil(provider["runtimeMode"] as? String)
             XCTAssertNotNil(provider["supportLabel"] as? String)

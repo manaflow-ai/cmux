@@ -15,6 +15,7 @@ extension AgentSessionWebRendererCoordinator {
                 [
                     "id": provider.rawValue,
                     "displayName": provider.displayName,
+                    "accentColor": provider.accentColor,
                     "detail": provider.detail,
                     "runtimeMode": provider.runtimeMode,
                     "supportLabel": provider.supportLabel,

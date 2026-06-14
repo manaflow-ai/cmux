@@ -18,52 +18,13 @@ import {
   type GuiModeContext,
   type GuiModeProvider,
 } from "./bridge";
+import { guiModeFallbackProviders } from "./providerCatalog";
 
 const h = React.createElement;
 
 type LoadState =
   | { status: "ready"; context: GuiModeContext }
   | { status: "error"; message: string };
-
-function fallbackProvider(
-  id: string,
-  displayName: string,
-  detail: string,
-  runtimeMode: string,
-  supportLabel: string,
-  capabilities: string[],
-): GuiModeProvider {
-  return {
-    capabilities,
-    detail,
-    displayName,
-    id,
-    runtimeMode,
-    setupCommand: id === "claude" ? "claude auth login" : `cmux hooks ${id} install`,
-    supportLabel,
-    taskCommandPreview: `/task-worktree-pr --provider ${id}`,
-  };
-}
-
-const fallbackProviders: GuiModeProvider[] = [
-  fallbackProvider("codex", "Codex", "Native session with hook telemetry", "native-hooks", "Native + hooks", ["Native session", "Hook telemetry", "Restorable"]),
-  fallbackProvider("claude", "Claude Code", "Native cmux session", "native", "Native", ["Native session", "Restorable"]),
-  fallbackProvider("opencode", "OpenCode", "Native session with hook telemetry", "native-hooks", "Native + hooks", ["Native session", "Hook telemetry", "Restorable"]),
-  fallbackProvider("grok", "Grok", "Vault-registered hook agent", "vault-hooks", "Vault + hooks", ["Hook telemetry", "Vault registry", "Restorable"]),
-  fallbackProvider("pi", "Pi", "Vault-registered hook agent", "vault-hooks", "Vault + hooks", ["Hook telemetry", "Vault registry", "Restorable"]),
-  fallbackProvider("omp", "OMP", "Vault-registered hook agent", "vault-hooks", "Vault + hooks", ["Hook telemetry", "Vault registry"]),
-  fallbackProvider("amp", "Amp", "Hook-backed agent", "hooks", "Hooks", ["Hook telemetry", "Restorable"]),
-  fallbackProvider("cursor", "Cursor", "Hook-backed agent", "hooks", "Hooks", ["Hook telemetry", "Restorable"]),
-  fallbackProvider("gemini", "Gemini", "Hook-backed agent", "hooks", "Hooks", ["Hook telemetry", "Restorable"]),
-  fallbackProvider("kiro", "Kiro", "Hook-backed agent", "hooks", "Hooks", ["Hook telemetry", "Restorable"]),
-  fallbackProvider("antigravity", "Antigravity", "Vault-registered hook agent", "vault-hooks", "Vault + hooks", ["Hook telemetry", "Vault registry", "Restorable"]),
-  fallbackProvider("rovodev", "Rovo Dev", "Hook-backed agent", "hooks", "Hooks", ["Hook telemetry", "Restorable"]),
-  fallbackProvider("hermes-agent", "Hermes Agent", "Hook-backed agent", "hooks", "Hooks", ["Hook telemetry", "Restorable"]),
-  fallbackProvider("copilot", "Copilot", "Hook-backed agent", "hooks", "Hooks", ["Hook telemetry", "Restorable"]),
-  fallbackProvider("codebuddy", "CodeBuddy", "Hook-backed agent", "hooks", "Hooks", ["Hook telemetry", "Restorable"]),
-  fallbackProvider("factory", "Factory", "Hook-backed agent", "hooks", "Hooks", ["Hook telemetry", "Restorable"]),
-  fallbackProvider("qoder", "Qoder", "Hook-backed agent", "hooks", "Hooks", ["Hook telemetry", "Restorable"]),
-];
 
 const defaultContext: GuiModeContext = {
   copy: {
@@ -79,7 +40,7 @@ const defaultContext: GuiModeContext = {
   },
   page: "home",
   prompt: "",
-  providers: fallbackProviders,
+  providers: guiModeFallbackProviders,
   selectedProviderId: "codex",
 };
 
@@ -134,6 +95,7 @@ function GuiModeHomePage({ context }: { context: GuiModeContext }) {
   const [error, setError] = useState("");
   const editorRef = useRef<PromptEditorHandle | null>(null);
   const selectedProvider = providerForId(context.providers, selectedProviderId);
+  const accentStyle = providerAccentStyle(selectedProvider);
   const trimmedPrompt = prompt.trim();
   const canSubmit = trimmedPrompt.length > 0 && !isSubmitting;
   const submit = useCallback(() => {
@@ -149,7 +111,7 @@ function GuiModeHomePage({ context }: { context: GuiModeContext }) {
 
   return h("section", { className: "gui-mode-home", "aria-label": context.copy.homeTitle },
     h("div", { className: "gui-mode-shell" },
-      h("div", { className: "gui-mode-topline" },
+      h("div", { className: "gui-mode-topline", style: accentStyle },
         h("div", { className: "gui-mode-title" }, context.copy.homeTitle),
         h("div", { className: "gui-mode-runtime-pill" }, selectedProvider.supportLabel),
       ),
@@ -196,7 +158,11 @@ function GuiModeHomePage({ context }: { context: GuiModeContext }) {
 
 function GuiModeTaskPage({ context }: { context: GuiModeContext }) {
   const provider = providerForId(context.providers, context.selectedProviderId);
-  return h("section", { className: "gui-mode-task", "aria-label": context.copy.taskTitle },
+  return h("section", {
+    "aria-label": context.copy.taskTitle,
+    className: "gui-mode-task",
+    style: providerAccentStyle(provider),
+  },
     h("div", { className: "gui-mode-task-panel" },
       h("div", { className: "gui-mode-task-provider" },
         h("div", { className: "gui-mode-task-provider-name" }, provider.displayName),
@@ -225,9 +191,11 @@ function ProviderPicker({
       key: provider.id,
       onClick: () => onSelectProvider(provider.id),
       role: "option",
+      style: providerAccentStyle(provider),
       type: "button",
     },
       h("span", { className: "gui-mode-provider-option-top" },
+        h("span", { className: "gui-mode-provider-mark", "aria-hidden": "true" }),
         h("span", { className: "gui-mode-provider-name" }, provider.displayName),
         h("span", { className: "gui-mode-provider-support" }, provider.supportLabel),
       ),
@@ -237,7 +205,7 @@ function ProviderPicker({
 }
 
 function ProviderSummary({ provider }: { provider: GuiModeProvider }) {
-  return h("aside", { className: "gui-mode-provider-summary" },
+  return h("aside", { className: "gui-mode-provider-summary", style: providerAccentStyle(provider) },
     h("div", { className: "gui-mode-summary-main" },
       h("div", { className: "gui-mode-summary-name" }, provider.displayName),
       h("div", { className: "gui-mode-summary-detail" }, provider.detail),
@@ -254,6 +222,7 @@ function ProviderSummary({ provider }: { provider: GuiModeProvider }) {
 
 function providerForId(providers: GuiModeProvider[], providerId: string): GuiModeProvider {
   return providers.find((provider) => provider.id === providerId) ?? providers[0] ?? {
+    accentColor: "#8b949e",
     detail: "",
     displayName: providerId,
     id: providerId,
@@ -263,4 +232,10 @@ function providerForId(providers: GuiModeProvider[], providerId: string): GuiMod
     taskCommandPreview: "",
     capabilities: [],
   };
+}
+
+function providerAccentStyle(provider: GuiModeProvider): React.CSSProperties {
+  return {
+    "--gui-provider-accent": provider.accentColor,
+  } as React.CSSProperties;
 }

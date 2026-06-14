@@ -13,6 +13,7 @@ export type GuiModeCopy = {
 };
 
 export type GuiModeProvider = {
+  accentColor: string;
   capabilities: string[];
   detail: string;
   displayName: string;
