@@ -15,6 +15,7 @@ import CmuxTerminal
 @_spi(CmuxHostTransport) import CmuxExtensionKit
 import CmuxSidebarProviderKit
 import CmuxExtensionSidebarExamples
+import CmuxFileOpen
 import CmuxSettings
 import CmuxSettingsUI
 import CmuxSidebar
@@ -1165,10 +1166,10 @@ struct ContentView: View {
     @State private var commandPaletteResultsRevision: UInt64 = 0
     @State private var commandPaletteUsageHistoryByCommandId: [String: CommandPaletteUsageEntry] = [:]
     @State private var isFeedbackComposerPresented = false
-    @AppStorage(CommandPaletteRenameSelectionSettings.selectAllOnFocusKey)
-    private var commandPaletteRenameSelectAllOnFocus = CommandPaletteRenameSelectionSettings.defaultSelectAllOnFocus
-    @AppStorage(CommandPaletteSwitcherSearchSettings.searchAllSurfacesKey)
-    private var commandPaletteSearchAllSurfaces = CommandPaletteSwitcherSearchSettings.defaultSearchAllSurfaces
+    @AppStorage(AppCatalogSection().renameSelectsExistingName.userDefaultsKey)
+    private var commandPaletteRenameSelectAllOnFocus = AppCatalogSection().renameSelectsExistingName.defaultValue
+    @AppStorage(AppCatalogSection().commandPaletteSearchesAllSurfaces.userDefaultsKey)
+    private var commandPaletteSearchAllSurfaces = AppCatalogSection().commandPaletteSearchesAllSurfaces.defaultValue
     @AppStorage(AppearanceSettings.appearanceModeKey) private var appearanceMode = AppearanceSettings.defaultMode.rawValue
     @State private var commandPaletteShouldFocusWorkspaceDescriptionEditor = false
     @FocusState private var isCommandPaletteSearchFocused: Bool
@@ -8326,7 +8327,7 @@ struct ContentView: View {
             NSSound.beep()
             return
         }
-        PreferredEditorSettings.open(URL(fileURLWithPath: sourcePath))
+        PreferredEditorService(defaults: .standard).open(URL(fileURLWithPath: sourcePath))
     }
 
     @discardableResult
@@ -9279,7 +9280,7 @@ struct ContentView: View {
     }
 
     private func commandPaletteRenameInputFocusPolicy() -> CommandPaletteInputFocusPolicy {
-        let selectAllOnFocus = CommandPaletteRenameSelectionSettings.selectAllOnFocusEnabled()
+        let selectAllOnFocus = CommandPaletteSettingsStore(defaults: .standard).renameSelectsAllOnFocus
         let selectionBehavior: CommandPaletteTextSelectionBehavior = selectAllOnFocus
             ? .selectAll
             : .caretAtEnd
