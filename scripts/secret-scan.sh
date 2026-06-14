@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #
-# Run the cmux secret scan locally (the same scan CI runs).
+# Run the cmux secret scan locally.
 #
 # Scans the working tree with gitleaks using the repo's narrow allowlist
 # (.gitleaks.toml). Intentional Sentry-scrubber redaction fixtures and other

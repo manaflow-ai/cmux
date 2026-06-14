@@ -13,7 +13,10 @@ brew install gitleaks        # one-time
 ```
 
 The script scans the working tree with the repo allowlist and exits non-zero if
-it finds anything. It prints findings with the secret value redacted.
+it finds anything. It prints findings with the secret value redacted. CI uses the
+same pinned `gitleaks` version and config semantics, but invokes `gitleaks`
+directly from workflow YAML so the enforcement path does not depend on a
+PR-modified wrapper script.
 
 CI pins gitleaks to **8.30.1** (see
 [`.github/workflows/secret-scan.yml`](../.github/workflows/secret-scan.yml)), and
@@ -80,7 +83,9 @@ intended strings are suppressed and the scan is otherwise clean.
 ## CI
 
 [`.github/workflows/secret-scan.yml`](../.github/workflows/secret-scan.yml) runs
-the same scanner on every pull request and push to `main` (without checking out
+`gitleaks` on every pull request and push to `main` (without checking out
 submodules). Pull requests scan the git range from the PR base to `HEAD`, so a
-secret added in one PR commit and removed before merge is still caught. Pushes to
-`main` use the current working-tree scan.
+secret added in one PR commit and removed before merge is still caught. After the
+initial bootstrap PR, pull requests enforce with the base branch's
+`.gitleaks.toml` so a PR cannot hide a committed secret by relaxing its own
+allowlist. Pushes to `main` scan the pushed commit range.
