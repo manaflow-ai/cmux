@@ -64,6 +64,11 @@ final class MarkdownMermaidZoomTests: XCTestCase {
         let zoomedProseHeight = try XCTUnwrap(zoomed["proseHeight"])
         XCTAssertGreaterThan(zoomedWidth, baselineWidth * 1.8)
         XCTAssertEqual(zoomedWidth / baselineWidth, zoomedProseHeight / baselineProseHeight, accuracy: 0.25)
+        let exported = try await exportedMermaidSnapshot(in: webView)
+        XCTAssertEqual(exported["width"], "")
+        XCTAssertEqual(exported["height"], "")
+        XCTAssertEqual(exported["maxWidth"], "240px")
+        XCTAssertEqual(exported["hasCmuxData"], "0")
 
         coordinator.setFontSize(MarkdownFontSizeSettings.defaultPointSize)
         try await renderMarkdown(
@@ -155,6 +160,31 @@ final class MarkdownMermaidZoomTests: XCTestCase {
             if let number = value as? NSNumber { snapshot[key] = number.doubleValue }
         }
         return snapshot
+    }
+
+    private func exportedMermaidSnapshot(in webView: WKWebView) async throws -> [String: String] {
+        let result = try await webView.evaluateJavaScript(
+            """
+            (function() {
+              var wrapper = document.createElement('div');
+              wrapper.innerHTML = window.__cmuxRenderedHTML();
+              var svg = wrapper.querySelector('.cmux-mermaid svg');
+              if (!svg) { return {}; }
+              return {
+                width: svg.style.width || '',
+                height: svg.style.height || '',
+                maxWidth: svg.style.maxWidth || '',
+                hasCmuxData: Array.prototype.some.call(svg.attributes || [], function(attr) {
+                  return String(attr.name || '').indexOf('data-cmux-') === 0;
+                }) ? '1' : '0'
+              };
+            })();
+            """
+        )
+        guard let raw = result as? [String: Any] else { return [:] }
+        return raw.reduce(into: [String: String]()) { output, item in
+            output[item.key] = item.value as? String
+        }
     }
 }
 

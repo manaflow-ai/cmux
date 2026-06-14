@@ -1642,6 +1642,9 @@ html { scroll-behavior: smooth; }
         el.removeAttribute('srcset');
       });
     }
+    clone.querySelectorAll('.cmux-mermaid svg[data-cmux-mermaid-original-max-width]').forEach(function(el) {
+      mermaidRestoreOriginalSizing(el);
+    });
     clone.querySelectorAll('*').forEach(function(el) {
       Array.prototype.slice.call(el.attributes || []).forEach(function(attr) {
         var name = String(attr.name || '').toLowerCase();
