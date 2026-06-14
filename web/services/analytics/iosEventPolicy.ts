@@ -30,6 +30,9 @@ const ALLOWED_EVENTS: ReadonlySet<string> = new Set([
   "ios_app_backgrounded",
   "ios_session_started",
   "ios_session_ended",
+  // Retention (once-per-period active pings; mirror macOS cmux_daily/hourly_active)
+  "ios_daily_active",
+  "ios_hourly_active",
   // Sign-in
   "ios_sign_in_started",
   "ios_sign_in_completed",
@@ -47,7 +50,6 @@ const ALLOWED_EVENTS: ReadonlySet<string> = new Set([
   // Workspace + terminal
   "ios_workspace_opened",
   "ios_first_frame_latency",
-  "ios_terminal_input_submitted",
   "ios_terminal_input_dropped",
   // Push
   "ios_push_optin_prompt_shown",

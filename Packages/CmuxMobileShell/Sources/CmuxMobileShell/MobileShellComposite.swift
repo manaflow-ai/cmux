@@ -2558,15 +2558,6 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         }
         terminalInputText = ""
         guard remoteClient != nil else { return }
-        // North-star event. One per submit, never per keystroke. Sizes/counts
-        // only — never the text itself (the call below ships the text; analytics
-        // ships only its byte and line counts, mirroring the code's own
-        // `byteCount` privacy:.public logging posture).
-        analytics.capture("ios_terminal_input_submitted", [
-            "byte_count": .int(text.utf8.count),
-            "line_count": .int(text.split(separator: "\n", omittingEmptySubsequences: false).count),
-            "had_attachment": .bool(false),
-        ])
         await sendRemoteTerminalInput(text + "\r")
     }
 

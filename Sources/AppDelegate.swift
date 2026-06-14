@@ -669,6 +669,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     weak var sidebarState: SidebarState?
     /// The auth graph, injected once via `configure(...)` at app startup.
     private(set) var auth: MacAuthComposition?
+    /// The PostHog identity already applied by the identity observer, so
+    /// re-arming on unrelated coordinator changes does not re-apply the same
+    /// identity. `nil` means "nothing applied yet this process", which forces
+    /// the first settled auth state to apply (including a startup `reset()` that
+    /// clears any user distinct id the SDK persisted from a prior launch).
+    private var appliedAnalyticsIdentity: AnalyticsIdentity?
+
+    /// The resolved PostHog identity for the current settled auth state.
+    /// `internal` so ``resolveAnalyticsIdentity(isAuthenticated:isRestoringSession:stackUserID:)``
+    /// is unit-testable.
+    enum AnalyticsIdentity: Equatable {
+        /// Identified as a signed-in Stack user.
+        case identified(String)
+        /// Anonymous (signed out), distinct id reset to a fresh anonymous id.
+        case anonymous
+    }
     /// Strongly-held observers for every active TabManager. Each observer owns
     /// Combine subscriptions that publish workspace.updated to mobile clients.
     private var mobileWorkspaceListObservers: [ObjectIdentifier: MobileWorkspaceListObserver] = [:]
@@ -1813,6 +1829,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             browserSignIn: auth.browserSignIn
         )
         auth.start()
+        startAnalyticsIdentityObserver(coordinator: auth.coordinator)
         ensureMobileWorkspaceListObserver(for: tabManager)
         MobileTerminalRenderObserver.shared.start()
         installMobileHostSettingsObserver()
@@ -1841,6 +1858,96 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         // keeps working. No-op when already set or the legacy file is absent.
         Task { await DevWindowDisplayDefault.migrateLegacyFileIfNeeded(runtime: settingsRuntime) }
 #endif
+    }
+
+    /// Keeps PostHog's distinct id in lockstep with the signed-in Stack user so
+    /// the desktop app correlates with iOS, which routes analytics through the
+    /// web proxy that stamps the same Stack `user.id` as the distinct id.
+    ///
+    /// Observes the `@Observable` ``AuthCoordinator`` rather than hooking a
+    /// single sign-in callback: observation is the one seam that covers fresh
+    /// sign-in, launch session restore, the preserve-cached-session path, and
+    /// every sign-out/clear uniformly. Identity is resolved only from *settled*
+    /// auth state:
+    ///
+    /// - Authenticated with a non-empty Stack user id → `identify(id)` (PostHog
+    ///   back-merges the pre-login anonymous events into that user).
+    /// - Settled signed-out (`isAuthenticated == false`, not restoring) →
+    ///   `reset()` back to a fresh anonymous distinct id.
+    /// - Mid-restore (`isRestoringSession == true`) → leave the applied identity
+    ///   unchanged until the session validates, so a cached-but-unvalidated
+    ///   `currentUser` is never identified.
+    ///
+    /// The applied identity is tracked explicitly (starting `nil`), so the first
+    /// settled state is always applied even when it is "signed out": the SDK
+    /// persists its distinct id across launches, so a signed-out launch after a
+    /// prior identified session must actively `reset()` rather than assume it is
+    /// already anonymous. Re-arming on unrelated coordinator changes is a no-op
+    /// when the resolved identity is unchanged.
+    private func startAnalyticsIdentityObserver(coordinator: AuthCoordinator) {
+        let resolved = Self.resolveAnalyticsIdentity(
+            isAuthenticated: coordinator.isAuthenticated,
+            isRestoringSession: coordinator.isRestoringSession,
+            stackUserID: coordinator.currentUser?.id
+        )
+        if let resolved, resolved != appliedAnalyticsIdentity {
+            appliedAnalyticsIdentity = resolved
+            switch resolved {
+            case let .identified(stackUserID):
+                PostHogAnalytics.shared.identify(stackUserID: stackUserID)
+            case .anonymous:
+                // `reset()` is a no-op when PostHog already holds an anonymous
+                // distinct id (it checks the SDK's own persisted identity), so a
+                // never-identified / perpetually-signed-out user keeps a stable
+                // anonymous id and signed-out retention is not fragmented.
+                PostHogAnalytics.shared.reset()
+            }
+        }
+        withObservationTracking {
+            _ = coordinator.isAuthenticated
+            _ = coordinator.isRestoringSession
+            _ = coordinator.currentUser?.id
+        } onChange: { [weak self, weak coordinator] in
+            Task { @MainActor in
+                guard let self, let coordinator else { return }
+                self.startAnalyticsIdentityObserver(coordinator: coordinator)
+            }
+        }
+    }
+
+    /// Resolves the PostHog identity from settled auth state, or `nil` while a
+    /// session is still restoring (apply nothing until it settles). Pure (and
+    /// `nonisolated`, since `AppDelegate` is `@MainActor`) so it is unit-testable
+    /// from any context without the coordinator or the PostHog SDK.
+    nonisolated static func resolveAnalyticsIdentity(
+        isAuthenticated: Bool,
+        isRestoringSession: Bool,
+        stackUserID: String?
+    ) -> AnalyticsIdentity? {
+        if isAuthenticated,
+           let stackUserID,
+           !stackUserID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            return .identified(stackUserID)
+        }
+        // A cached user can be exposed while the session is still validating; do
+        // not change identity until restore settles.
+        //
+        // Known limitation (accepted): on a relaunch with cached tokens that
+        // later fail validation, the SDK still holds the prior session's
+        // identified distinct id during this restore window, so a `trackActive`
+        // daily/hourly ping that fires before `revalidateSession` settles can be
+        // attributed to the previous user for that one period. This carries no
+        // PII (the active events are just `day_utc`/`hour_utc`/version), is
+        // bounded to a single period (the next activation or the 30-min active
+        // timer re-counts correctly once the session settles to anonymous), and
+        // only occurs for stale-but-present cached tokens; a genuinely
+        // signed-out launch has no tokens, so `resolveAnalyticsIdentity` returns
+        // `.anonymous` synchronously at `configure()` and resets before the
+        // first active event. Gating active capture on `isRestoringSession`
+        // would instead risk undercounting DAU (the metric this exists to
+        // produce), so the rare one-period overcount is preferred.
+        if isRestoringSession { return nil }
+        return .anonymous
     }
 
     private func scheduleGhosttyCrashBreadcrumbIfNeeded(notificationStore: TerminalNotificationStore) {

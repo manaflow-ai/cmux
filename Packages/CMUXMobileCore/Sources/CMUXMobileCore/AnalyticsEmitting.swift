@@ -17,13 +17,13 @@ import Foundation
 /// It must never be `await`-ed inline on a hot path (terminal input, render),
 /// and conformers must never do network or disk I/O on the calling thread:
 /// `capture` enqueues onto an off-main actor and returns. Fire-sites call
-/// `analytics.capture("ios_event", props)` with **no `await`**.
+/// `analytics.capture("ios_<event_name>", props)` with **no `await`**.
 ///
 /// ```swift
-/// // On the terminal-input hot path — note: no await.
-/// analytics.capture("ios_terminal_input_submitted", [
+/// // On a hot path (e.g. dropped terminal input) — note: no await.
+/// analytics.capture("ios_terminal_input_dropped", [
 ///     "byte_count": .int(payload.utf8.count),
-///     "line_count": .int(lineCount),
+///     "reason": .string(reason),
 /// ])
 /// ```
 public protocol AnalyticsEmitting: Sendable {
