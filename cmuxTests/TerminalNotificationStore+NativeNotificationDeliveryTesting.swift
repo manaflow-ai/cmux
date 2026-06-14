@@ -8,7 +8,7 @@ import UserNotifications
 
 extension TerminalNotificationStore {
     func configureNotificationAuthorizationHandlerForTesting(
-        _ handler: @escaping (@escaping (Bool, NotificationAuthorizationState) -> Void) -> Void
+        _ handler: @escaping NativeNotificationDeliveryHooks.AuthorizationHandler
     ) {
         nativeNotificationDeliveryHooks.authorizationHandlerForTesting = handler
     }
@@ -18,7 +18,7 @@ extension TerminalNotificationStore {
     }
 
     func configureUserNotificationSchedulerForTesting(
-        _ scheduler: @escaping (UNNotificationRequest, @escaping (Error?) -> Void) -> Void
+        _ scheduler: @escaping NativeNotificationDeliveryHooks.Scheduler
     ) {
         nativeNotificationDeliveryHooks.scheduler = scheduler
     }
@@ -28,7 +28,7 @@ extension TerminalNotificationStore {
     }
 
     func configureNotificationCommandRunnerForTesting(
-        _ runner: @escaping (String, String, String) -> Void
+        _ runner: @escaping NativeNotificationDeliveryHooks.CommandRunner
     ) {
         nativeNotificationDeliveryHooks.commandRunner = runner
     }

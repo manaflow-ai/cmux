@@ -1,21 +1,26 @@
 import Foundation
 import UserNotifications
 
-struct NativeNotificationDeliveryHooks {
-    var authorizationHandlerForTesting: ((@escaping (Bool, NotificationAuthorizationState) -> Void) -> Void)?
-    var scheduler: (UNNotificationRequest, @escaping (Error?) -> Void) -> Void = {
+struct NativeNotificationDeliveryHooks: Sendable {
+    typealias AuthorizationCompletion = @Sendable (Bool, NotificationAuthorizationState) -> Void
+    typealias AuthorizationHandler = @Sendable (@escaping AuthorizationCompletion) -> Void
+    typealias Scheduler = @Sendable (UNNotificationRequest, @escaping @Sendable (Error?) -> Void) -> Void
+    typealias CommandRunner = @Sendable (String, String, String) -> Void
+
+    var authorizationHandlerForTesting: AuthorizationHandler?
+    var scheduler: Scheduler = {
         request,
         completion in
         UNUserNotificationCenter.current().add(request, withCompletionHandler: completion)
     }
-    var commandRunner: (String, String, String) -> Void = {
+    var commandRunner: CommandRunner = {
         title,
         subtitle,
         body in
         NotificationSoundSettings.runCustomCommand(title: title, subtitle: subtitle, body: body)
     }
 
-    func authorizeForTesting(_ completion: @escaping (Bool, NotificationAuthorizationState) -> Void) -> Bool {
+    func authorizeForTesting(_ completion: @escaping AuthorizationCompletion) -> Bool {
         guard let authorizationHandlerForTesting else {
             return false
         }
@@ -25,7 +30,7 @@ struct NativeNotificationDeliveryHooks {
 
     func schedule(
         _ request: UNNotificationRequest,
-        completion: @escaping (Error?) -> Void
+        completion: @escaping @Sendable (Error?) -> Void
     ) {
         scheduler(request, completion)
     }
@@ -63,7 +68,7 @@ struct NativeNotificationDeliveryHooks {
         body: String,
         effects: TerminalNotificationPolicyEffects,
         runCommand: Bool = true,
-        commandRunner: (String, String, String) -> Void = {
+        commandRunner: CommandRunner = {
             title,
             subtitle,
             body in

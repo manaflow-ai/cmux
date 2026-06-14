@@ -1,4 +1,5 @@
 import Foundation
+import os
 import Testing
 import UserNotifications
 
@@ -11,10 +12,36 @@ import UserNotifications
 @MainActor
 @Suite(.serialized)
 struct NativeNotificationFallbackCommandTests {
-    private struct CommandInvocation: Equatable {
+    private struct CommandInvocation: Equatable, Sendable {
         let title: String
         let subtitle: String
         let body: String
+    }
+
+    private final class CommandInvocationRecorder: Sendable {
+        private let invocationsLock = OSAllocatedUnfairLock(initialState: [CommandInvocation]())
+
+        var invocations: [CommandInvocation] {
+            invocationsLock.withLock { $0 }
+        }
+
+        func append(title: String, subtitle: String, body: String) {
+            invocationsLock.withLock {
+                $0.append(CommandInvocation(title: title, subtitle: subtitle, body: body))
+            }
+        }
+    }
+
+    private final class BoolRecorder: Sendable {
+        private let valueLock = OSAllocatedUnfairLock(initialState: false)
+
+        var value: Bool {
+            valueLock.withLock { $0 }
+        }
+
+        func setTrue() {
+            valueLock.withLock { $0 = true }
+        }
     }
 
     @Test
@@ -24,17 +51,17 @@ struct NativeNotificationFallbackCommandTests {
         resetState(originalAppFocusOverride: false)
         defer { resetState(originalAppFocusOverride: originalAppFocusOverride) }
 
-        var didAttemptSchedule = false
-        var commands: [CommandInvocation] = []
+        let didAttemptSchedule = BoolRecorder()
+        let commands = CommandInvocationRecorder()
         store.configureNotificationAuthorizationHandlerForTesting { completion in
             completion(false, .denied)
         }
         store.configureUserNotificationSchedulerForTesting { _, completion in
-            didAttemptSchedule = true
+            didAttemptSchedule.setTrue()
             completion(nil)
         }
         store.configureNotificationCommandRunnerForTesting { title, subtitle, body in
-            commands.append(CommandInvocation(title: title, subtitle: subtitle, body: body))
+            commands.append(title: title, subtitle: subtitle, body: body)
         }
 
         store.addNotification(
@@ -45,8 +72,8 @@ struct NativeNotificationFallbackCommandTests {
             body: "Real message"
         )
 
-        #expect(commands.isEmpty)
-        #expect(!didAttemptSchedule)
+        #expect(commands.invocations.isEmpty)
+        #expect(!didAttemptSchedule.value)
     }
 
     @Test
@@ -56,7 +83,7 @@ struct NativeNotificationFallbackCommandTests {
         resetState(originalAppFocusOverride: false)
         defer { resetState(originalAppFocusOverride: originalAppFocusOverride) }
 
-        var commands: [CommandInvocation] = []
+        let commands = CommandInvocationRecorder()
         store.configureNotificationAuthorizationHandlerForTesting { completion in
             completion(true, .authorized)
         }
@@ -64,7 +91,7 @@ struct NativeNotificationFallbackCommandTests {
             completion(NSError(domain: "cmuxTests.NotificationScheduling", code: 1))
         }
         store.configureNotificationCommandRunnerForTesting { title, subtitle, body in
-            commands.append(CommandInvocation(title: title, subtitle: subtitle, body: body))
+            commands.append(title: title, subtitle: subtitle, body: body)
         }
 
         store.addNotification(
@@ -76,7 +103,7 @@ struct NativeNotificationFallbackCommandTests {
         )
         await Task.yield()
 
-        #expect(commands.isEmpty)
+        #expect(commands.invocations.isEmpty)
     }
 
     @Test
@@ -84,7 +111,7 @@ struct NativeNotificationFallbackCommandTests {
         var effects = TerminalNotificationPolicyEffects()
         effects.sound = false
         effects.command = true
-        var commands: [CommandInvocation] = []
+        let commands = CommandInvocationRecorder()
 
         NativeNotificationDeliveryHooks.runLocalFeedback(
             title: "Real title",
@@ -93,10 +120,10 @@ struct NativeNotificationFallbackCommandTests {
             effects: effects,
             runCommand: false
         ) { title, subtitle, body in
-            commands.append(CommandInvocation(title: title, subtitle: subtitle, body: body))
+            commands.append(title: title, subtitle: subtitle, body: body)
         }
 
-        #expect(commands.isEmpty)
+        #expect(commands.invocations.isEmpty)
     }
 
     @Test
@@ -105,7 +132,7 @@ struct NativeNotificationFallbackCommandTests {
         effects.desktop = false
         effects.sound = false
         effects.command = true
-        var commands: [CommandInvocation] = []
+        let commands = CommandInvocationRecorder()
 
         NativeNotificationDeliveryHooks.runLocalFeedback(
             title: "Real title",
@@ -113,10 +140,10 @@ struct NativeNotificationFallbackCommandTests {
             body: "Real message",
             effects: effects
         ) { title, subtitle, body in
-            commands.append(CommandInvocation(title: title, subtitle: subtitle, body: body))
+            commands.append(title: title, subtitle: subtitle, body: body)
         }
 
-        #expect(commands == [
+        #expect(commands.invocations == [
             CommandInvocation(title: "Real title", subtitle: "", body: "Real message"),
         ])
     }

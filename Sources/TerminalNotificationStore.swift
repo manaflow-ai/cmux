@@ -110,7 +110,7 @@ enum AppFocusState {
     }
 }
 
-enum NotificationAuthorizationState: Equatable {
+enum NotificationAuthorizationState: Equatable, Sendable {
     case unknown
     case notDetermined
     case authorized
@@ -616,7 +616,7 @@ final class TerminalNotificationStore: ObservableObject {
 #if DEBUG
         cmuxDebugLog("notification.auth \(message)")
 #endif
-        NSLog("notification.auth %@", message)
+        terminalNotificationLogger.info("Authorization \(message, privacy: .private)")
     }
 
     private static func authorizationStatusLabel(_ status: UNAuthorizationStatus) -> String {
@@ -689,7 +689,9 @@ final class TerminalNotificationStore: ObservableObject {
 
             self.center.add(request) { error in
                 if let error {
-                    NSLog("Failed to schedule test notification: \(error)")
+                    terminalNotificationLogger.error(
+                        "Failed to schedule test notification error=\(error.localizedDescription, privacy: .private)"
+                    )
                     self.logAuthorization("settings test schedule failed error=\(error.localizedDescription)")
                 } else {
                     self.logAuthorization("settings test schedule succeeded")
