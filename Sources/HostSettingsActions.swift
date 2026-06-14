@@ -1,5 +1,6 @@
 import AppKit
 import CMUXMobileCore
+import CmuxFileOpen
 import CmuxSettingsUI
 import CmuxFoundation
 import Foundation
@@ -76,7 +77,7 @@ final class HostSettingsActions: SettingsHostActions {
         // falling back to the OS default. Opening the config file directly
         // through `NSWorkspace.shared.open` would route to the default
         // `.json` handler and ignore the cmux setting.
-        PreferredEditorSettings.open(configFileURL)
+        PreferredEditorService(defaults: .standard).open(configFileURL)
     }
 
     func sendFeedback() {
