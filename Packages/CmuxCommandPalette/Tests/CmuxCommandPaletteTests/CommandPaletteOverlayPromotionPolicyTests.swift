@@ -4,9 +4,9 @@ import Testing
 @Suite("CommandPaletteOverlayPromotionPolicy")
 struct CommandPaletteOverlayPromotionPolicyTests {
     @Test func promotesOnlyOnHiddenToVisibleTransition() {
-        #expect(CommandPaletteOverlayPromotionPolicy.shouldPromote(previouslyVisible: false, isVisible: true))
-        #expect(!CommandPaletteOverlayPromotionPolicy.shouldPromote(previouslyVisible: true, isVisible: true))
-        #expect(!CommandPaletteOverlayPromotionPolicy.shouldPromote(previouslyVisible: false, isVisible: false))
-        #expect(!CommandPaletteOverlayPromotionPolicy.shouldPromote(previouslyVisible: true, isVisible: false))
+        #expect(CommandPaletteOverlayPromotionPolicy(previouslyVisible: false, isVisible: true).shouldPromote)
+        #expect(!CommandPaletteOverlayPromotionPolicy(previouslyVisible: true, isVisible: true).shouldPromote)
+        #expect(!CommandPaletteOverlayPromotionPolicy(previouslyVisible: false, isVisible: false).shouldPromote)
+        #expect(!CommandPaletteOverlayPromotionPolicy(previouslyVisible: true, isVisible: false).shouldPromote)
     }
 }

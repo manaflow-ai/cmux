@@ -1,12 +1,14 @@
 import Foundation
 
-/// Derives normalized, de-duplicated search keywords for switcher entries
+/// Derives normalized, de-duplicated search keywords for one switcher entry
 /// from base keywords plus workspace/surface metadata.
-// lint:allow namespace-type — pure stateless policy/value namespace lifted verbatim from ContentView; no natural receiver, modernization deferred.
-public enum CommandPaletteSwitcherSearchIndexer {
+///
+/// A value object: construct it with the entry's base keywords and metadata,
+/// then read `keywords` for the unique, order-preserving result.
+public struct CommandPaletteSwitcherSearchIndexer: Sendable {
     /// How much metadata detail to tokenize: workspaces index whole paths,
     /// surfaces additionally index path/branch components.
-    public enum MetadataDetail {
+    public enum MetadataDetail: Sendable {
         /// Workspace-level detail (whole values only).
         case workspace
         /// Surface-level detail (whole values plus components).
@@ -15,14 +17,28 @@ public enum CommandPaletteSwitcherSearchIndexer {
 
     private static let metadataDelimiters = CharacterSet(charactersIn: "/\\.:_- ")
 
-    /// Returns the unique, order-preserving keyword list for one entry.
-    public static func keywords(
+    /// Base keywords supplied for the entry.
+    public let baseKeywords: [String]
+    /// Workspace/surface metadata to tokenize.
+    public let metadata: CommandPaletteSwitcherSearchMetadata
+    /// How much metadata detail to tokenize.
+    public let detail: MetadataDetail
+
+    /// Captures the inputs for one switcher entry's keyword derivation.
+    public init(
         baseKeywords: [String],
         metadata: CommandPaletteSwitcherSearchMetadata,
         detail: MetadataDetail = .surface
-    ) -> [String] {
-        let metadataKeywords = metadataKeywordsForSearch(metadata, detail: detail)
-        return uniqueNormalizedPreservingOrder(baseKeywords + metadataKeywords)
+    ) {
+        self.baseKeywords = baseKeywords
+        self.metadata = metadata
+        self.detail = detail
+    }
+
+    /// The unique, order-preserving keyword list for the entry.
+    public var keywords: [String] {
+        let metadataKeywords = Self.metadataKeywordsForSearch(metadata, detail: detail)
+        return Self.uniqueNormalizedPreservingOrder(baseKeywords + metadataKeywords)
     }
 
     private static func metadataKeywordsForSearch(
