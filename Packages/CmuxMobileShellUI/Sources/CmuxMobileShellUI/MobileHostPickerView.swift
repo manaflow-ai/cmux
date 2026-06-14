@@ -86,7 +86,7 @@ struct MobileHostPickerView: View {
             ) {
                 Task {
                     let result = await store.acceptPairingVersionWarning()
-                    if result == .connected {
+                    if result != .needsUserApproval {
                         await store.loadPairedMacs()
                         dismiss()
                     }
