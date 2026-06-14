@@ -1063,6 +1063,8 @@ class TerminalController {
             return v2Result(id: request.id, v2SystemTop(params: request.params))
         case "system.memory":
             return v2Result(id: request.id, v2SystemMemory(params: request.params))
+        case "workspace.env":
+            return v2Result(id: request.id, v2WorkspaceEnv(params: request.params))
         case "workspace.remote.pty_sessions":
             return v2Result(id: request.id, v2WorkspaceRemotePTYSessions(params: request.params))
         case "workspace.remote.pty_close":
@@ -2002,6 +2004,7 @@ class TerminalController {
             "window.display",
             "workspace.list",
             "workspace.create",
+            "workspace.env",
             "workspace.select",
             "workspace.current",
             "workspace.close",
@@ -3652,6 +3655,38 @@ class TerminalController {
             "workspace_ref": target.workspaceRef,
             "workspace_title": target.workspaceTitle,
         ]
+    }
+
+    /// `workspace.env` — read a workspace's user-defined environment (issue #5995).
+    /// Resolves the workspace by `workspace_id` / surface / pane, falling back to the
+    /// selected workspace, and returns the raw configured set. Secret masking is a
+    /// CLI presentation concern (`cmux workspace env --mask`): the local control
+    /// socket already exposes the surrounding workspace state, so values are returned
+    /// verbatim and the env set is deliberately kept out of `workspace.list` so a
+    /// plain listing never echoes secrets.
+    private nonisolated func v2WorkspaceEnv(params: [String: Any]) -> V2CallResult {
+        if v2HasNonNullParam(params, "workspace_id"), v2UUID(params, "workspace_id") == nil {
+            return .err(code: "invalid_params", message: "Missing or invalid workspace_id", data: nil)
+        }
+        return v2MainSync { () -> V2CallResult in
+            v2RefreshKnownRefs()
+            guard let tabManager = v2ResolveTabManager(params: params) else {
+                return .err(code: "unavailable", message: "TabManager not available", data: nil)
+            }
+            guard let workspace = v2ResolveWorkspace(params: params, tabManager: tabManager) else {
+                return .err(code: "not_found", message: "Workspace not found", data: nil)
+            }
+            let windowId = v2ResolveWindowId(tabManager: tabManager)
+            let env = workspace.workspaceEnvironment
+            return .ok([
+                "window_id": v2OrNull(windowId?.uuidString),
+                "window_ref": v2Ref(kind: .window, uuid: windowId),
+                "workspace_id": workspace.id.uuidString,
+                "workspace_ref": v2Ref(kind: .workspace, uuid: workspace.id),
+                "env": env,
+                "count": env.count,
+            ])
+        }
     }
 
     private nonisolated func v2WorkspaceRemotePTYSessions(params: [String: Any]) -> V2CallResult {
@@ -14060,6 +14095,14 @@ class TerminalController {
             guard !key.isEmpty else { return }
             result[key] = pair.value
         }
+        // Persistent per-workspace environment (issue #5995): applied to the initial
+        // shell AND every later pane/surface/split, and round-tripped through session
+        // restore. Accept `workspace_env` (preferred) or `env` (layout-JSON spelling).
+        // Unlike `initial_env`, this is NOT gated on the presence of a layout — the
+        // workspace set must apply to layout-defined surfaces too.
+        let workspaceEnv = Workspace.sanitizedWorkspaceEnvironment(
+            v2StringMap(params, "workspace_env") ?? v2StringMap(params, "env") ?? [:]
+        )
         let cwd: String?
         if let workingDirectory {
             cwd = workingDirectory
@@ -14102,6 +14145,7 @@ class TerminalController {
                 workingDirectory: cwd,
                 initialTerminalCommand: layoutNode == nil ? initialCommand : nil,
                 initialTerminalEnvironment: layoutNode == nil ? initialEnv : [:],
+                workspaceEnvironment: workspaceEnv,
                 select: shouldFocus,
                 eagerLoadTerminal: shouldEagerLoadTerminal,
                 autoRefreshMetadata: shouldAutoRefreshMetadata

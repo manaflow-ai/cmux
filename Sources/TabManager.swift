@@ -2535,7 +2535,8 @@ class TabManager: ObservableObject {
         initialSurface: NewWorkspaceInitialSurface = .terminal,
         initialTerminalCommand: String?,
         initialTerminalInput: String? = nil,
-        initialTerminalEnvironment: [String: String]
+        initialTerminalEnvironment: [String: String],
+        workspaceEnvironment: [String: String] = [:]
     ) -> Workspace {
         Workspace(
             title: title,
@@ -2545,7 +2546,8 @@ class TabManager: ObservableObject {
             initialSurface: initialSurface,
             initialTerminalCommand: initialTerminalCommand,
             initialTerminalInput: initialTerminalInput,
-            initialTerminalEnvironment: initialTerminalEnvironment
+            initialTerminalEnvironment: initialTerminalEnvironment,
+            workspaceEnvironment: workspaceEnvironment
         )
     }
 
@@ -2622,6 +2624,7 @@ class TabManager: ObservableObject {
         initialTerminalCommand: String? = nil,
         initialTerminalInput: String? = nil,
         initialTerminalEnvironment: [String: String] = [:],
+        workspaceEnvironment: [String: String] = [:],
         inheritWorkingDirectory: Bool = true,
         select: Bool = true,
         eagerLoadTerminal: Bool = false,
@@ -2685,7 +2688,8 @@ class TabManager: ObservableObject {
                 initialSurface: initialSurface,
                 initialTerminalCommand: initialTerminalCommand,
                 initialTerminalInput: initialTerminalInput,
-                initialTerminalEnvironment: initialTerminalEnvironment
+                initialTerminalEnvironment: initialTerminalEnvironment,
+                workspaceEnvironment: workspaceEnvironment
             )
             applyCreationChromeInheritance(
                 to: newWorkspace,
