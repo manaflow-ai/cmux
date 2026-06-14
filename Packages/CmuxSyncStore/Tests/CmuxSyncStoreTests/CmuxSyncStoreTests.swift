@@ -413,6 +413,11 @@ private let sortKey: @Sendable (SyncWireRecord) -> Double = { DeviceSyncFacade.s
         #expect(throws: SyncFrameParseError.self) {
             _ = try SyncFrameCodec().parse(Data(#"{"type":"sync.snapshot","collection":"devices","snapshotRev":1e308,"complete":true,"records":[]}"#.utf8))
         }
+        // The exact 2^63 boundary (Int.max rounds UP to this as a Double) must be
+        // rejected, not trap on Int(d).
+        #expect(throws: SyncFrameParseError.self) {
+            _ = try SyncFrameCodec().parse(Data(#"{"type":"sync.delta","collection":"devices","rev":9223372036854775808,"records":[]}"#.utf8))
+        }
     }
 
     @Test func helloEncodesCollectionsAndCursors() throws {

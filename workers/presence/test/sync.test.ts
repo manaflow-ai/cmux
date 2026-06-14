@@ -66,13 +66,13 @@ describe("parseHello", () => {
 });
 
 describe("resolveHello (snapshot vs delta floor)", () => {
-  it("forces a snapshot for a first-time client (cursor 0 below any floor)", () => {
-    expect(resolveHello({ cursor: 0, gcFloor: 0, head: 10 })).toEqual({
-      mode: "delta",
-      sinceRev: 0,
-    });
-    // With any GC having happened, cursor 0 is below the floor -> snapshot.
+  it("always forces a snapshot for a first-time client (cursor 0)", () => {
+    // A cursor-0 client has nothing: it needs the paged snapshot + reconciliation,
+    // not a catch-up delta, even when the GC floor is 0 (DESIGN.md §3.5).
+    expect(resolveHello({ cursor: 0, gcFloor: 0, head: 10 })).toEqual({ mode: "snapshot" });
     expect(resolveHello({ cursor: 0, gcFloor: 4, head: 10 })).toEqual({ mode: "snapshot" });
+    // Even with an empty collection (head 0), cursor 0 is a snapshot.
+    expect(resolveHello({ cursor: 0, gcFloor: 0, head: 0 })).toEqual({ mode: "snapshot" });
   });
 
   it("delta-catches-up a client at or above the GC floor", () => {

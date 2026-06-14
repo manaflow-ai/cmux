@@ -144,6 +144,10 @@ export function resolveHello(input: {
   gcFloor: number;
   head: number;
 }): HelloResolution {
+  // A first-time client (cursor 0) always gets a snapshot: it has nothing, so it
+  // needs the paged full state and the snapshot reconciliation, not a catch-up
+  // delta (DESIGN.md §3.5 "cursor = 0 ... always gets a snapshot").
+  if (input.cursor <= 0) return { mode: "snapshot" };
   // A cursor below the GC floor may have missed a GC'd deletion: full snapshot.
   if (input.cursor < input.gcFloor) return { mode: "snapshot" };
   // A cursor AHEAD of the head cannot have come from this DO's current history

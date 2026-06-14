@@ -164,9 +164,16 @@ public struct SyncFrameCodec: Sendable {
     /// Convert a JSON double to Int only when it is finite, integral, and within
     /// Int range; otherwise nil so the caller surfaces `.malformed` and resyncs
     /// rather than trapping the process on `Int(d)` overflow.
+    ///
+    /// `Int.max` (2^63 - 1) is NOT exactly representable as a Double — it rounds
+    /// up to 2^63 — so comparing `d <= Double(Int.max)` would let `2^63` through
+    /// and then trap on `Int(d)`. Compare against the exactly-representable power
+    /// of two `2^63` with a STRICT `<`, and against `-2^63` (which IS exactly
+    /// representable and equals `Int.min`) with `>=`.
     private func intFromDouble(_ d: Double) -> Int? {
+        let twoTo63 = 9223372036854775808.0 // 2^63, exact in Double; > Int.max
         guard d.isFinite, d == d.rounded(.towardZero),
-              d >= Double(Int.min), d <= Double(Int.max) else {
+              d >= -twoTo63, d < twoTo63 else {
             return nil
         }
         return Int(d)

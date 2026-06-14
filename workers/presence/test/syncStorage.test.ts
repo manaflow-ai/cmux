@@ -218,13 +218,15 @@ describe("snapshot rev-filtering and the concurrent-delete-during-paging race", 
 });
 
 describe("resolveHelloFrames (GC-floor forced resync, DESIGN §3.5)", () => {
-  it("a first-time client (cursor 0, floor 0) gets a delta from 0 (== full set)", async () => {
+  it("a first-time client (cursor 0) gets a full snapshot, not a delta", async () => {
     const storage = new FakeStorage();
     await upsertRecord(storage, COLL, "dev-A", devicePayload(), T0);
     const resolved = await resolveHelloFrames<DeviceRecord>(storage, COLL, 0);
-    expect(resolved.mode).toBe("delta");
-    if (resolved.mode === "delta") {
-      expect(resolved.delta!.records.map((r) => r.id)).toEqual(["dev-A"]);
+    expect(resolved.mode).toBe("snapshot");
+    if (resolved.mode === "snapshot") {
+      expect(resolved.snapshotRev).toBe(1);
+      expect(resolved.pages.at(-1)!.complete).toBe(true);
+      expect(resolved.pages.flatMap((p) => p.records).map((r) => r.id)).toEqual(["dev-A"]);
     }
   });
 
