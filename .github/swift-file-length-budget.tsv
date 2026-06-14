@@ -5,12 +5,12 @@
 17913	Sources/AppDelegate.swift
 16826	Sources/ContentView.swift
 14612	Sources/TerminalController.swift
-13577	Sources/Panels/BrowserPanel.swift
+13595	Sources/Panels/BrowserPanel.swift
 12085	Sources/GhosttyTerminalView.swift
 12046	cmuxTests/AppDelegateShortcutRoutingTests.swift
 11991	Sources/Workspace.swift
 9345	cmuxTests/CLINotifyProcessIntegrationRegressionTests.swift
-7851	Sources/Panels/BrowserPanelView.swift
+7911	Sources/Panels/BrowserPanelView.swift
 7349	cmuxTests/WorkspaceUnitTests.swift
 6944	cmuxTests/WorkspaceRemoteConnectionTests.swift
 6317	cmuxTests/SessionPersistenceTests.swift
@@ -19,7 +19,7 @@
 6074	Sources/TabManager.swift
 6074	Sources/TextBoxInput.swift
 5925	cmuxTests/TerminalAndGhosttyTests.swift
-5500	cmuxTests/BrowserConfigTests.swift
+5522	cmuxTests/BrowserConfigTests.swift
 5487	Sources/cmuxApp.swift
 5113	Packages/CmuxMobileShell/Sources/CmuxMobileShell/MobileShellComposite.swift
 4460	Sources/Panels/FilePreviewPanel.swift
@@ -107,6 +107,7 @@
 830	Sources/TaskManagerTypes.swift
 810	Packages/CmuxSwiftRender/Tests/CmuxSwiftRenderTests/SwiftViewInterpreterTests.swift
 787	Sources/ClosedItemHistory.swift
+779	cmuxUITests/BrowserOmnibarSuggestionsUITests.swift
 774	cmuxUITests/BrowserFixtureInteractionUITests.swift
 770	Sources/MainWindowFocusController.swift
 762	Packages/CmuxMobileTransport/Sources/CmuxMobileTransport/CmxNetworkByteTransport.swift
@@ -122,7 +123,6 @@
 715	Sources/AppleScriptSupport.swift
 710	Sources/TerminalSSHSessionDetector.swift
 706	CLI/CMUXCLI+Config.swift
-705	cmuxUITests/BrowserOmnibarSuggestionsUITests.swift
 701	CLI/CMUXCLI+AgentHookDefinitions.swift
 699	Sources/RightSidebarPanelView.swift
 699	cmuxTests/TerminalNotificationClearAllTests.swift
