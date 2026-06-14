@@ -2155,9 +2155,9 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                 // itself (127.0.0.1) would make the phone dial itself. Name
                 // the actual fix (Tailscale on the Mac) instead of the
                 // generic invalid-code copy.
-                applyPairingFailure(.loopbackRejected, phase: "validation")
+                applyPairingValidationFailure(.loopbackRejected)
             } else {
-                applyPairingFailure(.invalidCode, phase: "validation")
+                applyPairingValidationFailure(.invalidCode)
             }
             if connectionState != .connected {
                 connectionState = .disconnected
@@ -2172,7 +2172,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             actualUserID: identityProvider?.currentUserID,
             actualEmail: identityProvider?.currentUserEmail
         ) {
-            applyPairingFailure(emailFailure, phase: "validation")
+            applyPairingValidationFailure(emailFailure)
             if connectionState != .connected {
                 connectionState = .disconnected
                 macConnectionStatus = .unavailable
@@ -3267,6 +3267,13 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         }
         connectionErrorGuidance = category.guidance
         recordPairingFailed(reason: category.analyticsReason, phase: phase)
+    }
+
+    private func applyPairingValidationFailure(_ category: MobilePairingFailureCategory) {
+        if pairingAttemptMethod == nil {
+            _ = beginPairingValidationAttempt(method: "qr")
+        }
+        applyPairingFailure(category, phase: "validation")
     }
 
     /// Clear the error and its guidance together (never bare `connectionError

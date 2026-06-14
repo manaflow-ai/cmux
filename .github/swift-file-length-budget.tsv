@@ -21,7 +21,7 @@
 6074	Sources/TextBoxInput.swift
 5500	cmuxTests/BrowserConfigTests.swift
 5487	Sources/cmuxApp.swift
-5106	Packages/CmuxMobileShell/Sources/CmuxMobileShell/MobileShellComposite.swift
+5113	Packages/CmuxMobileShell/Sources/CmuxMobileShell/MobileShellComposite.swift
 4460	Sources/Panels/FilePreviewPanel.swift
 4400	cmuxTests/BrowserPanelTests.swift
 4227	Sources/BrowserWindowPortal.swift

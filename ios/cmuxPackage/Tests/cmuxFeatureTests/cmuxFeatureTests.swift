@@ -1535,13 +1535,15 @@ final class TerminalOutputCollector {
         supportedRouteKinds: [.tailscale],
         transportFactory: ScriptedTransportFactory(responses: responses)
     )
+    let analytics = RecordingAnalytics()
     let store = CMUXMobileShellStore(
         runtime: runtime,
         workspaces: PreviewMobileHost.workspaces,
         identityProvider: TestIdentityProvider(
             currentUserIDValue: "phone-user",
             currentUserEmailValue: "phone@example.com"
-        )
+        ),
+        analytics: analytics
     )
 
     store.signIn()
@@ -1554,6 +1556,8 @@ final class TerminalOutputCollector {
     #expect(store.connectionError?.contains("same email") == true)
     #expect(store.connectionError?.contains("mac@example.com") == false)
     #expect(store.connectionError?.contains("phone@example.com") == false)
+    #expect(analytics.eventCount(named: "ios_pairing_started") == 1)
+    #expect(analytics.eventCount(named: "ios_pairing_failed") == 1)
     #expect(try await responses.sentRequests().isEmpty)
 }
 

@@ -1103,7 +1103,11 @@ struct MobileHostAuthorizationTests {
     }
 
     private func drainMobileHostMainQueue() async {
-        await Task.yield()
+        await withCheckedContinuation { continuation in
+            DispatchQueue.main.async {
+                continuation.resume()
+            }
+        }
     }
 }
 
