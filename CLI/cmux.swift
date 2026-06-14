@@ -22295,6 +22295,31 @@ struct CMUXCLI {
             return false
         }
 
+        // A mapped session record only authorizes skipping the recovered-target
+        // no-op when its stored workspace is still reachable. In the ambient
+        // no-flicker path (no --workspace/--surface flag and no
+        // CMUX_WORKSPACE_ID/CMUX_SURFACE_ID) a record that points at a closed
+        // workspace must not fall through to the focused-pane fallback and
+        // publish status onto whichever pane happens to be focused — the
+        // cross-pane routing class this change fixes.
+        // https://github.com/manaflow-ai/cmux/issues/6048
+        func mappedHookTargetIsReachable(_ mappedSession: ClaudeHookSessionRecord?) -> Bool {
+            guard let mappedSession else { return false }
+            // Explicit/env targets keep their prior behavior; only the ambient
+            // recovery path is at risk of borrowing the focused pane.
+            guard needsRecoveredHookTarget else { return true }
+            // The stored target only authorizes skipping the no-op when BOTH its
+            // workspace and surface are still present. If the workspace survives
+            // but the stored surface was closed, the surface resolver falls
+            // through to the focused/default surface (isAuthoritative == false)
+            // and leaks status across panes — so a closed stored workspace OR
+            // surface must defer to the recovery check instead of being trusted.
+            guard let workspaceId = resolveClaudeHookWorkspaceId(mappedSession.workspaceId, client: client),
+                  claudeHookWorkspaceIsAccessible(workspaceId, client: client, allowUnknown: true),
+                  resolveAccessibleClaudeHookSurfaceId(mappedSession.surfaceId, workspaceId: workspaceId, client: client) != nil else { return false }
+            return true
+        }
+
         switch subcommand {
         case "session-start", "active":
             telemetry.breadcrumb("claude-hook.session-start")
@@ -22422,7 +22447,7 @@ struct CMUXCLI {
                 let mappedSession = parsedInput.sessionId.flatMap { try? sessionStore.lookup(sessionId: $0) }
                 let claudePid = hookClaudePid ?? mappedSession?.pid
                 var terminalBindingCache: ClaudeHookTerminalBindingCache = (didResolve: false, agentPID: nil, allowProcessSnapshotBinding: hookClaudePid != nil && mappedSession?.pid != hookClaudePid, socketPassword: socketPassword, binding: nil)
-                guard mappedSession != nil || !missingRecoveredHookTarget(agentPID: claudePid, terminalBindingCache: &terminalBindingCache) else { didSendFeedTelemetry = true; print("{}"); return }
+                guard mappedHookTargetIsReachable(mappedSession) || !missingRecoveredHookTarget(agentPID: claudePid, terminalBindingCache: &terminalBindingCache) else { didSendFeedTelemetry = true; print("{}"); return }
                 let workspaceId = try resolvePreferredWorkspaceIdForClaudeHook(
                     preferred: mappedSession?.workspaceId,
                     fallback: workspaceArg,
@@ -22534,7 +22559,7 @@ struct CMUXCLI {
             let mappedSession = parsedInput.sessionId.flatMap { try? sessionStore.lookup(sessionId: $0) }
             let claudePid = hookClaudePid ?? mappedSession?.pid
             var terminalBindingCache: ClaudeHookTerminalBindingCache = (didResolve: false, agentPID: nil, allowProcessSnapshotBinding: hookClaudePid != nil && mappedSession?.pid != hookClaudePid, socketPassword: socketPassword, binding: nil)
-            guard mappedSession != nil || !missingRecoveredHookTarget(agentPID: claudePid, terminalBindingCache: &terminalBindingCache) else { didSendFeedTelemetry = true; print("{}"); return }
+            guard mappedHookTargetIsReachable(mappedSession) || !missingRecoveredHookTarget(agentPID: claudePid, terminalBindingCache: &terminalBindingCache) else { didSendFeedTelemetry = true; print("{}"); return }
             let workspaceId = try resolvePreferredWorkspaceIdForClaudeHook(
                 preferred: mappedSession?.workspaceId,
                 fallback: workspaceArg,
@@ -22654,7 +22679,7 @@ struct CMUXCLI {
             let mappedSession = parsedInput.sessionId.flatMap { try? sessionStore.lookup(sessionId: $0) }
             let claudePid = hookClaudePid ?? mappedSession?.pid
             var terminalBindingCache: ClaudeHookTerminalBindingCache = (didResolve: false, agentPID: nil, allowProcessSnapshotBinding: hookClaudePid != nil && mappedSession?.pid != hookClaudePid, socketPassword: socketPassword, binding: nil)
-            guard mappedSession != nil || !missingRecoveredHookTarget(agentPID: claudePid, terminalBindingCache: &terminalBindingCache) else { didSendFeedTelemetry = true; print("{}"); return }
+            guard mappedHookTargetIsReachable(mappedSession) || !missingRecoveredHookTarget(agentPID: claudePid, terminalBindingCache: &terminalBindingCache) else { didSendFeedTelemetry = true; print("{}"); return }
             let workspaceId = try resolvePreferredWorkspaceIdForClaudeHook(
                 preferred: mappedSession?.workspaceId,
                 fallback: workspaceArg,
@@ -22884,7 +22909,7 @@ struct CMUXCLI {
             let mappedSession = parsedInput.sessionId.flatMap { try? sessionStore.lookup(sessionId: $0) }
             let claudePid = hookClaudePid ?? mappedSession?.pid
             var terminalBindingCache: ClaudeHookTerminalBindingCache = (didResolve: false, agentPID: nil, allowProcessSnapshotBinding: hookClaudePid != nil && mappedSession?.pid != hookClaudePid, socketPassword: socketPassword, binding: nil)
-            guard mappedSession != nil || !missingRecoveredHookTarget(agentPID: claudePid, terminalBindingCache: &terminalBindingCache) else { didSendFeedTelemetry = true; print("{}"); return }
+            guard mappedHookTargetIsReachable(mappedSession) || !missingRecoveredHookTarget(agentPID: claudePid, terminalBindingCache: &terminalBindingCache) else { didSendFeedTelemetry = true; print("{}"); return }
             let workspaceId = try resolvePreferredWorkspaceIdForClaudeHook(
                 preferred: mappedSession?.workspaceId,
                 fallback: workspaceArg,

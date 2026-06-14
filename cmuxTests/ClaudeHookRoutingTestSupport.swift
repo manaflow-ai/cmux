@@ -146,7 +146,10 @@ struct ClaudeHookRoutingTestSupport {
 
         do {
             try process.run()
-            stdinPipe.fileHandleForWriting.write(Data(standardInput.utf8))
+            // Tolerate a closed stdin: no-op hook paths can exit before reading
+            // stdin, so a non-throwing write could hit EPIPE and crash the test
+            // runner. The throwing variant + try? swallows that benign race.
+            try? stdinPipe.fileHandleForWriting.write(contentsOf: Data(standardInput.utf8))
             try? stdinPipe.fileHandleForWriting.close()
         } catch {
             return ProcessRunResult(status: -1, stdout: "", stderr: String(describing: error), timedOut: false)
