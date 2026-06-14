@@ -39,6 +39,17 @@ paths = [
   '''(^|/)vendor/''',
 ]
 
+# This config necessarily embeds the very token-shaped literals it allowlists
+# (the `token=sk-...` doc placeholder, the publishable keys). `gitleaks dir`
+# scans the working tree, and a run that does NOT load this file as its config
+# (e.g. an external tool with its own config) would otherwise flag those literals
+# here. Allowlist the config by path so the scan never depends on default rules
+# happening not to match its own contents; by construction it holds only
+# synthetic / public-by-design values.
+[[allowlists]]
+description = "The gitleaks config itself (holds only synthetic/public allowlisted literals)"
+paths = ['''(^|/)\.gitleaks\.toml$''']
+
 # ---------------------------------------------------------------------------
 # issue #5978 — intentional Sentry-scrubber redaction fixtures.
 # These files exist solely to feed token-shaped inputs through the scrubber and
