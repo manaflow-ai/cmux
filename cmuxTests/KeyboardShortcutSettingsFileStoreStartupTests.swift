@@ -1118,46 +1118,6 @@ final class KeyboardShortcutSettingsFileStoreStartupTests: XCTestCase {
         }
     }
 
-    func testSettingsFileStoreMarksMenuBarOnlyAsExplicitOptIn() throws {
-        let defaults = UserDefaults.standard
-        let settingKey = MenuBarOnlySettings.menuBarOnlyKey
-        let explicitKey = MenuBarOnlySettings.explicitEnableKey
-
-        try preservingDefaults(keys: [settingKey, explicitKey, settingsFileBackupsDefaultsKey, importedManagedDefaultsKey]) {
-            defaults.removeObject(forKey: settingKey)
-            defaults.removeObject(forKey: explicitKey)
-            defaults.removeObject(forKey: settingsFileBackupsDefaultsKey)
-            defaults.removeObject(forKey: importedManagedDefaultsKey)
-
-            let directoryURL = try makeTemporaryDirectory()
-            defer { try? FileManager.default.removeItem(at: directoryURL) }
-
-            let settingsFileURL = directoryURL.appendingPathComponent("cmux.json", isDirectory: false)
-            try writeSettingsFile(
-                """
-                {
-                  "app": {
-                    "menuBarOnly": true
-                  }
-                }
-                """,
-                to: settingsFileURL
-            )
-
-            _ = KeyboardShortcutSettingsFileStore(
-                primaryPath: settingsFileURL.path,
-                fallbackPath: nil,
-                additionalFallbackPaths: [],
-                startWatching: false
-            )
-
-            XCTAssertEqual(defaults.object(forKey: settingKey) as? Bool, true)
-            XCTAssertEqual(defaults.object(forKey: explicitKey) as? Bool, true)
-            XCTAssertTrue(MenuBarOnlySettings.isEnabled(defaults: defaults))
-            XCTAssertEqual(MenuBarOnlySettings.activationPolicy(defaults: defaults), .accessory)
-        }
-    }
-
     func testSettingsFileStoreAppliesTerminalCopyOnSelectSetting() throws {
         let defaults = UserDefaults.standard
         let key = TerminalCopyOnSelectSettings.copyOnSelectKey

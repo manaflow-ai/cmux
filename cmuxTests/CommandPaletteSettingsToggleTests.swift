@@ -91,6 +91,34 @@ final class CommandPaletteSettingsToggleTests: XCTestCase {
         )
     }
 
+    func testMenuBarOnlyCommandHistoryDoesNotEnableAccessoryPolicy() throws {
+        try withTemporaryDefaults { defaults in
+            defaults.set(true, forKey: MenuBarOnlySettings.menuBarOnlyKey)
+            defaults.set(
+                try JSONSerialization.data(withJSONObject: [
+                    MenuBarOnlySettings.legacyCommandPaletteMenuBarOnlyCommandId: [
+                        "useCount": 1,
+                        "lastUsedAt": 1_700_000_000,
+                    ],
+                ]),
+                forKey: MenuBarOnlySettings.legacyCommandPaletteUsageKey
+            )
+
+            XCTAssertFalse(MenuBarOnlySettings.isEnabled(defaults: defaults))
+            XCTAssertEqual(MenuBarOnlySettings.activationPolicy(defaults: defaults), .regular)
+            XCTAssertFalse(MenuBarOnlySettings.shouldShowMainWindowMenuItem(defaults: defaults))
+        }
+    }
+
+    func testLegacyMenuBarOnlyDefaultWithoutCommandHistoryStillOptsIn() throws {
+        try withTemporaryDefaults { defaults in
+            defaults.set(true, forKey: MenuBarOnlySettings.menuBarOnlyKey)
+
+            XCTAssertTrue(MenuBarOnlySettings.isEnabled(defaults: defaults))
+            XCTAssertEqual(MenuBarOnlySettings.activationPolicy(defaults: defaults), .accessory)
+        }
+    }
+
     func testInterceptTerminalOpenCommandReadsRawSettingWhenBrowserIsDisabled() throws {
         try withTemporaryDefaults { defaults in
             let descriptor = try XCTUnwrap(

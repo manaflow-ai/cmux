@@ -15,6 +15,35 @@ private final class ShortcutSettingsLookupRecorder: @unchecked Sendable {
 }
 
 final class KeyboardShortcutSettingsFileStoreMigrationTests: XCTestCase {
+    private let settingsFileBackupsDefaultsKey = "cmux.settingsFile.backups.v1"
+    private let importedManagedDefaultsKey = "cmux.settingsFile.importedManagedDefaults.v1"
+
+    func testSettingsFileStoreMarksMenuBarOnlyAsExplicitOptIn() throws {
+        let defaults = UserDefaults.standard
+        let settingKey = MenuBarOnlySettings.menuBarOnlyKey
+        let explicitKey = MenuBarOnlySettings.explicitEnableKey
+
+        try preservingDefaults(keys: [settingKey, explicitKey, settingsFileBackupsDefaultsKey, importedManagedDefaultsKey]) {
+            let directoryURL = try makeTemporaryDirectory()
+            defer { try? FileManager.default.removeItem(at: directoryURL) }
+
+            let settingsFileURL = directoryURL.appendingPathComponent("cmux.json", isDirectory: false)
+            try writeSettingsFile(#"{"app":{"menuBarOnly":true}}"#, to: settingsFileURL)
+
+            _ = KeyboardShortcutSettingsFileStore(
+                primaryPath: settingsFileURL.path,
+                fallbackPath: nil,
+                additionalFallbackPaths: [],
+                startWatching: false
+            )
+
+            XCTAssertEqual(defaults.object(forKey: settingKey) as? Bool, true)
+            XCTAssertEqual(defaults.object(forKey: explicitKey) as? Bool, true)
+            XCTAssertTrue(MenuBarOnlySettings.isEnabled(defaults: defaults))
+            XCTAssertEqual(MenuBarOnlySettings.activationPolicy(defaults: defaults), .accessory)
+        }
+    }
+
     func testBootstrapMigratesLegacySettingsIntoCanonicalConfig() throws {
         let directoryURL = try makeTemporaryDirectory()
         defer { try? FileManager.default.removeItem(at: directoryURL) }
@@ -242,5 +271,17 @@ final class KeyboardShortcutSettingsFileStoreMigrationTests: XCTestCase {
             withIntermediateDirectories: true
         )
         try contents.write(to: url, atomically: true, encoding: .utf8)
+    }
+
+    private func preservingDefaults(keys: [String], _ body: () throws -> Void) rethrows {
+        let defaults = UserDefaults.standard
+        let previous = Dictionary(uniqueKeysWithValues: keys.map { ($0, defaults.object(forKey: $0)) })
+        keys.forEach { defaults.removeObject(forKey: $0) }
+        defer {
+            for (key, value) in previous {
+                if let value { defaults.set(value, forKey: key) } else { defaults.removeObject(forKey: key) }
+            }
+        }
+        try body()
     }
 }

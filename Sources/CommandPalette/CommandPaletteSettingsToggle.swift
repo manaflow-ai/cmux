@@ -1,6 +1,17 @@
 import Foundation
 import CmuxSettings
 
+extension MenuBarOnlySettings {
+    static let legacyCommandPaletteUsageKey = "commandPalette.commandUsage.v1"
+    static let legacyCommandPaletteMenuBarOnlyCommandId = "palette.toggleSetting.menuBarOnly"
+
+    static func legacyCommandPaletteToggleWasUsed(defaults: UserDefaults = .standard) -> Bool {
+        guard let data = defaults.data(forKey: legacyCommandPaletteUsageKey),
+              let history = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { return false }
+        return history[legacyCommandPaletteMenuBarOnlyCommandId] != nil
+    }
+}
+
 struct CommandPaletteSettingToggleDescriptor: Sendable {
     let commandId: String
     let settingsKey: String

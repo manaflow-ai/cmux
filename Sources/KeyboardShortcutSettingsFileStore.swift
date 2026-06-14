@@ -421,8 +421,7 @@ final class CmuxSettingsFileStore {
             snapshot.managedUserDefaults[AppIconSettings.modeKey] = .string(mode.rawValue)
         }
         if let value = jsonBool(section["menuBarOnly"]) {
-            snapshot.managedUserDefaults[MenuBarOnlySettings.menuBarOnlyKey] = .bool(value)
-            snapshot.managedUserDefaults[MenuBarOnlySettings.explicitEnableKey] = .bool(value)
+            snapshot.managedUserDefaults[MenuBarOnlySettings.menuBarOnlyKey] = .bool(value); snapshot.managedUserDefaults[MenuBarOnlySettings.explicitEnableKey] = .bool(value)
         }
         if let raw = jsonString(section["windowTitleTemplate"]) { snapshot.managedUserDefaults[WindowTitleTemplate.userDefaultsKey] = .string(raw) } else if section.keys.contains("windowTitleTemplate") { logInvalid("app.windowTitleTemplate", sourcePath: sourcePath) }
         if let raw = jsonString(section["newWorkspacePlacement"]) {

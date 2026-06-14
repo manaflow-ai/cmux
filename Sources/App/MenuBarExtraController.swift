@@ -519,29 +519,14 @@ enum MenuBarExtraSettings {
 
 enum MenuBarOnlySettings {
     static let menuBarOnlyKey = "menuBarOnly"
-    static let explicitEnableKey = "menuBarOnlyExplicitlyEnabled.v1"
-    static let defaultMenuBarOnly = false
+    static let explicitEnableKey = "menuBarOnlyExplicitlyEnabled.v1"; static let defaultMenuBarOnly = false
 
     static func isEnabled(defaults: UserDefaults = .standard) -> Bool {
-        guard defaults.object(forKey: menuBarOnlyKey) != nil else {
-            return defaultMenuBarOnly
-        }
-        guard defaults.bool(forKey: menuBarOnlyKey) else { return false }
-        return defaults.bool(forKey: explicitEnableKey)
+        guard defaults.object(forKey: menuBarOnlyKey) != nil, defaults.bool(forKey: menuBarOnlyKey) else { return defaultMenuBarOnly }
+        return defaults.object(forKey: explicitEnableKey) != nil ? defaults.bool(forKey: explicitEnableKey) : !legacyCommandPaletteToggleWasUsed(defaults: defaults)
     }
 
-    static func setEnabled(_ enabled: Bool, defaults: UserDefaults = .standard) {
-        defaults.set(enabled, forKey: menuBarOnlyKey)
-        defaults.set(enabled, forKey: explicitEnableKey)
-    }
-
-    static func repairUnconfirmedStoredPreference(defaults: UserDefaults = .standard) {
-        guard defaults.object(forKey: menuBarOnlyKey) as? Bool == true,
-              !defaults.bool(forKey: explicitEnableKey) else {
-            return
-        }
-        defaults.set(false, forKey: menuBarOnlyKey)
-    }
+    static func setEnabled(_ enabled: Bool, defaults: UserDefaults = .standard) { defaults.set(enabled, forKey: menuBarOnlyKey); defaults.set(enabled, forKey: explicitEnableKey) }
 
     static func activationPolicy(defaults: UserDefaults = .standard) -> NSApplication.ActivationPolicy {
         isEnabled(defaults: defaults) ? .accessory : .regular
