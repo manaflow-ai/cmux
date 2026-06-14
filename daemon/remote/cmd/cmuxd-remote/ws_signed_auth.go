@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"crypto/ed25519"
 	"crypto/sha256"
 	"encoding/base64"
@@ -30,6 +31,11 @@ var (
 	errWSSignedLeaseInvalid     = errors.New("signed attach auth rejected")
 	wsSignedLeaseMu             sync.Mutex
 	wsSignedLeaseUsedDir        = "/tmp/cmux/signed-attach-jti"
+)
+
+const (
+	wsSignedLeaseJTIBucketSeconds    int64 = 60
+	wsSignedLeaseJTICleanupFrequency       = time.Minute
 )
 
 func authorizeWebSocketAuth(cfg wsPTYServerConfig, kind string, auth wsAuthFrame) error {
@@ -128,20 +134,16 @@ func readSignedAuthAudience(path string) (string, error) {
 }
 
 func consumeSignedLeaseJTI(jti string, expiresAtUnix int64) error {
-	now := time.Now().Unix()
 	wsSignedLeaseMu.Lock()
 	defer wsSignedLeaseMu.Unlock()
-	path := signedLeaseJTIPath(jti)
-	if existing, err := os.ReadFile(path); err == nil {
-		expiry, parseErr := strconv.ParseInt(strings.TrimSpace(string(existing)), 10, 64)
-		if parseErr == nil && expiry > now {
-			return errWSSignedLeaseInvalid
-		}
-		_ = os.Remove(path)
-	} else if !errors.Is(err, os.ErrNotExist) {
+	bucketDir := signedLeaseJTIBucketDir(expiresAtUnix)
+	if err := os.MkdirAll(bucketDir, 0o700); err != nil {
 		return errWSSignedLeaseInvalid
 	}
-	if err := os.MkdirAll(wsSignedLeaseUsedDir, 0o700); err != nil {
+	path := signedLeaseJTIPath(jti, expiresAtUnix)
+	if _, err := os.Stat(path); err == nil {
+		return errWSSignedLeaseInvalid
+	} else if !errors.Is(err, os.ErrNotExist) {
 		return errWSSignedLeaseInvalid
 	}
 	file, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
@@ -157,7 +159,52 @@ func consumeSignedLeaseJTI(jti string, expiresAtUnix int64) error {
 	return nil
 }
 
-func signedLeaseJTIPath(jti string) string {
+func startSignedLeaseJTICleanup(ctx context.Context) {
+	cleanupExpiredSignedLeaseJTIBuckets(time.Now().Unix())
+	ticker := time.NewTicker(wsSignedLeaseJTICleanupFrequency)
+	go func() {
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case now := <-ticker.C:
+				cleanupExpiredSignedLeaseJTIBuckets(now.Unix())
+			}
+		}
+	}()
+}
+
+func cleanupExpiredSignedLeaseJTIBuckets(now int64) {
+	currentBucket := signedLeaseJTIBucket(now)
+	entries, err := os.ReadDir(wsSignedLeaseUsedDir)
+	if err != nil {
+		return
+	}
+	for _, entry := range entries {
+		if !entry.IsDir() {
+			continue
+		}
+		bucket, err := strconv.ParseInt(entry.Name(), 10, 64)
+		if err != nil || bucket >= currentBucket {
+			continue
+		}
+		_ = os.RemoveAll(filepath.Join(wsSignedLeaseUsedDir, entry.Name()))
+	}
+}
+
+func signedLeaseJTIPath(jti string, expiresAtUnix int64) string {
 	sum := sha256.Sum256([]byte(jti))
-	return filepath.Join(wsSignedLeaseUsedDir, hex.EncodeToString(sum[:]))
+	return filepath.Join(signedLeaseJTIBucketDir(expiresAtUnix), hex.EncodeToString(sum[:]))
+}
+
+func signedLeaseJTIBucketDir(expiresAtUnix int64) string {
+	return filepath.Join(wsSignedLeaseUsedDir, strconv.FormatInt(signedLeaseJTIBucket(expiresAtUnix), 10))
+}
+
+func signedLeaseJTIBucket(unixSeconds int64) int64 {
+	if unixSeconds <= 0 {
+		return 0
+	}
+	return unixSeconds / wsSignedLeaseJTIBucketSeconds
 }

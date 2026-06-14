@@ -219,6 +219,7 @@ func runWebSocketPTYServer(ctx context.Context, cfg wsPTYServerConfig, stderr io
 		cfg.PTYHub = newWebSocketPTYHub(cfg, stderr)
 	}
 	defer cfg.PTYHub.closeAll()
+	startSignedLeaseJTICleanup(ctx)
 
 	listener, err := net.Listen("tcp", addr)
 	if err != nil {

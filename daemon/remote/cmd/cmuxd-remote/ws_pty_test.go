@@ -345,6 +345,36 @@ func TestConsumeSignedLeaseJTIDurableReplay(t *testing.T) {
 	}
 }
 
+func TestCleanupExpiredSignedLeaseJTIBuckets(t *testing.T) {
+	useTempSignedLeaseUsedDir(t)
+	now := time.Now()
+	expiredAt := now.Add(-time.Minute).Unix()
+	futureAt := now.Add(time.Minute).Unix()
+	expiredDir := signedLeaseJTIBucketDir(expiredAt)
+	futureDir := signedLeaseJTIBucketDir(futureAt)
+	if err := os.MkdirAll(expiredDir, 0o700); err != nil {
+		t.Fatalf("create expired JTI bucket: %v", err)
+	}
+	if err := os.MkdirAll(futureDir, 0o700); err != nil {
+		t.Fatalf("create future JTI bucket: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(expiredDir, "expired"), []byte("1\n"), 0o600); err != nil {
+		t.Fatalf("write expired JTI marker: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(futureDir, "future"), []byte("1\n"), 0o600); err != nil {
+		t.Fatalf("write future JTI marker: %v", err)
+	}
+
+	cleanupExpiredSignedLeaseJTIBuckets(now.Unix())
+
+	if _, err := os.Stat(expiredDir); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("expired JTI bucket stat error = %v, want not exist", err)
+	}
+	if _, err := os.Stat(futureDir); err != nil {
+		t.Fatalf("future JTI bucket stat error = %v", err)
+	}
+}
+
 func TestWebSocketPTYRunsShellOverBinaryFrames(t *testing.T) {
 	leasePath := filepath.Join(t.TempDir(), "lease.json")
 	server, _ := newTestWebSocketPTYServer(t, leasePath)
