@@ -13,33 +13,37 @@ extension RightSidebarMode {
             return .feed
         case "dock":
             return .dock
-        case "history":
-            return .history
         default:
             return nil
         }
     }
 
     static func availableModes(defaults: UserDefaults = .standard) -> [RightSidebarMode] {
-        availableModes(dockEnabled: RightSidebarBetaFeatureSettings.isDockEnabled(defaults: defaults))
+        availableModes(
+            feedEnabled: RightSidebarBetaFeatureSettings.isFeedEnabled(defaults: defaults),
+            dockEnabled: RightSidebarBetaFeatureSettings.isDockEnabled(defaults: defaults)
+        )
     }
 
-    static func availableModes(dockEnabled: Bool) -> [RightSidebarMode] {
-        allCases.filter { $0.isAvailable(dockEnabled: dockEnabled) }
+    static func availableModes(feedEnabled: Bool, dockEnabled: Bool) -> [RightSidebarMode] {
+        allCases.filter { $0.isAvailable(feedEnabled: feedEnabled, dockEnabled: dockEnabled) }
     }
 
     func isAvailable(defaults: UserDefaults = .standard) -> Bool {
-        isAvailable(dockEnabled: RightSidebarBetaFeatureSettings.isDockEnabled(defaults: defaults))
+        isAvailable(
+            feedEnabled: RightSidebarBetaFeatureSettings.isFeedEnabled(defaults: defaults),
+            dockEnabled: RightSidebarBetaFeatureSettings.isDockEnabled(defaults: defaults)
+        )
     }
 
-    func isAvailable(dockEnabled: Bool) -> Bool {
+    func isAvailable(feedEnabled: Bool, dockEnabled: Bool) -> Bool {
         switch self {
-        case .files, .find, .sessions, .feed:
+        case .files, .find, .sessions:
             return true
+        case .feed:
+            return feedEnabled
         case .dock:
             return dockEnabled
-        case .history:
-            return true
         }
     }
 }
