@@ -1,6 +1,7 @@
 import Foundation
 import CmuxTerminalEngine
 import Testing
+import CmuxTerminal
 
 #if canImport(cmux_DEV)
     @testable import cmux_DEV

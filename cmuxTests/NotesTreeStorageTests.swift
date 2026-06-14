@@ -446,6 +446,40 @@ import Testing
         #expect(kept.modified == 300)
     }
 
+    @Test func sessionFolderCollectionRejectsSymlinkedRoot() throws {
+        let outside = (projectRoot as NSString).appendingPathComponent("outside-sessions")
+        try fm.createDirectory(atPath: outside, withIntermediateDirectories: true)
+        let linkedRoot = (projectRoot as NSString).appendingPathComponent("linked-workspace-root")
+        let externalSession = try #require(NotesTreeStorage.createSessionFolder(
+            inFolder: outside,
+            descriptor: NotesSessionDescriptor(
+                agent: "claude",
+                sessionId: "s-linked",
+                title: "Linked",
+                cwd: "/outside",
+                modified: 100
+            )
+        ))
+        try fm.createSymbolicLink(atPath: linkedRoot, withDestinationPath: outside)
+
+        #expect(NotesTreeStorage.collectSessionFolders(inRoot: linkedRoot).isEmpty)
+        #expect(!NotesTreeStorage.applySessionRefresh(
+            folders: NotesTreeStorage.collectSessionFolders(inRoot: linkedRoot),
+            live: [
+                NotesSessionDescriptor(
+                    agent: "claude",
+                    sessionId: "s-linked",
+                    title: "Should Not Write",
+                    cwd: "/outside",
+                    modified: 200
+                )
+            ]
+        ))
+        let marker = try #require(NotesTreeStorage.sessionMarker(inDirectory: externalSession))
+        #expect(marker.title == "Linked")
+        #expect(marker.modified == 100)
+    }
+
     @Test func sessionEntryBoundaryRejectsShellMetacharacterIds() throws {
         // Markers and the session-drag pasteboard are attacker-influenceable,
         // and resume commands splice the session id into shell input.

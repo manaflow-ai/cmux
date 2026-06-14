@@ -1,8 +1,9 @@
 import XCTest
 import CmuxCore
 import CmuxRemoteDaemon
-import CmuxRemoteWorkspace
 import CmuxRemoteSession
+import CmuxRemoteWorkspace
+import CmuxTerminal
 
 #if canImport(cmux_DEV)
 @testable import cmux_DEV

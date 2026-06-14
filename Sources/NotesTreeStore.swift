@@ -231,14 +231,8 @@ final class NotesTreeStore: ObservableObject {
     func reload() {
         // A symlinked `.cmux`/`.cmux/notes` re-roots every path below it;
         // refuse to render (or later mutate) such a tree at all.
-        if let projectRoot, !NoteSupport.projectNotesDirectoryIsTrusted(projectRoot: projectRoot) {
-            rootNodes = []
-            contentRevision &+= 1
-            return
-        }
-        guard let root = resolvedRootPath, !NotesTreeStorage.isSymlink(root) else {
-            rootNodes = []
-            contentRevision &+= 1
+        guard let root = resolvedRootPath, currentRootIsTrusted(root) else {
+            clearRenderedRoot()
             return
         }
         let indexedRefs = projectRoot.flatMap { projectRoot in
@@ -579,9 +573,13 @@ final class NotesTreeStore: ObservableObject {
         lastMarkerRefresh = Date()
         let workspaceCwd = (cwd as NSString).standardizingPath
         let provider = observedSessionsProvider
-        guard let root = resolvedRootPath else { return }
+        guard let root = resolvedRootPath, currentRootIsTrusted(root) else {
+            clearRenderedRoot()
+            return
+        }
         markerRefreshTask = Task { @MainActor [weak self] in
             defer { self?.markerRefreshTask = nil }
+            guard let self else { return }
             let observation = await provider?() ?? NotesTreeObservation()
             let observed = observation.sessions
             // Observations need the workspace folder + marker on disk to
@@ -589,7 +587,14 @@ final class NotesTreeStore: ObservableObject {
             // workspace actually runs an agent (one small folder — not the
             // per-session flood the old auto-materialization caused).
             if !observed.isEmpty || !observation.anonymousAgents.isEmpty {
-                _ = try? self?.ensureRoot(folder: nil)
+                _ = try? self.ensureRoot(folder: nil)
+            }
+            guard self.hasWorkspace,
+                  self.resolvedRootPath == root,
+                  self.currentRootIsTrusted(root)
+            else {
+                self.clearRenderedRootIfCurrent(root)
+                return
             }
             let folders = await Task.detached(priority: .utility) {
                 NotesTreeStorage.collectSessionFolders(inRoot: root)
@@ -618,9 +623,9 @@ final class NotesTreeStore: ObservableObject {
             if otherCwds.count <= foreignBudget {
                 scanOthers = otherCwds
             } else {
-                let start = self?.liveScanRotation ?? 0
+                let start = self.liveScanRotation
                 scanOthers = (0..<foreignBudget).map { otherCwds[(start + $0) % otherCwds.count] }
-                self?.liveScanRotation = (start + foreignBudget) % otherCwds.count
+                self.liveScanRotation = (start + foreignBudget) % otherCwds.count
             }
             var live: [NotesSessionDescriptor] = []
             for scanCwd in [workspaceCwd] + scanOthers {
@@ -674,7 +679,14 @@ final class NotesTreeStore: ObservableObject {
             }
             let allObserved = observed + lateObserved + resolvedAnonymous
             if !allObserved.isEmpty, observed.isEmpty {
-                _ = try? self?.ensureRoot(folder: nil)
+                _ = try? self.ensureRoot(folder: nil)
+            }
+            guard self.hasWorkspace,
+                  self.resolvedRootPath == root,
+                  self.currentRootIsTrusted(root)
+            else {
+                self.clearRenderedRootIfCurrent(root)
+                return
             }
             let changed = await Task.detached(priority: .utility) {
                 var changed = false
@@ -688,9 +700,13 @@ final class NotesTreeStore: ObservableObject {
                 }
                 return changed
             }.value
-            guard !Task.isCancelled, let self, self.hasWorkspace,
-                  self.resolvedRootPath == root
-            else { return }
+            guard !Task.isCancelled, self.hasWorkspace,
+                  self.resolvedRootPath == root,
+                  self.currentRootIsTrusted(root)
+            else {
+                self.clearRenderedRootIfCurrent(root)
+                return
+            }
             #if DEBUG
             cmuxDebugLog(
                 "notes.refresh observed=\(observed.count) late=\(lateObserved.count) "
@@ -727,6 +743,24 @@ final class NotesTreeStore: ObservableObject {
     }
 
     // MARK: - Mutations
+
+    private func currentRootIsTrusted(_ root: String) -> Bool {
+        if let projectRoot,
+           !NoteSupport.projectNotesDirectoryIsTrusted(projectRoot: projectRoot) {
+            return false
+        }
+        return !NotesTreeStorage.isSymlink(root)
+    }
+
+    private func clearRenderedRootIfCurrent(_ root: String) {
+        guard resolvedRootPath == root else { return }
+        clearRenderedRoot()
+    }
+
+    private func clearRenderedRoot() {
+        rootNodes = []
+        contentRevision &+= 1
+    }
 
     @discardableResult
     private func updateObservedSessionKeys(sessions: [NotesTreeObservedSession]) -> Bool {

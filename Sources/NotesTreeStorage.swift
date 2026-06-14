@@ -736,6 +736,7 @@ enum NotesTreeStorage {
         directoryBudget: Int = 2000,
         maxSessions: Int = 200
     ) -> [NotesSessionFolderRef] {
+        guard !isSymlink(root) else { return [] }
         var found: [NotesSessionFolderRef] = []
         var remainingDirectories = directoryBudget
         func walk(_ directory: String, depth: Int) {

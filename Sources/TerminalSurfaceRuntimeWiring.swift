@@ -1,0 +1,213 @@
+import AppKit
+import Foundation
+import CmuxTerminal
+import CmuxTerminalCore
+import GhosttyKit
+import CmuxSocketControl
+
+// The app-side conformances and bridges injected into the CmuxTerminal
+// package through `GhosttyApp.terminalSurfaceRuntimeDependencies`. Each type
+// here carries behavior verbatim from the legacy god-file reach-up it
+// replaces; this file is intended composition-root residue.
+
+private struct WorkspaceNotesDirectoryResolverEntry {
+    weak var owner: AnyObject?
+    let resolve: @MainActor (UUID) -> String?
+}
+
+@MainActor private var workspaceNotesDirectoryResolvers:
+    [ObjectIdentifier: WorkspaceNotesDirectoryResolverEntry] = [:]
+
+@MainActor private func pruneWorkspaceNotesDirectoryResolvers() {
+    workspaceNotesDirectoryResolvers = workspaceNotesDirectoryResolvers.filter {
+        $0.value.owner != nil
+    }
+}
+
+extension TerminalSurface {
+    /// Register (or replace) a window's notes-dir resolver, keyed by owner.
+    @MainActor
+    static func registerWorkspaceNotesDirectoryResolver(
+        owner: AnyObject,
+        _ resolve: @escaping @MainActor (UUID) -> String?
+    ) {
+        pruneWorkspaceNotesDirectoryResolvers()
+        workspaceNotesDirectoryResolvers[ObjectIdentifier(owner)] =
+            WorkspaceNotesDirectoryResolverEntry(owner: owner, resolve: resolve)
+    }
+
+    /// Remove a window's notes-dir resolver when its owner is torn down.
+    @MainActor
+    static func unregisterWorkspaceNotesDirectoryResolver(owner: AnyObject) {
+        workspaceNotesDirectoryResolvers.removeValue(forKey: ObjectIdentifier(owner))
+    }
+
+    /// Resolve a workspace's Notes tree root across registered windows.
+    @MainActor
+    static func resolveWorkspaceNotesDirectory(_ workspaceId: UUID) -> String? {
+        pruneWorkspaceNotesDirectoryResolvers()
+        for entry in workspaceNotesDirectoryResolvers.values {
+            if let dir = entry.resolve(workspaceId) { return dir }
+        }
+        return nil
+    }
+}
+
+// MARK: Engine
+
+extension GhosttyApp: TerminalEngineHosting {
+    var runtimeApp: ghostty_app_t? { app }
+    var runtimeConfig: ghostty_config_t? { config }
+    // `userGhosttyShellIntegrationMode` already matches the seam requirement.
+}
+
+// MARK: Views
+
+/// Creates the concrete `GhosttyNSView` + `GhosttySurfaceScrollView` pair the
+/// surface model historically constructed in its initializer.
+struct TerminalSurfaceViewFactory: TerminalSurfaceViewProviding {
+    @MainActor
+    func makeSurfaceViews(
+        initialFrame: NSRect
+    ) -> (surfaceView: any TerminalSurfaceNativeViewing, paneHost: any TerminalSurfacePaneHosting) {
+        let view = GhosttyNSView(frame: initialFrame)
+        return (view, GhosttySurfaceScrollView(surfaceView: view))
+    }
+}
+
+// MARK: Spawn policy
+
+/// Live settings/control-plane reads for spawn assembly (the legacy inline
+/// reads of the integration-settings enums, `sidebarShellIntegration`,
+/// `SidebarWorkspaceDetailDefaults`, and `TerminalController`'s socket path).
+@MainActor
+final class TerminalSurfaceSpawnPolicyBridge: TerminalSurfaceSpawnPolicyProviding {
+    func currentSpawnPolicy() -> TerminalSurfaceSpawnPolicy {
+        TerminalSurfaceSpawnPolicy(
+            claudeHooksEnabled: ClaudeCodeIntegrationSettings.hooksEnabled(),
+            customClaudePath: ClaudeCodeIntegrationSettings.customClaudePath(),
+            subagentNotificationEnvironmentKey: AgentSubagentNotificationSettings.environmentKey,
+            suppressSubagentNotifications: AgentSubagentNotificationSettings.suppressNotifications(),
+            cursorHooksEnabled: CursorIntegrationSettings.hooksEnabled(),
+            geminiHooksEnabled: GeminiIntegrationSettings.hooksEnabled(),
+            kiroHooksEnabled: KiroIntegrationSettings.hooksEnabled(),
+            kiroNotificationLevel: KiroIntegrationSettings.notificationLevel().rawValue,
+            ampHooksEnabled: AmpIntegrationSettings.hooksEnabled(),
+            shellIntegrationEnabled: UserDefaults.standard.object(forKey: "sidebarShellIntegration") as? Bool ?? true,
+            watchGitStatusEnabled: SidebarWorkspaceDetailDefaults.watchGitStatusValue(defaults: .standard),
+            showPullRequestsEnabled: SidebarWorkspaceDetailDefaults.showPullRequestsValue(defaults: .standard)
+        )
+    }
+
+    func controlSocketPath() -> String {
+        TerminalController.shared.activeSocketPath(
+            preferredPath: SocketControlSettings.socketPath()
+        )
+    }
+
+    func workspaceNotesDirectory(workspaceId: UUID) -> String? {
+        TerminalSurface.resolveWorkspaceNotesDirectory(workspaceId)
+    }
+}
+
+// MARK: Mobile byte tee
+
+/// Installs the libghostty PTY tee for `MobileTerminalByteTee` and keys
+/// drop/replay state by surface id (the legacy inline
+/// `ghostty_surface_set_pty_tee_cb` + `MobileTerminalByteTee.shared` calls).
+final class TerminalMobileByteTeeBridge: TerminalByteTeeBinding {
+    /// Wraps the retained tee userdata; `release()` runs exactly where the
+    /// surface released the legacy `Unmanaged` context.
+    /// @unchecked Sendable: the Unmanaged box is exclusively owned by this
+    /// lease from install until release, mirroring the teardown-request
+    /// transport.
+    final class Lease: TerminalByteTeeLease, @unchecked Sendable {
+        private let context: Unmanaged<MobileTerminalByteTeeUserdata>
+
+        init(context: Unmanaged<MobileTerminalByteTeeUserdata>) {
+            self.context = context
+        }
+
+        func release() {
+            context.release()
+        }
+    }
+
+    @MainActor
+    func installTee(on surface: ghostty_surface_t, surfaceID: UUID) -> any TerminalByteTeeLease {
+        let teeContext = Unmanaged.passRetained(MobileTerminalByteTeeUserdata(surfaceID: surfaceID))
+        ghostty_surface_set_pty_tee_cb(
+            surface,
+            cmuxMobileTerminalByteTeeCallback,
+            teeContext.toOpaque()
+        )
+        return Lease(context: teeContext)
+    }
+
+    @MainActor
+    func dropSurface(surfaceID: UUID) {
+        MobileTerminalByteTee.shared.dropSurface(surfaceID: surfaceID)
+    }
+}
+
+// MARK: Renderer reclamation
+
+extension RendererRealizationController: TerminalRendererRealizationScheduling {}
+
+// MARK: Agent hibernation
+
+/// The legacy `recordAgentHibernationTerminalInput` free helper as an
+/// injected recorder: same gate, same timestamp capture, same main-actor hop.
+final class TerminalAgentHibernationRecorder: AgentHibernationRecording {
+    func recordTerminalInput(workspaceId: UUID, panelId: UUID) {
+        guard AgentHibernationTrackingGate.isEnabled() else { return }
+        let recordedAt = Date()
+        Task { @MainActor in
+            AgentHibernationController.shared.recordTerminalInput(
+                workspaceId: workspaceId,
+                panelId: panelId,
+                recordedAt: recordedAt
+            )
+        }
+    }
+}
+
+// MARK: Construction
+
+extension TerminalSurface {
+    /// The legacy app-target initializer signature, forwarding to the package
+    /// initializer with the process-wide collaborator bundle. Keeps every
+    /// existing call site byte-identical while construction is injected
+    /// (dissolves when a real composition root constructs surfaces).
+    @MainActor
+    convenience init(
+        id: UUID = UUID(),
+        tabId: UUID,
+        context: ghostty_surface_context_e,
+        configTemplate: CmuxSurfaceConfigTemplate?,
+        workingDirectory: String? = nil,
+        portOrdinal: Int = 0,
+        initialCommand: String? = nil,
+        tmuxStartCommand: String? = nil,
+        initialInput: String? = nil,
+        initialEnvironmentOverrides: [String: String] = [:],
+        additionalEnvironment: [String: String] = [:],
+        focusPlacement: TerminalSurfaceFocusPlacement = .workspace
+    ) {
+        self.init(
+            id: id,
+            tabId: tabId,
+            context: context,
+            configTemplate: configTemplate,
+            workingDirectory: workingDirectory,
+            portOrdinal: portOrdinal,
+            initialCommand: initialCommand,
+            tmuxStartCommand: tmuxStartCommand,
+            initialInput: initialInput,
+            initialEnvironmentOverrides: initialEnvironmentOverrides,
+            additionalEnvironment: additionalEnvironment,
+            focusPlacement: focusPlacement,
+            dependencies: GhosttyApp.terminalSurfaceRuntimeDependencies
+        )
+    }
+}

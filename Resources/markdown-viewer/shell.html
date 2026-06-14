@@ -961,35 +961,74 @@ html { scroll-behavior: smooth; }
     return template.innerHTML;
   }
 
+  function isSafeGeneratedSVGFragmentReference(value) {
+    return /^#[A-Za-z0-9_.:-]+$/.test(String(value || '').trim());
+  }
+
+  function generatedSVGValueHasUnsafeURL(value) {
+    var raw = String(value || '');
+    var compact = compactForProtocolCheck(raw).toLowerCase();
+    if (
+      compact.indexOf('javascript:') !== -1 ||
+      compact.indexOf('vbscript:') !== -1 ||
+      compact.indexOf('data:') !== -1 ||
+      compact.indexOf('@import') !== -1
+    ) {
+      return true;
+    }
+    var urlPattern = /url\(\s*(['"]?)([^'")]+)\1\s*\)/ig;
+    var match;
+    while ((match = urlPattern.exec(raw)) !== null) {
+      if (!isSafeGeneratedSVGFragmentReference(match[2])) {
+        return true;
+      }
+    }
+    return false;
+  }
+
   // Generated diagram/math output (MathJax, Mermaid, Vega) legitimately
   // needs SVG, which sanitizeRenderedHTML blocks outright — so it skips that
   // sanitizer and gets this scrub instead: drop script-capable elements and
-  // event handlers, and neutralize javascript:/data: link targets that
-  // crafted TeX/diagram source could smuggle into the generated DOM.
+  // event handlers, allow only fragment URL references inside generated SVG,
+  // and reject style/CSS content that could load external resources.
   function scrubGeneratedSubtree(root) {
     if (!root || root.nodeType !== 1) { return root; }
     var blocked = /^(script|foreignobject|iframe|object|embed)$/i;
     var all = [root].concat(Array.prototype.slice.call(root.querySelectorAll('*')));
     all.forEach(function(el) {
-      var tag = String(el.tagName || '');
+      var tag = String(el.tagName || '').toLowerCase();
       if (blocked.test(tag)) {
+        if (el.parentNode) { el.parentNode.removeChild(el); }
+        return;
+      }
+      if (tag === 'style' && generatedSVGValueHasUnsafeURL(el.textContent || '')) {
         if (el.parentNode) { el.parentNode.removeChild(el); }
         return;
       }
       Array.prototype.slice.call(el.attributes || []).forEach(function(attr) {
         var name = String(attr.name || '').toLowerCase();
-        if (name.indexOf('on') === 0) {
+        if (
+          name.indexOf('on') === 0 ||
+          name === 'background' ||
+          name === 'srcset' ||
+          name === 'srcdoc' ||
+          name === 'formaction'
+        ) {
           el.removeAttribute(attr.name);
           return;
         }
-        // Fragment refs (#glyph) stay -- MathJax's font cache relies on
-        // <use xlink:href="#...">; only scheme-bearing targets are risky.
-        if (name === 'href' || name === 'xlink:href' || name === 'src') {
-          var value = String(attr.value || '').replace(/[\u0000-\u0020]+/g, '').toLowerCase();
-          if (value.indexOf('javascript:') === 0 || value.indexOf('vbscript:') === 0 ||
-              value.indexOf('data:') === 0) {
+        if (name === 'href' || name === 'xlink:href') {
+          if (!isSafeGeneratedSVGFragmentReference(attr.value)) {
             el.removeAttribute(attr.name);
           }
+          return;
+        }
+        if (name === 'src') {
+          el.removeAttribute(attr.name);
+          return;
+        }
+        if (generatedSVGValueHasUnsafeURL(attr.value)) {
+          el.removeAttribute(attr.name);
         }
       });
     });
