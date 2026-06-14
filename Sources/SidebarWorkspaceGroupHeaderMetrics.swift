@@ -73,4 +73,9 @@ struct SidebarWorkspaceGroupHeaderMetrics: Equatable {
     var plusFontSize: CGFloat { Self.basePlusFontSize * fontScale }
     /// Scaled plus-button frame edge.
     var plusFrame: CGFloat { Self.basePlusFrame * fontScale }
+    /// Stable drop-hit height for the group header, without reading SwiftUI layout.
+    var dropTargetHeight: CGFloat {
+        let contentHeight = max(chevronFrame, iconFrame, plusFrame, nameFontSize + 4)
+        return max(24 * fontScale, contentHeight + 10)
+    }
 }
