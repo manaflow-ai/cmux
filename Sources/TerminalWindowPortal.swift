@@ -118,15 +118,12 @@ final class WindowTerminalHostView: NSView {
         performHitTest(at: point, currentEvent: NSApp.currentEvent)
     }
 
-    // Test seam: production calls go through `hitTest(_:)` which reads
-    // `NSApp.currentEvent`; tests can call this directly with a synthetic
-    // pointer event so the typing-latency guard doesn't gate them out.
     func performHitTest(at point: NSPoint, currentEvent: NSEvent?) -> NSView? {
         let routingContext = WindowInputRoutingContext(event: currentEvent)
         let eventType = routingContext.eventType
 
         if routingContext.allowsPortalPointerHitTesting {
-            if shouldPassThroughToTitlebar(at: point) && hostedTerminalHitView(at: point) == nil {
+            if shouldPassThroughToTitlebar(at: point, preservingHostedTerminal: true) {
                 clearActiveDividerCursor(restoreArrow: false)
                 return nil
             }
@@ -202,10 +199,13 @@ final class WindowTerminalHostView: NSView {
         return hitView === self ? nil : hitView
     }
 
-    private func shouldPassThroughToTitlebar(at point: NSPoint) -> Bool {
+    private func shouldPassThroughToTitlebar(at point: NSPoint, preservingHostedTerminal: Bool = false) -> Bool {
         guard let window else { return false }
         let windowPoint = convert(point, to: nil)
-        return windowPoint.y >= BonsplitTabBarPassThrough.titlebarInteractionBandMinY(in: window)
+        guard windowPoint.y >= BonsplitTabBarPassThrough.titlebarInteractionBandMinY(in: window) else { return false }
+        return isMinimalModeTitlebarControlHit(window: window, locationInWindow: windowPoint)
+            || !preservingHostedTerminal
+            || hostedTerminalHitView(at: point) == nil
     }
 
     private func shouldPassThroughToPaneTabBar(

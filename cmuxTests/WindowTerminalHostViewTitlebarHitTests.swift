@@ -44,6 +44,43 @@ final class WindowTerminalHostViewTitlebarHitTests: XCTestCase {
         )
     }
 
+    func testHostViewPassesThroughRegisteredTitlebarControlsAboveTerminal() {
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 420, height: 260),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        defer { window.orderOut(nil) }
+        guard let contentView = window.contentView, let container = contentView.superview else {
+            XCTFail("Expected window content container")
+            return
+        }
+
+        let host = WindowTerminalHostView(frame: container.convert(contentView.bounds, from: contentView))
+        host.addSubview(makeHostedTerminalView(frame: host.bounds))
+        container.addSubview(host, positioned: .above, relativeTo: contentView)
+
+        let region = TitlebarInteractiveControlRegion.RegisteredView(
+            frame: NSRect(x: 24, y: contentView.bounds.maxY - 24, width: 18, height: 18)
+        )
+        contentView.addSubview(region)
+
+        let pointInWindow = contentView.convert(NSPoint(x: region.frame.midX, y: region.frame.midY), to: nil)
+        let pointInHost = host.convert(pointInWindow, from: nil)
+        let event = makeMouseDownEvent(at: pointInWindow, window: window)
+
+        XCTAssertGreaterThanOrEqual(
+            pointInWindow.y,
+            BonsplitTabBarPassThrough.titlebarInteractionBandMinY(in: window),
+            "The control point must sit inside the fixed titlebar interaction band"
+        )
+        XCTAssertNil(
+            host.performHitTest(at: pointInHost, currentEvent: event),
+            "Registered titlebar controls must keep receiving clicks even when terminal content underlaps them"
+        )
+    }
+
     private func makeHostedTerminalView(frame: NSRect) -> GhosttySurfaceScrollView {
         let surfaceView = GhosttyNSView(frame: frame)
         let hostedView = GhosttySurfaceScrollView(surfaceView: surfaceView)
