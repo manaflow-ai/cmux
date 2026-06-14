@@ -35,19 +35,7 @@ struct WorkspaceNavigationRow: View {
     @State private var isRenaming = false
 
     var body: some View {
-        Button {
-            selectWorkspace(workspace.id)
-        } label: {
-            WorkspaceRow(
-                workspace: workspace,
-                connectionStatus: connectionStatus,
-                isSelected: navigationStyle == .sidebar && isSelected,
-                wrapWorkspaceTitles: wrapWorkspaceTitles,
-                previewLineLimit: previewLineLimit
-            )
-        }
-        .buttonStyle(.plain)
-        .contentShape(Rectangle())
+        rowTarget
         .contextMenu { contextMenu }
         .swipeActions(edge: .leading, allowsFullSwipe: true) {
             if let setUnread {
@@ -98,6 +86,36 @@ struct WorkspaceNavigationRow: View {
         } message: {
             Text(L10n.string("mobile.workspace.delete.confirmMessage", defaultValue: "This will close the workspace on your Mac."))
         }
+    }
+
+    @ViewBuilder
+    private var rowTarget: some View {
+        switch navigationStyle {
+        case .push:
+            NavigationLink(value: workspace.id) {
+                rowLabel
+            }
+            .simultaneousGesture(TapGesture().onEnded {
+                selectWorkspace(workspace.id)
+            })
+        case .sidebar:
+            Button {
+                selectWorkspace(workspace.id)
+            } label: {
+                rowLabel
+            }
+            .buttonStyle(.plain)
+        }
+    }
+
+    private var rowLabel: some View {
+        WorkspaceRow(
+            workspace: workspace,
+            connectionStatus: connectionStatus,
+            isSelected: navigationStyle == .sidebar && isSelected,
+            wrapWorkspaceTitles: wrapWorkspaceTitles,
+            previewLineLimit: previewLineLimit
+        )
     }
 
     @ViewBuilder

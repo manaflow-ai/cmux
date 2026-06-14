@@ -31,9 +31,15 @@ extension MobileWorkspacePreview {
         terminals.count > 1 ? "rectangle.stack.fill" : "terminal.fill"
     }
 
-    var avatarColor: Color {
-        let colors: [Color] = [.blue, .green, .orange, .gray]
-        return colors[abs(stableAvatarSeed) % colors.count]
+    var avatarGradient: LinearGradient {
+        let palettes: [[Color]] = [
+            [Color.blue, Color.cyan],
+            [Color.green, Color.teal],
+            [Color.orange, Color.yellow],
+            [Color.gray, Color.blue],
+        ]
+        let colors = palettes[abs(stableAvatarSeed) % palettes.count]
+        return LinearGradient(colors: colors, startPoint: .topLeading, endPoint: .bottomTrailing)
     }
 
     /// The row's trailing slot: the connection problem when there is one,
