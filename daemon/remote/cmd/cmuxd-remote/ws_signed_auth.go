@@ -5,6 +5,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"errors"
+	"os"
 	"strings"
 	"sync"
 	"time"
@@ -27,8 +28,8 @@ var (
 	wsSignedLeaseUsed           = map[string]int64{}
 )
 
-func authorizeWebSocketAuth(cfg wsPTYServerConfig, kind string, auth wsAuthFrame, host string) error {
-	if verifySignedWebSocketLease(cfg.SignedAuthPublicKey, kind, auth, host) == nil {
+func authorizeWebSocketAuth(cfg wsPTYServerConfig, kind string, auth wsAuthFrame) error {
+	if verifySignedWebSocketLease(cfg, kind, auth) == nil {
 		return nil
 	}
 
@@ -39,8 +40,12 @@ func authorizeWebSocketAuth(cfg wsPTYServerConfig, kind string, auth wsAuthFrame
 	return consumeWebSocketLease(path, auth)
 }
 
-func verifySignedWebSocketLease(publicKeyText string, kind string, auth wsAuthFrame, host string) error {
-	publicKey, err := parseSignedAuthPublicKey(publicKeyText)
+func verifySignedWebSocketLease(cfg wsPTYServerConfig, kind string, auth wsAuthFrame) error {
+	publicKey, err := parseSignedAuthPublicKey(cfg.SignedAuthPublicKey)
+	if err != nil {
+		return err
+	}
+	audience, err := readSignedAuthAudience(cfg.SignedAuthAudienceFile)
 	if err != nil {
 		return err
 	}
@@ -65,7 +70,7 @@ func verifySignedWebSocketLease(publicKeyText string, kind string, auth wsAuthFr
 	}
 	if claims.Version != 1 ||
 		claims.Kind != kind ||
-		!signedAudienceMatchesHost(claims.Audience, host) ||
+		claims.Audience != audience ||
 		strings.TrimSpace(claims.SessionID) == "" ||
 		claims.SessionID != auth.SessionID ||
 		strings.TrimSpace(claims.JTI) == "" ||
@@ -81,18 +86,6 @@ func verifySignedWebSocketLease(publicKeyText string, kind string, auth wsAuthFr
 	return nil
 }
 
-func signedAudienceMatchesHost(audience string, host string) bool {
-	trimmedAudience := strings.TrimSpace(strings.ToLower(audience))
-	trimmedHost := strings.TrimSpace(strings.ToLower(host))
-	if trimmedAudience == "" || trimmedHost == "" {
-		return false
-	}
-	if hostOnly, _, ok := strings.Cut(trimmedHost, ":"); ok {
-		trimmedHost = hostOnly
-	}
-	return trimmedHost == trimmedAudience || strings.HasPrefix(trimmedHost, trimmedAudience+".")
-}
-
 func parseSignedAuthPublicKey(text string) (ed25519.PublicKey, error) {
 	trimmed := strings.TrimSpace(text)
 	if trimmed == "" {
@@ -106,6 +99,22 @@ func parseSignedAuthPublicKey(text string) (ed25519.PublicKey, error) {
 		return nil, errWSSignedLeaseUnavailable
 	}
 	return ed25519.PublicKey(decoded), nil
+}
+
+func readSignedAuthAudience(path string) (string, error) {
+	trimmedPath := strings.TrimSpace(path)
+	if trimmedPath == "" {
+		return "", errWSSignedLeaseUnavailable
+	}
+	data, err := os.ReadFile(trimmedPath)
+	if err != nil {
+		return "", errWSSignedLeaseUnavailable
+	}
+	audience := strings.TrimSpace(string(data))
+	if audience == "" {
+		return "", errWSSignedLeaseUnavailable
+	}
+	return audience, nil
 }
 
 func consumeSignedLeaseJTI(jti string, expiresAtUnix int64) error {

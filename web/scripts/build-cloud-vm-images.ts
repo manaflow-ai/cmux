@@ -502,7 +502,7 @@ function cloudVmAttachSignedAuthFlag(): string {
   if (!/^[A-Za-z0-9+/=_-]+$/.test(publicKey)) {
     throw new Error("CMUX_VM_ATTACH_VERIFY_PUBLIC_KEY must be a base64/base64url Ed25519 public key");
   }
-  return ` --auth-public-key ${publicKey}`;
+  return ` --auth-public-key ${publicKey} --auth-audience-file /etc/cmux/attach-audience`;
 }
 
 async function remoteDaemonBuildURL(tag: string, daemonPath: string): Promise<string> {

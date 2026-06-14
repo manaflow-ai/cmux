@@ -28,14 +28,15 @@ import (
 )
 
 type wsPTYServerConfig struct {
-	ListenAddr          string
-	PTYAuthLeaseFile    string
-	RPCAuthLeaseFile    string
-	SignedAuthPublicKey string
-	Shell               string
-	PTYHub              *wsPTYHub
-	ScrollbackLimit     int
-	SessionIdleTTL      time.Duration
+	ListenAddr             string
+	PTYAuthLeaseFile       string
+	RPCAuthLeaseFile       string
+	SignedAuthPublicKey    string
+	SignedAuthAudienceFile string
+	Shell                  string
+	PTYHub                 *wsPTYHub
+	ScrollbackLimit        int
+	SessionIdleTTL         time.Duration
 }
 
 type wsLease struct {
@@ -302,7 +303,7 @@ func handleWebSocketPTY(w http.ResponseWriter, r *http.Request, cfg wsPTYServerC
 		auth.SessionID = "default"
 	}
 
-	if err := authorizeWebSocketAuth(cfg, "pty", auth, r.Host); err != nil {
+	if err := authorizeWebSocketAuth(cfg, "pty", auth); err != nil {
 		if errors.Is(err, errWSLeaseMissing) {
 			_ = conn.Close(websocket.StatusPolicyViolation, "no active lease")
 			return
@@ -435,7 +436,7 @@ func handleWebSocketRPC(w http.ResponseWriter, r *http.Request, cfg wsPTYServerC
 		auth.SessionID = "default"
 	}
 
-	if err := authorizeWebSocketAuth(cfg, "rpc", auth, r.Host); err != nil {
+	if err := authorizeWebSocketAuth(cfg, "rpc", auth); err != nil {
 		if errors.Is(err, errWSLeaseMissing) {
 			_ = conn.Close(websocket.StatusPolicyViolation, "no active lease")
 			return

@@ -174,6 +174,7 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 		authLeaseFile := fs.String("auth-lease-file", "", "required lease JSON path for --ws")
 		rpcAuthLeaseFile := fs.String("rpc-auth-lease-file", "", "optional daemon RPC lease JSON path for --ws /rpc")
 		authPublicKey := fs.String("auth-public-key", "", "optional base64 Ed25519 public key for signed --ws auth tokens")
+		authAudienceFile := fs.String("auth-audience-file", "", "optional trusted audience file for signed --ws auth tokens")
 		shell := fs.String("shell", "", "shell path for --ws PTY sessions")
 		if err := fs.Parse(args[1:]); err != nil {
 			return 2
@@ -211,11 +212,12 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 				return 2
 			}
 			if err := runWebSocketPTYServer(context.Background(), wsPTYServerConfig{
-				ListenAddr:          strings.TrimSpace(*listen),
-				PTYAuthLeaseFile:    strings.TrimSpace(*authLeaseFile),
-				RPCAuthLeaseFile:    strings.TrimSpace(*rpcAuthLeaseFile),
-				SignedAuthPublicKey: strings.TrimSpace(*authPublicKey),
-				Shell:               strings.TrimSpace(*shell),
+				ListenAddr:             strings.TrimSpace(*listen),
+				PTYAuthLeaseFile:       strings.TrimSpace(*authLeaseFile),
+				RPCAuthLeaseFile:       strings.TrimSpace(*rpcAuthLeaseFile),
+				SignedAuthPublicKey:    strings.TrimSpace(*authPublicKey),
+				SignedAuthAudienceFile: strings.TrimSpace(*authAudienceFile),
+				Shell:                  strings.TrimSpace(*shell),
 			}, stderr); err != nil {
 				_, _ = fmt.Fprintf(stderr, "serve --ws failed: %v\n", err)
 				return 1
@@ -251,7 +253,7 @@ func usage(w io.Writer) {
 	_, _ = fmt.Fprintln(w, "  cmuxd-remote version")
 	_, _ = fmt.Fprintln(w, "  cmuxd-remote serve --stdio")
 	_, _ = fmt.Fprintln(w, "  cmuxd-remote serve --stdio --persistent --slot <slot>")
-	_, _ = fmt.Fprintln(w, "  cmuxd-remote serve --ws --auth-lease-file <path> [--rpc-auth-lease-file <path>] [--auth-public-key <base64-ed25519-public-key>] [--listen 127.0.0.1:7777]")
+	_, _ = fmt.Fprintln(w, "  cmuxd-remote serve --ws --auth-lease-file <path> [--rpc-auth-lease-file <path>] [--auth-public-key <base64-ed25519-public-key>] [--auth-audience-file <path>] [--listen 127.0.0.1:7777]")
 	_, _ = fmt.Fprintln(w, "  cmuxd-remote cli <command> [args...]")
 }
 

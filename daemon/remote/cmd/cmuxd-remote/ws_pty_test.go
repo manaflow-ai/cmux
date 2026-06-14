@@ -209,17 +209,19 @@ func TestWebSocketPTYAcceptsSignedTokenAndRejectsReplay(t *testing.T) {
 	if err != nil {
 		t.Fatalf("generate key: %v", err)
 	}
+	audienceFile := writeSignedAudienceFile(t, "vm-test")
 	stderr := &bytes.Buffer{}
 	hub := newWebSocketPTYHub(wsPTYServerConfig{
 		Shell:           "/bin/sh",
 		ScrollbackLimit: 64 * 1024,
 	}, stderr)
 	server := httptest.NewServer(newWebSocketPTYHandler(wsPTYServerConfig{
-		PTYAuthLeaseFile:    filepath.Join(t.TempDir(), "missing-pty-lease.json"),
-		SignedAuthPublicKey: base64.StdEncoding.EncodeToString(publicKey),
-		Shell:               "/bin/sh",
-		PTYHub:              hub,
-		ScrollbackLimit:     64 * 1024,
+		PTYAuthLeaseFile:       filepath.Join(t.TempDir(), "missing-pty-lease.json"),
+		SignedAuthPublicKey:    base64.StdEncoding.EncodeToString(publicKey),
+		SignedAuthAudienceFile: audienceFile,
+		Shell:                  "/bin/sh",
+		PTYHub:                 hub,
+		ScrollbackLimit:        64 * 1024,
 	}, stderr))
 	t.Cleanup(func() {
 		server.Close()
@@ -229,7 +231,7 @@ func TestWebSocketPTYAcceptsSignedTokenAndRejectsReplay(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
-	token := signedTestToken(t, privateKey, "pty", signedTestAudience(server.URL), "sess-signed", true, time.Now().Add(time.Minute), "jti-pty-1")
+	token := signedTestToken(t, privateKey, "pty", "vm-test", "sess-signed", true, time.Now().Add(time.Minute), "jti-pty-1")
 	conn := dialPTY(t, ctx, server.URL)
 	sendAuth(t, ctx, conn, token, "sess-signed", 100, 30)
 	msgType, payload, err := conn.Read(ctx)
@@ -254,13 +256,15 @@ func TestWebSocketPTYRejectsSignedTokenForWrongKind(t *testing.T) {
 	if err != nil {
 		t.Fatalf("generate key: %v", err)
 	}
+	audienceFile := writeSignedAudienceFile(t, "vm-test")
 	stderr := &bytes.Buffer{}
 	hub := newWebSocketPTYHub(wsPTYServerConfig{Shell: "/bin/sh"}, stderr)
 	server := httptest.NewServer(newWebSocketPTYHandler(wsPTYServerConfig{
-		PTYAuthLeaseFile:    filepath.Join(t.TempDir(), "missing-pty-lease.json"),
-		SignedAuthPublicKey: base64.StdEncoding.EncodeToString(publicKey),
-		Shell:               "/bin/sh",
-		PTYHub:              hub,
+		PTYAuthLeaseFile:       filepath.Join(t.TempDir(), "missing-pty-lease.json"),
+		SignedAuthPublicKey:    base64.StdEncoding.EncodeToString(publicKey),
+		SignedAuthAudienceFile: audienceFile,
+		Shell:                  "/bin/sh",
+		PTYHub:                 hub,
 	}, stderr))
 	t.Cleanup(func() {
 		server.Close()
@@ -270,7 +274,7 @@ func TestWebSocketPTYRejectsSignedTokenForWrongKind(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
-	token := signedTestToken(t, privateKey, "rpc", signedTestAudience(server.URL), "sess-wrong-kind", false, time.Now().Add(time.Minute), "jti-rpc-1")
+	token := signedTestToken(t, privateKey, "rpc", "vm-test", "sess-wrong-kind", false, time.Now().Add(time.Minute), "jti-rpc-1")
 	conn := dialPTY(t, ctx, server.URL)
 	sendAuth(t, ctx, conn, token, "sess-wrong-kind", 100, 30)
 	_, _, err = conn.Read(ctx)
@@ -284,13 +288,15 @@ func TestWebSocketPTYRejectsSignedTokenForWrongAudience(t *testing.T) {
 	if err != nil {
 		t.Fatalf("generate key: %v", err)
 	}
+	audienceFile := writeSignedAudienceFile(t, "vm-test")
 	stderr := &bytes.Buffer{}
 	hub := newWebSocketPTYHub(wsPTYServerConfig{Shell: "/bin/sh"}, stderr)
 	server := httptest.NewServer(newWebSocketPTYHandler(wsPTYServerConfig{
-		PTYAuthLeaseFile:    filepath.Join(t.TempDir(), "missing-pty-lease.json"),
-		SignedAuthPublicKey: base64.StdEncoding.EncodeToString(publicKey),
-		Shell:               "/bin/sh",
-		PTYHub:              hub,
+		PTYAuthLeaseFile:       filepath.Join(t.TempDir(), "missing-pty-lease.json"),
+		SignedAuthPublicKey:    base64.StdEncoding.EncodeToString(publicKey),
+		SignedAuthAudienceFile: audienceFile,
+		Shell:                  "/bin/sh",
+		PTYHub:                 hub,
 	}, stderr))
 	t.Cleanup(func() {
 		server.Close()
@@ -1062,13 +1068,13 @@ func signedTestToken(t *testing.T, privateKey ed25519.PrivateKey, kind, audience
 	return payloadPart + "." + base64.RawURLEncoding.EncodeToString(signature)
 }
 
-func signedTestAudience(serverURL string) string {
-	host := strings.TrimPrefix(serverURL, "http://")
-	host = strings.TrimPrefix(host, "https://")
-	if hostOnly, _, ok := strings.Cut(host, ":"); ok {
-		return hostOnly
+func writeSignedAudienceFile(t *testing.T, audience string) string {
+	t.Helper()
+	path := filepath.Join(t.TempDir(), "signed-audience")
+	if err := os.WriteFile(path, []byte(audience+"\n"), 0o600); err != nil {
+		t.Fatalf("write signed audience: %v", err)
 	}
-	return host
+	return path
 }
 
 func readReady(t *testing.T, ctx context.Context, conn *websocket.Conn) {

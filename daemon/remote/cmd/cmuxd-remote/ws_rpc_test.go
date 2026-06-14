@@ -49,18 +49,20 @@ func TestWebSocketRPCAcceptsSignedToken(t *testing.T) {
 	if err != nil {
 		t.Fatalf("generate key: %v", err)
 	}
+	audienceFile := writeSignedAudienceFile(t, "vm-test")
 	server := httptest.NewServer(newWebSocketPTYHandler(wsPTYServerConfig{
-		PTYAuthLeaseFile:    t.TempDir() + "/pty-lease.json",
-		RPCAuthLeaseFile:    t.TempDir() + "/rpc-lease.json",
-		SignedAuthPublicKey: base64.StdEncoding.EncodeToString(publicKey),
-		Shell:               "/bin/sh",
+		PTYAuthLeaseFile:       t.TempDir() + "/pty-lease.json",
+		RPCAuthLeaseFile:       t.TempDir() + "/rpc-lease.json",
+		SignedAuthPublicKey:    base64.StdEncoding.EncodeToString(publicKey),
+		SignedAuthAudienceFile: audienceFile,
+		Shell:                  "/bin/sh",
 	}, nil))
 	defer server.Close()
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
-	token := signedTestToken(t, privateKey, "rpc", signedTestAudience(server.URL), "sess-rpc-signed", false, time.Now().Add(time.Minute), "jti-rpc-signed")
+	token := signedTestToken(t, privateKey, "rpc", "vm-test", "sess-rpc-signed", false, time.Now().Add(time.Minute), "jti-rpc-signed")
 	conn := dialRPC(t, ctx, server.URL)
 	defer conn.Close(websocket.StatusNormalClosure, "done")
 	sendRPCAuth(t, ctx, conn, token, "sess-rpc-signed")

@@ -17,12 +17,14 @@ import {
   setSpanAttributes,
   withVmSpan,
 } from "../telemetry";
+import { imageSupportsSignedWebSocketAuth } from "../images/resolver";
 import {
   isReusableRpcLease,
   ensurePrivateDirectoryCommand,
   leaseClientMetadata,
   makeSignedWebSocketAuthToken,
   makeWebSocketLease,
+  parentDirectory,
   shellArgValue,
   shellQuote,
   type ReusableRpcLease,
@@ -37,6 +39,7 @@ const CMUX_LINUX_USER = "cmux"; // must match Resources/install.sh in scratch/vm
 const CMUXD_WS_PTY_LEASE_PATH = "/tmp/cmux/attach-pty-lease.json";
 const CMUXD_WS_LEGACY_PTY_LEASE_PATH = "/tmp/cmux/attach-lease.json";
 const CMUXD_WS_RPC_CLIENT_PATH = "/tmp/cmux/attach-rpc-client.json";
+const CMUXD_WS_SIGNED_AUTH_AUDIENCE_PATH = "/etc/cmux/attach-audience";
 const CMUXD_WS_PTY_LEASE_TTL_SECONDS = 5 * 60;
 const CMUXD_WS_RPC_LEASE_TTL_SECONDS = 12 * 60 * 60;
 const CMUXD_WS_RPC_RENEW_BEFORE_SECONDS = 60;
@@ -103,6 +106,14 @@ export class FreestyleProvider implements VMProvider {
             ports: FREESTYLE_WS_PORTS,
             readySignalTimeoutSeconds: 600,
           });
+          if (imageSupportsSignedWebSocketAuth("freestyle", image)) {
+            try {
+              await writeFreestyleSignedAttachAudience(fs.vms.ref({ vmId: created.vmId }), created.vmId);
+            } catch (err) {
+              await fs.vms.ref({ vmId: created.vmId }).delete().catch(() => undefined);
+              throw err;
+            }
+          }
           setSpanAttributes(span, { "cmux.vm.id": created.vmId });
           return {
             provider: "freestyle",
@@ -611,4 +622,15 @@ async function execFreestyleOrThrow(vm: FreestyleVmRef, command: string) {
     throw new Error(`Freestyle exec failed with status ${exitCode}: ${(result.stderr ?? "").trim()}`);
   }
   return result;
+}
+
+async function writeFreestyleSignedAttachAudience(vm: FreestyleVmRef, vmId: string): Promise<void> {
+  await execFreestyleOrThrow(
+    vm,
+    [
+      `install -d -m 700 ${shellQuote(parentDirectory(CMUXD_WS_SIGNED_AUTH_AUDIENCE_PATH))}`,
+      `printf '%s\\n' ${shellQuote(vmId)} > ${shellQuote(CMUXD_WS_SIGNED_AUTH_AUDIENCE_PATH)}`,
+      `chmod 600 ${shellQuote(CMUXD_WS_SIGNED_AUTH_AUDIENCE_PATH)}`,
+    ].join(" && "),
+  );
 }
