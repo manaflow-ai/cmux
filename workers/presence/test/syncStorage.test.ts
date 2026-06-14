@@ -45,9 +45,16 @@ class FakeStorage implements SyncStorage {
   async get<T>(key: string): Promise<T | undefined> {
     return this.map.get(key) as T | undefined;
   }
-  async put<T>(key: string, value: T): Promise<void> {
-    // Clone to mimic structured-clone storage semantics (no shared references).
-    this.map.set(key, JSON.parse(JSON.stringify(value)));
+  async put<T>(keyOrEntries: string | Record<string, unknown>, value?: T): Promise<void> {
+    // Mimic DurableObjectStorage.put: either a single key+value, or an atomic
+    // multi-key entries object. Clone to mimic structured-clone semantics.
+    if (typeof keyOrEntries === "string") {
+      this.map.set(keyOrEntries, JSON.parse(JSON.stringify(value)));
+      return;
+    }
+    for (const [k, v] of Object.entries(keyOrEntries)) {
+      this.map.set(k, JSON.parse(JSON.stringify(v)));
+    }
   }
   async delete(key: string): Promise<boolean> {
     return this.map.delete(key);

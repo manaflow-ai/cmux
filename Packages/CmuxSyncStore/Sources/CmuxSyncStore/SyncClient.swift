@@ -57,13 +57,20 @@ public struct SyncClient: Sendable {
 
         do {
             for try await raw in transport.frames() {
-                // A frame that claims to be sync but is broken throws; a presence
-                // frame parses as `.unknown` and is ignored by the applier.
+                // A presence/non-JSON frame is noise on the shared socket and is
+                // skipped; a frame that CLAIMS to be sync but is structurally
+                // broken (`.malformed`) must NOT be skipped — skipping it would
+                // leave a gap the cursor could later advance past, durably losing
+                // a rev. Rethrow so the caller resets the session and re-hellos
+                // (a fresh snapshot/catch-up fills the gap).
                 let frame: SyncServerFrame
                 do {
                     frame = try SyncFrameCodec.parse(raw)
+                } catch SyncFrameParseError.notJSON {
+                    continue // presence frame / non-JSON noise; ignore
                 } catch {
-                    continue // skip an unparseable frame rather than tearing down
+                    await applier.resetInFlight()
+                    throw error // a malformed sync frame: reset + reconnect to resync
                 }
                 // Only fire the UI-invalidation callback when a sync commit
                 // actually happened. A presence frame (.unknown), an incomplete

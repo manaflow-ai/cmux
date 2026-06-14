@@ -300,6 +300,32 @@ private let sortKey: @Sendable (SyncWireRecord) -> Double = { DeviceSyncFacade.s
         #expect(device.instances.first?.tag == "default")
     }
 
+    @Test func facadeKeepsDeviceWhenOneRouteIsMalformed() async throws {
+        let (store, dir) = try makeStore()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        // Build a valid route in Swift (so the wire shape is correct), then inject
+        // a malformed route object alongside it in the JSON payload. The whole
+        // device must still render with just the valid route.
+        let goodRoute = try CmxAttachRoute(id: "r1", kind: .tailscale,
+            endpoint: .hostPort(host: "1.2.3.4", port: 8080), priority: 0)
+        let goodJSON = String(data: try JSONEncoder().encode(goodRoute), encoding: .utf8)!
+        let payload = Data("""
+        {"deviceId":"dev-A","platform":"mac","lastSeenAtAtRev":1750000000000,
+         "instances":[{"tag":"default","lastSeenAtAtRev":1750000000000,"routes":[
+            \(goodJSON),
+            {"id":"r2","kind":"futurekind","endpoint":{"weird":true},"priority":1}
+         ]}]}
+        """.utf8)
+        let wire = SyncWireRecord(id: "dev-A", rev: 1, updatedAt: T0_MS, deleted: false,
+            schemaVersion: syncSchemaVersion, payloadJSON: payload)
+        try await store.applyDelta(teamID: TEAM, collection: COLL, frameRev: 1, records: [wire],
+            sortKeyFor: sortKey, now: Date())
+        let devices = try await DeviceSyncFacade(store: store).devices(teamID: TEAM)
+        #expect(devices.count == 1) // device NOT dropped despite the bad route
+        #expect(devices.first?.instances.first?.routes.count == 1) // only the valid one
+        #expect(devices.first?.instances.first?.routes.first?.id == "r1")
+    }
+
     @Test func facadeSkipsUndecodableRows() async throws {
         let (store, dir) = try makeStore()
         defer { try? FileManager.default.removeItem(at: dir) }

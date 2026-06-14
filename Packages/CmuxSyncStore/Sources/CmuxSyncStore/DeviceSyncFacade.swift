@@ -5,6 +5,31 @@ import Foundation
 /// The `devices` collection name. Must match `DEVICES_COLLECTION` in the worker.
 public let devicesSyncCollection = "devices"
 
+/// Decodes and discards one arbitrary JSON value, used to advance an unkeyed
+/// container past an element that failed strict decoding (so a single bad route
+/// does not abort the whole array). It accepts any JSON shape.
+private struct AnyDecodableSkip: Decodable {
+    init(from decoder: any Decoder) throws {
+        // A single-value container accepts any JSON scalar; for objects/arrays we
+        // fall back to an empty keyed/unkeyed read. Either way the element is
+        // consumed so the parent unkeyed cursor advances by one.
+        if let single = try? decoder.singleValueContainer(), !single.decodeNil() {
+            // Try the common scalar shapes; ignore the value.
+            if (try? single.decode(Bool.self)) != nil { return }
+            if (try? single.decode(Double.self)) != nil { return }
+            if (try? single.decode(String.self)) != nil { return }
+        }
+        // Object or array element: read it as a keyed/unkeyed container to consume.
+        if (try? decoder.container(keyedBy: SkipKey.self)) != nil { return }
+        _ = try? decoder.unkeyedContainer()
+    }
+    private struct SkipKey: CodingKey {
+        var stringValue: String; var intValue: Int?
+        init?(stringValue: String) { self.stringValue = stringValue; self.intValue = nil }
+        init?(intValue: Int) { self.stringValue = String(intValue); self.intValue = intValue }
+    }
+}
+
 /// The durable device-list record the iOS tree renders. The Swift mirror of the
 /// worker's `DeviceRecord` (workers/presence/src/syncDevices.ts). Carries the
 /// LIST-SHAPE only: identity, owner, routes, and the per-tag instance set. Live
@@ -25,10 +50,56 @@ public struct SyncedDeviceRecord: Codable, Equatable, Sendable {
         public var routes: [CmxAttachRoute]
         public var lastSeenAtAtRev: Double
 
+        private enum CodingKeys: String, CodingKey {
+            case tag, routes, lastSeenAtAtRev
+        }
+
         public init(tag: String, routes: [CmxAttachRoute], lastSeenAtAtRev: Double) {
             self.tag = tag
             self.routes = routes
             self.lastSeenAtAtRev = lastSeenAtAtRev
+        }
+
+        /// Decode routes FAILABLY per entry: a future route kind or one malformed
+        /// route must not drop the whole device row (which would hide a device the
+        /// registry/presence paths still render). Bad routes are skipped; the rest
+        /// of the instance decodes normally. Mirrors the registry/presence
+        /// per-route decode contract (DESIGN.md §13 resilience).
+        public init(from decoder: any Decoder) throws {
+            let container = try decoder.container(keyedBy: CodingKeys.self)
+            self.tag = try container.decode(String.self, forKey: .tag)
+            self.lastSeenAtAtRev = try container.decode(Double.self, forKey: .lastSeenAtAtRev)
+            self.routes = Self.decodeRoutesFailably(container)
+        }
+
+        public func encode(to encoder: any Encoder) throws {
+            var container = encoder.container(keyedBy: CodingKeys.self)
+            try container.encode(tag, forKey: .tag)
+            try container.encode(routes, forKey: .routes)
+            try container.encode(lastSeenAtAtRev, forKey: .lastSeenAtAtRev)
+        }
+
+        private static func decodeRoutesFailably(
+            _ container: KeyedDecodingContainer<CodingKeys>
+        ) -> [CmxAttachRoute] {
+            // The routes array is itself optional/absent-tolerant; an absent or
+            // non-array field yields no routes (the device still renders, just
+            // without an attach candidate).
+            guard var unkeyed = try? container.nestedUnkeyedContainer(forKey: .routes) else {
+                return []
+            }
+            var routes: [CmxAttachRoute] = []
+            while !unkeyed.isAtEnd {
+                // Decode each element independently. A failed element is skipped,
+                // but we must still advance the cursor past it, so decode into a
+                // throwaway `AnyDecodableSkip` on failure.
+                if let route = try? unkeyed.decode(CmxAttachRoute.self) {
+                    routes.append(route)
+                } else {
+                    _ = try? unkeyed.decode(AnyDecodableSkip.self)
+                }
+            }
+            return routes
         }
     }
 

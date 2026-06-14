@@ -44,6 +44,10 @@ import {
 export interface SyncStorage {
   get<T>(key: string): Promise<T | undefined>;
   put<T>(key: string, value: T): Promise<void>;
+  /** Atomic multi-key write. `DurableObjectStorage.put(entries)` commits all
+   * keys in one transaction, so the record + head (+ tombstone index) cannot be
+   * left half-written with a record rev above the head. */
+  put(entries: Record<string, unknown>): Promise<void>;
   delete(key: string): Promise<boolean>;
   list<T>(options: { prefix: string; limit?: number }): Promise<Map<string, T>>;
 }
@@ -144,8 +148,10 @@ export async function upsertRecord<P>(
   }
   const rev = head + 1;
   const record = makeRecord(id, rev, nowMs, payload);
-  await storage.put(recordKey(collection, id), record);
-  await storage.put(headKey(collection), rev);
+  // Atomic: record + head commit together, so storage can never hold a record
+  // whose rev exceeds the head (which would make it invisible to catch-up
+  // deltas and rev-filtered snapshots until the next shape change).
+  await storage.put({ [recordKey(collection, id)]: record, [headKey(collection)]: rev });
   return { delta: buildDelta(collection, rev, [record]), head: rev };
 }
 
@@ -167,9 +173,13 @@ export async function tombstoneRecord(
   }
   const rev = head + 1;
   const tomb = makeTombstone(id, rev, nowMs);
-  await storage.put(recordKey(collection, id), tomb);
-  await storage.put(headKey(collection), rev);
-  await storage.put(tombKey(collection, rev), id);
+  // Atomic: tombstone record + head + rev-ordered GC index commit together, so
+  // the GC index can never reference a head that does not include the tombstone.
+  await storage.put({
+    [recordKey(collection, id)]: tomb,
+    [headKey(collection)]: rev,
+    [tombKey(collection, rev)]: id,
+  });
   return { delta: buildDelta(collection, rev, [tomb]), head: rev };
 }
 
@@ -193,8 +203,7 @@ export async function lazyUpgradeRecord<P>(
   const upgraded = upgrade(stored.payload, stored.schemaVersion);
   const rev = head + 1;
   const record = makeRecord(id, rev, nowMs, upgraded);
-  await storage.put(recordKey(collection, id), record);
-  await storage.put(headKey(collection), rev);
+  await storage.put({ [recordKey(collection, id)]: record, [headKey(collection)]: rev });
   return { delta: buildDelta(collection, rev, [record]), head: rev };
 }
 
