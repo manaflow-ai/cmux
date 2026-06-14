@@ -1,0 +1,12 @@
+self-hosted-runner:
+  labels:
+    # Active default lives in the MACOS_RUNNER_15 / MACOS_RUNNER_26 repo
+    # variables; these are the literal labels referenced as fallbacks or as
+    # manual workflow_dispatch choices. See docs/macos-ci-runners.md.
+    - blacksmith-6vcpu-macos-15
+    - blacksmith-6vcpu-macos-26
+    - blacksmith-6vcpu-macos-latest
+    - warp-macos-15-arm64-6x
+    - warp-macos-26-arm64-6x
+    - depot-macos-latest
+    - depot-macos-14

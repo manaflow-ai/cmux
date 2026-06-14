@@ -1,4 +1,5 @@
 import Foundation
+import CmuxFoundation
 
 struct ConfigSourceEnvironment {
     let homeDirectoryURL: URL
@@ -101,6 +102,16 @@ struct ConfigSourceEnvironment {
     func writeCmuxConfigContents(_ contents: String) throws {
         let url = cmuxConfigURL
         try writeCmuxConfigContents(contents, to: url)
+    }
+
+    func writeCmuxConfigSetting(key: String, value: String) throws {
+        let url = try materializeCmuxConfigFileIfNeeded()
+        try CmuxGhosttyConfigSettingEditor.writeSetting(
+            key: key,
+            value: value,
+            to: url,
+            fileManager: fileManager
+        )
     }
 
     private func writeCmuxConfigContents(_ contents: String, to url: URL) throws {

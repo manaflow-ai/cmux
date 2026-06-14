@@ -1,0 +1,18 @@
+{
+  "name": "cmux-presence-worker",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy",
+    "test": "bun test",
+    "typecheck": "tsc --noEmit && tsc --noEmit -p tsconfig.test.json",
+    "check": "bun run typecheck && bun test && wrangler deploy --dry-run --outdir dist"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^4.20260525.0",
+    "@types/bun": "^1.3.14",
+    "typescript": "^5.8.0",
+    "wrangler": "^4.20.0"
+  }
+}

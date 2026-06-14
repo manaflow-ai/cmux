@@ -55,14 +55,26 @@ struct BrowserScreenshotResult {
 final class BrowserScreenshotCaptureGate {
     private var isRunning = false
 
-    func run<T>(_ operation: @MainActor () async throws -> T) async throws -> T? {
+    func begin() -> Bool {
         guard !isRunning else {
-            return nil
+            return false
         }
 
         isRunning = true
+        return true
+    }
+
+    func end() {
+        isRunning = false
+    }
+
+    func run<T>(_ operation: @MainActor () async throws -> T) async throws -> T? {
+        guard begin() else {
+            return nil
+        }
+
         defer {
-            isRunning = false
+            end()
         }
         return try await operation()
     }
