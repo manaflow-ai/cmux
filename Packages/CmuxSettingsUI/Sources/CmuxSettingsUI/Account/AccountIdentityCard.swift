@@ -46,8 +46,7 @@ struct AccountIdentityCard: View {
         .padding(.vertical, 10)
     }
 
-    /// The system sign-in window (`ASWebAuthenticationSession`) is always
-    /// Safari-backed on macOS and can hang without redirecting back. When the
+    /// The system sign-in window can hang without redirecting back. When the
     /// host reports the attempt is slow and the user is still signed out, offer
     /// to complete sign-in in their default browser instead of leaving them on
     /// an indefinite spinner.
