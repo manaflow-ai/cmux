@@ -41,6 +41,24 @@ import Testing
         #expect(store.connectionError != nil)
     }
 
+    @Test func supersedingBackgroundAttemptClearsForegroundChecklist() async throws {
+        // A foreground attempt publishes a checklist; a later background attempt
+        // (reconnect / host switch) that supersedes it must clear the stale
+        // checklist so it can't keep hiding the real error in the Add Device sheet
+        // (issue #6084 follow-up).
+        let store = MobileShellComposite(reachability: StubReachability(online: false))
+        store.signIn()
+        await store.connectManualHost(name: "Work Mac", host: "100.64.0.1", port: 58_465)
+        #expect(store.pairingChecklist != nil)
+        await store.performConnectManualHost(
+            name: "Stored Mac",
+            host: "100.64.0.2",
+            port: 58_465,
+            isForegroundPairing: false
+        )
+        #expect(store.pairingChecklist == nil)
+    }
+
     @Test func authRejectionClearsNetworkThenFailsAuthenticationGate() async throws {
         let store = makeStore(errorCode: "unauthorized", message: "invalid token")
         let result = await connectAcceptingVersionWarning(store, try attachURL(for: makeTicket(clock: TestClock())))

@@ -3367,13 +3367,14 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         connectionErrorGuidance = nil
     }
 
-    /// Start the pairing checklist for an instrumented attempt: the network gate
-    /// is being attempted, the later gates wait their turn. No-op for a
-    /// non-foreground attempt (background reconnect / host switch) so it never
-    /// overwrites the foreground sheet's checklist.
+    /// Reset the pairing checklist at the start of an instrumented attempt, so it
+    /// always reflects the current attempt (mirroring ``clearPairingError``). A
+    /// foreground Add Device attempt starts the network gate; any other attempt
+    /// (background reconnect, host switch, device-tree tap) clears it so a
+    /// superseded foreground attempt's stale spinner/result can't linger in the
+    /// Add Device sheet and hide the real connection error (issue #6084).
     private func beginPairingChecklist() {
-        guard isForegroundPairingAttempt else { return }
-        pairingChecklist = .connecting
+        pairingChecklist = isForegroundPairingAttempt ? .connecting : nil
     }
 
     /// Project a classified failure onto the per-gate checklist. Gated on a
