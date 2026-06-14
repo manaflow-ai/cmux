@@ -298,11 +298,7 @@ struct HorizontalTabsSidebar: View {
     }
 }
 
-private struct HorizontalWorkspaceTabItem: View, Equatable {
-    static func == (lhs: HorizontalWorkspaceTabItem, rhs: HorizontalWorkspaceTabItem) -> Bool {
-        lhs.snapshot == rhs.snapshot
-    }
-
+private struct HorizontalWorkspaceTabItem: View {
     let snapshot: HorizontalWorkspaceTabSnapshot
     let onSelect: () -> Void
     let onClose: () -> Void
