@@ -404,6 +404,17 @@ private let sortKey: @Sendable (SyncWireRecord) -> Double = { DeviceSyncFacade.s
         }
     }
 
+    @Test func hugeOrNonIntegralRevIsMalformedNotACrash() {
+        // A valid JSON sync frame with an out-of-Int-range numeric rev must
+        // surface .malformed (→ resync), never trap the process on Int(d).
+        #expect(throws: SyncFrameParseError.self) {
+            _ = try SyncFrameCodec().parse(Data(#"{"type":"sync.delta","collection":"devices","rev":1e100,"records":[]}"#.utf8))
+        }
+        #expect(throws: SyncFrameParseError.self) {
+            _ = try SyncFrameCodec().parse(Data(#"{"type":"sync.snapshot","collection":"devices","snapshotRev":1e308,"complete":true,"records":[]}"#.utf8))
+        }
+    }
+
     @Test func helloEncodesCollectionsAndCursors() throws {
         let data = try SyncFrameCodec().encodeHello(collections: [("devices", 12)])
         let obj = try #require(try JSONSerialization.jsonObject(with: data) as? [String: Any])

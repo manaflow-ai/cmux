@@ -151,9 +151,25 @@ public struct SyncFrameCodec: Sendable {
 
     private func intValue(_ value: Any?) -> Int? {
         if let i = value as? Int { return i }
-        if let d = value as? Double { return Int(d) }
-        if let n = value as? NSNumber { return n.intValue }
+        if let d = value as? Double { return intFromDouble(d) }
+        if let n = value as? NSNumber {
+            // NSNumber backs JSON numbers; route through Double bounds-checking so
+            // a huge `rev` (e.g. 1e100) yields nil (→ malformed) instead of
+            // trapping on an out-of-range Int conversion.
+            return intFromDouble(n.doubleValue)
+        }
         return nil
+    }
+
+    /// Convert a JSON double to Int only when it is finite, integral, and within
+    /// Int range; otherwise nil so the caller surfaces `.malformed` and resyncs
+    /// rather than trapping the process on `Int(d)` overflow.
+    private func intFromDouble(_ d: Double) -> Int? {
+        guard d.isFinite, d == d.rounded(.towardZero),
+              d >= Double(Int.min), d <= Double(Int.max) else {
+            return nil
+        }
+        return Int(d)
     }
 
     private func doubleValue(_ value: Any?) -> Double? {

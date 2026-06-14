@@ -28,6 +28,7 @@ import {
   nextAlarmTime,
   OFFLINE_TIMEOUT_MS,
   resolveSubscribeDeadline,
+  routesEqual,
   shouldPrune,
   type HeartbeatInput,
   type PresenceEvent,
@@ -212,9 +213,13 @@ export class TeamPresence extends DurableObject {
 
   /** Whether a heartbeat could have changed a device's synced list-shape, so the
    * common steady-state `seen` tick skips sync reconciliation. List-shape can
-   * change on: a new instance (`!existing`), an owner pin, a routes change (a
-   * `routes` event), or an identity change (platform/displayName) on this
-   * instance. A pure `seen` event with unchanged identity cannot. */
+   * change on: a new instance (`!existing`), an owner pin, an identity change
+   * (platform/displayName), a routes change, or a re-add (`online`). A pure
+   * `seen` tick with unchanged identity and routes cannot. Routes are compared
+   * directly (not just via the `routes` event) because a stopping goodbye emits
+   * only an `offline` event yet can still carry new routes (e.g. an empty set);
+   * relying on the event type alone would leave the synced record's routes
+   * stale until a much later alarm pass. */
   private heartbeatMayChangeListShape(
     existing: PresenceInstance | undefined,
     instance: PresenceInstance,
@@ -225,9 +230,10 @@ export class TeamPresence extends DurableObject {
     if (ownerPinned) return true;                 // owner pin is list-shape (display/trust)
     if (existing.platform !== instance.platform) return true;
     if (existing.displayName !== instance.displayName) return true;
-    // A `routes` event signals routes changed; `online` means it came back (a
-    // re-add). A pure `seen` event with unchanged identity is the no-op case.
-    return events.some((e) => e.type === "routes" || e.type === "online");
+    if (!routesEqual(existing.routes, instance.routes)) return true; // covers goodbye-with-routes
+    // `online` means the instance came back (a re-add into the list). A pure
+    // `seen` event with unchanged identity and routes is the no-op case.
+    return events.some((e) => e.type === "online");
   }
 
   /** Reconcile a single device's sync record from its current instances + owner.
