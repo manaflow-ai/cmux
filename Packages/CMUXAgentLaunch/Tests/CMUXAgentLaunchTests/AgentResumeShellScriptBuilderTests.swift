@@ -38,6 +38,7 @@ struct AgentResumeShellScriptBuilderTests {
         #expect(script.contains("database is locked|another Codex process is using its local data"))
         #expect(!script.contains(#"-F "$_cmux_resume_log""#))
         #expect(script.contains(#"if [ "$_cmux_resume_retry" -ge "$_cmux_resume_retry_limit" ]; then"#))
+        #expect(script.contains("_cmux_resume_cleanup_log\n  _cmux_resume_retry=$((_cmux_resume_retry + 1))"))
         #expect(lines.contains(#"{ cd -- '/tmp/project' 2>/dev/null || true; }"#))
     }
 

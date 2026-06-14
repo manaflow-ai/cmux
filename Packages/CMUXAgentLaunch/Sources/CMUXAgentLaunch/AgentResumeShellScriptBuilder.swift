@@ -163,6 +163,7 @@ public struct AgentResumeShellScriptBuilder: Sendable, Equatable {
             #"  if [ "$_cmux_resume_retry" -ge "$_cmux_resume_retry_limit" ]; then"#,
             #"    break"#,
             #"  fi"#,
+            #"  _cmux_resume_cleanup_log"#,
             #"  _cmux_resume_retry=$((_cmux_resume_retry + 1))"#,
             #"  if [ "$_cmux_resume_retry_delay" != "0" ]; then"#,
             #"    sleep "$_cmux_resume_retry_delay""#,
