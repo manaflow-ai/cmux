@@ -22,6 +22,7 @@ let package = Package(
         ),
     ],
     dependencies: [
+        .package(path: "../CmuxFoundation"),
         .package(path: "../CmuxTerminalCopyMode"),
         .package(path: "../CMUXDebugLog"),
     ],
@@ -37,6 +38,7 @@ let package = Package(
             name: "CmuxTerminalCore",
             dependencies: [
                 "GhosttyKit",
+                .product(name: "CmuxFoundation", package: "CmuxFoundation"),
                 .product(name: "CmuxTerminalCopyMode", package: "CmuxTerminalCopyMode"),
                 .product(name: "CMUXDebugLog", package: "CMUXDebugLog"),
             ],
@@ -59,6 +61,7 @@ let package = Package(
             dependencies: [
                 "CmuxTerminalCore",
                 "GhosttyRuntimeTestStubs",
+                .product(name: "CmuxFoundation", package: "CmuxFoundation"),
                 .product(name: "CmuxTerminalCopyMode", package: "CmuxTerminalCopyMode"),
             ],
             swiftSettings: [

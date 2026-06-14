@@ -1,4 +1,6 @@
 import AppKit
+import CmuxFoundation
+import CmuxTerminalCore
 import SwiftUI
 import Foundation
 import Bonsplit
@@ -18,6 +20,7 @@ import Combine
 import CoreServices
 import Darwin
 import OSLog
+import CmuxTerminal
 import CmuxWorkspaceCore
 
 // MARK: - Tab Type Alias for Backwards Compatibility
