@@ -28,6 +28,10 @@ struct CustomToolbarActionEditorView: View {
     @State private var commandText: String
     @State private var runAfterTyping: Bool
     @State private var steps: [EditableMacroStep]
+    // Owned (not the ambient EditButton state) so it can be force-reset when the
+    // step list empties — otherwise deleting down to the last step hides the
+    // reorder control while edit mode stays active, trapping the user.
+    @State private var stepsEditMode: EditMode = .inactive
 
     /// Creates the editor.
     /// - Parameters:
@@ -54,6 +58,15 @@ struct CustomToolbarActionEditorView: View {
                 } else {
                     keySequenceSection
                 }
+            }
+            .environment(\.editMode, $stepsEditMode)
+            .onChange(of: steps.isEmpty) { _, isEmpty in
+                // Never leave the list in edit mode with nothing to edit.
+                if isEmpty { stepsEditMode = .inactive }
+            }
+            .onChange(of: mode) { _, newMode in
+                // Leaving the key-sequence editor should drop edit mode too.
+                if newMode != .keySequence { stepsEditMode = .inactive }
             }
             .navigationTitle(navigationTitle)
             .mobileInlineNavigationTitle()
@@ -174,7 +187,7 @@ struct CustomToolbarActionEditorView: View {
             HStack {
                 Text(L10n.string("mobile.toolbar.editor.stepsHeader", defaultValue: "Sends in Order"))
                 Spacer()
-                if steps.count > 1 {
+                if !steps.isEmpty {
                     EditButton()
                         .accessibilityIdentifier("CustomActionStepsEditButton")
                 }
@@ -233,13 +246,27 @@ struct CustomToolbarActionEditorView: View {
 
     @ViewBuilder
     private func textStepRow(_ step: Binding<EditableMacroStep>) -> some View {
-        TextField(
-            L10n.string("mobile.toolbar.editor.textStepPlaceholder", defaultValue: "Text to send"),
-            text: textBinding(step)
-        )
-        .autocorrectionDisabled()
-        .textInputAutocapitalization(.never)
-        .font(.system(.body, design: .monospaced))
+        VStack(alignment: .leading, spacing: 8) {
+            TextField(
+                L10n.string("mobile.toolbar.editor.textStepPlaceholder", defaultValue: "Text to send"),
+                text: textBinding(step)
+            )
+            .autocorrectionDisabled()
+            .textInputAutocapitalization(.never)
+            .font(.system(.body, design: .monospaced))
+
+            // Mirror the key-combo row's inline cue: an empty text step sends
+            // nothing and keeps Save disabled, so say so instead of leaving the
+            // greyed-out Save unexplained.
+            if step.wrappedValue.step.output == nil {
+                Text(L10n.string(
+                    "mobile.toolbar.editor.emptyTextStep",
+                    defaultValue: "Add text, or this step won't send anything."
+                ))
+                .font(.caption)
+                .foregroundStyle(.secondary)
+            }
+        }
     }
 
     // MARK: - Bindings into a step's associated values
