@@ -387,9 +387,17 @@ export class TeamPresence extends DurableObject {
     ws: WebSocket,
     collections: { name: string; cursor: number; epoch?: number }[],
   ): Promise<void> {
+    // A socket may subscribe to each collection ONCE per connection. A repeated
+    // `sync.hello` for an already-subscribed collection is ignored: it would
+    // otherwise let an authenticated member spam tiny hellos and force repeated
+    // full-snapshot serialization + DO storage scans (a resource-exhaustion
+    // vector). To resubscribe/resync, the client reconnects (the protocol is
+    // snapshot-first on connect, so a reconnect is the supported resync path).
+    const already = new Set(wsSyncCollections(ws));
     const subscribed: string[] = [];
     for (const { name, cursor, epoch } of collections) {
       if (name !== DEVICES_COLLECTION) continue; // phase 1 serves only `devices`
+      if (already.has(name)) continue;            // duplicate hello; reconnect to resync
       subscribed.push(name);
       // Rollout backfill: an existing DO has `inst:*` presence but no
       // `synced:devices:*` projection yet (it is built lazily on heartbeat/alarm
