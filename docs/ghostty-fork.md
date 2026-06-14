@@ -12,17 +12,20 @@ When we change the fork, update this document and the parent submodule SHA.
 
 ## Current fork changes
 
-Current cmux pinned fork head: `5c89072b`, which adds precision pixel-scroll
-rendering for primary-screen scrollback on top of `5697db81`. Precision scroll
-input now accumulates a fractional pixel offset, advances the terminal viewport
-only when a full row boundary is crossed, and passes the remainder through the
-renderer state to Metal/OpenGL shaders so backgrounds, text, and images translate
-between rows. cmux iOS uses this for local scrollback on non-alt terminal content
-without waiting for a host round trip. The patch intentionally avoids the
-unrelated Neovim GUI, cursor animation, and visual-effect changes in
-parkers0405/ghostty-pixel-scroll. It also does not port Parker's larger hidden
-extra-row renderer changes, so edge fill during sub-row movement is the main
-conflict/risk area if upstream renderer row-buffer logic changes.
+Current cmux pinned fork head: `b61a016d`, which adds precision pixel-scroll
+rendering for primary-screen scrollback on top of `5697db81` and forwards the
+macOS native `NSScrollView` live-scroll path into the same precision input.
+Precision scroll input now accumulates a fractional pixel offset, advances the
+terminal viewport only when a full row boundary is crossed, and passes the
+remainder through the renderer state to Metal/OpenGL shaders so backgrounds,
+text, and images translate between rows. cmux iOS uses this for local scrollback
+on non-alt terminal content without waiting for a host round trip, and the
+desktop wrapper uses it for trackpad and native scrollbar live scrolling. The
+patch intentionally avoids the unrelated Neovim GUI, cursor animation, and
+visual-effect changes in parkers0405/ghostty-pixel-scroll. It also does not port
+Parker's larger hidden extra-row renderer changes, so edge fill during sub-row
+movement is the main conflict/risk area if upstream renderer row-buffer logic
+changes.
 
 The previous head was `5697db81`, which adds the Darwin-only
 `ghostty_surface_set_renderer_realized` C API (a `display_realized` renderer-thread
@@ -59,7 +62,23 @@ The corresponding prebuilt archive is published at
 https://github.com/manaflow-ai/ghostty/releases/tag/xcframework-34cbf180d8917b802d61d9929cfb493594f2ab52-crashsubdir-cmux-crash-v1
 and pinned in `scripts/ghosttykit-checksums.txt`.
 
-### 0) Precision pixel-scroll rendering
+### 0) macOS precision live-scroll forwarding
+
+- Commit: `b61a016d` (Forward macOS live scroll as precision input)
+- Files:
+  - `macos/Sources/Ghostty/Surface View/SurfaceScrollView.swift`
+- Summary:
+  - Converts native `NSScrollView` live-scroll movement into
+    `Ghostty.Input.MouseScrollEvent` with the precision flag set.
+  - Keeps programmatic scrollbar synchronization row-based, but sends user
+    scroll deltas through the terminal core so the renderer pixel-scroll
+    remainder is used on desktop too.
+- Conflict notes:
+  - Preserve the row-based sync path for scrollbar state coming from the core.
+  - Preserve precision input forwarding for user live-scroll movement if
+    upstream changes the wrapper or scrollbar model.
+
+### 1) Precision pixel-scroll rendering
 
 - Commit: `5c89072b` (Add precision pixel scroll rendering)
 - Files:
@@ -91,7 +110,7 @@ and pinned in `scripts/ghosttykit-checksums.txt`.
     fractional movement. This cmux patch does not port that larger row-buffer
     change.
 
-### 1) macOS display link restart on display changes
+### 2) macOS display link restart on display changes
 
 - Commit: `05cf31b38` (macos: restart display link after display ID change)
 - Files:
@@ -100,7 +119,7 @@ and pinned in `scripts/ghosttykit-checksums.txt`.
   - Restarts the CVDisplayLink when `setMacOSDisplayID` updates the current CGDisplay.
   - Prevents a rare state where vsync is "running" but no callbacks arrive, which can look like a frozen surface until focus/occlusion changes.
 
-### 2) macOS resize stale-frame mitigation
+### 3) macOS resize stale-frame mitigation
 
 The resize commits are grouped by feature because they touch the same stale-frame replay path and
 tend to conflict together during rebases.
@@ -119,7 +138,7 @@ tend to conflict together during rebases.
   - Replays the last rendered frame during resize and keeps its geometry anchored correctly.
   - Reduces transient blank or scaled frames while a macOS window is being resized.
 
-### 3) OSC 99 (kitty) notification parser
+### 4) OSC 99 (kitty) notification parser
 
 - Commits:
   - `2033ffebc` (Add OSC 99 notification parser)
@@ -132,7 +151,7 @@ tend to conflict together during rebases.
   - Adds a parser for kitty OSC 99 notifications and wires it into the OSC dispatcher.
   - Adapts the parser to upstream's newer capture API so the cmux OSC 99 hook survives the March 30 upstream sync.
 
-### 4) cmux theme picker helper hooks
+### 5) cmux theme picker helper hooks
 
 - Commits:
   - `66ff6ec4d` (Add cmux theme picker helper hooks)
@@ -157,7 +176,7 @@ tend to conflict together during rebases.
   - Applies the highlighted search result when Enter is pressed from search mode in cmux-managed picker sessions.
   - Supports Ctrl-N and Ctrl-P as one-row down/up navigation in cmux-managed picker sessions.
 
-### 5) Color scheme mode 2031 reporting
+### 6) Color scheme mode 2031 reporting
 
 - Commits:
   - `2be58ee0e` (Fix DECRPM mode 2031 reporting wrong color scheme)
@@ -169,7 +188,7 @@ tend to conflict together during rebases.
   - Keeps Ghostty's mode 2031 color-scheme response aligned with the surface's actual conditional state after config reloads.
   - Sends the initial DSR 997 report as soon as mode 2031 is enabled, which cmux relies on for immediate color-scheme awareness.
 
-### 6) Keyboard copy mode selection C API
+### 7) Keyboard copy mode selection C API
 
 - Commit: `0b231db94` (Re-export cmux selection APIs removed from upstream)
 - Files:
@@ -180,7 +199,7 @@ tend to conflict together during rebases.
   - Restores `ghostty_surface_select_cursor_cell` and `ghostty_surface_clear_selection`.
   - Keeps cmux keyboard copy mode working against the refreshed Ghostty base after upstream removed those exports.
 
-### 7) macos-background-from-layer config flag
+### 8) macos-background-from-layer config flag
 
 - Commits:
   - `ae3cc5d29` (Restore macOS layer background hook)
@@ -197,7 +216,7 @@ tend to conflict together during rebases.
   - Allows the host app to provide the terminal background via `CALayer.backgroundColor` for instant coverage during view resizes, avoiding alpha double-stacking.
   - Replays the layer-background restore on top of the refreshed Ghostty base so cmux keeps the resize-coverage fix after the upstream sync.
 
-### 8) TerminalStream kitty graphics APC handling
+### 9) TerminalStream kitty graphics APC handling
 
 - Commit: `a8e92c9c5` (terminal: add APC handler to stream_terminal)
 - Files:
@@ -206,7 +225,7 @@ tend to conflict together during rebases.
   - Wires `.apc_start`, `.apc_put`, and `.apc_end` through the shared APC parser in `TerminalStream`.
   - Restores kitty graphics execution and APC OK/error replies for the non-termio stream path used by cmux/libghostty integrations.
 
-### 9) Config load string C API
+### 10) Config load string C API
 
 - Commit: `f7880c473` (Add config load string C API)
 - Files:
@@ -217,7 +236,7 @@ tend to conflict together during rebases.
   - Adds a C API for loading Ghostty config from an in-memory string.
   - Lets cmux parse generated or override config without materializing a separate config file first.
 
-### 10) Manual embedded IO for libghostty iOS
+### 11) Manual embedded IO for libghostty iOS
 
 - Commit: `22fa801f8` (Expose manual embedded IO for iOS)
 - PR: https://github.com/manaflow-ai/ghostty/pull/53
@@ -244,7 +263,7 @@ tend to conflict together during rebases.
     render-now C API, or output C API. Upstream already has internal
     `Termio.processOutput`, so prefer an upstream C bridge if one lands.
 
-### 11) Metal renderer preedit row rebuild guard
+### 12) Metal renderer preedit row rebuild guard
 
 - Commits:
   - `70b95dada` (Expose unsafe preedit catch-up in renderer rows)
@@ -260,7 +279,7 @@ tend to conflict together during rebases.
   - The first commit intentionally preserves the panic so cmux can keep the
     required failing-test-then-fix history for https://github.com/manaflow-ai/cmux/issues/3369.
 
-### 12) URL/path regex bounds for spaced file paths
+### 13) URL/path regex bounds for spaced file paths
 
 - Commits:
   - `6e10706a7` (test: cover spaced file path link bounds)
@@ -278,7 +297,7 @@ tend to conflict together during rebases.
   - Preserves versioned or dotted path components before the first space, such as
     `/tmp/v1.2 captures/video.mp4`.
 
-### 13) Cmd-click opens links under mouse reporting (alt-screen TUIs)
+### 14) Cmd-click opens links under mouse reporting (alt-screen TUIs)
 
 - Commits (manaflow-ai/ghostty#71, by @doronpr):
   - `1c7613c95` (fix: open terminal links on cmd-click even when mouse reporting is active)
@@ -350,7 +369,7 @@ tend to conflict together during rebases.
     user who reconfigures `link.highlight.hover_mods` to a non-default chord would
     not get the under-mouse-reporting bypass. Out of scope for #5128.
 
-### 14) Embedded surface registry serialization
+### 15) Embedded surface registry serialization
 
 - Commits:
   - `c9b61a8af` (Add surface registry mutation serialization test)
@@ -370,17 +389,14 @@ tend to conflict together during rebases.
     `App.focusedSurface`, or the embedded surface close path should preserve
     serialization of registry/focus mutation across create and free.
 
-The current cmux pin is the merged head `34cbf180d`, which merges the surface
-registry serialization (`e5c962a72`, section 14, landed on cmux `main` via
-branch `issue-5458-surface-registry-lock`) into the Cmd-click link fix line
-(`df789cd4b`, section 13) on top of the iOS render bounded-acquire pin
+The old cmux pin `34cbf180d` merged the surface registry serialization
+(`e5c962a72`, now section 15, landed on cmux `main` via branch
+`issue-5458-surface-registry-lock`) into the Cmd-click link fix line
+(`df789cd4b`, now section 14) on top of the iOS render bounded-acquire pin
 (`f78189ac1`). It is reachable from `manaflow-ai/ghostty` through branch
 `issue-5128-alt-screen-link-open`. Published
 `xcframework-34cbf180d8917b802d61d9929cfb493594f2ab52-crashsubdir-cmux-crash-v1`
-and pinned its archive checksum in `scripts/ghosttykit-checksums.txt`. The
-release and checksum pin must be regenerated whenever this commit changes, even
-for comment-only amends, because the release tag is keyed by the Ghostty commit
-SHA.
+and pinned its archive checksum in `scripts/ghosttykit-checksums.txt`.
 
 ## Upstreamed fork changes
 
