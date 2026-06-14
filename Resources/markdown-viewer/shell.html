@@ -136,7 +136,7 @@ body {
   text-align: center;
 }
 .cmux-mermaid svg {
-  max-width: none;
+  max-width: 100%;
   height: auto;
 }
 .cmux-vega canvas, .cmux-vega svg {
@@ -1161,7 +1161,19 @@ html { scroll-behavior: smooth; }
     }
 
     var viewBox = mermaidViewBoxSize(svg);
-    var width = mermaidNumericLength(svg.style.maxWidth);
+    var rect = svg.getBoundingClientRect ? svg.getBoundingClientRect() : null;
+    var width = rect ? rect.width : NaN;
+    var height = rect ? rect.height : NaN;
+    if ((!Number.isFinite(height) || height <= 0) && viewBox && Number.isFinite(width) && width > 0) {
+      height = width * (viewBox.height / viewBox.width);
+    }
+    if (Number.isFinite(width) && width > 0 && Number.isFinite(height) && height > 0) {
+      svg.setAttribute('data-cmux-mermaid-base-width', String(width));
+      svg.setAttribute('data-cmux-mermaid-base-height', String(height));
+      return { width: width, height: height };
+    }
+
+    width = mermaidNumericLength(svg.style.maxWidth);
     if (!Number.isFinite(width) || width <= 0) {
       width = mermaidNumericLength(svg.getAttribute('width'));
     }

@@ -61,6 +61,25 @@ final class MarkdownMermaidZoomTests: XCTestCase {
         let zoomed = try await waitForMermaidSnapshot(in: webView, expectedZoom: 2)
         XCTAssertGreaterThan(try XCTUnwrap(zoomed["width"]), baselineWidth * 1.8)
         XCTAssertEqual(zoomed["inlineMaxWidthCleared"] ?? 0, 1, accuracy: 0.001)
+
+        coordinator.setFontSize(MarkdownFontSizeSettings.defaultPointSize)
+        try await renderMarkdown(
+            """
+            ```mermaid
+            flowchart LR
+              wideDiagram[Very wide diagram] --> wider[Still fits at one hundred percent]
+            ```
+            """,
+            in: webView
+        )
+        let fitted = try await waitForMermaidSnapshot(in: webView)
+        let fittedWidth = try XCTUnwrap(fitted["width"])
+        XCTAssertGreaterThan(fittedWidth, baselineWidth * 1.8)
+        XCTAssertLessThanOrEqual(fittedWidth, (try XCTUnwrap(fitted["containerWidth"])) + 2)
+
+        coordinator.setFontSize(MarkdownFontSizeSettings.defaultPointSize * 2)
+        let fittedZoomed = try await waitForMermaidSnapshot(in: webView, expectedZoom: 2)
+        XCTAssertGreaterThan(try XCTUnwrap(fittedZoomed["width"]), fittedWidth * 1.8)
     }
 
     private func renderMarkdown(_ markdown: String, in webView: WKWebView) async throws {
@@ -100,9 +119,12 @@ final class MarkdownMermaidZoomTests: XCTestCase {
               var svg = document.querySelector('.cmux-mermaid svg');
               if (!svg) { return null; }
               var rect = svg.getBoundingClientRect();
+              var container = svg.closest('.cmux-mermaid');
+              var containerRect = container ? container.getBoundingClientRect() : null;
               var zoom = Number(svg.getAttribute('data-cmux-mermaid-zoom') || '1');
               return {
                 width: rect.width || 0,
+                containerWidth: containerRect ? (containerRect.width || 0) : 0,
                 zoom: Number.isFinite(zoom) ? zoom : 1,
                 inlineMaxWidthCleared: svg.style.maxWidth === 'none' ? 1 : 0
               };
@@ -156,9 +178,12 @@ private final class MarkdownMermaidStubHandler: NSObject, WKScriptMessageHandler
             """
             window.mermaid = {
               initialize: function() {},
-              render: function() {
+              render: function(id, src) {
+                var isWide = String(src || '').indexOf('wideDiagram') !== -1;
+                var width = isWide ? 1200 : 240;
+                var height = isWide ? 600 : 120;
                 return Promise.resolve({
-                  svg: '<svg data-stub-mermaid="1" width="100%" style="max-width:240px;" viewBox="0 0 240 120" xmlns="http://www.w3.org/2000/svg"><rect x="0" y="0" width="240" height="120" fill="#d73a49"></rect><text x="20" y="65" font-size="18" fill="#ffffff">Mermaid label</text></svg>'
+                  svg: '<svg data-stub-mermaid="1" width="100%" style="max-width:' + width + 'px;" viewBox="0 0 ' + width + ' ' + height + '" xmlns="http://www.w3.org/2000/svg"><rect x="0" y="0" width="' + width + '" height="' + height + '" fill="#d73a49"></rect><text x="20" y="65" font-size="18" fill="#ffffff">Mermaid label</text></svg>'
                 });
               }
             };
