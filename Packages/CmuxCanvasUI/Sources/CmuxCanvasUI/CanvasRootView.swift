@@ -28,7 +28,7 @@ public final class CanvasRootView: NSView {
     /// The panel currently mounted in each pane.
     private var mountedPanelByPane: [CanvasPaneID: UUID] = [:]
     /// The latest descriptors, by panel id, for mount/chrome lookups.
-    private var descriptorsByPanelId: [UUID: CanvasPaneDescriptor] = [:]
+    var descriptorsByPanelId: [UUID: CanvasPaneDescriptor] = [:]
     private var renderingByPane: [CanvasPaneID: Bool] = [:]
     private var isWorkspaceVisible = true
     /// Canvas coordinates of the document view's (0,0).
@@ -494,23 +494,4 @@ public final class CanvasRootView: NSView {
         }
     }
 
-    func updateMinimap() {
-        let visible = canvasRect(fromDocument: scrollView.contentView.documentVisibleRect)
-        let focusedPaneID = model.layout.panes.first { pane in
-            pane.panelIds.contains { descriptorsByPanelId[$0.rawValue]?.isFocused == true }
-        }?.id
-        let panes = model.layout.panes.map { pane in
-            let frame = paneViews[pane.id]
-                .map { canvasRect(fromDocument: $0.frame) }
-                ?? pane.frame.cgRect
-            return CanvasMinimapPaneSnapshot(id: pane.id, frame: frame)
-        }
-        let snapshot = CanvasMinimapSnapshot(
-            panes: panes,
-            visibleRect: visible,
-            focusedPaneID: focusedPaneID
-        )
-        minimapView.snapshot = snapshot
-        minimapView.isHidden = !snapshot.shouldShow
-    }
 }
