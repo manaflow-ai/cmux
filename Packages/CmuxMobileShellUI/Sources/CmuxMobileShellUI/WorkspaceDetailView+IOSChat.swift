@@ -130,8 +130,21 @@ extension WorkspaceDetailView {
         }
         applyChatModeFallback()
         for await frame in stream {
-            let next = reducer.applying(frame, to: chatSessions)
-            withAnimation(.snappy(duration: 0.25)) { chatSessions = next }
+            let baseline = Self.streamReducerBaseline(
+                current: chatSessions,
+                hasLoadedLiveSessions: hasLoadedLiveChatSessions,
+                seeded: store.seededChatSessions(workspaceID: workspace.id.rawValue)
+            )
+            guard Self.frameUpdatesSessionList(
+                frame,
+                workspaceID: workspace.id.rawValue,
+                baseline: baseline
+            ) else { continue }
+            let next = reducer.applying(frame, to: baseline)
+            withAnimation(.snappy(duration: 0.25)) {
+                chatSessions = next
+                hasLoadedLiveChatSessions = true
+            }
             applyChatModeFallback()
         }
     }
@@ -156,6 +169,31 @@ extension WorkspaceDetailView {
             merged.append(session)
         }
         return ChatSessionDescriptor.openable(merged)
+    }
+
+    static func streamReducerBaseline(
+        current: [ChatSessionDescriptor],
+        hasLoadedLiveSessions: Bool,
+        seeded: [ChatSessionDescriptor]
+    ) -> [ChatSessionDescriptor] {
+        hasLoadedLiveSessions
+            ? current
+            : mergedChatSessions(primary: current, fallback: seeded)
+    }
+
+    static func frameUpdatesSessionList(
+        _ frame: ChatSessionEventFrame,
+        workspaceID: String,
+        baseline: [ChatSessionDescriptor]
+    ) -> Bool {
+        switch frame.event {
+        case .descriptorChanged(let descriptor):
+            return descriptor.workspaceID == workspaceID
+        case .stateChanged:
+            return baseline.contains { $0.id == frame.sessionID }
+        case .appended, .updated, .terminalBlocks, .reset, .unknown:
+            return false
+        }
     }
 
     /// If the session backing chat mode disappeared, fall back to the terminal
