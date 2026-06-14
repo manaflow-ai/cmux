@@ -2820,6 +2820,7 @@ final class UpdateTitlebarAccessoryController {
     private var pendingAttachRetries: [ObjectIdentifier: Int] = [:]
     private var startupScanWorkItems: [DispatchWorkItem] = []
     private let controlsIdentifier = NSUserInterfaceItemIdentifier("cmux.titlebarControls")
+    private let rightSidebarToggleIdentifier = NSUserInterfaceItemIdentifier("cmux.titlebarRightSidebarToggle")
     private let controlsControllers = NSHashTable<TitlebarControlsAccessoryViewController>.weakObjects()
     private var lastKnownPresentationMode: WorkspacePresentationModeSettings.Mode = WorkspacePresentationModeSettings.mode()
     private var detachedNotificationsPopover: NSPopover?
@@ -2979,6 +2980,13 @@ final class UpdateTitlebarAccessoryController {
             controlsControllers.add(controls)
         }
 
+        if !window.titlebarAccessoryViewControllers.contains(where: { $0.view.identifier == rightSidebarToggleIdentifier }) {
+            let rightToggle = RightSidebarToggleAccessoryViewController()
+            rightToggle.layoutAttribute = .right
+            rightToggle.view.identifier = rightSidebarToggleIdentifier
+            window.addTitlebarAccessoryViewController(rightToggle)
+        }
+
         attachedWindows.add(window)
         applyAccessoryVisibility(for: window)
 
@@ -3000,7 +3008,8 @@ final class UpdateTitlebarAccessoryController {
         let shouldHide = WorkspacePresentationModeSettings.mode() == .minimal
             || window.styleMask.contains(.fullScreen)
         for accessory in window.titlebarAccessoryViewControllers
-            where accessory.view.identifier == controlsIdentifier {
+            where accessory.view.identifier == controlsIdentifier
+                || accessory.view.identifier == rightSidebarToggleIdentifier {
             accessory.isHidden = shouldHide
             accessory.view.isHidden = shouldHide
             accessory.view.alphaValue = shouldHide ? 0 : 1
@@ -3015,7 +3024,7 @@ final class UpdateTitlebarAccessoryController {
         }
         let matchingIndices = window.titlebarAccessoryViewControllers.indices.reversed().filter { index in
             let id = window.titlebarAccessoryViewControllers[index].view.identifier
-            return id == controlsIdentifier
+            return id == controlsIdentifier || id == rightSidebarToggleIdentifier
         }
         guard !matchingIndices.isEmpty || attachedWindows.contains(window) else { return }
 
@@ -3196,5 +3205,231 @@ final class UpdateTitlebarAccessoryController {
             return
         }
         target.toggleNotificationsPopover(animated: animated)
+    }
+}
+
+// MARK: - Right Sidebar Toggle Accessory
+
+/// Single trailing-edge titlebar button that toggles the right sidebar,
+/// mirroring the left cluster's sidebar toggle. The right sidebar header has
+/// its own close button, but once the sidebar is closed nothing in the chrome
+/// reopens it without the keyboard shortcut.
+private struct RightSidebarToggleTitlebarView: View {
+    let onToggle: () -> Void
+    @AppStorage("titlebarControlsStyle") private var styleRawValue = TitlebarControlsStyle.classic.rawValue
+
+    private var config: TitlebarControlsStyleConfig {
+        (TitlebarControlsStyle(rawValue: styleRawValue) ?? .classic).config
+    }
+
+    var body: some View {
+        TitlebarControlButton(
+            config: config,
+            foregroundColor: TitlebarControlIconStyle.foregroundColor,
+            accessibilityIdentifier: "titlebarControl.toggleRightSidebar",
+            accessibilityLabel: String(
+                localized: "titlebar.rightSidebar.accessibilityLabel",
+                defaultValue: "Toggle Right Sidebar"
+            ),
+            action: onToggle
+        ) {
+            Image(systemName: "sidebar.right")
+                .symbolRenderingMode(.monochrome)
+                .font(.system(size: config.iconSize, weight: TitlebarControlIconStyle.weight))
+                .frame(
+                    width: TitlebarControlIconStyle.iconFrameSize(for: config),
+                    height: TitlebarControlIconStyle.iconFrameSize(for: config)
+                )
+        }
+        .safeHelp(
+            KeyboardShortcutSettings.Action.toggleRightSidebar.tooltip(
+                String(
+                    localized: "titlebar.rightSidebar.tooltip",
+                    defaultValue: "Show or hide the right sidebar"
+                )
+            )
+        )
+        .padding(.horizontal, 6)
+    }
+}
+
+/// Accessory container that only claims clicks landing on actual content:
+/// the container spans the full titlebar height for layout, and an opaque
+/// container would swallow clicks meant for chrome rendered underneath
+/// (e.g. the right sidebar's X button while the toggle overlaps it).
+private final class ClickPassThroughAccessoryContainerView: NSView {
+    override func hitTest(_ point: NSPoint) -> NSView? {
+        let hit = super.hitTest(point)
+        return hit === self ? nil : hit
+    }
+}
+
+@MainActor
+private final class RightSidebarToggleAccessoryViewController: NSTitlebarAccessoryViewController {
+    private static let styleDefaultsKey = "titlebarControlsStyle"
+    private let hostingView: NonDraggableHostingView<RightSidebarToggleTitlebarView>
+    private let containerView: NSView
+    private var isObservingStyleDefault = false
+    private var sidebarVisibilityCancellable: AnyCancellable?
+    private weak var observedFileExplorerState: FileExplorerState?
+    private var lastAppliedContentSize: NSSize = .zero
+    private var lastAppliedYOffset: CGFloat = .nan
+    private var bindRetriesRemaining = 40
+    private var isBindRetryScheduled = false
+
+    init() {
+        let containerView = ClickPassThroughAccessoryContainerView()
+        self.containerView = containerView
+        let toggle = { [weak containerView] in
+            #if DEBUG
+            cmuxDebugLog("titlebar.toggleRightSidebar")
+            #endif
+            _ = AppDelegate.shared?.toggleRightSidebarInActiveMainWindow(
+                preferredWindow: containerView?.window
+            )
+        }
+        hostingView = NonDraggableHostingView(
+            rootView: RightSidebarToggleTitlebarView(onToggle: toggle)
+        )
+
+        super.init(nibName: nil, bundle: nil)
+
+        view = containerView
+        containerView.translatesAutoresizingMaskIntoConstraints = true
+        hostingView.translatesAutoresizingMaskIntoConstraints = true
+        hostingView.autoresizingMask = []
+        containerView.addSubview(hostingView)
+        applyLayout()
+
+        // The button size follows the titlebar controls style; resize when
+        // that specific default changes (KVO on the key, not the broad
+        // UserDefaults.didChangeNotification).
+        UserDefaults.standard.addObserver(
+            self,
+            forKeyPath: Self.styleDefaultsKey,
+            options: [],
+            context: nil
+        )
+        isObservingStyleDefault = true
+    }
+
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    deinit {
+        if isObservingStyleDefault {
+            UserDefaults.standard.removeObserver(self, forKeyPath: Self.styleDefaultsKey)
+        }
+    }
+
+    override func viewDidAppear() {
+        super.viewDidAppear()
+        applyLayout()
+        bindSidebarVisibilityIfNeeded()
+    }
+
+    override func viewDidLayout() {
+        super.viewDidLayout()
+        applyLayout()
+        bindSidebarVisibilityIfNeeded()
+    }
+
+    override func observeValue(
+        forKeyPath keyPath: String?,
+        of object: Any?,
+        change: [NSKeyValueChangeKey: Any]?,
+        context: UnsafeMutableRawPointer?
+    ) {
+        guard keyPath == Self.styleDefaultsKey else {
+            super.observeValue(forKeyPath: keyPath, of: object, change: change, context: context)
+            return
+        }
+        Task { @MainActor [weak self] in
+            self?.applyLayout()
+        }
+    }
+
+    /// Mirrors the leading cluster's vertical strategy: the container spans the
+    /// titlebar height and the button centers on the traffic lights' midY, so
+    /// the toggle sits on the same row as the other titlebar controls — which
+    /// is also where the sidebar's own X button appears once it opens.
+    private func applyLayout() {
+        let contentSize = hostingView.fittingSize
+        guard contentSize.width > 0, contentSize.height > 0 else { return }
+        let closeButton = view.window?.standardWindowButton(.closeButton)
+        let titlebarView = closeButton?.superview
+        let titlebarHeight = (titlebarView?.frame.height ?? 0) > 0
+            ? titlebarView?.frame.height ?? contentSize.height
+            : view.window.map { window in
+                window.frame.height - window.contentLayoutRect.height
+            } ?? contentSize.height
+        let containerHeight = max(contentSize.height, titlebarHeight)
+        let trafficLightFrame = closeButton.map { button in
+            view.convert(button.convert(button.bounds, to: nil), from: nil)
+        }
+        let yOffset: CGFloat
+        if let trafficLightFrame, !trafficLightFrame.isEmpty {
+            yOffset = max(0, trafficLightFrame.midY - (contentSize.height / 2.0))
+        } else {
+            yOffset = max(0, (containerHeight - contentSize.height) / 2.0)
+        }
+        if contentSize == lastAppliedContentSize, yOffset == lastAppliedYOffset {
+            return
+        }
+        lastAppliedContentSize = contentSize
+        lastAppliedYOffset = yOffset
+        preferredContentSize = NSSize(width: contentSize.width, height: containerHeight)
+        containerView.setFrameSize(NSSize(width: contentSize.width, height: containerHeight))
+        hostingView.frame = NSRect(x: 0, y: yOffset, width: contentSize.width, height: contentSize.height)
+    }
+
+    /// The titlebar toggle only shows while the right sidebar is closed: once
+    /// it opens, the sidebar's own X button (in the chrome, at the same
+    /// trailing position — see #3757) takes over, so the control appears to
+    /// move into the sidebar the way the left sidebar toggle reads as part of
+    /// the open left sidebar.
+    private func bindSidebarVisibilityIfNeeded() {
+        // The window context can register after the accessory attaches
+        // (notably during session restore with the sidebar already open), so
+        // unresolved lookups retry briefly instead of waiting for an
+        // interaction-driven layout pass.
+        guard let window = view.window,
+              let state = AppDelegate.shared?.contextForMainTerminalWindow(window)?.fileExplorerState
+        else {
+            scheduleBindRetryIfNeeded()
+            return
+        }
+        // Compare instances rather than binding once: session restore can
+        // replace the context's FileExplorerState after an early bind, which
+        // would leave the subscription watching a dead object.
+        guard state !== observedFileExplorerState else { return }
+        observedFileExplorerState = state
+        sidebarVisibilityCancellable = state.$isVisible
+            .removeDuplicates()
+            .receive(on: RunLoop.main)
+            .sink { [weak self] sidebarVisible in
+                self?.setToggleHidden(sidebarVisible)
+            }
+    }
+
+    private func scheduleBindRetryIfNeeded() {
+        guard bindRetriesRemaining > 0, !isBindRetryScheduled else { return }
+        bindRetriesRemaining -= 1
+        isBindRetryScheduled = true
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) { [weak self] in
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                self.isBindRetryScheduled = false
+                self.bindSidebarVisibilityIfNeeded()
+            }
+        }
+    }
+
+    private func setToggleHidden(_ hidden: Bool) {
+        guard isHidden != hidden else { return }
+        isHidden = hidden
+        view.isHidden = hidden
+        view.alphaValue = hidden ? 0 : 1
     }
 }
