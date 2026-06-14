@@ -32,7 +32,7 @@
 3663	Packages/CmuxMobileTerminal/Sources/CmuxMobileTerminal/GhosttySurfaceView.swift
 3397	Sources/CmuxConfig.swift
 3330	cmuxTests/TabManagerSessionSnapshotTests.swift
-3226	Sources/Update/UpdateTitlebarAccessory.swift
+3221	Sources/Update/UpdateTitlebarAccessory.swift
 2877	Sources/SessionIndexView.swift
 2871	cmuxTests/CMUXOpenCommandTests.swift
 2565	Sources/Panels/CmuxWebView.swift

@@ -841,8 +841,7 @@ struct TitlebarControlsView: View {
     }
 
     private var modifierHoldHintsEnabled: Bool {
-        _ = showModifierHoldHints
-        return ShortcutHintDebugSettings.modifierHoldHintsEnabled()
+        showModifierHoldHints
     }
 
     private var shouldShowTitlebarShortcutHints: Bool {
@@ -907,10 +906,6 @@ struct TitlebarControlsView: View {
             }
             .onReceive(NotificationCenter.default.publisher(for: KeyboardShortcutSettings.didChangeNotification)) { _ in
                 shortcutRefreshTick &+= 1
-            }
-            .onReceive(NotificationCenter.default.publisher(for: UserDefaults.didChangeNotification)) { _ in
-                shortcutRefreshTick &+= 1
-                startShortcutHintMonitorIfNeeded()
             }
             .onReceive(NotificationCenter.default.publisher(for: .tabManagerFocusHistoryRevisionDidChange)) { _ in
                 focusHistoryAvailabilityRevision &+= 1
