@@ -37,9 +37,11 @@ struct TerminalAccessoryConfigurationTests {
         ])
         // Trailing region: the two zoom controls, in that order.
         #expect(Array(order.suffix(2)) == [id(.zoomOut), id(.zoomIn)])
-        // Esc sits right after Tab in the redesigned default.
+        // Esc sits right after Tab, then Return, in the redesigned default, so the
+        // three most common terminal keys are adjacent.
         let tabIndex = try #require(order.firstIndex(of: id(.tab)))
         #expect(order[tabIndex + 1] == id(.escape))
+        #expect(order[tabIndex + 2] == id(.returnKey))
         // Everything is shown on a fresh install, including the now-configurable
         // modifiers/zoom/paste.
         for action in TerminalInputAccessoryAction.configurableActions {
@@ -47,6 +49,37 @@ struct TerminalAccessoryConfigurationTests {
         }
         // Shift is never surfaced as a bar button.
         #expect(!order.contains(id(.shift)))
+    }
+
+    // MARK: - Return key
+
+    @Test("Return is shown by default, adjacent to Tab/Esc, and sends CR")
+    func returnKeyDefaultsAndOutput() throws {
+        let config = TerminalAccessoryConfiguration(defaults: freshDefaults())
+        let order = config.displayOrder
+
+        let returnIndex = try #require(order.firstIndex(of: id(.returnKey)))
+        let escIndex = try #require(order.firstIndex(of: id(.escape)))
+        // Return sits immediately after Esc.
+        #expect(returnIndex == escIndex + 1)
+        #expect(config.isEnabled(id(.returnKey)))
+        // Return sends a carriage return (Enter).
+        #expect(TerminalInputAccessoryAction.returnKey.output == Data([0x0D]))
+        #expect(TerminalInputAccessoryAction.returnKey.isUserConfigurable)
+    }
+
+    @Test("Return's persisted identifier is stable")
+    func returnKeyStableIdentifier() {
+        // The persisted key is `builtin.<rawValue>`; Return is appended last in the
+        // enum so existing built-ins keep their raw values. Lock the storage key so
+        // a future reorder of the enum cannot silently shift it.
+        let stored = TerminalInputAccessoryAction.returnKey.itemID.storageKey
+        #expect(stored == "builtin.\(TerminalInputAccessoryAction.returnKey.rawValue)")
+        let parsed = ToolbarItemID(storageKey: stored)
+        #expect(parsed == id(.returnKey))
+        // Appended last: its raw value is the max across all cases.
+        let maxRaw = TerminalInputAccessoryAction.allCases.map(\.rawValue).max()
+        #expect(TerminalInputAccessoryAction.returnKey.rawValue == maxRaw)
     }
 
     // MARK: - Reorder + hide/show round-trips

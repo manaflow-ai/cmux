@@ -210,6 +210,11 @@ public enum TerminalInputAccessoryAction: Int, CaseIterable, Sendable {
     /// Appended at the end so existing persisted raw values (user accessory bar
     /// order/enabled set) are preserved.
     case composer
+    /// Send a carriage return (Enter). Appended at the end so existing persisted
+    /// raw values (which are the `Int` rawValues, stored as `builtin.<n>`) stay
+    /// stable; its default on-bar position is curated separately in
+    /// ``defaultConfigurableOrder``.
+    case returnKey
     var title: String {
         title(isMacRemote: false)
     }
@@ -234,6 +239,8 @@ public enum TerminalInputAccessoryAction: Int, CaseIterable, Sendable {
             return String(localized: "terminal.input_accessory.title.escape", defaultValue: "Esc")
         case .tab:
             return String(localized: "terminal.input_accessory.title.tab", defaultValue: "Tab")
+        case .returnKey:
+            return "⏎"
         case .ctrlC:
             return "^C"
         case .ctrlD:
@@ -288,6 +295,7 @@ public enum TerminalInputAccessoryAction: Int, CaseIterable, Sendable {
         case .composer: return "terminal.inputAccessory.composer"
         case .escape: return "terminal.inputAccessory.escape"
         case .tab: return "terminal.inputAccessory.tab"
+        case .returnKey: return "terminal.inputAccessory.return"
         case .upArrow: return "terminal.inputAccessory.up"
         case .downArrow: return "terminal.inputAccessory.down"
         case .leftArrow: return "terminal.inputAccessory.left"
@@ -368,6 +376,8 @@ public enum TerminalInputAccessoryAction: Int, CaseIterable, Sendable {
             return Data([0x1B])
         case .tab:
             return Data([0x09])
+        case .returnKey:
+            return Data([0x0D]) // CR (Enter)
         case .tilde:
             return Data([0x7E]) // ~
         case .pipe:
@@ -452,10 +462,10 @@ public enum TerminalInputAccessoryAction: Int, CaseIterable, Sendable {
 
     /// The default on-bar arrangement of the configurable shortcuts: the leading
     /// modifier/paste controls, then the high-traffic agent and control keys (Tab,
-    /// Esc, ^C/^D, the Claude/Codex launchers, the arrow keys, Clear), then the
-    /// punctuation and navigation keys, then the trailing zoom controls. Esc sits
-    /// immediately to the right of Tab so the two most common terminal keys are
-    /// adjacent. Curated independently of the enum's `rawValue` order so the
+    /// Esc, Return, ^C/^D, the Claude/Codex launchers, the arrow keys, Clear), then
+    /// the punctuation and navigation keys, then the trailing zoom controls. Esc and
+    /// Return sit immediately to the right of Tab so the most common terminal keys
+    /// are adjacent. Curated independently of the enum's `rawValue` order so the
     /// default bar can be arranged without perturbing the persisted identifiers,
     /// which are the `rawValue`s.
     ///
@@ -466,6 +476,7 @@ public enum TerminalInputAccessoryAction: Int, CaseIterable, Sendable {
         defaultLeadingActions + [
             .tab,
             .escape,
+            .returnKey,
             .ctrlC, .ctrlD,
             .claude, .codex,
             .upArrow, .downArrow, .leftArrow, .rightArrow,
@@ -482,6 +493,7 @@ public enum TerminalInputAccessoryAction: Int, CaseIterable, Sendable {
         switch self {
         case .escape: return String(localized: "terminal.shortcut.name.escape", defaultValue: "Escape")
         case .tab: return String(localized: "terminal.shortcut.name.tab", defaultValue: "Tab")
+        case .returnKey: return String(localized: "terminal.shortcut.name.return", defaultValue: "Return")
         case .upArrow: return String(localized: "terminal.shortcut.name.upArrow", defaultValue: "Up Arrow")
         case .downArrow: return String(localized: "terminal.shortcut.name.downArrow", defaultValue: "Down Arrow")
         case .leftArrow: return String(localized: "terminal.shortcut.name.leftArrow", defaultValue: "Left Arrow")
