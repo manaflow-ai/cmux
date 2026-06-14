@@ -11,11 +11,15 @@ import Foundation
 /// runs the wrong binary with the wrong flags.
 public enum AgentLaunchCaptureTrust {
     /// Wrapper launchers that legitimately differ from the hook kind they launch.
+    /// `sr`/`subrouter` is a generic account-routing wrapper that can front ANY
+    /// kind (`sr claude`, `sr codex`, `sr opencode`, `sr pi`; `sr` is a symlink
+    /// to `~/bin/subrouter`), so it is trusted for every kind. Omitting it
+    /// distrusted every subrouter-launched session and hid Fork Conversation.
     private static let wrapperLaunchersByKind: [String: Set<String>] = [
-        "claude": ["claudeteams"],
-        "codex": ["codexteams"],
-        "opencode": ["omo", "omx", "omc"],
-        "pi": ["omp"],
+        "claude": ["claudeteams", "sr", "subrouter"],
+        "codex": ["codexteams", "sr", "subrouter"],
+        "opencode": ["omo", "omx", "omc", "sr", "subrouter"],
+        "pi": ["omp", "sr", "subrouter"],
     ]
 
     /// True when `launcher` plausibly describes a launch of agent `kind`.
