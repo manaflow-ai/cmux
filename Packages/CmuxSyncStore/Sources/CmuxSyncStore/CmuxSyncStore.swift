@@ -232,7 +232,15 @@ public actor CmuxSyncStore: CmuxSyncStoring {
             // from it, and force the cursor + epoch to the snapshot's values.
             let localCursor = try cursor(teamID: teamID, collection: collection)
             let localEpoch = try self.epoch(teamID: teamID, collection: collection)
-            let epochChanged = epoch != 0 && localEpoch != 0 && epoch != localEpoch
+            // A nonzero incoming epoch that differs from ours is a reset — INCLUDING
+            // when our local epoch is 0 (a pre-epoch cache, or a first sync that
+            // already has rows from an old history). The worker force-snapshots a
+            // clientEpoch-0 client against a real server, so we must apply it
+            // authoritatively; otherwise a same-id/same-rev record with a changed
+            // payload would be skipped by the monotone guard and stay stale
+            // (DESIGN.md §3.6). A pure first sync (no local rows) is harmless here:
+            // there is nothing to force-replace or reconcile away.
+            let epochChanged = epoch != 0 && epoch != localEpoch
             let isReset = localCursor > snapshotRev || epochChanged
 
             var present = Set<String>()

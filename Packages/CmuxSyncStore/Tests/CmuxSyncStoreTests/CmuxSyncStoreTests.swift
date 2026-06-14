@@ -265,6 +265,28 @@ private let sortKey: @Sendable (SyncWireRecord) -> Double = { DeviceSyncFacade.s
         #expect(try await store.liveRecords(teamID: TEAM, collection: COLL).map(\.recordID) == ["new-A"]) // no ghost
     }
 
+    @Test func nonzeroEpochAgainstLocalEpochZeroIsAReset() async throws {
+        let (store, dir) = try makeStore()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        // Pre-epoch local state: a record at rev 5 written WITHOUT an epoch (the
+        // cursor row's epoch is 0). Simulate via a plain delta (epoch stays 0).
+        try await store.applyDelta(teamID: TEAM, collection: COLL, frameRev: 5, records: [
+            try deviceRecord(id: "dev-A", rev: 5, displayName: "StaleRoutes"),
+        ], sortKeyFor: sortKey, now: Date())
+        #expect(try await store.epoch(teamID: TEAM, collection: COLL) == 0)
+        // The server (now epoch-aware) force-snapshots this epoch-0 client. The
+        // snapshot carries the SAME id at the SAME rev 5 but a CHANGED payload.
+        // Without reset-on-epoch-mismatch-from-0, the monotone guard (localRev 5
+        // >= 5) would skip it and keep the stale payload.
+        try await store.applySnapshot(teamID: TEAM, collection: COLL, snapshotRev: 5, epoch: 777, records: [
+            try deviceRecord(id: "dev-A", rev: 5, displayName: "FreshRoutes"),
+        ], sortKeyFor: sortKey, now: Date())
+        let live = try await store.liveRecords(teamID: TEAM, collection: COLL)
+        let device = try JSONDecoder().decode(SyncedDeviceRecord.self, from: live[0].payloadJSON)
+        #expect(device.displayName == "FreshRoutes") // authoritative replace, not skipped
+        #expect(try await store.epoch(teamID: TEAM, collection: COLL) == 777) // adopted
+    }
+
     @Test func resetSnapshotKeepsProvisionalRows() async throws {
         let (store, dir) = try makeStore()
         defer { try? FileManager.default.removeItem(at: dir) }
