@@ -31,13 +31,14 @@ public enum ToolbarMacroStep: Codable, Equatable, Sendable {
     /// The bytes this step contributes to its macro, or `nil` when it resolves to
     /// nothing (empty text, or a key combo the encoder cannot encode).
     public var output: Data? {
-        switch self {
-        case let .text(value):
+        if case let .text(value) = self {
             let normalized = value.replacingOccurrences(of: "\n", with: "\r")
             guard !normalized.isEmpty else { return nil }
             return Data(normalized.utf8)
-        case let .keyCombo(modifiers, key):
+        }
+        if case let .keyCombo(modifiers, key) = self {
             return TerminalKeyEncoder.encode(specialKey: key, modifiers: modifiers)
         }
+        return nil
     }
 }
