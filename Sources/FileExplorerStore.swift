@@ -149,7 +149,8 @@ enum FileExplorerStyle: Int, CaseIterable {
         }
     }
 
-    func gitColor(for status: GitFileStatus) -> NSColor {
+    func gitColor(for status: GitFileStatus, colorScheme: ColorScheme) -> NSColor {
+        let colors = FileExplorerColors(colorScheme: colorScheme)
         switch self {
         case .liquidGlass:
             switch status {
@@ -157,7 +158,7 @@ enum FileExplorerStyle: Int, CaseIterable {
             case .added: return .systemTeal
             case .deleted: return .systemRed
             case .renamed: return .systemPurple
-            case .untracked: return .quaternaryLabelColor
+            case .untracked: return colors.gitUntrackedTextColor(lightFallback: .quaternaryLabelColor)
             }
         case .highDensity:
             switch status {
@@ -165,7 +166,7 @@ enum FileExplorerStyle: Int, CaseIterable {
             case .added: return .systemGreen
             case .deleted: return .systemRed
             case .renamed: return .systemBlue
-            case .untracked: return .tertiaryLabelColor
+            case .untracked: return colors.gitUntrackedTextColor(lightFallback: .tertiaryLabelColor)
             }
         case .terminalStealth:
             switch status {
@@ -173,7 +174,7 @@ enum FileExplorerStyle: Int, CaseIterable {
             case .added: return NSColor(red: 0.5, green: 0.8, blue: 0.5, alpha: 1.0)
             case .deleted: return NSColor(red: 0.8, green: 0.4, blue: 0.4, alpha: 1.0)
             case .renamed: return NSColor(red: 0.5, green: 0.7, blue: 0.9, alpha: 1.0)
-            case .untracked: return NSColor(white: 0.5, alpha: 1.0)
+            case .untracked: return colors.gitUntrackedTextColor(lightFallback: NSColor(white: 0.5, alpha: 1.0))
             }
         case .proStudio:
             switch status {
@@ -181,7 +182,7 @@ enum FileExplorerStyle: Int, CaseIterable {
             case .added: return .systemGreen
             case .deleted: return .systemPink
             case .renamed: return .systemCyan
-            case .untracked: return .systemGray
+            case .untracked: return colors.gitUntrackedTextColor(lightFallback: .systemGray)
             }
         case .finder:
             switch status {
@@ -189,11 +190,10 @@ enum FileExplorerStyle: Int, CaseIterable {
             case .added: return .systemGreen
             case .deleted: return .systemRed
             case .renamed: return .systemBlue
-            case .untracked: return .tertiaryLabelColor
+            case .untracked: return colors.gitUntrackedTextColor(lightFallback: .tertiaryLabelColor)
             }
         }
     }
-
     static var current: FileExplorerStyle {
         let defaults = UserDefaults.standard
         if defaults.object(forKey: "fileExplorer.style") == nil {
