@@ -1,13 +1,11 @@
 import Foundation
 
 extension ShortcutAction {
-    /// The factory-default shortcut for this action.
+    /// The factory-default shortcut for this action, including two-stroke chords.
     ///
-    /// Mirrors the table in
-    /// `Sources/KeyboardShortcutSettings.swift` so the package's
-    /// settings UI can show "(default: ⌘N)" or a chorded default next
-    /// to unbound rows, and so reset/conflict logic sees the same
-    /// effective shortcut as app routing.
+    /// Mirrors the table in `Sources/KeyboardShortcutSettings.swift` so the package's
+    /// settings UI can show built-in bindings next to unbound rows and reset through
+    /// the JSON store without losing chorded defaults.
     public var defaultShortcut: StoredShortcut? {
         switch self {
         case .openSettings: return Self.shortcut(key: ",", command: true)
@@ -20,6 +18,7 @@ extension ShortcutAction {
         case .quit: return Self.shortcut(key: "q", command: true)
         case .toggleSidebar: return Self.shortcut(key: "b", command: true)
         case .newTab: return Self.shortcut(key: "n", command: true)
+        case .newBrowserWorkspace: return Self.shortcut(key: "n", command: true, option: true)
         case .openFolder: return Self.shortcut(key: "o", command: true)
         case .reopenPreviousSession: return Self.shortcut(key: "o", command: true, shift: true)
         case .goToWorkspace: return Self.shortcut(key: "p", command: true)
@@ -48,6 +47,8 @@ extension ShortcutAction {
         case .closeTab: return Self.shortcut(key: "w", command: true)
         case .closeOtherTabsInPane: return Self.shortcut(key: "t", command: true, option: true)
         case .closeWorkspace: return Self.shortcut(key: "w", command: true, shift: true)
+        case .groupSelectedWorkspaces: return Self.shortcut(key: "g", command: true, shift: true)
+        case .toggleFocusedWorkspaceGroupCollapsed: return Self.shortcut(key: ".", command: true, control: true)
         case .reopenClosedBrowserPanel: return Self.shortcut(key: "t", command: true, shift: true)
         case .focusLeft: return Self.shortcut(key: "←", command: true, option: true)
         case .focusRight: return Self.shortcut(key: "→", command: true, option: true)
@@ -63,6 +64,17 @@ extension ShortcutAction {
         case .equalizeSplits: return Self.shortcut(key: "=", command: true, control: true)
         case .splitBrowserRight: return Self.shortcut(key: "d", command: true, option: true)
         case .splitBrowserDown: return Self.shortcut(key: "d", command: true, shift: true, option: true)
+        case .toggleCanvasLayout: return Self.shortcut(key: "c", command: true, control: true)
+        case .canvasRevealFocusedPane: return Self.shortcut(key: "r", command: true, control: true)
+        case .canvasOverview: return Self.shortcut(key: "o", command: true, control: true)
+        case .canvasZoomIn: return Self.shortcut(key: "=", command: true, option: true)
+        case .canvasZoomOut: return Self.shortcut(key: "-", command: true, option: true)
+        case .canvasZoomReset: return Self.shortcut(key: "0", command: true, option: true)
+        case .canvasTidy: return Self.shortcut(key: "t", command: true, control: true)
+        case .canvasAlignLeft, .canvasAlignRight, .canvasAlignTop, .canvasAlignBottom,
+             .canvasEqualizeWidths, .canvasEqualizeHeights,
+             .canvasDistributeHorizontally, .canvasDistributeVertically:
+            return nil
         case .nextSurface: return Self.shortcut(key: "]", command: true, shift: true)
         case .prevSurface: return Self.shortcut(key: "[", command: true, shift: true)
         case .selectSurfaceByNumber: return Self.shortcut(key: "1", control: true)
@@ -71,6 +83,7 @@ extension ShortcutAction {
         case .toggleTerminalCopyMode: return Self.shortcut(key: "m", command: true, shift: true)
         case .focusTextBoxInput: return Self.shortcut(key: "a", command: true, shift: true)
         case .attachTextBoxFile: return Self.shortcut(key: "a", command: true, shift: true, option: true)
+        case .sendCtrlFToTerminal: return nil
         case .toggleRightSidebar: return Self.shortcut(key: "b", command: true, option: true)
         case .openDiffViewer: return Self.shortcut(key: "d", command: true, shift: true, control: true)
         case .saveFilePreview: return Self.shortcut(key: "s", command: true)
@@ -95,13 +108,22 @@ extension ShortcutAction {
         case .showBrowserJavaScriptConsole: return Self.shortcut(key: "c", command: true, option: true)
         case .toggleBrowserFocusMode: return Self.shortcut(key: "\r", command: true, option: true)
         case .toggleReactGrab: return Self.shortcut(key: "g", command: true, shift: true)
+        case .diffViewerScrollDown: return Self.shortcut(key: "j")
+        case .diffViewerScrollUp: return Self.shortcut(key: "k")
+        case .diffViewerScrollToBottom: return Self.shortcut(key: "g", shift: true)
+        case .diffViewerScrollToTop:
+            return StoredShortcut(
+                first: ShortcutStroke(key: "g"),
+                second: ShortcutStroke(key: "g")
+            )
+        case .diffViewerOpenFileSearch: return Self.shortcut(key: "/")
         }
     }
 
     /// The factory-default first stroke for single-stroke shortcuts.
     ///
-    /// Chorded defaults return `nil`; use ``defaultShortcut`` when
-    /// callers need to preserve the whole binding.
+    /// Chorded defaults return `nil`; use ``defaultShortcut`` when callers
+    /// need to preserve the whole binding.
     public var defaultStroke: ShortcutStroke? {
         guard let shortcut = defaultShortcut, shortcut.second == nil else {
             return nil

@@ -1,6 +1,9 @@
 import XCTest
+import CmuxCore
 import AppKit
 import Darwin
+import CmuxTerminal
+import struct CmuxSettings.IntegrationsCatalogSection
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
 #elseif canImport(cmux)
@@ -505,8 +508,32 @@ final class TerminalControllerSocketSecurityTests: XCTestCase {
             XCTAssertEqual(result["pong"] as? Bool, true, file: file, line: line)
         case "system.capabilities":
             let methods = try XCTUnwrap(result["methods"] as? [String], method, file: file, line: line)
-            XCTAssertTrue(methods.contains("system.ping"), file: file, line: line)
-            XCTAssertTrue(methods.contains("system.capabilities"), file: file, line: line)
+            let advertisedMethods = Set(methods)
+            let expectedMethods: Set<String> = [
+                "system.ping",
+                "system.capabilities",
+                "mobile.host.status",
+                "mobile.attach_ticket.create",
+                "mobile.workspace.list",
+                "workspace.list",
+                "workspace.create",
+                "mobile.terminal.create",
+                "terminal.create",
+                "mobile.terminal.input",
+                "terminal.input",
+                "mobile.terminal.replay",
+                "terminal.replay",
+                "mobile.terminal.viewport",
+                "terminal.viewport",
+                "mobile.events.subscribe",
+                "mobile.events.unsubscribe",
+            ]
+            XCTAssertTrue(
+                expectedMethods.isSubset(of: advertisedMethods),
+                "Missing capabilities: \(expectedMethods.subtracting(advertisedMethods).sorted())",
+                file: file,
+                line: line
+            )
         default:
             XCTFail("Unexpected heartbeat method \(method)", file: file, line: line)
         }
@@ -1107,17 +1134,17 @@ final class TerminalControllerSocketSecurityTests: XCTestCase {
         let manager = TabManager()
         let workspace = manager.addWorkspace(select: true)
         let defaults = UserDefaults.standard
-        let previousSuppressionDefault = defaults.object(forKey: AgentSubagentNotificationSettings.suppressNotificationsKey)
+        let previousSuppressionDefault = defaults.object(forKey: IntegrationsCatalogSection().suppressSubagentNotifications.userDefaultsKey)
 
-        defaults.set(true, forKey: AgentSubagentNotificationSettings.suppressNotificationsKey)
+        defaults.set(true, forKey: IntegrationsCatalogSection().suppressSubagentNotifications.userDefaultsKey)
         defer {
             if manager.tabs.contains(where: { $0.id == workspace.id }) {
                 manager.closeWorkspace(workspace)
             }
             if let previousSuppressionDefault {
-                defaults.set(previousSuppressionDefault, forKey: AgentSubagentNotificationSettings.suppressNotificationsKey)
+                defaults.set(previousSuppressionDefault, forKey: IntegrationsCatalogSection().suppressSubagentNotifications.userDefaultsKey)
             } else {
-                defaults.removeObject(forKey: AgentSubagentNotificationSettings.suppressNotificationsKey)
+                defaults.removeObject(forKey: IntegrationsCatalogSection().suppressSubagentNotifications.userDefaultsKey)
             }
         }
 

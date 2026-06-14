@@ -75,19 +75,30 @@ public final class DefaultsValueModel<Value: SettingCodable> {
     }
 
     /// Persists the value. The observation stream is the single writer of
-    /// ``current``, so the UI reflects the change once the write lands and
-    /// the stream yields it back (a small storage round-trip). Synchronous
-    /// because SwiftUI `Binding` setters can't `await`; the write itself
-    /// runs in a fire-and-forget `Task`.
+    /// ``current`` for external changes, but direct UI writes update it
+    /// optimistically before the async storage write. Synchronous because
+    /// SwiftUI `Binding` setters can't `await`; the write itself runs in a
+    /// fire-and-forget `Task`.
     public func set(_ value: Value) {
+        current = value
         Task { [store, key] in
             await store.set(value, for: key)
         }
     }
 
+    /// Updates ``current`` after another owner has already persisted `value`.
+    ///
+    /// Use this for settings whose committed write spans multiple backing keys
+    /// and must stay in one host-owned mutation path. Unlike ``set(_:)``, this
+    /// method does not write to ``store``.
+    public func acceptCommittedValue(_ value: Value) {
+        current = value
+    }
+
     /// Removes the override; ``current`` updates when the stream observes
     /// the reset.
     public func reset() {
+        current = key.defaultValue
         Task { [store, key] in
             await store.reset(key)
         }

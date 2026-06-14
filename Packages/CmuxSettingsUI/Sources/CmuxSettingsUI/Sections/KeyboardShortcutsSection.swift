@@ -13,10 +13,25 @@ public struct KeyboardShortcutsSection: View {
     private let hostActions: SettingsHostActions
 
     @State private var bindings: [String: StoredShortcut] = [:]
+    /// Parsed `shortcuts.when` overrides keyed by action id. Conflict detection
+    /// evaluates each action's effective clause (override, or its built-in
+    /// ``ShortcutAction/defaultFocusWhenClause``) so two same-keystroke bindings
+    /// only conflict when some focus state activates both — matching the app
+    /// target's authoritative check.
+    @State private var whenOverrideClauses: [String: ShortcutWhenClause] = [:]
+    /// The raw `shortcuts.when` expressions keyed by action id, kept alongside
+    /// the parsed ``whenOverrideClauses`` so rows can render the user's own
+    /// clause text verbatim in the scope caption.
+    @State private var whenOverrideRawStrings: [String: String] = [:]
     @State private var streamTask: Task<Void, Never>?
     @State private var chordModeOverrides: [String: Bool] = [:]
     @State private var restoreShortcuts: [String: StoredShortcut] = [:]
     @State private var bareKeyRejections: Set<String> = []
+    /// Per-action set marking a recording rejected because a numbered
+    /// action (``ShortcutAction/usesNumberedDigitMatching``) was given a
+    /// non-`1…9` key. Mirrors legacy `.numberedShortcutRequiresDigit`: the
+    /// binding is never written and a banner prompts for a digit.
+    @State private var numberedDigitRejections: Set<String> = []
     /// Per-action "rejected attempt" snapshot used to drive the red
     /// validation banner. Legacy `ShortcutRecorderSettingsControl`
     /// stores `rejectedAttempt` and never writes the conflicting
@@ -84,6 +99,7 @@ public struct KeyboardShortcutsSection: View {
                 .accessibilityIdentifier("ShortcutRecordingHint")
         }
         .task { await streamBindings() }
+        .task { await streamWhenOverrides() }
         .onDisappear { streamTask?.cancel() }
     }
 
@@ -142,8 +158,7 @@ public struct KeyboardShortcutsSection: View {
     ) -> some View {
         let action = snapshot.action
         let validationMessage = validationMessage(for: snapshot)
-
-        let subtitle: String? = nil
+        let subtitle: String? = snapshot.subtitle
         VStack(alignment: .leading, spacing: 4) {
             HStack(alignment: subtitle == nil ? .center : .top, spacing: 12) {
                 VStack(alignment: .leading, spacing: 2) {
@@ -158,9 +173,13 @@ public struct KeyboardShortcutsSection: View {
                 Spacer()
 
                 ShortcutRecorderView(
-                    placeholder: formatPlaceholder(effective: snapshot.effective),
+                    placeholder: formatPlaceholder(
+                        effective: snapshot.effective,
+                        numbered: action.usesNumberedDigitMatching
+                    ),
                     chordsEnabled: snapshot.chordsEnabled,
-                    hasPendingRejection: snapshot.bareKeyRejected,
+                    hasPendingRejection: snapshot.bareKeyRejected || snapshot.numberedDigitRejected,
+                    firstStrokeRequiresModifier: snapshot.firstStrokeRequiresModifier,
                     onStroke: actions.onStroke,
                     onChord: actions.onChord,
                     onBareKeyRejected: actions.onBareKeyRejected
@@ -276,9 +295,12 @@ public struct KeyboardShortcutsSection: View {
         let isUnbound: Bool
         let canRestore: Bool
         let bareKeyRejected: Bool
+        let numberedDigitRejected: Bool
         let conflict: ShortcutAction?
         let conflictShortcutString: String?
         let chordsEnabled: Bool
+        let subtitle: String?
+        let firstStrokeRequiresModifier: Bool
     }
 
     private struct ShortcutActionRowActions {
@@ -298,7 +320,9 @@ public struct KeyboardShortcutsSection: View {
         let conflictShortcutString = conflict.flatMap { conflictAction -> String? in
             let conflictOverride = bindings[conflictAction.rawValue]
             let conflictEffective = conflictOverride ?? conflictAction.defaultShortcut
-            return conflictEffective.map { format($0) }
+            return conflictEffective.map {
+                format($0, numbered: conflictAction.usesNumberedDigitMatching)
+            }
         }
         let isUnbound = effective?.isUnbound ?? true
         let chordsEnabled = chordModeOverrides[action.rawValue] ?? (effective?.second != nil)
@@ -310,9 +334,12 @@ public struct KeyboardShortcutsSection: View {
             isUnbound: isUnbound,
             canRestore: isUnbound && restoreShortcut != nil,
             bareKeyRejected: bareKeyRejections.contains(action.rawValue),
+            numberedDigitRejected: numberedDigitRejections.contains(action.rawValue),
             conflict: conflict,
             conflictShortcutString: conflictShortcutString,
-            chordsEnabled: chordsEnabled
+            chordsEnabled: chordsEnabled,
+            subtitle: scopeCaption(for: action),
+            firstStrokeRequiresModifier: !action.allowsBareFirstStroke
         )
     }
 
@@ -326,12 +353,15 @@ public struct KeyboardShortcutsSection: View {
             },
             onBareKeyRejected: {
                 bareKeyRejections.insert(snapshot.action.rawValue)
+                numberedDigitRejections.remove(snapshot.action.rawValue)
+                conflictRejections.removeValue(forKey: snapshot.action.rawValue)
             },
             onToggleChordMode: {
                 chordModeOverrides[snapshot.action.rawValue] = !snapshot.chordsEnabled
             },
             onClearOrRestore: {
                 bareKeyRejections.remove(snapshot.action.rawValue)
+                numberedDigitRejections.remove(snapshot.action.rawValue)
                 conflictRejections.removeValue(forKey: snapshot.action.rawValue)
                 if snapshot.canRestore, let restore = snapshot.restoreShortcut {
                     Task { await restoreBinding(restore, for: snapshot.action) }
@@ -342,12 +372,19 @@ public struct KeyboardShortcutsSection: View {
             },
             onDismissRejection: {
                 bareKeyRejections.remove(snapshot.action.rawValue)
+                numberedDigitRejections.remove(snapshot.action.rawValue)
                 conflictRejections.removeValue(forKey: snapshot.action.rawValue)
             }
         )
     }
 
     private func validationMessage(for snapshot: ShortcutActionRowSnapshot) -> String? {
+        if snapshot.numberedDigitRejected {
+            return String(
+                localized: "shortcut.recorder.error.numberedShortcutRequiresDigit",
+                defaultValue: "Use a digit from 1 through 9."
+            )
+        }
         if snapshot.bareKeyRejected {
             return String(
                 localized: "shortcut.recorder.error.bareKeyNotAllowed",
@@ -372,98 +409,136 @@ public struct KeyboardShortcutsSection: View {
         return nil
     }
 
-    /// Mirrors legacy `KeyboardShortcutSettings.Action.conflicts(with:proposedAction:configuredShortcut:)`
-    /// at the shortcut-shape level: single-stroke bindings conflict with
-    /// any binding that needs the same first stroke, while two chords can
-    /// share a prefix when their second strokes differ.
-    private func formatPlaceholder(effective: StoredShortcut?) -> String {
+    /// Formats a binding for display, preserving numbered-range labels.
+    private func formatPlaceholder(effective: StoredShortcut?, numbered: Bool) -> String {
         let unboundLabel = String(localized: "shortcut.unbound.displayValue", defaultValue: "None")
         guard let effective else { return unboundLabel }
         if effective.isUnbound { return unboundLabel }
-        return format(effective)
+        return format(effective, numbered: numbered)
+    }
+
+    /// The action's effective focus predicate: its `shortcuts.when` override if
+    /// present, otherwise its built-in ``ShortcutAction/defaultFocusWhenClause``.
+    private func effectiveWhenClause(for action: ShortcutAction) -> ShortcutWhenClause {
+        whenOverrideClauses[action.rawValue] ?? action.defaultFocusWhenClause
+    }
+
+    /// A row caption describing when a context-limited binding fires: the raw
+    /// `shortcuts.when` override when one is configured, otherwise a localized
+    /// description of the action's built-in focus scope. `nil` for ordinary
+    /// always-on shortcuts so unscoped rows stay uncluttered.
+    private func scopeCaption(for action: ShortcutAction) -> String? {
+        if let overrideClause = whenOverrideClauses[action.rawValue] {
+            // An explicit empty/`true` override means "no restriction" — show
+            // nothing rather than the built-in scope it replaced.
+            guard overrideClause != .always else { return nil }
+            let raw = whenOverrideRawStrings[action.rawValue]?
+                .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            guard !raw.isEmpty else { return nil }
+            let format = String(localized: "shortcut.when.caption.override", defaultValue: "When: %@")
+            return String.localizedStringWithFormat(format, raw)
+        }
+        switch action.defaultFocusWhenClause {
+        case .always:
+            return nil
+        case .atom(.sidebarFocus):
+            return String(
+                localized: "shortcut.when.caption.sidebarFocus",
+                defaultValue: "Only while the right sidebar is focused"
+            )
+        case .atom(.browserFocus):
+            return String(
+                localized: "shortcut.when.caption.browserFocus",
+                defaultValue: "Only while a browser pane is focused"
+            )
+        case .atom(.markdownFocus):
+            return String(
+                localized: "shortcut.when.caption.markdownFocus",
+                defaultValue: "Only while a markdown preview is focused"
+            )
+        default:
+            return String(
+                localized: "shortcut.when.caption.terminalFocus",
+                defaultValue: "Only while a terminal pane is focused"
+            )
+        }
     }
 
     private func detectConflict(for action: ShortcutAction, stroke: StoredShortcut) -> ShortcutAction? {
+        let proposedClause = effectiveWhenClause(for: action)
         for other in ShortcutAction.allCases where other != action {
+            // Two bindings on the same keystroke only collide when some focus
+            // state activates both effective `when` clauses AND router priority
+            // cannot decide the overlap. Context-disjoint clauses (e.g.
+            // `!sidebarFocus` workspace digits vs the sidebar's own digits)
+            // coexist, and a pre-routed action (sidebar modes) wins its context
+            // outright so the factory Select Surface ⌃1…9 coexists with the
+            // sidebar's ⌃1…5 — matching the app target's authoritative check.
+            guard ShortcutWhenClause.bindingsCollide(
+                proposedClause,
+                lhsHasPriority: action.hasPriorityShortcutRouting,
+                effectiveWhenClause(for: other),
+                rhsHasPriority: other.hasPriorityShortcutRouting
+            ) else { continue }
             let override = bindings[other.rawValue]
             let effective = override ?? other.defaultShortcut
             guard let effective, !effective.isUnbound else { continue }
-            if shortcutsConflict(stroke, effective) { return other }
+            if shortcutsConflict(
+                stroke,
+                numbered: action.usesNumberedDigitMatching,
+                effective,
+                numbered: other.usesNumberedDigitMatching
+            ) {
+                return other
+            }
         }
         return nil
     }
 
-    private func shortcutsConflict(_ lhs: StoredShortcut, _ rhs: StoredShortcut) -> Bool {
-        guard !lhs.isUnbound, !rhs.isUnbound, lhs.first == rhs.first else {
+    private func shortcutsConflict(
+        _ lhs: StoredShortcut,
+        numbered lhsNumbered: Bool,
+        _ rhs: StoredShortcut,
+        numbered rhsNumbered: Bool
+    ) -> Bool {
+        guard !lhs.isUnbound, !rhs.isUnbound,
+              numberedAwareStrokesConflict(
+                  lhs.first,
+                  numbered: lhsNumbered,
+                  rhs.first,
+                  numbered: rhsNumbered
+              ) else {
             return false
         }
         switch (lhs.second, rhs.second) {
         case (.none, _), (_, .none):
             return true
         case let (.some(lhsSecond), .some(rhsSecond)):
-            return lhsSecond == rhsSecond
+            return numberedAwareStrokesConflict(
+                lhsSecond,
+                numbered: lhsNumbered,
+                rhsSecond,
+                numbered: rhsNumbered
+            )
         }
     }
 
-    /// Mirrors legacy `StoredShortcut.displayString`: returns localized
-    /// "None" for unbound, formats the first stroke (and optional chord
-    /// second stroke) via ``Self/strokeDisplayString(_:)`` so named keys
-    /// like Tab/Space/arrows/media render with their friendly labels
-    /// instead of raw `"\t"` / `"space"` / `"media.next"`.
-    private func format(_ shortcut: StoredShortcut) -> String {
-        if shortcut.isUnbound {
-            return String(localized: "shortcut.unbound.displayValue", defaultValue: "None")
-        }
-        if let chord = shortcut.second {
-            return Self.strokeDisplayString(shortcut.first)
-                + " "
-                + Self.strokeDisplayString(chord)
-        }
-        return Self.strokeDisplayString(shortcut.first)
+    /// Formats a binding for display, delegating to
+    /// ``shortcutDisplayString(_:numbered:)``. Pass `numbered: true` for
+    /// actions whose binding stands in for the whole `1…9` digit range
+    /// (see ``ShortcutAction/usesNumberedDigitMatching``) so the row reads
+    /// `⌃1…9` rather than the literal single digit `⌃1`.
+    private func format(_ shortcut: StoredShortcut, numbered: Bool = false) -> String {
+        shortcutDisplayString(shortcut, numbered: numbered)
     }
 
-    /// Formats a single ``ShortcutStroke`` with the same symbol order
-    /// and named-key labels as legacy `ShortcutStroke.displayString`
-    /// (modifier symbols ⌃⌥⇧⌘ followed by ``Self/keyDisplayString(_:)``).
-    private static func strokeDisplayString(_ stroke: ShortcutStroke) -> String {
-        var result = ""
-        if stroke.control { result.append("⌃") }
-        if stroke.option { result.append("⌥") }
-        if stroke.shift { result.append("⇧") }
-        if stroke.command { result.append("⌘") }
-        result.append(keyDisplayString(stroke.key))
-        return result
-    }
-
-    /// Mirrors legacy `ShortcutStroke.keyDisplayString` for the common
-    /// named-key tokens we may see in stored shortcuts. Falls back to
-    /// the uppercased raw key for plain letters/digits.
-    private static func keyDisplayString(_ key: String) -> String {
-        switch key {
-        case "\t":
-            return String(localized: "shortcut.key.tab", defaultValue: "Tab")
-        case "space":
-            return String(localized: "shortcut.key.space", defaultValue: "Space")
-        case "\r":
-            return "↩"
-        case "media.brightnessDown":
-            return String(localized: "shortcut.key.mediaBrightnessDown", defaultValue: "Brightness Down")
-        case "media.brightnessUp":
-            return String(localized: "shortcut.key.mediaBrightnessUp", defaultValue: "Brightness Up")
-        case "media.mute":
-            return String(localized: "shortcut.key.mediaMute", defaultValue: "Mute")
-        case "media.next":
-            return String(localized: "shortcut.key.mediaNext", defaultValue: "Next Track")
-        case "media.playPause":
-            return String(localized: "shortcut.key.mediaPlayPause", defaultValue: "Play/Pause")
-        case "media.previous":
-            return String(localized: "shortcut.key.mediaPrevious", defaultValue: "Previous Track")
-        case "media.volumeDown":
-            return String(localized: "shortcut.key.mediaVolumeDown", defaultValue: "Volume Down")
-        case "media.volumeUp":
-            return String(localized: "shortcut.key.mediaVolumeUp", defaultValue: "Volume Up")
-        default:
-            return key.uppercased()
+    /// Parses `shortcuts.when` into per-action ``ShortcutWhenClause`` overrides so
+    /// conflict detection can evaluate effective contexts (see
+    /// ``detectConflict(for:stroke:)``). Malformed expressions are dropped.
+    private func streamWhenOverrides() async {
+        for await whenMap in jsonStore.values(for: catalog.shortcuts.when) {
+            whenOverrideRawStrings = whenMap
+            whenOverrideClauses = whenMap.compactMapValues { ShortcutWhenClause.parse($0) }
         }
     }
 
@@ -472,6 +547,8 @@ public struct KeyboardShortcutsSection: View {
         let task = Task {
             for await dictionary in jsonStore.values(for: catalog.shortcuts.bindings) {
                 if Task.isCancelled { break }
+                let changedActionIds = Set(bindings.keys).union(dictionary.keys)
+                    .filter { bindings[$0] != dictionary[$0] }
                 bindings = dictionary
                 // Mirror legacy `KeyboardShortcutRecorder.onChange(of:
                 // shortcut)`: when an action's effective shortcut becomes
@@ -485,10 +562,23 @@ public struct KeyboardShortcutsSection: View {
                 // shortcut changes. Externally-edited cmux.json should
                 // dismiss a stale rejection banner for that action.
                 pruneConflictRejections()
+                pruneNumberedDigitRejections(changedActionIds: Set(changedActionIds))
             }
         }
         streamTask = task
         await task.value
+    }
+
+    /// Drops the "Use a digit from 1 through 9" banner for an action only when
+    /// *that action's* binding actually changed in the latest stream update (an
+    /// external `cmux.json` edit or another settings surface restoring a usable
+    /// binding). Mirrors the legacy per-action `rejectedAttempt` clear-on-change
+    /// without dismissing the banner when an unrelated shortcut is saved.
+    private func pruneNumberedDigitRejections(changedActionIds: Set<String>) {
+        guard !numberedDigitRejections.isEmpty else { return }
+        for key in Array(numberedDigitRejections) where changedActionIds.contains(key) {
+            numberedDigitRejections.remove(key)
+        }
     }
 
     private func pruneConflictRejections() {
@@ -524,6 +614,28 @@ public struct KeyboardShortcutsSection: View {
     }
 
     private func assign(stroke: ShortcutStroke, to action: ShortcutAction) async {
+        var stroke = stroke
+        if action.usesNumberedDigitMatching {
+            // Numbered actions stand in for the whole 1…9 family. Mirror
+            // legacy `resolvedNumberedDigitShortcut`: require a 1…9 digit and
+            // normalize it to the "1" placeholder, so we never write a binding
+            // the app-target parser rejects (which would also make the Settings
+            // row falsely render an active ⌃1…9 range).
+            guard isNumberedDigitKey(stroke.key) else {
+                numberedDigitRejections.insert(action.rawValue)
+                bareKeyRejections.remove(action.rawValue)
+                conflictRejections.removeValue(forKey: action.rawValue)
+                return
+            }
+            stroke = ShortcutStroke(
+                key: "1",
+                command: stroke.command,
+                shift: stroke.shift,
+                option: stroke.option,
+                control: stroke.control,
+                keyCode: stroke.keyCode
+            )
+        }
         let proposed = StoredShortcut(first: stroke)
         if let conflict = detectConflict(for: action, stroke: proposed) {
             // Mirror legacy `KeyboardShortcutSettings.Action.normalizedRecordedShortcutResult`:
@@ -532,6 +644,7 @@ public struct KeyboardShortcutsSection: View {
             // can drive the user back to a usable state.
             conflictRejections[action.rawValue] = conflict
             bareKeyRejections.remove(action.rawValue)
+            numberedDigitRejections.remove(action.rawValue)
             chordModeOverrides.removeValue(forKey: action.rawValue)
             return
         }
@@ -539,25 +652,74 @@ public struct KeyboardShortcutsSection: View {
         updated[action.rawValue] = proposed
         restoreShortcuts.removeValue(forKey: action.rawValue)
         bareKeyRejections.remove(action.rawValue)
+        numberedDigitRejections.remove(action.rawValue)
         conflictRejections.removeValue(forKey: action.rawValue)
         chordModeOverrides.removeValue(forKey: action.rawValue)
         await write(updated)
     }
 
     private func assignChord(_ chord: StoredShortcut, to action: ShortcutAction) async {
-        if let conflict = detectConflict(for: action, stroke: chord) {
+        guard let proposed = normalizedNumberedShortcutIfNeeded(chord, for: action) else {
+            numberedDigitRejections.insert(action.rawValue)
+            chordModeOverrides.removeValue(forKey: action.rawValue)
+            bareKeyRejections.remove(action.rawValue)
+            conflictRejections.removeValue(forKey: action.rawValue)
+            return
+        }
+        if let conflict = detectConflict(for: action, stroke: proposed) {
             conflictRejections[action.rawValue] = conflict
             bareKeyRejections.remove(action.rawValue)
+            numberedDigitRejections.remove(action.rawValue)
             chordModeOverrides.removeValue(forKey: action.rawValue)
             return
         }
         var updated = bindings
-        updated[action.rawValue] = chord
+        updated[action.rawValue] = proposed
         restoreShortcuts.removeValue(forKey: action.rawValue)
         bareKeyRejections.remove(action.rawValue)
+        numberedDigitRejections.remove(action.rawValue)
         conflictRejections.removeValue(forKey: action.rawValue)
         chordModeOverrides.removeValue(forKey: action.rawValue)
         await write(updated)
+    }
+
+    private func normalizedNumberedShortcutIfNeeded(
+        _ shortcut: StoredShortcut,
+        for action: ShortcutAction
+    ) -> StoredShortcut? {
+        guard action.usesNumberedDigitMatching else {
+            return shortcut
+        }
+
+        let digitStroke = shortcut.second ?? shortcut.first
+        guard isNumberedDigitKey(digitStroke.key) else {
+            return nil
+        }
+
+        if let second = shortcut.second {
+            return StoredShortcut(
+                first: shortcut.first,
+                second: ShortcutStroke(
+                    key: "1",
+                    command: second.command,
+                    shift: second.shift,
+                    option: second.option,
+                    control: second.control,
+                    keyCode: second.keyCode
+                )
+            )
+        }
+
+        return StoredShortcut(
+            first: ShortcutStroke(
+                key: "1",
+                command: shortcut.first.command,
+                shift: shortcut.first.shift,
+                option: shortcut.first.option,
+                control: shortcut.first.control,
+                keyCode: shortcut.first.keyCode
+            )
+        )
     }
 
     private func clearBinding(for action: ShortcutAction) async {
@@ -571,6 +733,8 @@ public struct KeyboardShortcutsSection: View {
         var updated = bindings
         updated[action.rawValue] = shortcut
         restoreShortcuts.removeValue(forKey: action.rawValue)
+        bareKeyRejections.remove(action.rawValue)
+        numberedDigitRejections.remove(action.rawValue)
         conflictRejections.removeValue(forKey: action.rawValue)
         chordModeOverrides.removeValue(forKey: action.rawValue)
         await write(updated)
@@ -580,6 +744,8 @@ public struct KeyboardShortcutsSection: View {
         var updated = bindings
         updated.removeValue(forKey: action.rawValue)
         restoreShortcuts.removeValue(forKey: action.rawValue)
+        bareKeyRejections.remove(action.rawValue)
+        numberedDigitRejections.remove(action.rawValue)
         conflictRejections.removeValue(forKey: action.rawValue)
         chordModeOverrides.removeValue(forKey: action.rawValue)
         await write(updated)
@@ -588,6 +754,7 @@ public struct KeyboardShortcutsSection: View {
     private func resetAll() async {
         restoreShortcuts.removeAll()
         bareKeyRejections.removeAll()
+        numberedDigitRejections.removeAll()
         conflictRejections.removeAll()
         chordModeOverrides.removeAll()
         await write([:])
