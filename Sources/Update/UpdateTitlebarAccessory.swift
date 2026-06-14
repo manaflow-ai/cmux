@@ -993,7 +993,7 @@ struct TitlebarControlsView: View {
                 }) {
                 iconLabel(systemName: "plus", config: config, iconGeometryKeyPrefix: "titlebarControl_newTabIcon")
             }
-            .safeHelp(KeyboardShortcutSettings.Action.newTab.tooltip(String(localized: "titlebar.newWorkspace.tooltip", defaultValue: "New workspace")))
+            .safeHelp(KeyboardShortcutSettings.Action.newTab.tooltip(String(localized: "titlebar.newTab.tooltip", defaultValue: "Create a new workspace tab")))
 
             TitlebarControlButton(
                 config: config,
