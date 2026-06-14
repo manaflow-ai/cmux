@@ -7532,18 +7532,7 @@ struct ContentView: View {
                 }
             )
         )
-        contributions.append(
-            CommandPaletteCommandContribution(
-                commandId: "palette.toggleSplitZoom",
-                title: constant(String(localized: "command.toggleSplitZoom.title", defaultValue: "Toggle Pane Zoom")),
-                subtitle: constant(String(localized: "command.toggleSplitZoom.subtitle", defaultValue: "Terminal Layout")),
-                keywords: ["terminal", "pane", "split", "zoom", "maximize"],
-                when: { context in
-                    context.bool(CommandPaletteContextKeys.panelIsTerminal) &&
-                    context.bool(CommandPaletteContextKeys.workspaceHasSplits)
-                }
-            )
-        )
+        contributions.append(Self.commandPaletteToggleSplitZoomCommandContribution())
         contributions.append(
             CommandPaletteCommandContribution(
                 commandId: "palette.equalizeSplits",
@@ -7582,6 +7571,23 @@ struct ContentView: View {
         }
 
         return contributions
+    }
+
+    static func commandPaletteToggleSplitZoomCommandContribution() -> CommandPaletteCommandContribution {
+        func constant(_ value: String) -> (CommandPaletteContextSnapshot) -> String {
+            { _ in value }
+        }
+
+        return CommandPaletteCommandContribution(
+            commandId: "palette.toggleSplitZoom",
+            title: constant(String(localized: "command.toggleSplitZoom.title", defaultValue: "Toggle Pane Zoom")),
+            subtitle: constant(String(localized: "command.toggleSplitZoom.subtitle", defaultValue: "Pane Layout")),
+            keywords: ["pane", "split", "zoom", "maximize"],
+            when: { context in
+                context.bool(CommandPaletteContextKeys.panelHasPane) &&
+                context.bool(CommandPaletteContextKeys.workspaceHasSplits)
+            }
+        )
     }
 
     private func sanitizeCmuxConfigPaletteText(_ text: String) -> String {

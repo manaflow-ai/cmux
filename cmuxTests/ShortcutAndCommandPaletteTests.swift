@@ -130,6 +130,44 @@ final class CommandEquivalentTransientFocusRepairTests: XCTestCase {
     }
 }
 
+final class PaneZoomCommandPaletteContributionTests: XCTestCase {
+    func testTogglePaneZoomCommandIsAvailableForBrowserPaneInSplitWorkspace() {
+        let contribution = ContentView.commandPaletteToggleSplitZoomCommandContribution()
+        let context = paneZoomContext(
+            panelHasPane: true,
+            workspaceHasSplits: true,
+            panelIsBrowser: true
+        )
+
+        XCTAssertEqual(contribution.commandId, "palette.toggleSplitZoom")
+        XCTAssertEqual(ContentView.commandPaletteShortcutAction(forCommandID: contribution.commandId), .toggleSplitZoom)
+        XCTAssertEqual(contribution.title(context), String(localized: "command.toggleSplitZoom.title", defaultValue: "Toggle Pane Zoom"))
+        XCTAssertEqual(contribution.subtitle(context), String(localized: "command.toggleSplitZoom.subtitle", defaultValue: "Pane Layout"))
+        XCTAssertTrue(contribution.when(context))
+        XCTAssertTrue(contribution.keywords.contains("maximize"))
+        XCTAssertFalse(contribution.keywords.contains("terminal"))
+    }
+
+    func testTogglePaneZoomCommandRequiresPaneAndSplitWorkspace() {
+        let contribution = ContentView.commandPaletteToggleSplitZoomCommandContribution()
+
+        XCTAssertFalse(contribution.when(paneZoomContext(panelHasPane: false, workspaceHasSplits: true)))
+        XCTAssertFalse(contribution.when(paneZoomContext(panelHasPane: true, workspaceHasSplits: false)))
+    }
+
+    private func paneZoomContext(
+        panelHasPane: Bool,
+        workspaceHasSplits: Bool,
+        panelIsBrowser: Bool = false
+    ) -> ContentView.CommandPaletteContextSnapshot {
+        var context = ContentView.CommandPaletteContextSnapshot()
+        context.setBool(ContentView.CommandPaletteContextKeys.panelHasPane, panelHasPane)
+        context.setBool(ContentView.CommandPaletteContextKeys.panelIsBrowser, panelIsBrowser)
+        context.setBool(ContentView.CommandPaletteContextKeys.workspaceHasSplits, workspaceHasSplits)
+        return context
+    }
+}
+
 final class ReactGrabShortcutRouteTests: XCTestCase {
     func testFocusedBrowserRoutesDirectlyWithoutPasteback() {
         let browserId = UUID()

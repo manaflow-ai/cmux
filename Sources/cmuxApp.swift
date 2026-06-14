@@ -1021,6 +1021,10 @@ struct cmuxApp: App {
                 performBrowserSplitFromMenu(direction: .down)
             }
 
+            splitCommandButton(title: String(localized: "command.toggleSplitZoom.title", defaultValue: "Toggle Pane Zoom"), shortcut: menuShortcut(for: .toggleSplitZoom)) {
+                _ = activeTabManager.toggleFocusedSplitZoom()
+            }
+
             equalizeSplitsCommandButton()
             Divider()
 
