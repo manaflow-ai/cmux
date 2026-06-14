@@ -81,9 +81,9 @@ extension TerminalController {
     /// for callers that already hold the `Workspace` (the workspace-list RPC
     /// enumerates every workspace and adopts inline, so the toggle is known
     /// before the user enters the workspace — no per-open resolution and no
-    /// pop-in). Each `adoptDetectedClaudeSession` short-circuits in memory
-    /// once the surface has a session, so a repeat scan of an already-adopted
-    /// workspace touches no filesystem.
+    /// pop-in). Each `adoptDetectedClaudeSession` short-circuits through the
+    /// registry's visible-terminal index once the surface has a session, so a
+    /// repeat scan of an already-adopted workspace touches no filesystem.
     func adoptDetectedAgentSessions(workspace: Workspace) {
         let workspaceID = workspace.id.uuidString
         let service = AgentChatTranscriptService.shared

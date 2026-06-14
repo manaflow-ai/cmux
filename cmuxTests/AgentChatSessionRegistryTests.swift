@@ -74,4 +74,34 @@ struct AgentChatSessionRegistryTests {
         #expect(adopted.sessionID == original.sessionID)
         #expect(registry.record(sessionID: "candidate")?.sessionID == nil)
     }
+
+    @Test("live surface lookup follows binding and state changes")
+    func liveSurfaceLookupFollowsBindingAndStateChanges() {
+        let registry = AgentChatSessionRegistry()
+        registry.adoptDetectedSession(
+            sessionID: "session-a",
+            agentKind: .claude,
+            workspaceID: "workspace-a",
+            surfaceID: "terminal-a",
+            workingDirectory: nil,
+            transcriptPath: nil,
+            at: Date(timeIntervalSince1970: 100)
+        )
+
+        #expect(registry.hasLiveSession(workspaceID: "workspace-a", surfaceID: "terminal-a"))
+
+        registry.update(sessionID: "session-a") { record in
+            record.workspaceID = "workspace-b"
+            record.surfaceID = "terminal-b"
+        }
+
+        #expect(!registry.hasLiveSession(workspaceID: "workspace-a", surfaceID: "terminal-a"))
+        #expect(registry.hasLiveSession(workspaceID: "workspace-b", surfaceID: "terminal-b"))
+
+        registry.update(sessionID: "session-a") { record in
+            record.state = .ended
+        }
+
+        #expect(!registry.hasLiveSession(workspaceID: "workspace-b", surfaceID: "terminal-b"))
+    }
 }

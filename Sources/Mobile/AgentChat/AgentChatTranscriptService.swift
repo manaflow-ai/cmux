@@ -137,9 +137,9 @@ final class AgentChatTranscriptService {
         surfaceID: String,
         workingDirectory: String
     ) -> Bool {
-        let alreadyBound = registry.sessions(workspaceID: workspaceID)
-            .contains { $0.surfaceID == surfaceID && $0.state != .ended }
-        if alreadyBound { return true }
+        if registry.hasLiveSession(workspaceID: workspaceID, surfaceID: surfaceID) {
+            return true
+        }
         // A claude detected by title before it has written its transcript jsonl
         // (the launch race) resolves to nothing. List-level adoption runs this
         // on every workspace-list RPC and every "claude" title change across

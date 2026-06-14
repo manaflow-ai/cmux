@@ -56,6 +56,20 @@ final class AgentChatSessionRegistry {
             .sorted { $0.lastActivityAt > $1.lastActivityAt }
     }
 
+    /// Whether a specific visible terminal already has a live chat session.
+    ///
+    /// This is the title-detected adoption fast path: it preserves stale-process
+    /// sweeping, but bounds it to records already indexed to the visible binding.
+    func hasLiveSession(workspaceID: String, surfaceID: String) -> Bool {
+        let key = BindingKey(workspaceID: workspaceID, surfaceID: surfaceID)
+        guard let sessionIDs = sessionIDsByBinding[key], !sessionIDs.isEmpty else { return false }
+        sweepDeadProcesses(sessionIDs: sessionIDs)
+        return sessionIDs.contains { sessionID in
+            guard let record = records[sessionID] else { return false }
+            return record.state != .ended
+        }
+    }
+
     /// Marks sessions whose agent process died without a SessionEnd hook
     /// (crash, kill, closed terminal) as ended, so a missing Stop hook
     /// cannot wedge a session in "working" forever.
