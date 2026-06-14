@@ -430,6 +430,7 @@ private struct IndexSectionView: View, Equatable {
             SectionPopoverHost(
                 isPresented: $isPopoverOpen,
                 section: section,
+                colorScheme: colorScheme,
                 search: actions.search,
                 loadSnapshot: actions.loadSnapshot,
                 onResume: actions.onResume
@@ -632,7 +633,8 @@ private struct SessionRow: View, Equatable {
                     get: { isPreviewPresented },
                     set: { onPreviewPresentationChange($0) }
                 ),
-                entry: entry
+                entry: entry,
+                colorScheme: colorScheme
             )
         }
     }
@@ -1948,6 +1950,7 @@ private enum SessionTranscriptLoader {
 private struct SessionTranscriptPopoverHost: NSViewRepresentable {
     @Binding var isPresented: Bool
     let entry: SessionEntry
+    let colorScheme: ColorScheme
 
     func makeCoordinator() -> Coordinator {
         Coordinator(isPresented: $isPresented)
@@ -1966,7 +1969,7 @@ private struct SessionTranscriptPopoverHost: NSViewRepresentable {
     func updateNSView(_ nsView: PopoverAnchorView, context: Context) {
         let coordinator = context.coordinator
         coordinator.anchorView = nsView
-        coordinator.update(entry: entry)
+        coordinator.update(entry: entry, colorScheme: colorScheme)
         if isPresented {
             coordinator.present()
         } else {
@@ -1986,6 +1989,7 @@ private struct SessionTranscriptPopoverHost: NSViewRepresentable {
         private let hostingController = NSHostingController(rootView: AnyView(EmptyView()))
         private var popover: NSPopover?
         private var currentEntry: SessionEntry?
+        private var currentColorScheme: ColorScheme = .light
         private let sizeModel = SessionTranscriptPopoverSizeModel()
         private var wantsPresentation = false
 
@@ -1993,9 +1997,10 @@ private struct SessionTranscriptPopoverHost: NSViewRepresentable {
             _isPresented = isPresented
         }
 
-        func update(entry: SessionEntry) {
-            let shouldRefresh = currentEntry?.id != entry.id
+        func update(entry: SessionEntry, colorScheme: ColorScheme) {
+            let shouldRefresh = currentEntry?.id != entry.id || currentColorScheme != colorScheme
             currentEntry = entry
+            currentColorScheme = colorScheme
             if shouldRefresh {
                 refreshContent()
             }
@@ -2039,6 +2044,7 @@ private struct SessionTranscriptPopoverHost: NSViewRepresentable {
 
         private func refreshContent() {
             guard let entry = currentEntry else { return }
+            let colorScheme = currentColorScheme
             hostingController.rootView = AnyView(
                 SessionTranscriptPreviewView(
                     entry: entry,
@@ -2049,6 +2055,7 @@ private struct SessionTranscriptPopoverHost: NSViewRepresentable {
                 ) { [weak self] in
                     self?.closeFromContent()
                 }
+                .environment(\.colorScheme, colorScheme)
                 .id(entry.id)
             )
             hostingController.view.invalidateIntrinsicContentSize()
@@ -2663,8 +2670,8 @@ private func sessionDragItemProvider(for entry: SessionEntry) -> NSItemProvider 
 struct SectionPopoverHost: NSViewRepresentable {
     @Binding var isPresented: Bool
     let section: IndexSection
-    /// Closure-typed search handle passed through to the SwiftUI popover
-    /// body. The host no longer holds a `SessionIndexStore` reference.
+    let colorScheme: ColorScheme
+    /// Closure-typed search handle; the host does not hold a store reference.
     let search: SessionSearchFn
     let loadSnapshot: DirectorySnapshotFn
     let onResume: ((SessionEntry) -> Void)?
@@ -2685,6 +2692,7 @@ struct SectionPopoverHost: NSViewRepresentable {
         coordinator.anchorView = nsView
         coordinator.update(
             section: section,
+            colorScheme: colorScheme,
             search: search,
             loadSnapshot: loadSnapshot,
             onResume: onResume
@@ -2708,25 +2716,18 @@ struct SectionPopoverHost: NSViewRepresentable {
 
         private let hostingController: NSHostingController<AnyView> = {
             NSHostingController(rootView: AnyView(EmptyView()))
-            // DO NOT set sizingOptions here. sizingOptions =
-            // [.preferredContentSize] makes NSHostingController
-            // continuously rewrite its preferredContentSize from SwiftUI
-            // layout; NSPopover observes preferredContentSize and will
-            // override any manual popover.contentSize we set. On first
-            // open SwiftUI layout settles over multiple passes and
-            // preferredContentSize briefly reports a partial height —
-            // NSPopover latches onto that and renders squished (evidence:
-            // /tmp/cmux-debug-spin-fix.log, refreshContent logged
-            // fitting=360x486 at present, but visible popover was ~280).
-            // Instead we drive popover.contentSize manually from
-            // fittingSize on every updateNSView / present call.
+            // Do not set sizingOptions: NSPopover observes preferredContentSize
+            // and can override the manual contentSize while SwiftUI layout
+            // settles, briefly rendering the popover squished.
         }()
         private var popover: NSPopover?
         private var currentSection: IndexSection?
+        private var currentColorScheme: ColorScheme = .light
         private var currentSearch: SessionSearchFn?
         private var currentLoadSnapshot: DirectorySnapshotFn?
         private var currentOnResume: ((SessionEntry) -> Void)?
         private var lastRenderedSection: IndexSection?
+        private var lastRenderedColorScheme: ColorScheme?
         private var lastRenderedPresentationCount: Int?
         /// Bumped on every present(). Used as the SwiftUI view identity so each
         /// open gets fresh view-local state.
@@ -2738,24 +2739,24 @@ struct SectionPopoverHost: NSViewRepresentable {
 
         func update(
             section: IndexSection,
+            colorScheme: ColorScheme,
             search: @escaping SessionSearchFn,
             loadSnapshot: @escaping DirectorySnapshotFn,
             onResume: ((SessionEntry) -> Void)?
         ) {
             currentSection = section
+            currentColorScheme = colorScheme
             currentSearch = search
             currentLoadSnapshot = loadSnapshot
             currentOnResume = onResume
-            // When hidden, defer rebuilding the hosting view until `present()`.
-            // Rewriting rootView + forcing layout on every parent re-render was
-            // the 100% CPU loop behind #3010.
+            // When hidden, defer rebuilding until `present()`; eager rootView
+            // rewrites on parent re-render caused the 100% CPU loop in #3010.
             guard popover?.isShown == true else { return }
-            // Rows capture stable closure bundles above the list boundary, so
-            // the section snapshot is the meaningful input here. Skipping
-            // identical visible-section updates avoids re-laying out the popover
-            // during unrelated parent re-renders while still refreshing when the
-            // visible content actually changes.
-            guard lastRenderedSection != section || lastRenderedPresentationCount != presentationCount else { return }
+            // Refresh only when visible content, color scheme, or open identity changes.
+            guard lastRenderedSection != section
+                || lastRenderedColorScheme != colorScheme
+                || lastRenderedPresentationCount != presentationCount
+            else { return }
             refreshContent()
         }
 
@@ -2766,6 +2767,7 @@ struct SectionPopoverHost: NSViewRepresentable {
             debugRefreshContentCallCount += 1
             let onResume = currentOnResume
             let identity = presentationCount
+            let colorScheme = currentColorScheme
             hostingController.rootView = AnyView(
                 SectionPopoverView(
                     section: section,
@@ -2775,11 +2777,11 @@ struct SectionPopoverHost: NSViewRepresentable {
                 ) { [weak self] in
                     self?.closeFromContent()
                 }
-                // Tied to presentationCount so reopening the popover discards
-                // the prior open's view-local search and scroll state.
+                .environment(\.colorScheme, colorScheme)
                 .id(identity)
             )
             lastRenderedSection = section
+            lastRenderedColorScheme = colorScheme
             lastRenderedPresentationCount = presentationCount
             hostingController.view.invalidateIntrinsicContentSize()
             hostingController.view.layoutSubtreeIfNeeded()
@@ -2793,10 +2795,7 @@ struct SectionPopoverHost: NSViewRepresentable {
             }
             anchorView.superview?.layoutSubtreeIfNeeded()
             let popover = popover ?? makePopover()
-            // Only bump identity on a hidden-to-shown transition. Bumping on every
-            // updateNSView (which fires on parent re-renders, e.g. ObservedObject
-            // store changes) would reset SectionPopoverView's view-local state
-            // on every tick.
+            // Only bump identity on hidden-to-shown; parent re-renders must not reset view-local state.
             if !popover.isShown {
                 presentationCount += 1
                 refreshContent()
