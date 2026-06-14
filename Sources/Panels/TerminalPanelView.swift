@@ -2,6 +2,8 @@ import SwiftUI
 import Foundation
 import AppKit
 import Bonsplit
+import CmuxTerminal
+import CmuxFoundation
 
 /// View for rendering a terminal panel
 struct TerminalPanelView: View {
@@ -263,7 +265,11 @@ struct PanelAppearance {
     }
 
     static func fromConfig(_ config: GhosttyConfig) -> PanelAppearance {
-        fromConfig(config, usesTransparentWindow: cmuxShouldUseTransparentBackgroundWindow())
+        fromConfig(
+            config,
+            usesTransparentWindow: WindowBackgroundComposition.policy
+                .shouldUseTransparentBackgroundWindow(glassEffectAvailable: WindowGlassEffect.isAvailable)
+        )
     }
 
     static func fromConfig(_ config: GhosttyConfig, usesTransparentWindow: Bool) -> PanelAppearance {
