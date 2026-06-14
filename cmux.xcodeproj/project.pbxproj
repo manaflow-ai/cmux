@@ -605,9 +605,13 @@
 		5E2701030000000000000001 /* SentryEventScrubberTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5E2701030000000000000002 /* SentryEventScrubberTests.swift */; };
 		A5001601 /* SentryHelper.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001600 /* SentryHelper.swift */; };
 		FE003106 /* SessionAgentPresentation.swift in Sources */ = {isa = PBXBuildFile; fileRef = FE003006 /* SessionAgentPresentation.swift */; };
-		A9F200000000000000000008 /* SessionAgentSessionPanelSnapshot.swift in Sources */ = {isa = PBXBuildFile; fileRef = A9F100000000000000000008 /* SessionAgentSessionPanelSnapshot.swift */; };
-		B3575000000000000000000C /* SessionIndexModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = B3575000000000000000000B /* SessionIndexModels.swift */; };
-		B35750000000000000000008 /* SessionIndexRegisteredAgents.swift in Sources */ = {isa = PBXBuildFile; fileRef = B35750000000000000000007 /* SessionIndexRegisteredAgents.swift */; };
+			A9F200000000000000000008 /* SessionAgentSessionPanelSnapshot.swift in Sources */ = {isa = PBXBuildFile; fileRef = A9F100000000000000000008 /* SessionAgentSessionPanelSnapshot.swift */; };
+			C4535011A1B2C3D4E5F60718 /* SessionIndexJSONLStreamDirection.swift in Sources */ = {isa = PBXBuildFile; fileRef = C4535010A1B2C3D4E5F60718 /* SessionIndexJSONLStreamDirection.swift */; };
+			C4535021A1B2C3D4E5F60718 /* SessionIndexJSONLStreamStopReason.swift in Sources */ = {isa = PBXBuildFile; fileRef = C4535020A1B2C3D4E5F60718 /* SessionIndexJSONLStreamStopReason.swift */; };
+			C4535031A1B2C3D4E5F60718 /* SessionIndexJSONLStreamSummary.swift in Sources */ = {isa = PBXBuildFile; fileRef = C4535030A1B2C3D4E5F60718 /* SessionIndexJSONLStreamSummary.swift */; };
+			C4535002A1B2C3D4E5F60718 /* SessionIndexJSONLStreamTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C4535001A1B2C3D4E5F60718 /* SessionIndexJSONLStreamTests.swift */; };
+			B3575000000000000000000C /* SessionIndexModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = B3575000000000000000000B /* SessionIndexModels.swift */; };
+			B35750000000000000000008 /* SessionIndexRegisteredAgents.swift in Sources */ = {isa = PBXBuildFile; fileRef = B35750000000000000000007 /* SessionIndexRegisteredAgents.swift */; };
 		FE003104 /* SessionIndexStore+CodexSQL.swift in Sources */ = {isa = PBXBuildFile; fileRef = FE003004 /* SessionIndexStore+CodexSQL.swift */; };
 		FE003101 /* SessionIndexStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = FE003001 /* SessionIndexStore.swift */; };
 		FE003102 /* SessionIndexView.swift in Sources */ = {isa = PBXBuildFile; fileRef = FE003002 /* SessionIndexView.swift */; };
@@ -1456,9 +1460,13 @@
 		5E2701030000000000000002 /* SentryEventScrubberTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = SentryEventScrubberTests.swift; sourceTree = "<group>"; };
 		A5001600 /* SentryHelper.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SentryHelper.swift; sourceTree = "<group>"; };
 		FE003006 /* SessionAgentPresentation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionAgentPresentation.swift; sourceTree = "<group>"; };
-		A9F100000000000000000008 /* SessionAgentSessionPanelSnapshot.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionAgentSessionPanelSnapshot.swift; sourceTree = "<group>"; };
-		B3575000000000000000000B /* SessionIndexModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionIndexModels.swift; sourceTree = "<group>"; };
-		B35750000000000000000007 /* SessionIndexRegisteredAgents.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionIndexRegisteredAgents.swift; sourceTree = "<group>"; };
+			A9F100000000000000000008 /* SessionAgentSessionPanelSnapshot.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionAgentSessionPanelSnapshot.swift; sourceTree = "<group>"; };
+			C4535010A1B2C3D4E5F60718 /* SessionIndexJSONLStreamDirection.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionIndexJSONLStreamDirection.swift; sourceTree = "<group>"; };
+			C4535020A1B2C3D4E5F60718 /* SessionIndexJSONLStreamStopReason.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionIndexJSONLStreamStopReason.swift; sourceTree = "<group>"; };
+			C4535030A1B2C3D4E5F60718 /* SessionIndexJSONLStreamSummary.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionIndexJSONLStreamSummary.swift; sourceTree = "<group>"; };
+			C4535001A1B2C3D4E5F60718 /* SessionIndexJSONLStreamTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionIndexJSONLStreamTests.swift; sourceTree = "<group>"; };
+			B3575000000000000000000B /* SessionIndexModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionIndexModels.swift; sourceTree = "<group>"; };
+			B35750000000000000000007 /* SessionIndexRegisteredAgents.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionIndexRegisteredAgents.swift; sourceTree = "<group>"; };
 		FE003004 /* SessionIndexStore+CodexSQL.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "SessionIndexStore+CodexSQL.swift"; sourceTree = "<group>"; };
 		FE003001 /* SessionIndexStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionIndexStore.swift; sourceTree = "<group>"; };
 		FE003002 /* SessionIndexView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionIndexView.swift; sourceTree = "<group>"; };
@@ -2399,11 +2407,14 @@
 				A5001655 /* CmuxActionTrust.swift */,
 				FE001001 /* FileExplorerStore.swift */,
 				B37A0000000000000000000A /* FileExplorerState.swift */,
-				FE001003 /* FileExplorerSearchController.swift */,
-				FE001004 /* FileExplorerTerminalPathInsertion.swift */,
-				FE001002 /* FileExplorerView.swift */,
-				FE003001 /* SessionIndexStore.swift */,
-				B35750000000000000000007 /* SessionIndexRegisteredAgents.swift */,
+					FE001003 /* FileExplorerSearchController.swift */,
+					FE001004 /* FileExplorerTerminalPathInsertion.swift */,
+					FE001002 /* FileExplorerView.swift */,
+					C4535010A1B2C3D4E5F60718 /* SessionIndexJSONLStreamDirection.swift */,
+					C4535020A1B2C3D4E5F60718 /* SessionIndexJSONLStreamStopReason.swift */,
+					C4535030A1B2C3D4E5F60718 /* SessionIndexJSONLStreamSummary.swift */,
+					FE003001 /* SessionIndexStore.swift */,
+					B35750000000000000000007 /* SessionIndexRegisteredAgents.swift */,
 				B35750000000000000000005 /* VaultAgentProcessScanner.swift */,
 				FE003004 /* SessionIndexStore+CodexSQL.swift */,
 				FE003005 /* RovoDevIndex.swift */,
@@ -2519,6 +2530,7 @@
 				F4100001A1B2C3D4E5F60718 /* PortScannerTests.swift */,
 				F5000001A1B2C3D4E5F60718 /* SessionPersistenceTests.swift */,
 				B35750000000000000000009 /* PiVaultAgentPersistenceTests.swift */,
+				C4535001A1B2C3D4E5F60718 /* SessionIndexJSONLStreamTests.swift */,
 				D3610B010000000000000002 /* AgentSessionAutoResumeSettingsTests.swift */,
 				A9E010000000000000000005 /* AgentExecutableResolverTests.swift */,
 				A9E030000000000000000001 /* AgentSessionSocketSurfaceTests.swift */,
@@ -3479,11 +3491,14 @@
 				5E2701020000000000000001 /* SentryEventScrubber.swift in Sources */,
 				A5001601 /* SentryHelper.swift in Sources */,
 				FE003106 /* SessionAgentPresentation.swift in Sources */,
-				A9F200000000000000000008 /* SessionAgentSessionPanelSnapshot.swift in Sources */,
-				B3575000000000000000000C /* SessionIndexModels.swift in Sources */,
-				B35750000000000000000008 /* SessionIndexRegisteredAgents.swift in Sources */,
-				FE003104 /* SessionIndexStore+CodexSQL.swift in Sources */,
-				FE003101 /* SessionIndexStore.swift in Sources */,
+					A9F200000000000000000008 /* SessionAgentSessionPanelSnapshot.swift in Sources */,
+					C4535011A1B2C3D4E5F60718 /* SessionIndexJSONLStreamDirection.swift in Sources */,
+					C4535021A1B2C3D4E5F60718 /* SessionIndexJSONLStreamStopReason.swift in Sources */,
+					C4535031A1B2C3D4E5F60718 /* SessionIndexJSONLStreamSummary.swift in Sources */,
+					B3575000000000000000000C /* SessionIndexModels.swift in Sources */,
+					B35750000000000000000008 /* SessionIndexRegisteredAgents.swift in Sources */,
+					FE003104 /* SessionIndexStore+CodexSQL.swift in Sources */,
+					FE003101 /* SessionIndexStore.swift in Sources */,
 				FE003102 /* SessionIndexView.swift in Sources */,
 				A5001610 /* SessionPersistence.swift in Sources */,
 				E30780000000000000000014 /* SessionRemoteWorkspaceSnapshot+Restore.swift in Sources */,
@@ -3893,6 +3908,7 @@
 				F5300002A1B2C3D4E5F60718 /* RovoDevTranscriptPreviewTests.swift in Sources */,
 				3865A0043865A0043865A004 /* SearchIndexTests.swift in Sources */,
 				5E2701030000000000000001 /* SentryEventScrubberTests.swift in Sources */,
+				C4535002A1B2C3D4E5F60718 /* SessionIndexJSONLStreamTests.swift in Sources */,
 				8A3392FE64E0605D942213D1 /* SessionIndexViewTests.swift in Sources */,
 				F5000000A1B2C3D4E5F60718 /* SessionPersistenceTests.swift in Sources */,
 				A50019B2 /* SettingsSearchIndexTests.swift in Sources */,

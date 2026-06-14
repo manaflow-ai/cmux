@@ -1024,42 +1024,208 @@ final class SessionIndexStore: ObservableObject {
         return out
     }
 
-    /// Stream JSON-lines from the start of `url`. `body` returns true to stop early.
-    /// Caps total bytes read at `maxBytes`.
+    /// Stream JSON-lines from `url`. `body` returns true to stop early.
+    /// Caps total bytes read at `maxBytes` and non-empty line decode attempts at `maxLines`.
+    @discardableResult
     nonisolated static func forEachJSONLine(
         url: URL,
         maxBytes: Int,
+        maxLines: Int? = nil,
+        direction: SessionIndexJSONLStreamDirection = .forward,
         body: ([String: Any]) -> Bool
-    ) {
-        guard let handle = try? FileHandle(forReadingFrom: url) else { return }
+    ) -> SessionIndexJSONLStreamSummary {
+        guard maxBytes > 0, maxLines != 0 else {
+            return SessionIndexJSONLStreamSummary(
+                stopReason: maxLines == 0 ? .maxLines : .maxBytes
+            )
+        }
+        guard let handle = try? FileHandle(forReadingFrom: url) else {
+            return SessionIndexJSONLStreamSummary(stopReason: .missingFile)
+        }
         defer { try? handle.close() }
+        let fileSize = jsonLineFileSize(url: url)
+        switch direction {
+        case .forward:
+            return streamJSONLinesForward(
+                handle: handle,
+                fileSize: fileSize,
+                maxBytes: maxBytes,
+                maxLines: maxLines,
+                body: body
+            )
+        case .reverse:
+            return streamJSONLinesReverse(
+                handle: handle,
+                fileSize: fileSize,
+                maxBytes: maxBytes,
+                maxLines: maxLines,
+                body: body
+            )
+        }
+    }
+
+    nonisolated private static func streamJSONLinesForward(
+        handle: FileHandle,
+        fileSize: UInt64,
+        maxBytes: Int,
+        maxLines: Int?,
+        body: ([String: Any]) -> Bool
+    ) -> SessionIndexJSONLStreamSummary {
+        var summary = SessionIndexJSONLStreamSummary()
         var leftover = Data()
-        var totalRead = 0
         let chunkSize = 64 * 1024
-        while totalRead < maxBytes {
+        var reachedEOF = false
+        while summary.bytesRead < maxBytes {
+            let bytesRemaining = maxBytes - summary.bytesRead
             let chunk: Data
             if #available(macOS 10.15.4, *) {
-                chunk = (try? handle.read(upToCount: chunkSize)) ?? Data()
+                chunk = (try? handle.read(upToCount: min(chunkSize, bytesRemaining))) ?? Data()
             } else {
-                chunk = handle.readData(ofLength: chunkSize)
+                chunk = handle.readData(ofLength: min(chunkSize, bytesRemaining))
             }
-            if chunk.isEmpty { break }
-            totalRead += chunk.count
+            if chunk.isEmpty {
+                reachedEOF = true
+                break
+            }
+            summary.bytesRead += chunk.count
             leftover.append(chunk)
             while let nl = leftover.firstIndex(of: 0x0a) {
-                let lineData = leftover.subdata(in: 0..<nl)
-                leftover.removeSubrange(0..<(nl + 1))
-                if lineData.isEmpty { continue }
-                if let obj = try? JSONSerialization.jsonObject(with: lineData) as? [String: Any] {
-                    if body(obj) { return }
+                let lineRange = leftover.startIndex..<nl
+                if let stopReason = processJSONLineData(
+                    in: leftover,
+                    range: lineRange,
+                    maxLines: maxLines,
+                    summary: &summary,
+                    body: body
+                ) {
+                    summary.stopReason = stopReason
+                    return summary
                 }
+                leftover.removeSubrange(0..<(nl + 1))
             }
         }
         // Flush trailing line if no newline at EOF.
-        if !leftover.isEmpty,
-           let obj = try? JSONSerialization.jsonObject(with: leftover) as? [String: Any] {
-            _ = body(obj)
+        let didReadEntireFile = fileSize > 0 && UInt64(summary.bytesRead) >= fileSize
+        if (reachedEOF || didReadEntireFile), !leftover.isEmpty,
+           let stopReason = processJSONLineData(
+               in: leftover,
+               range: leftover.startIndex..<leftover.endIndex,
+               maxLines: maxLines,
+               summary: &summary,
+               body: body
+           ) {
+            summary.stopReason = stopReason
+            return summary
         }
+        summary.stopReason = (reachedEOF || didReadEntireFile) ? .completed : .maxBytes
+        return summary
+    }
+
+    nonisolated private static func streamJSONLinesReverse(
+        handle: FileHandle,
+        fileSize: UInt64,
+        maxBytes: Int,
+        maxLines: Int?,
+        body: ([String: Any]) -> Bool
+    ) -> SessionIndexJSONLStreamSummary {
+        var summary = SessionIndexJSONLStreamSummary()
+        guard fileSize > 0 else {
+            return summary
+        }
+
+        let chunkSize: UInt64 = 64 * 1024
+        let byteBudget = min(UInt64(maxBytes), fileSize)
+        var position = fileSize
+        var carry = Data()
+        while position > 0, UInt64(summary.bytesRead) < byteBudget {
+            let bytesRemaining = byteBudget - UInt64(summary.bytesRead)
+            let bytesToRead = min(chunkSize, bytesRemaining, position)
+            position -= bytesToRead
+            handle.seek(toFileOffset: position)
+            let chunk = handle.readData(ofLength: Int(bytesToRead))
+            if chunk.isEmpty { break }
+            summary.bytesRead += chunk.count
+
+            var buffer = chunk
+            if !carry.isEmpty {
+                buffer.append(carry)
+            }
+
+            var searchEnd = buffer.endIndex
+            while let newline = buffer[..<searchEnd].lastIndex(of: 0x0a) {
+                let lineStart = buffer.index(after: newline)
+                if let stopReason = processJSONLineData(
+                    in: buffer,
+                    range: lineStart..<searchEnd,
+                    maxLines: maxLines,
+                    summary: &summary,
+                    body: body
+                ) {
+                    summary.stopReason = stopReason
+                    return summary
+                }
+                searchEnd = newline
+            }
+
+            if searchEnd > buffer.startIndex {
+                carry = buffer.subdata(in: buffer.startIndex..<searchEnd)
+            } else {
+                carry.removeAll(keepingCapacity: true)
+            }
+        }
+
+        if shouldProcessReverseCarry(carry, position: position, handle: handle) {
+            if let stopReason = processJSONLineData(
+                in: carry,
+                range: carry.startIndex..<carry.endIndex,
+                maxLines: maxLines,
+                summary: &summary,
+                body: body
+            ) {
+                summary.stopReason = stopReason
+                return summary
+            }
+        }
+        summary.stopReason = position == 0 ? .completed : .maxBytes
+        return summary
+    }
+
+    nonisolated private static func jsonLineFileSize(url: URL) -> UInt64 {
+        ((try? FileManager.default.attributesOfItem(atPath: url.path))?[.size] as? NSNumber)?
+            .uint64Value ?? 0
+    }
+
+    nonisolated private static func shouldProcessReverseCarry(
+        _ carry: Data,
+        position: UInt64,
+        handle: FileHandle
+    ) -> Bool {
+        guard !carry.isEmpty else { return false }
+        guard position > 0 else { return true }
+        handle.seek(toFileOffset: position - 1)
+        return handle.readData(ofLength: 1).first == 0x0a
+    }
+
+    nonisolated private static func processJSONLineData(
+        in data: Data,
+        range: Range<Data.Index>,
+        maxLines: Int?,
+        summary: inout SessionIndexJSONLStreamSummary,
+        body: ([String: Any]) -> Bool
+    ) -> SessionIndexJSONLStreamStopReason? {
+        guard !range.isEmpty else { return nil }
+        if let maxLines, summary.linesVisited >= maxLines {
+            return .maxLines
+        }
+        summary.linesVisited += 1
+        var shouldStop = false
+        autoreleasepool {
+            let lineData = data.subdata(in: range)
+            if let obj = try? JSONSerialization.jsonObject(with: lineData) as? [String: Any] {
+                shouldStop = body(obj)
+            }
+        }
+        return shouldStop ? .stoppedByBody : nil
     }
 
     // MARK: OpenCode

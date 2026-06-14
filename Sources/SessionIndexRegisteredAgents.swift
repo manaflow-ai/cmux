@@ -237,6 +237,20 @@ extension SessionIndexStore {
         let cwd: String?
         let modified: Date
         let fileURL: URL
+
+        var hasStableListMetadata: Bool {
+            !title.isEmpty && cwd != nil
+        }
+
+        func mergingMissingFields(from older: AntigravityHistoryMetadata) -> AntigravityHistoryMetadata {
+            AntigravityHistoryMetadata(
+                sessionId: sessionId,
+                title: title.isEmpty ? older.title : title,
+                cwd: cwd ?? older.cwd,
+                modified: modified,
+                fileURL: fileURL
+            )
+        }
     }
 
     private struct GrokSessionMetadata {
@@ -246,6 +260,11 @@ extension SessionIndexStore {
         var sandboxMode: String?
         var branch: String?
     }
+
+    nonisolated static let antigravityHistoryMinimumScanBytes = 2 * 1024 * 1024
+    nonisolated static let antigravityHistoryMaximumScanBytes = 24 * 1024 * 1024
+    nonisolated private static let antigravityHistoryBytesPerRequestedEntry = 256 * 1024
+    nonisolated static let antigravityHistoryMaximumScanLines = 12_000
 
     nonisolated static func loadGrokEntries(
         registration: CmuxVaultAgentRegistration,
@@ -475,6 +494,15 @@ extension SessionIndexStore {
 
         let fm = FileManager.default
         var latestBySessionID: [String: AntigravityHistoryMetadata] = [:]
+        var sessionIDsInReverseHistoryOrder: [String] = []
+        var targetSessionIDs = Set<String>()
+        var stableTargetMetadataCount = 0
+        let maxScanBytes = antigravityHistoryScanBytes(
+            offset: offset,
+            limit: limit,
+            usesSparseFilter: !needle.isEmpty || cwdFilter != nil
+        )
+        let target = antigravityHistoryTarget(offset: offset, limit: limit)
 
         for root in roots {
             if Task.isCancelled { break }
@@ -488,7 +516,12 @@ extension SessionIndexStore {
             let fallbackModified = ((try? fm.attributesOfItem(atPath: historyURL.path))?[.modificationDate] as? Date)
                 ?? Date.distantPast
 
-            forEachJSONLine(url: historyURL, maxBytes: Int.max) { object in
+            forEachJSONLine(
+                url: historyURL,
+                maxBytes: maxScanBytes,
+                maxLines: antigravityHistoryMaximumScanLines,
+                direction: .reverse
+            ) { object in
                 if Task.isCancelled { return true }
                 guard let sessionId = firstString(in: object, keys: antigravitySessionIDKeys()) else {
                     return false
@@ -515,22 +548,52 @@ extension SessionIndexStore {
                     fileURL: historyURL
                 )
                 if let existing = latestBySessionID[sessionId] {
-                    if metadata.modified >= existing.modified {
-                        latestBySessionID[sessionId] = metadata
+                    let wasStable = existing.hasStableListMetadata
+                    let merged = existing.mergingMissingFields(from: metadata)
+                    latestBySessionID[sessionId] = merged
+                    if targetSessionIDs.contains(sessionId),
+                       !wasStable,
+                       merged.hasStableListMetadata {
+                        stableTargetMetadataCount += 1
                     }
-                } else {
-                    latestBySessionID[sessionId] = metadata
+                    if sessionIDsInReverseHistoryOrder.count >= target,
+                       stableTargetMetadataCount >= target {
+                        return true
+                    }
+                    return false
+                }
+                latestBySessionID[sessionId] = metadata
+                sessionIDsInReverseHistoryOrder.append(sessionId)
+                if sessionIDsInReverseHistoryOrder.count <= target {
+                    _ = targetSessionIDs.insert(sessionId)
+                    if metadata.hasStableListMetadata {
+                        stableTargetMetadataCount += 1
+                    }
+                }
+                if sessionIDsInReverseHistoryOrder.count >= target,
+                   stableTargetMetadataCount >= target {
+                    return true
                 }
                 return false
             }
+            if sessionIDsInReverseHistoryOrder.count >= target,
+               stableTargetMetadataCount >= target {
+                break
+            }
         }
 
+        let reverseOrderIndexBySessionID = Dictionary(
+            uniqueKeysWithValues: sessionIDsInReverseHistoryOrder
+                .enumerated()
+                .map { ($0.element, $0.offset) }
+        )
         let entries = latestBySessionID.values
-            .sorted {
-                if $0.modified == $1.modified {
-                    return $0.sessionId < $1.sessionId
+            .sorted { lhs, rhs in
+                if lhs.modified != rhs.modified {
+                    return lhs.modified > rhs.modified
                 }
-                return $0.modified > $1.modified
+                return (reverseOrderIndexBySessionID[lhs.sessionId] ?? Int.max)
+                    < (reverseOrderIndexBySessionID[rhs.sessionId] ?? Int.max)
             }
             .map { metadata in
                 SessionEntry(
@@ -547,6 +610,33 @@ extension SessionIndexStore {
                 )
             }
         return Array(entries.dropFirst(offset).prefix(limit))
+    }
+
+    nonisolated private static func antigravityHistoryScanBytes(
+        offset: Int,
+        limit: Int,
+        usesSparseFilter: Bool
+    ) -> Int {
+        if usesSparseFilter {
+            return antigravityHistoryMaximumScanBytes
+        }
+        let target = antigravityHistoryTarget(offset: offset, limit: limit)
+        return scaledBound(
+            target: target,
+            unit: antigravityHistoryBytesPerRequestedEntry,
+            minimum: antigravityHistoryMinimumScanBytes,
+            maximum: antigravityHistoryMaximumScanBytes
+        )
+    }
+
+    nonisolated private static func antigravityHistoryTarget(offset: Int, limit: Int) -> Int {
+        let requested = offset > Int.max - limit ? Int.max : offset + limit
+        return max(1, requested)
+    }
+
+    nonisolated private static func scaledBound(target: Int, unit: Int, minimum: Int, maximum: Int) -> Int {
+        guard target < maximum / unit else { return maximum }
+        return min(max(target * unit, minimum), maximum)
     }
 
     nonisolated private static func registeredSessionRoots(
