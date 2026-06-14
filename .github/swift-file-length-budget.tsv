@@ -182,6 +182,7 @@
 538	Packages/CmuxRemoteWorkspace/Sources/CmuxRemoteWorkspace/PTYBridge/RemotePTYBridgeSession.swift
 536	cmuxTests/CmuxConfigContextMenuTests.swift
 533	Packages/CmuxControlSocket/Sources/CmuxControlSocket/Coordinator/Pane/ControlCommandCoordinator+Pane.swift
+533	cmuxTests/BashShellIntegrationHandoffTests.swift
 531	Packages/CmuxSettingsUI/Sources/CmuxSettingsUI/Scene/SettingsWindowScene.swift
 531	Sources/App/WorkspaceRuntimeSettings.swift
 530	Packages/CmuxMobileTerminal/Sources/CmuxMobileTerminal/GhosttyRuntime.swift
@@ -198,7 +199,6 @@
 516	Sources/CmuxConfigExecutor.swift
 514	Packages/CmuxSwiftRender/Sources/CmuxSwiftRender/ExpressionEvaluator.swift
 514	cmuxUITests/UpdatePillUITests.swift
-512	cmuxTests/BashShellIntegrationHandoffTests.swift
 510	Sources/TerminalImageTransfer.swift
 509	Packages/CMUXAgentLaunch/Sources/CMUXAgentLaunch/AgentLaunchSanitizerAdditionalPolicies.swift
 507	Sources/TerminalControllerTopSupport.swift

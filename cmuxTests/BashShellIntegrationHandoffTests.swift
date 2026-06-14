@@ -2,7 +2,7 @@ import Darwin
 import Foundation
 import Testing
 
-@Suite
+@Suite(.serialized)
 struct BashShellIntegrationHandoffTests {
     @Test func shellIntegrationRelayReportTTYUsesWorkspaceIDInBash() throws {
         let fileManager = FileManager.default
@@ -153,13 +153,13 @@ struct BashShellIntegrationHandoffTests {
         let repoA = root.appendingPathComponent("repo-a", isDirectory: true)
         let repoB = root.appendingPathComponent("repo-b", isDirectory: true)
         let logPath = root.appendingPathComponent("send.log", isDirectory: false)
-        let socketPath = root.appendingPathComponent("cmux-test.sock", isDirectory: false)
+        let socketPath = makeShortSocketPath(prefix: "cmux-git-watch")
 
         try fileManager.createDirectory(at: root, withIntermediateDirectories: true)
-        let socketFD = try bindUnixSocket(at: socketPath.path)
+        let socketFD = try bindUnixSocket(at: socketPath)
         defer {
             Darwin.close(socketFD)
-            unlink(socketPath.path)
+            unlink(socketPath)
             try? fileManager.removeItem(at: root)
         }
 
@@ -193,7 +193,7 @@ struct BashShellIntegrationHandoffTests {
             """,
             extraEnvironment: [
                 "CMUX_NO_GIT_WATCH": "1",
-                "CMUX_SOCKET_PATH": socketPath.path,
+                "CMUX_SOCKET_PATH": socketPath,
                 "CMUX_TAB_ID": "22222222-2222-2222-2222-222222222222",
                 "CMUX_PANEL_ID": "22222222-2222-2222-2222-222222222222",
             ]
@@ -214,20 +214,22 @@ struct BashShellIntegrationHandoffTests {
         let fileManager = FileManager.default
         let root = fileManager.temporaryDirectory
             .appendingPathComponent("cmux-bash-background-reports-\(UUID().uuidString)")
-        let socketPath = root.appendingPathComponent("cmux-test.sock", isDirectory: false)
+        let sendLogPath = root.appendingPathComponent("send.log", isDirectory: false)
+        let socketPath = makeShortSocketPath(prefix: "cmux-bg")
 
         try fileManager.createDirectory(at: root, withIntermediateDirectories: true)
-        let socketFD = try bindUnixSocket(at: socketPath.path)
+        let socketFD = try bindUnixSocket(at: socketPath)
         defer {
             Darwin.close(socketFD)
-            unlink(socketPath.path)
+            unlink(socketPath)
             try? fileManager.removeItem(at: root)
         }
 
         let result = try runInteractiveBash(
             cmuxLoadShellIntegration: true,
             command: """
-            _cmux_send() { :; }
+            : > "\(sendLogPath.path)"
+            _cmux_send() { printf '%s\\n' "$1" >> "\(sendLogPath.path)"; }
             _CMUX_TTY_NAME=ttys999
             _CMUX_TTY_REPORTED=0
             _cmux_report_tty_once
@@ -242,16 +244,22 @@ struct BashShellIntegrationHandoffTests {
             _CMUX_PWD_LAST_PWD="/not-the-current-directory"
             _CMUX_PORTS_LAST_RUN=$(_cmux_now)
             _cmux_prompt_command
+            for _cmux_i in $(seq 1 50); do
+              [ -s "\(sendLogPath.path)" ] && break
+              sleep 0.02
+            done
+            cat "\(sendLogPath.path)"
             :
             """,
             extraEnvironment: [
                 "CMUX_NO_GIT_WATCH": "1",
-                "CMUX_SOCKET_PATH": socketPath.path,
+                "CMUX_SOCKET_PATH": socketPath,
                 "CMUX_TAB_ID": "22222222-2222-2222-2222-222222222222",
                 "CMUX_PANEL_ID": "22222222-2222-2222-2222-222222222222",
             ]
         )
 
+        #expect(!result.stdout.isEmpty, Comment(rawValue: result.stdout))
         #expect(
             result.stderr.range(of: #"(?m)^\[[0-9]+\][^\n]*$"#, options: .regularExpression) == nil,
             Comment(rawValue: result.stderr)
@@ -319,7 +327,7 @@ struct BashShellIntegrationHandoffTests {
         let repoURL = root.appendingPathComponent("repo", isDirectory: true)
         let fakeBinURL = root.appendingPathComponent("fake-bin", isDirectory: true)
         let markerURL = root.appendingPathComponent("gh-pr-invoked", isDirectory: false)
-        let socketPath = root.appendingPathComponent("cmux-test.sock", isDirectory: false)
+        let socketPath = makeShortSocketPath(prefix: "cmux-pr-watch")
 
         try fileManager.createDirectory(at: repoURL.appendingPathComponent(".git"), withIntermediateDirectories: true)
         try fileManager.createDirectory(at: fakeBinURL, withIntermediateDirectories: true)
@@ -336,10 +344,10 @@ struct BashShellIntegrationHandoffTests {
             printf '2746\\tOPEN\\thttps://github.com/manaflow-ai/cmux/pull/2746\\n'
             """
         )
-        let socketFD = try bindUnixSocket(at: socketPath.path)
+        let socketFD = try bindUnixSocket(at: socketPath)
         defer {
             Darwin.close(socketFD)
-            unlink(socketPath.path)
+            unlink(socketPath)
             try? fileManager.removeItem(at: root)
         }
 
@@ -353,7 +361,7 @@ struct BashShellIntegrationHandoffTests {
             extraEnvironment: [
                 "CMUX_NO_PR_WATCH": "1",
                 "CMUX_GH_MARKER": markerURL.path,
-                "CMUX_SOCKET_PATH": socketPath.path,
+                "CMUX_SOCKET_PATH": socketPath,
                 "PATH": "\(fakeBinURL.path):/usr/bin:/bin",
             ]
         )
@@ -460,8 +468,23 @@ struct BashShellIntegrationHandoffTests {
         try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: url.path)
     }
 
+    private func makeShortSocketPath(prefix: String) -> String {
+        let suffix = String(UUID().uuidString.prefix(8))
+        return "/tmp/\(prefix)-\(suffix).sock"
+    }
+
     private func bindUnixSocket(at path: String) throws -> Int32 {
         unlink(path)
+
+        var addr = sockaddr_un()
+        let maxPathLength = MemoryLayout.size(ofValue: addr.sun_path)
+        guard path.utf8.count < maxPathLength else {
+            throw NSError(
+                domain: NSPOSIXErrorDomain,
+                code: ENAMETOOLONG,
+                userInfo: [NSLocalizedDescriptionKey: "Unix socket path is too long"]
+            )
+        }
 
         let fd = socket(AF_UNIX, SOCK_STREAM, 0)
         guard fd >= 0 else {
@@ -472,9 +495,7 @@ struct BashShellIntegrationHandoffTests {
             )
         }
 
-        var addr = sockaddr_un()
         addr.sun_family = sa_family_t(AF_UNIX)
-        let maxPathLength = MemoryLayout.size(ofValue: addr.sun_path)
         path.withCString { ptr in
             withUnsafeMutablePointer(to: &addr.sun_path) { pathPtr in
                 let pathBuf = UnsafeMutableRawPointer(pathPtr).assumingMemoryBound(to: CChar.self)
