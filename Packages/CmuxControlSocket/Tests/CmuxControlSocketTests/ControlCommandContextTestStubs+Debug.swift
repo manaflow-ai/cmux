@@ -15,6 +15,10 @@ extension ControlDebugContext {
     func controlDebugSimulateShortcut(combo: String) -> String { "ERROR: not implemented" }
     func controlDebugActivateApp() -> String { "ERROR: not implemented" }
     func controlDebugOpenGuiModeWorkspace() -> UUID? { nil }
+    func controlDebugSubmitGuiModeTask(
+        prompt: String,
+        providerID: String?
+    ) -> ControlDebugGuiModeSubmitResolution { .unavailable }
     func controlDebugIsTerminalFocused(surfaceArgument: String) -> String { "ERROR: not implemented" }
     func controlDebugReadTerminalText(surfaceArgument: String) -> String { "ERROR: not implemented" }
     func controlDebugRenderStats(surfaceArgument: String) -> String { "ERROR: not implemented" }
