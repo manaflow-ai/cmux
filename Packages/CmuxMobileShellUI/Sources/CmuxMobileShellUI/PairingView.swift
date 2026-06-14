@@ -18,7 +18,9 @@ struct PairingView: View {
     /// (for example "Check that both devices are on the same Tailscale"). `nil`
     /// when the headline is already the full instruction.
     let connectionErrorGuidance: String?
+    let versionWarning: String?
     let connectPairingCode: () async -> Void
+    let acceptVersionWarning: () async -> Void
     let connectManualHost: (String, String, Int) async -> Void
     let cancelPairing: () -> Void
     let cancel: () -> Void
@@ -139,6 +141,35 @@ struct PairingView: View {
                         }
                         .foregroundStyle(.orange)
                         .accessibilityIdentifier("MobileManualRouteWarning")
+                    }
+                }
+
+                if let versionWarning {
+                    Section {
+                        VStack(alignment: .leading, spacing: 10) {
+                            Label {
+                                Text(L10n.string("mobile.pairing.versionWarningTitle", defaultValue: "Compatibility mismatch"))
+                            } icon: {
+                                Image(systemName: "exclamationmark.triangle.fill")
+                            }
+                            .font(.headline)
+                            .foregroundStyle(.orange)
+
+                            Text(versionWarning)
+                                .font(.footnote)
+                                .foregroundStyle(.secondary)
+                                .accessibilityIdentifier("MobilePairingVersionWarning")
+
+                            Button(role: .destructive) {
+                                startPairingTask {
+                                    await acceptVersionWarning()
+                                }
+                            } label: {
+                                Text(L10n.string("mobile.pairing.versionWarningContinue", defaultValue: "Continue anyway"))
+                            }
+                            .disabled(isPairing)
+                            .accessibilityIdentifier("MobilePairingVersionWarningContinueButton")
+                        }
                     }
                 }
 

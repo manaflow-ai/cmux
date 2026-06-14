@@ -1,6 +1,7 @@
 import AppKit
 import Bonsplit
 import Combine
+import CmuxFoundation
 import SwiftUI
 
 final class NonDraggableHostingView<Content: View>: NSHostingView<Content> {
