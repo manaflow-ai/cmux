@@ -4849,6 +4849,18 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
               "runtimeStatus": "running",
               "startedAt": 1777107000,
               "updatedAt": 1777107000
+            },
+            "\(sessionId)": {
+              "sessionId": "\(sessionId)",
+              "workspaceId": "\(workspaceId)",
+              "surfaceId": "\(surfaceId)",
+              "activePromptDepth": 1,
+              "activePromptTurnId": "\(turnId)",
+              "activePromptTurnIds": ["\(turnId)"],
+              "agentLifecycle": "running",
+              "runtimeStatus": "running",
+              "startedAt": 1777107000,
+              "updatedAt": 1777107000
             }
           }
         }
@@ -4892,12 +4904,133 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
         XCTAssertEqual(result.stdout, "")
         XCTAssertTrue(
             waitForSocketCommand(state: state, timeout: 5) { command in
+                command.hasPrefix("set_agent_lifecycle codex idle ")
+                    && command.contains("--tab=\(workspaceId)")
+                    && command.contains("--panel=\(surfaceId)")
+            },
+            "Expected monitor to clear panel-scoped Codex lifecycle when a turn completes without Stop, saw \(state.snapshot())"
+        )
+        XCTAssertTrue(
+            waitForSocketCommand(state: state, timeout: 5) { command in
                 command.contains("set_status codex Idle") &&
                     command.contains("--icon=pause.circle.fill") &&
                     command.contains("--color=#8E8E93") &&
                     command.contains("--tab=\(workspaceId)")
             },
-            "Expected monitor to clear panel-scoped Running when a Codex turn completes without Stop, even if another panel is still running and a stale same-surface session remains; saw \(state.snapshot())"
+            "Expected monitor to clear panel-scoped Running when a Codex turn completes without Stop, even if stale running sessions remain; saw \(state.snapshot())"
+        )
+        let updatedState = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(contentsOf: stateURL)) as? [String: Any])
+        let sessions = try XCTUnwrap(updatedState["sessions"] as? [String: Any])
+        let record = try XCTUnwrap(sessions[sessionId] as? [String: Any])
+        XCTAssertEqual(record["agentLifecycle"] as? String, "idle")
+    }
+
+    func testCodexHookMonitorDoesNotPublishSharedIdleStatusOverOtherLiveWorkspaceSession() throws {
+        let cliPath = try bundledCLIPath()
+        let socketPath = makeSocketPath("codex")
+        let listenerFD = try bindUnixSocket(at: socketPath)
+        let state = MockSocketServerState()
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-codex-monitor-\(UUID().uuidString)", isDirectory: true)
+        let workspaceId = "11111111-1111-1111-1111-111111111111"
+        let surfaceId = "22222222-2222-2222-2222-222222222222"
+        let otherSurfaceId = "33333333-3333-3333-3333-333333333333"
+        let sessionId = "codex-session-monitor-shared-status"
+        let turnId = "turn-monitor-shared-status"
+
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer {
+            Darwin.close(listenerFD)
+            unlink(socketPath)
+            try? FileManager.default.removeItem(at: root)
+        }
+
+        let transcriptURL = root.appendingPathComponent("rollout-\(sessionId).jsonl")
+        try """
+        {"timestamp":"2026-04-25T07:55:29.462Z","type":"session_meta","payload":{"id":"\(sessionId)","cwd":"\(root.path)"}}
+        {"timestamp":"2026-04-25T07:55:29.500Z","type":"event_msg","payload":{"type":"task_started","turn_id":"\(turnId)","started_at":1777107522}}
+        {"timestamp":"2026-04-25T07:55:29.600Z","type":"response_item","payload":{"type":"message","role":"assistant","content":[{"type":"output_text","text":"Done"}]}}
+        {"timestamp":"2026-04-25T07:55:29.804Z","type":"event_msg","payload":{"type":"task_complete","turn_id":"\(turnId)","last_agent_message":"Done"}}
+        """.write(to: transcriptURL, atomically: true, encoding: .utf8)
+
+        let livePID = ProcessInfo.processInfo.processIdentifier
+        let stateURL = root.appendingPathComponent("codex-hook-sessions.json")
+        try """
+        {
+          "version": 1,
+          "sessions": {
+            "other-live-running-session": {
+              "sessionId": "other-live-running-session",
+              "workspaceId": "\(workspaceId)",
+              "surfaceId": "\(otherSurfaceId)",
+              "pid": \(livePID),
+              "runtimeStatus": "running",
+              "startedAt": 1777107000,
+              "updatedAt": 1777107000
+            },
+            "\(sessionId)": {
+              "sessionId": "\(sessionId)",
+              "workspaceId": "\(workspaceId)",
+              "surfaceId": "\(surfaceId)",
+              "activePromptDepth": 1,
+              "activePromptTurnId": "\(turnId)",
+              "activePromptTurnIds": ["\(turnId)"],
+              "agentLifecycle": "running",
+              "runtimeStatus": "running",
+              "startedAt": 1777107000,
+              "updatedAt": 1777107000
+            }
+          }
+        }
+        """.write(to: stateURL, atomically: true, encoding: .utf8)
+
+        startMockServerAccepting(listenerFD: listenerFD, state: state, connectionLimit: 4) { line in
+            if let data = line.data(using: .utf8),
+               let payload = try? JSONSerialization.jsonObject(with: data, options: []) as? [String: Any],
+               let id = payload["id"] as? String {
+                return self.v2Response(id: id, ok: true, result: ["surfaces": [["id": surfaceId, "ref": surfaceId]]])
+            }
+            return "OK"
+        }
+
+        var environment = ProcessInfo.processInfo.environment
+        environment["CMUX_SOCKET_PATH"] = socketPath
+        environment["CMUX_AGENT_HOOK_STATE_DIR"] = root.path
+        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+
+        let result = runProcess(
+            executablePath: cliPath,
+            arguments: [
+                "hooks", "codex", "monitor",
+                "--workspace",
+                workspaceId,
+                "--surface",
+                surfaceId,
+                "--session",
+                sessionId,
+                "--turn",
+                turnId,
+                "--transcript",
+                transcriptURL.path,
+            ],
+            environment: environment,
+            timeout: 5
+        )
+
+        XCTAssertFalse(result.timedOut, result.stderr)
+        XCTAssertEqual(result.status, 0, result.stderr)
+        XCTAssertEqual(result.stdout, "")
+        XCTAssertTrue(
+            waitForSocketCommand(state: state, timeout: 5) { command in
+                command.hasPrefix("set_agent_lifecycle codex idle ")
+                    && command.contains("--tab=\(workspaceId)")
+                    && command.contains("--panel=\(surfaceId)")
+            },
+            "Expected monitor to clear the completed panel lifecycle, saw \(state.snapshot())"
+        )
+        XCTAssertFalse(
+            state.snapshot().contains { $0.contains("set_status codex Idle") },
+            "A completed panel must not overwrite the workspace-shared Codex status while another panel is still running, saw \(state.snapshot())"
         )
     }
 

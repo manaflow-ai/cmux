@@ -1053,7 +1053,7 @@ private final class ClaudeHookSessionStore {
                 pid: nil,
                 launchCommand: nil,
                 isRestorable: nil,
-                agentLifecycle: nil,
+                agentLifecycle: .idle,
                 lastSubtitle: nil,
                 lastBody: nil,
                 lastNotificationStatus: .idle,
@@ -25356,12 +25356,24 @@ struct CMUXCLI {
         sessionId: String,
         workspaceId: String,
         surfaceId: String?,
-        env: [String: String]
+        env: [String: String],
+        includeWorkspaceRunningSessions: Bool = true
     ) -> Bool {
         let normalizedSessionId = sessionId.trimmingCharacters(in: .whitespacesAndNewlines)
         let normalizedWorkspaceId = workspaceId.trimmingCharacters(in: .whitespacesAndNewlines)
         let normalizedSurfaceId = surfaceId?.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !normalizedWorkspaceId.isEmpty else {
+            return false
+        }
+        if includeWorkspaceRunningSessions,
+           (try? codexHookSessionStore(env: env).hasRunningSession(
+               workspaceId: normalizedWorkspaceId,
+               excludingSessionId: normalizedSessionId,
+               requireLiveProcess: true
+           )) == true {
+            return true
+        }
+        guard normalizedSurfaceId != nil else {
             return false
         }
         return (try? codexHookSessionStore(env: env).hasRunningSession(
@@ -25396,6 +25408,22 @@ struct CMUXCLI {
         )) == true) else {
             return
         }
+        guard !hasOtherRunningCodexMonitorSession(
+            sessionId: normalizedSessionId,
+            workspaceId: normalizedWorkspaceId,
+            surfaceId: surfaceId,
+            env: env,
+            includeWorkspaceRunningSessions: false
+        ) else {
+            return
+        }
+        setAgentLifecycle(
+            client: client,
+            key: "codex",
+            lifecycle: .idle,
+            workspaceId: workspaceId,
+            surfaceId: surfaceId
+        )
         guard !hasOtherRunningCodexMonitorSession(
             sessionId: normalizedSessionId,
             workspaceId: normalizedWorkspaceId,
@@ -29316,7 +29344,17 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
             )) == true
         }
         func hasOtherRunningSession(workspaceId: String, surfaceId: String?) -> Bool {
-            (try? store.hasRunningSession(
+            if (try? store.hasRunningSession(
+                workspaceId: workspaceId,
+                excludingSessionId: sessionId,
+                requireLiveProcess: true
+            )) == true {
+                return true
+            }
+            guard let surfaceId else {
+                return false
+            }
+            return (try? store.hasRunningSession(
                 workspaceId: workspaceId,
                 surfaceId: surfaceId,
                 excludingSessionId: sessionId,
