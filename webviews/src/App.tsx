@@ -1160,6 +1160,10 @@ function focusPierreFileTreeSearchInput(root: ParentNode | null): boolean {
   if (!(searchInput instanceof HTMLElement)) {
     return false;
   }
+  const searchContainer = searchInput.closest("[data-file-tree-search-container]");
+  if (searchContainer?.getAttribute("data-open") === "false") {
+    return false;
+  }
   searchInput.focus();
   if ("select" in searchInput && typeof searchInput.select === "function") {
     searchInput.select();

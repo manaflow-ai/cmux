@@ -325,6 +325,9 @@ function activeFileTreeSearchInput(): HTMLInputElement | null {
   if (!searchInput) {
     return null;
   }
+  if (searchInput.closest("[data-file-tree-search-container]")?.getAttribute("data-open") !== "true") {
+    return null;
+  }
   const root = searchInput.getRootNode();
   if (root instanceof dom!.window.ShadowRoot) {
     return root.activeElement === searchInput ? searchInput : null;
