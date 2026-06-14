@@ -37,6 +37,25 @@ Default: `always` for stable and nightly builds. DEV builds always behave as `ne
 
 The older boolean `app.warnBeforeQuit` still works as a fallback when `app.confirmQuit` is not set. `true` maps to `always`; `false` maps to `never`.
 
+## `sidebar.position`
+
+Controls where the workspace sidebar is placed:
+
+- `left`: the default vertical sidebar on the left edge.
+- `top`: a horizontal workspace tab strip above the terminal area.
+- `right`: the vertical workspace sidebar on the right edge.
+- `bottom`: a horizontal workspace tab strip below the terminal area.
+
+Example:
+
+```json
+{
+  "sidebar": {
+    "position": "top"
+  }
+}
+```
+
 ## `app.forkConversationDefaultDestination`
 
 Controls what the tab right-click `Fork Conversation` item does. The submenu still exposes every destination.

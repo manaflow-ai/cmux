@@ -871,6 +871,9 @@
           "hideTabCloseButton": "Hide tab close buttons in the pane tab bar.",
           "forkConversationDefaultDestination": "Default destination for the tab context menu's primary Fork Conversation action. The submenu still exposes every destination."
         },
+        "sidebar": {
+          "position": "Place the workspace sidebar on the left, top, right, or bottom edge. Top and bottom render workspaces as a horizontal tab strip."
+        },
         "terminal": {
           "copyOnSelect": "Copy selected terminal text to the system clipboard when the selection is committed, including word and line selections from double- and triple-click.",
           "showTextBoxOnNewTerminals": "Show the beta TextBox input by default for newly created workspaces, terminal tabs, and terminal splits.",

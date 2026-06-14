@@ -770,6 +770,9 @@
           "hideTabCloseButton": "Masquer les boutons de fermeture d’onglet dans la barre d’onglets du volet.",
           "forkConversationDefaultDestination": "Destination par défaut de l'action principale Fork Conversation dans le menu contextuel de l'onglet. Le sous-menu affiche toujours toutes les destinations."
         },
+        "sidebar": {
+          "position": "Place la barre latérale des espaces de travail sur le bord gauche, supérieur, droit ou inférieur. En haut et en bas, les espaces s’affichent sous forme de bande d’onglets horizontale."
+        },
         "terminal": {
           "copyOnSelect": "Copie le texte sélectionné dans le terminal dans le presse-papiers système lorsque la sélection est validée, y compris les sélections de mots et de lignes par double ou triple clic.",
           "showTextBoxOnNewTerminals": "Affiche l'entrée TextBox bêta par défaut pour les espaces de travail, onglets et divisions de terminal nouvellement créés.",

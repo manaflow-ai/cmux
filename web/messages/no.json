@@ -770,6 +770,9 @@
           "hideTabCloseButton": "Skjul lukkeknapper for faner i faneraden i ruten.",
           "forkConversationDefaultDestination": "Standardmål for den primære Fork Conversation-handlingen i fanehurtigmenyen. Undermenyen viser fortsatt alle mål."
         },
+        "sidebar": {
+          "position": "Plasserer arbeidsområde-sidepanelet langs venstre, øvre, høyre eller nedre kant. Øverst og nederst vises arbeidsområder som en horisontal fanelinje."
+        },
         "terminal": {
           "copyOnSelect": "Kopierer markert terminaltekst til systemutklippstavlen når markeringen bekreftes, inkludert ord- og linjemarkeringer fra dobbelt- og trippelklikk.",
           "showTextBoxOnNewTerminals": "Viser beta-TextBox-inndata som standard for nyopprettede arbeidsområder, terminalfaner og terminalsplitt.",

@@ -653,6 +653,18 @@
       "type": "object",
       "additionalProperties": false,
       "properties": {
+        "position": {
+          "type": "string",
+          "enum": [
+            "left",
+            "top",
+            "right",
+            "bottom"
+          ],
+          "default": "left",
+          "description": "Place the workspace sidebar on the left, top, right, or bottom edge. Top and bottom render workspaces as a horizontal tab strip.",
+          "descriptionKey": "schemaDescriptions.sidebar.position"
+        },
         "hideAllDetails": {
           "type": "boolean",
           "default": false,

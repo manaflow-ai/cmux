@@ -770,6 +770,9 @@
           "hideTabCloseButton": "Sakrij dugmad za zatvaranje tabova na traci tabova okna.",
           "forkConversationDefaultDestination": "Zadano odredište za primarnu radnju Fork Conversation u kontekstnom meniju kartice. Podmeni i dalje prikazuje sva odredišta."
         },
+        "sidebar": {
+          "position": "Postavlja bočnu traku radnih prostora na lijevu, gornju, desnu ili donju ivicu. Na vrhu i dnu radni prostori se prikazuju kao vodoravna traka kartica."
+        },
         "terminal": {
           "copyOnSelect": "Kopira odabrani tekst iz terminala u sistemski međuspremnik kada se odabir potvrdi, uključujući riječi i redove odabrane dvoklikom ili troklikom.",
           "showTextBoxOnNewTerminals": "Podrazumijevano prikazuje beta TextBox unos za novokreirane radne prostore, terminalske tabove i podjele.",

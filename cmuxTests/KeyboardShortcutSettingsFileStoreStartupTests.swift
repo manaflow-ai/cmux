@@ -1163,6 +1163,84 @@ final class KeyboardShortcutSettingsFileStoreStartupTests: XCTestCase {
         }
     }
 
+    func testSettingsFileStoreAppliesSidebarPositionSetting() throws {
+        let defaults = UserDefaults.standard
+        let key = SidebarPositionSettings.key
+
+        try preservingDefaults(keys: [key, settingsFileBackupsDefaultsKey, importedManagedDefaultsKey]) {
+            defaults.removeObject(forKey: key)
+            defaults.removeObject(forKey: settingsFileBackupsDefaultsKey)
+            defaults.removeObject(forKey: importedManagedDefaultsKey)
+
+            let directoryURL = try makeTemporaryDirectory()
+            defer { try? FileManager.default.removeItem(at: directoryURL) }
+
+            let settingsFileURL = directoryURL.appendingPathComponent("cmux.json", isDirectory: false)
+            try writeSettingsFile(
+                """
+                {
+                  "sidebar": {
+                    "position": "top"
+                  }
+                }
+                """,
+                to: settingsFileURL
+            )
+
+            _ = KeyboardShortcutSettingsFileStore(
+                primaryPath: settingsFileURL.path,
+                fallbackPath: nil,
+                additionalFallbackPaths: [],
+                startWatching: false
+            )
+
+            XCTAssertEqual(defaults.string(forKey: key), SidebarPositionOption.top.rawValue)
+            XCTAssertEqual(
+                SidebarPositionSettings.resolved(rawValue: defaults.string(forKey: key)),
+                .top
+            )
+        }
+    }
+
+    func testSettingsFileStoreIgnoresInvalidSidebarPositionSetting() throws {
+        let defaults = UserDefaults.standard
+        let key = SidebarPositionSettings.key
+
+        try preservingDefaults(keys: [key, settingsFileBackupsDefaultsKey, importedManagedDefaultsKey]) {
+            defaults.removeObject(forKey: key)
+            defaults.removeObject(forKey: settingsFileBackupsDefaultsKey)
+            defaults.removeObject(forKey: importedManagedDefaultsKey)
+
+            let directoryURL = try makeTemporaryDirectory()
+            defer { try? FileManager.default.removeItem(at: directoryURL) }
+
+            let settingsFileURL = directoryURL.appendingPathComponent("cmux.json", isDirectory: false)
+            try writeSettingsFile(
+                """
+                {
+                  "sidebar": {
+                    "position": "floating"
+                  }
+                }
+                """,
+                to: settingsFileURL
+            )
+
+            _ = KeyboardShortcutSettingsFileStore(
+                primaryPath: settingsFileURL.path,
+                fallbackPath: nil,
+                additionalFallbackPaths: [],
+                startWatching: false
+            )
+
+            XCTAssertNil(defaults.string(forKey: key))
+            XCTAssertEqual(
+                SidebarPositionSettings.resolved(rawValue: defaults.string(forKey: key)),
+                .left
+            )
+        }
+    }
+
     func testSettingsFileStoreAppliesAutomationRipgrepBinaryPath() throws {
         let defaults = UserDefaults.standard
         let key = "ripgrepCustomBinaryPath"

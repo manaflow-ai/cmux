@@ -770,6 +770,9 @@
           "hideTabCloseButton": "Nasconde i pulsanti di chiusura scheda nella barra delle schede del riquadro.",
           "forkConversationDefaultDestination": "Destinazione predefinita per l'azione principale Fork Conversation nel menu contestuale della scheda. Il sottomenu mostra comunque tutte le destinazioni."
         },
+        "sidebar": {
+          "position": "Posiziona la barra laterale degli spazi di lavoro sul bordo sinistro, superiore, destro o inferiore. In alto e in basso gli spazi di lavoro sono mostrati come una barra di schede orizzontale."
+        },
         "terminal": {
           "copyOnSelect": "Copia il testo selezionato nel terminale negli appunti di sistema quando la selezione viene confermata, incluse le selezioni di parole e righe con doppio e triplo clic.",
           "showTextBoxOnNewTerminals": "Mostra l'input TextBox beta per impostazione predefinita nei workspace, nelle schede e nelle divisioni del terminale appena creati.",

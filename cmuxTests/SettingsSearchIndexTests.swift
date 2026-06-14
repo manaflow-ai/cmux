@@ -90,6 +90,13 @@ final class SettingsSearchIndexTests: XCTestCase {
         )
     }
 
+    func testSettingsPathAnchorIncludesSidebarPosition() {
+        XCTAssertEqual(
+            SettingsSearchIndex.anchorID(forSettingsPath: "sidebar.position"),
+            SettingsSearchIndex.sectionID(for: .sidebarAppearance)
+        )
+    }
+
     func testSettingsPathAnchorIncludesShortcutBindings() {
         XCTAssertEqual(
             SettingsSearchIndex.anchorID(forSettingsPath: "shortcuts.bindings"),

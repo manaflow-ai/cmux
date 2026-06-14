@@ -111,6 +111,60 @@ final class SidebarWidthPolicyTests: XCTestCase {
         XCTAssertFalse(range.contains(675.9))
         XCTAssertFalse(range.contains(686.1))
     }
+
+    func testSidebarPositionDefaultsToLeftForMissingOrInvalidValues() {
+        XCTAssertEqual(SidebarPositionSettings.resolved(rawValue: nil), .left)
+        XCTAssertEqual(SidebarPositionSettings.resolved(rawValue: "floating"), .left)
+    }
+
+    func testSidebarLayoutPolicyKeepsWithinWindowOverlayOnlyForLeftPosition() {
+        XCTAssertEqual(
+            SidebarContentLayoutPolicy.mode(position: .left, usesWithinWindowOverlay: true),
+            .leftOverlay
+        )
+        XCTAssertEqual(
+            SidebarContentLayoutPolicy.mode(position: .right, usesWithinWindowOverlay: true),
+            .rightStack
+        )
+        XCTAssertEqual(
+            SidebarContentLayoutPolicy.mode(position: .top, usesWithinWindowOverlay: true),
+            .topStack
+        )
+        XCTAssertEqual(
+            SidebarContentLayoutPolicy.mode(position: .bottom, usesWithinWindowOverlay: true),
+            .bottomStack
+        )
+    }
+
+    func testRightSidebarAvailableWidthAccountsForRightWorkspaceSidebar() {
+        XCTAssertEqual(
+            SidebarContentLayoutPolicy.rightSidebarAvailableWidth(
+                totalWidth: 900,
+                workspaceSidebarWidth: 240,
+                position: .right,
+                isWorkspaceSidebarVisible: true
+            ),
+            660
+        )
+        XCTAssertEqual(
+            SidebarContentLayoutPolicy.rightSidebarAvailableWidth(
+                totalWidth: 900,
+                workspaceSidebarWidth: 240,
+                position: .left,
+                isWorkspaceSidebarVisible: true
+            ),
+            900
+        )
+        XCTAssertEqual(
+            SidebarContentLayoutPolicy.rightSidebarAvailableWidth(
+                totalWidth: 900,
+                workspaceSidebarWidth: 240,
+                position: .right,
+                isWorkspaceSidebarVisible: false
+            ),
+            900
+        )
+    }
 }
 
 final class SidebarWorkspaceSelectionColorTests: XCTestCase {

@@ -770,6 +770,9 @@
           "hideTabCloseButton": "Ukryj przyciski zamykania kart na pasku kart panelu.",
           "forkConversationDefaultDestination": "Domyślne miejsce docelowe głównej akcji Fork Conversation w menu kontekstowym karty. Podmenu nadal pokazuje wszystkie miejsca docelowe."
         },
+        "sidebar": {
+          "position": "Umieszcza pasek boczny obszarów roboczych przy lewej, górnej, prawej lub dolnej krawędzi. U góry i na dole obszary robocze są wyświetlane jako poziomy pasek kart."
+        },
         "terminal": {
           "copyOnSelect": "Kopiuje zaznaczony tekst terminala do schowka systemowego po zatwierdzeniu zaznaczenia, w tym zaznaczenia słów i wierszy wykonane dwuklikiem lub potrójnym kliknięciem.",
           "showTextBoxOnNewTerminals": "Domyślnie pokazuje wejście TextBox beta dla nowo utworzonych obszarów roboczych, kart terminala i podziałów.",

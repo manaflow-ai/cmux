@@ -770,6 +770,9 @@
           "hideTabCloseButton": "在窗格标签栏中隐藏标签关闭按钮。",
           "forkConversationDefaultDestination": "标签页上下文菜单中主要 Fork Conversation 操作的默认目标。子菜单仍会显示所有目标。"
         },
+        "sidebar": {
+          "position": "将工作区侧边栏放在左侧、顶部、右侧或底部边缘。顶部和底部会将工作区呈现为水平标签栏。"
+        },
         "terminal": {
           "copyOnSelect": "确认选择后，将所选终端文本复制到系统剪贴板，包括通过双击和三击选择的单词和整行。",
           "showTextBoxOnNewTerminals": "默认在新建的工作区、终端标签页和终端分屏中显示测试版 TextBox 输入。",

@@ -770,6 +770,9 @@
           "hideTabCloseButton": "Bölme sekme çubuğundaki sekme kapatma düğmelerini gizle.",
           "forkConversationDefaultDestination": "Sekme bağlam menüsündeki birincil Fork Conversation eylemi için varsayılan hedef. Alt menü tüm hedefleri göstermeye devam eder."
         },
+        "sidebar": {
+          "position": "Çalışma alanı kenar çubuğunu sol, üst, sağ veya alt kenara yerleştirir. Üst ve alt konumlar çalışma alanlarını yatay bir sekme şeridi olarak gösterir."
+        },
         "terminal": {
           "copyOnSelect": "Seçim kesinleştiğinde seçilen terminal metnini sistem panosuna kopyalar; çift ve üçlü tıklamayla yapılan sözcük ve satır seçimleri dahil.",
           "showTextBoxOnNewTerminals": "Yeni oluşturulan çalışma alanları, terminal sekmeleri ve terminal bölmeleri için beta TextBox girişini varsayılan olarak gösterir.",

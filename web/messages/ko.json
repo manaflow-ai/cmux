@@ -770,6 +770,9 @@
           "hideTabCloseButton": "창 영역 탭 막대에서 탭 닫기 버튼을 숨깁니다.",
           "forkConversationDefaultDestination": "탭 컨텍스트 메뉴의 기본 Fork Conversation 동작에 사용할 기본 대상입니다. 하위 메뉴에는 여전히 모든 대상이 표시됩니다."
         },
+        "sidebar": {
+          "position": "작업공간 사이드바를 왼쪽, 위, 오른쪽 또는 아래 가장자리에 배치합니다. 위와 아래에서는 작업공간을 가로 탭 스트립으로 표시합니다."
+        },
         "terminal": {
           "copyOnSelect": "선택이 확정되면 더블 클릭 및 트리플 클릭으로 선택한 단어와 줄을 포함해 선택한 터미널 텍스트를 시스템 클립보드에 복사합니다.",
           "showTextBoxOnNewTerminals": "새로 생성된 작업공간, 터미널 탭, 터미널 분할에서 베타 TextBox 입력을 기본으로 표시합니다.",
