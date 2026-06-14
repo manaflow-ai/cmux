@@ -8,6 +8,7 @@ import Bonsplit
 import UserNotifications
 import Sparkle
 import CmuxUpdater
+import CmuxCommandPaletteUI
 
 import CmuxSettings
 
@@ -684,7 +685,7 @@ final class CommandPaletteFocusStealerClassificationTests: XCTestCase {
     func testTreatsGhosttySurfaceViewAsFocusStealer() {
         let surfaceView = GhosttyNSView(frame: NSRect(x: 0, y: 0, width: 120, height: 80))
 
-        XCTAssertTrue(isCommandPaletteFocusStealingTerminalOrBrowserResponder(surfaceView))
+        XCTAssertTrue(surfaceView.isCommandPaletteFocusStealingTerminalOrBrowser)
     }
 
     func testTreatsTextFieldInsideTerminalHostedViewAsFocusStealer() {
@@ -695,7 +696,7 @@ final class CommandPaletteFocusStealerClassificationTests: XCTestCase {
         hostedView.addSubview(textField)
 
         XCTAssertTrue(
-            isCommandPaletteFocusStealingTerminalOrBrowserResponder(textField),
+            textField.isCommandPaletteFocusStealingTerminalOrBrowser,
             "Terminal-owned overlay text inputs should not be allowed to reclaim focus from the command palette"
         )
     }
@@ -703,13 +704,13 @@ final class CommandPaletteFocusStealerClassificationTests: XCTestCase {
     func testDoesNotTreatUnrelatedTextFieldAsFocusStealer() {
         let textField = NSTextField(frame: NSRect(x: 0, y: 0, width: 120, height: 24))
 
-        XCTAssertFalse(isCommandPaletteFocusStealingTerminalOrBrowserResponder(textField))
+        XCTAssertFalse(textField.isCommandPaletteFocusStealingTerminalOrBrowser)
     }
 
     func testDoesNotReadTextViewDelegateForFocusStealerClassification() {
         let textView = DelegateTrackingTextView(frame: NSRect(x: 0, y: 0, width: 120, height: 24))
 
-        XCTAssertFalse(isCommandPaletteFocusStealingTerminalOrBrowserResponder(textView))
+        XCTAssertFalse(textView.isCommandPaletteFocusStealingTerminalOrBrowser)
         XCTAssertEqual(
             textView.delegateReadCount,
             0,
@@ -727,7 +728,7 @@ final class CommandPaletteFocusStealerClassificationTests: XCTestCase {
         hostedView.addSubview(textView)
 
         XCTAssertTrue(
-            isCommandPaletteFocusStealingTerminalOrBrowserResponder(textView),
+            textView.isCommandPaletteFocusStealingTerminalOrBrowser,
             "NSTextView responders should still be blocked via the NSView hierarchy walk when the delegate is not a view"
         )
     }
@@ -742,7 +743,7 @@ final class CommandPaletteFocusStealerClassificationTests: XCTestCase {
         hostedView.addSubview(textView)
 
         XCTAssertTrue(
-            isCommandPaletteFocusStealingTerminalOrBrowserResponder(textView),
+            textView.isCommandPaletteFocusStealingTerminalOrBrowser,
             "NSTextView responders should still be blocked via the NSView hierarchy walk when the delegate view is unrelated"
         )
     }

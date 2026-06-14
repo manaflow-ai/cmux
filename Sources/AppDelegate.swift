@@ -1,5 +1,8 @@
 import AppKit
 import CmuxAuthRuntime
+import CmuxBrowserPanel
+import CmuxCommandPalette
+import CmuxCommandPaletteUI
 import CmuxPanes
 import CmuxControlSocket
 import CmuxIPCService
@@ -9,6 +12,7 @@ import CmuxSocketControl
 import CmuxUpdater
 import CmuxWorkspaces
 import CmuxUpdaterUI
+import CmuxWindowing
 import SwiftUI
 import Bonsplit
 import CMUXWorkstream
@@ -20,114 +24,7 @@ import Combine
 import ObjectiveC.runtime
 import Darwin
 import CmuxFoundation
-
-/// Caches `AXWindows` responses so repeated AX polls can reuse the same
-/// snapshot while the app window graph is unchanged. Only `.windows` is
-/// cached; `.children` and `.visibleChildren` fall through to AppKit so the
-/// menu bar stays present in the accessibility tree for VoiceOver and other
-/// AX clients. `.mainWindow` / `.focusedWindow` also fall through, so AppKit
-/// remains authoritative on focus transitions.
-final class CmuxApplicationAccessibilityHierarchyCache {
-    enum Resolution {
-        case passthrough
-        case handled(Any?)
-    }
-
-    struct WindowToken: Equatable {
-        let identity: ObjectIdentifier
-        let windowNumber: Int
-        let isVisible: Bool
-        let isMiniaturized: Bool
-    }
-
-    struct StateToken: Equatable {
-        let windows: [WindowToken]
-
-        init(windows: [NSWindow]) {
-            self.windows = windows.map {
-                WindowToken(
-                    identity: ObjectIdentifier($0),
-                    windowNumber: $0.windowNumber,
-                    isVisible: $0.isVisible,
-                    isMiniaturized: $0.isMiniaturized
-                )
-            }
-        }
-    }
-
-    struct Snapshot {
-        let windows: [NSWindow]
-    }
-
-    static let shared = CmuxApplicationAccessibilityHierarchyCache()
-
-    private let notificationCenter: NotificationCenter
-    private var cachedStateToken: StateToken?
-    private var cachedSnapshot: Snapshot?
-    private var windowCloseObserver: NSObjectProtocol?
-
-    init(notificationCenter: NotificationCenter = .default) {
-        self.notificationCenter = notificationCenter
-        // Drop strong refs to any window the instant it closes so the cache
-        // never keeps a closed NSWindow alive between AX polls.
-        windowCloseObserver = notificationCenter.addObserver(
-            forName: NSWindow.willCloseNotification,
-            object: nil,
-            queue: .main
-        ) { [weak self] _ in
-            self?.invalidate()
-        }
-    }
-
-    deinit {
-        if let windowCloseObserver {
-            notificationCenter.removeObserver(windowCloseObserver)
-        }
-    }
-
-    func invalidate() {
-        cachedStateToken = nil
-        cachedSnapshot = nil
-    }
-
-    func resolve(attribute: NSAccessibility.Attribute, application: NSApplication) -> Resolution {
-        guard Self.supportsCaching(attribute) else { return .passthrough }
-        let windows = application.windows
-        let stateToken = StateToken(windows: windows)
-        let value = value(for: attribute, stateToken: stateToken) {
-            Snapshot(windows: windows)
-        }
-        return .handled(value)
-    }
-
-    func value(
-        for attribute: NSAccessibility.Attribute,
-        stateToken: StateToken,
-        builder: () -> Snapshot
-    ) -> Any? {
-        guard Self.supportsCaching(attribute) else { return nil }
-
-        let snapshot: Snapshot
-        if cachedStateToken == stateToken, let cachedSnapshot {
-            snapshot = cachedSnapshot
-        } else {
-            snapshot = builder()
-            cachedStateToken = stateToken
-            cachedSnapshot = snapshot
-        }
-
-        switch attribute.rawValue {
-        case NSAccessibility.Attribute.windows.rawValue:
-            return snapshot.windows
-        default:
-            return nil
-        }
-    }
-
-    private static func supportsCaching(_ attribute: NSAccessibility.Attribute) -> Bool {
-        attribute.rawValue == NSAccessibility.Attribute.windows.rawValue
-    }
-}
+import CmuxSession
 
 private enum CmuxThemeNotifications {
     static let reloadConfig = Notification.Name("com.cmuxterm.themes.reload-config")
@@ -254,36 +151,6 @@ final class ConfiguredGroupActionAsyncWorkspaceObserver {
         // for the rest of the app session.
         Self.pending.removeValue(forKey: storedKey)
     }
-}
-
-func isCommandPaletteFocusStealingTerminalOrBrowserResponder(_ responder: NSResponder) -> Bool {
-    if responder is GhosttyNSView || responder is WKWebView {
-        return true
-    }
-
-    if let textView = responder as? NSTextView, !textView.isFieldEditor {
-        return isCommandPaletteFocusStealingTerminalOrBrowserView(textView)
-    }
-
-    if let view = responder as? NSView {
-        return isCommandPaletteFocusStealingTerminalOrBrowserView(view)
-    }
-
-    return false
-}
-
-func isCommandPaletteFocusStealingTerminalOrBrowserView(_ view: NSView) -> Bool {
-    if view is GhosttyNSView || view is GhosttySurfaceScrollView || view is WKWebView {
-        return true
-    }
-    var current: NSView? = view.superview
-    while let candidate = current {
-        if candidate is GhosttyNSView || candidate is GhosttySurfaceScrollView || candidate is WKWebView {
-            return true
-        }
-        current = candidate.superview
-    }
-    return false
 }
 
 #if DEBUG
@@ -774,11 +641,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         let window: NSWindow?
     }
 
-    struct SessionDisplayGeometry {
-        let displayID: UInt32?
-        let frame: CGRect
-        let visibleFrame: CGRect
-    }
+    /// Lifted to ``CmuxWindowing/SessionDisplayGeometry``; aliased so existing
+    /// `AppDelegate.SessionDisplayGeometry` references stay source-identical.
+    typealias SessionDisplayGeometry = CmuxWindowing.SessionDisplayGeometry
 
     struct PersistedWindowGeometry: Codable, Sendable {
         let version: Int
@@ -1027,6 +892,23 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         label: "com.cmuxterm.app.sessionPersistence",
         qos: .utility
     )
+    /// Session snapshot persistence (CmuxSession); composition-root owned.
+    /// `nonisolated` because the autosave write block runs on `sessionPersistenceQueue`.
+    nonisolated let sessionSnapshotStore: any SessionSnapshotStoring<AppSessionSnapshot> = SessionSnapshotRepository(
+        schemaVersion: SessionSnapshotSchema.currentVersion,
+        bundleIdentifier: Bundle.main.bundleIdentifier
+    )
+    /// Accessibility window-hierarchy cache (CmuxWindowing); composition-root
+    /// owned. The `NSApplication` AX swizzle forwards to it behind
+    /// ``AccessibilityWindowCaching``.
+    /// `nonisolated(unsafe)`: the existential is non-Sendable, but it is only
+    /// touched from the main-actor AX swizzle path (callers hold it on main),
+    /// matching the other non-Sendable composition-root members (`shared`).
+    nonisolated(unsafe) let accessibilityWindowCache: any AccessibilityWindowCaching = AccessibilityWindowCache()
+    /// First-responder bypass guard (CmuxBrowserPanel); composition-root owned.
+    /// The `NSWindow.makeFirstResponder` swizzle reads `isActive` and
+    /// `BrowserPanel` wraps responder-churning devtools work in `withBypass(_:)`.
+    nonisolated let browserFirstResponderBypass = BrowserFirstResponderBypass()
     private nonisolated static let launchServicesRegistrationQueue = DispatchQueue(
         label: "com.cmuxterm.app.launchServicesRegistration",
         qos: .utility
@@ -1051,15 +933,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private var isQuitWarningConfirmed = false
     private var didInstallLifecycleSnapshotObservers = false
     private var didDisableSuddenTermination = false
-    private var commandPaletteVisibilityByWindowId: [UUID: Bool] = [:]
-    private var commandPalettePendingOpenByWindowId: [UUID: Bool] = [:]
-    private var commandPaletteRecentRequestAtByWindowId: [UUID: TimeInterval] = [:]
-    private var commandPaletteEscapeSuppressionByWindowId: Set<UUID> = []
-    private var commandPaletteEscapeSuppressionStartedAtByWindowId: [UUID: TimeInterval] = [:]
-    private var commandPaletteSelectionByWindowId: [UUID: Int] = [:]
-    private var commandPaletteSnapshotByWindowId: [UUID: CommandPaletteDebugSnapshot] = [:]
-    private static let commandPaletteRequestGraceInterval: TimeInterval = 1.25
-    private static let commandPalettePendingOpenMaxAge: TimeInterval = 8.0
+    /// Owns the per-window command-palette state (visibility, pending-open,
+    /// escape suppression, selection, debug snapshot). This delegate resolves
+    /// `NSWindow` values to identifiers and forwards into the store.
+    let commandPaletteWindowStore = CommandPaletteWindowStore()
     private static let sessionAutosaveTypingQuietPeriod: TimeInterval = 0.65
 
     var updateViewModel: UpdateStateModel {
@@ -3036,9 +2913,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         guard !didPrepareStartupSessionSnapshot else { return }
         didPrepareStartupSessionSnapshot = true
         Self.removeLegacyPersistedWindowGeometry()
-        SessionPersistenceStore.syncManualRestoreSnapshotCache()
+        sessionSnapshotStore.syncManualRestoreSnapshotCache()
         guard SessionRestorePolicy.shouldAttemptRestore() else { return }
-        startupSessionSnapshot = SessionPersistenceStore.loadStartupSnapshot()
+        startupSessionSnapshot = sessionSnapshotStore.loadStartupSnapshot()
     }
 
     private func persistedWindowGeometry(defaults: UserDefaults = .standard) -> PersistedWindowGeometry? {
@@ -3213,7 +3090,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
     @discardableResult
     func reopenPreviousSession(shouldActivate: Bool = true) -> Bool {
-        guard let snapshot = SessionPersistenceStore.loadReopenSessionSnapshot() else {
+        guard let snapshot = sessionSnapshotStore.loadReopenSessionSnapshot(fileURL: nil) else {
             return false
         }
         return restorePreviousSessionSnapshot(snapshot, shouldActivate: shouldActivate)
@@ -4221,9 +4098,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 )
             }
             if let snapshot {
-                _ = SessionPersistenceStore.save(snapshot)
+                _ = self.sessionSnapshotStore.save(snapshot, fileURL: nil)
             } else if removeWhenEmpty {
-                SessionPersistenceStore.removeSnapshot()
+                self.sessionSnapshotStore.removeSnapshot(fileURL: nil)
             }
         }
 
@@ -4458,9 +4335,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 self.unregisterMainWindow(closing)
             }
         }
-        commandPaletteVisibilityByWindowId[windowId] = false
-        commandPaletteSelectionByWindowId[windowId] = 0
-        commandPaletteSnapshotByWindowId[windowId] = .empty
+        commandPaletteWindowStore.registerWindow(windowId)
 
 #if DEBUG
         cmuxDebugLog(
@@ -4513,13 +4388,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
 #endif
 
-    struct MainWindowSummary {
-        let windowId: UUID
-        let isKeyWindow: Bool
-        let isVisible: Bool
-        let workspaceCount: Int
-        let selectedWorkspaceId: UUID?
-    }
+    /// Lifted to ``CmuxWindowing/MainWindowSummary``; aliased so existing
+    /// `AppDelegate.MainWindowSummary` references stay source-identical.
+    typealias MainWindowSummary = CmuxWindowing.MainWindowSummary
 
     struct WindowMoveTarget: Identifiable {
         let windowId: UUID
@@ -4982,25 +4853,24 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private func markCommandPaletteOpenRequested(for window: NSWindow?) {
         guard let window,
               let windowId = mainWindowId(for: window) else { return }
-        commandPalettePendingOpenByWindowId[windowId] = true
-        commandPaletteRecentRequestAtByWindowId[windowId] = ProcessInfo.processInfo.systemUptime
+        commandPaletteWindowStore.markOpenRequested(windowId, now: ProcessInfo.processInfo.systemUptime)
     }
 
     private func postCommandPaletteRequest(
-        name: Notification.Name,
+        kind: CommandPaletteRequestKind,
         preferredWindow: NSWindow?,
-        source: String,
-        markPending: Bool
+        source: String
     ) {
         let targetWindow = preferredWindow ?? NSApp.keyWindow ?? NSApp.mainWindow
         if let targetWindow,
            let context = contextForMainWindow(targetWindow) {
             _ = context.tabManager.setFocusedBrowserFocusModeActive(false, reason: "commandPaletteRequest.\(source)")
         }
+        let markPending = kind.marksPending
         if markPending {
             markCommandPaletteOpenRequested(for: targetWindow)
         }
-        NotificationCenter.default.post(name: name, object: targetWindow)
+        NotificationCenter.default.post(name: Notification.Name(kind.notificationName), object: targetWindow)
 #if DEBUG
         cmuxDebugLog(
             "shortcut.palette.request source=\(source) " +
@@ -5012,28 +4882,25 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
     func requestCommandPaletteCommands(preferredWindow: NSWindow? = nil, source: String = "api.commandPalette") {
         postCommandPaletteRequest(
-            name: .commandPaletteRequested,
+            kind: .commands,
             preferredWindow: preferredWindow,
-            source: source,
-            markPending: true
+            source: source
         )
     }
 
     func requestCommandPaletteSwitcher(preferredWindow: NSWindow? = nil, source: String = "api.commandPaletteSwitcher") {
         postCommandPaletteRequest(
-            name: .commandPaletteSwitcherRequested,
+            kind: .switcher,
             preferredWindow: preferredWindow,
-            source: source,
-            markPending: true
+            source: source
         )
     }
 
     func requestCommandPaletteRenameTab(preferredWindow: NSWindow? = nil, source: String = "api.commandPaletteRenameTab") {
         postCommandPaletteRequest(
-            name: .commandPaletteRenameTabRequested,
+            kind: .renameTab,
             preferredWindow: preferredWindow,
-            source: source,
-            markPending: true
+            source: source
         )
     }
 
@@ -5042,10 +4909,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         source: String = "api.commandPaletteRenameWorkspace"
     ) {
         postCommandPaletteRequest(
-            name: .commandPaletteRenameWorkspaceRequested,
+            kind: .renameWorkspace,
             preferredWindow: preferredWindow,
-            source: source,
-            markPending: true
+            source: source
         )
     }
 
@@ -5054,78 +4920,66 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         source: String = "api.commandPaletteEditWorkspaceDescription"
     ) {
         postCommandPaletteRequest(
-            name: .commandPaletteEditWorkspaceDescriptionRequested,
+            kind: .editWorkspaceDescription,
             preferredWindow: preferredWindow,
-            source: source,
-            markPending: true
+            source: source
         )
     }
 
     private func clearCommandPalettePendingOpen(for window: NSWindow?) {
         guard let window,
               let windowId = mainWindowId(for: window) else { return }
-        commandPalettePendingOpenByWindowId.removeValue(forKey: windowId)
-        commandPaletteRecentRequestAtByWindowId.removeValue(forKey: windowId)
+        commandPaletteWindowStore.clearPendingOpen(windowId)
     }
 
     private func pruneExpiredCommandPalettePendingOpenStates(
         now: TimeInterval = ProcessInfo.processInfo.systemUptime
     ) {
-        for windowId in Array(commandPalettePendingOpenByWindowId.keys) {
-            guard commandPalettePendingOpenByWindowId[windowId] == true else { continue }
-            guard let requestedAt = commandPaletteRecentRequestAtByWindowId[windowId] else {
-                commandPalettePendingOpenByWindowId.removeValue(forKey: windowId)
+        let pruned = commandPaletteWindowStore.pruneExpiredPendingOpenStates(now: now)
 #if DEBUG
+        for outcome in pruned {
+            switch outcome {
+            case .missingTimestamp(let windowId):
                 cmuxDebugLog("shortcut.palette.pendingPrune windowId=\(windowId.uuidString.prefix(8)) reason=missingTimestamp")
-#endif
-                continue
+            case .stale(let windowId, let age):
+                cmuxDebugLog(
+                    "shortcut.palette.pendingPrune windowId=\(windowId.uuidString.prefix(8)) " +
+                    "reason=stale ageMs=\(Int(age * 1000))"
+                )
             }
-            let age = now - requestedAt
-            guard age > Self.commandPalettePendingOpenMaxAge else { continue }
-            commandPalettePendingOpenByWindowId.removeValue(forKey: windowId)
-            commandPaletteRecentRequestAtByWindowId.removeValue(forKey: windowId)
-#if DEBUG
-            cmuxDebugLog(
-                "shortcut.palette.pendingPrune windowId=\(windowId.uuidString.prefix(8)) " +
-                "reason=stale ageMs=\(Int(age * 1000))"
-            )
-#endif
         }
+#else
+        _ = pruned
+#endif
     }
 
     private func isCommandPalettePendingOpen(for window: NSWindow) -> Bool {
         guard let windowId = mainWindowId(for: window) else { return false }
         pruneExpiredCommandPalettePendingOpenStates()
-        return commandPalettePendingOpenByWindowId[windowId] == true
+        return commandPaletteWindowStore.isPendingOpenRaw(windowId)
     }
 
     private func beginCommandPaletteEscapeSuppression(for window: NSWindow?) {
         guard let window,
               let windowId = mainWindowId(for: window) else { return }
-        commandPaletteEscapeSuppressionByWindowId.insert(windowId)
-        commandPaletteEscapeSuppressionStartedAtByWindowId[windowId] = ProcessInfo.processInfo.systemUptime
+        commandPaletteWindowStore.beginEscapeSuppression(windowId, now: ProcessInfo.processInfo.systemUptime)
     }
 
     private func endCommandPaletteEscapeSuppression(for window: NSWindow?) {
         guard let window,
               let windowId = mainWindowId(for: window) else { return }
-        commandPaletteEscapeSuppressionByWindowId.remove(windowId)
-        commandPaletteEscapeSuppressionStartedAtByWindowId.removeValue(forKey: windowId)
+        commandPaletteWindowStore.endEscapeSuppression(windowId)
     }
 
     private func shouldConsumeSuppressedEscape(event: NSEvent, window: NSWindow?) -> Bool {
         guard let window,
-              let windowId = mainWindowId(for: window),
-              commandPaletteEscapeSuppressionByWindowId.contains(windowId) else {
+              let windowId = mainWindowId(for: window) else {
             return false
         }
-        let startedAt = commandPaletteEscapeSuppressionStartedAtByWindowId[windowId] ?? 0
-        if ProcessInfo.processInfo.systemUptime - startedAt <= 0.35 {
-            return true
-        }
-        // Fallback cleanup when keyUp is lost for any reason.
-        endCommandPaletteEscapeSuppression(for: window)
-        return false
+        return commandPaletteWindowStore.shouldConsumeSuppressedEscape(
+            windowId,
+            now: ProcessInfo.processInfo.systemUptime
+        )
     }
 
     private func recentCommandPaletteRequestAge(for window: NSWindow?) -> TimeInterval? {
@@ -5133,21 +4987,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
               let windowId = mainWindowId(for: window) else {
             return nil
         }
-        let now = ProcessInfo.processInfo.systemUptime
-        pruneExpiredCommandPalettePendingOpenStates(now: now)
-        guard commandPalettePendingOpenByWindowId[windowId] == true else {
-            commandPaletteRecentRequestAtByWindowId.removeValue(forKey: windowId)
-            return nil
-        }
-        guard let startedAt = commandPaletteRecentRequestAtByWindowId[windowId] else {
-            commandPalettePendingOpenByWindowId.removeValue(forKey: windowId)
-            return nil
-        }
-        let age = now - startedAt
-        if age <= Self.commandPaletteRequestGraceInterval {
-            return age
-        }
-        return nil
+        return commandPaletteWindowStore.recentRequestAge(
+            windowId,
+            now: ProcessInfo.processInfo.systemUptime
+        )
     }
 
     private func escapeSuppressionWindow(for event: NSEvent) -> NSWindow? {
@@ -5169,8 +5012,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 #endif
             return didConsume
         }
-        commandPaletteEscapeSuppressionByWindowId.removeAll()
-        commandPaletteEscapeSuppressionStartedAtByWindowId.removeAll()
+        commandPaletteWindowStore.clearAllEscapeSuppression()
 #if DEBUG
         cmuxDebugLog("shortcut.escape suppressionClear target={nil} clearedAll=1 keyUpConsumed=\(didConsume ? 1 : 0)")
 #endif
@@ -5182,19 +5024,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         if visible, let context = contextForMainWindow(window) {
             _ = context.tabManager.setFocusedBrowserFocusModeActive(false, reason: "commandPaletteVisible")
         }
-        let wasVisible = commandPaletteVisibilityByWindowId.updateValue(visible, forKey: windowId) ?? false
-        postCommandPaletteVisibilityDidChangeIfNeeded(wasVisible: wasVisible, visible: visible, window: window, windowId: windowId)
         // Opening (false -> true) always resolves pending-open.
         // Closing (true -> false) also clears stale pending state.
         // Ignore repeated false updates so a stale sync cannot erase an in-flight open request.
-        if visible || wasVisible {
-            commandPalettePendingOpenByWindowId.removeValue(forKey: windowId)
-            commandPaletteRecentRequestAtByWindowId.removeValue(forKey: windowId)
-        }
+        let update = commandPaletteWindowStore.setVisible(visible, for: windowId)
+        postCommandPaletteVisibilityDidChangeIfNeeded(wasVisible: update.wasVisible, visible: visible, window: window, windowId: windowId)
 #if DEBUG
-        if !visible,
-           !wasVisible,
-           commandPalettePendingOpenByWindowId[windowId] == true {
+        if update.retainedPending {
             cmuxDebugLog(
                 "palette.visibility.retainPending " +
                 "window={\(debugWindowToken(window))} visible=0 wasVisible=0 pending=1"
@@ -5204,30 +5040,30 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
     func isCommandPaletteVisible(windowId: UUID) -> Bool {
-        commandPaletteVisibilityByWindowId[windowId] ?? false
+        commandPaletteWindowStore.isVisible(windowId)
     }
 
     func setCommandPaletteSelectionIndex(_ index: Int, for window: NSWindow) {
         guard let windowId = mainWindowId(for: window) else { return }
-        commandPaletteSelectionByWindowId[windowId] = max(0, index)
+        commandPaletteWindowStore.setSelectionIndex(index, for: windowId)
     }
 
     func commandPaletteSelectionIndex(windowId: UUID) -> Int {
-        commandPaletteSelectionByWindowId[windowId] ?? 0
+        commandPaletteWindowStore.selectionIndex(windowId)
     }
 
     func setCommandPaletteSnapshot(_ snapshot: CommandPaletteDebugSnapshot, for window: NSWindow) {
         guard let windowId = mainWindowId(for: window) else { return }
-        commandPaletteSnapshotByWindowId[windowId] = snapshot
+        commandPaletteWindowStore.setSnapshot(snapshot, for: windowId)
     }
 
     func commandPaletteSnapshot(windowId: UUID) -> CommandPaletteDebugSnapshot {
-        commandPaletteSnapshotByWindowId[windowId] ?? .empty
+        commandPaletteWindowStore.snapshot(windowId)
     }
 
     func isCommandPaletteVisible(for window: NSWindow) -> Bool {
         guard let windowId = mainWindowId(for: window) else { return false }
-        return commandPaletteVisibilityByWindowId[windowId] ?? false
+        return commandPaletteWindowStore.isVisible(windowId)
     }
 
     func isCommandPaletteEffectivelyVisible(for window: NSWindow) -> Bool {
@@ -5261,7 +5097,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
     private func isFocusStealingResponderWhileCommandPaletteVisible(_ responder: NSResponder) -> Bool {
-        isCommandPaletteFocusStealingTerminalOrBrowserResponder(responder)
+        responder.isCommandPaletteFocusStealingTerminalOrBrowser
     }
 
     private func isInsideCommandPaletteOverlay(_ view: NSView) -> Bool {
@@ -5820,13 +5656,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         removeMobileWorkspaceListObserverIfUnused(for: context.tabManager)
         notifyMainWindowContextsDidChange()
 
-        commandPaletteVisibilityByWindowId.removeValue(forKey: context.windowId)
-        commandPalettePendingOpenByWindowId.removeValue(forKey: context.windowId)
-        commandPaletteRecentRequestAtByWindowId.removeValue(forKey: context.windowId)
-        commandPaletteEscapeSuppressionByWindowId.remove(context.windowId)
-        commandPaletteEscapeSuppressionStartedAtByWindowId.removeValue(forKey: context.windowId)
-        commandPaletteSelectionByWindowId.removeValue(forKey: context.windowId)
-        commandPaletteSnapshotByWindowId.removeValue(forKey: context.windowId)
+        commandPaletteWindowStore.removeWindow(context.windowId)
 
         if tabManager === context.tabManager {
             activateMainWindowContext(Array(mainWindowContexts.values).first { resolvedWindow(for: $0) != nil } ?? (allowWindowlessFallback ? mainWindowContexts.values.first : nil))
@@ -5939,10 +5769,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }) {
             return orderedWindow
         }
-        if let visibleWindowId = commandPaletteVisibilityByWindowId.first(where: { $0.value })?.key {
+        if let visibleWindowId = commandPaletteWindowStore.firstVisibleWindowId() {
             return windowForMainWindowId(visibleWindowId)
         }
-        if let pendingWindowId = commandPalettePendingOpenByWindowId.first(where: { $0.value })?.key {
+        if let pendingWindowId = commandPaletteWindowStore.firstPendingOpenWindowId() {
             return windowForMainWindowId(pendingWindowId)
         }
         return nil
@@ -14756,8 +14586,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     @discardableResult
     func debugSetCommandPalettePendingOpenAge(window: NSWindow, age: TimeInterval) -> Bool {
         guard let windowId = mainWindowId(for: window) else { return false }
-        commandPalettePendingOpenByWindowId[windowId] = true
-        commandPaletteRecentRequestAtByWindowId[windowId] = ProcessInfo.processInfo.systemUptime - max(age, 0)
+        commandPaletteWindowStore.setPendingOpenAge(
+            windowId,
+            now: ProcessInfo.processInfo.systemUptime,
+            age: age
+        )
         return true
     }
 
@@ -16177,13 +16010,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
         guard let removed = unregisterMainWindowContext(for: window) else { return }
         publishCmuxWindowLifecycle(name: "window.closed", windowId: removed.windowId, origin: "appkit_close")
-        commandPaletteVisibilityByWindowId.removeValue(forKey: removed.windowId)
-        commandPalettePendingOpenByWindowId.removeValue(forKey: removed.windowId)
-        commandPaletteRecentRequestAtByWindowId.removeValue(forKey: removed.windowId)
-        commandPaletteEscapeSuppressionByWindowId.remove(removed.windowId)
-        commandPaletteEscapeSuppressionStartedAtByWindowId.removeValue(forKey: removed.windowId)
-        commandPaletteSelectionByWindowId.removeValue(forKey: removed.windowId)
-        commandPaletteSnapshotByWindowId.removeValue(forKey: removed.windowId)
+        commandPaletteWindowStore.removeWindow(removed.windowId)
 
         // Avoid stale notifications that can no longer be opened once the owning window is gone.
         if let store = notificationStore {
@@ -16621,21 +16448,7 @@ private var cmuxFirstResponderGuardHitViewOverride: NSView?
 private var cmuxFirstResponderGuardCurrentEventContext: NSEvent?
 private var cmuxFirstResponderGuardHitViewContext: NSView?
 private var cmuxFirstResponderGuardContextWindowNumber: Int?
-private var cmuxWindowFirstResponderBypassDepth = 0
 private var cmuxFieldEditorOwningWebViewAssociationKey: UInt8 = 0
-
-@discardableResult
-func cmuxWithWindowFirstResponderBypass<T>(_ body: () -> T) -> T {
-    cmuxWindowFirstResponderBypassDepth += 1
-    defer {
-        cmuxWindowFirstResponderBypassDepth = max(0, cmuxWindowFirstResponderBypassDepth - 1)
-    }
-    return body()
-}
-
-func cmuxIsWindowFirstResponderBypassActive() -> Bool {
-    cmuxWindowFirstResponderBypassDepth > 0
-}
 
 private final class CmuxFieldEditorOwningWebViewBox: NSObject {
     weak var webView: CmuxWebView?
@@ -16647,8 +16460,8 @@ private final class CmuxFieldEditorOwningWebViewBox: NSObject {
 
 private extension NSApplication {
     @objc func cmux_accessibilityAttributeValue(_ attribute: NSAccessibility.Attribute) -> Any? {
-        if Thread.isMainThread {
-            switch CmuxApplicationAccessibilityHierarchyCache.shared.resolve(
+        if Thread.isMainThread, let cache = AppDelegate.shared?.accessibilityWindowCache {
+            switch cache.resolve(
                 attribute: attribute,
                 application: self
             ) {
@@ -16968,7 +16781,7 @@ private extension NSWindow {
     }
 
     @objc func cmux_makeFirstResponder(_ responder: NSResponder?) -> Bool {
-        if cmuxIsWindowFirstResponderBypassActive() {
+        if AppDelegate.shared?.browserFirstResponderBypass.isActive == true {
 #if DEBUG
             cmuxDebugLog(
                 "focus.guard bypassFirstResponder responder=\(String(describing: responder.map { type(of: $0) })) " +
@@ -18003,13 +17816,9 @@ extension AppDelegate: UpdateActionDelegate, UpdateActionsHost {
 extension AppDelegate {
     /// A connected display, surfaced by the `window.displays` control command and
     /// the `cmux window display --list` CLI so callers can discover screen names.
-    struct DisplayInfo {
-        let name: String
-        let index: Int
-        let displayID: UInt32?
-        let isMain: Bool
-        let frame: NSRect
-    }
+    /// Lifted to ``CmuxWindowing/DisplayInfo``; aliased so existing
+    /// `AppDelegate.DisplayInfo` references stay source-identical.
+    typealias DisplayInfo = CmuxWindowing.DisplayInfo
 
     /// All currently-connected displays, in `NSScreen.screens` order.
     func availableDisplays() -> [DisplayInfo] {
