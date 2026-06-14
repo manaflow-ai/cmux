@@ -141,8 +141,21 @@ public struct SyncFrameCodec: Sendable {
         let updatedAt = doubleValue(obj["updatedAt"]) ?? 0
         let deleted = (obj["deleted"] as? Bool) ?? false
         let schemaVersion = intValue(obj["schemaVersion"]) ?? syncSchemaVersion
-        let payload = obj["payload"] ?? [:]
-        let payloadJSON = (try? JSONSerialization.data(withJSONObject: payload)) ?? Data("{}".utf8)
+        let payloadJSON: Data
+        if deleted {
+            // A tombstone legitimately carries `{}`; its payload is never read.
+            payloadJSON = Data("{}".utf8)
+        } else {
+            // A LIVE record must carry a serializable payload. If it is missing or
+            // unserializable, do NOT silently store `{}` (which the facade cannot
+            // decode, hiding the row while the cursor advances past it). Throw
+            // .malformed so the client resyncs instead of durably losing the row.
+            guard let payload = obj["payload"],
+                  let serialized = try? JSONSerialization.data(withJSONObject: payload) else {
+                throw SyncFrameParseError.malformed("live record \(id) missing/unserializable payload")
+            }
+            payloadJSON = serialized
+        }
         return SyncWireRecord(
             id: id,
             rev: rev,

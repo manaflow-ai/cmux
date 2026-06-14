@@ -509,6 +509,20 @@ private let sortKey: @Sendable (SyncWireRecord) -> Double = { DeviceSyncFacade.s
         }
     }
 
+    @Test func liveRecordWithoutPayloadIsMalformedNotSilentlyEmpty() {
+        // A LIVE (non-deleted) record missing its payload must throw, not be
+        // stored as `{}` (which the facade can't decode, hiding the row while the
+        // cursor advances past it — a durable lost row with no resync).
+        #expect(throws: SyncFrameParseError.self) {
+            _ = try SyncFrameCodec().parse(Data(#"{"type":"sync.delta","collection":"devices","rev":2,"records":[{"id":"a","rev":2,"deleted":false}]}"#.utf8))
+        }
+        // A tombstone (deleted) with no payload is fine — its payload is never read.
+        let frame = try? SyncFrameCodec().parse(Data(#"{"type":"sync.delta","collection":"devices","rev":2,"records":[{"id":"a","rev":2,"deleted":true}]}"#.utf8))
+        if case let .delta(_, _, records) = frame {
+            #expect(records.first?.deleted == true)
+        } else { Issue.record("expected delta with a tombstone") }
+    }
+
     @Test func hugeOrNonIntegralRevIsMalformedNotACrash() {
         // A valid JSON sync frame with an out-of-Int-range numeric rev must
         // surface .malformed (→ resync), never trap the process on Int(d).
