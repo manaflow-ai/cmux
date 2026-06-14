@@ -243,7 +243,7 @@ extension TerminalController {
                 creationPolicy: .automationPreload
             )?.id
         } else {
-            newPanelId = tab.newTerminalSurface(inPane: targetPaneId, focus: focus)?.id
+            newPanelId = tab.newTerminalSurface(inPane: targetPaneId, focus: focus, inheritWorkingDirectoryFallback: true)?.id
         }
 
         guard let id = newPanelId else {

@@ -1,4 +1,5 @@
 import XCTest
+import CmuxCore
 import AppKit
 import Darwin
 import CmuxTerminal

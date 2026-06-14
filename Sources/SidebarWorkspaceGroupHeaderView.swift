@@ -1,6 +1,7 @@
 import AppKit
 import CmuxFoundation
 import SwiftUI
+import CmuxSettings
 
 /// Collapsible group header that doubles as the anchor workspace row.
 struct SidebarWorkspaceGroupHeaderView: View, Equatable {

@@ -128,22 +128,16 @@ extension WindowAppearanceSnapshot {
         )
     }
 
-    func replacingTerminalBackgroundColor(_ color: NSColor) -> Self {
-        Self(
-            terminalBackgroundColor: color,
-            terminalBackgroundOpacity: terminalBackgroundOpacity,
-            terminalBackgroundBlur: terminalBackgroundBlur,
-            terminalRenderingMode: terminalRenderingMode,
-            unifySurfaceBackdrops: unifySurfaceBackdrops,
-            sidebarSettings: sidebarSettings,
-            windowGlassSettings: WindowGlassSettingsSnapshot(
-                sidebarBlendModeRawValue: windowGlassSettings.sidebarBlendModeRawValue,
-                isEnabled: windowGlassSettings.isEnabled,
-                tintHex: windowGlassSettings.tintHex,
-                tintOpacity: windowGlassSettings.tintOpacity,
-                terminalBackgroundBlur: terminalBackgroundBlur,
-                terminalGlassTintColor: color.withAlphaComponent(terminalBackgroundOpacity)
-            )
+    func windowRootBackdropResolution(surfaceBackgroundColor color: NSColor?) -> (
+        snapshot: Self,
+        source: String,
+        overrideHex: String
+    ) {
+        // OSC 11 is pane-local state; the shared root remains the workspace backdrop.
+        (
+            snapshot: self,
+            source: color == nil ? "defaultBackground" : "defaultBackground(surfaceOverrideLocal)",
+            overrideHex: color?.hexString() ?? "nil"
         )
     }
 

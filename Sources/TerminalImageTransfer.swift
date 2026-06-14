@@ -1,6 +1,7 @@
 import Foundation
 import CmuxTerminalServices
 import AppKit
+import CmuxRemoteSession
 import UniformTypeIdentifiers
 import CmuxTerminal
 
@@ -79,6 +80,16 @@ enum PasteboardFileURLReader {
 
 enum TerminalImageTransferExecutionError: Error {
     case cancelled
+}
+
+// The app-side conformer of the session coordinator's transfer-cancellation
+// seam; the operation already provided every member by contract, the
+// extension only names the cancellation error the legacy controller threw
+// directly.
+extension TerminalImageTransferOperation: RemoteTransferCancelling {
+    var cancellationError: any Error {
+        TerminalImageTransferExecutionError.cancelled
+    }
 }
 
 final class TerminalImageTransferOperation: @unchecked Sendable {

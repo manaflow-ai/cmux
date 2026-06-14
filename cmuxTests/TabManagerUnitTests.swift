@@ -1,4 +1,5 @@
 import XCTest
+import CmuxCore
 import AppKit
 import SwiftUI
 import UniformTypeIdentifiers
@@ -7,6 +8,7 @@ import ObjectiveC.runtime
 import Bonsplit
 import UserNotifications
 import CmuxGit
+import CmuxSidebarGit
 import CmuxTerminal
 
 #if canImport(cmux_DEV)

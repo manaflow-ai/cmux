@@ -1,6 +1,7 @@
 import Foundation
 import CmuxTerminal
 import CmuxFoundation
+import CmuxPanes
 import CmuxTerminalCore
 import CmuxTerminalEngine
 import CmuxTerminalServices
@@ -4036,12 +4037,6 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         addSubview(keyboardCopyModeCursorOverlayView, positioned: .above, relativeTo: nil)
     }
 
-    private func effectiveBackgroundColor() -> NSColor {
-        let base = backgroundColor ?? GhosttyApp.shared.defaultBackgroundColor
-        let opacity = GhosttyApp.shared.defaultBackgroundOpacity
-        return base.withAlphaComponent(opacity)
-    }
-
     func applySurfaceBackground() {
         let renderingMode = WindowAppearanceSnapshot.terminalRenderingMode(
             usesHostLayerBackground: GhosttyApp.shared.usesHostLayerBackground
@@ -4122,22 +4117,19 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             return
         }
         applySurfaceBackground()
-        let color = effectiveBackgroundColor()
-        let snapshot = WindowAppearanceSnapshot
+        let windowRoot = WindowAppearanceSnapshot
             .currentFromUserDefaults(app: GhosttyApp.shared)
-            .replacingTerminalBackgroundColor(backgroundColor ?? GhosttyApp.shared.defaultBackgroundColor)
-        let plan = snapshot.backdropPlan()
+            .windowRootBackdropResolution(surfaceBackgroundColor: backgroundColor)
+        let plan = windowRoot.snapshot.backdropPlan()
+        let color = windowRoot.snapshot.compositedTerminalBackgroundColor
         _ = WindowBackdropController.apply(plan: plan, to: window)
         if GhosttyApp.shared.backgroundLogEnabled {
             let signature = "\(plan.hostingPhase.rawValue):\(color.hexString()):\(String(format: "%.3f", color.alphaComponent)):\(GhosttyApp.shared.defaultBackgroundBlur)"
             if signature != lastLoggedWindowBackgroundSignature {
                 lastLoggedWindowBackgroundSignature = signature
-                let hasOverride = backgroundColor != nil
-                let overrideHex = backgroundColor?.hexString() ?? "nil"
                 let defaultHex = GhosttyApp.shared.defaultBackgroundColor.hexString()
-                let source = hasOverride ? "surfaceOverride" : "defaultBackground"
                 GhosttyApp.shared.logBackground(
-                    "window background applied tab=\(tabId?.uuidString ?? "unknown") surface=\(terminalSurface?.id.uuidString ?? "unknown") source=\(source) override=\(overrideHex) default=\(defaultHex) phase=\(plan.hostingPhase.rawValue) transparent=\(plan.usesTransparentWindow) color=\(color.hexString()) opacity=\(String(format: "%.3f", color.alphaComponent)) blur=\(GhosttyApp.shared.defaultBackgroundBlur)"
+                    "window background applied tab=\(tabId?.uuidString ?? "unknown") surface=\(terminalSurface?.id.uuidString ?? "unknown") source=\(windowRoot.source) override=\(windowRoot.overrideHex) default=\(defaultHex) phase=\(plan.hostingPhase.rawValue) transparent=\(plan.usesTransparentWindow) color=\(color.hexString()) opacity=\(String(format: "%.3f", color.alphaComponent)) blur=\(GhosttyApp.shared.defaultBackgroundBlur)"
                 )
             }
         }
@@ -5748,27 +5740,10 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
 
         // Translate mods to respect Ghostty config (e.g., macos-option-as-alt)
         let translationModsGhostty = ghostty_surface_key_translation_mods(surface, modsFromEvent(event))
-        var translationMods = event.modifierFlags
-        for flag in [NSEvent.ModifierFlags.shift, .control, .option, .command] {
-            let hasFlag: Bool
-            switch flag {
-            case .shift:
-                hasFlag = (translationModsGhostty.rawValue & GHOSTTY_MODS_SHIFT.rawValue) != 0
-            case .control:
-                hasFlag = (translationModsGhostty.rawValue & GHOSTTY_MODS_CTRL.rawValue) != 0
-            case .option:
-                hasFlag = (translationModsGhostty.rawValue & GHOSTTY_MODS_ALT.rawValue) != 0
-            case .command:
-                hasFlag = (translationModsGhostty.rawValue & GHOSTTY_MODS_SUPER.rawValue) != 0
-            default:
-                hasFlag = translationMods.contains(flag)
-            }
-            if hasFlag {
-                translationMods.insert(flag)
-            } else {
-                translationMods.remove(flag)
-            }
-        }
+        let translationMods = cmuxTranslationModifierFlags(
+            original: event.modifierFlags,
+            ghosttyTranslationMods: translationModsGhostty
+        )
 
         let translationEvent: NSEvent
         if translationMods == event.modifierFlags {
@@ -6185,7 +6160,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             }
         }
 #endif
-        return modsFromFlags(effectiveFlags)
+        return mouseModsFromFlags(effectiveFlags)
     }
 
     private func modsFromEvent(_ event: NSEvent) -> ghostty_input_mods_e {
@@ -6193,12 +6168,15 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     }
 
     private func modsFromFlags(_ flags: NSEvent.ModifierFlags) -> ghostty_input_mods_e {
-        var mods = GHOSTTY_MODS_NONE.rawValue
-        if flags.contains(.shift) { mods |= GHOSTTY_MODS_SHIFT.rawValue }
-        if flags.contains(.control) { mods |= GHOSTTY_MODS_CTRL.rawValue }
-        if flags.contains(.option) { mods |= GHOSTTY_MODS_ALT.rawValue }
-        if flags.contains(.command) { mods |= GHOSTTY_MODS_SUPER.rawValue }
-        return ghostty_input_mods_e(rawValue: mods)
+        cmuxGhosttyModsFromFlags(modifierFlagsRawValue: flags.rawValue)
+    }
+
+    private func mouseModsFromEvent(_ event: NSEvent) -> ghostty_input_mods_e {
+        mouseModsFromFlags(event.modifierFlags)
+    }
+
+    private func mouseModsFromFlags(_ flags: NSEvent.ModifierFlags) -> ghostty_input_mods_e {
+        cmuxGhosttyMouseModsFromFlags(modifierFlagsRawValue: flags.rawValue)
     }
 
     /// Consumed mods are modifiers that were used for text translation.
@@ -6302,27 +6280,10 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
 
         // Translate mods to respect Ghostty config (e.g., macos-option-as-alt).
         let translationModsGhostty = ghostty_surface_key_translation_mods(surface, modsFromEvent(event))
-        var translationMods = event.modifierFlags
-        for flag in [NSEvent.ModifierFlags.shift, .control, .option, .command] {
-            let hasFlag: Bool
-            switch flag {
-            case .shift:
-                hasFlag = (translationModsGhostty.rawValue & GHOSTTY_MODS_SHIFT.rawValue) != 0
-            case .control:
-                hasFlag = (translationModsGhostty.rawValue & GHOSTTY_MODS_CTRL.rawValue) != 0
-            case .option:
-                hasFlag = (translationModsGhostty.rawValue & GHOSTTY_MODS_ALT.rawValue) != 0
-            case .command:
-                hasFlag = (translationModsGhostty.rawValue & GHOSTTY_MODS_SUPER.rawValue) != 0
-            default:
-                hasFlag = translationMods.contains(flag)
-            }
-            if hasFlag {
-                translationMods.insert(flag)
-            } else {
-                translationMods.remove(flag)
-            }
-        }
+        let translationMods = cmuxTranslationModifierFlags(
+            original: event.modifierFlags,
+            ghosttyTranslationMods: translationModsGhostty
+        )
 
         keyEvent.consumed_mods = consumedModsFromFlags(translationMods)
         keyEvent.text = nil
@@ -6453,9 +6414,9 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         // Only update mouse position on the first click to prevent unwanted cursor
         // movement during double-click selection (issue #1698)
         if event.clickCount == 1 {
-            ghostty_surface_mouse_pos(surface, eventPoint.x, bounds.height - eventPoint.y, modsFromEvent(event))
+            ghostty_surface_mouse_pos(surface, eventPoint.x, bounds.height - eventPoint.y, mouseModsFromEvent(event))
         }
-        _ = ghostty_surface_mouse_button(surface, GHOSTTY_MOUSE_PRESS, GHOSTTY_MOUSE_LEFT, modsFromEvent(event))
+        _ = ghostty_surface_mouse_button(surface, GHOSTTY_MOUSE_PRESS, GHOSTTY_MOUSE_LEFT, mouseModsFromEvent(event))
         hasPendingLeftMouseRelease = true
     }
 
@@ -6471,7 +6432,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         guard hasPendingLeftMouseRelease, let surface else { return false }
         let eventPoint = convert(event.locationInWindow, from: nil)
         trackMousePointIfUsable(eventPoint)
-        ghostty_surface_mouse_pos(surface, eventPoint.x, bounds.height - eventPoint.y, modsFromEvent(event))
+        ghostty_surface_mouse_pos(surface, eventPoint.x, bounds.height - eventPoint.y, mouseModsFromEvent(event))
         return true
     }
 
@@ -6481,7 +6442,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         hasPendingLeftMouseRelease = false
         guard let surface else { return false }
         let point = convert(event.locationInWindow, from: nil)
-        let consumed = ghostty_surface_mouse_button(surface, GHOSTTY_MOUSE_RELEASE, GHOSTTY_MOUSE_LEFT, modsFromEvent(event))
+        let consumed = ghostty_surface_mouse_button(surface, GHOSTTY_MOUSE_RELEASE, GHOSTTY_MOUSE_LEFT, mouseModsFromEvent(event))
         _ = handleCommandClickRelease(at: point, modifierFlags: event.modifierFlags, ghosttyConsumed: consumed)
         return true
     }
@@ -6839,7 +6800,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
                 surface,
                 resolvedPoint.x,
                 bounds.height - resolvedPoint.y,
-                modsFromFlags(modifierFlags)
+                mouseModsFromFlags(modifierFlags)
             )
         }
 
@@ -7037,7 +6998,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
 
         let clampedPoint = clampedDebugPoint(point)
         let flags: NSEvent.ModifierFlags = [.command]
-        let mods = modsFromFlags(flags)
+        let mods = mouseModsFromFlags(flags)
 
         window?.makeFirstResponder(self)
         ghostty_surface_mouse_pos(surface, clampedPoint.x, bounds.height - clampedPoint.y, mods)
@@ -7069,7 +7030,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         let clampedPoint = clampedDebugPoint(point)
         let noMods = GHOSTTY_MODS_NONE
         let flags: NSEvent.ModifierFlags = [.command]
-        let commandMods = modsFromFlags(flags)
+        let commandMods = mouseModsFromFlags(flags)
 
         // Drive the production flagsChanged override for the Cmd press and
         // release so the regression covers the real modifier-transition path:
@@ -7128,8 +7089,8 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         requestPointerFocusRecovery()
         window?.makeFirstResponder(self)
         let point = convert(event.locationInWindow, from: nil)
-        ghostty_surface_mouse_pos(surface, point.x, bounds.height - point.y, modsFromEvent(event))
-        _ = ghostty_surface_mouse_button(surface, GHOSTTY_MOUSE_PRESS, GHOSTTY_MOUSE_RIGHT, modsFromEvent(event))
+        ghostty_surface_mouse_pos(surface, point.x, bounds.height - point.y, mouseModsFromEvent(event))
+        _ = ghostty_surface_mouse_button(surface, GHOSTTY_MOUSE_PRESS, GHOSTTY_MOUSE_RIGHT, mouseModsFromEvent(event))
     }
 
     override func rightMouseUp(with event: NSEvent) {
@@ -7139,7 +7100,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             return
         }
 
-        _ = ghostty_surface_mouse_button(surface, GHOSTTY_MOUSE_RELEASE, GHOSTTY_MOUSE_RIGHT, modsFromEvent(event))
+        _ = ghostty_surface_mouse_button(surface, GHOSTTY_MOUSE_RELEASE, GHOSTTY_MOUSE_RIGHT, mouseModsFromEvent(event))
     }
 
     override func otherMouseDown(with event: NSEvent) {
@@ -7151,8 +7112,8 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         window?.makeFirstResponder(self)
         guard let surface = surface else { return }
         let point = convert(event.locationInWindow, from: nil)
-        ghostty_surface_mouse_pos(surface, point.x, bounds.height - point.y, modsFromEvent(event))
-        _ = ghostty_surface_mouse_button(surface, GHOSTTY_MOUSE_PRESS, GHOSTTY_MOUSE_MIDDLE, modsFromEvent(event))
+        ghostty_surface_mouse_pos(surface, point.x, bounds.height - point.y, mouseModsFromEvent(event))
+        _ = ghostty_surface_mouse_button(surface, GHOSTTY_MOUSE_PRESS, GHOSTTY_MOUSE_MIDDLE, mouseModsFromEvent(event))
     }
 
     override func otherMouseUp(with event: NSEvent) {
@@ -7161,7 +7122,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             return
         }
         guard let surface = surface else { return }
-        _ = ghostty_surface_mouse_button(surface, GHOSTTY_MOUSE_RELEASE, GHOSTTY_MOUSE_MIDDLE, modsFromEvent(event))
+        _ = ghostty_surface_mouse_button(surface, GHOSTTY_MOUSE_RELEASE, GHOSTTY_MOUSE_MIDDLE, mouseModsFromEvent(event))
     }
 
     override func menu(for event: NSEvent) -> NSMenu? {
@@ -7172,8 +7133,8 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
 
         window?.makeFirstResponder(self)
         let point = convert(event.locationInWindow, from: nil)
-        ghostty_surface_mouse_pos(surface, point.x, bounds.height - point.y, modsFromEvent(event))
-        _ = ghostty_surface_mouse_button(surface, GHOSTTY_MOUSE_PRESS, GHOSTTY_MOUSE_RIGHT, modsFromEvent(event))
+        ghostty_surface_mouse_pos(surface, point.x, bounds.height - point.y, mouseModsFromEvent(event))
+        _ = ghostty_surface_mouse_button(surface, GHOSTTY_MOUSE_PRESS, GHOSTTY_MOUSE_RIGHT, mouseModsFromEvent(event))
 
         let menu = NSMenu()
         if onTriggerFlash != nil {
@@ -7361,7 +7322,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         if NSEvent.pressedMouseButtons != 0 {
             return
         }
-        ghostty_surface_mouse_pos(surface, -1, -1, modsFromEvent(event))
+        ghostty_surface_mouse_pos(surface, -1, -1, mouseModsFromEvent(event))
     }
 
     override func mouseDragged(with event: NSEvent) {
@@ -7371,7 +7332,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         // Forward the raw drag coordinates, including out-of-bounds positions.
         // Selection auto-scroll depends on libghostty observing the pointer leave
         // the viewport rather than a cached in-bounds hover point.
-        ghostty_surface_mouse_pos(surface, eventPoint.x, bounds.height - eventPoint.y, modsFromEvent(event))
+        ghostty_surface_mouse_pos(surface, eventPoint.x, bounds.height - eventPoint.y, mouseModsFromEvent(event))
     }
 
 #if DEBUG

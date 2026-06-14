@@ -2,6 +2,7 @@ import AppKit
 import CmuxFoundation
 import Foundation
 import SwiftUI
+import CmuxSettings
 
 enum SidebarMatchTerminalBackgroundSettings {
     static let userDefaultsKey = "sidebarMatchTerminalBackground"
@@ -256,7 +257,7 @@ struct SidebarWorkspaceRowBackgroundStyle {
 }
 
 func sidebarWorkspaceRowExplicitRailNSColor(
-    activeTabIndicatorStyle: SidebarActiveTabIndicatorStyle,
+    activeTabIndicatorStyle: WorkspaceIndicatorStyle,
     customColorHex: String?,
     colorScheme: ColorScheme
 ) -> NSColor? {
@@ -272,7 +273,7 @@ func sidebarWorkspaceRowExplicitRailNSColor(
 }
 
 func sidebarWorkspaceRowBackgroundStyle(
-    activeTabIndicatorStyle: SidebarActiveTabIndicatorStyle,
+    activeTabIndicatorStyle: WorkspaceIndicatorStyle,
     isActive: Bool,
     isMultiSelected: Bool,
     customColorHex: String?,
