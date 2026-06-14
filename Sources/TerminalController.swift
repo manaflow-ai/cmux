@@ -13958,11 +13958,12 @@ class TerminalController {
         }
         // Persistent per-workspace environment (issue #5995): applied to the initial
         // shell AND every later pane/surface/split, and round-tripped through session
-        // restore. Accept `workspace_env` (preferred) or `env` (layout-JSON spelling).
+        // restore. Socket callers must use `workspace_env`; bare `env` remains
+        // layout/config spelling elsewhere and is not silently reinterpreted here.
         // Unlike `initial_env`, this is NOT gated on the presence of a layout — the
         // workspace set must apply to layout-defined surfaces too.
         let workspaceEnv = Workspace.sanitizedWorkspaceEnvironment(
-            v2StringMap(params, "workspace_env") ?? v2StringMap(params, "env") ?? [:]
+            v2StringMap(params, "workspace_env") ?? [:]
         )
         let cwd: String?
         if let workingDirectory {

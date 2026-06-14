@@ -230,7 +230,7 @@ Setting them:
   value from a file.
 - Project config (`cmux.json`): an `env` object on a workspace definition, e.g.
   `{ "name": "Build", "cwd": ".", "env": { "AWS_PROFILE": "prod" } }`.
-- Socket: the `workspace_env` (alias `env`) param on `workspace.create`.
+- Socket: the `workspace_env` param on `workspace.create`.
 
 Inspecting them: `cmux workspace env [<handle>] [--mask] [--json]` prints the
 configured set. `--mask` redacts the values so secrets are not echoed in full.
