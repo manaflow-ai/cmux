@@ -169,6 +169,9 @@ extension TerminalSurface {
 #if DEBUG
         let startedAt = ProcessInfo.processInfo.systemUptime
 #endif
+        // Socket reads need a same-turn surface; the ordinary shim path may
+        // defer creation until its detached installer completes.
+        prepareClaudeCommandShimForImmediateSurfaceCreation()
         startRuntimeUsingHeadlessWindowIfNeeded(reason: reason)
         let liveSurface = liveSurfaceForGhosttyAccess(reason: reason)
 #if DEBUG
@@ -180,6 +183,26 @@ extension TerminalSurface {
         )
 #endif
         return liveSurface
+    }
+
+    @MainActor
+    private func prepareClaudeCommandShimForImmediateSurfaceCreation() {
+        guard !claudeCommandShimInstallCompleted else { return }
+        guard let wrapperURL = Bundle.main.resourceURL?.appendingPathComponent("bin/cmux-claude-wrapper") else {
+            claudeCommandShimInstallCompleted = true
+            return
+        }
+
+        let shim = Self.installClaudeCommandShimIfPossible(
+            wrapperURL: wrapperURL,
+            surfaceId: id,
+            temporaryDirectory: FileManager.default.temporaryDirectory,
+            fileManager: .default
+        )
+        claudeCommandShimInstallTask?.cancel()
+        claudeCommandShimInstallTask = nil
+        claudeCommandShim = shim
+        claudeCommandShimInstallCompleted = true
     }
 
     func recordTeardownRequest(reason: String) {
