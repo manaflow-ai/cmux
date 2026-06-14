@@ -97,18 +97,26 @@ paths = [
 # hardcoded secrets. Each is scoped to the exact file AND value, so a real
 # secret added to the same file is still caught.
 # ---------------------------------------------------------------------------
-# Both the dev and prod publishable keys appear in BOTH files (AuthConfig.swift
-# and AuthEnvironment.swift each define dev + prod), so this AND block covers all
-# four (file x key) occurrences by design. A real, *non-publishable* secret added
-# to either file still fails, because it won't match these exact public values.
+# The dev and prod publishable keys both appear in each auth file, so each block
+# is scoped to a single file AND its two known-public values. Splitting per file
+# (rather than one block over both files) keeps the suppressed set to exactly the
+# real occurrences — no cross-file combinations. A real, *non-publishable* secret
+# added to either file still fails, because it won't match these exact values.
 [[allowlists]]
-description = "Stack Auth publishable client keys (public by design)"
+description = "Stack Auth publishable client keys in AuthConfig.swift (public by design)"
 condition = "AND"
 regexTarget = "line"
-paths = [
-  '''Packages/CmuxAuthRuntime/Sources/CmuxAuthRuntime/Coordinator/AuthConfig\.swift''',
-  '''Sources/Auth/AuthEnvironment\.swift''',
+paths = ['''Packages/CmuxAuthRuntime/Sources/CmuxAuthRuntime/Coordinator/AuthConfig\.swift''']
+regexes = [
+  '''pck_xb63160bwe9699vtxfzfj6emmxpafg5mkjrtp6ehzxv5g''',
+  '''pck_kzj80gx4mh2jrzn1cx6y5e8jk0kwa01vkevh2p9zd4twr''',
 ]
+
+[[allowlists]]
+description = "Stack Auth publishable client keys in AuthEnvironment.swift (public by design)"
+condition = "AND"
+regexTarget = "line"
+paths = ['''Sources/Auth/AuthEnvironment\.swift''']
 regexes = [
   '''pck_xb63160bwe9699vtxfzfj6emmxpafg5mkjrtp6ehzxv5g''',
   '''pck_kzj80gx4mh2jrzn1cx6y5e8jk0kwa01vkevh2p9zd4twr''',
