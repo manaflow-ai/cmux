@@ -40,6 +40,7 @@ public final class RemoteDaemonRPCClient: @unchecked Sendable {
     static let maxStdoutBufferBytes = 256 * 1024
     static let bakedVMDaemonSocketPath = "/run/cmuxd-remote.sock"
     static let socketForwardStartupGracePeriod: TimeInterval = 0.75
+    static let webSocketKeepaliveInterval: TimeInterval = 5.0
     /// Wire capability required for push-based proxy streaming
     /// (`proxy.stream.push`; value is test-pinned, do not change).
     public static let requiredProxyStreamCapability = RemoteDaemonCapability.proxyStreamPush.rawValue
@@ -89,6 +90,9 @@ public final class RemoteDaemonRPCClient: @unchecked Sendable {
     var webSocketSession: URLSession?
     var webSocketTask: URLSessionWebSocketTask?
     var webSocketDelegate: RemoteDaemonWebSocketDelegate?
+    var webSocketKeepaliveTimer: DispatchSourceTimer?
+    var webSocketKeepaliveTimeoutWorkItem: DispatchWorkItem?
+    var webSocketKeepaliveInFlight = false
     var isClosed = true
     var shouldReportTermination = true
 
@@ -226,6 +230,7 @@ public final class RemoteDaemonRPCClient: @unchecked Sendable {
             let capturedWebSocketTask = webSocketTask
             let capturedWebSocketSession = webSocketSession
 
+            stopWebSocketKeepaliveLocked()
             process = nil
             stdinPipe = nil
             stdoutPipe = nil
