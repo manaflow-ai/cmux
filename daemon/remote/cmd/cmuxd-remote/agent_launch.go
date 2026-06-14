@@ -132,6 +132,42 @@ func runOMORelay(socketPath string, args []string, refreshAddr func() string) in
 	return 1
 }
 
+// runOMPRelay implements `cmux omp` on the remote side.
+func runOMPRelay(socketPath string, args []string, refreshAddr func() string) int {
+	rc := &rpcContext{socketPath: socketPath, refreshAddr: refreshAddr}
+
+	shimDir, err := createTmuxShimDir("omp-bin", ompShimScript)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "cmux omp: failed to create shim directory: %v\n", err)
+		return 1
+	}
+
+	originalPath := os.Getenv("PATH")
+	ompPath := findExecutableInPath("omp", originalPath, shimDir)
+	if ompPath == "" {
+		fmt.Fprintf(os.Stderr, "cmux omp: omp not found in PATH\n"+
+			"Install it first:\n  npm install -g oh-my-pi\n")
+		return 1
+	}
+
+	focused := getFocusedContext(rc)
+
+	configureAgentEnvironment(agentConfig{
+		shimDir:        shimDir,
+		socketPath:     socketPath,
+		focused:        focused,
+		tmuxPathPrefix: "cmux-omp",
+		cmuxBinEnvVar:  "CMUX_OMP_CMUX_BIN",
+		termEnvVar:     "CMUX_OMP_TERM",
+		extraEnv:       map[string]string{},
+	})
+
+	launchPath, launchArgv := resolveNodeScriptExec(ompPath, args, originalPath, shimDir)
+	execErr := syscall.Exec(launchPath, launchArgv, os.Environ())
+	fmt.Fprintf(os.Stderr, "cmux omp: exec failed: %v\n", execErr)
+	return 1
+}
+
 // runOMXRelay implements `cmux omx` on the remote side.
 func runOMXRelay(socketPath string, args []string, refreshAddr func() string) int {
 	rc := &rpcContext{socketPath: socketPath, refreshAddr: refreshAddr}
@@ -226,6 +262,14 @@ case "${1:-}" in
   -V|-v) echo "tmux 3.4"; exit 0 ;;
 esac
 exec "${CMUX_OMO_CMUX_BIN:-cmux}" __tmux-compat "$@"
+`
+
+const ompShimScript = `#!/usr/bin/env bash
+set -euo pipefail
+case "${1:-}" in
+  -V|-v) echo "tmux 3.4"; exit 0 ;;
+esac
+exec "${CMUX_OMP_CMUX_BIN:-cmux}" __tmux-compat "$@"
 `
 
 const omxShimScript = `#!/usr/bin/env bash

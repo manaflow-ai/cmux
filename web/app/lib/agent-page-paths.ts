@@ -77,6 +77,18 @@ export const agentReadablePages = [
     title: "oh-my-opencode",
   },
   {
+    path: "/docs/agent-integrations/oh-my-pi",
+    title: "oh-my-pi",
+  },
+  {
+    path: "/docs/agent-integrations/oh-my-codex",
+    title: "oh-my-pi",
+  },
+  {
+    path: "/docs/agent-integrations/oh-my-pi",
+    title: "oh-my-pi",
+  },
+  {
     path: "/docs/agent-integrations/oh-my-codex",
     title: "oh-my-codex",
   },

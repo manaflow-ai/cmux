@@ -1536,7 +1536,13 @@
       "envSocket": "Path to the cmux control socket for the shim to connect to"
     },
     "ohMyCodex": {
+      "title": "oh-my-pi"
+    },
+    "oh-my-codex": {
       "title": "oh-my-codex",
+      "metaTitle": "oh-my-pi - cmux"
+    },
+    "oh-my-codex": {
       "metaTitle": "oh-my-codex - cmux",
       "metaDescription": "Run Oh My Codex (OMX) inside cmux with native split pane integration for team mode and agent orchestration.",
       "intro": "cmux omx launches Oh My Codex (OMX) in a cmux-aware environment. OMX is a multi-agent orchestration layer for OpenAI Codex CLI with 30+ specialized agent roles, workflow skills, and tmux-based parallel team execution. When OMX spawns team panes or HUD displays, they become native cmux splits.",
@@ -1618,6 +1624,7 @@
       "agentIntegrations": "Agent Integrations",
       "claudeCodeTeams": "Claude Code Teams",
       "ohMyOpenCode": "oh-my-opencode",
+      "ohMyPi": "oh-my-pi",
       "ohMyCodex": "oh-my-codex",
       "ohMyClaudeCode": "oh-my-claudecode",
       "changelog": "Changelog",

@@ -1429,7 +1429,13 @@
       "envSocket": "shimが接続するcmuxコントロールソケットのパス"
     },
     "ohMyCodex": {
+      "title": "oh-my-pi"
+    },
+    "oh-my-codex": {
       "title": "oh-my-codex",
+      "metaTitle": "oh-my-pi - cmux"
+    },
+    "oh-my-codex": {
       "metaTitle": "oh-my-codex - cmux",
       "metaDescription": "cmux内でOh My Codex (OMX)を実行。チームモードとエージェントオーケストレーションのネイティブスプリットペイン連携。",
       "intro": "cmux omxはOh My Codex (OMX)をcmux対応環境で起動します。OMXは30以上の専門エージェントロール、ワークフロースキル、tmuxベースの並列チーム実行を持つOpenAI Codex CLIのマルチエージェントオーケストレーションレイヤーです。チームペインやHUDはネイティブのcmuxスプリットになります。",
@@ -1510,6 +1516,7 @@
       "agentIntegrations": "エージェント連携",
       "claudeCodeTeams": "Claude Code Teams",
       "ohMyOpenCode": "oh-my-opencode",
+      "ohMyPi": "oh-my-pi",
       "ohMyCodex": "oh-my-codex",
       "ohMyClaudeCode": "oh-my-claudecode",
       "changelog": "変更履歴",
