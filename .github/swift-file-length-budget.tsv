@@ -45,7 +45,7 @@
 2252	Sources/TerminalWindowPortal.swift
 2236	Sources/TerminalNotificationStore.swift
 2117	cmuxTests/CmuxConfigTests.swift
-2109	cmuxTests/ShortcutAndCommandPaletteTests.swift
+2100	cmuxTests/ShortcutAndCommandPaletteTests.swift
 2059	Sources/SessionPersistence.swift
 2039	Sources/KeyboardShortcutSettingsFileStore.swift
 1949	Sources/Panels/BrowserWebAuthnSupport.swift

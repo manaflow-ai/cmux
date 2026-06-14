@@ -22,8 +22,8 @@ public enum ShortcutHintDebugSettings {
     /// Raw `UserDefaults` key backing the user-facing
     /// `shortcuts.showModifierHoldHints` toggle. `CmuxFoundation` is a leaf
     /// module and cannot import `CmuxSettings`, so the key is duplicated here;
-    /// `ShortcutHintModifierPolicyTests.testShortcutHintDebugSettingsKeyMatchesSettingCatalog`
-    /// asserts it stays in sync with `SettingCatalog().shortcuts.showModifierHoldHints`.
+    /// `ShortcutHintDebugSettingsBindingTests` asserts it stays in sync with
+    /// `SettingCatalog().shortcuts.showModifierHoldHints`.
     public static let showModifierHoldHintsKey = "showModifierHoldHints"
 
     /// Default applied for ``showModifierHoldHintsKey`` when the user has not

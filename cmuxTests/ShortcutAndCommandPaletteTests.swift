@@ -909,15 +909,6 @@ final class CommandPaletteSelectionScrollBehaviorTests: XCTestCase {
 
 
 final class ShortcutHintModifierPolicyTests: XCTestCase {
-    func testShortcutHintDebugSettingsKeyMatchesSettingCatalog() {
-        // CmuxFoundation cannot import CmuxSettings, so ShortcutHintDebugSettings
-        // hardcodes the showModifierHoldHints UserDefaults key and default. Guard
-        // that the duplicated values stay in sync with the canonical catalog.
-        let catalogKey = SettingCatalog().shortcuts.showModifierHoldHints
-        XCTAssertEqual(ShortcutHintDebugSettings.showModifierHoldHintsKey, catalogKey.userDefaultsKey)
-        XCTAssertEqual(ShortcutHintDebugSettings.defaultShowModifierHoldHints, catalogKey.defaultValue)
-    }
-
     func testTitlebarShortcutHintActionSlotsIncludeFocusHistoryNavigation() {
         XCTAssertEqual(
             TitlebarShortcutHintActionSlot.allCases.map(\.action),
