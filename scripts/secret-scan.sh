@@ -23,6 +23,12 @@ PROJECT_DIR="$(dirname "$SCRIPT_DIR")"
 
 GITLEAKS_BIN="${CMUX_GITLEAKS_BIN:-gitleaks}"
 
+# Keep this in sync with .github/workflows/secret-scan.yml (GITLEAKS_VERSION).
+# gitleaks' default rule set (loaded via `[extend] useDefault = true`) and
+# allowlist semantics evolve across releases, so a local run on a different
+# version can diverge from CI. We only warn (not fail) so local scans stay easy.
+EXPECTED_GITLEAKS_VERSION="8.30.1"
+
 if ! command -v "$GITLEAKS_BIN" >/dev/null 2>&1; then
   echo "error: '$GITLEAKS_BIN' not found." >&2
   echo "Install it with: brew install gitleaks" >&2
@@ -32,7 +38,13 @@ fi
 
 cd "$PROJECT_DIR"
 
-echo "==> Scanning working tree with $("$GITLEAKS_BIN" version 2>/dev/null || echo gitleaks) ..."
+gitleaks_version="$("$GITLEAKS_BIN" version 2>/dev/null | tr -d '[:space:]')"
+echo "==> Scanning working tree with gitleaks ${gitleaks_version:-(unknown version)} ..."
+if [ -n "$gitleaks_version" ] && [ "$gitleaks_version" != "$EXPECTED_GITLEAKS_VERSION" ]; then
+  echo "warning: local gitleaks $gitleaks_version differs from the version CI pins" \
+       "($EXPECTED_GITLEAKS_VERSION); results may differ from CI." >&2
+  echo "         See docs/secret-scanning.md." >&2
+fi
 
 # `dir` scans the on-disk files (honouring .gitignore) rather than full git
 # history, so it reflects what is currently checked in. --redact keeps any

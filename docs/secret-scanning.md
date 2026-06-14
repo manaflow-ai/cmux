@@ -15,6 +15,13 @@ brew install gitleaks        # one-time
 The script scans the working tree with the repo allowlist and exits non-zero if
 it finds anything. It prints findings with the secret value redacted.
 
+CI pins gitleaks to **8.30.1** (see
+[`.github/workflows/secret-scan.yml`](../.github/workflows/secret-scan.yml)), and
+the allowlist was validated against it. gitleaks' default rules can change
+between releases, so the script warns when your local `gitleaks` version differs
+— a brew install is fine for day-to-day use, but match the pinned version if a
+local result disagrees with CI.
+
 To run gitleaks directly (the script is a thin wrapper around this):
 
 ```bash
