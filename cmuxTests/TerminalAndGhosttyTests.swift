@@ -2,6 +2,7 @@ import XCTest
 import CmuxTerminalServices
 import Testing
 import CmuxControlSocket
+import CmuxFoundation
 import CmuxTerminalCore
 import CmuxTerminalCopyMode
 import CmuxSocketControl
@@ -13,6 +14,7 @@ import CMUXMobileCore
 import ObjectiveC.runtime
 import Bonsplit
 import UserNotifications
+import CmuxTerminal
 
 #if canImport(cmux_DEV)
 @testable import cmux_DEV

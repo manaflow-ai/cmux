@@ -1,5 +1,6 @@
 import AppKit
 import CmuxTerminalEngine
+import CmuxTerminal
 
 @MainActor
 final class MainWindowFocusController {

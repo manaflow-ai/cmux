@@ -1,5 +1,6 @@
 import AppKit
 import ObjectiveC
+import CmuxTerminal
 #if DEBUG
 import Bonsplit
 #endif
@@ -118,6 +119,8 @@ final class WindowTerminalHostView: NSView {
         performHitTest(at: point, currentEvent: NSApp.currentEvent)
     }
 
+    // Test seam: production calls read `NSApp.currentEvent`; tests pass a
+    // synthetic pointer event so the typing-latency guard doesn't gate them out.
     func performHitTest(at point: NSPoint, currentEvent: NSEvent?) -> NSView? {
         let routingContext = WindowInputRoutingContext(event: currentEvent)
         let eventType = routingContext.eventType
@@ -139,7 +142,6 @@ final class WindowTerminalHostView: NSView {
                 return nil
             }
 
-            // Compute divider hit once and reuse for both cursor update and pass-through.
             if let kind = splitDividerCursorKind(at: point) {
                 activeDividerCursorKind = kind
                 kind.cursor.set()

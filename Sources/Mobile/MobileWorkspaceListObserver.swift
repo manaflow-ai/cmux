@@ -167,7 +167,7 @@ final class MobileWorkspaceListObserver {
         // updates without changing the terminal set.
         for workspace in tabs where perWorkspaceCancellables[workspace.id] == nil {
             let publishers: [AnyPublisher<Void, Never>] = [
-                workspace.$panels.map { _ in () }.eraseToAnyPublisher(),
+                workspace.panelsPublisher.map { _ in () }.eraseToAnyPublisher(),
                 workspace.$panelTitles.map { _ in () }.eraseToAnyPublisher(),
                 // Renaming a terminal sets `panelCustomTitles` (not `panelTitles`),
                 // so without this a terminal rename never re-emits to the phone.
@@ -188,7 +188,7 @@ final class MobileWorkspaceListObserver {
                 // Pure drag-reorders change spatial order without changing the panel
                 // set; bonsplit selection state is not `@Published`, so this counter
                 // is the only signal the observer gets for a reorder.
-                workspace.$paneLayoutVersion.map { _ in () }.eraseToAnyPublisher(),
+                workspace.paneLayoutVersionPublisher.map { _ in () }.eraseToAnyPublisher(),
             ]
             let merged = Publishers.MergeMany(publishers)
                 .throttle(for: .milliseconds(throttleMilliseconds), scheduler: RunLoop.main, latest: true)
