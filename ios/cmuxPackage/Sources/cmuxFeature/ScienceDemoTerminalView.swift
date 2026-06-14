@@ -59,9 +59,10 @@ private struct ScienceDemoTerminalSurface: UIViewRepresentable {
             task = Task { @MainActor [weak self] in
                 guard let self, let surfaceView else { return }
                 await surfaceView.processOutputAndWait(Self.initialFrame)
-                for index in 1...24 {
+                await surfaceView.processOutputAndWait(Self.historyBlock(start: 1, count: 260))
+                for index in 261...320 {
                     guard !Task.isCancelled else { return }
-                    try? await Task.sleep(nanoseconds: 70_000_000)
+                    try? await Task.sleep(nanoseconds: 18_000_000)
                     await surfaceView.processOutputAndWait(Self.sampleLine(index))
                 }
                 await surfaceView.processOutputAndWait(Self.footer)
@@ -88,6 +89,15 @@ private struct ScienceDemoTerminalSurface: UIViewRepresentable {
             return Data(text.utf8)
         }
 
+        private static func historyBlock(start: Int, count: Int) -> Data {
+            var data = Data()
+            data.reserveCapacity(count * 96)
+            for index in start..<(start + count) {
+                data.append(sampleLine(index))
+            }
+            return data
+        }
+
         private static func sampleLine(_ index: Int) -> Data {
             let signal = ["render", "scroll", "input", "latency", "viewport"][index % 5]
             let paddedSignal = signal.padding(toLength: 11, withPad: " ", startingAt: 0)
@@ -105,7 +115,7 @@ private struct ScienceDemoTerminalSurface: UIViewRepresentable {
         }
 
         private static var footer: Data {
-            var text = "\r\n\u{1b}[38;5;118mready\u{1b}[0m  drag the terminal upward to exercise local smooth scrollback.\r\n"
+            var text = "\r\n\u{1b}[38;5;118mready\u{1b}[0m  320 lines loaded. Drag upward to exercise local scrollback.\r\n"
             text += "      This screen intentionally bypasses Google sign-in for the demo build.\r\n"
             return Data(text.utf8)
         }
