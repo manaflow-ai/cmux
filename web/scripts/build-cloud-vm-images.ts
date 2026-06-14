@@ -271,6 +271,7 @@ async function buildFreestyleSnapshot(
       imageId,
       envVar: "FREESTYLE_SANDBOX_SNAPSHOT",
       defaultForLocalDev: false,
+      ...cloudVmAttachSignedAuthManifestFields(),
       cmuxdRemoteCommit: metadata.cmuxdRemoteCommit,
       builtAt: metadata.builtAt,
       builderScriptVersion: metadata.builderScriptVersion,
@@ -497,12 +498,36 @@ function freestyleBaseDockerfileContent(daemonURL: string): string {
 }
 
 function cloudVmAttachSignedAuthFlag(): string {
-  const publicKey = process.env.CMUX_VM_ATTACH_VERIFY_PUBLIC_KEY?.trim();
+  const publicKey = cloudVmAttachSignedAuthPublicKey();
   if (!publicKey) return "";
+  return ` --auth-public-key ${publicKey} --auth-audience-file /etc/cmux/attach-audience`;
+}
+
+function cloudVmAttachSignedAuthManifestFields(): { features?: { signedWebSocketAuth: true } } {
+  return cloudVmAttachSignedAuthPublicKey()
+    ? { features: { signedWebSocketAuth: true } }
+    : {};
+}
+
+function cloudVmAttachSignedAuthPublicKey(): string | null {
+  const publicKey = process.env.CMUX_VM_ATTACH_VERIFY_PUBLIC_KEY?.trim();
+  if (!publicKey) return null;
   if (!/^[A-Za-z0-9+/=_-]+$/.test(publicKey)) {
     throw new Error("CMUX_VM_ATTACH_VERIFY_PUBLIC_KEY must be a base64/base64url Ed25519 public key");
   }
-  return ` --auth-public-key ${publicKey} --auth-audience-file /etc/cmux/attach-audience`;
+  const decoded = decodeSignedAuthPublicKey(publicKey);
+  if (decoded.length !== 32) {
+    throw new Error("CMUX_VM_ATTACH_VERIFY_PUBLIC_KEY must decode to a 32-byte Ed25519 public key");
+  }
+  return publicKey;
+}
+
+function decodeSignedAuthPublicKey(publicKey: string): Buffer {
+  try {
+    return Buffer.from(publicKey, "base64");
+  } catch {
+    return Buffer.from(publicKey, "base64url");
+  }
 }
 
 async function remoteDaemonBuildURL(tag: string, daemonPath: string): Promise<string> {
