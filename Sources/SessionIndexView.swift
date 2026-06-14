@@ -734,8 +734,11 @@ enum SessionRowDirectoryOpener {
         cwd: String?,
         open: @MainActor (URL?) async -> Void = { await WorkspaceFinderDirectoryOpener.openInFinder($0) }
     ) async {
-        guard let cwd, !cwd.isEmpty else { return }
-        NSWorkspace.shared.open(URL(fileURLWithPath: cwd))
+        guard let cwd, !cwd.isEmpty else {
+            await open(nil)
+            return
+        }
+        await open(URL(fileURLWithPath: cwd))
     }
 }
 
