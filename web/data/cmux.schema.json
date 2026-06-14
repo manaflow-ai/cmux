@@ -266,6 +266,12 @@
           "default": "automatic",
           "description": "Dock and app switcher icon style."
         },
+        "windowTitleTemplate": {
+          "type": "string",
+          "default": "",
+          "descriptionKey": "schemaDescriptions.app.windowTitleTemplate",
+          "description": "Optional NSWindow title template. Blank preserves cmux's existing default title behavior, including the current-directory fallback. Supported placeholders: {windowId}, {windowToken}, {activeWorkspace}, {activeDirectory}, {defaultTitle}, {appName}."
+        },
         "menuBarOnly": {
           "type": "boolean",
           "default": false,
@@ -1070,6 +1076,28 @@
           "default": 980,
           "description": "Default maximum reading column width, in CSS pixels, for newly opened markdown viewers.",
           "descriptionKey": "schemaDescriptions.markdown.maxWidth"
+        }
+      }
+    },
+    "canvas": {
+      "title": "canvas",
+      "description": "Freeform canvas workspace layout settings.",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "paneGap": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 64,
+          "default": 16,
+          "description": "Spacing between panes in the canvas layout, in points. Snapping, tidy, and new-pane placement all use this one gap.",
+          "descriptionKey": "schemaDescriptions.canvas.paneGap"
+        },
+        "snappingEnabled": {
+          "type": "boolean",
+          "default": true,
+          "description": "Snap pane drags and resizes to neighbor edges and the pane gap. Hold Command to suspend snapping for one gesture.",
+          "descriptionKey": "schemaDescriptions.canvas.snappingEnabled"
         }
       }
     },

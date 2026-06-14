@@ -764,6 +764,7 @@
         },
         "app": {
           "confirmQuit": "cmux'un çıkmadan önce ne zaman onay isteyeceğini denetler. DEV derlemeleri bu ayardan bağımsız olarak her zaman hemen çıkar. Eski app.warnBeforeQuit boolean yedeği olarak kabul edilmeye devam eder.",
+          "windowTitleTemplate": "İsteğe bağlı NSWindow başlık şablonu. Boş bırakılırsa geçerli dizin yedeği dahil cmux'un mevcut varsayılan başlık davranışı korunur. Desteklenen yer tutucular: '{windowId}', '{windowToken}', '{activeWorkspace}', '{activeDirectory}', '{defaultTitle}', '{appName}'.",
           "warnBeforeQuit": "Çıkış onayı için eski boolean yedeği. Yeni yapılandırmalar için app.confirmQuit kullanın.",
           "warnBeforeClosingTabXButton": "Sekme kapatma düğmesiyle bir sekme kapatılmadan önce onay göster.",
           "hideTabCloseButton": "Bölme sekme çubuğundaki sekme kapatma düğmelerini gizle.",
@@ -922,6 +923,8 @@
         "surfaces": "Yüzeyler",
         "surfacesBlurb": "Yüzeyler, bir panel içindeki sekmelerdir.",
         "splitPanes": "Bölünmüş Paneller",
+        "canvas": "Kanvas",
+        "canvasBlurb": "Bölmelerin sonsuz, kaydırılabilir bir kanvas üzerinde serbestçe durduğu 2B düzen modu. Hizalama ve dağıtma komutlarına komut paletinden erişilebilir.",
         "browser": "Tarayıcı",
         "notifications": "Bildirimler",
         "find": "Bul",
