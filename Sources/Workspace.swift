@@ -11356,6 +11356,10 @@ extension Workspace: BonsplitDelegate {
         )
 #endif
         applyTabSelection(tabId: tab.id, inPane: destination)
+        // Moving the last tab out of a pane can collapse that pane without a
+        // separate didClosePane callback, so sidebar pane-count badges need
+        // the same layout signal as explicit split/close operations.
+        publishSidebarLayoutChanged()
 #if DEBUG
         let movedPanelIdAfter = panelIdFromSurfaceId(tab.id)
 #endif

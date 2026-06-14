@@ -70,4 +70,38 @@ final class WorkspaceSidebarObservationTests: XCTestCase {
             "Expected non-visible remote heartbeat updates to avoid invalidating sidebar rows"
         )
     }
+
+    func testSidebarObservationPublisherEmitsWhenTabMoveCollapsesPane() throws {
+        let workspace = Workspace()
+        let leftPanelId = try XCTUnwrap(workspace.focusedPanelId)
+        let leftPaneId = try XCTUnwrap(workspace.paneId(forPanelId: leftPanelId))
+        let rightPanel = try XCTUnwrap(workspace.newTerminalSplit(from: leftPanelId, orientation: .horizontal, focus: false))
+        let rightPaneId = try XCTUnwrap(workspace.paneId(forPanelId: rightPanel.id))
+        let leftTabId = try XCTUnwrap(workspace.surfaceIdFromPanelId(leftPanelId))
+        let leftTab = try XCTUnwrap(workspace.bonsplitController.tab(leftTabId))
+
+        XCTAssertEqual(workspace.bonsplitController.allPaneIds.count, 2)
+
+        var publishCount = 0
+        let cancellable = workspace.sidebarObservationPublisher.sink {
+            publishCount += 1
+        }
+        defer { cancellable.cancel() }
+        publishCount = 0
+
+        workspace.splitTabBar(
+            workspace.bonsplitController,
+            didRequestTabContextAction: .moveToRightPane,
+            for: leftTab,
+            inPane: leftPaneId
+        )
+
+        XCTAssertEqual(workspace.paneId(forPanelId: leftPanelId), rightPaneId)
+        XCTAssertEqual(workspace.bonsplitController.allPaneIds.count, 1)
+        XCTAssertGreaterThan(
+            publishCount,
+            0,
+            "Moving the last tab out of a pane should refresh sidebar split-pane counts."
+        )
+    }
 }
