@@ -91,7 +91,7 @@ final class RendererRealizationController {
         // visibility: each TerminalSurface carries its own authoritative
         // on-screen flag (driven by setVisibleInUI, the same signal that drives
         // occlusion), so we never misclassify a visible surface as offscreen.
-        let surfaces = TerminalSurfaceRegistry.shared.allSurfaces()
+        let surfaces = GhosttyApp.terminalSurfaceRegistry.allTerminalSurfaces()
 
         // Keep currently-visible surfaces ranked at the top of the warm set, and
         // re-realize any that are visible but not realized. setVisibleInUI

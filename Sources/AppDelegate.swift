@@ -6,6 +6,9 @@ import CmuxCommandPaletteUI
 import CmuxPanes
 import CmuxControlSocket
 import CmuxIPCService
+import CmuxTerminalCore
+import CmuxTerminalEngine
+import CmuxTerminalServices
 import CmuxSettings
 import CmuxSettingsUI
 import CmuxSocketControl
@@ -998,6 +1001,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     override init() {
         super.init()
         Self.shared = self
+        // Inverts the surface registry's legacy AppDelegate.shared reach-up:
+        // the registry asks this delegate (via MainWindowRouteRetiring) to
+        // sweep recoverable main-window routes after a surface unregisters.
+        GhosttyApp.terminalSurfaceRegistry.attachRouteRetirer(self)
     }
 
     func application(_ application: NSApplication, open urls: [URL]) {
@@ -1750,7 +1757,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         CmuxSSHURLProcessLauncher.shared.terminateAll()
         MobileHostService.shared.stop()
         TerminalController.shared.stop()
-        GhosttyPasteboardHelper.cleanupAllOwnedTemporaryImageFiles()
+        GhosttyApp.terminalPasteboard.cleanupAllOwnedTemporaryImageFiles()
         VSCodeServeWebController.shared.stop()
         BrowserProfileStore.shared.flushPendingSaves()
         if TelemetrySettings.enabledForCurrentLaunch {
@@ -6428,7 +6435,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
               let panelId = ghosttyView.terminalSurface?.id else {
             return false
         }
-        return TerminalSurfaceRegistry.shared.isRightSidebarDockSurface(id: panelId)
+        return GhosttyApp.terminalSurfaceRegistry.isRightSidebarDockSurface(id: panelId)
     }
 
     func allowsTerminalKeyboardFocus(
@@ -6455,7 +6462,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
               let panelId = ghosttyView.terminalSurface?.id else {
             return nil
         }
-        if TerminalSurfaceRegistry.shared.isRightSidebarDockSurface(id: panelId) {
+        if GhosttyApp.terminalSurfaceRegistry.isRightSidebarDockSurface(id: panelId) {
             return nil
         }
         return TerminalKeyboardFocusRequest(
@@ -17070,21 +17077,9 @@ private extension NSWindow {
         cmuxDebugLog("performKeyEquiv: \(Self.keyDescription(event)) fr=\(frType)")
 #endif
 
-        // When the terminal surface is the first responder, prevent SwiftUI's
-        // hosting view from consuming key events via performKeyEquivalent.
-        // After a browser panel (WKWebView) has been in the responder chain,
-        // SwiftUI's internal focus system can get into a broken state where it
-        // intercepts key events in the content view hierarchy, returns true
-        // (claiming consumption), but never actually fires the action closure.
-        //
-        // For non-Command keys: bypass the view hierarchy entirely and send
-        // directly to the terminal so arrow keys, Ctrl+N/P, etc. reach keyDown.
-        //
-        // For Command keys: bypass the SwiftUI content view hierarchy and
-        // dispatch directly to the main menu. No SwiftUI view should be handling
-        // Command shortcuts when the terminal is focused — the local event monitor
-        // (handleCustomShortcut) already handles app-level shortcuts, and anything
-        // remaining should be menu items.
+        // When a terminal owns first responder, bypass SwiftUI's hosting view:
+        // after browser focus churn it can claim key equivalents without firing.
+        // Non-Command keys go to Ghostty; Command keys go to the main menu.
         let firstResponderGhosttyView = cmuxOwningGhosttyView(for: self.firstResponder)
         let firstResponderWebView = self.firstResponder.flatMap {
             Self.cmuxOwningWebView(for: $0, in: self, event: event)
@@ -17168,6 +17163,18 @@ private extension NSWindow {
 
             let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
             if !flags.contains(.command) {
+                if shouldDispatchTerminalArrowViaFirstResponderKeyDown(
+                    keyCode: event.keyCode,
+                    firstResponderIsTerminal: true,
+                    firstResponderHasMarkedText: ghosttyView.hasMarkedText(),
+                    flags: event.modifierFlags
+                ) {
+                    if cmuxForceDispatchKeyDownOnce(event, to: ghosttyView, reason: "terminal arrow") {
+                        return true
+                    }
+                    return false
+                }
+
                 let result = ghosttyView.performKeyEquivalent(with: event)
 #if DEBUG
                 cmuxDebugLog("  → ghostty direct: \(result)")
