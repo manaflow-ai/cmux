@@ -16283,10 +16283,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
     private func openNotificationFallback(tabId: UUID, surfaceId: UUID?, notificationId: UUID?) -> Bool {
-        // Only use the legacy active-window fallback before any main-window
-        // context exists. Once contexts exist, opening through an unrelated key
-        // window can focus the wrong window while the notification target remains
-        // ownerless.
         guard let tabManager else {
 #if DEBUG
             if ProcessInfo.processInfo.environment["CMUX_UI_TEST_JUMP_UNREAD_SETUP"] == "1" {
@@ -16303,22 +16299,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 #endif
             return false
         }
-        guard mainWindowContexts.isEmpty else {
-#if DEBUG
-            recordMultiWindowNotificationOpenFailureIfNeeded(
-                tabId: tabId,
-                surfaceId: surfaceId,
-                notificationId: notificationId,
-                reason: "missing_context_with_registered_windows"
-            )
-            if ProcessInfo.processInfo.environment["CMUX_UI_TEST_JUMP_UNREAD_SETUP"] == "1" {
-                writeJumpUnreadTestData(["jumpUnreadFallbackFail": "missing_context_with_registered_windows"])
-            }
-#endif
-            return false
-        }
-        let keyMainWindow = NSApp.keyWindow.flatMap { isMainTerminalWindow($0) ? $0 : nil }
-        guard let window = keyMainWindow ?? NSApp.windows.first(where: { isMainTerminalWindow($0) }) else {
+        guard mainWindowContexts.isEmpty else { return false }
+        guard let window = NSApp.keyWindow.flatMap({ isMainTerminalWindow($0) ? $0 : nil }) ?? NSApp.windows.first(where: { isMainTerminalWindow($0) }) else {
 #if DEBUG
             if ProcessInfo.processInfo.environment["CMUX_UI_TEST_JUMP_UNREAD_SETUP"] == "1" {
                 writeJumpUnreadTestData(["jumpUnreadFallbackFail": "missing_window"])
