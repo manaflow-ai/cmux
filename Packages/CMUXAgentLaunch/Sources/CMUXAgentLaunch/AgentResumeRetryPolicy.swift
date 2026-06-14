@@ -1,16 +1,19 @@
 import Foundation
 
-/// Describes when an agent resume command should be retried after a transient failure.
+/// Describes when an agent resume command should be retried after a transient startup failure.
 ///
-/// The policy is intentionally narrow: callers opt in for known retryable agents, and the launcher
-/// retries only when the failed process output contains one of ``outputNeedles``. Non-matching
-/// failures still fall through to the post-agent shell without another attempt.
+/// The policy is intentionally narrow: callers opt in for known retryable agents, and shell
+/// launchers only retry failures that exit inside a short startup window. Callers that already have
+/// failed process output can use ``matches(output:)`` to check the same known retryable signatures.
 public struct AgentResumeRetryPolicy: Sendable, Equatable {
     /// The maximum number of retries after the first failed launch attempt.
     public let maximumRetries: Int
 
     /// The delay between retry attempts, before the per-process stagger is added.
     public let delaySeconds: Double
+
+    /// The startup window, in whole seconds, during which a failed shell launch may be retried.
+    public let startupFailureWindowSeconds: Int
 
     /// Case-insensitive output fragments that identify a retryable transient failure.
     public let outputNeedles: [String]
@@ -21,9 +24,17 @@ public struct AgentResumeRetryPolicy: Sendable, Equatable {
     ///   - maximumRetries: The maximum number of retries after the first failed launch attempt.
     ///   - delaySeconds: The delay between retry attempts.
     ///   - outputNeedles: Case-insensitive output fragments that identify retryable failures.
-    public init(maximumRetries: Int, delaySeconds: Double, outputNeedles: [String]) {
+    ///   - startupFailureWindowSeconds: The shell-launch startup window that allows retrying a
+    ///     failed attempt without recording an interactive transcript.
+    public init(
+        maximumRetries: Int,
+        delaySeconds: Double,
+        outputNeedles: [String],
+        startupFailureWindowSeconds: Int = 5
+    ) {
         self.maximumRetries = max(0, maximumRetries)
         self.delaySeconds = max(0, delaySeconds)
+        self.startupFailureWindowSeconds = max(0, startupFailureWindowSeconds)
         self.outputNeedles = outputNeedles
             .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
             .filter { !$0.isEmpty }
@@ -33,7 +44,8 @@ public struct AgentResumeRetryPolicy: Sendable, Equatable {
     public static let disabled = AgentResumeRetryPolicy(
         maximumRetries: 0,
         delaySeconds: 0,
-        outputNeedles: []
+        outputNeedles: [],
+        startupFailureWindowSeconds: 0
     )
 
     /// Retries Codex's transient shared-state SQLite lock failure.
@@ -43,7 +55,8 @@ public struct AgentResumeRetryPolicy: Sendable, Equatable {
         outputNeedles: [
             "database is locked",
             "another Codex process is using its local data",
-        ]
+        ],
+        startupFailureWindowSeconds: 5
     )
 
     /// Returns `true` when this policy can retry at least one failure.
@@ -74,30 +87,11 @@ public struct AgentResumeRetryPolicy: Sendable, Equatable {
         return outputNeedles.contains { lowercasedOutput.contains($0.lowercased()) }
     }
 
-    var shellGrepPattern: String {
-        outputNeedles
-            .filter { !$0.isEmpty }
-            .map(Self.extendedGrepEscaped)
-            .joined(separator: "|")
-    }
-
     private static func normalized(_ value: String?) -> String? {
         guard let trimmed = value?.trimmingCharacters(in: .whitespacesAndNewlines),
               !trimmed.isEmpty else {
             return nil
         }
         return trimmed.lowercased()
-    }
-
-    private static func extendedGrepEscaped(_ value: String) -> String {
-        let specialCharacters = #"[]\.^$*+?{}()|"#
-        var result = ""
-        for character in value {
-            if specialCharacters.contains(character) {
-                result.append("\\")
-            }
-            result.append(character)
-        }
-        return result
     }
 }
