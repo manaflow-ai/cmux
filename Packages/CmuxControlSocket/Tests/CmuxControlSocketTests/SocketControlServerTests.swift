@@ -14,35 +14,21 @@ private final class ServerEventRecorder: Sendable {
         let errnoCode: Int32?
     }
 
-    struct ClientEvent {
-        let socket: Int32
-        let peerPid: pid_t?
-    }
-
     private struct State {
         var breadcrumbs: [String] = []
         var failures: [FailureEvent] = []
         var started: [(path: String, generation: UInt64)] = []
         var recordedPaths: [String] = []
-        var clients: [ClientEvent] = []
         var pathMissing: [(path: String, generation: UInt64)] = []
         var rearms: [(generation: UInt64, errnoCode: Int32, consecutiveFailures: Int, delayMs: Int)] = []
     }
 
     private let state = OSAllocatedUnfairLock(initialState: State())
 
-    /// Closes accepted client sockets after recording unless disabled.
-    let closesAcceptedClients: Bool
-
-    init(closesAcceptedClients: Bool = true) {
-        self.closesAcceptedClients = closesAcceptedClients
-    }
-
     var breadcrumbs: [String] { state.withLock { $0.breadcrumbs } }
     var failures: [FailureEvent] { state.withLock { $0.failures } }
     var started: [(path: String, generation: UInt64)] { state.withLock { $0.started } }
     var recordedPaths: [String] { state.withLock { $0.recordedPaths } }
-    var clients: [ClientEvent] { state.withLock { $0.clients } }
     var pathMissing: [(path: String, generation: UInt64)] { state.withLock { $0.pathMissing } }
     var rearms: [(generation: UInt64, errnoCode: Int32, consecutiveFailures: Int, delayMs: Int)] {
         state.withLock { $0.rearms }
@@ -64,12 +50,6 @@ private final class ServerEventRecorder: Sendable {
             recordLastSocketPath: { path in
                 self.state.withLock { $0.recordedPaths.append(path) }
             },
-            clientAccepted: { socket, peerPid in
-                self.state.withLock { $0.clients.append(ClientEvent(socket: socket, peerPid: peerPid)) }
-                if self.closesAcceptedClients {
-                    close(socket)
-                }
-            },
             pathMissingDetected: { path, generation in
                 self.state.withLock { $0.pathMissing.append((path: path, generation: generation)) }
             },
@@ -87,25 +67,28 @@ private final class ServerEventRecorder: Sendable {
     }
 }
 
+@MainActor
 private struct ServerHarness: ~Copyable {
     let directory: URL
     let socketPath: String
     let recorder: ServerEventRecorder
     let server: SocketControlServer
 
-    init(closesAcceptedClients: Bool = true) throws {
+    init() throws {
         directory = URL(fileURLWithPath: NSTemporaryDirectory())
             .appendingPathComponent("scs-\(UUID().uuidString.prefix(8))", isDirectory: true)
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         socketPath = directory.appendingPathComponent("s.sock").path
-        recorder = ServerEventRecorder(closesAcceptedClients: closesAcceptedClients)
+        recorder = ServerEventRecorder()
         server = SocketControlServer(
             initialSocketPath: socketPath,
             events: recorder.makeEvents()
         )
     }
 
-    deinit {
+    /// Stops the listener and removes the scratch directory. Tests defer
+    /// this explicitly; a deinit cannot call the main-actor `stop()`.
+    func shutdown() {
         server.stop()
         try? FileManager.default.removeItem(at: directory)
     }
@@ -123,6 +106,26 @@ private func waitUntil(
         usleep(10_000)
     }
     return predicate()
+}
+
+extension AsyncStream where Element == ControlConnection {
+    /// Awaits the next yielded connection with a timeout so a broken accept
+    /// path fails the test instead of hanging it.
+    fileprivate func nextConnection(timeout: TimeInterval = 5.0) async -> ControlConnection? {
+        await withTaskGroup(of: ControlConnection?.self) { group in
+            group.addTask {
+                var iterator = self.makeAsyncIterator()
+                return await iterator.next()
+            }
+            group.addTask {
+                try? await Task.sleep(nanoseconds: UInt64(timeout * 1_000_000_000))
+                return nil
+            }
+            let first = await group.next() ?? nil
+            group.cancelAll()
+            return first
+        }
+    }
 }
 
 @discardableResult
@@ -156,10 +159,12 @@ private func connect(to path: String) -> Int32 {
     return fd
 }
 
+@MainActor
 @Suite("SocketControlServer lifecycle")
 struct SocketControlServerLifecycleTests {
     @Test func startBindsListensAndReportsHealth() throws {
         let harness = try ServerHarness()
+        defer { harness.shutdown() }
         let server = harness.server
 
         #expect(server.start(socketPath: harness.socketPath, accessMode: .cmuxOnly))
@@ -183,8 +188,9 @@ struct SocketControlServerLifecycleTests {
         #expect(FileManager.default.fileExists(atPath: lockPath))
     }
 
-    @Test func acceptsClientAndCapturesPeerPid() throws {
+    @Test func acceptsClientAndCapturesPeerPid() async throws {
         let harness = try ServerHarness()
+        defer { harness.shutdown() }
         let server = harness.server
         #expect(server.start(socketPath: harness.socketPath, accessMode: .cmuxOnly))
 
@@ -192,13 +198,37 @@ struct SocketControlServerLifecycleTests {
         #expect(fd >= 0)
         defer { if fd >= 0 { close(fd) } }
 
-        #expect(waitUntil { !harness.recorder.clients.isEmpty })
-        let client = try #require(harness.recorder.clients.first)
-        #expect(client.peerPid == getpid())
+        let connection = try #require(await server.connections.nextConnection())
+        defer { close(connection.socket) }
+        #expect(connection.peerProcessID == getpid())
+    }
+
+    @Test func connectionStreamSpansListenerRestarts() async throws {
+        let harness = try ServerHarness()
+        defer { harness.shutdown() }
+        let server = harness.server
+
+        #expect(server.start(socketPath: harness.socketPath, accessMode: .cmuxOnly))
+        let firstClient = connect(to: harness.socketPath)
+        #expect(firstClient >= 0)
+        defer { if firstClient >= 0 { close(firstClient) } }
+        let first = try #require(await server.connections.nextConnection())
+        close(first.socket)
+
+        server.stop()
+        #expect(server.start(socketPath: harness.socketPath, accessMode: .cmuxOnly))
+
+        let secondClient = connect(to: harness.socketPath)
+        #expect(secondClient >= 0)
+        defer { if secondClient >= 0 { close(secondClient) } }
+        let second = try #require(await server.connections.nextConnection())
+        close(second.socket)
+        #expect(second.peerProcessID == getpid())
     }
 
     @Test func stopUnlinksSocketAndClearsState() throws {
         let harness = try ServerHarness()
+        defer { harness.shutdown() }
         let server = harness.server
         #expect(server.start(socketPath: harness.socketPath, accessMode: .cmuxOnly))
         #expect(FileManager.default.fileExists(atPath: harness.socketPath))
@@ -216,6 +246,7 @@ struct SocketControlServerLifecycleTests {
 
     @Test func startOnSamePathIsIdempotent() throws {
         let harness = try ServerHarness()
+        defer { harness.shutdown() }
         let server = harness.server
         #expect(server.start(socketPath: harness.socketPath, accessMode: .cmuxOnly))
         #expect(server.start(socketPath: harness.socketPath, accessMode: .allowAll))
@@ -228,6 +259,7 @@ struct SocketControlServerLifecycleTests {
 
     @Test func restartIncrementsGeneration() throws {
         let harness = try ServerHarness()
+        defer { harness.shutdown() }
         let server = harness.server
         #expect(server.start(socketPath: harness.socketPath, accessMode: .cmuxOnly))
         server.stop()
@@ -240,6 +272,7 @@ struct SocketControlServerLifecycleTests {
 
     @Test func replacesStaleSocketFileAfterCrash() throws {
         let harness = try ServerHarness()
+        defer { harness.shutdown() }
         let server = harness.server
 
         // Simulate a crashed previous instance: it had started listening (lock
@@ -281,6 +314,7 @@ struct SocketControlServerLifecycleTests {
 
     @Test func refusesRegularFileAtSocketPath() throws {
         let harness = try ServerHarness()
+        defer { harness.shutdown() }
         let server = harness.server
         try Data("not a socket".utf8).write(to: URL(fileURLWithPath: harness.socketPath))
 
@@ -295,6 +329,7 @@ struct SocketControlServerLifecycleTests {
 
     @Test func appliesAccessModePermissions() throws {
         let harness = try ServerHarness()
+        defer { harness.shutdown() }
         let server = harness.server
         #expect(server.start(socketPath: harness.socketPath, accessMode: .allowAll))
 
@@ -308,10 +343,12 @@ struct SocketControlServerLifecycleTests {
     }
 }
 
+@MainActor
 @Suite("SocketControlServer startup reservation")
 struct SocketControlServerReservationTests {
     @Test func reservationIsConsumedByStart() throws {
         let harness = try ServerHarness()
+        defer { harness.shutdown() }
         let server = harness.server
 
         let reserved = server.reserveStartupSocketPath(harness.socketPath)
@@ -328,6 +365,7 @@ struct SocketControlServerReservationTests {
 
     @Test func reservationIsRejectedWhileRunning() throws {
         let harness = try ServerHarness()
+        defer { harness.shutdown() }
         let server = harness.server
         #expect(server.start(socketPath: harness.socketPath, accessMode: .cmuxOnly))
 
@@ -338,10 +376,12 @@ struct SocketControlServerReservationTests {
     }
 }
 
+@MainActor
 @Suite("SocketControlServer path monitor")
 struct SocketControlServerPathMonitorTests {
     @Test func detectsDeletedSocketPathAndSupportsRestart() throws {
         let harness = try ServerHarness()
+        defer { harness.shutdown() }
         let server = harness.server
         #expect(server.start(socketPath: harness.socketPath, accessMode: .cmuxOnly))
         let generation = try #require(harness.recorder.started.first?.generation)
@@ -367,6 +407,7 @@ struct SocketControlServerPathMonitorTests {
 
     @Test func staleMissingPathReportIsRejectedAfterStop() throws {
         let harness = try ServerHarness()
+        defer { harness.shutdown() }
         let server = harness.server
         #expect(server.start(socketPath: harness.socketPath, accessMode: .cmuxOnly))
         let generation = try #require(harness.recorder.started.first?.generation)
@@ -375,10 +416,20 @@ struct SocketControlServerPathMonitorTests {
     }
 }
 
+// Deliberate test gap, stated per repo policy: the accept-failure
+// suspend/backoff/resume path (SocketRecoveryClock consumer, AcceptRecoveryState
+// latch) needs accept(2) to fail with a hot errno. Forcing EMFILE requires
+// lowering RLIMIT_NOFILE process-wide, which races the other suites running
+// in-process under Swift Testing's parallel executor, so a deterministic
+// behavior test is not practical here. The nearest contracts are pinned
+// instead: claim-after-stop rejection below, and stop()'s resume-before-cancel
+// is exercised by every harness shutdown.
+@MainActor
 @Suite("SocketControlServer rearm")
 struct SocketControlServerRearmTests {
     @Test func claimWithoutPendingRearmReturnsNil() throws {
         let harness = try ServerHarness()
+        defer { harness.shutdown() }
         let server = harness.server
         #expect(server.start(socketPath: harness.socketPath, accessMode: .cmuxOnly))
         #expect(server.claimPendingRearm(

@@ -38,6 +38,8 @@ public struct AppSection: View {
     @State private var markdownFontSize: DefaultsValueModel<Int>
     @State private var markdownFontFamily: DefaultsValueModel<String>
     @State private var markdownMaxWidth: DefaultsValueModel<Int>
+    @State private var canvasPaneGap: DefaultsValueModel<Int>
+    @State private var canvasSnapping: DefaultsValueModel<Bool>
     @State private var fileEditorWordWrap: DefaultsValueModel<Bool>
     @State private var iMessage: DefaultsValueModel<Bool>
     @State private var reorder: DefaultsValueModel<Bool>
@@ -82,6 +84,8 @@ public struct AppSection: View {
         _markdownFontSize = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.markdown.fontSize))
         _markdownFontFamily = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.markdown.fontFamily))
         _markdownMaxWidth = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.markdown.maxWidth))
+        _canvasPaneGap = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.canvas.paneGap))
+        _canvasSnapping = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.canvas.snappingEnabled))
         _fileEditorWordWrap = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.fileEditor.wordWrap))
         _iMessage = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.app.iMessageMode))
         _reorder = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.app.reorderOnNotification))
@@ -366,6 +370,43 @@ public struct AppSection: View {
             }
             SettingsCardDivider()
 
+            // Canvas Pane Gap
+            SettingsCardRow(
+                configurationReview: .json("canvas.paneGap"),
+                String(localized: "settings.app.canvasPaneGap", defaultValue: "Canvas Pane Gap"),
+                subtitle: String(localized: "settings.app.canvasPaneGap.subtitle", defaultValue: "Spacing between panes in the canvas layout, in points. Snapping, tidy, and new-pane placement all use this one gap."),
+                controlWidth: Self.columnWidth
+            ) {
+                Stepper(
+                    value: Binding(get: { canvasPaneGap.current }, set: { canvasPaneGap.set($0) }),
+                    in: 0...64,
+                    step: 2
+                ) {
+                    Text(verbatim: "\(canvasPaneGap.current)")
+                        .monospacedDigit()
+                        .frame(width: 28, alignment: .trailing)
+                }
+                .controlSize(.small)
+                .accessibilityIdentifier("SettingsCanvasPaneGapStepper")
+                .accessibilityLabel(
+                    String(localized: "settings.app.canvasPaneGap", defaultValue: "Canvas Pane Gap")
+                )
+            }
+            SettingsCardDivider()
+
+            // Canvas Snapping
+            SettingsCardRow(
+                configurationReview: .json("canvas.snappingEnabled"),
+                String(localized: "settings.app.canvasSnapping", defaultValue: "Canvas Snapping"),
+                subtitle: String(localized: "settings.app.canvasSnapping.subtitle", defaultValue: "Snap pane drags and resizes to neighbor edges and the pane gap. Hold Command to suspend snapping for one gesture.")
+            ) {
+                Toggle("", isOn: Binding(get: { canvasSnapping.current }, set: { canvasSnapping.set($0) }))
+                    .labelsHidden()
+                    .controlSize(.small)
+                    .accessibilityIdentifier("SettingsCanvasSnappingToggle")
+            }
+            SettingsCardDivider()
+
             // Markdown Viewer Font Family
             SettingsCardRow(
                 configurationReview: .json("markdown.fontFamily"),
@@ -437,7 +478,11 @@ public struct AppSection: View {
                 String(localized: "settings.app.menuBarOnly", defaultValue: "Menu Bar Only"),
                 subtitle: String(localized: "settings.app.menuBarOnly.subtitle", defaultValue: "Hide the Dock icon and Cmd+Tab entry. Use the menu bar item to show cmux.")
             ) {
-                Toggle("", isOn: Binding(get: { menuBarOnly.current }, set: { menuBarOnly.set($0) }))
+                Toggle("", isOn: Binding(get: { menuBarOnly.current }, set: { enabled in
+                    if hostActions.setMenuBarOnly(enabled) {
+                        menuBarOnly.acceptCommittedValue(enabled)
+                    }
+                }))
                     .labelsHidden()
                     .controlSize(.small)
                     .accessibilityIdentifier("SettingsMenuBarOnlyToggle")

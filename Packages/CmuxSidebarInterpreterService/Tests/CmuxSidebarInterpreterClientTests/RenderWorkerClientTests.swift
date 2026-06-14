@@ -8,7 +8,7 @@ import Testing
 /// scenes, answers pointers with a canned action, and crashes/hangs on env
 /// tokens), so the spawn → announce → ack → crash → respawn cycle is verified
 /// through a real process boundary without AppKit.
-@Suite struct RenderWorkerClientTests {
+@Suite(.serialized) struct RenderWorkerClientTests {
     @Test func announcesContextOnSpawn() async {
         let client = RenderWorkerClient(executableURL: renderFixtureURL())
         let collector = RenderEventCollector(stream: await client.subscribe())
@@ -97,25 +97,50 @@ import Testing
 
         await client.updateScene(filePath: hangToken, state: [:], topInset: 0, bottomInset: 0)
         let first = await collector.waitForEvents(count: 1)
+        guard case let .context(firstContext) = first.first else {
+            Issue.record("expected initial context before hang, got \(first)")
+            await client.shutdown()
+            return
+        }
 
         // Let the ack watchdog expire and discard the (simulated) hung worker.
-        // Deterministic test-only delay past the 300ms deadline.
-        try await Task.sleep(for: .milliseconds(700))
+        let discarded = await waitForContextReset(client, after: firstContext)
+        #expect(discarded, "expected hung worker to be discarded after ack timeout")
 
         // Tick like the host until the fresh worker announces itself.
-        var all = [RenderWorkerEvent]()
-        for _ in 0..<20 where all.count < 2 {
+        var recoveryContext: UInt32?
+        for _ in 0..<20 where recoveryContext == nil {
             await client.updateScene(filePath: "/tmp/after-hang.swift", state: [:], topInset: 0, bottomInset: 0)
-            all = await collector.waitForEvents(count: 2, deadline: .milliseconds(500))
+            let events = await collector.waitForEvents(count: 2, deadline: .milliseconds(500))
+            recoveryContext = events.compactMap { event -> UInt32? in
+                guard case let .context(context) = event, context != firstContext else { return nil }
+                return context
+            }.first
         }
         await client.shutdown()
 
-        guard case let .context(firstContext) = first.first,
-              all.count >= 2, case let .context(secondContext) = all[1] else {
-            Issue.record("expected recovery context after hang, got \(all)")
+        guard let recoveryContext else {
+            Issue.record("expected recovery context after hang")
             return
         }
-        #expect(firstContext != secondContext, "recovery must come from a fresh worker process")
+        #expect(firstContext != recoveryContext, "recovery must come from a fresh worker process")
+    }
+
+    private func waitForContextReset(
+        _ client: RenderWorkerClient,
+        after initialContext: UInt32,
+        deadline: Duration = .seconds(5)
+    ) async -> Bool {
+        let clock = ContinuousClock()
+        let end = clock.now.advanced(by: deadline)
+        var sawInitialContext = false
+        while clock.now < end {
+            let contextId = await MainActor.run { client.contextCache.contextId }
+            if contextId == initialContext { sawInitialContext = true }
+            if sawInitialContext, contextId == nil { return true }
+            try? await Task.sleep(for: .milliseconds(50))
+        }
+        return false
     }
 }
 
