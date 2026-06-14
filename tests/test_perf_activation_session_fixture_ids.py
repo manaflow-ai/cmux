@@ -122,6 +122,16 @@ def test_activation_fixture_cleanup_uses_stable_workspace_ids(tmp_path: pathlib.
     assert runner.selected_workspaces == ["perf-workspace-2", "perf-workspace-2"]
 
 
+def test_activation_fixture_leaves_light_workspace_selected(tmp_path: pathlib.Path) -> None:
+    runner = RefChurnFixtureRunner(tmp_path)
+    runner.args.workspace_count = 2
+
+    runner.create_fixture()
+
+    assert runner.closed_workspaces == ["initial-workspace", "guard-workspace"]
+    assert runner.selected_workspaces == ["perf-workspace-2", "perf-workspace-3"]
+
+
 def test_activation_socket_readiness_uses_worker_ping(tmp_path: pathlib.Path) -> None:
     runner = object.__new__(perf_activation_session.CmuxPerfRunner)
     runner.socket_path = tmp_path / "cmux.sock"
@@ -191,6 +201,44 @@ def test_fixture_pane_creation_focuses_new_panes() -> None:
         ]
     ]
     assert panes == [{"ref": "pane:1"}, {"ref": "pane:2"}, {"ref": "pane:3"}]
+
+
+def test_synthetic_scrollback_only_skips_real_terminal_seed() -> None:
+    runner = object.__new__(perf_activation_session.CmuxPerfRunner)
+    runner.args = types.SimpleNamespace(synthetic_scrollback_only=True)
+    runner.result = {"fixture": {}, "measurements": {}}
+    calls: list[str] = []
+
+    def record(name: str) -> None:
+        calls.append(name)
+
+    def benchmark_snapshot(name: str, include_scrollback: bool) -> dict:
+        calls.append(f"snapshot:{name}:{include_scrollback}")
+        payload = {"elapsed_ms": 1.0, "shape": {"scrollback_chars": 0}}
+        runner.result["measurements"][name] = payload
+        return payload
+
+    runner.check_paths = lambda: record("check_paths")
+    runner.stop_app = lambda: record("stop_app")
+    runner.clean_persisted_state = lambda: record("clean_persisted_state")
+    runner.configure_benchmark_defaults = lambda: record("configure_benchmark_defaults")
+    runner.clear_benchmark_defaults = lambda: record("clear_benchmark_defaults")
+    runner.launch = lambda label: record(f"launch:{label}")
+    runner.create_fixture = lambda: [("workspace-1", "surface-1", pathlib.Path("/tmp"))]
+    runner.ensure_app_running = lambda label: record(f"ensure:{label}")
+    runner.seed_scrollback = lambda terminals: record("seed_scrollback")
+    runner.benchmark_snapshot = benchmark_snapshot
+    runner.seed_synthetic_scrollback_fallback = lambda real_snapshot: True
+    runner.benchmark_restore = lambda: record("benchmark_restore")
+    runner.apply_budgets = lambda: record("apply_budgets")
+    runner.fixture_root = pathlib.Path("/nonexistent/cmux-perf-fixture")
+
+    runner.run()
+
+    assert "seed_scrollback" not in calls
+    assert runner.result["fixture"]["real_scrollback_seed"] == "skipped_synthetic_scrollback_only"
+    assert "snapshot:snapshot_no_scrollback:False" in calls
+    assert "snapshot:snapshot_with_real_scrollback:True" in calls
 
 
 def test_post_restore_shape_uses_persisted_session_snapshot() -> None:

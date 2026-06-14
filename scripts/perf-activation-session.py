@@ -791,7 +791,9 @@ class CmuxPerfRunner:
         for ws in existing + [guard_ws]:
             self.run_cli(["close-workspace", "--workspace", ws], timeout=30, check=False)
         if workspaces:
-            self.run_cli(["select-workspace", "--workspace", workspaces[0]], timeout=60, check=False)
+            # Keep the densest workspace out of the foreground until restore.
+            # Headless CI runners can terminate while mounting its full portal tree.
+            self.run_cli(["select-workspace", "--workspace", workspaces[-1]], timeout=60, check=False)
 
         self.result["fixture"].update(
             {
@@ -937,8 +939,38 @@ class CmuxPerfRunner:
             timeout=max(60, self.args.snapshot_timeout),
         )
         self.result["fixture"]["synthetic_scrollback_fallback"] = payload
-        self.result["fixture"]["synthetic_scrollback_fallback_reason"] = "captured_scrollback_below_budget"
+        reason = (
+            "synthetic_scrollback_only"
+            if getattr(self.args, "synthetic_scrollback_only", False)
+            else "captured_scrollback_below_budget"
+        )
+        self.result["fixture"]["synthetic_scrollback_fallback_reason"] = reason
         return True
+
+    def benchmark_synthetic_only_real_scrollback_snapshot(self) -> dict:
+        start = now_ms()
+        snapshot = self.benchmark_snapshot("snapshot_with_real_scrollback", include_scrollback=True)
+        chars = int(snapshot.get("shape", {}).get("scrollback_chars") or 0)
+        elapsed = float(snapshot.get("elapsed_ms") or 0.0)
+        wall_ms = rounded_ms(now_ms() - start)
+        self.result["fixture"]["real_scrollback_capture"] = {
+            "attempts": 1,
+            "attempt_samples": [
+                {
+                    "attempt": 1,
+                    "elapsed_ms": elapsed,
+                    "wall_ms": wall_ms,
+                    "scrollback_chars": chars,
+                }
+            ],
+            "wait_ms": wall_ms,
+            "retry_overhead_ms": 0.0,
+            "refresh_interval_s": 0.0,
+            "refresh_rate_hz": 0.0,
+            "timeout_s": 0.0,
+            "skipped_real_seed_reason": "synthetic_scrollback_only",
+        }
+        return snapshot
 
     def benchmark_restore(self) -> None:
         self.stop_app()
@@ -1025,10 +1057,16 @@ class CmuxPerfRunner:
             self.launch("launch")
             terminals = self.create_fixture()
             self.ensure_app_running("after_fixture")
-            self.seed_scrollback(terminals)
+            if getattr(self.args, "synthetic_scrollback_only", False):
+                self.result["fixture"]["real_scrollback_seed"] = "skipped_synthetic_scrollback_only"
+            else:
+                self.seed_scrollback(terminals)
             self.ensure_app_running("after_scrollback")
             self.benchmark_snapshot("snapshot_no_scrollback", include_scrollback=False)
-            real_scrollback = self.benchmark_real_scrollback_snapshot()
+            if getattr(self.args, "synthetic_scrollback_only", False):
+                real_scrollback = self.benchmark_synthetic_only_real_scrollback_snapshot()
+            else:
+                real_scrollback = self.benchmark_real_scrollback_snapshot()
             if self.seed_synthetic_scrollback_fallback(real_scrollback):
                 self.benchmark_snapshot("snapshot_with_scrollback", include_scrollback=True)
             else:
@@ -1119,6 +1157,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--other-scrollback-lines", type=int, default=1400)
     parser.add_argument("--line-payload-chars", type=int, default=96)
     parser.add_argument("--synthetic-scrollback-fallback", action="store_true", help="Seed DEBUG-only fallback scrollback for headless CI runners.")
+    parser.add_argument("--synthetic-scrollback-only", action="store_true", help="Skip real terminal scrollback seeding and use DEBUG synthetic scrollback.")
     parser.add_argument("--synthetic-scrollback-chars-per-terminal", type=int, default=165_000)
     parser.add_argument("--real-scrollback-capture-timeout", type=float, default=20)
     parser.add_argument("--real-scrollback-refresh-interval", type=float, default=0.5)
@@ -1134,7 +1173,10 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--budget-scrollback-snapshot-ms", type=float, default=1500)
     parser.add_argument("--budget-min-scrollback-chars", type=int, default=1_000_000)
     parser.add_argument("--budget-min-terminal-surfaces", type=int, default=40)
-    return parser.parse_args()
+    args = parser.parse_args()
+    if args.synthetic_scrollback_only:
+        args.synthetic_scrollback_fallback = True
+    return args
 
 
 def main() -> int:

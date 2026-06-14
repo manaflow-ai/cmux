@@ -135,6 +135,7 @@ jobs:
             --heavy-scrollback-lines "${{ inputs.heavy_scrollback_lines || '2400' }}" \
             --other-scrollback-lines "${{ inputs.other_scrollback_lines || '1400' }}" \
             --synthetic-scrollback-fallback \
+            --synthetic-scrollback-only \
             --output perf-results/activation-session.json \
             --junit perf-results/activation-session.junit.xml
 
