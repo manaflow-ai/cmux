@@ -54,10 +54,9 @@ struct AgentChatTranscriptResolver: Sendable {
     func newestClaudeTranscript(workingDirectory: String) -> (sessionID: String, path: String)? {
         // claude encodes the project dir from the cwd it sees, which is the
         // symlink-resolved path (getcwd → /private/tmp), while a panel's cwd
-        // is often the unresolved form (/tmp). Try both so a /tmp-rooted
+        // is often the unresolved form (/tmp). Try every form so a /tmp-rooted
         // terminal still finds its /private/tmp transcript dir.
-        let resolved = URL(fileURLWithPath: workingDirectory).resolvingSymlinksInPath().path
-        let candidates = resolved == workingDirectory ? [workingDirectory] : [workingDirectory, resolved]
+        let candidates = Self.cwdCandidates(workingDirectory)
         for cwd in candidates {
             let projectDir = RestorableAgentSessionIndex.encodeClaudeProjectDir(cwd)
             let dir = homeDirectory
@@ -81,6 +80,33 @@ struct AgentChatTranscriptResolver: Sendable {
             }
         }
         return nil
+    }
+
+    /// Every cwd form claude might have encoded its project dir from, most
+    /// specific first. `URL.resolvingSymlinksInPath()` is not enough on its
+    /// own: across macOS versions it strips a leading `/private` but does NOT
+    /// add one (so `/tmp` stays `/tmp` instead of becoming `/private/tmp`),
+    /// yet claude's `getcwd` returns the `/private`-prefixed form. So toggle
+    /// the `/private` prefix explicitly on both the raw and symlink-resolved
+    /// paths, deduped in order. Existence-free, so it works before the dir is
+    /// created.
+    static func cwdCandidates(_ workingDirectory: String) -> [String] {
+        var seen = Set<String>()
+        var result: [String] = []
+        func add(_ path: String) {
+            guard !path.isEmpty, seen.insert(path).inserted else { return }
+            result.append(path)
+        }
+        let privateRoot = "/private"
+        for base in [workingDirectory, URL(fileURLWithPath: workingDirectory).resolvingSymlinksInPath().path] {
+            add(base)
+            if base.hasPrefix(privateRoot + "/") {
+                add(String(base.dropFirst(privateRoot.count)))
+            } else if base.hasPrefix("/") {
+                add(privateRoot + base)
+            }
+        }
+        return result
     }
 
     private func claudeFallbackPath(record: AgentChatSessionRecord) -> String? {
