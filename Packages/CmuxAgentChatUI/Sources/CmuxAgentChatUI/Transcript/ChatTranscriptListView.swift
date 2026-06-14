@@ -98,13 +98,15 @@ public struct ChatTranscriptListView: View {
                     Group {
                         if !isAtBottom {
                             ChatScrollToBottomButton {
-                                // Smoothly animate to the live tail. A single
-                                // animated `proxy.scrollTo` glides rather than
-                                // jumping; the bottom anchor is the stable
-                                // target (a pinned failed pending row can keep
-                                // `rows.last` from being the visual bottom).
+                                // Scroll to the last row id (reliably scrollable;
+                                // the zero-height bottom anchor alone no-ops),
+                                // animated so it glides instead of jumping.
                                 withAnimation(.snappy(duration: 0.3)) {
-                                    proxy.scrollTo(Self.bottomAnchorID, anchor: .bottom)
+                                    if let lastID = rows.last?.id {
+                                        proxy.scrollTo(lastID, anchor: .bottom)
+                                    } else {
+                                        proxy.scrollTo(Self.bottomAnchorID, anchor: .bottom)
+                                    }
                                 }
                             }
                             .padding(.trailing, 12)
