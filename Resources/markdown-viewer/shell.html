@@ -1123,6 +1123,7 @@ html { scroll-behavior: smooth; }
   var mermaidInitialized = false;
   var cmuxMarkdownZoom = 1;
   var mermaidResizeObserver = null;
+  var mermaidObservedWidth = 0;
 
   function normalizedMarkdownZoom(value) {
     var zoom = Number(value);
@@ -1228,10 +1229,19 @@ html { scroll-behavior: smooth; }
 
   function ensureMermaidResizeObserver() {
     if (mermaidResizeObserver || typeof ResizeObserver === 'undefined' || !contentEl) { return; }
-    mermaidResizeObserver = new ResizeObserver(function() {
-      if (Math.abs(cmuxMarkdownZoom - 1) > 0.0001) {
-        applyMermaidZoom(contentEl);
-      }
+    mermaidObservedWidth = Math.round(contentEl.getBoundingClientRect().width || contentEl.clientWidth || 0);
+    mermaidResizeObserver = new ResizeObserver(function(entries) {
+      if (Math.abs(cmuxMarkdownZoom - 1) <= 0.0001) { return; }
+      var entry = entries && entries[0];
+      var width = Math.round(
+        (entry && entry.contentRect && entry.contentRect.width) ||
+        contentEl.getBoundingClientRect().width ||
+        contentEl.clientWidth ||
+        0
+      );
+      if (width <= 0 || width === mermaidObservedWidth) { return; }
+      mermaidObservedWidth = width;
+      applyMermaidZoom(contentEl);
     });
     mermaidResizeObserver.observe(contentEl);
   }
