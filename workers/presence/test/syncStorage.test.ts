@@ -13,6 +13,7 @@ import {
   gcTombstones,
   lazyUpgradeRecord,
   listRecords,
+  nextTombstoneGcTime,
   readGcFloor,
   readHead,
   readRecord,
@@ -28,6 +29,7 @@ import {
   groupInstancesByDevice,
   ownersFromList,
   reconcileDeviceRecords,
+  reconcileSingleDevice,
   type DeviceRecord,
 } from "../src/syncDevices";
 import type { PresenceInstance } from "../src/core";
@@ -410,6 +412,63 @@ describe("device derivation idempotency through reconcileDeviceRecords (DESIGN Â
     await reconcileDeviceRecords(storage, groupInstancesByDevice([instance()]), ownersFromList(owners), T0);
     const rec = await readRecord<DeviceRecord>(storage, COLL, "dev-A");
     expect(rec!.payload.ownerUserId).toBe("user-123");
+  });
+});
+
+describe("reconcileSingleDevice (heartbeat hot path, bounded work)", () => {
+  it("upserts just the one device and mints a rev only on a shape change", async () => {
+    const storage = new FakeStorage();
+    // First reconcile of dev-A: appears, rev -> 1.
+    let delta = await reconcileSingleDevice(storage, "dev-A", [instance()], undefined, T0);
+    expect(delta).not.toBeNull();
+    expect(await readHead(storage, COLL)).toBe(1);
+    // A steady `seen` tick on the same device: no shape change, no rev.
+    delta = await reconcileSingleDevice(storage, "dev-A", [instance({ lastSeenAt: T0 + 15_000 })], undefined, T0 + 15_000);
+    expect(delta).toBeNull();
+    expect(await readHead(storage, COLL)).toBe(1);
+    // A routes change on the same device: new rev.
+    delta = await reconcileSingleDevice(storage, "dev-A", [instance({ routes: [{ kind: "lan" }] })], undefined, T0 + 1000);
+    expect(delta).not.toBeNull();
+    expect(await readHead(storage, COLL)).toBe(2);
+  });
+
+  it("does NOT touch other devices (bounded to the one passed)", async () => {
+    const storage = new FakeStorage();
+    await reconcileSingleDevice(storage, "dev-A", [instance()], undefined, T0);
+    await reconcileSingleDevice(storage, "dev-B", [instance({ deviceId: "dev-B" })], undefined, T0);
+    // Reconciling A again must not tombstone B (B has no instances in THIS call,
+    // but single-device reconcile only ever touches its own id).
+    const delta = await reconcileSingleDevice(storage, "dev-A", [instance()], undefined, T0 + 1);
+    expect(delta).toBeNull();
+    const all = await listRecords<DeviceRecord>(storage, COLL);
+    expect(all.filter((r) => !r.deleted).map((r) => r.id).sort()).toEqual(["dev-A", "dev-B"]);
+  });
+
+  it("tombstones the device when its last instance is gone (goodbye path)", async () => {
+    const storage = new FakeStorage();
+    await reconcileSingleDevice(storage, "dev-A", [instance()], undefined, T0); // rev 1
+    const delta = await reconcileSingleDevice(storage, "dev-A", [], undefined, T0 + 1000);
+    expect(delta).not.toBeNull();
+    expect(delta!.records[0]!.deleted).toBe(true);
+    expect(await readHead(storage, COLL)).toBe(2);
+  });
+});
+
+describe("nextTombstoneGcTime (alarm scheduling so offline teams still GC)", () => {
+  it("returns null when there are no tombstones", async () => {
+    const storage = new FakeStorage();
+    await upsertRecord(storage, COLL, "dev-A", devicePayload(), T0);
+    expect(await nextTombstoneGcTime(storage, COLL)).toBeNull();
+  });
+
+  it("returns the earliest tombstone's retention deadline", async () => {
+    const storage = new FakeStorage();
+    await upsertRecord(storage, COLL, "dev-A", devicePayload(), T0); // rev 1
+    await upsertRecord(storage, COLL, "dev-B", devicePayload({ deviceId: "dev-B" }), T0); // rev 2
+    await tombstoneRecord(storage, COLL, "dev-A", T0 + 5_000); // tombstone, updatedAt later
+    await tombstoneRecord(storage, COLL, "dev-B", T0); // tombstone, updatedAt earlier
+    // The earliest GC deadline is the earliest tombstone updatedAt + retention.
+    expect(await nextTombstoneGcTime(storage, COLL)).toBe(T0 + TOMBSTONE_RETENTION_MS);
   });
 });
 

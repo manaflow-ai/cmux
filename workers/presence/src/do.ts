@@ -34,12 +34,13 @@ import {
   type PresenceInstance,
 } from "./core";
 import { parseHello, type SyncServerFrame } from "./sync";
-import { gcTombstones, resolveHelloFrames, type SyncStorage } from "./syncStorage";
+import { gcTombstones, nextTombstoneGcTime, resolveHelloFrames, type SyncStorage } from "./syncStorage";
 import {
   DEVICES_COLLECTION,
   groupInstancesByDevice,
   ownersFromList,
   reconcileDeviceRecords,
+  reconcileSingleDevice,
   type DeviceRecord,
 } from "./syncDevices";
 
@@ -71,6 +72,23 @@ interface SseSubscriber {
 
 interface WsAttachment {
   expiresAt: number;
+  /** Sync collections this socket subscribed to via `sync.hello`. Absent/empty
+   * for legacy presence-only clients, which must NEVER receive sync frames (the
+   * presence decoder throws on unknown message types). Persisted on the socket
+   * attachment so it survives DO hibernation. */
+  syncCollections?: string[];
+}
+
+/** Whether a socket has subscribed to a given sync collection. A legacy
+ * presence-only socket (no `sync.hello`) returns false, so sync frames are never
+ * broadcast to a client that cannot parse them. */
+function wsSyncCollections(ws: WebSocket): string[] {
+  try {
+    const attachment = ws.deserializeAttachment() as WsAttachment | null;
+    return Array.isArray(attachment?.syncCollections) ? attachment.syncCollections : [];
+  } catch {
+    return [];
+  }
 }
 
 function wsExpiresAt(ws: WebSocket): number {
@@ -169,19 +187,33 @@ export class TeamPresence extends DurableObject {
     const { instance, events } = applyHeartbeat(existing, beat, now);
     await this.ctx.storage.put(key, instance);
     this.broadcast(events);
-    // Project the presence change onto the synced device-list collection. This
-    // is additive: it never touches presence keys, and mints a sync rev only on
-    // a list-shape change, so a steady-state `seen` tick stays quiet
-    // (DESIGN.md §5.2). Old DO instances without this code simply skip it.
-    await this.syncDeviceRecords(now);
+    // Project ONLY this device's presence change onto the synced device-list
+    // collection (DESIGN.md §5.2). A heartbeat changes exactly one device, so we
+    // reconcile just that device — reading its own `inst:<deviceId>:` instances
+    // and owner pin — instead of scanning the whole team every ~15s beat. The
+    // upsert mints a sync rev only on a list-shape change, so a steady-state
+    // `seen` tick stays quiet. Additive: never touches presence keys; old DO
+    // instances without this code simply skip it.
+    await this.syncOneDevice(beat.deviceId, now);
     await this.ensureAlarmFor(instance);
     return this.heartbeatOk(teamId, instance);
   }
 
-  /** Reconcile the synced `devices` collection against the full presence state
-   * and broadcast any resulting sync deltas. Called from both write paths
-   * (heartbeat and alarm). Reads the live instances + owner pins the DO already
-   * holds and folds them into device records (DESIGN.md §5.2). */
+  /** Reconcile a single device's sync record from its current instances + owner.
+   * The heartbeat hot path: O(instances on this device), not O(team). */
+  private async syncOneDevice(deviceId: string, nowMs: number): Promise<void> {
+    const instances = [...(await this.ctx.storage.list<PresenceInstance>({
+      prefix: `${INSTANCE_PREFIX}${deviceId}:`,
+    })).values()];
+    const owner = await this.ctx.storage.get<string>(ownerKey(deviceId));
+    const delta = await reconcileSingleDevice(this.syncStorage(), deviceId, instances, owner, nowMs);
+    if (delta !== null) this.broadcastSync(delta);
+  }
+
+  /** Reconcile the WHOLE `devices` collection against the full presence state.
+   * Used by the alarm path only, where timeouts/prunes can change multiple
+   * devices at once (and a pruned device's last instance must be tombstoned).
+   * O(team), acceptable on the periodic alarm, not on every heartbeat. */
   private async syncDeviceRecords(nowMs: number): Promise<void> {
     const instances = await this.allInstances();
     const owners = await this.ctx.storage.list<string>({ prefix: OWNER_PREFIX });
@@ -304,8 +336,10 @@ export class TeamPresence extends DurableObject {
     ws: WebSocket,
     collections: { name: string; cursor: number }[],
   ): Promise<void> {
+    const subscribed: string[] = [];
     for (const { name, cursor } of collections) {
-      if (name !== DEVICES_COLLECTION) continue;
+      if (name !== DEVICES_COLLECTION) continue; // phase 1 serves only `devices`
+      subscribed.push(name);
       const resolved = await resolveHelloFrames<DeviceRecord>(
         this.syncStorage(),
         name,
@@ -315,6 +349,20 @@ export class TeamPresence extends DurableObject {
         for (const page of resolved.pages) this.sendSync(ws, page);
       } else if (resolved.delta !== null) {
         this.sendSync(ws, resolved.delta);
+      }
+    }
+    // Mark this socket as sync-subscribed so future delta broadcasts reach it.
+    // A legacy presence-only client never sends a hello, so its attachment keeps
+    // `syncCollections` absent and it never receives a sync frame (its presence
+    // decoder would throw on the unknown type). Preserve the deadline.
+    if (subscribed.length > 0) {
+      const expiresAt = wsExpiresAt(ws);
+      const existing = wsSyncCollections(ws);
+      const merged = [...new Set([...existing, ...subscribed])];
+      try {
+        ws.serializeAttachment({ expiresAt, syncCollections: merged } satisfies WsAttachment);
+      } catch {
+        // attachment write failed; the socket is likely gone
       }
     }
   }
@@ -329,14 +377,18 @@ export class TeamPresence extends DurableObject {
     }
   }
 
-  /** Broadcast a sync frame to all live subscribers (WS only; SSE is
-   * presence-only for now). Mirrors `broadcast` but for sync frames, which ride
-   * the same authenticated, team-scoped socket. */
+  /** Broadcast a sync frame ONLY to sockets that subscribed to its collection
+   * via `sync.hello`. A legacy presence-only socket has no `syncCollections` on
+   * its attachment and is skipped, so a list-shape heartbeat never breaks an old
+   * client whose presence decoder throws on unknown message types. WS only; SSE
+   * is presence-only for now. */
   private broadcastSync(frame: SyncServerFrame): void {
+    const collection = frame.collection;
     const now = Date.now();
     const json = JSON.stringify(frame);
     for (const ws of this.ctx.getWebSockets()) {
       if (wsExpiresAt(ws) <= now) continue;
+      if (!wsSyncCollections(ws).includes(collection)) continue; // not subscribed
       try {
         ws.send(json);
       } catch {
@@ -377,7 +429,11 @@ export class TeamPresence extends DurableObject {
     await this.syncDeviceRecords(now);
     await gcTombstones(this.syncStorage(), DEVICES_COLLECTION, now);
     this.closeExpiredSubscribers(now);
-    const candidates = [nextAlarmTime([...all.values()]), this.nextSubscriberDeadline()]
+    // Include the next tombstone-GC deadline so a fully-offline team (no
+    // instances left to schedule a heartbeat-driven alarm) still wakes to GC its
+    // tombstones and advance the GC floor (DESIGN.md §3.5).
+    const tombGc = await nextTombstoneGcTime(this.syncStorage(), DEVICES_COLLECTION);
+    const candidates = [nextAlarmTime([...all.values()]), this.nextSubscriberDeadline(), tombGc]
       .filter((value): value is number => value !== null);
     if (candidates.length > 0) {
       await this.ctx.storage.setAlarm(Math.max(Math.min(...candidates), now + 1000));

@@ -183,6 +183,46 @@ export async function reconcileDeviceRecords(
   return deltas;
 }
 
+/** Reconcile ONE device's sync record from its current instances. This is the
+ * heartbeat hot-path entry (DESIGN.md §5.2): a heartbeat changes exactly one
+ * device, so reconciling the whole collection on every ~15s beat would be
+ * O(team size) per beat, O(N^2) per interval at the device cap. Instead the
+ * heartbeat passes only the affected device's instances (a single
+ * `inst:<deviceId>:` prefix list the DO already does) and owner pin.
+ *
+ *   - instances non-empty: upsert (mints a rev only on a list-shape change).
+ *   - instances empty (the device's last instance just went away on this path,
+ *     e.g. a goodbye that removed it): tombstone the stored live record.
+ *
+ * Returns the delta to broadcast, or null on a no-op. Full-collection tombstone
+ * sweeps for devices pruned by the alarm stay in `reconcileDeviceRecords`, which
+ * the alarm path calls. */
+export async function reconcileSingleDevice(
+  storage: SyncStorage,
+  deviceId: string,
+  instances: readonly PresenceInstance[],
+  ownerUserId: string | undefined,
+  nowMs: number,
+): Promise<SyncDeltaFrame<DeviceRecord> | null> {
+  const record = deriveDeviceRecord(deviceId, instances, ownerUserId);
+  if (record === null) {
+    // No instances left for this device on the heartbeat path: tombstone it if a
+    // live record exists (idempotent if already a tombstone or absent).
+    const result = await tombstoneRecord(storage, DEVICES_COLLECTION, deviceId, nowMs);
+    if (result.delta === null) return null;
+    return buildDelta(DEVICES_COLLECTION, result.head, result.delta.records as never);
+  }
+  const result = await upsertRecord(
+    storage,
+    DEVICES_COLLECTION,
+    deviceId,
+    record,
+    nowMs,
+    deviceRecordEqual,
+  );
+  return result.delta;
+}
+
 /** Group presence instances by deviceId. Helper for `reconcileDeviceRecords`,
  * matching the rollup `buildSnapshot` does. Pure. */
 export function groupInstancesByDevice(

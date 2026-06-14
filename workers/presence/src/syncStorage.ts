@@ -298,6 +298,28 @@ export async function gcTombstones(
   return { collected, floor };
 }
 
+/** The epoch ms at which the OLDEST retained tombstone in a collection becomes
+ * GC-eligible, or null when there are no tombstones. The alarm includes this in
+ * its next-fire calculation so a team that has gone fully offline (no instances
+ * left to schedule a heartbeat-driven alarm) still wakes to GC its tombstones
+ * and advance the GC floor (DESIGN.md §3.5). O(tombstones) but tombstones are
+ * few and short-lived; only the min matters. */
+export async function nextTombstoneGcTime(
+  storage: SyncStorage,
+  collection: string,
+  retentionMs: number = TOMBSTONE_RETENTION_MS,
+): Promise<number | null> {
+  const index = await storage.list<string>({ prefix: tombPrefix(collection) });
+  let earliest: number | null = null;
+  for (const id of index.values()) {
+    const record = await readRecord(storage, collection, id);
+    if (record === undefined || !record.deleted) continue;
+    const due = record.updatedAt + retentionMs;
+    if (earliest === null || due < earliest) earliest = due;
+  }
+  return earliest;
+}
+
 function revFromTombKey(key: string, collection: string): number {
   const padded = key.slice(tombPrefix(collection).length);
   const rev = Number(padded);
