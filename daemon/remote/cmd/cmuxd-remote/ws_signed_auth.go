@@ -95,6 +95,9 @@ func parseSignedAuthPublicKey(text string) (ed25519.PublicKey, error) {
 	if err != nil {
 		decoded, err = base64.RawURLEncoding.DecodeString(trimmed)
 	}
+	if err != nil {
+		decoded, err = base64.URLEncoding.DecodeString(trimmed)
+	}
 	if err != nil || len(decoded) != ed25519.PublicKeySize {
 		return nil, errWSSignedLeaseUnavailable
 	}
