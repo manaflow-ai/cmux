@@ -300,7 +300,8 @@ extension ShortcutAction {
         case .switchRightSidebarToSessions: return "Show Sidebar Vault"
         case .switchRightSidebarToFeed: return "Show Sidebar Feed"
         case .switchRightSidebarToDock: return "Show Sidebar Dock"
-        case .switchRightSidebarToNotes: return "Show Sidebar Notes"
+        case .switchRightSidebarToNotes:
+            return String(localized: "shortcut.switchRightSidebarToNotes.label", defaultValue: "Show Sidebar Notes")
         case .triggerFlash: return "Flash Focused Panel"
         case .nextSurface: return "Next Surface"
         case .prevSurface: return "Previous Surface"

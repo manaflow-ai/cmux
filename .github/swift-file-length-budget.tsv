@@ -98,11 +98,11 @@
 914	Sources/CommandPalette/CommandPaletteSettingsToggle.swift
 905	Sources/CmuxSSHURLRequest.swift
 878	Sources/WorkspaceContentView.swift
-869	Sources/TerminalController+Notes.swift
 868	Sources/Panels/BrowserScreenshotSnapshotter.swift
 865	Sources/Panels/TerminalPanel.swift
 856	Packages/CmuxSettingsUI/Sources/CmuxSettingsUI/Sections/AppSection.swift
 852	Packages/CmuxControlSocket/Sources/CmuxControlSocket/Coordinator/Workspace/ControlCommandCoordinator+Workspace.swift
+852	Sources/TerminalController+Notes.swift
 847	cmuxTests/AgentSessionAutoResumeSettingsTests.swift
 845	cmuxTests/SSHStartupSignalLifecycleTests.swift
 844	Sources/Panels/MarkdownWebRenderer.swift

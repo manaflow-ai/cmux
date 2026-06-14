@@ -24,7 +24,6 @@ private enum NoteRPCMessage {
     static let deleteFailed = String(localized: "rpc.note.error.deleteFailed", defaultValue: "Failed to delete note")
     static let missingContent = String(localized: "rpc.note.error.missingContent", defaultValue: "Missing 'content' parameter")
     static let remoteUnavailable = String(localized: "rpc.note.error.remoteUnavailable", defaultValue: "Notes are not available for remote workspaces")
-    static let betaDisabled = String(localized: "rpc.note.error.betaDisabled", defaultValue: "Notes beta is disabled. Enable Notes in Settings → Beta Features.")
     static let terminalAttachRequiresTerminal = String(
         localized: "rpc.note.error.terminalAttachRequiresTerminal",
         defaultValue: "Cannot attach a terminal note to a non-terminal surface"
@@ -139,16 +138,7 @@ private func noteFilePayload(path: String) -> [String: Any] {
 extension TerminalController {
     // MARK: - Notes
 
-    /// Notes is a beta feature: every `note.*` RPC refuses while the
-    /// `rightSidebar.beta.notes.enabled` flag is off so the CLI matches the
-    /// hidden UI entry points instead of writing data nothing surfaces.
-    private nonisolated func v2NoteBetaDisabledResult() -> V2CallResult? {
-        guard !RightSidebarBetaFeatureSettings.isNotesEnabled() else { return nil }
-        return .err(code: "notes_disabled", message: NoteRPCMessage.betaDisabled, data: nil)
-    }
-
     nonisolated func v2NoteCreate(params: [String: Any]) -> V2CallResult {
-        if let disabled = v2NoteBetaDisabledResult() { return disabled }
         let hasSlugParameter = params.keys.contains("slug")
         let providedSlug = NoteRPCParam.string(params, "slug")
         let slug: String?
@@ -168,7 +158,6 @@ extension TerminalController {
     }
 
     nonisolated func v2NoteOpen(params: [String: Any]) -> V2CallResult {
-        if let disabled = v2NoteBetaDisabledResult() { return disabled }
         guard params.keys.contains("slug") else {
             return .err(code: "invalid_params", message: NoteRPCMessage.missingSlug, data: nil)
         }
@@ -487,7 +476,6 @@ extension TerminalController {
     }
 
     nonisolated func v2NoteList(params: [String: Any]) -> V2CallResult {
-        if let disabled = v2NoteBetaDisabledResult() { return disabled }
         var result: V2CallResult = .err(code: "internal_error", message: NoteRPCMessage.listFailed, data: nil)
         var currentDirectory: String?
         // Caller context for "which note do you mean" resolution: the note(s)
@@ -563,7 +551,6 @@ extension TerminalController {
     }
 
     nonisolated func v2NotePath(params: [String: Any]) -> V2CallResult {
-        if let disabled = v2NoteBetaDisabledResult() { return disabled }
         guard params.keys.contains("slug") else {
             return .err(code: "invalid_params", message: NoteRPCMessage.missingSlug, data: nil)
         }
@@ -630,7 +617,6 @@ extension TerminalController {
     }
 
     nonisolated func v2NoteRead(params: [String: Any]) -> V2CallResult {
-        if let disabled = v2NoteBetaDisabledResult() { return disabled }
         guard params.keys.contains("slug") else {
             return .err(code: "invalid_params", message: NoteRPCMessage.missingSlug, data: nil)
         }
@@ -697,12 +683,10 @@ extension TerminalController {
     }
 
     nonisolated func v2NoteWrite(params: [String: Any]) -> V2CallResult {
-        if let disabled = v2NoteBetaDisabledResult() { return disabled }
         return v2NoteWriteContent(params: params, append: false)
     }
 
     nonisolated func v2NoteAppend(params: [String: Any]) -> V2CallResult {
-        if let disabled = v2NoteBetaDisabledResult() { return disabled }
         return v2NoteWriteContent(params: params, append: true)
     }
 
@@ -809,7 +793,6 @@ extension TerminalController {
     }
 
     nonisolated func v2NoteDelete(params: [String: Any]) -> V2CallResult {
-        if let disabled = v2NoteBetaDisabledResult() { return disabled }
         guard params.keys.contains("slug") else {
             return .err(code: "invalid_params", message: NoteRPCMessage.missingSlug, data: nil)
         }
