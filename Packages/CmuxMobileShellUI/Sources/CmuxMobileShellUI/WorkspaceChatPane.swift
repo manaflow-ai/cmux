@@ -72,7 +72,11 @@ struct WorkspaceChatPane: View {
     /// chat mode so the terminal shows.
     private func openTerminal() {
         if let terminalID = session.terminalID {
-            store.selectedTerminalID = MobileTerminalPreview.ID(rawValue: terminalID)
+            // Leaving chat for the terminal is a chrome action, not a typing
+            // intent, so suppress the target's autofocus (matches the terminal
+            // picker). Using selectTerminalFromChrome instead of setting
+            // selectedTerminalID directly avoids a surprise keyboard pop.
+            store.selectTerminalFromChrome(MobileTerminalPreview.ID(rawValue: terminalID))
         }
         // Close any active browser pane for this workspace first: the detail
         // body prefers browser over terminal, so leaving a browser open would
