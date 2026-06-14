@@ -4012,6 +4012,15 @@ final class GhosttySurfaceOverlayTests: XCTestCase {
         }
     }
 
+    private final class NoOpBindingSurfaceView: GhosttyNSView {
+        private(set) var performedBindingActions: [String] = []
+
+        override func performBindingAction(_ action: String) -> Bool {
+            performedBindingActions.append(action)
+            return true
+        }
+    }
+
     private final class KeyStatusTestWindow: NSWindow {
         override var isKeyWindow: Bool { true }
     }
@@ -4430,6 +4439,24 @@ final class GhosttySurfaceOverlayTests: XCTestCase {
             accuracy: 0.01,
             "A no-op explicit scroll must not let a later passive bottom packet leave scrollback review"
         )
+    }
+
+    func testNoOpExplicitScrollCancelsKeyboardCopyModeCursorFallback() throws {
+#if DEBUG
+        let surfaceView = NoOpBindingSurfaceView(frame: NSRect(x: 0, y: 0, width: 160, height: 120))
+        surfaceView.debugBeginKeyboardCopyModeViewportJumpCursorSyncForTesting(fallbackLineDelta: 12)
+        XCTAssertTrue(surfaceView.debugHasPendingKeyboardCopyModeViewportJumpCursorSyncForTesting())
+
+        XCTAssertFalse(surfaceView.debugPerformExplicitScrollBindingActionForTesting("scroll_page_lines:12"))
+
+        XCTAssertEqual(surfaceView.performedBindingActions, ["scroll_page_lines:12"])
+        XCTAssertFalse(
+            surfaceView.debugHasPendingKeyboardCopyModeViewportJumpCursorSyncForTesting(),
+            "No-op copy-mode scroll bindings must not leave the cursor fallback armed"
+        )
+#else
+        throw XCTSkip("Debug-only regression test")
+#endif
     }
 
     func testResizeScrollbarUpdatePreservesManualScrollbackPosition() {

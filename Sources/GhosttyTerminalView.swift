@@ -7392,6 +7392,19 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     func debugHasPendingLeftMouseReleaseForTesting() -> Bool {
         hasPendingLeftMouseRelease
     }
+
+    func debugHasPendingKeyboardCopyModeViewportJumpCursorSyncForTesting() -> Bool {
+        keyboardCopyModePendingViewportJumpSync
+    }
+
+    func debugBeginKeyboardCopyModeViewportJumpCursorSyncForTesting(fallbackLineDelta: Int? = nil) {
+        beginKeyboardCopyModeViewportJumpCursorSync(fallbackLineDelta: fallbackLineDelta)
+    }
+
+    @discardableResult
+    func debugPerformExplicitScrollBindingActionForTesting(_ action: String) -> Bool {
+        performExplicitScrollBindingAction(action)
+    }
 #endif
 
     override func scrollWheel(with event: NSEvent) {
