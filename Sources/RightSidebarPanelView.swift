@@ -49,11 +49,25 @@ nonisolated enum RightSidebarMode: String, CaseIterable, Codable, Sendable {
 }
 
 extension RightSidebarMode {
-    static let paneModes: [RightSidebarMode] = [.files, .find, .sessions]
-
+    /// Whether this mode can be detached into a workspace pane.
+    ///
+    /// Implemented as an exhaustive `switch` (not a whitelist array) so that
+    /// adding a new ``RightSidebarMode`` is a compile error until the author
+    /// explicitly decides whether it opens as a pane — new modes can never be
+    /// silently excluded, which is exactly how `.feed` regressed.
     var canOpenAsPane: Bool {
-        Self.paneModes.contains(self)
+        switch self {
+        case .files, .find, .sessions, .feed:
+            return true
+        // Dock is a beta terminal-controls surface; it has no pane content.
+        case .dock:
+            return false
+        }
     }
+
+    /// Modes that can be opened as a pane, derived from ``canOpenAsPane`` so the
+    /// list never drifts out of sync with the per-mode decision above.
+    static let paneModes: [RightSidebarMode] = allCases.filter(\.canOpenAsPane)
 }
 
 nonisolated enum RightSidebarContentMountPolicy {
