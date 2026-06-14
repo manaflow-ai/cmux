@@ -1,3 +1,4 @@
+import Foundation
 import Testing
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
@@ -7,7 +8,9 @@ import Testing
 
 @MainActor
 @Suite(.serialized)
-final class TerminalNotificationSocketActionTests: TerminalNotificationSocketTestCase {
+struct TerminalNotificationSocketActionTests {
+    private let socketTestSupport = TerminalNotificationSocketTestCase()
+
     @Test
     func notificationDismissRemovesSingleNotification() async throws {
         let fixture = try makeSocketFixture(name: "notif-dismiss")
@@ -230,4 +233,30 @@ final class TerminalNotificationSocketActionTests: TerminalNotificationSocketTes
         #expect(fixture.notification(openable.id)?.isRead == true)
     }
 
+}
+
+private extension TerminalNotificationSocketActionTests {
+    func makeSocketFixture(
+        name: String,
+        includeWindow: Bool = false
+    ) throws -> TerminalNotificationSocketTestCase.SocketFixture {
+        try socketTestSupport.makeSocketFixture(name: name, includeWindow: includeWindow)
+    }
+
+    func makeNotification(
+        tabId: UUID,
+        surfaceId: UUID?,
+        title: String,
+        isRead: Bool = false
+    ) -> TerminalNotification {
+        socketTestSupport.makeNotification(tabId: tabId, surfaceId: surfaceId, title: title, isRead: isRead)
+    }
+
+    func sendV2RequestAsync(
+        method: String,
+        params: [String: Any] = [:],
+        to socketPath: String
+    ) async throws -> [String: Any] {
+        try await socketTestSupport.sendV2RequestAsync(method: method, params: params, to: socketPath)
+    }
 }
