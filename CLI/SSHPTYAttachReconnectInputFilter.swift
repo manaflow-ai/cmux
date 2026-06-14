@@ -1,9 +1,7 @@
 import Darwin
 import Foundation
 
-// Confined to the single ssh-pty-attach stdin pump thread; the class is
-// captured by DispatchQueue's @Sendable closure but never shared elsewhere.
-final class SSHPTYAttachReconnectInputFilter: @unchecked Sendable {
+final class SSHPTYAttachReconnectInputFilter {
     private enum SequenceMatch {
         case strip(length: Int)
         case incomplete
@@ -27,8 +25,8 @@ final class SSHPTYAttachReconnectInputFilter: @unchecked Sendable {
     }
 
     static func startStdinPump(fd: Int32, filterEnabled: Bool) {
-        let reconnectInputFilter = SSHPTYAttachReconnectInputFilter(enabled: filterEnabled)
         DispatchQueue.global(qos: .userInteractive).async {
+            let reconnectInputFilter = SSHPTYAttachReconnectInputFilter(enabled: filterEnabled)
             var buffer = [UInt8](repeating: 0, count: 8192)
             while true {
                 let count = Darwin.read(STDIN_FILENO, &buffer, buffer.count)
