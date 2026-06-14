@@ -131,6 +131,9 @@ struct WorkspaceDetailView: View {
             } else {
                 TerminalPalette.background
                     .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+                    .overlay {
+                        terminalEmptyState
+                    }
             }
             #else
             TerminalPalette.background
@@ -206,6 +209,45 @@ struct WorkspaceDetailView: View {
         newWorkspaceToolbarButton
         terminalPickerToolbarButton
     }
+
+    #if os(iOS)
+    private var terminalEmptyState: some View {
+        VStack(spacing: 12) {
+            Image(systemName: "terminal")
+                .font(.system(size: 30, weight: .semibold))
+                .foregroundStyle(TerminalPalette.foreground.opacity(0.6))
+                .accessibilityHidden(true)
+
+            VStack(spacing: 4) {
+                Text(L10n.string(
+                    "mobile.terminal.empty.title",
+                    defaultValue: "No terminals in this workspace"
+                ))
+                .font(.headline)
+                .foregroundStyle(TerminalPalette.foreground)
+
+                Text(L10n.string(
+                    "mobile.terminal.empty.message",
+                    defaultValue: "Create a terminal to start sending commands from your phone."
+                ))
+                .font(.subheadline)
+                .foregroundStyle(TerminalPalette.foreground.opacity(0.68))
+            }
+            .multilineTextAlignment(.center)
+
+            Button(action: createTerminalFromToolbar) {
+                Label(L10n.string("mobile.terminal.new", defaultValue: "New Terminal"), systemImage: "plus")
+            }
+            .buttonStyle(.borderedProminent)
+            .controlSize(.regular)
+            .accessibilityIdentifier("MobileTerminalEmptyCreateButton")
+        }
+        .padding(24)
+        .frame(maxWidth: 320)
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("MobileTerminalEmptyState")
+    }
+    #endif
 
     private var newWorkspaceToolbarButton: some View {
         Button(action: createWorkspaceFromToolbar) {
@@ -297,8 +339,10 @@ struct WorkspaceDetailView: View {
 
             #if DEBUG
             Button(action: copyDebugLogsFromMenu) {
-                // DEV-only debug tooling; not shipped, so not localized.
-                Label("Copy Debug Logs", systemImage: "doc.on.clipboard")
+                Label(
+                    L10n.string("mobile.debug.copyLogs", defaultValue: "Copy Debug Logs"),
+                    systemImage: "doc.on.clipboard"
+                )
             }
             .accessibilityIdentifier("MobileCopyDebugLogsMenuItem")
             #endif

@@ -108,11 +108,43 @@ struct WorkspaceListView: View {
         return matches.enumerated()
             .sorted { lhs, rhs in
                 if lhs.element.isPinned != rhs.element.isPinned {
-                    return lhs.element.isPinned
+                    return lhs.element.isPinned && !rhs.element.isPinned
                 }
                 return lhs.offset < rhs.offset
             }
             .map(\.element)
+    }
+
+    private var emptyState: MobileWorkspaceListEmptyState? {
+        if workspaces.isEmpty {
+            return .noWorkspaces
+        }
+        let query = trimmedQuery
+        if query.isEmpty && !filter.isActive {
+            return nil
+        }
+        let visibleWorkspaceCount = workspaces.reduce(into: 0) { count, workspace in
+            guard filter.matches(workspace),
+                  query.isEmpty || matchesQuery(workspace, query: query) else {
+                return
+            }
+            count += 1
+        }
+        if visibleWorkspaceCount > 0 {
+            return nil
+        }
+        let queryMatchedWorkspaceCount = query.isEmpty ? workspaces.count : workspaces.reduce(into: 0) { count, workspace in
+            if matchesQuery(workspace, query: query) {
+                count += 1
+            }
+        }
+        return MobileWorkspaceListEmptyState.state(
+            workspaceCount: workspaces.count,
+            visibleWorkspaceCount: visibleWorkspaceCount,
+            queryMatchedWorkspaceCount: queryMatchedWorkspaceCount,
+            trimmedQuery: query,
+            filter: filter
+        )
     }
 
     /// Ordered drawable items for the grouped presentation. Preserves the Mac's
@@ -132,15 +164,10 @@ struct WorkspaceListView: View {
                 }
             }
             Section {
-                if rendersGroupedSections {
+                if let emptyState {
+                    emptyRow(for: emptyState)
+                } else if rendersGroupedSections {
                     groupedRows
-                } else if filter.isActive && trimmedQuery.isEmpty && filteredWorkspaces.isEmpty && !workspaces.isEmpty {
-                    // The filter alone (not the Mac, and not a search query)
-                    // emptied the list; offer the way back. While searching, the
-                    // standard empty search result is shown instead, since "Show
-                    // All" would not resolve a query that matches nothing.
-                    WorkspaceListFilterEmptyRow(filter: filter) { filter = .all }
-                        .listRowSeparator(.hidden)
                 } else {
                     flatRows
                 }
@@ -263,6 +290,49 @@ struct WorkspaceListView: View {
         )
         .listRowInsets(EdgeInsets(top: 4, leading: indented ? 32 : 12, bottom: 4, trailing: 12))
         .listRowSeparator(.hidden)
+    }
+
+    @ViewBuilder
+    private func emptyRow(for emptyState: MobileWorkspaceListEmptyState) -> some View {
+        switch emptyState {
+        case .noWorkspaces:
+            WorkspaceListEmptyRow(
+                systemImage: "rectangle.stack.badge.plus",
+                title: L10n.string("mobile.workspaces.empty.title", defaultValue: "No workspaces yet"),
+                message: L10n.string(
+                    "mobile.workspaces.empty.message",
+                    defaultValue: "Create a workspace to start a terminal session."
+                ),
+                actionTitle: L10n.string("mobile.workspace.new", defaultValue: "New Workspace"),
+                actionSystemImage: "plus",
+                action: createWorkspace
+            )
+            .accessibilityIdentifier("MobileWorkspaceListEmpty")
+            .listRowSeparator(.hidden)
+        case .noSearchResults:
+            WorkspaceListEmptyRow(
+                systemImage: "magnifyingglass",
+                title: L10n.string(
+                    "mobile.workspaces.search.empty.title",
+                    defaultValue: "No matching workspaces"
+                ),
+                message: L10n.string(
+                    "mobile.workspaces.search.empty.message",
+                    defaultValue: "Try a different workspace name, terminal, or recent activity."
+                ),
+                actionTitle: L10n.string("mobile.workspaces.search.clear", defaultValue: "Clear Search"),
+                actionSystemImage: "xmark",
+                action: { searchText = "" }
+            )
+            .accessibilityIdentifier("MobileWorkspaceSearchEmpty")
+            .listRowSeparator(.hidden)
+        case .filterNoMatches(let filter):
+            // The filter alone (not the Mac, and not a search query) emptied
+            // the list; offer the way back. Search empties get a separate row,
+            // since "Show All" would not resolve a query that matches nothing.
+            WorkspaceListFilterEmptyRow(filter: filter) { self.filter = .all }
+                .listRowSeparator(.hidden)
+        }
     }
 
     private var newWorkspaceButton: some View {
