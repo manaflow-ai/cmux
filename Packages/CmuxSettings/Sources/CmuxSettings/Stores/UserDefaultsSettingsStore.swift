@@ -53,13 +53,12 @@ public actor UserDefaultsSettingsStore {
 
     /// Returns the current value for the key.
     public func value<Value>(for key: DefaultsKey<Value>) -> Value {
-        let raw = underlyingDefaults.object(forKey: key.userDefaultsKey)
-        return Value.decodeFromUserDefaults(raw) ?? key.defaultValue
+        key.value(in: underlyingDefaults)
     }
 
     /// Writes a value for the key.
     public func set<Value>(_ value: Value, for key: DefaultsKey<Value>) {
-        underlyingDefaults.set(value.encodeForUserDefaults(), forKey: key.userDefaultsKey)
+        key.set(value, in: underlyingDefaults)
     }
 
     /// Removes the stored override for the key. After this call ``value(for:)``

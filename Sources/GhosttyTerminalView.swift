@@ -7,9 +7,13 @@ import CmuxTerminalEngine
 import CmuxTerminalServices
 import CmuxTerminalCopyMode
 import CmuxSocketControl
+import CmuxFileOpen
+import CmuxSettings
+import CmuxTestSupport
 import CmuxWorkspaceWindow
 import SwiftUI
 import AppKit
+import CmuxFoundation
 import Metal
 import QuartzCore
 import Combine
@@ -3465,7 +3469,7 @@ class GhosttyApp {
                 return false
             }
             #if DEBUG
-            if CmuxUITestCapture.appendLineIfConfigured(
+            if UITestCaptureSink().appendLineIfConfigured(
                 envKey: "CMUX_UI_TEST_CAPTURE_OPEN_URL_PATH",
                 line: target.url.absoluteString
             ) {
@@ -4397,9 +4401,17 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             return false
         }
 
-        // First principles: derive pixel size from AppKit's backing conversion for the current
-        // window/screen. Avoid updating Ghostty while detached from a window.
-        let backingSize = convertToBacking(NSRect(origin: .zero, size: size)).size
+        // Derive pixel size from the window's backing scale, NOT from
+        // convertToBacking: that conversion folds in ancestor transforms
+        // (the canvas layout's NSScrollView magnification), which would
+        // re-typeset the terminal at a shrunken pixel grid while zooming and
+        // render duplicated rows. Terminals keep their logical pixel density
+        // and scale visually under magnification; in split mode the two
+        // formulas are identical.
+        let backingSize = CGSize(
+            width: size.width * max(1.0, window.backingScaleFactor),
+            height: size.height * max(1.0, window.backingScaleFactor)
+        )
         guard backingSize.width > 0, backingSize.height > 0 else {
 #if DEBUG
             let signature = "zeroBacking-\(Int(backingSize.width))x\(Int(backingSize.height))"
@@ -4493,10 +4505,8 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     }
 
     func expectedPixelSize(for pointsSize: CGSize) -> CGSize {
-        let backing = convertToBacking(NSRect(origin: .zero, size: pointsSize)).size
-        if backing.width > 0, backing.height > 0 {
-            return backing
-        }
+        // Mirrors the surface-size derivation: window backing scale only, so
+        // ancestor magnification (canvas zoom) never re-typesets the grid.
         let scale = max(1.0, window?.backingScaleFactor ?? layer?.contentsScale ?? 1.0)
         return CGSize(width: pointsSize.width * scale, height: pointsSize.height * scale)
     }
@@ -6153,7 +6163,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         let effectiveFlags = suppressCommandPathHover ? flags.subtracting(.command) : flags
 #if DEBUG
         if suppressCommandPathHover, flags.contains(.command) {
-            _ = CmuxUITestCapture.mutateJSONObjectIfConfigured(
+            _ = UITestCaptureSink().mutateJSONObjectIfConfigured(
                 envKey: "CMUX_UI_TEST_CMD_HOVER_DIAGNOSTICS_PATH"
             ) { payload in
                 payload["suppressed_command_hover_count"] = (payload["suppressed_command_hover_count"] as? Int ?? 0) + 1
@@ -6456,7 +6466,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         cmuxDebugLog("link.wordFallback resolved=\(resolution.path) source=\(resolution.source.rawValue)")
         #endif
 
-        PreferredEditorSettings.open(URL(fileURLWithPath: resolution.path))
+        PreferredEditorService(defaults: .standard).open(URL(fileURLWithPath: resolution.path))
     }
 
     /// Check if the word under the mouse cursor resolves to an existing file/directory
@@ -6888,7 +6898,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             return resolution
         }
 
-        PreferredEditorSettings.open(URL(fileURLWithPath: resolution.path))
+        PreferredEditorService(defaults: .standard).open(URL(fileURLWithPath: resolution.path))
         return resolution
     }
 

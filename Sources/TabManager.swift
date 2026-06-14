@@ -1141,7 +1141,7 @@ class TabManager: ObservableObject {
             ])
 #endif
             if autoWelcomeIfNeeded && select && initialSurface == .terminal
-                && !UserDefaults.standard.bool(forKey: WelcomeSettings.shownKey) {
+                && !UserDefaults.standard.bool(forKey: AccountCatalogSection().welcomeShown.userDefaultsKey) {
                 if let appDelegate = AppDelegate.shared {
                     appDelegate.sendWelcomeCommandWhenReady(to: newWorkspace, markShownOnSend: true)
                 } else {
@@ -1157,7 +1157,7 @@ class TabManager: ObservableObject {
         if let terminalPanel = workspace.focusedTerminalPanel,
            terminalPanel.surface.surface != nil {
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
-                UserDefaults.standard.set(true, forKey: WelcomeSettings.shownKey)
+                UserDefaults.standard.set(true, forKey: AccountCatalogSection().welcomeShown.userDefaultsKey)
                 terminalPanel.sendText("cmux welcome\n")
             }
             return
@@ -1177,7 +1177,7 @@ class TabManager: ObservableObject {
             }
             panelsCancellable?.cancel()
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
-                UserDefaults.standard.set(true, forKey: WelcomeSettings.shownKey)
+                UserDefaults.standard.set(true, forKey: AccountCatalogSection().welcomeShown.userDefaultsKey)
                 terminalPanel.sendText("cmux welcome\n")
             }
         }
@@ -2105,7 +2105,7 @@ class TabManager: ObservableObject {
         guard !closeConfirmationInFlight else { return }
         guard let plan = closeOtherTabsInFocusedPanePlan() else { return }
 
-        if CloseTabConfirmationPolicy.shouldConfirm(requiresConfirmation: true, source: .shortcut) {
+        if CloseTabWarningStore(defaults: .standard).shouldConfirmClose(requiresConfirmation: true, source: .shortcut) {
             let prompt = CloseOtherTabsConfirmationPrompt(titles: plan.titles)
             guard confirmClose(
                 title: prompt.title,
@@ -2492,12 +2492,12 @@ class TabManager: ObservableObject {
         case .workspace:
             return requiresConfirmation
         case .tabClose:
-            return CloseTabConfirmationPolicy.shouldConfirm(
+            return CloseTabWarningStore(defaults: .standard).shouldConfirmClose(
                 requiresConfirmation: requiresConfirmation,
                 source: .shortcut
             )
         case .tabCloseButton:
-            return CloseTabConfirmationPolicy.shouldConfirm(
+            return CloseTabWarningStore(defaults: .standard).shouldConfirmClose(
                 requiresConfirmation: requiresConfirmation,
                 source: .tabCloseButton
             )
@@ -2690,7 +2690,7 @@ class TabManager: ObservableObject {
             requiresConfirmation = false
         }
 
-        if CloseTabConfirmationPolicy.shouldConfirm(
+        if CloseTabWarningStore(defaults: .standard).shouldConfirmClose(
             requiresConfirmation: requiresConfirmation,
             source: .shortcut
         ) {

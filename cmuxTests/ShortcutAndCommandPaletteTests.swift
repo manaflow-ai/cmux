@@ -1,3 +1,5 @@
+import CmuxCommandPalette
+import CmuxFoundation
 import XCTest
 import AppKit
 import SwiftUI
@@ -9,8 +11,15 @@ import UserNotifications
 import Sparkle
 import CmuxUpdater
 import CmuxCommandPaletteUI
-
-import CmuxSettings
+// Selective imports: the app target also defines AppIconMode/StoredShortcut/etc.,
+// so a blanket `import CmuxSettings` here makes those names ambiguous. Import only
+// the settings symbols this file needs.
+import struct CmuxSettings.AppCatalogSection
+import struct CmuxSettings.QuitConfirmationStore
+import struct CmuxSettings.CommandPaletteSettingsStore
+import enum CmuxSettings.ConfirmQuitMode
+import struct CmuxSettings.SettingCatalog
+import struct CmuxSettings.UserDefaultsSettingsClient
 
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
@@ -816,27 +825,27 @@ final class CommandPaletteRenameSelectionSettingsTests: XCTestCase {
 
     func testDefaultsToSelectAllWhenUnset() {
         let defaults = makeDefaults()
-        XCTAssertTrue(CommandPaletteRenameSelectionSettings.selectAllOnFocusEnabled(defaults: defaults))
+        XCTAssertTrue(CommandPaletteSettingsStore(defaults: defaults).renameSelectsAllOnFocus)
     }
 
     func testReturnsFalseWhenStoredFalse() {
         let defaults = makeDefaults()
-        defaults.set(false, forKey: CommandPaletteRenameSelectionSettings.selectAllOnFocusKey)
-        XCTAssertFalse(CommandPaletteRenameSelectionSettings.selectAllOnFocusEnabled(defaults: defaults))
+        defaults.set(false, forKey: AppCatalogSection().renameSelectsExistingName.userDefaultsKey)
+        XCTAssertFalse(CommandPaletteSettingsStore(defaults: defaults).renameSelectsAllOnFocus)
     }
 
     func testReturnsTrueWhenStoredTrue() {
         let defaults = makeDefaults()
-        defaults.set(true, forKey: CommandPaletteRenameSelectionSettings.selectAllOnFocusKey)
-        XCTAssertTrue(CommandPaletteRenameSelectionSettings.selectAllOnFocusEnabled(defaults: defaults))
+        defaults.set(true, forKey: AppCatalogSection().renameSelectsExistingName.userDefaultsKey)
+        XCTAssertTrue(CommandPaletteSettingsStore(defaults: defaults).renameSelectsAllOnFocus)
     }
 }
 
 final class CommandPaletteAuthCommandTests: XCTestCase {
     func testSignedOutContextShowsSignInCommandOnly() {
-        var context = ContentView.CommandPaletteContextSnapshot()
-        context.setBool(ContentView.CommandPaletteContextKeys.authSignedIn, false)
-        context.setBool(ContentView.CommandPaletteContextKeys.authWorking, false)
+        var context = CommandPaletteContextSnapshot()
+        context.setBool(CommandPaletteContextKeys.authSignedIn, false)
+        context.setBool(CommandPaletteContextKeys.authWorking, false)
 
         let visibleCommandIds = visibleAuthCommandIds(context)
 
@@ -844,9 +853,9 @@ final class CommandPaletteAuthCommandTests: XCTestCase {
     }
 
     func testSignedInContextShowsSignOutCommandOnly() {
-        var context = ContentView.CommandPaletteContextSnapshot()
-        context.setBool(ContentView.CommandPaletteContextKeys.authSignedIn, true)
-        context.setBool(ContentView.CommandPaletteContextKeys.authWorking, false)
+        var context = CommandPaletteContextSnapshot()
+        context.setBool(CommandPaletteContextKeys.authSignedIn, true)
+        context.setBool(CommandPaletteContextKeys.authWorking, false)
 
         let visibleCommandIds = visibleAuthCommandIds(context)
 
@@ -855,15 +864,15 @@ final class CommandPaletteAuthCommandTests: XCTestCase {
 
     func testWorkingAuthContextHidesSignInAndSignOutCommands() {
         for signedIn in [false, true] {
-            var context = ContentView.CommandPaletteContextSnapshot()
-            context.setBool(ContentView.CommandPaletteContextKeys.authSignedIn, signedIn)
-            context.setBool(ContentView.CommandPaletteContextKeys.authWorking, true)
+            var context = CommandPaletteContextSnapshot()
+            context.setBool(CommandPaletteContextKeys.authSignedIn, signedIn)
+            context.setBool(CommandPaletteContextKeys.authWorking, true)
 
             XCTAssertTrue(visibleAuthCommandIds(context).isEmpty)
         }
     }
 
-    private func visibleAuthCommandIds(_ context: ContentView.CommandPaletteContextSnapshot) -> [String] {
+    private func visibleAuthCommandIds(_ context: CommandPaletteContextSnapshot) -> [String] {
         ContentView.commandPaletteAuthCommandContributions()
             .filter { $0.when(context) }
             .map(\.commandId)
@@ -1684,9 +1693,9 @@ final class QuitWarningSettingsTests: XCTestCase {
         }
         defer { defaults.removePersistentDomain(forName: suiteName) }
 
-        defaults.removeObject(forKey: QuitWarningSettings.warnBeforeQuitKey)
+        defaults.removeObject(forKey: AppCatalogSection().warnBeforeQuit.userDefaultsKey)
 
-        XCTAssertTrue(QuitWarningSettings.isEnabled(defaults: defaults))
+        XCTAssertTrue(QuitConfirmationStore(defaults: defaults).isEnabled)
     }
 
     func testStoredPreferenceOverridesDefault() {
@@ -1697,11 +1706,11 @@ final class QuitWarningSettingsTests: XCTestCase {
         }
         defer { defaults.removePersistentDomain(forName: suiteName) }
 
-        defaults.set(false, forKey: QuitWarningSettings.warnBeforeQuitKey)
-        XCTAssertFalse(QuitWarningSettings.isEnabled(defaults: defaults))
+        defaults.set(false, forKey: AppCatalogSection().warnBeforeQuit.userDefaultsKey)
+        XCTAssertFalse(QuitConfirmationStore(defaults: defaults).isEnabled)
 
-        defaults.set(true, forKey: QuitWarningSettings.warnBeforeQuitKey)
-        XCTAssertTrue(QuitWarningSettings.isEnabled(defaults: defaults))
+        defaults.set(true, forKey: AppCatalogSection().warnBeforeQuit.userDefaultsKey)
+        XCTAssertTrue(QuitConfirmationStore(defaults: defaults).isEnabled)
     }
 
     func testShouldShowConfirmationFollowsEnabledPreference() {
@@ -1712,40 +1721,36 @@ final class QuitWarningSettingsTests: XCTestCase {
         }
         defer { defaults.removePersistentDomain(forName: suiteName) }
 
-        defaults.set(true, forKey: QuitWarningSettings.warnBeforeQuitKey)
+        defaults.set(true, forKey: AppCatalogSection().warnBeforeQuit.userDefaultsKey)
         XCTAssertTrue(
-            QuitWarningSettings.shouldShowConfirmation(
+            QuitConfirmationStore(defaults: defaults).shouldShowConfirmation(
                 isQuitWarningConfirmed: false,
                 hasDirtyWorkspaces: true,
-                buildFlavor: .stable,
-                defaults: defaults
+                isDevBuild: BuildFlavor.stable == .dev
             )
         )
 
         XCTAssertFalse(
-            QuitWarningSettings.shouldShowConfirmation(
+            QuitConfirmationStore(defaults: defaults).shouldShowConfirmation(
                 isQuitWarningConfirmed: true,
                 hasDirtyWorkspaces: true,
-                buildFlavor: .stable,
-                defaults: defaults
+                isDevBuild: BuildFlavor.stable == .dev
             )
         )
 
-        defaults.set(false, forKey: QuitWarningSettings.warnBeforeQuitKey)
+        defaults.set(false, forKey: AppCatalogSection().warnBeforeQuit.userDefaultsKey)
         XCTAssertFalse(
-            QuitWarningSettings.shouldShowConfirmation(
+            QuitConfirmationStore(defaults: defaults).shouldShowConfirmation(
                 isQuitWarningConfirmed: false,
                 hasDirtyWorkspaces: true,
-                buildFlavor: .stable,
-                defaults: defaults
+                isDevBuild: BuildFlavor.stable == .dev
             )
         )
         XCTAssertFalse(
-            QuitWarningSettings.shouldShowConfirmation(
+            QuitConfirmationStore(defaults: defaults).shouldShowConfirmation(
                 isQuitWarningConfirmed: true,
                 hasDirtyWorkspaces: true,
-                buildFlavor: .stable,
-                defaults: defaults
+                isDevBuild: BuildFlavor.stable == .dev
             )
         )
     }
@@ -1758,15 +1763,15 @@ final class QuitWarningSettingsTests: XCTestCase {
         }
         defer { defaults.removePersistentDomain(forName: suiteName) }
 
-        QuitWarningSettings.setEnabled(false, defaults: defaults)
-        XCTAssertEqual(defaults.string(forKey: QuitWarningSettings.confirmQuitKey), QuitConfirmationMode.never.rawValue)
-        XCTAssertEqual(defaults.object(forKey: QuitWarningSettings.warnBeforeQuitKey) as? Bool, false)
-        XCTAssertEqual(QuitWarningSettings.confirmQuitMode(defaults: defaults), .never)
+        QuitConfirmationStore(defaults: defaults).setEnabled(false)
+        XCTAssertEqual(defaults.string(forKey: AppCatalogSection().confirmQuitMode.userDefaultsKey), ConfirmQuitMode.never.rawValue)
+        XCTAssertEqual(defaults.object(forKey: AppCatalogSection().warnBeforeQuit.userDefaultsKey) as? Bool, false)
+        XCTAssertEqual(QuitConfirmationStore(defaults: defaults).confirmQuitMode, .never)
 
-        QuitWarningSettings.setEnabled(true, defaults: defaults)
-        XCTAssertEqual(defaults.string(forKey: QuitWarningSettings.confirmQuitKey), QuitConfirmationMode.always.rawValue)
-        XCTAssertEqual(defaults.object(forKey: QuitWarningSettings.warnBeforeQuitKey) as? Bool, true)
-        XCTAssertEqual(QuitWarningSettings.confirmQuitMode(defaults: defaults), .always)
+        QuitConfirmationStore(defaults: defaults).setEnabled(true)
+        XCTAssertEqual(defaults.string(forKey: AppCatalogSection().confirmQuitMode.userDefaultsKey), ConfirmQuitMode.always.rawValue)
+        XCTAssertEqual(defaults.object(forKey: AppCatalogSection().warnBeforeQuit.userDefaultsKey) as? Bool, true)
+        XCTAssertEqual(QuitConfirmationStore(defaults: defaults).confirmQuitMode, .always)
     }
 }
 
@@ -1803,23 +1808,21 @@ final class BuildFlavorTests: XCTestCase {
 final class QuitConfirmationPolicyTests: XCTestCase {
     func testDevAlwaysSkipsQuitConfirmation() {
         withIsolatedDefaults { defaults in
-            defaults.set(QuitConfirmationMode.always.rawValue, forKey: QuitWarningSettings.confirmQuitKey)
+            defaults.set(ConfirmQuitMode.always.rawValue, forKey: AppCatalogSection().confirmQuitMode.userDefaultsKey)
             XCTAssertFalse(
-                QuitWarningSettings.shouldShowConfirmation(
+                QuitConfirmationStore(defaults: defaults).shouldShowConfirmation(
                     isQuitWarningConfirmed: false,
                     hasDirtyWorkspaces: true,
-                    buildFlavor: .dev,
-                    defaults: defaults
+                    isDevBuild: BuildFlavor.dev == .dev
                 )
             )
 
-            defaults.set(QuitConfirmationMode.dirtyOnly.rawValue, forKey: QuitWarningSettings.confirmQuitKey)
+            defaults.set(ConfirmQuitMode.dirtyOnly.rawValue, forKey: AppCatalogSection().confirmQuitMode.userDefaultsKey)
             XCTAssertFalse(
-                QuitWarningSettings.shouldShowConfirmation(
+                QuitConfirmationStore(defaults: defaults).shouldShowConfirmation(
                     isQuitWarningConfirmed: false,
                     hasDirtyWorkspaces: true,
-                    buildFlavor: .dev,
-                    defaults: defaults
+                    isDevBuild: BuildFlavor.dev == .dev
                 )
             )
         }
@@ -1827,41 +1830,37 @@ final class QuitConfirmationPolicyTests: XCTestCase {
 
     func testStableHonorsConfirmQuitModes() {
         withIsolatedDefaults { defaults in
-            defaults.set(QuitConfirmationMode.always.rawValue, forKey: QuitWarningSettings.confirmQuitKey)
+            defaults.set(ConfirmQuitMode.always.rawValue, forKey: AppCatalogSection().confirmQuitMode.userDefaultsKey)
             XCTAssertTrue(
-                QuitWarningSettings.shouldShowConfirmation(
+                QuitConfirmationStore(defaults: defaults).shouldShowConfirmation(
                     isQuitWarningConfirmed: false,
                     hasDirtyWorkspaces: false,
-                    buildFlavor: .stable,
-                    defaults: defaults
+                    isDevBuild: BuildFlavor.stable == .dev
                 )
             )
 
-            defaults.set(QuitConfirmationMode.dirtyOnly.rawValue, forKey: QuitWarningSettings.confirmQuitKey)
+            defaults.set(ConfirmQuitMode.dirtyOnly.rawValue, forKey: AppCatalogSection().confirmQuitMode.userDefaultsKey)
             XCTAssertFalse(
-                QuitWarningSettings.shouldShowConfirmation(
+                QuitConfirmationStore(defaults: defaults).shouldShowConfirmation(
                     isQuitWarningConfirmed: false,
                     hasDirtyWorkspaces: false,
-                    buildFlavor: .stable,
-                    defaults: defaults
+                    isDevBuild: BuildFlavor.stable == .dev
                 )
             )
             XCTAssertTrue(
-                QuitWarningSettings.shouldShowConfirmation(
+                QuitConfirmationStore(defaults: defaults).shouldShowConfirmation(
                     isQuitWarningConfirmed: false,
                     hasDirtyWorkspaces: true,
-                    buildFlavor: .stable,
-                    defaults: defaults
+                    isDevBuild: BuildFlavor.stable == .dev
                 )
             )
 
-            defaults.set(QuitConfirmationMode.never.rawValue, forKey: QuitWarningSettings.confirmQuitKey)
+            defaults.set(ConfirmQuitMode.never.rawValue, forKey: AppCatalogSection().confirmQuitMode.userDefaultsKey)
             XCTAssertFalse(
-                QuitWarningSettings.shouldShowConfirmation(
+                QuitConfirmationStore(defaults: defaults).shouldShowConfirmation(
                     isQuitWarningConfirmed: false,
                     hasDirtyWorkspaces: true,
-                    buildFlavor: .stable,
-                    defaults: defaults
+                    isDevBuild: BuildFlavor.stable == .dev
                 )
             )
         }
@@ -1869,21 +1868,19 @@ final class QuitConfirmationPolicyTests: XCTestCase {
 
     func testNightlyHonorsConfirmQuitModes() {
         withIsolatedDefaults { defaults in
-            defaults.set(QuitConfirmationMode.dirtyOnly.rawValue, forKey: QuitWarningSettings.confirmQuitKey)
+            defaults.set(ConfirmQuitMode.dirtyOnly.rawValue, forKey: AppCatalogSection().confirmQuitMode.userDefaultsKey)
             XCTAssertFalse(
-                QuitWarningSettings.shouldShowConfirmation(
+                QuitConfirmationStore(defaults: defaults).shouldShowConfirmation(
                     isQuitWarningConfirmed: false,
                     hasDirtyWorkspaces: false,
-                    buildFlavor: .nightly,
-                    defaults: defaults
+                    isDevBuild: BuildFlavor.nightly == .dev
                 )
             )
             XCTAssertTrue(
-                QuitWarningSettings.shouldShowConfirmation(
+                QuitConfirmationStore(defaults: defaults).shouldShowConfirmation(
                     isQuitWarningConfirmed: false,
                     hasDirtyWorkspaces: true,
-                    buildFlavor: .nightly,
-                    defaults: defaults
+                    isDevBuild: BuildFlavor.nightly == .dev
                 )
             )
         }
@@ -1891,11 +1888,11 @@ final class QuitConfirmationPolicyTests: XCTestCase {
 
     func testLegacyWarnBeforeQuitMapsWhenConfirmQuitUnset() {
         withIsolatedDefaults { defaults in
-            defaults.set(false, forKey: QuitWarningSettings.warnBeforeQuitKey)
-            XCTAssertEqual(QuitWarningSettings.confirmQuitMode(defaults: defaults), .never)
+            defaults.set(false, forKey: AppCatalogSection().warnBeforeQuit.userDefaultsKey)
+            XCTAssertEqual(QuitConfirmationStore(defaults: defaults).confirmQuitMode, .never)
 
-            defaults.set(true, forKey: QuitWarningSettings.warnBeforeQuitKey)
-            XCTAssertEqual(QuitWarningSettings.confirmQuitMode(defaults: defaults), .always)
+            defaults.set(true, forKey: AppCatalogSection().warnBeforeQuit.userDefaultsKey)
+            XCTAssertEqual(QuitConfirmationStore(defaults: defaults).confirmQuitMode, .always)
         }
     }
 
@@ -2094,41 +2091,5 @@ private final class UpdateChoiceRecorder: @unchecked Sendable {
         lock.lock()
         defer { lock.unlock() }
         return choices
-    }
-}
-
-@MainActor
-final class CommandPaletteOverlayPromotionPolicyTests: XCTestCase {
-    func testShouldPromoteWhenBecomingVisible() {
-        XCTAssertTrue(
-            CommandPaletteOverlayPromotionPolicy.shouldPromote(
-                previouslyVisible: false,
-                isVisible: true
-            )
-        )
-    }
-
-    func testShouldNotPromoteWhenAlreadyVisible() {
-        XCTAssertFalse(
-            CommandPaletteOverlayPromotionPolicy.shouldPromote(
-                previouslyVisible: true,
-                isVisible: true
-            )
-        )
-    }
-
-    func testShouldNotPromoteWhenHidden() {
-        XCTAssertFalse(
-            CommandPaletteOverlayPromotionPolicy.shouldPromote(
-                previouslyVisible: true,
-                isVisible: false
-            )
-        )
-        XCTAssertFalse(
-            CommandPaletteOverlayPromotionPolicy.shouldPromote(
-                previouslyVisible: false,
-                isVisible: false
-            )
-        )
     }
 }
