@@ -61,6 +61,17 @@ import Testing
         #expect(decoded.expiresAt == nil)
     }
 
+    @Test func missingCompactCompatibilityDecodesAsUnknown() throws {
+        let payload = """
+        {"v":1,"d":"mac-1","u":"user_mac_123","r":[{"k":"tailscale","e":{"h":"100.64.0.5","p":8443}}]}
+        """
+        let decoded = try CmxAttachTicketInput.decode(
+            attachURL(payload: Data(payload.utf8))
+        )
+
+        #expect(decoded.macPairingCompatibilityVersion == 0)
+    }
+
     @Test func decodesLegacyFullKeyPayloadAttachURL() throws {
         // New-phone-scans-old-QR: the legacy grammar must keep decoding,
         // including its auth token.

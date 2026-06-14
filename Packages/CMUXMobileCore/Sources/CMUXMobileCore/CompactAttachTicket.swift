@@ -39,7 +39,7 @@ struct CompactAttachTicket: Codable {
             macDisplayName: nil,
             macUserEmail: u?.contains("@") == true ? u : nil,
             macUserID: u?.contains("@") == false ? u : nil,
-            macPairingCompatibilityVersion: pc,
+            macPairingCompatibilityVersion: pc ?? 0,
             macAppVersion: av,
             macAppBuild: ab,
             routes: Self.expandedRoutes(r),
