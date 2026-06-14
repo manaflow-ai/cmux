@@ -235,7 +235,7 @@ extension CMUXCLI {
                 return nil
             }
             let policy = AutoNamingEnvironmentPolicy()
-            var summarizerEnv = policy.summarizerEnvironment(from: env)
+            var summarizerEnv = policy.codexSummarizerEnvironment(from: env)
             summarizerEnv["CMUX_CODEX_HOOKS_DISABLED"] = "1"
             let outputFile = FileManager.default.temporaryDirectory
                 .appendingPathComponent("cmux-codex-autoname-\(UUID().uuidString).txt")
@@ -250,6 +250,12 @@ extension CMUXCLI {
                 executable: executable,
                 arguments: [
                     "exec",
+                    "-c", "default_tools_enabled=false",
+                    "-c", "tools={}",
+                    "-c", "mcp_servers={}",
+                    "-c", "web_search=false",
+                    "-c", "approval_policy=never",
+                    "-c", "shell_environment_policy.inherit=none",
                     "--skip-git-repo-check",
                     "--ephemeral",
                     "--ignore-user-config",

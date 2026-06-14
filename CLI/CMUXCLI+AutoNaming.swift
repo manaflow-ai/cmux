@@ -102,6 +102,37 @@ struct AutoNamingEnvironmentPolicy: Sendable {
         }
     }
 
+    /// Minimal environment for tool-disabled Codex summarization. Keep auth
+    /// discovery and proxy settings, but do not forward other agent/provider
+    /// credentials into a process that receives untrusted transcript text.
+    func codexSummarizerEnvironment(from env: [String: String]) -> [String: String] {
+        let selected = summarizerEnvironment(from: env)
+        let allowedExactKeys: Set<String> = [
+            "HOME",
+            "PATH",
+            "TMPDIR",
+            "TMP",
+            "TEMP",
+            "USER",
+            "LOGNAME",
+            "SHELL",
+            "CODEX_HOME",
+            "OPENAI_API_KEY",
+            "OPENAI_BASE_URL",
+            "OPENAI_ORG_ID",
+            "OPENAI_ORGANIZATION",
+            "SSL_CERT_FILE",
+            "SSL_CERT_DIR",
+            "HTTP_PROXY",
+            "HTTPS_PROXY",
+            "ALL_PROXY",
+            "NO_PROXY"
+        ]
+        return selected.filter { key, _ in
+            allowedExactKeys.contains(key)
+        }
+    }
+
     /// The model passed to `claude -p`. Honors the user's small/fast model
     /// override so Vertex/Bedrock deployments are not broken by a hardcoded
     /// Anthropic alias.

@@ -250,6 +250,31 @@ import Testing
         #expect(env["HOME"] == "/Users/dev")
     }
 
+    @Test func codexSummarizerEnvironmentKeepsAuthDiscoveryButDropsOtherProviderCredentials() {
+        let policy = AutoNamingEnvironmentPolicy()
+        let env = policy.codexSummarizerEnvironment(from: [
+            "CMUX_WORKSPACE_ID": "ws",
+            "ANTHROPIC_API_KEY": "anthropic",
+            "AWS_SECRET_ACCESS_KEY": "aws",
+            "GOOGLE_APPLICATION_CREDENTIALS": "/tmp/gcp.json",
+            "OPENAI_API_KEY": "openai",
+            "OPENAI_BASE_URL": "https://api.openai.com/v1",
+            "CODEX_HOME": "/Users/dev/.codex",
+            "PATH": "/usr/bin",
+            "HOME": "/Users/dev"
+        ])
+
+        #expect(env["CMUX_WORKSPACE_ID"] == nil)
+        #expect(env["ANTHROPIC_API_KEY"] == nil)
+        #expect(env["AWS_SECRET_ACCESS_KEY"] == nil)
+        #expect(env["GOOGLE_APPLICATION_CREDENTIALS"] == nil)
+        #expect(env["OPENAI_API_KEY"] == "openai")
+        #expect(env["OPENAI_BASE_URL"] == "https://api.openai.com/v1")
+        #expect(env["CODEX_HOME"] == "/Users/dev/.codex")
+        #expect(env["PATH"] == "/usr/bin")
+        #expect(env["HOME"] == "/Users/dev")
+    }
+
     @Test func modelHonorsSmallFastOverride() {
         let policy = AutoNamingEnvironmentPolicy()
         #expect(policy.claudeModel(from: [:]) == "haiku")
