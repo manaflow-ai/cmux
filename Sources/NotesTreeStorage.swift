@@ -96,6 +96,10 @@ struct NotesTreeObservation: Equatable, Sendable {
 /// through hooks, so UUID matching misses them; the pane's TTY plus the
 /// agent's live pid are current-run ground truth.
 enum NotesTreePaneProcessLookup {
+    // Runs blocking `ps` pipe reads off the Swift cooperative executor;
+    // this queue does not guard shared state.
+    private static let processQueue = DispatchQueue(label: "com.cmux.notes.pane-process-lookup", qos: .utility)
+
     static func normalizeTTY(_ name: String) -> String {
         let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
         return trimmed.hasPrefix("/dev/") ? String(trimmed.dropFirst(5)) : trimmed
@@ -115,6 +119,19 @@ enum NotesTreePaneProcessLookup {
             paneProcesses(ttys: ttys).map { ($0.pid, $0.tty) },
             uniquingKeysWith: { first, _ in first }
         )
+    }
+
+    /// Every process on the given pane TTYs with its start time (derived from
+    /// `ps` etime, locale-independent) and executable name.
+    static func paneProcessesAsync(
+        ttys: [String],
+        now: TimeInterval = Date().timeIntervalSince1970
+    ) async -> [PaneProcess] {
+        await withCheckedContinuation { continuation in
+            processQueue.async {
+                continuation.resume(returning: paneProcesses(ttys: ttys, now: now))
+            }
+        }
     }
 
     /// Every process on the given pane TTYs with its start time (derived from

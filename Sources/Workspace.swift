@@ -4226,9 +4226,7 @@ final class Workspace: Identifiable, ObservableObject {
             panelByTTY[NotesTreePaneProcessLookup.normalizeTTY(tty)] = panelId
         }
         let ttys = Array(panelByTTY.keys)
-        let paneProcesses = await Task.detached(priority: .utility) {
-            NotesTreePaneProcessLookup.paneProcesses(ttys: ttys)
-        }.value
+        let paneProcesses = await NotesTreePaneProcessLookup.paneProcessesAsync(ttys: ttys)
         var matchedPanePids = Set<Int>()
         let liveEntries = entries.filter { !$0.entry.processIDs.isEmpty }
         let pidToTTY = Dictionary(
