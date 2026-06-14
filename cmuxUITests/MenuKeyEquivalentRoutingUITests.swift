@@ -1245,7 +1245,7 @@ final class SplitCloseRightBlankRegressionUITests: XCTestCase {
     // MARK: - Automation Socket Client (UI Tests)
 
     private func waitForSocketPong(timeout: TimeInterval) -> Bool {
-        waitForCondition(timeout: timeout) {
+        waitForControlSocketReady(socketPath: socketPath, pingTimeout: timeout) {
             self.socketCommand("ping") == "PONG"
         }
     }

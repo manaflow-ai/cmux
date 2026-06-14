@@ -57,6 +57,7 @@ export const agentReadablePages = [
   { path: "/docs", title: "Docs" },
   { path: "/docs/getting-started", title: "Getting Started" },
   { path: "/docs/concepts", title: "Concepts" },
+  { path: "/docs/workspace-groups", title: "Workspace Groups" },
   { path: "/docs/configuration", title: "Configuration" },
   { path: "/docs/textbox", title: "TextBox" },
   { path: "/docs/custom-commands", title: "Custom Commands" },

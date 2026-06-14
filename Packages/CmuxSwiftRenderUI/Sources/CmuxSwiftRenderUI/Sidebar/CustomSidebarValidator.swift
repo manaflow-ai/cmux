@@ -157,6 +157,7 @@ public struct CustomSidebarValidator {
                 "branch": .string("main"),
                 "dirty": .bool(false),
                 "pr": .string(""),
+                "prs": .array([]),
                 "progress": .string(""),
                 "latestMessage": .string(""),
                 "latestPrompt": .string(""),
