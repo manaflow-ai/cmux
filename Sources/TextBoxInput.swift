@@ -1,4 +1,6 @@
 import AppKit
+import CmuxTerminalEngine
+import CmuxTerminalServices
 import Carbon.HIToolbox
 import CmuxSettingsUI
 import Observation
@@ -271,7 +273,7 @@ struct TextBoxAttachment: Identifiable {
     }
 
     static func shouldCleanupLocalURLWhenDisposed(_ fileURL: URL) -> Bool {
-        GhosttyPasteboardHelper.isOwnedTemporaryImageFile(fileURL)
+        GhosttyApp.terminalPasteboard.isOwnedTemporaryImageFile(fileURL)
             || TextBoxDraftAttachmentStorage.isOwnedDraftCopy(fileURL)
     }
 
@@ -307,7 +309,7 @@ private enum TextBoxDraftAttachmentStorage {
 
     static func snapshot(for attachment: TextBoxAttachment) -> SessionTextBoxInputAttachmentSnapshot {
         guard let localURL = attachment.localURL,
-              GhosttyPasteboardHelper.isOwnedTemporaryImageFile(localURL) else {
+              GhosttyApp.terminalPasteboard.isOwnedTemporaryImageFile(localURL) else {
             return fallbackSnapshot(for: attachment)
         }
         let standardizedLocalURL = localURL.standardizedFileURL
@@ -348,7 +350,7 @@ private enum TextBoxDraftAttachmentStorage {
 
     static func prepareDurableCopy(for attachment: TextBoxAttachment) {
         guard let localURL = attachment.localURL,
-              GhosttyPasteboardHelper.isOwnedTemporaryImageFile(localURL) else {
+              GhosttyApp.terminalPasteboard.isOwnedTemporaryImageFile(localURL) else {
             return
         }
         let standardizedLocalURL = localURL.standardizedFileURL
@@ -557,7 +559,7 @@ private enum TextBoxDraftAttachmentStorage {
 #if DEBUG
     static func debugPrepareDurableCopySynchronously(for attachment: TextBoxAttachment) -> URL? {
         guard let localURL = attachment.localURL,
-              GhosttyPasteboardHelper.isOwnedTemporaryImageFile(localURL) else {
+              GhosttyApp.terminalPasteboard.isOwnedTemporaryImageFile(localURL) else {
             return nil
         }
         let originalURL = localURL.standardizedFileURL
@@ -3212,7 +3214,7 @@ struct TextBoxInputContainer: View {
                 surface?.hostedView.endImageTransferIndicator(for: operation)
                 guard operation.finish() else {
                     removePendingPlaceholder()
-                    GhosttyPasteboardHelper.cleanupTransferredTemporaryImageFiles(fileURLs)
+                    GhosttyApp.terminalPasteboard.cleanupTransferredTemporaryImageFiles(fileURLs)
                     return
                 }
 
@@ -3220,7 +3222,7 @@ struct TextBoxInputContainer: View {
                 case .success(let remotePaths):
                     guard !remotePaths.isEmpty else {
                         removePendingPlaceholder()
-                        GhosttyPasteboardHelper.cleanupTransferredTemporaryImageFiles(fileURLs)
+                        GhosttyApp.terminalPasteboard.cleanupTransferredTemporaryImageFiles(fileURLs)
                         NSSound.beep()
                         return
                     }
@@ -3235,14 +3237,14 @@ struct TextBoxInputContainer: View {
                     }
                     guard !newAttachments.isEmpty else {
                         removePendingPlaceholder()
-                        GhosttyPasteboardHelper.cleanupTransferredTemporaryImageFiles(fileURLs)
+                        GhosttyApp.terminalPasteboard.cleanupTransferredTemporaryImageFiles(fileURLs)
                         NSSound.beep()
                         return
                     }
                     guard textViewReference.textView === textView,
                           textView.canAcceptPendingAttachmentUpload(validationToken: uploadValidationToken) else {
                         removePendingPlaceholder()
-                        GhosttyPasteboardHelper.cleanupTransferredTemporaryImageFiles(fileURLs)
+                        GhosttyApp.terminalPasteboard.cleanupTransferredTemporaryImageFiles(fileURLs)
                         return
                     }
                     guard textView.replacePendingAttachmentUploadPlaceholder(
@@ -3250,14 +3252,14 @@ struct TextBoxInputContainer: View {
                         with: newAttachments
                     ) else {
                         removePendingPlaceholder()
-                        GhosttyPasteboardHelper.cleanupTransferredTemporaryImageFiles(fileURLs)
+                        GhosttyApp.terminalPasteboard.cleanupTransferredTemporaryImageFiles(fileURLs)
                         return
                     }
                     attachments = textView.inlineAttachments()
                     text = textView.plainText()
                 case .failure:
                     removePendingPlaceholder()
-                    GhosttyPasteboardHelper.cleanupTransferredTemporaryImageFiles(fileURLs)
+                    GhosttyApp.terminalPasteboard.cleanupTransferredTemporaryImageFiles(fileURLs)
                     NSSound.beep()
                 }
             }
@@ -5753,7 +5755,7 @@ final class TextBoxInputTextView: NSTextView {
             TextBoxDraftAttachmentStorage.removeCopiedDraftForOriginalTemporaryFile(url)
             return !TextBoxDraftAttachmentStorage.removeIfOwnedDraftCopy(url)
         }
-        GhosttyPasteboardHelper.cleanupTransferredTemporaryImageFiles(ghosttyTemporaryURLs)
+        GhosttyApp.terminalPasteboard.cleanupTransferredTemporaryImageFiles(ghosttyTemporaryURLs)
     }
 
     func cleanupCopiedDraftFilesForPreservedLocalPathSubmissions(_ attachments: [TextBoxAttachment]) {
