@@ -19,9 +19,15 @@ extension TerminalController {
         scrollbackLines: Int = TerminalController.mobileReplayScrollbackLineBudget
     ) -> MobileTerminalRenderGridFrame? {
         guard surfaceID == terminalPanel.id else { return nil }
+        // This is the cold-attach replay / scroll-prefetch path: a full snapshot
+        // that establishes a newly mounted iOS surface's baseline. Stamp the same
+        // cached inherited theme the live observer uses, so the phone inherits the
+        // Mac's palette + chrome on its first frame instead of staying on the
+        // Monokai fallback until a later live full event happens to arrive.
         return terminalPanel.surface.mobileRenderGridFrame(
             stateSeq: seq,
-            scrollbackLines: scrollbackLines
+            scrollbackLines: scrollbackLines,
+            inheritedTheme: MobileTerminalRenderObserver.shared.inheritedTheme()
         )?.frame
     }
 

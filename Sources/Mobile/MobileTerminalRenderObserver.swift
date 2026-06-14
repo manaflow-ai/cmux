@@ -291,7 +291,13 @@ final class MobileTerminalRenderObserver {
     /// next Ghostty config reload. Keeps the config-parse + color-format work off
     /// the per-keystroke render path (every emit asks for a full snapshot before
     /// deciding delta-vs-full, so resolving per emit would tax typing latency).
-    private func inheritedTheme() -> MobileInheritedTerminalTheme {
+    ///
+    /// Shared so every full-snapshot producer — the live observer here AND the
+    /// cold-attach `mobile.terminal.replay` / scroll-prefetch paths in
+    /// `TerminalController` — stamps the same cached theme, so a freshly attached
+    /// phone inherits it on its very first snapshot rather than waiting for a
+    /// later live full event.
+    func inheritedTheme() -> MobileInheritedTerminalTheme {
         if let cachedInheritedTheme {
             return cachedInheritedTheme
         }
