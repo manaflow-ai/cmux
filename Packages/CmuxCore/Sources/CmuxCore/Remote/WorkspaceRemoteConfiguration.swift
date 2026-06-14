@@ -220,13 +220,16 @@ public struct WorkspaceRemoteMacTunnel: Codable, Equatable, Sendable {
     public let localPort: Int
     public let remoteHost: String
     public let remotePort: Int
+    /// Remote cmux window UUID this local window mirrors, when known.
+    public let remoteWindowID: String?
 
     public init?(
         attachURL: String?,
         localHost: String?,
         localPort: Int?,
         remoteHost: String?,
-        remotePort: Int?
+        remotePort: Int?,
+        remoteWindowID: String? = nil
     ) {
         guard let attachURL = Self.normalizedString(attachURL),
               let localHost = Self.normalizedHost(localHost),
@@ -242,9 +245,15 @@ public struct WorkspaceRemoteMacTunnel: Codable, Equatable, Sendable {
         self.localPort = localPort
         self.remoteHost = remoteHost
         self.remotePort = remotePort
+        self.remoteWindowID = Self.normalizedWindowID(remoteWindowID)
     }
 
-    public init?(attachURL: String?, localEndpoint: String?, forwardTarget: String?) {
+    public init?(
+        attachURL: String?,
+        localEndpoint: String?,
+        forwardTarget: String?,
+        remoteWindowID: String? = nil
+    ) {
         let local = Self.splitHostPort(localEndpoint)
         let remote = Self.splitHostPort(forwardTarget)
         self.init(
@@ -252,7 +261,8 @@ public struct WorkspaceRemoteMacTunnel: Codable, Equatable, Sendable {
             localHost: local?.host,
             localPort: local?.port,
             remoteHost: remote?.host,
-            remotePort: remote?.port
+            remotePort: remote?.port,
+            remoteWindowID: remoteWindowID
         )
     }
 
@@ -282,6 +292,14 @@ public struct WorkspaceRemoteMacTunnel: Codable, Equatable, Sendable {
             return nil
         }
         return host
+    }
+
+    private static func normalizedWindowID(_ value: String?) -> String? {
+        guard let value = normalizedString(value),
+              UUID(uuidString: value) != nil else {
+            return nil
+        }
+        return value.uppercased()
     }
 
     private static func splitHostPort(_ value: String?) -> (host: String, port: Int)? {

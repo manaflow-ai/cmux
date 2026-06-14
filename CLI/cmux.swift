@@ -8031,6 +8031,7 @@ struct CMUXCLI {
         let identityFile: String?
         let workspaceName: String?
         let windowRaw: String?
+        let remoteWindowRaw: String?
         let createNewWindow: Bool
         let noFocus: Bool
         let sshOptions: [String]
@@ -8043,6 +8044,11 @@ struct CMUXCLI {
     private struct RemoteMacTicketMint {
         let rawResponse: [String: Any]
         let ticket: CmxAttachTicket
+    }
+
+    private struct RemoteMacWindowScope {
+        let id: String
+        let ref: String?
     }
 
     private struct TerminalSize {
@@ -8146,6 +8152,7 @@ struct CMUXCLI {
         }
         let options = try parseRemoteMacOpenOptions(rest, windowOverride: windowOverride)
         let targetWindowRaw = try remoteMacTargetWindowRaw(options: options, client: client)
+        let remoteWindow = try resolveRemoteMacWindowScope(options)
         let mint = try mintRemoteMacAttachTicket(options)
         let tunneled = try CmxSSHTunneledAttachTicket(
             ticket: mint.ticket,
@@ -8190,14 +8197,20 @@ struct CMUXCLI {
                 params["remote_mac_attach_url"] = attachURL
                 params["remote_mac_local_endpoint"] = "127.0.0.1:\(options.localPort)"
                 params["remote_mac_forward_target"] = "\(remoteHost):\(remotePort)"
+                params["remote_mac_window_id"] = remoteWindow.id
             }
         ) { payload in
             payload["remote_mac_attach_url"] = attachURL
             payload["remote_mac_local_endpoint"] = "127.0.0.1:\(options.localPort)"
             payload["remote_mac_forward_target"] = "\(remoteHost):\(remotePort)"
+            payload["remote_mac_window_id"] = remoteWindow.id
+            if let remoteWindowRef = remoteWindow.ref {
+                payload["remote_mac_window_ref"] = remoteWindowRef
+            }
             payload["remote_mac_ticket"] = mint.rawResponse["ticket"]
         }
         if !jsonOutput {
+            print("remote_window_id=\(remoteWindow.id)")
             print("attach_url=\(attachURL)")
             print("tunnel=127.0.0.1:\(options.localPort) -> \(remoteHost):\(remotePort)")
         }
@@ -8212,6 +8225,7 @@ struct CMUXCLI {
         var identityFile: String?
         var workspaceName: String?
         var windowRaw: String?
+        var remoteWindowRaw: String?
         var createNewWindow = false
         var noFocus = false
         var sshOptions: [String] = []
@@ -8247,6 +8261,12 @@ struct CMUXCLI {
                     throw CLIError(message: "remote mac open: --window requires a window id")
                 }
                 windowRaw = commandArgs[index + 1]
+                index += 2
+            case "--remote-window":
+                guard index + 1 < commandArgs.count else {
+                    throw CLIError(message: "remote mac open: --remote-window requires a remote window id, ref, index, or current")
+                }
+                remoteWindowRaw = commandArgs[index + 1]
                 index += 2
             case "--new-window":
                 createNewWindow = true
@@ -8328,6 +8348,7 @@ struct CMUXCLI {
             identityFile: identityFile,
             workspaceName: workspaceName,
             windowRaw: windowRaw ?? windowOverride,
+            remoteWindowRaw: remoteWindowRaw,
             createNewWindow: createNewWindow,
             noFocus: noFocus,
             sshOptions: sshOptions,
@@ -8358,6 +8379,61 @@ struct CMUXCLI {
         return trimmed
     }
 
+    private func resolveRemoteMacWindowScope(_ options: RemoteMacOpenOptions) throws -> RemoteMacWindowScope {
+        let requested = options.remoteWindowRaw?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        let requestedOrCurrent = (requested?.isEmpty == false) ? requested! : "current"
+        let lowered = requestedOrCurrent.lowercased()
+        if lowered == "current" || lowered == "selected" {
+            let response = try runRemoteMacCMUXRPC(
+                options: options,
+                method: "window.current",
+                params: [:]
+            )
+            guard let id = normalizedRemoteMacWindowID(response["window_id"] as? String) else {
+                throw CLIError(message: "remote mac open: remote cmux did not report the current window id")
+            }
+            return RemoteMacWindowScope(id: id, ref: response["window_ref"] as? String)
+        }
+        if let id = normalizedRemoteMacWindowID(requestedOrCurrent) {
+            return RemoteMacWindowScope(id: id, ref: nil)
+        }
+
+        let response = try runRemoteMacCMUXRPC(
+            options: options,
+            method: "window.list",
+            params: [:]
+        )
+        guard let windows = response["windows"] as? [[String: Any]] else {
+            throw CLIError(message: "remote mac open: remote cmux did not report a window list")
+        }
+        let matched = windows.first { window in
+            if let id = window["id"] as? String, id.caseInsensitiveCompare(requestedOrCurrent) == .orderedSame {
+                return true
+            }
+            if let ref = window["ref"] as? String, ref.caseInsensitiveCompare(requestedOrCurrent) == .orderedSame {
+                return true
+            }
+            if let index = intFromAny(window["index"]), requestedOrCurrent == String(index) {
+                return true
+            }
+            return false
+        }
+        guard let matched,
+              let id = normalizedRemoteMacWindowID(matched["id"] as? String) else {
+            throw CLIError(message: "remote mac open: remote window not found: \(requestedOrCurrent)")
+        }
+        return RemoteMacWindowScope(id: id, ref: matched["ref"] as? String)
+    }
+
+    private func normalizedRemoteMacWindowID(_ raw: String?) -> String? {
+        guard let raw = raw?.trimmingCharacters(in: .whitespacesAndNewlines),
+              let uuid = UUID(uuidString: raw) else {
+            return nil
+        }
+        return uuid.uuidString
+    }
+
     private func parseTCPPort(_ raw: String, flag: String) throws -> Int {
         guard let port = Int(raw), (1...65_535).contains(port) else {
             throw CLIError(message: "remote mac open: \(flag) must be 1-65535")
@@ -8371,18 +8447,38 @@ struct CMUXCLI {
             "route_kind": options.routeKind.rawValue,
             "ttl_seconds": options.ttlSeconds,
         ]
+        let response = try runRemoteMacCMUXRPC(
+            options: options,
+            method: "mobile.attach_ticket.create",
+            params: params
+        )
+        guard let ticketObject = response["ticket"] else {
+            throw CLIError(message: "remote mac open: remote cmux did not return an attach ticket. Make sure iOS pairing is enabled on the remote Mac.")
+        }
+        let ticketData = try JSONSerialization.data(withJSONObject: ticketObject, options: [])
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+        let ticket = try decoder.decode(CmxAttachTicket.self, from: ticketData)
+        return RemoteMacTicketMint(rawResponse: response, ticket: ticket)
+    }
+
+    private func runRemoteMacCMUXRPC(
+        options: RemoteMacOpenOptions,
+        method: String,
+        params: [String: Any]
+    ) throws -> [String: Any] {
         let paramsData = try JSONSerialization.data(withJSONObject: params, options: [.sortedKeys])
         guard let paramsJSON = String(data: paramsData, encoding: .utf8) else {
-            throw CLIError(message: "remote mac open: failed to encode attach-ticket params")
+            throw CLIError(message: "remote mac open: failed to encode \(method) params")
         }
         let remoteScript = [
             shellQuote(options.remoteCMUXPath),
             "--json",
             "rpc",
-            "mobile.attach_ticket.create",
+            shellQuote(method),
             shellQuote(paramsJSON),
         ].joined(separator: " ")
-        let mintSSHOptions = SSHCommandOptions(
+        let rpcSSHOptions = SSHCommandOptions(
             destination: options.destination,
             port: options.sshPort,
             identityFile: options.identityFile,
@@ -8395,16 +8491,8 @@ struct CMUXCLI {
             remoteRelayPort: 0,
             skipDaemonBootstrap: true
         )
-        let output = try runRemoteMacSSHCommand(arguments: buildSSHCommandArguments(mintSSHOptions))
-        let response = try decodeRemoteMacJSONObject(output)
-        guard let ticketObject = response["ticket"] else {
-            throw CLIError(message: "remote mac open: remote cmux did not return an attach ticket. Make sure iOS pairing is enabled on the remote Mac.")
-        }
-        let ticketData = try JSONSerialization.data(withJSONObject: ticketObject, options: [])
-        let decoder = JSONDecoder()
-        decoder.dateDecodingStrategy = .iso8601
-        let ticket = try decoder.decode(CmxAttachTicket.self, from: ticketData)
-        return RemoteMacTicketMint(rawResponse: response, ticket: ticket)
+        let output = try runRemoteMacSSHCommand(arguments: buildSSHCommandArguments(rpcSSHOptions))
+        return try decodeRemoteMacJSONObject(output)
     }
 
     private func remoteMacSSHOptionsWithNetworkDefaults(_ options: [String]) -> [String] {
@@ -14689,6 +14777,7 @@ struct CMUXCLI {
               --local-port <n>        Local forwarded port (default: generated)
               --ttl <seconds>         Attach ticket TTL, 30-3600 (default: 600)
               --remote-cmux <path>    Remote cmux CLI path/name (default: cmux)
+              --remote-window <id>    Remote cmux window id/ref/index/current (default: current)
               --window <id|ref|index> Target window for the managed workspace
               --new-window            Create a dedicated local window for this remote Mac
               --no-focus              Create workspace without switching to it
@@ -14696,6 +14785,7 @@ struct CMUXCLI {
             Example:
               cmux remote mac open lawrence@mac-mini
               cmux remote mac open cmux-macmini --new-window
+              cmux remote mac open cmux-macmini --new-window --remote-window window:2
               cmux remote mac open cmux-macmini --name "mini cmux" --identity ~/.ssh/id_ed25519
             """
         case "ssh-session-list":
@@ -33696,7 +33786,7 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
           list-workspaces [--window <id|ref|index>]
           new-workspace [--name <title>] [--description <text>] [--cwd <path>] [--command <text>] [--layout <json>] [--window <id|ref|index>] [--focus <true|false>]
           ssh <destination> [--name <title>] [--port <n>] [--identity <path>] [-A|--forward-agent] [-a|--no-forward-agent] [--ssh-option <opt>] [--window <id|ref|index>] [--no-focus] [-- <remote-command-args>]
-          remote mac open <destination> [--name <title>] [--port <n>] [--identity <path>] [--local-port <n>] [--ttl <seconds>] [--remote-cmux <path>] [--ssh-option <opt>] [--window <id|ref|index> | --new-window] [--no-focus]
+          remote mac open <destination> [--name <title>] [--port <n>] [--identity <path>] [--local-port <n>] [--ttl <seconds>] [--remote-cmux <path>] [--remote-window <id|ref|index|current>] [--ssh-option <opt>] [--window <id|ref|index> | --new-window] [--no-focus]
           ssh-session-list [--workspace <id|ref|index> | --all-workspaces]
           ssh-session-attach --session-id <id> [--workspace <id|ref|index>] [--pane <id|ref|index> | --split <left|right|up|down>]
           ssh-session-cleanup [--workspace <id|ref|index> | --all-workspaces] (--session-id <id> | --all)

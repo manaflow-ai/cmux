@@ -908,7 +908,8 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
         let tunnel = try XCTUnwrap(WorkspaceRemoteMacTunnel(
             attachURL: "cmux-ios://attach?v=1&payload=test",
             localEndpoint: "127.0.0.1:49321",
-            forwardTarget: "100.102.73.120:61848"
+            forwardTarget: "100.102.73.120:61848",
+            remoteWindowID: "33333333-3333-3333-3333-333333333333"
         ))
         let workspace = Workspace()
         let config = WorkspaceRemoteConfiguration(
@@ -936,6 +937,7 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
         XCTAssertEqual(remoteMac["attach_url"] as? String, tunnel.attachURL)
         XCTAssertEqual(remoteMac["local_endpoint"] as? String, tunnel.localEndpoint)
         XCTAssertEqual(remoteMac["forward_target"] as? String, tunnel.forwardTarget)
+        XCTAssertEqual(remoteMac["remote_window_id"] as? String, tunnel.remoteWindowID)
     }
 
     @MainActor
@@ -1394,10 +1396,10 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
         XCTAssertTrue(workspace.isRemoteWorkspace)
         XCTAssertEqual(workspace.activeRemoteTerminalSessionCount, 0)
         XCTAssertEqual(workspace.remoteConfiguration?.remoteMacTunnel, tunnel)
-        let remoteMac = try XCTUnwrap(workspace.remoteStatusPayload()["remote_mac"] as? [String: String])
-        XCTAssertEqual(remoteMac["attach_url"], tunnel.attachURL)
-        XCTAssertEqual(remoteMac["local_endpoint"], tunnel.localEndpoint)
-        XCTAssertEqual(remoteMac["forward_target"], tunnel.forwardTarget)
+        let remoteMac = try XCTUnwrap(workspace.remoteStatusPayload()["remote_mac"] as? [String: Any])
+        XCTAssertEqual(remoteMac["attach_url"] as? String, tunnel.attachURL)
+        XCTAssertEqual(remoteMac["local_endpoint"] as? String, tunnel.localEndpoint)
+        XCTAssertEqual(remoteMac["forward_target"] as? String, tunnel.forwardTarget)
     }
 
     @MainActor
@@ -6477,6 +6479,7 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
         let workspaceID = "11111111-1111-1111-1111-111111111111"
         let workspaceRef = "workspace:7"
         let newWindowID = "22222222-2222-2222-2222-222222222222"
+        let remoteWindowID = "33333333-3333-3333-3333-333333333333"
         let fakeBin = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-rmac-ssh-\(UUID().uuidString)", isDirectory: true)
         let fakeSSH = fakeBin.appendingPathComponent("ssh")
@@ -6484,6 +6487,14 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
         try FileManager.default.createDirectory(at: fakeBin, withIntermediateDirectories: true)
         try """
         #!/bin/sh
+        case "$*" in
+        *window.current*)
+        cat <<'JSON'
+        {"window_id":"\(remoteWindowID)","window_ref":"window:2"}
+        JSON
+        exit 0
+        ;;
+        esac
         cat <<'JSON'
         {"ticket":{"version":1,"workspaceID":"","terminalID":null,"macDeviceID":"mac-mini","macDisplayName":"Mac mini","routes":[{"id":"tailscale","kind":"tailscale","endpoint":{"type":"host_port","host":"100.64.1.2","port":58465},"priority":0}],"expiresAt":"2096-10-02T07:06:40Z","auth_token":"secret"}}
         JSON
@@ -6569,6 +6580,7 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
         XCTAssertFalse(result.timedOut, result.stderr)
         XCTAssertEqual(result.status, 0, result.stderr)
         XCTAssertTrue(result.stdout.contains("OK workspace=\(workspaceRef) target=cmux-macmini state=disconnected"), result.stdout)
+        XCTAssertTrue(result.stdout.contains("remote_window_id=\(remoteWindowID.uppercased())"), result.stdout)
         XCTAssertTrue(result.stdout.contains("tunnel=127.0.0.1:49321 -> 100.64.1.2:58465"), result.stdout)
         XCTAssertTrue(result.stderr.isEmpty, result.stderr)
 
@@ -6591,6 +6603,7 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
         XCTAssertEqual(configureParams["workspace_id"] as? String, workspaceID)
         XCTAssertEqual(configureParams["remote_mac_local_endpoint"] as? String, "127.0.0.1:49321")
         XCTAssertEqual(configureParams["remote_mac_forward_target"] as? String, "100.64.1.2:58465")
+        XCTAssertEqual(configureParams["remote_mac_window_id"] as? String, remoteWindowID.uppercased())
         let sshOptions = try XCTUnwrap(configureParams["ssh_options"] as? [String])
         XCTAssertTrue(sshOptions.contains("ConnectionAttempts=3"))
         XCTAssertTrue(sshOptions.contains("ServerAliveInterval=10"))

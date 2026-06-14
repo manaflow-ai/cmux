@@ -3211,7 +3211,8 @@ final class TabManagerSessionSnapshotTests: XCTestCase {
         let tunnel = try XCTUnwrap(WorkspaceRemoteMacTunnel(
             attachURL: "cmux-ios://attach?v=1&payload=test",
             localEndpoint: "127.0.0.1:49321",
-            forwardTarget: "100.102.73.120:61848"
+            forwardTarget: "100.102.73.120:61848",
+            remoteWindowID: "33333333-3333-3333-3333-333333333333"
         ))
         let snapshot = SessionRemoteWorkspaceSnapshot(
             transport: .ssh,
@@ -3227,6 +3228,7 @@ final class TabManagerSessionSnapshotTests: XCTestCase {
         let configuration = try XCTUnwrap(snapshot.workspaceConfiguration())
 
         XCTAssertEqual(configuration.remoteMacTunnel, tunnel)
+        XCTAssertEqual(configuration.remoteMacTunnel?.remoteWindowID, tunnel.remoteWindowID)
         XCTAssertTrue(configuration.sshOptions.contains("ExitOnForwardFailure=yes"))
         XCTAssertTrue(configuration.sshOptions.contains("LocalForward=127.0.0.1:49321 100.102.73.120:61848"))
         XCTAssertEqual(
@@ -3242,7 +3244,8 @@ final class TabManagerSessionSnapshotTests: XCTestCase {
         let tunnel = try XCTUnwrap(WorkspaceRemoteMacTunnel(
             attachURL: "cmux-ios://attach?v=1&payload=test",
             localEndpoint: "127.0.0.1:49325",
-            forwardTarget: "127.0.0.1:22"
+            forwardTarget: "127.0.0.1:22",
+            remoteWindowID: "33333333-3333-3333-3333-333333333333"
         ))
         let configuration = WorkspaceRemoteConfiguration(
             destination: "cmux-macmini",

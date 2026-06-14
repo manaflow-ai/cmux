@@ -5444,11 +5444,13 @@ final class Workspace: Identifiable, ObservableObject {
             payload["local_proxy_port"] = remoteConfiguration.localProxyPort ?? NSNull()
             payload["persistent_daemon_slot"] = remoteConfiguration.persistentDaemonSlot ?? NSNull()
             if let remoteMacTunnel = remoteConfiguration.remoteMacTunnel {
-                payload["remote_mac"] = [
+                var remoteMac: [String: Any] = [
                     "attach_url": remoteMacTunnel.attachURL,
                     "local_endpoint": remoteMacTunnel.localEndpoint,
                     "forward_target": remoteMacTunnel.forwardTarget,
                 ]
+                remoteMac["remote_window_id"] = remoteMacTunnel.remoteWindowID ?? NSNull()
+                payload["remote_mac"] = remoteMac
             } else {
                 payload["remote_mac"] = NSNull()
             }

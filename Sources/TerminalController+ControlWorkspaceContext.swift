@@ -552,7 +552,8 @@ extension TerminalController: ControlWorkspaceContext {
         let remoteMacTunnel = WorkspaceRemoteMacTunnel(
             attachURL: v2RawString(params, "remote_mac_attach_url"),
             localEndpoint: v2RawString(params, "remote_mac_local_endpoint"),
-            forwardTarget: v2RawString(params, "remote_mac_forward_target")
+            forwardTarget: v2RawString(params, "remote_mac_forward_target"),
+            remoteWindowID: v2RawString(params, "remote_mac_window_id")
         )
         var persistentDaemonSlot = v2RawString(params, "persistent_daemon_slot")?
             .trimmingCharacters(in: .whitespacesAndNewlines)

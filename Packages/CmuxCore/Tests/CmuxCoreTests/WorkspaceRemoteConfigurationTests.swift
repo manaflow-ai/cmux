@@ -140,7 +140,8 @@ struct WorkspaceRemoteConfigurationValueTests {
         let tunnel = try #require(WorkspaceRemoteMacTunnel(
             attachURL: "cmux-ios://attach?v=1&payload=test",
             localEndpoint: "127.0.0.1:49321",
-            forwardTarget: "100.102.73.120:61848"
+            forwardTarget: "100.102.73.120:61848",
+            remoteWindowID: "33333333-3333-3333-3333-333333333333"
         ))
         let configuration = makeConfiguration(
             sshOptions: [
@@ -155,6 +156,7 @@ struct WorkspaceRemoteConfigurationValueTests {
         let snapshot = try #require(configuration.sessionSnapshot())
 
         #expect(snapshot.remoteMacTunnel == tunnel)
+        #expect(snapshot.remoteMacTunnel?.remoteWindowID == "33333333-3333-3333-3333-333333333333")
         #expect(snapshot.sshOptions.contains("ExitOnForwardFailure=yes"))
         #expect(snapshot.sshOptions.contains(tunnel.localForwardSSHOption))
         #expect(!snapshot.sshOptions.contains { $0.hasPrefix("ControlMaster") })

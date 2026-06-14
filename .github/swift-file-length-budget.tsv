@@ -1,18 +1,18 @@
 # cmux-owned Swift file length budget.
 # Format: max_lines<TAB>relative path
 # Reduce counts as files shrink. CI fails if tracked files exceed this budget.
-33892	CLI/cmux.swift
+33982	CLI/cmux.swift
 17927	Sources/AppDelegate.swift
 16827	Sources/ContentView.swift
 14612	Sources/TerminalController.swift
 13595	Sources/Panels/BrowserPanel.swift
 12088	Sources/GhosttyTerminalView.swift
 12046	cmuxTests/AppDelegateShortcutRoutingTests.swift
-12009	Sources/Workspace.swift
+12011	Sources/Workspace.swift
 9345	cmuxTests/CLINotifyProcessIntegrationRegressionTests.swift
 7911	Sources/Panels/BrowserPanelView.swift
 7350	cmuxTests/WorkspaceUnitTests.swift
-7149	cmuxTests/WorkspaceRemoteConnectionTests.swift
+7162	cmuxTests/WorkspaceRemoteConnectionTests.swift
 6317	cmuxTests/SessionPersistenceTests.swift
 6299	cmuxTests/GhosttyConfigTests.swift
 6153	CLI/cmux_open.swift
@@ -30,7 +30,7 @@
 3765	cmuxTests/TabManagerUnitTests.swift
 3699	cmuxTests/CLIGenericHookPersistenceTests.swift
 3664	Packages/CmuxMobileTerminal/Sources/CmuxMobileTerminal/GhosttySurfaceView.swift
-3417	cmuxTests/TabManagerSessionSnapshotTests.swift
+3420	cmuxTests/TabManagerSessionSnapshotTests.swift
 3397	Sources/CmuxConfig.swift
 3200	Sources/Update/UpdateTitlebarAccessory.swift
 2878	Sources/SessionIndexView.swift
@@ -112,7 +112,7 @@
 770	Sources/MainWindowFocusController.swift
 762	Packages/CmuxMobileTransport/Sources/CmuxMobileTransport/CmxNetworkByteTransport.swift
 760	Packages/CMUXAgentLaunch/Tests/CMUXAgentLaunchTests/AgentLaunchSanitizerTests.swift
-758	Sources/TerminalController+ControlWorkspaceContext.swift
+759	Sources/TerminalController+ControlWorkspaceContext.swift
 756	Sources/Panels/AgentSessionWebRendererCoordinator.swift
 752	cmuxUITests/CloseWorkspaceCmdDUITests.swift
 746	Sources/App/MenuBarExtraController.swift
