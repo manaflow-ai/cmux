@@ -2354,6 +2354,115 @@ final class TerminalOutputCollector {
 }
 
 @MainActor
+@Test func rapidRawSurfaceInputCoalescesIntoOneOrderedRequest() async throws {
+    // Regression for https://github.com/manaflow-ai/cmux/issues/6082: fast iOS
+    // typing arrived scrambled because each keystroke from the surface was
+    // dispatched as its own `Task { await submit }` (independent unstructured
+    // tasks do not preserve order, and each raced its own `terminal.input` RPC).
+    // The surface delegate now enqueues synchronously into the coalescing FIFO,
+    // so three keystrokes typed in a row reach the Mac as a single ordered
+    // `terminal.input` rather than one unordered RPC per keystroke.
+    let route = try CmxAttachRoute(
+        id: "debug_loopback",
+        kind: .debugLoopback,
+        endpoint: .hostPort(host: "127.0.0.1", port: 56584)
+    )
+    let ticket = try CmxAttachTicket(
+        workspaceID: "live-workspace",
+        terminalID: "live-terminal",
+        macDeviceID: "test-mac",
+        macDisplayName: "Test Mac",
+        routes: [route],
+        expiresAt: Date().addingTimeInterval(60)
+    )
+    let responses = ScriptedTransportResponses([
+        try rpcWorkspaceListFrame(
+            workspaceID: "live-workspace",
+            title: "Live Workspace",
+            terminalID: "live-terminal"
+        ),
+        // Enough acks that a regressed one-RPC-per-keystroke path still gets answered.
+        try rpcResultFrame(result: ["accepted": true]),
+        try rpcResultFrame(result: ["accepted": true]),
+        try rpcResultFrame(result: ["accepted": true]),
+    ])
+    let runtime = testRuntime(
+        supportedRouteKinds: [.debugLoopback],
+        transportFactory: ScriptedTransportFactory(responses: responses)
+    )
+    let store = CMUXMobileShellStore.preview(runtime: runtime)
+
+    store.signIn()
+    await store.connectPairingURL(try attachURL(for: ticket).absoluteString)
+
+    // Three keystrokes delivered synchronously on the main actor, exactly as the
+    // GhosttySurfaceView delegate delivers fast typing.
+    store.sendTerminalRawInput(Data("a".utf8), surfaceID: "live-terminal")
+    store.sendTerminalRawInput(Data("b".utf8), surfaceID: "live-terminal")
+    store.sendTerminalRawInput(Data("c".utf8), surfaceID: "live-terminal")
+
+    // Wait for the buffered drain to deliver, then settle so any erroneous
+    // per-keystroke sends would also have landed.
+    var texts: [String] = []
+    for _ in 0..<300 {
+        texts = try await responses.sentRequests().filter { $0.method == "terminal.input" }.compactMap(\.text)
+        if !texts.isEmpty { break }
+        try await Task.sleep(nanoseconds: 10_000_000)
+    }
+    try await Task.sleep(nanoseconds: 100_000_000)
+    texts = try await responses.sentRequests().filter { $0.method == "terminal.input" }.compactMap(\.text)
+    #expect(texts == ["abc"])
+}
+
+@MainActor
+@Test func largeRawSurfacePasteDoesNotDisconnectAsQueueOverflow() async throws {
+    let route = try CmxAttachRoute(
+        id: "debug_loopback",
+        kind: .debugLoopback,
+        endpoint: .hostPort(host: "127.0.0.1", port: 56584)
+    )
+    let ticket = try CmxAttachTicket(
+        workspaceID: "live-workspace",
+        terminalID: "live-terminal",
+        macDeviceID: "test-mac",
+        macDisplayName: "Test Mac",
+        routes: [route],
+        expiresAt: Date().addingTimeInterval(60)
+    )
+    let responses = ScriptedTransportResponses([
+        try rpcWorkspaceListFrame(
+            workspaceID: "live-workspace",
+            title: "Live Workspace",
+            terminalID: "live-terminal"
+        ),
+        try rpcResultFrame(result: ["accepted": true]),
+        try rpcResultFrame(result: ["accepted": true]),
+    ])
+    let runtime = testRuntime(
+        supportedRouteKinds: [.debugLoopback],
+        transportFactory: ScriptedTransportFactory(responses: responses)
+    )
+    let store = CMUXMobileShellStore.preview(runtime: runtime)
+    let largePaste = String(repeating: "p", count: MobileTerminalInputSendBuffer.maximumPendingByteCount + 1)
+
+    store.signIn()
+    await store.connectPairingURL(try attachURL(for: ticket).absoluteString)
+    store.sendTerminalRawInput(Data(largePaste.utf8), surfaceID: "live-terminal")
+
+    var texts: [String] = []
+    for _ in 0..<300 {
+        texts = try await responses.sentRequests().filter { $0.method == "terminal.input" }.compactMap(\.text)
+        if texts.joined() == largePaste { break }
+        try await Task.sleep(nanoseconds: 10_000_000)
+    }
+    #expect(texts.count == 2)
+    #expect(texts.allSatisfy { $0.utf8.count <= MobileTerminalInputSendBuffer.maximumPendingByteCount })
+    #expect(texts.joined() == largePaste)
+    #expect(store.connectionState == .connected)
+    #expect(store.connectionError == nil)
+}
+
+@MainActor
 @Test func terminalInputResyncsOutputWhenMacSequenceIsAhead() async throws {
     let route = try CmxAttachRoute(
         id: "debug_loopback",

@@ -194,7 +194,10 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     }
     public var pairingCode: String
     public var workspaces: [MobileWorkspacePreview] {
-        didSet { workspaceTopologyVersion &+= 1 }
+        didSet {
+            workspaceTopologyVersion &+= 1
+            terminalWorkspaceIDsByTerminalID = workspaces.terminalWorkspaceIndex
+        }
     }
     /// Bumped on every ``workspaces`` mutation: a cheap "lists may have
     /// changed" signal (e.g. for retrying a parked notification deep link).
@@ -540,6 +543,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     var terminalScrollQueuesBySurfaceID: [String: TerminalScrollDeliveryQueue]
     var terminalScrollbackPrefetchStatesBySurfaceID: [String: TerminalScrollbackPrefetchState]
     private var rawTerminalInputBuffer: MobileTerminalInputSendBuffer
+    @ObservationIgnored private var terminalWorkspaceIDsByTerminalID: [MobileTerminalPreview.ID: MobileWorkspacePreview.ID] = [:]
     private var pairingAttemptID: UUID
 
     public var phase: MobileShellPhase {
@@ -669,6 +673,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         self.terminalScrollQueuesBySurfaceID = [:]
         self.terminalScrollbackPrefetchStatesBySurfaceID = [:]
         self.rawTerminalInputBuffer = MobileTerminalInputSendBuffer()
+        self.terminalWorkspaceIDsByTerminalID = workspaces.terminalWorkspaceIndex
         self.pairingAttemptID = UUID()
     }
 
@@ -2765,6 +2770,19 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         }
     }
 
+    private func workspaceID(forTerminalID terminalID: MobileTerminalPreview.ID) -> MobileWorkspacePreview.ID? {
+        if let workspaceID = terminalWorkspaceIDsByTerminalID[terminalID] {
+            return workspaceID
+        }
+        guard let workspace = workspaces.first(where: { workspace in
+            workspace.terminals.contains(where: { $0.id == terminalID })
+        }) else {
+            return nil
+        }
+        terminalWorkspaceIDsByTerminalID[terminalID] = workspace.id
+        return workspace.id
+    }
+
     public func sendTerminalRawInput(_ text: String) {
         #if DEBUG
         mobileShellLog.debug("enqueue raw terminal input byteCount=\(text.utf8.count, privacy: .public)")
@@ -2776,6 +2794,33 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             #endif
             return
         }
+        enqueueRawTerminalInput(text, workspaceID: workspaceID, terminalID: terminalID)
+    }
+
+    /// Raw-bytes entry point for a specific surface (iOS keystrokes, paste, and
+    /// mouse reports from ``GhosttySurfaceView``). Enqueues synchronously into the
+    /// coalescing FIFO so fast typing keeps its order; a per-keystroke
+    /// `Task { await submit }` could reorder it (issue #6082).
+    public func sendTerminalRawInput(_ data: Data, surfaceID: String) {
+        guard !data.isEmpty else { return }
+        guard let text = String(data: data, encoding: .utf8) else { return }
+        let terminalID = MobileTerminalPreview.ID(rawValue: surfaceID)
+        guard let workspaceID = workspaceID(forTerminalID: terminalID) else {
+            #if DEBUG
+            mobileShellLog.info("skip raw terminal input enqueue surface not found surface=\(surfaceID, privacy: .private)")
+            #endif
+            return
+        }
+        enqueueRawTerminalInput(text, workspaceID: workspaceID, terminalID: terminalID)
+    }
+
+    /// Enqueue raw input into the coalescing FIFO and start the drain loop when
+    /// idle. Shared by both raw-input entry points for strict in-order delivery.
+    private func enqueueRawTerminalInput(
+        _ text: String,
+        workspaceID: MobileWorkspacePreview.ID,
+        terminalID: MobileTerminalPreview.ID
+    ) {
         switch rawTerminalInputBuffer.enqueue(
             text,
             workspaceID: workspaceID,
@@ -2827,12 +2872,9 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         guard let text = String(data: data, encoding: .utf8) else {
             return
         }
-        let workspaceCandidate = workspaces.first(where: { workspace in
-            workspace.terminals.contains(where: { $0.id.rawValue == surfaceID })
-        })
-        guard let workspace = workspaceCandidate else { return }
         let terminalID = MobileTerminalPreview.ID(rawValue: surfaceID)
-        await submitTerminalRawInput(text, workspaceID: workspace.id, terminalID: terminalID)
+        guard let workspaceID = workspaceID(forTerminalID: terminalID) else { return }
+        await submitTerminalRawInput(text, workspaceID: workspaceID, terminalID: terminalID)
     }
 
     private func submitTerminalRawInput(
@@ -5076,6 +5118,18 @@ private extension CmxAttachTicket {
         )
     }
 
+}
+
+private extension Array where Element == MobileWorkspacePreview {
+    var terminalWorkspaceIndex: [MobileTerminalPreview.ID: MobileWorkspacePreview.ID] {
+        var index: [MobileTerminalPreview.ID: MobileWorkspacePreview.ID] = [:]
+        for workspace in self {
+            for terminal in workspace.terminals where index[terminal.id] == nil {
+                index[terminal.id] = workspace.id
+            }
+        }
+        return index
+    }
 }
 
 private extension MobileWorkspacePreview {
