@@ -703,7 +703,7 @@ enum MinimalModeSidebarTitlebarControlsMetrics {
         MinimalModeTitlebarDebugSettings.leftControlsTopInset(defaults: defaults)
     }
 
-    static let hostWidth: CGFloat = 164
+    static let hostWidth: CGFloat = 124
     static let hostHeight: CGFloat = 28
     static let singleButtonHostWidth: CGFloat = hostHeight
 
@@ -956,7 +956,7 @@ func isMinimalModeSidebarChromeHoverCandidate(
 
 private func titlebarControlsStyleConfig(defaults: UserDefaults) -> TitlebarControlsStyleConfig {
     let style = TitlebarControlsStyle(rawValue: defaults.integer(forKey: "titlebarControlsStyle")) ?? .classic
-    return style.config
+    return titlebarControlsSidebarChromeConfig(for: style)
 }
 
 func minimalModeSidebarControlActionSlot(

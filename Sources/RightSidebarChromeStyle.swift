@@ -5,9 +5,8 @@ enum HeaderChromeIconStyle {
     static let hoveredOpacity = 0.96
     static let pressedOpacity = 1.0
     static let disabledOpacity = 0.34
-    static let weight: Font.Weight = .regular
+    static let weight: Font.Weight = .semibold
     static let foregroundColor = Color(nsColor: .secondaryLabelColor)
-    static let sidebarGlyphStrokeWidth: CGFloat = 1
 
     static func iconFrameSize(forIconSize iconSize: CGFloat) -> CGFloat {
         HeaderChromeControlMetrics.iconFrameSize(forIconSize: iconSize)

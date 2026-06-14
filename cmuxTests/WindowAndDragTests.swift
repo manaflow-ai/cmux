@@ -876,7 +876,8 @@ final class WindowDragHandleHitTests: XCTestCase {
     func testTitlebarControlGapsAreOutsideButtonHitColumns() {
         let config = TitlebarControlsStyle.classic.config
         let ranges = TitlebarControlsHitRegions.buttonXRanges(config: config)
-        XCTAssertEqual(ranges.count, MinimalModeSidebarControlActionSlot.allCases.count)
+        XCTAssertEqual(ranges.count, TitlebarControlsHitRegions.sidebarChromeButtonCount)
+        XCTAssertEqual(ranges.count, 3)
         XCTAssertEqual(
             ranges[0].lowerBound,
             TitlebarControlsLayoutMetrics.hintLeadingPadding + config.groupPadding.leading,
@@ -935,14 +936,14 @@ final class WindowDragHandleHitTests: XCTestCase {
         defer { MinimalModeTitlebarControlHitRegionRegistry.unregister(controlRegion) }
 
         let ranges = TitlebarControlsHitRegions.buttonXRanges(config: controlRegion.config)
-        let backButtonPoint = NSPoint(
-            x: controlRegion.frame.minX + ranges[MinimalModeSidebarControlActionSlot.focusHistoryBack.rawValue].lowerBound + 1,
+        let newWorkspaceButtonPoint = NSPoint(
+            x: controlRegion.frame.minX + ranges[MinimalModeSidebarControlActionSlot.newTab.rawValue].lowerBound + 1,
             y: controlRegion.frame.midY
         )
-        XCTAssertTrue(isMinimalModeTitlebarControlHit(window: window, locationInWindow: backButtonPoint))
+        XCTAssertTrue(isMinimalModeTitlebarControlHit(window: window, locationInWindow: newWorkspaceButtonPoint))
         XCTAssertFalse(
             windowDragHandleShouldCaptureHit(
-                dragHandle.convert(backButtonPoint, from: nil),
+                dragHandle.convert(newWorkspaceButtonPoint, from: nil),
                 in: dragHandle,
                 eventType: .leftMouseDown,
                 eventWindow: window

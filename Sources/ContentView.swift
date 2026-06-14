@@ -11577,14 +11577,14 @@ struct VerticalTabsSidebar: View {
         isSelected: Bool,
         dropRows: [ExtensionSidebarBrowserStackDropRow]
     ) -> some View {
-        let targetRowHeight: CGFloat = 54
+        let targetRowHeight = ExtensionBrowserStackSidebarMetrics.tileHeight
 
         return Button {
             selectExtensionSidebarWorkspace(row.workspaceId)
         } label: {
-            extensionBrowserStackIcon(row.leadingIcon, size: 28)
+            extensionBrowserStackIcon(row.leadingIcon, size: ExtensionBrowserStackSidebarMetrics.iconSize)
                 .frame(maxWidth: .infinity)
-                .frame(height: 54)
+                .frame(height: targetRowHeight)
                 .background(
                     RoundedRectangle(cornerRadius: 13, style: .continuous)
                         .fill(
@@ -11649,13 +11649,16 @@ struct VerticalTabsSidebar: View {
         isSelected: Bool,
         dropRows: [ExtensionSidebarBrowserStackDropRow]
     ) -> some View {
-        let targetRowHeight: CGFloat = compact ? 34 : 38
+        let targetRowHeight = ExtensionBrowserStackSidebarMetrics.rowHeight(compact: compact)
+        let rowHorizontalPadding = ExtensionBrowserStackSidebarMetrics.rowHorizontalPadding(compact: compact)
+        let rowVerticalPadding = ExtensionBrowserStackSidebarMetrics.rowVerticalPadding(compact: compact)
+        let rowCornerRadius = ExtensionBrowserStackSidebarMetrics.rowCornerRadius(compact: compact)
 
         return Button {
             selectExtensionSidebarWorkspace(row.workspaceId)
         } label: {
             HStack(spacing: 9) {
-                extensionBrowserStackIcon(row.leadingIcon, size: compact ? 22 : 24)
+                extensionBrowserStackIcon(row.leadingIcon, size: ExtensionBrowserStackSidebarMetrics.iconSize)
                 Text(row.title)
                     .font(.system(size: compact ? 12.5 : 13, weight: .medium))
                     .foregroundColor(isSelected ? .primary : .primary.opacity(0.82))
@@ -11669,14 +11672,14 @@ struct VerticalTabsSidebar: View {
                         .lineLimit(1)
                 }
             }
-            .padding(.horizontal, compact ? 7 : 10)
-            .padding(.vertical, compact ? 6 : 7)
+            .padding(.horizontal, rowHorizontalPadding)
+            .padding(.vertical, rowVerticalPadding)
             .background(
-                RoundedRectangle(cornerRadius: compact ? 8 : 10, style: .continuous)
+                RoundedRectangle(cornerRadius: rowCornerRadius, style: .continuous)
                     .fill(isSelected ? Color.primary.opacity(0.12) : Color.clear)
             )
             .overlay(
-                RoundedRectangle(cornerRadius: compact ? 8 : 10, style: .continuous)
+                RoundedRectangle(cornerRadius: rowCornerRadius, style: .continuous)
                     .stroke(isSelected ? cmuxAccentColor().opacity(0.55) : Color.clear, lineWidth: 1)
             )
             .contentShape(Rectangle())
@@ -11817,6 +11820,32 @@ struct VerticalTabsSidebar: View {
             snapshotsById[row.workspaceId] = extensionWorkspaceSnapshot(for: row.workspaceId)
         }
         return snapshotsById
+    }
+
+    private enum ExtensionBrowserStackSidebarMetrics {
+        static let iconSize: CGFloat = 28
+        static let tileHeight: CGFloat = 54
+
+        private static let regularRowHeight: CGFloat = 38
+        private static let compactRowHeight: CGFloat = 34
+
+        static func rowHeight(compact: Bool) -> CGFloat {
+            compact ? compactRowHeight : regularRowHeight
+        }
+
+        static func rowHorizontalPadding(compact: Bool) -> CGFloat {
+            compact ? 7 : 10
+        }
+
+        static func rowVerticalPadding(compact: Bool) -> CGFloat {
+            let height = rowHeight(compact: compact)
+            assert(iconSize <= height, "iconSize (\(iconSize)) must not exceed rowHeight (\(height))")
+            return max(0, (height - iconSize) / 2)
+        }
+
+        static func rowCornerRadius(compact: Bool) -> CGFloat {
+            compact ? 8 : 10
+        }
     }
 
     private func extensionBrowserStackIcon(

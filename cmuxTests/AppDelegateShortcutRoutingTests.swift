@@ -3029,27 +3029,27 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         XCTAssertEqual(WindowChromeMetrics.clampedTitlebarHeight(96), 72)
     }
 
-    func testRightSidebarHeaderChromeUsesSharedButtonsWithCompactIcons() {
+    func testRightSidebarHeaderChromeUsesSharedButtonsAndIcons() {
         let titlebarConfig = TitlebarControlsStyle.classic.config
 
+        XCTAssertEqual(HeaderChromeControlMetrics.buttonSize, 24, accuracy: 0.001)
+        XCTAssertEqual(HeaderChromeControlMetrics.iconSize, 15, accuracy: 0.001)
+        XCTAssertEqual(HeaderChromeControlMetrics.iconFrameSize, 17, accuracy: 0.001)
+        XCTAssertEqual(HeaderChromeControlMetrics.cornerRadius, 8, accuracy: 0.001)
+        XCTAssertEqual(HeaderChromeIconStyle.weight, .semibold)
         XCTAssertEqual(HeaderChromeControlMetrics.buttonSize, titlebarConfig.buttonSize, accuracy: 0.001)
         XCTAssertEqual(HeaderChromeControlMetrics.iconSize, titlebarConfig.iconSize, accuracy: 0.001)
         XCTAssertEqual(HeaderChromeControlMetrics.cornerRadius, titlebarConfig.buttonCornerRadius, accuracy: 0.001)
         XCTAssertEqual(RightSidebarChromeMetrics.headerControlSize, titlebarConfig.buttonSize, accuracy: 0.001)
-        XCTAssertEqual(RightSidebarChromeMetrics.headerIconSize, 10, accuracy: 0.001)
+        XCTAssertEqual(RightSidebarChromeMetrics.headerIconSize, titlebarConfig.iconSize, accuracy: 0.001)
         XCTAssertEqual(
             RightSidebarChromeMetrics.headerIconFrameSize,
-            RightSidebarChromeMetrics.headerIconSize,
+            HeaderChromeIconStyle.iconFrameSize(forIconSize: titlebarConfig.iconSize),
             accuracy: 0.001
-        )
-        XCTAssertLessThan(RightSidebarChromeMetrics.headerIconSize, titlebarConfig.iconSize)
-        XCTAssertLessThan(
-            RightSidebarChromeMetrics.headerIconFrameSize,
-            HeaderChromeIconStyle.iconFrameSize(forIconSize: titlebarConfig.iconSize)
         )
         XCTAssertEqual(RightSidebarChromeMetrics.headerControlCornerRadius, titlebarConfig.buttonCornerRadius, accuracy: 0.001)
         XCTAssertEqual(RightSidebarChromeMetrics.controlHeight, RightSidebarChromeMetrics.headerControlSize, accuracy: 0.001)
-        XCTAssertEqual(RightSidebarChromeMetrics.barVerticalPadding, 4, accuracy: 0.001)
+        XCTAssertEqual(RightSidebarChromeMetrics.barVerticalPadding, 2, accuracy: 0.001)
         XCTAssertEqual(RightSidebarChromeMetrics.headerControlCenterAlignmentAdjustment, 0, accuracy: 0.001)
     }
 

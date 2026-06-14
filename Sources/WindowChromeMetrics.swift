@@ -19,10 +19,11 @@ enum MinimalModeChromeMetrics {
 }
 
 enum HeaderChromeControlMetrics {
-    static let buttonSize: CGFloat = 20
-    static let iconSize: CGFloat = 12
-    static let iconFrameSize: CGFloat = 14
-    static let cornerRadius: CGFloat = 6
+    // Release-era (v0.64.10) titlebar chrome sizing: 15pt icons in 24pt button lanes.
+    static let buttonSize: CGFloat = 24
+    static let iconSize: CGFloat = 15
+    static let iconFrameSize: CGFloat = 17
+    static let cornerRadius: CGFloat = 8
     static let titlebarControlsLeadingPadding: CGFloat = 4
 
     static func iconFrameSize(forIconSize iconSize: CGFloat) -> CGFloat {
@@ -34,13 +35,13 @@ enum RightSidebarChromeMetrics {
     static let titlebarHeight: CGFloat = WindowChromeMetrics.appTitlebarHeight
     static let secondaryBarHeight: CGFloat = WindowChromeMetrics.secondaryTitlebarHeight
     static let barHorizontalPadding: CGFloat = 8
-    static let barVerticalPadding: CGFloat = 4
+    static let barVerticalPadding: CGFloat = (secondaryBarHeight - HeaderChromeControlMetrics.buttonSize) / 2
     static let controlHeight: CGFloat = secondaryBarHeight - (barVerticalPadding * 2)
     static let controlHorizontalPadding: CGFloat = 8
     static let controlCornerRadius: CGFloat = 5
     static let headerControlSize: CGFloat = HeaderChromeControlMetrics.buttonSize
-    static let headerIconSize: CGFloat = 10
-    static let headerIconFrameSize: CGFloat = headerIconSize
+    static let headerIconSize: CGFloat = HeaderChromeControlMetrics.iconSize
+    static let headerIconFrameSize: CGFloat = HeaderChromeControlMetrics.iconFrameSize(forIconSize: headerIconSize)
     static let headerControlSpacing: CGFloat = 4
     static let headerControlCornerRadius: CGFloat = HeaderChromeControlMetrics.cornerRadius
     static let headerControlCenterAlignmentAdjustment: CGFloat = 0

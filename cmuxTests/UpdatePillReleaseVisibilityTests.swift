@@ -219,12 +219,125 @@ final class TitlebarControlsSizingPolicyTests: XCTestCase {
 
     func testTitlebarControlsUseDeterministicContentSize() {
         let classic = TitlebarControlsLayoutMetrics.contentSize(config: TitlebarControlsStyle.classic.config)
-        XCTAssertEqual(classic.width, 136, accuracy: 0.001)
+        XCTAssertEqual(classic.width, 164, accuracy: 0.001)
         XCTAssertEqual(classic.height, WindowChromeMetrics.appTitlebarHeight, accuracy: 0.001)
+        XCTAssertEqual(
+            MinimalModeSidebarTitlebarControlsMetrics.hostWidth,
+            124,
+            accuracy: 0.001,
+            "Sidebar titlebar chrome should use the v0.64.10 three-button host width."
+        )
+        XCTAssertGreaterThan(
+            classic.width,
+            MinimalModeSidebarTitlebarControlsMetrics.hostWidth,
+            "The full titlebar accessory may include focus-history buttons, but the sidebar host should not."
+        )
+        let sidebarClassic = TitlebarControlsLayoutMetrics.contentSize(
+            config: TitlebarControlsStyle.classic.config,
+            buttonCount: TitlebarShortcutHintActionSlot.sidebarChromeSlots.count
+        )
+        XCTAssertEqual(sidebarClassic.width, 96, accuracy: 0.001)
+        XCTAssertLessThanOrEqual(sidebarClassic.width, MinimalModeSidebarTitlebarControlsMetrics.hostWidth)
+        let sidebarClassicWithShortcutHints = TitlebarControlsLayoutMetrics.contentSize(
+            config: TitlebarControlsStyle.classic.config,
+            buttonCount: TitlebarShortcutHintActionSlot.sidebarChromeSlots.count,
+            reservesShortcutHintOverflow: true
+        )
+        XCTAssertEqual(sidebarClassicWithShortcutHints.width, 104, accuracy: 0.001)
+        XCTAssertLessThanOrEqual(
+            sidebarClassicWithShortcutHints.width,
+            MinimalModeSidebarTitlebarControlsMetrics.hostWidth
+        )
+        for style in TitlebarControlsStyle.allCases {
+            let sidebarConfig = titlebarControlsSidebarChromeConfig(for: style)
+            let sidebarContentSize = TitlebarControlsLayoutMetrics.contentSize(
+                config: sidebarConfig,
+                buttonCount: TitlebarShortcutHintActionSlot.sidebarChromeSlots.count,
+                reservesShortcutHintOverflow: true
+            )
+            XCTAssertLessThanOrEqual(
+                sidebarContentSize.width,
+                MinimalModeSidebarTitlebarControlsMetrics.hostWidth,
+                "\(style.menuTitle) sidebar chrome should fit inside the fixed sidebar host width."
+            )
+        }
+        let roomySidebarConfig = titlebarControlsSidebarChromeConfig(for: .roomy)
+        XCTAssertEqual(roomySidebarConfig.iconSize, 16, accuracy: 0.001)
+        XCTAssertEqual(roomySidebarConfig.buttonSize, 28, accuracy: 0.001)
+        XCTAssertEqual(roomySidebarConfig.spacing, 14, accuracy: 0.001)
 
         let compact = TitlebarControlsLayoutMetrics.contentSize(config: TitlebarControlsStyle.compact.config)
-        XCTAssertEqual(compact.width, 126, accuracy: 0.001)
+        XCTAssertEqual(compact.width, 128, accuracy: 0.001)
         XCTAssertEqual(compact.height, WindowChromeMetrics.appTitlebarHeight, accuracy: 0.001)
+
+        let classicWithShortcutHints = TitlebarControlsLayoutMetrics.contentSize(
+            config: TitlebarControlsStyle.classic.config,
+            reservesShortcutHintOverflow: true
+        )
+        XCTAssertEqual(classicWithShortcutHints.width, 172, accuracy: 0.001)
+    }
+
+    func testShortcutHintGeometryUsesVisibleSlotOrderForNonPrefixSubsets() {
+        let config = TitlebarControlsStyle.classic.config
+        let renderedInterval = TitlebarControlsLayoutMetrics.hintInterval(
+            visibleIndex: 0,
+            width: 20,
+            config: config,
+            xOffset: 0
+        )
+        let renderedCenter = (renderedInterval.lowerBound + renderedInterval.upperBound) / 2
+        let firstButtonCenter = TitlebarControlsLayoutMetrics.buttonCenterX(visibleIndex: 0, config: config)
+        let rawFocusBackCenter = TitlebarControlsLayoutMetrics.buttonCenterX(
+            visibleIndex: TitlebarShortcutHintActionSlot.focusHistoryBack.rawValue,
+            config: config
+        )
+
+        XCTAssertEqual(renderedCenter, firstButtonCenter, accuracy: 0.001)
+        XCTAssertLessThan(renderedCenter, rawFocusBackCenter)
+
+        let nonPrefixSubsetSize = TitlebarControlsLayoutMetrics.contentSize(
+            config: config,
+            actionSlots: [.focusHistoryBack]
+        )
+        let prefixSubsetSize = TitlebarControlsLayoutMetrics.contentSize(
+            config: config,
+            actionSlots: [.toggleSidebar]
+        )
+        XCTAssertEqual(nonPrefixSubsetSize.width, prefixSubsetSize.width, accuracy: 0.001)
+    }
+
+    func testTitlebarControlStylesKeepReleaseIconMetrics() {
+        let expectedMetrics: [(style: TitlebarControlsStyle, iconSize: CGFloat, buttonSize: CGFloat, cornerRadius: CGFloat)] = [
+            (.classic, 15, 24, 8),
+            (.compact, 13, 20, 6),
+            (.roomy, 16, 28, 10),
+            (.pillGroup, 14, 24, 8),
+            (.softButtons, 15, 26, 8),
+        ]
+
+        for expected in expectedMetrics {
+            let config = expected.style.config
+
+            XCTAssertEqual(config.iconSize, expected.iconSize, accuracy: 0.001)
+            XCTAssertEqual(config.buttonSize, expected.buttonSize, accuracy: 0.001)
+            XCTAssertEqual(config.buttonCornerRadius, expected.cornerRadius, accuracy: 0.001)
+        }
+    }
+
+    func testTitlebarControlStylesUseLayoutSpacingForFiveButtons() {
+        let expectedSpacing: [(style: TitlebarControlsStyle, spacing: CGFloat)] = [
+            (.classic, 10),
+            (.compact, 6),
+            (.roomy, 14),
+            (.pillGroup, 8),
+            (.softButtons, 8),
+        ]
+
+        for expected in expectedSpacing {
+            let config = expected.style.config
+
+            XCTAssertEqual(config.spacing, expected.spacing, accuracy: 0.001)
+        }
     }
 
     func testTitlebarControlsLeadingOffsetDoesNotDoubleApplyTrafficLightPosition() {
@@ -346,13 +459,13 @@ final class TitlebarControlsHoverPolicyTests: XCTestCase {
         let smallest = sizes.min() ?? 0
         let largest = sizes.max() ?? 0
 
-        XCTAssertLessThanOrEqual(largest - smallest, 4)
+        XCTAssertLessThanOrEqual(largest - smallest, 8)
 
         for style in TitlebarControlsStyle.allCases {
             let config = style.config
             let ranges = TitlebarControlsHitRegions.buttonXRanges(config: config)
 
-            XCTAssertEqual(ranges.count, MinimalModeSidebarControlActionSlot.allCases.count)
+            XCTAssertEqual(ranges.count, 3)
             for range in ranges {
                 XCTAssertEqual(
                     range.upperBound - range.lowerBound,
