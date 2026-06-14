@@ -2,6 +2,7 @@
   "scripts": {
     "agent-session-web:build": "sh scripts/build-agent-session-web.sh",
     "agent-session-web:test": "bun test webviews/src/agent-session/shared/*.test.ts",
+    "biome:check": "biome check .",
     "feed-tui": "bun Resources/feed-tui/index.ts"
   },
   "dependencies": {
@@ -17,6 +18,7 @@
   },
   "license": "GPL-3.0-or-later",
   "devDependencies": {
+    "@biomejs/biome": "2.5.0",
     "@tailwindcss/cli": "^4.3.0",
     "esbuild": "0.27.0",
     "tailwindcss": "^4.3.0"

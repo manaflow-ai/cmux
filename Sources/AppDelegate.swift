@@ -1,10 +1,13 @@
 import AppKit
 import CmuxAuthRuntime
+import CmuxPanes
 import CmuxControlSocket
+import CmuxIPCService
 import CmuxSettings
 import CmuxSettingsUI
 import CmuxSocketControl
 import CmuxUpdater
+import CmuxWorkspaces
 import CmuxUpdaterUI
 import SwiftUI
 import Bonsplit
@@ -17,44 +20,6 @@ import Combine
 import ObjectiveC.runtime
 import Darwin
 import CmuxFoundation
-
-private struct MultiWindowRouteCLIResult {
-    let status: String
-    let stdout: String
-    let stderr: String
-}
-
-private func runMultiWindowRouteCLI(
-    cliURL: URL,
-    socketPath: String,
-    processEnv: [String: String],
-    arguments: [String]
-) -> MultiWindowRouteCLIResult {
-    let process = Process()
-    process.executableURL = cliURL
-    process.arguments = ["--socket", socketPath] + arguments
-    process.environment = processEnv
-
-    let stdoutPipe = Pipe()
-    let stderrPipe = Pipe()
-    process.standardOutput = stdoutPipe
-    process.standardError = stderrPipe
-
-    do {
-        try process.run()
-    } catch {
-        return MultiWindowRouteCLIResult(status: "-1", stdout: "", stderr: String(describing: error))
-    }
-    process.waitUntilExit()
-
-    let stdoutData = ProcessPipeReader.readDataToEndOfFileOrEmpty(from: stdoutPipe.fileHandleForReading)
-    let stderrData = ProcessPipeReader.readDataToEndOfFileOrEmpty(from: stderrPipe.fileHandleForReading)
-    return MultiWindowRouteCLIResult(
-        status: String(process.terminationStatus),
-        stdout: String(data: stdoutData, encoding: .utf8) ?? "",
-        stderr: String(data: stderrData, encoding: .utf8) ?? ""
-    )
-}
 
 /// Caches `AXWindows` responses so repeated AX polls can reuse the same
 /// snapshot while the app window graph is unchanged. Only `.windows` is
@@ -178,8 +143,8 @@ private struct WorkspaceGroupNewWorkspaceTarget {
 /// TabManager and joins it to a target group. Used by group `+` context-menu
 /// actions whose underlying executor creates the workspace asynchronously
 /// (cloudVM in particular launches `cmux vm new` and returns immediately).
-/// Subscribes to `tabManager.$tabs` (the @Published source of truth that
-/// `addWorkspace` updates, regardless of whether a NotificationCenter event
+/// Subscribes to `tabManager.tabsPublisher` (the legacy Combine bridge fed by
+/// every `tabs` mutation, regardless of whether a NotificationCenter event
 /// fired) so VM workspaces, dropped attaches, or any other slow async path
 /// is caught. Self-clears on first match, group disappearance, or a process
 /// completion signal that either names the created workspace or reports launch
@@ -214,7 +179,7 @@ final class ConfiguredGroupActionAsyncWorkspaceObserver {
             knownIds: knownIds
         )
         pending[key] = watcher
-        watcher.subscription = tabManager.$tabs
+        watcher.subscription = tabManager.tabsPublisher
             .receive(on: DispatchQueue.main)
             .sink { [weak watcher] tabs in
                 watcher?.checkForNewWorkspace(in: tabs)
@@ -1050,7 +1015,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     /// Tracks the cascade point for new windows, matching Ghostty's upstream algorithm.
     /// Reset to `.zero` so the first window seeds the point from its own position.
     private var lastCascadePoint = NSPoint.zero
-    private var startupSessionSnapshot: AppSessionSnapshot?
+    private(set) var startupSessionSnapshot: AppSessionSnapshot?
     private var didPrepareStartupSessionSnapshot = false
     var didAttemptStartupSessionRestore = false
     private var isApplyingSessionRestore = false
@@ -4392,7 +4357,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     func ensureMobileWorkspaceListObserver(for tabManager: TabManager) {
         let id = ObjectIdentifier(tabManager)
         if mobileWorkspaceListObservers[id] == nil {
-            mobileWorkspaceListObservers[id] = MobileWorkspaceListObserver(tabManager: tabManager)
+            mobileWorkspaceListObservers[id] = MobileWorkspaceListObserver(tabManager: tabManager, notificationStore: notificationStore)
         }
     }
 
@@ -4421,6 +4386,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         #endif
         if let existing = mainWindowContexts[key] {
             tabManager.window = window
+            tabManager.windowId = existing.windowId
             existing.window = window
             let resolvedFileExplorerState = fileExplorerState ?? existing.fileExplorerState
             if let fileExplorerState {
@@ -4445,6 +4411,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 )
 #endif
                 existing.tabManager.window = existingWindow
+                existing.tabManager.windowId = existing.windowId
                 existing.keyboardFocusCoordinator.update(
                     window: existingWindow,
                     tabManager: existing.tabManager,
@@ -4455,6 +4422,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 return
             }
             tabManager.window = window
+            tabManager.windowId = windowId
             existing.window = window
             let resolvedFileExplorerState = fileExplorerState ?? existing.fileExplorerState
             if let fileExplorerState {
@@ -4471,6 +4439,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             reindexMainWindowContextIfNeeded(existing, for: window)
         } else {
             tabManager.window = window
+            tabManager.windowId = windowId
             mainWindowContexts[key] = MainWindowContext(
                 windowId: windowId,
                 tabManager: tabManager,
@@ -4523,6 +4492,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         cmuxConfigStore: CmuxConfigStore? = nil,
         fileExplorerState: FileExplorerState? = nil
     ) -> UUID {
+        tabManager.windowId = windowId
         mainWindowContexts[ObjectIdentifier(tabManager)] = MainWindowContext(
             windowId: windowId,
             tabManager: tabManager,
@@ -4980,10 +4950,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         )
 #endif
         return moved
-    }
-
-    func mainWindow(for windowId: UUID) -> NSWindow? {
-        windowForMainWindowId(windowId)
     }
 
     @discardableResult
@@ -5749,15 +5715,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.05, execute: reassert)
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.16, execute: reassert)
-    }
-
-    func windowForMainWindowId(_ windowId: UUID) -> NSWindow? {
-        if let ctx = mainWindowContexts.values.first(where: { $0.windowId == windowId }),
-           let window = ctx.window {
-            return window
-        }
-        let expectedIdentifier = "cmux.main.\(windowId.uuidString)"
-        return NSApp.windows.first(where: { $0.identifier?.rawValue == expectedIdentifier })
     }
 
     private func resolvedWindow(for context: MainWindowContext) -> NSWindow? {
@@ -7041,6 +6998,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
         return createMainWindow(
             initialTerminalInput: suppressWelcome ? "" : nil,
+            preferredWindowId: startupPrimaryWindowIdForInitialMainWindow(),
             shouldActivate: shouldActivate
         )
     }
@@ -7339,7 +7297,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         return WorkspaceGroupNewWorkspaceTarget(
             groupId: groupId,
             referenceWorkspaceId: selectedWorkspaceId,
-            placement: configured ?? WorkspaceGroupNewWorkspacePlacementSettings.resolved()
+            placement: configured
+                ?? UserDefaultsSettingsClient(defaults: .standard).value(for: SettingCatalog().workspaceGroups.newWorkspacePlacement)
         )
     }
 
@@ -8132,19 +8091,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         initialWorkingDirectory: String? = nil,
         initialTerminalInput: String? = nil,
         sessionWindowSnapshot: SessionWindowSnapshot? = nil,
+        preferredWindowId: UUID? = nil,
         shouldActivate: Bool = true,
         sourceWindow preferredSourceWindow: NSWindow? = nil,
         remapClosedPanelHistoryFromSessionSnapshot: Bool = true,
         restoredSessionSnapshotHandler: (([[UUID: UUID]], TabManager) -> Void)? = nil
     ) -> UUID {
         reserveInitialSocketPathIfNeeded()
-        let windowId = UUID()
+        let requestedWindowId = preferredWindowId ?? sessionWindowSnapshot?.windowId
+        let windowId = availableWindowIdForNewMainWindow(preferredWindowId: requestedWindowId) ?? UUID()
         let tabManager = TabManager(
             initialWorkspaceTitle: initialWorkspaceTitle,
             initialWorkingDirectory: initialWorkingDirectory,
             initialTerminalInput: initialTerminalInput,
             autoWelcomeIfNeeded: initialTerminalInput == nil
         )
+        tabManager.windowId = windowId
         if let sessionWindowSnapshot {
             let restoredPanelIdsByWorkspaceIndex = tabManager.restoreSessionSnapshot(
                 sessionWindowSnapshot.tabManager,
@@ -11386,7 +11348,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 }
             }
 
-            tabsCancellable = tabManager.$tabs
+            tabsCancellable = tabManager.tabsPublisher
                 .map { _ in () }
                 .sink { _ in attemptResolve() }
             focusObserver = NotificationCenter.default.addObserver(
@@ -11604,7 +11566,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                   readySurfaceId == surfaceId else { return }
             attemptFocus()
         })
-        selectedTabCancellable = tabManager.$selectedTabId
+        selectedTabCancellable = tabManager.selectedTabIdPublisher
             .map { _ in () }
             .sink { _ in attemptFocus() }
         DispatchQueue.main.asyncAfter(deadline: .now() + 8.0) {
@@ -11655,11 +11617,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             return
         }
 
-        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
-            let create = runMultiWindowRouteCLI(
-                cliURL: cliURL,
-                socketPath: socketPath,
-                processEnv: processEnv,
+        let router = MultiWindowRouter(
+            cliURL: cliURL,
+            socketPath: socketPath,
+            environment: processEnv
+        )
+        // Inherits MainActor; each await runs the CLI off-main and the final
+        // write lands back on main, matching the legacy queue hops.
+        Task(priority: .userInitiated) { [weak self] in
+            let create = await router.routeCapturingLaunchFailure(
                 arguments: [
                     "new-workspace",
                     "--window",
@@ -11670,10 +11636,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                     "false",
                 ]
             )
-            let window2List = runMultiWindowRouteCLI(
-                cliURL: cliURL,
-                socketPath: socketPath,
-                processEnv: processEnv,
+            let window2List = await router.routeCapturingLaunchFailure(
                 arguments: [
                     "--json",
                     "--id-format",
@@ -11683,10 +11646,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                     window2Id.uuidString,
                 ]
             )
-            let window1List = runMultiWindowRouteCLI(
-                cliURL: cliURL,
-                socketPath: socketPath,
-                processEnv: processEnv,
+            let window1List = await router.routeCapturingLaunchFailure(
                 arguments: [
                     "--json",
                     "--id-format",
@@ -11697,20 +11657,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 ]
             )
 
-            DispatchQueue.main.async {
-                self?.writeMultiWindowNotificationTestData([
-                    "windowRouteStatus": "1",
-                    "windowRouteCreateStatus": create.status,
-                    "windowRouteCreateStdout": create.stdout,
-                    "windowRouteCreateStderr": create.stderr,
-                    "windowRouteWindow2Status": window2List.status,
-                    "windowRouteWindow2Stdout": window2List.stdout,
-                    "windowRouteWindow2Stderr": window2List.stderr,
-                    "windowRouteWindow1Status": window1List.status,
-                    "windowRouteWindow1Stdout": window1List.stdout,
-                    "windowRouteWindow1Stderr": window1List.stderr,
-                ], at: path)
-            }
+            self?.writeMultiWindowNotificationTestData([
+                "windowRouteStatus": "1",
+                "windowRouteCreateStatus": String(create.terminationStatus),
+                "windowRouteCreateStdout": create.stdout,
+                "windowRouteCreateStderr": create.stderr,
+                "windowRouteWindow2Status": String(window2List.terminationStatus),
+                "windowRouteWindow2Stdout": window2List.stdout,
+                "windowRouteWindow2Stderr": window2List.stderr,
+                "windowRouteWindow1Status": String(window1List.terminationStatus),
+                "windowRouteWindow1Stdout": window1List.stdout,
+                "windowRouteWindow1Stderr": window1List.stderr,
+            ], at: path)
         }
     }
 
@@ -12413,6 +12371,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             guard seenStores.insert(identifier).inserted else { continue }
             store.loadAll()
         }
+        refreshWindowTitlesAcrossMainWindows()
 #if DEBUG
         cmuxDebugLog("cmuxConfig.reload source=\(source) stores=\(seenStores.count)")
 #endif
@@ -15065,7 +15024,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 tabManager.tabs.first(where: { $0.id == id })?.currentDirectory
             }
             let configured = context.cmuxConfigStore?.resolveWorkspaceGroupConfig(forCwd: cwd)?.newWorkspacePlacement
-            return configured ?? WorkspaceGroupNewWorkspacePlacementSettings.resolved()
+            return configured
+                ?? UserDefaultsSettingsClient(defaults: .standard).value(for: SettingCatalog().workspaceGroups.newWorkspacePlacement)
         }()
         // Short-circuit the built-in `newWorkspace` action: it must go through
         // createWorkspaceInGroup so the new workspace inherits the anchor's
@@ -16579,7 +16539,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                   surfaceId == expectedSurfaceId else { return }
             Task { @MainActor in finishIfFocused() }
         })
-        cancellables.append(tabManager.$selectedTabId.sink { _ in
+        cancellables.append(tabManager.selectedTabIdPublisher.sink { _ in
             Task { @MainActor in finishIfFocused() }
         })
         if let workspace = tabManager.tabs.first(where: { $0.id == tabId }) {
