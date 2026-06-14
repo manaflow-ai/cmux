@@ -1079,6 +1079,87 @@ extension CLINotifyProcessIntegrationRegressionTests {
         XCTAssertEqual(feedEvents.first?["_ppid"] as? Int, 525252)
     }
 
+    func testCopilotFeedDenyUsesCopilotPreToolUseSchema() throws {
+        let cliPath = try bundledCLIPath()
+        let socketPath = makeSocketPath("copilot-feed-deny")
+        let listenerFD = try bindUnixSocket(at: socketPath)
+        let state = MockSocketServerState()
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-copilot-feed-deny-\(UUID().uuidString)", isDirectory: true)
+        let workspaceId = "55555555-5555-5555-5555-555555555555"
+        let surfaceId = "66666666-6666-6666-6666-666666666666"
+
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer {
+            Darwin.close(listenerFD)
+            unlink(socketPath)
+            try? FileManager.default.removeItem(at: root)
+        }
+
+        let serverHandled = startMockServer(listenerFD: listenerFD, state: state) { line in
+            guard let payload = self.jsonObject(line) else {
+                return self.malformedRequestResponse(raw: line)
+            }
+            guard let id = payload["id"] as? String, let method = payload["method"] as? String else {
+                return self.malformedRequestResponse(id: payload["id"] as? String, raw: line)
+            }
+            XCTAssertEqual(method, "feed.push")
+            return self.v2Response(
+                id: id,
+                ok: true,
+                result: [
+                    "status": "resolved",
+                    "decision": [
+                        "kind": "permission",
+                        "mode": "deny",
+                    ],
+                ]
+            )
+        }
+
+        let result = runProcess(
+            executablePath: cliPath,
+            arguments: ["hooks", "feed", "--source", "copilot", "--event", "preToolUse"],
+            environment: [
+                "HOME": root.path,
+                "PATH": "/usr/bin:/bin:/usr/sbin:/sbin",
+                "PWD": root.path,
+                "CMUX_SOCKET_PATH": socketPath,
+                "CMUX_WORKSPACE_ID": workspaceId,
+                "CMUX_SURFACE_ID": surfaceId,
+                "CMUX_COPILOT_PID": "626262",
+                "CMUX_CLI_SENTRY_DISABLED": "1",
+            ],
+            standardInput: #"{"event":"preToolUse","sessionId":"copilot-session-123","cwd":"\#(root.path)","toolName":"Bash","toolArgs":{"command":"rm -rf /tmp/cmux-copilot-test"}}"#,
+            timeout: 5
+        )
+        wait(for: [serverHandled], timeout: 5)
+
+        XCTAssertFalse(result.timedOut, result.stderr)
+        XCTAssertEqual(result.status, 0, result.stderr)
+        let stdoutJSON = try XCTUnwrap(jsonObject(result.stdout))
+        XCTAssertEqual(stdoutJSON["permissionDecision"] as? String, "deny")
+        XCTAssertEqual(stdoutJSON["permissionDecisionReason"] as? String, "User denied permission via cmux Feed.")
+        XCTAssertNil(stdoutJSON["hookSpecificOutput"])
+        XCTAssertNil(stdoutJSON["decision"])
+
+        let feedEvents = state.commands.compactMap { command -> [String: Any]? in
+            guard let payload = self.jsonObject(command),
+                  payload["method"] as? String == "feed.push",
+                  let params = payload["params"] as? [String: Any],
+                  let event = params["event"] as? [String: Any] else {
+                return nil
+            }
+            return event
+        }
+        XCTAssertEqual(feedEvents.count, 1, "Expected one Copilot Feed event, saw \(state.commands)")
+        XCTAssertEqual(feedEvents.first?["hook_event_name"] as? String, "PermissionRequest")
+        XCTAssertEqual(feedEvents.first?["_source"] as? String, "copilot")
+        XCTAssertEqual(feedEvents.first?["_ppid"] as? Int, 626262)
+        let toolInput = try XCTUnwrap(feedEvents.first?["tool_input"] as? [String: Any])
+        XCTAssertEqual(toolInput["command"] as? String, "rm -rf /tmp/cmux-copilot-test")
+    }
+
     /// The Feed permission modes that allow a tool (`once` / `always` / `all`
     /// / `bypass`, the WorkstreamPermissionMode raw values) must exit 0 so
     /// Kiro proceeds; an unrecognized/malformed mode must fail closed with
@@ -3259,6 +3340,9 @@ extension CLINotifyProcessIntegrationRegressionTests {
         let stop = try XCTUnwrap(hooks["agentStop"] as? [[String: Any]])
         let stopCommand = try XCTUnwrap(stop.first?["bash"] as? String)
         XCTAssertTrue(stopCommand.contains("hooks copilot stop"), stopCommand)
+        let notification = try XCTUnwrap(hooks["notification"] as? [[String: Any]])
+        let notificationCommand = try XCTUnwrap(notification.first?["bash"] as? String)
+        XCTAssertTrue(notificationCommand.contains("hooks copilot notification"), notificationCommand)
         let preToolUse = try XCTUnwrap(hooks["preToolUse"] as? [[String: Any]])
         let preToolUseCommand = try XCTUnwrap(preToolUse.first?["bash"] as? String)
         XCTAssertTrue(preToolUseCommand.contains("hooks feed --source copilot --event preToolUse"), preToolUseCommand)

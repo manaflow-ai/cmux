@@ -320,7 +320,7 @@ extension CMUXCLI {
             events: [
                 .init(agentEvent: "sessionStart", cmuxSubcommand: "session-start"),
                 .init(agentEvent: "agentStop", cmuxSubcommand: "stop"),
-                .init(agentEvent: "notification", cmuxSubcommand: "stop"),
+                .init(agentEvent: "notification", cmuxSubcommand: "notification"),
                 .init(agentEvent: "sessionEnd", cmuxSubcommand: "session-end"),
             ],
             feedHookEvents: ["preToolUse"]

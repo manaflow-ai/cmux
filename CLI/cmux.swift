@@ -32718,7 +32718,7 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
         if let workspaceId = feedWorkspaceId(rawObject: stdinObj, fallback: env["CMUX_WORKSPACE_ID"]) {
             eventDict["workspace_id"] = workspaceId
         }
-        let toolInput = stdinObj["tool_input"] ?? stdinObj["toolInput"] ?? toolCall?["args"]
+        let toolInput = stdinObj["tool_input"] ?? stdinObj["toolInput"] ?? stdinObj["toolArgs"] ?? toolCall?["args"]
         if let cwd = firstString(in: stdinObj, keys: ["cwd", "working_directory", "workingDirectory"])
             ?? firstWorkspacePath(in: stdinObj)
             ?? (toolInput as? [String: Any]).flatMap({ firstString(in: $0, keys: ["Cwd", "cwd"]) }) {
@@ -32991,6 +32991,33 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
             return out
         }
 
+        func copilotPreToolDecision(
+            permission: String,
+            reason: String?,
+            additionalContext: String? = nil,
+            modifiedArgs: [String: Any]? = nil
+        ) -> String {
+            var out: [String: Any] = ["permissionDecision": permission]
+            if let reason, !reason.isEmpty {
+                out["permissionDecisionReason"] = reason
+            }
+            if let additionalContext, !additionalContext.isEmpty {
+                out["additionalContext"] = additionalContext
+            }
+            if let modifiedArgs, !modifiedArgs.isEmpty {
+                out["modifiedArgs"] = modifiedArgs
+            }
+            return encode(out)
+        }
+
+        func copilotDeny(_ reason: String, additionalContext: String? = nil) -> String {
+            copilotPreToolDecision(
+                permission: "deny",
+                reason: reason,
+                additionalContext: additionalContext
+            )
+        }
+
         func hermesAgentBlock(_ message: String) -> String {
             encode(["action": "block", "message": message])
         }
@@ -33028,6 +33055,19 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                     return hermesAgentBlock("User denied permission via cmux Feed.")
                 }
                 return "{}"
+            }
+            if source == "copilot" {
+                if mode == "deny" {
+                    return copilotDeny("User denied permission via cmux Feed.")
+                }
+                let additionalContext: String? = (mode == "always" || mode == "all" || mode == "bypass")
+                    ? "User granted \(mode) permission via cmux Feed. Reduce subsequent approval prompts for similar calls."
+                    : nil
+                return copilotPreToolDecision(
+                    permission: "allow",
+                    reason: nil,
+                    additionalContext: additionalContext
+                )
             }
             if source == "antigravity" {
                 let reason = mode == "deny"
@@ -33101,6 +33141,9 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
             }
             if let feedback, !feedback.isEmpty {
                 let reason = "User rejected the plan via cmux Feed and wants this change: \(feedback)"
+                if source == "copilot" {
+                    return copilotDeny(reason, additionalContext: reason)
+                }
                 return encode(nonClaudePreToolDecision(
                     permission: "deny",
                     reason: reason,
@@ -33108,6 +33151,9 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                 ))
             }
             if mode == "deny" {
+                if source == "copilot" {
+                    return copilotDeny("User rejected the plan via cmux Feed.")
+                }
                 return encode(nonClaudePreToolDecision(
                     permission: "deny",
                     reason: "User rejected the plan via cmux Feed."
@@ -33115,6 +33161,9 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
             }
             if mode == "ultraplan" {
                 let reason = "User chose Ultraplan via cmux Feed. Refine this plan with Ultraplan if available."
+                if source == "copilot" {
+                    return copilotDeny(reason, additionalContext: reason)
+                }
                 return encode(nonClaudePreToolDecision(
                     permission: "deny",
                     reason: reason,
@@ -33131,6 +33180,9 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                 modeText = "manual-approval mode (approve each edit)"
             }
             let ctx = "User accepted this plan via cmux Feed with \(modeText). Exit plan mode now and proceed to implement without re-entering ExitPlanMode. Do not ask again."
+            if source == "copilot" {
+                return copilotDeny(ctx, additionalContext: ctx)
+            }
             return encode(nonClaudePreToolDecision(
                 permission: "deny",
                 reason: ctx,
@@ -33146,6 +33198,9 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                         behavior: "deny",
                         message: message
                     ))
+                }
+                if source == "copilot" {
+                    return copilotDeny(message, additionalContext: message)
                 }
                 return encode(nonClaudePreToolDecision(
                     permission: "deny",
@@ -33187,6 +33242,9 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                 body = "The user answered:\n\(lines)"
             }
             let ctx = "[cmux Feed] \(body). Treat these as the user's response to your AskUserQuestion prompt; do not call AskUserQuestion again for the same question."
+            if source == "copilot" {
+                return copilotDeny(ctx, additionalContext: ctx)
+            }
             return encode(nonClaudePreToolDecision(
                 permission: "deny",
                 reason: ctx,
