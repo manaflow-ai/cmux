@@ -80,6 +80,32 @@ struct WorkspaceEnvironmentTests {
         #expect(split.surface.respawnAdditionalEnvironment["AWS_PROFILE"] == "prod")
     }
 
+    /// The session-index drop path creates a terminal in a freshly split pane via
+    /// `splitPaneWithNewTerminal`; it must inherit the workspace environment too.
+    @Test
+    func splitPaneWithNewTerminalInheritsWorkspaceEnvironment() throws {
+        let workspace = Workspace(workspaceEnvironment: ["AWS_PROFILE": "prod"])
+        let firstPanelId = try #require(workspace.focusedPanelId)
+        let paneId = try #require(workspace.paneId(forPanelId: firstPanelId))
+        let panel = try #require(workspace.splitPaneWithNewTerminal(
+            targetPane: paneId,
+            orientation: .horizontal,
+            insertFirst: false,
+            workingDirectory: nil,
+            initialInput: nil
+        ))
+        #expect(panel.surface.respawnAdditionalEnvironment["AWS_PROFILE"] == "prod")
+    }
+
+    /// When the last surface exits it is replaced by a fresh local shell via
+    /// `createReplacementTerminalPanel`; that shell must inherit the workspace env.
+    @Test
+    func replacementTerminalInheritsWorkspaceEnvironment() {
+        let workspace = Workspace(workspaceEnvironment: ["AWS_PROFILE": "prod"])
+        let replacement = workspace.createReplacementTerminalPanel()
+        #expect(replacement.surface.respawnAdditionalEnvironment["AWS_PROFILE"] == "prod")
+    }
+
     /// An explicit per-surface environment (layout `env`, scrollback replay, SSH
     /// startup) overlays the workspace set rather than being discarded.
     @Test

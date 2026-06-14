@@ -9242,7 +9242,8 @@ final class Workspace: Identifiable, ObservableObject {
             context: GHOSTTY_SURFACE_CONTEXT_TAB,
             configTemplate: inheritedConfig,
             portOrdinal: portOrdinal,
-            initialCommand: replacementInitialCommand
+            initialCommand: replacementInitialCommand,
+            additionalEnvironment: startupEnvironmentMergingWorkspaceEnvironment([:])
         )
         configureNewTerminalPanel(newPanel)
         panels[newPanel.id] = newPanel
@@ -10294,7 +10295,7 @@ final class Workspace: Identifiable, ObservableObject {
         let requestedRemoteStartupCommand = remoteStartupCommand?.trimmingCharacters(in: .whitespacesAndNewlines)
         let startupCommand = requestedRemoteStartupCommand?.isEmpty == false ? requestedRemoteStartupCommand : nil
         let effectiveStartupEnvironment = terminalStartupEnvironment(
-            base: [:],
+            base: startupEnvironmentMergingWorkspaceEnvironment([:]),
             remoteStartupCommand: startupCommand
         )
         if startupCommand != nil {
@@ -11636,7 +11637,8 @@ extension Workspace: BonsplitDelegate {
                         workspaceId: id,
                         context: GHOSTTY_SURFACE_CONTEXT_SPLIT,
                         configTemplate: inheritedConfig,
-                        portOrdinal: portOrdinal
+                        portOrdinal: portOrdinal,
+                        additionalEnvironment: startupEnvironmentMergingWorkspaceEnvironment([:])
                     )
                     configureNewTerminalPanel(replacementPanel)
                     panels[replacementPanel.id] = replacementPanel
@@ -11704,7 +11706,8 @@ extension Workspace: BonsplitDelegate {
             workspaceId: id,
             context: GHOSTTY_SURFACE_CONTEXT_SPLIT,
             configTemplate: inheritedConfig,
-            portOrdinal: portOrdinal
+            portOrdinal: portOrdinal,
+            additionalEnvironment: startupEnvironmentMergingWorkspaceEnvironment([:])
         )
         configureNewTerminalPanel(newPanel)
         panels[newPanel.id] = newPanel

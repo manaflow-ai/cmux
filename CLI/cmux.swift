@@ -7277,10 +7277,17 @@ struct CMUXCLI {
         if let unknown = rem1.first(where: { $0.hasPrefix("--") }) {
             throw CLIError(message: "workspace env: unknown flag '\(unknown)'. Known flags: --workspace <id|ref|index>, --window <id|ref|index>, --mask")
         }
-        let target = workspaceArg ?? rem1.first(where: { !$0.hasPrefix("--") })
+        let positional = rem1.first(where: { !$0.hasPrefix("--") })
+        let windowRaw = windowFromArgsOrOverride(commandArgs, windowOverride: windowOverride)
+        // Match reconnect/disconnect: default to the caller's workspace
+        // ($CMUX_WORKSPACE_ID) before the selected one, but only when no explicit
+        // --window is given (the caller's workspace may live in another window).
+        let target = workspaceArg
+            ?? positional
+            ?? (windowRaw == nil ? ProcessInfo.processInfo.environment["CMUX_WORKSPACE_ID"] : nil)
 
         var params: [String: Any] = [:]
-        let winId = try normalizeWindowHandle(windowFromArgsOrOverride(commandArgs, windowOverride: windowOverride), client: client)
+        let winId = try normalizeWindowHandle(windowRaw, client: client)
         if let winId { params["window_id"] = winId }
         let wsId = try normalizeWorkspaceHandle(target, client: client, windowHandle: winId)
         if let wsId { params["workspace_id"] = wsId }
@@ -7290,22 +7297,27 @@ struct CMUXCLI {
         let envStrings: [String: String] = rawEnv.reduce(into: [:]) { result, pair in
             if let value = pair.value as? String { result[pair.key] = value }
         }
+        let displayedEnv: [String: String] = mask
+            ? envStrings.reduce(into: [String: String]()) { result, pair in
+                result[pair.key] = Self.maskedEnvValue(pair.value)
+            }
+            : envStrings
 
         if jsonOutput {
-            var out = payload
-            if mask {
-                out["env"] = envStrings.reduce(into: [String: String]()) { result, pair in
-                    result[pair.key] = Self.maskedEnvValue(pair.value)
-                }
-            }
-            print(jsonString(formatIDs(out, mode: idFormat)))
+            // Format only the envelope's id/ref metadata. The env map is arbitrary
+            // user data, so running it through formatIDs (which strips `id` when
+            // `ref` is present and `*_id` when a matching `*_ref` exists) could
+            // silently drop a user variable; reinsert it verbatim after formatting.
+            var envelope = payload
+            envelope.removeValue(forKey: "env")
+            var formatted = (formatIDs(envelope, mode: idFormat) as? [String: Any]) ?? envelope
+            formatted["env"] = displayedEnv
+            print(jsonString(formatted))
         } else if envStrings.isEmpty {
             print(String(localized: "cli.workspace.env.empty", defaultValue: "No environment variables"))
         } else {
             for key in envStrings.keys.sorted() {
-                let value = envStrings[key] ?? ""
-                let shown = mask ? Self.maskedEnvValue(value) : value
-                print("\(key)=\(shown)")
+                print("\(key)=\(displayedEnv[key] ?? "")")
             }
         }
     }
