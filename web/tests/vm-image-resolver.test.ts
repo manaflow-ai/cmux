@@ -11,8 +11,13 @@ describe("VM image resolver", () => {
     });
     expect(resolveVmImage("freestyle", undefined, {})).toMatchObject({
       provider: "freestyle",
-      image: "sh-17agfasevrc18c8f15nn",
-      imageVersion: "freestyle-tooling-20260509d",
+      image: "sh-81dr9m8k81txpuskvq03",
+      imageVersion: "freestyle-signedauth-20260614b",
+      manifestEntry: {
+        features: {
+          signedWebSocketAuth: true,
+        },
+      },
     });
   });
 

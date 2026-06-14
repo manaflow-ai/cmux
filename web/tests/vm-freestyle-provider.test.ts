@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { generateKeyPairSync } from "node:crypto";
 import { FreestyleProvider } from "../services/vms/drivers/freestyle";
 import type {
   SSHEndpoint,
@@ -37,6 +38,12 @@ class TestFreestyleProvider extends FreestyleProvider {
 
   override async openSSH(_vmId: string): Promise<SSHEndpoint> {
     this.sshCalls += 1;
+    return sshEndpoint;
+  }
+}
+
+class SignedAttachTestProvider extends FreestyleProvider {
+  override async openSSH(_vmId: string): Promise<SSHEndpoint> {
     return sshEndpoint;
   }
 }
@@ -102,5 +109,67 @@ describe("FreestyleProvider attach fallback", () => {
 
     expect(endpoint).toEqual(endpointWithDaemon);
     expect(provider.sshCalls).toBe(0);
+  });
+});
+
+describe("FreestyleProvider signed attach", () => {
+  test("does not use signed attach unless image metadata allowed it", async () => {
+    const originalKey = process.env.CMUX_VM_ATTACH_SIGNING_PRIVATE_KEY;
+    const originalFetch = globalThis.fetch;
+    const { privateKey } = generateKeyPairSync("ed25519");
+    let fetchCalls = 0;
+    process.env.CMUX_VM_ATTACH_SIGNING_PRIVATE_KEY = privateKey.export({ type: "pkcs8", format: "pem" }).toString();
+    globalThis.fetch = (() => {
+      fetchCalls += 1;
+      return Promise.resolve(new Response("bad gateway", { status: 502 }));
+    }) as typeof fetch;
+
+    try {
+      const provider = new SignedAttachTestProvider();
+      const endpoint = await provider.openAttach("vm-1", { requireDaemon: true });
+
+      expect(endpoint.transport).toBe("ssh");
+      expect(fetchCalls).toBe(1);
+    } finally {
+      globalThis.fetch = originalFetch;
+      if (originalKey === undefined) {
+        delete process.env.CMUX_VM_ATTACH_SIGNING_PRIVATE_KEY;
+      } else {
+        process.env.CMUX_VM_ATTACH_SIGNING_PRIVATE_KEY = originalKey;
+      }
+    }
+  });
+
+  test("returns signed WebSocket endpoints when image metadata allows it", async () => {
+    const originalKey = process.env.CMUX_VM_ATTACH_SIGNING_PRIVATE_KEY;
+    const originalFetch = globalThis.fetch;
+    const { privateKey } = generateKeyPairSync("ed25519");
+    let fetchCalls = 0;
+    process.env.CMUX_VM_ATTACH_SIGNING_PRIVATE_KEY = privateKey.export({ type: "pkcs8", format: "pem" }).toString();
+    globalThis.fetch = (() => {
+      fetchCalls += 1;
+      throw new Error("signed attach should not probe health");
+    }) as typeof fetch;
+
+    try {
+      const provider = new FreestyleProvider();
+      const endpoint = await provider.openAttach("vm-1", {
+        requireDaemon: true,
+        signedWebSocketAuth: true,
+      });
+
+      expect(endpoint.transport).toBe("websocket");
+      if (endpoint.transport !== "websocket") throw new Error("expected websocket endpoint");
+      expect(endpoint.daemon).toBeTruthy();
+      expect(endpoint.url).toBe("wss://vm-1.vm.freestyle.sh/terminal");
+      expect(fetchCalls).toBe(0);
+    } finally {
+      globalThis.fetch = originalFetch;
+      if (originalKey === undefined) {
+        delete process.env.CMUX_VM_ATTACH_SIGNING_PRIVATE_KEY;
+      } else {
+        process.env.CMUX_VM_ATTACH_SIGNING_PRIVATE_KEY = originalKey;
+      }
+    }
   });
 });

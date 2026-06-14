@@ -115,6 +115,9 @@
       "imageId": "sh-81dr9m8k81txpuskvq03",
       "envVar": "FREESTYLE_SANDBOX_SNAPSHOT",
       "defaultForLocalDev": true,
+      "features": {
+        "signedWebSocketAuth": true
+      },
       "cmuxdRemoteCommit": "a9dd4acbcaf53c2567785c88fc5b80bcc56e9053",
       "builtAt": "2026-06-14T06:24:34.411Z",
       "builderScriptVersion": "2f9e7167aab44e05cbe283ec59aeb86cecfaf917d07c5e844b086cdc3ad6d8a7",

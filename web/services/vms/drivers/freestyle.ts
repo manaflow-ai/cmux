@@ -315,7 +315,7 @@ export class FreestyleProvider implements VMProvider {
    */
   async openAttach(vmId: string, options?: AttachOptions): Promise<AttachEndpoint> {
     try {
-      const endpoint = await this.openWebSocketPty(vmId);
+      const endpoint = await this.openWebSocketPty(vmId, options);
       if (options?.requireDaemon && !endpoint.daemon) {
         throw new ProviderError(
           "freestyle",
@@ -344,7 +344,7 @@ export class FreestyleProvider implements VMProvider {
     }
   }
 
-  async openWebSocketPty(vmId: string): Promise<WebSocketPtyEndpoint> {
+  async openWebSocketPty(vmId: string, options?: AttachOptions): Promise<WebSocketPtyEndpoint> {
     return withVmSpan(
       "cmux.vm.provider.open_websocket_pty",
       {
@@ -356,7 +356,7 @@ export class FreestyleProvider implements VMProvider {
         try {
           const domain = `${vmId}.vm.freestyle.sh`;
           const signingPrivateKey = signedAttachPrivateKey();
-          if (signingPrivateKey) {
+          if (options?.signedWebSocketAuth === true && signingPrivateKey) {
             const pty = makeSignedWebSocketAuthToken("pty", vmId, true, CMUXD_WS_PTY_LEASE_TTL_SECONDS, signingPrivateKey);
             const daemon = makeSignedWebSocketAuthToken("rpc", vmId, false, CMUXD_WS_RPC_LEASE_TTL_SECONDS, signingPrivateKey);
             span.setAttribute("cmux.vm.attach.transport", "websocket");
@@ -381,9 +381,9 @@ export class FreestyleProvider implements VMProvider {
               },
             };
           }
+          await ensureFreestyleWebSocketHealthy(domain);
           const fs = client();
           const vm = fs.vms.ref({ vmId });
-          await ensureFreestyleWebSocketHealthy(domain);
           const service = await readFreestyleWebSocketService(vm);
 
           const pty = makeWebSocketLease("freestyle", "pty", true, CMUXD_WS_PTY_LEASE_TTL_SECONDS);

@@ -67,6 +67,82 @@ afterAll(async () => {
 });
 
 describe("VM Effect workflows", () => {
+  test("enables signed attach only for VMs on signed-auth images", async () => {
+    const seen: Array<{ imageId: string; signedWebSocketAuth: boolean | undefined }> = [];
+    const provider: VmProviderGatewayShape = {
+      create: () => Effect.fail(new Error("unused") as never),
+      destroy: () => Effect.void,
+      exec: () => Effect.succeed({ exitCode: 0, stdout: "", stderr: "" }),
+      openAttach: (_provider, _providerVmId, options) =>
+        Effect.sync(() => {
+          seen.push({
+            imageId: _providerVmId,
+            signedWebSocketAuth: options?.signedWebSocketAuth,
+          });
+          return {
+            transport: "websocket" as const,
+            url: "wss://example.invalid/pty",
+            headers: {},
+            token: `pty-token-${_providerVmId}`,
+            sessionId: `pty-session-${_providerVmId}`,
+            expiresAtUnix: Math.floor(Date.now() / 1000) + 300,
+            daemon: {
+              url: "wss://example.invalid/rpc",
+              headers: {},
+              token: `rpc-token-${_providerVmId}`,
+              sessionId: `rpc-session-${_providerVmId}`,
+              expiresAtUnix: Math.floor(Date.now() / 1000) + 600,
+            },
+          };
+        }),
+      openSSH: () => Effect.fail(new Error("unused") as never),
+      revokeSSHIdentity: () => Effect.void,
+    };
+    const runForImage = async (imageId: string) => {
+      const repo: VmRepositoryShape = {
+        listUserVms: () => Effect.succeed([]),
+        claimBillingGrant: () => Effect.succeed({ kind: "already_claimed" }),
+        markBillingGrantApplied: () => Effect.void,
+        deleteBillingGrant: () => Effect.void,
+        beginCreate: () => Effect.fail(new Error("unused") as never),
+        activeLimitCandidates: () => Effect.succeed([]),
+        markProviderObservedStatus: () => Effect.succeed(false),
+        markCreateRunning: () => Effect.fail(new Error("unused") as never),
+        markCreateFailed: () => Effect.void,
+        findUserVm: () =>
+          Effect.succeed(testCloudVmRow({
+            status: "running",
+            providerVmId: imageId,
+            imageId,
+          })),
+        markDestroyed: () => Effect.void,
+        recordLease: () => Effect.void,
+        activeIdentityLeases: () => Effect.succeed([]),
+        markLeasesRevoked: () => Effect.void,
+        recordUsageEvent: () => Effect.void,
+        recordUsageEvents: () => Effect.void,
+      };
+      const layer = Layer.mergeAll(
+        Layer.succeed(VmRepository, repo),
+        Layer.succeed(VmProviderGateway, provider),
+        Layer.succeed(VmBillingGateway, noOpVmBillingGateway()),
+      );
+      await Effect.runPromise(
+        openAttachEndpoint({ userId: "user-workflow-usage-events", providerVmId: imageId }).pipe(
+          Effect.provide(layer),
+        ),
+      );
+    };
+
+    await runForImage("sh-17agfasevrc18c8f15nn");
+    await runForImage("sh-81dr9m8k81txpuskvq03");
+
+    expect(seen).toEqual([
+      { imageId: "sh-17agfasevrc18c8f15nn", signedWebSocketAuth: false },
+      { imageId: "sh-81dr9m8k81txpuskvq03", signedWebSocketAuth: true },
+    ]);
+  });
+
   dbTest("does not block create when usage event recording fails", async () => {
     const requested = testCloudVmRow({
       status: "provisioning",

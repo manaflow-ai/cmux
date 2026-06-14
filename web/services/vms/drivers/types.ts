@@ -59,6 +59,11 @@ export type AttachOptions = {
    * loopback URLs. PTY-only split attaches can omit it and only mint a terminal lease.
    */
   requireDaemon?: boolean;
+  /**
+   * Only images built with cmuxd-remote signed attach verification can accept this path.
+   * Callers derive this from recorded VM image metadata, not from provider-wide env.
+   */
+  signedWebSocketAuth?: boolean;
 };
 
 export type ExecResult = {

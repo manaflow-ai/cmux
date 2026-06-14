@@ -28,6 +28,7 @@ import {
 } from "./errors";
 import { isProviderNotFoundError } from "./providerErrors";
 import { VmProviderGateway, VmProviderGatewayLive, type VmProviderGatewayShape } from "./providerGateway";
+import { imageSupportsSignedWebSocketAuth } from "./images/resolver";
 import {
   VmRepository,
   VmRepositoryLive,
@@ -313,7 +314,12 @@ export function openAttachEndpoint(input: {
     const providers = yield* VmProviderGateway;
     const vm = yield* requireUserVm(input.userId, input.providerVmId);
     yield* revokeActiveIdentities(vm);
-    const endpoint = yield* providers.openAttach(vm.provider, input.providerVmId, input.options);
+    const endpoint = yield* providers.openAttach(vm.provider, input.providerVmId, {
+      ...input.options,
+      signedWebSocketAuth:
+        input.options?.signedWebSocketAuth ??
+        imageSupportsSignedWebSocketAuth(vm.provider, vm.imageId),
+    });
     yield* storeEndpointLeases(vm, endpoint).pipe(
       Effect.catchAll((err) =>
         revokeEndpointIdentity(vm.provider, endpoint).pipe(
