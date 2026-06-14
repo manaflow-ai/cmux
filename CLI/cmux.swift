@@ -10726,8 +10726,9 @@ struct CMUXCLI {
         )
         defer { resizeSource.cancel() }
 
+        var reconnectInputFilterControl: SSHPTYAttachReconnectInputFilterControl?
         do {
-            try SSHPTYAttachReconnectInputFilter.startStdinPump(
+            reconnectInputFilterControl = try SSHPTYAttachReconnectInputFilter.startStdinPump(
                 fd: fd,
                 filterEnabled: requireExisting && command == nil && isatty(STDIN_FILENO) == 1
             )
@@ -10739,6 +10740,8 @@ struct CMUXCLI {
         while true {
             let count = Darwin.read(fd, &outputBuffer, outputBuffer.count)
             if count > 0 {
+                reconnectInputFilterControl?.stopFiltering()
+                reconnectInputFilterControl = nil
                 FileHandle.standardOutput.write(Data(outputBuffer.prefix(count)))
             } else if count == 0 {
                 resizeSource.cancel()

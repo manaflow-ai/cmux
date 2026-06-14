@@ -1,3 +1,4 @@
+import Darwin
 import Foundation
 import Testing
 
@@ -15,12 +16,24 @@ import Testing
         #expect(filter.filter(laterReply) == laterReply)
     }
 
-    @Test func stopsFilteringAtIdleProbeBoundary() {
+    @Test func keepsFilteringAtIdleProbeBoundaryUntilNormalInput() {
         let filter = SSHPTYAttachReconnectInputFilter(enabled: true)
         #expect(filter.filter(Data("\u{1B}[1;1R".utf8)) == Data())
         #expect(filter.isFilteringAtProbeBoundary)
 
-        filter.stopFilteringAtProbeBoundary()
+        let liveReply = Data("\u{1B}[2;2R".utf8)
+        #expect(filter.filter(liveReply) == Data())
+
+        let normalInput = Data("printf keep\n".utf8)
+        #expect(filter.filter(normalInput) == normalInput)
+        #expect(filter.filter(liveReply) == liveReply)
+    }
+
+    @Test func stopFilteringPreservesLaterProbeLikeInput() {
+        let filter = SSHPTYAttachReconnectInputFilter(enabled: true)
+        #expect(filter.filter(Data("\u{1B}[1;1R".utf8)) == Data())
+        #expect(filter.stopFiltering() == Data())
+
         let liveReply = Data("\u{1B}[2;2R".utf8)
         #expect(filter.filter(liveReply) == liveReply)
     }
@@ -70,5 +83,87 @@ import Testing
 
         let keyInput = Data("\u{1B}[13;2u".utf8)
         #expect(filter.filter(keyInput) == keyInput)
+    }
+
+    @Test func stdinPumpKeepsFilteringLateProbeRepliesAfterInitialDrain() throws {
+        var inputPipe = [Int32](repeating: -1, count: 2)
+        try makePipe(&inputPipe)
+        var bridgePair = [Int32](repeating: -1, count: 2)
+        try makeSocketPair(&bridgePair)
+        defer {
+            closeIfOpen(inputPipe[0])
+            closeIfOpen(inputPipe[1])
+            closeIfOpen(bridgePair[0])
+            closeIfOpen(bridgePair[1])
+        }
+
+        try writeAll(fd: inputPipe[1], data: Data("\u{1B}[1;1R".utf8))
+        let control = try SSHPTYAttachReconnectInputFilter.startStdinPump(
+            fd: bridgePair[0],
+            inputFD: inputPipe[0],
+            filterEnabled: true
+        )
+        #expect(control != nil)
+
+        let lateProbeReply = Data("\u{1B}]11;rgb:e5e5/e9e9/f0f0\u{07}".utf8)
+        let forwardedInput = Data("printf keep\n".utf8)
+        try writeAll(fd: inputPipe[1], data: lateProbeReply + forwardedInput)
+        Darwin.close(inputPipe[1])
+        inputPipe[1] = -1
+
+        #expect(try readUntilEOF(fd: bridgePair[1]) == forwardedInput)
+    }
+
+    private func makePipe(_ fds: inout [Int32]) throws {
+        guard Darwin.pipe(&fds) == 0 else {
+            throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO)
+        }
+    }
+
+    private func makeSocketPair(_ fds: inout [Int32]) throws {
+        guard Darwin.socketpair(AF_UNIX, SOCK_STREAM, 0, &fds) == 0 else {
+            throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO)
+        }
+    }
+
+    private func writeAll(fd: Int32, data: Data) throws {
+        try data.withUnsafeBytes { rawBuffer in
+            guard let base = rawBuffer.bindMemory(to: UInt8.self).baseAddress else { return }
+            var remaining = rawBuffer.count
+            var cursor = base
+            while remaining > 0 {
+                let written = Darwin.write(fd, cursor, remaining)
+                if written > 0 {
+                    remaining -= written
+                    cursor = cursor.advanced(by: written)
+                } else if written < 0, errno == EINTR {
+                    continue
+                } else {
+                    throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO)
+                }
+            }
+        }
+    }
+
+    private func readUntilEOF(fd: Int32) throws -> Data {
+        var output = Data()
+        var buffer = [UInt8](repeating: 0, count: 1024)
+        while true {
+            let count = Darwin.read(fd, &buffer, buffer.count)
+            if count > 0 {
+                output.append(contentsOf: buffer.prefix(count))
+            } else if count == 0 {
+                return output
+            } else if errno != EINTR {
+                throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO)
+            }
+        }
+    }
+
+    private func closeIfOpen(_ fd: Int32) {
+        guard fd >= 0 else {
+            return
+        }
+        Darwin.close(fd)
     }
 }
