@@ -1791,6 +1791,12 @@ indirect enum SessionWorkspaceLayoutSnapshot: Codable, Sendable {
     }
 }
 
+struct SessionWorkspaceLayoutTabSnapshot: Codable, Sendable {
+    var id: UUID? = nil
+    var title: String? = nil
+    var layout: SessionWorkspaceLayoutSnapshot
+}
+
 /// One canvas pane's persisted geometry, ordered back-to-front so restore
 /// reproduces the z-order.
 struct SessionCanvasPaneSnapshot: Codable, Equatable, Sendable {
@@ -1825,6 +1831,8 @@ struct SessionWorkspaceSnapshot: Codable, Sendable {
     var currentDirectory: String
     var focusedPanelId: UUID?
     var layout: SessionWorkspaceLayoutSnapshot
+    var layoutTabs: [SessionWorkspaceLayoutTabSnapshot]? = nil
+    var selectedLayoutTabId: UUID? = nil
     /// `WorkspaceLayoutMode` raw value; absent in pre-canvas snapshots
     /// (treated as splits).
     var layoutMode: String? = nil

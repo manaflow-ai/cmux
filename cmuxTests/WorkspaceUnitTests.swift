@@ -318,6 +318,26 @@ final class SidebarSelectedWorkspaceColorTests: XCTestCase {
         XCTAssertTrue(second.terminalScrollBarHidden)
         XCTAssertFalse(third.terminalScrollBarHidden)
     }
+
+    @MainActor
+    func testRestoreSessionSnapshotAppliesTerminalScrollBarVisibility() {
+        let hiddenSource = Workspace()
+        hiddenSource.setTerminalScrollBarHidden(true)
+        let hiddenSnapshot = hiddenSource.sessionSnapshot(includeScrollback: false)
+        let restored = Workspace()
+
+        restored.restoreSessionSnapshot(hiddenSnapshot)
+
+        XCTAssertTrue(restored.terminalScrollBarHidden)
+
+        let visibleSource = Workspace()
+        let visibleSnapshot = visibleSource.sessionSnapshot(includeScrollback: false)
+        restored.setTerminalScrollBarHidden(true)
+
+        restored.restoreSessionSnapshot(visibleSnapshot)
+
+        XCTAssertFalse(restored.terminalScrollBarHidden)
+    }
 }
 
 

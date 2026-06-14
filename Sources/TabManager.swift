@@ -83,6 +83,8 @@ fileprivate final class VsyncIOSurfaceTimelineState {
 
     let frameCount: Int
     let closeFrame: Int
+    // CVDisplayLink callbacks are synchronous and cannot await an actor. Keep this DEBUG-only
+    // lock scoped to short state transitions before main-thread IOSurface sampling.
     let lock = NSLock()
 
     var framesWritten = 0
@@ -217,6 +219,10 @@ fileprivate func cmuxVsyncIOSurfaceTimelineCallback(
 
 @MainActor
 class TabManager: ObservableObject {
+    struct SessionRestoreIdentityMaps {
+        let panelIdsByWorkspaceIndex: [[UUID: UUID]]
+        let layoutTabIdsByWorkspaceIndex: [[UUID: UUID]]
+    }
     /// The window that owns this TabManager. Set by AppDelegate.registerMainWindow().
     /// Used to apply title updates to the correct window instead of NSApp.keyWindow.
     weak var window: NSWindow?
@@ -3539,6 +3545,16 @@ class TabManager: ObservableObject {
         selectedWorkspace?.selectPreviousSurface()
     }
 
+    /// Select the next Ghostty-style top tab inside the selected workspace.
+    func selectNextTopLevelTab() {
+        selectedWorkspace?.selectNextTopLevelTab()
+    }
+
+    /// Select the previous Ghostty-style top tab inside the selected workspace.
+    func selectPreviousTopLevelTab() {
+        selectedWorkspace?.selectPreviousTopLevelTab()
+    }
+
     /// Select a surface by index in the currently focused pane of the selected workspace
     func selectSurface(at index: Int) {
         selectedWorkspace?.selectSurface(at: index)
@@ -3549,16 +3565,16 @@ class TabManager: ObservableObject {
         selectedWorkspace?.selectLastSurface()
     }
 
-    /// Create a new terminal surface in the focused pane of the selected workspace
+    /// Create and focus a new top-level terminal tab in the selected workspace.
     func newSurface() {
-        // Cmd+T should always focus the newly created surface.
+        // Cmd+T creates a Ghostty-style top tab in the current workspace and focuses it.
         selectedWorkspace?.clearSplitZoom()
-        selectedWorkspace?.newTerminalSurfaceInFocusedPane(focus: true)
+        selectedWorkspace?.newTopLevelTerminalTab(focus: true)
     }
 
     func newSurface(initialInput: String) {
         selectedWorkspace?.clearSplitZoom()
-        selectedWorkspace?.newTerminalSurfaceInFocusedPane(focus: true, initialInput: initialInput)
+        selectedWorkspace?.newTopLevelTerminalTab(focus: true, initialInput: initialInput)
     }
 
     // MARK: - Split Creation
@@ -4054,8 +4070,8 @@ class TabManager: ObservableObject {
             select: false,
             autoWelcomeIfNeeded: false
         )
-        let restoredPanelIds = workspace.restoreSessionSnapshot(entry.snapshot)
-        guard !entry.snapshot.hasRestorablePanels || !restoredPanelIds.isEmpty else {
+        let restoredIdentityMap = workspace.restoreSessionSnapshot(entry.snapshot)
+        guard !entry.snapshot.hasRestorablePanels || !restoredIdentityMap.panelIds.isEmpty else {
             closeWorkspace(workspace, recordHistory: false)
             return false
         }
@@ -4079,8 +4095,10 @@ class TabManager: ObservableObject {
         ClosedItemHistoryStore.shared.remapPanelWorkspaceIds(
             from: entry.workspaceId,
             to: workspace.id,
-            panelIdMap: restoredPanelIds
+            panelIdMap: restoredIdentityMap.panelIds,
+            layoutTabIdMap: restoredIdentityMap.layoutTabIds
         )
+        ClosedItemHistoryStore.shared.flushPendingSaves()
 
         if let currentIndex = tabs.firstIndex(where: { $0.id == workspace.id }) {
             let removed = tabs.remove(at: currentIndex)
@@ -5819,7 +5837,7 @@ extension TabManager {
     func restoreSessionSnapshot(
         _ snapshot: SessionTabManagerSnapshot,
         remapClosedPanelHistory: Bool = true
-    ) -> [[UUID: UUID]] {
+    ) -> SessionRestoreIdentityMaps {
         isRestoringSessionSnapshot = true
         defer { isRestoringSessionSnapshot = false }
         let previousTabs = tabs
@@ -5848,6 +5866,7 @@ extension TabManager {
         // mountedWorkspaceIds empty and cause a frozen blank launch state (#399).
         var newTabs: [Workspace] = []
         var restoredPanelIdsByWorkspaceIndex: [[UUID: UUID]] = []
+        var restoredLayoutTabIdsByWorkspaceIndex: [[UUID: UUID]] = []
         let workspaceSnapshots = snapshot.workspaces
             .prefix(SessionPersistencePolicy.maxWorkspacesPerWindow)
         var restoredOriginalWorkspaceIds: [UUID?] = []
@@ -5860,10 +5879,11 @@ extension TabManager {
                 portOrdinal: ordinal
             )
             workspace.owningTabManager = self
-            let restoredPanelIds = workspace.restoreSessionSnapshot(workspaceSnapshot)
+            let restoredIdentityMap = workspace.restoreSessionSnapshot(workspaceSnapshot)
             wireClosedBrowserTracking(for: workspace)
             newTabs.append(workspace)
-            restoredPanelIdsByWorkspaceIndex.append(restoredPanelIds)
+            restoredPanelIdsByWorkspaceIndex.append(restoredIdentityMap.panelIds)
+            restoredLayoutTabIdsByWorkspaceIndex.append(restoredIdentityMap.layoutTabIds)
             restoredOriginalWorkspaceIds.append(workspaceSnapshot.workspaceId)
         }
 
@@ -5955,7 +5975,8 @@ extension TabManager {
         if remapClosedPanelHistory {
             remapClosedPanelHistoryAfterSessionRestore(
                 originalWorkspaceIds: restoredOriginalWorkspaceIds,
-                restoredPanelIdsByWorkspaceIndex: restoredPanelIdsByWorkspaceIndex
+                restoredPanelIdsByWorkspaceIndex: restoredPanelIdsByWorkspaceIndex,
+                restoredLayoutTabIdsByWorkspaceIndex: restoredLayoutTabIdsByWorkspaceIndex
             )
         }
 
@@ -5966,12 +5987,16 @@ extension TabManager {
                 userInfo: [GhosttyNotificationKey.tabId: selectedTabId]
             )
         }
-        return restoredPanelIdsByWorkspaceIndex
+        return SessionRestoreIdentityMaps(
+            panelIdsByWorkspaceIndex: restoredPanelIdsByWorkspaceIndex,
+            layoutTabIdsByWorkspaceIndex: restoredLayoutTabIdsByWorkspaceIndex
+        )
     }
 
     func remapClosedPanelHistoryAfterSessionRestore(
         originalWorkspaceIds: [UUID?],
-        restoredPanelIdsByWorkspaceIndex: [[UUID: UUID]]
+        restoredPanelIdsByWorkspaceIndex: [[UUID: UUID]],
+        restoredLayoutTabIdsByWorkspaceIndex: [[UUID: UUID]] = []
     ) {
         let count = min(originalWorkspaceIds.count, tabs.count)
         guard count > 0 else { return }
@@ -5985,10 +6010,14 @@ extension TabManager {
             let panelIdMap = restoredPanelIdsByWorkspaceIndex.indices.contains(index)
                 ? restoredPanelIdsByWorkspaceIndex[index]
                 : [:]
+            let layoutTabIdMap = restoredLayoutTabIdsByWorkspaceIndex.indices.contains(index)
+                ? restoredLayoutTabIdsByWorkspaceIndex[index]
+                : [:]
             ClosedItemHistoryStore.shared.remapPanelWorkspaceIds(
                 from: originalWorkspaceId,
                 to: tabs[index].id,
-                panelIdMap: panelIdMap
+                panelIdMap: panelIdMap,
+                layoutTabIdMap: layoutTabIdMap
             )
         }
         if didRequestHistoryRemap {
@@ -5998,7 +6027,8 @@ extension TabManager {
 
     func remapClosedPanelHistoryAfterWindowRestore(
         originalWorkspaceIds: [UUID],
-        restoredPanelIdsByWorkspaceIndex: [[UUID: UUID]]
+        restoredPanelIdsByWorkspaceIndex: [[UUID: UUID]],
+        restoredLayoutTabIdsByWorkspaceIndex: [[UUID: UUID]] = []
     ) {
         guard !originalWorkspaceIds.isEmpty else { return }
         let count = min(originalWorkspaceIds.count, tabs.count)
@@ -6009,10 +6039,14 @@ extension TabManager {
             let panelIdMap = restoredPanelIdsByWorkspaceIndex.indices.contains(index)
                 ? restoredPanelIdsByWorkspaceIndex[index]
                 : [:]
+            let layoutTabIdMap = restoredLayoutTabIdsByWorkspaceIndex.indices.contains(index)
+                ? restoredLayoutTabIdsByWorkspaceIndex[index]
+                : [:]
             ClosedItemHistoryStore.shared.remapPanelWorkspaceIds(
                 from: originalWorkspaceIds[index],
                 to: tabs[index].id,
-                panelIdMap: panelIdMap
+                panelIdMap: panelIdMap,
+                layoutTabIdMap: layoutTabIdMap
             )
         }
         if didRequestHistoryRemap {

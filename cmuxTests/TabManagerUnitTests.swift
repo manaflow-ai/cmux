@@ -2058,6 +2058,38 @@ final class TabManagerNotificationFocusTests: XCTestCase {
         XCTAssertEqual(workspace.focusedPanelId, rightPanel.id, "Expected notification target panel to be focused")
     }
 
+    func testFocusTabFromNotificationClearsSplitZoomInHiddenTopLevelTab() throws {
+        let manager = TabManager()
+        let workspace = try XCTUnwrap(manager.selectedWorkspace)
+        let firstTopTabId = try XCTUnwrap(workspace.selectedTopLevelTabId)
+
+        manager.newSurface()
+        let secondTopTabId = try XCTUnwrap(workspace.selectedTopLevelTabId)
+        let secondLayoutController = workspace.bonsplitController
+        let leftPanelId = try XCTUnwrap(workspace.focusedPanelId)
+        let rightPanel = try XCTUnwrap(
+            workspace.newTerminalSplit(from: leftPanelId, orientation: .horizontal)
+        )
+        workspace.focusPanel(leftPanelId)
+        XCTAssertTrue(workspace.toggleSplitZoom(panelId: leftPanelId), "Expected split zoom to enable")
+        XCTAssertTrue(secondLayoutController.isSplitZoomed, "Expected hidden destination layout to start zoomed")
+
+        XCTAssertTrue(workspace.selectTopLevelTab(id: firstTopTabId, reassertAppKitFocus: false))
+        XCTAssertEqual(workspace.selectedTopLevelTabId, firstTopTabId)
+        XCTAssertTrue(secondLayoutController.isSplitZoomed, "Expected background top tab zoom state to remain active")
+
+        XCTAssertTrue(manager.focusTabFromNotification(workspace.id, surfaceId: rightPanel.id))
+        drainMainQueue()
+        drainMainQueue()
+
+        XCTAssertEqual(workspace.selectedTopLevelTabId, secondTopTabId)
+        XCTAssertFalse(
+            secondLayoutController.isSplitZoomed,
+            "Expected notification focus to clear zoom in the destination top tab"
+        )
+        XCTAssertEqual(workspace.focusedPanelId, rightPanel.id, "Expected notification target panel to be focused")
+    }
+
     func testFocusTabFromNotificationReturnsFalseForMissingPanel() {
         let manager = TabManager()
         guard let workspace = manager.selectedWorkspace else {
@@ -2329,13 +2361,19 @@ final class TabManagerSurfaceCreationTests: XCTestCase {
         XCTAssertFalse(newTabPanel.isTextBoxActive)
     }
 
-    func testNewSurfaceFocusesCreatedSurface() {
+    func testNewSurfaceCreatesAndFocusesTopLevelTab() {
         let manager = TabManager()
         guard let workspace = manager.selectedWorkspace else {
             XCTFail("Expected a selected workspace")
             return
         }
 
+        guard let initialTopTabId = workspace.selectedTopLevelTabId else {
+            XCTFail("Expected initial top-level tab")
+            return
+        }
+        let initialLayoutController = workspace.bonsplitController
+        let initialPaneCount = initialLayoutController.allPaneIds.count
         let beforePanels = Set(workspace.panels.keys)
         manager.newSurface()
         let afterPanels = Set(workspace.panels.keys)
@@ -2344,10 +2382,385 @@ final class TabManagerSurfaceCreationTests: XCTestCase {
         XCTAssertEqual(createdPanels.count, 1, "Expected one new surface for Cmd+T path")
         guard let createdPanelId = createdPanels.first else { return }
 
+        XCTAssertEqual(workspace.topLevelTabCount, 2, "Expected Cmd+T to create a workspace top tab")
+        XCTAssertNotEqual(
+            workspace.selectedTopLevelTabId,
+            initialTopTabId,
+            "Expected Cmd+T to select the new workspace top tab"
+        )
+        XCTAssertFalse(
+            workspace.bonsplitController === initialLayoutController,
+            "Expected the selected top tab to own a distinct split controller"
+        )
+        XCTAssertEqual(
+            initialLayoutController.allPaneIds.count,
+            initialPaneCount,
+            "Expected Cmd+T not to split or mutate the original top tab layout"
+        )
         XCTAssertEqual(
             workspace.focusedPanelId,
             createdPanelId,
             "Expected newly created surface to be focused"
+        )
+    }
+
+    func testSplitsStayInsideSelectedTopLevelTab() {
+        let manager = TabManager()
+        guard let workspace = manager.selectedWorkspace,
+              let firstTopTabId = workspace.selectedTopLevelTabId,
+              let firstPanelId = workspace.focusedPanelId else {
+            XCTFail("Expected selected workspace, top tab, and focused panel")
+            return
+        }
+        let firstLayoutController = workspace.bonsplitController
+        let firstPaneCount = firstLayoutController.allPaneIds.count
+
+        manager.newSurface()
+        guard let secondTopTabId = workspace.selectedTopLevelTabId else {
+            XCTFail("Expected second top tab to be selected")
+            return
+        }
+        let secondLayoutController = workspace.bonsplitController
+        let secondInitialPaneCount = secondLayoutController.allPaneIds.count
+
+        guard let splitPanelId = manager.createSplit(direction: .right) else {
+            XCTFail("Expected split creation in selected top tab")
+            return
+        }
+
+        XCTAssertEqual(
+            secondLayoutController.allPaneIds.count,
+            secondInitialPaneCount + 1,
+            "Expected split to be added to the selected top tab layout"
+        )
+
+        XCTAssertTrue(workspace.selectTopLevelTab(id: firstTopTabId, reassertAppKitFocus: false))
+        XCTAssertTrue(
+            workspace.bonsplitController === firstLayoutController,
+            "Expected switching back to restore the first top tab layout controller"
+        )
+        XCTAssertEqual(
+            firstLayoutController.allPaneIds.count,
+            firstPaneCount,
+            "Expected the first top tab layout to remain unsplit"
+        )
+        XCTAssertEqual(
+            workspace.focusedPanelId,
+            firstPanelId,
+            "Expected switching top tabs to restore the first tab's focused panel"
+        )
+
+        XCTAssertTrue(workspace.selectTopLevelTab(id: secondTopTabId, reassertAppKitFocus: false))
+        XCTAssertTrue(
+            workspace.bonsplitController === secondLayoutController,
+            "Expected switching forward to restore the second top tab layout controller"
+        )
+        XCTAssertEqual(
+            secondLayoutController.allPaneIds.count,
+            secondInitialPaneCount + 1,
+            "Expected the second top tab split layout to be preserved"
+        )
+        XCTAssertEqual(
+            workspace.focusedPanelId,
+            splitPanelId,
+            "Expected returning to the split top tab to restore its focused split panel"
+        )
+    }
+
+    func testSelectedPanelIdInHiddenTopLevelTabUsesOwningController() throws {
+        let manager = TabManager()
+        let workspace = try XCTUnwrap(manager.selectedWorkspace)
+        let firstTopTabId = try XCTUnwrap(workspace.selectedTopLevelTabId)
+
+        manager.newSurface()
+        let hiddenController = workspace.bonsplitController
+        let hiddenPaneId = try XCTUnwrap(hiddenController.focusedPaneId ?? hiddenController.allPaneIds.first)
+        let selectedHiddenPanel = try XCTUnwrap(workspace.newTerminalSurface(inPane: hiddenPaneId, focus: true))
+
+        XCTAssertTrue(workspace.selectTopLevelTab(id: firstTopTabId, reassertAppKitFocus: false))
+
+        XCTAssertEqual(
+            workspace.selectedPanelId(inPane: hiddenPaneId),
+            selectedHiddenPanel.id,
+            "Expected pane-scoped selection lookup to use the hidden top tab's owning controller"
+        )
+    }
+
+    func testSurfaceCreationIntoHiddenTopLevelTabUsesOwningControllerWithoutSelectingIt() throws {
+        let manager = TabManager()
+        let workspace = try XCTUnwrap(manager.selectedWorkspace)
+        let firstTopTabId = try XCTUnwrap(workspace.selectedTopLevelTabId)
+        let firstLayoutController = workspace.bonsplitController
+        let firstPaneCount = firstLayoutController.allPaneIds.count
+
+        manager.newSurface()
+        let secondLayoutController = workspace.bonsplitController
+        let hiddenPaneId = try XCTUnwrap(secondLayoutController.focusedPaneId ?? secondLayoutController.allPaneIds.first)
+
+        XCTAssertTrue(workspace.selectTopLevelTab(id: firstTopTabId, reassertAppKitFocus: false))
+        let createdPanel = try XCTUnwrap(
+            workspace.newFilePreviewSurface(
+                inPane: hiddenPaneId,
+                filePath: "/tmp/cmux-hidden-top-tab-preview.txt",
+                focus: false
+            )
+        )
+        let createdTabId = try XCTUnwrap(workspace.surfaceIdFromPanelId(createdPanel.id))
+
+        XCTAssertEqual(
+            workspace.selectedTopLevelTabId,
+            firstTopTabId,
+            "Expected non-focus creation in a hidden top tab not to switch the selected top tab"
+        )
+        XCTAssertTrue(
+            workspace.bonsplitController === firstLayoutController,
+            "Expected the visible top tab controller to remain selected"
+        )
+        XCTAssertEqual(
+            firstLayoutController.allPaneIds.count,
+            firstPaneCount,
+            "Expected hidden-tab surface creation not to mutate the selected top tab layout"
+        )
+        XCTAssertTrue(
+            secondLayoutController.tabs(inPane: hiddenPaneId).contains { $0.id == createdTabId },
+            "Expected the new surface to be inserted into the hidden top tab's controller"
+        )
+        XCTAssertTrue(
+            workspace.bonsplitController(containingPanelId: createdPanel.id) === secondLayoutController,
+            "Expected panel lookup to resolve the hidden top tab's owning controller"
+        )
+    }
+
+    func testSplitCreationIntoTargetTopLevelTabUsesTargetController() throws {
+        let manager = TabManager()
+        let workspace = try XCTUnwrap(manager.selectedWorkspace)
+        let firstTopTabId = try XCTUnwrap(workspace.selectedTopLevelTabId)
+        let firstLayoutController = workspace.bonsplitController
+        let firstPaneCount = firstLayoutController.allPaneIds.count
+
+        manager.newSurface()
+        let secondTopTabId = try XCTUnwrap(workspace.selectedTopLevelTabId)
+        let secondLayoutController = workspace.bonsplitController
+        let secondInitialPaneCount = secondLayoutController.allPaneIds.count
+        let targetPaneId = try XCTUnwrap(secondLayoutController.focusedPaneId ?? secondLayoutController.allPaneIds.first)
+
+        XCTAssertTrue(workspace.selectTopLevelTab(id: firstTopTabId, reassertAppKitFocus: false))
+        let createdPanel = try XCTUnwrap(
+            workspace.splitPaneWithFilePreview(
+                targetPane: targetPaneId,
+                orientation: .horizontal,
+                insertFirst: false,
+                filePath: "/tmp/cmux-target-top-tab-preview.txt"
+            )
+        )
+
+        XCTAssertEqual(
+            workspace.selectedTopLevelTabId,
+            secondTopTabId,
+            "Expected focused split creation to select the target top tab"
+        )
+        XCTAssertTrue(
+            workspace.bonsplitController === secondLayoutController,
+            "Expected focused split creation to activate the target top tab controller"
+        )
+        XCTAssertEqual(
+            secondLayoutController.allPaneIds.count,
+            secondInitialPaneCount + 1,
+            "Expected split creation to mutate the target top tab layout"
+        )
+        XCTAssertEqual(
+            firstLayoutController.allPaneIds.count,
+            firstPaneCount,
+            "Expected split creation not to mutate the previously selected top tab layout"
+        )
+        XCTAssertTrue(
+            workspace.bonsplitController(containingPanelId: createdPanel.id) === secondLayoutController,
+            "Expected split panel lookup to resolve the target top tab's owning controller"
+        )
+    }
+
+    func testClosingLastSurfaceInHiddenTopLevelTabKeepsVisibleTopLevelTabSelected() throws {
+        let manager = TabManager()
+        let workspace = try XCTUnwrap(manager.selectedWorkspace)
+        let firstTopTabId = try XCTUnwrap(workspace.selectedTopLevelTabId)
+        let firstLayoutController = workspace.bonsplitController
+
+        manager.newSurface()
+        let hiddenPanelId = try XCTUnwrap(workspace.focusedPanelId)
+        let hiddenLayoutController = workspace.bonsplitController
+        let hiddenLayoutPane = try XCTUnwrap(hiddenLayoutController.allPaneIds.first)
+
+        XCTAssertTrue(workspace.selectTopLevelTab(id: firstTopTabId, reassertAppKitFocus: false))
+        XCTAssertTrue(workspace.closePanel(hiddenPanelId, force: true))
+
+        XCTAssertEqual(
+            workspace.selectedTopLevelTabId,
+            firstTopTabId,
+            "Expected a hidden top tab child exit not to switch the visible top tab"
+        )
+        XCTAssertTrue(
+            workspace.bonsplitController === firstLayoutController,
+            "Expected the selected layout controller to remain visible"
+        )
+        XCTAssertFalse(
+            hiddenLayoutController.tabs(inPane: hiddenLayoutPane).isEmpty,
+            "Expected the hidden layout to get its replacement terminal without becoming selected"
+        )
+    }
+
+    func testMoveSurfaceBetweenTopLevelTabControllersUsesDestinationController() throws {
+        let manager = TabManager()
+        let workspace = try XCTUnwrap(manager.selectedWorkspace)
+        let firstTopTabId = try XCTUnwrap(workspace.selectedTopLevelTabId)
+        let firstPanelId = try XCTUnwrap(workspace.focusedPanelId)
+        let firstLayoutController = workspace.bonsplitController
+        let firstLayoutPane = try XCTUnwrap(firstLayoutController.allPaneIds.first)
+
+        manager.newSurface()
+        let secondLayoutController = workspace.bonsplitController
+        let secondPaneId = try XCTUnwrap(secondLayoutController.focusedPaneId ?? secondLayoutController.allPaneIds.first)
+
+        XCTAssertTrue(workspace.selectTopLevelTab(id: firstTopTabId, reassertAppKitFocus: false))
+        XCTAssertTrue(
+            workspace.moveSurface(panelId: firstPanelId, toPane: secondPaneId, focus: false),
+            "Expected same-workspace moves across top-tab controllers to detach and attach"
+        )
+
+        XCTAssertEqual(
+            workspace.selectedTopLevelTabId,
+            firstTopTabId,
+            "Expected a non-focus move into another top tab not to switch the visible top tab"
+        )
+        XCTAssertTrue(
+            workspace.bonsplitController(containingPanelId: firstPanelId) === secondLayoutController,
+            "Expected the moved surface to be owned by the destination top tab controller"
+        )
+        XCTAssertFalse(
+            firstLayoutController.tabs(inPane: firstLayoutPane).isEmpty,
+            "Expected moving the last panel out of a top tab to leave a replacement terminal behind"
+        )
+    }
+
+    func testFailedSplitSurfaceBetweenTopLevelTabControllersRestoresSourceController() throws {
+        let manager = TabManager()
+        let workspace = try XCTUnwrap(manager.selectedWorkspace)
+        let firstTopTabId = try XCTUnwrap(workspace.selectedTopLevelTabId)
+        let firstPanelId = try XCTUnwrap(workspace.focusedPanelId)
+        let firstLayoutController = workspace.bonsplitController
+        let firstLayoutPane = try XCTUnwrap(firstLayoutController.allPaneIds.first)
+
+        manager.newSurface()
+        let secondLayoutController = workspace.bonsplitController
+        let secondPaneId = try XCTUnwrap(secondLayoutController.focusedPaneId ?? secondLayoutController.allPaneIds.first)
+        let secondInitialTabIds = secondLayoutController.tabs(inPane: secondPaneId).map(\.id)
+        var destinationConfiguration = secondLayoutController.configuration
+        destinationConfiguration.allowSplits = false
+        secondLayoutController.configuration = destinationConfiguration
+
+        XCTAssertTrue(workspace.selectTopLevelTab(id: firstTopTabId, reassertAppKitFocus: false))
+        XCTAssertFalse(
+            workspace.splitSurface(
+                panelId: firstPanelId,
+                targetPane: secondPaneId,
+                orientation: .horizontal,
+                insertFirst: false,
+                focus: false
+            ),
+            "Expected a destination split veto to fail the cross-top-tab split"
+        )
+
+        let restoredTabId = try XCTUnwrap(workspace.surfaceIdFromPanelId(firstPanelId))
+        XCTAssertEqual(
+            workspace.selectedTopLevelTabId,
+            firstTopTabId,
+            "Expected a failed non-focus split into another top tab not to switch the visible top tab"
+        )
+        XCTAssertTrue(
+            workspace.bonsplitController(containingPanelId: firstPanelId) === firstLayoutController,
+            "Expected failed cross-top-tab split to restore the panel to its source controller"
+        )
+        XCTAssertEqual(
+            workspace.paneId(forPanelId: firstPanelId),
+            firstLayoutPane,
+            "Expected failed cross-top-tab split to restore the panel to its source pane"
+        )
+        XCTAssertTrue(
+            firstLayoutController.tabs(inPane: firstLayoutPane).contains { $0.id == restoredTabId },
+            "Expected the restored panel tab to be present in the source pane"
+        )
+        XCTAssertEqual(
+            secondLayoutController.tabs(inPane: secondPaneId).map(\.id),
+            secondInitialTabIds,
+            "Expected failed cross-top-tab split to remove the transient destination attachment"
+        )
+    }
+
+    func testReorderSurfaceInHiddenTopLevelTabDoesNotSelectItWhenFocusFalse() throws {
+        let manager = TabManager()
+        let workspace = try XCTUnwrap(manager.selectedWorkspace)
+        let firstTopTabId = try XCTUnwrap(workspace.selectedTopLevelTabId)
+        let firstLayoutController = workspace.bonsplitController
+
+        manager.newSurface()
+        let secondLayoutController = workspace.bonsplitController
+        let secondPaneId = try XCTUnwrap(secondLayoutController.focusedPaneId ?? secondLayoutController.allPaneIds.first)
+        let backgroundPanel = try XCTUnwrap(workspace.newTerminalSurface(inPane: secondPaneId, focus: false))
+        let backgroundTabId = try XCTUnwrap(workspace.surfaceIdFromPanelId(backgroundPanel.id))
+
+        XCTAssertTrue(workspace.selectTopLevelTab(id: firstTopTabId, reassertAppKitFocus: false))
+        XCTAssertTrue(workspace.reorderSurface(panelId: backgroundPanel.id, toIndex: 0, focus: false))
+
+        XCTAssertEqual(
+            workspace.selectedTopLevelTabId,
+            firstTopTabId,
+            "Expected non-focus reorder in a hidden top tab not to switch the visible top tab"
+        )
+        XCTAssertTrue(
+            workspace.bonsplitController === firstLayoutController,
+            "Expected the selected layout controller to remain visible"
+        )
+        XCTAssertEqual(
+            secondLayoutController.tabs(inPane: secondPaneId).first?.id,
+            backgroundTabId,
+            "Expected reorder to apply inside the hidden top tab's owning controller"
+        )
+    }
+
+    func testRestoreClosedPanelFallbackUsesOriginalTopLevelTab() throws {
+        let manager = TabManager()
+        let workspace = try XCTUnwrap(manager.selectedWorkspace)
+        let firstTopTabId = try XCTUnwrap(workspace.selectedTopLevelTabId)
+        let firstLayoutController = workspace.bonsplitController
+
+        manager.newSurface()
+        let secondTopTabId = try XCTUnwrap(workspace.selectedTopLevelTabId)
+        let secondLayoutController = workspace.bonsplitController
+        let secondPanelId = try XCTUnwrap(workspace.focusedPanelId)
+        let panelSnapshot = try XCTUnwrap(
+            workspace.sessionSnapshot(includeScrollback: false).panels.first { $0.id == secondPanelId }
+        )
+
+        XCTAssertTrue(workspace.selectTopLevelTab(id: firstTopTabId, reassertAppKitFocus: false))
+        let restoredPanelId = try XCTUnwrap(workspace.restoreClosedPanel(ClosedPanelHistoryEntry(
+            workspaceId: workspace.id,
+            paneId: UUID(),
+            layoutTabId: secondTopTabId,
+            tabIndex: 0,
+            snapshot: panelSnapshot
+        )))
+
+        XCTAssertEqual(
+            workspace.selectedTopLevelTabId,
+            secondTopTabId,
+            "Expected restoring a closed panel to activate the original top-level tab"
+        )
+        XCTAssertTrue(
+            workspace.bonsplitController(containingPanelId: restoredPanelId) === secondLayoutController,
+            "Expected the restored panel to be inserted into the original top-level tab controller"
+        )
+        XCTAssertFalse(
+            workspace.bonsplitController(containingPanelId: restoredPanelId) === firstLayoutController,
+            "Expected the selected top-level tab not to receive the restored panel"
         )
     }
 

@@ -4601,10 +4601,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         )
 #endif
 
+        let sameWorkspacePanelController = destinationWorkspace.id == sourceWorkspace.id
+            ? sourceWorkspace.bonsplitController(containingPanelId: panelId)
+            : nil
+        let destinationController = targetPane.flatMap { pane in
+            destinationWorkspace.bonsplitController(containingPaneId: pane)
+        } ?? sameWorkspacePanelController ?? destinationWorkspace.bonsplitController
         let resolvedTargetPane = targetPane.flatMap { pane in
-            destinationWorkspace.bonsplitController.allPaneIds.first(where: { $0 == pane })
-        } ?? destinationWorkspace.bonsplitController.focusedPaneId
-            ?? destinationWorkspace.bonsplitController.allPaneIds.first
+            destinationController.allPaneIds.first(where: { $0 == pane })
+        } ?? destinationController.focusedPaneId
+            ?? destinationController.allPaneIds.first
 
         guard let resolvedTargetPane else {
 #if DEBUG
@@ -4618,13 +4624,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
         if destinationWorkspace.id == sourceWorkspace.id {
             if let splitTarget {
-                guard let sourceTabId = sourceWorkspace.surfaceIdFromPanelId(panelId),
-                      sourceWorkspace.bonsplitController.splitPane(
-                        resolvedTargetPane,
-                        orientation: splitTarget.orientation,
-                        movingTab: sourceTabId,
-                        insertFirst: splitTarget.insertFirst
-                      ) != nil else {
+                guard sourceWorkspace.splitSurface(
+                    panelId: panelId,
+                    targetPane: resolvedTargetPane,
+                    orientation: splitTarget.orientation,
+                    insertFirst: splitTarget.insertFirst,
+                    focus: focus
+                ) else {
 #if DEBUG
                     cmuxDebugLog(
                         "surface.move.fail panel=\(panelId.uuidString.prefix(5)) reason=sameWorkspaceSplitFailed " +
@@ -4712,7 +4718,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             let splitStart = ProcessInfo.processInfo.systemUptime
 #endif
             guard let movedTabId = destinationWorkspace.surfaceIdFromPanelId(panelId),
-                  destinationWorkspace.bonsplitController.splitPane(
+                  let splitController = destinationWorkspace.bonsplitController(containingSurfaceId: movedTabId),
+                  splitController.splitPane(
                     resolvedTargetPane,
                     orientation: splitTarget.orientation,
                     movingTab: movedTabId,
@@ -7939,7 +7946,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         shouldActivate: Bool = true,
         sourceWindow preferredSourceWindow: NSWindow? = nil,
         remapClosedPanelHistoryFromSessionSnapshot: Bool = true,
-        restoredSessionSnapshotHandler: (([[UUID: UUID]], TabManager) -> Void)? = nil
+        restoredSessionSnapshotHandler: ((TabManager.SessionRestoreIdentityMaps, TabManager) -> Void)? = nil
     ) -> UUID {
         reserveInitialSocketPathIfNeeded()
         let requestedWindowId = preferredWindowId ?? sessionWindowSnapshot?.windowId
@@ -7952,7 +7959,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         )
         tabManager.windowId = windowId
         if let sessionWindowSnapshot {
-            let restoredPanelIdsByWorkspaceIndex = tabManager.restoreSessionSnapshot(
+            let restoredIdentityMaps = tabManager.restoreSessionSnapshot(
                 sessionWindowSnapshot.tabManager,
                 remapClosedPanelHistory: remapClosedPanelHistoryFromSessionSnapshot
             )
@@ -7961,7 +7968,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 ClosedItemHistoryStore.shared.remapWorkspaceWindowIds(from: originalWindowId, to: windowId)
                 ClosedItemHistoryStore.shared.flushPendingSaves()
             }
-            restoredSessionSnapshotHandler?(restoredPanelIdsByWorkspaceIndex, tabManager)
+            restoredSessionSnapshotHandler?(restoredIdentityMaps, tabManager)
         }
 
         let sidebarWidth = sessionWindowSnapshot?.sidebar.width
@@ -10107,12 +10114,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             ?? workspace.bonsplitController.focusedPaneId
             ?? workspace.bonsplitController.allPaneIds.first
         guard let trackedPaneId else { return }
+        let trackedController = workspace.bonsplitController(containingPaneId: trackedPaneId)
+            ?? workspace.bonsplitController
 
-        let titles: [String] = workspace.bonsplitController.tabs(inPane: trackedPaneId).compactMap { tab in
+        let titles: [String] = trackedController.tabs(inPane: trackedPaneId).compactMap { tab in
             guard let panelId = workspace.panelIdFromSurfaceId(tab.id) else { return nil }
             return workspace.panelTitle(panelId: panelId)
         }
-        let selectedTitle = workspace.bonsplitController.selectedTab(inPane: trackedPaneId)
+        let selectedTitle = trackedController.selectedTab(inPane: trackedPaneId)
             .flatMap { workspace.panelIdFromSurfaceId($0.id) }
             .flatMap { workspace.panelTitle(panelId: $0) } ?? ""
 
@@ -13417,13 +13426,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             return true
         }
 
-        // Surface navigation (legacy Ctrl+Tab support)
+        // Ghostty-style top-tab navigation (legacy Ctrl+Tab support)
         if matchTabShortcut(event: event, shortcut: StoredShortcut(key: "\t", command: false, shift: false, option: false, control: true)) {
-            tabManager?.selectNextSurface()
+            tabManager?.selectNextTopLevelTab()
             return true
         }
         if matchTabShortcut(event: event, shortcut: StoredShortcut(key: "\t", command: false, shift: true, option: false, control: true)) {
-            tabManager?.selectPreviousSurface()
+            tabManager?.selectPreviousTopLevelTab()
             return true
         }
 

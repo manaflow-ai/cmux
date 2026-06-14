@@ -112,7 +112,10 @@ extension AppDelegate {
             activateMainWindowIfNeeded(for: manager, shouldActivate: shouldActivate)
             return true
         case .window(let windowEntry):
-            var restoredPanelIdsByWorkspaceIndex: [[UUID: UUID]] = []
+            var restoredIdentityMaps = TabManager.SessionRestoreIdentityMaps(
+                panelIdsByWorkspaceIndex: [],
+                layoutTabIdsByWorkspaceIndex: []
+            )
             var restoredTabManager: TabManager?
             var windowSnapshot = windowEntry.snapshot
             if windowSnapshot.windowId == nil {
@@ -130,15 +133,15 @@ extension AppDelegate {
                 sessionWindowSnapshot: windowSnapshot,
                 shouldActivate: shouldActivate,
                 remapClosedPanelHistoryFromSessionSnapshot: false,
-                restoredSessionSnapshotHandler: { panelIdsByWorkspaceIndex, tabManager in
-                    restoredPanelIdsByWorkspaceIndex = panelIdsByWorkspaceIndex
+                restoredSessionSnapshotHandler: { identityMaps, tabManager in
+                    restoredIdentityMaps = identityMaps
                     restoredTabManager = tabManager
                 }
             )
             let hasLivePanels = restoredTabManager?.tabs.contains { !$0.panels.isEmpty } == true
             guard ClosedWindowRestoreValidation.hasUsableRestoredContent(
                 snapshot: windowEntry.snapshot,
-                restoredPanelIdsByWorkspaceIndex: restoredPanelIdsByWorkspaceIndex,
+                restoredPanelIdsByWorkspaceIndex: restoredIdentityMaps.panelIdsByWorkspaceIndex,
                 hasLivePanels: hasLivePanels
             ) else {
                 if let originalWindowId {
@@ -150,7 +153,8 @@ extension AppDelegate {
             }
             restoredTabManager?.remapClosedPanelHistoryAfterSessionRestore(
                 originalWorkspaceIds: originalWorkspaceIdsByIndex,
-                restoredPanelIdsByWorkspaceIndex: restoredPanelIdsByWorkspaceIndex
+                restoredPanelIdsByWorkspaceIndex: restoredIdentityMaps.panelIdsByWorkspaceIndex,
+                restoredLayoutTabIdsByWorkspaceIndex: restoredIdentityMaps.layoutTabIdsByWorkspaceIndex
             )
             return true
         }

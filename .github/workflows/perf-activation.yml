@@ -135,6 +135,7 @@ jobs:
             --heavy-scrollback-lines "${{ inputs.heavy_scrollback_lines || '2400' }}" \
             --other-scrollback-lines "${{ inputs.other_scrollback_lines || '1400' }}" \
             --synthetic-scrollback-fallback \
+            --synthetic-scrollback-only \
             --output perf-results/activation-session.json \
             --junit perf-results/activation-session.junit.xml
 
@@ -142,17 +143,23 @@ jobs:
         run: |
           set -euo pipefail
           APP_PATH="$HOME/Library/Developer/Xcode/DerivedData/cmux-$PERF_TAG/Build/Products/Debug/cmux DEV $PERF_TAG.app"
+          CMD_TAB_HOME="$(mktemp -d "${RUNNER_TEMP:-/tmp}/cmux-cmd-tab-home.XXXXXX")"
+          trap 'rm -rf "$CMD_TAB_HOME"' EXIT
+          mkdir -p "$CMD_TAB_HOME/Library/Application Support/cmux"
           # The GitHub Actions runner process runs in launchd's system
           # bootstrap, not the console user's Aqua session, so windows
           # created by apps launched via NSWorkspace.openApplication do
           # not show up in CGWindowListCopyWindowInfo([.optionOnScreenOnly]).
           # Re-enter the Aqua session via launchctl asuser before running
           # the bench so visibility polling sees real on-screen windows.
+          # The benchmark clears persisted session files, so give both shell
+          # and Foundation home resolution a throwaway home for this run.
           CONSOLE_USER="$(stat -f %Su /dev/console)"
           CONSOLE_UID="$(id -u "$CONSOLE_USER")"
           sudo -n launchctl asuser "$CONSOLE_UID" sudo -n -u "$CONSOLE_USER" -E \
             env PATH="$PATH" DEVELOPER_DIR="$DEVELOPER_DIR" \
-            bash -c "cd '$PWD' && swift scripts/bench-window-visibility.swift '$APP_PATH' 'com.cmuxterm.app.debug.$PERF_TAG' 30 --cmd-tab-activation --cg-visibility" \
+            HOME="$CMD_TAB_HOME" CFFIXED_USER_HOME="$CMD_TAB_HOME" \
+            bash -c "cd '$PWD' && swift scripts/bench-window-visibility.swift '$APP_PATH' 'com.cmuxterm.app.debug.$PERF_TAG' 30 --cmd-tab-activation --cg-visibility --clear-session" \
             > perf-results/cmd-tab-activation.txt
           cat perf-results/cmd-tab-activation.txt
 

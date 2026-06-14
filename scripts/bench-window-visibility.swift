@@ -234,6 +234,7 @@ private func debugAXTree(root: AXUIElement, maxNodes: Int = 80) {
 private func openApplication(appURL: URL, bundleIdentifier: String) -> NSRunningApplication? {
     let configuration = NSWorkspace.OpenConfiguration()
     configuration.activates = true
+    configuration.environment = ProcessInfo.processInfo.environment
 
     let semaphore = DispatchSemaphore(value: 0)
     var openedApp: NSRunningApplication?
@@ -296,6 +297,24 @@ private func terminateExisting(bundleIdentifier: String) {
     }
     _ = waitUntil(timeout: 5) {
         NSRunningApplication.runningApplications(withBundleIdentifier: bundleIdentifier).isEmpty
+    }
+}
+
+private func sessionSnapshotBaseName(bundleIdentifier: String) -> String {
+    let allowed = CharacterSet(charactersIn: "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789._-")
+    var safeBundleIdentifier = ""
+    for scalar in bundleIdentifier.unicodeScalars {
+        safeBundleIdentifier += allowed.contains(scalar) ? String(scalar) : "_"
+    }
+    return "session-\(safeBundleIdentifier)"
+}
+
+private func removePersistedSessionSnapshots(bundleIdentifier: String) {
+    let appSupportURL = FileManager.default.homeDirectoryForCurrentUser
+        .appendingPathComponent("Library/Application Support/cmux", isDirectory: true)
+    let baseName = sessionSnapshotBaseName(bundleIdentifier: bundleIdentifier)
+    for fileName in ["\(baseName).json", "\(baseName)-previous.json"] {
+        try? FileManager.default.removeItem(at: appSupportURL.appendingPathComponent(fileName))
     }
 }
 
@@ -437,6 +456,7 @@ private func main() {
     let activateRestore = arguments.contains("--activate-restore")
     let cmdTabActivation = arguments.contains("--cmd-tab-activation")
     let cmdTabActivateAllWindows = arguments.contains("--cmd-tab-activate-all-windows")
+    let clearSession = arguments.contains("--clear-session")
     let reuseRunning = arguments.contains("--reuse-running")
     let useCGVisibility = arguments.contains("--cg-visibility")
     let sampleCount = arguments.dropFirst(3).first(where: { Int($0) != nil }).flatMap(Int.init) ?? 15
@@ -446,6 +466,9 @@ private func main() {
 
     if !reuseRunning {
         terminateExisting(bundleIdentifier: bundleIdentifier)
+    }
+    if clearSession && !reuseRunning {
+        removePersistedSessionSnapshots(bundleIdentifier: bundleIdentifier)
     }
 
     let app = reuseRunning

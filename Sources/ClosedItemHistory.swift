@@ -17,6 +17,7 @@ struct ClosedPanelSplitPlacement: Codable {
 struct ClosedPanelHistoryEntry: Codable {
     let workspaceId: UUID
     let paneId: UUID
+    let layoutTabId: UUID?
     let paneAnchorPanelId: UUID?
     let restoreInOriginalPane: Bool
     let tabIndex: Int
@@ -26,6 +27,7 @@ struct ClosedPanelHistoryEntry: Codable {
     init(
         workspaceId: UUID,
         paneId: UUID,
+        layoutTabId: UUID? = nil,
         paneAnchorPanelId: UUID? = nil,
         restoreInOriginalPane: Bool = true,
         tabIndex: Int,
@@ -34,6 +36,7 @@ struct ClosedPanelHistoryEntry: Codable {
     ) {
         self.workspaceId = workspaceId
         self.paneId = paneId
+        self.layoutTabId = layoutTabId
         self.paneAnchorPanelId = paneAnchorPanelId
         self.restoreInOriginalPane = restoreInOriginalPane
         self.tabIndex = tabIndex
@@ -145,7 +148,8 @@ final class ClosedItemHistoryStore: ObservableObject {
         case remapPanelWorkspaceIds(
             oldWorkspaceId: UUID,
             newWorkspaceId: UUID,
-            panelIdMap: [UUID: UUID]
+            panelIdMap: [UUID: UUID],
+            layoutTabIdMap: [UUID: UUID]
         )
         case remapPanelAnchorIds(oldPanelId: UUID, newPanelId: UUID)
         case remapWorkspaceWindowIds(oldWindowId: UUID, newWindowId: UUID)
@@ -276,19 +280,22 @@ final class ClosedItemHistoryStore: ObservableObject {
     func remapPanelWorkspaceIds(
         from oldWorkspaceId: UUID,
         to newWorkspaceId: UUID,
-        panelIdMap: [UUID: UUID] = [:]
+        panelIdMap: [UUID: UUID] = [:],
+        layoutTabIdMap: [UUID: UUID] = [:]
     ) {
         guard oldWorkspaceId != newWorkspaceId else { return }
         queuePersistedRecordMutationIfLoading(.remapPanelWorkspaceIds(
             oldWorkspaceId: oldWorkspaceId,
             newWorkspaceId: newWorkspaceId,
-            panelIdMap: panelIdMap
+            panelIdMap: panelIdMap,
+            layoutTabIdMap: layoutTabIdMap
         ))
         let result = Self.recordsByRemappingPanelWorkspaceIds(
             records,
             from: oldWorkspaceId,
             to: newWorkspaceId,
-            panelIdMap: panelIdMap
+            panelIdMap: panelIdMap,
+            layoutTabIdMap: layoutTabIdMap
         )
         if result.didUpdate {
             records = result.records
@@ -447,12 +454,13 @@ final class ClosedItemHistoryStore: ObservableObject {
         to records: [ClosedItemHistoryRecord]
     ) -> (records: [ClosedItemHistoryRecord], didUpdate: Bool) {
         switch mutation {
-        case .remapPanelWorkspaceIds(let oldWorkspaceId, let newWorkspaceId, let panelIdMap):
+        case .remapPanelWorkspaceIds(let oldWorkspaceId, let newWorkspaceId, let panelIdMap, let layoutTabIdMap):
             return recordsByRemappingPanelWorkspaceIds(
                 records,
                 from: oldWorkspaceId,
                 to: newWorkspaceId,
-                panelIdMap: panelIdMap
+                panelIdMap: panelIdMap,
+                layoutTabIdMap: layoutTabIdMap
             )
         case .remapPanelAnchorIds(let oldPanelId, let newPanelId):
             return recordsByRemappingPanelAnchorIds(records, from: oldPanelId, to: newPanelId)
@@ -467,11 +475,16 @@ final class ClosedItemHistoryStore: ObservableObject {
         _ records: [ClosedItemHistoryRecord],
         from oldWorkspaceId: UUID,
         to newWorkspaceId: UUID,
-        panelIdMap: [UUID: UUID]
+        panelIdMap: [UUID: UUID],
+        layoutTabIdMap: [UUID: UUID]
     ) -> (records: [ClosedItemHistoryRecord], didUpdate: Bool) {
         func remapAnchor(_ panelId: UUID?) -> UUID? {
             guard let panelId else { return nil }
             return panelIdMap[panelId] ?? panelId
+        }
+        func remapLayoutTab(_ layoutTabId: UUID?) -> UUID? {
+            guard let layoutTabId else { return nil }
+            return layoutTabIdMap[layoutTabId] ?? layoutTabId
         }
         var didUpdate = false
         let remappedRecords = records.map { record in
@@ -490,6 +503,7 @@ final class ClosedItemHistoryStore: ObservableObject {
             return ClosedItemHistoryRecord(id: record.id, closedAt: record.closedAt, entry: .panel(ClosedPanelHistoryEntry(
                 workspaceId: newWorkspaceId,
                 paneId: panelEntry.paneId,
+                layoutTabId: remapLayoutTab(panelEntry.layoutTabId),
                 paneAnchorPanelId: remapAnchor(panelEntry.paneAnchorPanelId),
                 restoreInOriginalPane: false,
                 tabIndex: panelEntry.tabIndex,
@@ -528,6 +542,7 @@ final class ClosedItemHistoryStore: ObservableObject {
             return ClosedItemHistoryRecord(id: record.id, closedAt: record.closedAt, entry: .panel(ClosedPanelHistoryEntry(
                 workspaceId: panelEntry.workspaceId,
                 paneId: panelEntry.paneId,
+                layoutTabId: panelEntry.layoutTabId,
                 paneAnchorPanelId: paneAnchorPanelId,
                 restoreInOriginalPane: panelEntry.restoreInOriginalPane,
                 tabIndex: panelEntry.tabIndex,
