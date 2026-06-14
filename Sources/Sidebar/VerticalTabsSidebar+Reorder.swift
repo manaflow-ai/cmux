@@ -126,18 +126,32 @@ extension VerticalTabsSidebar {
     }
 
     /// Commits the reorder on drag end, animating the list into the landing
-    /// slot, then clears the drag state.
+    /// slot, then clears the drag state. A group that THIS drag spring-expanded
+    /// is collapsed again unless the dragged row landed inside it.
     func sidebarReorderGestureEnded(draggedId: UUID) {
-        defer {
-            dragState.cancelledReorderTabId = nil
-            dragState.clearDrag()
-            dragAutoScrollController.stop()
+        let autoExpandedGroupId = dragState.springAutoExpandedGroupId
+        let landedGroupId = commitGestureReorder(draggedId: draggedId)
+        if let autoExpandedGroupId, landedGroupId != autoExpandedGroupId,
+           let group = tabManager.workspaceGroups.first(where: { $0.id == autoExpandedGroupId }),
+           !group.isCollapsed {
+            withAnimation(SidebarGroupAnimation.collapse) {
+                tabManager.setWorkspaceGroupCollapsed(groupId: autoExpandedGroupId, isCollapsed: true)
+            }
         }
+        dragState.cancelledReorderTabId = nil
+        dragState.clearDrag()
+        dragAutoScrollController.stop()
+    }
+
+    /// Applies the drop and returns the group the dragged row landed inside
+    /// (nil for a top-level/anchor move, a no-op, or a drop outside any group).
+    @discardableResult
+    private func commitGestureReorder(draggedId: UUID) -> UUID? {
         guard dragState.draggedTabId == draggedId else {
             #if DEBUG
             cmuxDebugLog("sidebar.reorder.end id=\(draggedId.uuidString.prefix(5)) target=nil (noop)")
             #endif
-            return
+            return nil
         }
         guard let targetIndex = dragState.gestureReorderTargetIndex() else {
             // No positional move — but the X axis may have flipped membership
@@ -161,12 +175,12 @@ extension VerticalTabsSidebar {
                         desiredGroupId: membership
                     )
                 }
-                return
+                return membership
             }
             #if DEBUG
             cmuxDebugLog("sidebar.reorder.end id=\(draggedId.uuidString.prefix(5)) target=nil (noop)")
             #endif
-            return
+            return tabManager.tabs.first(where: { $0.id == draggedId })?.groupId
         }
         let usesTopLevelRows = dragState.dropIndicatorUsesTopLevelRows
         if usesTopLevelRows {
@@ -181,7 +195,7 @@ extension VerticalTabsSidebar {
                     usesTopLevelRows: true
                 )
             }
-            return
+            return nil
         }
         // Membership was resolved live (interior slots force it, boundary
         // slots followed the pointer's X) and is committed explicitly so the
@@ -200,6 +214,7 @@ extension VerticalTabsSidebar {
                 desiredGroupId: membership
             )
         }
+        return membership
     }
 
     /// Maps each reorder-scope id to the rendered rows that compose its hit-test

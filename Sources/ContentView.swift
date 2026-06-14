@@ -10490,8 +10490,14 @@ final class SidebarDragState {
     @ObservationIgnored private var collapsedAnchorBandIds: Set<UUID> = []
     @ObservationIgnored private var springLoadArmedAnchorId: UUID?
     @ObservationIgnored private var springLoadTask: Task<Void, Never>?
-    /// Set by the sidebar; performs the model-side expand for a spring-load.
+    /// The group THIS drag spring-expanded (it was collapsed at drag begin).
+    /// Tracked so it can be auto-collapsed again when the cursor leaves it
+    /// without dropping inside — Finder spring-loaded folder behavior.
+    @ObservationIgnored private var springAutoExpandedAnchorId: UUID?
+    @ObservationIgnored var springAutoExpandedGroupId: UUID?
+    /// Set by the sidebar; expand / collapse the group model-side.
     @ObservationIgnored var onSpringLoadExpand: ((UUID) -> Void)?
+    @ObservationIgnored var onSpringLoadCollapse: ((UUID) -> Void)?
 
     /// The begin-time gesture location in list space. Later cursor positions
     /// are derived as base + translation + autoscroll delta, because the
@@ -10576,6 +10582,8 @@ final class SidebarDragState {
         lastLegalSlot = nil
         collapsedAnchorBandIds = []
         springLoadArmedAnchorId = nil
+        springAutoExpandedAnchorId = nil
+        springAutoExpandedGroupId = nil
         springLoadTask?.cancel()
         springLoadTask = nil
         clearDropIndicator()
@@ -10760,15 +10768,33 @@ final class SidebarDragState {
         )
     }
 
-    /// Spring-loaded collapsed groups: parking the CURSOR over a collapsed
-    /// group's header for a short dwell expands the group mid-drag so the
-    /// row can be placed at a specific slot inside. The dwell is a
-    /// cancellable Task (cancelled when the cursor leaves the header or the
-    /// drag ends), per the no-asyncAfter policy.
+    /// Spring-loaded collapsed groups. Two halves: (1) if THIS drag has already
+    /// spring-expanded a group and the cursor has now LEFT that group's span,
+    /// collapse it again (it was collapsed at drag begin); (2) otherwise, arm a
+    /// short dwell over a collapsed group's header to expand it so the row can
+    /// be placed at a specific slot inside (Finder-style). The dwell is a
+    /// cancellable Task per the no-asyncAfter policy.
     private func updateSpringLoad(
         bands: [SidebarReorderIndicatorResolver.Band],
         cursorY: CGFloat
     ) {
+        if let anchorId = springAutoExpandedAnchorId, let groupId = springAutoExpandedGroupId {
+            // Span of the expanded group = its header band plus its member
+            // bands (now visible). Collapse once the cursor leaves it.
+            let groupBands = bands.filter {
+                $0.id == anchorId || (bandGroupIdById[$0.id] ?? nil) == groupId
+            }
+            if let minY = groupBands.map(\.minY).min(),
+               let maxY = groupBands.map(\.maxY).max() {
+                let pad: CGFloat = 10
+                if cursorY < minY - pad || cursorY > maxY + pad {
+                    onSpringLoadCollapse?(anchorId)
+                }
+            }
+            // While a group is auto-expanded, never arm another expansion.
+            return
+        }
+
         let hoveredCollapsedAnchorId = bands.first(where: {
             collapsedAnchorBandIds.contains($0.id) && cursorY >= $0.minY && cursorY < $0.maxY
         })?.id
@@ -10778,29 +10804,46 @@ final class SidebarDragState {
         springLoadArmedAnchorId = hoveredCollapsedAnchorId
         guard let anchorId = hoveredCollapsedAnchorId else { return }
         springLoadTask = Task { @MainActor [weak self] in
-            try? await Task.sleep(for: .milliseconds(600))
+            try? await Task.sleep(for: .milliseconds(450))
             guard !Task.isCancelled, let self, self.draggedTabId != nil else { return }
             self.onSpringLoadExpand?(anchorId)
         }
     }
 
     /// Called by the sidebar after a spring-load expanded the group in the
-    /// model: re-baselines the frozen geometry against the expanded layout.
-    /// The indicator is cleared first so the next layout pass renders the
-    /// committed (gapless) order, and the frame map refills from it.
-    func noteSpringLoadExpanded(anchorId: UUID) {
+    /// model: re-baselines the frozen geometry against the expanded layout and
+    /// records the group as auto-expanded so it can be collapsed again on
+    /// leave. The indicator is cleared first so the next layout pass renders
+    /// the committed (gapless) order, and the frame map refills from it.
+    func noteSpringLoadExpanded(anchorId: UUID, groupId: UUID) {
         collapsedAnchorBandIds.remove(anchorId)
         springLoadArmedAnchorId = nil
         springLoadTask = nil
+        springAutoExpandedAnchorId = anchorId
+        springAutoExpandedGroupId = groupId
+        rebaselineFrozenGeometryAfterCollapseChange()
+    }
+
+    /// Called after an auto-expanded group is collapsed back (the cursor left
+    /// it mid-drag): re-arm spring-loading for it and re-baseline geometry.
+    func noteSpringLoadCollapsed(anchorId: UUID) {
+        collapsedAnchorBandIds.insert(anchorId)
+        springAutoExpandedAnchorId = nil
+        springAutoExpandedGroupId = nil
+        springLoadArmedAnchorId = nil
+        springLoadTask?.cancel()
+        springLoadTask = nil
+        rebaselineFrozenGeometryAfterCollapseChange()
+    }
+
+    /// Drops the frozen frame map and the velocity/bias/slot memory so the
+    /// staircase re-seeds from the new committed layout after a collapse
+    /// toggle, without blinking the membership indent (rule 5: held).
+    private func rebaselineFrozenGeometryAfterCollapseChange() {
         if dropIndicator != nil {
             dropIndicator = nil
         }
         rowFramesInList = [:]
-        // The frozen geometry is about to be rebuilt against the expanded
-        // layout; reset the velocity/bias/slot memory so the staircase
-        // re-seeds from the new committed slot instead of carrying a stale
-        // lean across the discontinuity. previewMembership is deliberately
-        // held (membership rule 5) so the indent does not blink.
         velocityEMA = 0
         probeBias = 0
         schmittSlot = nil
@@ -11540,14 +11583,22 @@ struct VerticalTabsSidebar: View {
             }
             // Spring-loaded collapsed groups: a dwell over a collapsed
             // header mid-drag expands the group so the row can be placed at
-            // a specific slot inside.
+            // a specific slot inside; leaving it again collapses it back.
             dragState.onSpringLoadExpand = { [weak tabManager, weak dragState] anchorId in
                 guard let tabManager,
                       let group = tabManager.workspaceGroups.first(where: { $0.anchorWorkspaceId == anchorId }) else { return }
                 withAnimation(SidebarGroupAnimation.collapse) {
                     tabManager.setWorkspaceGroupCollapsed(groupId: group.id, isCollapsed: false)
                 }
-                dragState?.noteSpringLoadExpanded(anchorId: anchorId)
+                dragState?.noteSpringLoadExpanded(anchorId: anchorId, groupId: group.id)
+            }
+            dragState.onSpringLoadCollapse = { [weak tabManager, weak dragState] anchorId in
+                guard let tabManager,
+                      let group = tabManager.workspaceGroups.first(where: { $0.anchorWorkspaceId == anchorId }) else { return }
+                withAnimation(SidebarGroupAnimation.collapse) {
+                    tabManager.setWorkspaceGroupCollapsed(groupId: group.id, isCollapsed: true)
+                }
+                dragState?.noteSpringLoadCollapsed(anchorId: anchorId)
             }
             // Defensive reset: if a prior simulation died without running
             // its teardown (sidebar unmounted mid-loop, app crash, etc.) the

@@ -231,7 +231,7 @@ struct SidebarWorkspaceGroupHeaderView: View, Equatable {
         .background(
             isAnchorActive
                 ? Color.primary.opacity(0.08)
-                : Color.clear
+                : (isHovered ? Color.primary.opacity(0.05) : Color.clear)
         )
         .clipShape(RoundedRectangle(cornerRadius: 4, style: .continuous))
         .sidebarShortcutHintOverlay(
