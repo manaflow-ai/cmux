@@ -48,8 +48,13 @@ final class MainWindowHostingView<Content: View>: NSHostingView<Content> {
 
 @MainActor
 func configureCmuxMainWindowDragBehavior(_ window: NSWindow) {
+    // Keep the window movable so macOS Accessibility-based window managers
+    // (notably Swish) can identify cmux as a normal movable window and attach
+    // titlebar gestures. Content/background drags are still opt-in: cmux only
+    // starts AppKit window drags from explicit titlebar drag handles, and tab /
+    // folder drag interactions temporarily suppress movability while active.
     window.isMovableByWindowBackground = false
-    window.isMovable = false
+    window.isMovable = true
 }
 
 @MainActor
