@@ -2511,6 +2511,35 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             #endif
             return
         }
+        enqueueRawTerminalInput(text, workspaceID: workspaceID, terminalID: terminalID)
+    }
+
+    /// Raw-bytes entry point for a specific surface (iOS keystrokes, paste, and
+    /// mouse reports from ``GhosttySurfaceView``). Enqueues synchronously into the
+    /// coalescing FIFO so fast typing keeps its order; a per-keystroke
+    /// `Task { await submit }` could reorder it (issue #6082).
+    public func sendTerminalRawInput(_ data: Data, surfaceID: String) {
+        guard !data.isEmpty else { return }
+        guard let text = String(data: data, encoding: .utf8) else { return }
+        guard let workspace = workspaces.first(where: { workspace in
+            workspace.terminals.contains(where: { $0.id.rawValue == surfaceID })
+        }) else {
+            return
+        }
+        enqueueRawTerminalInput(
+            text,
+            workspaceID: workspace.id,
+            terminalID: MobileTerminalPreview.ID(rawValue: surfaceID)
+        )
+    }
+
+    /// Enqueue raw input into the coalescing FIFO and start the drain loop when
+    /// idle. Shared by both raw-input entry points for strict in-order delivery.
+    private func enqueueRawTerminalInput(
+        _ text: String,
+        workspaceID: MobileWorkspacePreview.ID,
+        terminalID: MobileTerminalPreview.ID
+    ) {
         switch rawTerminalInputBuffer.enqueue(
             text,
             workspaceID: workspaceID,
@@ -2538,15 +2567,6 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             connectionState = .disconnected
             macConnectionStatus = .unavailable
             clearRemoteConnectionContext()
-        }
-    }
-
-    /// Raw-bytes entry point for a specific surface. iOS keystrokes, paste, and
-    /// mouse reports arrive here from ``GhosttySurfaceView`` via the surface
-    /// delegate (see `GhosttySurfaceRepresentable.Coordinator`).
-    public func sendTerminalRawInput(_ data: Data, surfaceID: String) {
-        Task { @MainActor [weak self] in
-            await self?.submitTerminalRawInput(data, surfaceID: surfaceID)
         }
     }
 

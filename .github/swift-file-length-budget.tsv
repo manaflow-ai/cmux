@@ -21,7 +21,7 @@
 5966	cmuxTests/TerminalAndGhosttyTests.swift
 5493	cmuxTests/BrowserConfigTests.swift
 5468	Sources/cmuxApp.swift
-4726	Packages/CmuxMobileShell/Sources/CmuxMobileShell/MobileShellComposite.swift
+4755	Packages/CmuxMobileShell/Sources/CmuxMobileShell/MobileShellComposite.swift
 4460	Sources/Panels/FilePreviewPanel.swift
 4400	cmuxTests/BrowserPanelTests.swift
 4227	Sources/BrowserWindowPortal.swift
