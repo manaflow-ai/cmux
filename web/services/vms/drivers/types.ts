@@ -64,6 +64,11 @@ export type AttachOptions = {
    * Callers derive this from recorded VM image metadata, not from provider-wide env.
    */
   signedWebSocketAuth?: boolean;
+  /**
+   * True only when the caller has just completed provider create-time readiness work for
+   * this VM. Lets cold-start attach avoid a duplicate network health probe.
+   */
+  webSocketReadinessVerified?: boolean;
 };
 
 export type ExecResult = {

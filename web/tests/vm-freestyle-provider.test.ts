@@ -172,4 +172,35 @@ describe("FreestyleProvider signed attach", () => {
       }
     }
   });
+
+  test("skips duplicate health probe when create-time readiness was verified", async () => {
+    const originalKey = process.env.CMUX_VM_ATTACH_SIGNING_PRIVATE_KEY;
+    const originalFetch = globalThis.fetch;
+    const { privateKey } = generateKeyPairSync("ed25519");
+    let fetchCalls = 0;
+    process.env.CMUX_VM_ATTACH_SIGNING_PRIVATE_KEY = privateKey.export({ type: "pkcs8", format: "pem" }).toString();
+    globalThis.fetch = (() => {
+      fetchCalls += 1;
+      throw new Error("readiness-verified attach should not probe health");
+    }) as typeof fetch;
+
+    try {
+      const provider = new FreestyleProvider();
+      const endpoint = await provider.openAttach("vm-1", {
+        requireDaemon: true,
+        signedWebSocketAuth: true,
+        webSocketReadinessVerified: true,
+      });
+
+      expect(endpoint.transport).toBe("websocket");
+      expect(fetchCalls).toBe(0);
+    } finally {
+      globalThis.fetch = originalFetch;
+      if (originalKey === undefined) {
+        delete process.env.CMUX_VM_ATTACH_SIGNING_PRIVATE_KEY;
+      } else {
+        process.env.CMUX_VM_ATTACH_SIGNING_PRIVATE_KEY = originalKey;
+      }
+    }
+  });
 });

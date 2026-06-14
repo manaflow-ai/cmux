@@ -68,7 +68,11 @@ afterAll(async () => {
 
 describe("VM Effect workflows", () => {
   test("enables signed attach only for VMs on signed-auth images", async () => {
-    const seen: Array<{ imageId: string; signedWebSocketAuth: boolean | undefined }> = [];
+    const seen: Array<{
+      imageId: string;
+      signedWebSocketAuth: boolean | undefined;
+      webSocketReadinessVerified: boolean | undefined;
+    }> = [];
     const provider: VmProviderGatewayShape = {
       create: () => Effect.fail(new Error("unused") as never),
       destroy: () => Effect.void,
@@ -78,6 +82,7 @@ describe("VM Effect workflows", () => {
           seen.push({
             imageId: _providerVmId,
             signedWebSocketAuth: options?.signedWebSocketAuth,
+            webSocketReadinessVerified: options?.webSocketReadinessVerified,
           });
           return {
             transport: "websocket" as const,
@@ -138,8 +143,16 @@ describe("VM Effect workflows", () => {
     await runForImage("sh-7y4v9uc5mobaihbqd4ld");
 
     expect(seen).toEqual([
-      { imageId: "sh-17agfasevrc18c8f15nn", signedWebSocketAuth: false },
-      { imageId: "sh-7y4v9uc5mobaihbqd4ld", signedWebSocketAuth: true },
+      {
+        imageId: "sh-17agfasevrc18c8f15nn",
+        signedWebSocketAuth: false,
+        webSocketReadinessVerified: false,
+      },
+      {
+        imageId: "sh-7y4v9uc5mobaihbqd4ld",
+        signedWebSocketAuth: true,
+        webSocketReadinessVerified: true,
+      },
     ]);
   });
 

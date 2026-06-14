@@ -40,6 +40,8 @@ import {
 } from "./repository";
 import { measureVmEffect, type VmTimingSink } from "./timings";
 
+const SIGNED_ATTACH_CREATE_READINESS_TRUST_MS = 60_000;
+
 export type VmEntry = {
   readonly providerVmId: string;
   readonly provider: ProviderId;
@@ -314,11 +316,15 @@ export function openAttachEndpoint(input: {
     const providers = yield* VmProviderGateway;
     const vm = yield* requireUserVm(input.userId, input.providerVmId);
     yield* revokeActiveIdentities(vm);
+    const signedWebSocketAuth =
+      input.options?.signedWebSocketAuth ??
+      imageSupportsSignedWebSocketAuth(vm.provider, vm.imageId);
     const endpoint = yield* providers.openAttach(vm.provider, input.providerVmId, {
       ...input.options,
-      signedWebSocketAuth:
-        input.options?.signedWebSocketAuth ??
-        imageSupportsSignedWebSocketAuth(vm.provider, vm.imageId),
+      signedWebSocketAuth,
+      webSocketReadinessVerified:
+        input.options?.webSocketReadinessVerified ??
+        (signedWebSocketAuth && Date.now() - vm.createdAt.getTime() <= SIGNED_ATTACH_CREATE_READINESS_TRUST_MS),
     });
     yield* storeEndpointLeases(vm, endpoint).pipe(
       Effect.catchAll((err) =>
