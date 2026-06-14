@@ -1,12 +1,14 @@
 import AppKit
 import CmuxCommandPalette
 import CmuxCore
+import CmuxFoundation
 import CmuxPanes
 import CmuxSocketControl
 import CmuxWorkspaces
 import Bonsplit
 import Combine
 import CmuxSidebarInterpreterClient
+import CmuxTerminal
 @_spi(CmuxHostTransport) import CmuxExtensionKit
 import CmuxSidebarProviderKit
 import CmuxExtensionSidebarExamples
@@ -42,7 +44,6 @@ private func windowContentOverlayInstallationTarget(for window: NSWindow) -> (co
     }
     return (themeFrame, contentView)
 }
-
 enum CommandPaletteOverlayPromotionPolicy {
     static func shouldPromote(previouslyVisible: Bool, isVisible: Bool) -> Bool {
         isVisible && !previouslyVisible
@@ -18909,24 +18910,5 @@ enum SidebarPresetOption: String, CaseIterable, Identifiable {
         case .hudGlass: return 0.98
         case .underWindow: return 0.9
         }
-    }
-}
-
-extension NSColor {
-    func hexString(includeAlpha: Bool = false) -> String {
-        let color = usingColorSpace(.sRGB) ?? self
-        var red: CGFloat = 0
-        var green: CGFloat = 0
-        var blue: CGFloat = 0
-        var alpha: CGFloat = 0
-        color.getRed(&red, green: &green, blue: &blue, alpha: &alpha)
-        let redByte = min(255, max(0, Int(red * 255)))
-        let greenByte = min(255, max(0, Int(green * 255)))
-        let blueByte = min(255, max(0, Int(blue * 255)))
-        if includeAlpha {
-            let alphaByte = min(255, max(0, Int(alpha * 255)))
-            return String(format: "#%02X%02X%02X%02X", redByte, greenByte, blueByte, alphaByte)
-        }
-        return String(format: "#%02X%02X%02X", redByte, greenByte, blueByte)
     }
 }

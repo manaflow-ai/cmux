@@ -1,4 +1,5 @@
 import AppKit
+import CmuxFoundation
 import CmuxPanes
 import CmuxSidebarInterpreterClient
 import CmuxSidebarRemoteRender
@@ -12,6 +13,7 @@ import Observation
 import Darwin
 import Bonsplit
 import UniformTypeIdentifiers
+import CmuxTerminal
 
 /// The process entry point. When the binary is launched with a sidebar worker
 /// flag (the app re-executes its own binary that way so a crash in the

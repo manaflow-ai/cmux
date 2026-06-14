@@ -1,14 +1,23 @@
-import Foundation
-import CMUXAgentLaunch
-import OSLog
+public import Foundation
+internal import CMUXAgentLaunch
+internal import Darwin
+internal import OSLog
+
+// MARK: - Managed startup-environment assembly (pure helpers)
+//
+// Lifted from the app's TerminalStartupEnvironment.swift extension; bodies
+// are unchanged. They are `static` because they are pure transforms used by
+// spawn assembly and exercised directly by environment tests.
 
 extension TerminalSurface {
-    typealias ClaudeCommandShim = TerminalSurfaceClaudeCommandShim
-    typealias CmuxContextEnvironment = TerminalSurfaceCmuxContextEnvironment
+    /// The managed `TERM` value exported to spawned shells.
+    public static let managedTerminalType = "xterm-256color"
 
-    static let managedTerminalType = "xterm-256color"
-    static let managedTerminalProgram = "ghostty"
-    static let managedColorTerm = "truecolor"
+    /// The managed `TERM_PROGRAM` value exported to spawned shells.
+    public static let managedTerminalProgram = "ghostty"
+
+    /// The managed `COLORTERM` value exported to spawned shells.
+    public static let managedColorTerm = "truecolor"
 
     private static let inheritedClaudeAuthSelectionEnvironmentKeys: Set<String> = [
         "ANTHROPIC_API_KEY",
@@ -18,7 +27,9 @@ extension TerminalSurface {
         "CLAUDE_CODE_USE_VERTEX"
     ]
 
-    static func applyManagedTerminalIdentityEnvironment(
+    /// Applies the managed terminal identity (`TERM`, `COLORTERM`,
+    /// `TERM_PROGRAM`) and protects those keys.
+    public static func applyManagedTerminalIdentityEnvironment(
         to environment: inout [String: String],
         protectedKeys: inout Set<String>
     ) {
@@ -30,7 +41,8 @@ extension TerminalSurface {
         protectedKeys.insert("TERM_PROGRAM")
     }
 
-    static func applyManagedCmuxContextEnvironment(
+    /// Applies the managed cmux context identity keys and protects them.
+    public static func applyManagedCmuxContextEnvironment(
         _ context: CmuxContextEnvironment,
         to environment: inout [String: String],
         protectedKeys: inout Set<String>
@@ -49,7 +61,8 @@ extension TerminalSurface {
         }
     }
 
-    static func applyManagedGitWatchEnvironment(
+    /// Applies the sidebar git/PR watch flags and protects them.
+    public static func applyManagedGitWatchEnvironment(
         watchGitStatusEnabled: Bool,
         showPullRequestsEnabled: Bool = true,
         to environment: inout [String: String],
@@ -61,7 +74,8 @@ extension TerminalSurface {
         protectedKeys.insert("CMUX_NO_PR_WATCH")
     }
 
-    static func pathByPrependingUniqueDirectory(_ directory: String, to path: String) -> String {
+    /// Prepends `directory` to a `PATH`-style string exactly once.
+    public static func pathByPrependingUniqueDirectory(_ directory: String, to path: String) -> String {
         let trimmedDirectory = directory.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmedDirectory.isEmpty else { return path }
         let standardizedDirectory = URL(fileURLWithPath: trimmedDirectory, isDirectory: true)
@@ -84,7 +98,9 @@ extension TerminalSurface {
         return entries.joined(separator: ":")
     }
 
-    static func installClaudeCommandShimIfPossible(
+    /// Writes the per-surface `claude` wrapper shim to disk, if the bundled
+    /// wrapper exists.
+    public static func installClaudeCommandShimIfPossible(
         wrapperURL: URL?,
         surfaceId: UUID,
         temporaryDirectory: URL = FileManager.default.temporaryDirectory,
@@ -119,7 +135,10 @@ extension TerminalSurface {
         }
     }
 
-    static func mergedStartupEnvironment(
+    /// Merges base, additional, and override environments with key
+    /// protection, Claude auth-selection inheritance, and config-dir
+    /// normalization.
+    public static func mergedStartupEnvironment(
         base: [String: String],
         protectedKeys: Set<String>,
         additionalEnvironment: [String: String],
@@ -149,7 +168,8 @@ extension TerminalSurface {
         return merged
     }
 
-    static func applyManagedFishStartupEnvironment(
+    /// Applies the managed fish-shell startup keys and protects them.
+    public static func applyManagedFishStartupEnvironment(
         integrationDir: String,
         to environment: inout [String: String],
         protectedKeys: inout Set<String>
@@ -172,7 +192,7 @@ extension TerminalSurface {
     /// (e.g. a tagged dev build's DerivedData gets pruned); when it is gone,
     /// callers must not advertise it (CMUX_SHELL_INTEGRATION_DIR) or redirect
     /// shell startup at it.
-    static func shellIntegrationDirectoryExists(
+    public static func shellIntegrationDirectoryExists(
         _ integrationDir: String,
         fileManager: FileManager = .default
     ) -> Bool {
@@ -185,7 +205,9 @@ extension TerminalSurface {
         return false
     }
 
-    static func applyManagedShellSpecificStartupEnvironment(
+    /// Applies the shell-specific startup redirection (zsh/bash/fish) and
+    /// returns a replacement launch command when one is required (fish).
+    public static func applyManagedShellSpecificStartupEnvironment(
         shell: String,
         integrationDir: String,
         userGhosttyShellIntegrationMode: String,
@@ -255,12 +277,33 @@ extension TerminalSurface {
         return nil
     }
 
-    static func managedFishShellCommand(shell: String) -> String {
+    /// The managed fish launch command sourcing the cmux integration file.
+    public static func managedFishShellCommand(shell: String) -> String {
         let initCommand = #"source "$CMUX_FISH_INTEGRATION_FILE""#
         return "\(shellSingleQuoted(shell)) -il --init-command \(shellSingleQuoted(initCommand))"
     }
 
-    static func shellSingleQuoted(_ value: String) -> String {
+    /// Single-quotes a value for POSIX shells.
+    public static func shellSingleQuoted(_ value: String) -> String {
         "'\(value.replacingOccurrences(of: "'", with: "'\\''"))'"
+    }
+
+    static func mergedNormalizedEnvironment(
+        base: [String: String],
+        overrides: [String: String]
+    ) -> [String: String] {
+        var merged: [String: String] = [:]
+        merged.reserveCapacity(base.count + overrides.count)
+        for (rawKey, value) in base {
+            let key = rawKey.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !key.isEmpty else { continue }
+            merged[key] = value
+        }
+        for (rawKey, value) in overrides {
+            let key = rawKey.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !key.isEmpty else { continue }
+            merged[key] = value
+        }
+        return merged
     }
 }
