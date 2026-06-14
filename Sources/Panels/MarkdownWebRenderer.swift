@@ -12,9 +12,7 @@ struct MarkdownWebRenderer: NSViewRepresentable {
     let panelId: UUID
     let workspaceId: UUID
     let filePath: String
-    /// Body font size in points. Applied as WKWebView `pageZoom`; the web
-    /// shell also receives the same zoom factor for rendered SVGs whose inline
-    /// sizing would otherwise bypass WebKit text zoom.
+    /// Body font size in points, applied as `pageZoom` and to shell-managed SVG zoom.
     let fontSize: Double
     /// Body prose font-family name (empty = System). Applied as an inline
     /// `font-family` on the content.
@@ -188,15 +186,7 @@ struct MarkdownWebRenderer: NSViewRepresentable {
             if abs(webView.pageZoom - zoom) > 0.0001 {
                 webView.pageZoom = zoom
             }
-            let zoomValue = Double(zoom)
-            let js = """
-            (function(zoom) {
-              if (window.__cmuxSetMarkdownZoom) {
-                window.__cmuxSetMarkdownZoom(zoom);
-              }
-            })(\(zoomValue));
-            """
-            webView.evaluateJavaScript(js, completionHandler: nil)
+            webView.evaluateJavaScript("window.__cmuxSetMarkdownZoom && window.__cmuxSetMarkdownZoom(\(Double(zoom)));", completionHandler: nil)
         }
 
         /// Records the desired body prose font and applies it as an inline
