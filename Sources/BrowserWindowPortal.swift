@@ -1260,6 +1260,18 @@ private final class BrowserDropZoneOverlayView: NSView {
     }
 }
 
+// Hosts the focus-flash ring layer above the portal-hosted WKWebView. Native web
+// surfaces draw over sibling SwiftUI layers, so the flash must live in the AppKit
+// portal hierarchy (mirrors the terminal's GhosttyFlashOverlayView). Passthrough so
+// it never intercepts clicks meant for the web content underneath.
+private final class BrowserFocusFlashOverlayView: NSView {
+    override var acceptsFirstResponder: Bool { false }
+
+    override func hitTest(_ point: NSPoint) -> NSView? {
+        nil
+    }
+}
+
 struct BrowserPortalSearchOverlayConfiguration {
     let panelId: UUID
     let searchState: BrowserSearchState
@@ -1468,6 +1480,8 @@ final class WindowBrowserSlotView: NSView {
     }
     private let paneDropTargetView = BrowserPaneDropTargetView(frame: .zero)
     private let dropZoneOverlayView = BrowserDropZoneOverlayView(frame: .zero)
+    private let flashOverlayView = BrowserFocusFlashOverlayView(frame: .zero)
+    private let flashLayer = CAShapeLayer()
     private var searchOverlayHostingView: NSHostingView<BrowserSearchOverlay>?
     private var omnibarSuggestionsHostingView: BrowserPortalOmnibarSuggestionsHostingView?
     private weak var hostedWebView: WKWebView?
@@ -1500,6 +1514,24 @@ final class WindowBrowserSlotView: NSView {
         dropZoneOverlayView.layer?.borderWidth = 2
         dropZoneOverlayView.layer?.cornerRadius = 8
         dropZoneOverlayView.isHidden = true
+
+        flashOverlayView.wantsLayer = true
+        flashOverlayView.layer?.backgroundColor = NSColor.clear.cgColor
+        flashOverlayView.layer?.masksToBounds = false
+        let flashColor = cmuxAccentNSColor()
+        flashLayer.fillColor = NSColor.clear.cgColor
+        flashLayer.strokeColor = flashColor.cgColor
+        flashLayer.lineWidth = 3
+        flashLayer.lineJoin = .round
+        flashLayer.lineCap = .round
+        flashLayer.shadowColor = flashColor.cgColor
+        flashLayer.shadowOpacity = 0.35
+        flashLayer.shadowRadius = 10
+        flashLayer.shadowOffset = .zero
+        flashLayer.opacity = 0
+        flashOverlayView.layer?.addSublayer(flashLayer)
+        addSubview(flashOverlayView)
+
         addSubview(paneDropTargetView, positioned: .above, relativeTo: nil)
     }
 
@@ -1518,6 +1550,7 @@ final class WindowBrowserSlotView: NSView {
     override func layout() {
         super.layout()
         paneDropTargetView.frame = bounds
+        updateFlashLayerPath()
         applyResolvedDropZoneOverlay()
         guard !isApplyingHostedInspectorLayout else { return }
         if let previousSize = lastHostedInspectorLayoutBoundsSize,
@@ -1969,10 +2002,55 @@ final class WindowBrowserSlotView: NSView {
         }
     }
 
+    func triggerFocusFlash() {
+        updateFlashLayerPath()
+        bringInteractionLayersToFrontIfNeeded()
+        flashLayer.removeAllAnimations()
+        flashLayer.opacity = 0
+        let animation = CAKeyframeAnimation(keyPath: "opacity")
+        animation.values = FocusFlashPattern.values.map { NSNumber(value: $0) }
+        animation.keyTimes = FocusFlashPattern.keyTimes.map { NSNumber(value: $0) }
+        animation.duration = FocusFlashPattern.duration
+        animation.timingFunctions = FocusFlashPattern.curves.map { curve in
+            switch curve {
+            case .easeIn:
+                return CAMediaTimingFunction(name: .easeIn)
+            case .easeOut:
+                return CAMediaTimingFunction(name: .easeOut)
+            }
+        }
+        flashLayer.add(animation, forKey: "cmux.browserFocusFlash")
+    }
+
+    private func updateFlashLayerPath() {
+        let inset = PanelOverlayRingMetrics.inset
+        let radius = PanelOverlayRingMetrics.cornerRadius
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        flashOverlayView.frame = bounds
+        let ringBounds = flashOverlayView.bounds
+        flashLayer.frame = ringBounds
+        if ringBounds.width > inset * 2, ringBounds.height > inset * 2 {
+            let rect = PanelOverlayRingMetrics.pathRect(in: ringBounds)
+            flashLayer.path = CGPath(
+                roundedRect: rect,
+                cornerWidth: radius,
+                cornerHeight: radius,
+                transform: nil
+            )
+        } else {
+            flashLayer.path = nil
+        }
+        CATransaction.commit()
+    }
+
     private func interactionLayerPriority(of view: NSView) -> Int {
-        if view === paneDropTargetView { return 3 }
-        if view === omnibarSuggestionsHostingView { return 2 }
-        if view === searchOverlayHostingView { return 1 }
+        if view === paneDropTargetView { return 4 }
+        if view === omnibarSuggestionsHostingView { return 3 }
+        if view === searchOverlayHostingView { return 2 }
+        // Above the hosted WKWebView (priority 0) so the attention ring is visible,
+        // but below the interactive find/omnibar chrome.
+        if view === flashOverlayView { return 1 }
         return 0
     }
 
@@ -3045,6 +3123,18 @@ final class WindowBrowserPortal: NSObject {
         entry.omnibarSuggestions = configuration
         entriesByWebViewId[webViewId] = entry
         entry.containerView?.setOmnibarSuggestions(configuration)
+    }
+
+    /// Fires the focus flash for the slot hosting `webViewId`. Returns `false` when
+    /// there is no live entry/slot to flash (e.g. a detached or pruned entry), so the
+    /// caller can fall back to locating the slot another way.
+    @discardableResult
+    func triggerFocusFlash(forWebViewId webViewId: ObjectIdentifier) -> Bool {
+        // Transient one-shot, unlike the persistent search/omnibar overlay configs:
+        // no Entry state to carry across slot recreation, just fire the animation.
+        guard let slot = entriesByWebViewId[webViewId]?.containerView else { return false }
+        slot.triggerFocusFlash()
+        return true
     }
 
     func searchOverlayPanelId(for responder: NSResponder) -> UUID? {
@@ -4160,6 +4250,27 @@ enum BrowserWindowPortalRegistry {
         guard let windowId = webViewToWindowId[webViewId],
               let portal = portalsByWindowId[windowId] else { return }
         portal.updateOmnibarSuggestions(forWebViewId: webViewId, configuration: configuration)
+    }
+
+    static func triggerFocusFlash(for webView: WKWebView) {
+        let webViewId = ObjectIdentifier(webView)
+        if let windowId = webViewToWindowId[webViewId],
+           let portal = portalsByWindowId[windowId],
+           portal.triggerFocusFlash(forWebViewId: webViewId) {
+            return
+        }
+        // No live window-portal slot fired the flash. This covers inline DevTools
+        // hosting (the live WKWebView is moved into a local WindowBrowserSlotView and
+        // its registry entry is discarded) and stale/detached registry mappings. Walk
+        // up to the hosting slot so the attention flash still fires.
+        var ancestor: NSView? = webView.superview
+        while let view = ancestor {
+            if let slot = view as? WindowBrowserSlotView {
+                slot.triggerFocusFlash()
+                return
+            }
+            ancestor = view.superview
+        }
     }
 
     static func searchOverlayPanelId(for responder: NSResponder, in window: NSWindow) -> UUID? {
