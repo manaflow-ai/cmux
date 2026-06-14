@@ -85,7 +85,7 @@ struct TerminalShortcutsSettingsView: View {
     private func row(for item: ResolvedToolbarItem) -> some View {
         Toggle(isOn: binding(for: item.id)) {
             if let custom = item.customAction {
-                Label(item.settingsDisplayName, systemImage: Self.customActionIcon(custom.payload))
+                Label(item.settingsDisplayName, systemImage: custom.payload.settingsRowSystemImage)
             } else {
                 Text(item.settingsDisplayName)
             }
@@ -116,15 +116,6 @@ struct TerminalShortcutsSettingsView: View {
             get: { configuration.isEnabled(id) },
             set: { configuration.setEnabled(id, $0) }
         )
-    }
-
-    /// SF Symbol for a custom action row, distinguishing a text snippet from a
-    /// key-combo / macro so the list conveys what each custom button does.
-    private static func customActionIcon(_ payload: ToolbarActionPayload) -> String {
-        switch payload {
-        case .text: return "character.cursor.ibeam"
-        case .keyCombo, .macro: return "command"
-        }
     }
 }
 #endif
