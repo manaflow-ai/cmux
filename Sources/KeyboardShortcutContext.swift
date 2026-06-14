@@ -127,7 +127,10 @@ extension KeyboardShortcutSettings.Action {
             return .browserPanel
         case .switchRightSidebarToFiles, .switchRightSidebarToFind, .switchRightSidebarToSessions, .switchRightSidebarToFeed, .switchRightSidebarToDock:
             return .rightSidebarFocus
-        case .renameTab, .renameWorkspace, .sendCtrlFToTerminal:
+        case .renameTab, .renameWorkspace, .sendCtrlFToTerminal,
+             .focusHistoryBack, .focusHistoryForward:
+            // focusHistory ⌘[ / ⌘] must yield to the browser pane's Back/Forward
+            // (browserBack/browserForward) while a browser panel is focused.
             return .nonBrowserPanel
         case .browserBack, .browserForward, .browserReload, .toggleBrowserDeveloperTools, .showBrowserJavaScriptConsole,
              .browserZoomIn, .browserZoomOut, .browserZoomReset, .toggleBrowserFocusMode:
