@@ -1283,9 +1283,7 @@ final class RemoteTmuxControlConnection {
                 let liveIDs = Set(order)
                 windowsByID = next
                 activePaneByWindow = activePaneByWindow.filter { liveIDs.contains($0.key) }
-                let livePanes = Set(next.values.flatMap { $0.paneIDsInOrder })
-                paneOutputByteCounts = paneOutputByteCounts.filter { livePanes.contains($0.key) }
-                paneForegroundStates = paneForegroundStates.filter { livePanes.contains($0.key) }
+                prunePaneState(keeping: Set(next.values.flatMap { $0.paneIDsInOrder }))
                 windowOrder = order
                 observers.notifyTopologyChanged()
                 // The attach block is drained and the topology is fresh — run the
@@ -1382,6 +1380,12 @@ final class RemoteTmuxControlConnection {
             id: windowId, name: existingName, width: node.width, height: node.height, layout: node
         )
         if !windowOrder.contains(windowId) { windowOrder.append(windowId) }
+        prunePaneState(keeping: Set(windowsByID.values.flatMap { $0.paneIDsInOrder }))
+    }
+
+    private func prunePaneState(keeping livePanes: Set<Int>) {
+        paneOutputByteCounts = paneOutputByteCounts.filter { livePanes.contains($0.key) }
+        paneForegroundStates = paneForegroundStates.filter { livePanes.contains($0.key) }
     }
 
     private func record(_ event: String) {
