@@ -4134,9 +4134,7 @@ final class Workspace: Identifiable, ObservableObject {
         }
     }
 
-    private typealias RemoteTmuxNonInteractiveCloseRoute = WorkspaceRemoteTmuxNonInteractiveCloseRoute
-
-    private func routeRemoteTmuxNonInteractiveTabCloseIfNeeded(_ tabId: TabID) -> RemoteTmuxNonInteractiveCloseRoute {
+    func routeRemoteTmuxNonInteractiveTabCloseIfNeeded(_ tabId: TabID) -> WorkspaceRemoteTmuxNonInteractiveCloseRoute {
         guard isRemoteTmuxMirror,
               let panelId = panelIdFromSurfaceId(tabId),
               let remoteTmuxController = AppDelegate.shared?.remoteTmuxController,
