@@ -151,6 +151,48 @@ def test_activation_socket_readiness_uses_worker_ping(tmp_path: pathlib.Path) ->
     sleep.assert_not_called()
 
 
+def test_fixture_pane_creation_focuses_new_panes() -> None:
+    runner = object.__new__(perf_activation_session.CmuxPerfRunner)
+    calls: list[list[str]] = []
+
+    def run_cli(
+        args: list[str],
+        input_text: str | None = None,
+        timeout: float = 60,
+        check: bool = True,
+        socket_retries: int = 0,
+    ) -> str:
+        del input_text, timeout, check, socket_retries
+        calls.append(args)
+        return "OK"
+
+    def wait_for_pane_count(workspace: str, minimum_count: int, timeout_s: float = 30) -> list[dict]:
+        assert workspace == "workspace:7"
+        assert minimum_count == 3
+        assert timeout_s == 30
+        return [{"ref": "pane:1"}, {"ref": "pane:2"}, {"ref": "pane:3"}]
+
+    runner.run_cli = run_cli
+    runner.wait_for_pane_count = wait_for_pane_count
+
+    panes = runner.create_pane_and_wait("workspace:7", "up", 3)
+
+    assert calls == [
+        [
+            "new-pane",
+            "--workspace",
+            "workspace:7",
+            "--type",
+            "terminal",
+            "--direction",
+            "up",
+            "--focus",
+            "true",
+        ]
+    ]
+    assert panes == [{"ref": "pane:1"}, {"ref": "pane:2"}, {"ref": "pane:3"}]
+
+
 def test_post_restore_shape_uses_persisted_session_snapshot() -> None:
     runner = object.__new__(perf_activation_session.CmuxPerfRunner)
     runner.args = types.SimpleNamespace(snapshot_timeout=120, restore_ready_timeout=20)

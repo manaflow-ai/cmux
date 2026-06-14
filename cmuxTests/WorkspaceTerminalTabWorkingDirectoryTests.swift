@@ -70,7 +70,7 @@ struct WorkspaceTerminalTabWorkingDirectoryTests {
 
         let restored = Workspace()
         let restoredIds = restored.restoreSessionSnapshot(snapshot)
-        let restoredAgentPanelId = try #require(restoredIds[agentPanelId])
+        let restoredAgentPanelId = try #require(restoredIds.panelIds[agentPanelId])
 
         #expect(restored.currentDirectory == workspaceDirectory)
         #expect(restored.focusedPanelId == restoredAgentPanelId)
@@ -143,7 +143,7 @@ struct WorkspaceTerminalTabWorkingDirectoryTests {
 
         let restored = Workspace()
         let restoredIds = restored.restoreSessionSnapshot(snapshot)
-        let restoredRemotePanelId = try #require(restoredIds[remotePanelId])
+        let restoredRemotePanelId = try #require(restoredIds.panelIds[remotePanelId])
         let restoredPanel = try #require(restored.terminalPanel(for: restoredRemotePanelId))
 
         #expect(restored.currentDirectory == workspaceDirectory)

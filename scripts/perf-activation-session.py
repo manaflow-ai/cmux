@@ -671,6 +671,8 @@ class CmuxPerfRunner:
             "terminal",
             "--direction",
             direction,
+            "--focus",
+            "true",
         ]
         for attempt in range(3):
             try:
