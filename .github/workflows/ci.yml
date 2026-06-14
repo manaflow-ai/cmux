@@ -470,6 +470,7 @@ jobs:
             CmuxFileWatch
             CmuxFoundation
             CmuxGit
+            CmuxMobileShell
             CmuxProcess
             CmuxSettings
             CmuxSettingsUI

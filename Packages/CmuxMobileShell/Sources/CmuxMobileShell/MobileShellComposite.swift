@@ -2541,6 +2541,15 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         }
     }
 
+    /// Raw-bytes entry point for a specific surface. iOS keystrokes, paste, and
+    /// mouse reports arrive here from ``GhosttySurfaceView`` via the surface
+    /// delegate (see `GhosttySurfaceRepresentable.Coordinator`).
+    public func sendTerminalRawInput(_ data: Data, surfaceID: String) {
+        Task { @MainActor [weak self] in
+            await self?.submitTerminalRawInput(data, surfaceID: surfaceID)
+        }
+    }
+
     public func submitTerminalRawInput(_ text: String) async {
         guard !text.isEmpty else { return }
         guard let workspaceID = selectedWorkspace?.id,
