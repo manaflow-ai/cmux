@@ -522,6 +522,7 @@ public final class ChatConversationStore {
     /// transcript as a real user message.
     private func reconcilePending(against newMessages: [ChatMessage]) {
         guard !pending.isEmpty else { return }
+        var maxReconciledCounter: Int?
         for message in newMessages where message.role == .user {
             let index: Int?
             switch message.kind {
@@ -574,9 +575,39 @@ public final class ChatConversationStore {
                 index = nil
             }
             if let index {
-                pending.remove(at: index)
+                let removed = pending.remove(at: index)
+                if let counter = Self.pendingCounter(removed.id) {
+                    maxReconciledCounter = max(maxReconciledCounter ?? counter, counter)
+                }
             }
         }
+        // Evict any older plain-text `.delivered` pending that never matched:
+        // the agent echoes plain-text sends in submission order, so once a
+        // LATER send's echo lands, an earlier delivered-but-unmatched text
+        // row's echo has already passed and will never reconcile — it would
+        // otherwise linger as a permanent duplicate next to the real
+        // transcript line. Attachment-bearing and attachment-only pendings are
+        // EXCLUDED: their pasted-path echo can arrive out of order relative to
+        // a following text command (see slashCommandEchoDoesNotEatAttachment),
+        // so they keep their own reconcile lifecycle. Only `.delivered` rows
+        // (RPC-confirmed) are swept; sending/queued/failed keep their state.
+        if let maxReconciledCounter {
+            pending.removeAll { item in
+                guard item.delivery == .delivered,
+                      item.attachmentCount == 0,
+                      !item.text.isEmpty,
+                      let counter = Self.pendingCounter(item.id),
+                      counter < maxReconciledCounter else { return false }
+                return true
+            }
+        }
+    }
+
+    /// Parses the monotonic counter from a pending row id (`local-<n>`), used
+    /// to order sends for stale-delivered eviction.
+    static func pendingCounter(_ id: String) -> Int? {
+        guard let dash = id.lastIndex(of: "-") else { return nil }
+        return Int(id[id.index(after: dash)...])
     }
 
     /// Whether an echoed user line is Claude Code's bracketed-paste

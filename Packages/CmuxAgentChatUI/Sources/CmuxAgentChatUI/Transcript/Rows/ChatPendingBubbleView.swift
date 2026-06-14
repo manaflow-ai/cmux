@@ -57,9 +57,20 @@ public struct ChatPendingBubbleView: View {
     /// Real previews of the images being sent (the pending row holds the
     /// encoded bytes; the reconciled transcript message is metadata-only).
     private var attachmentThumbnails: some View {
-        HStack(spacing: 4) {
-            ForEach(Array(pending.attachments.enumerated()), id: \.offset) { _, attachment in
-                thumbnail(for: attachment)
+        // Wrap to at most two 96pt tiles per row so the composer's max of four
+        // attachments (2×96 + spacing ≈ 196pt) fits even narrow devices like
+        // iPhone SE, instead of overflowing a single HStack. One or two
+        // attachments render as a single row, unchanged.
+        let rows = stride(from: 0, to: pending.attachments.count, by: 2).map { start in
+            Array(pending.attachments[start..<min(start + 2, pending.attachments.count)])
+        }
+        return VStack(alignment: .trailing, spacing: 4) {
+            ForEach(Array(rows.enumerated()), id: \.offset) { _, row in
+                HStack(spacing: 4) {
+                    ForEach(Array(row.enumerated()), id: \.offset) { _, attachment in
+                        thumbnail(for: attachment)
+                    }
+                }
             }
         }
         .accessibilityElement(children: .ignore)
