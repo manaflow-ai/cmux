@@ -1,10 +1,24 @@
 public import AppKit
 
 /// Default offsets and feature flags for the keyboard shortcut-hint overlays
-/// shown while a modifier is held. Pure value namespace reading from an
-/// injected `UserDefaults` / process environment; holds no mutable state.
-// lint:allow namespace-type — pure stateless policy/value namespace lifted verbatim from ContentView; no natural receiver, modernization deferred.
-public enum ShortcutHintDebugSettings {
+/// shown while a modifier is held.
+public struct ShortcutHintDebugSettings {
+    private let defaults: UserDefaults
+    private let environment: [String: String]
+
+    /// Creates a shortcut-hint settings reader.
+    ///
+    /// - Parameters:
+    ///   - defaults: Defaults store containing shortcut-hint flags.
+    ///   - environment: Process environment containing UI-test overrides.
+    public init(
+        defaults: UserDefaults = .standard,
+        environment: [String: String] = ProcessInfo.processInfo.environment
+    ) {
+        self.defaults = defaults
+        self.environment = environment
+    }
+
     public static let defaultSidebarHintX = 0.0
     public static let defaultSidebarHintY = 0.0
     public static let defaultTitlebarHintX = 0.0
@@ -43,29 +57,49 @@ public enum ShortcutHintDebugSettings {
     public static func alwaysShowHints(
         environment: [String: String] = ProcessInfo.processInfo.environment
     ) -> Bool {
-        defaultAlwaysShowHints || environment["CMUX_UI_TEST_SHORTCUT_HINTS_ALWAYS_SHOW"] == "1"
+        Self(environment: environment).alwaysShowHints()
+    }
+
+    /// Whether hints should always be shown for this reader.
+    public func alwaysShowHints() -> Bool {
+        Self.defaultAlwaysShowHints || environment["CMUX_UI_TEST_SHORTCUT_HINTS_ALWAYS_SHOW"] == "1"
     }
 
     /// Whether the user-facing modifier-hold hint toggle is enabled. Reads the
     /// raw value written by the `shortcuts.showModifierHoldHints` setting,
     /// falling back to ``defaultShowModifierHoldHints`` when unset.
     public static func modifierHoldHintsEnabled(defaults: UserDefaults = .standard) -> Bool {
-        guard defaults.object(forKey: showModifierHoldHintsKey) != nil else {
-            return defaultShowModifierHoldHints
+        Self(defaults: defaults).modifierHoldHintsEnabled()
+    }
+
+    /// Whether the user-facing modifier-hold hint toggle is enabled for this reader.
+    public func modifierHoldHintsEnabled() -> Bool {
+        guard defaults.object(forKey: Self.showModifierHoldHintsKey) != nil else {
+            return Self.defaultShowModifierHoldHints
         }
-        return defaults.bool(forKey: showModifierHoldHintsKey)
+        return defaults.bool(forKey: Self.showModifierHoldHintsKey)
     }
 
     /// Whether command-hold hints are enabled. Gated by the user-facing
     /// modifier-hold hint toggle.
     public static func showHintsOnCommandHoldEnabled(defaults: UserDefaults = .standard) -> Bool {
-        defaultShowHintsOnCommandHold && modifierHoldHintsEnabled(defaults: defaults)
+        Self(defaults: defaults).showHintsOnCommandHoldEnabled()
+    }
+
+    /// Whether command-hold hints are enabled for this reader.
+    public func showHintsOnCommandHoldEnabled() -> Bool {
+        Self.defaultShowHintsOnCommandHold && modifierHoldHintsEnabled()
     }
 
     /// Whether control-hold hints are enabled. Gated by the user-facing
     /// modifier-hold hint toggle.
     public static func showHintsOnControlHoldEnabled(defaults: UserDefaults = .standard) -> Bool {
-        defaultShowHintsOnControlHold && modifierHoldHintsEnabled(defaults: defaults)
+        Self(defaults: defaults).showHintsOnControlHoldEnabled()
+    }
+
+    /// Whether control-hold hints are enabled for this reader.
+    public func showHintsOnControlHoldEnabled() -> Bool {
+        Self.defaultShowHintsOnControlHold && modifierHoldHintsEnabled()
     }
 
 }
