@@ -119,6 +119,120 @@ final class cmuxUITests: XCTestCase {
         assertTerminalRow(1, label: "Mobile Core: connected", in: app)
     }
 
+    /// Freeze fuzzing for the keyboard + layout interactions, modeled on
+    /// `testFastPinchZoomDoesNotHangOrCorrupt`. The user report: "Sometimes the
+    /// terminal on iOS freezes; we should do some fuzzing around here." The
+    /// suspects are the geometry-sync coalescing gate, the display-link
+    /// start/stop, the render suspend/resume, and `syncSurfaceGeometry`
+    /// dispatching to the serial output queue while main waits on it. Rapidly
+    /// toggling the keyboard (focus/dismiss) interleaved with terminal taps,
+    /// composer open/close, and pinch-zoom hammers exactly those paths.
+    ///
+    /// At the end the test asserts the surface is still LIVE: the app is
+    /// foreground (no watchdog hang), the terminal still renders its known
+    /// content (not a blank/frozen grid), the dock is coherent, and once the
+    /// keyboard is down the grid has returned to (near) full height, which also
+    /// guards the "terminal not full height when keyboard closed" fix
+    /// (`scheduleKeyboardHideHeightResync` + the host-tested
+    /// `TerminalLetterboxGeometry.terminalContainerSize`).
+    @MainActor
+    func testKeyboardLayoutFuzzDoesNotFreeze() async throws {
+        let server = try MobileSyncMockHostServer()
+        let port = try await server.start()
+        defer { server.stop() }
+
+        let app = try launchConnectedApp(port: port)
+        let surface = app.otherElements["MobileTerminalSurface"]
+        XCTAssertTrue(surface.waitForExistence(timeout: 8))
+
+        // Dismiss any system banner that could intercept the gestures (matches the
+        // pinch-zoom test's monitor pattern).
+        addUIInterruptionMonitor(withDescription: "system banner") { banner in
+            banner.swipeUp()
+            return true
+        }
+        app.swipeDown(velocity: .fast)
+        app.swipeUp(velocity: .fast)
+
+        let composeButton = app.buttons[Composer.composeButton]
+        let hideKeyboardButton = app.buttons["terminal.inputAccessory.hideKeyboard"]
+        let bandClose = app.buttons[Composer.bandClose]
+
+        // Fuzz loop: each iteration interleaves the focus/dismiss, tap, composer,
+        // and pinch paths in a slightly different order so the geometry sync and
+        // render gates are hit in many orderings. Raw gestures (no waits between
+        // them) so the coalescing/display-link timing is genuinely stressed.
+        for cycle in 0..<40 {
+            // 1. Focus the composer -> keyboard up -> grid reserves keyboard.
+            if composeButton.exists, composeButton.isHittable {
+                composeButton.tap()
+            }
+            // 2. Pinch while the keyboard is (coming) up: zoom + keyboard geometry
+            //    contend for the same syncSurfaceGeometry path.
+            surface.pinch(withScale: 4.0, velocity: 8.0)
+            // 3. Dismiss the keyboard -> keyboard down -> grid must reclaim height.
+            if hideKeyboardButton.exists, hideKeyboardButton.isHittable {
+                hideKeyboardButton.tap()
+            }
+            // 4. Tap the terminal (re-shows chrome if hidden, toggles focus).
+            surface.tap()
+            // 5. Pinch the other way with the keyboard down.
+            surface.pinch(withScale: 0.3, velocity: -8.0)
+            // 6. Every few cycles, close the composer band entirely, then it is
+            //    reopened by the compose tap at the top of the next cycle. This
+            //    drives the composer-band-height reservation in and out under load.
+            if cycle % 3 == 0, bandClose.exists, bandClose.isHittable {
+                bandClose.tap()
+            }
+            // The app must survive every cycle, not just the end (a mid-loop
+            // watchdog hang would otherwise be reported only at teardown).
+            XCTAssertEqual(
+                app.state, .runningForeground,
+                "App must stay foreground through keyboard/layout fuzz (cycle \(cycle))"
+            )
+        }
+
+        // Settle: dismiss the keyboard so the final assertions run in the
+        // keyboard-down state, where the grid must be at full height.
+        if hideKeyboardButton.exists, hideKeyboardButton.isHittable {
+            hideKeyboardButton.tap()
+        }
+        _ = waitForKeyboardDismissal(in: app)
+
+        // LIVENESS 1: still foreground (no watchdog hang / freeze).
+        XCTAssertEqual(
+            app.state, .runningForeground,
+            "App must survive the keyboard/layout fuzz without a watchdog hang/freeze"
+        )
+
+        // LIVENESS 2: the surface still renders (the probe is read live on every
+        // accessibility query, so a frozen main thread would time this out).
+        let dock = waitForDock(in: app, timeout: 8, describe: "post-fuzz: keyboard down, toolbar visible") {
+            $0["keyboardUp"] == "0" && $0["toolbarVisible"] == "1"
+        }
+        assertDockCoherent(in: app, cycle: 99)
+
+        // LIVENESS 3: the grid returned to (near) full height once the keyboard is
+        // down. The grid floors to whole cells and reserves the toolbar + safe
+        // area + any open composer band, so it sits some points under bounds; the
+        // FREEZE / stale-height bug instead leaves it stuck at the much shorter
+        // keyboard-up height. A generous budget (it must be within ~45% of bounds,
+        // i.e. clearly NOT pinned at the keyboard-up size) catches the regression
+        // without flaking on the legitimate chrome reservation.
+        if let renderH = dock["renderHeight"].flatMap(Int.init),
+           let boundsH = dock["boundsHeight"].flatMap(Int.init),
+           boundsH > 0 {
+            XCTAssertGreaterThan(
+                Double(renderH), Double(boundsH) * 0.55,
+                "Terminal grid stuck short after keyboard down (freeze/stale-height). renderHeight=\(renderH) boundsHeight=\(boundsH) dock=\(dock)"
+            )
+        }
+
+        // LIVENESS 4: known content still on screen, not a blank/jumbled grid.
+        assertTerminalRow(0, label: "$ cmux ios status", in: app)
+        assertTerminalRow(1, label: "Mobile Core: connected", in: app)
+    }
+
     @MainActor
     func testWorkspaceToolbarCreatesWorkspaceAndTerminal() async throws {
         let server = try MobileSyncMockHostServer()

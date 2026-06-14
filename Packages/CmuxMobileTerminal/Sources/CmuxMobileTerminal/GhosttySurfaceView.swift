@@ -737,6 +737,13 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
             "surfaceMinXInWindow=\(surfaceMinXInWindow)",
             "toolbarOriginX=\(toolbarOriginX)",
             "lastIntent=\(intent)",
+            // Rendered terminal height vs the surface bounds, so a UI test can
+            // assert the grid returns to (near) full height once the keyboard is
+            // down: the "terminal not full height when keyboard closed" guard. The
+            // grid floors to whole cells so it is a few points under bounds even at
+            // full height; the test compares the gap, not equality.
+            "renderHeight=\(Int(lastRenderRect.height))",
+            "boundsHeight=\(Int(bounds.height))",
             inputProxy.accessoryLayoutDiagnostics,
         ].joined(separator: ";")
     }
