@@ -519,7 +519,7 @@ extension SessionIndexStore {
             forEachJSONLine(
                 url: historyURL,
                 maxBytes: maxScanBytes,
-                maxLines: nil,
+                maxLines: antigravityHistoryMaximumScanLines,
                 direction: .reverse
             ) { object in
                 if Task.isCancelled { return true }
