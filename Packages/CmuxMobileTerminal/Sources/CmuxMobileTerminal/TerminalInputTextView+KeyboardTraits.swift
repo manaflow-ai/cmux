@@ -9,7 +9,7 @@ extension TerminalInputTextView {
             self,
             selector: #selector(handleKeyboardConfigurationChanged),
             name: TerminalKeyboardConfiguration.didChangeNotification,
-            object: nil
+            object: keyboardConfiguration
         )
     }
 
@@ -25,13 +25,12 @@ extension TerminalInputTextView {
     /// `init`). Called from `init` and on every
     /// ``TerminalKeyboardConfiguration/didChangeNotification``.
     func applyKeyboardTraits() {
-        let enabled = TerminalKeyboardConfiguration.shared.autocompleteEnabled
         autocorrectionType = .no
         smartQuotesType = .no
         smartDashesType = .no
         smartInsertDeleteType = .no
         spellCheckingType = .no
-        inlinePredictionType = enabled ? .default : .no
+        inlinePredictionType = keyboardConfiguration.inlinePredictionType
     }
 
     @objc func handleKeyboardConfigurationChanged() {

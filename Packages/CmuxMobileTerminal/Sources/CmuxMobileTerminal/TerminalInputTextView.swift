@@ -24,6 +24,7 @@ final class TerminalInputTextView: UITextView {
     /// until the next terminal tap.
     var onHideChrome: (() -> Void)?
     var accessoryLayoutInsetsProvider: (() -> UIEdgeInsets)?
+    let keyboardConfiguration: TerminalKeyboardConfiguration
     /// The leftmost toolbar button. Toggles its glyph between dismiss-keyboard
     /// (when the keyboard is up) and show-keyboard (when down) via
     /// ``setKeyboardShown(_:)``.
@@ -471,7 +472,8 @@ final class TerminalInputTextView: UITextView {
         }
     }
 
-    init() {
+    init(keyboardConfiguration: TerminalKeyboardConfiguration) {
+        self.keyboardConfiguration = keyboardConfiguration
         super.init(frame: .zero, textContainer: nil)
         backgroundColor = .clear
         textColor = .clear

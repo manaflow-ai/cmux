@@ -14,6 +14,7 @@ struct MobileSettingsView: View {
     @Environment(AuthCoordinator.self) private var authManager
     @Environment(MobilePushCoordinator.self) private var pushCoordinator
     @Environment(MobileDisplaySettings.self) private var displaySettings
+    @Environment(TerminalKeyboardConfiguration.self) private var keyboardConfiguration
     let connectedHostName: String
     let rescanQR: (() -> Void)?
     let signOut: (() -> Void)?
@@ -244,15 +245,10 @@ struct MobileSettingsView: View {
     /// Binding to whether the terminal keyboard's inline autocomplete suggestions
     /// are enabled. Reading the value in `body` (via the binding's getter)
     /// registers `@Observable` tracking so the toggle reflects changes.
-    // TRANSITIONAL: TerminalKeyboardConfiguration.shared is also read by the
-    // off-limits typing-latency input view (TerminalInputTextView); inverting it
-    // to an injected store requires threading it through the terminal-surface
-    // construction path, reserved for the terminal-surface wave. Until then this
-    // view keeps the singleton reach-in, mirroring TerminalShortcutsSettingsView.
     private var autocompleteBinding: Binding<Bool> {
         Binding(
-            get: { TerminalKeyboardConfiguration.shared.autocompleteEnabled },
-            set: { TerminalKeyboardConfiguration.shared.autocompleteEnabled = $0 }
+            get: { keyboardConfiguration.autocompleteEnabled },
+            set: { keyboardConfiguration.autocompleteEnabled = $0 }
         )
     }
 

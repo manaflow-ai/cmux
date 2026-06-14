@@ -1,5 +1,8 @@
 import Foundation
 import Observation
+#if canImport(UIKit)
+import UIKit
+#endif
 
 /// User preference for whether the system keyboard's inline autocomplete
 /// predictions are enabled in the mobile terminal input field.
@@ -13,30 +16,23 @@ import Observation
 /// toggle and stays off regardless: capitalizing the first word of a command is
 /// never wanted.
 ///
-/// Mirrors ``TerminalAccessoryConfiguration``: a `@MainActor` `@Observable` store
-/// persisted to `UserDefaults` that posts ``didChangeNotification`` so the
-/// off-limits UIKit input view can re-apply its keyboard traits live. It is the
-/// single source of truth for that preference, read by the input view and bound
-/// by the settings toggle.
+/// Mirrors ``TerminalAccessoryConfiguration``'s persistence contract without
+/// exposing global runtime state: the app composition root owns one instance and
+/// injects it into both Settings and the live terminal surface. The store is
+/// persisted to `UserDefaults` and posts ``didChangeNotification`` so the UIKit
+/// input view can re-apply its keyboard traits live.
 ///
 /// ```swift
-/// // Settings toggle binding:
-/// Toggle(isOn: Binding(
-///     get: { TerminalKeyboardConfiguration.shared.autocompleteEnabled },
-///     set: { TerminalKeyboardConfiguration.shared.autocompleteEnabled = $0 }
-/// )) { Text("Autocomplete") }
+/// let configuration = TerminalKeyboardConfiguration()
+/// let surface = GhosttySurfaceView(
+///     runtime: runtime,
+///     delegate: delegate,
+///     keyboardConfiguration: configuration
+/// )
 /// ```
 @MainActor
 @Observable
 public final class TerminalKeyboardConfiguration {
-    /// Shared instance backing the live input field and the settings toggle.
-    ///
-    /// Read from the UIKit input view in the off-limits typing-latency path
-    /// (``TerminalInputTextView``) and bound by the mobile settings toggle.
-    /// TRANSITIONAL — retires with ``TerminalAccessoryConfiguration/shared`` once
-    /// construction-at-root injection lands in the GhosttySurfaceView split.
-    public static let shared = TerminalKeyboardConfiguration()
-
     /// Posted (on the main thread) whenever the preference changes, so the UIKit
     /// terminal input view can re-apply its keyboard traits and reload the live
     /// keyboard.
@@ -62,14 +58,33 @@ public final class TerminalKeyboardConfiguration {
         }
     }
 
+    #if canImport(UIKit)
+    /// The UIKit inline-prediction trait represented by the current preference.
+    ///
+    /// `true` maps to `.yes`, not `.default`, because the setting is an explicit
+    /// opt-in to inline suggestions while replacement-based traits stay forced
+    /// off.
+    public var inlinePredictionType: UITextInlinePredictionType {
+        Self.inlinePredictionType(autocompleteEnabled: autocompleteEnabled)
+    }
+
+    /// Returns the UIKit inline-prediction trait for a stored preference value.
+    ///
+    /// - Parameter autocompleteEnabled: Whether the user enabled terminal inline
+    ///   autocomplete suggestions.
+    /// - Returns: `.yes` when enabled and `.no` when disabled.
+    public static func inlinePredictionType(autocompleteEnabled: Bool) -> UITextInlinePredictionType {
+        autocompleteEnabled ? .yes : .no
+    }
+    #endif
+
     /// Creates a configuration backed by `defaults`.
     ///
     /// - Parameter defaults: The `UserDefaults` store to read and persist the
-    ///   preference from. Defaults to `.standard` for the live ``shared``
-    ///   instance; tests inject a suite-scoped store so they exercise the
-    ///   persistence round-trip without touching the user's real settings. An
-    ///   absent key reads as `false` (the terminal-hardened default) without a
-    ///   write.
+    ///   preference from. Defaults to `.standard` for the app-root instance;
+    ///   tests inject a suite-scoped store so they exercise the persistence
+    ///   round-trip without touching the user's real settings. An absent key
+    ///   reads as `false` (the terminal-hardened default) without a write.
     public init(defaults: UserDefaults = .standard) {
         self.defaults = defaults
         self.autocompleteEnabled = defaults.bool(forKey: Self.autocompleteEnabledKey)

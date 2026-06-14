@@ -36,7 +36,12 @@ private struct ZoomStressRepresentable: UIViewRepresentable {
             label.textColor = .white
             return label
         }
-        let view = GhosttySurfaceView(runtime: runtime, delegate: context.coordinator, fontSize: 12)
+        let view = GhosttySurfaceView(
+            runtime: runtime,
+            delegate: context.coordinator,
+            keyboardConfiguration: TerminalKeyboardConfiguration(),
+            fontSize: 12
+        )
         context.coordinator.surfaceView = view
         context.coordinator.start()
         return view

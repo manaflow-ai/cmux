@@ -1,6 +1,7 @@
 import CmuxMobileTerminal
 import Foundation
 import Testing
+import UIKit
 
 /// Behavioral tests for ``TerminalKeyboardConfiguration``: the source of truth
 /// for whether the mobile terminal keyboard's inline autocomplete suggestions
@@ -10,7 +11,7 @@ import Testing
 /// re-application.
 ///
 /// Each test injects a private `UserDefaults` suite so it never touches the live
-/// `.shared` settings.
+/// app-root settings.
 @MainActor
 @Suite("TerminalKeyboardConfiguration")
 struct TerminalKeyboardConfigurationTests {
@@ -61,6 +62,12 @@ struct TerminalKeyboardConfigurationTests {
         defaults.set(true, forKey: Self.storageKey)
 
         #expect(TerminalKeyboardConfiguration(defaults: defaults).autocompleteEnabled == true)
+    }
+
+    @Test("autocomplete maps to explicit inline prediction traits")
+    func autocompleteMapsToExplicitInlinePredictionTraits() {
+        #expect(TerminalKeyboardConfiguration.inlinePredictionType(autocompleteEnabled: true) == .yes)
+        #expect(TerminalKeyboardConfiguration.inlinePredictionType(autocompleteEnabled: false) == .no)
     }
 
     @Test("a real change posts exactly one notification; a no-op set posts none")

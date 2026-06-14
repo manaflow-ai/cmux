@@ -26,6 +26,7 @@ struct WorkspaceDetailView: View {
     /// workspace has an active browser surface the detail view presents a
     /// browser pane in place of the terminal; otherwise it shows the terminal.
     @Environment(BrowserSurfaceStore.self) private var browserStore
+    @Environment(TerminalKeyboardConfiguration.self) private var keyboardConfiguration
     #if canImport(UIKit)
     @State private var isFeedbackComposerPresented = false
     @State private var feedbackText = ""
@@ -99,6 +100,7 @@ struct WorkspaceDetailView: View {
                     surfaceID: terminalID,
                     store: store,
                     fontSize: MobileTerminalFontPreference.defaultSize,
+                    keyboardConfiguration: keyboardConfiguration,
                     // While the composer is presented the terminal input proxy
                     // must not grab first responder on attach. This covers both
                     // composer states: mid-compose (the field owns the keyboard
