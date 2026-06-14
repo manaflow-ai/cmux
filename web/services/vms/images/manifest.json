@@ -111,16 +111,16 @@
     },
     {
       "provider": "freestyle",
-      "version": "freestyle-signedauth-20260614b",
-      "imageId": "sh-81dr9m8k81txpuskvq03",
+      "version": "freestyle-signedauth-20260614c",
+      "imageId": "sh-7y4v9uc5mobaihbqd4ld",
       "envVar": "FREESTYLE_SANDBOX_SNAPSHOT",
       "defaultForLocalDev": true,
       "features": {
         "signedWebSocketAuth": true
       },
-      "cmuxdRemoteCommit": "a9dd4acbcaf53c2567785c88fc5b80bcc56e9053",
-      "builtAt": "2026-06-14T06:24:34.411Z",
-      "builderScriptVersion": "2f9e7167aab44e05cbe283ec59aeb86cecfaf917d07c5e844b086cdc3ad6d8a7",
+      "cmuxdRemoteCommit": "d0ce9e53e6491d415f775837d3a49027182b4dbd",
+      "builtAt": "2026-06-14T07:27:16.560Z",
+      "builderScriptVersion": "1f5dda8f157c96b7d7f1a09154f9ef2ffee3a0d0adfae0df10053474f07d6d76",
       "agentToolResolvedVersions": {
         "claude": "2.1.137",
         "opencode": "1.14.41",
@@ -128,7 +128,7 @@
         "pi": "0.74.0"
       },
       "validationStatus": "passed",
-      "notes": "Validated Freestyle WebSocket PTY/RPC image with signed attach-token verification, baked cmux CLI, active cmuxd-ws service, Node, Bun, Claude Code, OpenCode, Codex, and Pi. binarySha256=55d74ea9156d099b10b0c10e2a960b74bb7910c914b54b43ff4d535d3d124efe nodeMajor=22 agentTools=@anthropic-ai/claude-code@2.1.137,opencode-ai@1.14.41,@openai/codex@0.130.0,@earendil-works/pi-coding-agent@0.74.0"
+      "notes": "Validated Freestyle WebSocket PTY/RPC image with signed attach-token verification, baked cmux CLI, active cmuxd-ws service, Node, Bun, Claude Code, OpenCode, Codex, and Pi. binarySha256=b94acf366eb2d457c0675e8cacfe793bcc154a73d67f510f2bd4a2ee135e629f nodeMajor=22 agentTools=@anthropic-ai/claude-code@2.1.137,opencode-ai@1.14.41,@openai/codex@0.130.0,@earendil-works/pi-coding-agent@0.74.0"
     }
   ]
 }

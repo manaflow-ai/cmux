@@ -135,11 +135,11 @@ describe("VM Effect workflows", () => {
     };
 
     await runForImage("sh-17agfasevrc18c8f15nn");
-    await runForImage("sh-81dr9m8k81txpuskvq03");
+    await runForImage("sh-7y4v9uc5mobaihbqd4ld");
 
     expect(seen).toEqual([
       { imageId: "sh-17agfasevrc18c8f15nn", signedWebSocketAuth: false },
-      { imageId: "sh-81dr9m8k81txpuskvq03", signedWebSocketAuth: true },
+      { imageId: "sh-7y4v9uc5mobaihbqd4ld", signedWebSocketAuth: true },
     ]);
   });
 
