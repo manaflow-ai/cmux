@@ -5,8 +5,10 @@ set -euo pipefail
 # timestamp. The fork is on a date-based versioning scheme:
 #
 #   canonical stamp         = YYYY.MM.DD.HHMM   (America/Vancouver)
-#   MARKETING_VERSION       = YYYY.MM.DD        (three integers, Apple-spec clean)
-#   CURRENT_PROJECT_VERSION = YYYYMMDDHHMM      (12-digit integer, Sparkle-safe)
+#   MARKETING_VERSION       = YYYY.MM.DD        (CFBundleShortVersionString)
+#   CURRENT_PROJECT_VERSION = HHMM              (CFBundleVersion). The macOS
+#     About box then shows "YYYY.MM.DD (HHMM)" — e.g. "2026.06.14 (1324)" —
+#     matching bootstrapmate-macintosh's MARKETING_VERSION/BUILD_NUMBER split.
 #
 # Usage:
 #   ./scripts/bump-version.sh                    # stamp now
@@ -29,8 +31,7 @@ else
 fi
 
 NEW_MARKETING="${STAMP%.*}"
-SUFFIX_HHMM="${STAMP##*.}"
-NEW_BUILD="${NEW_MARKETING//./}${SUFFIX_HHMM}"
+NEW_BUILD="${STAMP##*.}"
 
 CURRENT_MARKETING=$(grep -m1 'MARKETING_VERSION = ' "$PROJECT_FILE" | sed 's/.*= \(.*\);/\1/')
 CURRENT_BUILD=$(grep -m1 'CURRENT_PROJECT_VERSION = ' "$PROJECT_FILE" | sed 's/.*= \(.*\);/\1/')

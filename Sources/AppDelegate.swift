@@ -2720,6 +2720,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             }
         }
 #endif
+
+        // Cross-device active-workspace mirror: keep the selected workspace in
+        // lockstep with the other Mac via the hub baton. See ActiveWorkspaceMirror.
+        ActiveWorkspaceMirror.shared.start()
     }
 
 #if DEBUG
@@ -2928,6 +2932,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         if TelemetrySettings.enabledForCurrentLaunch && !isRunningUnderXCTestCached {
             PostHogAnalytics.shared.trackActive(reason: "didBecomeActive")
         }
+
+        // Sat down at this Mac: adopt the other Mac's latest selected workspace.
+        ActiveWorkspaceMirror.shared.applyPending()
 
         guard let notificationStore else { return }
         notificationStore.handleApplicationDidBecomeActive()
