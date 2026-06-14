@@ -27132,7 +27132,6 @@ function setIdleStatusAndStop(ctx, event) {
   const record = lifecycleRecordFor(event);
   if (!record) return;
   if (record.phase === "needs-input" || record.phase === "error") return;
-  setStatus(STATUS_DESCRIPTORS.idle, ctx, event);
   sendStopHookOnIdleTransition(ctx, event);
 }
 
@@ -29752,21 +29751,37 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                     updateRuntimeStatus: true
                 )
             }
-            setAgentLifecycle(
-                client: client,
-                key: def.statusKey,
-                lifecycle: descriptor.lifecycle,
-                workspaceId: workspaceId,
-                surfaceId: surfaceId
-            )
-            var statusCommand = "set_status \(shellQuote(def.statusKey)) \(shellQuote(descriptor.value)) --icon=\(shellQuote(descriptor.icon)) --color=\(shellQuote(descriptor.color)) --tab=\(workspaceId)\(socketPanelOption(surfaceId))"
-            if let priority = descriptor.priority {
-                statusCommand += " --priority=\(priority)"
-            }
             if let pid {
-                statusCommand += " --pid=\(pid)"
+                _ = try? sendV1Command(
+                    "set_agent_pid \(pidKey) \(pid) --tab=\(workspaceId)\(socketPanelOption(surfaceId))",
+                    client: client
+                )
             }
-            _ = try? sendV1Command(statusCommand, client: client)
+            if descriptor.lifecycle == .idle {
+                if !hasNewerRunningSession(workspaceId: workspaceId, surfaceId: surfaceId) {
+                    setAgentLifecycle(
+                        client: client,
+                        key: def.statusKey,
+                        lifecycle: descriptor.lifecycle,
+                        workspaceId: workspaceId,
+                        surfaceId: surfaceId
+                    )
+                }
+                setIdleStatusUnlessAnotherSessionIsRunning(workspaceId: workspaceId, surfaceId: surfaceId)
+            } else {
+                setAgentLifecycle(
+                    client: client,
+                    key: def.statusKey,
+                    lifecycle: descriptor.lifecycle,
+                    workspaceId: workspaceId,
+                    surfaceId: surfaceId
+                )
+                var statusCommand = "set_status \(shellQuote(def.statusKey)) \(shellQuote(descriptor.value)) --icon=\(shellQuote(descriptor.icon)) --color=\(shellQuote(descriptor.color)) --tab=\(workspaceId)\(socketPanelOption(surfaceId))"
+                if let priority = descriptor.priority {
+                    statusCommand += " --priority=\(priority)"
+                }
+                _ = try? sendV1Command(statusCommand, client: client)
+            }
             sendAgentFeedTelemetry(workspaceId: workspaceId)
             print("{}")
             return

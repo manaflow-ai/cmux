@@ -307,7 +307,7 @@ final class OpenCodeHookRegressionTests: XCTestCase {
         let retryingStatuses = commands.filter { $0.contains("hooks opencode runtime-status retrying") }
         XCTAssertEqual(retryingStatuses.count, 0, log)
         let idleStatuses = commands.filter { $0.contains("hooks opencode runtime-status idle") }
-        XCTAssertGreaterThanOrEqual(idleStatuses.count, lifecycleEvictionSessionCount, log)
+        XCTAssertEqual(idleStatuses.count, 0, log)
         let stopHooks = commands.filter { $0 == "hooks opencode stop" }
         XCTAssertGreaterThanOrEqual(stopHooks.count, lifecycleEvictionSessionCount, log)
 
@@ -317,7 +317,6 @@ final class OpenCodeHookRegressionTests: XCTestCase {
 
         let resolvedPromptCommands = try commandsBetween(commands, after: "MARK prompt-still-open", before: "MARK prompt-resolved")
         XCTAssertTrue(resolvedPromptCommands.contains { isRunningStatusCommand($0) }, log)
-        XCTAssertTrue(resolvedPromptCommands.contains { isIdleStatusCommand($0) }, log)
         XCTAssertTrue(resolvedPromptCommands.contains { isStopHookCommand($0) }, log)
 
         let protectedPromptCommands = try commandsBetween(commands, after: "MARK protected-prompt-open", before: "MARK protected-prompt-still-open")
@@ -326,7 +325,6 @@ final class OpenCodeHookRegressionTests: XCTestCase {
 
         let protectedResolvedCommands = try commandsBetween(commands, after: "MARK protected-prompt-still-open", before: "MARK protected-prompt-resolved")
         XCTAssertTrue(protectedResolvedCommands.contains { isRunningStatusCommand($0) }, log)
-        XCTAssertTrue(protectedResolvedCommands.contains { isIdleStatusCommand($0) }, log)
         XCTAssertTrue(protectedResolvedCommands.contains { isStopHookCommand($0) }, log)
     }
 
