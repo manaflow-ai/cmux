@@ -20255,8 +20255,10 @@ struct CMUXCLI {
         guard !line.isEmpty else { return nil }
 
         var pairs: [(keyPath: String, value: String)] = [("line", line)]
+        var parsedStructuredLog = false
         if let data = line.data(using: .utf8),
            let object = try? JSONSerialization.jsonObject(with: data, options: [.fragmentsAllowed]) {
+            parsedStructuredLog = true
             codexTeamsCollectDiagnosticStrings(object, keyPath: nil, pairs: &pairs)
         }
 
@@ -20268,7 +20270,11 @@ struct CMUXCLI {
             )
         }
 
-        guard codexTeamsSignalLooksLikeSpawnFailure(pairs: pairs, fallback: line) else {
+        guard codexTeamsSignalLooksLikeSpawnFailure(
+            pairs: pairs,
+            fallback: line,
+            allowFreeformFallback: !parsedStructuredLog
+        ) else {
             return nil
         }
 
@@ -20367,7 +20373,8 @@ struct CMUXCLI {
 
     private static func codexTeamsSignalLooksLikeSpawnFailure(
         pairs: [(keyPath: String, value: String)],
-        fallback: String
+        fallback: String,
+        allowFreeformFallback: Bool
     ) -> Bool {
         let signal = pairs
             .flatMap { [$0.keyPath, $0.value] }
@@ -20382,6 +20389,9 @@ struct CMUXCLI {
         guard hasSpawnContext else { return false }
         if pairs.contains(where: codexTeamsDiagnosticPairLooksLikeFailure) {
             return true
+        }
+        guard allowFreeformFallback else {
+            return false
         }
         return codexTeamsFreeformSignalLooksLikeFailure(signal) ||
             codexTeamsFreeformSignalLooksLikeFailure(fallback.lowercased())
@@ -20405,14 +20415,6 @@ struct CMUXCLI {
         }
         if key.contains("status") || key.contains("state") || key.contains("level") {
             return value == "error" || codexTeamsFreeformSignalLooksLikeFailure(value)
-        }
-        if key.contains("message") ||
-            key.contains("reason") ||
-            key.contains("description") ||
-            key.contains("details") ||
-            key.contains("body") ||
-            key.contains("text") {
-            return codexTeamsFreeformSignalLooksLikeFailure(value)
         }
         return false
     }

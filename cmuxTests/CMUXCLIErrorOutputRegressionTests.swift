@@ -182,6 +182,34 @@ final class CMUXCLIErrorOutputRegressionTests: XCTestCase {
         XCTAssertTrue(payload.isEmpty, result.stdout)
     }
 
+    func testCodexTeamsSpawnFailureDiagnosticIgnoresSuccessfulSpawnAgentPromptText() throws {
+        let cliPath = try bundledCLIPath()
+        var environment = ProcessInfo.processInfo.environment
+        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+        environment["AppleLanguages"] = "(en)"
+        environment["AppleLocale"] = "en_US"
+
+        let result = runProcess(
+            executablePath: cliPath,
+            arguments: [
+                "__codex-teams-spawn-failure-diagnostic",
+                "--log-path",
+                "/tmp/cmux-codex-teams-56789-app-server.log",
+                #"{"method":"spawn_agent","params":{"message":"investigate the failed build","subagent":"created"}}"#,
+            ],
+            environment: environment,
+            timeout: 5
+        )
+
+        XCTAssertFalse(result.timedOut, result.stdout)
+        XCTAssertEqual(result.status, 0, result.stdout)
+        let payload = try XCTUnwrap(
+            JSONSerialization.jsonObject(with: Data(result.stdout.utf8)) as? [String: Any],
+            result.stdout
+        )
+        XCTAssertTrue(payload.isEmpty, result.stdout)
+    }
+
     func testCodexTeamsAppServerLogUTF8PrefixDefersIncompleteMultibyteSuffix() throws {
         let cliPath = try bundledCLIPath()
         var environment = ProcessInfo.processInfo.environment
