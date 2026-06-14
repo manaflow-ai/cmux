@@ -24,7 +24,7 @@ mock.module("../app/lib/stack", () => ({
 }));
 
 const { DELETE, GET, POST } = await import("../app/api/devices/route");
-const { hostIsLoopback, hostIsTailscaleAttachable } = await import(
+const { hostIsLoopback, hostIsTailscaleAttachable, manualRoutesAreValid } = await import(
   "../app/api/devices/route-classification"
 );
 
@@ -386,6 +386,71 @@ describe("device registry route", () => {
     ]) {
       expect(hostIsTailscaleAttachable(host)).toBe(false);
     }
+  });
+
+  test("manualRoutesAreValid enforces the full attach-route schema", () => {
+    // Valid: tailscale host:port, attachable host, in-range port.
+    expect(
+      manualRoutesAreValid([
+        { kind: "tailscale", endpoint: { type: "host_port", host: "100.64.1.2", port: 51001 } },
+      ]),
+    ).toBe(true);
+    // Valid without an explicit endpoint type (older shape).
+    expect(
+      manualRoutesAreValid([
+        { kind: "tailscale", endpoint: { host: "my-mac.ts.net", port: 1 } },
+      ]),
+    ).toBe(true);
+    // Invalid cases.
+    expect(manualRoutesAreValid([])).toBe(false); // empty
+    expect(
+      manualRoutesAreValid([
+        { kind: "tailscale", endpoint: { type: "host_port", host: "100.64.1.2", port: 0 } },
+      ]),
+    ).toBe(false); // port 0
+    expect(
+      manualRoutesAreValid([
+        { kind: "tailscale", endpoint: { type: "host_port", host: "100.64.1.2", port: 70000 } },
+      ]),
+    ).toBe(false); // port out of range
+    expect(
+      manualRoutesAreValid([
+        { kind: "iroh", endpoint: { type: "host_port", host: "100.64.1.2", port: 51001 } },
+      ]),
+    ).toBe(false); // wrong kind
+    expect(
+      manualRoutesAreValid([
+        { kind: "tailscale", endpoint: { type: "host_port", host: "192.168.1.5", port: 51001 } },
+      ]),
+    ).toBe(false); // non-attachable host
+    expect(
+      manualRoutesAreValid([
+        { kind: "tailscale", endpoint: { type: "url", url: "wss://x" } },
+      ]),
+    ).toBe(false); // wrong endpoint type
+  });
+
+  dbTest("rejects a manual remote with empty or port-0 routes", async () => {
+    if (!sql) throw new Error("test database not initialized");
+
+    const empty = await POST(
+      registerRequest({ deviceId: DEVICE_A, platform: "mac", manual: true, routes: [] }),
+    );
+    expect(empty.status).toBe(400);
+    expect(((await empty.json()) as { error: string }).error).toBe("non_attachable_route_rejected");
+
+    const badPort = await POST(
+      registerRequest({
+        deviceId: DEVICE_A,
+        platform: "mac",
+        manual: true,
+        routes: [{ kind: "tailscale", endpoint: { type: "host_port", host: "100.64.1.2", port: 0 } }],
+      }),
+    );
+    expect(badPort.status).toBe(400);
+
+    const [{ total }] = await sql<{ total: number }[]>`select count(*)::int as total from devices`;
+    expect(total).toBe(0);
   });
 
   dbTest("rejects a manual remote with a non-Tailscale (LAN) route", async () => {

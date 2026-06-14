@@ -21,8 +21,8 @@ import {
 } from "../../../services/vms/auth";
 import { requestedVmTeamIdFromRequest } from "../../../services/vms/routeHelpers";
 import {
+  manualRoutesAreValid,
   routesContainLoopback,
-  routesContainNonAttachableHost,
 } from "./route-classification";
 
 export const runtime = "nodejs";
@@ -165,13 +165,14 @@ export async function POST(request: Request): Promise<Response> {
   if (manual && routesContainLoopback(routes)) {
     return jsonResponse({ error: "loopback_route_rejected" }, 400);
   }
-  // For a user-initiated manual remote, also enforce that every host:port route
-  // is attachable from the phone (a Tailscale CGNAT / *.ts.net host). This is
-  // the server-side mirror of the CLI/app check, so a direct authenticated API
-  // caller cannot register a remote that lists but cannot connect. Scoped to the
-  // manual path: the Mac's own self-registration advertises its real live routes
-  // and is not subject to this guard.
-  if (manual && routesContainNonAttachableHost(routes)) {
+  // For a user-initiated manual remote, enforce the full attach-route schema on
+  // the server (non-empty array; every entry a `tailscale` host:port with a
+  // 1-65535 port and a Tailscale-attachable host). This is the server-side
+  // mirror of the CLI/app check, so a direct authenticated API caller cannot
+  // register a remote that lists but cannot connect (empty routes, port 0, wrong
+  // kind, or a non-Tailscale host). Scoped to the manual path: the Mac's own
+  // self-registration advertises its real live routes and is not subject to it.
+  if (manual && !manualRoutesAreValid(routes)) {
     return jsonResponse({ error: "non_attachable_route_rejected" }, 400);
   }
 

@@ -231,7 +231,8 @@ actor RemotesClient {
         guard !routeStrings.isEmpty else { throw RemotesClientError.noRoutes }
 
         let specs = try routeStrings.map { try RemoteRouteSpec.parse($0) }
-        let deviceId = Self.deviceId(forName: name)
+        let ownerID = await auth.currentUser?.id
+        let deviceId = Self.deviceId(forName: name, ownerID: ownerID)
         let attachRoutes = try specs.enumerated().map { index, spec in
             try spec.attachRoute(id: "manual-\(index)", priority: index)
         }
@@ -307,8 +308,10 @@ actor RemotesClient {
         // Prefer the deterministic id THIS name was added under (the caller's
         // own manual remote), so a duplicate display name shared with a
         // co-member's or auto-registered device does not shadow the user's own
-        // remote and make removal silently no-op.
-        let derived = Self.deviceId(forName: target)
+        // remote and make removal silently no-op. Salt by the same owner id used
+        // at add time so the caller resolves their own row, not a co-member's.
+        let ownerID = await auth.currentUser?.id
+        let derived = Self.deviceId(forName: target, ownerID: ownerID)
         if remotes.contains(where: { $0.deviceId.lowercased() == derived }) {
             return derived
         }
@@ -324,13 +327,27 @@ actor RemotesClient {
 
     // MARK: - Deterministic device id
 
-    /// A stable lowercase UUIDv5 derived from the remote name, so `remotes add`
-    /// is idempotent on the name. RFC 4122 v5 (SHA-1, namespace + name).
-    static func deviceId(forName name: String) -> String {
+    /// A stable lowercase UUIDv5 derived from the remote name (and the owning
+    /// user), so `remotes add` is idempotent on the name PER USER. RFC 4122 v5
+    /// (SHA-1, namespace + name).
+    ///
+    /// `ownerID` (the Stack user id) is folded into the name so two members of
+    /// the same team can each register a common name like `studio`: the device
+    /// row is keyed by `(teamId, deviceUuid)` and POST rejects updates to a row
+    /// owned by another user, so a name-only id would make the second member's
+    /// add collide with the first member's row (`device_not_owned`). Salting by
+    /// owner gives each user their own deterministic id while keeping per-user
+    /// idempotency. A nil/empty owner falls back to a name-only id (no signed-in
+    /// user is an error path that never reaches a successful add).
+    static func deviceId(forName name: String, ownerID: String? = nil) -> String {
         let normalized = name.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        let owner = (ownerID?.trimmingCharacters(in: .whitespacesAndNewlines)) ?? ""
+        // Length-prefix the owner so distinct (owner, name) pairs cannot alias
+        // by concatenation (e.g. owner "ab"+name "c" vs owner "a"+name "bc").
+        let seed = owner.isEmpty ? normalized : "\(owner.count):\(owner)\u{1F}\(normalized)"
         var bytes = [UInt8]()
         withUnsafeBytes(of: remoteNamespace.uuid) { bytes.append(contentsOf: $0) }
-        bytes.append(contentsOf: Array(normalized.utf8))
+        bytes.append(contentsOf: Array(seed.utf8))
         var digest = Array(Insecure.SHA1.hash(data: Data(bytes)))
         // Set version (5) and RFC 4122 variant bits.
         digest[6] = (digest[6] & 0x0F) | 0x50

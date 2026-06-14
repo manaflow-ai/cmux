@@ -169,6 +169,28 @@ import CMUXMobileCore
         #expect(a != b)
     }
 
+    @Test func deviceIdIsStableForSameOwnerAndName() {
+        let a = RemotesClient.deviceId(forName: "studio", ownerID: "user-1")
+        let b = RemotesClient.deviceId(forName: "studio", ownerID: "user-1")
+        #expect(a == b)
+    }
+
+    @Test func deviceIdDiffersByOwnerForSameName() {
+        // Two team members adding the same name get distinct ids, so the second
+        // does not collide with the first's row (`device_not_owned`).
+        let a = RemotesClient.deviceId(forName: "studio", ownerID: "user-1")
+        let b = RemotesClient.deviceId(forName: "studio", ownerID: "user-2")
+        #expect(a != b)
+    }
+
+    @Test func ownerSaltDoesNotAliasByConcatenation() {
+        // Length-prefixing prevents (owner "ab", name "c") aliasing
+        // (owner "a", name "bc").
+        let a = RemotesClient.deviceId(forName: "c", ownerID: "ab")
+        let b = RemotesClient.deviceId(forName: "bc", ownerID: "a")
+        #expect(a != b)
+    }
+
     @Test func deviceIdIsAValidLowercaseUUID() {
         let id = RemotesClient.deviceId(forName: "my-studio")
         #expect(UUID(uuidString: id) != nil)

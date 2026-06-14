@@ -233,3 +233,37 @@ export function routesContainNonAttachableHost(routes: unknown[]): boolean {
   }
   return false;
 }
+
+/**
+ * Whether `routes` is a valid set of manual attach routes: a non-empty array
+ * where every entry is a `tailscale` host:port route with a 1-65535 port and a
+ * Tailscale-attachable host. The full server-side schema check for the manual
+ * (`cmux remotes add`) path, mirroring the CLI's `RemoteRouteSpec`. Without it a
+ * direct API caller could POST `manual: true` with an empty array or a `port: 0`
+ * / wrong-kind route that stores but cannot be used, reintroducing the
+ * "lists but cannot attach" failure. The Mac's own self-registration is not
+ * `manual` and is not subject to this (it advertises whatever live routes it has).
+ */
+export function manualRoutesAreValid(routes: unknown[]): boolean {
+  if (!Array.isArray(routes) || routes.length === 0) return false;
+  for (const route of routes) {
+    if (!route || typeof route !== "object" || Array.isArray(route)) return false;
+    const record = route as Record<string, unknown>;
+    if (record.kind !== "tailscale") return false;
+    const endpoint = record.endpoint;
+    if (!endpoint || typeof endpoint !== "object" || Array.isArray(endpoint)) {
+      return false;
+    }
+    const ep = endpoint as Record<string, unknown>;
+    // Tolerate a missing `type` (older shape) but reject a wrong one.
+    if (ep.type !== undefined && ep.type !== "host_port") return false;
+    const host = ep.host;
+    if (typeof host !== "string" || host.trim().length === 0) return false;
+    if (!hostIsTailscaleAttachable(host)) return false;
+    const port = ep.port;
+    if (typeof port !== "number" || !Number.isInteger(port) || port < 1 || port > 65535) {
+      return false;
+    }
+  }
+  return true;
+}
