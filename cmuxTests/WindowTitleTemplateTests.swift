@@ -1,5 +1,6 @@
 import Foundation
 import AppKit
+import CmuxSettings
 import Testing
 
 #if canImport(cmux_DEV)
@@ -93,8 +94,9 @@ struct WindowTitleTemplateTests {
 
     @Test func settingsFileStoreAppliesWorkspaceAutoNamingAutomationSetting() throws {
         let defaults = UserDefaults.standard
+        let workspaceAutoNamingKey = AutomationCatalogSection().workspaceAutoNaming.userDefaultsKey
         let keys = [
-            WorkspaceAutoNamingSettings.enabledKey,
+            workspaceAutoNamingKey,
             backupsDefaultsKey,
             importedManagedDefaultsKey,
         ]
@@ -127,7 +129,7 @@ struct WindowTitleTemplateTests {
             startWatching: false
         )
 
-        #expect(defaults.bool(forKey: WorkspaceAutoNamingSettings.enabledKey))
+        #expect(defaults.bool(forKey: workspaceAutoNamingKey))
     }
 
     @MainActor

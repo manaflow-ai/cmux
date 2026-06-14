@@ -1,4 +1,5 @@
 import Foundation
+import CmuxSettings
 import Testing
 
 #if canImport(cmux_DEV)
@@ -29,7 +30,7 @@ import Testing
     /// Runs `body` with the auto-naming setting forced to `enabled`, restoring
     /// the user's previous value afterwards.
     private func withAutoNamingSetting<T>(_ enabled: Bool, _ body: () throws -> T) rethrows -> T {
-        let key = WorkspaceAutoNamingSettings.enabledKey
+        let key = AutomationCatalogSection().workspaceAutoNaming.userDefaultsKey
         let previous = UserDefaults.standard.object(forKey: key)
         UserDefaults.standard.set(enabled, forKey: key)
         defer {
