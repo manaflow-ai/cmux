@@ -3155,11 +3155,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     ) -> [SessionWindowSnapshot] {
         // Manual reopen is additive and stricter than startup restore: user-triggered
         // restore must not turn stale empty snapshot windows into fallback workspaces.
-        Array(
-            snapshot.windows
-                .filter { !$0.tabManager.workspaces.isEmpty }
-                .prefix(SessionPersistencePolicy.maxWindowsPerSnapshot)
-        )
+        let maxWindows = SessionPersistencePolicy.maxWindowsPerSnapshot
+        guard maxWindows > 0 else { return [] }
+
+        var windows: [SessionWindowSnapshot] = []
+        windows.reserveCapacity(maxWindows)
+        for window in snapshot.windows where !window.tabManager.workspaces.isEmpty {
+            windows.append(window)
+            if windows.count == maxWindows {
+                break
+            }
+        }
+        return windows
     }
 
     private func loadReopenSessionSnapshot() -> AppSessionSnapshot? {
