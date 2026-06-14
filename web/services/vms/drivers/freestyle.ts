@@ -322,6 +322,9 @@ export class FreestyleProvider implements VMProvider {
       }
       return endpoint;
     } catch (err) {
+      if (!shouldFallbackAttachToSSH(err)) {
+        throw err;
+      }
       return await withVmSpan(
         "cmux.vm.provider.open_attach_ssh_fallback",
         {
@@ -490,6 +493,22 @@ export class FreestyleProvider implements VMProvider {
       },
     );
   }
+}
+
+function shouldFallbackAttachToSSH(err: unknown): boolean {
+  const messages = [errorMessage(err)];
+  if (err instanceof ProviderError && err.cause) {
+    messages.push(errorMessage(err.cause));
+  }
+  return messages.some((message) =>
+    message.includes("requires a cmuxd RPC endpoint")
+    || message.includes("Freestyle cmuxd websocket health check returned")
+    || message.includes("fetch failed")
+  );
+}
+
+function errorMessage(err: unknown): string {
+  return err instanceof Error ? err.message : String(err);
 }
 
 async function ensureFreestyleWebSocketHealthy(domain: string): Promise<void> {

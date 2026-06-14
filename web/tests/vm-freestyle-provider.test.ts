@@ -44,12 +44,22 @@ class TestFreestyleProvider extends FreestyleProvider {
 describe("FreestyleProvider attach fallback", () => {
   test("falls back to SSH when a required daemon attach is unavailable", async () => {
     const provider = new TestFreestyleProvider();
-    provider.websocketResult = new Error("websocket unavailable");
+    provider.websocketResult = new Error("Freestyle cmuxd websocket health check returned 502");
 
     const endpoint = await provider.openAttach("vm-1", { requireDaemon: true });
 
     expect(endpoint).toEqual(sshEndpoint);
     expect(provider.sshCalls).toBe(1);
+  });
+
+  test("does not mint SSH credentials for unexpected attach errors", async () => {
+    const provider = new TestFreestyleProvider();
+    provider.websocketResult = new Error("Freestyle API returned 401");
+
+    await expect(provider.openAttach("vm-1", { requireDaemon: true })).rejects.toThrow(
+      "Freestyle API returned 401",
+    );
+    expect(provider.sshCalls).toBe(0);
   });
 
   test("falls back to SSH when required daemon metadata is missing", async () => {
