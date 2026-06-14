@@ -2,6 +2,7 @@ import CmuxAgentChat
 import CmuxMobileBrowser
 import CmuxMobileShell
 import CmuxMobileShellModel
+import CmuxMobileSupport
 import SwiftUI
 
 #if os(iOS)
