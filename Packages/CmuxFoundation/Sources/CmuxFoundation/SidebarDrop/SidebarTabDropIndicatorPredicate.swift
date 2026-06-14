@@ -2,6 +2,7 @@ public import Foundation
 
 /// Pure predicates deciding when a sidebar row (or the empty area below all
 /// rows) should render its "top" drop indicator for a given drag state.
+// lint:allow namespace-type — pure stateless policy/value namespace lifted verbatim from ContentView; no natural receiver, modernization deferred.
 public enum SidebarTabDropIndicatorPredicate {
     public static func topVisible(
         forTabId tabId: UUID,

@@ -8,6 +8,7 @@ public import AppKit
 /// write to these properties (even with an unchanged value) re-tiles the
 /// scrollers and can cancel the in-flight fade without rescheduling it,
 /// stranding the knob permanently visible (#3241 follow-up).
+// lint:allow namespace-type — pure stateless policy/value namespace lifted verbatim from ContentView; no natural receiver, modernization deferred.
 public enum SidebarScrollViewConfigurator {
     /// Forces the scroll view into the stable overlay-scroller configuration,
     /// writing each property only when it differs to avoid cancelling an

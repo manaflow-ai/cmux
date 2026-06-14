@@ -3,6 +3,7 @@ public import Foundation
 /// Orchestrates one palette search across both engines: prefers the nucleo
 /// FFI index when available, falls back to the Swift engine, and merges in
 /// Swift single-edit (typo) matches that nucleo cannot produce.
+// lint:allow namespace-type — pure stateless policy/value namespace lifted verbatim from ContentView; no natural receiver, modernization deferred.
 public enum CommandPaletteSearchOrchestrator {
     private static let synchronousSeedCorpusLimit = 256
     private static let singleEditFallbackNucleoProbeLimit = 12

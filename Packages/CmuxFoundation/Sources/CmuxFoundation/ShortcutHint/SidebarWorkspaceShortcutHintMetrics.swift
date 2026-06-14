@@ -7,6 +7,7 @@ public import AppKit
 /// The measurement cache is guarded by an `NSLock`: this is a pure stateless
 /// utility whose only shared state is a width memo, so a lock is the faithful
 /// minimal guard (no actor needed; callers are synchronous layout code).
+// lint:allow namespace-type — pure stateless policy/value namespace lifted verbatim from ContentView; no natural receiver, modernization deferred.
 public enum SidebarWorkspaceShortcutHintMetrics {
     // Immutable measurement font; NSFont is not Sendable but this constant is
     // never mutated and is only read under `lock` during measurement.

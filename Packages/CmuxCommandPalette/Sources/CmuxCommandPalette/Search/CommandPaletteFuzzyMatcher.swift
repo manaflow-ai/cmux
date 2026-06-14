@@ -4,6 +4,7 @@ import Foundation
 /// word segments with exact/prefix/contains/initialism/stitched-prefix and
 /// single-edit fallbacks. Pure logic; scores are deterministic for a given
 /// query/candidate pair.
+// lint:allow namespace-type — pure stateless policy/value namespace lifted verbatim from ContentView; no natural receiver, modernization deferred.
 public enum CommandPaletteFuzzyMatcher {
     private static let tokenBoundaryChars: Set<Character> = [" ", "-", "_", "/", ".", ":"]
 

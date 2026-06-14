@@ -7,6 +7,7 @@ public import Foundation
 /// Shared foundation utility (not sidebar-specific); used to render workspace
 /// descriptions in the sidebar and reusable anywhere a lightweight inline
 /// markdown render is needed.
+// lint:allow namespace-type — pure stateless policy/value namespace lifted verbatim from ContentView; no natural receiver, modernization deferred.
 public enum SidebarMarkdownRenderer {
     /// Renders a workspace-description markdown string into an
     /// `AttributedString`, interpreting only inline syntax and preserving

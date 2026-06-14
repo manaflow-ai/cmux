@@ -3,6 +3,7 @@ public import Foundation
 /// Pure policy reconciling the sidebar's multi-workspace selection against the
 /// live workspace list, and computing shift-click anchor indices. Operates only
 /// on workspace UUIDs and indices; holds no state and touches no UI.
+// lint:allow namespace-type — pure stateless policy/value namespace lifted verbatim from ContentView; no natural receiver, modernization deferred.
 public enum SidebarWorkspaceSelectionSyncPolicy {
     /// Filters a previous selection down to workspaces that still exist, falling
     /// back to the provided selected workspace when nothing survives.

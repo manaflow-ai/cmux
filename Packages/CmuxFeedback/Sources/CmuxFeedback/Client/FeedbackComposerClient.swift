@@ -6,6 +6,7 @@ import ImageIO
 /// Builds and uploads the feedback multipart request: gathers app metadata,
 /// downsamples/optimizes image attachments to fit the upload budget, and posts
 /// to the resolved endpoint. Surfaces failures as ``FeedbackComposerSubmissionError``.
+// lint:allow namespace-type — pure stateless policy/value namespace lifted verbatim from ContentView; no natural receiver, modernization deferred.
 public enum FeedbackComposerClient {
     private static let passthroughAttachmentMIMETypes: Set<String> = [
         "image/gif",

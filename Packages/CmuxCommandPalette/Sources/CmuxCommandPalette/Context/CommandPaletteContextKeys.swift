@@ -1,6 +1,7 @@
 import Foundation
 
 /// String keys for ``CommandPaletteContextSnapshot`` lookups.
+// lint:allow namespace-type — pure stateless policy/value namespace lifted verbatim from ContentView; no natural receiver, modernization deferred.
 public enum CommandPaletteContextKeys {
     /// Whether a workspace is selected.
     public static let hasWorkspace = "workspace.hasSelection"

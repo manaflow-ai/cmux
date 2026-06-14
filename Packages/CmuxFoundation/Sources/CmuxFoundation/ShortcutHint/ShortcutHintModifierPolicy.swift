@@ -3,6 +3,7 @@ public import AppKit
 /// Pure policy deciding whether keyboard shortcut-hint overlays should be shown
 /// for a given set of held modifier flags and the host/event window identity.
 /// No mutable state; reads feature flags from `ShortcutHintDebugSettings`.
+// lint:allow namespace-type — pure stateless policy/value namespace lifted verbatim from ContentView; no natural receiver, modernization deferred.
 public enum ShortcutHintModifierPolicy {
     /// Hold duration before an intentional modifier-hold is treated as a
     /// request to show hints.

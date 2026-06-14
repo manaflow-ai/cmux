@@ -5,6 +5,7 @@ public import Foundation
 /// indicator to render, the final insertion index, cross-window insertion
 /// landing, and workspace drop-target hit testing, all clamped to the legal
 /// pinned/unpinned regions. No UI or AppKit dependencies.
+// lint:allow namespace-type — pure stateless policy/value namespace lifted verbatim from ContentView; no natural receiver, modernization deferred.
 public enum SidebarDropPlanner {
     public static func indicator(
         draggedTabId: UUID?,

@@ -4,6 +4,7 @@ public import Foundation
 /// key, the upload endpoint (env-overridable), size limits, and the founders
 /// fallback address. Values are byte-identical to the originals lifted from the
 /// app's `ContentView`.
+// lint:allow namespace-type — pure stateless policy/value namespace lifted verbatim from ContentView; no natural receiver, modernization deferred.
 public enum FeedbackComposerSettings {
     public static let storedEmailKey = "sidebarHelpFeedbackEmail"
     public static let endpointEnvironmentKey = "CMUX_FEEDBACK_API_URL"

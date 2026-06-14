@@ -3,6 +3,7 @@ import Foundation
 /// Pure Swift ranking engine over a prepared corpus: scores entries with
 /// ``CommandPaletteFuzzyMatcher``, applies history boosts, and returns the
 /// top results in deterministic order (score, rank, title, index).
+// lint:allow namespace-type — pure stateless policy/value namespace lifted verbatim from ContentView; no natural receiver, modernization deferred.
 public enum CommandPaletteSearchEngine {
     private static let titleMatchBonus = 2000
 

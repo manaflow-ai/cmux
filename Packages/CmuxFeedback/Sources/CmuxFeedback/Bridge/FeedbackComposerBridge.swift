@@ -4,6 +4,7 @@ import Foundation
 /// Validates feedback input, drives ``FeedbackComposerClient`` to upload it, and
 /// posts the ``Notification/Name/feedbackComposerRequested`` request to present
 /// the composer. The public entry points the app and command surfaces call.
+// lint:allow namespace-type — pure stateless policy/value namespace lifted verbatim from ContentView; no natural receiver, modernization deferred.
 public enum FeedbackComposerBridge {
     /// Requests the feedback composer be presented, targeting `window` (defaults
     /// to the key/main window). `@MainActor` because it reads `NSApp` and posts a

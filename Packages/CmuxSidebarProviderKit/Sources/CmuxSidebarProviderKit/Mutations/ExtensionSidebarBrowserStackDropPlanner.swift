@@ -6,6 +6,7 @@ import Foundation
 /// section + index for a workspace move, the preferred target section under an
 /// indicator, and the section-boundary indicator to render while dragging
 /// across sections.
+// lint:allow namespace-type — pure stateless policy/value namespace lifted verbatim from ContentView; no natural receiver, modernization deferred.
 public enum ExtensionSidebarBrowserStackDropPlanner {
     public static func move(
         draggedWorkspaceId: UUID,

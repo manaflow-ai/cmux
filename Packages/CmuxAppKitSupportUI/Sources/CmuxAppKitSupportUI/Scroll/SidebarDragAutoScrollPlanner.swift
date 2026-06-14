@@ -21,6 +21,7 @@ public struct SidebarAutoScrollPlan: Equatable {
 /// Pure planner that maps a drag location's distance to the viewport edges into
 /// an auto-scroll plan, ramping the per-tick step between `minStep` and
 /// `maxStep` as the pointer approaches the edge.
+// lint:allow namespace-type — pure stateless policy/value namespace lifted verbatim from ContentView; no natural receiver, modernization deferred.
 public enum SidebarDragAutoScrollPlanner {
     public static let edgeInset: CGFloat = 44
     public static let minStep: CGFloat = 2

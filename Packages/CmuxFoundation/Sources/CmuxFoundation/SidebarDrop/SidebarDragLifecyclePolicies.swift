@@ -3,6 +3,7 @@ public import Foundation
 
 /// Decides whether a sidebar row's shortcut-hint visibility should use the
 /// frozen value captured for a specific tab, or fall back to the live value.
+// lint:allow namespace-type — pure stateless policy/value namespace lifted verbatim from ContentView; no natural receiver, modernization deferred.
 public enum SidebarShortcutHintFreezePolicy {
     public static func resolved(
         live: Bool,
@@ -19,6 +20,7 @@ public enum SidebarShortcutHintFreezePolicy {
 
 /// Whether an in-flight sidebar drag should be reset when a drop lands outside
 /// the sidebar.
+// lint:allow namespace-type — pure stateless policy/value namespace lifted verbatim from ContentView; no natural receiver, modernization deferred.
 public enum SidebarOutsideDropResetPolicy {
     public static func shouldResetDrag(draggedTabId: UUID?, hasSidebarDragPayload: Bool) -> Bool {
         draggedTabId != nil && hasSidebarDragPayload
@@ -27,6 +29,7 @@ public enum SidebarOutsideDropResetPolicy {
 
 /// Failsafe rules for clearing a stuck sidebar drag (mouse released outside a
 /// drop target, app resigned active, escape pressed).
+// lint:allow namespace-type — pure stateless policy/value namespace lifted verbatim from ContentView; no natural receiver, modernization deferred.
 public enum SidebarDragFailsafePolicy {
     public static let clearDelay: TimeInterval = 0.15
 

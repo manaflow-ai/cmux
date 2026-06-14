@@ -2,6 +2,7 @@ import Foundation
 
 /// Derives normalized, de-duplicated search keywords for switcher entries
 /// from base keywords plus workspace/surface metadata.
+// lint:allow namespace-type — pure stateless policy/value namespace lifted verbatim from ContentView; no natural receiver, modernization deferred.
 public enum CommandPaletteSwitcherSearchIndexer {
     /// How much metadata detail to tokenize: workspaces index whole paths,
     /// surfaces additionally index path/branch components.

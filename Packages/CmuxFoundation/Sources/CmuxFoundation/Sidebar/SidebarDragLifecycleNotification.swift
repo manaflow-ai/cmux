@@ -5,6 +5,7 @@ public import Foundation
 /// `Notification.Name` raw values are the in-process wire contract and are kept
 /// byte-identical. (A future modernization phase replaces this with an
 /// `AsyncStream` on the sidebar model.)
+// lint:allow namespace-type — pure stateless policy/value namespace lifted verbatim from ContentView; no natural receiver, modernization deferred.
 public enum SidebarDragLifecycleNotification {
     /// Posted when the sidebar drag state changes.
     public static let stateDidChange = Notification.Name("cmux.sidebarDragStateDidChange")

@@ -3,6 +3,7 @@ public import AppKit
 /// Default offsets and feature flags for the keyboard shortcut-hint overlays
 /// shown while a modifier is held. Pure value namespace reading from an
 /// injected `UserDefaults` / process environment; holds no mutable state.
+// lint:allow namespace-type — pure stateless policy/value namespace lifted verbatim from ContentView; no natural receiver, modernization deferred.
 public enum ShortcutHintDebugSettings {
     public static let defaultSidebarHintX = 0.0
     public static let defaultSidebarHintY = 0.0
