@@ -75,39 +75,21 @@ extension CMUXCLI {
         guard let context = engine.buildContext(from: messages) else { return }
         let prompt = engine.buildPrompt(currentTitle: outcome.lastTitle, context: context)
 
-        let policy = AutoNamingEnvironmentPolicy()
-        let customPath = env["CMUX_CUSTOM_CLAUDE_PATH"]?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-        let executable: String? = {
-            var isDirectory = ObjCBool(false)
-            if !customPath.isEmpty,
-               FileManager.default.fileExists(atPath: customPath, isDirectory: &isDirectory),
-               !isDirectory.boolValue,
-               FileManager.default.isExecutableFile(atPath: customPath),
-               !isCmuxClaudeWrapper(at: customPath) {
-                return customPath
-            }
-            return resolveClaudeExecutable(searchPath: env["PATH"])
-        }()
-        guard let executable else {
-            telemetry.breadcrumb("claude-hook.auto-name.no-binary")
-            return
+        let resolution = resolvedSummarizerAgent(
+            probe: probe, sessionAgent: "claude", env: env, telemetry: telemetry
+        )
+        if let missing = resolution.missingOverride {
+            reportAutoNamingProblem("not_installed", agent: missing, workspaceId: workspaceId, client: client)
         }
-        guard let rawResponse = runAutoNamingSummarizer(
-            executable: executable,
-            arguments: [
-                "-p",
-                "--model", policy.claudeModel(from: env),
-                "--tools", "",
-                "--disable-slash-commands",
-                "--no-session-persistence",
-                "--strict-mcp-config",
-                "--mcp-config", "{}"
-            ],
+        guard let rawResponse = summarize(
+            summarizerAgent: resolution.agent,
             prompt: prompt,
-            environment: policy.summarizerEnvironment(from: env),
-            timeout: engine.config.llmTimeout
+            env: env,
+            timeout: engine.config.llmTimeout,
+            telemetry: telemetry
         ) else {
             telemetry.breadcrumb("claude-hook.auto-name.llm-failed")
+            reportAutoNamingProblem("failed", agent: resolution.agent, workspaceId: workspaceId, client: client)
             return
         }
 
@@ -230,49 +212,24 @@ extension CMUXCLI {
             let messages = engine.extractCodexMessages(fromRolloutLines: lines)
             guard let context = engine.buildContext(from: messages) else { return nil }
             let prompt = engine.buildPrompt(currentTitle: outcome.lastTitle, context: context)
-            guard let executable = resolveCodexExecutable(searchPath: env["PATH"]) else {
-                telemetry.breadcrumb("codex-hook.auto-name.no-binary")
-                return nil
+            let resolution = resolvedSummarizerAgent(
+                probe: probe, sessionAgent: "codex", env: env, telemetry: telemetry
+            )
+            if let missing = resolution.missingOverride {
+                reportAutoNamingProblem("not_installed", agent: missing, workspaceId: workspaceId, client: client)
             }
-            let policy = AutoNamingEnvironmentPolicy()
-            var summarizerEnv = policy.codexSummarizerEnvironment(from: env)
-            summarizerEnv["CMUX_CODEX_HOOKS_DISABLED"] = "1"
-            let outputFile = FileManager.default.temporaryDirectory
-                .appendingPathComponent("cmux-codex-autoname-\(UUID().uuidString).txt")
-            let workingDirectory = FileManager.default.temporaryDirectory
-                .appendingPathComponent("cmux-codex-autoname-cwd-\(UUID().uuidString)", isDirectory: true)
-            try? FileManager.default.createDirectory(at: workingDirectory, withIntermediateDirectories: true)
-            defer {
-                try? FileManager.default.removeItem(at: outputFile)
-                try? FileManager.default.removeItem(at: workingDirectory)
-            }
-            guard runAutoNamingSummarizer(
-                executable: executable,
-                arguments: [
-                    "exec",
-                    "-c", "default_tools_enabled=false",
-                    "-c", "tools={}",
-                    "-c", "mcp_servers={}",
-                    "-c", "web_search=false",
-                    "-c", "approval_policy=never",
-                    "-c", "shell_environment_policy.inherit=none",
-                    "--skip-git-repo-check",
-                    "--ephemeral",
-                    "--ignore-user-config",
-                    "--ignore-rules",
-                    "--sandbox", "read-only",
-                    "--cd", workingDirectory.path,
-                    "--output-last-message", outputFile.path,
-                    "-"
-                ],
+            guard let raw = summarize(
+                summarizerAgent: resolution.agent,
                 prompt: prompt,
-                environment: summarizerEnv,
-                timeout: engine.config.llmTimeout
-            ) != nil else {
+                env: env,
+                timeout: engine.config.llmTimeout,
+                telemetry: telemetry
+            ) else {
                 telemetry.breadcrumb("codex-hook.auto-name.llm-failed")
+                reportAutoNamingProblem("failed", agent: resolution.agent, workspaceId: workspaceId, client: client)
                 return nil
             }
-            return (try? String(contentsOf: outputFile, encoding: .utf8)) ?? ""
+            return raw
         }
     }
 }

@@ -34,6 +34,18 @@ public struct AutomationCatalogSection: SettingCatalogSection {
         userDefaultsKey: "workspaceAutoNamingEnabled"
     )
 
+    /// Which agent generates the auto-names. Stored as an open string so it
+    /// stays fully customizable: ``AutoNamingAgentCatalog/autoSlug`` ("auto",
+    /// the default) names each session with its own agent — identical to the
+    /// original behavior — while any agent slug (see ``AutoNamingAgentCatalog``)
+    /// overrides naming for every session. Unknown/undriveable slugs fall back
+    /// to the session's own agent, so a bad value never breaks naming.
+    public let autoNamingAgent = DefaultsKey<String>(
+        id: "automation.autoNamingAgent",
+        defaultValue: AutoNamingAgentCatalog.autoSlug,
+        userDefaultsKey: "autoNamingAgent"
+    )
+
     public let ripgrepBinaryPath = DefaultsKey<String>(
         id: "automation.ripgrepBinaryPath",
         defaultValue: "",

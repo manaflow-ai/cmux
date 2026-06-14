@@ -43,12 +43,85 @@ import Testing
         return try body()
     }
 
+    /// Runs `body` with the auto-naming agent override set to `slug`, restoring
+    /// the user's previous value afterwards.
+    private func withAutoNamingAgentSetting<T>(_ slug: String, _ body: () throws -> T) rethrows -> T {
+        let key = AutomationCatalogSection().autoNamingAgent.userDefaultsKey
+        let previous = UserDefaults.standard.object(forKey: key)
+        UserDefaults.standard.set(slug, forKey: key)
+        defer {
+            if let previous {
+                UserDefaults.standard.set(previous, forKey: key)
+            } else {
+                UserDefaults.standard.removeObject(forKey: key)
+            }
+        }
+        return try body()
+    }
+
     private func withManager<T>(_ body: (TabManager, Workspace) throws -> T) throws -> T {
         let manager = TabManager(autoWelcomeIfNeeded: false)
         let workspace = try #require(manager.tabs.first)
         TerminalController.shared.setActiveTabManager(manager)
         defer { TerminalController.shared.setActiveTabManager(nil) }
         return try body(manager, workspace)
+    }
+
+    @Test func probeReportsSummarizerAgentOverride() throws {
+        try withAutoNamingSetting(true) {
+            // "auto" override → no summarizer_agent (null).
+            try withAutoNamingAgentSetting("auto") {
+                let envelope = try call(method: "workspace.set_auto_title", params: ["probe": true])
+                let result = try #require(envelope["result"] as? [String: Any])
+                #expect(result["summarizer_agent"] is NSNull)
+            }
+            // A specific override → carried on the probe response.
+            try withAutoNamingAgentSetting("codex") {
+                let envelope = try call(method: "workspace.set_auto_title", params: ["probe": true])
+                let result = try #require(envelope["result"] as? [String: Any])
+                #expect(result["summarizer_agent"] as? String == "codex")
+            }
+        }
+    }
+
+    @Test func failureReportRecordsStatusWithoutApplyingTitle() throws {
+        try withAutoNamingSetting(true) {
+            try withManager { _, workspace in
+                AutoNamingStatusStore.clear()
+                let envelope = try call(method: "workspace.set_auto_title", params: [
+                    "failure": "failed",
+                    "agent": "codex",
+                    "workspace_id": workspace.id.uuidString
+                ])
+                #expect(envelope["ok"] as? Bool == true)
+                let result = try #require(envelope["result"] as? [String: Any])
+                #expect(result["recorded"] as? Bool == true)
+                // No title path ran.
+                #expect(result["workspace_applied"] == nil)
+                #expect(workspace.effectiveCustomTitleSource != .auto)
+                let status = AutoNamingStatusStore.current()
+                #expect(status?.category == .failed)
+                #expect(status?.agent == "codex")
+                AutoNamingStatusStore.clear()
+            }
+        }
+    }
+
+    @Test func successfulApplyClearsRecordedFailure() throws {
+        try withAutoNamingSetting(true) {
+            try withManager { _, workspace in
+                AutoNamingStatusStore.record(rawCategory: "failed", agent: "codex", at: 1)
+                #expect(AutoNamingStatusStore.current() != nil)
+                let envelope = try call(method: "workspace.set_auto_title", params: [
+                    "workspace_id": workspace.id.uuidString,
+                    "title": "Fix auth bug"
+                ])
+                let result = try #require(envelope["result"] as? [String: Any])
+                #expect(result["workspace_applied"] as? Bool == true)
+                #expect(AutoNamingStatusStore.current() == nil)
+                AutoNamingStatusStore.clear()
+            }
+        }
     }
 
     @Test func probeReportsLiveSettingState() throws {

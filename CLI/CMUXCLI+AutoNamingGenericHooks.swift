@@ -125,13 +125,23 @@ extension CMUXCLI {
         ) { engine, outcome in
             guard let context = engine.buildContext(from: sourceResult.messages) else { return nil }
             let prompt = engine.buildPrompt(currentTitle: outcome.lastTitle, context: context)
-            return runAutoNamingSummarizer(
-                def: def,
+            let resolution = resolvedSummarizerAgent(
+                probe: probe, sessionAgent: def.name, env: env, telemetry: telemetry
+            )
+            if let missing = resolution.missingOverride {
+                reportAutoNamingProblem("not_installed", agent: missing, workspaceId: workspaceId, client: client)
+            }
+            guard let raw = summarize(
+                summarizerAgent: resolution.agent,
                 prompt: prompt,
                 env: env,
                 timeout: engine.config.llmTimeout,
                 telemetry: telemetry
-            )
+            ) else {
+                reportAutoNamingProblem("failed", agent: resolution.agent, workspaceId: workspaceId, client: client)
+                return nil
+            }
+            return raw
         }
     }
 

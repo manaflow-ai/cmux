@@ -898,6 +898,12 @@
           "descriptionKey": "schemaDescriptions.automation.workspaceAutoNaming",
           "description": "Opt-in AI auto-naming of workspaces and tabs from agent conversation content. When enabled, cmux summarizes supported agent sessions into short titles using each agent's own binary; manual renames always win."
         },
+        "autoNamingAgent": {
+          "type": "string",
+          "default": "auto",
+          "descriptionKey": "schemaDescriptions.automation.autoNamingAgent",
+          "description": "Which agent generates auto-names for every session. \"auto\" (default) names each session with its own agent; any agent slug (claude, codex, grok, opencode, pi, omp, …) overrides naming for all sessions, even other agents' sessions. Undriveable or uninstalled agents fall back to the session's own agent, so naming never breaks."
+        },
         "ripgrepBinaryPath": {
           "type": "string",
           "default": "",

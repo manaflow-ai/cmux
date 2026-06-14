@@ -36,6 +36,19 @@ struct UserDefaultsSettingsStoreTests {
         #expect(reset == false)
     }
 
+    @Test func autoNamingAgentDefaultsToAutoAndRoundTrips() async {
+        let (store, catalog) = makeStore()
+        // Default is "auto" (each session named by its own agent).
+        let unset = await store.value(for: catalog.automation.autoNamingAgent)
+        #expect(unset == "auto")
+        await store.set("codex", for: catalog.automation.autoNamingAgent)
+        let set = await store.value(for: catalog.automation.autoNamingAgent)
+        #expect(set == "codex")
+        await store.reset(catalog.automation.autoNamingAgent)
+        let reset = await store.value(for: catalog.automation.autoNamingAgent)
+        #expect(reset == "auto")
+    }
+
     @Test func resetReturnsToDefault() async {
         let (store, catalog) = makeStore()
         await store.set(.light, for: catalog.app.appearance)
