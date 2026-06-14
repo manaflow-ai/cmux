@@ -1,0 +1,400 @@
+import CMUXMobileCore
+import CmuxAuthRuntime
+import CryptoKit
+import Foundation
+
+/// Errors surfaced by the `cmux remotes` flow. `CustomStringConvertible` so the
+/// CLI can print a clear, actionable line for each failure mode.
+enum RemotesClientError: Error, CustomStringConvertible, Equatable {
+    case notSignedIn
+    case invalidRoute(String)
+    case loopbackRoute(host: String)
+    case noRoutes
+    case emptyName
+    case notFound(String)
+    case httpStatus(Int, String)
+    case malformedResponse(String)
+    case backendUnreachable(url: String, detail: String)
+
+    var description: String {
+        switch self {
+        case .notSignedIn:
+            return "Not signed in. Run `cmux auth login`, then retry."
+        case let .invalidRoute(value):
+            return "Invalid route '\(value)'. Use host:port, e.g. 100.64.1.2:51001 or my-mac.tailnet.ts.net:51001."
+        case let .loopbackRoute(host):
+            return """
+                Refusing to add a loopback remote (\(host)). A phone that dials localhost / 127.0.0.1 / ::1 dials \
+                itself, so the remote would never be reachable. Use the Mac's Tailscale name, LAN IP, or hostname instead.
+                """
+        case .noRoutes:
+            return "At least one --route host:port is required. Example: cmux remotes add my-mac --route 100.64.1.2:51001"
+        case .emptyName:
+            return "A non-empty remote name is required. Example: cmux remotes add my-mac --route 100.64.1.2:51001"
+        case let .notFound(target):
+            return "No remote matching '\(target)'. Run `cmux remotes list` to see registered remotes."
+        case let .httpStatus(status, body):
+            return RemotesClient.formatHTTPError(status: status, body: body)
+        case let .malformedResponse(message):
+            return "The device registry returned an unexpected response: \(message)"
+        case let .backendUnreachable(url, detail):
+            return "Could not reach the cmux backend at \(url): \(detail)"
+        }
+    }
+}
+
+/// One parsed `host:port` attach route for a manually-added remote, plus the
+/// loopback decision. Pure value type so route parsing and the loopback refusal
+/// are unit-testable without any network or running app.
+struct RemoteRouteSpec: Equatable {
+    let host: String
+    let port: Int
+
+    /// Parse a `host:port` string. Accepts bracketed IPv6 (`[::1]:51001`) and a
+    /// trailing `:port`; rejects empty host, missing/out-of-range port, and
+    /// loopback hosts (the same classifier the phone uses to reject a scanned
+    /// loopback QR), so a remote a phone could never dial never reaches the
+    /// registry.
+    static func parse(_ raw: String) throws -> RemoteRouteSpec {
+        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { throw RemotesClientError.invalidRoute(raw) }
+
+        let host: String
+        let portString: String
+        if trimmed.hasPrefix("[") {
+            // Bracketed IPv6 literal: `[<ipv6>]:<port>`.
+            guard let close = trimmed.firstIndex(of: "]") else {
+                throw RemotesClientError.invalidRoute(raw)
+            }
+            host = String(trimmed[trimmed.index(after: trimmed.startIndex)..<close])
+            let afterBracket = trimmed[trimmed.index(after: close)...]
+            guard afterBracket.hasPrefix(":") else {
+                throw RemotesClientError.invalidRoute(raw)
+            }
+            portString = String(afterBracket.dropFirst())
+        } else {
+            // host:port — split on the LAST colon so a bare (unbracketed) IPv6
+            // literal without a port is rejected rather than mis-split.
+            guard let lastColon = trimmed.lastIndex(of: ":") else {
+                throw RemotesClientError.invalidRoute(raw)
+            }
+            host = String(trimmed[trimmed.startIndex..<lastColon])
+            portString = String(trimmed[trimmed.index(after: lastColon)...])
+            // A bare IPv6 literal (multiple colons, no brackets) is ambiguous
+            // and unsupported; require brackets for IPv6.
+            if host.contains(":") {
+                throw RemotesClientError.invalidRoute(raw)
+            }
+        }
+
+        let cleanedHost = host.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !cleanedHost.isEmpty else { throw RemotesClientError.invalidRoute(raw) }
+        guard let port = Int(portString), (1...65535).contains(port) else {
+            throw RemotesClientError.invalidRoute(raw)
+        }
+        if CmxLoopbackHost().matches(cleanedHost) {
+            throw RemotesClientError.loopbackRoute(host: cleanedHost)
+        }
+        return RemoteRouteSpec(host: cleanedHost, port: port)
+    }
+
+    /// The `CmxAttachRoute` for this spec. Manual remotes are plain LAN/Tailscale
+    /// host:port routes, so they use the `tailscale` transport kind (the route
+    /// kind iOS treats as a directly-dialable host:port).
+    func attachRoute(id: String, priority: Int) throws -> CmxAttachRoute {
+        try CmxAttachRoute(
+            id: id,
+            kind: .tailscale,
+            endpoint: .hostPort(host: host, port: port),
+            priority: priority
+        )
+    }
+}
+
+/// A registered remote as returned by the device registry, flattened to one
+/// row per device for `cmux remotes list`.
+struct RemoteSummary {
+    let deviceId: String
+    let displayName: String?
+    let platform: String
+    let tag: String?
+    let routes: [RemoteRouteDisplay]
+    let lastSeen: String?
+}
+
+struct RemoteRouteDisplay {
+    let host: String
+    let port: Int
+}
+
+/// Manages user-initiated remotes in the team-scoped device registry
+/// (`/api/devices`). Mirrors ``VMClient``: an actor with an injected
+/// ``AuthCoordinator`` and ``URLSession`` that attaches the Stack bearer +
+/// refresh + team headers to every request. This is the single registry
+/// mutation path behind the `remotes.list/add/remove` socket methods and the
+/// `cmux remotes` CLI verb.
+actor RemotesClient {
+    @MainActor private(set) static var shared: RemotesClient!
+
+    @MainActor
+    static func bootstrap(auth: AuthCoordinator, session: URLSession = .shared) {
+        shared = RemotesClient(session: session, auth: auth)
+    }
+
+    /// Namespace for deriving a stable device UUID from a remote name, so
+    /// `remotes add <name>` is idempotent: re-adding the same name updates the
+    /// same device row instead of creating a duplicate. A fixed v4 UUID used as
+    /// a v5 namespace.
+    private static let remoteNamespace = UUID(uuidString: "6f1d3c9a-2b7e-4f1a-9c0d-1a2b3c4d5e6f")!
+
+    private let session: URLSession
+    private let auth: AuthCoordinator
+
+    init(session: URLSession = .shared, auth: AuthCoordinator) {
+        self.session = session
+        self.auth = auth
+    }
+
+    // MARK: - Public operations
+
+    /// List the caller's team's registered remotes (devices + their instance
+    /// routes), flattened to one row per device for display.
+    func list() async throws -> [RemoteSummary] {
+        let (data, http) = try await request("GET", path: "/api/devices")
+        try ensureOK(http, data: data)
+        let obj = try decodeJSONObject(data)
+        guard let devices = obj["devices"] as? [[String: Any]] else {
+            throw RemotesClientError.malformedResponse("missing `devices` array")
+        }
+        return devices.map { device in
+            let instances = (device["instances"] as? [[String: Any]]) ?? []
+            // A device may have multiple instances (tags); surface the most
+            // recently seen instance's routes/tag in the flattened row.
+            let primary = instances.first
+            let routes = Self.parseDisplayRoutes(primary?["routes"])
+            return RemoteSummary(
+                deviceId: (device["deviceId"] as? String) ?? "",
+                displayName: device["displayName"] as? String,
+                platform: (device["platform"] as? String) ?? "?",
+                tag: primary?["tag"] as? String,
+                routes: routes,
+                lastSeen: (primary?["lastSeenAt"] as? String) ?? (device["lastSeenAt"] as? String)
+            )
+        }
+    }
+
+    /// Create or update a remote under the given name with the given routes.
+    /// Idempotent on `name` (the device UUID is derived from the name), so
+    /// re-adding refreshes the routes in place. Returns the device UUID.
+    @discardableResult
+    func add(name rawName: String, routes routeStrings: [String], tag rawTag: String?) async throws -> String {
+        let name = rawName.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !name.isEmpty else { throw RemotesClientError.emptyName }
+        guard !routeStrings.isEmpty else { throw RemotesClientError.noRoutes }
+
+        let specs = try routeStrings.map { try RemoteRouteSpec.parse($0) }
+        let deviceId = Self.deviceId(forName: name)
+        let attachRoutes = try specs.enumerated().map { index, spec in
+            try spec.attachRoute(id: "manual-\(index)", priority: index)
+        }
+
+        var body: [String: Any] = [
+            "deviceId": deviceId,
+            "platform": "mac",
+            "displayName": name,
+            "manual": true,
+            "routes": attachRoutes.map(\.mobileHostJSONObject),
+        ]
+        if let tag = rawTag?.trimmingCharacters(in: .whitespacesAndNewlines), !tag.isEmpty {
+            body["tag"] = tag
+        }
+
+        let (data, http) = try await request("POST", path: "/api/devices", jsonBody: body)
+        try ensureOK(http, data: data)
+        return deviceId
+    }
+
+    /// Remove a remote by display name or device UUID. Resolves a name to its
+    /// device UUID via the registry list first, then DELETEs. Returns the
+    /// removed device UUID.
+    @discardableResult
+    func remove(target rawTarget: String) async throws -> String {
+        let target = rawTarget.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !target.isEmpty else { throw RemotesClientError.notFound(rawTarget) }
+
+        let deviceId = try await resolveDeviceId(target: target)
+        let (data, http) = try await request("DELETE", path: "/api/devices", jsonBody: ["deviceId": deviceId])
+        try ensureOK(http, data: data)
+        return deviceId
+    }
+
+    // MARK: - Resolution
+
+    /// Resolve a `name-or-deviceId` target to a device UUID. A UUID is used
+    /// as-is; anything else is matched against the registry by display name
+    /// (case-insensitive) and, as a fallback, the name-derived UUID.
+    private func resolveDeviceId(target: String) async throws -> String {
+        if Self.isUUID(target) {
+            return target.lowercased()
+        }
+        let remotes = try await list()
+        // Match by exact display name first (case-insensitive).
+        if let match = remotes.first(where: {
+            ($0.displayName ?? "").compare(target, options: .caseInsensitive) == .orderedSame
+        }) {
+            return match.deviceId
+        }
+        // Fallback: the deterministic id this name would have been added under,
+        // so removal works even if the displayName was never stored.
+        let derived = Self.deviceId(forName: target)
+        if remotes.contains(where: { $0.deviceId.lowercased() == derived }) {
+            return derived
+        }
+        throw RemotesClientError.notFound(target)
+    }
+
+    // MARK: - Deterministic device id
+
+    /// A stable lowercase UUIDv5 derived from the remote name, so `remotes add`
+    /// is idempotent on the name. RFC 4122 v5 (SHA-1, namespace + name).
+    static func deviceId(forName name: String) -> String {
+        let normalized = name.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        var bytes = [UInt8]()
+        withUnsafeBytes(of: remoteNamespace.uuid) { bytes.append(contentsOf: $0) }
+        bytes.append(contentsOf: Array(normalized.utf8))
+        var digest = Array(Insecure.SHA1.hash(data: Data(bytes)))
+        // Set version (5) and RFC 4122 variant bits.
+        digest[6] = (digest[6] & 0x0F) | 0x50
+        digest[8] = (digest[8] & 0x3F) | 0x80
+        let uuid = uuid_t(
+            digest[0], digest[1], digest[2], digest[3],
+            digest[4], digest[5], digest[6], digest[7],
+            digest[8], digest[9], digest[10], digest[11],
+            digest[12], digest[13], digest[14], digest[15]
+        )
+        return UUID(uuid: uuid).uuidString.lowercased()
+    }
+
+    static func isUUID(_ value: String) -> Bool {
+        UUID(uuidString: value.trimmingCharacters(in: .whitespacesAndNewlines)) != nil
+    }
+
+    // MARK: - Display parsing
+
+    /// Extract displayable host:port routes from a stored `routes` jsonb value,
+    /// tolerating both `{type:"host_port",host,port}` and `{host,port}` shapes.
+    static func parseDisplayRoutes(_ raw: Any?) -> [RemoteRouteDisplay] {
+        guard let array = raw as? [[String: Any]] else { return [] }
+        return array.compactMap { route in
+            guard let endpoint = route["endpoint"] as? [String: Any] else { return nil }
+            guard let host = endpoint["host"] as? String, !host.isEmpty else { return nil }
+            let port: Int
+            if let p = endpoint["port"] as? Int {
+                port = p
+            } else if let p = endpoint["port"] as? Double {
+                port = Int(p)
+            } else if let p = endpoint["port"] as? String, let parsed = Int(p) {
+                port = parsed
+            } else {
+                return nil
+            }
+            return RemoteRouteDisplay(host: host, port: port)
+        }
+    }
+
+    // MARK: - HTTP
+
+    private func request(
+        _ method: String,
+        path: String,
+        jsonBody: [String: Any]? = nil
+    ) async throws -> (Data, HTTPURLResponse) {
+        let tokens: (accessToken: String, refreshToken: String)
+        do {
+            tokens = try await auth.currentTokens()
+        } catch {
+            throw RemotesClientError.notSignedIn
+        }
+        let teamID = await auth.resolvedTeamID
+
+        guard var comps = URLComponents(url: AuthEnvironment.vmAPIBaseURL, resolvingAgainstBaseURL: false) else {
+            throw RemotesClientError.malformedResponse("bad vmAPIBaseURL")
+        }
+        comps.path = (comps.path.hasSuffix("/") ? String(comps.path.dropLast()) : comps.path) + path
+        guard let url = comps.url else {
+            throw RemotesClientError.malformedResponse("could not build URL for \(path)")
+        }
+
+        var req = URLRequest(url: url)
+        req.httpMethod = method
+        req.timeoutInterval = 15
+        req.setValue("Bearer \(tokens.accessToken)", forHTTPHeaderField: "Authorization")
+        req.setValue(tokens.refreshToken, forHTTPHeaderField: "X-Stack-Refresh-Token")
+        if let teamID, !teamID.isEmpty {
+            req.setValue(teamID, forHTTPHeaderField: "X-Cmux-Team-Id")
+        }
+        if let jsonBody {
+            req.setValue("application/json", forHTTPHeaderField: "content-type")
+            req.httpBody = try JSONSerialization.data(withJSONObject: jsonBody, options: [])
+        }
+
+        let data: Data
+        let response: URLResponse
+        do {
+            (data, response) = try await session.data(for: req)
+        } catch let error as URLError {
+            switch error.code {
+            case .cannotConnectToHost, .cannotFindHost, .timedOut, .networkConnectionLost, .notConnectedToInternet:
+                let base = "\(AuthEnvironment.vmAPIBaseURL.scheme ?? "http")://\(AuthEnvironment.vmAPIBaseURL.host ?? "?"):\(AuthEnvironment.vmAPIBaseURL.port ?? -1)"
+                throw RemotesClientError.backendUnreachable(url: base, detail: error.localizedDescription)
+            default:
+                throw error
+            }
+        }
+        guard let http = response as? HTTPURLResponse else {
+            throw RemotesClientError.malformedResponse("non-HTTP response")
+        }
+        return (data, http)
+    }
+
+    private func ensureOK(_ http: HTTPURLResponse, data: Data) throws {
+        guard (200...299).contains(http.statusCode) else {
+            let body = String(data: data, encoding: .utf8) ?? "<binary>"
+            throw RemotesClientError.httpStatus(http.statusCode, body)
+        }
+    }
+
+    private func decodeJSONObject(_ data: Data) throws -> [String: Any] {
+        let parsed = try JSONSerialization.jsonObject(with: data, options: [])
+        guard let obj = parsed as? [String: Any] else {
+            throw RemotesClientError.malformedResponse("expected JSON object, got \(type(of: parsed))")
+        }
+        return obj
+    }
+
+    /// Map a registry HTTP error to an actionable CLI message.
+    static func formatHTTPError(status: Int, body: String) -> String {
+        let trimmed = body.trimmingCharacters(in: .whitespacesAndNewlines)
+        var errorCode: String?
+        if let data = trimmed.data(using: .utf8),
+           let object = try? JSONSerialization.jsonObject(with: data, options: []) as? [String: Any] {
+            errorCode = object["error"] as? String
+        }
+        switch errorCode {
+        case "loopback_route_rejected":
+            return "The device registry rejected a loopback route. Use the Mac's Tailscale name, LAN IP, or hostname, not localhost."
+        case "device_not_owned":
+            return "That remote is owned by another team member and cannot be modified from this account."
+        case "too_many_devices":
+            return "This team has reached the maximum number of registered remotes. Remove one with `cmux remotes remove <name>` first."
+        case "team_not_found":
+            return "You are not a member of the requested team. Run `cmux auth status` to check the signed-in account."
+        default:
+            break
+        }
+        if status == 401 {
+            return "Not signed in or session expired. Run `cmux auth login`, then retry."
+        }
+        return "Device registry request failed (HTTP \(status)): \(trimmed.isEmpty ? "<empty>" : trimmed)"
+    }
+}
