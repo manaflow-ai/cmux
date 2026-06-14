@@ -169,14 +169,7 @@ public final class ChatConversationStore {
     /// Fetches one older page and prepends it to the window.
     public func loadOlder() async {
         guard hasMoreHistory, !isLoadingOlder else { return }
-        // An empty window with hasMoreHistory still true would fetch the newest
-        // page (beforeSeq nil) and prepend it as if it were older history.
-        // Unreachable today (reset clears hasMoreHistory before emptying), but
-        // guard against a future path leaving the window empty.
-        guard let oldestSeq = messages.first?.seq else {
-            hasMoreHistory = false
-            return
-        }
+        guard let oldestSeq = messages.first?.seq else { hasMoreHistory = false; return }
         isLoadingOlder = true
         defer { isLoadingOlder = false }
         do {

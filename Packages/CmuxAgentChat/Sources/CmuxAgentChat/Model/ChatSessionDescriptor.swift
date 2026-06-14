@@ -67,6 +67,26 @@ public struct ChatSessionDescriptor: Identifiable, Sendable, Equatable, Codable 
         }
     }
 
+    /// Selects one openable session per terminal, then appends openable
+    /// sessions that are not terminal-bound.
+    public static func openableByTerminal(_ sessions: [ChatSessionDescriptor]) -> [ChatSessionDescriptor] {
+        var sessionsByTerminalID: [String: [ChatSessionDescriptor]] = [:]
+        var unboundSessions: [ChatSessionDescriptor] = []
+        for session in sessions {
+            guard let terminalID = session.terminalID else {
+                unboundSessions.append(session)
+                continue
+            }
+            sessionsByTerminalID[terminalID, default: []].append(session)
+        }
+        let boundSessions = sessionsByTerminalID.values
+            .compactMap { openable($0).first }
+            .sorted {
+                ($0.lastActivityAt ?? .distantPast) > ($1.lastActivityAt ?? .distantPast)
+            }
+        return boundSessions + openable(unboundSessions)
+    }
+
     /// Selection rank for a state; lower opens first.
     static func selectionPriority(_ state: ChatAgentState) -> Int {
         switch state {
