@@ -5,7 +5,7 @@ import {
 } from "../../../../services/vms/routeHelpers";
 import { setSpanAttributes } from "../../../../services/telemetry";
 import { isVmNotFoundError } from "../../../../services/vms/errors";
-import { destroyVm, runVmWorkflow } from "../../../../services/vms/workflows";
+import { destroyVm, runVmWorkflow } from "../../../../services/vms/routeRuntime";
 
 export const dynamic = "force-dynamic";
 

@@ -503,9 +503,15 @@ function cloudVmAttachSignedAuthFlag(): string {
   return ` --auth-public-key ${publicKey} --auth-audience-file /etc/cmux/attach-audience`;
 }
 
-function cloudVmAttachSignedAuthManifestFields(): { features?: { signedWebSocketAuth: true } } {
-  return cloudVmAttachSignedAuthPublicKey()
-    ? { features: { signedWebSocketAuth: true } }
+export function cloudVmAttachSignedAuthManifestFields(): { features?: { signedWebSocketAuth: true; signedAuthPublicKeySha256: string } } {
+  const publicKey = cloudVmAttachSignedAuthPublicKey();
+  return publicKey
+    ? {
+      features: {
+        signedWebSocketAuth: true,
+        signedAuthPublicKeySha256: createHash("sha256").update(decodeSignedAuthPublicKey(publicKey)).digest("hex"),
+      },
+    }
     : {};
 }
 

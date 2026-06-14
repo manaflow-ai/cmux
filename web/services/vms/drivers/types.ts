@@ -65,6 +65,11 @@ export type AttachOptions = {
    */
   signedWebSocketAuth?: boolean;
   /**
+   * SHA-256 of the raw Ed25519 public key baked into this VM image. Signed auth
+   * is only used when the runtime private key derives this same public key.
+   */
+  signedWebSocketAuthPublicKeySha256?: string | null;
+  /**
    * True only when the caller has just completed provider create-time readiness work for
    * this VM. Lets cold-start attach avoid a duplicate network health probe.
    */
@@ -118,6 +123,7 @@ export class ProviderError extends Error {
     public readonly provider: ProviderId,
     message: string,
     public readonly cause?: unknown,
+    public readonly allocatedProviderVmId?: string,
   ) {
     super(`[${provider}] ${message}`);
     this.name = "ProviderError";

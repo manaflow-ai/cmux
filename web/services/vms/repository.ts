@@ -61,6 +61,9 @@ export type VmRepositoryShape = {
     readonly id: string;
     readonly code: string;
     readonly message: string;
+    readonly providerVmId?: string;
+    readonly image?: string;
+    readonly imageVersion?: string | null;
   }) => Effect.Effect<void, VmDatabaseError>;
   readonly findUserVm: (input: {
     readonly userId: string;
@@ -242,7 +245,10 @@ export const VmRepositoryLive = Layer.succeed(VmRepository, {
               .from(cloudVms)
               .where(
                 and(
-                  inArray(cloudVms.status, ["provisioning", "running"]),
+                  or(
+                    inArray(cloudVms.status, ["provisioning", "running"]),
+                    and(eq(cloudVms.status, "failed"), isNotNull(cloudVms.providerVmId)),
+                  ),
                   or(
                     eq(cloudVms.billingTeamId, input.billingTeamId),
                     and(isNull(cloudVms.billingTeamId), eq(cloudVms.userId, input.userId)),
@@ -352,6 +358,9 @@ export const VmRepositoryLive = Layer.succeed(VmRepository, {
       await db
         .update(cloudVms)
         .set({
+          providerVmId: input.providerVmId,
+          imageId: input.image,
+          imageVersion: input.imageVersion,
           status: "failed",
           failureCode: input.code,
           failureMessage: input.message,

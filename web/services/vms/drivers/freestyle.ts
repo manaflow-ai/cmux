@@ -23,10 +23,12 @@ import {
   ensurePrivateDirectoryCommand,
   leaseClientMetadata,
   makeSignedWebSocketAuthToken,
+  makeReusableSignedWebSocketAuthToken,
   makeWebSocketLease,
   parentDirectory,
   shellArgValue,
   shellQuote,
+  signedAttachPublicKeySha256,
   type ReusableRpcLease,
 } from "./wsLease";
 
@@ -116,7 +118,12 @@ export class FreestyleProvider implements VMProvider {
             createdAt: Date.now(),
           };
         } catch (err) {
-          throw new ProviderError("freestyle", `create(${image})`, err);
+          throw new ProviderError(
+            "freestyle",
+            `create(${image})`,
+            err,
+            allocatedProviderVmIdFromError(err),
+          );
         }
       },
     );
@@ -361,14 +368,19 @@ export class FreestyleProvider implements VMProvider {
         try {
           const domain = `${vmId}.vm.freestyle.sh`;
           const signingPrivateKey = signedAttachPrivateKey();
-          if (options?.signedWebSocketAuth === true && signingPrivateKey) {
+          const signedAuthKeyMatchesImage =
+            options?.signedWebSocketAuthPublicKeySha256
+              ? signedAttachKeyMatchesImage(signingPrivateKey, options.signedWebSocketAuthPublicKeySha256)
+              : false;
+          if (options?.signedWebSocketAuth === true && signingPrivateKey && signedAuthKeyMatchesImage) {
             if (options.webSocketReadinessVerified !== true) {
               await ensureFreestyleWebSocketHealthy(domain);
             }
             const pty = makeSignedWebSocketAuthToken("pty", vmId, true, CMUXD_WS_PTY_LEASE_TTL_SECONDS, signingPrivateKey);
-            const daemon = makeSignedWebSocketAuthToken("rpc", vmId, false, CMUXD_WS_RPC_LEASE_TTL_SECONDS, signingPrivateKey);
+            const daemon = makeReusableSignedWebSocketAuthToken("rpc", vmId, CMUXD_WS_RPC_LEASE_TTL_SECONDS, signingPrivateKey);
             span.setAttribute("cmux.vm.attach.transport", "websocket");
             span.setAttribute("cmux.vm.attach.signed_auth", true);
+            span.setAttribute("cmux.vm.attach.signed_auth_key_match", true);
             span.setAttribute("cmux.vm.attach.expires_at_unix", pty.expiresAtUnix);
             span.setAttribute("cmux.vm.attach.daemon_available", true);
             span.setAttribute("cmux.vm.attach.daemon_expires_at_unix", daemon.expiresAtUnix);
@@ -388,6 +400,9 @@ export class FreestyleProvider implements VMProvider {
                 expiresAtUnix: daemon.expiresAtUnix,
               },
             };
+          }
+          if (options?.signedWebSocketAuth === true) {
+            span.setAttribute("cmux.vm.attach.signed_auth_key_match", false);
           }
           await ensureFreestyleWebSocketHealthy(domain);
           const fs = client();
@@ -552,6 +567,15 @@ function signedAttachPrivateKey(): string | null {
   return value ? value : null;
 }
 
+function signedAttachKeyMatchesImage(privateKeyPem: string | null, expectedPublicKeySha256: string): boolean {
+  if (!privateKeyPem) return false;
+  try {
+    return signedAttachPublicKeySha256(privateKeyPem) === expectedPublicKeySha256.trim();
+  } catch {
+    return false;
+  }
+}
+
 async function ensureFreestyleWebSocketHealthy(domain: string): Promise<void> {
   const response = await fetch(`https://${domain}/healthz`, {
     signal: AbortSignal.timeout(10_000),
@@ -632,9 +656,28 @@ async function setupFreestyleSignedAttachIfNeeded(
     await writeFreestyleSignedAttachAudience(vm, vmId);
     await ensureFreestyleWebSocketHealthy(`${vmId}.vm.freestyle.sh`);
   } catch (err) {
-    await vm.delete().catch(() => undefined);
+    try {
+      await vm.delete();
+    } catch (deleteErr) {
+      throw new ProviderError(
+        "freestyle",
+        `create(${image}) post-create setup failed and cleanup failed`,
+        new AggregateError([err, deleteErr], "Freestyle post-create setup and cleanup failed"),
+        vmId,
+      );
+    }
     throw err;
   }
+}
+
+function allocatedProviderVmIdFromError(err: unknown): string | undefined {
+  if (err instanceof ProviderError && err.allocatedProviderVmId) {
+    return err.allocatedProviderVmId;
+  }
+  if (!err || typeof err !== "object") return undefined;
+  const cause = (err as { cause?: unknown }).cause;
+  if (!cause || cause === err) return undefined;
+  return allocatedProviderVmIdFromError(cause);
 }
 
 async function writeFreestyleSignedAttachAudience(vm: FreestyleVmRef, vmId: string): Promise<void> {

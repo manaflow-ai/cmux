@@ -116,7 +116,8 @@
       "envVar": "FREESTYLE_SANDBOX_SNAPSHOT",
       "defaultForLocalDev": true,
       "features": {
-        "signedWebSocketAuth": true
+        "signedWebSocketAuth": true,
+        "signedAuthPublicKeySha256": "3e979ee9c381b40c49a868d511edb5002631355138ac1e29841f066b8aab09a5"
       },
       "cmuxdRemoteCommit": "e58801353cc593fdb4b8649d2e7f5911972ea905",
       "builtAt": "2026-06-14T08:26:17.235Z",

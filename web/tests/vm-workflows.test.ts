@@ -28,9 +28,11 @@ import {
   createVm,
   destroyVm,
   execVm,
+  listUserVms,
   openAttachEndpoint,
   openSshEndpoint,
 } from "../services/vms/workflows";
+import { ProviderError } from "../services/vms/drivers";
 
 const runDbTests = process.env.CMUX_DB_TEST === "1";
 const dbTest = runDbTests ? test : test.skip;
@@ -67,6 +69,181 @@ afterAll(async () => {
 });
 
 describe("VM Effect workflows", () => {
+  test("persists allocated provider VM IDs when provider create fails after allocation", async () => {
+    const workflows = await actualVmWorkflows();
+    const requested = testCloudVmRow({
+      status: "provisioning",
+      providerVmId: null,
+      imageId: "snapshot-orphan",
+      imageVersion: "signed-auth-test",
+    });
+    let failedInput: Parameters<VmRepositoryShape["markCreateFailed"]>[0] | null = null;
+    let failureMetadata: Record<string, unknown> | undefined;
+    let refundCalls = 0;
+    const repo: VmRepositoryShape = {
+      listUserVms: () => Effect.succeed([]),
+      claimBillingGrant: () => Effect.succeed({ kind: "already_claimed" }),
+      markBillingGrantApplied: () => Effect.void,
+      deleteBillingGrant: () => Effect.void,
+      beginCreate: () => Effect.succeed({ inserted: true, vm: requested }),
+      activeLimitCandidates: () => Effect.succeed([]),
+      markProviderObservedStatus: () => Effect.succeed(false),
+      markCreateRunning: () => Effect.fail(new Error("unused") as never),
+      markCreateFailed: (input) =>
+        Effect.sync(() => {
+          failedInput = input;
+        }),
+      findUserVm: () => Effect.succeed(null),
+      markDestroyed: () => Effect.void,
+      recordLease: () => Effect.void,
+      activeIdentityLeases: () => Effect.succeed([]),
+      markLeasesRevoked: () => Effect.void,
+      recordUsageEvent: (input) =>
+        Effect.sync(() => {
+          failureMetadata = input.metadata;
+        }),
+      recordUsageEvents: () => Effect.void,
+    };
+    const provider: VmProviderGatewayShape = {
+      create: () => Effect.fail(new VmProviderOperationError({
+        provider: "freestyle",
+        operation: "create",
+        cause: new ProviderError(
+          "freestyle",
+          "create(snapshot-orphan)",
+          new Error("post-create setup failed"),
+          "provider-vm-orphan",
+        ),
+      })),
+      destroy: () => Effect.void,
+      exec: () => Effect.succeed({ exitCode: 0, stdout: "", stderr: "" }),
+      openAttach: () => Effect.fail(new Error("unused") as never),
+      openSSH: () => Effect.fail(new Error("unused") as never),
+      revokeSSHIdentity: () => Effect.void,
+    };
+    const layer = Layer.mergeAll(
+      Layer.succeed(VmRepository, repo),
+      Layer.succeed(VmProviderGateway, provider),
+      Layer.succeed(VmBillingGateway, {
+        ...noOpVmBillingGateway(),
+        reserveCreate: () => Effect.succeed({
+          kind: "stack_item" as const,
+          itemId: "cmux-vm-create-credit",
+          customerType: "team" as const,
+          customerId: "team-workflow-orphan",
+          amount: 1,
+        }),
+        refundCreate: () =>
+          Effect.sync(() => {
+            refundCalls += 1;
+          }),
+      }),
+    );
+
+    const error = await Effect.runPromise(
+      workflows.createVm({
+        userId: "user-workflow-orphan",
+        billingCustomerType: "team",
+        billingTeamId: "team-workflow-orphan",
+        billingPlanId: "free",
+        maxActiveVms: 1,
+        provider: "freestyle",
+        image: "snapshot-orphan",
+        imageVersion: "signed-auth-test",
+        idempotencyKey: "orphan-create",
+      }).pipe(Effect.flip, Effect.provide(layer)),
+    );
+
+    expect(error).toBeInstanceOf(VmProviderOperationError);
+    expect(failedInput).toMatchObject({
+      id: requested.id,
+      code: "create",
+      message: "Cloud VM setup failed after the provider allocated a VM.",
+      providerVmId: "provider-vm-orphan",
+      image: "snapshot-orphan",
+      imageVersion: "signed-auth-test",
+    });
+    expect(failureMetadata).toMatchObject({ providerVmId: "provider-vm-orphan" });
+    expect(refundCalls).toBe(0);
+  });
+
+  test("lists failed allocated provider VM IDs for cleanup but blocks attach", async () => {
+    const workflows = await actualVmWorkflows();
+    const failedVm = testCloudVmRow({
+      userId: "user-workflow-failed-cleanup",
+      status: "failed",
+      providerVmId: "provider-vm-failed-cleanup",
+      failureCode: "create",
+      failureMessage: "post-create setup failed",
+    });
+    let destroyCalls = 0;
+    let attachCalls = 0;
+    const repo: VmRepositoryShape = {
+      listUserVms: () => Effect.succeed([failedVm]),
+      claimBillingGrant: () => Effect.succeed({ kind: "already_claimed" }),
+      markBillingGrantApplied: () => Effect.void,
+      deleteBillingGrant: () => Effect.void,
+      beginCreate: () => Effect.fail(new Error("unused") as never),
+      activeLimitCandidates: () => Effect.succeed([]),
+      markProviderObservedStatus: () => Effect.succeed(false),
+      markCreateRunning: () => Effect.fail(new Error("unused") as never),
+      markCreateFailed: () => Effect.void,
+      findUserVm: () => Effect.succeed(failedVm),
+      markDestroyed: () => Effect.void,
+      recordLease: () => Effect.void,
+      activeIdentityLeases: () => Effect.succeed([]),
+      markLeasesRevoked: () => Effect.void,
+      recordUsageEvent: () => Effect.void,
+      recordUsageEvents: () => Effect.void,
+    };
+    const provider: VmProviderGatewayShape = {
+      create: () => Effect.fail(new Error("unused") as never),
+      destroy: () =>
+        Effect.sync(() => {
+          destroyCalls += 1;
+        }),
+      exec: () => Effect.fail(new Error("unused") as never),
+      openAttach: () =>
+        Effect.sync(() => {
+          attachCalls += 1;
+          throw new Error("failed rows must not be attachable");
+        }),
+      openSSH: () => Effect.fail(new Error("unused") as never),
+      revokeSSHIdentity: () => Effect.void,
+    };
+    const layer = Layer.mergeAll(
+      Layer.succeed(VmRepository, repo),
+      Layer.succeed(VmProviderGateway, provider),
+      Layer.succeed(VmBillingGateway, noOpVmBillingGateway()),
+    );
+
+    const listed = await Effect.runPromise(
+      workflows.listUserVms("user-workflow-failed-cleanup").pipe(Effect.provide(layer)),
+    );
+    const attachError = await Effect.runPromise(
+      workflows.openAttachEndpoint({
+        userId: "user-workflow-failed-cleanup",
+        providerVmId: "provider-vm-failed-cleanup",
+      }).pipe(Effect.flip, Effect.provide(layer)),
+    );
+    await Effect.runPromise(
+      workflows.destroyVm({
+        userId: "user-workflow-failed-cleanup",
+        providerVmId: "provider-vm-failed-cleanup",
+      }).pipe(Effect.provide(layer)),
+    );
+
+    expect(listed).toMatchObject([{
+      providerVmId: "provider-vm-failed-cleanup",
+      status: "failed",
+      failureCode: "create",
+      failureMessage: "Cloud VM setup failed after the provider allocated a VM.",
+    }]);
+    expect(attachError).toBeInstanceOf(VmNotFoundError);
+    expect(attachCalls).toBe(0);
+    expect(destroyCalls).toBe(1);
+  });
+
   dbTest("does not block create when usage event recording fails", async () => {
     const requested = testCloudVmRow({
       status: "provisioning",
@@ -1455,6 +1632,12 @@ function testCloudVmRow(overrides: Partial<CloudVmRow> = {}): CloudVmRow {
     failureMessage: null,
     ...overrides,
   };
+}
+
+async function actualVmWorkflows(): Promise<typeof import("../services/vms/workflows")> {
+  const url = new URL("../services/vms/workflows.ts", import.meta.url);
+  url.searchParams.set("actual", "vm-workflows-test");
+  return await import(url.href) as typeof import("../services/vms/workflows");
 }
 
 async function waitForBlockedAdvisoryLock(sql: Sql, billingTeamId: string): Promise<void> {
