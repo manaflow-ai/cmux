@@ -220,4 +220,8 @@ private final class StubFeedKeyboardFocusResponder: NSResponder, FeedKeyboardFoc
         self.feedKeyboardFocusOwnerId = ownerId
         super.init()
     }
+
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
 }
