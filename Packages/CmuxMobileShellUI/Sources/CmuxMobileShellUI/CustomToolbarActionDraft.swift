@@ -9,6 +9,12 @@ import Foundation
 /// owns `@State` mirrors of these fields and constructs a draft on the fly to
 /// drive its Save button and produce the saved action.
 struct CustomToolbarActionDraft: Equatable {
+    /// Maximum number of steps a key-sequence macro can contain.
+    ///
+    /// Validation runs during live editing, so the editor keeps the macro length
+    /// bounded instead of scanning an arbitrary number of steps on every update.
+    static let maximumKeySequenceStepCount = 50
+
     /// Which kind of action the editor is composing.
     enum Mode: Hashable, CaseIterable {
         /// A literal command/snippet, optionally Return-terminated.
@@ -93,7 +99,9 @@ struct CustomToolbarActionDraft: Equatable {
         case .text:
             return !commandText.isEmpty
         case .keySequence:
-            return !steps.isEmpty && steps.allSatisfy { $0.output != nil }
+            return !steps.isEmpty
+                && steps.count <= Self.maximumKeySequenceStepCount
+                && steps.allSatisfy { $0.output != nil }
         }
     }
 

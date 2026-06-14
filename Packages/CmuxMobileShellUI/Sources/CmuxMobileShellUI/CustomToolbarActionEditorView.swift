@@ -182,6 +182,7 @@ struct CustomToolbarActionEditorView: View {
                     systemImage: "plus"
                 )
             }
+            .disabled(!canAddMacroStep)
             .accessibilityIdentifier("CustomActionAddStepButton")
         } header: {
             HStack {
@@ -320,6 +321,10 @@ struct CustomToolbarActionEditorView: View {
         existing == nil
             ? L10n.string("mobile.toolbar.editor.addTitle", defaultValue: "Add Action")
             : L10n.string("mobile.toolbar.editor.editTitle", defaultValue: "Edit Action")
+    }
+
+    private var canAddMacroStep: Bool {
+        steps.count < CustomToolbarActionDraft.maximumKeySequenceStepCount
     }
 
     /// Live projection of the editor's `@State` into the pure draft model.

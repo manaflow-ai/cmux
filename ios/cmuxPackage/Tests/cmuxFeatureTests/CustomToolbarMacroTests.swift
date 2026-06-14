@@ -76,6 +76,12 @@ struct CustomToolbarActionDraftTests {
 
         draft.steps = [.text("")] // empty text step
         #expect(!draft.isValid)
+
+        draft.steps = Array(repeating: .text("x"), count: CustomToolbarActionDraft.maximumKeySequenceStepCount)
+        #expect(draft.isValid)
+
+        draft.steps = Array(repeating: .text("x"), count: CustomToolbarActionDraft.maximumKeySequenceStepCount + 1)
+        #expect(!draft.isValid)
     }
 
     // MARK: - Building
